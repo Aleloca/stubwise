@@ -1,5 +1,9 @@
+import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
+
+// Stessa fonte di app.ts: il test non deve rompersi a ogni bump di versione.
+const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
 
 /**
  * La spec OpenAPI è derivata dagli schemi Zod delle route via
@@ -20,7 +24,7 @@ describe("GET /api/openapi.json", () => {
     const spec = res.json() as { openapi: string; info: { title: string; version: string } };
     expect(spec.openapi).toMatch(/^3\./);
     expect(spec.info.title).toBe("Stubwise API");
-    expect(spec.info.version).toBe("0.1.0");
+    expect(spec.info.version).toBe(version);
   });
 
   it("contiene i path principali dell'API", async () => {

@@ -1,0 +1,290 @@
+import type { ErrorEvent, FeedbackEvent, TicketCreateEvent } from "@stubwise/shared";
+import { eq } from "drizzle-orm";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { aiJobs, errorGroups, projects, tickets } from "../db/schema.js";
+import type { TestDb } from "../test/db.js";
+import { startTestDb } from "../test/db.js";
+import { processEvents } from "./processor.js";
+
+let testDb: TestDb;
+
+beforeAll(async () => {
+  testDb = await startTestDb();
+}, 120_000);
+
+afterAll(async () => {
+  await testDb.stop();
+});
+
+let projectCounter = 0;
+
+/** Ogni test lavora su un progetto fresco: isolamento senza truncate. */
+async function createProject(): Promise<{ id: string }> {
+  projectCounter += 1;
+  const [project] = await testDb.db
+    .insert(projects)
+    .values({
+      name: `Progetto ${projectCounter}`,
+      slug: `progetto-${projectCounter}`,
+      provider: "github",
+      repoUrl: "https://github.com/acme/demo",
+      defaultBranch: "main",
+      encryptedCredentials: "cifrato",
+      ingestionKey: `chiave-${projectCounter}`,
+    })
+    .returning({ id: projects.id });
+  if (!project) throw new Error("insert progetto fallita");
+  return project;
+}
+
+function errorEvent(overrides: Partial<ErrorEvent> = {}): ErrorEvent {
+  return {
+    kind: "error",
+    message: "x is undefined",
+    errorType: "TypeError",
+    stack:
+      "TypeError: x is undefined\n  at buy (https://cdn.app/assets/app-a1b2c3.js:10:5)",
+    url: "https://app.example.com/checkout",
+    release: "1.2.3",
+    environment: "production",
+    breadcrumbs: [
+      { type: "click", message: "click su #buy", timestamp: "2026-06-10T10:00:00Z" },
+    ],
+    timestamp: "2026-06-10T10:00:01Z",
+    ...overrides,
+  };
+}
+
+async function projectTickets(projectId: string) {
+  return testDb.db.select().from(tickets).where(eq(tickets.projectId, projectId));
+}
+
+async function projectGroups(projectId: string) {
+  return testDb.db.select().from(errorGroups).where(eq(errorGroups.projectId, projectId));
+}
+
+async function ticketJobs(ticketId: string) {
+  return testDb.db.select().from(aiJobs).where(eq(aiJobs.ticketId, ticketId));
+}
+
+describe("processEvents — eventi errore", () => {
+  it("il primo evento errore crea ErrorGroup, ticket sdk_error/bug e aiJob queued", async () => {
+    const project = await createProject();
+    const result = await processEvents(testDb.db, project, [errorEvent()]);
+    expect(result).toEqual({ created: 1, deduped: 0 });
+
+    const rows = await projectTickets(project.id);
+    expect(rows).toHaveLength(1);
+    const ticket = rows[0]!;
+    expect(ticket.source).toBe("sdk_error");
+    expect(ticket.type).toBe("bug");
+    expect(ticket.title).toBe("TypeError: x is undefined");
+    expect(ticket.occurrences).toBe(1);
+    expect(ticket.technicalPayload).toMatchObject({
+      stack: "TypeError: x is undefined\n  at buy (https://cdn.app/assets/app-a1b2c3.js:10:5)",
+      url: "https://app.example.com/checkout",
+      release: "1.2.3",
+      environment: "production",
+      breadcrumbs: [
+        { type: "click", message: "click su #buy", timestamp: "2026-06-10T10:00:00Z" },
+      ],
+      timestamp: "2026-06-10T10:00:01Z",
+    });
+
+    const groups = await projectGroups(project.id);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.ticketId).toBe(ticket.id);
+
+    const jobs = await ticketJobs(ticket.id);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.status).toBe("queued");
+  });
+
+  it("il secondo evento identico non crea ticket: incrementa occurrences e aggiorna lastSeenAt", async () => {
+    const project = await createProject();
+    await processEvents(testDb.db, project, [errorEvent()]);
+    const [before] = await projectTickets(project.id);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const result = await processEvents(testDb.db, project, [errorEvent()]);
+    expect(result).toEqual({ created: 0, deduped: 1 });
+
+    const rows = await projectTickets(project.id);
+    expect(rows).toHaveLength(1);
+    const after = rows[0]!;
+    expect(after.occurrences).toBe(2);
+    expect(after.lastSeenAt.getTime()).toBeGreaterThan(before!.lastSeenAt.getTime());
+
+    // Nessun nuovo job AI per i duplicati.
+    expect(await ticketJobs(after.id)).toHaveLength(1);
+  });
+
+  it("lo stesso errore da una release diversa (hash di build diverso) viene dedupato", async () => {
+    const project = await createProject();
+    await processEvents(testDb.db, project, [errorEvent()]);
+    const result = await processEvents(testDb.db, project, [
+      errorEvent({
+        stack:
+          "TypeError: x is undefined\n  at buy (https://cdn.app/assets/app-d4e5f6.js:99:1)",
+        release: "1.2.4",
+      }),
+    ]);
+    expect(result).toEqual({ created: 0, deduped: 1 });
+    expect(await projectTickets(project.id)).toHaveLength(1);
+  });
+
+  it("un errore diverso crea un secondo gruppo e un secondo ticket", async () => {
+    const project = await createProject();
+    await processEvents(testDb.db, project, [errorEvent()]);
+    const result = await processEvents(testDb.db, project, [
+      errorEvent({
+        errorType: "RangeError",
+        message: "invalid array length",
+        stack: "RangeError: invalid array length\n  at grow (https://cdn.app/assets/arr.js:3:2)",
+      }),
+    ]);
+    expect(result).toEqual({ created: 1, deduped: 0 });
+    expect(await projectTickets(project.id)).toHaveLength(2);
+    expect(await projectGroups(project.id)).toHaveLength(2);
+  });
+
+  it("senza errorType il titolo usa il fallback Error", async () => {
+    const project = await createProject();
+    await processEvents(testDb.db, project, [
+      errorEvent({ errorType: undefined, message: "boom", stack: undefined }),
+    ]);
+    const [ticket] = await projectTickets(project.id);
+    expect(ticket!.title).toBe("Error: boom");
+  });
+
+  it("il titolo viene troncato a 300 caratteri, ellissi inclusa", async () => {
+    const project = await createProject();
+    await processEvents(testDb.db, project, [
+      errorEvent({ message: "x".repeat(500), stack: undefined }),
+    ]);
+    const [ticket] = await projectTickets(project.id);
+    expect(ticket!.title).toHaveLength(300);
+    expect(ticket!.title.endsWith("…")).toBe(true);
+    expect(ticket!.title.startsWith("TypeError: x")).toBe(true);
+  });
+
+  it("race sul vincolo unique: il perdente non lascia ticket orfani e incrementa il vincitore", async () => {
+    const project = await createProject();
+    const event = errorEvent();
+    // Il hook scatta tra la SELECT (gruppo assente) e la creazione del
+    // ticket: simuliamo deterministicamente un concorrente che vince la
+    // corsa creando gruppo+ticket nel frattempo. La transazione "perdente"
+    // deve accorgersi del conflitto sull'unique, fare rollback e ritentare
+    // come update (dedup).
+    let fired = 0;
+    const result = await processEvents(testDb.db, project, [event], {
+      beforeTicketCreate: async () => {
+        fired += 1;
+        await processEvents(testDb.db, project, [event]);
+      },
+    });
+    expect(fired).toBe(1);
+    expect(result).toEqual({ created: 0, deduped: 1 });
+
+    const rows = await projectTickets(project.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.occurrences).toBe(2);
+    expect(await projectGroups(project.id)).toHaveLength(1);
+    expect(await ticketJobs(rows[0]!.id)).toHaveLength(1);
+  });
+
+  it("ingestion concorrenti dello stesso errore: un solo ticket, occurrences corretto", async () => {
+    const project = await createProject();
+    const results = await Promise.all(
+      Array.from({ length: 6 }, () => processEvents(testDb.db, project, [errorEvent()])),
+    );
+    const created = results.reduce((sum, r) => sum + r.created, 0);
+    const deduped = results.reduce((sum, r) => sum + r.deduped, 0);
+    expect(created).toBe(1);
+    expect(deduped).toBe(5);
+
+    const rows = await projectTickets(project.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.occurrences).toBe(6);
+    expect(await ticketJobs(rows[0]!.id)).toHaveLength(1);
+  });
+});
+
+describe("processEvents — eventi feedback", () => {
+  const feedback: FeedbackEvent = {
+    kind: "feedback",
+    message: "Il bottone di acquisto non risponde",
+    email: "cliente@example.com",
+    url: "https://app.example.com/checkout",
+  };
+
+  it("crea sempre un ticket sdk_feedback/feedback con email e url nel body, più aiJob", async () => {
+    const project = await createProject();
+    const result = await processEvents(testDb.db, project, [feedback]);
+    expect(result).toEqual({ created: 1, deduped: 0 });
+
+    const [ticket] = await projectTickets(project.id);
+    expect(ticket!.source).toBe("sdk_feedback");
+    expect(ticket!.type).toBe("feedback");
+    expect(ticket!.title).toBe("Il bottone di acquisto non risponde");
+    expect(ticket!.body).toContain("cliente@example.com");
+    expect(ticket!.body).toContain("https://app.example.com/checkout");
+
+    const jobs = await ticketJobs(ticket!.id);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.status).toBe("queued");
+  });
+
+  it("due feedback identici creano due ticket: il feedback non si dedupa", async () => {
+    const project = await createProject();
+    const result = await processEvents(testDb.db, project, [feedback, feedback]);
+    expect(result).toEqual({ created: 2, deduped: 0 });
+    expect(await projectTickets(project.id)).toHaveLength(2);
+  });
+});
+
+describe("processEvents — eventi ticket", () => {
+  const ticketEvent: TicketCreateEvent = {
+    kind: "ticket",
+    title: "Aggiungere export CSV",
+    body: "Richiesto dal team vendite",
+    type: "feature",
+    priority: "high",
+  };
+
+  it("crea un ticket source api con type e priority dati, più aiJob", async () => {
+    const project = await createProject();
+    const result = await processEvents(testDb.db, project, [ticketEvent]);
+    expect(result).toEqual({ created: 1, deduped: 0 });
+
+    const [ticket] = await projectTickets(project.id);
+    expect(ticket!.source).toBe("api");
+    expect(ticket!.type).toBe("feature");
+    expect(ticket!.priority).toBe("high");
+    expect(ticket!.title).toBe("Aggiungere export CSV");
+    expect(ticket!.body).toBe("Richiesto dal team vendite");
+    expect(await ticketJobs(ticket!.id)).toHaveLength(1);
+  });
+});
+
+describe("processEvents — batch misti", () => {
+  it("conta created e deduped sull'intero batch", async () => {
+    const project = await createProject();
+    const result = await processEvents(testDb.db, project, [
+      errorEvent(),
+      errorEvent(), // duplicato del precedente
+      {
+        kind: "feedback",
+        message: "Non riesco a salvare",
+      },
+      {
+        kind: "ticket",
+        title: "Refactor login",
+        type: "task",
+        priority: "low",
+      },
+    ]);
+    expect(result).toEqual({ created: 3, deduped: 1 });
+    expect(await projectTickets(project.id)).toHaveLength(3);
+  });
+});
