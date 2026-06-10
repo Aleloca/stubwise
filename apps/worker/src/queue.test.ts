@@ -1,0 +1,327 @@
+import { aiJobs, projects, tickets, type Db } from "@stubwise/db";
+import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { eq } from "drizzle-orm";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  appendLog,
+  claimNextJob,
+  completeJob,
+  failJob,
+  markFixing,
+  requeueStale,
+  runWorker,
+  type AiJob,
+} from "./queue.js";
+
+// Un container Postgres per file di test: l'avvio costa secondi. I test si
+// isolano svuotando la tabella ai_jobs in afterEach (claimNextJob è globale:
+// prende il job queued più vecchio dell'intera tabella).
+let testDb: TestDb;
+let ticketId: string;
+
+beforeAll(async () => {
+  testDb = await startTestDb();
+  const { db } = testDb;
+  const [project] = await db
+    .insert(projects)
+    .values({
+      name: "Coda",
+      slug: "coda",
+      provider: "github",
+      repoUrl: "https://github.com/acme/coda",
+      defaultBranch: "main",
+      encryptedCredentials: "irrilevante",
+      ingestionKey: "ingestion-coda",
+    })
+    .returning();
+  if (!project) throw new Error("insert del progetto non ha restituito la riga");
+  const [ticket] = await db
+    .insert(tickets)
+    .values({
+      projectId: project.id,
+      number: 1,
+      title: "Bug da sistemare",
+      type: "bug",
+      priority: "high",
+      source: "manual",
+    })
+    .returning();
+  if (!ticket) throw new Error("insert del ticket non ha restituito la riga");
+  ticketId = ticket.id;
+}, 120_000);
+
+afterEach(async () => {
+  await testDb.db.delete(aiJobs);
+});
+
+afterAll(async () => {
+  await testDb.stop();
+});
+
+function minutesAgo(minutes: number): Date {
+  return new Date(Date.now() - minutes * 60_000);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+interface EnqueueOptions {
+  createdAt?: Date;
+  status?: AiJob["status"];
+  startedAt?: Date;
+}
+
+async function enqueueJob(db: Db, opts: EnqueueOptions = {}): Promise<AiJob> {
+  const [job] = await db
+    .insert(aiJobs)
+    .values({ ticketId, ...opts })
+    .returning();
+  if (!job) throw new Error("insert del job non ha restituito la riga");
+  return job;
+}
+
+async function getJob(db: Db, id: string): Promise<AiJob> {
+  const [job] = await db.select().from(aiJobs).where(eq(aiJobs.id, id));
+  if (!job) throw new Error(`job ${id} non trovato`);
+  return job;
+}
+
+describe("claimNextJob", () => {
+  it("prende il job queued più vecchio e lo marca triaging con startedAt", async () => {
+    const { db } = testDb;
+    const oldest = await enqueueJob(db, { createdAt: minutesAgo(3) });
+    await enqueueJob(db, { createdAt: minutesAgo(2) });
+    await enqueueJob(db, { createdAt: minutesAgo(1) });
+
+    const claimed = await claimNextJob(db);
+
+    expect(claimed?.id).toBe(oldest.id);
+    expect(claimed?.status).toBe("triaging");
+    expect(claimed?.startedAt).not.toBeNull();
+
+    const persisted = await getJob(db, oldest.id);
+    expect(persisted.status).toBe("triaging");
+    expect(persisted.startedAt).not.toBeNull();
+  });
+
+  it("restituisce null se non ci sono job queued", async () => {
+    const { db } = testDb;
+    expect(await claimNextJob(db)).toBeNull();
+
+    // Un job già in lavorazione non è reclamabile.
+    await enqueueJob(db, { status: "triaging", startedAt: new Date() });
+    expect(await claimNextJob(db)).toBeNull();
+  });
+
+  it("claim concorrenti non prendono mai lo stesso job", async () => {
+    const { db } = testDb;
+    await enqueueJob(db, { createdAt: minutesAgo(3) });
+    await enqueueJob(db, { createdAt: minutesAgo(2) });
+    await enqueueJob(db, { createdAt: minutesAgo(1) });
+
+    const results = await Promise.all([
+      claimNextJob(db),
+      claimNextJob(db),
+      claimNextJob(db),
+      claimNextJob(db),
+      claimNextJob(db),
+    ]);
+
+    const claimed = results.filter((job): job is AiJob => job !== null);
+    const nulls = results.filter((job) => job === null);
+    expect(claimed).toHaveLength(3);
+    expect(nulls).toHaveLength(2);
+    expect(new Set(claimed.map((job) => job.id)).size).toBe(3);
+  });
+});
+
+describe("transizioni di stato", () => {
+  it("completeJob marca pr_opened con prUrl, log e finishedAt", async () => {
+    const { db } = testDb;
+    const job = await enqueueJob(db);
+    await claimNextJob(db);
+
+    await completeJob(db, job.id, {
+      status: "pr_opened",
+      log: "PR aperta",
+      prUrl: "https://github.com/acme/coda/pull/7",
+    });
+
+    const persisted = await getJob(db, job.id);
+    expect(persisted.status).toBe("pr_opened");
+    expect(persisted.prUrl).toBe("https://github.com/acme/coda/pull/7");
+    expect(persisted.log).toContain("PR aperta");
+    expect(persisted.finishedAt).not.toBeNull();
+  });
+
+  it("completeJob marca skipped senza prUrl", async () => {
+    const { db } = testDb;
+    const job = await enqueueJob(db);
+    await claimNextJob(db);
+
+    await completeJob(db, job.id, { status: "skipped", log: "non è un bug fixabile" });
+
+    const persisted = await getJob(db, job.id);
+    expect(persisted.status).toBe("skipped");
+    expect(persisted.prUrl).toBeNull();
+    expect(persisted.finishedAt).not.toBeNull();
+  });
+
+  it("failJob marca failed con errore, log e finishedAt", async () => {
+    const { db } = testDb;
+    const job = await enqueueJob(db);
+    await claimNextJob(db);
+
+    await failJob(db, job.id, { log: "stacktrace del fallimento", error: "clone fallito" });
+
+    const persisted = await getJob(db, job.id);
+    expect(persisted.status).toBe("failed");
+    expect(persisted.error).toBe("clone fallito");
+    expect(persisted.log).toContain("stacktrace del fallimento");
+    expect(persisted.finishedAt).not.toBeNull();
+  });
+
+  it("markFixing porta il job da triaging a fixing", async () => {
+    const { db } = testDb;
+    const job = await enqueueJob(db);
+    await claimNextJob(db);
+
+    await markFixing(db, job.id);
+
+    expect((await getJob(db, job.id)).status).toBe("fixing");
+  });
+
+  it("appendLog accoda righe preservando quelle precedenti", async () => {
+    const { db } = testDb;
+    const job = await enqueueJob(db);
+
+    await appendLog(db, job.id, "prima riga");
+    await appendLog(db, job.id, "seconda riga");
+
+    const persisted = await getJob(db, job.id);
+    expect(persisted.log).toBe("prima riga\nseconda riga\n");
+  });
+});
+
+describe("requeueStale", () => {
+  it("riporta in coda solo i job in lavorazione da troppo tempo", async () => {
+    const { db } = testDb;
+    const stale = await enqueueJob(db, { status: "triaging", startedAt: minutesAgo(30) });
+    const fresh = await enqueueJob(db, { status: "fixing", startedAt: minutesAgo(2) });
+    const queued = await enqueueJob(db);
+    const done = await enqueueJob(db, { status: "failed", startedAt: minutesAgo(60) });
+
+    const requeued = await requeueStale(db, { olderThanMinutes: 10 });
+
+    expect(requeued).toBe(1);
+    const staleAfter = await getJob(db, stale.id);
+    expect(staleAfter.status).toBe("queued");
+    expect(staleAfter.startedAt).toBeNull();
+    expect(staleAfter.log).toContain("riportato in coda");
+    expect((await getJob(db, fresh.id)).status).toBe("fixing");
+    expect((await getJob(db, queued.id)).status).toBe("queued");
+    expect((await getJob(db, done.id)).status).toBe("failed");
+  });
+});
+
+describe("runWorker", () => {
+  it("processa tutti i job rispettando la concorrenza e fallisce quelli con handler in errore", async () => {
+    const { db } = testDb;
+    const jobs: AiJob[] = [];
+    for (let i = 0; i < 5; i += 1) {
+      jobs.push(await enqueueJob(db, { createdAt: minutesAgo(5 - i) }));
+    }
+    const failingId = jobs[2]!.id;
+
+    let active = 0;
+    let maxActive = 0;
+    const processed = new Set<string>();
+    const controller = new AbortController();
+
+    const worker = runWorker({
+      db,
+      concurrency: 2,
+      pollMs: 20,
+      signal: controller.signal,
+      handler: async (job) => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        try {
+          await delay(30);
+          processed.add(job.id);
+          if (job.id === failingId) throw new Error("boom");
+          await completeJob(db, job.id, { status: "skipped", log: "fatto" });
+        } finally {
+          active -= 1;
+        }
+      },
+    });
+
+    await vi.waitFor(
+      () => {
+        expect(processed.size).toBe(5);
+      },
+      { timeout: 15_000 },
+    );
+    controller.abort();
+    await worker;
+
+    expect(maxActive).toBeLessThanOrEqual(2);
+    const failed = await getJob(db, failingId);
+    expect(failed.status).toBe("failed");
+    expect(failed.error).toBe("boom");
+    expect(failed.finishedAt).not.toBeNull();
+    for (const job of jobs.filter((j) => j.id !== failingId)) {
+      expect((await getJob(db, job.id)).status).toBe("skipped");
+    }
+  }, 30_000);
+
+  it("al boot riporta in coda i job stantii di un worker crashato e li processa", async () => {
+    const { db } = testDb;
+    const stale = await enqueueJob(db, { status: "triaging", startedAt: minutesAgo(30) });
+
+    const processed = new Set<string>();
+    const controller = new AbortController();
+    const worker = runWorker({
+      db,
+      pollMs: 20,
+      staleAfterMinutes: 10,
+      signal: controller.signal,
+      handler: async (job) => {
+        processed.add(job.id);
+        await completeJob(db, job.id, { status: "skipped", log: "recuperato" });
+      },
+    });
+
+    await vi.waitFor(
+      () => {
+        expect(processed.has(stale.id)).toBe(true);
+      },
+      { timeout: 15_000 },
+    );
+    controller.abort();
+    await worker;
+
+    expect((await getJob(db, stale.id)).status).toBe("skipped");
+  }, 30_000);
+
+  it("l'abort interrompe subito il poll e attende i job in volo", async () => {
+    const { db } = testDb;
+    const controller = new AbortController();
+    const worker = runWorker({
+      db,
+      // pollMs lungo apposta: se l'abort non interrompesse la sleep, il
+      // test andrebbe in timeout.
+      pollMs: 60_000,
+      signal: controller.signal,
+      handler: async () => {},
+    });
+
+    await delay(50);
+    const before = Date.now();
+    controller.abort();
+    await worker;
+    expect(Date.now() - before).toBeLessThan(2_000);
+  }, 10_000);
+});
