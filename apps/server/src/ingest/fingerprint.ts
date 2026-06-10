@@ -12,11 +12,16 @@ const MAX_FRAMES = 8;
 
 /**
  * Hash di build nel basename dei bundle: un segmento finale `-a1b2c3`
- * (≥6 caratteri alfanumerici) prima dell'estensione, tipico di Vite/Webpack
- * (`app-a1b2c3.js`). Lo strippiamo perché cambia a ogni release pur essendo
- * lo stesso file sorgente. Suffissi corti tipo `-v2` restano: sono semantici.
+ * (≥6 caratteri alfanumerici, con almeno una cifra) prima dell'estensione,
+ * tipico di Vite/Webpack (`app-a1b2c3.js`). Lo strippiamo perché cambia a
+ * ogni release pur essendo lo stesso file sorgente. Suffissi corti tipo
+ * `-v2` restano: sono semantici. Il vincolo sulla cifra evita di mangiare
+ * suffissi di sole lettere che sono parte del nome (`service-worker.js`,
+ * `react-router.js`); trade-off: un hash di sole lettere tipo `-deadbeef`
+ * non viene più strippato, coerente con la regola degli id hex in
+ * {@link normalizeMessage}.
  */
-const BUILD_HASH = /-[a-z0-9]{6,}(?=\.[^.]+$)/i;
+const BUILD_HASH = /-(?=[a-z]*\d)[a-z0-9]{6,}(?=\.[^.]+$)/i;
 
 /** Posizione `:riga:colonna` (o solo `:riga`) in coda alla location. */
 const LINE_COL = /(?::\d+)+$/;

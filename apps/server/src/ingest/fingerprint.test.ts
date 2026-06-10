@@ -190,6 +190,43 @@ describe("fingerprint", () => {
     expect(fps[2]).toBe(fps[0]);
   });
 
+  it("suffissi di sole lettere NON vengono strippati: service-worker.js resta intatto", () => {
+    const cases: Array<[string, string]> = [
+      ["service-worker.js", "service.js"],
+      ["react-router.js", "react.js"],
+      ["web-vitals.js", "web.js"],
+    ];
+    for (const [withSuffix, stripped] of cases) {
+      const a = fingerprint({
+        message: "boom",
+        stack: `  at run (https://app/${withSuffix}:1:1)`,
+      });
+      const b = fingerprint({
+        message: "boom",
+        stack: `  at run (https://app/${stripped}:1:1)`,
+      });
+      expect(a).not.toBe(b);
+    }
+  });
+
+  it("hash con almeno una cifra vengono ancora strippati", () => {
+    const cases: Array<[string, string]> = [
+      ["app-a1b2c3.js", "app.js"],
+      ["chunk-vendors-a1b2c3d4.js", "chunk-vendors.js"],
+    ];
+    for (const [hashed, plain] of cases) {
+      const a = fingerprint({
+        message: "boom",
+        stack: `  at run (https://app/${hashed}:1:1)`,
+      });
+      const b = fingerprint({
+        message: "boom",
+        stack: `  at run (https://app/${plain}:1:1)`,
+      });
+      expect(a).toBe(b);
+    }
+  });
+
   it("un suffisso corto (non hash) nel basename NON viene strippato", () => {
     const a = fingerprint({
       message: "boom",

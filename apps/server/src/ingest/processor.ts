@@ -110,6 +110,7 @@ async function processErrorEvent(
           priority: "medium",
           source: "sdk_error",
           technicalPayload: {
+            message: event.message,
             stack: event.stack,
             url: event.url,
             release: event.release,

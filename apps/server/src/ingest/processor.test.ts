@@ -81,6 +81,7 @@ describe("processEvents — eventi errore", () => {
     expect(ticket.title).toBe("TypeError: x is undefined");
     expect(ticket.occurrences).toBe(1);
     expect(ticket.technicalPayload).toMatchObject({
+      message: "x is undefined",
       stack: "TypeError: x is undefined\n  at buy (https://cdn.app/assets/app-a1b2c3.js:10:5)",
       url: "https://app.example.com/checkout",
       release: "1.2.3",
