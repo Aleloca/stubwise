@@ -5,7 +5,9 @@ import {
   ticketStatusSchema,
   ticketTypeSchema,
 } from "@stubwise/shared";
+import { sql } from "drizzle-orm";
 import {
+  index,
   integer,
   jsonb,
   pgEnum,
@@ -57,13 +59,18 @@ export const invites = pgTable("invites", {
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 });
 
-export const sessions = pgTable("sessions", {
-  id: text("id").primaryKey(),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-});
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: text("id").primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  // Lookup delle sessioni di un utente (logout globale, pulizia in cascata).
+  (table) => [index("sessions_user_id_idx").on(table.userId)],
+);
 
 export const projects = pgTable("projects", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -102,9 +109,16 @@ export const tickets = pgTable(
     occurrences: integer("occurrences").notNull().default(1),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
   },
-  (table) => [uniqueIndex("tickets_project_id_number_unique").on(table.projectId, table.number)],
+  (table) => [
+    uniqueIndex("tickets_project_id_number_unique").on(table.projectId, table.number),
+    // Board e liste filtrano sempre per progetto e stato.
+    index("tickets_project_id_status_idx").on(table.projectId, table.status),
+  ],
 );
 
 export const errorGroups = pgTable(
@@ -124,31 +138,50 @@ export const errorGroups = pgTable(
       table.projectId,
       table.fingerprint,
     ),
+    // FK: risalita dal ticket al gruppo di errori e delete in cascata.
+    index("error_groups_ticket_id_idx").on(table.ticketId),
   ],
 );
 
-export const comments = pgTable("comments", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  ticketId: uuid("ticket_id")
-    .notNull()
-    .references(() => tickets.id, { onDelete: "cascade" }),
-  authorType: commentAuthorType("author_type").notNull(),
-  // Nullo per i commenti dell'AI; nullato se l'autore viene eliminato.
-  authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
-  body: text("body").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const comments = pgTable(
+  "comments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    authorType: commentAuthorType("author_type").notNull(),
+    // Nullo per i commenti dell'AI; nullato se l'autore viene eliminato.
+    authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  // I commenti si caricano sempre per ticket.
+  (table) => [index("comments_ticket_id_idx").on(table.ticketId)],
+);
 
-export const aiJobs = pgTable("ai_jobs", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  ticketId: uuid("ticket_id")
-    .notNull()
-    .references(() => tickets.id, { onDelete: "cascade" }),
-  status: aiJobStatus("status").notNull().default("queued"),
-  log: text("log").notNull().default(""),
-  prUrl: text("pr_url"),
-  error: text("error"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  startedAt: timestamp("started_at", { withTimezone: true }),
-  finishedAt: timestamp("finished_at", { withTimezone: true }),
-});
+export const aiJobs = pgTable(
+  "ai_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    status: aiJobStatus("status").notNull().default("queued"),
+    log: text("log").notNull().default(""),
+    prUrl: text("pr_url"),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    // Lookup dei job di un ticket (storico e dettaglio).
+    index("ai_jobs_ticket_id_idx").on(table.ticketId),
+    // Claim del worker: il job in coda più vecchio. Indice parziale, resta
+    // minuscolo perché copre solo i job ancora in stato "queued".
+    index("ai_jobs_queued_created_at_idx")
+      .on(table.createdAt)
+      .where(sql`status = 'queued'`),
+  ],
+);

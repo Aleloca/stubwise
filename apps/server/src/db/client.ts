@@ -7,14 +7,29 @@ import * as schema from "./schema.js";
 
 export type Db = PostgresJsDatabase<typeof schema>;
 
+export interface DbHandle {
+  db: Db;
+  /** Client postgres-js sottostante: serve per chiudere la connessione (`client.end()`). */
+  client: postgres.Sql;
+}
+
 /**
  * Crea il client Drizzle a partire dall'URL di connessione.
  * Factory pura: nessuna lettura di process.env, così i test possono
- * puntare a un Postgres effimero.
+ * puntare a un Postgres effimero. Restituisce anche il client postgres-js
+ * perché i chiamanti (test su testcontainers in primis) devono poter
+ * chiudere la connessione, altrimenti il processo resta appeso.
  */
-export function createDb(databaseUrl: string): Db {
-  const client = postgres(databaseUrl);
-  return drizzle(client, { schema });
+export function createDb(databaseUrl: string): DbHandle {
+  const client = postgres(databaseUrl, {
+    // Dimensione del pool scelta deliberatamente: 10 connessioni bastano per
+    // un'istanza self-hosted e non esauriscono il max_connections di Postgres.
+    max: 10,
+    // Silenzia i NOTICE di Postgres (es. "relation already exists" durante
+    // le migrazioni) che altrimenti finirebbero su stderr.
+    onnotice: () => {},
+  });
+  return { db: drizzle(client, { schema }), client };
 }
 
 // Le migrazioni vivono in `<package root>/drizzle`. Questo modulo è in

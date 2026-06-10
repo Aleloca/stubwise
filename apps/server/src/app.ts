@@ -20,9 +20,18 @@ export interface BuildAppOptions {
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   const app = Fastify({ logger: opts.logger ?? false });
 
-  if (opts.db) {
-    app.decorate("db", opts.db);
-  }
+  // L'augmentation del modulo tipizza `db` come sempre presente, ma la
+  // decorazione è condizionale: il getter rende l'errore esplicito se una
+  // route tocca il db quando l'app è stata costruita senza (es. unit test).
+  const db = opts.db;
+  app.decorate("db", {
+    getter(): Db {
+      if (!db) {
+        throw new Error("buildApp chiamata senza db");
+      }
+      return db;
+    },
+  });
 
   app.get("/health", async () => ({ status: "ok" }));
 

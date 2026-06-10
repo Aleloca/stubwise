@@ -12,7 +12,7 @@ function loadConfigOrExit(): Config {
 }
 
 const config = loadConfigOrExit();
-const db = createDb(config.databaseUrl);
+const { db } = createDb(config.databaseUrl);
 
 try {
   await runMigrations(db);
