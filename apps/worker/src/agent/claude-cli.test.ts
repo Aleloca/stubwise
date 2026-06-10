@@ -250,20 +250,25 @@ echo "ENV:$STUBWISE_TEST_VAR"
     expect(result.output).toContain("ENV:ciao-env");
   });
 
-  it("NON inoltra all'agente i segreti del worker (ENCRYPTION_KEY/DATABASE_URL/SESSION_SECRET) ma sì PATH e le var di auth claude", async () => {
+  it("NON inoltra all'agente i segreti del worker (ENCRYPTION_KEY/DATABASE_URL/SESSION_SECRET) ma sì PATH, USER/LOGNAME e le var di auth claude", async () => {
     // Sentinelle su process.env: i segreti del master NON devono raggiungere
     // il child (un ticket ostile che ottiene injection li esfiltrerebbe via un
-    // comando di test). PATH e le var di auth claude invece SÌ: senza, il CLI
-    // non si autentica e non trova i binari.
+    // comando di test). PATH, USER/LOGNAME e le var di auth claude invece SÌ:
+    // senza, il CLI non si autentica e non trova i binari. USER in particolare
+    // serve all'auth OAuth/MAX su macOS (lookup del Keychain del login).
     process.env.ENCRYPTION_KEY = "SENTINEL-ENCRYPTION-KEY";
     process.env.DATABASE_URL = "postgres://SENTINEL/db";
     process.env.SESSION_SECRET = "SENTINEL-SESSION-SECRET";
     process.env.ANTHROPIC_API_KEY = "sk-ant-sentinel";
+    process.env.USER = "smoke-user";
+    process.env.LOGNAME = "smoke-logname";
     cleanups.push(async () => {
       delete process.env.ENCRYPTION_KEY;
       delete process.env.DATABASE_URL;
       delete process.env.SESSION_SECRET;
       delete process.env.ANTHROPIC_API_KEY;
+      delete process.env.USER;
+      delete process.env.LOGNAME;
     });
 
     const root = await makeRoot();
@@ -275,6 +280,8 @@ echo "ENCRYPTION_KEY:[\${ENCRYPTION_KEY:-MANCANTE}]"
 echo "DATABASE_URL:[\${DATABASE_URL:-MANCANTE}]"
 echo "SESSION_SECRET:[\${SESSION_SECRET:-MANCANTE}]"
 echo "ANTHROPIC_API_KEY:[\${ANTHROPIC_API_KEY:-MANCANTE}]"
+echo "USER:[\${USER:-MANCANTE}]"
+echo "LOGNAME:[\${LOGNAME:-MANCANTE}]"
 echo "PATH_PRESENT:[\${PATH:+SI}]"
 `,
     );
@@ -287,8 +294,10 @@ echo "PATH_PRESENT:[\${PATH:+SI}]"
     expect(result.output).toContain("ENCRYPTION_KEY:[MANCANTE]");
     expect(result.output).toContain("DATABASE_URL:[MANCANTE]");
     expect(result.output).toContain("SESSION_SECRET:[MANCANTE]");
-    // Le var di auth claude e PATH invece sì.
+    // Le var di auth claude, USER/LOGNAME e PATH invece sì.
     expect(result.output).toContain("ANTHROPIC_API_KEY:[sk-ant-sentinel]");
+    expect(result.output).toContain("USER:[smoke-user]");
+    expect(result.output).toContain("LOGNAME:[smoke-logname]");
     expect(result.output).toContain("PATH_PRESENT:[SI]");
   });
 

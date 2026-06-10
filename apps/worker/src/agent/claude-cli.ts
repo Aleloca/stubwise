@@ -26,8 +26,8 @@ import {
  *   che ottiene injection potrebbe esfiltrare segreti del master via un
  *   comando. Per questo l'agente NON vede MAI ENCRYPTION_KEY (decifra le
  *   credenziali git di TUTTI i progetti), DATABASE_URL o SESSION_SECRET.
- *   Passano solo PATH/HOME, le var di auth claude (prefissi ANTHROPIC_ e
- *   CLAUDE_) e
+ *   Passano solo PATH/HOME/USER, le var di auth claude (prefissi ANTHROPIC_
+ *   e CLAUDE_) e
  *   ciò che extraEnv aggiunge esplicitamente — l'allowlist ha però l'ultima
  *   parola, così extraEnv non può reintrodurre un segreto bloccato.
  * - Exit code NON-ZERO = risultato valido, restituito con stdout+stderr
@@ -52,6 +52,14 @@ export interface ClaudeCliRunnerOptions {
 const ENV_ALLOWLIST = [
   "PATH",
   "HOME",
+  // USER/LOGNAME: NON segreti, ma necessari per l'auth OAuth/MAX su macOS.
+  // Lì le credenziali del login OAuth del CLI claude vivono nel Keychain del
+  // login, indicizzate per $USER: senza USER il lookup del Keychain fallisce e
+  // headless claude risponde "Not logged in" anche con HOME corretto. Su Linux
+  // (container, Task 27) l'OAuth legge ~/.claude/.credentials.json sotto HOME/
+  // CLAUDE_CONFIG_DIR e non serve il Keychain, ma inoltrarli è innocuo.
+  "USER",
+  "LOGNAME",
   "LANG",
   "LC_ALL",
   "TMPDIR",
