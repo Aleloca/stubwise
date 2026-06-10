@@ -24,7 +24,7 @@ importers:
   packages/shared:
     dependencies:
       zod:
-        specifier: ^4.0.0
+        specifier: ^4.1.5
         version: 4.4.3
     devDependencies:
       vitest:

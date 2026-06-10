@@ -4,7 +4,7 @@ import { ticketPrioritySchema, ticketTypeSchema } from "./ticket.js";
 export const breadcrumbSchema = z.object({
   type: z.enum(["click", "navigation", "fetch", "log"]),
   message: z.string().min(1),
-  timestamp: z.iso.datetime(),
+  timestamp: z.iso.datetime({ offset: true }),
 });
 export type Breadcrumb = z.infer<typeof breadcrumbSchema>;
 
@@ -17,7 +17,7 @@ export const errorEventSchema = z.object({
   release: z.string().optional(),
   environment: z.string().optional(),
   breadcrumbs: z.array(breadcrumbSchema).max(30),
-  timestamp: z.iso.datetime(),
+  timestamp: z.iso.datetime({ offset: true }),
 });
 export type ErrorEvent = z.infer<typeof errorEventSchema>;
 

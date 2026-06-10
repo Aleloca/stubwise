@@ -1,13 +1,13 @@
 import { z } from "zod";
 
-export const gitProviderSchema = z.enum(["bitbucket", "github"]);
-export type GitProvider = z.infer<typeof gitProviderSchema>;
+export const gitProviderKindSchema = z.enum(["bitbucket", "github"]);
+export type GitProviderKind = z.infer<typeof gitProviderKindSchema>;
 
 export const projectSchema = z.object({
   id: z.uuid(),
   name: z.string().min(1),
   slug: z.string().min(1),
-  provider: gitProviderSchema,
+  provider: gitProviderKindSchema,
   repoUrl: z.url(),
   defaultBranch: z.string().min(1),
   ingestionKey: z.string().min(1),
