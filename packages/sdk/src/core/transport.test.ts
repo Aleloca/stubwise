@@ -62,6 +62,12 @@ describe("parseDsn", () => {
     expect(() => parseDsn("https://k@track.example.com/my-app")).toThrow(); // manca /p/
     expect(() => parseDsn("ftp://k@track.example.com/p/my-app")).toThrow(); // protocollo non http(s)
   });
+
+  it("non espone la chiave di ingestion nel messaggio d'errore", () => {
+    expect(() => parseDsn("https://super-secret-key@[invalid")).toThrow(
+      expect.objectContaining({ message: expect.not.stringContaining("super-secret-key") }) as Error,
+    );
+  });
 });
 
 describe("Transport", () => {
@@ -204,6 +210,67 @@ describe("Transport", () => {
     expect(events).toHaveLength(100);
     expect(events[0]?.message).toBe("evt-5"); // i primi 5 sono stati scartati
     expect(events[99]?.message).toBe("evt-104");
+  });
+
+  it("un enqueue durante un invio in corso che fallisce non accorcia il backoff del retry", async () => {
+    let rejectInflight!: (reason: Error) => void;
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((_resolve, reject) => {
+            rejectInflight = reject;
+          }),
+      )
+      .mockResolvedValue(okResponse());
+    const transport = makeTransport(fetchMock);
+
+    transport.enqueue(errorEvent("primo"));
+    await vi.advanceTimersByTimeAsync(FLUSH_MS); // tentativo 1 parte e resta in volo
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // enqueue concorrente mentre il fetch è in volo: schedula un timer a +FLUSH_MS
+    transport.enqueue(errorEvent("concorrente"));
+    // il fetch in volo fallisce: il retry deve avvenire a +2*FLUSH_MS, non a +FLUSH_MS
+    rejectInflight(new TypeError("network down"));
+    await vi.advanceTimersByTimeAsync(0); // lascia completare flushInternal
+
+    // prima del confine di backoff (2*FLUSH_MS) non deve partire nessuna fetch
+    await vi.advanceTimersByTimeAsync(2 * FLUSH_MS - 1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // il retry porta sia il batch rimesso in coda sia l'evento concorrente
+    expect(sentEvents(fetchMock, 1).map((e) => e.message)).toEqual(["primo", "concorrente"]);
+  });
+
+  it("batch rimesso in coda + nuovi eventi oltre il cap: la POST successiva ha 100 eventi e i più vecchi sono scartati", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(failResponse(500))
+      .mockResolvedValue(okResponse());
+    const transport = makeTransport(fetchMock);
+
+    for (let i = 0; i < 95; i++) {
+      transport.enqueue(errorEvent(`old-${i}`));
+    }
+    await vi.advanceTimersByTimeAsync(FLUSH_MS); // tentativo 1 fallisce → 95 eventi rimessi in coda
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // durante il backoff arrivano 10 nuovi eventi: 95 + 10 = 105 > cap 100
+    for (let i = 0; i < 10; i++) {
+      transport.enqueue(errorEvent(`new-${i}`));
+    }
+    await vi.advanceTimersByTimeAsync(2 * FLUSH_MS); // retry a +2^1*FLUSH_MS
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const events = sentEvents(fetchMock, 1);
+    expect(events).toHaveLength(100);
+    // i 5 eventi più vecchi del batch rimesso in coda sono stati scartati
+    expect(events[0]?.message).toBe("old-5");
+    expect(events[89]?.message).toBe("old-94");
+    expect(events[99]?.message).toBe("new-9");
   });
 
   it("non propaga mai eccezioni, nemmeno se fetchImpl lancia in modo sincrono", async () => {

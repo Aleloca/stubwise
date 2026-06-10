@@ -20,6 +20,20 @@ interface NormalizedError {
 
 const FALLBACK_MESSAGE = "Errore sconosciuto";
 
+/**
+ * Avvisa che un input vuoto è stato scartato. Gli input vuoti violerebbero
+ * i vincoli min(1) del server: un 422 farebbe scartare l'intero batch,
+ * quindi è meglio non accodarli affatto. Warn con la stessa guardia del
+ * Transport: nemmeno un console.warn rotto deve propagare nell'app ospite.
+ */
+function warnEmptyInput(what: string): void {
+  try {
+    console.warn(`[stubwise] ${what} vuoto: chiamata ignorata`);
+  } catch {
+    // mai propagare nell'app ospite
+  }
+}
+
 /** Riduce un valore arbitrario (Error, stringa, oggetto, circolare...) a un messaggio sicuro. */
 function normalizeError(value: unknown): NormalizedError {
   if (value instanceof Error) {
@@ -88,6 +102,10 @@ export class Client {
 
   captureFeedback(input: { message: string; email?: string; url?: string }): void {
     try {
+      if (!input.message) {
+        warnEmptyInput("message del feedback");
+        return;
+      }
       this.transport.enqueue({
         kind: "feedback",
         message: input.message,
@@ -107,6 +125,10 @@ export class Client {
     priority?: TicketPriority;
   }): void {
     try {
+      if (!input.title) {
+        warnEmptyInput("title del ticket");
+        return;
+      }
       this.transport.enqueue({
         kind: "ticket",
         title: input.title,
@@ -122,6 +144,10 @@ export class Client {
   /** Aggiunge un breadcrumb al ring buffer (timestamp di default: adesso). */
   addBreadcrumb(breadcrumb: Omit<Breadcrumb, "timestamp"> & { timestamp?: string }): void {
     try {
+      if (!breadcrumb.message) {
+        warnEmptyInput("message del breadcrumb");
+        return;
+      }
       this.breadcrumbs.add({
         ...breadcrumb,
         timestamp: breadcrumb.timestamp ?? new Date().toISOString(),

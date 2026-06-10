@@ -162,6 +162,46 @@ describe("Client", () => {
     });
   });
 
+  it("captureFeedback con message vuoto viene scartato senza inviare nulla", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const fetchMock = okFetch();
+    const client = new Client({ dsn: DSN, fetchImpl: fetchMock });
+
+    client.captureFeedback({ message: "" });
+    await client.flush();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("createTicket con title vuoto viene scartato senza inviare nulla", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const fetchMock = okFetch();
+    const client = new Client({ dsn: DSN, fetchImpl: fetchMock });
+
+    client.createTicket({ title: "", type: "bug" });
+    await client.flush();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("addBreadcrumb con message vuoto viene ignorato e non finisce negli snapshot", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const fetchMock = okFetch();
+    const client = new Client({ dsn: DSN, fetchImpl: fetchMock });
+
+    client.addBreadcrumb({ type: "log", message: "" });
+    client.addBreadcrumb({ type: "log", message: "valido" });
+    client.captureError(new Error("boom"));
+    await client.flush();
+
+    const [event] = sentEvents(fetchMock) as ErrorEvent[];
+    expect(event?.breadcrumbs).toHaveLength(1);
+    expect(event?.breadcrumbs[0]?.message).toBe("valido");
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
   it("un DSN malformato fa fallire l'init in modo esplicito (unico punto che lancia)", () => {
     expect(() => new Client({ dsn: "not-a-dsn" })).toThrow();
   });

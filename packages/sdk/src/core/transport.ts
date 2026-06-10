@@ -23,7 +23,8 @@ export function parseDsn(dsn: string): ParsedDsn {
   try {
     url = new URL(dsn);
   } catch {
-    throw new Error(`[stubwise] DSN malformato: "${dsn}" non è un URL valido`);
+    // niente DSN grezzo nel messaggio: potrebbe contenere la chiave di ingestion
+    throw new Error("[stubwise] DSN malformato: la stringa fornita non è un URL valido (atteso https://KEY@host/p/slug)");
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") {
     throw new Error(`[stubwise] DSN malformato: protocollo "${url.protocol}" non supportato`);
@@ -110,7 +111,9 @@ export class Transport {
   /**
    * Il timer parte solo al primo enqueue (niente lavoro su app inattive)
    * e non sovrascrive mai un timer già pendente, così il delay di backoff
-   * non viene accorciato da enqueue successivi.
+   * non viene accorciato da enqueue successivi. Chi ha bisogno di
+   * riprogrammare con un delay diverso (es. il backoff dei retry) deve
+   * prima chiamare clearTimer().
    */
   private scheduleFlush(delayMs: number): void {
     if (this.timer !== null) return;
@@ -183,11 +186,20 @@ export class Transport {
       if (this.queue.length > 0) this.scheduleFlush(this.flushIntervalMs);
       return;
     }
-    // rimette il batch in testa (preserva l'ordine) rispettando il cap
+    // rimette il batch in testa (preserva l'ordine) rispettando il cap.
+    // Nota: il batch rimesso in coda condivide il contatore `attempt` con gli
+    // eventi accodati nel frattempo — se il batch unito continua a fallire,
+    // anche i nuovi eventi vengono scartati al raggiungimento di maxRetries,
+    // prima di aver avuto "i loro" tentativi. Compromesso accettato per
+    // tenere semplice il trasporto.
     this.queue = [...batch, ...this.queue];
     if (this.queue.length > this.maxQueue) {
       this.queue.splice(0, this.queue.length - this.maxQueue);
     }
+    // un enqueue arrivato mentre il fetch era in volo può aver schedulato un
+    // timer a intervallo normale: va cancellato, altrimenti scheduleFlush
+    // farebbe no-op e il backoff verrebbe accorciato a 1× intervallo
+    this.clearTimer();
     this.scheduleFlush(2 ** this.attempt * this.flushIntervalMs);
   }
 }
