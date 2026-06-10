@@ -483,6 +483,13 @@ Il prompt di fix (in `prompts.ts`) contiene: titolo, descrizione, stack trace, b
 
 **Step:** Scrivere ogni guida passo-passo verificandola davvero (la guida self-hosting va eseguita su una VM/dir pulita seguendola alla lettera). Build inclusa nell'immagine Caddy su `/docs`. Commit per gruppo di pagine.
 
+**Nota (review Task 27) — doc operativi da scrivere nella guida self-hosting:**
+- Limiti di risorse del worker (`mem_limit`, `cpus`): valori di default consigliati e come tararli in base alla macchina e a `WORKER_CONCURRENCY` (un agent build dura ~30 min e non deve affamare postgres/caddy).
+- Rotazione dei log (`logging` json-file, `max-size`/`max-file`): perche' serve (i log json-file altrimenti saturano il disco dell'host) e come regolarla.
+- Il server DEVE restare a singola replica: applica le migrazioni all'avvio (migrate-on-boot) e non c'e' advisory lock, quindi due repliche concorrenti corromperebbero le migrazioni.
+- `PUBLIC_URL` deve coincidere con `DOMAIN`: altrimenti i link nei webhook e nelle PR puntano all'host sbagliato (link rotti).
+- Auth claude (chiave API vs OAuth login): differenze, quando usare l'una o l'altra, e il volume `CLAUDE_CONFIG_DIR`/`claude-config` che persiste il token dell'OAuth login tra i riavvii.
+
 ### Task 29: CI e ripulitura open-source
 
 **Files:**

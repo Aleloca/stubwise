@@ -99,7 +99,12 @@ export function buildAgentEnv(
       ENV_ALLOWLIST_PREFIXES.some((prefix) => name.startsWith(prefix)));
 
   for (const [name, value] of Object.entries(parentEnv)) {
-    if (value !== undefined && allow(name)) env[name] = value;
+    // Scarta le stringhe vuote: una var allowlistata ma vuota (es.
+    // ANTHROPIC_API_KEY="" quando l'utente usa l'OAuth login) NON va inoltrata,
+    // perche' ANTHROPIC_API_KEY="" che raggiunge il child claude puo' sabotare
+    // un login OAuth valido. compose la omette gia' (niente default `:-`), ma
+    // qui difendiamo comunque a valle.
+    if (value !== undefined && value !== "" && allow(name)) env[name] = value;
   }
   // extraEnv è esplicito ma resta soggetto alla denylist.
   for (const [name, value] of Object.entries(extraEnv ?? {})) {

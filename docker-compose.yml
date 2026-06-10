@@ -5,6 +5,14 @@
 #
 # Tutti i build usano la radice del repo come context (monorepo pnpm).
 
+# Rotazione dei log json-file: senza, i log dei container crescono senza limite
+# e possono saturare il disco dell'host. 3 file da 10m = max ~30m per servizio.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -38,6 +46,7 @@ services:
       # Caddy fa da reverse proxy davanti: il server deve fidarsi degli
       # X-Forwarded-* per impostare il flag Secure sul cookie di sessione.
       TRUST_PROXY: "true"
+    logging: *default-logging
     # Il server applica le migrazioni all'avvio (runMigrations): worker e Caddy
     # lo aspettano sano. Healthcheck definito nell'immagine (hit /health).
 
@@ -62,7 +71,13 @@ services:
       WORKER_STALE_MINUTES: ${WORKER_STALE_MINUTES:-45}
       # --- Auth del CLI claude (scegli UNA delle due) ---
       # 1) Chiave API: la via piu semplice in produzione (passa l'allowlist).
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      #    NIENTE default `:-`: con `${ANTHROPIC_API_KEY}` compose OMETTE la var
+      #    dall'env del container se non e' settata. Un `${ANTHROPIC_API_KEY:-}`
+      #    la definirebbe SEMPRE (stringa vuota quando si usa l'OAuth login), e
+      #    `ANTHROPIC_API_KEY=""` che raggiunge il child claude puo' sabotare un
+      #    login OAuth valido. Difesa anche lato worker (buildAgentEnv scarta le
+      #    stringhe vuote).
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
       # 2) Login OAuth/MAX: lascia ANTHROPIC_API_KEY vuota ed esegui
       #    `docker compose exec worker claude login`. Il token persiste nel
       #    volume claude-config montato su CLAUDE_CONFIG_DIR.
@@ -70,6 +85,15 @@ services:
     volumes:
       - mirrors:/var/stubwise/mirrors
       - claude-config:/home/worker/.claude
+    # Limiti di risorse: un agent build puo' durare ~30 min e clonare/buildare
+    # repo grandi. Senza tetti, un run impazzito affamerebbe postgres/caddy
+    # sullo stesso host. Valori conservativi e TUNABLE in base alla macchina e
+    # a WORKER_CONCURRENCY (questi reggono ~2 job in parallelo su repo medi):
+    #   mem_limit: RAM massima del container (OOM-kill oltre).
+    #   cpus: frazione di CPU (2 = due core pieni).
+    mem_limit: 4g
+    cpus: 2
+    logging: *default-logging
 
   caddy:
     build:
@@ -86,6 +110,7 @@ services:
       # usa ":80" (solo HTTP) o "localhost" (TLS self-signed).
       DOMAIN: ${DOMAIN:-:80}
       SERVER_UPSTREAM: server:${PORT:-3000}
+    logging: *default-logging
     volumes:
       - caddy-data:/data
       - caddy-config:/config

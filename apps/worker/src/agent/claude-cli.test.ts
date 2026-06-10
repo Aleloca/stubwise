@@ -301,6 +301,37 @@ echo "PATH_PRESENT:[\${PATH:+SI}]"
     expect(result.output).toContain("PATH_PRESENT:[SI]");
   });
 
+  it("NON inoltra una var allowlistata ma VUOTA, sì se non-vuota (ANTHROPIC_API_KEY='' vs valorizzata)", async () => {
+    // ANTHROPIC_API_KEY="" su process.env (capita quando compose la definisce
+    // con `:-` e l'utente ha scelto l'OAuth login): un valore vuoto che
+    // raggiunge il child puo' sabotare un login OAuth valido. Difesa a valle:
+    // le stringhe vuote NON vengono inoltrate. Una chiave non-vuota invece sì.
+    process.env.ANTHROPIC_API_KEY = "";
+    cleanups.push(async () => {
+      delete process.env.ANTHROPIC_API_KEY;
+    });
+
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(
+      root,
+      `#!/bin/sh
+cat > /dev/null
+echo "ANTHROPIC_API_KEY:[\${ANTHROPIC_API_KEY:-MANCANTE}]"
+`,
+    );
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    // Vuota: deve risultare ASSENTE (MANCANTE) nel child, non "".
+    const vuota = await runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
+    expect(vuota.output).toContain("ANTHROPIC_API_KEY:[MANCANTE]");
+
+    // Non-vuota: deve essere inoltrata.
+    process.env.ANTHROPIC_API_KEY = "sk-ant-non-vuota";
+    const piena = await runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
+    expect(piena.output).toContain("ANTHROPIC_API_KEY:[sk-ant-non-vuota]");
+  });
+
   it("extraEnv può aggiungere variabili esplicite (allowlist a parte)", async () => {
     const root = await makeRoot();
     const claudePath = await makeFakeClaude(
