@@ -65,6 +65,7 @@ describe("POST /api/projects", () => {
       repoUrl: "https://github.com/acme/sito-vetrina",
       defaultBranch: "main",
       ingestionKey: expect.stringMatching(/^[0-9a-f]{32}$/),
+      webhookSecret: expect.stringMatching(/^[0-9a-f]{32}$/),
       createdAt: expect.any(String),
     });
     // Mai credenziali nella risposta, nemmeno cifrate.
@@ -111,6 +112,15 @@ describe("POST /api/projects", () => {
     const keys = await testDb.db.select({ key: projects.ingestionKey }).from(projects);
     const unique = new Set(keys.map((k) => k.key));
     expect(unique.size).toBe(keys.length);
+  });
+
+  it("ogni progetto riceve un webhookSecret diverso", async () => {
+    const secrets = await testDb.db.select({ secret: projects.webhookSecret }).from(projects);
+    const unique = new Set(secrets.map((s) => s.secret));
+    expect(unique.size).toBe(secrets.length);
+    for (const { secret } of secrets) {
+      expect(secret).toMatch(/^[0-9a-f]{32}$/);
+    }
   });
 
   it("un member non può creare progetti: 403", async () => {

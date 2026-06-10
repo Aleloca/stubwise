@@ -11,6 +11,10 @@ export const projectSchema = z.object({
   repoUrl: z.url(),
   defaultBranch: z.string().min(1),
   ingestionKey: z.string().min(1),
+  // Segreto HMAC del webhook git: esposto solo via API admin, serve a
+  // configurare il webhook lato provider. Stringa vuota = non ancora generato
+  // (righe legacy): i webhook vengono rifiutati finché resta vuoto.
+  webhookSecret: z.string(),
   createdAt: z.iso.datetime(),
 });
 export type Project = z.infer<typeof projectSchema>;

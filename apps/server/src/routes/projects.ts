@@ -74,6 +74,7 @@ function toPublicProject(row: ProjectRow): z.infer<typeof projectSchema> {
     repoUrl: row.repoUrl,
     defaultBranch: row.defaultBranch,
     ingestionKey: row.ingestionKey,
+    webhookSecret: row.webhookSecret,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -116,6 +117,10 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
               encryptedCredentials,
               // Chiave di ingestion per gli SDK: 32 caratteri esadecimali.
               ingestionKey: randomBytes(16).toString("hex"),
+              // Segreto HMAC del webhook git, generato come l'ingestionKey:
+              // 32 hex. Sempre valorizzato alla creazione, così nessun
+              // progetto nuovo nasce con webhook non verificabili.
+              webhookSecret: randomBytes(16).toString("hex"),
             })
             .returning();
           if (!created) throw new Error("insert del progetto non ha restituito la riga");

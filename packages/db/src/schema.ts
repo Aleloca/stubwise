@@ -34,7 +34,9 @@ export const ticketType = pgEnum("ticket_type", enumValues(ticketTypeSchema));
 export const ticketPriority = pgEnum("ticket_priority", enumValues(ticketPrioritySchema));
 export const ticketStatus = pgEnum("ticket_status", enumValues(ticketStatusSchema));
 export const ticketSource = pgEnum("ticket_source", enumValues(ticketSourceSchema));
-export const commentAuthorType = pgEnum("comment_author_type", ["user", "ai"]);
+// "system" copre le notifiche automatiche (es. "PR mergiata → ticket chiuso"):
+// non hanno un autore umano né l'AI dietro, e vanno distinte nella timeline.
+export const commentAuthorType = pgEnum("comment_author_type", ["user", "ai", "system"]);
 // Dominio del worker AI, ma vive nel DB: definito qui.
 export const aiJobStatus = pgEnum("ai_job_status", [
   "queued",
@@ -81,6 +83,11 @@ export const projects = pgTable("projects", {
   defaultBranch: text("default_branch").notNull(),
   encryptedCredentials: text("encrypted_credentials").notNull(),
   ingestionKey: text("ingestion_key").notNull().unique(),
+  // Segreto HMAC del webhook git (chiusura automatica al merge): 32 hex
+  // generati alla creazione del progetto. Il default '' copre le righe
+  // pre-esistenti alla migrazione; un progetto con segreto vuoto rifiuta i
+  // webhook (non li può verificare).
+  webhookSecret: text("webhook_secret").notNull().default(""),
   // Contatore per i numeri ticket sequenziali per-progetto: l'applicazione
   // lo incrementa in transazione quando crea un ticket.
   nextTicketNumber: integer("next_ticket_number").notNull().default(1),
