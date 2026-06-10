@@ -434,6 +434,8 @@ export interface AgentRunner {
 
 **Step 1:** Test (repo locale di fixture + FakeRunner che modifica un file e scrive `REPORT.md`): flusso felice → branch `stubwise/ticket-N` pushato sull'origin di test, `openPullRequest` chiamato con titolo `fix: <titolo ticket> (#N)` e body = report, commento AI sul ticket con link PR + report, job `pr_opened`, ticket `in_review`; FakeRunner che non produce diff → job `failed` con log, niente PR; eccezione durante il run → worktree comunque rimosso (verifica filesystem), job `failed`.
 
+Requisito: i job devono essere serializzati per progetto (fetch --prune cancella i ref stubwise/* non ancora pushati — vedi mirrors.ts).
+
 Il prompt di fix (in `prompts.ts`) contiene: titolo, descrizione, stack trace, breadcrumbs, release/environment, occorrenze, e le istruzioni del design: *localizza il bug, scrivi un test che lo dimostra se il setup del repo lo consente, fix minimale, esegui i test esistenti, scrivi il report in `STUBWISE_REPORT.md` con: processo di indagine, causa radice, soluzione, motivazione*. Il worker legge `STUBWISE_REPORT.md` (e lo esclude dal commit) come corpo della PR. Contenuto del ticket sempre delimitato come non fidato.
 
 **Step 2:** FAIL → implementa `runFix(deps, job)` (commit con autore `Stubwise AI <ai@stubwise>`), collega triage+fix nel loop del worker → PASS. **Step 3:** Commit `feat(worker): fase di fix con push branch e apertura PR`

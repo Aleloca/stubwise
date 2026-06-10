@@ -3,7 +3,7 @@ import type { GitProviderKind } from "@stubwise/shared";
 import { execa } from "execa";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -18,15 +18,19 @@ import { join } from "node:path";
  * del worktree. È per questo che `pushBranch` viene eseguito DENTRO il mirror
  * (`git push origin <branch>:refs/heads/<branch>`): il branch ref sta lì.
  *
- * Sicurezza credenziali (requisito review Task 20) — strategia scelta:
- * iniezione per-invocazione dell'header Authorization via
- * `git -c http.extraheader=...`, calcolato da GitProvider.getAuthHeader.
- * Il remote URL salvato nella config del mirror è SEMPRE credential-free
- * (mirrorRemoteUrl): nessun token finisce su disco né in `git config`.
- * Abbiamo preferito `-c http.extraheader` a GIT_ASKPASS perché non richiede
- * uno script helper su disco e copre clone/fetch/push in modo uniforme.
- * Difesa in profondità: `mirrorsDir` è creata con mode 0700 comunque, e ogni
- * errore git viene redatto (token/header mai nei messaggi o nei log).
+ * Sicurezza credenziali (requisito review Task 20/21) — strategia scelta:
+ * iniezione per-invocazione dell'header Authorization via variabili
+ * d'ambiente `GIT_CONFIG_COUNT=1` + `GIT_CONFIG_KEY_0=http.extraheader` +
+ * `GIT_CONFIG_VALUE_0=Authorization: ...` (git ≥ 2.31), calcolato da
+ * GitProvider.getAuthHeader. L'env NON è visibile in `ps` (a differenza di
+ * `-c http.extraheader=...` in argv, world-readable per tutta la durata di
+ * un clone), non richiede uno script helper su disco come GIT_ASKPASS e
+ * copre clone/fetch/push in modo uniforme. Il remote URL salvato nella
+ * config del mirror è SEMPRE credential-free (mirrorRemoteUrl): nessun
+ * token finisce su disco né in `git config`.
+ * Difesa in profondità: `mirrorsDir` è creata (e ri-chmod-ata se preesiste)
+ * con mode 0700, e ogni errore git viene redatto: token/header mai nei
+ * messaggi o nei log, anche se git dovesse echeggiare pezzi di env.
  *
  * Limite noto (documentato per Task 24): due job CONCORRENTI sullo stesso
  * progetto si serializzano solo su ensureMirror; un `fetch --prune` mentre un
@@ -44,8 +48,17 @@ export interface MirrorProject extends ProjectGitConfig {
 export interface MirrorManagerOptions {
   /** Directory che contiene tutti i mirror bare (creata con mode 0700). */
   mirrorsDir: string;
-  /** Timeout per le singole invocazioni git (default 120s). */
+  /**
+   * Timeout per le invocazioni git "veloci" — fetch, push, worktree, switch
+   * (default 120s). Il clone iniziale usa cloneTimeoutMs.
+   */
   fetchTimeoutMs?: number;
+  /**
+   * Timeout dedicato al `git clone --mirror` iniziale (default 600s): un
+   * primo clone di un repo grande può legittimamente durare minuti, mentre i
+   * fetch incrementali devono restare stretti per non appendere il worker.
+   */
+  cloneTimeoutMs?: number;
 }
 
 /** Errore tipato per nomi branch rifiutati (deve essere `stubwise/<safe>`). */
@@ -55,6 +68,26 @@ export class InvalidBranchNameError extends Error {
       `Nome branch non valido: "${branch}" — deve iniziare con "stubwise/" e contenere solo [A-Za-z0-9._/-] senza "..", segmenti vuoti o iniziali con "-"`
     );
     this.name = "InvalidBranchNameError";
+  }
+}
+
+/** Errore tipato per default branch rifiutati (mai passati come opzione a git). */
+export class InvalidDefaultBranchError extends Error {
+  constructor(defaultBranch: string) {
+    super(
+      `defaultBranch non valido: "${defaultBranch}" — non può essere vuoto né iniziare con "-" (verrebbe interpretato come opzione da git)`
+    );
+    this.name = "InvalidDefaultBranchError";
+  }
+}
+
+/** Errore tipato: pushBranch chiamato senza un mirror esistente. */
+export class MirrorNotFoundError extends Error {
+  constructor(remoteUrl: string) {
+    super(
+      `Mirror inesistente per ${remoteUrl}: pushBranch va chiamato dentro withWorktree (dopo ensureMirror)`
+    );
+    this.name = "MirrorNotFoundError";
   }
 }
 
@@ -117,6 +150,12 @@ function assertBranchName(branch: string): void {
   }
 }
 
+function assertDefaultBranch(defaultBranch: string): void {
+  if (defaultBranch.length === 0 || defaultBranch.startsWith("-")) {
+    throw new InvalidDefaultBranchError(defaultBranch);
+  }
+}
+
 function redactSecrets(text: string, secrets: string[]): string {
   let out = text;
   for (const secret of secrets) {
@@ -147,31 +186,45 @@ interface RunGitOptions {
 
 async function runGit(args: string[], opts: RunGitOptions): Promise<string> {
   const secrets = opts.auth ? secretsOf(opts.auth) : [];
-  const authArgs =
-    opts.auth && opts.auth.repoUrl.startsWith("https://")
-      ? ["-c", `http.extraheader=Authorization: ${getProvider(opts.auth.provider).getAuthHeader(opts.auth)}`]
-      : [];
-  const fullArgs = [...authArgs, ...args];
+  // Auth iniettata via env (git ≥ 2.31), MAI in argv: gli argomenti di un
+  // processo sono leggibili da chiunque via `ps` per tutta la sua durata.
+  const env: Record<string, string> = {
+    // Mai prompt interattivi: meglio fallire subito che un worker appeso.
+    GIT_TERMINAL_PROMPT: "0",
+  };
+  if (opts.auth && opts.auth.repoUrl.startsWith("https://")) {
+    env.GIT_CONFIG_COUNT = "1";
+    env.GIT_CONFIG_KEY_0 = "http.extraheader";
+    env.GIT_CONFIG_VALUE_0 = `Authorization: ${getProvider(opts.auth.provider).getAuthHeader(opts.auth)}`;
+  }
   try {
-    const { stdout } = await execa("git", fullArgs, {
+    const { stdout } = await execa("git", args, {
       cwd: opts.cwd,
       timeout: opts.timeoutMs,
-      // Mai prompt interattivi: meglio fallire subito che un worker appeso.
-      env: { GIT_TERMINAL_PROMPT: "0" },
+      env,
     });
     return stdout;
   } catch (error) {
     const e = error as { exitCode?: number; stderr?: unknown; timedOut?: boolean };
+    // La redazione copre anche l'eventualità che git echeggi pezzi di env
+    // (GIT_CONFIG_VALUE_0 contiene l'header completo) nello stderr.
     const stderr = redactSecrets(typeof e.stderr === "string" ? e.stderr.slice(-500) : "", secrets);
-    const command = redactSecrets(["git", ...fullArgs].join(" "), secrets);
+    const command = redactSecrets(["git", ...args].join(" "), secrets);
     const reason = e.timedOut === true ? `timeout dopo ${opts.timeoutMs}ms` : `exit ${e.exitCode ?? "?"}`;
     throw new GitCommandError(`Comando fallito (${reason}): ${command}\n${stderr}`, e.exitCode, stderr);
   }
 }
 
+/**
+ * Gestisce i mirror bare e i worktree effimeri (vedi docblock del modulo).
+ * ATTENZIONE: il lock per-repo è solo in-process — più processi worker che
+ * condividono la stessa mirrorsDir NON sono supportati (l'assunzione di
+ * deployment è un singolo worker).
+ */
 export class MirrorManager {
   private readonly mirrorsDir: string;
   private readonly fetchTimeoutMs: number;
+  private readonly cloneTimeoutMs: number;
   /**
    * Lock per-repo in-process: catena di promise per directory di mirror.
    * Serializza le ensureMirror concorrenti sullo stesso repo (un solo
@@ -183,6 +236,7 @@ export class MirrorManager {
   constructor(options: MirrorManagerOptions) {
     this.mirrorsDir = options.mirrorsDir;
     this.fetchTimeoutMs = options.fetchTimeoutMs ?? 120_000;
+    this.cloneTimeoutMs = options.cloneTimeoutMs ?? 600_000;
   }
 
   /** Path (deterministico) della directory del mirror per il progetto. */
@@ -199,10 +253,17 @@ export class MirrorManager {
     const dir = this.mirrorDirFor(project);
     return this.withRepoLock(dir, async () => {
       await mkdir(this.mirrorsDir, { recursive: true, mode: 0o700 });
+      // Belt-and-braces: il mode di mkdir vale solo alla creazione; se la
+      // directory preesisteva (o l'umask l'ha allargata) la stringiamo comunque.
+      await chmod(this.mirrorsDir, 0o700);
       if (!existsSync(join(dir, "HEAD"))) {
         await rm(dir, { recursive: true, force: true });
         try {
-          await this.git(["clone", "--mirror", mirrorRemoteUrl(project), dir], { auth: project });
+          // Il primo clone di un repo grande può durare minuti: timeout dedicato.
+          await this.git(["clone", "--mirror", mirrorRemoteUrl(project), dir], {
+            auth: project,
+            timeoutMs: this.cloneTimeoutMs,
+          });
         } catch (error) {
           // Niente residui parziali: il prossimo tentativo riparte da zero.
           await rm(dir, { recursive: true, force: true });
@@ -228,14 +289,18 @@ export class MirrorManager {
     fn: (dir: string) => Promise<T>
   ): Promise<T> {
     assertBranchName(branchName);
+    assertDefaultBranch(project.defaultBranch);
     const mirrorDir = await this.ensureMirror(project);
     const parent = await mkdtemp(join(tmpdir(), "stubwise-wt-"));
     const worktreeDir = join(parent, "wt");
     let worktreeAdded = false;
     try {
-      await this.git(["worktree", "add", "--force", "--detach", worktreeDir, project.defaultBranch], {
-        cwd: mirrorDir,
-      });
+      // refs/heads/<branch>: forma non ambigua, mai interpretabile come
+      // opzione da git (oltre alla validazione di assertDefaultBranch).
+      await this.git(
+        ["worktree", "add", "--force", "--detach", worktreeDir, `refs/heads/${project.defaultBranch}`],
+        { cwd: mirrorDir }
+      );
       worktreeAdded = true;
       // -C (force): un branch residuo di un run precedente viene riallineato.
       await this.git(["switch", "-C", branchName], { cwd: worktreeDir });
@@ -268,9 +333,7 @@ export class MirrorManager {
     assertBranchName(branchName);
     const mirrorDir = this.mirrorDirFor(project);
     if (!existsSync(join(mirrorDir, "HEAD"))) {
-      throw new Error(
-        `Mirror inesistente per ${mirrorRemoteUrl(project)}: pushBranch va chiamato dentro withWorktree (dopo ensureMirror)`
-      );
+      throw new MirrorNotFoundError(mirrorRemoteUrl(project));
     }
     await this.git(
       ["-c", "remote.origin.mirror=false", "push", "origin", `${branchName}:refs/heads/${branchName}`],
@@ -278,8 +341,11 @@ export class MirrorManager {
     );
   }
 
-  private git(args: string[], opts: Omit<RunGitOptions, "timeoutMs">): Promise<string> {
-    return runGit(args, { ...opts, timeoutMs: this.fetchTimeoutMs });
+  private git(
+    args: string[],
+    opts: Omit<RunGitOptions, "timeoutMs"> & { timeoutMs?: number }
+  ): Promise<string> {
+    return runGit(args, { ...opts, timeoutMs: opts.timeoutMs ?? this.fetchTimeoutMs });
   }
 
   private async withRepoLock<T>(key: string, fn: () => Promise<T>): Promise<T> {

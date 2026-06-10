@@ -8,7 +8,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   GitCommandError,
   InvalidBranchNameError,
+  InvalidDefaultBranchError,
   MirrorManager,
+  MirrorNotFoundError,
   mirrorRemoteUrl,
   mirrorSlug,
   type MirrorProject,
@@ -152,6 +154,18 @@ describe("MirrorManager.ensureMirror", () => {
     expect(mode).toBe(0o700);
   });
 
+  it("restringe a 0700 anche una mirrorsDir preesistente con permessi larghi", async () => {
+    const root = await makeRoot();
+    const upstream = await makeUpstream(root);
+    const mirrorsDir = join(root, "mirrors");
+    await mkdir(mirrorsDir, { recursive: true, mode: 0o755 });
+    const manager = new MirrorManager({ mirrorsDir });
+
+    await manager.ensureMirror(projectFor(upstream));
+
+    expect((await stat(mirrorsDir)).mode & 0o777).toBe(0o700);
+  });
+
   it("ai successivi fa fetch --prune e vede i nuovi commit upstream", async () => {
     const { manager, upstream } = await makeFixture();
     const project = projectFor(upstream);
@@ -187,7 +201,7 @@ describe("MirrorManager.ensureMirror", () => {
   it("ripulisce la directory se il clone fallisce e non espone le credenziali nell'errore", async () => {
     const root = await makeRoot();
     const mirrorsDir = join(root, "mirrors");
-    const manager = new MirrorManager({ mirrorsDir, fetchTimeoutMs: 30_000 });
+    const manager = new MirrorManager({ mirrorsDir, fetchTimeoutMs: 30_000, cloneTimeoutMs: 30_000 });
     const token = "super-secret-token";
     // Porta chiusa su localhost: il clone https fallisce subito, niente rete esterna.
     const project: MirrorProject = {
@@ -204,9 +218,11 @@ describe("MirrorManager.ensureMirror", () => {
 
     expect(error).toBeInstanceOf(GitCommandError);
     const message = (error as GitCommandError).message;
-    // L'auth è stata iniettata per-invocazione via -c http.extraheader...
-    expect(message).toContain("http.extraheader");
-    // ...ma né il token né la sua forma base64 compaiono nell'errore.
+    // L'auth viaggia via env (GIT_CONFIG_*), quindi il comando echeggiato
+    // nell'errore non deve contenere né http.extraheader né l'header...
+    expect(message).not.toContain("http.extraheader");
+    expect(message).not.toContain("Authorization");
+    // ...e né il token né la sua forma base64 compaiono nell'errore.
     expect(message).not.toContain(token);
     expect(message).not.toContain(Buffer.from(`x-access-token:${token}`).toString("base64"));
     // Nessun residuo parziale: un retry ripartirà da un clone pulito.
@@ -258,6 +274,20 @@ describe("MirrorManager.withWorktree", () => {
     const mirrorDir = manager.mirrorDirFor(project);
     expect(await git(["branch", "--list", "stubwise/ticket-8"], mirrorDir)).toBe("");
     expect(await git(["worktree", "list", "--porcelain"], mirrorDir)).not.toContain(seenDir);
+  });
+
+  it("rifiuta un defaultBranch malevolo che inizia con '-' senza passarlo a git", async () => {
+    const { manager, upstream } = await makeFixture();
+    let called = false;
+    for (const defaultBranch of ["--orphan", "-b", ""]) {
+      const project: MirrorProject = { ...projectFor(upstream), defaultBranch };
+      await expect(
+        manager.withWorktree(project, "stubwise/ticket-evil", async () => {
+          called = true;
+        })
+      ).rejects.toBeInstanceOf(InvalidDefaultBranchError);
+    }
+    expect(called).toBe(false);
   });
 
   it("rifiuta nomi branch non stubwise/ senza eseguire fn", async () => {
@@ -325,7 +355,7 @@ describe("MirrorManager.pushBranch", () => {
     }
   });
 
-  it("fallisce con un errore chiaro se il mirror non esiste ancora", async () => {
+  it("fallisce con MirrorNotFoundError se il mirror non esiste ancora", async () => {
     const root = await makeRoot();
     const mirrorsDir = join(root, "mirrors");
     await mkdir(mirrorsDir, { recursive: true });
@@ -337,6 +367,11 @@ describe("MirrorManager.pushBranch", () => {
       credentials: { token: "t" },
     };
 
-    await expect(manager.pushBranch(project, "stubwise/ticket-1")).rejects.toThrow(/mirror/i);
+    const error = await manager.pushBranch(project, "stubwise/ticket-1").then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(error).toBeInstanceOf(MirrorNotFoundError);
+    expect((error as Error).message).toMatch(/mirror/i);
   });
 });
