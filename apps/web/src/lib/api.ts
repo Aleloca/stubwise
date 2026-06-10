@@ -151,7 +151,11 @@ export interface TicketPatch {
   labels?: string[];
 }
 
-export function listTickets(filters: TicketFilters, cursor?: string): Promise<TicketPage> {
+export function listTickets(
+  filters: TicketFilters,
+  cursor?: string,
+  limit?: number,
+): Promise<TicketPage> {
   const params = new URLSearchParams();
   if (filters.projectId) params.set("projectId", filters.projectId);
   if (filters.status) params.set("status", filters.status);
@@ -159,6 +163,7 @@ export function listTickets(filters: TicketFilters, cursor?: string): Promise<Ti
   if (filters.priority) params.set("priority", filters.priority);
   if (filters.q) params.set("q", filters.q);
   if (cursor) params.set("cursor", cursor);
+  if (limit !== undefined) params.set("limit", String(limit));
   const query = params.toString();
   return api.get(`/api/tickets${query ? `?${query}` : ""}`);
 }

@@ -24,6 +24,7 @@ export const ticketKeys = {
   lists: () => [...ticketKeys.all, "list"] as const,
   list: (filters: TicketFilters) => [...ticketKeys.lists(), filters] as const,
   detail: (id: string) => [...ticketKeys.all, "detail", id] as const,
+  board: (projectId?: string) => [...ticketKeys.all, "board", projectId ?? null] as const,
   comments: (ticketId: string) => [...ticketKeys.all, "comments", ticketId] as const,
   jobs: (ticketId: string) => [...ticketKeys.all, "jobs", ticketId] as const,
 };
@@ -35,6 +36,30 @@ export function ticketsInfiniteQueryOptions(filters: TicketFilters) {
     queryFn: ({ pageParam }) => listTickets(filters, pageParam ?? undefined),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
+    staleTime: 10_000,
+  });
+}
+
+/**
+ * La board è uno snapshot a pagina singola: chiede il massimo consentito dal
+ * server (100) e ignora il cursore. Oltre quella soglia i ticket più vecchi
+ * non compaiono sulla board — limite documentato e accettato: una parete
+ * kanban con più di 100 card non è più leggibile, e i filtri per progetto
+ * riportano sotto soglia i casi reali.
+ */
+export const BOARD_TICKETS_LIMIT = 100;
+
+export function boardTicketsQueryOptions(projectId?: string) {
+  return queryOptions({
+    queryKey: ticketKeys.board(projectId),
+    queryFn: async () => {
+      const page = await listTickets(
+        projectId ? { projectId } : {},
+        undefined,
+        BOARD_TICKETS_LIMIT,
+      );
+      return page.items;
+    },
     staleTime: 10_000,
   });
 }

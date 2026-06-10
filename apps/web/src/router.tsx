@@ -12,6 +12,7 @@ import { RouteError } from "./components/route-error";
 import { ApiError } from "./lib/api";
 import { meQueryOptions, setupStatusQueryOptions } from "./lib/auth";
 import {
+  boardTicketsQueryOptions,
   commentsQueryOptions,
   projectsQueryOptions,
   ticketJobsQueryOptions,
@@ -19,7 +20,7 @@ import {
   ticketsInfiniteQueryOptions,
   usersQueryOptions,
 } from "./lib/queries";
-import { BoardPage } from "./routes/board";
+import { boardSearchSchema, BoardPage } from "./routes/board";
 import { LoginPage } from "./routes/login";
 import { ProjectsPage } from "./routes/projects";
 import { SettingsPage } from "./routes/settings";
@@ -126,6 +127,17 @@ const ticketDetailRoute = createRoute({
 const boardRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/board",
+  // Il filtro progetto vive nel search param, come per la lista.
+  validateSearch: (search) => boardSearchSchema.parse(search),
+  loaderDeps: ({ search }) => search,
+  loader: async ({ context, deps }) => {
+    // Snapshot della board e progetti (select del filtro) in cache prima del
+    // render: le useSuspenseQuery del componente non attendono.
+    await Promise.all([
+      context.queryClient.ensureQueryData(boardTicketsQueryOptions(deps.projectId)),
+      context.queryClient.ensureQueryData(projectsQueryOptions),
+    ]);
+  },
   component: BoardPage,
 });
 

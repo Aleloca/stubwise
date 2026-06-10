@@ -20,7 +20,8 @@ export const STATUS_LABELS: Record<TicketStatus, string> = {
   closed: "Chiuso",
 };
 
-const STATUS_DOT: Record<TicketStatus, string> = {
+/** Colore-stato condiviso: pallini dei badge e accenti delle colonne board. */
+export const STATUS_DOT: Record<TicketStatus, string> = {
   open: "bg-signal",
   triaged: "bg-sky-400",
   in_progress: "bg-sky-400",
