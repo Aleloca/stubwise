@@ -9,12 +9,13 @@ import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
  * Forma pubblica di un commento. `authorId` è nullo per i commenti dell'AI
- * o se l'autore è stato eliminato. Alimenta l'OpenAPI generata (Task 9).
+ * e di sistema, o se l'autore è stato eliminato. `system` copre le notifiche
+ * automatiche (es. chiusura ticket al merge). Alimenta l'OpenAPI generata.
  */
 export const commentSchema = z.object({
   id: z.uuid(),
   ticketId: z.uuid(),
-  authorType: z.enum(["user", "ai"]),
+  authorType: z.enum(["user", "ai", "system"]),
   authorId: z.uuid().nullable(),
   body: z.string(),
   createdAt: z.iso.datetime(),

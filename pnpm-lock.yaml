@@ -38,6 +38,9 @@ importers:
       '@stubwise/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@stubwise/git':
+        specifier: workspace:*
+        version: link:../../packages/git
       '@stubwise/shared':
         specifier: workspace:*
         version: link:../../packages/shared

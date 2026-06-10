@@ -21,6 +21,7 @@ import { projectRoutes } from "./routes/projects.js";
 import type { RateLimitConfig } from "./routes/shared.js";
 import { ticketRoutes } from "./routes/tickets.js";
 import { userRoutes } from "./routes/users.js";
+import { webhookRoutes } from "./routes/webhooks.js";
 
 // Versione letta dal package.json (accanto a src/ e a dist/, quindi il
 // percorso relativo vale sia in sviluppo che dopo la build).
@@ -161,6 +162,11 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     prefix: "/ingest",
     rateLimit: opts.ingestRateLimit ?? { max: 300, timeWindow: "1 minute" },
   });
+  // Webhook git dei provider (chiusura ticket al merge): fuori da /api, niente
+  // sessione, autenticazione via firma HMAC. Il parser raw-body è registrato
+  // dentro lo scope del plugin, quindi non tocca il parsing JSON di /api né di
+  // /ingest.
+  void app.register(webhookRoutes, { prefix: "/webhooks" });
 
   app.get("/health", async () => ({ status: "ok" }));
 
