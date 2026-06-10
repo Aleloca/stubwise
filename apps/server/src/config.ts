@@ -22,12 +22,16 @@ const envSchema = z.object({
     .refine((value) => BASE64_RE.test(value) && Buffer.from(value, "base64").length === 32, {
       error: "deve essere 32 byte codificati in base64 (genera con: openssl rand -base64 32)",
     }),
-  PORT: z.coerce
-    .number({ error: "deve essere un numero di porta valido (es. 3000)" })
-    .int("deve essere un numero di porta valido (es. 3000)")
-    .min(1)
-    .max(65535)
-    .default(3000),
+  // Una stringa vuota (es. `PORT=` copiata da .env.example) usa il default.
+  PORT: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.coerce
+      .number({ error: "deve essere un numero di porta valido (es. 3000)" })
+      .int("deve essere un numero di porta valido (es. 3000)")
+      .min(1, "deve essere un numero di porta valido tra 1 e 65535 (es. 3000)")
+      .max(65535, "deve essere un numero di porta valido tra 1 e 65535 (es. 3000)")
+      .default(3000),
+  ),
   PUBLIC_URL: z.url({
     error: (issue) =>
       issue.input === undefined

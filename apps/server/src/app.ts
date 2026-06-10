@@ -1,7 +1,7 @@
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
 
 export interface BuildAppOptions {
-  logger?: boolean;
+  logger?: FastifyServerOptions["logger"];
 }
 
 /**

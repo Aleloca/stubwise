@@ -55,6 +55,20 @@ describe("loadConfig", () => {
     expect(() => loadConfig({ ...validEnv, PORT: "abc" })).toThrowError(/PORT/);
   });
 
+  it("usa il default 3000 con PORT vuota (es. .env.example copiato)", () => {
+    const config = loadConfig({ ...validEnv, PORT: "" });
+    expect(config.port).toBe(3000);
+  });
+
+  it("rifiuta PORT fuori range con messaggio in italiano", () => {
+    expect(() => loadConfig({ ...validEnv, PORT: "0" })).toThrowError(
+      /PORT.*deve essere un numero di porta valido/,
+    );
+    expect(() => loadConfig({ ...validEnv, PORT: "70000" })).toThrowError(
+      /PORT.*deve essere un numero di porta valido/,
+    );
+  });
+
   it("rifiuta PUBLIC_URL non valida", () => {
     expect(() => loadConfig({ ...validEnv, PUBLIC_URL: "not a url" })).toThrowError(/PUBLIC_URL/);
   });
