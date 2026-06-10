@@ -3,10 +3,13 @@ import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastif
 import { serializerCompiler, validatorCompiler } from "fastify-type-provider-zod";
 import type { Db } from "./db/client.js";
 import { authRoutes } from "./routes/auth.js";
+import { projectRoutes } from "./routes/projects.js";
 
 declare module "fastify" {
   interface FastifyInstance {
     db: Db;
+    /** Chiave AES-256 (32 byte) per cifrare le credenziali git dei progetti. */
+    encryptionKey: Buffer;
   }
 }
 
@@ -15,6 +18,12 @@ export interface BuildAppOptions {
   db?: Db;
   /** Firma il cookie di sessione. Necessario perché login/sessioni funzionino. */
   sessionSecret?: string;
+  /**
+   * Chiave di cifratura delle credenziali: 32 byte codificati in base64
+   * (stesso formato di ENCRYPTION_KEY, vedi config.ts). Necessaria per le
+   * route dei progetti.
+   */
+  encryptionKey?: string;
 }
 
 /**
@@ -43,11 +52,29 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     },
   });
 
+  // Decodifica subito (fail fast su una chiave malformata), getter come per
+  // db: l'app si costruisce anche senza chiave, esplode solo chi la usa.
+  const encryptionKey = opts.encryptionKey
+    ? Buffer.from(opts.encryptionKey, "base64")
+    : undefined;
+  if (encryptionKey && encryptionKey.length !== 32) {
+    throw new Error("encryptionKey deve essere 32 byte codificati in base64");
+  }
+  app.decorate("encryptionKey", {
+    getter(): Buffer {
+      if (!encryptionKey) {
+        throw new Error("buildApp chiamata senza encryptionKey");
+      }
+      return encryptionKey;
+    },
+  });
+
   // Senza secret il plugin si registra comunque (parsing dei cookie), ma
   // firmare il cookie di sessione fallisce: stesso spirito del getter su db.
   void app.register(fastifyCookie, { secret: opts.sessionSecret });
 
   void app.register(authRoutes, { prefix: "/api/auth" });
+  void app.register(projectRoutes, { prefix: "/api/projects" });
 
   app.get("/health", async () => ({ status: "ok" }));
 

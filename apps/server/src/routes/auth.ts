@@ -14,7 +14,7 @@ import {
   sessionIdFromRequest,
 } from "../auth/session.js";
 import { invites, sessions, users } from "../db/schema.js";
-import { authErrorResponses, errorSchema } from "./shared.js";
+import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 
 /** Validità di un link di invito: 7 giorni. */
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -41,19 +41,6 @@ function getDummyHash(): Promise<string> {
     throw error;
   });
   return dummyHashPromise;
-}
-
-/**
- * Riconosce una violazione di vincolo unique di Postgres (codice 23505)
- * risalendo la catena dei `cause`: Drizzle incapsula l'errore del driver.
- */
-function isUniqueViolation(error: unknown): boolean {
-  let current: unknown = error;
-  while (current instanceof Error) {
-    if ((current as Error & { code?: unknown }).code === "23505") return true;
-    current = current.cause;
-  }
-  return false;
 }
 
 const publicUserSchema = z.object({
