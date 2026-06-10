@@ -3,7 +3,9 @@ import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastif
 import { serializerCompiler, validatorCompiler } from "fastify-type-provider-zod";
 import type { Db } from "./db/client.js";
 import { authRoutes } from "./routes/auth.js";
+import { commentRoutes } from "./routes/comments.js";
 import { projectRoutes } from "./routes/projects.js";
+import { ticketRoutes } from "./routes/tickets.js";
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -75,6 +77,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
 
   void app.register(authRoutes, { prefix: "/api/auth" });
   void app.register(projectRoutes, { prefix: "/api/projects" });
+  void app.register(ticketRoutes, { prefix: "/api/tickets" });
+  // I commenti vivono sotto il singolo ticket: il prefisso porta il
+  // parametro :ticketId, disponibile nelle route come request.params.
+  void app.register(commentRoutes, { prefix: "/api/tickets/:ticketId/comments" });
 
   app.get("/health", async () => ({ status: "ok" }));
 
