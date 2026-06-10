@@ -5,6 +5,14 @@ import { projects, tickets } from "./schema.js";
 
 export type Ticket = typeof tickets.$inferSelect;
 
+/** Lanciato da {@link createTicket} quando il progetto indicato non esiste. */
+export class ProjectNotFoundError extends Error {
+  constructor(projectId: string) {
+    super(`Progetto ${projectId} inesistente: impossibile creare il ticket`);
+    this.name = "ProjectNotFoundError";
+  }
+}
+
 export interface CreateTicketInput {
   projectId: string;
   title: string;
@@ -37,7 +45,7 @@ export async function createTicket(db: Db, input: CreateTicketInput): Promise<Ti
       .returning({ nextTicketNumber: projects.nextTicketNumber });
 
     if (!claimed) {
-      throw new Error(`Progetto ${input.projectId} inesistente: impossibile creare il ticket`);
+      throw new ProjectNotFoundError(input.projectId);
     }
 
     const [ticket] = await tx

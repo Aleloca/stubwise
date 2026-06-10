@@ -11,6 +11,8 @@ export interface TestDb {
   client: postgres.Sql;
   /** Container Postgres effimero, da fermare in afterAll (`await container.stop()`). */
   container: StartedPostgreSqlContainer;
+  /** Teardown unificato per afterAll: chiude il client e poi ferma il container. */
+  stop(): Promise<void>;
 }
 
 /**
@@ -23,5 +25,13 @@ export async function startTestDb(): Promise<TestDb> {
   const container = await new PostgreSqlContainer("postgres:17-alpine").start();
   const { db, client } = createDb(container.getConnectionUri());
   await runMigrations(db);
-  return { db, client, container };
+  return {
+    db,
+    client,
+    container,
+    async stop() {
+      await client.end();
+      await container.stop();
+    },
+  };
 }

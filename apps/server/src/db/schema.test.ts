@@ -3,7 +3,7 @@ import type { TestDb } from "../test/db.js";
 import { startTestDb } from "../test/db.js";
 import type { Db } from "./client.js";
 import { errorGroups, projects } from "./schema.js";
-import { createTicket } from "./tickets.js";
+import { createTicket, ProjectNotFoundError } from "./tickets.js";
 
 /**
  * Estrae il codice errore Postgres. Drizzle avvolge gli errori del driver
@@ -44,8 +44,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(async () => {
-  await testDb.client.end();
-  await testDb.container.stop();
+  await testDb.stop();
 });
 
 describe("schema: tickets", () => {
@@ -126,7 +125,7 @@ describe("schema: tickets", () => {
         priority: "low",
         source: "manual",
       }),
-    ).rejects.toThrowError(/progetto/i);
+    ).rejects.toBeInstanceOf(ProjectNotFoundError);
   });
 });
 
