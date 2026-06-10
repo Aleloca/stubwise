@@ -21,7 +21,7 @@ try {
   process.exit(1);
 }
 
-const app = buildApp({ logger: true, db });
+const app = buildApp({ logger: true, db, sessionSecret: config.sessionSecret });
 
 try {
   await app.listen({ port: config.port, host: "0.0.0.0" });
