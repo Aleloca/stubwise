@@ -1,6 +1,6 @@
 import type { Breadcrumb, TicketPriority, TicketType } from "@stubwise/shared";
 import { BreadcrumbBuffer } from "./breadcrumbs.js";
-import { Transport } from "./transport.js";
+import { Transport, type FlushOptions } from "./transport.js";
 
 export interface ClientOptions {
   /** DSN nel formato `https://KEY@host/p/slug`. */
@@ -159,7 +159,7 @@ export class Client {
   }
 
   /** Invia subito tutto ciò che è in coda. Si risolve sempre, non rigetta mai. */
-  flush(): Promise<void> {
-    return this.transport.flush();
+  flush(options?: FlushOptions): Promise<void> {
+    return this.transport.flush(options);
   }
 }

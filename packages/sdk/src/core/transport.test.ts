@@ -296,4 +296,80 @@ describe("Transport", () => {
     await expect(transport.flush()).resolves.toBeUndefined();
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  describe("flush con keepalive", () => {
+    it("flush({ keepalive: true }) propaga keepalive all'init della fetch", async () => {
+      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(okResponse());
+      const transport = makeTransport(fetchMock);
+
+      transport.enqueue(errorEvent("fine pagina"));
+      await transport.flush({ keepalive: true });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0]?.[1]?.keepalive).toBe(true);
+      expect(sentEvents(fetchMock).map((e) => e.message)).toEqual(["fine pagina"]);
+    });
+
+    it("flush() normale non imposta keepalive", async () => {
+      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(okResponse());
+      const transport = makeTransport(fetchMock);
+
+      transport.enqueue(errorEvent("normale"));
+      await transport.flush();
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0]?.[1]?.keepalive).toBeUndefined();
+    });
+
+    it("il flush da timer non imposta keepalive", async () => {
+      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(okResponse());
+      const transport = makeTransport(fetchMock);
+
+      transport.enqueue(errorEvent("da timer"));
+      await vi.advanceTimersByTimeAsync(FLUSH_MS);
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls[0]?.[1]?.keepalive).toBeUndefined();
+    });
+
+    it("con keepalive un batch oltre il cap viene spezzato in più POST, ognuna <60KB e con keepalive", async () => {
+      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(okResponse());
+      const transport = makeTransport(fetchMock);
+
+      // 100 eventi da ~1.5KB ⇒ body unico da ~150KB, ben oltre il cap di 60KB
+      const padding = "x".repeat(1500);
+      for (let i = 0; i < 100; i++) {
+        transport.enqueue(errorEvent(`evt-${i}-${padding}`));
+      }
+      await transport.flush({ keepalive: true });
+
+      expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
+      const messages: string[] = [];
+      for (let i = 0; i < fetchMock.mock.calls.length; i++) {
+        const init = fetchMock.mock.calls[i]?.[1];
+        expect(init?.keepalive).toBe(true);
+        const body = init?.body as string;
+        expect(new TextEncoder().encode(body).length).toBeLessThan(60000);
+        messages.push(...sentEvents(fetchMock, i).map((e) => e.message));
+      }
+      // nessun evento perso e ordine preservato attraverso i chunk
+      expect(messages).toHaveLength(100);
+      expect(messages[0]).toBe(`evt-0-${padding}`);
+      expect(messages[99]).toBe(`evt-99-${padding}`);
+    });
+
+    it("senza keepalive un batch oltre il cap parte comunque in una singola POST", async () => {
+      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(okResponse());
+      const transport = makeTransport(fetchMock);
+
+      const padding = "x".repeat(1500);
+      for (let i = 0; i < 100; i++) {
+        transport.enqueue(errorEvent(`evt-${i}-${padding}`));
+      }
+      await transport.flush();
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(sentEvents(fetchMock)).toHaveLength(100);
+    });
+  });
 });

@@ -206,6 +206,23 @@ describe("breadcrumb di navigazione", () => {
     const navs = crumbs.filter((c) => c.type === "navigation").map((c) => c.message);
     expect(navs).toContain(`${atB} → ${atA}`);
   });
+
+  it("hashchange produce un breadcrumb di navigazione from → to", async () => {
+    const fetchMock = okFetch();
+    init({ dsn: DSN, fetchImpl: fetchMock });
+
+    const before = location.href;
+    location.hash = "#dettagli";
+    // happy-dom potrebbe non emettere hashchange da solo: il dispatch manuale
+    // è idempotente perché recordNavigation deduplica gli URL identici
+    window.dispatchEvent(new Event("hashchange"));
+    const after = location.href;
+    expect(after).not.toBe(before);
+
+    const crumbs = await breadcrumbsViaError(fetchMock);
+    const navs = crumbs.filter((c) => c.type === "navigation").map((c) => c.message);
+    expect(navs).toContain(`${before} → ${after}`);
+  });
 });
 
 describe("strumentazione di fetch", () => {
@@ -283,6 +300,54 @@ describe("strumentazione di fetch", () => {
     expect(crumbs.filter((c) => c.type === "fetch")).toHaveLength(0);
   });
 
+  it("un URL lookalike dell'endpoint (slug con suffisso) produce il suo breadcrumb", async () => {
+    const inner = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 500 }));
+    window.fetch = inner;
+
+    const fetchMock = okFetch();
+    init({ dsn: DSN, fetchImpl: fetchMock });
+
+    // /ingest/my-app-v2 NON è l'endpoint /ingest/my-app: niente skip
+    await window.fetch(`${ENDPOINT}-v2`, { method: "POST" });
+
+    const crumbs = await breadcrumbsViaError(fetchMock);
+    const fetches = crumbs.filter((c) => c.type === "fetch").map((c) => c.message);
+    expect(fetches).toEqual([`POST ${ENDPOINT}-v2 → 500`]);
+  });
+
+  it("l'endpoint con query string o hash resta escluso dai breadcrumb", async () => {
+    const inner = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 500 }));
+    window.fetch = inner;
+
+    const fetchMock = okFetch();
+    init({ dsn: DSN, fetchImpl: fetchMock });
+
+    await window.fetch(`${ENDPOINT}?retry=1`, { method: "POST" });
+    await window.fetch(`${ENDPOINT}#frag`, { method: "POST" });
+
+    const crumbs = await breadcrumbsViaError(fetchMock);
+    expect(crumbs.filter((c) => c.type === "fetch")).toHaveLength(0);
+  });
+
+  it("window.fetch non-funzione: init non installa il wrapper e nulla lancia", async () => {
+    const original = window.fetch;
+    // @ts-expect-error simulazione di un ambiente esotico senza fetch
+    delete window.fetch;
+    try {
+      const fetchMock = okFetch();
+      expect(() => init({ dsn: DSN, fetchImpl: fetchMock })).not.toThrow();
+      // nessun wrapper installato: window.fetch resta com'era (assente)
+      expect(window.fetch).toBeUndefined();
+
+      // il resto dell'SDK continua a funzionare
+      captureError(new Error("senza fetch"));
+      await flush();
+      expect(deliveredErrors(fetchMock).map((e) => e.message)).toEqual(["senza fetch"]);
+    } finally {
+      window.fetch = original;
+    }
+  });
+
   it("senza fetchImpl il transport usa la fetch pre-wrap: i POST di ingestion falliti non generano breadcrumb", async () => {
     // window.fetch fa da "server" che rifiuta con 500: se il transport
     // passasse dalla fetch strumentata, ogni flush fallito genererebbe un
@@ -309,7 +374,7 @@ describe("strumentazione di fetch", () => {
 });
 
 describe("flush automatico a fine pagina", () => {
-  it("pagehide svuota la coda senza flush esplicito", async () => {
+  it("pagehide svuota la coda con keepalive (il browser non aborta la fetch)", async () => {
     const fetchMock = okFetch();
     init({ dsn: DSN, fetchImpl: fetchMock });
 
@@ -318,9 +383,10 @@ describe("flush automatico a fine pagina", () => {
 
     window.dispatchEvent(new Event("pagehide"));
     await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock.mock.calls[0]?.[1]?.keepalive).toBe(true);
   });
 
-  it("visibilitychange → hidden svuota la coda", async () => {
+  it("visibilitychange → hidden svuota la coda con keepalive", async () => {
     const fetchMock = okFetch();
     init({ dsn: DSN, fetchImpl: fetchMock });
 
@@ -329,9 +395,21 @@ describe("flush automatico a fine pagina", () => {
     try {
       document.dispatchEvent(new Event("visibilitychange"));
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      expect(fetchMock.mock.calls[0]?.[1]?.keepalive).toBe(true);
     } finally {
       delete (document as { visibilityState?: string }).visibilityState;
     }
+  });
+
+  it("flush() manuale non imposta keepalive", async () => {
+    const fetchMock = okFetch();
+    init({ dsn: DSN, fetchImpl: fetchMock });
+
+    captureFeedback({ message: "feedback in coda" });
+    await flush();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[1]?.keepalive).toBeUndefined();
   });
 });
 

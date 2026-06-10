@@ -11,7 +11,13 @@ import { parseDsn } from "./core/transport.js";
 
 export { BreadcrumbBuffer } from "./core/breadcrumbs.js";
 export { Client, type ClientOptions } from "./core/client.js";
-export { parseDsn, Transport, type ParsedDsn, type TransportOptions } from "./core/transport.js";
+export {
+  parseDsn,
+  Transport,
+  type FlushOptions,
+  type ParsedDsn,
+  type TransportOptions,
+} from "./core/transport.js";
 
 export type BrowserOptions = ClientOptions;
 
@@ -150,14 +156,30 @@ function installNavigationBreadcrumbs(sdk: Client): void {
     return result;
   };
   window.addEventListener("popstate", recordNavigation);
+  window.addEventListener("hashchange", recordNavigation);
   teardowns.push(() => {
     history.pushState = originalPushState;
     history.replaceState = originalReplaceState;
     window.removeEventListener("popstate", recordNavigation);
+    window.removeEventListener("hashchange", recordNavigation);
   });
 }
 
+/**
+ * true solo per l'endpoint di ingestion ESATTO (eventualmente seguito da
+ * query string o hash): `/ingest/my-app-v2` non deve combaciare con
+ * l'endpoint `/ingest/my-app` di un altro progetto.
+ */
+function isIngestEndpointUrl(url: string, ingestEndpoint: string): boolean {
+  if (!url.startsWith(ingestEndpoint)) return false;
+  const next = url.charAt(ingestEndpoint.length);
+  return next === "" || next === "?" || next === "#";
+}
+
 function installFetchBreadcrumbs(sdk: Client, ingestEndpoint: string): void {
+  // ambienti esotici (fetch rimossa o sostituita con un non-callable): non
+  // c'è niente da strumentare e soprattutto non si deve mai lanciare
+  if (typeof window.fetch !== "function") return;
   const originalFetch = window.fetch;
   const wrappedFetch = function (
     this: unknown,
@@ -170,7 +192,7 @@ function installFetchBreadcrumbs(sdk: Client, ingestEndpoint: string): void {
       const { method, url } = describeFetchRequest(args[0], args[1]);
       // mai breadcrumb sui POST di ingestion dell'SDK stesso: un server che
       // risponde 5xx genererebbe breadcrumb → eventi → POST → feedback loop
-      if (url.startsWith(ingestEndpoint)) return;
+      if (isIngestEndpointUrl(url, ingestEndpoint)) return;
       promise.then(
         (response) => {
           safely(() => {
@@ -195,12 +217,14 @@ function installFetchBreadcrumbs(sdk: Client, ingestEndpoint: string): void {
 }
 
 function installPageLifecycleFlush(sdk: Client): void {
+  // keepalive: senza, il browser aborta le fetch avviate mentre la pagina
+  // viene nascosta o scaricata e gli ultimi eventi andrebbero persi
   const onPageHide = (): void => {
-    safely(() => void sdk.flush());
+    safely(() => void sdk.flush({ keepalive: true }));
   };
   const onVisibilityChange = (): void => {
     safely(() => {
-      if (document.visibilityState === "hidden") void sdk.flush();
+      if (document.visibilityState === "hidden") void sdk.flush({ keepalive: true });
     });
   };
   window.addEventListener("pagehide", onPageHide);

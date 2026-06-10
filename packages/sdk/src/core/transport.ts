@@ -54,7 +54,50 @@ export interface TransportOptions {
   fetchImpl?: typeof fetch;
 }
 
+export interface FlushOptions {
+  /**
+   * Marca le fetch come `keepalive`, così il browser non le aborta quando
+   * la pagina viene nascosta o chiusa (pagehide/visibilitychange). I body
+   * keepalive hanno un cap di ~64KB: batch più grandi vengono spezzati in
+   * più POST sotto il cap.
+   */
+  keepalive?: boolean;
+}
+
 type SendOutcome = "ok" | "retry" | "drop";
+
+/** Cap prudente sotto il limite ~64KB imposto dai browser ai body keepalive. */
+const KEEPALIVE_BODY_CAP_BYTES = 60000;
+
+/** Byte UTF-8 di una stringa (i body JSON viaggiano in UTF-8). */
+function byteLength(text: string): number {
+  return new TextEncoder().encode(text).length;
+}
+
+/**
+ * Spezza un batch in chunk il cui body serializzato resta sotto il cap
+ * keepalive. Greedy, ordine preservato; un singolo evento sopra il cap fa
+ * chunk a sé (non è ulteriormente divisibile).
+ */
+function splitForKeepalive(batch: IngestEvent[]): IngestEvent[][] {
+  const wrapperBytes = byteLength('{"events":[]}');
+  const chunks: IngestEvent[][] = [];
+  let current: IngestEvent[] = [];
+  let currentBytes = wrapperBytes;
+  for (const event of batch) {
+    // +1 per la virgola di separazione (stima per eccesso sul primo elemento)
+    const eventBytes = byteLength(JSON.stringify(event)) + 1;
+    if (current.length > 0 && currentBytes + eventBytes > KEEPALIVE_BODY_CAP_BYTES) {
+      chunks.push(current);
+      current = [];
+      currentBytes = wrapperBytes;
+    }
+    current.push(event);
+    currentBytes += eventBytes;
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks;
+}
 
 /**
  * Trasporto con batching, retry e backoff. Invariante di affidabilità:
@@ -98,11 +141,14 @@ export class Transport {
     }
   }
 
-  /** Invia subito tutto ciò che è in coda. Si risolve sempre, non rigetta mai. */
-  async flush(): Promise<void> {
+  /**
+   * Invia subito tutto ciò che è in coda. Si risolve sempre, non rigetta mai.
+   * Con `{ keepalive: true }` le fetch sopravvivono allo scarico della pagina.
+   */
+  async flush(options?: FlushOptions): Promise<void> {
     try {
       this.clearTimer();
-      await this.flushInternal();
+      await this.flushInternal(options?.keepalive === true);
     } catch {
       // mai propagare nell'app ospite
     }
@@ -133,7 +179,39 @@ export class Transport {
     }
   }
 
-  private async flushInternal(): Promise<void> {
+  /** Una singola POST verso l'endpoint di ingestion. Non lancia mai. */
+  private async sendBatch(events: IngestEvent[], keepalive: boolean): Promise<SendOutcome> {
+    try {
+      const init: RequestInit = {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "X-Stubwise-Key": this.key,
+        },
+        body: JSON.stringify({ events }),
+      };
+      // impostato solo quando serve: un flush normale non deve pagare il
+      // cap di ~64KB che i browser applicano ai body keepalive
+      if (keepalive) init.keepalive = true;
+      const response = await this.fetchImpl(this.endpoint, init);
+      if (response.ok) return "ok";
+      if (response.status === 429 || response.status >= 500) return "retry";
+      // 4xx (401/422...): errore di configurazione, ritentare non aiuta
+      try {
+        console.warn(
+          `[stubwise] il server ha rifiutato un batch di ${events.length} eventi con status ${response.status}: batch scartato`,
+        );
+      } catch {
+        // anche un console.warn rotto non deve propagare
+      }
+      return "drop";
+    } catch {
+      // errore di rete (o fetchImpl rotto): trattato come transitorio
+      return "retry";
+    }
+  }
+
+  private async flushInternal(keepalive = false): Promise<void> {
     if (this.flushing || this.queue.length === 0) return;
     this.flushing = true;
     // batch = tutta la coda (cap a maxQueue ⇒ sempre ≤ 100, il limite del server)
@@ -141,31 +219,18 @@ export class Transport {
     this.queue = [];
     let outcome: SendOutcome = "retry";
     try {
-      const response = await this.fetchImpl(this.endpoint, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "X-Stubwise-Key": this.key,
-        },
-        body: JSON.stringify({ events: batch }),
-      });
-      if (response.ok) {
-        outcome = "ok";
-      } else if (response.status === 429 || response.status >= 500) {
-        outcome = "retry";
+      if (keepalive && byteLength(JSON.stringify({ events: batch })) > KEEPALIVE_BODY_CAP_BYTES) {
+        // body oltre il cap keepalive: spezzato in più POST, ognuna sotto il
+        // cap. Best effort: la pagina sta scomparendo, un retry non avrebbe
+        // mai il tempo di partire, quindi i chunk falliti vengono scartati.
+        const results = await Promise.all(
+          splitForKeepalive(batch).map((chunk) => this.sendBatch(chunk, true)),
+        );
+        outcome = results.every((r) => r === "ok") ? "ok" : "drop";
       } else {
-        // 4xx (401/422...): errore di configurazione, ritentare non aiuta
-        outcome = "drop";
-        try {
-          console.warn(
-            `[stubwise] il server ha rifiutato un batch di ${batch.length} eventi con status ${response.status}: batch scartato`,
-          );
-        } catch {
-          // anche un console.warn rotto non deve propagare
-        }
+        outcome = await this.sendBatch(batch, keepalive);
       }
     } catch {
-      // errore di rete (o fetchImpl rotto): trattato come transitorio
       outcome = "retry";
     } finally {
       this.flushing = false;
