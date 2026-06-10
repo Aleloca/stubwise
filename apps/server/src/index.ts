@@ -1,5 +1,6 @@
 import { buildApp } from "./app.js";
 import { loadConfig, type Config } from "./config.js";
+import { createDb, runMigrations } from "./db/client.js";
 
 function loadConfigOrExit(): Config {
   try {
@@ -11,7 +12,16 @@ function loadConfigOrExit(): Config {
 }
 
 const config = loadConfigOrExit();
-const app = buildApp({ logger: true });
+const db = createDb(config.databaseUrl);
+
+try {
+  await runMigrations(db);
+} catch (err) {
+  console.error("Migrazione del database fallita:", err instanceof Error ? err.message : err);
+  process.exit(1);
+}
+
+const app = buildApp({ logger: true, db });
 
 try {
   await app.listen({ port: config.port, host: "0.0.0.0" });

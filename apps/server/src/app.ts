@@ -1,7 +1,15 @@
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
+import type { Db } from "./db/client.js";
+
+declare module "fastify" {
+  interface FastifyInstance {
+    db: Db;
+  }
+}
 
 export interface BuildAppOptions {
   logger?: FastifyServerOptions["logger"];
+  db?: Db;
 }
 
 /**
@@ -11,6 +19,10 @@ export interface BuildAppOptions {
  */
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   const app = Fastify({ logger: opts.logger ?? false });
+
+  if (opts.db) {
+    app.decorate("db", opts.db);
+  }
 
   app.get("/health", async () => ({ status: "ok" }));
 

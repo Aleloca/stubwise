@@ -1,0 +1,154 @@
+import {
+  gitProviderKindSchema,
+  ticketPrioritySchema,
+  ticketSourceSchema,
+  ticketStatusSchema,
+  ticketTypeSchema,
+} from "@stubwise/shared";
+import {
+  integer,
+  jsonb,
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
+
+/**
+ * Converte le opzioni di uno z.enum nella tupla non vuota richiesta da pgEnum,
+ * preservando i tipi letterali. Gli schemi Zod in @stubwise/shared restano
+ * l'unica fonte di verità per i valori: enum Postgres e validazione non
+ * possono divergere.
+ */
+function enumValues<T extends string>(schema: { options: readonly T[] }): [T, ...T[]] {
+  return schema.options as [T, ...T[]];
+}
+
+export const userRole = pgEnum("user_role", ["admin", "member"]);
+export const gitProviderKind = pgEnum("git_provider_kind", enumValues(gitProviderKindSchema));
+export const ticketType = pgEnum("ticket_type", enumValues(ticketTypeSchema));
+export const ticketPriority = pgEnum("ticket_priority", enumValues(ticketPrioritySchema));
+export const ticketStatus = pgEnum("ticket_status", enumValues(ticketStatusSchema));
+export const ticketSource = pgEnum("ticket_source", enumValues(ticketSourceSchema));
+export const commentAuthorType = pgEnum("comment_author_type", ["user", "ai"]);
+// Dominio del worker AI, ma vive nel DB: definito qui.
+export const aiJobStatus = pgEnum("ai_job_status", [
+  "queued",
+  "triaging",
+  "fixing",
+  "pr_opened",
+  "failed",
+  "skipped",
+]);
+
+export const users = pgTable("users", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  role: userRole("role").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const invites = pgTable("invites", {
+  token: text("token").primaryKey(),
+  email: text("email").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
+
+export const sessions = pgTable("sessions", {
+  id: text("id").primaryKey(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
+
+export const projects = pgTable("projects", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  provider: gitProviderKind("provider").notNull(),
+  repoUrl: text("repo_url").notNull(),
+  defaultBranch: text("default_branch").notNull(),
+  encryptedCredentials: text("encrypted_credentials").notNull(),
+  ingestionKey: text("ingestion_key").notNull().unique(),
+  // Contatore per i numeri ticket sequenziali per-progetto: l'applicazione
+  // lo incrementa in transazione quando crea un ticket.
+  nextTicketNumber: integer("next_ticket_number").notNull().default(1),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const tickets = pgTable(
+  "tickets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    number: integer("number").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    type: ticketType("type").notNull(),
+    priority: ticketPriority("priority").notNull(),
+    status: ticketStatus("status").notNull().default("open"),
+    source: ticketSource("source").notNull(),
+    assigneeId: uuid("assignee_id").references(() => users.id, { onDelete: "set null" }),
+    labels: text("labels").array().notNull().default([]),
+    // Payload tecnico per i ticket da SDK: stack trace, browser, URL,
+    // release, breadcrumbs.
+    technicalPayload: jsonb("technical_payload"),
+    occurrences: integer("occurrences").notNull().default(1),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("tickets_project_id_number_unique").on(table.projectId, table.number)],
+);
+
+export const errorGroups = pgTable(
+  "error_groups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    fingerprint: text("fingerprint").notNull(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    uniqueIndex("error_groups_project_id_fingerprint_unique").on(
+      table.projectId,
+      table.fingerprint,
+    ),
+  ],
+);
+
+export const comments = pgTable("comments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  ticketId: uuid("ticket_id")
+    .notNull()
+    .references(() => tickets.id, { onDelete: "cascade" }),
+  authorType: commentAuthorType("author_type").notNull(),
+  // Nullo per i commenti dell'AI; nullato se l'autore viene eliminato.
+  authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const aiJobs = pgTable("ai_jobs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  ticketId: uuid("ticket_id")
+    .notNull()
+    .references(() => tickets.id, { onDelete: "cascade" }),
+  status: aiJobStatus("status").notNull().default("queued"),
+  log: text("log").notNull().default(""),
+  prUrl: text("pr_url"),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+});
