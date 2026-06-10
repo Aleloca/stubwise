@@ -188,6 +188,9 @@ importers:
         specifier: ^4.1.5
         version: 4.4.3
     devDependencies:
+      '@testcontainers/postgresql':
+        specifier: ^12.0.1
+        version: 12.0.1
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.20
