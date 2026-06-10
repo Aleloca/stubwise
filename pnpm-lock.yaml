@@ -57,6 +57,9 @@ importers:
         specifier: ^4.1.5
         version: 4.4.3
     devDependencies:
+      '@stubwise/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
       '@testcontainers/postgresql':
         specifier: ^12.0.1
         version: 12.0.1

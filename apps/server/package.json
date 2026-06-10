@@ -24,6 +24,7 @@
     "zod": "^4.1.5"
   },
   "devDependencies": {
+    "@stubwise/sdk": "workspace:*",
     "@testcontainers/postgresql": "^12.0.1",
     "@types/node": "^22.0.0",
     "drizzle-kit": "^0.31.10",
