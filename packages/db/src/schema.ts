@@ -174,6 +174,10 @@ export const aiJobs = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp("started_at", { withTimezone: true }),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
+    // Heartbeat del worker: toccato da claim, transizioni e appendLog. È la
+    // base del recupero dei job orfani (requeueStale): un job che logga è
+    // vivo anche se in lavorazione da molto.
+    lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     // Lookup dei job di un ticket (storico e dettaglio).

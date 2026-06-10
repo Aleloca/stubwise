@@ -4,6 +4,15 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 export type AiJob = typeof aiJobs.$inferSelect;
 
 /**
+ * Stati "in lavorazione": un worker può chiudere o far avanzare un job solo
+ * finché è in uno di questi. Le transizioni terminali (completeJob/failJob)
+ * e markFixing filtrano su questi stati: se nel frattempo il job è stato
+ * riportato in coda e reclamato da un altro worker, l'UPDATE non tocca righe
+ * e il chiamante riceve false (ha perso la ownership, deve fermarsi).
+ */
+const ACTIVE_STATUSES = ["triaging", "fixing"] as const;
+
+/**
  * Reclama atomicamente il job `queued` più vecchio e lo marca `triaging`.
  * Il claim è un singolo UPDATE con subquery `FOR UPDATE SKIP LOCKED`: due
  * worker concorrenti non possono mai prendere lo stesso job, chi trova la
@@ -12,7 +21,7 @@ export type AiJob = typeof aiJobs.$inferSelect;
 export async function claimNextJob(db: Db): Promise<AiJob | null> {
   const [job] = await db
     .update(aiJobs)
-    .set({ status: "triaging", startedAt: sql`now()` })
+    .set({ status: "triaging", startedAt: sql`now()`, lastActivityAt: sql`now()` })
     .where(
       eq(
         aiJobs.id,
@@ -26,11 +35,13 @@ export async function claimNextJob(db: Db): Promise<AiJob | null> {
 /**
  * Accoda una riga al log del job (con newline finale). L'append è fatto
  * lato DB (`log || riga`) così più scritture concorrenti non si perdono.
+ * Aggiorna anche `lastActivityAt`: ogni riga di log è un heartbeat gratuito
+ * che tiene il job fuori dal radar di requeueStale.
  */
 export async function appendLog(db: Db, jobId: string, line: string): Promise<void> {
   await db
     .update(aiJobs)
-    .set({ log: sql`${aiJobs.log} || ${`${line}\n`}` })
+    .set({ log: sql`${aiJobs.log} || ${`${line}\n`}`, lastActivityAt: sql`now()` })
     .where(eq(aiJobs.id, jobId));
 }
 
@@ -43,17 +54,26 @@ export interface CompleteJobInput {
 /**
  * Chiude il job con un esito positivo (`pr_opened` o `skipped`): accoda il
  * log finale, registra l'eventuale URL della PR e imposta `finishedAt`.
+ * Restituisce false se il job non era più in lavorazione (ownership persa):
+ * il chiamante deve interpretarlo come "fermati, il job non è più tuo".
  */
-export async function completeJob(db: Db, jobId: string, input: CompleteJobInput): Promise<void> {
-  await db
+export async function completeJob(
+  db: Db,
+  jobId: string,
+  input: CompleteJobInput,
+): Promise<boolean> {
+  const updated = await db
     .update(aiJobs)
     .set({
       status: input.status,
       log: sql`${aiJobs.log} || ${`${input.log}\n`}`,
       finishedAt: sql`now()`,
+      lastActivityAt: sql`now()`,
       ...(input.prUrl !== undefined ? { prUrl: input.prUrl } : {}),
     })
-    .where(eq(aiJobs.id, jobId));
+    .where(and(eq(aiJobs.id, jobId), inArray(aiJobs.status, [...ACTIVE_STATUSES])))
+    .returning({ id: aiJobs.id });
+  return updated.length > 0;
 }
 
 export interface FailJobInput {
@@ -61,22 +81,37 @@ export interface FailJobInput {
   error: string;
 }
 
-/** Chiude il job come `failed`: accoda il log, registra l'errore e `finishedAt`. */
-export async function failJob(db: Db, jobId: string, input: FailJobInput): Promise<void> {
-  await db
+/**
+ * Chiude il job come `failed`: accoda il log, registra l'errore e
+ * `finishedAt`. Come completeJob, restituisce false se la ownership è persa.
+ */
+export async function failJob(db: Db, jobId: string, input: FailJobInput): Promise<boolean> {
+  const updated = await db
     .update(aiJobs)
     .set({
       status: "failed",
       log: sql`${aiJobs.log} || ${`${input.log}\n`}`,
       error: input.error,
       finishedAt: sql`now()`,
+      lastActivityAt: sql`now()`,
     })
-    .where(eq(aiJobs.id, jobId));
+    .where(and(eq(aiJobs.id, jobId), inArray(aiJobs.status, [...ACTIVE_STATUSES])))
+    .returning({ id: aiJobs.id });
+  return updated.length > 0;
 }
 
-/** Transizione triage → fix: il triage ha deciso che il bug è aggredibile. */
-export async function markFixing(db: Db, jobId: string): Promise<void> {
-  await db.update(aiJobs).set({ status: "fixing" }).where(eq(aiJobs.id, jobId));
+/**
+ * Transizione triage → fix: il triage ha deciso che il bug è aggredibile.
+ * Restituisce false se la ownership è persa (job requeued e reclamato da
+ * un altro worker): il chiamante non deve iniziare la fase di fix.
+ */
+export async function markFixing(db: Db, jobId: string): Promise<boolean> {
+  const updated = await db
+    .update(aiJobs)
+    .set({ status: "fixing", lastActivityAt: sql`now()` })
+    .where(and(eq(aiJobs.id, jobId), inArray(aiJobs.status, [...ACTIVE_STATUSES])))
+    .returning({ id: aiJobs.id });
+  return updated.length > 0;
 }
 
 export interface RequeueStaleOptions {
@@ -84,10 +119,11 @@ export interface RequeueStaleOptions {
 }
 
 /**
- * Riporta in coda i job rimasti `triaging`/`fixing` oltre la soglia: è il
- * segno di un worker crashato a metà lavoro. `startedAt` torna NULL e il
- * log riceve una riga che documenta il recupero. Restituisce quanti job
- * sono stati ripristinati.
+ * Riporta in coda i job `triaging`/`fixing` senza attività oltre la soglia:
+ * è il segno di un worker crashato a metà lavoro. La staleness si misura su
+ * `lastActivityAt` (non su `startedAt`): un fix lungo che continua a loggare
+ * è vivo e non va toccato. `startedAt` torna NULL e il log riceve una riga
+ * che documenta il recupero. Restituisce quanti job sono stati ripristinati.
  */
 export async function requeueStale(db: Db, options: RequeueStaleOptions): Promise<number> {
   const requeued = await db
@@ -95,16 +131,31 @@ export async function requeueStale(db: Db, options: RequeueStaleOptions): Promis
     .set({
       status: "queued",
       startedAt: null,
-      log: sql`${aiJobs.log} || ${"[stubwise] job riportato in coda: il worker non ha concluso entro il timeout\n"}`,
+      lastActivityAt: sql`now()`,
+      log: sql`${aiJobs.log} || ${"[stubwise] job riportato in coda: il worker non ha dato segni di vita entro il timeout\n"}`,
     })
     .where(
       and(
-        inArray(aiJobs.status, ["triaging", "fixing"]),
-        sql`${aiJobs.startedAt} < now() - make_interval(mins => ${options.olderThanMinutes}::int)`,
+        inArray(aiJobs.status, [...ACTIVE_STATUSES]),
+        sql`${aiJobs.lastActivityAt} < now() - make_interval(mins => ${options.olderThanMinutes}::int)`,
       ),
     )
     .returning({ id: aiJobs.id });
   return requeued.length;
+}
+
+/**
+ * Override test-only delle dipendenze interne di runWorker: permette di
+ * simulare errori DB transitori e accelerare il backoff senza toccare
+ * l'API pubblica. Non usare in produzione.
+ */
+export interface RunWorkerInternals {
+  claimNextJob?: typeof claimNextJob;
+  requeueStale?: typeof requeueStale;
+  /** Primo intervallo di backoff dopo un errore DB (default 1s). */
+  backoffBaseMs?: number;
+  /** Tetto del backoff esponenziale (default 30s). */
+  backoffMaxMs?: number;
 }
 
 export interface RunWorkerOptions {
@@ -121,10 +172,12 @@ export interface RunWorkerOptions {
   pollMs?: number;
   /** Ferma il loop: smette di reclamare e attende i job in volo. */
   signal?: AbortSignal;
-  /** Soglia oltre cui un job in lavorazione è considerato orfano (default 15'). */
+  /** Soglia di inattività oltre cui un job in lavorazione è orfano (default 15'). */
   staleAfterMinutes?: number;
   /** Ogni quanto cercare job orfani (default 60s; il primo controllo è subito). */
   requeueEveryMs?: number;
+  /** Solo per i test: vedi RunWorkerInternals. */
+  _internals?: RunWorkerInternals;
 }
 
 /** Sleep interrompibile: si risolve subito se il segnale viene abortito. */
@@ -151,6 +204,8 @@ async function runJob(db: Db, job: AiJob, handler: (job: AiJob) => Promise<void>
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     try {
+      // Se restituisce false la ownership era già persa: il job è di un
+      // altro worker, non c'è niente da marcare.
       await failJob(db, job.id, { log: `[stubwise] handler fallito: ${message}`, error: message });
     } catch {
       // Anche il failJob è fallito (DB irraggiungibile?): il job resta in
@@ -163,8 +218,11 @@ async function runJob(db: Db, job: AiJob, handler: (job: AiJob) => Promise<void>
  * Loop principale del worker: reclama job fino a saturare `concurrency`
  * (tracciandoli come promise in volo, niente thread), poi attende `pollMs`
  * e riprova. Periodicamente riporta in coda i job orfani di worker crashati
- * (il primo controllo avviene subito, all'avvio). Sull'abort smette di
- * reclamare e attende il completamento dei job in volo prima di risolvere.
+ * (il primo controllo avviene subito, all'avvio). Gli errori DB transitori
+ * non uccidono il loop: si riprova con backoff esponenziale (1s → 2s → 4s
+ * → … → 30s, azzerato al primo successo). Sull'abort smette di reclamare e
+ * attende il completamento dei job in volo prima di risolvere; i job in
+ * volo vengono attesi anche se il loop terminasse per un errore imprevisto.
  */
 export async function runWorker(options: RunWorkerOptions): Promise<void> {
   const {
@@ -175,28 +233,50 @@ export async function runWorker(options: RunWorkerOptions): Promise<void> {
     signal,
     staleAfterMinutes = 15,
     requeueEveryMs = 60_000,
+    _internals,
   } = options;
+  const claim = _internals?.claimNextJob ?? claimNextJob;
+  const requeue = _internals?.requeueStale ?? requeueStale;
+  const backoffBaseMs = _internals?.backoffBaseMs ?? 1000;
+  const backoffMaxMs = _internals?.backoffMaxMs ?? 30_000;
 
   const inFlight = new Set<Promise<void>>();
   let nextRequeueAt = 0; // 0 = il primo requeueStale parte subito.
+  let backoffMs = 0; // 0 = nessun errore DB recente.
 
-  while (!signal?.aborted) {
-    if (Date.now() >= nextRequeueAt) {
-      nextRequeueAt = Date.now() + requeueEveryMs;
-      await requeueStale(db, { olderThanMinutes: staleAfterMinutes });
+  try {
+    while (!signal?.aborted) {
+      try {
+        if (Date.now() >= nextRequeueAt) {
+          await requeue(db, { olderThanMinutes: staleAfterMinutes });
+          // Avanzato solo dopo il successo: se la requeue fallisce si
+          // ritenta alla prossima iterazione, non tra requeueEveryMs.
+          nextRequeueAt = Date.now() + requeueEveryMs;
+        }
+
+        while (inFlight.size < concurrency && !signal?.aborted) {
+          const job = await claim(db);
+          if (!job) break;
+          const task = runJob(db, job, handler).finally(() => {
+            inFlight.delete(task);
+          });
+          inFlight.add(task);
+        }
+
+        backoffMs = 0;
+      } catch {
+        // Errore DB transitorio (connessione caduta, failover): non
+        // uccidere il loop, riprova con backoff esponenziale.
+        backoffMs = backoffMs === 0 ? backoffBaseMs : Math.min(backoffMs * 2, backoffMaxMs);
+        await sleep(backoffMs, signal);
+        continue;
+      }
+
+      await sleep(pollMs, signal);
     }
-
-    while (inFlight.size < concurrency && !signal?.aborted) {
-      const job = await claimNextJob(db);
-      if (!job) break;
-      const task = runJob(db, job, handler).finally(() => {
-        inFlight.delete(task);
-      });
-      inFlight.add(task);
-    }
-
-    await sleep(pollMs, signal);
+  } finally {
+    // Qualunque cosa accada al loop, i job in volo vanno attesi: runWorker
+    // non si risolve mai lasciando handler orfani in esecuzione.
+    await Promise.all(inFlight);
   }
-
-  await Promise.all(inFlight);
 }
