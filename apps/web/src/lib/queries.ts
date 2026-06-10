@@ -1,5 +1,13 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
-import { getProjects, getTicket, listTickets, type TicketFilters } from "./api";
+import {
+  getComments,
+  getProjects,
+  getTicket,
+  getTicketJobs,
+  getUsers,
+  listTickets,
+  type TicketFilters,
+} from "./api";
 
 /**
  * Query del dominio ticket/progetti, condivise tra loader delle route e
@@ -24,6 +32,26 @@ export function ticketQueryOptions(id: string) {
     staleTime: 10_000,
   });
 }
+
+export function commentsQueryOptions(ticketId: string) {
+  return queryOptions({
+    queryKey: ["tickets", "comments", ticketId],
+    queryFn: () => getComments(ticketId),
+  });
+}
+
+export function ticketJobsQueryOptions(ticketId: string) {
+  return queryOptions({
+    queryKey: ["tickets", "jobs", ticketId],
+    queryFn: () => getTicketJobs(ticketId),
+  });
+}
+
+export const usersQueryOptions = queryOptions({
+  queryKey: ["users"],
+  queryFn: getUsers,
+  staleTime: 60_000,
+});
 
 export const projectsQueryOptions = queryOptions({
   queryKey: ["projects"],

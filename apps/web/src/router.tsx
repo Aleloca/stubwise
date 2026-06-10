@@ -8,16 +8,23 @@ import {
 } from "@tanstack/react-router";
 import type { RouterHistory } from "@tanstack/react-router";
 import { AppLayout } from "./components/app-layout";
-import { PagePlaceholder } from "./components/page-placeholder";
 import { RouteError } from "./components/route-error";
 import { ApiError } from "./lib/api";
 import { meQueryOptions, setupStatusQueryOptions } from "./lib/auth";
-import { projectsQueryOptions, ticketsInfiniteQueryOptions } from "./lib/queries";
+import {
+  commentsQueryOptions,
+  projectsQueryOptions,
+  ticketJobsQueryOptions,
+  ticketQueryOptions,
+  ticketsInfiniteQueryOptions,
+  usersQueryOptions,
+} from "./lib/queries";
 import { BoardPage } from "./routes/board";
 import { LoginPage } from "./routes/login";
 import { ProjectsPage } from "./routes/projects";
 import { SettingsPage } from "./routes/settings";
 import { SetupPage } from "./routes/setup";
+import { TicketDetailPage } from "./routes/tickets/$id";
 import { ticketSearchSchema, TicketsPage } from "./routes/tickets/index";
 
 /*
@@ -99,13 +106,21 @@ const ticketsRoute = createRoute({
   component: TicketsPage,
 });
 
-// Segnaposto: il dettaglio vero arriva con il secondo commit del Task 16.
 const ticketDetailRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/tickets/$id",
-  component: () => (
-    <PagePlaceholder title="Ticket" description="Dettaglio del ticket, in arrivo." />
-  ),
+  loader: async ({ context, params }) => {
+    // Tutto il dettaglio (ticket, commenti, job, utenti, progetti) in
+    // parallelo prima del render: niente cascate di spinner.
+    await Promise.all([
+      context.queryClient.ensureQueryData(ticketQueryOptions(params.id)),
+      context.queryClient.ensureQueryData(commentsQueryOptions(params.id)),
+      context.queryClient.ensureQueryData(ticketJobsQueryOptions(params.id)),
+      context.queryClient.ensureQueryData(usersQueryOptions),
+      context.queryClient.ensureQueryData(projectsQueryOptions),
+    ]);
+  },
+  component: TicketDetailPage,
 });
 
 const boardRoute = createRoute({

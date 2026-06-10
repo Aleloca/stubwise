@@ -74,6 +74,81 @@
   }
 }
 
+@layer components {
+  /* Corpo markdown (descrizioni e commenti): tipografia sobria, codice mono. */
+  .markdown {
+    @apply leading-relaxed text-fg;
+  }
+
+  .markdown :is(h1, h2, h3, h4) {
+    @apply mt-5 mb-2 font-semibold text-fg first:mt-0;
+  }
+
+  .markdown h1 {
+    @apply text-lg;
+  }
+
+  .markdown h2 {
+    @apply text-base;
+  }
+
+  .markdown p {
+    @apply my-2 first:mt-0 last:mb-0;
+  }
+
+  .markdown a {
+    @apply text-signal underline decoration-signal-dim underline-offset-2 hover:text-signal-bright;
+  }
+
+  .markdown :is(ul, ol) {
+    @apply my-2 pl-5;
+  }
+
+  .markdown ul {
+    @apply list-disc;
+  }
+
+  .markdown ol {
+    @apply list-decimal;
+  }
+
+  .markdown code {
+    @apply rounded-sm bg-ink-800 px-1 py-0.5 font-mono text-[0.85em] text-fg;
+  }
+
+  .markdown pre {
+    @apply my-3 overflow-x-auto rounded-sm border border-line bg-ink-950/70 p-3;
+  }
+
+  .markdown pre code {
+    @apply bg-transparent p-0;
+  }
+
+  .markdown blockquote {
+    @apply my-2 border-l-2 border-line-strong pl-3 text-fg-muted;
+  }
+
+  .markdown table {
+    @apply my-3 w-full border-collapse text-sm;
+  }
+
+  .markdown :is(th, td) {
+    @apply border border-line px-2 py-1 text-left;
+  }
+
+  .markdown th {
+    @apply bg-ink-800 font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase;
+  }
+
+  .markdown hr {
+    @apply my-4 border-line;
+  }
+
+  .markdown img {
+    @apply max-w-full rounded-sm border border-line;
+  }
+}
+
 @utility bg-grid {
   /* Griglia blueprint appena percettibile, per dare profondità al fondo. */
   background-image:

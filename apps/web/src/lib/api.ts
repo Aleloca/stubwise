@@ -171,6 +171,51 @@ export function patchTicket(id: string, patch: TicketPatch): Promise<Ticket> {
   return api.patch(`/api/tickets/${id}`, patch);
 }
 
+// --- Comments ---
+
+export interface Comment {
+  id: string;
+  ticketId: string;
+  authorType: "user" | "ai";
+  authorId: string | null;
+  body: string;
+  createdAt: string;
+}
+
+export function getComments(ticketId: string): Promise<Comment[]> {
+  return api.get(`/api/tickets/${ticketId}/comments`);
+}
+
+export function postComment(ticketId: string, body: string): Promise<Comment> {
+  return api.post(`/api/tickets/${ticketId}/comments`, { body });
+}
+
+// --- AI Jobs ---
+
+export type AIJobStatus = "queued" | "triaging" | "fixing" | "pr_opened" | "failed" | "skipped";
+
+export interface AIJob {
+  id: string;
+  ticketId: string;
+  status: AIJobStatus;
+  log: string;
+  prUrl: string | null;
+  error: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+export function getTicketJobs(ticketId: string): Promise<AIJob[]> {
+  return api.get(`/api/tickets/${ticketId}/jobs`);
+}
+
+// --- Users ---
+
+export function getUsers(): Promise<PublicUser[]> {
+  return api.get("/api/users");
+}
+
 // --- Projects ---
 
 export interface Project {

@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes } from "react";
+import type { InputHTMLAttributes, SelectHTMLAttributes } from "react";
 
 interface TextFieldProps extends InputHTMLAttributes<HTMLInputElement> {
   id: string;
@@ -20,6 +20,37 @@ export function TextField({ id, label, ...inputProps }: TextFieldProps) {
         className="rounded-sm border border-line-strong bg-ink-950/70 px-3 py-2 text-[15px] text-fg placeholder:text-fg-faint transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
         {...inputProps}
       />
+    </div>
+  );
+}
+
+interface SelectFieldProps extends SelectHTMLAttributes<HTMLSelectElement> {
+  id: string;
+  label: string;
+  options: { value: string; label: string }[];
+}
+
+/** Select con label mono in maiuscoletto, gemello di {@link TextField}. */
+export function SelectField({ id, label, options, ...selectProps }: SelectFieldProps) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label
+        htmlFor={id}
+        className="font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase"
+      >
+        {label}
+      </label>
+      <select
+        id={id}
+        className="rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1.5 font-mono text-[13px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
+        {...selectProps}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }
