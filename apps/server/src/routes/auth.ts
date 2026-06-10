@@ -15,6 +15,16 @@ import {
 } from "../auth/session.js";
 import { invites, sessions, users } from "../db/schema.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
+import type { RateLimitConfig } from "./shared.js";
+
+export interface AuthRoutesOptions {
+  /**
+   * Limite per IP applicato a login e register: entrambe pagano una verifica
+   * o un hash argon2 (deliberatamente costoso), che senza limite sarebbe un
+   * vettore di DoS. Ogni route ha il proprio bucket.
+   */
+  rateLimit: RateLimitConfig;
+}
 
 /** Validità di un link di invito: 7 giorni. */
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -67,7 +77,10 @@ const SESSION_COOKIE_OPTIONS = {
  * Sessioni opache: il cookie contiene solo l'id (firmato), lo stato vive
  * nella tabella `sessions`.
  */
-export async function authRoutes(instance: FastifyInstance): Promise<void> {
+export async function authRoutes(
+  instance: FastifyInstance,
+  opts: AuthRoutesOptions,
+): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
   // La UI usa questo flag per decidere se mostrare la pagina di primo setup.
@@ -122,6 +135,7 @@ export async function authRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/login",
     {
+      config: { rateLimit: opts.rateLimit },
       schema: {
         // Nessun vincolo di lunghezza al login: la policy vale alla creazione.
         body: z.object({ email: z.email(), password: z.string().min(1) }),
@@ -205,6 +219,7 @@ export async function authRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/register",
     {
+      config: { rateLimit: opts.rateLimit },
       schema: {
         body: credentialsSchema.extend({ token: z.string().min(1) }),
         response: {

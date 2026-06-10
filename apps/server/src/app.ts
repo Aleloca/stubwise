@@ -1,4 +1,5 @@
 import fastifyCookie from "@fastify/cookie";
+import fastifyRateLimit from "@fastify/rate-limit";
 import fastifySwagger from "@fastify/swagger";
 import Fastify, {
   type FastifyError,
@@ -14,7 +15,9 @@ import { createRequire } from "node:module";
 import type { Db } from "./db/client.js";
 import { authRoutes } from "./routes/auth.js";
 import { commentRoutes } from "./routes/comments.js";
+import { ingestRoutes } from "./routes/ingest.js";
 import { projectRoutes } from "./routes/projects.js";
+import type { RateLimitConfig } from "./routes/shared.js";
 import { ticketRoutes } from "./routes/tickets.js";
 
 // Versione letta dal package.json (accanto a src/ e a dist/, quindi il
@@ -40,6 +43,17 @@ export interface BuildAppOptions {
    * route dei progetti.
    */
   encryptionKey?: string;
+  /**
+   * Limite di rate per POST /ingest/:slug, contato per chiave di ingestion.
+   * Override pensato per i test; default 300 richieste al minuto.
+   */
+  ingestRateLimit?: RateLimitConfig;
+  /**
+   * Limite di rate per login e register, contato per IP: argon2 è
+   * deliberatamente costoso e senza limite sarebbe un vettore di DoS.
+   * Override pensato per i test; default 10 richieste al minuto.
+   */
+  authRateLimit?: RateLimitConfig;
 }
 
 /**
@@ -102,6 +116,12 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // firmare il cookie di sessione fallisce: stesso spirito del getter su db.
   void app.register(fastifyCookie, { secret: opts.sessionSecret });
 
+  // Rate limiting opt-in (`global: false`): nessuna route è limitata di
+  // default, lo diventano solo quelle che dichiarano `config.rateLimit`
+  // (ingestion per chiave, login/register per IP). Store in-memory: per un
+  // deployment self-hosted a singola istanza è sufficiente.
+  void app.register(fastifyRateLimit, { global: false });
+
   // Spec OpenAPI derivata dagli schemi Zod delle route. Va registrato PRIMA
   // delle route, altrimenti @fastify/swagger non le vede. jsonSchemaTransform
   // converte gli schemi Zod in JSON Schema dentro il documento.
@@ -121,12 +141,21 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     },
   });
 
-  void app.register(authRoutes, { prefix: "/api/auth" });
+  void app.register(authRoutes, {
+    prefix: "/api/auth",
+    rateLimit: opts.authRateLimit ?? { max: 10, timeWindow: "1 minute" },
+  });
   void app.register(projectRoutes, { prefix: "/api/projects" });
   void app.register(ticketRoutes, { prefix: "/api/tickets" });
   // I commenti vivono sotto il singolo ticket: il prefisso porta il
   // parametro :ticketId, disponibile nelle route come request.params.
   void app.register(commentRoutes, { prefix: "/api/tickets/:ticketId/comments" });
+  // Superficie pubblica per gli SDK: fuori da /api, CORS aperto solo qui
+  // (registrato dentro il plugin), autenticazione via X-Stubwise-Key.
+  void app.register(ingestRoutes, {
+    prefix: "/ingest",
+    rateLimit: opts.ingestRateLimit ?? { max: 300, timeWindow: "1 minute" },
+  });
 
   app.get("/health", async () => ({ status: "ok" }));
 

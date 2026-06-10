@@ -4,6 +4,15 @@ import { z } from "zod";
 export const errorSchema = z.object({ message: z.string() });
 
 /**
+ * Configurazione di un limite di rate per @fastify/rate-limit: quante
+ * richieste (`max`) per finestra (`timeWindow`, es. "1 minute").
+ */
+export interface RateLimitConfig {
+  max: number;
+  timeWindow: number | string;
+}
+
+/**
  * Risposte di errore prodotte dai preHandler requireAuth/requireAdmin.
  * Da spalmare nello schema `response` delle route protette.
  */

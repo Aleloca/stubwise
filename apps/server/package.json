@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
+    "@fastify/cors": "^11.2.0",
+    "@fastify/rate-limit": "^11.0.0",
     "@fastify/swagger": "^9.7.0",
     "@stubwise/shared": "workspace:*",
     "argon2": "^0.44.0",
