@@ -16,6 +16,27 @@ describe("errorEventSchema", () => {
     };
     expect(errorEventSchema.parse(ev)).toMatchObject({ kind: "error" });
   });
+  it("accetta e conserva lo userAgent opzionale", () => {
+    const parsed = errorEventSchema.parse({
+      kind: "error",
+      message: "boom",
+      userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15",
+      breadcrumbs: [],
+      timestamp: "2026-06-10T10:00:01Z",
+    });
+    expect(parsed.userAgent).toBe(
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15",
+    );
+  });
+  it("resta valido senza userAgent", () => {
+    const parsed = errorEventSchema.parse({
+      kind: "error",
+      message: "boom",
+      breadcrumbs: [],
+      timestamp: "2026-06-10T10:00:01Z",
+    });
+    expect(parsed.userAgent).toBeUndefined();
+  });
   it("rifiuta un evento senza message", () => {
     expect(() => errorEventSchema.parse({ kind: "error" })).toThrow();
   });

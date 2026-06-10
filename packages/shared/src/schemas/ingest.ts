@@ -14,6 +14,7 @@ export const errorEventSchema = z.object({
   errorType: z.string().optional(),
   stack: z.string().optional(),
   url: z.string().optional(),
+  userAgent: z.string().optional(),
   release: z.string().optional(),
   environment: z.string().optional(),
   breadcrumbs: z.array(breadcrumbSchema).max(30),

@@ -113,6 +113,7 @@ async function processErrorEvent(
             message: event.message,
             stack: event.stack,
             url: event.url,
+            userAgent: event.userAgent,
             release: event.release,
             environment: event.environment,
             breadcrumbs: event.breadcrumbs,

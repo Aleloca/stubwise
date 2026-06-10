@@ -45,6 +45,7 @@ function errorEvent(overrides: Partial<ErrorEvent> = {}): ErrorEvent {
     stack:
       "TypeError: x is undefined\n  at buy (https://cdn.app/assets/app-a1b2c3.js:10:5)",
     url: "https://app.example.com/checkout",
+    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15",
     release: "1.2.3",
     environment: "production",
     breadcrumbs: [
@@ -84,6 +85,7 @@ describe("processEvents — eventi errore", () => {
       message: "x is undefined",
       stack: "TypeError: x is undefined\n  at buy (https://cdn.app/assets/app-a1b2c3.js:10:5)",
       url: "https://app.example.com/checkout",
+      userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15",
       release: "1.2.3",
       environment: "production",
       breadcrumbs: [
