@@ -75,6 +75,22 @@ describe("api", () => {
     expect((error as ApiError).message).toBe("Errore 500");
   });
 
+  it("errore di rete (TypeError): lancia ApiError con status 0 e messaggio dedicato", async () => {
+    fetchMock.mockRejectedValue(new TypeError("fetch failed"));
+
+    const error = await api.get("/api/auth/me").catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).status).toBe(0);
+    expect((error as ApiError).message).toBe("Impossibile contattare il server");
+  });
+
+  it("errore non di rete (es. abort): riemerge senza essere incapsulato", async () => {
+    const abort = new DOMException("annullata", "AbortError");
+    fetchMock.mockRejectedValue(abort);
+
+    await expect(api.get("/api/auth/me")).rejects.toBe(abort);
+  });
+
   it("patch: usa il metodo PATCH", async () => {
     fetchMock.mockResolvedValue(jsonResponse(200, {}));
 

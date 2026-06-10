@@ -5,6 +5,9 @@ import type { ReactElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SetupPage } from "./setup";
 
+// NOTA: il mock del modulo router qui sotto è un'eccezione storica, da NON
+// replicare. Il pattern per i nuovi test è: componenti puri testati da soli
+// (login-form.test.tsx) o router vero con memory history (router.test.tsx).
 const navigateMock = vi.hoisted(() => vi.fn());
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => navigateMock,

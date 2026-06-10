@@ -8,8 +8,9 @@ import {
 } from "@tanstack/react-router";
 import type { RouterHistory } from "@tanstack/react-router";
 import { AppLayout } from "./components/app-layout";
-import { ApiError, getSetupStatus } from "./lib/api";
-import { meQueryOptions } from "./lib/auth";
+import { RouteError } from "./components/route-error";
+import { ApiError } from "./lib/api";
+import { meQueryOptions, setupStatusQueryOptions } from "./lib/auth";
 import { BoardPage } from "./routes/board";
 import { LoginPage } from "./routes/login";
 import { ProjectsPage } from "./routes/projects";
@@ -41,8 +42,8 @@ const setupRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/setup",
   // La pagina di primo setup esiste solo finché non c'è nessun utente.
-  beforeLoad: async () => {
-    const { needed } = await getSetupStatus();
+  beforeLoad: async ({ context }) => {
+    const { needed } = await context.queryClient.fetchQuery(setupStatusQueryOptions);
     if (!needed) throw redirect({ to: "/login" });
   },
   component: SetupPage,
@@ -62,7 +63,7 @@ const authedRoute = createRoute({
       return { user };
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
-        const { needed } = await getSetupStatus();
+        const { needed } = await context.queryClient.fetchQuery(setupStatusQueryOptions);
         throw redirect({ to: needed ? "/setup" : "/login" });
       }
       throw error;
@@ -121,6 +122,9 @@ export function createAppRouter(queryClient: QueryClient, history?: RouterHistor
     routeTree,
     context: { queryClient },
     defaultPreload: "intent",
+    // Un 401 da un loader (sessione scaduta ad app montata) reindirizza al
+    // login; gli altri errori mostrano il pannello con retry.
+    defaultErrorComponent: RouteError,
     history,
   });
 }

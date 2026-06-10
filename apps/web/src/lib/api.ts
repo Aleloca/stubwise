@@ -7,12 +7,15 @@
  * rende esplicita l'intenzione e copre eventuali setup cross-origin.
  */
 
-/** Errore HTTP dell'API: status + messaggio estratto dal body del server. */
+/**
+ * Errore HTTP dell'API: status + messaggio estratto dal body del server.
+ * Status 0 = errore di rete (il server non ha mai risposto).
+ */
 export class ApiError extends Error {
   readonly status: number;
 
-  constructor(status: number, message: string) {
-    super(message);
+  constructor(status: number, message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = "ApiError";
     this.status = status;
   }
@@ -24,7 +27,19 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     init.headers = { "content-type": "application/json" };
     init.body = JSON.stringify(body);
   }
-  const response = await fetch(path, init);
+
+  let response: Response;
+  try {
+    response = await fetch(path, init);
+  } catch (error) {
+    // fetch rifiuta con TypeError sugli errori di rete (server giù, DNS,
+    // CORS): normalizzato in ApiError così i chiamanti hanno un solo tipo
+    // di errore da gestire. Tutto il resto (es. AbortError) riemerge as-is.
+    if (error instanceof TypeError) {
+      throw new ApiError(0, "Impossibile contattare il server", { cause: error });
+    }
+    throw error;
+  }
 
   if (!response.ok) {
     // Il server risponde sempre { message } sugli errori; il fallback copre
