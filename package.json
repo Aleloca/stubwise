@@ -2,6 +2,7 @@
   "name": "stubwise",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.9.0",
   "engines": { "node": ">=22" },
   "scripts": {
     "test": "pnpm -r test",

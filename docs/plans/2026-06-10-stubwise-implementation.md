@@ -31,6 +31,8 @@
 {
   "name": "stubwise",
   "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.9.0",
   "engines": { "node": ">=22" },
   "scripts": {
     "test": "pnpm -r test",
@@ -64,6 +66,7 @@ packages:
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "skipLibCheck": true,
+    "isolatedModules": true,
     "declaration": true,
     "sourceMap": true
   }
