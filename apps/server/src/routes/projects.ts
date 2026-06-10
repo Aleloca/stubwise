@@ -27,19 +27,19 @@ const gitCredentialsSchema = z.object({
 });
 
 const createProjectSchema = z.object({
-  name: z.string().min(1),
+  name: z.string().min(1).max(200),
   provider: gitProviderKindSchema,
-  repoUrl: z.url(),
-  defaultBranch: z.string().min(1).default("main"),
+  repoUrl: z.url().max(500),
+  defaultBranch: z.string().min(1).max(200).default("main"),
   credentials: gitCredentialsSchema,
 });
 
 // Lo slug non è aggiornabile: è il path della DSN di ingestion degli SDK
 // già distribuiti, cambiarlo romperebbe l'ingestion silenziosamente.
 const updateProjectSchema = z.object({
-  name: z.string().min(1).optional(),
-  repoUrl: z.url().optional(),
-  defaultBranch: z.string().min(1).optional(),
+  name: z.string().min(1).max(200).optional(),
+  repoUrl: z.url().max(500).optional(),
+  defaultBranch: z.string().min(1).max(200).optional(),
   credentials: gitCredentialsSchema.optional(),
 });
 

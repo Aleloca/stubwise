@@ -7,6 +7,7 @@ import { decrypt } from "../crypto/secrets.js";
 import { projects } from "../db/schema.js";
 import type { TestDb } from "../test/db.js";
 import { startTestDb } from "../test/db.js";
+import { seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 
@@ -28,58 +29,13 @@ beforeAll(async () => {
     encryptionKey: ENCRYPTION_KEY.toString("base64"),
   });
 
-  // Admin dal primo setup.
-  const setup = await app.inject({
-    method: "POST",
-    url: "/api/auth/setup",
-    payload: { email: "admin@example.com", password: "password-sicura" },
-  });
-  expect(setup.statusCode).toBe(201);
-  const adminLogin = await app.inject({
-    method: "POST",
-    url: "/api/auth/login",
-    payload: { email: "admin@example.com", password: "password-sicura" },
-  });
-  expect(adminLogin.statusCode).toBe(200);
-  adminCookie = sessionCookie(adminLogin);
-
-  // Member via invito + register.
-  const invite = await app.inject({
-    method: "POST",
-    url: "/api/auth/invites",
-    headers: { cookie: adminCookie },
-    payload: { email: "member@example.com" },
-  });
-  expect(invite.statusCode).toBe(201);
-  const register = await app.inject({
-    method: "POST",
-    url: "/api/auth/register",
-    payload: {
-      token: (invite.json() as { token: string }).token,
-      email: "member@example.com",
-      password: "password-member",
-    },
-  });
-  expect(register.statusCode).toBe(201);
-  const memberLogin = await app.inject({
-    method: "POST",
-    url: "/api/auth/login",
-    payload: { email: "member@example.com", password: "password-member" },
-  });
-  expect(memberLogin.statusCode).toBe(200);
-  memberCookie = sessionCookie(memberLogin);
+  ({ adminCookie, memberCookie } = await seedUsers(app));
 }, 120_000);
 
 afterAll(async () => {
   await app.close();
   await testDb.stop();
 });
-
-function sessionCookie(res: { cookies: { name: string; value: string }[] }): string {
-  const cookie = res.cookies.find((c) => c.name === "stubwise_session");
-  if (!cookie) throw new Error("cookie stubwise_session assente nella risposta");
-  return `stubwise_session=${cookie.value}`;
-}
 
 function createProject(payload: Record<string, unknown>, cookie = adminCookie) {
   return app.inject({
@@ -175,6 +131,23 @@ describe("POST /api/projects", () => {
   it("body non valido (provider sconosciuto): 400", async () => {
     const res = await createProject({ ...basePayload, name: "Rotto", provider: "gitlab" });
     expect(res.statusCode).toBe(400);
+  });
+
+  it("campi oltre la lunghezza massima: 400", async () => {
+    const tooLongName = await createProject({ ...basePayload, name: "x".repeat(201) });
+    expect(tooLongName.statusCode).toBe(400);
+    const tooLongRepoUrl = await createProject({
+      ...basePayload,
+      name: "Url Lungo",
+      repoUrl: `https://github.com/acme/${"r".repeat(500)}`,
+    });
+    expect(tooLongRepoUrl.statusCode).toBe(400);
+    const tooLongBranch = await createProject({
+      ...basePayload,
+      name: "Branch Lungo",
+      defaultBranch: "b".repeat(201),
+    });
+    expect(tooLongBranch.statusCode).toBe(400);
   });
 });
 
