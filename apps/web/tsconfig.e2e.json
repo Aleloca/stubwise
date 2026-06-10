@@ -1,0 +1,16 @@
+{
+  // Typecheck di config e spec Playwright: girano in Node, non nel bundle
+  // Vite, quindi hanno il loro tsconfig con i tipi di Node.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM"],
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "types": ["node"]
+  },
+  "include": ["e2e/**/*.ts", "playwright.config.ts"]
+}

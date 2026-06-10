@@ -4,3 +4,5 @@ dist/
 coverage/
 *.tsbuildinfo
 .astro/
+playwright-report/
+test-results/
