@@ -5,12 +5,15 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "test": "pnpm --filter @stubwise/db... build && vitest run",
+    "test": "pnpm --filter @stubwise/db... --filter @stubwise/git... build && vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@stubwise/db": "workspace:*",
-    "drizzle-orm": "^0.45.2"
+    "@stubwise/git": "workspace:*",
+    "@stubwise/shared": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "execa": "^9.5.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
