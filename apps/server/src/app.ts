@@ -1,15 +1,25 @@
 import fastifyCookie from "@fastify/cookie";
+import fastifySwagger from "@fastify/swagger";
 import Fastify, {
   type FastifyError,
   type FastifyInstance,
   type FastifyServerOptions,
 } from "fastify";
-import { serializerCompiler, validatorCompiler } from "fastify-type-provider-zod";
+import {
+  jsonSchemaTransform,
+  serializerCompiler,
+  validatorCompiler,
+} from "fastify-type-provider-zod";
+import { createRequire } from "node:module";
 import type { Db } from "./db/client.js";
 import { authRoutes } from "./routes/auth.js";
 import { commentRoutes } from "./routes/comments.js";
 import { projectRoutes } from "./routes/projects.js";
 import { ticketRoutes } from "./routes/tickets.js";
+
+// Versione letta dal package.json (accanto a src/ e a dist/, quindi il
+// percorso relativo vale sia in sviluppo che dopo la build).
+const { version } = createRequire(import.meta.url)("../package.json") as { version: string };
 
 declare module "fastify" {
   interface FastifyInstance {
@@ -92,6 +102,25 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // firmare il cookie di sessione fallisce: stesso spirito del getter su db.
   void app.register(fastifyCookie, { secret: opts.sessionSecret });
 
+  // Spec OpenAPI derivata dagli schemi Zod delle route. Va registrato PRIMA
+  // delle route, altrimenti @fastify/swagger non le vede. jsonSchemaTransform
+  // converte gli schemi Zod in JSON Schema dentro il documento.
+  // Le route registrate con path "/" sotto un prefisso esistono anche nella
+  // variante con slash finale (prefixTrailingSlash "both") e Fastify riusa lo
+  // stesso oggetto routeOptions mutandone la url: nella spec arriverebbe
+  // "/api/tickets/". Normalizziamo togliendo lo slash finale, che è la forma
+  // canonica usata da client e test.
+  void app.register(fastifySwagger, {
+    openapi: {
+      openapi: "3.1.0",
+      info: { title: "Stubwise API", version },
+    },
+    transform: (input) => {
+      const { schema, url } = jsonSchemaTransform(input);
+      return { schema, url: url.length > 1 ? url.replace(/\/$/, "") : url };
+    },
+  });
+
   void app.register(authRoutes, { prefix: "/api/auth" });
   void app.register(projectRoutes, { prefix: "/api/projects" });
   void app.register(ticketRoutes, { prefix: "/api/tickets" });
@@ -100,6 +129,14 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(commentRoutes, { prefix: "/api/tickets/:ticketId/comments" });
 
   app.get("/health", async () => ({ status: "ok" }));
+
+  // Documento JSON puro, niente Swagger UI: il sito di documentazione
+  // (Task 28) renderà questa spec. Non serve un db per servirla.
+  // Nota: questa route e /health non compaiono nella spec — le route sul
+  // root vengono registrate (e quindi viste dall'hook onRoute) prima che
+  // @fastify/swagger sia caricato. Va bene così: sono endpoint
+  // infrastrutturali, non parte dell'API documentata.
+  app.get("/api/openapi.json", async () => app.swagger());
 
   return app;
 }
