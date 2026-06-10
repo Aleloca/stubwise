@@ -36,11 +36,19 @@ export function RegisterPage() {
     setPending(true);
     try {
       await postRegister({ email, password, token });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Errore imprevisto");
+      setPending(false);
+      return;
+    }
+    try {
       const { user } = await postLogin({ email, password });
       queryClient.setQueryData(meQueryOptions.queryKey, { user });
       await navigate({ to: "/tickets" });
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Errore imprevisto");
+    } catch {
+      // L'account esiste e l'invito è consumato: ritentare il form sarebbe
+      // peggio (il token non vale più), si passa al login manuale.
+      await navigate({ to: "/login" });
     } finally {
       setPending(false);
     }

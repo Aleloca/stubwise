@@ -127,7 +127,7 @@ function InvitePanel() {
           </button>
         </form>
 
-        {error && <FormError message={error} />}
+        <FormError message={error} />
 
         {invite && inviteUrl && (
           <div className="mt-4 rounded-sm border border-signal-dim/40 bg-ink-950/60 p-3">

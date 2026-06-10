@@ -59,6 +59,27 @@ describe("ProjectForm in creazione", () => {
     });
   });
 
+  it("spazi attorno a token e username vengono rimossi nel payload", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(<ProjectForm mode="create" onSubmit={onSubmit} />);
+
+    await user.type(screen.getByLabelText("Nome"), "Demo");
+    await user.type(screen.getByLabelText("URL repository"), "https://github.com/acme/demo");
+    // Tipico copia-incolla del token con whitespace di troppo.
+    await user.type(screen.getByLabelText("Username (opzionale)"), "  acme-bot ");
+    await user.type(screen.getByLabelText("Token di accesso"), "  ghp_secret  ");
+    await user.click(screen.getByRole("button", { name: "Crea progetto" }));
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      name: "Demo",
+      provider: "bitbucket",
+      repoUrl: "https://github.com/acme/demo",
+      defaultBranch: "main",
+      credentials: { username: "acme-bot", token: "ghp_secret" },
+    });
+  });
+
   it("i campi credenziali sono input password e c'è l'avviso write-only", () => {
     render(<ProjectForm mode="create" onSubmit={vi.fn()} />);
 

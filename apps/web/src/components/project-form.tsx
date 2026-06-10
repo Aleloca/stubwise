@@ -43,12 +43,14 @@ export function ProjectForm(props: ProjectFormProps) {
     setError(null);
     setPending(true);
     try {
+      const trimmedToken = token.trim();
+      const trimmedUsername = username.trim();
       const credentials: GitCredentials | undefined =
-        token.trim() === ""
+        trimmedToken === ""
           ? undefined
-          : username.trim() === ""
-            ? { token }
-            : { username: username.trim(), token };
+          : trimmedUsername === ""
+            ? { token: trimmedToken }
+            : { username: trimmedUsername, token: trimmedToken };
       if (props.mode === "create") {
         // Lo schema del server richiede il token alla creazione.
         if (!credentials) {

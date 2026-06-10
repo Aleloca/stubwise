@@ -471,14 +471,16 @@ Il prompt di fix (in `prompts.ts`) contiene: titolo, descrizione, stack trace, b
 ### Task 28: Sito documentazione Starlight
 
 **Files:**
-- Create: `apps/docs/` (Starlight scaffold), pagine: `getting-started/self-hosting.md`, `getting-started/claude-setup.md`, `sdk/installation.md`, `sdk/error-capture.md`, `sdk/feedback.md`, `sdk/api-tickets.md`, `ai-pipeline/how-it-works.md`, `ai-pipeline/configuration.md`, `ai-pipeline/security.md`, `reference/api.md` (rende l'OpenAPI con starlight-openapi), `reference/configuration.md` (tutte le env var)
+- Create: `apps/docs/` (Starlight scaffold), pagine: `getting-started/self-hosting.md`, `getting-started/claude-setup.md`, `getting-started/web-app.md` (guida all'app web: inviti/register, gestione progetti, board, nuovo ticket), `sdk/installation.md`, `sdk/error-capture.md`, `sdk/feedback.md`, `sdk/api-tickets.md`, `ai-pipeline/how-it-works.md`, `ai-pipeline/configuration.md`, `ai-pipeline/security.md`, `reference/api.md` (rende l'OpenAPI con starlight-openapi), `reference/configuration.md` (tutte le env var)
 
 **Step:** Scrivere ogni guida passo-passo verificandola davvero (la guida self-hosting va eseguita su una VM/dir pulita seguendola alla lettera). Build inclusa nell'immagine Caddy su `/docs`. Commit per gruppo di pagine.
 
 ### Task 29: CI e ripulitura open-source
 
 **Files:**
-- Create: `.github/workflows/ci.yml` (lint, typecheck, test con servizio Postgres, build), `LICENSE` (MIT), `README.md` (pitch, screenshot, quick start, architettura), `CONTRIBUTING.md` (setup dev, convenzioni, come aggiungere un GitProvider), `.github/ISSUE_TEMPLATE/`
+- Create: `.github/workflows/ci.yml` (lint, typecheck, test con Postgres via testcontainers, build, job e2e), `LICENSE` (MIT), `README.md` (pitch, screenshot, quick start, architettura), `CONTRIBUTING.md` (setup dev, convenzioni, come aggiungere un GitProvider), `.github/ISSUE_TEMPLATE/`
+
+**Nota (review Task 18):** il job e2e ha bisogno di Docker disponibile sul runner — i test server/web usano testcontainers per il Postgres effimero, NON un service container Postgres. Prima della suite va eseguito `pnpm exec playwright install --with-deps chromium`; la suite si lancia con `pnpm --filter @stubwise/web e2e` (è esclusa da `pnpm test` by design).
 
 **Step:** CI verde su push; README con quick start copia-incollabile. Commit `chore: CI, licenza MIT e documentazione di progetto`
 

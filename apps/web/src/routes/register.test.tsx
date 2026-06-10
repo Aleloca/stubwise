@@ -91,6 +91,26 @@ describe("registrazione su invito", () => {
     });
   });
 
+  it("register ok ma login fallito: si va a /login, niente errore sul form consumato", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      "POST /api/auth/register": () =>
+        jsonResponse(201, { user: { id: "u2", email: "bea@example.com", role: "member" } }),
+      // L'invito è già consumato: un errore qui non deve invitare a ritentare.
+      "POST /api/auth/login": () => jsonResponse(500, { message: "Errore interno" }),
+    });
+
+    const router = renderApp("/register?token=tok-segreto-123");
+
+    await screen.findByRole("heading", { name: "Crea il tuo account" });
+    await user.type(screen.getByLabelText("Email"), "bea@example.com");
+    await user.type(screen.getByLabelText("Password"), "password-sicura");
+    await user.click(screen.getByRole("button", { name: "Registrati" }));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/login"));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("invito scaduto: il 410 del server diventa errore visibile", async () => {
     const user = userEvent.setup();
     mockApi({

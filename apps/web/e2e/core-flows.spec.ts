@@ -97,8 +97,13 @@ test("dettaglio: cambia stato dal select e aggiunge un commento", async () => {
 
   await page.getByLabel("Aggiungi un commento").fill("Indago io, sembra il gateway.");
   await page.getByRole("button", { name: "Commenta" }).click();
-  await expect(page.getByText("Indago io, sembra il gateway.")).toBeVisible();
-  await expect(page.getByText(ADMIN_EMAIL).nth(1)).toBeVisible();
+  // L'autore si verifica DENTRO il commento appena creato, non sulla pagina
+  // intera (l'email dell'admin compare anche nel layout).
+  const comment = page
+    .getByRole("listitem")
+    .filter({ hasText: "Indago io, sembra il gateway." });
+  await expect(comment).toBeVisible();
+  await expect(comment).toContainText(ADMIN_EMAIL);
 });
 
 test("board: trascina la card in un'altra colonna e lo stato persiste", async () => {
