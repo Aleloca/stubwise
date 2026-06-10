@@ -6,7 +6,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAdmin, requireAuth } from "../auth/session.js";
 import { encrypt } from "../crypto/secrets.js";
-import { projects } from "../db/schema.js";
+import { projects } from "@stubwise/db";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 
 /**

@@ -9,8 +9,8 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAuth } from "../auth/session.js";
-import type { Db } from "../db/client.js";
-import { tickets, users } from "../db/schema.js";
+import type { Db } from "@stubwise/db";
+import { tickets, users } from "@stubwise/db";
 import { createTicket, ProjectNotFoundError, type Ticket } from "../db/tickets.js";
 import { authErrorResponses, errorSchema, isForeignKeyViolation } from "./shared.js";
 

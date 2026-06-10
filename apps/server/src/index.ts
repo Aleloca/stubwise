@@ -1,6 +1,6 @@
 import { buildApp } from "./app.js";
 import { loadConfig, type Config } from "./config.js";
-import { createDb, runMigrations } from "./db/client.js";
+import { createDb, runMigrations } from "@stubwise/db";
 
 function loadConfigOrExit(): Config {
   try {

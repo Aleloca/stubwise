@@ -3,8 +3,8 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAuth } from "../auth/session.js";
-import type { Db } from "../db/client.js";
-import { aiJobs, aiJobStatus, tickets } from "../db/schema.js";
+import type { Db } from "@stubwise/db";
+import { aiJobs, aiJobStatus, tickets } from "@stubwise/db";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**

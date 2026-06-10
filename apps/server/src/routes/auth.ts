@@ -13,7 +13,7 @@ import {
   SESSION_TTL_MS,
   sessionIdFromRequest,
 } from "../auth/session.js";
-import { invites, sessions, users } from "../db/schema.js";
+import { invites, sessions, users } from "@stubwise/db";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
 

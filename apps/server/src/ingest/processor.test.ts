@@ -1,9 +1,9 @@
 import type { ErrorEvent, FeedbackEvent, TicketCreateEvent } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { aiJobs, errorGroups, projects, tickets } from "../db/schema.js";
-import type { TestDb } from "../test/db.js";
-import { startTestDb } from "../test/db.js";
+import { aiJobs, errorGroups, projects, tickets } from "@stubwise/db";
+import type { TestDb } from "@stubwise/db/testing";
+import { startTestDb } from "@stubwise/db/testing";
 import { processEvents } from "./processor.js";
 
 let testDb: TestDb;

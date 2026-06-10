@@ -1,7 +1,7 @@
 import type { ErrorEvent, FeedbackEvent, IngestEvent, TicketCreateEvent } from "@stubwise/shared";
 import { and, eq, sql } from "drizzle-orm";
-import type { Db } from "../db/client.js";
-import { aiJobs, errorGroups, tickets } from "../db/schema.js";
+import type { Db } from "@stubwise/db";
+import { aiJobs, errorGroups, tickets } from "@stubwise/db";
 import { createTicket } from "../db/tickets.js";
 import { fingerprint } from "./fingerprint.js";
 

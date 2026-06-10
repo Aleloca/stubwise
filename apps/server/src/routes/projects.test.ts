@@ -4,9 +4,9 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { decrypt } from "../crypto/secrets.js";
-import { projects } from "../db/schema.js";
-import type { TestDb } from "../test/db.js";
-import { startTestDb } from "../test/db.js";
+import { projects } from "@stubwise/db";
+import type { TestDb } from "@stubwise/db/testing";
+import { startTestDb } from "@stubwise/db/testing";
 import { seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";

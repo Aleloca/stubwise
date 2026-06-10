@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { projects } from "../db/schema.js";
+import { projects } from "@stubwise/db";
 import { processEvents } from "../ingest/processor.js";
 import { errorSchema } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";

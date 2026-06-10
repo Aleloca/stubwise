@@ -12,7 +12,7 @@ import {
   validatorCompiler,
 } from "fastify-type-provider-zod";
 import { createRequire } from "node:module";
-import type { Db } from "./db/client.js";
+import type { Db } from "@stubwise/db";
 import { aiJobRoutes } from "./routes/ai-jobs.js";
 import { authRoutes } from "./routes/auth.js";
 import { commentRoutes } from "./routes/comments.js";

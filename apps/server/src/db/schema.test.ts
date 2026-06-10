@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { TestDb } from "../test/db.js";
-import { startTestDb } from "../test/db.js";
-import type { Db } from "./client.js";
-import { errorGroups, projects } from "./schema.js";
+import type { TestDb } from "@stubwise/db/testing";
+import { startTestDb } from "@stubwise/db/testing";
+import type { Db } from "@stubwise/db";
+import { errorGroups, projects } from "@stubwise/db";
 import { createTicket, ProjectNotFoundError } from "./tickets.js";
 
 /**

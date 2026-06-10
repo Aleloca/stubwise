@@ -33,14 +33,15 @@ export function createDb(databaseUrl: string): DbHandle {
 }
 
 // Le migrazioni vivono in `<package root>/drizzle`. Questo modulo è in
-// `src/db/` durante lo sviluppo e in `dist/db/` a runtime: in entrambi i
-// casi la radice del package è due livelli sopra, quindi il percorso si
-// risolve rispetto a import.meta.url e non dipende dalla cwd del processo.
-const MIGRATIONS_FOLDER = path.join(fileURLToPath(new URL("../..", import.meta.url)), "drizzle");
+// `src/` durante lo sviluppo e in `dist/` a runtime: in entrambi i casi la
+// radice del package è un livello sopra, quindi il percorso si risolve
+// rispetto a import.meta.url e non dipende dalla cwd del processo.
+const MIGRATIONS_FOLDER = path.join(fileURLToPath(new URL("..", import.meta.url)), "drizzle");
 
 /**
- * Applica le migrazioni pendenti. Chiamata all'avvio del server:
- * il self-hoster non lancia migrazioni a mano.
+ * Applica le migrazioni pendenti. Le lancia solo il server all'avvio
+ * (il self-hoster non lancia migrazioni a mano); il worker assume che lo
+ * schema esista già.
  */
 export async function runMigrations(db: Db): Promise<void> {
   await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });

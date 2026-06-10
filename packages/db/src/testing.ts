@@ -3,7 +3,7 @@ import {
   type StartedPostgreSqlContainer,
 } from "@testcontainers/postgresql";
 import type postgres from "postgres";
-import { createDb, runMigrations, type Db } from "../db/client.js";
+import { createDb, runMigrations, type Db } from "./client.js";
 
 export interface TestDb {
   db: Db;

@@ -3,9 +3,9 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import { buildApp } from "../app.js";
-import { invites, sessions, users } from "../db/schema.js";
-import type { TestDb } from "../test/db.js";
-import { startTestDb } from "../test/db.js";
+import { invites, sessions, users } from "@stubwise/db";
+import type { TestDb } from "@stubwise/db/testing";
+import { startTestDb } from "@stubwise/db/testing";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 

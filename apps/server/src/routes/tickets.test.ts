@@ -3,9 +3,9 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { tickets } from "../db/schema.js";
-import type { TestDb } from "../test/db.js";
-import { startTestDb } from "../test/db.js";
+import { tickets } from "@stubwise/db";
+import type { TestDb } from "@stubwise/db/testing";
+import { startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
 import { seedUsers } from "../test/fixtures.js";
 

@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAuth } from "../auth/session.js";
-import { users } from "../db/schema.js";
+import { users } from "@stubwise/db";
 import { authErrorResponses } from "./shared.js";
 
 /** Identità pubblica di un utente: mai hash o altri campi sensibili. */

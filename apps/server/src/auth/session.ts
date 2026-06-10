@@ -1,8 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
-import type { Db } from "../db/client.js";
-import { sessions, users } from "../db/schema.js";
+import type { Db } from "@stubwise/db";
+import { sessions, users } from "@stubwise/db";
 
 export const SESSION_COOKIE = "stubwise_session";
 

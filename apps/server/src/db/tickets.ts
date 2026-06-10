@@ -1,7 +1,7 @@
 import type { TicketPriority, TicketSource, TicketType } from "@stubwise/shared";
 import { eq, sql } from "drizzle-orm";
-import type { Db } from "./client.js";
-import { projects, tickets } from "./schema.js";
+import type { Db } from "@stubwise/db";
+import { projects, tickets } from "@stubwise/db";
 
 export type Ticket = typeof tickets.$inferSelect;
 
