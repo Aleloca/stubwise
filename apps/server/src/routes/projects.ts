@@ -45,6 +45,17 @@ const updateProjectSchema = z.object({
 const slugParamsSchema = z.object({ slug: z.string().min(1) });
 
 /**
+ * Risposta dell'endpoint admin del webhook: il segreto HMAC e il path su cui
+ * il provider deve consegnare gli eventi. Si restituisce solo il path (non
+ * l'URL assoluto): la UI lo antepone all'origin corrente, evitando di dover
+ * propagare PUBLIC_URL fin dentro la route.
+ */
+const webhookConfigSchema = z.object({
+  webhookSecret: z.string(),
+  webhookPath: z.string(),
+});
+
+/**
  * Slug URL-safe dal nome: minuscole, accenti scomposti e rimossi, tutto il
  * resto collassato in trattini. Fallback fisso se non resta nulla.
  */
@@ -74,7 +85,6 @@ function toPublicProject(row: ProjectRow): z.infer<typeof projectSchema> {
     repoUrl: row.repoUrl,
     defaultBranch: row.defaultBranch,
     ingestionKey: row.ingestionKey,
-    webhookSecret: row.webhookSecret,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -163,6 +173,28 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         .where(eq(projects.slug, request.params.slug));
       if (!row) return reply.code(404).send({ message: "Progetto non trovato" });
       return toPublicProject(row);
+    },
+  );
+
+  // Solo admin: il webhookSecret è l'unica difesa contro webhook di merge
+  // forgiati (che forzerebbero i ticket a "done"). Tenuto fuori da ogni
+  // proiezione pubblica, si legge esclusivamente da qui.
+  app.get(
+    "/:slug/webhook",
+    {
+      preHandler: requireAdmin,
+      schema: {
+        params: slugParamsSchema,
+        response: { 200: webhookConfigSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const [row] = await app.db
+        .select({ webhookSecret: projects.webhookSecret })
+        .from(projects)
+        .where(eq(projects.slug, request.params.slug));
+      if (!row) return reply.code(404).send({ message: "Progetto non trovato" });
+      return { webhookSecret: row.webhookSecret, webhookPath: `/webhooks/git/${request.params.slug}` };
     },
   );
 

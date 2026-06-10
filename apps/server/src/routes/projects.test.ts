@@ -65,9 +65,11 @@ describe("POST /api/projects", () => {
       repoUrl: "https://github.com/acme/sito-vetrina",
       defaultBranch: "main",
       ingestionKey: expect.stringMatching(/^[0-9a-f]{32}$/),
-      webhookSecret: expect.stringMatching(/^[0-9a-f]{32}$/),
       createdAt: expect.any(String),
     });
+    // Il webhookSecret è un segreto HMAC: mai nella proiezione pubblica,
+    // nemmeno per l'admin. Si legge solo via GET /:slug/webhook.
+    expect(res.body).not.toContain("webhookSecret");
     // Mai credenziali nella risposta, nemmeno cifrate.
     expect(res.body).not.toContain("credentials");
     expect(res.body).not.toContain(PLAINTEXT_TOKEN);
@@ -173,6 +175,18 @@ describe("GET /api/projects", () => {
     expect(body.map((p) => p.slug)).toContain("sito-vetrina");
     expect(res.body).not.toContain("credentials");
     expect(res.body).not.toContain(PLAINTEXT_TOKEN);
+    // Il webhookSecret non deve trapelare nella lista (member né admin).
+    expect(res.body).not.toContain("webhookSecret");
+  });
+
+  it("nemmeno l'admin vede il webhookSecret nella lista", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/projects",
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).not.toContain("webhookSecret");
   });
 
   it("senza sessione: 401", async () => {
@@ -194,6 +208,18 @@ describe("GET /api/projects/:slug", () => {
     expect(body.name).toBe("Sito Vetrina");
     expect(res.body).not.toContain("credentials");
     expect(res.body).not.toContain(PLAINTEXT_TOKEN);
+    // Il singolo progetto non espone il webhookSecret a nessun ruolo.
+    expect(res.body).not.toContain("webhookSecret");
+  });
+
+  it("nemmeno l'admin vede il webhookSecret sul singolo progetto", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/projects/sito-vetrina",
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).not.toContain("webhookSecret");
   });
 
   it("slug inesistente: 404", async () => {
@@ -201,6 +227,47 @@ describe("GET /api/projects/:slug", () => {
       method: "GET",
       url: "/api/projects/non-esiste",
       headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("GET /api/projects/:slug/webhook", () => {
+  it("l'admin legge il webhookSecret e il path del webhook", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/projects/sito-vetrina/webhook",
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { webhookSecret: string; webhookPath: string };
+    expect(body.webhookSecret).toMatch(/^[0-9a-f]{32}$/);
+    expect(body.webhookPath).toBe("/webhooks/git/sito-vetrina");
+  });
+
+  it("un member non può leggere il webhookSecret: 403", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/projects/sito-vetrina/webhook",
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(res.body).not.toContain("webhookSecret");
+  });
+
+  it("senza sessione: 401", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/projects/sito-vetrina/webhook",
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("slug inesistente: 404", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/projects/non-esiste/webhook",
+      headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(404);
   });

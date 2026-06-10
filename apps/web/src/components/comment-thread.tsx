@@ -14,9 +14,11 @@ interface CommentThreadProps {
 }
 
 /**
- * Thread dei commenti in ordine cronologico + form di risposta. I commenti
- * dell'AI si distinguono per il badge e il filo ambra a sinistra: la voce
- * della pipeline non si confonde con quella delle persone.
+ * Thread dei commenti in ordine cronologico + form di risposta. Tre voci
+ * distinte: gli utenti (firmati con l'email), l'AI (badge ambra + filo a
+ * sinistra) e il sistema (badge neutro "SISTEMA", es. chiusura automatica al
+ * merge della PR). Il sistema non si confonde né con l'AI né con un utente
+ * rimosso.
  */
 export function CommentThread({ comments, authorEmails, onSubmit, pending }: CommentThreadProps) {
   const [draft, setDraft] = useState("");
@@ -47,7 +49,9 @@ export function CommentThread({ comments, authorEmails, onSubmit, pending }: Com
               className={`rounded-sm border bg-ink-900 px-4 py-3 ${
                 comment.authorType === "ai"
                   ? "border-signal-dim/40 shadow-[inset_2px_0_0_0_var(--color-signal)]"
-                  : "border-line"
+                  : comment.authorType === "system"
+                    ? "border-line shadow-[inset_2px_0_0_0_var(--color-line-strong)]"
+                    : "border-line"
               }`}
             >
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -58,6 +62,10 @@ export function CommentThread({ comments, authorEmails, onSubmit, pending }: Com
                     </span>
                     <span className="font-mono text-[12px] text-fg-muted">Stubwise</span>
                   </>
+                ) : comment.authorType === "system" ? (
+                  <span className="rounded-sm border border-line-strong px-1.5 py-px font-mono text-[10px] font-semibold tracking-[0.12em] text-fg-muted uppercase">
+                    SISTEMA
+                  </span>
                 ) : (
                   <span className="font-mono text-[12px] text-fg-muted">
                     {(comment.authorId && authorEmails.get(comment.authorId)) ?? "Utente rimosso"}

@@ -37,7 +37,10 @@ interface CreatedProject {
   webhookSecret: string;
 }
 
-/** Crea un progetto via API (così riceve un webhookSecret reale) e lo restituisce. */
+/**
+ * Crea un progetto via API e ne legge il webhookSecret reale dall'endpoint
+ * admin dedicato (la proiezione pubblica del progetto non lo espone più).
+ */
 async function createProject(payload: Record<string, unknown>): Promise<CreatedProject> {
   const res = await app.inject({
     method: "POST",
@@ -48,7 +51,18 @@ async function createProject(payload: Record<string, unknown>): Promise<CreatedP
   if (res.statusCode !== 201) {
     throw new Error(`creazione progetto fallita: ${res.statusCode} ${res.body}`);
   }
-  return res.json() as CreatedProject;
+  const project = res.json() as { id: string; slug: string; provider: string };
+
+  const webhookRes = await app.inject({
+    method: "GET",
+    url: `/api/projects/${project.slug}/webhook`,
+    headers: { cookie: adminCookie },
+  });
+  if (webhookRes.statusCode !== 200) {
+    throw new Error(`lettura webhookSecret fallita: ${webhookRes.statusCode} ${webhookRes.body}`);
+  }
+  const { webhookSecret } = webhookRes.json() as { webhookSecret: string };
+  return { ...project, webhookSecret };
 }
 
 /** Inserisce un ticket con numero e stato espliciti, restituendone l'id. */

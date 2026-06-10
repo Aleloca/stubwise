@@ -5,16 +5,24 @@ interface IntegrationPanelProps {
   slug: string;
   /** Origin dell'istanza; di default quello della pagina corrente. */
   origin?: string;
+  /**
+   * Config del webhook git (segreto HMAC + path), solo admin. Quando presente
+   * si aggiunge la sezione "Webhook" con URL e segreto da configurare lato
+   * provider. Assente per i member: il segreto non deve mai raggiungerli.
+   */
+  webhook?: { webhookSecret: string; webhookPath: string };
 }
 
 /**
  * Sezione "Integrazione" di un progetto: chiave di ingestion, DSN e snippet
  * `init()` pronto da incollare, ognuno con il suo bottone copia. Visibile
- * anche ai member: integrare l'SDK non richiede privilegi admin.
+ * anche ai member: integrare l'SDK non richiede privilegi admin. La sezione
+ * webhook compare solo se `webhook` è valorizzato (admin).
  */
-export function IntegrationPanel({ ingestionKey, slug, origin }: IntegrationPanelProps) {
+export function IntegrationPanel({ ingestionKey, slug, origin, webhook }: IntegrationPanelProps) {
   const url = new URL(origin ?? window.location.origin);
   const dsn = `${url.protocol}//${ingestionKey}@${url.host}/p/${slug}`;
+  const webhookUrl = webhook ? `${url.protocol}//${url.host}${webhook.webhookPath}` : null;
   const snippet = [
     'import { init } from "@stubwise/sdk/browser";',
     "",
@@ -55,6 +63,26 @@ export function IntegrationPanel({ ingestionKey, slug, origin }: IntegrationPane
             // variante browser — per Node: import da &quot;@stubwise/sdk/node&quot;
           </p>
         </div>
+
+        {webhook && webhookUrl && (
+          <div className="space-y-4 border-t border-line pt-4" data-testid="webhook-config">
+            <div className="flex items-baseline justify-between">
+              <span className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
+                Webhook git · merge → done
+              </span>
+            </div>
+            <IntegrationRow label="Webhook URL" copyLabel="Copia URL webhook" text={webhookUrl} />
+            <IntegrationRow
+              label="Webhook secret"
+              copyLabel="Copia secret webhook"
+              text={webhook.webhookSecret}
+            />
+            <p className="font-mono text-[11px] text-fg-faint">
+              // configura questo URL e secret HMAC nel provider git: alla merge
+              della PR il ticket passa a done
+            </p>
+          </div>
+        )}
       </div>
     </section>
   );

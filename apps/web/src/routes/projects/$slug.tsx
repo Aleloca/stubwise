@@ -1,4 +1,4 @@
-import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { ProviderBadge } from "../../components/badges";
@@ -7,7 +7,7 @@ import { ProjectForm } from "../../components/project-form";
 import { patchProject, type ProjectPatch } from "../../lib/api";
 import { meQueryOptions } from "../../lib/auth";
 import { formatDateTime } from "../../lib/format";
-import { projectQueryOptions } from "../../lib/queries";
+import { projectQueryOptions, projectWebhookQueryOptions } from "../../lib/queries";
 
 // L'id della route include il layout autenticato (id "authed").
 const route = getRouteApi("/authed/projects/$slug");
@@ -24,6 +24,12 @@ export function ProjectDetailPage() {
   const { data: project } = useSuspenseQuery(projectQueryOptions(slug));
   const { data: me } = useSuspenseQuery(meQueryOptions);
   const isAdmin = me.user.role === "admin";
+  // Config webhook solo per gli admin: l'endpoint è admin-only (403 ai
+  // member) e il segreto non deve raggiungere la loro cache.
+  const { data: webhook } = useQuery({
+    ...projectWebhookQueryOptions(slug),
+    enabled: isAdmin,
+  });
   const [saved, setSaved] = useState(false);
 
   async function handleSubmit(patch: ProjectPatch) {
@@ -94,7 +100,11 @@ export function ProjectDetailPage() {
         </div>
 
         <div className="min-w-0">
-          <IntegrationPanel ingestionKey={project.ingestionKey} slug={project.slug} />
+          <IntegrationPanel
+            ingestionKey={project.ingestionKey}
+            slug={project.slug}
+            webhook={isAdmin ? webhook : undefined}
+          />
         </div>
       </div>
     </div>

@@ -3,6 +3,7 @@ import {
   getComments,
   getProject,
   getProjects,
+  getProjectWebhook,
   getTicket,
   getTicketJobs,
   getUsers,
@@ -111,6 +112,19 @@ export function projectQueryOptions(slug: string) {
   return queryOptions({
     queryKey: ["projects", "detail", slug],
     queryFn: () => getProject(slug),
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * Config webhook di un progetto (solo admin). Chiave separata dal dettaglio:
+ * il segreto si carica solo dove serve (pannello admin) e non finisce nella
+ * cache del progetto condivisa con i member.
+ */
+export function projectWebhookQueryOptions(slug: string) {
+  return queryOptions({
+    queryKey: ["projects", "detail", slug, "webhook"],
+    queryFn: () => getProjectWebhook(slug),
     staleTime: 60_000,
   });
 }

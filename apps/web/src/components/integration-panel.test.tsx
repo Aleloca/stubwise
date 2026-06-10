@@ -55,4 +55,28 @@ describe("IntegrationPanel", () => {
     expect(copied).toContain('import { init } from "@stubwise/sdk/browser"');
     expect(copied).toContain("https://abc123def456@track.example.com/p/demo-shop");
   });
+
+  it("senza prop webhook non mostra la sezione webhook (vista member)", () => {
+    render(<IntegrationPanel {...props} />);
+    expect(screen.queryByTestId("webhook-config")).not.toBeInTheDocument();
+  });
+
+  it("con webhook mostra URL assoluto e secret, copiabili (vista admin)", async () => {
+    const user = userEvent.setup();
+    render(
+      <IntegrationPanel
+        {...props}
+        webhook={{ webhookSecret: "s3cr3t-hmac", webhookPath: "/webhooks/git/demo-shop" }}
+      />,
+    );
+
+    expect(screen.getByTestId("webhook-config")).toBeInTheDocument();
+    expect(
+      screen.getByText("https://track.example.com/webhooks/git/demo-shop"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("s3cr3t-hmac")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Copia secret webhook" }));
+    expect(await navigator.clipboard.readText()).toBe("s3cr3t-hmac");
+  });
 });

@@ -213,7 +213,9 @@ export function postTicket(draft: TicketDraft): Promise<Ticket> {
 export interface Comment {
   id: string;
   ticketId: string;
-  authorType: "user" | "ai";
+  // "system" copre i commenti generati dalla piattaforma (es. chiusura
+  // automatica del ticket al merge della PR): né utente né AI.
+  authorType: "user" | "ai" | "system";
   authorId: string | null;
   body: string;
   createdAt: string;
@@ -297,6 +299,21 @@ export function getProjects(): Promise<Project[]> {
 
 export function getProject(slug: string): Promise<Project> {
   return api.get(`/api/projects/${slug}`);
+}
+
+/**
+ * Config del webhook git di un progetto: segreto HMAC + path su cui il
+ * provider consegna gli eventi di merge. Endpoint solo admin: i member
+ * ricevono 403. Il segreto permette di forgiare webhook, quindi non compare
+ * mai nella proiezione pubblica del progetto.
+ */
+export interface ProjectWebhook {
+  webhookSecret: string;
+  webhookPath: string;
+}
+
+export function getProjectWebhook(slug: string): Promise<ProjectWebhook> {
+  return api.get(`/api/projects/${slug}/webhook`);
 }
 
 export function postProject(draft: ProjectDraft): Promise<Project> {
