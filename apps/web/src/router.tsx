@@ -14,6 +14,7 @@ import { meQueryOptions, setupStatusQueryOptions } from "./lib/auth";
 import {
   boardTicketsQueryOptions,
   commentsQueryOptions,
+  projectQueryOptions,
   projectsQueryOptions,
   ticketJobsQueryOptions,
   ticketQueryOptions,
@@ -22,7 +23,10 @@ import {
 } from "./lib/queries";
 import { boardSearchSchema, BoardPage } from "./routes/board";
 import { LoginPage } from "./routes/login";
-import { ProjectsPage } from "./routes/projects";
+import { ProjectDetailPage } from "./routes/projects/$slug";
+import { ProjectsPage } from "./routes/projects/index";
+import { NewProjectPage } from "./routes/projects/new";
+import { registerSearchSchema, RegisterPage } from "./routes/register";
 import { SettingsPage } from "./routes/settings";
 import { SetupPage } from "./routes/setup";
 import { TicketDetailPage } from "./routes/tickets/$id";
@@ -46,6 +50,14 @@ const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
   component: LoginPage,
+});
+
+const registerRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/register",
+  // Pagina pubblica: ci si arriva dal link di invito con ?token=…
+  validateSearch: (search) => registerSearchSchema.parse(search),
+  component: RegisterPage,
 });
 
 const setupRoute = createRoute({
@@ -144,7 +156,27 @@ const boardRoute = createRoute({
 const projectsRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/projects",
+  loader: ({ context }) => context.queryClient.ensureQueryData(projectsQueryOptions),
   component: ProjectsPage,
+});
+
+const projectNewRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/projects/new",
+  // Creazione riservata agli admin: un member che digita l'URL torna alla
+  // lista invece di compilare un form che il server rifiuterebbe con 403.
+  beforeLoad: ({ context }) => {
+    if (context.user.role !== "admin") throw redirect({ to: "/projects" });
+  },
+  component: NewProjectPage,
+});
+
+const projectDetailRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/projects/$slug",
+  loader: ({ context, params }) =>
+    context.queryClient.ensureQueryData(projectQueryOptions(params.slug)),
+  component: ProjectDetailPage,
 });
 
 const settingsRoute = createRoute({
@@ -155,6 +187,7 @@ const settingsRoute = createRoute({
 
 const routeTree = rootRoute.addChildren([
   loginRoute,
+  registerRoute,
   setupRoute,
   authedRoute.addChildren([
     indexRoute,
@@ -162,6 +195,8 @@ const routeTree = rootRoute.addChildren([
     ticketDetailRoute,
     boardRoute,
     projectsRoute,
+    projectNewRoute,
+    projectDetailRoute,
     settingsRoute,
   ]),
 ]);

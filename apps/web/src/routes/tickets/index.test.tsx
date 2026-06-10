@@ -253,3 +253,53 @@ describe("lista ticket", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe("/login"));
   });
 });
+
+describe("nuovo ticket dalla lista", () => {
+  it("apre il dialog, invia il POST e la lista si aggiorna con la riga nuova", async () => {
+    const user = userEvent.setup();
+    let postBody: unknown;
+    const created = makeTicket({ number: 7, title: "Crash al checkout", type: "bug" });
+    // Mock per metodo+path: GET /api/tickets risponde la lista (vuota prima
+    // del POST, con la riga nuova dopo), POST /api/tickets cattura il body.
+    let listItems = [] as ReturnType<typeof makeTicket>[];
+    fetchMock.mockImplementation((input, init) => {
+      const raw =
+        typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const url = new URL(raw, "http://test.local");
+      const method = init?.method ?? "GET";
+      if (url.pathname === "/api/tickets" && method === "POST") {
+        postBody = JSON.parse(String(init?.body));
+        listItems = [created];
+        return Promise.resolve(jsonResponse(201, created));
+      }
+      if (url.pathname === "/api/tickets") {
+        return Promise.resolve(jsonResponse(200, { items: listItems, nextCursor: null }));
+      }
+      const handler = baseHandlers[url.pathname as keyof typeof baseHandlers];
+      if (!handler) throw new Error(`fetch non mockata per ${method} ${raw}`);
+      return Promise.resolve(handler());
+    });
+
+    renderApp();
+    expect(await screen.findByText(/nessun ticket trovato/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Nuovo ticket" }));
+    const dialog = screen.getByRole("dialog", { name: "Nuovo ticket" });
+    await user.type(within(dialog).getByLabelText("Titolo"), "Crash al checkout");
+    await user.selectOptions(within(dialog).getByLabelText("Tipo"), "Bug");
+    await user.selectOptions(within(dialog).getByLabelText("Priorità"), "Alta");
+    await user.click(within(dialog).getByRole("button", { name: "Crea ticket" }));
+
+    // Dialog chiuso e riga comparsa dopo l'invalidazione della lista.
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Nuovo ticket" })).not.toBeInTheDocument(),
+    );
+    expect(await screen.findByText("Crash al checkout")).toBeInTheDocument();
+    expect(postBody).toEqual({
+      projectId: PROJECT_ID,
+      title: "Crash al checkout",
+      type: "bug",
+      priority: "high",
+    });
+  });
+});

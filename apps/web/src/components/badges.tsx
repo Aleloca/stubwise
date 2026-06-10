@@ -1,4 +1,5 @@
 import type {
+  GitProviderKind,
   TicketPriority,
   TicketSource,
   TicketStatus,
@@ -102,6 +103,25 @@ export function TypeBadge({ type }: { type: TicketType }) {
   return (
     <span className={`${badgeBase} border px-2 py-0.5 ${TYPE_CLASS[type]}`}>
       {TYPE_LABELS[type]}
+    </span>
+  );
+}
+
+export const PROVIDER_LABELS: Record<GitProviderKind, string> = {
+  bitbucket: "Bitbucket",
+  github: "GitHub",
+};
+
+const PROVIDER_CLASS: Record<GitProviderKind, string> = {
+  bitbucket: "text-sky-400 border-sky-400/30",
+  github: "text-fg-muted border-line-strong",
+};
+
+/** Provider git di un progetto: stesso chip dei tipi ticket. */
+export function ProviderBadge({ provider }: { provider: GitProviderKind }) {
+  return (
+    <span className={`${badgeBase} border px-2 py-0.5 ${PROVIDER_CLASS[provider]}`}>
+      {PROVIDER_LABELS[provider]}
     </span>
   );
 }

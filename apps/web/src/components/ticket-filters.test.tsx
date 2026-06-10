@@ -12,6 +12,7 @@ const projects: Project[] = [
     provider: "github",
     repoUrl: "https://github.com/acme/alfa",
     defaultBranch: "main",
+    ingestionKey: "key-alfa",
     createdAt: "2026-01-01T00:00:00.000Z",
   },
   {
@@ -21,6 +22,7 @@ const projects: Project[] = [
     provider: "bitbucket",
     repoUrl: "https://bitbucket.org/acme/beta",
     defaultBranch: "main",
+    ingestionKey: "key-beta",
     createdAt: "2026-01-02T00:00:00.000Z",
   },
 ];

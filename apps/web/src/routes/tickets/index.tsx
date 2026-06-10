@@ -3,13 +3,23 @@ import {
   ticketStatusSchema,
   ticketTypeSchema,
 } from "@stubwise/shared";
-import { useSuspenseInfiniteQuery, useSuspenseQuery } from "@tanstack/react-query";
+import {
+  useQueryClient,
+  useSuspenseInfiniteQuery,
+  useSuspenseQuery,
+} from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
+import { useState } from "react";
 import { z } from "zod";
+import { NewTicketDialog } from "../../components/new-ticket-dialog";
 import { TicketFilters } from "../../components/ticket-filters";
 import { TicketRow } from "../../components/ticket-row";
-import type { TicketFilters as TicketFiltersValue } from "../../lib/api";
-import { projectsQueryOptions, ticketsInfiniteQueryOptions } from "../../lib/queries";
+import {
+  postTicket,
+  type TicketDraft,
+  type TicketFilters as TicketFiltersValue,
+} from "../../lib/api";
+import { projectsQueryOptions, ticketKeys, ticketsInfiniteQueryOptions } from "../../lib/queries";
 
 /**
  * Search param della lista: ogni filtro è opzionale e validato contro gli
@@ -37,6 +47,8 @@ const route = getRouteApi("/authed/tickets");
 export function TicketsPage() {
   const search = route.useSearch();
   const navigate = route.useNavigate();
+  const queryClient = useQueryClient();
+  const [creating, setCreating] = useState(false);
 
   const { data: projects } = useSuspenseQuery(projectsQueryOptions);
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage } = useSuspenseInfiniteQuery(
@@ -55,14 +67,42 @@ export function TicketsPage() {
     });
   }
 
+  async function handleCreate(draft: TicketDraft) {
+    await postTicket(draft);
+    // Liste e board mostrano subito il nuovo ticket; await sulle liste così
+    // alla chiusura del dialog la riga è già lì.
+    await queryClient.invalidateQueries({ queryKey: ticketKeys.lists() });
+    void queryClient.invalidateQueries({ queryKey: ticketKeys.boards() });
+    setCreating(false);
+  }
+
   return (
     <div className="p-8">
-      <header className="border-b border-line pb-4">
-        <h1 className="text-xl font-semibold">Tickets</h1>
-        <p className="mt-1 text-sm text-fg-muted">
-          Tutti i ticket dei tuoi progetti, dal più recente.
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-4 border-b border-line pb-4">
+        <div>
+          <h1 className="text-xl font-semibold">Tickets</h1>
+          <p className="mt-1 text-sm text-fg-muted">
+            Tutti i ticket dei tuoi progetti, dal più recente.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setCreating(true)}
+          disabled={projects.length === 0}
+          title={projects.length === 0 ? "Crea prima un progetto" : undefined}
+          className="rounded-sm bg-signal px-4 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright active:bg-signal-dim disabled:cursor-not-allowed disabled:bg-signal-dim disabled:opacity-60"
+        >
+          Nuovo ticket
+        </button>
       </header>
+
+      {creating && (
+        <NewTicketDialog
+          projects={projects}
+          onSubmit={handleCreate}
+          onClose={() => setCreating(false)}
+        />
+      )}
 
       <div className="mt-6">
         <TicketFilters value={search} projects={projects} onChange={handleFiltersChange} />

@@ -1,6 +1,7 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import {
   getComments,
+  getProject,
   getProjects,
   getTicket,
   getTicketJobs,
@@ -101,3 +102,15 @@ export const projectsQueryOptions = queryOptions({
   queryFn: getProjects,
   staleTime: 60_000,
 });
+
+/**
+ * Dettaglio di un progetto per slug. Chiave figlia di ["projects"]:
+ * invalidare il prefisso riconcilia lista e dettagli in un colpo solo.
+ */
+export function projectQueryOptions(slug: string) {
+  return queryOptions({
+    queryKey: ["projects", "detail", slug],
+    queryFn: () => getProject(slug),
+    staleTime: 60_000,
+  });
+}

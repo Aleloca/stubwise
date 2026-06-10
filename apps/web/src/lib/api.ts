@@ -1,4 +1,5 @@
 import type {
+  GitProviderKind,
   TicketPriority,
   TicketSource,
   TicketStatus,
@@ -106,6 +107,24 @@ export function postLogout(): Promise<void> {
   return api.post("/api/auth/logout");
 }
 
+export interface Invite {
+  token: string;
+  expiresAt: string;
+}
+
+/** Crea un invito (solo admin): il token va consegnato fuori banda. */
+export function postInvite(email: string): Promise<Invite> {
+  return api.post("/api/auth/invites", { email });
+}
+
+export interface Registration extends Credentials {
+  token: string;
+}
+
+export function postRegister(registration: Registration): Promise<{ user: PublicUser }> {
+  return api.post("/api/auth/register", registration);
+}
+
 // --- Tickets ---
 
 export interface Ticket {
@@ -176,6 +195,19 @@ export function patchTicket(id: string, patch: TicketPatch): Promise<Ticket> {
   return api.patch(`/api/tickets/${id}`, patch);
 }
 
+/** Creazione manuale di un ticket dalla UI (source "manual" lato server). */
+export interface TicketDraft {
+  projectId: string;
+  title: string;
+  body?: string;
+  type: TicketType;
+  priority: TicketPriority;
+}
+
+export function postTicket(draft: TicketDraft): Promise<Ticket> {
+  return api.post("/api/tickets", draft);
+}
+
 // --- Comments ---
 
 export interface Comment {
@@ -227,12 +259,50 @@ export interface Project {
   id: string;
   name: string;
   slug: string;
-  provider: string;
+  provider: GitProviderKind;
   repoUrl: string;
   defaultBranch: string;
+  ingestionKey: string;
   createdAt: string;
+}
+
+/**
+ * Credenziali git di un progetto: write-only. Si inviano alla creazione o
+ * per sostituirle, il server non le restituisce mai.
+ */
+export interface GitCredentials {
+  username?: string;
+  token: string;
+}
+
+export interface ProjectDraft {
+  name: string;
+  provider: GitProviderKind;
+  repoUrl: string;
+  defaultBranch: string;
+  credentials: GitCredentials;
+}
+
+export interface ProjectPatch {
+  name?: string;
+  repoUrl?: string;
+  defaultBranch?: string;
+  /** Assente = le credenziali salvate restano invariate. */
+  credentials?: GitCredentials;
 }
 
 export function getProjects(): Promise<Project[]> {
   return api.get("/api/projects");
+}
+
+export function getProject(slug: string): Promise<Project> {
+  return api.get(`/api/projects/${slug}`);
+}
+
+export function postProject(draft: ProjectDraft): Promise<Project> {
+  return api.post("/api/projects", draft);
+}
+
+export function patchProject(slug: string, patch: ProjectPatch): Promise<Project> {
+  return api.patch(`/api/projects/${slug}`, patch);
 }
