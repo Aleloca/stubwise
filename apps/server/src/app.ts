@@ -1,5 +1,9 @@
 import fastifyCookie from "@fastify/cookie";
-import Fastify, { type FastifyInstance, type FastifyServerOptions } from "fastify";
+import Fastify, {
+  type FastifyError,
+  type FastifyInstance,
+  type FastifyServerOptions,
+} from "fastify";
 import { serializerCompiler, validatorCompiler } from "fastify-type-provider-zod";
 import type { Db } from "./db/client.js";
 import { authRoutes } from "./routes/auth.js";
@@ -40,6 +44,19 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // route sono oggetti Zod e (Task 9) diventeranno la fonte dell'OpenAPI.
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
+
+  // Gli errori "previsti" (validazione Fastify/Zod, statusCode < 500) passano
+  // intatti: il loro messaggio è pensato per il client. Tutto il resto viene
+  // loggato per intero ma risposto con un 500 generico, così i dettagli del
+  // driver o interni non finiscono mai nel corpo della risposta.
+  app.setErrorHandler((error: FastifyError, request, reply) => {
+    const statusCode = error.statusCode ?? 500;
+    if (error.code === "FST_ERR_VALIDATION" || statusCode < 500) {
+      return reply.code(statusCode).send(error);
+    }
+    request.log.error(error);
+    return reply.code(500).send({ message: "Errore interno" });
+  });
 
   // L'augmentation del modulo tipizza `db` come sempre presente, ma la
   // decorazione è condizionale: il getter rende l'errore esplicito se una

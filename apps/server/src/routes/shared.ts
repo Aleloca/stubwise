@@ -17,9 +17,22 @@ export const authErrorResponses = {
  * risalendo la catena dei `cause`: Drizzle incapsula l'errore del driver.
  */
 export function isUniqueViolation(error: unknown): boolean {
+  return hasPostgresCode(error, "23505");
+}
+
+/**
+ * Riconosce una violazione di foreign key di Postgres (codice 23503),
+ * stessa risalita della catena dei `cause` di isUniqueViolation.
+ */
+export function isForeignKeyViolation(error: unknown): boolean {
+  return hasPostgresCode(error, "23503");
+}
+
+/** Cerca un codice errore Postgres risalendo la catena dei `cause`. */
+function hasPostgresCode(error: unknown, code: string): boolean {
   let current: unknown = error;
   while (current instanceof Error) {
-    if ((current as Error & { code?: unknown }).code === "23505") return true;
+    if ((current as Error & { code?: unknown }).code === code) return true;
     current = current.cause;
   }
   return false;

@@ -12,7 +12,7 @@ import { requireAuth } from "../auth/session.js";
 import type { Db } from "../db/client.js";
 import { tickets, users } from "../db/schema.js";
 import { createTicket, ProjectNotFoundError, type Ticket } from "../db/tickets.js";
-import { authErrorResponses, errorSchema } from "./shared.js";
+import { authErrorResponses, errorSchema, isForeignKeyViolation } from "./shared.js";
 
 /**
  * Forma pubblica di un ticket nelle risposte API: la riga del DB con le
@@ -113,7 +113,23 @@ interface Cursor {
 }
 
 /** Formato testuale di `timestamptz::text` di Postgres. */
-const CURSOR_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?[+-]\d{2}(:\d{2})?$/;
+const CURSOR_TIMESTAMP_PATTERN = /^\d{4}-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})(\.\d+)?[+-]\d{2}(:\d{2})?$/;
+
+/**
+ * True se i campi del timestamp stanno nei range di un istante reale: il
+ * pattern da solo accetterebbe `9999-99-99 99:99:99+00`, che Postgres non
+ * sa castare e farebbe esplodere la query in un 500 invece di un 400.
+ */
+function isPlausibleTimestamp(match: RegExpMatchArray): boolean {
+  const month = Number(match[1]);
+  const day = Number(match[2]);
+  const hour = Number(match[3]);
+  const minute = Number(match[4]);
+  const second = Number(match[5]);
+  return (
+    month >= 1 && month <= 12 && day >= 1 && day <= 31 && hour <= 23 && minute <= 59 && second <= 59
+  );
+}
 
 /** Codifica il cursore opaco: base64url di `createdAt|id`. */
 function encodeCursor(cursor: Cursor): string {
@@ -127,7 +143,8 @@ function decodeCursor(raw: string): Cursor | null {
   if (separator === -1) return null;
   const createdAt = decoded.slice(0, separator);
   const id = decoded.slice(separator + 1);
-  if (!CURSOR_TIMESTAMP_PATTERN.test(createdAt)) return null;
+  const match = CURSOR_TIMESTAMP_PATTERN.exec(createdAt);
+  if (!match || !isPlausibleTimestamp(match)) return null;
   if (!z.uuid().safeParse(id).success) return null;
   return { createdAt, id };
 }
@@ -182,6 +199,11 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       } catch (error) {
         if (error instanceof ProjectNotFoundError) {
           return reply.code(404).send({ message: "Progetto non trovato" });
+        }
+        // Finestra TOCTOU: l'utente verificato sopra può sparire prima
+        // dell'insert; la FK su assignee_id lo segnala a posteriori.
+        if (isForeignKeyViolation(error)) {
+          return reply.code(400).send({ message: "Assegnatario inesistente" });
         }
         throw error;
       }
@@ -287,16 +309,25 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
 
       // Drizzle rifiuta un update senza colonne: una PATCH vuota è una
       // lettura, si risponde con lo stato corrente.
-      const [row] =
-        Object.keys(updates).length === 0
-          ? await app.db.select().from(tickets).where(eq(tickets.id, request.params.id))
-          : await app.db
-              .update(tickets)
-              .set(updates)
-              .where(eq(tickets.id, request.params.id))
-              .returning();
-      if (!row) return reply.code(404).send({ message: "Ticket non trovato" });
-      return toPublicTicket(row);
+      try {
+        const [row] =
+          Object.keys(updates).length === 0
+            ? await app.db.select().from(tickets).where(eq(tickets.id, request.params.id))
+            : await app.db
+                .update(tickets)
+                .set(updates)
+                .where(eq(tickets.id, request.params.id))
+                .returning();
+        if (!row) return reply.code(404).send({ message: "Ticket non trovato" });
+        return toPublicTicket(row);
+      } catch (error) {
+        // Finestra TOCTOU: l'utente verificato sopra può sparire prima
+        // dell'update; la FK su assignee_id lo segnala a posteriori.
+        if (isForeignKeyViolation(error)) {
+          return reply.code(400).send({ message: "Assegnatario inesistente" });
+        }
+        throw error;
+      }
     },
   );
 }

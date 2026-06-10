@@ -371,6 +371,17 @@ describe("GET /api/tickets — paginazione cursor", () => {
     const res = await listTickets({ projectId: pageProjectId, cursor: "non-un-cursore" });
     expect(res.statusCode).toBe(400);
   });
+
+  it("cursor con data impossibile: 400, non un errore di cast Postgres", async () => {
+    // Rispetta il pattern sintattico ma è una data che Postgres non sa castare:
+    // senza validazione dei range diventerebbe un 500 dal driver.
+    const crafted = Buffer.from(
+      `9999-99-99 99:99:99+00|${createdIds[0]}`,
+      "utf8",
+    ).toString("base64url");
+    const res = await listTickets({ projectId: pageProjectId, cursor: crafted });
+    expect(res.statusCode).toBe(400);
+  });
 });
 
 describe("GET /api/tickets/:id", () => {
