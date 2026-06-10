@@ -438,6 +438,10 @@ Requisito: i job devono essere serializzati per progetto (fetch --prune cancella
 
 Il prompt di fix (in `prompts.ts`) contiene: titolo, descrizione, stack trace, breadcrumbs, release/environment, occorrenze, e le istruzioni del design: *localizza il bug, scrivi un test che lo dimostra se il setup del repo lo consente, fix minimale, esegui i test esistenti, scrivi il report in `STUBWISE_REPORT.md` con: processo di indagine, causa radice, soluzione, motivazione*. Il worker legge `STUBWISE_REPORT.md` (e lo esclude dal commit) come corpo della PR. Contenuto del ticket sempre delimitato come non fidato.
 
+**Nota (review Task 22):** il prompt di fix richiede l'esecuzione dei test: passare `allowedTools` (es. Bash con pattern dei comandi di test) al runner; acceptEdits da solo nega Bash in headless. Valutare in Task 24 quali pattern di default (es. Bash(npm:*), Bash(pnpm:*)) e renderli configurabili per progetto in futuro.
+
+**Differiti (decisione review Task 22):** cancellazione via AbortSignal e streaming `onOutput` sull'AgentRunner restano fuori finché la semantica di shutdown del worker e le esigenze di osservabilità non saranno concrete.
+
 **Step 2:** FAIL → implementa `runFix(deps, job)` (commit con autore `Stubwise AI <ai@stubwise>`), collega triage+fix nel loop del worker → PASS. **Step 3:** Commit `feat(worker): fase di fix con push branch e apertura PR`
 
 ### Task 25: Webhook PR merged → ticket done

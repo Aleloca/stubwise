@@ -68,12 +68,19 @@ export class ClaudeCliRunner implements AgentRunner {
     if (opts.model !== undefined) {
       args.push("--model", opts.model);
     }
+    if (opts.allowedTools !== undefined && opts.allowedTools.length > 0) {
+      // Sintassi CLI: `--allowedTools <tools...>` accetta più valori dopo il
+      // flag (space-separated), es. --allowedTools "Bash(npm test:*)" "Read".
+      args.push("--allowedTools", ...opts.allowedTools);
+    }
 
     try {
       const { all, exitCode } = await execa(this.claudePath, args, {
         cwd: opts.cwd,
         input: opts.prompt,
         timeout: opts.timeoutMs,
+        // Al timeout: SIGTERM, poi SIGKILL dopo 5s se il processo non muore.
+        forceKillAfterDelay: 5000,
         // extendEnv è true di default: extraEnv si AGGIUNGE all'env del worker.
         env: this.extraEnv,
         // stdout+stderr interleaved in `all`: il report dell'agente e gli

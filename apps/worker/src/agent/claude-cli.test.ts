@@ -81,6 +81,44 @@ describe("ClaudeCliRunner", () => {
     expect(result.output).not.toContain("--model");
   });
 
+  it("aggiunge --allowedTools con tutti i pattern quando fornito", async () => {
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(root);
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    const result = await runner.run({
+      cwd,
+      prompt: "fixa",
+      maxTurns: 80,
+      timeoutMs: 10_000,
+      allowedTools: ["Bash(npm test:*)", "Bash(pnpm test:*)"],
+    });
+
+    expect(result.output).toContain(
+      "ARGS:-p --output-format text --permission-mode acceptEdits --max-turns 80 --allowedTools Bash(npm test:*) Bash(pnpm test:*)",
+    );
+  });
+
+  it("omette --allowedTools quando non specificato o vuoto", async () => {
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(root);
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    const omesso = await runner.run({ cwd, prompt: "ciao", maxTurns: 3, timeoutMs: 10_000 });
+    expect(omesso.output).not.toContain("--allowedTools");
+
+    const vuoto = await runner.run({
+      cwd,
+      prompt: "ciao",
+      maxTurns: 3,
+      timeoutMs: 10_000,
+      allowedTools: [],
+    });
+    expect(vuoto.output).not.toContain("--allowedTools");
+  });
+
   it("passa il prompt via stdin, MAI in argv", async () => {
     const root = await makeRoot();
     const claudePath = await makeFakeClaude(root);
@@ -164,8 +202,11 @@ exec sleep 10
     const runner = new ClaudeCliRunner({ claudePath: join(root, "non-esiste") });
 
     for (const maxTurns of [0, -1, 1.5]) {
+      // Regex sul messaggio (non solo sul tipo): se la validazione venisse
+      // rimossa, lo spawn fallito lancerebbe comunque AgentRunError ma con
+      // un messaggio diverso — il test deve distinguere i due casi.
       await expect(runner.run({ cwd, prompt: "ciao", maxTurns, timeoutMs: 1000 })).rejects.toThrow(
-        AgentRunError,
+        /maxTurns non valido/,
       );
     }
   });
@@ -177,7 +218,7 @@ exec sleep 10
 
     for (const timeoutMs of [0, -100]) {
       await expect(runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs })).rejects.toThrow(
-        AgentRunError,
+        /timeoutMs non valido/,
       );
     }
   });
@@ -207,6 +248,32 @@ echo "ENV:$STUBWISE_TEST_VAR"
     const result = await runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
 
     expect(result.output).toContain("ENV:ciao-env");
+  });
+
+  it("inoltra l'env del worker al processo anche quando extraEnv è definita (extendEnv default di execa)", async () => {
+    // Sentinella su process.env: se passassimo `env` con extendEnv:false,
+    // il CLI perderebbe l'ambiente del worker (PATH, config di claude, ...).
+    process.env.STUBWISE_INHERITED_SENTINEL = "ereditata-dal-worker";
+    cleanups.push(async () => {
+      delete process.env.STUBWISE_INHERITED_SENTINEL;
+    });
+
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(
+      root,
+      `#!/bin/sh
+cat > /dev/null
+echo "INHERITED:$STUBWISE_INHERITED_SENTINEL"
+echo "EXTRA:$STUBWISE_TEST_VAR"
+`,
+    );
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath, extraEnv: { STUBWISE_TEST_VAR: "ciao-env" } });
+
+    const result = await runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
+
+    expect(result.output).toContain("INHERITED:ereditata-dal-worker");
+    expect(result.output).toContain("EXTRA:ciao-env");
   });
 });
 
@@ -261,10 +328,17 @@ describe("FakeAgentRunner", () => {
     const fake = new FakeAgentRunner();
 
     await fake.run({ cwd, prompt: "triage", model: "haiku", maxTurns: 3, timeoutMs: 1000 });
-    await fake.run({ cwd, prompt: "fix", maxTurns: 80, timeoutMs: 1000 });
+    await fake.run({
+      cwd,
+      prompt: "fix",
+      maxTurns: 80,
+      timeoutMs: 1000,
+      allowedTools: ["Bash(npm test:*)"],
+    });
 
     expect(fake.calls.map((c) => c.prompt)).toEqual(["triage", "fix"]);
     expect(fake.calls[0]?.model).toBe("haiku");
     expect(fake.calls[1]?.model).toBeUndefined();
+    expect(fake.calls[1]?.allowedTools).toEqual(["Bash(npm test:*)"]);
   });
 });

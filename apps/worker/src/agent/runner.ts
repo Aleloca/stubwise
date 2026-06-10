@@ -23,6 +23,13 @@ export interface AgentRunOptions {
   prompt: string;
   /** Modello, es. "haiku" per il triage; omesso = default del CLI. */
   model?: string;
+  /**
+   * Pattern di tool da consentire oltre a quelli del permission-mode, es.
+   * ["Bash(npm test:*)", "Bash(pnpm test:*)"]. Necessario per la fase di fix:
+   * acceptEdits da solo NEGA Bash in headless, ma il prompt di fix chiede
+   * all'agente di eseguire i test. Omesso = nessun tool extra.
+   */
+  allowedTools?: string[];
   /** Numero massimo di turni agentici (> 0). */
   maxTurns: number;
   /** Timeout complessivo in millisecondi (> 0). */
