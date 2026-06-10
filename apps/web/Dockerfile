@@ -1,8 +1,11 @@
 # syntax=docker/dockerfile:1
 
-# Build del bundle statico Vite della web app. L'ultimo stage ("dist") contiene
-# SOLO i file statici sotto /dist: lo serve Caddy (vedi Dockerfile.caddy alla
-# radice, che copia da questo build, e docker-compose.yml).
+# Build del bundle statico Vite della web app (intent del piano: "build
+# statici"). In produzione i file statici li serve Caddy: l'immagine web vera è
+# Dockerfile.caddy alla radice, che ribuilda la dist e la copia in /srv/web
+# (vedi docker-compose.yml, dove il servizio `caddy` fa da web server + reverse
+# proxy). Questo Dockerfile resta come build autonoma della dist: utile per
+# verificare il bundle in isolamento (`docker build -f apps/web/Dockerfile .`).
 
 FROM node:22-slim AS build
 ENV PNPM_HOME=/pnpm
@@ -26,8 +29,5 @@ COPY tsconfig.base.json ./
 COPY packages packages
 COPY apps/web apps/web
 # La web dipende da @stubwise/shared (build con `...`).
+# La dist risultante è in /repo/apps/web/dist (la serve Caddy in produzione).
 RUN pnpm --filter @stubwise/web... build
-
-# Stage finale: solo i file statici. Usato come sorgente da Dockerfile.caddy.
-FROM scratch AS dist
-COPY --from=build /repo/apps/web/dist /dist

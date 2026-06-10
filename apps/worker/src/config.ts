@@ -49,14 +49,15 @@ const envSchema = z.object({
   // Soglia di staleness per requeueStale: un job in lavorazione senza
   // heartbeat oltre questo limite è orfano di un worker crashato e torna in
   // coda. Deve restare > del timeout del fix (+ triage): vedi l'invariante
-  // verificata in index.ts. Min 1 (il default copre il fix da 30').
+  // verificata in index.ts. Min 1; il default 45 min supera con margine
+  // l'invariante (fix 30' + 2× triage 2' + margine 5' = 40').
   WORKER_STALE_MINUTES: z.preprocess(
     emptyAsUndefined,
     z.coerce
-      .number({ error: "deve essere un intero ≥ 1 in minuti (es. 30)" })
-      .int("deve essere un intero ≥ 1 in minuti (es. 30)")
-      .min(1, "deve essere un intero ≥ 1 in minuti (es. 30)")
-      .default(30),
+      .number({ error: "deve essere un intero ≥ 1 in minuti (es. 45)" })
+      .int("deve essere un intero ≥ 1 in minuti (es. 45)")
+      .min(1, "deve essere un intero ≥ 1 in minuti (es. 45)")
+      .default(45),
   ),
 });
 
@@ -69,7 +70,7 @@ export interface WorkerConfig {
    * progetto vengono comunque serializzati dall'handler). */
   concurrency: number;
   /** Minuti di inattività oltre cui un job in lavorazione è considerato
-   * orfano e riportato in coda (default 30). */
+   * orfano e riportato in coda (default 45). */
   staleAfterMinutes: number;
 }
 

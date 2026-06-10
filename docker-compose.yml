@@ -59,7 +59,7 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       MIRRORS_DIR: /var/stubwise/mirrors
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
-      WORKER_STALE_MINUTES: ${WORKER_STALE_MINUTES:-30}
+      WORKER_STALE_MINUTES: ${WORKER_STALE_MINUTES:-45}
       # --- Auth del CLI claude (scegli UNA delle due) ---
       # 1) Chiave API: la via piu semplice in produzione (passa l'allowlist).
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
