@@ -2,12 +2,12 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { ApiError } from "../lib/api";
-import { meQueryOptions } from "../lib/auth";
 
 /**
  * Error boundary di default del router. Un 401 emerso da un loader significa
  * sessione scaduta a app già montata (la guardia `beforeLoad` copre solo
- * l'ingresso): si butta via l'identità in cache e si torna al login. Tutti
+ * l'ingresso): si svuota tutta la cache — come al logout, il prossimo login
+ * non deve vedere dati dell'identità precedente — e si torna al login. Tutti
  * gli altri errori mostrano un pannello con messaggio e retry.
  */
 export function RouteError({ error }: { error: Error }) {
@@ -17,7 +17,7 @@ export function RouteError({ error }: { error: Error }) {
 
   useEffect(() => {
     if (!sessionExpired) return;
-    queryClient.removeQueries({ queryKey: meQueryOptions.queryKey });
+    queryClient.clear();
     void router.navigate({ to: "/login" });
   }, [sessionExpired, queryClient, router]);
 

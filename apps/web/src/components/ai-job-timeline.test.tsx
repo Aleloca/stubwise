@@ -83,11 +83,15 @@ describe("AIJobTimeline", () => {
     );
 
     expect(screen.queryByText(/triage ok/)).not.toBeInTheDocument();
+    const toggle = screen.getByRole("button", { name: /mostra log/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
 
-    await userEvent.click(screen.getByRole("button", { name: /mostra log/i }));
+    await userEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText(/triage ok/)).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /nascondi log/i }));
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText(/triage ok/)).not.toBeInTheDocument();
   });
 

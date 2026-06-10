@@ -106,6 +106,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   fetchMock.mockReset();
 });
 
@@ -196,7 +197,7 @@ function renderDetail() {
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
-  return router;
+  return { router, queryClient };
 }
 
 describe("dettaglio ticket", () => {
@@ -277,6 +278,26 @@ describe("dettaglio ticket", () => {
     await waitFor(() => expect(state.patches).toEqual([{ status: "in_progress" }]));
     const header = screen.getByRole("banner");
     await waitFor(() => expect(within(header).getByText("In corso")).toBeInTheDocument());
+  });
+
+  it("la PATCH cancella i refetch in volo del dettaglio prima di scrivere in cache", async () => {
+    const state = mockDetailApi();
+    const { queryClient } = renderDetail();
+    const cancelSpy = vi.spyOn(queryClient, "cancelQueries");
+
+    await userEvent.selectOptions(await screen.findByLabelText("Stato"), "in_progress");
+    await waitFor(() => expect(state.patches).toEqual([{ status: "in_progress" }]));
+
+    // Un refetch partito prima della PATCH non deve poter sovrascrivere il
+    // setQueryData con la risposta stantia: la cancellazione viene prima.
+    await waitFor(() =>
+      expect(cancelSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ queryKey: ["tickets", "detail", TICKET_ID] }),
+      ),
+    );
+    expect(queryClient.getQueryData(["tickets", "detail", TICKET_ID])).toMatchObject({
+      status: "in_progress",
+    });
   });
 
   it("cambiare assegnatario manda la PATCH con l'id utente", async () => {

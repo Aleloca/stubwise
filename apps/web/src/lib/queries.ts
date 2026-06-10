@@ -14,10 +14,24 @@ import {
  * componenti: stessa chiave, stessa cache, zero richieste duplicate.
  */
 
+/**
+ * Key factory dei ticket: unica fonte delle chiavi, sia per le queryOptions
+ * qui sotto sia per invalidazioni/cancellazioni mirate altrove. Le chiavi
+ * sono gerarchiche: `lists()` matcha ogni lista filtrata, `all` tutto.
+ */
+export const ticketKeys = {
+  all: ["tickets"] as const,
+  lists: () => [...ticketKeys.all, "list"] as const,
+  list: (filters: TicketFilters) => [...ticketKeys.lists(), filters] as const,
+  detail: (id: string) => [...ticketKeys.all, "detail", id] as const,
+  comments: (ticketId: string) => [...ticketKeys.all, "comments", ticketId] as const,
+  jobs: (ticketId: string) => [...ticketKeys.all, "jobs", ticketId] as const,
+};
+
 export function ticketsInfiniteQueryOptions(filters: TicketFilters) {
   return infiniteQueryOptions({
     // I filtri nella chiave: ogni combinazione è una lista a sé.
-    queryKey: ["tickets", "list", filters],
+    queryKey: ticketKeys.list(filters),
     queryFn: ({ pageParam }) => listTickets(filters, pageParam ?? undefined),
     initialPageParam: null as string | null,
     getNextPageParam: (lastPage) => lastPage.nextCursor,
@@ -27,7 +41,7 @@ export function ticketsInfiniteQueryOptions(filters: TicketFilters) {
 
 export function ticketQueryOptions(id: string) {
   return queryOptions({
-    queryKey: ["tickets", "detail", id],
+    queryKey: ticketKeys.detail(id),
     queryFn: () => getTicket(id),
     staleTime: 10_000,
   });
@@ -35,14 +49,14 @@ export function ticketQueryOptions(id: string) {
 
 export function commentsQueryOptions(ticketId: string) {
   return queryOptions({
-    queryKey: ["tickets", "comments", ticketId],
+    queryKey: ticketKeys.comments(ticketId),
     queryFn: () => getComments(ticketId),
   });
 }
 
 export function ticketJobsQueryOptions(ticketId: string) {
   return queryOptions({
-    queryKey: ["tickets", "jobs", ticketId],
+    queryKey: ticketKeys.jobs(ticketId),
     queryFn: () => getTicketJobs(ticketId),
   });
 }

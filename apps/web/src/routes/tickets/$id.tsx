@@ -28,6 +28,7 @@ import {
   commentsQueryOptions,
   projectsQueryOptions,
   ticketJobsQueryOptions,
+  ticketKeys,
   ticketQueryOptions,
   usersQueryOptions,
 } from "../../lib/queries";
@@ -56,10 +57,15 @@ export function TicketDetailPage() {
 
   const patchMutation = useMutation({
     mutationFn: (patch: TicketPatch) => patchTicket(id, patch),
-    onSuccess: (updated) => {
+    onSuccess: async (updated) => {
+      // Un refetch del dettaglio già in volo risolverebbe DOPO il
+      // setQueryData, sovrascrivendolo con dati stantii: prima si cancella.
+      await queryClient.cancelQueries({ queryKey: ticketKeys.detail(id) });
       queryClient.setQueryData(ticketQueryOptions(id).queryKey, updated);
-      // La lista mostra status/priorità/label: le sue cache sono da rifare.
-      void queryClient.invalidateQueries({ queryKey: ["tickets", "list"] });
+      // Il dettaglio resta fresco per i prossimi mount; la lista mostra
+      // status/priorità/label e le sue cache sono da rifare.
+      void queryClient.invalidateQueries({ queryKey: ticketKeys.detail(id) });
+      void queryClient.invalidateQueries({ queryKey: ticketKeys.lists() });
     },
   });
 

@@ -27,6 +27,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   fetchMock.mockReset();
 });
 
@@ -237,6 +238,10 @@ describe("lista ticket", () => {
   });
 
   it("401 dal loader (sessione scaduta ad app montata): si atterra su /login", async () => {
+    // L'errore del loader catturato dal boundary sporca la console: rumore
+    // atteso, silenziato solo per questo test (restore in afterEach globale).
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
     mockApi({
       ...baseHandlers,
       "/api/tickets": () => jsonResponse(401, { message: "Non autenticato" }),

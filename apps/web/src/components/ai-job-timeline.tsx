@@ -108,6 +108,7 @@ function JobEntry({ job, last }: { job: AIJob; last: boolean }) {
         <div className="mt-1.5">
           <button
             type="button"
+            aria-expanded={showLog}
             onClick={() => setShowLog((current) => !current)}
             className="font-mono text-[11px] tracking-[0.12em] text-fg-faint uppercase transition-colors hover:text-fg-muted"
           >
