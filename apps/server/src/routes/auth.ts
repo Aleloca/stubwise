@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { count, eq, sql } from "drizzle-orm";
+import { and, count, eq, lte, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -13,7 +13,8 @@ import {
   SESSION_TTL_MS,
   sessionIdFromRequest,
 } from "../auth/session.js";
-import { invites, users } from "../db/schema.js";
+import { invites, sessions, users } from "../db/schema.js";
+import { authErrorResponses, errorSchema } from "./shared.js";
 
 /** Validità di un link di invito: 7 giorni. */
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -25,12 +26,22 @@ const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const SETUP_LOCK_KEY = 7_414_355;
 
 /**
- * Hash argon2id fittizio, calcolato una volta al caricamento del modulo.
- * Al login, se l'email non esiste, la password viene comunque verificata
- * contro questo hash: entrambi i rami costano una verifica argon2 e il tempo
- * di risposta non rivela se l'account esiste.
+ * Hash argon2id fittizio, calcolato pigramente al primo login e poi
+ * memoizzato. Al login, se l'email non esiste, la password viene comunque
+ * verificata contro questo hash: entrambi i rami costano una verifica argon2
+ * e il tempo di risposta non rivela se l'account esiste.
+ * Lazy (non promise top-level): un eventuale errore resta gestibile nella
+ * richiesta invece di diventare un'unhandled rejection al caricamento.
  */
-const DUMMY_PASSWORD_HASH = hashPassword("stubwise-dummy-password");
+let dummyHashPromise: Promise<string> | undefined;
+function getDummyHash(): Promise<string> {
+  dummyHashPromise ??= hashPassword("stubwise-dummy-password").catch((error) => {
+    // Niente memoizzazione del fallimento: il prossimo login ritenta.
+    dummyHashPromise = undefined;
+    throw error;
+  });
+  return dummyHashPromise;
+}
 
 /**
  * Riconosce una violazione di vincolo unique di Postgres (codice 23505)
@@ -55,8 +66,6 @@ const credentialsSchema = z.object({
   email: z.email(),
   password: z.string().min(8, "la password deve avere almeno 8 caratteri"),
 });
-
-const errorSchema = z.object({ message: z.string() });
 
 /** Opzioni condivise del cookie di sessione (set e clear devono combaciare). */
 const SESSION_COOKIE_OPTIONS = {
@@ -141,12 +150,19 @@ export async function authRoutes(instance: FastifyInstance): Promise<void> {
       // costo (una verifica argon2) in entrambi i rami: nessuna enumerazione
       // degli account né dal messaggio né dal tempo di risposta.
       if (!user) {
-        await verifyPassword(await DUMMY_PASSWORD_HASH, request.body.password);
+        await verifyPassword(await getDummyHash(), request.body.password);
         return reply.code(401).send({ message: "Credenziali non valide" });
       }
       if (!(await verifyPassword(user.passwordHash, request.body.password))) {
         return reply.code(401).send({ message: "Credenziali non valide" });
       }
+      // Igiene opportunistica: le sessioni scadute dell'utente vengono
+      // eliminate qui, così la tabella non accumula righe morte di chi
+      // non riusa mai i vecchi cookie (la pulizia pigra in findSessionUser
+      // scatta solo se il cookie scaduto viene ripresentato).
+      await app.db
+        .delete(sessions)
+        .where(and(eq(sessions.userId, user.id), lte(sessions.expiresAt, sql`now()`)));
       const session = await createSession(app.db, user.id);
       return reply
         .setCookie(SESSION_COOKIE, session.id, {
@@ -159,7 +175,10 @@ export async function authRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
-  app.post("/logout", { preHandler: requireAuth }, async (request, reply) => {
+  // Best effort, senza requireAuth: il logout deve riuscire anche con cookie
+  // assente, manomesso o già scaduto. Si elimina la riga solo se il cookie
+  // si risolve; in ogni caso si pulisce il cookie e si risponde 204.
+  app.post("/logout", async (request, reply) => {
     const sessionId = sessionIdFromRequest(request);
     if (sessionId) await deleteSession(app.db, sessionId);
     return reply.clearCookie(SESSION_COOKIE, SESSION_COOKIE_OPTIONS).code(204).send();
@@ -169,7 +188,9 @@ export async function authRoutes(instance: FastifyInstance): Promise<void> {
     "/me",
     {
       preHandler: requireAuth,
-      schema: { response: { 200: z.object({ user: publicUserSchema }), 401: errorSchema } },
+      schema: {
+        response: { 200: z.object({ user: publicUserSchema }), ...authErrorResponses },
+      },
     },
     async (request) => ({ user: request.user! }),
   );
@@ -182,6 +203,7 @@ export async function authRoutes(instance: FastifyInstance): Promise<void> {
         body: z.object({ email: z.email() }),
         response: {
           201: z.object({ token: z.string(), expiresAt: z.iso.datetime() }),
+          ...authErrorResponses,
         },
       },
     },

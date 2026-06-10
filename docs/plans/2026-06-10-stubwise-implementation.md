@@ -263,7 +263,11 @@ it("senza stack usa tipo+messaggio normalizzato", () => { /* ... */ });
 
 **Step 1:** Test: `POST /ingest/:slug` con header `X-Stubwise-Key` valida → 202 e ticket creati; chiave errata → 401; payload non valido → 422; oltre il rate limit (es. 300 eventi/min per chiave) → 429; CORS aperto su questo solo endpoint (l'SDK browser chiama cross-origin).
 
-**Step 2:** FAIL → implementa (`@fastify/rate-limit` con keyGenerator = ingestion key, `@fastify/cors` scoped) → PASS. **Step 3:** Commit `feat(server): endpoint ingestion con rate limiting e CORS`
+**Step 2:** FAIL → implementa (`@fastify/rate-limit` con keyGenerator = ingestion key, `@fastify/cors` scoped) → PASS.
+
+**Nota (review Task 6):** il rate limiting deve coprire anche `POST /api/auth/login` e `POST /api/auth/register`: il costo deliberatamente alto di argon2 li rende un vettore di DoS se non limitati (es. per IP).
+
+**Step 3:** Commit `feat(server): endpoint ingestion con rate limiting e CORS`
 
 ### Task 12: SDK — core transport
 
@@ -458,6 +462,9 @@ Il prompt di fix (in `prompts.ts`) contiene: titolo, descrizione, stack trace, b
 - Create: `apps/server/Dockerfile`, `apps/worker/Dockerfile` (include git + binario `claude` via npm `@anthropic-ai/claude-code`), `apps/web/Dockerfile` (build statici), `docker-compose.yml`, `Caddyfile`
 
 **Step 1:** Compose: `postgres` (volume), `server`, `worker` (volumi: `mirrors`, `claude-config` per il token di login), `caddy` (statici web + `/docs` + reverse proxy `/api`,`/ingest`,`/webhooks` → server, HTTPS automatico con `DOMAIN` da env).
+
+**Nota (review Task 6):** dietro Caddy il server Fastify va avviato con `trustProxy: true`, altrimenti i cookie con `secure: "auto"` non ricevono il flag `Secure` (la connessione Caddy→server è HTTP e Fastify deve fidarsi di `X-Forwarded-Proto`).
+
 **Step 2:** Verifica: `docker compose up -d --build` → setup admin dalla UI, creazione progetto, ingestion via curl, job in coda. `docker compose exec worker claude login` documentato.
 **Step 3:** Commit `feat: deploy Docker Compose con Caddy`
 

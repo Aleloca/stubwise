@@ -1,3 +1,4 @@
+import { unsign } from "@fastify/cookie";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq, inArray } from "drizzle-orm";
@@ -32,6 +33,20 @@ function sessionCookie(res: { cookies: { name: string; value: string }[] }): str
   const cookie = res.cookies.find((c) => c.name === "stubwise_session");
   if (!cookie) throw new Error("cookie stubwise_session assente nella risposta");
   return `stubwise_session=${cookie.value}`;
+}
+
+/**
+ * Ricava l'id di sessione esatto verificando la firma del cookie: i test
+ * possono così puntare la riga giusta in `sessions` senza euristiche.
+ */
+function sessionIdFromResponse(res: { cookies: { name: string; value: string }[] }): string {
+  const cookie = res.cookies.find((c) => c.name === "stubwise_session");
+  if (!cookie) throw new Error("cookie stubwise_session assente nella risposta");
+  const unsigned = unsign(decodeURIComponent(cookie.value), SESSION_SECRET);
+  if (!unsigned.valid || !unsigned.value) {
+    throw new Error("firma del cookie stubwise_session non valida");
+  }
+  return unsigned.value;
 }
 
 async function login(email: string, password: string) {
@@ -156,14 +171,14 @@ describe("login e sessioni", () => {
     const res = await login("admin@example.com", "password-sicura");
     expect(res.statusCode).toBe(200);
     const cookie = sessionCookie(res);
+    const sessionId = sessionIdFromResponse(res);
 
-    // Porta la scadenza nel passato direttamente sul DB.
-    const rows = await testDb.db.select().from(sessions);
-    expect(rows.length).toBeGreaterThan(0);
+    // Porta la scadenza nel passato direttamente sul DB, puntando la riga
+    // esatta tramite l'id ricavato dal cookie firmato.
     await testDb.db
       .update(sessions)
       .set({ expiresAt: new Date(Date.now() - 1000) })
-      .where(eq(sessions.expiresAt, rows[rows.length - 1]!.expiresAt));
+      .where(eq(sessions.id, sessionId));
 
     const me = await app.inject({
       method: "GET",
@@ -173,8 +188,31 @@ describe("login e sessioni", () => {
     expect(me.statusCode).toBe(401);
 
     // La sessione scaduta è stata eliminata pigramente.
-    const after = await testDb.db.select().from(sessions);
-    expect(after.some((s) => s.expiresAt.getTime() < Date.now())).toBe(false);
+    const after = await testDb.db.select().from(sessions).where(eq(sessions.id, sessionId));
+    expect(after).toHaveLength(0);
+  });
+
+  it("il login elimina le sessioni scadute dell'utente", async () => {
+    const first = await login("admin@example.com", "password-sicura");
+    expect(first.statusCode).toBe(200);
+    const firstId = sessionIdFromResponse(first);
+
+    const second = await login("admin@example.com", "password-sicura");
+    expect(second.statusCode).toBe(200);
+
+    // Fa scadere manualmente la prima sessione: resta nel DB perché il suo
+    // cookie non viene più ripresentato (la pulizia pigra non scatta).
+    await testDb.db
+      .update(sessions)
+      .set({ expiresAt: new Date(Date.now() - 1000) })
+      .where(eq(sessions.id, firstId));
+
+    const third = await login("admin@example.com", "password-sicura");
+    expect(third.statusCode).toBe(200);
+
+    // Il terzo login ha spazzato via la riga scaduta.
+    const leftover = await testDb.db.select().from(sessions).where(eq(sessions.id, firstId));
+    expect(leftover).toHaveLength(0);
   });
 
   it("POST /api/auth/logout elimina la sessione e pulisce il cookie", async () => {
@@ -197,6 +235,26 @@ describe("login e sessioni", () => {
       headers: { cookie },
     });
     expect(me.statusCode).toBe(401);
+  });
+
+  it("POST /api/auth/logout senza cookie risponde comunque 204 e pulisce il cookie", async () => {
+    const res = await app.inject({ method: "POST", url: "/api/auth/logout" });
+    expect(res.statusCode).toBe(204);
+    const cleared = res.cookies.find((c) => c.name === "stubwise_session");
+    expect(cleared).toBeDefined();
+    expect(cleared?.value).toBe("");
+  });
+
+  it("POST /api/auth/logout con cookie non valido risponde comunque 204", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/auth/logout",
+      headers: { cookie: "stubwise_session=falso.firma-non-valida" },
+    });
+    expect(res.statusCode).toBe(204);
+    const cleared = res.cookies.find((c) => c.name === "stubwise_session");
+    expect(cleared).toBeDefined();
+    expect(cleared?.value).toBe("");
   });
 });
 
