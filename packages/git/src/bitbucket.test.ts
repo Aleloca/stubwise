@@ -56,6 +56,27 @@ describe("BitbucketProvider.getCloneUrl", () => {
   });
 });
 
+describe("BitbucketProvider.getAuthHeader", () => {
+  const provider = new BitbucketProvider();
+
+  it("returns Basic auth with username:app-password", () => {
+    // base64("alice:app-pass")
+    expect(provider.getAuthHeader(config)).toBe("Basic YWxpY2U6YXBwLXBhc3M=");
+  });
+
+  it("encodes the raw credentials verbatim (no percent-encoding before base64)", () => {
+    expect(provider.getAuthHeader({ ...config, credentials: { username: "a@b", token: "p:ss/w" } })).toBe(
+      `Basic ${Buffer.from("a@b:p:ss/w").toString("base64")}`
+    );
+  });
+
+  it("throws when username is missing (required for app passwords)", () => {
+    expect(() => provider.getAuthHeader({ ...config, credentials: { token: "app-pass" } })).toThrow(
+      /username/i
+    );
+  });
+});
+
 describe("BitbucketProvider.openPullRequest", () => {
   it("POSTs to the Bitbucket API with Basic auth and the correct body", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(prResponseBody));

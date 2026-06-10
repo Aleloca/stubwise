@@ -43,6 +43,16 @@ export interface PrMergedEvent {
 export interface GitProvider {
   /** https URL with credentials embedded, suitable for `git clone`/`git push`. */
   getCloneUrl(p: ProjectGitConfig): string;
+  /**
+   * Value for the `Authorization` header to authenticate git-over-https
+   * operations WITHOUT persisting credentials anywhere on disk: callers pass
+   * it per-invocation via `git -c http.extraheader="Authorization: <value>"`
+   * so the remote URL stored in the repo config stays credential-free.
+   * Both providers use Basic auth: GitHub's smart-http endpoints accept a PAT
+   * as `x-access-token:<token>` Basic credentials (Bearer is unreliable for
+   * git endpoints), Bitbucket app passwords are `username:token` Basic.
+   */
+  getAuthHeader(p: ProjectGitConfig): string;
   openPullRequest(
     p: ProjectGitConfig,
     pr: { branch: string; title: string; body: string }

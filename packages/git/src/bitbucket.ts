@@ -31,6 +31,11 @@ export class BitbucketProvider implements GitProvider {
     return `https://${encodeURIComponent(username)}:${encodeURIComponent(token)}@${host}/${owner}/${repo}.git`;
   }
 
+  getAuthHeader(p: ProjectGitConfig): string {
+    const { username, token } = this.requireCredentials(p);
+    return `Basic ${Buffer.from(`${username}:${token}`).toString("base64")}`;
+  }
+
   async openPullRequest(
     p: ProjectGitConfig,
     pr: { branch: string; title: string; body: string }

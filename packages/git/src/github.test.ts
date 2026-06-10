@@ -46,6 +46,21 @@ describe("GitHubProvider.getCloneUrl", () => {
   });
 });
 
+describe("GitHubProvider.getAuthHeader", () => {
+  const provider = new GitHubProvider();
+
+  it("returns Basic auth with the x-access-token user (git smart-http endpoints want Basic, not Bearer)", () => {
+    // base64("x-access-token:ghp_secret")
+    expect(provider.getAuthHeader(config)).toBe("Basic eC1hY2Nlc3MtdG9rZW46Z2hwX3NlY3JldA==");
+  });
+
+  it("encodes the raw token verbatim (no percent-encoding before base64)", () => {
+    expect(provider.getAuthHeader({ ...config, credentials: { token: "a/b:c" } })).toBe(
+      `Basic ${Buffer.from("x-access-token:a/b:c").toString("base64")}`
+    );
+  });
+});
+
 describe("GitHubProvider.openPullRequest", () => {
   it("POSTs to the GitHub API with Bearer auth and the correct body", async () => {
     const fetchImpl = vi

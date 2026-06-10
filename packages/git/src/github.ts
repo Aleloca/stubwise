@@ -26,6 +26,10 @@ export class GitHubProvider implements GitProvider {
     return `https://x-access-token:${encodeURIComponent(p.credentials.token)}@${host}/${owner}/${repo}.git`;
   }
 
+  getAuthHeader(p: ProjectGitConfig): string {
+    return `Basic ${Buffer.from(`x-access-token:${p.credentials.token}`).toString("base64")}`;
+  }
+
   async openPullRequest(
     p: ProjectGitConfig,
     pr: { branch: string; title: string; body: string }
