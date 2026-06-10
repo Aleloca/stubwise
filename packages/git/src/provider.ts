@@ -34,6 +34,11 @@ export interface PrMergedEvent {
  * 2. only if it returns true, JSON-parse the body and call
  *    `parseWebhook(headers, body)`.
  * `parseWebhook` performs NO signature verification on purpose.
+ *
+ * The `headers` parameters expect headers already normalized to
+ * `Record<string, string>`: Node/Fastify expose them as
+ * `string | string[] | undefined`, so the caller (the Task 25 server route)
+ * must normalize them at the boundary before calling this interface.
  */
 export interface GitProvider {
   /** https URL with credentials embedded, suitable for `git clone`/`git push`. */
@@ -84,8 +89,9 @@ export interface ParsedRepoUrl {
 
 /**
  * Parses an https repo URL into host, owner (workspace) and repo slug.
- * Tolerates a trailing `.git` and/or trailing slash; throws a clear error
- * on anything that is not `https://host/owner/repo`.
+ * Tolerates a trailing `.git` and/or trailing slash; credentials embedded
+ * in the URL are dropped. Throws a clear error on anything that is not
+ * `https://host/owner/repo` (ssh:// and http:// are rejected).
  */
 export function parseRepoUrl(repoUrl: string): ParsedRepoUrl {
   let url: URL;
@@ -93,6 +99,11 @@ export function parseRepoUrl(repoUrl: string): ParsedRepoUrl {
     url = new URL(repoUrl);
   } catch {
     throw new Error(`Unparsable repo URL: "${repoUrl}" (expected https://host/owner/repo)`);
+  }
+  if (url.protocol !== "https:") {
+    throw new Error(
+      `URL repo non supportato: "${repoUrl}" — sono accettati solo URL https://host/owner/repo (niente ssh:// o http://)`
+    );
   }
   const segments = url.pathname.split("/").filter((s) => s.length > 0);
   if (segments.length !== 2) {
@@ -126,13 +137,12 @@ export function verifyHmacSignature(
   secret: string
 ): boolean {
   if (!signatureHeader || !signatureHeader.startsWith("sha256=")) return false;
+  const hex = signatureHeader.slice("sha256=".length);
+  // Buffer.from(x, "hex") never throws — it silently truncates at the first
+  // invalid character — so validate the hex string explicitly instead.
+  if (!/^[0-9a-f]+$/i.test(hex)) return false;
   const expected = createHmac("sha256", secret).update(rawBody).digest();
-  let provided: Buffer;
-  try {
-    provided = Buffer.from(signatureHeader.slice("sha256=".length), "hex");
-  } catch {
-    return false;
-  }
+  const provided = Buffer.from(hex, "hex");
   if (provided.length !== expected.length) return false;
   return timingSafeEqual(provided, expected);
 }
@@ -146,4 +156,22 @@ export async function ensureOkResponse(response: Response, provider: string): Pr
     response.status,
     text
   );
+}
+
+/**
+ * Reads a response body as JSON, throwing GitProviderError (instead of a raw
+ * SyntaxError) when the body is not valid JSON.
+ */
+export async function readJsonResponse(response: Response, provider: string): Promise<unknown> {
+  const text = await response.text().catch(() => "");
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    const truncated = text.slice(0, 500);
+    throw new GitProviderError(
+      `${provider} API returned a non-JSON response body (status ${response.status}): ${truncated}`,
+      response.status,
+      truncated
+    );
+  }
 }

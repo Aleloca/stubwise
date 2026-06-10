@@ -92,6 +92,36 @@ describe("GitHubProvider.openPullRequest", () => {
     expect(gpError.responseText).toBe("y".repeat(500));
     expect(gpError.message).toContain("422");
   });
+
+  it("throws GitProviderError when a 2xx response is missing html_url", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ id: 42 }, 200));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const error = await provider
+      .openPullRequest(config, { branch: "b", title: "t", body: "b" })
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(GitProviderError);
+    const gpError = error as GitProviderError;
+    expect(gpError.status).toBe(200);
+    expect(gpError.message).toMatch(/html_url/);
+  });
+
+  it("throws GitProviderError when a 2xx response body is not JSON", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("<html>oops</html>", { status: 200 }));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const error = await provider
+      .openPullRequest(config, { branch: "b", title: "t", body: "b" })
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(GitProviderError);
+    const gpError = error as GitProviderError;
+    expect(gpError.status).toBe(200);
+    expect(gpError.message).toMatch(/JSON/i);
+  });
 });
 
 describe("GitHubProvider.parseWebhook", () => {

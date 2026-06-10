@@ -45,4 +45,20 @@ describe("parseRepoUrl", () => {
     expect(() => parseRepoUrl("https://github.com/just-owner")).toThrow(/repo url/i);
     expect(() => parseRepoUrl("https://github.com/a/b/c")).toThrow(/repo url/i);
   });
+
+  it("rejects ssh:// URLs (https only)", () => {
+    expect(() => parseRepoUrl("ssh://git@github.com/octo/repo")).toThrow(/https/i);
+  });
+
+  it("rejects http:// URLs (https only)", () => {
+    expect(() => parseRepoUrl("http://github.com/octo/repo")).toThrow(/https/i);
+  });
+
+  it("drops credentials embedded in the repoUrl", () => {
+    expect(parseRepoUrl("https://user:secret@github.com/octo/repo")).toEqual({
+      host: "github.com",
+      owner: "octo",
+      repo: "repo",
+    });
+  });
 });

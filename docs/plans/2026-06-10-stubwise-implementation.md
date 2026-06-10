@@ -388,6 +388,8 @@ export interface GitProvider {
 
 **Step 1:** Test con **repo locali reali** (niente rete: crea un repo bare in `tmpdir` come "origin", commit di fixture via execa): `ensureMirror(project)` clona bare al primo uso e fa `git fetch --prune` ai successivi; `withWorktree(project, branchName, fn)` crea worktree temporaneo sul default branch aggiornato, esegue `fn(dir)`, e **rimuove sempre** il worktree anche se `fn` lancia; `pushBranch(dir, branch)` rifiuta branch che non inizino con `stubwise/`.
 
+**Requisito sicurezza credenziali:** i mirror NON devono persistere credenziali nella git config: il remote URL salvato nel mirror deve essere privo di credenziali e l'autenticazione va iniettata a ogni invocazione (env `GIT_ASKPASS` oppure `git -c http.extraHeader=...`), o come minimo la directory dei mirror va creata con `chmod 700`. Documentare nella implementazione quale delle due strategie è stata scelta e perché.
+
 **Step 2:** FAIL → implementa con execa (`git clone --mirror`, `git worktree add/remove --force`, lock per-repo per serializzare fetch concorrenti) → PASS. **Step 3:** Commit `feat(worker): mirror bare e worktree effimeri`
 
 ### Task 22: AgentRunner — astrazione su Claude Code

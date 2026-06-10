@@ -1,7 +1,9 @@
 import {
   ensureOkResponse,
   getHeader,
+  GitProviderError,
   parseRepoUrl,
+  readJsonResponse,
   verifyHmacSignature,
   type FetchLike,
   type GitProvider,
@@ -49,10 +51,14 @@ export class BitbucketProvider implements GitProvider {
       }),
     });
     await ensureOkResponse(response, "Bitbucket");
-    const data = (await response.json()) as BitbucketPrResponse;
+    const data = (await readJsonResponse(response, "Bitbucket")) as BitbucketPrResponse;
     const url = data.links?.html?.href;
     if (typeof url !== "string") {
-      throw new Error("Bitbucket API response is missing links.html.href");
+      throw new GitProviderError(
+        "Bitbucket API response is missing links.html.href",
+        response.status,
+        JSON.stringify(data).slice(0, 500)
+      );
     }
     return { url };
   }

@@ -111,6 +111,36 @@ describe("BitbucketProvider.openPullRequest", () => {
     expect(gpError.responseText).toBe("x".repeat(500));
     expect(gpError.message).toContain("400");
   });
+
+  it("throws GitProviderError when a 2xx response is missing links.html.href", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ id: 7 }, 200));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const error = await provider
+      .openPullRequest(config, { branch: "b", title: "t", body: "b" })
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(GitProviderError);
+    const gpError = error as GitProviderError;
+    expect(gpError.status).toBe(200);
+    expect(gpError.message).toMatch(/links\.html\.href/);
+  });
+
+  it("throws GitProviderError when a 2xx response body is not JSON", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("<html>oops</html>", { status: 200 }));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const error = await provider
+      .openPullRequest(config, { branch: "b", title: "t", body: "b" })
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(GitProviderError);
+    const gpError = error as GitProviderError;
+    expect(gpError.status).toBe(200);
+    expect(gpError.message).toMatch(/JSON/i);
+  });
 });
 
 describe("BitbucketProvider.parseWebhook", () => {

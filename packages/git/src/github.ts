@@ -1,7 +1,9 @@
 import {
   ensureOkResponse,
   getHeader,
+  GitProviderError,
   parseRepoUrl,
+  readJsonResponse,
   verifyHmacSignature,
   type FetchLike,
   type GitProvider,
@@ -44,9 +46,13 @@ export class GitHubProvider implements GitProvider {
       }),
     });
     await ensureOkResponse(response, "GitHub");
-    const data = (await response.json()) as { html_url?: unknown };
+    const data = (await readJsonResponse(response, "GitHub")) as { html_url?: unknown };
     if (typeof data.html_url !== "string") {
-      throw new Error("GitHub API response is missing html_url");
+      throw new GitProviderError(
+        "GitHub API response is missing html_url",
+        response.status,
+        JSON.stringify(data).slice(0, 500)
+      );
     }
     return { url: data.html_url };
   }
