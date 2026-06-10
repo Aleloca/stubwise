@@ -81,6 +81,9 @@ describe("guardia di routing", () => {
     mockApi({
       "/api/auth/me": () =>
         jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" } }),
+      // Il loader di /tickets precarica lista e progetti.
+      "/api/tickets": () => jsonResponse(200, { items: [], nextCursor: null }),
+      "/api/projects": () => jsonResponse(200, []),
     });
 
     const router = renderApp();

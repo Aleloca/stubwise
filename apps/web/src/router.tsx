@@ -8,15 +8,17 @@ import {
 } from "@tanstack/react-router";
 import type { RouterHistory } from "@tanstack/react-router";
 import { AppLayout } from "./components/app-layout";
+import { PagePlaceholder } from "./components/page-placeholder";
 import { RouteError } from "./components/route-error";
 import { ApiError } from "./lib/api";
 import { meQueryOptions, setupStatusQueryOptions } from "./lib/auth";
+import { projectsQueryOptions, ticketsInfiniteQueryOptions } from "./lib/queries";
 import { BoardPage } from "./routes/board";
 import { LoginPage } from "./routes/login";
 import { ProjectsPage } from "./routes/projects";
 import { SettingsPage } from "./routes/settings";
 import { SetupPage } from "./routes/setup";
-import { TicketsPage } from "./routes/tickets";
+import { ticketSearchSchema, TicketsPage } from "./routes/tickets/index";
 
 /*
  * Routing code-based (createRoute, niente plugin file-router): l'albero è
@@ -83,7 +85,27 @@ const indexRoute = createRoute({
 const ticketsRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/tickets",
+  // I filtri vivono nei search param: validati qui, tipati ovunque.
+  validateSearch: (search) => ticketSearchSchema.parse(search),
+  loaderDeps: ({ search }) => search,
+  loader: async ({ context, deps }) => {
+    // Prima pagina della lista e progetti (nomi + select filtro) in cache
+    // prima del render: il componente usa le useSuspenseQuery senza attese.
+    await Promise.all([
+      context.queryClient.ensureInfiniteQueryData(ticketsInfiniteQueryOptions(deps)),
+      context.queryClient.ensureQueryData(projectsQueryOptions),
+    ]);
+  },
   component: TicketsPage,
+});
+
+// Segnaposto: il dettaglio vero arriva con il secondo commit del Task 16.
+const ticketDetailRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/tickets/$id",
+  component: () => (
+    <PagePlaceholder title="Ticket" description="Dettaglio del ticket, in arrivo." />
+  ),
 });
 
 const boardRoute = createRoute({
@@ -110,6 +132,7 @@ const routeTree = rootRoute.addChildren([
   authedRoute.addChildren([
     indexRoute,
     ticketsRoute,
+    ticketDetailRoute,
     boardRoute,
     projectsRoute,
     settingsRoute,

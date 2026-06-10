@@ -1,3 +1,10 @@
+import type {
+  TicketPriority,
+  TicketSource,
+  TicketStatus,
+  TicketType,
+} from "@stubwise/shared";
+
 /**
  * Wrapper fetch tipizzato per l'API di Stubwise.
  *
@@ -97,4 +104,85 @@ export function postLogin(credentials: Credentials): Promise<{ user: PublicUser 
 
 export function postLogout(): Promise<void> {
   return api.post("/api/auth/logout");
+}
+
+// --- Tickets ---
+
+export interface Ticket {
+  id: string;
+  projectId: string;
+  number: number;
+  title: string;
+  body: string;
+  type: TicketType;
+  priority: TicketPriority;
+  status: TicketStatus;
+  source: TicketSource;
+  assigneeId: string | null;
+  labels: string[];
+  technicalPayload: unknown;
+  occurrences: number;
+  lastSeenAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Filtri della lista ticket: combaciano con i search param di /tickets. */
+export interface TicketFilters {
+  projectId?: string;
+  status?: TicketStatus;
+  type?: TicketType;
+  priority?: TicketPriority;
+  q?: string;
+}
+
+export interface TicketPage {
+  items: Ticket[];
+  nextCursor: string | null;
+}
+
+export interface TicketPatch {
+  title?: string;
+  body?: string;
+  type?: TicketType;
+  priority?: TicketPriority;
+  status?: TicketStatus;
+  assigneeId?: string | null;
+  labels?: string[];
+}
+
+export function listTickets(filters: TicketFilters, cursor?: string): Promise<TicketPage> {
+  const params = new URLSearchParams();
+  if (filters.projectId) params.set("projectId", filters.projectId);
+  if (filters.status) params.set("status", filters.status);
+  if (filters.type) params.set("type", filters.type);
+  if (filters.priority) params.set("priority", filters.priority);
+  if (filters.q) params.set("q", filters.q);
+  if (cursor) params.set("cursor", cursor);
+  const query = params.toString();
+  return api.get(`/api/tickets${query ? `?${query}` : ""}`);
+}
+
+export function getTicket(id: string): Promise<Ticket> {
+  return api.get(`/api/tickets/${id}`);
+}
+
+export function patchTicket(id: string, patch: TicketPatch): Promise<Ticket> {
+  return api.patch(`/api/tickets/${id}`, patch);
+}
+
+// --- Projects ---
+
+export interface Project {
+  id: string;
+  name: string;
+  slug: string;
+  provider: string;
+  repoUrl: string;
+  defaultBranch: string;
+  createdAt: string;
+}
+
+export function getProjects(): Promise<Project[]> {
+  return api.get("/api/projects");
 }
