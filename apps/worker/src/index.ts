@@ -3,7 +3,35 @@ import { ClaudeCliRunner } from "./agent/claude-cli.js";
 import { loadWorkerConfig, type WorkerConfig } from "./config.js";
 import { MirrorManager } from "./git/mirrors.js";
 import { createHandler } from "./handler.js";
+import { DEFAULT_FIX_TIMEOUT_MS } from "./pipeline/fix.js";
+import { DEFAULT_TRIAGE_TIMEOUT_MS } from "./pipeline/triage.js";
 import { runWorker } from "./queue.js";
+
+/**
+ * Margine di sicurezza sopra triage+fix prima che un job sia dichiarato
+ * orfano: copre il tempo non-agentico del job (clone/worktree, push, apertura
+ * PR) e la latenza del poll di requeueStale.
+ */
+const STALE_MARGIN_MS = 5 * 60_000;
+
+/**
+ * INVARIANTE: la soglia di staleness deve superare il tempo MASSIMO che un job
+ * legittimo può impiegare, altrimenti requeueStale lo riporterebbe in coda
+ * mentre è ancora in corso → PR duplicata sullo stesso progetto. Il triage può
+ * ritentare una volta (≈ 2× il suo timeout). L'heartbeat in runFix è la difesa
+ * primaria; questa è la rete di sicurezza che impedisce una config rotta.
+ */
+function assertStaleInvariant(staleAfterMinutes: number): void {
+  const staleMs = staleAfterMinutes * 60_000;
+  const minRequiredMs = DEFAULT_FIX_TIMEOUT_MS + 2 * DEFAULT_TRIAGE_TIMEOUT_MS + STALE_MARGIN_MS;
+  if (staleMs <= minRequiredMs) {
+    throw new Error(
+      `WORKER_STALE_MINUTES=${staleAfterMinutes} è troppo basso: deve superare ` +
+        `${Math.ceil(minRequiredMs / 60_000)} minuti (timeout fix + 2× triage + margine), ` +
+        `altrimenti un job lungo ma vivo verrebbe riaccodato e si aprirebbe una PR duplicata.`,
+    );
+  }
+}
 
 /**
  * Entry point del worker: config → DB → mirror manager → CLI claude →
@@ -22,6 +50,12 @@ function loadConfigOrExit(): WorkerConfig {
 }
 
 const config = loadConfigOrExit();
+try {
+  assertStaleInvariant(config.staleAfterMinutes);
+} catch (err) {
+  console.error(err instanceof Error ? err.message : err);
+  process.exit(1);
+}
 const { db, client } = createDb(config.databaseUrl);
 
 const handler = createHandler({
@@ -44,6 +78,12 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 console.error(
   `[stubwise-worker] avviato (concurrency ${config.concurrency}, mirrors in ${config.mirrorsDir})`,
 );
-await runWorker({ db, handler, concurrency: config.concurrency, signal: controller.signal });
+await runWorker({
+  db,
+  handler,
+  concurrency: config.concurrency,
+  staleAfterMinutes: config.staleAfterMinutes,
+  signal: controller.signal,
+});
 await client.end();
 console.error("[stubwise-worker] fermato");

@@ -45,6 +45,18 @@ export async function appendLog(db: Db, jobId: string, line: string): Promise<vo
     .where(eq(aiJobs.id, jobId));
 }
 
+/**
+ * Heartbeat silenzioso: bumpa SOLO `lastActivityAt`, senza toccare il log.
+ * Pensato per essere chiamato a intervalli (<< della soglia di staleness) da
+ * un fix lungo ma vivo, così requeueStale non lo riporta in coda creando una
+ * PR duplicata. A differenza di appendLog non aggiunge rumore al log a ogni
+ * battito. Non filtra sugli stati attivi: è idempotente e innocuo su un job
+ * già chiuso (bumpa una colonna che non cambia più nulla).
+ */
+export async function touchJob(db: Db, jobId: string): Promise<void> {
+  await db.update(aiJobs).set({ lastActivityAt: sql`now()` }).where(eq(aiJobs.id, jobId));
+}
+
 export interface CompleteJobInput {
   status: "pr_opened" | "skipped";
   log: string;
@@ -172,7 +184,8 @@ export interface RunWorkerOptions {
   pollMs?: number;
   /** Ferma il loop: smette di reclamare e attende i job in volo. */
   signal?: AbortSignal;
-  /** Soglia di inattività oltre cui un job in lavorazione è orfano (default 15'). */
+  /** Soglia di inattività oltre cui un job in lavorazione è orfano (default 30':
+   * deve superare il timeout del fix + triage, vedi l'invariante in index.ts). */
   staleAfterMinutes?: number;
   /** Ogni quanto cercare job orfani (default 60s; il primo controllo è subito). */
   requeueEveryMs?: number;

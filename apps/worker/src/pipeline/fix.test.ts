@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { execa } from "execa";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -12,7 +12,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { FakeAgentRunner } from "../agent/fake.js";
 import { AgentTimeoutError } from "../agent/runner.js";
 import { MirrorManager } from "../git/mirrors.js";
-import type { AiJob } from "../queue.js";
+import { requeueStale, type AiJob } from "../queue.js";
 import { DEFAULT_FIX_ALLOWED_TOOLS, runFix, type FixDeps } from "./fix.js";
 import { buildFixPrompt } from "./prompts.js";
 
@@ -120,10 +120,14 @@ async function createTicket(
 }
 
 /** Job già in stato `fixing`, come lo lascia markFixing dopo il triage. */
-async function createFixingJob(db: Db, ticketId: string): Promise<AiJob> {
+async function createFixingJob(
+  db: Db,
+  ticketId: string,
+  overrides: { startedAt?: Date; lastActivityAt?: Date } = {},
+): Promise<AiJob> {
   const [job] = await db
     .insert(aiJobs)
-    .values({ ticketId, status: "fixing", startedAt: new Date() })
+    .values({ ticketId, status: "fixing", startedAt: new Date(), ...overrides })
     .returning();
   if (!job) throw new Error("insert del job non ha restituito la riga");
   return job;
@@ -407,6 +411,36 @@ describe("runFix", () => {
     expect(jobAfter.log).toContain("STUBWISE_REPORT.md non trovato");
   });
 
+  it("STUBWISE_REPORT.md creato come DIRECTORY → trattato come mancante, rimosso, fuori dal commit", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n" },
+      // Output malformato: l'agente ha creato il report come directory.
+      script: async (opts) => {
+        const dirReport = join(opts.cwd, "STUBWISE_REPORT.md");
+        await mkdir(dirReport, { recursive: true });
+        await writeFile(join(dirReport, "nested.txt"), "spazzatura");
+        return { output: "fatto, ma report come dir", exitCode: 0 };
+      },
+    });
+    const provider = makeProvider();
+
+    const outcome = await runFix(makeDeps(fixture, runner, provider), job);
+
+    // Fallback come report mancante: la PR si apre comunque (il diff ha valore).
+    expect(outcome).toBe("pr_opened");
+    const [, pr] = provider.openPullRequest.mock.calls[0] as [unknown, { body: string }];
+    expect(pr.body).toContain("Il report non è stato generato");
+    // La directory NON deve finire nel commit pushato.
+    const branch = `stubwise/ticket-${ticket.number}`;
+    const files = await git(["ls-tree", "-r", "--name-only", branch], fixture.upstreamDir);
+    expect(files).not.toContain("STUBWISE_REPORT.md");
+    expect(files).toContain("app.js");
+  });
+
   it("exit code non-zero → job failed (conservativo), niente PR anche se c'è un diff", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
@@ -450,6 +484,76 @@ describe("runFix", () => {
     expect(jobAfter.status).toBe("failed");
     expect(jobAfter.error).toContain("timeout");
     expect(jobAfter.log).toContain("output parziale prima del kill");
+  });
+
+  it("apertura PR fallita dopo il push → job failed con log azionabile (branch + upstream + recupero)", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+    });
+    const provider: FakeProvider = {
+      openPullRequest: vi.fn().mockRejectedValue(new Error("403 da GitHub")),
+    };
+
+    const outcome = await runFix(makeDeps(fixture, runner, provider), job);
+
+    expect(outcome).toBe("failed");
+    // Il branch È stato pushato (il push precede l'apertura PR).
+    const branch = `stubwise/ticket-${ticket.number}`;
+    const branches = await git(["branch", "--list", branch], fixture.upstreamDir);
+    expect(branches).toContain(branch);
+    // Il log è azionabile: nomina il branch ESATTO, l'upstream e il recupero.
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("failed");
+    expect(jobAfter.log).toContain(branch);
+    // L'upstream è il repoUrl del progetto (file:// nel fixture).
+    const [proj] = await db.select().from(projects).where(eq(projects.id, fixture.projectId));
+    expect(jobAfter.log).toContain(proj!.repoUrl);
+    expect(jobAfter.log).toMatch(/recupero manuale/i);
+    expect(jobAfter.log).toMatch(/--delete/);
+    expect(jobAfter.error).toContain("403 da GitHub");
+  });
+
+  it("l'heartbeat rinfresca lastActivityAt durante un run lento, e requeueStale NON lo riaccoda", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture.projectId);
+    // Job partito 30' fa e senza segni di vita da 30': senza heartbeat sarebbe
+    // un candidato perfetto al requeue (PR duplicata).
+    const job = await createFixingJob(db, ticket.id, {
+      startedAt: new Date(Date.now() - 30 * 60_000),
+      lastActivityAt: new Date(Date.now() - 30 * 60_000),
+    });
+    // Runner lento: tiene il run aperto abbastanza da far scattare ≥1 battito
+    // dell'heartbeat (intervallo accelerato a 50ms via deps).
+    const runner = new FakeAgentRunner({
+      script: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        return { output: "ho corretto il bug", exitCode: 0 };
+      },
+      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+    });
+    const provider = makeProvider();
+
+    // Mentre il fix gira, controlliamo che requeueStale (soglia 10') NON tocchi
+    // il job: l'heartbeat lo tiene vivo.
+    const fixPromise = runFix(
+      makeDeps(fixture, runner, provider, { heartbeatIntervalMs: 50 }),
+      job,
+    );
+    // Attendiamo che almeno un battito sia passato.
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    const requeuedDuringRun = await requeueStale(db, { olderThanMinutes: 10 });
+    expect(requeuedDuringRun).toBe(0);
+    const midRun = await getJob(db, job.id);
+    expect(midRun.status).toBe("fixing");
+    expect(midRun.lastActivityAt.getTime()).toBeGreaterThan(Date.now() - 60_000);
+
+    const outcome = await fixPromise;
+    expect(outcome).toBe("pr_opened");
   });
 
   it("credenziali non decifrabili → job failed senza toccare il repo", async () => {

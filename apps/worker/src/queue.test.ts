@@ -10,6 +10,7 @@ import {
   markFixing,
   requeueStale,
   runWorker,
+  touchJob,
   type AiJob,
 } from "./queue.js";
 
@@ -268,6 +269,22 @@ describe("transizioni di stato", () => {
     expect(persisted.log).toBe("prima riga\nseconda riga\n");
   });
 
+  it("touchJob rinfresca lastActivityAt senza scrivere nel log (heartbeat silenzioso)", async () => {
+    const { db } = testDb;
+    const job = await enqueueJob(db, {
+      status: "fixing",
+      startedAt: minutesAgo(30),
+      lastActivityAt: minutesAgo(30),
+    });
+
+    await touchJob(db, job.id);
+
+    const persisted = await getJob(db, job.id);
+    expect(persisted.lastActivityAt.getTime()).toBeGreaterThan(Date.now() - 60_000);
+    // Heartbeat silenzioso: niente rumore nel log a ogni battito.
+    expect(persisted.log).toBe("");
+  });
+
   it("appendLog rinfresca lastActivityAt: è l'heartbeat gratuito del worker", async () => {
     const { db } = testDb;
     const job = await enqueueJob(db, {
@@ -313,6 +330,26 @@ describe("requeueStale", () => {
     expect((await getJob(db, fresh.id)).status).toBe("fixing");
     expect((await getJob(db, queued.id)).status).toBe("queued");
     expect((await getJob(db, done.id)).status).toBe("failed");
+  });
+
+  it("un heartbeat touchJob recente tiene il job fuori dal requeue anche oltre la soglia", async () => {
+    const { db } = testDb;
+    // Fix lungo: startedAt remoto, lastActivityAt remoto... ma l'heartbeat
+    // (touchJob) appena fatto lo tiene vivo, anche senza scrivere nel log.
+    const longRunning = await enqueueJob(db, {
+      status: "fixing",
+      startedAt: minutesAgo(120),
+      lastActivityAt: minutesAgo(120),
+    });
+    await touchJob(db, longRunning.id);
+
+    const requeued = await requeueStale(db, { olderThanMinutes: 10 });
+
+    expect(requeued).toBe(0);
+    const persisted = await getJob(db, longRunning.id);
+    expect(persisted.status).toBe("fixing");
+    expect(persisted.startedAt).not.toBeNull();
+    expect(persisted.log).not.toContain("riportato in coda");
   });
 
   it("ignora i job con attività recente anche se startedAt è vecchio", async () => {

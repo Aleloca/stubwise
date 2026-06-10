@@ -46,6 +46,18 @@ const envSchema = z.object({
       .max(16, "deve essere un intero tra 1 e 16 (es. 2)")
       .default(2),
   ),
+  // Soglia di staleness per requeueStale: un job in lavorazione senza
+  // heartbeat oltre questo limite è orfano di un worker crashato e torna in
+  // coda. Deve restare > del timeout del fix (+ triage): vedi l'invariante
+  // verificata in index.ts. Min 1 (il default copre il fix da 30').
+  WORKER_STALE_MINUTES: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 in minuti (es. 30)" })
+      .int("deve essere un intero ≥ 1 in minuti (es. 30)")
+      .min(1, "deve essere un intero ≥ 1 in minuti (es. 30)")
+      .default(30),
+  ),
 });
 
 export interface WorkerConfig {
@@ -56,6 +68,9 @@ export interface WorkerConfig {
   /** Job in volo contemporanei (su progetti DIVERSI: quelli dello stesso
    * progetto vengono comunque serializzati dall'handler). */
   concurrency: number;
+  /** Minuti di inattività oltre cui un job in lavorazione è considerato
+   * orfano e riportato in coda (default 30). */
+  staleAfterMinutes: number;
 }
 
 /**
@@ -83,5 +98,6 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     encryptionKey: Buffer.from(parsed.ENCRYPTION_KEY, "base64"),
     mirrorsDir: parsed.MIRRORS_DIR,
     concurrency: parsed.WORKER_CONCURRENCY,
+    staleAfterMinutes: parsed.WORKER_STALE_MINUTES,
   };
 }

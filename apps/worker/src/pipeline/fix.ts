@@ -3,12 +3,12 @@ import { getProvider, type GitProvider } from "@stubwise/git";
 import type { GitProviderKind } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import { execa } from "execa";
-import { readFile, rm } from "node:fs/promises";
+import { readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { AgentRunError, AgentTimeoutError, type AgentRunner } from "../agent/runner.js";
 import { MirrorManager, type MirrorProject } from "../git/mirrors.js";
-import { appendLog, completeJob, failJob, type AiJob } from "../queue.js";
+import { appendLog, completeJob, failJob, touchJob, type AiJob } from "../queue.js";
 import { buildFixPrompt, REPORT_FILENAME, toSingleLine } from "./prompts.js";
 
 /**
@@ -45,6 +45,10 @@ export const DEFAULT_FIX_ALLOWED_TOOLS = [
   "Bash(npx jest:*)",
 ];
 
+/** Timeout di default del fix (30'): la fase lunga. Esportato per l'invariante
+ * di staleness verificata all'avvio del worker (vedi index.ts). */
+export const DEFAULT_FIX_TIMEOUT_MS = 1_800_000;
+
 export interface FixDeps {
   db: Db;
   runner: AgentRunner;
@@ -61,6 +65,9 @@ export interface FixDeps {
   timeoutMs?: number;
   /** Override dei tool extra consentiti (default DEFAULT_FIX_ALLOWED_TOOLS). */
   allowedTools?: string[];
+  /** Intervallo dell'heartbeat in ms (default HEARTBEAT_INTERVAL_MS).
+   * Iniettabile nei test per verificare il bump senza attendere 60s. */
+  heartbeatIntervalMs?: number;
 }
 
 export type FixOutcome = "pr_opened" | "failed";
@@ -70,6 +77,15 @@ const LOG_OUTPUT_MAX_CHARS = 4000;
 
 /** Tetto per il titolo del ticket dentro titolo PR / messaggio di commit. */
 const TITLE_MAX_CHARS = 200;
+
+/**
+ * Intervallo dell'heartbeat durante il run dell'agente. Il fix può durare fino
+ * a 30' (DEFAULT_FIX_TIMEOUT_MS) ma non scrive nel log mentre l'agente lavora:
+ * senza heartbeat requeueStale lo crederebbe orfano e lo riporterebbe in coda,
+ * generando una PR DUPLICATA sullo stesso progetto. Un touchJob ogni 60s tiene
+ * fresco lastActivityAt; 60s è << della soglia di staleness (≥ 30 min), così
+ * un job davvero stuck (interval morto col processo) viene comunque recuperato. */
+const HEARTBEAT_INTERVAL_MS = 60_000;
 
 function truncateForLog(output: string): string {
   return output.length > LOG_OUTPUT_MAX_CHARS
@@ -125,7 +141,7 @@ async function gitIn(dir: string, args: string[]): Promise<string> {
 export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   const { db, runner, mirrors } = deps;
   const maxTurns = deps.maxTurns ?? 80;
-  const timeoutMs = deps.timeoutMs ?? 1_800_000;
+  const timeoutMs = deps.timeoutMs ?? DEFAULT_FIX_TIMEOUT_MS;
   const allowedTools = deps.allowedTools ?? DEFAULT_FIX_ALLOWED_TOOLS;
   const getProviderFn = deps.getProviderFn ?? getProvider;
 
@@ -178,23 +194,48 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   let agentOutput: string;
   try {
     ({ report, agentOutput } = await mirrors.withWorktree(mirrorProject, branch, async (dir) => {
-      const { output, exitCode } = await runner.run({
-        cwd: dir,
-        prompt,
-        ...(deps.model !== undefined ? { model: deps.model } : {}),
-        maxTurns,
-        timeoutMs,
-        allowedTools,
-      });
+      // Heartbeat: il run può durare a lungo senza scrivere nel log. Senza
+      // questo touchJob periodico, requeueStale crederebbe il job orfano e
+      // ne aprirebbe un duplicato. L'interval è cancellato in finally.
+      const heartbeat = setInterval(() => {
+        void touchJob(db, job.id).catch(() => {
+          // Un bump fallito (DB transitorio) non deve uccidere il fix: il
+          // prossimo battito riproverà.
+        });
+      }, deps.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS);
+      // unref: l'heartbeat da solo non deve tenere vivo l'event loop.
+      heartbeat.unref();
+      let output: string;
+      let exitCode: number;
+      try {
+        ({ output, exitCode } = await runner.run({
+          cwd: dir,
+          prompt,
+          ...(deps.model !== undefined ? { model: deps.model } : {}),
+          maxTurns,
+          timeoutMs,
+          allowedTools,
+        }));
+      } finally {
+        clearInterval(heartbeat);
+      }
       if (exitCode !== 0) throw new AgentExitError(exitCode, output);
 
       // Il report è il corpo della PR e NON deve finire nel commit: letto e
-      // rimosso PRIMA di `git add -A`.
+      // rimosso PRIMA di `git add -A`. Se l'agente ha creato STUBWISE_REPORT.md
+      // come DIRECTORY (output malformato), lo trattiamo come report mancante
+      // e lo rimuoviamo ricorsivamente, così non finisce comunque nel commit.
       const reportPath = join(dir, REPORT_FILENAME);
       let reportContent: string | null = null;
       try {
-        reportContent = await readFile(reportPath, "utf8");
-        await rm(reportPath);
+        const info = await stat(reportPath);
+        if (info.isDirectory()) {
+          reportContent = null; // Malformato: fallback + esclusione dal commit.
+          await rm(reportPath, { recursive: true, force: true });
+        } else {
+          reportContent = await readFile(reportPath, "utf8");
+          await rm(reportPath);
+        }
       } catch {
         reportContent = null; // Mancante: si decide fuori (fallback, il fix ha valore).
       }
@@ -274,9 +315,20 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       body: `${reportBody}\n\n---\nGenerato automaticamente da Stubwise AI per il ticket #${ticket.number}.`,
     }));
   } catch (err) {
+    // LIMITE NOTO (nessun retry automatico): il push è già atterrato sul
+    // remote ma l'apertura PR è fallita → il branch resta orfano e il job è
+    // terminale `failed`. Un re-run rifarebbe il push sullo STESSO branch e
+    // potrebbe fallire (ref già esistente o non-fast-forward): il recupero
+    // manuale è cancellare il branch sull'upstream e poi aprire la PR a mano
+    // o ri-accodare il job. Il log nomina branch e upstream per renderlo
+    // azionabile senza dover indovinare i nomi.
     const message = err instanceof Error ? err.message : String(err);
     await failJob(db, job.id, {
-      log: `${logLines.join("\n")}\n[fix] branch ${branch} pushato ma apertura PR fallita: ${message}`,
+      log:
+        `${logLines.join("\n")}\n` +
+        `[fix] branch '${branch}' pushato su ${project.repoUrl} ma apertura PR fallita: ${message}\n` +
+        `[fix] recupero manuale: elimina il branch '${branch}' sull'upstream (es. git push ${project.repoUrl} --delete ${branch}) ` +
+        `prima di aprire la PR a mano o ri-accodare il job (un re-run riparte da un branch pulito).`,
       error: `apertura PR fallita: ${message}`,
     });
     return "failed";

@@ -20,9 +20,16 @@ import {
  *   argv e il leak via `ps` (gli argomenti di un processo sono leggibili da
  *   chiunque per tutta la sua durata — stesso razionale di mirrors.ts per
  *   le credenziali git).
- * - L'env del worker viene inoltrato così com'è (+ extraEnv): il CLI claude
- *   si autentica da sé tramite l'ambiente/volume del worker (config in
- *   ~/.claude o variabili dedicate). Non impostiamo variabili CI-specifiche.
+ * - L'env del child è una ALLOWLIST esplicita, NON l'intero process.env
+ *   (extendEnv:false). Il prompt è contenuto non fidato del ticket e gli
+ *   allowedTools permettono di eseguire comandi (i test): un ticket ostile
+ *   che ottiene injection potrebbe esfiltrare segreti del master via un
+ *   comando. Per questo l'agente NON vede MAI ENCRYPTION_KEY (decifra le
+ *   credenziali git di TUTTI i progetti), DATABASE_URL o SESSION_SECRET.
+ *   Passano solo PATH/HOME, le var di auth claude (prefissi ANTHROPIC_ e
+ *   CLAUDE_) e
+ *   ciò che extraEnv aggiunge esplicitamente — l'allowlist ha però l'ultima
+ *   parola, così extraEnv non può reintrodurre un segreto bloccato.
  * - Exit code NON-ZERO = risultato valido, restituito con stdout+stderr
  *   combinati: è la pipeline a decidere cosa significa.
  * - Timeout: il processo viene ucciso e lanciamo AgentTimeoutError con
@@ -33,8 +40,64 @@ import {
 export interface ClaudeCliRunnerOptions {
   /** Path (o nome in PATH) del binario claude. Default: "claude". */
   claudePath?: string;
-  /** Variabili aggiuntive, unite all'env del processo worker. */
+  /** Variabili extra esplicite per il child (filtrate dall'allowlist negata). */
   extraEnv?: Record<string, string>;
+}
+
+/**
+ * Nomi ESATTI di process.env che possono raggiungere il child: il minimo per
+ * eseguire e autenticare il CLI. Tutto il resto (compresi i segreti del
+ * master) viene scartato. Le var di auth claude usano un prefisso (sotto).
+ */
+const ENV_ALLOWLIST = [
+  "PATH",
+  "HOME",
+  "LANG",
+  "LC_ALL",
+  "TMPDIR",
+  // Config home del CLI claude (es. ~/.claude o override).
+  "CLAUDE_CONFIG_DIR",
+  "XDG_CONFIG_HOME",
+] as const;
+
+/**
+ * Prefissi di var di auth/config del CLI claude da inoltrare per intero
+ * (ANTHROPIC_API_KEY, CLAUDE_CODE_*, ecc.): non conosciamo a priori ogni
+ * nome, ma il namespace è del provider e non contiene segreti di Stubwise.
+ */
+const ENV_ALLOWLIST_PREFIXES = ["ANTHROPIC_", "CLAUDE_"] as const;
+
+/**
+ * Var che NON devono MAI raggiungere il child, nemmeno via extraEnv: sono i
+ * segreti del master. Difesa in profondità sopra l'allowlist (l'allowlist da
+ * sola già le escluderebbe da process.env, ma questa lista blocca anche un
+ * extraEnv che le contenesse per errore).
+ */
+const ENV_DENYLIST = new Set(["ENCRYPTION_KEY", "DATABASE_URL", "SESSION_SECRET"]);
+
+/**
+ * Costruisce l'env del child a partire da un'allowlist di process.env più gli
+ * extraEnv espliciti. La denylist ha la precedenza assoluta: un segreto del
+ * master non passa per nessuna via.
+ */
+export function buildAgentEnv(
+  parentEnv: NodeJS.ProcessEnv,
+  extraEnv?: Record<string, string>,
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  const allow = (name: string): boolean =>
+    !ENV_DENYLIST.has(name) &&
+    ((ENV_ALLOWLIST as readonly string[]).includes(name) ||
+      ENV_ALLOWLIST_PREFIXES.some((prefix) => name.startsWith(prefix)));
+
+  for (const [name, value] of Object.entries(parentEnv)) {
+    if (value !== undefined && allow(name)) env[name] = value;
+  }
+  // extraEnv è esplicito ma resta soggetto alla denylist.
+  for (const [name, value] of Object.entries(extraEnv ?? {})) {
+    if (!ENV_DENYLIST.has(name)) env[name] = value;
+  }
+  return env;
 }
 
 export class ClaudeCliRunner implements AgentRunner {
@@ -81,8 +144,10 @@ export class ClaudeCliRunner implements AgentRunner {
         timeout: opts.timeoutMs,
         // Al timeout: SIGTERM, poi SIGKILL dopo 5s se il processo non muore.
         forceKillAfterDelay: 5000,
-        // extendEnv è true di default: extraEnv si AGGIUNGE all'env del worker.
-        env: this.extraEnv,
+        // extendEnv:false + env allowlist: il child NON eredita l'intero
+        // process.env (niente segreti del master). Vedi docblock del modulo.
+        extendEnv: false,
+        env: buildAgentEnv(process.env, this.extraEnv),
         // stdout+stderr interleaved in `all`: il report dell'agente e gli
         // eventuali errori del CLI finiscono nello stesso log del job.
         all: true,

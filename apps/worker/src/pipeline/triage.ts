@@ -15,6 +15,11 @@ import { buildTriagePrompt, parseTriageDecision, type TriageDecision } from "./p
  * (es. una tmpdir), non un worktree: anche se il modello provasse a leggere
  * o scrivere file, non troverebbe niente.
  */
+/** Timeout di default del triage (2'). Esportato per l'invariante di staleness
+ * verificata all'avvio del worker (vedi index.ts). Il triage può ritentare
+ * una volta, quindi nel caso pessimo vale ~2× questo valore. */
+export const DEFAULT_TRIAGE_TIMEOUT_MS = 120_000;
+
 export interface TriageDeps {
   db: Db;
   runner: AgentRunner;
@@ -55,7 +60,7 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
   const { db, runner, workDir } = deps;
   const model = deps.model ?? "haiku";
   const maxTurns = deps.maxTurns ?? 10;
-  const timeoutMs = deps.timeoutMs ?? 120_000;
+  const timeoutMs = deps.timeoutMs ?? DEFAULT_TRIAGE_TIMEOUT_MS;
 
   const [ticket] = await db.select().from(tickets).where(eq(tickets.id, job.ticketId));
   if (!ticket) {

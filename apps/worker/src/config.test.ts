@@ -15,22 +15,40 @@ describe("loadWorkerConfig", () => {
     expect(config.encryptionKey.toString("base64")).toBe(VALID.ENCRYPTION_KEY);
     expect(config.mirrorsDir).toBe("/var/stubwise/mirrors");
     expect(config.concurrency).toBe(2);
+    expect(config.staleAfterMinutes).toBe(30);
   });
 
-  it("rispetta MIRRORS_DIR e WORKER_CONCURRENCY espliciti", () => {
+  it("rispetta MIRRORS_DIR, WORKER_CONCURRENCY e WORKER_STALE_MINUTES espliciti", () => {
     const config = loadWorkerConfig({
       ...VALID,
       MIRRORS_DIR: "/data/mirrors",
       WORKER_CONCURRENCY: "4",
+      WORKER_STALE_MINUTES: "45",
     });
     expect(config.mirrorsDir).toBe("/data/mirrors");
     expect(config.concurrency).toBe(4);
+    expect(config.staleAfterMinutes).toBe(45);
   });
 
   it("variabili vuote (es. copiate da .env.example) usano il default", () => {
-    const config = loadWorkerConfig({ ...VALID, MIRRORS_DIR: "", WORKER_CONCURRENCY: "" });
+    const config = loadWorkerConfig({
+      ...VALID,
+      MIRRORS_DIR: "",
+      WORKER_CONCURRENCY: "",
+      WORKER_STALE_MINUTES: "",
+    });
     expect(config.mirrorsDir).toBe("/var/stubwise/mirrors");
     expect(config.concurrency).toBe(2);
+    expect(config.staleAfterMinutes).toBe(30);
+  });
+
+  it("rifiuta una WORKER_STALE_MINUTES non numerica o < 1", () => {
+    expect(() => loadWorkerConfig({ ...VALID, WORKER_STALE_MINUTES: "tanto" })).toThrow(
+      /WORKER_STALE_MINUTES/,
+    );
+    expect(() => loadWorkerConfig({ ...VALID, WORKER_STALE_MINUTES: "0" })).toThrow(
+      /WORKER_STALE_MINUTES/,
+    );
   });
 
   it("elenca tutte le variabili mancanti o non valide in un solo errore", () => {

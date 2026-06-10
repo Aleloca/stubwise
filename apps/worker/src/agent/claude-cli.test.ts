@@ -250,12 +250,20 @@ echo "ENV:$STUBWISE_TEST_VAR"
     expect(result.output).toContain("ENV:ciao-env");
   });
 
-  it("inoltra l'env del worker al processo anche quando extraEnv è definita (extendEnv default di execa)", async () => {
-    // Sentinella su process.env: se passassimo `env` con extendEnv:false,
-    // il CLI perderebbe l'ambiente del worker (PATH, config di claude, ...).
-    process.env.STUBWISE_INHERITED_SENTINEL = "ereditata-dal-worker";
+  it("NON inoltra all'agente i segreti del worker (ENCRYPTION_KEY/DATABASE_URL/SESSION_SECRET) ma sì PATH e le var di auth claude", async () => {
+    // Sentinelle su process.env: i segreti del master NON devono raggiungere
+    // il child (un ticket ostile che ottiene injection li esfiltrerebbe via un
+    // comando di test). PATH e le var di auth claude invece SÌ: senza, il CLI
+    // non si autentica e non trova i binari.
+    process.env.ENCRYPTION_KEY = "SENTINEL-ENCRYPTION-KEY";
+    process.env.DATABASE_URL = "postgres://SENTINEL/db";
+    process.env.SESSION_SECRET = "SENTINEL-SESSION-SECRET";
+    process.env.ANTHROPIC_API_KEY = "sk-ant-sentinel";
     cleanups.push(async () => {
-      delete process.env.STUBWISE_INHERITED_SENTINEL;
+      delete process.env.ENCRYPTION_KEY;
+      delete process.env.DATABASE_URL;
+      delete process.env.SESSION_SECRET;
+      delete process.env.ANTHROPIC_API_KEY;
     });
 
     const root = await makeRoot();
@@ -263,8 +271,34 @@ echo "ENV:$STUBWISE_TEST_VAR"
       root,
       `#!/bin/sh
 cat > /dev/null
-echo "INHERITED:$STUBWISE_INHERITED_SENTINEL"
-echo "EXTRA:$STUBWISE_TEST_VAR"
+echo "ENCRYPTION_KEY:[\${ENCRYPTION_KEY:-MANCANTE}]"
+echo "DATABASE_URL:[\${DATABASE_URL:-MANCANTE}]"
+echo "SESSION_SECRET:[\${SESSION_SECRET:-MANCANTE}]"
+echo "ANTHROPIC_API_KEY:[\${ANTHROPIC_API_KEY:-MANCANTE}]"
+echo "PATH_PRESENT:[\${PATH:+SI}]"
+`,
+    );
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    const result = await runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
+
+    // I segreti del master NON raggiungono il child.
+    expect(result.output).toContain("ENCRYPTION_KEY:[MANCANTE]");
+    expect(result.output).toContain("DATABASE_URL:[MANCANTE]");
+    expect(result.output).toContain("SESSION_SECRET:[MANCANTE]");
+    // Le var di auth claude e PATH invece sì.
+    expect(result.output).toContain("ANTHROPIC_API_KEY:[sk-ant-sentinel]");
+    expect(result.output).toContain("PATH_PRESENT:[SI]");
+  });
+
+  it("extraEnv può aggiungere variabili esplicite (allowlist a parte)", async () => {
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(
+      root,
+      `#!/bin/sh
+cat > /dev/null
+echo "EXTRA:\${STUBWISE_TEST_VAR:-MANCANTE}"
 `,
     );
     const cwd = await makeCwd(root);
@@ -272,8 +306,29 @@ echo "EXTRA:$STUBWISE_TEST_VAR"
 
     const result = await runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
 
-    expect(result.output).toContain("INHERITED:ereditata-dal-worker");
     expect(result.output).toContain("EXTRA:ciao-env");
+  });
+
+  it("extraEnv NON può forzare un segreto fuori allowlist nel child", async () => {
+    // Anche se un chiamante (per errore) mettesse ENCRYPTION_KEY in extraEnv,
+    // l'allowlist deve avere l'ultima parola: niente segreti del master.
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(
+      root,
+      `#!/bin/sh
+cat > /dev/null
+echo "ENCRYPTION_KEY:[\${ENCRYPTION_KEY:-MANCANTE}]"
+`,
+    );
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({
+      claudePath,
+      extraEnv: { ENCRYPTION_KEY: "tentativo-di-leak" },
+    });
+
+    const result = await runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
+
+    expect(result.output).toContain("ENCRYPTION_KEY:[MANCANTE]");
   });
 });
 
