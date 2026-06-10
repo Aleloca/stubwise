@@ -1,0 +1,98 @@
+# Deploy self-hosted di Stubwise.
+#
+# Avvio: copia .env.example in .env, compila i segreti, poi:
+#   docker compose up -d --build
+#
+# Tutti i build usano la radice del repo come context (monorepo pnpm).
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-stubwise}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD mancante in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-stubwise}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-stubwise} -d ${POSTGRES_DB:-stubwise}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      SESSION_SECRET: ${SESSION_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      PUBLIC_URL: ${PUBLIC_URL}
+      PORT: ${PORT:-3000}
+      # Caddy fa da reverse proxy davanti: il server deve fidarsi degli
+      # X-Forwarded-* per impostare il flag Secure sul cookie di sessione.
+      TRUST_PROXY: "true"
+    # Il server applica le migrazioni all'avvio (runMigrations): worker e Caddy
+    # lo aspettano sano. Healthcheck definito nell'immagine (hit /health).
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # Lo schema lo crea il server (migrazioni): il worker parte solo dopo
+      # che il server e' sano.
+      server:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      # STESSA chiave del server: decifra le credenziali git dei progetti.
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      MIRRORS_DIR: /var/stubwise/mirrors
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+      WORKER_STALE_MINUTES: ${WORKER_STALE_MINUTES:-30}
+      # --- Auth del CLI claude (scegli UNA delle due) ---
+      # 1) Chiave API: la via piu semplice in produzione (passa l'allowlist).
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # 2) Login OAuth/MAX: lascia ANTHROPIC_API_KEY vuota ed esegui
+      #    `docker compose exec worker claude login`. Il token persiste nel
+      #    volume claude-config montato su CLAUDE_CONFIG_DIR.
+      CLAUDE_CONFIG_DIR: /home/worker/.claude
+    volumes:
+      - mirrors:/var/stubwise/mirrors
+      - claude-config:/home/worker/.claude
+
+  caddy:
+    build:
+      context: .
+      dockerfile: Dockerfile.caddy
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      # Dominio pubblico. Per HTTPS automatico usa il FQDN; per smoke locali
+      # usa ":80" (solo HTTP) o "localhost" (TLS self-signed).
+      DOMAIN: ${DOMAIN:-:80}
+      SERVER_UPSTREAM: server:${PORT:-3000}
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  pgdata:
+  mirrors:
+  claude-config:
+  caddy-data:
+  caddy-config:

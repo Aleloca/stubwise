@@ -26,6 +26,7 @@ const app = buildApp({
   db,
   sessionSecret: config.sessionSecret,
   encryptionKey: config.encryptionKey,
+  trustProxy: config.trustProxy,
 });
 
 try {

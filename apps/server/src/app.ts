@@ -57,6 +57,13 @@ export interface BuildAppOptions {
    * Override pensato per i test; default 10 richieste al minuto.
    */
   authRateLimit?: RateLimitConfig;
+  /**
+   * Fidarsi degli header X-Forwarded-* del reverse proxy (Caddy nel deploy
+   * Docker). Va abilitato dietro un proxy affinché `secure: "auto"` sul cookie
+   * di sessione veda l'HTTPS terminato dal proxy (X-Forwarded-Proto) e imposti
+   * il flag Secure. Default false: in test e in sviluppo diretto non c'è proxy.
+   */
+  trustProxy?: boolean;
 }
 
 /**
@@ -65,7 +72,7 @@ export interface BuildAppOptions {
  * così i test possono usare `app.inject` senza variabili d'ambiente.
  */
 export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
-  const app = Fastify({ logger: opts.logger ?? false });
+  const app = Fastify({ logger: opts.logger ?? false, trustProxy: opts.trustProxy ?? false });
 
   // Validazione e serializzazione via Zod su tutta l'app: gli schemi delle
   // route sono oggetti Zod e (Task 9) diventeranno la fonte dell'OpenAPI.

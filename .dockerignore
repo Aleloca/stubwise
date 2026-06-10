@@ -1,0 +1,14 @@
+# I build Docker installano le dipendenze e ricostruiscono dentro l'immagine:
+# escludere gli artefatti locali rende il context piu leggero e i build
+# riproducibili (niente node_modules/dist dell'host che entrano nei layer).
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+**/coverage
+.git
+.env
+.env.*
+!.env.example
+**/playwright-report
+**/test-results
+**/.astro

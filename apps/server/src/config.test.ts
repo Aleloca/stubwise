@@ -18,6 +18,7 @@ describe("loadConfig", () => {
       encryptionKey: validEnv.ENCRYPTION_KEY,
       port: 8080,
       publicUrl: validEnv.PUBLIC_URL,
+      trustProxy: false,
     });
   });
 
@@ -71,5 +72,20 @@ describe("loadConfig", () => {
 
   it("rifiuta PUBLIC_URL non valida", () => {
     expect(() => loadConfig({ ...validEnv, PUBLIC_URL: "not a url" })).toThrowError(/PUBLIC_URL/);
+  });
+
+  it("TRUST_PROXY è false di default", () => {
+    expect(loadConfig(validEnv).trustProxy).toBe(false);
+  });
+
+  it("interpreta TRUST_PROXY=true (e altri valori veritieri) come true", () => {
+    expect(loadConfig({ ...validEnv, TRUST_PROXY: "true" }).trustProxy).toBe(true);
+    expect(loadConfig({ ...validEnv, TRUST_PROXY: "1" }).trustProxy).toBe(true);
+  });
+
+  it("interpreta TRUST_PROXY=false (o vuota) come false", () => {
+    expect(loadConfig({ ...validEnv, TRUST_PROXY: "false" }).trustProxy).toBe(false);
+    expect(loadConfig({ ...validEnv, TRUST_PROXY: "0" }).trustProxy).toBe(false);
+    expect(loadConfig({ ...validEnv, TRUST_PROXY: "" }).trustProxy).toBe(false);
   });
 });

@@ -38,6 +38,18 @@ const envSchema = z.object({
         ? "variabile mancante: URL pubblico dell'istanza (es. https://stubwise.example.com)"
         : "deve essere un URL valido (es. https://stubwise.example.com)",
   }),
+  // Dietro un reverse proxy (Caddy nel deploy Docker) Fastify deve fidarsi di
+  // X-Forwarded-Proto/For, altrimenti `secure: "auto"` sul cookie di sessione
+  // non vede l'HTTPS terminato dal proxy e non imposta il flag Secure.
+  // Default false (sviluppo diretto, niente proxy davanti); il compose lo
+  // imposta a true. Accetta booleani e le stringhe true/false/1/0 da .env.
+  TRUST_PROXY: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .union([z.boolean(), z.enum(["true", "false", "1", "0"])])
+      .transform((value) => value === true || value === "true" || value === "1")
+      .default(false),
+  ),
 });
 
 export interface Config {
@@ -46,6 +58,8 @@ export interface Config {
   encryptionKey: string;
   port: number;
   publicUrl: string;
+  /** Fidarsi degli header X-Forwarded-* (dietro reverse proxy). */
+  trustProxy: boolean;
 }
 
 /**
@@ -74,5 +88,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     encryptionKey: parsed.ENCRYPTION_KEY,
     port: parsed.PORT,
     publicUrl: parsed.PUBLIC_URL,
+    trustProxy: parsed.TRUST_PROXY,
   };
 }

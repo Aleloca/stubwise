@@ -1,0 +1,51 @@
+# Caddyfile di Stubwise.
+#
+# {$DOMAIN} è l'indirizzo del sito:
+#   - DOMAIN=stubwise.example.com  -> HTTPS automatico (Let's Encrypt).
+#   - DOMAIN=localhost             -> HTTPS con CA interna di Caddy (self-signed).
+#   - DOMAIN=:80                   -> solo HTTP, niente TLS (utile per gli smoke
+#                                     test locali dietro il proxy).
+#
+# Caddy serve:
+#   - /api/*, /ingest/*, /webhooks/*  -> reverse proxy al server Fastify.
+#   - /docs/*                         -> statici della documentazione.
+#   - tutto il resto                  -> SPA (con fallback a index.html per il
+#                                        client-side routing).
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	# Header di sicurezza ragionevoli. HSTS solo quando c'e TLS; innocuo in
+	# HTTP puro (i browser lo ignorano senza https).
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# Superficie API/ingest/webhook -> server. Caddy aggiunge X-Forwarded-Proto
+	# e X-Forwarded-For: il server con TRUST_PROXY=true li onora (cookie Secure).
+	# Dentro un `handle` (mutuamente esclusivo con gli altri handle sotto) così
+	# ha la precedenza sul file_server della SPA.
+	@backend path /api/* /ingest/* /webhooks/*
+	handle @backend {
+		reverse_proxy {$SERVER_UPSTREAM:server:3000}
+	}
+
+	# Documentazione statica (placeholder finche Task 28 non la pubblica).
+	handle_path /docs/* {
+		root * /srv/docs
+		try_files {path} {path}/ /index.html
+		file_server
+	}
+
+	# SPA: tutto il resto serve i file statici, con fallback a index.html per
+	# le route gestite dal router lato client.
+	handle {
+		root * /srv/web
+		try_files {path} /index.html
+		file_server
+	}
+}
