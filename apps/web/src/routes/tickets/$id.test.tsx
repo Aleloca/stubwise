@@ -4,6 +4,7 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AIJob, Comment, Ticket } from "../../lib/api";
+import { ticketKeys } from "../../lib/queries";
 import { createAppRouter } from "../../router";
 
 /**
@@ -298,6 +299,20 @@ describe("dettaglio ticket", () => {
     expect(queryClient.getQueryData(["tickets", "detail", TICKET_ID])).toMatchObject({
       status: "in_progress",
     });
+  });
+
+  it("la PATCH invalida anche le board: un cambio dal dettaglio aggiorna la kanban", async () => {
+    const state = mockDetailApi();
+    const { queryClient } = renderDetail();
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+
+    await userEvent.selectOptions(await screen.findByLabelText("Stato"), "in_progress");
+    await waitFor(() => expect(state.patches).toEqual([{ status: "in_progress" }]));
+
+    // La chiave padre `boards()` matcha ogni board, qualunque filtro progetto.
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ticketKeys.boards() }),
+    );
   });
 
   it("cambiare assegnatario manda la PATCH con l'id utente", async () => {

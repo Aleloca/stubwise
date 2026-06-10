@@ -62,10 +62,12 @@ export function TicketDetailPage() {
       // setQueryData, sovrascrivendolo con dati stantii: prima si cancella.
       await queryClient.cancelQueries({ queryKey: ticketKeys.detail(id) });
       queryClient.setQueryData(ticketQueryOptions(id).queryKey, updated);
-      // Il dettaglio resta fresco per i prossimi mount; la lista mostra
-      // status/priorità/label e le sue cache sono da rifare.
+      // Il dettaglio resta fresco per i prossimi mount; liste e board
+      // mostrano status/priorità/label e le loro cache sono da rifare
+      // (boards() matcha ogni board, qualunque filtro progetto).
       void queryClient.invalidateQueries({ queryKey: ticketKeys.detail(id) });
       void queryClient.invalidateQueries({ queryKey: ticketKeys.lists() });
+      void queryClient.invalidateQueries({ queryKey: ticketKeys.boards() });
     },
   });
 

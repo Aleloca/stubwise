@@ -22,7 +22,12 @@ import { useCallback } from "react";
 import { z } from "zod";
 import { PriorityBadge, STATUS_DOT, STATUS_LABELS, TypeBadge } from "../components/badges";
 import { patchTicket, type Ticket } from "../lib/api";
-import { boardTicketsQueryOptions, projectsQueryOptions, ticketKeys } from "../lib/queries";
+import {
+  BOARD_TICKETS_LIMIT,
+  boardTicketsQueryOptions,
+  projectsQueryOptions,
+  ticketKeys,
+} from "../lib/queries";
 
 /**
  * Board kanban: una colonna per stato del ciclo di vita, drag-and-drop con
@@ -70,16 +75,22 @@ export function useMoveTicket(projectId?: string) {
           ticket.id === ticketId ? { ...ticket, status: toStatus } : ticket,
         ),
       );
-      return { previous };
+      // La chiave viaggia nel context insieme allo snapshot: TanStack
+      // aggiorna le opzioni della mutation pendente a ogni re-render, quindi
+      // se il filtro progetto cambia con la PATCH in volo, leggere `boardKey`
+      // dallo scope di render in onError/onSettled colpirebbe la board
+      // SBAGLIATA (corruzione cross-progetto).
+      return { previous, boardKey };
     },
     onError: (_error, _variables, context) => {
-      // Rollback: la card torna nella colonna di partenza.
-      if (context?.previous) queryClient.setQueryData(boardKey, context.previous);
+      // Rollback sulla chiave catturata alla mutate: la card torna nella
+      // colonna di partenza della board originale.
+      if (context?.previous) queryClient.setQueryData(context.boardKey, context.previous);
     },
-    onSettled: (_data, _error, { ticketId }) => {
+    onSettled: (_data, _error, { ticketId }, context) => {
       // Successo o errore, la verità torna al server: board, liste filtrate
       // e dettaglio del ticket spostato sono da riconciliare.
-      void queryClient.invalidateQueries({ queryKey: boardKey });
+      void queryClient.invalidateQueries({ queryKey: context?.boardKey ?? boardKey });
       void queryClient.invalidateQueries({ queryKey: ticketKeys.lists() });
       void queryClient.invalidateQueries({ queryKey: ticketKeys.detail(ticketId) });
     },
@@ -121,9 +132,10 @@ export function BoardPage() {
 
   // Distanza di attivazione 8px: sotto è un click (apre il dettaglio), sopra
   // è un drag. Superata la soglia dnd-kit sopprime il click successivo, i due
-  // gesti non si pestano i piedi. Da tastiera: Space prende/posa la card (con
-  // le coordinate sortable per muoversi tra colonne), Enter resta libero per
-  // aprire il dettaglio.
+  // gesti non si pestano i piedi. Da tastiera: Space prende e posa la card
+  // (con le coordinate sortable per muoversi tra colonne); Enter posa la card
+  // durante un drag (è in keyboardCodes.end), fuori dal drag apre il
+  // dettaglio (vedi onKeyDown della card).
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(KeyboardSensor, {
@@ -189,6 +201,13 @@ export function BoardPage() {
           </select>
         </div>
       </header>
+
+      {tickets.length === BOARD_TICKETS_LIMIT && (
+        <p className="mt-4 rounded-sm border border-line bg-ink-900 px-3 py-2 font-mono text-[12px] text-fg-muted">
+          Mostrati i primi {BOARD_TICKETS_LIMIT} ticket — filtra per progetto per vederli
+          tutti.
+        </p>
+      )}
 
       {isError && (
         <div
@@ -293,8 +312,9 @@ function BoardCard({ ticket, onOpen }: BoardCardProps) {
       onClick={onOpen}
       onKeyDown={(event) => {
         // Lo spread di `listeners` mette qui sopra l'attivatore tastiera del
-        // sensore (Space): lo si richiama a mano per non perderlo, e Invio —
-        // libero, vedi keyboardCodes — apre il dettaglio se non c'è un drag.
+        // sensore (Space): lo si richiama a mano per non perderlo. Invio è in
+        // keyboardCodes.end — durante un drag posa la card (il sensore fa
+        // preventDefault) — e solo fuori dal drag apre il dettaglio.
         listeners?.onKeyDown?.(event);
         if (event.key === "Enter" && !isDragging && !event.defaultPrevented) onOpen();
       }}

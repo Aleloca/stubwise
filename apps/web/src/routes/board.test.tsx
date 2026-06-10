@@ -190,6 +190,29 @@ describe("board kanban", () => {
 
     // Le colonne senza ticket mostrano il placeholder.
     expect(screen.getAllByText(/nessun ticket/i)).toHaveLength(3);
+
+    // Sotto la soglia di troncamento non c'è alcun avviso.
+    expect(screen.queryByText(/mostrati i primi/i)).not.toBeInTheDocument();
+  });
+
+  it("con esattamente 100 ticket (limite board) mostra l'avviso di troncamento", async () => {
+    const many = Array.from({ length: 100 }, (_, index) =>
+      makeTicket({
+        id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+        number: index + 1,
+        title: `Ticket ${index + 1}`,
+      }),
+    );
+    mockApi({
+      ...baseHandlers,
+      "/api/tickets": () => jsonResponse(200, { items: many, nextCursor: "altro" }),
+    });
+
+    renderApp();
+
+    expect(
+      await screen.findByText(/mostrati i primi 100 ticket — filtra per progetto/i),
+    ).toBeInTheDocument();
   });
 
   it("il filtro progetto aggiorna l'URL e rifà la richiesta filtrata", async () => {
@@ -306,6 +329,55 @@ describe("useMoveTicket", () => {
     expect(result.current.error?.message).toBe("Transizione non valida");
     // Rollback: la card è tornata nella colonna di partenza.
     expect(boardData(queryClient)?.find((t) => t.id === crash.id)?.status).toBe("open");
+    // E il ticket non spostato è rimasto intatto.
+    expect(boardData(queryClient)?.find((t) => t.id === exportCsv.id)).toEqual(exportCsv);
+  });
+
+  it("cambiare progetto con la PATCH in volo non corrompe la cache: rollback sulla chiave originale", async () => {
+    let resolvePatch!: (response: Response) => void;
+    mockApi({
+      [`PATCH /api/tickets/${crash.id}`]: () =>
+        new Promise<Response>((resolve) => {
+          resolvePatch = resolve;
+        }),
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    queryClient.setQueryData(ticketKeys.board(PROJECT_A), [crash, exportCsv]);
+    queryClient.setQueryData(ticketKeys.board(PROJECT_B), [onboarding]);
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+    const { result, rerender } = renderHook(
+      ({ projectId }: { projectId?: string }) => useMoveTicket(projectId),
+      { wrapper, initialProps: { projectId: PROJECT_A as string | undefined } },
+    );
+    const invalidate = vi.spyOn(queryClient, "invalidateQueries");
+
+    act(() => result.current.moveTicket(crash.id, "triaged"));
+    // L'aggiornamento ottimistico è atterrato sulla board del progetto A.
+    await waitFor(() =>
+      expect(boardData(queryClient, PROJECT_A)?.find((t) => t.id === crash.id)?.status).toBe(
+        "triaged",
+      ),
+    );
+
+    // L'utente cambia filtro progetto mentre la PATCH è ancora in volo:
+    // TanStack aggiorna le opzioni della mutation pendente al re-render.
+    rerender({ projectId: PROJECT_B });
+
+    resolvePatch(jsonResponse(409, { message: "Transizione non valida" }));
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    // Il rollback colpisce la board ORIGINALE (progetto A), non quella nuova.
+    expect(boardData(queryClient, PROJECT_A)?.find((t) => t.id === crash.id)?.status).toBe(
+      "open",
+    );
+    // La board del progetto B non è stata toccata dal rollback altrui.
+    expect(boardData(queryClient, PROJECT_B)).toEqual([onboarding]);
+    // E l'invalidazione di onSettled punta alla chiave catturata alla mutate.
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ticketKeys.board(PROJECT_A) });
   });
 
   it("a mutazione conclusa invalida board, liste e dettaglio del ticket", async () => {

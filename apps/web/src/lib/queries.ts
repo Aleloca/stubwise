@@ -24,7 +24,11 @@ export const ticketKeys = {
   lists: () => [...ticketKeys.all, "list"] as const,
   list: (filters: TicketFilters) => [...ticketKeys.lists(), filters] as const,
   detail: (id: string) => [...ticketKeys.all, "detail", id] as const,
-  board: (projectId?: string) => [...ticketKeys.all, "board", projectId ?? null] as const,
+  // `boards()` matcha ogni board qualunque sia il filtro progetto: è la
+  // chiave da invalidare quando un ticket cambia fuori dalla board (es. dal
+  // dettaglio) e ogni vista kanban va riconciliata.
+  boards: () => [...ticketKeys.all, "board"] as const,
+  board: (projectId?: string) => [...ticketKeys.boards(), projectId ?? null] as const,
   comments: (ticketId: string) => [...ticketKeys.all, "comments", ticketId] as const,
   jobs: (ticketId: string) => [...ticketKeys.all, "jobs", ticketId] as const,
 };
