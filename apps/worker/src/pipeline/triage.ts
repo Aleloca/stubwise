@@ -86,6 +86,16 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
   let decision: TriageDecision | null = null;
   let duplicateOf: Ticket | null = null;
 
+  // Gli output invalidi dei tentativi precedenti vanno SEMPRE nel log di
+  // fallimento, anche quando è il retry a esplodere (timeout/spawn): sono
+  // l'unico indizio per capire perché il primo tentativo non è bastato.
+  const renderInvalidOutputs = (): string =>
+    invalidOutputs
+      .map((out, i) => `[triage] output non valido (tentativo ${i + 1}):\n${truncateForLog(out)}`)
+      .join("\n");
+  const invalidOutputsPrefix = (): string =>
+    invalidOutputs.length > 0 ? `${renderInvalidOutputs()}\n` : "";
+
   for (let attempt = 1; attempt <= 2 && !decision; attempt++) {
     if (attempt > 1) {
       await appendLog(db, job.id, "[triage] output non valido, ritento una volta");
@@ -98,14 +108,14 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
     } catch (err) {
       if (err instanceof AgentTimeoutError) {
         await failJob(db, job.id, {
-          log: `[triage] output parziale prima del timeout:\n${truncateForLog(err.partialOutput)}`,
+          log: `${invalidOutputsPrefix()}[triage] output parziale prima del timeout:\n${truncateForLog(err.partialOutput)}`,
           error: `triage interrotto per timeout dopo ${err.timeoutMs}ms`,
         });
         return "failed";
       }
       if (err instanceof AgentRunError) {
         await failJob(db, job.id, {
-          log: `[triage] agente non eseguibile: ${err.message}`,
+          log: `${invalidOutputsPrefix()}[triage] agente non eseguibile: ${err.message}`,
           error: err.message,
         });
         return "failed";
@@ -144,10 +154,7 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
   }
 
   if (!decision) {
-    const log = invalidOutputs
-      .map((out, i) => `[triage] output non valido (tentativo ${i + 1}):\n${truncateForLog(out)}`)
-      .join("\n");
-    await failJob(db, job.id, { log, error: "triage output non valido" });
+    await failJob(db, job.id, { log: renderInvalidOutputs(), error: "triage output non valido" });
     return "failed";
   }
 
