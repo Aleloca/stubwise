@@ -100,7 +100,8 @@ function flushWithTimeout(sdk: Client): Promise<void> {
  * lanciare il reason come uncaughtException; il nostro listener trasforma
  * quel default in "logga e continua" (lo stesso compromesso degli SDK di
  * error tracking più diffusi). Il reason viene stampato su stderr per non
- * perdere visibilità.
+ * perdere visibilità, ma solo se il nostro listener è l'UNICO: se l'app
+ * ospite ne ha di propri, la visibilità è una sua scelta.
  */
 function installProcessHandlers(sdk: Client): void {
   const onUncaughtException = async (error: Error): Promise<void> => {
@@ -127,10 +128,18 @@ function installProcessHandlers(sdk: Client): void {
 
   const onUnhandledRejection = async (reason: unknown): Promise<void> => {
     safely(() => sdk.captureError(reason));
-    try {
-      console.error("[stubwise] unhandledRejection catturata:", reason);
-    } catch {
-      // mai propagare nell'app ospite
+    // Senza di noi (e senza altri listener) Node avrebbe stampato il reason:
+    // lo facciamo noi, ma solo se siamo i soli ad ascoltare. Con altri
+    // listener dell'host, cosa loggare è una decisione dell'host.
+    const others = process
+      .listeners("unhandledRejection")
+      .filter((listener) => listener !== onUnhandledRejection);
+    if (others.length === 0) {
+      try {
+        console.error("[stubwise] unhandledRejection catturata:", reason);
+      } catch {
+        // mai propagare nell'app ospite
+      }
     }
     try {
       await flushWithTimeout(sdk);

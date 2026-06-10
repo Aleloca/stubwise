@@ -120,6 +120,8 @@ describe("e2e: SDK Node → POST /ingest/:slug → Postgres", () => {
     expect(jobs[0]!.status).toBe("queued");
   });
 
+  // NOTA ordine: questo test dipende dal ticket creato dal test captureError
+  // qui sopra (vitest esegue i test di uno stesso file in sequenza).
   it("lo stesso errore catturato di nuovo si dedupa sul ticket esistente", async () => {
     captureError(new TypeError("e2e: il checkout esplode"));
     await flush();

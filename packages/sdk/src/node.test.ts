@@ -67,6 +67,18 @@ async function withBareUncaughtException(run: () => Promise<void>): Promise<void
   }
 }
 
+/** Come sopra, ma per unhandledRejection (anche qui vitest ne registra di suoi). */
+async function withBareUnhandledRejection(run: () => Promise<void>): Promise<void> {
+  const saved = process.listeners("unhandledRejection");
+  process.removeAllListeners("unhandledRejection");
+  try {
+    await run();
+  } finally {
+    process.removeAllListeners("unhandledRejection");
+    for (const listener of saved) process.on("unhandledRejection", listener);
+  }
+}
+
 afterEach(() => {
   __resetForTesting();
   vi.restoreAllMocks();
@@ -203,6 +215,41 @@ describe("handler unhandledRejection", () => {
     await handler("stringa di errore");
 
     expect(deliveredErrors(fetchMock).map((e) => e.message)).toEqual(["stringa di errore"]);
+  });
+
+  it("stampa il reason su stderr quando è l'unico listener", async () => {
+    await withBareUnhandledRejection(async () => {
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      init({ dsn: DSN, fetchImpl: okFetch() });
+
+      const handler = lastListener("unhandledRejection");
+      await handler(new Error("invisibile altrimenti"));
+
+      expect(consoleError).toHaveBeenCalledWith(
+        expect.stringContaining("unhandledRejection"),
+        expect.objectContaining({ message: "invisibile altrimenti" }),
+      );
+    });
+  });
+
+  it("non stampa il reason se l'host ha i propri listener: la visibilità è sua", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const fetchMock = okFetch();
+    init({ dsn: DSN, fetchImpl: fetchMock });
+
+    // listener dell'app ospite: il nostro handler NON è l'unico, quindi
+    // cattura sì, log su stderr no
+    const handler = lastListener("unhandledRejection");
+    const hostListener = (): void => undefined;
+    process.on("unhandledRejection", hostListener);
+    try {
+      await handler(new Error("loggato dall'host"));
+    } finally {
+      process.removeListener("unhandledRejection", hostListener);
+    }
+
+    expect(deliveredErrors(fetchMock).map((e) => e.message)).toEqual(["loggato dall'host"]);
+    expect(consoleError).not.toHaveBeenCalled();
   });
 });
 
