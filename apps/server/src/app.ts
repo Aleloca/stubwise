@@ -13,12 +13,14 @@ import {
 } from "fastify-type-provider-zod";
 import { createRequire } from "node:module";
 import type { Db } from "./db/client.js";
+import { aiJobRoutes } from "./routes/ai-jobs.js";
 import { authRoutes } from "./routes/auth.js";
 import { commentRoutes } from "./routes/comments.js";
 import { ingestRoutes } from "./routes/ingest.js";
 import { projectRoutes } from "./routes/projects.js";
 import type { RateLimitConfig } from "./routes/shared.js";
 import { ticketRoutes } from "./routes/tickets.js";
+import { userRoutes } from "./routes/users.js";
 
 // Versione letta dal package.json (accanto a src/ e a dist/, quindi il
 // percorso relativo vale sia in sviluppo che dopo la build).
@@ -150,6 +152,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // I commenti vivono sotto il singolo ticket: il prefisso porta il
   // parametro :ticketId, disponibile nelle route come request.params.
   void app.register(commentRoutes, { prefix: "/api/tickets/:ticketId/comments" });
+  // Stesso schema dei commenti: la timeline dei job AI vive sotto il ticket.
+  void app.register(aiJobRoutes, { prefix: "/api/tickets/:ticketId/jobs" });
+  void app.register(userRoutes, { prefix: "/api/users" });
   // Superficie pubblica per gli SDK: fuori da /api, CORS aperto solo qui
   // (registrato dentro il plugin), autenticazione via X-Stubwise-Key.
   void app.register(ingestRoutes, {
