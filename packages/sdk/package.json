@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "sideEffects": false,
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "exports": {
     "./browser": {
       "types": "./dist/browser.d.ts",
@@ -24,6 +26,7 @@
     "@stubwise/shared": "workspace:*"
   },
   "devDependencies": {
+    "happy-dom": "^20.10.2",
     "typescript": "^5.6.0",
     "vitest": "^3.2.0"
   }

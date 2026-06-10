@@ -81,7 +81,7 @@ export class Client {
   }
 
   /** Cattura un errore qualsiasi, allegando lo snapshot corrente dei breadcrumb. */
-  captureError(error: unknown, extra?: { url?: string }): void {
+  captureError(error: unknown, extra?: { url?: string; userAgent?: string }): void {
     try {
       const normalized = normalizeError(error);
       this.transport.enqueue({
@@ -90,6 +90,7 @@ export class Client {
         errorType: normalized.errorType,
         stack: normalized.stack,
         url: extra?.url,
+        userAgent: extra?.userAgent,
         release: this.release,
         environment: this.environment,
         breadcrumbs: this.breadcrumbs.snapshot(),

@@ -68,6 +68,20 @@ describe("Client", () => {
     expect(new Date(event!.timestamp).getTime()).not.toBeNaN();
   });
 
+  it("captureError propaga lo userAgent passato negli extra", async () => {
+    const fetchMock = okFetch();
+    const client = new Client({ dsn: DSN, fetchImpl: fetchMock });
+
+    client.captureError(new Error("boom"), {
+      url: "https://app.example.com/checkout",
+      userAgent: "Mozilla/5.0 (Macintosh) Safari/605.1.15",
+    });
+    await client.flush();
+
+    const [event] = sentEvents(fetchMock) as ErrorEvent[];
+    expect(event?.userAgent).toBe("Mozilla/5.0 (Macintosh) Safari/605.1.15");
+  });
+
   it("captureError normalizza stringhe e oggetti generici", async () => {
     const fetchMock = okFetch();
     const client = new Client({ dsn: DSN, fetchImpl: fetchMock });
