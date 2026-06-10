@@ -1,8 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { buildApp } from "../app.js";
-import { invites, sessions } from "../db/schema.js";
+import { invites, sessions, users } from "../db/schema.js";
 import type { TestDb } from "../test/db.js";
 import { startTestDb } from "../test/db.js";
 
@@ -41,6 +41,31 @@ async function login(email: string, password: string) {
     payload: { email, password },
   });
 }
+
+describe("setup concorrente", () => {
+  it("due POST /api/auth/setup concorrenti creano esattamente un admin (201 + 403)", async () => {
+    const [a, b] = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: "/api/auth/setup",
+        payload: { email: "race-a@example.com", password: "password-sicura" },
+      }),
+      app.inject({
+        method: "POST",
+        url: "/api/auth/setup",
+        payload: { email: "race-b@example.com", password: "password-sicura" },
+      }),
+    ]);
+
+    const rows = await testDb.db.select().from(users);
+    // Pulizia prima delle assert: i test del flusso di primo setup qui sotto
+    // ripartono da zero anche se questo test fallisce.
+    await testDb.db.delete(users);
+
+    expect([a.statusCode, b.statusCode].sort((x, y) => x - y)).toEqual([201, 403]);
+    expect(rows).toHaveLength(1);
+  });
+});
 
 describe("setup primo avvio", () => {
   it("GET /api/auth/setup segnala che il setup è necessario senza utenti", async () => {
@@ -263,5 +288,61 @@ describe("inviti e registrazione", () => {
       payload: { email: "y@example.com" },
     });
     expect(res.statusCode).toBe(403);
+  });
+});
+
+describe("register concorrente", () => {
+  /** Crea un invito via API (come admin) e restituisce il token. */
+  async function createInvite(email: string): Promise<string> {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/auth/invites",
+      headers: { cookie: adminCookie },
+      payload: { email },
+    });
+    expect(res.statusCode).toBe(201);
+    return (res.json() as { token: string }).token;
+  }
+
+  function register(token: string, email: string) {
+    return app.inject({
+      method: "POST",
+      url: "/api/auth/register",
+      payload: { token, email, password: "password-member" },
+    });
+  }
+
+  it("due register concorrenti con lo stesso token: esattamente un 201 e un 410", async () => {
+    const token = await createInvite("conteso@example.com");
+
+    const [a, b] = await Promise.all([
+      register(token, "conteso-uno@example.com"),
+      register(token, "conteso-due@example.com"),
+    ]);
+
+    expect([a.statusCode, b.statusCode].sort((x, y) => x - y)).toEqual([201, 410]);
+
+    // Un solo account creato: l'invito è stato consumato esattamente una volta.
+    const created = await testDb.db
+      .select()
+      .from(users)
+      .where(inArray(users.email, ["conteso-uno@example.com", "conteso-due@example.com"]));
+    expect(created).toHaveLength(1);
+  });
+
+  it("due register concorrenti con la stessa email e token diversi: un 201 e un 409", async () => {
+    const [tokenA, tokenB] = await Promise.all([
+      createInvite("duplicato@example.com"),
+      createInvite("duplicato@example.com"),
+    ]);
+
+    const [a, b] = await Promise.all([
+      register(tokenA, "duplicato@example.com"),
+      register(tokenB, "duplicato@example.com"),
+    ]);
+
+    // Il pre-check sull'email non è atomico: il perdente deve comunque
+    // ricevere 409 dal vincolo unique, non un 500.
+    expect([a.statusCode, b.statusCode].sort((x, y) => x - y)).toEqual([201, 409]);
   });
 });

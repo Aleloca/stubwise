@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { count, eq } from "drizzle-orm";
+import { count, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -17,6 +17,33 @@ import { invites, users } from "../db/schema.js";
 
 /** Validità di un link di invito: 7 giorni. */
 const INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Chiave del lock advisory di Postgres che serializza il primo setup.
+ * Valore arbitrario ma fisso: deve solo essere unico nell'applicazione.
+ */
+const SETUP_LOCK_KEY = 7_414_355;
+
+/**
+ * Hash argon2id fittizio, calcolato una volta al caricamento del modulo.
+ * Al login, se l'email non esiste, la password viene comunque verificata
+ * contro questo hash: entrambi i rami costano una verifica argon2 e il tempo
+ * di risposta non rivela se l'account esiste.
+ */
+const DUMMY_PASSWORD_HASH = hashPassword("stubwise-dummy-password");
+
+/**
+ * Riconosce una violazione di vincolo unique di Postgres (codice 23505)
+ * risalendo la catena dei `cause`: Drizzle incapsula l'errore del driver.
+ */
+function isUniqueViolation(error: unknown): boolean {
+  let current: unknown = error;
+  while (current instanceof Error) {
+    if ((current as Error & { code?: unknown }).code === "23505") return true;
+    current = current.cause;
+  }
+  return false;
+}
 
 const publicUserSchema = z.object({
   id: z.uuid(),
@@ -66,16 +93,30 @@ export async function authRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
+      // Fast path: se un utente esiste già si rifiuta senza pagare l'hash.
       const [row] = await app.db.select({ value: count() }).from(users);
       if ((row?.value ?? 0) > 0) {
         return reply.code(403).send({ message: "Setup già completato" });
       }
+      // Hash prima della transazione: il lock non va tenuto per la durata
+      // (deliberatamente alta) di argon2.
       const passwordHash = await hashPassword(request.body.password);
-      const [user] = await app.db
-        .insert(users)
-        .values({ email: request.body.email, passwordHash, role: "admin" })
-        .returning();
-      if (!user) throw new Error("insert dell'admin non ha restituito la riga");
+      // Lock advisory di transazione + ricontrollo: due setup concorrenti
+      // vengono serializzati e solo il primo crea l'admin.
+      const user = await app.db.transaction(async (tx) => {
+        await tx.execute(sql`select pg_advisory_xact_lock(${SETUP_LOCK_KEY})`);
+        const [recount] = await tx.select({ value: count() }).from(users);
+        if ((recount?.value ?? 0) > 0) return null;
+        const [created] = await tx
+          .insert(users)
+          .values({ email: request.body.email, passwordHash, role: "admin" })
+          .returning();
+        if (!created) throw new Error("insert dell'admin non ha restituito la riga");
+        return created;
+      });
+      if (!user) {
+        return reply.code(403).send({ message: "Setup già completato" });
+      }
       return reply
         .code(201)
         .send({ user: { id: user.id, email: user.email, role: user.role } });
@@ -96,9 +137,14 @@ export async function authRoutes(instance: FastifyInstance): Promise<void> {
         .select()
         .from(users)
         .where(eq(users.email, request.body.email));
-      // Risposta identica per email inesistente e password errata: nessuna
-      // enumerazione degli account dal messaggio di errore.
-      if (!user || !(await verifyPassword(user.passwordHash, request.body.password))) {
+      // Risposta identica per email inesistente e password errata, e stesso
+      // costo (una verifica argon2) in entrambi i rami: nessuna enumerazione
+      // degli account né dal messaggio né dal tempo di risposta.
+      if (!user) {
+        await verifyPassword(await DUMMY_PASSWORD_HASH, request.body.password);
+        return reply.code(401).send({ message: "Credenziali non valide" });
+      }
+      if (!(await verifyPassword(user.passwordHash, request.body.password))) {
         return reply.code(401).send({ message: "Credenziali non valide" });
       }
       const session = await createSession(app.db, user.id);
@@ -183,17 +229,37 @@ export async function authRoutes(instance: FastifyInstance): Promise<void> {
       }
 
       const passwordHash = await hashPassword(request.body.password);
-      // Creazione utente e consumo dell'invito sono atomici: niente inviti
-      // bruciati senza utente, niente doppio uso in concorrenza.
-      const user = await app.db.transaction(async (tx) => {
-        const [created] = await tx
-          .insert(users)
-          .values({ email: request.body.email, passwordHash, role: "member" })
-          .returning();
-        if (!created) throw new Error("insert del member non ha restituito la riga");
-        await tx.delete(invites).where(eq(invites.token, invite.token));
-        return created;
-      });
+      // Consumo dell'invito e creazione utente in transazione, con il delete
+      // PRIMA dell'insert: in concorrenza solo la richiesta il cui delete
+      // restituisce la riga prosegue, l'altra riceve 410. Il rollback
+      // garantisce che non restino inviti bruciati senza utente.
+      let user: typeof users.$inferSelect | null;
+      try {
+        user = await app.db.transaction(async (tx) => {
+          const [consumed] = await tx
+            .delete(invites)
+            .where(eq(invites.token, invite.token))
+            .returning();
+          if (!consumed) return null;
+          const [created] = await tx
+            .insert(users)
+            .values({ email: request.body.email, passwordHash, role: "member" })
+            .returning();
+          if (!created) throw new Error("insert del member non ha restituito la riga");
+          return created;
+        });
+      } catch (error) {
+        // Il pre-check sull'email qui sopra non è atomico: in concorrenza il
+        // perdente arriva al vincolo unique. La transazione fa rollback,
+        // quindi il suo invito resta utilizzabile.
+        if (isUniqueViolation(error)) {
+          return reply.code(409).send({ message: "Esiste già un utente con questa email" });
+        }
+        throw error;
+      }
+      if (!user) {
+        return reply.code(410).send({ message: "Invito non valido o già usato" });
+      }
       return reply
         .code(201)
         .send({ user: { id: user.id, email: user.email, role: user.role } });
