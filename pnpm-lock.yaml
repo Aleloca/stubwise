@@ -181,6 +181,9 @@ importers:
       execa:
         specifier: ^9.5.0
         version: 9.6.1
+      zod:
+        specifier: ^4.1.5
+        version: 4.4.3
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
