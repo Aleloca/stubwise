@@ -82,16 +82,21 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
   // Un solo retry: se il modello non emette un JSON valido (o indica un
   // duplicato inesistente) si riprova una volta con lo stesso prompt, poi
   // il job fallisce con entrambi gli output nel log.
-  const invalidOutputs: string[] = [];
+  const invalidOutputs: { output: string; exitCode: number }[] = [];
   let decision: TriageDecision | null = null;
   let duplicateOf: Ticket | null = null;
 
   // Gli output invalidi dei tentativi precedenti vanno SEMPRE nel log di
   // fallimento, anche quando è il retry a esplodere (timeout/spawn): sono
   // l'unico indizio per capire perché il primo tentativo non è bastato.
+  // L'exit code accanto al tentativo distingue "il modello ha divagato"
+  // (exit 0) da "il CLI è morto male" (exit non-zero).
   const renderInvalidOutputs = (): string =>
     invalidOutputs
-      .map((out, i) => `[triage] output non valido (tentativo ${i + 1}):\n${truncateForLog(out)}`)
+      .map(
+        (attempt, i) =>
+          `[triage] output non valido (tentativo ${i + 1}, exit ${attempt.exitCode}):\n${truncateForLog(attempt.output)}`,
+      )
       .join("\n");
   const invalidOutputsPrefix = (): string =>
     invalidOutputs.length > 0 ? `${renderInvalidOutputs()}\n` : "";
@@ -102,9 +107,11 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
     }
 
     let output: string;
+    let exitCode: number;
     try {
       const result = await runner.run({ cwd: workDir, prompt, model, maxTurns, timeoutMs });
       output = result.output;
+      exitCode = result.exitCode;
     } catch (err) {
       if (err instanceof AgentTimeoutError) {
         await failJob(db, job.id, {
@@ -125,7 +132,7 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
 
     const parsed = parseTriageDecision(output);
     if (!parsed) {
-      invalidOutputs.push(output);
+      invalidOutputs.push({ output, exitCode });
       continue;
     }
 
@@ -133,6 +140,9 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
       // Il numero indicato deve esistere nel progetto e non essere il
       // ticket stesso: altrimenti il modello ha allucinato, è output
       // invalido come un JSON malformato (stesso percorso di retry).
+      // La lookup è volutamente su TUTTO il progetto, non ristretta alla
+      // lista dei recenti mostrata nel prompt: un duplicato vero resta
+      // valido anche se più vecchio dei 30 ticket elencati.
       const [target] = await db
         .select()
         .from(tickets)
@@ -144,7 +154,7 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
           ),
         );
       if (!target) {
-        invalidOutputs.push(output);
+        invalidOutputs.push({ output, exitCode });
         continue;
       }
       duplicateOf = target;

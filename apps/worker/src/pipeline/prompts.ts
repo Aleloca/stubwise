@@ -44,6 +44,35 @@ const STACK_MAX_CHARS = 3000;
  * duplicato bastano i primi ~120 caratteri, e così la lista resta compatta. */
 const RECENT_TITLE_MAX_CHARS = 120;
 
+/** Tetto per il body del ticket nel prompt: per il triage bastano i primi
+ * ~6000 caratteri, e i body arrivano da utenti esterni (possono essere
+ * enormi o costruiti per gonfiare il prompt). */
+const BODY_MAX_CHARS = 6000;
+
+/** Tetto per i campi corti del payload tecnico (message/url/release). */
+const PAYLOAD_FIELD_MAX_CHARS = 500;
+
+/** Tetto per il titolo del ticket in triage dentro <ticket_content>. */
+const TRIAGE_TITLE_MAX_CHARS = 300;
+
+/** Tronca a maxChars con marcatore esplicito, preservando i newline
+ * (a differenza di toSingleLine, pensata per i campi su una riga). */
+function truncate(text: string, maxChars: number): string {
+  return text.length > maxChars ? `${text.slice(0, maxChars)}[...]` : text;
+}
+
+/**
+ * Neutralizza i delimitatori strutturali del prompt dentro il contenuto non
+ * fidato: un body che contiene il letterale `</ticket_content>` chiuderebbe
+ * il blocco e farebbe leggere al modello il resto come testo "fidato". Il
+ * `<` di apertura diventa `[`, così il tag iniettato non è più un tag.
+ * Va applicata come ULTIMA trasformazione (dopo toSingleLine/troncamenti),
+ * altrimenti collassi o tagli potrebbero ricomporre un delimitatore.
+ */
+function defangDelimiters(text: string): string {
+  return text.replace(/<\s*(\/?)\s*(ticket_content|recent_tickets)/gi, "[$1$2");
+}
+
 /**
  * Costringe un titolo su UNA sola riga: sequenze di whitespace (incluso
  * `\r?\n`) e caratteri di controllo collassano in uno spazio singolo. I
@@ -75,13 +104,15 @@ function renderTechnicalSection(payload: unknown): string {
   if (!parsed.success) return "";
   const { message, stack, url, release } = parsed.data;
   const lines: string[] = [];
-  if (message) lines.push(`Message: ${message}`);
-  if (url) lines.push(`URL: ${url}`);
-  if (release) lines.push(`Release: ${release}`);
+  if (message)
+    lines.push(`Message: ${defangDelimiters(truncate(message, PAYLOAD_FIELD_MAX_CHARS))}`);
+  if (url) lines.push(`URL: ${defangDelimiters(truncate(url, PAYLOAD_FIELD_MAX_CHARS))}`);
+  if (release)
+    lines.push(`Release: ${defangDelimiters(truncate(release, PAYLOAD_FIELD_MAX_CHARS))}`);
   if (stack) {
     const truncated =
       stack.length > STACK_MAX_CHARS ? `${stack.slice(0, STACK_MAX_CHARS)}\n[truncated]` : stack;
-    lines.push(`Stack trace:\n${truncated}`);
+    lines.push(`Stack trace:\n${defangDelimiters(truncated)}`);
   }
   if (lines.length === 0) return "";
   return `Technical details:\n${lines.join("\n")}\n`;
@@ -106,7 +137,10 @@ export function buildTriagePrompt(input: BuildTriagePromptInput): string {
   const recentList =
     recentTickets.length > 0
       ? recentTickets
-          .map((t) => `#${t.number} [${t.status}] ${toSingleLine(t.title, RECENT_TITLE_MAX_CHARS)}`)
+          .map(
+            (t) =>
+              `#${t.number} [${t.status}] ${defangDelimiters(toSingleLine(t.title, RECENT_TITLE_MAX_CHARS))}`,
+          )
           .join("\n")
       : "(none)";
 
@@ -127,10 +161,10 @@ ${recentList}
 </recent_tickets>
 
 <ticket_content>
-Title: ${toSingleLine(ticket.title)}
+Title: ${defangDelimiters(toSingleLine(ticket.title, TRIAGE_TITLE_MAX_CHARS))}
 Type: ${ticket.type} | Priority: ${ticket.priority} | Source: ${ticket.source} | Occurrences: ${ticket.occurrences}
 Body:
-${ticket.body || "(empty)"}
+${ticket.body ? defangDelimiters(truncate(ticket.body, BODY_MAX_CHARS)) : "(empty)"}
 ${technicalSection}</ticket_content>
 
 Output format (strict): end your reply with a single JSON object on its own line, no markdown fences. One of:
@@ -142,7 +176,9 @@ Output format (strict): end your reply with a single JSON object on its own line
 /** Decisione strutturata emessa dal triage. */
 export const triageDecisionSchema = z.discriminatedUnion("decision", [
   z.strictObject({ decision: z.literal("fix") }),
-  z.strictObject({ decision: z.literal("skip"), reason: z.string().min(1) }),
+  // reason con tetto: una reason chilometrica (es. exfiltration di contenuto
+  // del prompt) rende la decisione invalida → percorso di retry, da contratto.
+  z.strictObject({ decision: z.literal("skip"), reason: z.string().min(1).max(500) }),
   z.strictObject({ decision: z.literal("duplicate"), of: z.number().int().positive() }),
 ]);
 
