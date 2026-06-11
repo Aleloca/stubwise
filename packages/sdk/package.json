@@ -1,6 +1,6 @@
 {
   "name": "@stubwise/sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Official Stubwise SDK: capture errors and send feedback from browser and Node.js apps to a self-hosted Stubwise instance.",
   "license": "MIT",
   "homepage": "https://github.com/Aleloca/stubwise#readme",
