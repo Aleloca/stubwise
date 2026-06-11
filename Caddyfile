@@ -34,7 +34,7 @@
 		reverse_proxy {$SERVER_UPSTREAM:server:3000}
 	}
 
-	# Documentazione statica (placeholder finche Task 28 non la pubblica).
+	# Documentazione statica (sito Starlight buildato in /srv/docs).
 	handle_path /docs/* {
 		root * /srv/docs
 		try_files {path} {path}/ /index.html

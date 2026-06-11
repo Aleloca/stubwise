@@ -74,8 +74,9 @@ sposti tu il ticket dalla board.
 ## Deduplicazione
 
 Gli errori identici **non** generano un ticket nuovo ogni volta. L'ingestion
-calcola un **fingerprint** dell'errore (tipo, messaggio normalizzato e i primi
-frame dello stack): errori con lo stesso fingerprint nello stesso progetto
+calcola un **fingerprint** dell'errore (tipo più i primi frame normalizzati
+dello stack, oppure tipo più messaggio normalizzato quando lo stack non è
+utilizzabile): errori con lo stesso fingerprint nello stesso progetto
 collassano in un unico `ErrorGroup` legato a un solo ticket, e ogni nuova
 occorrenza ne **incrementa il contatore** `occurrences` senza accodare un nuovo
 job. Così la pipeline lavora una volta sola su un bug ricorrente.
