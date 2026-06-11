@@ -171,7 +171,7 @@ export class GitHubProvider implements GitProvider {
           name: "Accesso webhook (config automatica)",
           ok: false,
           detail:
-            "manca il permesso webhook (admin:repo_hook classico o Webhooks: write fine-grained): la configurazione automatica del webhook non sarà disponibile finché non aggiorni il token",
+            "403/404: o manca il permesso webhook sul token (admin:repo_hook classico o Webhooks: write fine-grained), oppure l'account non ha accesso Admin al repository per gestire i webhook",
         };
       }
       return {

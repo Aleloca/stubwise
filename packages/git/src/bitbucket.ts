@@ -212,7 +212,7 @@ export class BitbucketProvider implements GitProvider {
               name: "Accesso webhook (config automatica)",
               ok: false,
               detail:
-                "manca lo scope webhook (read/write:webhook): la configurazione automatica del webhook non sarà disponibile finché non rigeneri il token",
+                "403: o manca lo scope webhook (read/write:webhook) sul token, oppure l'account non ha accesso Admin al repository (la gestione dei webhook su Bitbucket richiede Admin, non basta Write)",
             };
           }
           return {
@@ -302,7 +302,7 @@ export class BitbucketProvider implements GitProvider {
     if (response.ok) return;
     if (response.status === 403) {
       throw new GitProviderError(
-        "il token non ha lo scope webhook: rigeneralo aggiungendo read:webhook e write:webhook",
+        "403 dalla gestione webhook: verifica che il token abbia gli scope read:webhook e write:webhook, E che l'account abbia accesso Admin al repository (Bitbucket richiede Admin per gestire i webhook, non basta Write)",
         403,
         ""
       );
