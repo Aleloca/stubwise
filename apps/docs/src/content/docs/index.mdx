@@ -1,0 +1,52 @@
+---
+title: Stubwise
+description: Issue tracker self-hostabile con una pipeline AI che trasforma gli errori in pull request.
+template: splash
+hero:
+  tagline: Issue tracker self-hostabile con una pipeline AI. Gli errori che arrivano dagli SDK diventano ticket, e un worker basato sul CLI di Claude prova a triage-arli e a proporre una fix aprendo una pull request.
+  actions:
+    - text: Self-hosting in 5 minuti
+      link: /docs/getting-started/self-hosting/
+      icon: right-arrow
+      variant: primary
+    - text: Integrare l'SDK
+      link: /docs/sdk/installation/
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+## Cos'è Stubwise
+
+Stubwise è un issue tracker che si installa su un server tuo. Ha tre parti che
+lavorano insieme:
+
+- un **SDK** che catturi gli errori (e i feedback) dalla tua applicazione e li
+  invia all'istanza;
+- un **issue tracker** completo (progetti, ticket, board Kanban, commenti) per
+  gestirli a mano;
+- una **pipeline AI opzionale** che prova a risolvere i ticket automaticamente,
+  aprendo una pull request che un umano rivede prima di mergiare.
+
+L'AI è **opzionale**: senza autenticare il CLI di Claude, Stubwise resta un
+issue tracker self-hostabile perfettamente funzionante.
+
+<CardGrid stagger>
+  <Card title="Self-hosting" icon="rocket">
+    Lo stack gira in quattro container Docker: Postgres, server, worker e Caddy.
+    [Mettilo in piedi](/docs/getting-started/self-hosting/) con Docker Compose.
+  </Card>
+  <Card title="SDK" icon="seti:javascript">
+    Una riga di `init()` e gli errori della tua app diventano ticket.
+    [Integra browser o Node](/docs/sdk/installation/).
+  </Card>
+  <Card title="Pipeline AI" icon="open-book">
+    Triage → fix in un worktree effimero → pull request con report.
+    [Come funziona](/docs/ai-pipeline/how-it-works/).
+  </Card>
+  <Card title="Reference" icon="setting">
+    [Variabili d'ambiente](/docs/reference/configuration/) e
+    [API HTTP](/docs/reference/api/) generata dagli schemi del server.
+  </Card>
+</CardGrid>

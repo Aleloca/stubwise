@@ -1,0 +1,79 @@
+// @ts-check
+import starlight from "@astrojs/starlight";
+import { defineConfig } from "astro/config";
+import starlightOpenAPI, { openAPISidebarGroups } from "starlight-openapi";
+
+// Servito da Caddy sotto /docs (handle_path /docs/* strippa il prefisso e
+// serve la root statica): `base: "/docs"` fa sì che asset e link interni
+// siano già prefissati con /docs, coerenti con il path esterno. Vedi
+// Dockerfile.caddy e Caddyfile.
+export default defineConfig({
+  base: "/docs",
+  // Necessario per generare link assoluti corretti (es. canonical) ma non
+  // vincola il deploy: i path restano relativi a `base`.
+  site: "https://stubwise.example.com",
+  integrations: [
+    starlight({
+      title: "Stubwise",
+      description:
+        "Issue tracker self-hostabile con pipeline AI: dagli errori degli SDK ai ticket, fino alle pull request automatiche.",
+      defaultLocale: "it",
+      locales: {
+        root: { label: "Italiano", lang: "it" },
+      },
+      social: [
+        {
+          icon: "github",
+          label: "GitHub",
+          href: "https://github.com/stubwise/stubwise",
+        },
+      ],
+      plugins: [
+        // Pagina di riferimento dell'API generata dalla spec OpenAPI del
+        // server (src/openapi.json, prodotta dal prebuild gen:openapi).
+        // base "reference/api" la annida nel gruppo Reference della sidebar.
+        starlightOpenAPI([
+          {
+            base: "reference/api",
+            label: "API HTTP",
+            schema: "./src/openapi.json",
+          },
+        ]),
+      ],
+      sidebar: [
+        {
+          label: "Per iniziare",
+          items: [
+            { label: "Self-hosting", slug: "getting-started/self-hosting" },
+            { label: "Auth del worker (Claude)", slug: "getting-started/claude-setup" },
+            { label: "La web app", slug: "getting-started/web-app" },
+          ],
+        },
+        {
+          label: "SDK",
+          items: [
+            { label: "Installazione", slug: "sdk/installation" },
+            { label: "Cattura degli errori", slug: "sdk/error-capture" },
+            { label: "Feedback", slug: "sdk/feedback" },
+            { label: "Ticket via API", slug: "sdk/api-tickets" },
+          ],
+        },
+        {
+          label: "Pipeline AI",
+          items: [
+            { label: "Come funziona", slug: "ai-pipeline/how-it-works" },
+            { label: "Configurazione", slug: "ai-pipeline/configuration" },
+            { label: "Sicurezza", slug: "ai-pipeline/security" },
+          ],
+        },
+        {
+          label: "Reference",
+          items: [
+            { label: "Variabili d'ambiente", slug: "reference/configuration" },
+            ...openAPISidebarGroups,
+          ],
+        },
+      ],
+    }),
+  ],
+});

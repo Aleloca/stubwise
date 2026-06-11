@@ -6,3 +6,5 @@ coverage/
 .astro/
 playwright-report/
 test-results/
+# Spec OpenAPI generata dal prebuild della documentazione (apps/docs).
+apps/docs/src/openapi.json

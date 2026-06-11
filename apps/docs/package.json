@@ -1,0 +1,26 @@
+{
+  "name": "@stubwise/docs",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "gen:openapi": "tsx scripts/gen-openapi.ts",
+    "dev": "astro dev",
+    "prebuild": "pnpm run gen:openapi",
+    "build": "astro build",
+    "preview": "astro preview",
+    "typecheck": "astro check"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "0.40.0",
+    "astro": "6.4.6",
+    "sharp": "0.35.0",
+    "starlight-openapi": "0.25.3"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.0",
+    "@stubwise/server": "workspace:*",
+    "tsx": "^4.20.0",
+    "typescript": "^5.6.0"
+  }
+}
