@@ -53,6 +53,13 @@ COPY --from=base --chown=worker:worker /app /app
 RUN mkdir -p /var/stubwise/mirrors && chown -R worker:worker /var/stubwise
 ENV MIRRORS_DIR=/var/stubwise/mirrors
 
+# Directory di config di claude (montata come volume claude-config nel compose).
+# Va creata con ownership worker PRIMA che USER cambi: un volume nominato vuoto
+# eredita l'ownership della dir dell'immagine al primo mount, altrimenti Docker
+# la crea root-owned e claude (uid 10001) non può scrivervi la session-env
+# (EACCES) — il che gli impedisce di eseguire la shell e quindi i test.
+RUN mkdir -p /home/worker/.claude && chown -R worker:worker /home/worker/.claude
+
 USER worker
 ENV HOME=/home/worker
 # CLAUDE_CONFIG_DIR persiste il login OAuth/MAX nel volume montato qui.
