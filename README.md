@@ -90,7 +90,7 @@ Il monorepo (pnpm, Node 22):
 ### 1. Configura l'ambiente
 
 ```bash
-git clone https://github.com/stubwise/stubwise.git
+git clone https://github.com/Aleloca/stubwise.git
 cd stubwise
 cp .env.example .env
 ```

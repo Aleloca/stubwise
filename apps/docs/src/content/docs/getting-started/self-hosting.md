@@ -32,7 +32,7 @@ resto. Vedi [Auth del worker](/docs/getting-started/claude-setup/).
 Clona il repository e copia il file di esempio:
 
 ```bash
-git clone https://github.com/stubwise/stubwise.git
+git clone https://github.com/Aleloca/stubwise.git
 cd stubwise
 cp .env.example .env
 ```

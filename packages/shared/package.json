@@ -3,14 +3,14 @@
   "version": "0.1.0",
   "description": "Shared Zod domain schemas and types for Stubwise (events, tickets, projects). Used by the Stubwise SDK, server and web app.",
   "license": "MIT",
-  "homepage": "https://github.com/stubwise/stubwise#readme",
+  "homepage": "https://github.com/Aleloca/stubwise#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/stubwise/stubwise.git",
+    "url": "git+https://github.com/Aleloca/stubwise.git",
     "directory": "packages/shared"
   },
   "bugs": {
-    "url": "https://github.com/stubwise/stubwise/issues"
+    "url": "https://github.com/Aleloca/stubwise/issues"
   },
   "keywords": [
     "stubwise",

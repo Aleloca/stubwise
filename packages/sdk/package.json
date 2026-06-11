@@ -3,14 +3,14 @@
   "version": "0.1.0",
   "description": "Official Stubwise SDK: capture errors and send feedback from browser and Node.js apps to a self-hosted Stubwise instance.",
   "license": "MIT",
-  "homepage": "https://github.com/stubwise/stubwise#readme",
+  "homepage": "https://github.com/Aleloca/stubwise#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/stubwise/stubwise.git",
+    "url": "git+https://github.com/Aleloca/stubwise.git",
     "directory": "packages/sdk"
   },
   "bugs": {
-    "url": "https://github.com/stubwise/stubwise/issues"
+    "url": "https://github.com/Aleloca/stubwise/issues"
   },
   "keywords": [
     "stubwise",

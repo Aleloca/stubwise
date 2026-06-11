@@ -14,7 +14,7 @@ del progetto, come aggiungere un nuovo provider git e il processo di release.
 ## Setup
 
 ```bash
-git clone https://github.com/stubwise/stubwise.git
+git clone https://github.com/Aleloca/stubwise.git
 cd stubwise
 corepack enable
 pnpm install

@@ -25,7 +25,7 @@ export default defineConfig({
         {
           icon: "github",
           label: "GitHub",
-          href: "https://github.com/stubwise/stubwise",
+          href: "https://github.com/Aleloca/stubwise",
         },
       ],
       plugins: [
