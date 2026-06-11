@@ -1,6 +1,6 @@
 {
   "name": "@stubwise/shared",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Shared Zod domain schemas and types for Stubwise (events, tickets, projects). Used by the Stubwise SDK, server and web app.",
   "license": "MIT",
   "homepage": "https://github.com/Aleloca/stubwise#readme",
