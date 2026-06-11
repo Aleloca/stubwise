@@ -36,6 +36,17 @@ export interface PrMergedEvent {
 }
 
 /**
+ * Esito di una singola sonda di validazione delle credenziali. `name` è
+ * l'etichetta umana del controllo (es. "Accesso git (push)"), `ok` dice se è
+ * passato, `detail` è un messaggio in italiano comprensibile all'utente.
+ */
+export interface CredentialCheck {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
+/**
  * Provider abstraction over Bitbucket Cloud and GitHub.
  *
  * Webhook contract (Task 25 server route):
@@ -83,6 +94,17 @@ export interface GitProvider {
    * but Stubwise requires it — unsigned webhooks are rejected.
    */
   verifyWebhook(headers: Record<string, string>, rawBody: string | Buffer, secret: string): boolean;
+  /**
+   * Verifica, usando solo richieste HTTPS (niente git CLI), che le credenziali
+   * inserite autentichino e abbiano gli scope di cui ha bisogno la pipeline AI:
+   * push git sul repo E accesso REST per aprire le pull request. Restituisce un
+   * elenco di controlli con esito ed eventuale spiegazione. Non lancia mai:
+   * ogni problema (rete inclusa) diventa un check con `ok: false`.
+   */
+  validateCredentials(
+    p: ProjectGitConfig,
+    opts?: { fetchImpl?: FetchLike }
+  ): Promise<CredentialCheck[]>;
 }
 
 export class GitProviderError extends Error {
@@ -179,6 +201,32 @@ export async function ensureOkResponse(response: Response, provider: string): Pr
     response.status,
     text
   );
+}
+
+/**
+ * Esegue una fetch GET con un timeout (default 10s) via AbortController. A
+ * differenza di `ensureOkResponse`, non lancia sui non-2xx: restituisce la
+ * Response così che il chiamante possa ispezionare lo status. Lancia solo su
+ * errore di rete o timeout (gestito dal chiamante in validateCredentials).
+ */
+export async function fetchWithTimeout(
+  fetchImpl: FetchLike,
+  input: string,
+  init: RequestInit = {},
+  timeoutMs = 10_000
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetchImpl(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Codifica `user:pass` in un header Authorization Basic. */
+export function basicAuthHeader(user: string, pass: string): string {
+  return `Basic ${Buffer.from(`${user}:${pass}`).toString("base64")}`;
 }
 
 /**

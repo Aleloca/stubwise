@@ -185,6 +185,77 @@ describe("GitHubProvider.parseWebhook", () => {
   });
 });
 
+describe("GitHubProvider.validateCredentials", () => {
+  const GIT_URL = "https://github.com/octo/repo.git/info/refs?service=git-receive-pack";
+  const REST_URL = "https://api.github.com/repos/octo/repo";
+
+  function routedFetch(map: { git?: () => Response; rest?: () => Response }) {
+    return vi.fn((input: string | URL) => {
+      const url = String(input);
+      if (url === GIT_URL) return Promise.resolve(map.git?.() ?? new Response("", { status: 500 }));
+      if (url === REST_URL) return Promise.resolve(map.rest?.() ?? new Response("", { status: 500 }));
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+  }
+
+  it("tutto ok: git 200 (Basic x-access-token) e repo con push:true (Bearer)", async () => {
+    const fetchImpl = routedFetch({
+      git: () => new Response("", { status: 200 }),
+      rest: () => jsonResponse({ permissions: { push: true } }, 200),
+    });
+    const provider = new GitHubProvider();
+    const checks = await provider.validateCredentials(config, { fetchImpl });
+
+    expect(checks).toHaveLength(2);
+    expect(checks.every((c) => c.ok)).toBe(true);
+    expect(checks[0]!.name).toBe("Accesso git (push)");
+    expect(checks[1]!.name).toBe("Permessi repository (PR)");
+
+    const gitCall = fetchImpl.mock.calls.find((c) => c[0] === GIT_URL) as unknown as [string, RequestInit];
+    expect((gitCall[1].headers as Record<string, string>)["Authorization"]).toBe(
+      `Basic ${Buffer.from("x-access-token:ghp_secret").toString("base64")}`
+    );
+    const restCall = fetchImpl.mock.calls.find((c) => c[0] === REST_URL) as unknown as [string, RequestInit];
+    expect((restCall[1].headers as Record<string, string>)["Authorization"]).toBe("Bearer ghp_secret");
+  });
+
+  it("repo accessibile ma push:false: il check PR fallisce", async () => {
+    const fetchImpl = routedFetch({
+      git: () => new Response("", { status: 200 }),
+      rest: () => jsonResponse({ permissions: { push: false } }, 200),
+    });
+    const provider = new GitHubProvider();
+    const checks = await provider.validateCredentials(config, { fetchImpl });
+
+    const pr = checks.find((c) => c.name === "Permessi repository (PR)")!;
+    expect(pr.ok).toBe(false);
+    expect(pr.detail).toMatch(/scrittura/i);
+  });
+
+  it("git 401: detail parla di token/scope", async () => {
+    const fetchImpl = routedFetch({
+      git: () => new Response("", { status: 401 }),
+      rest: () => jsonResponse({ permissions: { push: true } }, 200),
+    });
+    const provider = new GitHubProvider();
+    const checks = await provider.validateCredentials(config, { fetchImpl });
+
+    const git = checks.find((c) => c.name === "Accesso git (push)")!;
+    expect(git.ok).toBe(false);
+    expect(git.detail).toMatch(/token|contents/i);
+  });
+
+  it("errore di rete: i check falliscono senza lanciare", async () => {
+    const fetchImpl = vi.fn(() => Promise.reject(new Error("network down")));
+    const provider = new GitHubProvider();
+    const checks = await provider.validateCredentials(config, { fetchImpl });
+
+    expect(checks).toHaveLength(2);
+    expect(checks.every((c) => !c.ok)).toBe(true);
+    expect(checks[0]!.detail).toMatch(/network down/);
+  });
+});
+
 describe("GitHubProvider.verifyWebhook", () => {
   const provider = new GitHubProvider();
   const secret = "shh-github";

@@ -1,10 +1,13 @@
 import {
+  basicAuthHeader,
   ensureOkResponse,
+  fetchWithTimeout,
   getHeader,
   GitProviderError,
   parseRepoUrl,
   readJsonResponse,
   verifyHmacSignature,
+  type CredentialCheck,
   type FetchLike,
   type GitProvider,
   type GitProviderOptions,
@@ -96,6 +99,101 @@ export class BitbucketProvider implements GitProvider {
 
   verifyWebhook(headers: Record<string, string>, rawBody: string | Buffer, secret: string): boolean {
     return verifyHmacSignature(getHeader(headers, "x-hub-signature"), rawBody, secret);
+  }
+
+  async validateCredentials(
+    p: ProjectGitConfig,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<CredentialCheck[]> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const { username, email, token } = p.credentials;
+
+    // Check 1 — accesso git in push. info/refs di git-receive-pack richiede il
+    // permesso di scrittura: un 200 conferma la capacità di push. Identità git
+    // = username Bitbucket:token (gli API token e le app password legacy usano
+    // l'username, non l'email).
+    const gitCheck: CredentialCheck = !username
+      ? {
+          name: "Accesso git (push)",
+          ok: false,
+          detail: "username Bitbucket mancante (serve per l'autenticazione git)",
+        }
+      : await this.probe("Accesso git (push)", async () => {
+          const r = await fetchWithTimeout(
+            fetchImpl,
+            `https://bitbucket.org/${owner}/${repo}.git/info/refs?service=git-receive-pack`,
+            { headers: { Authorization: basicAuthHeader(username, token) } }
+          );
+          if (r.status === 200) {
+            return { name: "Accesso git (push)", ok: true, detail: "autenticazione git e push ok" };
+          }
+          if (r.status === 401 || r.status === 403) {
+            return {
+              name: "Accesso git (push)",
+              ok: false,
+              detail: `autenticazione git fallita (status ${r.status}): verifica username Bitbucket, token e scope repository:write`,
+            };
+          }
+          return {
+            name: "Accesso git (push)",
+            ok: false,
+            detail: `risposta inattesa dall'endpoint git (status ${r.status})`,
+          };
+        });
+
+    // Check 2 — accesso REST per aprire le PR. Identità REST = email Atlassian
+    // (gli API token autenticano su api.bitbucket.org come email, non come
+    // username); fallback su username per le app password legacy.
+    const restUser = email ?? username;
+    const restCheck: CredentialCheck = !restUser
+      ? {
+          name: "Accesso REST API (PR)",
+          ok: false,
+          detail: "email Atlassian (o username legacy) mancante: serve come identità per la REST API",
+        }
+      : await this.probe("Accesso REST API (PR)", async () => {
+          const r = await fetchWithTimeout(
+            fetchImpl,
+            `https://api.bitbucket.org/2.0/repositories/${owner}/${repo}/pullrequests?pagelen=1`,
+            { headers: { Authorization: basicAuthHeader(restUser, token) } }
+          );
+          if (r.status === 200) {
+            return { name: "Accesso REST API (PR)", ok: true, detail: "accesso REST e scope pullrequest ok" };
+          }
+          if (r.status === 401) {
+            return {
+              name: "Accesso REST API (PR)",
+              ok: false,
+              detail:
+                "autenticazione REST fallita (401): per gli API token Atlassian serve l'email come identità, e il token deve avere lo scope pullrequest",
+            };
+          }
+          if (r.status === 403) {
+            return {
+              name: "Accesso REST API (PR)",
+              ok: false,
+              detail: "accesso negato (403): manca lo scope pullrequest",
+            };
+          }
+          return {
+            name: "Accesso REST API (PR)",
+            ok: false,
+            detail: `risposta inattesa dalla REST API (status ${r.status})`,
+          };
+        });
+
+    return [gitCheck, restCheck];
+  }
+
+  /** Esegue una sonda restituendo un CredentialCheck, trasformando gli errori di rete in `ok: false`. */
+  private async probe(name: string, run: () => Promise<CredentialCheck>): Promise<CredentialCheck> {
+    try {
+      return await run();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { name, ok: false, detail: `errore di rete: ${message}` };
+    }
   }
 
   private requireCredentials(p: ProjectGitConfig): { username: string; token: string } {

@@ -228,6 +228,103 @@ describe("BitbucketProvider.parseWebhook", () => {
   });
 });
 
+describe("BitbucketProvider.validateCredentials", () => {
+  const apiConfig: ProjectGitConfig = {
+    repoUrl: "https://bitbucket.org/myws/myrepo",
+    defaultBranch: "main",
+    credentials: { username: "alice", email: "alice@corp.io", token: "api-token" },
+  };
+
+  const GIT_URL = "https://bitbucket.org/myws/myrepo.git/info/refs?service=git-receive-pack";
+  const REST_URL = "https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests?pagelen=1";
+
+  /** Mock che risponde in base all'URL chiamato (git vs REST). */
+  function routedFetch(map: { git?: () => Response; rest?: () => Response }) {
+    return vi.fn((input: string | URL) => {
+      const url = String(input);
+      if (url === GIT_URL) return Promise.resolve(map.git?.() ?? new Response("", { status: 500 }));
+      if (url === REST_URL) return Promise.resolve(map.rest?.() ?? new Response("", { status: 500 }));
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+  }
+
+  it("tutto ok: entrambi i check passano e usano le identità corrette", async () => {
+    const fetchImpl = routedFetch({
+      git: () => new Response("", { status: 200 }),
+      rest: () => new Response("{}", { status: 200 }),
+    });
+    const provider = new BitbucketProvider();
+    const checks = await provider.validateCredentials(apiConfig, { fetchImpl });
+
+    expect(checks).toHaveLength(2);
+    expect(checks.every((c) => c.ok)).toBe(true);
+    expect(checks[0]!.name).toBe("Accesso git (push)");
+    expect(checks[1]!.name).toBe("Accesso REST API (PR)");
+
+    // git usa username:token
+    const gitCall = fetchImpl.mock.calls.find((c) => c[0] === GIT_URL) as unknown as [string, RequestInit];
+    expect((gitCall[1].headers as Record<string, string>)["Authorization"]).toBe(
+      `Basic ${Buffer.from("alice:api-token").toString("base64")}`
+    );
+    // REST usa email:token (identità Atlassian)
+    const restCall = fetchImpl.mock.calls.find((c) => c[0] === REST_URL) as unknown as [string, RequestInit];
+    expect((restCall[1].headers as Record<string, string>)["Authorization"]).toBe(
+      `Basic ${Buffer.from("alice@corp.io:api-token").toString("base64")}`
+    );
+  });
+
+  it("REST 401: detail spiega che serve l'email come identità", async () => {
+    const fetchImpl = routedFetch({
+      git: () => new Response("", { status: 200 }),
+      rest: () => new Response("", { status: 401 }),
+    });
+    const provider = new BitbucketProvider();
+    const checks = await provider.validateCredentials(apiConfig, { fetchImpl });
+
+    const rest = checks.find((c) => c.name === "Accesso REST API (PR)")!;
+    expect(rest.ok).toBe(false);
+    expect(rest.detail).toMatch(/email/i);
+    expect(rest.detail).toMatch(/pullrequest/i);
+  });
+
+  it("git 401: detail parla di username/token/scope repository:write", async () => {
+    const fetchImpl = routedFetch({
+      git: () => new Response("", { status: 401 }),
+      rest: () => new Response("{}", { status: 200 }),
+    });
+    const provider = new BitbucketProvider();
+    const checks = await provider.validateCredentials(apiConfig, { fetchImpl });
+
+    const git = checks.find((c) => c.name === "Accesso git (push)")!;
+    expect(git.ok).toBe(false);
+    expect(git.detail).toMatch(/repository:write|username|token/i);
+  });
+
+  it("username mancante: il check git fallisce senza chiamare la rete per git", async () => {
+    const fetchImpl = routedFetch({ rest: () => new Response("{}", { status: 200 }) });
+    const provider = new BitbucketProvider();
+    const checks = await provider.validateCredentials(
+      { ...apiConfig, credentials: { email: "alice@corp.io", token: "api-token" } },
+      { fetchImpl }
+    );
+
+    const git = checks.find((c) => c.name === "Accesso git (push)")!;
+    expect(git.ok).toBe(false);
+    expect(git.detail).toMatch(/username/i);
+    expect(fetchImpl.mock.calls.some((c) => c[0] === GIT_URL)).toBe(false);
+  });
+
+  it("errore di rete: il check fallisce col messaggio dell'errore, senza lanciare", async () => {
+    const fetchImpl = vi.fn(() => Promise.reject(new Error("ECONNREFUSED boom")));
+    const provider = new BitbucketProvider();
+    const checks = await provider.validateCredentials(apiConfig, { fetchImpl });
+
+    expect(checks).toHaveLength(2);
+    expect(checks.every((c) => !c.ok)).toBe(true);
+    expect(checks[0]!.detail).toMatch(/ECONNREFUSED/);
+  });
+});
+
 describe("BitbucketProvider.verifyWebhook", () => {
   const provider = new BitbucketProvider();
   const secret = "shh-bitbucket";

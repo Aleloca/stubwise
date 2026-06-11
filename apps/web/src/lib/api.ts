@@ -323,6 +323,35 @@ export function postProject(draft: ProjectDraft): Promise<Project> {
   return api.post("/api/projects", draft);
 }
 
+/** Esito di un singolo controllo di validazione credenziali (gemello del tipo server). */
+export interface CredentialCheck {
+  name: string;
+  ok: boolean;
+  detail: string;
+}
+
+export interface ValidateCredentialsBody {
+  provider: GitProviderKind;
+  repoUrl: string;
+  credentials: GitCredentials;
+}
+
+export interface ValidateCredentialsResult {
+  ok: boolean;
+  checks: CredentialCheck[];
+}
+
+/**
+ * Verifica (senza salvare) che le credenziali git inserite autentichino e
+ * abbiano gli scope necessari alla pipeline: push git + apertura PR. Endpoint
+ * solo admin.
+ */
+export function postValidateCredentials(
+  body: ValidateCredentialsBody,
+): Promise<ValidateCredentialsResult> {
+  return api.post("/api/projects/validate-credentials", body);
+}
+
 export function patchProject(slug: string, patch: ProjectPatch): Promise<Project> {
   return api.patch(`/api/projects/${slug}`, patch);
 }

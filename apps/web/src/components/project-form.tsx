@@ -1,6 +1,12 @@
 import { gitProviderKindSchema, type GitProviderKind } from "@stubwise/shared";
 import { useState, type FormEvent } from "react";
-import type { GitCredentials, ProjectDraft, ProjectPatch } from "../lib/api";
+import {
+  postValidateCredentials,
+  type CredentialCheck,
+  type GitCredentials,
+  type ProjectDraft,
+  type ProjectPatch,
+} from "../lib/api";
 import { FormError, SelectField, SubmitButton, TextField } from "./field";
 import { PROVIDER_LABELS } from "./badges";
 
@@ -39,22 +45,46 @@ export function ProjectForm(props: ProjectFormProps) {
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
+  // Stato della validazione credenziali: advisory, non blocca il submit.
+  const [validating, setValidating] = useState(false);
+  const [validation, setValidation] = useState<{ ok: boolean; checks: CredentialCheck[] } | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  /** Costruisce le credenziali dai campi correnti, omettendo username/email vuoti. */
+  function currentCredentials(): GitCredentials | undefined {
+    const trimmedToken = token.trim();
+    if (trimmedToken === "") return undefined;
+    const trimmedUsername = username.trim();
+    const trimmedEmail = email.trim();
+    return {
+      token: trimmedToken,
+      ...(trimmedUsername !== "" && { username: trimmedUsername }),
+      ...(trimmedEmail !== "" && { email: trimmedEmail }),
+    };
+  }
+
+  async function handleValidate() {
+    const credentials = currentCredentials();
+    if (!credentials) return;
+    setValidating(true);
+    setValidation(null);
+    setValidationError(null);
+    try {
+      const result = await postValidateCredentials({ provider, repoUrl, credentials });
+      setValidation(result);
+    } catch (cause) {
+      setValidationError(cause instanceof Error ? cause.message : "Errore imprevisto");
+    } finally {
+      setValidating(false);
+    }
+  }
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
     setPending(true);
     try {
-      const trimmedToken = token.trim();
-      const trimmedUsername = username.trim();
-      const trimmedEmail = email.trim();
-      const credentials: GitCredentials | undefined =
-        trimmedToken === ""
-          ? undefined
-          : {
-              token: trimmedToken,
-              ...(trimmedUsername !== "" && { username: trimmedUsername }),
-              ...(trimmedEmail !== "" && { email: trimmedEmail }),
-            };
+      const credentials = currentCredentials();
       if (props.mode === "create") {
         // Lo schema del server richiede il token alla creazione.
         if (!credentials) {
@@ -165,6 +195,49 @@ export function ProjectForm(props: ProjectFormProps) {
             value={token}
             onChange={(event) => setToken(event.target.value)}
           />
+        </div>
+
+        <div className="mt-4 flex flex-col gap-3">
+          <button
+            type="button"
+            // Serve almeno il token: senza non c'è nulla da autenticare.
+            disabled={token.trim() === "" || validating}
+            onClick={() => void handleValidate()}
+            className="self-start rounded-sm border border-line-strong bg-ink-950/70 px-3 py-2 font-mono text-[12px] font-medium tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {validating ? "Verifica in corso…" : "Valida credenziali"}
+          </button>
+
+          {validationError && (
+            <p
+              role="alert"
+              className="rounded-sm border border-danger/30 bg-danger/10 px-3 py-2 font-mono text-[12px] text-danger"
+            >
+              {validationError}
+            </p>
+          )}
+
+          {validation && (
+            <div className="flex flex-col gap-2 rounded-sm border border-line bg-ink-950/40 p-3">
+              <p
+                className={`font-mono text-[12px] font-semibold tracking-[0.06em] uppercase ${
+                  validation.ok ? "text-ok" : "text-danger"
+                }`}
+              >
+                {validation.ok ? "Credenziali valide" : "Problemi rilevati"}
+              </p>
+              <ul className="flex flex-col gap-1.5">
+                {validation.checks.map((check) => (
+                  <li key={check.name} className="flex gap-2 font-mono text-[12px] leading-relaxed">
+                    <span className={check.ok ? "text-ok" : "text-danger"}>{check.ok ? "✓" : "✗"}</span>
+                    <span className="text-fg-muted">
+                      <span className="text-fg">{check.name}</span> — {check.detail}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       </fieldset>
 

@@ -1,7 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProjectForm } from "./project-form";
+import * as api from "../lib/api";
 
 /**
  * Form progetto puro: `onSubmit` iniettato, si verificano i payload prodotti.
@@ -120,6 +121,53 @@ describe("ProjectForm in creazione", () => {
     await user.click(screen.getByRole("button", { name: "Crea progetto" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Vietato");
+  });
+});
+
+describe("ProjectForm — validazione credenziali", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("il pulsante Valida è disabilitato senza token", () => {
+    render(<ProjectForm mode="create" onSubmit={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "Valida credenziali" })).toBeDisabled();
+  });
+
+  it("clic su Valida chiama l'API col payload giusto e mostra i check", async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(api, "postValidateCredentials").mockResolvedValue({
+      ok: false,
+      checks: [
+        { name: "Accesso git (push)", ok: true, detail: "autenticazione git e push ok" },
+        {
+          name: "Accesso REST API (PR)",
+          ok: false,
+          detail: "autenticazione REST fallita (401): serve l'email",
+        },
+      ],
+    });
+    render(<ProjectForm mode="create" onSubmit={vi.fn()} />);
+
+    await user.selectOptions(screen.getByLabelText("Provider"), "bitbucket");
+    await user.type(screen.getByLabelText("URL repository"), "https://bitbucket.org/acme/shop");
+    await user.type(screen.getByLabelText("Username"), "alice");
+    await user.type(screen.getByLabelText("Email"), "alice@corp.io");
+    await user.type(screen.getByLabelText("Token di accesso"), "api-token");
+
+    const validateBtn = screen.getByRole("button", { name: "Valida credenziali" });
+    expect(validateBtn).toBeEnabled();
+    await user.click(validateBtn);
+
+    expect(spy).toHaveBeenCalledWith({
+      provider: "bitbucket",
+      repoUrl: "https://bitbucket.org/acme/shop",
+      credentials: { username: "alice", email: "alice@corp.io", token: "api-token" },
+    });
+
+    expect(await screen.findByText("Problemi rilevati")).toBeInTheDocument();
+    expect(screen.getByText(/autenticazione git e push ok/)).toBeInTheDocument();
+    expect(screen.getByText(/serve l'email/)).toBeInTheDocument();
   });
 });
 

@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
 import { decrypt, projects } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
@@ -189,6 +189,95 @@ describe("POST /api/projects", () => {
       defaultBranch: "b".repeat(201),
     });
     expect(tooLongBranch.statusCode).toBe(400);
+  });
+});
+
+describe("POST /api/projects/validate-credentials", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function validate(payload: Record<string, unknown>, cookie = adminCookie) {
+    return app.inject({
+      method: "POST",
+      url: "/api/projects/validate-credentials",
+      headers: { cookie },
+      payload,
+    });
+  }
+
+  it("l'admin ottiene i check per Bitbucket: la rete è mockata via fetch globale", async () => {
+    // git info/refs → 200, REST pullrequests → 200: entrambi ok.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string) => {
+        if (input.includes("api.bitbucket.org")) return Promise.resolve(new Response("{}", { status: 200 }));
+        if (input.includes("info/refs")) return Promise.resolve(new Response("", { status: 200 }));
+        return Promise.resolve(new Response("", { status: 404 }));
+      }),
+    );
+
+    const res = await validate({
+      provider: "bitbucket",
+      repoUrl: "https://bitbucket.org/acme/shop",
+      credentials: { username: "alice", email: "alice@corp.io", token: "api-token" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { ok: boolean; checks: { name: string; ok: boolean; detail: string }[] };
+    expect(body.ok).toBe(true);
+    expect(body.checks).toHaveLength(2);
+    expect(body.checks.map((c) => c.name)).toEqual(["Accesso git (push)", "Accesso REST API (PR)"]);
+    expect(body.checks.every((c) => c.ok)).toBe(true);
+  });
+
+  it("riflette i fallimenti: REST 401 → ok:false con guida sull'email", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string) => {
+        if (input.includes("api.bitbucket.org")) return Promise.resolve(new Response("", { status: 401 }));
+        if (input.includes("info/refs")) return Promise.resolve(new Response("", { status: 200 }));
+        return Promise.resolve(new Response("", { status: 404 }));
+      }),
+    );
+
+    const res = await validate({
+      provider: "bitbucket",
+      repoUrl: "https://bitbucket.org/acme/shop",
+      credentials: { username: "alice", token: "api-token" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { ok: boolean; checks: { name: string; ok: boolean; detail: string }[] };
+    expect(body.ok).toBe(false);
+    const rest = body.checks.find((c) => c.name === "Accesso REST API (PR)")!;
+    expect(rest.ok).toBe(false);
+    expect(rest.detail).toMatch(/email/i);
+  });
+
+  it("un member non può validare: 403", async () => {
+    const res = await validate(
+      {
+        provider: "github",
+        repoUrl: "https://github.com/acme/demo",
+        credentials: { token: "ghp_x" },
+      },
+      memberCookie,
+    );
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("senza sessione: 401", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/projects/validate-credentials",
+      payload: {
+        provider: "github",
+        repoUrl: "https://github.com/acme/demo",
+        credentials: { token: "ghp_x" },
+      },
+    });
+    expect(res.statusCode).toBe(401);
   });
 });
 

@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { gitProviderKindSchema, projectSchema } from "@stubwise/shared";
+import { getProvider } from "@stubwise/git";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -46,6 +47,29 @@ const updateProjectSchema = z.object({
 });
 
 const slugParamsSchema = z.object({ slug: z.string().min(1) });
+
+/**
+ * Body della validazione credenziali: provider + URL repo + credenziali in
+ * chiaro così com'è stato digitato nel form. Validato senza toccare il DB:
+ * utile sia in creazione (progetto non ancora esistente) sia in modifica.
+ */
+const validateCredentialsSchema = z.object({
+  provider: gitProviderKindSchema,
+  repoUrl: z.url().max(500),
+  credentials: gitCredentialsSchema,
+});
+
+const credentialCheckSchema = z.object({
+  name: z.string(),
+  ok: z.boolean(),
+  detail: z.string(),
+});
+
+/** Risultato della validazione: `ok` riassume i singoli check (tutti ok). */
+const validateCredentialsResponseSchema = z.object({
+  ok: z.boolean(),
+  checks: z.array(credentialCheckSchema),
+});
 
 /**
  * Risposta dell'endpoint admin del webhook: il segreto HMAC e il path su cui
@@ -145,6 +169,28 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         }
       }
       throw new Error(`impossibile generare uno slug unico per "${baseSlug}"`);
+    },
+  );
+
+  // Validazione credenziali (solo admin): controlla via HTTPS che le
+  // credenziali inserite autentichino e abbiano gli scope per push git + PR.
+  // Non persiste nulla e non legge la riga del progetto: valida l'input grezzo.
+  app.post(
+    "/validate-credentials",
+    {
+      preHandler: requireAdmin,
+      schema: {
+        body: validateCredentialsSchema,
+        response: { 200: validateCredentialsResponseSchema, ...authErrorResponses },
+      },
+    },
+    async (request) => {
+      const { provider, repoUrl, credentials } = request.body;
+      const checks = await getProvider(provider).validateCredentials(
+        { repoUrl, defaultBranch: "main", credentials },
+        { fetchImpl: fetch },
+      );
+      return { ok: checks.every((c) => c.ok), checks };
     },
   );
 

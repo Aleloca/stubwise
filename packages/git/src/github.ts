@@ -1,10 +1,13 @@
 import {
+  basicAuthHeader,
   ensureOkResponse,
+  fetchWithTimeout,
   getHeader,
   GitProviderError,
   parseRepoUrl,
   readJsonResponse,
   verifyHmacSignature,
+  type CredentialCheck,
   type FetchLike,
   type GitProvider,
   type GitProviderOptions,
@@ -77,5 +80,90 @@ export class GitHubProvider implements GitProvider {
 
   verifyWebhook(headers: Record<string, string>, rawBody: string | Buffer, secret: string): boolean {
     return verifyHmacSignature(getHeader(headers, "x-hub-signature-256"), rawBody, secret);
+  }
+
+  async validateCredentials(
+    p: ProjectGitConfig,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<CredentialCheck[]> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const { token } = p.credentials;
+
+    // Check 1 — accesso git in push. info/refs di git-receive-pack richiede il
+    // permesso di scrittura; GitHub autentica i git smart-http endpoints con
+    // Basic x-access-token:token (Bearer è inaffidabile per questi endpoint).
+    const gitCheck = await this.probe(async () => {
+      const r = await fetchWithTimeout(
+        fetchImpl,
+        `https://github.com/${owner}/${repo}.git/info/refs?service=git-receive-pack`,
+        { headers: { Authorization: basicAuthHeader("x-access-token", token) } }
+      );
+      if (r.status === 200) {
+        return { name: "Accesso git (push)", ok: true, detail: "autenticazione git e push ok" };
+      }
+      if (r.status === 401 || r.status === 403) {
+        return {
+          name: "Accesso git (push)",
+          ok: false,
+          detail: `autenticazione git fallita (status ${r.status}): verifica il token e lo scope Contents: Read and write`,
+        };
+      }
+      return {
+        name: "Accesso git (push)",
+        ok: false,
+        detail: `risposta inattesa dall'endpoint git (status ${r.status})`,
+      };
+    }, "Accesso git (push)");
+
+    // Check 2 — accesso al repo via REST + permessi di scrittura. Un 200 con
+    // permissions.push === true conferma l'accesso e la scrittura; il permesso
+    // di aprire PR discende da push + lo scope Pull requests del PAT.
+    const prCheck = await this.probe(async () => {
+      const r = await fetchWithTimeout(fetchImpl, `${API_BASE}/repos/${owner}/${repo}`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
+      });
+      if (r.status === 200) {
+        const body = (await r.json().catch(() => null)) as { permissions?: { push?: unknown } } | null;
+        if (body?.permissions?.push === true) {
+          return { name: "Permessi repository (PR)", ok: true, detail: "accesso al repo e permessi di scrittura ok" };
+        }
+        return {
+          name: "Permessi repository (PR)",
+          ok: false,
+          detail: "il token non ha permessi di scrittura sul repository",
+        };
+      }
+      if (r.status === 401) {
+        return { name: "Permessi repository (PR)", ok: false, detail: "token non valido (401)" };
+      }
+      if (r.status === 403 || r.status === 404) {
+        return {
+          name: "Permessi repository (PR)",
+          ok: false,
+          detail: `accesso al repository negato (status ${r.status}): verifica il token e che abbia accesso a questo repo`,
+        };
+      }
+      return {
+        name: "Permessi repository (PR)",
+        ok: false,
+        detail: `risposta inattesa dalla REST API (status ${r.status})`,
+      };
+    }, "Permessi repository (PR)");
+
+    return [gitCheck, prCheck];
+  }
+
+  /** Esegue una sonda restituendo un CredentialCheck, trasformando gli errori di rete in `ok: false`. */
+  private async probe(
+    run: () => Promise<CredentialCheck>,
+    name: string
+  ): Promise<CredentialCheck> {
+    try {
+      return await run();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { name, ok: false, detail: `errore di rete: ${message}` };
+    }
   }
 }
