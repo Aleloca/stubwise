@@ -3,7 +3,7 @@ import { asc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { comments, projects, tickets } from "@stubwise/db";
+import { aiJobs, comments, projects, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { seedUsers } from "../test/fixtures.js";
@@ -87,6 +87,22 @@ async function insertTicket(
   return row.id;
 }
 
+/** Inserisce un job AI con stato esplicito per un ticket, restituendone l'id. */
+async function insertJob(ticketId: string, status: "pr_opened" | "failed"): Promise<string> {
+  const [row] = await testDb.db
+    .insert(aiJobs)
+    .values({ ticketId, status, prUrl: "https://github.com/acme/repo/pull/7" })
+    .returning({ id: aiJobs.id });
+  if (!row) throw new Error("insert job non ha restituito la riga");
+  return row.id;
+}
+
+/** Legge un job AI per id (status, finishedAt, ...). */
+async function jobById(jobId: string) {
+  const [row] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
+  return row!;
+}
+
 /** Header firma HMAC-SHA256 (sha256=<hex>) sul raw body, schema condiviso da entrambi i provider. */
 function sign(secret: string, rawBody: string): string {
   return `sha256=${createHmac("sha256", secret).update(rawBody).digest("hex")}`;
@@ -130,6 +146,8 @@ describe("POST /webhooks/git/:projectSlug", () => {
       credentials: { username: "acme-bot", token: "tok" },
     });
     const ticketId = await insertTicket(project.id, 1, "in_review");
+    // La pipeline ha aperto una PR: il job è in pr_opened, va portato a pr_merged.
+    const jobId = await insertJob(ticketId, "pr_opened");
     const body = bitbucketPayload("stubwise/ticket-1");
 
     const res = await app.inject({
@@ -151,6 +169,10 @@ describe("POST /webhooks/git/:projectSlug", () => {
     // Il commento riporta la prUrl presa dal payload del webhook.
     expect(cmts[0]!.body).toContain("https://bitbucket.org/acme/repo/pull-requests/7");
     expect(cmts[0]!.body).toContain("ticket chiuso automaticamente");
+    // Il job AI riflette il merge: pr_opened → pr_merged, con finishedAt valorizzato.
+    const job = await jobById(jobId);
+    expect(job.status).toBe("pr_merged");
+    expect(job.finishedAt).not.toBeNull();
   });
 
   it("GitHub pull_request closed+merged firmato per stubwise/ticket-N → ticket done", async () => {
@@ -343,6 +365,49 @@ describe("POST /webhooks/git/:projectSlug", () => {
     expect(res.statusCode).toBe(204);
     expect(await ticketStatus(ticketId)).toBe("done");
     expect(await ticketComments(ticketId)).toHaveLength(0);
+  });
+
+  it("merge poi ri-consegna: job pr_merged una volta sola, no errori, altri stati intatti", async () => {
+    const project = await createProject({
+      name: "Webhook Job Idem",
+      provider: "github",
+      repoUrl: "https://github.com/acme/webhook-job-idem",
+      credentials: { token: "tok" },
+    });
+    const ticketId = await insertTicket(project.id, 1, "in_review");
+    const prJobId = await insertJob(ticketId, "pr_opened");
+    // Un job fallito sullo stesso ticket NON deve essere toccato dal merge.
+    const failedJobId = await insertJob(ticketId, "failed");
+    const body = githubPayload("stubwise/ticket-1");
+    const headers = {
+      "content-type": "application/json",
+      "x-github-event": "pull_request",
+      "x-hub-signature-256": sign(project.webhookSecret, body),
+    };
+
+    const first = await app.inject({
+      method: "POST",
+      url: `/webhooks/git/${project.slug}`,
+      headers,
+      payload: body,
+    });
+    expect(first.statusCode).toBe(204);
+    expect(await ticketStatus(ticketId)).toBe("done");
+    expect((await jobById(prJobId)).status).toBe("pr_merged");
+    expect((await jobById(failedJobId)).status).toBe("failed");
+
+    // Ri-consegna: il ticket è già done → 204, nessun secondo commento, e il
+    // job resta pr_merged (la query aggiorna solo pr_opened, ormai assenti).
+    const second = await app.inject({
+      method: "POST",
+      url: `/webhooks/git/${project.slug}`,
+      headers,
+      payload: body,
+    });
+    expect(second.statusCode).toBe(204);
+    expect(await ticketComments(ticketId)).toHaveLength(1);
+    expect((await jobById(prJobId)).status).toBe("pr_merged");
+    expect((await jobById(failedJobId)).status).toBe("failed");
   });
 
   it("ticket inesistente per N → 204 (niente da chiudere)", async () => {

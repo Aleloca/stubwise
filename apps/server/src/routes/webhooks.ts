@@ -1,7 +1,7 @@
 import { getProvider } from "@stubwise/git";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { comments, projects, tickets } from "@stubwise/db";
+import { aiJobs, comments, projects, tickets } from "@stubwise/db";
 
 /**
  * Tetto al corpo del webhook: 1 MiB. I payload di Bitbucket/GitHub per una PR
@@ -130,6 +130,18 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
           authorType: "system",
           body: `PR mergiata: ${event.prUrl} — ticket chiuso automaticamente`,
         });
+        // Allinea il job AI alla realtà: la PR aperta dalla pipeline è stata
+        // mergiata. Si tocca SOLO il job in stato `pr_opened` (al più uno per
+        // ticket), così una ri-consegna del webhook trova zero righe da
+        // aggiornare (idempotenza) e gli altri stati restano intatti.
+        await tx
+          .update(aiJobs)
+          .set({
+            status: "pr_merged",
+            finishedAt: sql`coalesce(${aiJobs.finishedAt}, now())`,
+            lastActivityAt: sql`now()`,
+          })
+          .where(and(eq(aiJobs.ticketId, ticket.id), eq(aiJobs.status, "pr_opened")));
       });
 
       return reply.code(204).send();

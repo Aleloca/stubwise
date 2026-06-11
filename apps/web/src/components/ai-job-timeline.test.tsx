@@ -46,6 +46,26 @@ describe("AIJobTimeline", () => {
     expect(screen.getByText("Saltato")).toBeInTheDocument();
   });
 
+  it("job con PR mergiata: etichetta PR mergiata e link alla PR visibile", () => {
+    render(
+      <AIJobTimeline
+        jobs={[
+          makeJob({
+            id: "j1",
+            status: "pr_merged",
+            prUrl: "https://github.com/acme/repo/pull/7",
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("PR mergiata")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /vedi pr/i })).toHaveAttribute(
+      "href",
+      "https://github.com/acme/repo/pull/7",
+    );
+  });
+
   it("job con PR: link alla pull request", () => {
     render(
       <AIJobTimeline

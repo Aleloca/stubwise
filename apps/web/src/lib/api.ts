@@ -231,7 +231,14 @@ export function postComment(ticketId: string, body: string): Promise<Comment> {
 
 // --- AI Jobs ---
 
-export type AIJobStatus = "queued" | "triaging" | "fixing" | "pr_opened" | "failed" | "skipped";
+export type AIJobStatus =
+  | "queued"
+  | "triaging"
+  | "fixing"
+  | "pr_opened"
+  | "pr_merged"
+  | "failed"
+  | "skipped";
 
 export interface AIJob {
   id: string;

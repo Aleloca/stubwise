@@ -44,6 +44,7 @@ export const aiJobStatus = pgEnum("ai_job_status", [
   "triaging",
   "fixing",
   "pr_opened",
+  "pr_merged",
   "failed",
   "skipped",
 ]);

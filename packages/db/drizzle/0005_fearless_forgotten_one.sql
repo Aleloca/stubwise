@@ -1,0 +1,1 @@
+ALTER TYPE "public"."ai_job_status" ADD VALUE 'pr_merged' BEFORE 'failed';

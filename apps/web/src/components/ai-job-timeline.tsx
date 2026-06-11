@@ -7,6 +7,7 @@ const JOB_STATUS_LABELS: Record<AIJobStatus, string> = {
   triaging: "Triage",
   fixing: "Fix in corso",
   pr_opened: "PR aperta",
+  pr_merged: "PR mergiata",
   failed: "Fallito",
   skipped: "Saltato",
 };
@@ -17,6 +18,7 @@ const JOB_STATUS_DOT: Record<AIJobStatus, string> = {
   triaging: "bg-sky-400 animate-blink",
   fixing: "bg-sky-400 animate-blink",
   pr_opened: "bg-ok",
+  pr_merged: "bg-ok",
   failed: "bg-danger",
   skipped: "bg-fg-faint",
 };
@@ -26,6 +28,7 @@ const JOB_STATUS_TEXT: Record<AIJobStatus, string> = {
   triaging: "text-sky-400",
   fixing: "text-sky-400",
   pr_opened: "text-ok",
+  pr_merged: "text-ok",
   failed: "text-danger",
   skipped: "text-fg-faint",
 };
