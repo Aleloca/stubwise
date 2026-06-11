@@ -273,7 +273,10 @@ export interface Project {
  * per sostituirle, il server non le restituisce mai.
  */
 export interface GitCredentials {
+  /** Identità git (username Bitbucket per gli API token / app password legacy). */
   username?: string;
+  /** Identità REST API (email Atlassian): solo per gli API token di Bitbucket. */
+  email?: string;
   token: string;
 }
 

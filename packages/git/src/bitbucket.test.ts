@@ -104,7 +104,35 @@ describe("BitbucketProvider.openPullRequest", () => {
     });
   });
 
-  it("throws when username is missing", async () => {
+  it("uses the Atlassian email (not the username) for Basic auth when email is present", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(prResponseBody));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    await provider.openPullRequest(
+      { ...config, credentials: { username: "alice", email: "alice@corp.io", token: "api-token" } },
+      { branch: "b", title: "t", body: "b" }
+    );
+
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    // base64("alice@corp.io:api-token") — the email, NOT the username.
+    expect(headers["Authorization"]).toBe(
+      `Basic ${Buffer.from("alice@corp.io:api-token").toString("base64")}`
+    );
+  });
+
+  it("falls back to username for Basic auth when email is absent (legacy app passwords)", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse(prResponseBody));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    await provider.openPullRequest(config, { branch: "b", title: "t", body: "b" });
+
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe(`Basic ${Buffer.from("alice:app-pass").toString("base64")}`);
+  });
+
+  it("throws when both email and username are missing (before any request)", async () => {
     const fetchImpl = vi.fn();
     const provider = new BitbucketProvider({ fetchImpl });
     await expect(
@@ -112,7 +140,7 @@ describe("BitbucketProvider.openPullRequest", () => {
         { ...config, credentials: { token: "t" } },
         { branch: "b", title: "t", body: "b" }
       )
-    ).rejects.toThrow(/username/i);
+    ).rejects.toThrow(/email.*username|username.*email/i);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 

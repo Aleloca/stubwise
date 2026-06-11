@@ -34,6 +34,7 @@ export function ProjectForm(props: ProjectFormProps) {
   const [repoUrl, setRepoUrl] = useState(initial?.repoUrl ?? "");
   const [defaultBranch, setDefaultBranch] = useState(initial?.defaultBranch ?? "main");
   const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [token, setToken] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -45,12 +46,15 @@ export function ProjectForm(props: ProjectFormProps) {
     try {
       const trimmedToken = token.trim();
       const trimmedUsername = username.trim();
+      const trimmedEmail = email.trim();
       const credentials: GitCredentials | undefined =
         trimmedToken === ""
           ? undefined
-          : trimmedUsername === ""
-            ? { token: trimmedToken }
-            : { username: trimmedUsername, token: trimmedToken };
+          : {
+              token: trimmedToken,
+              ...(trimmedUsername !== "" && { username: trimmedUsername }),
+              ...(trimmedEmail !== "" && { email: trimmedEmail }),
+            };
       if (props.mode === "create") {
         // Lo schema del server richiede il token alla creazione.
         if (!credentials) {
@@ -119,11 +123,12 @@ export function ProjectForm(props: ProjectFormProps) {
         <p className="mb-4 font-mono text-[11px] leading-relaxed text-fg-faint">
           // write-only: vengono cifrate e non verranno mai mostrate di nuovo.
           <br />
-          // Bitbucket: Username = email Atlassian, Token = API token (scope
-          repository + pullrequest, read e write).
+          // Bitbucket: Username = username Bitbucket (per git), Email = email
+          Atlassian (per la REST API/PR), Token = API token (scope repository +
+          pullrequest, read e write).
           <br />
-          // GitHub: lascia Username vuoto, Token = fine-grained PAT (Contents +
-          Pull requests: Read and write).
+          // GitHub: lascia Username e Email vuoti, Token = fine-grained PAT
+          (Contents + Pull requests: Read and write).
           {mode === "edit" && (
             <>
               <br />
@@ -137,9 +142,18 @@ export function ProjectForm(props: ProjectFormProps) {
             label="Username"
             type="text"
             autoComplete="off"
-            placeholder="Bitbucket: email Atlassian · GitHub: vuoto"
+            placeholder="Bitbucket: username · GitHub: vuoto"
             value={username}
             onChange={(event) => setUsername(event.target.value)}
+          />
+          <TextField
+            id="project-email"
+            label="Email"
+            type="text"
+            autoComplete="off"
+            placeholder="Bitbucket: email Atlassian (REST API) · GitHub: vuoto"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
           />
           <TextField
             id="project-token"

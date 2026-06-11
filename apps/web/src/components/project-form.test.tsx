@@ -40,6 +40,28 @@ describe("ProjectForm in creazione", () => {
     });
   });
 
+  it("con username ed email (API token Bitbucket) invia tutti e tre i campi", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    render(<ProjectForm mode="create" onSubmit={onSubmit} />);
+
+    await user.type(screen.getByLabelText("Nome"), "Demo Shop");
+    await user.selectOptions(screen.getByLabelText("Provider"), "bitbucket");
+    await user.type(screen.getByLabelText("URL repository"), "https://bitbucket.org/acme/shop");
+    await user.type(screen.getByLabelText("Username"), "acme-bot");
+    await user.type(screen.getByLabelText("Email"), "bot@acme.io");
+    await user.type(screen.getByLabelText("Token di accesso"), "atlassian-api-token");
+    await user.click(screen.getByRole("button", { name: "Crea progetto" }));
+
+    expect(onSubmit).toHaveBeenCalledWith({
+      name: "Demo Shop",
+      provider: "bitbucket",
+      repoUrl: "https://bitbucket.org/acme/shop",
+      defaultBranch: "main",
+      credentials: { username: "acme-bot", email: "bot@acme.io", token: "atlassian-api-token" },
+    });
+  });
+
   it("senza username invia credenziali con solo token", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockResolvedValue(undefined);
@@ -114,6 +136,7 @@ describe("ProjectForm in modifica", () => {
     expect(screen.getByLabelText("Provider")).toBeDisabled();
     expect(screen.getByLabelText("Token di accesso")).toHaveValue("");
     expect(screen.getByLabelText("Username")).toHaveValue("");
+    expect(screen.getByLabelText("Email")).toHaveValue("");
   });
 
   it("con il token vuoto il payload omette credentials", async () => {

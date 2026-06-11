@@ -16,12 +16,15 @@ import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js"
 const MAX_SLUG_ATTEMPTS = 100;
 
 /**
- * Credenziali git del progetto: `token` sempre, `username` per le app
- * password di Bitbucket. Vengono serializzate in JSON e cifrate prima di
+ * Credenziali git del progetto: `token` sempre; `username` è l'identità git
+ * (username Bitbucket per gli API token, o l'account per le app password
+ * legacy); `email` è l'identità della REST API (email Atlassian), serve solo
+ * agli API token di Bitbucket. Vengono serializzate in JSON e cifrate prima di
  * toccare il DB; non compaiono mai in nessuna risposta.
  */
 const gitCredentialsSchema = z.object({
   username: z.string().min(1).optional(),
+  email: z.string().min(1).optional(),
   token: z.string().min(1),
 });
 

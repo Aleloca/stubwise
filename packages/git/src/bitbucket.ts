@@ -41,11 +41,22 @@ export class BitbucketProvider implements GitProvider {
     pr: { branch: string; title: string; body: string }
   ): Promise<{ url: string }> {
     const { owner, repo } = parseRepoUrl(p.repoUrl);
-    const { username, token } = this.requireCredentials(p);
+    // REST identity: Bitbucket API tokens authenticate on api.bitbucket.org as
+    // the Atlassian EMAIL (not the git username). Legacy app passwords have no
+    // email and authenticate as the username, so we fall back to it.
+    const { email, username, token } = p.credentials;
+    const restUser = email ?? username;
+    if (!restUser) {
+      throw new GitProviderError(
+        "Bitbucket REST credentials require an email (API tokens) or a username (legacy app passwords)",
+        0,
+        ""
+      );
+    }
     const response = await this.fetchImpl(`${API_BASE}/repositories/${owner}/${repo}/pullrequests`, {
       method: "POST",
       headers: {
-        Authorization: `Basic ${Buffer.from(`${username}:${token}`).toString("base64")}`,
+        Authorization: `Basic ${Buffer.from(`${restUser}:${token}`).toString("base64")}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({

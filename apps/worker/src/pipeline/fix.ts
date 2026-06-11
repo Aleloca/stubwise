@@ -123,6 +123,7 @@ class AgentExitError extends Error {
 /** Forma attesa delle credenziali git decifrate (vedi routes/projects.ts). */
 const credentialsSchema = z.object({
   username: z.string().min(1).optional(),
+  email: z.string().min(1).optional(),
   token: z.string().min(1),
 });
 

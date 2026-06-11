@@ -11,8 +11,19 @@ export interface ProjectGitConfig {
   repoUrl: string;
   defaultBranch: string;
   credentials: {
-    /** Required for Bitbucket app passwords; unused by GitHub. */
+    /**
+     * Git identity for Basic auth over HTTPS (clone/fetch/push). For Bitbucket
+     * this is the Bitbucket username (required by API tokens AND legacy app
+     * passwords); unused by GitHub (which uses x-access-token).
+     */
     username?: string;
+    /**
+     * REST API identity (Atlassian email) — only needed for Bitbucket API
+     * tokens, which require the email (not the username) on api.bitbucket.org.
+     * Absent for legacy app passwords, where the REST call falls back to
+     * `username`. Unused by GitHub.
+     */
+    email?: string;
     token: string;
   };
 }
@@ -50,7 +61,9 @@ export interface GitProvider {
    * so the remote URL stored in the repo config stays credential-free.
    * Both providers use Basic auth: GitHub's smart-http endpoints accept a PAT
    * as `x-access-token:<token>` Basic credentials (Bearer is unreliable for
-   * git endpoints), Bitbucket app passwords are `username:token` Basic.
+   * git endpoints), Bitbucket git-over-https is `username:token` Basic for both
+   * API tokens and legacy app passwords (the REST API differs — it needs the
+   * Atlassian email for API tokens; see openPullRequest in bitbucket.ts).
    */
   getAuthHeader(p: ProjectGitConfig): string;
   openPullRequest(

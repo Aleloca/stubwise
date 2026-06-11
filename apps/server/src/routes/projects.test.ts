@@ -90,6 +90,36 @@ describe("POST /api/projects", () => {
     });
   });
 
+  it("salva cifrate anche username + email + token (API token Bitbucket) e non li espone", async () => {
+    const res = await createProject({
+      name: "API Token Bitbucket",
+      provider: "bitbucket",
+      repoUrl: "https://bitbucket.org/acme/api-token",
+      credentials: { username: "git-user", email: "atlassian@acme.io", token: PLAINTEXT_TOKEN },
+    });
+    expect(res.statusCode).toBe(201);
+    // Nessun campo sensibile nella risposta.
+    expect(res.body).not.toContain("credentials");
+    expect(res.body).not.toContain(PLAINTEXT_TOKEN);
+    expect(res.body).not.toContain("atlassian@acme.io");
+
+    const [row] = await testDb.db
+      .select()
+      .from(projects)
+      .where(eq(projects.slug, "api-token-bitbucket"));
+    expect(row).toBeDefined();
+    // Il blob cifrato non contiene i plaintext.
+    expect(row!.encryptedCredentials).not.toContain(PLAINTEXT_TOKEN);
+    expect(row!.encryptedCredentials).not.toContain("atlassian@acme.io");
+    expect(row!.encryptedCredentials).not.toContain("git-user");
+    // Round-trip: la decifratura restituisce tutti e tre i campi.
+    expect(JSON.parse(decrypt(row!.encryptedCredentials, ENCRYPTION_KEY))).toEqual({
+      username: "git-user",
+      email: "atlassian@acme.io",
+      token: PLAINTEXT_TOKEN,
+    });
+  });
+
   it("collisione di slug: stesso nome → suffisso numerico", async () => {
     const res = await createProject(basePayload);
     expect(res.statusCode).toBe(201);
