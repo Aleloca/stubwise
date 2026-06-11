@@ -36,11 +36,44 @@ export interface AgentRunOptions {
   timeoutMs: number;
 }
 
+/**
+ * Consumo di un singolo modello dentro un run dell'agente. Un run può usarne
+ * più d'uno (es. subagent), quindi `usage.models` è una lista. I conteggi sono
+ * sempre presenti (default 0); `costUsd` è opzionale perché il CLI può non
+ * riportarlo (versione vecchia, chiave senza usage nel JSON).
+ */
+export interface AgentModelUsage {
+  /** Identificativo del modello riportato dal CLI (es. "claude-opus-4-8"). */
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  costUsd?: number;
+}
+
+/**
+ * Consumi complessivi di un run, estratti dal JSON del CLI. Sempre opzionale
+ * su AgentRunResult: se il CLI non riporta usage (o il parse fallisce), il
+ * campo è semplicemente undefined — il run resta valido, manca solo il dato.
+ */
+export interface AgentRunUsage {
+  /** Costo totale in USD del run, se riportato (`total_cost_usd`). */
+  totalCostUsd?: number;
+  /** Una voce per modello usato nel run (da `modelUsage`). */
+  models: AgentModelUsage[];
+}
+
 export interface AgentRunResult {
   /** stdout + stderr combinati del processo agente. */
   output: string;
   /** Exit code del processo: non-zero è un risultato, non un errore. */
   exitCode: number;
+  /**
+   * Consumi (token + costo) del run, se estratti dal JSON del CLI. Assente
+   * quando il CLI non li riporta o il parse fallisce: mai un errore, solo un
+   * dato mancante.
+   */
+  usage?: AgentRunUsage;
 }
 
 export interface AgentRunner {

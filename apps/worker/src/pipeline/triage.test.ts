@@ -1,4 +1,4 @@
-import { aiJobs, comments, projects, tickets, type Db } from "@stubwise/db";
+import { agentRuns, aiJobs, comments, projects, tickets, type Db } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -353,6 +353,58 @@ describe("runTriage", () => {
     expect(runner.calls[0]?.cwd).toBe(workDir);
     expect(runner.calls[0]?.maxTurns).toBe(10);
     expect(runner.calls[0]?.timeoutMs).toBe(120_000);
+  });
+
+  it("con --output-format json: parsa la decisione dall'output E registra i consumi per modello", async () => {
+    // Verifica l'invariante del Task: il runner restituisce `output` = la
+    // stringa `result` del CLI (che contiene comunque il JSON della decisione)
+    // più un oggetto `usage` separato. Il triage continua a parsare `output`
+    // come prima, e i consumi finiscono in agent_runs (fase 'triage').
+    const { db } = testDb;
+    const ticket = await createTicket(db);
+    const job = await createTriagingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      output: `Ho analizzato il ticket.\n{"decision":"fix"}`,
+      usage: {
+        totalCostUsd: 0.0123,
+        models: [
+          {
+            model: "claude-haiku-4-5",
+            inputTokens: 100,
+            outputTokens: 50,
+            cacheReadTokens: 20,
+            costUsd: 0.0123,
+          },
+        ],
+      },
+    });
+
+    const outcome = await runTriage(makeDeps(runner), job);
+
+    expect(outcome).toBe("fixing");
+
+    const runs = await db.select().from(agentRuns).where(eq(agentRuns.jobId, job.id));
+    expect(runs).toHaveLength(1);
+    expect(runs[0]).toMatchObject({
+      phase: "triage",
+      model: "claude-haiku-4-5",
+      inputTokens: 100,
+      outputTokens: 50,
+      cacheReadTokens: 20,
+      costUsd: "0.012300",
+    });
+  });
+
+  it("senza usage dal runner: nessuna riga in agent_runs (degrada senza crash)", async () => {
+    const { db } = testDb;
+    const ticket = await createTicket(db);
+    const job = await createTriagingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({ output: `{"decision":"fix"}` });
+
+    await runTriage(makeDeps(runner), job);
+
+    const runs = await db.select().from(agentRuns).where(eq(agentRuns.jobId, job.id));
+    expect(runs).toHaveLength(0);
   });
 
   it("il prompt include gli ultimi 30 ticket del progetto (escluso quello in triage)", async () => {

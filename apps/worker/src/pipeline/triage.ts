@@ -1,7 +1,19 @@
 import { comments, tickets, type Db } from "@stubwise/db";
 import { and, desc, eq, ne } from "drizzle-orm";
-import { AgentRunError, AgentTimeoutError, type AgentRunner } from "../agent/runner.js";
-import { appendLog, completeJob, failJob, markFixing, type AiJob } from "../queue.js";
+import {
+  AgentRunError,
+  AgentTimeoutError,
+  type AgentRunner,
+  type AgentRunUsage,
+} from "../agent/runner.js";
+import {
+  appendLog,
+  completeJob,
+  failJob,
+  markFixing,
+  recordAgentRun,
+  type AiJob,
+} from "../queue.js";
 import { buildTriagePrompt, parseTriageDecision, type TriageDecision } from "./prompts.js";
 
 /**
@@ -90,6 +102,11 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
   const invalidOutputs: { output: string; exitCode: number }[] = [];
   let decision: TriageDecision | null = null;
   let duplicateOf: Ticket | null = null;
+  // Consumi dell'ULTIMO run riuscito: il triage può ritentare una volta, e
+  // registriamo i consumi del tentativo che è effettivamente arrivato a un
+  // output (l'ultimo). I timeout/spawn falliti tornano prima e non producono
+  // usage, quindi non c'è nulla da registrare in quei casi.
+  let lastUsage: AgentRunUsage | undefined;
 
   // Gli output invalidi dei tentativi precedenti vanno SEMPRE nel log di
   // fallimento, anche quando è il retry a esplodere (timeout/spawn): sono
@@ -117,6 +134,7 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
       const result = await runner.run({ cwd: workDir, prompt, model, maxTurns, timeoutMs });
       output = result.output;
       exitCode = result.exitCode;
+      lastUsage = result.usage;
     } catch (err) {
       if (err instanceof AgentTimeoutError) {
         await failJob(db, job.id, {
@@ -167,6 +185,10 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
 
     decision = parsed;
   }
+
+  // Consumi del triage (best-effort): registrati dell'ultimo run riuscito,
+  // qualunque sia poi l'esito della decisione. Non fa mai fallire il job.
+  await recordAgentRun(db, { jobId: job.id, phase: "triage", usage: lastUsage });
 
   if (!decision) {
     await failJob(db, job.id, { log: renderInvalidOutputs(), error: "triage output non valido" });

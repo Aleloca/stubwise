@@ -2,17 +2,25 @@ import { execa } from "execa";
 import {
   AgentRunError,
   AgentTimeoutError,
+  type AgentModelUsage,
   type AgentRunner,
   type AgentRunOptions,
   type AgentRunResult,
+  type AgentRunUsage,
 } from "./runner.js";
 
 /**
  * Implementazione reale di AgentRunner: shella sul CLI `claude` in modalità
  * headless. Invocazione:
  *
- *   claude -p --output-format text --permission-mode acceptEdits \
+ *   claude -p --output-format json --permission-mode acceptEdits \
  *          --max-turns <N> [--model <M>]
+ *
+ * Con `--output-format json` il CLI emette su stdout UN SINGOLO oggetto JSON:
+ * `result` (la risposta testuale finale dell'agente, che sostituisce ciò che
+ * prima era l'output testuale), `total_cost_usd`, `usage` e `modelUsage` (il
+ * dettaglio per modello, usato per lo split dei consumi). I file scritti dai
+ * tool (es. STUBWISE_REPORT.md) NON sono toccati dal formato di output.
  *
  * Scelte deliberate:
  * - Il PROMPT viaggia su STDIN, mai in argv: contiene contenuto non fidato
@@ -113,6 +121,80 @@ export function buildAgentEnv(
   return env;
 }
 
+/**
+ * Estrae un numero da un oggetto provando più nomi di chiave (i nomi dei
+ * campi del CLI variano tra versioni: snake_case e camelCase). Restituisce
+ * undefined se nessuna chiave è un numero finito.
+ */
+function pickNumber(obj: Record<string, unknown>, ...keys: string[]): number | undefined {
+  for (const key of keys) {
+    const value = obj[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+/**
+ * Costruisce AgentRunUsage dal JSON del CLI in modo DIFENSIVO: i nomi dei
+ * campi possono variare per versione, quindi si prova sia snake_case che
+ * camelCase e i campi mancanti diventano 0 (token) o undefined (costo). Se
+ * non c'è alcun dato di consumo utile restituisce undefined — il run resta
+ * valido, manca solo il dato. Non lancia mai.
+ */
+export function extractUsage(parsed: Record<string, unknown>): AgentRunUsage | undefined {
+  const totalCostUsd = pickNumber(parsed, "total_cost_usd", "totalCostUsd");
+
+  const modelUsage = asRecord(parsed["modelUsage"] ?? parsed["model_usage"]);
+  const models: AgentModelUsage[] = [];
+  if (modelUsage) {
+    for (const [model, raw] of Object.entries(modelUsage)) {
+      const entry = asRecord(raw);
+      if (!entry) continue;
+      models.push({
+        model,
+        inputTokens: pickNumber(entry, "inputTokens", "input_tokens") ?? 0,
+        outputTokens: pickNumber(entry, "outputTokens", "output_tokens") ?? 0,
+        cacheReadTokens:
+          pickNumber(entry, "cacheReadInputTokens", "cache_read_input_tokens") ?? 0,
+        ...((): { costUsd?: number } => {
+          const costUsd = pickNumber(entry, "costUSD", "cost_usd", "costUsd");
+          return costUsd !== undefined ? { costUsd } : {};
+        })(),
+      });
+    }
+  }
+
+  if (models.length === 0 && totalCostUsd === undefined) return undefined;
+  return { ...(totalCostUsd !== undefined ? { totalCostUsd } : {}), models };
+}
+
+/**
+ * Interpreta lo stdout del CLI in modalità `--output-format json`. Difensivo:
+ * se non è JSON valido restituisce `output` = stdout grezzo e usage undefined;
+ * se `result` manca, `output` ricade sullo stdout grezzo ma usage viene
+ * comunque estratto se presente. Non lancia mai.
+ */
+export function parseCliJson(stdout: string): { output: string; usage?: AgentRunUsage } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    return { output: stdout };
+  }
+  const record = asRecord(parsed);
+  if (!record) return { output: stdout };
+  const result = record["result"];
+  const output = typeof result === "string" ? result : stdout;
+  const usage = extractUsage(record);
+  return usage !== undefined ? { output, usage } : { output };
+}
+
 export class ClaudeCliRunner implements AgentRunner {
   private readonly claudePath: string;
   private readonly extraEnv: Record<string, string> | undefined;
@@ -135,7 +217,7 @@ export class ClaudeCliRunner implements AgentRunner {
     const args = [
       "-p",
       "--output-format",
-      "text",
+      "json",
       "--permission-mode",
       "acceptEdits",
       "--max-turns",
@@ -151,7 +233,7 @@ export class ClaudeCliRunner implements AgentRunner {
     }
 
     try {
-      const { all, exitCode } = await execa(this.claudePath, args, {
+      const { all, stdout, exitCode } = await execa(this.claudePath, args, {
         cwd: opts.cwd,
         input: opts.prompt,
         timeout: opts.timeoutMs,
@@ -161,24 +243,44 @@ export class ClaudeCliRunner implements AgentRunner {
         // process.env (niente segreti del master). Vedi docblock del modulo.
         extendEnv: false,
         env: buildAgentEnv(process.env, this.extraEnv),
-        // stdout+stderr interleaved in `all`: il report dell'agente e gli
-        // eventuali errori del CLI finiscono nello stesso log del job.
+        // stdout+stderr interleaved in `all`: usato come fallback grezzo (per
+        // i timeout e gli exit non-zero). Il JSON dei consumi però va parsato
+        // dal solo stdout: `all` mescola gli eventuali warning su stderr e ne
+        // romperebbe il parse.
         all: true,
       });
-      return { output: all ?? "", exitCode: exitCode ?? 0 };
+      // Exit 0: stdout è (atteso) il JSON del CLI. parseCliJson è difensivo —
+      // se il parse fallisce o `result` manca ricade sullo stdout grezzo,
+      // usage resta undefined. Se stdout è vuoto si usa `all` come fallback.
+      const cliStdout = stdout ?? "";
+      const parsed = parseCliJson(cliStdout);
+      const output = cliStdout === "" ? (all ?? "") : parsed.output;
+      return {
+        output,
+        exitCode: exitCode ?? 0,
+        ...(parsed.usage !== undefined ? { usage: parsed.usage } : {}),
+      };
     } catch (error) {
       const e = error as {
         timedOut?: boolean;
         all?: string;
+        stdout?: string;
         exitCode?: number;
         shortMessage?: string;
       };
       if (e.timedOut === true) {
+        // Timeout: output parziale grezzo, nessun usage (il JSON è incompleto).
         throw new AgentTimeoutError(opts.timeoutMs, e.all ?? "");
       }
       if (typeof e.exitCode === "number") {
-        // Exit non-zero: risultato, non eccezione.
-        return { output: e.all ?? "", exitCode: e.exitCode };
+        // Exit non-zero: risultato, non eccezione. Si prova comunque a
+        // estrarre usage se lo stdout è JSON, altrimenti si omette.
+        const parsed = parseCliJson(e.stdout ?? "");
+        return {
+          output: e.all ?? "",
+          exitCode: e.exitCode,
+          ...(parsed.usage !== undefined ? { usage: parsed.usage } : {}),
+        };
       }
       // Spawn fallito (binario mancante, permessi) o kill da segnale esterno.
       throw new AgentRunError(

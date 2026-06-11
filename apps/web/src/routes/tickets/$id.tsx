@@ -22,6 +22,7 @@ import { SelectField } from "../../components/field";
 import { LabelsEditor } from "../../components/labels-editor";
 import { Markdown } from "../../components/markdown";
 import { TechnicalPayload } from "../../components/technical-payload";
+import { UsagePanel } from "../../components/usage-panel";
 import { patchTicket, postComment, type TicketPatch } from "../../lib/api";
 import { formatDateTime } from "../../lib/format";
 import {
@@ -30,6 +31,7 @@ import {
   ticketJobsQueryOptions,
   ticketKeys,
   ticketQueryOptions,
+  ticketUsageQueryOptions,
   usersQueryOptions,
 } from "../../lib/queries";
 
@@ -49,6 +51,7 @@ export function TicketDetailPage() {
   const { data: ticket } = useSuspenseQuery(ticketQueryOptions(id));
   const { data: comments } = useSuspenseQuery(commentsQueryOptions(id));
   const { data: jobs } = useSuspenseQuery(ticketJobsQueryOptions(id));
+  const { data: usage } = useSuspenseQuery(ticketUsageQueryOptions(id));
   const { data: users } = useSuspenseQuery(usersQueryOptions);
   const { data: projects } = useSuspenseQuery(projectsQueryOptions);
 
@@ -126,6 +129,9 @@ export function TicketDetailPage() {
             <h2 className={sectionTitleClass}>Attività AI</h2>
             <AIJobTimeline jobs={jobs} />
           </section>
+
+          {/* Solo quando ci sono consumi: un CLI senza usage non mostra nulla. */}
+          {usage.byModel.length > 0 && <UsagePanel usage={usage} />}
 
           <section>
             <h2 className={sectionTitleClass}>Commenti ({comments.length})</h2>

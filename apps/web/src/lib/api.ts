@@ -249,6 +249,30 @@ export function getTicketJobs(ticketId: string): Promise<AIJob[]> {
   return api.get(`/api/tickets/${ticketId}/jobs`);
 }
 
+/** Consumo aggregato di un singolo modello sui job AI del ticket. */
+export interface UsageByModel {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  /** Null quando nessun run del modello riporta un costo. */
+  costUsd: number | null;
+}
+
+/**
+ * Riepilogo dei consumi AI di un ticket: token totali (input+output), costo
+ * totale USD (null se nessun run riporta un costo) e dettaglio per modello.
+ */
+export interface TicketUsage {
+  totalTokens: number;
+  totalCostUsd: number | null;
+  byModel: UsageByModel[];
+}
+
+export function getTicketUsage(ticketId: string): Promise<TicketUsage> {
+  return api.get(`/api/tickets/${ticketId}/usage`);
+}
+
 // --- Users ---
 
 export function getUsers(): Promise<PublicUser[]> {

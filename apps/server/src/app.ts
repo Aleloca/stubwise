@@ -13,7 +13,7 @@ import {
 } from "fastify-type-provider-zod";
 import { createRequire } from "node:module";
 import type { Db } from "@stubwise/db";
-import { aiJobRoutes } from "./routes/ai-jobs.js";
+import { aiJobRoutes, ticketUsageRoutes } from "./routes/ai-jobs.js";
 import { authRoutes } from "./routes/auth.js";
 import { commentRoutes } from "./routes/comments.js";
 import { ingestRoutes } from "./routes/ingest.js";
@@ -162,6 +162,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(commentRoutes, { prefix: "/api/tickets/:ticketId/comments" });
   // Stesso schema dei commenti: la timeline dei job AI vive sotto il ticket.
   void app.register(aiJobRoutes, { prefix: "/api/tickets/:ticketId/jobs" });
+  // Riepilogo consumi AI del ticket (token + costo per modello).
+  void app.register(ticketUsageRoutes, { prefix: "/api/tickets/:ticketId/usage" });
   void app.register(userRoutes, { prefix: "/api/users" });
   // Superficie pubblica per gli SDK: fuori da /api, CORS aperto solo qui
   // (registrato dentro il plugin), autenticazione via X-Stubwise-Key.

@@ -6,6 +6,7 @@ import {
   getProjectWebhook,
   getTicket,
   getTicketJobs,
+  getTicketUsage,
   getUsers,
   listTickets,
   type TicketFilters,
@@ -33,6 +34,7 @@ export const ticketKeys = {
   board: (projectId?: string) => [...ticketKeys.boards(), projectId ?? null] as const,
   comments: (ticketId: string) => [...ticketKeys.all, "comments", ticketId] as const,
   jobs: (ticketId: string) => [...ticketKeys.all, "jobs", ticketId] as const,
+  usage: (ticketId: string) => [...ticketKeys.all, "usage", ticketId] as const,
 };
 
 export function ticketsInfiniteQueryOptions(filters: TicketFilters) {
@@ -89,6 +91,13 @@ export function ticketJobsQueryOptions(ticketId: string) {
   return queryOptions({
     queryKey: ticketKeys.jobs(ticketId),
     queryFn: () => getTicketJobs(ticketId),
+  });
+}
+
+export function ticketUsageQueryOptions(ticketId: string) {
+  return queryOptions({
+    queryKey: ticketKeys.usage(ticketId),
+    queryFn: () => getTicketUsage(ticketId),
   });
 }
 

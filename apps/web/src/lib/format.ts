@@ -33,3 +33,15 @@ export function formatRelativeTime(iso: string, now: number = Date.now()): strin
 export function formatDateTime(iso: string): string {
   return dateTimeFormat.format(new Date(iso));
 }
+
+const integerFormat = new Intl.NumberFormat("it-IT", { maximumFractionDigits: 0 });
+
+/** Intero con separatori delle migliaia (it-IT), per i conteggi token. */
+export function formatTokens(value: number): string {
+  return integerFormat.format(value);
+}
+
+/** Costo in USD con 4 decimali, prefisso "$" (es. "$0.0515"). */
+export function formatCostUsd(value: number): string {
+  return `$${value.toFixed(4)}`;
+}

@@ -19,6 +19,7 @@ import {
   ticketJobsQueryOptions,
   ticketQueryOptions,
   ticketsInfiniteQueryOptions,
+  ticketUsageQueryOptions,
   usersQueryOptions,
 } from "./lib/queries";
 import { boardSearchSchema, BoardPage } from "./routes/board";
@@ -129,6 +130,7 @@ const ticketDetailRoute = createRoute({
       context.queryClient.ensureQueryData(ticketQueryOptions(params.id)),
       context.queryClient.ensureQueryData(commentsQueryOptions(params.id)),
       context.queryClient.ensureQueryData(ticketJobsQueryOptions(params.id)),
+      context.queryClient.ensureQueryData(ticketUsageQueryOptions(params.id)),
       context.queryClient.ensureQueryData(usersQueryOptions),
       context.queryClient.ensureQueryData(projectsQueryOptions),
     ]);

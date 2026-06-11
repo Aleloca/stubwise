@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { aiJobs } from "@stubwise/db";
+import { agentRuns, aiJobs } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
@@ -147,6 +147,134 @@ describe("GET /api/tickets/:ticketId/jobs", () => {
       startedAt: null,
       finishedAt: null,
     });
+  });
+});
+
+function getUsage(id: string, cookie?: string) {
+  return app.inject({
+    method: "GET",
+    url: `/api/tickets/${id}/usage`,
+    headers: cookie ? { cookie } : {},
+  });
+}
+
+describe("GET /api/tickets/:ticketId/usage", () => {
+  it("senza sessione risponde 401", async () => {
+    const res = await getUsage(ticketId);
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("ticket inesistente: 404", async () => {
+    const res = await getUsage(randomUUID(), users.memberCookie);
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("ticket senza consumi: totali a zero, costo null, byModel vuoto", async () => {
+    const res = await getUsage(ticketId, users.memberCookie);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ totalTokens: 0, totalCostUsd: null, byModel: [] });
+  });
+
+  it("aggrega gli agent_runs di tutti i job del ticket, raggruppati per modello", async () => {
+    // Due job (triage+fix) con run su due modelli; il modello opus compare in
+    // entrambi i job e va sommato. Inserimenti diretti: i run li scrive il
+    // worker, qui non c'è API di scrittura.
+    const [triageJob] = await testDb.db
+      .insert(aiJobs)
+      .values({ ticketId, status: "fixing" })
+      .returning();
+    const [fixJob] = await testDb.db
+      .insert(aiJobs)
+      .values({ ticketId, status: "pr_opened" })
+      .returning();
+    expect(triageJob && fixJob).toBeTruthy();
+
+    await testDb.db.insert(agentRuns).values([
+      {
+        jobId: triageJob!.id,
+        phase: "triage",
+        model: "claude-haiku-4-5",
+        inputTokens: 100,
+        outputTokens: 50,
+        cacheReadTokens: 20,
+        costUsd: "0.001000",
+      },
+      {
+        jobId: fixJob!.id,
+        phase: "fix",
+        model: "claude-opus-4-8",
+        inputTokens: 1000,
+        outputTokens: 500,
+        cacheReadTokens: 200,
+        costUsd: "0.050000",
+      },
+      {
+        jobId: fixJob!.id,
+        phase: "fix",
+        model: "claude-haiku-4-5",
+        inputTokens: 10,
+        outputTokens: 5,
+        cacheReadTokens: 2,
+        costUsd: "0.000500",
+      },
+    ]);
+
+    const res = await getUsage(ticketId, users.memberCookie);
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      totalTokens: number;
+      totalCostUsd: number | null;
+      byModel: Array<{
+        model: string;
+        inputTokens: number;
+        outputTokens: number;
+        cacheReadTokens: number;
+        costUsd: number | null;
+      }>;
+    };
+
+    // Totale token = somma input+output su tutti i run (100+50+1000+500+10+5).
+    expect(body.totalTokens).toBe(1665);
+    // Costo totale = 0.001 + 0.05 + 0.0005.
+    expect(body.totalCostUsd).toBeCloseTo(0.0515, 6);
+    // Ordinato per modello: haiku (sommato sui due job), poi opus.
+    expect(body.byModel).toEqual([
+      {
+        model: "claude-haiku-4-5",
+        inputTokens: 110,
+        outputTokens: 55,
+        cacheReadTokens: 22,
+        costUsd: 0.0015,
+      },
+      {
+        model: "claude-opus-4-8",
+        inputTokens: 1000,
+        outputTokens: 500,
+        cacheReadTokens: 200,
+        costUsd: 0.05,
+      },
+    ]);
+  });
+
+  it("modello con tutti i costi null: costUsd resta null nell'aggregazione", async () => {
+    const [job] = await testDb.db
+      .insert(aiJobs)
+      .values({ ticketId, status: "failed" })
+      .returning();
+    await testDb.db.insert(agentRuns).values({
+      jobId: job!.id,
+      phase: "triage",
+      model: "modello-senza-costo",
+      inputTokens: 7,
+      outputTokens: 3,
+      cacheReadTokens: 1,
+      costUsd: null,
+    });
+
+    const res = await getUsage(ticketId, users.memberCookie);
+    const body = res.json() as { byModel: Array<{ model: string; costUsd: number | null }> };
+    const entry = body.byModel.find((m) => m.model === "modello-senza-costo");
+    expect(entry?.costUsd).toBeNull();
   });
 });
 

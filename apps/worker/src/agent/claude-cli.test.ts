@@ -7,10 +7,12 @@ import { FakeAgentRunner } from "./fake.js";
 import { AgentRunError, AgentTimeoutError } from "./runner.js";
 
 // I test usano un FINTO eseguibile `claude`: uno script shell scritto in una
-// tmpdir che echeggia argv (`ARGS:`), la working directory (`CWD:`) e lo
-// stdin (`STDIN:`). Così verifichiamo il contratto di invocazione del CLI
-// reale (flag, cwd, prompt via stdin, exit code, timeout) senza rete, quota
-// o binario claude installato.
+// tmpdir. Col passaggio a `--output-format json`, in caso di successo il CLI
+// reale emette UN SINGOLO oggetto JSON su stdout. Lo script finto fa lo
+// stesso: incapsula argv, cwd e stdin nel campo `result` (così le asserzioni
+// sul contratto di invocazione restano possibili) e aggiunge i campi di
+// consumo (`modelUsage`, `total_cost_usd`). Niente rete, quota o binario
+// claude installato.
 
 const cleanups: Array<() => Promise<void>> = [];
 
@@ -24,10 +26,21 @@ async function makeRoot(): Promise<string> {
   return root;
 }
 
+// Lo script costruisce a mano un oggetto JSON. `result` contiene ARGS/CWD/STDIN
+// su righe separate (le stesse sentinelle di prima, ora dentro al JSON) così i
+// test possono ancora verificarle via result.output. `modelUsage` e
+// `total_cost_usd` simulano i consumi riportati dal CLI reale. jq non è
+// garantito nell'ambiente di test: si costruisce il JSON con printf, facendo
+// l'escape minimo (le sentinelle non contengono caratteri JSON-pericolosi
+// tranne le newline, codificate come \\n).
 const ECHO_SCRIPT = `#!/bin/sh
-echo "ARGS:$*"
-echo "CWD:$(pwd -P)"
-printf 'STDIN:%s\\n' "$(cat)"
+STDIN="$(cat)"
+RESULT="ARGS:$*
+CWD:$(pwd -P)
+STDIN:$STDIN"
+# Escape per JSON: backslash, doppi apici, poi newline → \\n.
+ESCAPED=$(printf '%s' "$RESULT" | sed -e 's/\\\\/\\\\\\\\/g' -e 's/"/\\\\"/g' | awk 'BEGIN{ORS=""} NR>1{print "\\\\n"} {print}')
+printf '{"result":"%s","total_cost_usd":0.0123,"usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":20,"cache_creation_input_tokens":5},"modelUsage":{"claude-opus-4-8":{"inputTokens":80,"outputTokens":40,"cacheReadInputTokens":15,"cacheCreationInputTokens":4,"costUSD":0.0100},"claude-haiku-4-5":{"inputTokens":20,"outputTokens":10,"cacheReadInputTokens":5,"cacheCreationInputTokens":1,"costUSD":0.0023}},"num_turns":3,"duration_ms":1200,"is_error":false,"subtype":"success"}\\n' "$ESCAPED"
 `;
 
 /** Scrive uno script shell eseguibile che fa da finto binario `claude`. */
@@ -63,8 +76,88 @@ describe("ClaudeCliRunner", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.output).toContain(
-      "ARGS:-p --output-format text --permission-mode acceptEdits --max-turns 7 --model haiku",
+      "ARGS:-p --output-format json --permission-mode acceptEdits --max-turns 7 --model haiku",
     );
+  });
+
+  it("su exit 0 imposta output = result del JSON ed estrae usage da modelUsage", async () => {
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(root);
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    const result = await runner.run({ cwd, prompt: "ciao", maxTurns: 3, timeoutMs: 10_000 });
+
+    // output è la STRINGA result del JSON, non l'intero blob: contiene le
+    // sentinelle ARGS/CWD/STDIN ma NON le chiavi JSON di consumo.
+    expect(result.output).toContain("ARGS:");
+    expect(result.output).toContain("STDIN:ciao");
+    expect(result.output).not.toContain("modelUsage");
+    expect(result.output).not.toContain("total_cost_usd");
+
+    // usage popolato da modelUsage (una voce per modello) + total_cost_usd.
+    expect(result.usage).toBeDefined();
+    expect(result.usage?.totalCostUsd).toBe(0.0123);
+    expect(result.usage?.models).toEqual(
+      expect.arrayContaining([
+        {
+          model: "claude-opus-4-8",
+          inputTokens: 80,
+          outputTokens: 40,
+          cacheReadTokens: 15,
+          costUsd: 0.01,
+        },
+        {
+          model: "claude-haiku-4-5",
+          inputTokens: 20,
+          outputTokens: 10,
+          cacheReadTokens: 5,
+          costUsd: 0.0023,
+        },
+      ]),
+    );
+    expect(result.usage?.models).toHaveLength(2);
+  });
+
+  it("se lo stdout non è JSON valido, output = stdout grezzo e usage undefined (non lancia)", async () => {
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(
+      root,
+      `#!/bin/sh
+cat > /dev/null
+echo "questo non e' JSON"
+`,
+    );
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    const result = await runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain("questo non e' JSON");
+    expect(result.usage).toBeUndefined();
+  });
+
+  it("se manca result nel JSON, output = stdout grezzo (fallback)", async () => {
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(
+      root,
+      `#!/bin/sh
+cat > /dev/null
+printf '{"total_cost_usd":0.5,"modelUsage":{"m1":{"inputTokens":1,"outputTokens":2,"cacheReadInputTokens":0,"costUSD":0.5}}}\\n'
+`,
+    );
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    const result = await runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
+
+    // result mancante: fallback su stdout grezzo, ma usage comunque estratto.
+    expect(result.output).toContain('"total_cost_usd":0.5');
+    expect(result.usage?.totalCostUsd).toBe(0.5);
+    expect(result.usage?.models).toEqual([
+      { model: "m1", inputTokens: 1, outputTokens: 2, cacheReadTokens: 0, costUsd: 0.5 },
+    ]);
   });
 
   it("omette --model quando non specificato", async () => {
@@ -76,7 +169,7 @@ describe("ClaudeCliRunner", () => {
     const result = await runner.run({ cwd, prompt: "ciao", maxTurns: 3, timeoutMs: 10_000 });
 
     expect(result.output).toContain(
-      "ARGS:-p --output-format text --permission-mode acceptEdits --max-turns 3",
+      "ARGS:-p --output-format json --permission-mode acceptEdits --max-turns 3",
     );
     expect(result.output).not.toContain("--model");
   });
@@ -96,7 +189,7 @@ describe("ClaudeCliRunner", () => {
     });
 
     expect(result.output).toContain(
-      "ARGS:-p --output-format text --permission-mode acceptEdits --max-turns 80 --allowedTools Bash(npm test:*) Bash(pnpm test:*)",
+      "ARGS:-p --output-format json --permission-mode acceptEdits --max-turns 80 --allowedTools Bash(npm test:*) Bash(pnpm test:*)",
     );
   });
 

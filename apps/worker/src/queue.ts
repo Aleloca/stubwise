@@ -1,7 +1,46 @@
-import { aiJobs, type Db } from "@stubwise/db";
+import { agentRuns, aiJobs, type Db } from "@stubwise/db";
 import { and, eq, inArray, sql } from "drizzle-orm";
+import type { AgentRunUsage } from "./agent/runner.js";
 
 export type AiJob = typeof aiJobs.$inferSelect;
+
+export interface RecordAgentRunInput {
+  jobId: string;
+  phase: "triage" | "fix";
+  /** Consumi del run, se presenti: niente usage → nessuna riga registrata. */
+  usage?: AgentRunUsage;
+}
+
+/**
+ * Registra i consumi di un run dell'agente: una riga `agent_runs` per ciascun
+ * modello in `usage.models`. Il costo è quello per-modello quando il CLI lo
+ * riporta, altrimenti null (non si tenta di spalmare il totale: meglio un dato
+ * mancante che uno inventato). BEST-EFFORT: qualunque errore (DB, usage
+ * malformato) viene inghiottito — la registrazione dei consumi non deve MAI
+ * far fallire il job. Senza usage, o con usage senza modelli, non scrive nulla.
+ *
+ * numeric(12,6) in Postgres si mappa a stringa lato drizzle: il costo va
+ * passato come stringa (toFixed) per evitare problemi di precisione.
+ */
+export async function recordAgentRun(db: Db, input: RecordAgentRunInput): Promise<void> {
+  try {
+    const models = input.usage?.models ?? [];
+    if (models.length === 0) return;
+    await db.insert(agentRuns).values(
+      models.map((m) => ({
+        jobId: input.jobId,
+        phase: input.phase,
+        model: m.model,
+        inputTokens: Math.trunc(m.inputTokens) || 0,
+        outputTokens: Math.trunc(m.outputTokens) || 0,
+        cacheReadTokens: Math.trunc(m.cacheReadTokens) || 0,
+        costUsd: m.costUsd !== undefined ? m.costUsd.toFixed(6) : null,
+      })),
+    );
+  } catch {
+    // Inghiottito di proposito: i consumi sono accessori, il job no.
+  }
+}
 
 /**
  * Stati "in lavorazione": un worker può chiudere o far avanzare un job solo

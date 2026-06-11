@@ -3,7 +3,7 @@ import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AIJob, Comment, Ticket } from "../../lib/api";
+import type { AIJob, Comment, Ticket, TicketUsage } from "../../lib/api";
 import { ticketKeys } from "../../lib/queries";
 import { createAppRouter } from "../../router";
 
@@ -92,6 +92,30 @@ const jobsFixture: AIJob[] = [
   },
 ];
 
+const usageFixture: TicketUsage = {
+  totalTokens: 12555,
+  totalCostUsd: 0.0515,
+  byModel: [
+    {
+      model: "claude-haiku-4-5",
+      inputTokens: 110,
+      outputTokens: 55,
+      cacheReadTokens: 22,
+      costUsd: 0.0015,
+    },
+    {
+      model: "claude-opus-4-8",
+      inputTokens: 12000,
+      outputTokens: 390,
+      cacheReadTokens: 200,
+      costUsd: 0.05,
+    },
+  ],
+};
+
+// Riepilogo vuoto: nessun consumo → il pannello "Consumi AI" non compare.
+const emptyUsageFixture: TicketUsage = { totalTokens: 0, totalCostUsd: null, byModel: [] };
+
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -129,14 +153,16 @@ interface MockState {
   comments: Comment[];
   patches: unknown[];
   postedComments: unknown[];
+  usage: TicketUsage;
 }
 
-function mockDetailApi(): MockState {
+function mockDetailApi(overrides: { usage?: TicketUsage } = {}): MockState {
   const state: MockState = {
     ticket: { ...ticketFixture },
     comments: [...commentsFixture],
     patches: [],
     postedComments: [],
+    usage: overrides.usage ?? usageFixture,
   };
 
   mockApi({
@@ -182,6 +208,7 @@ function mockDetailApi(): MockState {
       return jsonResponse(201, created);
     },
     [`GET /api/tickets/${TICKET_ID}/jobs`]: () => jsonResponse(200, jobsFixture),
+    [`GET /api/tickets/${TICKET_ID}/usage`]: () => jsonResponse(200, state.usage),
   });
 
   return state;
@@ -267,6 +294,28 @@ describe("dettaglio ticket", () => {
       "https://github.com/acme/shop/pull/12",
     );
     expect(screen.getByText("git clone: timeout")).toBeInTheDocument();
+  });
+
+  it("pannello Consumi AI: token totali, costo e righe per modello", async () => {
+    mockDetailApi();
+    renderDetail();
+
+    expect(await screen.findByText("Consumi AI")).toBeInTheDocument();
+    // 12555 → "12.555" (it-IT raggruppa dalle migliaia).
+    expect(screen.getByText("12.555")).toBeInTheDocument();
+    expect(screen.getByText("$0.0515")).toBeInTheDocument();
+    expect(screen.getByText("claude-haiku-4-5")).toBeInTheDocument();
+    expect(screen.getByText("claude-opus-4-8")).toBeInTheDocument();
+  });
+
+  it("senza consumi: il pannello Consumi AI non compare", async () => {
+    mockDetailApi({ usage: emptyUsageFixture });
+    renderDetail();
+
+    // Attende che la pagina sia montata (timeline presente), poi verifica
+    // l'assenza del pannello.
+    await screen.findByText("Attività AI");
+    expect(screen.queryByText("Consumi AI")).not.toBeInTheDocument();
   });
 
   it("cambiare stato manda la PATCH e aggiorna la pagina", async () => {

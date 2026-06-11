@@ -6,9 +6,21 @@ import { execa } from "execa";
 import { readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { AgentRunError, AgentTimeoutError, type AgentRunner } from "../agent/runner.js";
+import {
+  AgentRunError,
+  AgentTimeoutError,
+  type AgentRunner,
+  type AgentRunUsage,
+} from "../agent/runner.js";
 import { MirrorManager, type MirrorProject } from "../git/mirrors.js";
-import { appendLog, completeJob, failJob, touchJob, type AiJob } from "../queue.js";
+import {
+  appendLog,
+  completeJob,
+  failJob,
+  recordAgentRun,
+  touchJob,
+  type AiJob,
+} from "../queue.js";
 import { buildFixPrompt, REPORT_FILENAME, toSingleLine } from "./prompts.js";
 
 /**
@@ -193,6 +205,9 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
 
   let report: string | null;
   let agentOutput: string;
+  // Consumi del run di fix: estratti dentro la callback e registrati DOPO la
+  // chiusura del worktree (best-effort, fuori dal percorso critico).
+  let fixUsage: AgentRunUsage | undefined;
   try {
     ({ report, agentOutput } = await mirrors.withWorktree(mirrorProject, branch, async (dir) => {
       // Heartbeat: il run può durare a lungo senza scrivere nel log. Senza
@@ -209,14 +224,19 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       let output: string;
       let exitCode: number;
       try {
-        ({ output, exitCode } = await runner.run({
+        const result = await runner.run({
           cwd: dir,
           prompt,
           ...(deps.model !== undefined ? { model: deps.model } : {}),
           maxTurns,
           timeoutMs,
           allowedTools,
-        }));
+        });
+        output = result.output;
+        exitCode = result.exitCode;
+        // Catturato anche su exit non-zero (il CLI riporta usage comunque):
+        // registrato dopo la chiusura del worktree, qualunque sia l'esito.
+        fixUsage = result.usage;
       } finally {
         clearInterval(heartbeat);
       }
@@ -263,6 +283,10 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     }));
   } catch (err) {
     // Qualunque sia l'errore, il worktree è già stato rimosso da withWorktree.
+    // Consumi del run di fix (best-effort): se l'agente ha prodotto usage
+    // prima di fallire (es. exit non-zero, nessuna modifica) lo registriamo
+    // comunque — il lavoro AI è stato speso anche se il job fallisce.
+    await recordAgentRun(db, { jobId: job.id, phase: "fix", usage: fixUsage });
     if (err instanceof NoChangesError) {
       await failJob(db, job.id, {
         log: `[fix] output agente:\n${truncateForLog(err.agentOutput)}\n[fix] nessuna modifica prodotta: niente PR`,
@@ -296,6 +320,10 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     await failJob(db, job.id, { log: `[fix] errore: ${message}`, error: message });
     return "failed";
   }
+
+  // Run di fix riuscito: registra i consumi (best-effort) prima di proseguire
+  // con commit/PR. Non fa mai fallire il job.
+  await recordAgentRun(db, { jobId: job.id, phase: "fix", usage: fixUsage });
 
   const logLines: string[] = [`[fix] output agente:\n${truncateForLog(agentOutput)}`];
   let reportBody: string;

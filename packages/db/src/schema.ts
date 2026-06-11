@@ -10,6 +10,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
   text,
@@ -46,6 +47,8 @@ export const aiJobStatus = pgEnum("ai_job_status", [
   "failed",
   "skipped",
 ]);
+// Le due fasi AI di cui tracciamo i consumi (token + costo): triage e fix.
+export const agentRunPhase = pgEnum("agent_run_phase", ["triage", "fix"]);
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -194,5 +197,36 @@ export const aiJobs = pgTable(
     index("ai_jobs_queued_created_at_idx")
       .on(table.createdAt)
       .where(sql`status = 'queued'`),
+  ],
+);
+
+/**
+ * Consumi (token + costo) di un singolo run dell'agente, una riga per
+ * (job, fase, modello). Un run può usare più modelli (subagent): il worker
+ * registra una riga per ciascun modello riportato dal CLI. Best-effort: la
+ * registrazione non deve mai far fallire il job, quindi una mancanza di righe
+ * significa semplicemente "nessun dato di consumo" (CLI vecchio o output non
+ * parsabile), non un errore.
+ */
+export const agentRuns = pgTable(
+  "agent_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => aiJobs.id, { onDelete: "cascade" }),
+    phase: agentRunPhase("phase").notNull(),
+    model: text("model").notNull(),
+    inputTokens: integer("input_tokens").notNull().default(0),
+    outputTokens: integer("output_tokens").notNull().default(0),
+    cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+    // Costo in USD del modello per questo run. Nullable: il CLI può non
+    // riportarlo (vecchie versioni, chiave senza usage nel JSON).
+    costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Aggregazione dei consumi per job (e, via join, per ticket).
+    index("agent_runs_job_id_idx").on(table.jobId),
   ],
 );

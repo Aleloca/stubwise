@@ -1,6 +1,11 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { AgentRunner, AgentRunOptions, AgentRunResult } from "./runner.js";
+import type {
+  AgentRunner,
+  AgentRunOptions,
+  AgentRunResult,
+  AgentRunUsage,
+} from "./runner.js";
 
 /**
  * AgentRunner finto per i test della pipeline: niente CLI, niente quota,
@@ -25,6 +30,13 @@ export interface FakeAgentRunnerOptions {
   output?: string;
   /** Exit code fisso restituito quando `script` non è definito. */
   exitCode?: number;
+  /**
+   * Consumi fissi restituiti quando `script` non è definito. Default
+   * undefined (nessun dato di consumo), così i test che non se ne curano non
+   * registrano righe. I test della pipeline che asseriscono la registrazione
+   * dei consumi lo valorizzano esplicitamente.
+   */
+  usage?: AgentRunUsage;
 }
 
 export class FakeAgentRunner implements AgentRunner {
@@ -35,12 +47,14 @@ export class FakeAgentRunner implements AgentRunner {
   private readonly fileChanges: Record<string, string>;
   private readonly output: string;
   private readonly exitCode: number;
+  private readonly usage: AgentRunUsage | undefined;
 
   constructor(options: FakeAgentRunnerOptions = {}) {
     this.script = options.script;
     this.fileChanges = options.fileChanges ?? {};
     this.output = options.output ?? "FAKE OK";
     this.exitCode = options.exitCode ?? 0;
+    this.usage = options.usage;
   }
 
   async run(opts: AgentRunOptions): Promise<AgentRunResult> {
@@ -53,6 +67,10 @@ export class FakeAgentRunner implements AgentRunner {
     if (this.script) {
       return await this.script(opts);
     }
-    return { output: this.output, exitCode: this.exitCode };
+    return {
+      output: this.output,
+      exitCode: this.exitCode,
+      ...(this.usage !== undefined ? { usage: this.usage } : {}),
+    };
   }
 }
