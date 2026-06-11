@@ -7,13 +7,45 @@ import starlightOpenAPI, { openAPISidebarGroups } from "starlight-openapi";
 // serve la root statica): `base: "/docs"` fa sì che asset e link interni
 // siano già prefissati con /docs, coerenti con il path esterno. Vedi
 // Dockerfile.caddy e Caddyfile.
+// DOCS_BASE/DOCS_SITE permettono deploy sotto un prefisso diverso, es.
+// GitHub Pages serve il sito sotto /stubwise (vedi .github/workflows/docs.yml).
+const base = process.env.DOCS_BASE ?? "/docs";
+
+// I contenuti scrivono i link interni con il prefisso del deploy primario
+// (/docs/...): quando il base è diverso vanno riscritti nell'HTML generato.
+// I link della hero in frontmatter non passano da rehype: li gestisce il
+// routeMiddleware (src/route-data.ts).
+/** @typedef {{ properties?: Record<string, unknown>, children?: unknown[] }} RehypeNode */
+function rehypeRebaseLinks() {
+  /** @param {RehypeNode} node */
+  const rebase = (node) => {
+    const props = node.properties;
+    if (props) {
+      for (const key of ["href", "src"]) {
+        const value = props[key];
+        if (typeof value === "string" && (value === "/docs" || value.startsWith("/docs/"))) {
+          props[key] = base + value.slice("/docs".length);
+        }
+      }
+    }
+    for (const child of node.children ?? []) {
+      rebase(/** @type {RehypeNode} */ (child));
+    }
+  };
+  return rebase;
+}
+
 export default defineConfig({
-  base: "/docs",
+  base,
+  markdown: {
+    rehypePlugins: base === "/docs" ? [] : [rehypeRebaseLinks],
+  },
   // Necessario per generare link assoluti corretti (es. canonical) ma non
   // vincola il deploy: i path restano relativi a `base`.
-  site: "https://stubwise.example.com",
+  site: process.env.DOCS_SITE ?? "https://stubwise.example.com",
   integrations: [
     starlight({
+      routeMiddleware: "./src/route-data.ts",
       title: "Stubwise",
       description:
         "Issue tracker self-hostabile con pipeline AI: dagli errori degli SDK ai ticket, fino alle pull request automatiche.",

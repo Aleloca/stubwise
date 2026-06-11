@@ -1,0 +1,65 @@
+name: Docs (GitHub Pages)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/docs/**"
+      - "apps/server/**"
+      - "packages/**"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+# Permessi minimi richiesti da actions/deploy-pages.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Un solo deploy alla volta; non annulliamo quelli in corso per non lasciare
+# Pages in uno stato parziale.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Abilita corepack (pnpm)
+        run: corepack enable
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Installa le dipendenze
+        run: pnpm install --frozen-lockfile
+
+      # `--filter @stubwise/docs...` builda anche le dipendenze di workspace
+      # (server e package) in ordine topologico: il prebuild gen:openapi
+      # importa i sorgenti del server, che a loro volta usano i dist dei package.
+      - name: Build della documentazione
+        run: pnpm --filter "@stubwise/docs..." build
+        env:
+          # Su GitHub Pages il sito vive sotto /<repo>, non sotto /docs come
+          # dietro Caddy (vedi apps/docs/astro.config.mjs).
+          DOCS_BASE: /stubwise
+          DOCS_SITE: https://aleloca.github.io
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: apps/docs/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
