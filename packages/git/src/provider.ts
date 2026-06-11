@@ -47,6 +47,21 @@ export interface CredentialCheck {
 }
 
 /**
+ * Esito della registrazione idempotente di un webhook sul provider git.
+ * `created`/`updated` sono mutuamente esclusivi: il primo se il webhook non
+ * esisteva ed è stato creato, il secondo se ne esisteva già uno con lo stesso
+ * URL ed è stato aggiornato (attivo, eventi e secret rinfrescati). `id` è
+ * l'identificativo del webhook lato provider (uuid Bitbucket / id numerico
+ * GitHub), `detail` un messaggio in italiano per la UI.
+ */
+export interface WebhookResult {
+  created: boolean;
+  updated: boolean;
+  id: string;
+  detail: string;
+}
+
+/**
  * Provider abstraction over Bitbucket Cloud and GitHub.
  *
  * Webhook contract (Task 25 server route):
@@ -105,6 +120,20 @@ export interface GitProvider {
     p: ProjectGitConfig,
     opts?: { fetchImpl?: FetchLike }
   ): Promise<CredentialCheck[]>;
+  /**
+   * Registra in modo idempotente il webhook PR-merged sul provider git usando
+   * l'autenticazione REST (Bitbucket: email-o-username:token Basic; GitHub:
+   * Bearer). Elenca i webhook esistenti, cerca quello con lo stesso target URL
+   * di `hook.url`: se lo trova lo aggiorna (attivo + eventi corretti + secret
+   * rinfrescato), altrimenti lo crea. A differenza di validateCredentials può
+   * lanciare, ma SOLO GitProviderError con un messaggio in italiano chiaro
+   * (es. su 403/scope insufficiente: indica all'utente lo scope mancante).
+   */
+  ensureWebhook(
+    p: ProjectGitConfig,
+    hook: { url: string; secret: string },
+    opts?: { fetchImpl?: FetchLike }
+  ): Promise<WebhookResult>;
 }
 
 export class GitProviderError extends Error {

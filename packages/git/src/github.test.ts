@@ -188,28 +188,35 @@ describe("GitHubProvider.parseWebhook", () => {
 describe("GitHubProvider.validateCredentials", () => {
   const GIT_URL = "https://github.com/octo/repo.git/info/refs?service=git-receive-pack";
   const REST_URL = "https://api.github.com/repos/octo/repo";
+  const HOOKS_URL = "https://api.github.com/repos/octo/repo/hooks?per_page=1";
 
-  function routedFetch(map: { git?: () => Response; rest?: () => Response }) {
+  function routedFetch(map: { git?: () => Response; rest?: () => Response; hooks?: () => Response }) {
     return vi.fn((input: string | URL) => {
       const url = String(input);
       if (url === GIT_URL) return Promise.resolve(map.git?.() ?? new Response("", { status: 500 }));
       if (url === REST_URL) return Promise.resolve(map.rest?.() ?? new Response("", { status: 500 }));
+      if (url === HOOKS_URL) return Promise.resolve(map.hooks?.() ?? new Response("", { status: 500 }));
       return Promise.resolve(new Response("", { status: 404 }));
     });
   }
 
-  it("tutto ok: git 200 (Basic x-access-token) e repo con push:true (Bearer)", async () => {
+  it("tutto ok: git 200 (Basic x-access-token), repo push:true (Bearer) e hooks 200", async () => {
     const fetchImpl = routedFetch({
       git: () => new Response("", { status: 200 }),
       rest: () => jsonResponse({ permissions: { push: true } }, 200),
+      hooks: () => jsonResponse([], 200),
     });
     const provider = new GitHubProvider();
     const checks = await provider.validateCredentials(config, { fetchImpl });
 
-    expect(checks).toHaveLength(2);
+    expect(checks).toHaveLength(3);
     expect(checks.every((c) => c.ok)).toBe(true);
     expect(checks[0]!.name).toBe("Accesso git (push)");
     expect(checks[1]!.name).toBe("Permessi repository (PR)");
+    expect(checks[2]!.name).toBe("Accesso webhook (config automatica)");
+
+    const hooksCall = fetchImpl.mock.calls.find((c) => c[0] === HOOKS_URL) as unknown as [string, RequestInit];
+    expect((hooksCall[1].headers as Record<string, string>)["Authorization"]).toBe("Bearer ghp_secret");
 
     const gitCall = fetchImpl.mock.calls.find((c) => c[0] === GIT_URL) as unknown as [string, RequestInit];
     expect((gitCall[1].headers as Record<string, string>)["Authorization"]).toBe(
@@ -223,6 +230,7 @@ describe("GitHubProvider.validateCredentials", () => {
     const fetchImpl = routedFetch({
       git: () => new Response("", { status: 200 }),
       rest: () => jsonResponse({ permissions: { push: false } }, 200),
+      hooks: () => jsonResponse([], 200),
     });
     const provider = new GitHubProvider();
     const checks = await provider.validateCredentials(config, { fetchImpl });
@@ -236,6 +244,7 @@ describe("GitHubProvider.validateCredentials", () => {
     const fetchImpl = routedFetch({
       git: () => new Response("", { status: 401 }),
       rest: () => jsonResponse({ permissions: { push: true } }, 200),
+      hooks: () => jsonResponse([], 200),
     });
     const provider = new GitHubProvider();
     const checks = await provider.validateCredentials(config, { fetchImpl });
@@ -245,14 +254,120 @@ describe("GitHubProvider.validateCredentials", () => {
     expect(git.detail).toMatch(/token|contents/i);
   });
 
+  it("hooks 403: check webhook ok:false con guida sui permessi, advisory", async () => {
+    const fetchImpl = routedFetch({
+      git: () => new Response("", { status: 200 }),
+      rest: () => jsonResponse({ permissions: { push: true } }, 200),
+      hooks: () => new Response("", { status: 403 }),
+    });
+    const provider = new GitHubProvider();
+    const checks = await provider.validateCredentials(config, { fetchImpl });
+
+    expect(checks).toHaveLength(3);
+    const webhook = checks.find((c) => c.name === "Accesso webhook (config automatica)")!;
+    expect(webhook.ok).toBe(false);
+    expect(webhook.detail).toMatch(/webhook/i);
+  });
+
   it("errore di rete: i check falliscono senza lanciare", async () => {
     const fetchImpl = vi.fn(() => Promise.reject(new Error("network down")));
     const provider = new GitHubProvider();
     const checks = await provider.validateCredentials(config, { fetchImpl });
 
-    expect(checks).toHaveLength(2);
+    expect(checks).toHaveLength(3);
     expect(checks.every((c) => !c.ok)).toBe(true);
     expect(checks[0]!.detail).toMatch(/network down/);
+  });
+});
+
+describe("GitHubProvider.ensureWebhook", () => {
+  const hook = { url: "https://stubwise.example.com/webhooks/git/demo", secret: "hmac-secret" };
+  const LIST_URL = "https://api.github.com/repos/octo/repo/hooks";
+  const expectedBody = {
+    name: "web",
+    active: true,
+    events: ["pull_request"],
+    config: { url: hook.url, content_type: "json", secret: hook.secret, insecure_ssl: "0" },
+  };
+
+  it("crea il webhook quando assente: POST con body e Bearer corretti", async () => {
+    const fetchImpl = vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === LIST_URL && (init?.method ?? "GET") === "GET") {
+        return Promise.resolve(jsonResponse([], 200));
+      }
+      if (url === LIST_URL && init?.method === "POST") {
+        return Promise.resolve(jsonResponse({ id: 42, config: { url: hook.url } }, 201));
+      }
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const result = await provider.ensureWebhook(config, hook);
+
+    expect(result.created).toBe(true);
+    expect(result.updated).toBe(false);
+    expect(result.id).toBe("42");
+
+    const post = fetchImpl.mock.calls.find((c) => c[1]?.method === "POST") as [string, RequestInit];
+    expect(post[0]).toBe(LIST_URL);
+    expect((post[1].headers as Record<string, string>)["Authorization"]).toBe("Bearer ghp_secret");
+    expect((post[1].headers as Record<string, string>)["Accept"]).toBe("application/vnd.github+json");
+    expect(JSON.parse(post[1].body as string)).toEqual(expectedBody);
+  });
+
+  it("aggiorna il webhook esistente: PATCH all'id trovato per config.url", async () => {
+    const fetchImpl = vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === LIST_URL && (init?.method ?? "GET") === "GET") {
+        return Promise.resolve(jsonResponse([{ id: 7, config: { url: hook.url } }], 200));
+      }
+      if (url === `${LIST_URL}/7` && init?.method === "PATCH") {
+        return Promise.resolve(jsonResponse({ id: 7, config: { url: hook.url } }, 200));
+      }
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const result = await provider.ensureWebhook(config, hook);
+
+    expect(result.created).toBe(false);
+    expect(result.updated).toBe(true);
+    expect(result.id).toBe("7");
+
+    const patch = fetchImpl.mock.calls.find((c) => c[1]?.method === "PATCH") as [string, RequestInit];
+    expect(patch[0]).toBe(`${LIST_URL}/7`);
+    expect(JSON.parse(patch[1].body as string)).toEqual({
+      active: true,
+      events: ["pull_request"],
+      config: { url: hook.url, content_type: "json", secret: hook.secret, insecure_ssl: "0" },
+    });
+  });
+
+  it("403: GitProviderError con guida sui permessi webhook", async () => {
+    const fetchImpl = vi.fn(() => Promise.resolve(new Response("forbidden", { status: 403 })));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const error = await provider
+      .ensureWebhook(config, hook)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).message).toMatch(/webhook|admin:repo_hook/i);
+  });
+
+  it("errore di rete: lanciato come GitProviderError", async () => {
+    const fetchImpl = vi.fn(() => Promise.reject(new Error("network down")));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const error = await provider
+      .ensureWebhook(config, hook)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).message).toMatch(/network down/);
   });
 });
 

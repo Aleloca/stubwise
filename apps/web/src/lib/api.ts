@@ -379,3 +379,21 @@ export function postValidateCredentials(
 export function patchProject(slug: string, patch: ProjectPatch): Promise<Project> {
   return api.patch(`/api/projects/${slug}`, patch);
 }
+
+/** Esito della configurazione automatica del webhook (gemello del tipo server). */
+export interface ConfigureWebhookResult {
+  ok: true;
+  created: boolean;
+  updated: boolean;
+  detail: string;
+  url: string;
+}
+
+/**
+ * Registra in modo idempotente il webhook PR-merged sul provider git usando le
+ * credenziali del progetto. Endpoint solo admin. Su scope insufficiente l'API
+ * risponde con un 4xx e un messaggio di guida, propagato come errore.
+ */
+export function postConfigureWebhook(slug: string): Promise<ConfigureWebhookResult> {
+  return api.post(`/api/projects/${slug}/configure-webhook`);
+}

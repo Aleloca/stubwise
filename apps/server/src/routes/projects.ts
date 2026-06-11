@@ -6,7 +6,8 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAdmin, requireAuth } from "../auth/session.js";
-import { encrypt, projects } from "@stubwise/db";
+import { GitProviderError } from "@stubwise/git";
+import { decrypt, encrypt, projects } from "@stubwise/db";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 
 /**
@@ -80,6 +81,20 @@ const validateCredentialsResponseSchema = z.object({
 const webhookConfigSchema = z.object({
   webhookSecret: z.string(),
   webhookPath: z.string(),
+});
+
+/**
+ * Esito della configurazione automatica del webhook: `created`/`updated`
+ * dicono se è stato creato o aggiornato lato provider, `detail` è il messaggio
+ * per la UI, `url` è l'URL pubblico registrato. NON contiene MAI il segreto né
+ * le credenziali.
+ */
+const configureWebhookResponseSchema = z.object({
+  ok: z.literal(true),
+  created: z.boolean(),
+  updated: z.boolean(),
+  detail: z.string(),
+  url: z.string(),
 });
 
 /**
@@ -244,6 +259,72 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         .where(eq(projects.slug, request.params.slug));
       if (!row) return reply.code(404).send({ message: "Progetto non trovato" });
       return { webhookSecret: row.webhookSecret, webhookPath: `/webhooks/git/${request.params.slug}` };
+    },
+  );
+
+  // Configurazione automatica del webhook (solo admin): registra in modo
+  // idempotente il webhook PR-merged sul provider git usando le credenziali
+  // cifrate del progetto. Né il segreto né le credenziali escono mai dalla
+  // risposta. Gli errori del provider (es. scope mancante) sono GitProviderError
+  // e vengono mappati su un 4xx col messaggio di guida intatto per il client.
+  app.post(
+    "/:slug/configure-webhook",
+    {
+      preHandler: requireAdmin,
+      schema: {
+        params: slugParamsSchema,
+        response: {
+          200: configureWebhookResponseSchema,
+          400: errorSchema,
+          404: errorSchema,
+          422: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const [row] = await app.db
+        .select()
+        .from(projects)
+        .where(eq(projects.slug, request.params.slug));
+      if (!row) return reply.code(404).send({ message: "Progetto non trovato" });
+
+      // Decifratura delle credenziali con la chiave dell'app (stesso percorso
+      // del worker). Un fallimento qui è un errore di configurazione: messaggio
+      // esplicito, MAI il payload cifrato nella risposta.
+      let credentials: z.infer<typeof gitCredentialsSchema>;
+      try {
+        credentials = gitCredentialsSchema.parse(
+          JSON.parse(decrypt(row.encryptedCredentials, app.encryptionKey)),
+        );
+      } catch {
+        return reply
+          .code(400)
+          .send({ message: "configura prima le credenziali git del progetto" });
+      }
+
+      const url = `${app.publicUrl}/webhooks/git/${request.params.slug}`;
+      try {
+        const result = await getProvider(row.provider).ensureWebhook(
+          { repoUrl: row.repoUrl, defaultBranch: row.defaultBranch, credentials },
+          { url, secret: row.webhookSecret },
+          { fetchImpl: fetch },
+        );
+        return {
+          ok: true as const,
+          created: result.created,
+          updated: result.updated,
+          detail: result.detail,
+          url,
+        };
+      } catch (error) {
+        if (error instanceof GitProviderError) {
+          // 422: la richiesta è valida ma il provider la rifiuta (es. scope
+          // webhook mancante). Il messaggio < 500 passa intatto al client.
+          return reply.code(422).send({ message: error.message });
+        }
+        throw error;
+      }
     },
   );
 

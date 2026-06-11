@@ -26,6 +26,7 @@ beforeAll(async () => {
     db: testDb.db,
     sessionSecret: SESSION_SECRET,
     encryptionKey: ENCRYPTION_KEY.toString("base64"),
+    publicUrl: "https://stubwise.example.com",
   });
 
   ({ adminCookie, memberCookie } = await seedUsers(app));
@@ -226,8 +227,12 @@ describe("POST /api/projects/validate-credentials", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json() as { ok: boolean; checks: { name: string; ok: boolean; detail: string }[] };
     expect(body.ok).toBe(true);
-    expect(body.checks).toHaveLength(2);
-    expect(body.checks.map((c) => c.name)).toEqual(["Accesso git (push)", "Accesso REST API (PR)"]);
+    expect(body.checks).toHaveLength(3);
+    expect(body.checks.map((c) => c.name)).toEqual([
+      "Accesso git (push)",
+      "Accesso REST API (PR)",
+      "Accesso webhook (config automatica)",
+    ]);
     expect(body.checks.every((c) => c.ok)).toBe(true);
   });
 
@@ -468,6 +473,130 @@ describe("PATCH /api/projects/:slug", () => {
       headers: { cookie: adminCookie },
       payload: { name: "Fantasma" },
     });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("POST /api/projects/:slug/configure-webhook", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const HOOKS_URL = "https://api.github.com/repos/acme/sito-vetrina/hooks";
+
+  function configure(slug: string, cookie = adminCookie) {
+    return app.inject({
+      method: "POST",
+      url: `/api/projects/${slug}/configure-webhook`,
+      headers: { cookie },
+    });
+  }
+
+  it("l'admin configura il webhook: 200 con created, url e dettaglio; usa creds decifrate e URL/secret corretti", async () => {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL, init?: RequestInit) => {
+        const url = String(input);
+        calls.push({ url, init });
+        if (url === HOOKS_URL && (init?.method ?? "GET") === "GET") {
+          return Promise.resolve(new Response("[]", { status: 200 }));
+        }
+        if (url === HOOKS_URL && init?.method === "POST") {
+          return Promise.resolve(
+            new Response(JSON.stringify({ id: 99, config: { url } }), { status: 201 }),
+          );
+        }
+        return Promise.resolve(new Response("", { status: 404 }));
+      }),
+    );
+
+    // Recupera il segreto webhook atteso per l'assert.
+    const webhookRes = await app.inject({
+      method: "GET",
+      url: "/api/projects/sito-vetrina/webhook",
+      headers: { cookie: adminCookie },
+    });
+    const expectedSecret = (webhookRes.json() as { webhookSecret: string }).webhookSecret;
+
+    const res = await configure("sito-vetrina");
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { ok: boolean; created: boolean; updated: boolean; detail: string; url: string };
+    expect(body.ok).toBe(true);
+    expect(body.created).toBe(true);
+    expect(body.updated).toBe(false);
+    expect(body.url).toBe("https://stubwise.example.com/webhooks/git/sito-vetrina");
+
+    // La risposta non deve MAI contenere il segreto né il token.
+    expect(res.body).not.toContain(expectedSecret);
+    expect(res.body).not.toContain(PLAINTEXT_TOKEN);
+
+    // La chiamata uscente ha usato le credenziali decifrate (Bearer token) e
+    // l'URL/secret corretti nel body.
+    const post = calls.find((c) => c.init?.method === "POST")!;
+    expect((post.init!.headers as Record<string, string>)["Authorization"]).toBe(
+      `Bearer ${PLAINTEXT_TOKEN}`,
+    );
+    const sent = JSON.parse(post.init!.body as string) as {
+      config: { url: string; secret: string };
+    };
+    expect(sent.config.url).toBe("https://stubwise.example.com/webhooks/git/sito-vetrina");
+    expect(sent.config.secret).toBe(expectedSecret);
+  });
+
+  it("webhook già presente: 200 con updated true", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string | URL, init?: RequestInit) => {
+        const url = String(input);
+        const hookUrl = "https://stubwise.example.com/webhooks/git/sito-vetrina";
+        if (url === HOOKS_URL && (init?.method ?? "GET") === "GET") {
+          return Promise.resolve(
+            new Response(JSON.stringify([{ id: 5, config: { url: hookUrl } }]), { status: 200 }),
+          );
+        }
+        if (url === `${HOOKS_URL}/5` && init?.method === "PATCH") {
+          return Promise.resolve(new Response(JSON.stringify({ id: 5 }), { status: 200 }));
+        }
+        return Promise.resolve(new Response("", { status: 404 }));
+      }),
+    );
+
+    const res = await configure("sito-vetrina");
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { created: boolean; updated: boolean };
+    expect(body.created).toBe(false);
+    expect(body.updated).toBe(true);
+  });
+
+  it("provider 403: 4xx con il messaggio di guida sui permessi webhook", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(new Response("forbidden", { status: 403 }))),
+    );
+
+    const res = await configure("sito-vetrina");
+    expect(res.statusCode).toBeGreaterThanOrEqual(400);
+    expect(res.statusCode).toBeLessThan(500);
+    const body = res.json() as { message: string };
+    expect(body.message).toMatch(/webhook/i);
+  });
+
+  it("un member non può configurare: 403", async () => {
+    const res = await configure("sito-vetrina", memberCookie);
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("senza sessione: 401", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/projects/sito-vetrina/configure-webhook",
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("slug inesistente: 404", async () => {
+    const res = await configure("non-esiste");
     expect(res.statusCode).toBe(404);
   });
 });

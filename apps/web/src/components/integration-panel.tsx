@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { postConfigureWebhook } from "../lib/api";
 import { CopyButton } from "./copy-button";
 
 interface IntegrationPanelProps {
@@ -13,6 +15,12 @@ interface IntegrationPanelProps {
   webhook?: { webhookSecret: string; webhookPath: string };
 }
 
+type ConfigureState =
+  | { kind: "idle" }
+  | { kind: "pending" }
+  | { kind: "ok"; message: string }
+  | { kind: "error"; message: string };
+
 /**
  * Sezione "Integrazione" di un progetto: chiave di ingestion, DSN e snippet
  * `init()` pronto da incollare, ognuno con il suo bottone copia. Visibile
@@ -20,6 +28,20 @@ interface IntegrationPanelProps {
  * webhook compare solo se `webhook` è valorizzato (admin).
  */
 export function IntegrationPanel({ ingestionKey, slug, origin, webhook }: IntegrationPanelProps) {
+  const [configure, setConfigure] = useState<ConfigureState>({ kind: "idle" });
+
+  async function onConfigure() {
+    setConfigure({ kind: "pending" });
+    try {
+      const result = await postConfigureWebhook(slug);
+      const verb = result.updated ? "Webhook aggiornato" : "Webhook configurato";
+      setConfigure({ kind: "ok", message: `${verb} su ${result.url}` });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Configurazione del webhook fallita";
+      setConfigure({ kind: "error", message });
+    }
+  }
+
   const url = new URL(origin ?? window.location.origin);
   const dsn = `${url.protocol}//${ingestionKey}@${url.host}/p/${slug}`;
   const webhookUrl = webhook ? `${url.protocol}//${url.host}${webhook.webhookPath}` : null;
@@ -81,6 +103,30 @@ export function IntegrationPanel({ ingestionKey, slug, origin, webhook }: Integr
               // configura questo URL e secret HMAC nel provider git: alla merge
               della PR il ticket passa a done
             </p>
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={onConfigure}
+                disabled={configure.kind === "pending"}
+                data-testid="configure-webhook-button"
+                className="rounded-sm border border-line bg-ink-950/70 px-3 py-1.5 font-mono text-[11px] tracking-[0.14em] text-fg uppercase transition-colors hover:border-signal hover:text-signal disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {configure.kind === "pending" ? "Configurazione…" : "Configura automaticamente"}
+              </button>
+              {configure.kind === "ok" && (
+                <p data-testid="configure-webhook-ok" className="font-mono text-[11px] text-signal">
+                  {configure.message}
+                </p>
+              )}
+              {configure.kind === "error" && (
+                <p
+                  data-testid="configure-webhook-error"
+                  className="font-mono text-[11px] text-danger"
+                >
+                  {configure.message}
+                </p>
+              )}
+            </div>
           </div>
         )}
       </div>

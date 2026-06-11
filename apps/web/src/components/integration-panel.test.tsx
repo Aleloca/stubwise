@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as api from "../lib/api";
 import { IntegrationPanel } from "./integration-panel";
 
 /**
@@ -78,5 +79,72 @@ describe("IntegrationPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "Copia secret webhook" }));
     expect(await navigator.clipboard.readText()).toBe("s3cr3t-hmac");
+  });
+});
+
+describe("IntegrationPanel — configura webhook", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const webhookProps = {
+    ...props,
+    webhook: { webhookSecret: "s3cr3t-hmac", webhookPath: "/webhooks/git/demo-shop" },
+  };
+
+  it("click chiama postConfigureWebhook(slug) e mostra l'esito di successo", async () => {
+    const user = userEvent.setup();
+    const spy = vi.spyOn(api, "postConfigureWebhook").mockResolvedValue({
+      ok: true,
+      created: true,
+      updated: false,
+      detail: "Webhook configurato",
+      url: "https://track.example.com/webhooks/git/demo-shop",
+    });
+    render(<IntegrationPanel {...webhookProps} />);
+
+    await user.click(screen.getByTestId("configure-webhook-button"));
+
+    expect(spy).toHaveBeenCalledWith("demo-shop");
+    const ok = await screen.findByTestId("configure-webhook-ok");
+    expect(ok.textContent).toMatch(/Webhook configurato/);
+    expect(ok.textContent).toContain("https://track.example.com/webhooks/git/demo-shop");
+  });
+
+  it("se il webhook esiste già mostra 'Webhook aggiornato'", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "postConfigureWebhook").mockResolvedValue({
+      ok: true,
+      created: false,
+      updated: true,
+      detail: "Webhook aggiornato",
+      url: "https://track.example.com/webhooks/git/demo-shop",
+    });
+    render(<IntegrationPanel {...webhookProps} />);
+
+    await user.click(screen.getByTestId("configure-webhook-button"));
+
+    expect((await screen.findByTestId("configure-webhook-ok")).textContent).toMatch(
+      /Webhook aggiornato/,
+    );
+  });
+
+  it("in errore mostra il messaggio (es. guida sullo scope)", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, "postConfigureWebhook").mockRejectedValue(
+      new Error("il token non ha lo scope webhook: rigeneralo"),
+    );
+    render(<IntegrationPanel {...webhookProps} />);
+
+    await user.click(screen.getByTestId("configure-webhook-button"));
+
+    expect((await screen.findByTestId("configure-webhook-error")).textContent).toMatch(
+      /scope webhook/i,
+    );
+  });
+
+  it("senza prop webhook il bottone configura non compare", () => {
+    render(<IntegrationPanel {...props} />);
+    expect(screen.queryByTestId("configure-webhook-button")).not.toBeInTheDocument();
   });
 });

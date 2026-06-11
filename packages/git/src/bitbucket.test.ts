@@ -237,29 +237,33 @@ describe("BitbucketProvider.validateCredentials", () => {
 
   const GIT_URL = "https://bitbucket.org/myws/myrepo.git/info/refs?service=git-receive-pack";
   const REST_URL = "https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests?pagelen=1";
+  const HOOKS_URL = "https://api.bitbucket.org/2.0/repositories/myws/myrepo/hooks?pagelen=1";
 
-  /** Mock che risponde in base all'URL chiamato (git vs REST). */
-  function routedFetch(map: { git?: () => Response; rest?: () => Response }) {
+  /** Mock che risponde in base all'URL chiamato (git vs REST vs hooks). */
+  function routedFetch(map: { git?: () => Response; rest?: () => Response; hooks?: () => Response }) {
     return vi.fn((input: string | URL) => {
       const url = String(input);
       if (url === GIT_URL) return Promise.resolve(map.git?.() ?? new Response("", { status: 500 }));
       if (url === REST_URL) return Promise.resolve(map.rest?.() ?? new Response("", { status: 500 }));
+      if (url === HOOKS_URL) return Promise.resolve(map.hooks?.() ?? new Response("", { status: 500 }));
       return Promise.resolve(new Response("", { status: 404 }));
     });
   }
 
-  it("tutto ok: entrambi i check passano e usano le identità corrette", async () => {
+  it("tutto ok: i tre check passano e usano le identità corrette", async () => {
     const fetchImpl = routedFetch({
       git: () => new Response("", { status: 200 }),
       rest: () => new Response("{}", { status: 200 }),
+      hooks: () => new Response("{}", { status: 200 }),
     });
     const provider = new BitbucketProvider();
     const checks = await provider.validateCredentials(apiConfig, { fetchImpl });
 
-    expect(checks).toHaveLength(2);
+    expect(checks).toHaveLength(3);
     expect(checks.every((c) => c.ok)).toBe(true);
     expect(checks[0]!.name).toBe("Accesso git (push)");
     expect(checks[1]!.name).toBe("Accesso REST API (PR)");
+    expect(checks[2]!.name).toBe("Accesso webhook (config automatica)");
 
     // git usa username:token
     const gitCall = fetchImpl.mock.calls.find((c) => c[0] === GIT_URL) as unknown as [string, RequestInit];
@@ -271,12 +275,33 @@ describe("BitbucketProvider.validateCredentials", () => {
     expect((restCall[1].headers as Record<string, string>)["Authorization"]).toBe(
       `Basic ${Buffer.from("alice@corp.io:api-token").toString("base64")}`
     );
+    // hooks usa email:token come la REST
+    const hooksCall = fetchImpl.mock.calls.find((c) => c[0] === HOOKS_URL) as unknown as [string, RequestInit];
+    expect((hooksCall[1].headers as Record<string, string>)["Authorization"]).toBe(
+      `Basic ${Buffer.from("alice@corp.io:api-token").toString("base64")}`
+    );
+  });
+
+  it("hooks 403: check webhook ok:false con guida sullo scope, ma advisory", async () => {
+    const fetchImpl = routedFetch({
+      git: () => new Response("", { status: 200 }),
+      rest: () => new Response("{}", { status: 200 }),
+      hooks: () => new Response("", { status: 403 }),
+    });
+    const provider = new BitbucketProvider();
+    const checks = await provider.validateCredentials(apiConfig, { fetchImpl });
+
+    expect(checks).toHaveLength(3);
+    const webhook = checks.find((c) => c.name === "Accesso webhook (config automatica)")!;
+    expect(webhook.ok).toBe(false);
+    expect(webhook.detail).toMatch(/webhook/i);
   });
 
   it("REST 401: detail spiega che serve l'email come identità", async () => {
     const fetchImpl = routedFetch({
       git: () => new Response("", { status: 200 }),
       rest: () => new Response("", { status: 401 }),
+      hooks: () => new Response("{}", { status: 200 }),
     });
     const provider = new BitbucketProvider();
     const checks = await provider.validateCredentials(apiConfig, { fetchImpl });
@@ -291,6 +316,7 @@ describe("BitbucketProvider.validateCredentials", () => {
     const fetchImpl = routedFetch({
       git: () => new Response("", { status: 401 }),
       rest: () => new Response("{}", { status: 200 }),
+      hooks: () => new Response("{}", { status: 200 }),
     });
     const provider = new BitbucketProvider();
     const checks = await provider.validateCredentials(apiConfig, { fetchImpl });
@@ -301,7 +327,10 @@ describe("BitbucketProvider.validateCredentials", () => {
   });
 
   it("username mancante: il check git fallisce senza chiamare la rete per git", async () => {
-    const fetchImpl = routedFetch({ rest: () => new Response("{}", { status: 200 }) });
+    const fetchImpl = routedFetch({
+      rest: () => new Response("{}", { status: 200 }),
+      hooks: () => new Response("{}", { status: 200 }),
+    });
     const provider = new BitbucketProvider();
     const checks = await provider.validateCredentials(
       { ...apiConfig, credentials: { email: "alice@corp.io", token: "api-token" } },
@@ -319,9 +348,128 @@ describe("BitbucketProvider.validateCredentials", () => {
     const provider = new BitbucketProvider();
     const checks = await provider.validateCredentials(apiConfig, { fetchImpl });
 
-    expect(checks).toHaveLength(2);
+    expect(checks).toHaveLength(3);
     expect(checks.every((c) => !c.ok)).toBe(true);
     expect(checks[0]!.detail).toMatch(/ECONNREFUSED/);
+  });
+});
+
+describe("BitbucketProvider.ensureWebhook", () => {
+  const apiConfig: ProjectGitConfig = {
+    repoUrl: "https://bitbucket.org/myws/myrepo",
+    defaultBranch: "main",
+    credentials: { username: "alice", email: "alice@corp.io", token: "api-token" },
+  };
+  const hook = { url: "https://stubwise.example.com/webhooks/git/demo", secret: "hmac-secret" };
+  const LIST_URL = "https://api.bitbucket.org/2.0/repositories/myws/myrepo/hooks";
+  const EXPECTED_AUTH = `Basic ${Buffer.from("alice@corp.io:api-token").toString("base64")}`;
+
+  it("crea il webhook quando assente: POST con evento, secret e auth REST corretti", async () => {
+    const fetchImpl = vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === LIST_URL && (init?.method ?? "GET") === "GET") {
+        return Promise.resolve(jsonResponse({ values: [] }, 200));
+      }
+      if (url === LIST_URL && init?.method === "POST") {
+        return Promise.resolve(jsonResponse({ uuid: "{new-uuid}", url: hook.url }, 201));
+      }
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const result = await provider.ensureWebhook(apiConfig, hook);
+
+    expect(result.created).toBe(true);
+    expect(result.updated).toBe(false);
+    expect(result.id).toBe("{new-uuid}");
+
+    const post = fetchImpl.mock.calls.find((c) => c[1]?.method === "POST") as [string, RequestInit];
+    expect(post[0]).toBe(LIST_URL);
+    expect((post[1].headers as Record<string, string>)["Authorization"]).toBe(EXPECTED_AUTH);
+    expect(JSON.parse(post[1].body as string)).toEqual({
+      description: "Stubwise",
+      url: hook.url,
+      active: true,
+      events: ["pullrequest:fulfilled"],
+      secret: hook.secret,
+    });
+  });
+
+  it("aggiorna il webhook esistente: PUT all'uuid trovato con stesso URL", async () => {
+    const fetchImpl = vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === LIST_URL && (init?.method ?? "GET") === "GET") {
+        return Promise.resolve(
+          jsonResponse({ values: [{ uuid: "{existing}", url: hook.url, active: false }] }, 200)
+        );
+      }
+      if (url === `${LIST_URL}/{existing}` && init?.method === "PUT") {
+        return Promise.resolve(jsonResponse({ uuid: "{existing}", url: hook.url }, 200));
+      }
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const result = await provider.ensureWebhook(apiConfig, hook);
+
+    expect(result.created).toBe(false);
+    expect(result.updated).toBe(true);
+    expect(result.id).toBe("{existing}");
+
+    const put = fetchImpl.mock.calls.find((c) => c[1]?.method === "PUT") as [string, RequestInit];
+    expect(put[0]).toBe(`${LIST_URL}/{existing}`);
+    expect(JSON.parse(put[1].body as string)).toEqual({
+      description: "Stubwise",
+      url: hook.url,
+      active: true,
+      events: ["pullrequest:fulfilled"],
+      secret: hook.secret,
+    });
+  });
+
+  it("403 sulla lista: GitProviderError con guida sullo scope webhook", async () => {
+    const fetchImpl = vi.fn(() => Promise.resolve(new Response("forbidden", { status: 403 })));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const error = await provider
+      .ensureWebhook(apiConfig, hook)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).message).toMatch(/scope|webhook/i);
+  });
+
+  it("403 sulla creazione: GitProviderError con guida sullo scope webhook", async () => {
+    const fetchImpl = vi.fn((input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === LIST_URL && (init?.method ?? "GET") === "GET") {
+        return Promise.resolve(jsonResponse({ values: [] }, 200));
+      }
+      return Promise.resolve(new Response("forbidden", { status: 403 }));
+    });
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const error = await provider
+      .ensureWebhook(apiConfig, hook)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).message).toMatch(/webhook/i);
+  });
+
+  it("errore di rete: lanciato come GitProviderError (mai un errore grezzo)", async () => {
+    const fetchImpl = vi.fn(() => Promise.reject(new Error("ECONNREFUSED boom")));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const error = await provider
+      .ensureWebhook(apiConfig, hook)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).message).toMatch(/ECONNREFUSED/);
   });
 });
 

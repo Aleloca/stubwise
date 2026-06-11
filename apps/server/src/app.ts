@@ -32,6 +32,12 @@ declare module "fastify" {
     db: Db;
     /** Chiave AES-256 (32 byte) per cifrare le credenziali git dei progetti. */
     encryptionKey: Buffer;
+    /**
+     * URL pubblico dell'istanza (PUBLIC_URL), senza slash finale. Serve a
+     * comporre l'URL assoluto del webhook (`${publicUrl}/webhooks/git/:slug`)
+     * da registrare sul provider git.
+     */
+    publicUrl: string;
   }
 }
 
@@ -46,6 +52,12 @@ export interface BuildAppOptions {
    * route dei progetti.
    */
   encryptionKey?: string;
+  /**
+   * URL pubblico dell'istanza (PUBLIC_URL). Serve a comporre l'URL assoluto
+   * del webhook da registrare sul provider git. Necessario per la route di
+   * configurazione automatica del webhook.
+   */
+  publicUrl?: string;
   /**
    * Limite di rate per POST /ingest/:slug, contato per chiave di ingestion.
    * Override pensato per i test; default 300 richieste al minuto.
@@ -119,6 +131,18 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
         throw new Error("buildApp chiamata senza encryptionKey");
       }
       return encryptionKey;
+    },
+  });
+
+  // URL pubblico, normalizzato senza slash finale. Getter come gli altri:
+  // esplode solo chi compone l'URL del webhook senza averlo configurato.
+  const publicUrl = opts.publicUrl?.replace(/\/+$/, "");
+  app.decorate("publicUrl", {
+    getter(): string {
+      if (!publicUrl) {
+        throw new Error("buildApp chiamata senza publicUrl");
+      }
+      return publicUrl;
     },
   });
 

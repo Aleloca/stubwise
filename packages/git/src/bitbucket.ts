@@ -13,6 +13,7 @@ import {
   type GitProviderOptions,
   type PrMergedEvent,
   type ProjectGitConfig,
+  type WebhookResult,
 } from "./provider.js";
 
 const API_BASE = "https://api.bitbucket.org/2.0";
@@ -183,7 +184,134 @@ export class BitbucketProvider implements GitProvider {
           };
         });
 
-    return [gitCheck, restCheck];
+    // Check 3 — accesso ai webhook (config automatica). Conferma almeno la
+    // lettura dell'elenco hook: lo scope di scrittura serve poi per creare/
+    // aggiornare, ma la presenza in lettura è un buon proxy ed è advisory (la
+    // configurazione vera e propria emergerà eventuali errori di scrittura).
+    const webhookCheck: CredentialCheck = !restUser
+      ? {
+          name: "Accesso webhook (config automatica)",
+          ok: false,
+          detail: "email Atlassian (o username legacy) mancante: serve come identità per la REST API",
+        }
+      : await this.probe("Accesso webhook (config automatica)", async () => {
+          const r = await fetchWithTimeout(
+            fetchImpl,
+            `https://api.bitbucket.org/2.0/repositories/${owner}/${repo}/hooks?pagelen=1`,
+            { headers: { Authorization: basicAuthHeader(restUser, token) } }
+          );
+          if (r.status === 200) {
+            return {
+              name: "Accesso webhook (config automatica)",
+              ok: true,
+              detail: "scope webhook presente",
+            };
+          }
+          if (r.status === 403) {
+            return {
+              name: "Accesso webhook (config automatica)",
+              ok: false,
+              detail:
+                "manca lo scope webhook (read/write:webhook): la configurazione automatica del webhook non sarà disponibile finché non rigeneri il token",
+            };
+          }
+          return {
+            name: "Accesso webhook (config automatica)",
+            ok: false,
+            detail: `risposta inattesa dall'endpoint webhook (status ${r.status})`,
+          };
+        });
+
+    return [gitCheck, restCheck, webhookCheck];
+  }
+
+  async ensureWebhook(
+    p: ProjectGitConfig,
+    hook: { url: string; secret: string },
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<WebhookResult> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const restUser = p.credentials.email ?? p.credentials.username;
+    if (!restUser) {
+      throw new GitProviderError(
+        "Per configurare il webhook serve un'email Atlassian (API token) o uno username (app password legacy)",
+        0,
+        ""
+      );
+    }
+    const auth = basicAuthHeader(restUser, p.credentials.token);
+    const base = `${API_BASE}/repositories/${owner}/${repo}/hooks`;
+    const body = {
+      description: "Stubwise",
+      url: hook.url,
+      active: true,
+      events: ["pullrequest:fulfilled"],
+      secret: hook.secret,
+    };
+
+    try {
+      // Lista (prima pagina): cerca un hook con lo stesso target URL.
+      const listResponse = await fetchImpl(base, {
+        method: "GET",
+        headers: { Authorization: auth },
+      });
+      this.guardWebhookResponse(listResponse);
+      const list = (await readJsonResponse(listResponse, "Bitbucket")) as {
+        values?: { uuid?: unknown; url?: unknown }[];
+      };
+      const existing = (list.values ?? []).find((h) => h.url === hook.url);
+
+      if (existing && typeof existing.uuid === "string") {
+        const updateResponse = await fetchImpl(`${base}/${existing.uuid}`, {
+          method: "PUT",
+          headers: { Authorization: auth, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        this.guardWebhookResponse(updateResponse);
+        return {
+          created: false,
+          updated: true,
+          id: existing.uuid,
+          detail: "Webhook aggiornato",
+        };
+      }
+
+      const createResponse = await fetchImpl(base, {
+        method: "POST",
+        headers: { Authorization: auth, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      this.guardWebhookResponse(createResponse);
+      const created = (await readJsonResponse(createResponse, "Bitbucket")) as { uuid?: unknown };
+      const id = typeof created.uuid === "string" ? created.uuid : "";
+      return { created: true, updated: false, id, detail: "Webhook configurato" };
+    } catch (error) {
+      if (error instanceof GitProviderError) throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      throw new GitProviderError(`Errore di rete configurando il webhook Bitbucket: ${message}`, 0, "");
+    }
+  }
+
+  /**
+   * Lancia GitProviderError sui non-2xx delle chiamate webhook, con messaggio
+   * dedicato sul 403 (scope webhook mancante). Il chiamante ensureWebhook
+   * cattura solo gli errori di rete grezzi; questo invece propaga GitProviderError.
+   */
+  private guardWebhookResponse(response: Response): void {
+    if (response.ok) return;
+    if (response.status === 403) {
+      throw new GitProviderError(
+        "il token non ha lo scope webhook: rigeneralo aggiungendo read:webhook e write:webhook",
+        403,
+        ""
+      );
+    }
+    throw new GitProviderError(
+      `Bitbucket API request failed with status ${response.status} configurando il webhook`,
+      response.status,
+      ""
+    );
   }
 
   /** Esegue una sonda restituendo un CredentialCheck, trasformando gli errori di rete in `ok: false`. */
