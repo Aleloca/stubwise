@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.9.0",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "test": "pnpm -r test",
     "build": "pnpm -r build",
@@ -11,12 +13,17 @@
     "typecheck": "pnpm -r typecheck"
   },
   "devDependencies": {
-    "typescript": "^5.6.0",
+    "@changesets/cli": "^2.31.0",
     "eslint": "^9.0.0",
-    "typescript-eslint": "^8.0.0",
-    "prettier": "^3.3.0"
+    "prettier": "^3.3.0",
+    "typescript": "^5.6.0",
+    "typescript-eslint": "^8.0.0"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["argon2", "esbuild", "sharp"]
+    "onlyBuiltDependencies": [
+      "argon2",
+      "esbuild",
+      "sharp"
+    ]
   }
 }

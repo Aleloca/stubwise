@@ -1,9 +1,30 @@
 {
   "name": "@stubwise/sdk",
   "version": "0.1.0",
-  "private": true,
+  "description": "Official Stubwise SDK: capture errors and send feedback from browser and Node.js apps to a self-hosted Stubwise instance.",
+  "license": "MIT",
+  "homepage": "https://github.com/stubwise/stubwise#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stubwise/stubwise.git",
+    "directory": "packages/sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/stubwise/stubwise/issues"
+  },
+  "keywords": [
+    "stubwise",
+    "error-tracking",
+    "error-reporting",
+    "issue-tracker",
+    "observability",
+    "sdk"
+  ],
   "type": "module",
   "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
   "files": [
     "dist"
   ],
@@ -20,7 +41,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
     "@stubwise/shared": "workspace:*"

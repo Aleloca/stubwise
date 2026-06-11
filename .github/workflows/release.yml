@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+# Evita pubblicazioni concorrenti.
+concurrency:
+  group: release-${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Versiona e pubblica (Changesets)
+    runs-on: ubuntu-latest
+    # No-op sui fork e quando il token npm non è configurato: il job parte ma il
+    # passo di pubblicazione è saltato, così il workflow resta innocuo finché un
+    # maintainer non aggiunge il secret NPM_TOKEN.
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Abilita corepack (pnpm)
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Installa le dipendenze
+        run: pnpm install --frozen-lockfile
+
+      # Solo @stubwise/sdk e @stubwise/shared sono pubblicabili; il loro
+      # prepublishOnly ricostruisce dist, ma costruiamo tutto per sicurezza.
+      - name: Build
+        run: pnpm -r build
+
+      # changesets/action: se ci sono changeset pendenti apre/aggiorna la PR
+      # "Version Packages"; quando quella PR viene mergiata (i changeset
+      # spariscono) esegue `publish` e pubblica i package versionati su npm.
+      - name: Crea Release PR o pubblica
+        uses: changesets/action@v1
+        with:
+          version: pnpm changeset version
+          publish: pnpm changeset publish
+          commit: "chore: versiona i package rilasciabili"
+          title: "chore: versiona i package rilasciabili"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Senza NPM_TOKEN il passo publish fallisce l'autenticazione: la
+          # variabile resta vuota finché un maintainer non aggiunge il secret.
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
