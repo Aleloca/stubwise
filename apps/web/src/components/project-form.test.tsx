@@ -27,7 +27,7 @@ describe("ProjectForm in creazione", () => {
     await user.type(screen.getByLabelText("URL repository"), "https://bitbucket.org/acme/shop");
     // Il branch di default è precompilato con "main".
     expect(screen.getByLabelText("Branch di default")).toHaveValue("main");
-    await user.type(screen.getByLabelText("Username (opzionale)"), "acme-bot");
+    await user.type(screen.getByLabelText("Username"), "acme-bot");
     await user.type(screen.getByLabelText("Token di accesso"), "app-password-123");
     await user.click(screen.getByRole("button", { name: "Crea progetto" }));
 
@@ -67,7 +67,7 @@ describe("ProjectForm in creazione", () => {
     await user.type(screen.getByLabelText("Nome"), "Demo");
     await user.type(screen.getByLabelText("URL repository"), "https://github.com/acme/demo");
     // Tipico copia-incolla del token con whitespace di troppo.
-    await user.type(screen.getByLabelText("Username (opzionale)"), "  acme-bot ");
+    await user.type(screen.getByLabelText("Username"), "  acme-bot ");
     await user.type(screen.getByLabelText("Token di accesso"), "  ghp_secret  ");
     await user.click(screen.getByRole("button", { name: "Crea progetto" }));
 
@@ -113,7 +113,7 @@ describe("ProjectForm in modifica", () => {
     // Provider non modificabile dopo la creazione.
     expect(screen.getByLabelText("Provider")).toBeDisabled();
     expect(screen.getByLabelText("Token di accesso")).toHaveValue("");
-    expect(screen.getByLabelText("Username (opzionale)")).toHaveValue("");
+    expect(screen.getByLabelText("Username")).toHaveValue("");
   });
 
   it("con il token vuoto il payload omette credentials", async () => {

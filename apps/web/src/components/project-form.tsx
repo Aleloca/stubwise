@@ -118,6 +118,12 @@ export function ProjectForm(props: ProjectFormProps) {
         </legend>
         <p className="mb-4 font-mono text-[11px] leading-relaxed text-fg-faint">
           // write-only: vengono cifrate e non verranno mai mostrate di nuovo.
+          <br />
+          // Bitbucket: Username = email Atlassian, Token = API token (scope
+          repository + pullrequest, read e write).
+          <br />
+          // GitHub: lascia Username vuoto, Token = fine-grained PAT (Contents +
+          Pull requests: Read and write).
           {mode === "edit" && (
             <>
               <br />
@@ -128,10 +134,10 @@ export function ProjectForm(props: ProjectFormProps) {
         <div className="grid gap-4 sm:grid-cols-2">
           <TextField
             id="project-username"
-            label="Username (opzionale)"
+            label="Username"
             type="text"
             autoComplete="off"
-            placeholder="Solo per Bitbucket"
+            placeholder="Bitbucket: email Atlassian · GitHub: vuoto"
             value={username}
             onChange={(event) => setUsername(event.target.value)}
           />
@@ -141,6 +147,7 @@ export function ProjectForm(props: ProjectFormProps) {
             type="password"
             autoComplete="new-password"
             required={mode === "create"}
+            placeholder="API token / PAT"
             value={token}
             onChange={(event) => setToken(event.target.value)}
           />
