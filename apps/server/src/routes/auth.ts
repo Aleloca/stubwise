@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { and, count, eq, lte, sql } from "drizzle-orm";
+import { and, count, desc, eq, lte, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -213,6 +213,69 @@ export async function authRoutes(
       const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
       await app.db.insert(invites).values({ token, email: request.body.email, expiresAt });
       return reply.code(201).send({ token, expiresAt: expiresAt.toISOString() });
+    },
+  );
+
+  // Inviti ancora in sospeso: una riga in `invites` esiste solo finché il
+  // token non è stato consumato (la register la elimina), quindi la tabella
+  // coincide con la lista degli invitati che non si sono ancora registrati.
+  // Solo admin: il token permette di registrarsi e non va esposto ai member.
+  app.get(
+    "/invites",
+    {
+      preHandler: requireAdmin,
+      schema: {
+        response: {
+          200: z.array(
+            z.object({
+              token: z.string(),
+              email: z.email(),
+              expiresAt: z.iso.datetime(),
+              createdAt: z.iso.datetime(),
+            }),
+          ),
+          ...authErrorResponses,
+        },
+      },
+    },
+    async () => {
+      const rows = await app.db
+        .select({
+          token: invites.token,
+          email: invites.email,
+          expiresAt: invites.expiresAt,
+          createdAt: invites.createdAt,
+        })
+        .from(invites)
+        .orderBy(desc(invites.createdAt));
+      return rows.map((row) => ({
+        ...row,
+        expiresAt: row.expiresAt.toISOString(),
+        createdAt: row.createdAt.toISOString(),
+      }));
+    },
+  );
+
+  // Revoca di un invito in sospeso (solo admin): elimina la riga, rendendo il
+  // token inutilizzabile. 404 se il token non esiste (già usato o mai creato).
+  app.delete(
+    "/invites/:token",
+    {
+      preHandler: requireAdmin,
+      schema: {
+        params: z.object({ token: z.string().min(1) }),
+        response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const [deleted] = await app.db
+        .delete(invites)
+        .where(eq(invites.token, request.params.token))
+        .returning({ token: invites.token });
+      if (!deleted) {
+        return reply.code(404).send({ message: "Invito non trovato" });
+      }
+      return reply.code(204).send(null);
     },
   );
 

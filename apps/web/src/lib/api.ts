@@ -117,6 +117,28 @@ export function postInvite(email: string): Promise<Invite> {
   return api.post("/api/auth/invites", { email });
 }
 
+/**
+ * Invito in sospeso: una riga esiste finché il token non viene consumato
+ * dalla registrazione, quindi la lista coincide con gli invitati non ancora
+ * registrati. Solo admin (il token consente la registrazione).
+ */
+export interface PendingInvite {
+  token: string;
+  email: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
+/** Inviti ancora in sospeso (solo admin): 403 per i member. */
+export function getInvites(): Promise<PendingInvite[]> {
+  return api.get("/api/auth/invites");
+}
+
+/** Revoca un invito in sospeso (solo admin): elimina il token. */
+export function deleteInvite(token: string): Promise<void> {
+  return request("DELETE", `/api/auth/invites/${encodeURIComponent(token)}`);
+}
+
 export interface Registration extends Credentials {
   token: string;
 }
@@ -282,7 +304,16 @@ export function getTicketUsage(ticketId: string): Promise<TicketUsage> {
 
 // --- Users ---
 
-export function getUsers(): Promise<PublicUser[]> {
+/**
+ * Utente nella prospettiva della pagina Team: l'identità pubblica più
+ * l'istante di registrazione ("membro dal …"). `/api/users` è accessibile a
+ * ogni utente autenticato (serve anche al selettore assegnatari).
+ */
+export interface TeamUser extends PublicUser {
+  createdAt: string;
+}
+
+export function getUsers(): Promise<TeamUser[]> {
   return api.get("/api/users");
 }
 

@@ -1,6 +1,7 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import {
   getComments,
+  getInvites,
   getProject,
   getProjects,
   getProjectWebhook,
@@ -102,9 +103,20 @@ export function ticketUsageQueryOptions(ticketId: string) {
 }
 
 export const usersQueryOptions = queryOptions({
-  queryKey: ["users"],
+  queryKey: ["team", "users"],
   queryFn: getUsers,
   staleTime: 60_000,
+});
+
+/**
+ * Inviti in sospeso (solo admin): la pagina Team la abilita in base al ruolo.
+ * Chiave gemella di quella degli utenti sotto il prefisso "team": invalidare
+ * il prefisso riconcilia membri e inviti in un colpo solo.
+ */
+export const invitesQueryOptions = queryOptions({
+  queryKey: ["team", "invites"],
+  queryFn: getInvites,
+  staleTime: 30_000,
 });
 
 export const projectsQueryOptions = queryOptions({

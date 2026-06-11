@@ -34,6 +34,11 @@ export function formatDateTime(iso: string): string {
   return dateTimeFormat.format(new Date(iso));
 }
 
+/** Solo data assoluta (formato italiano), per "membro dal" e gli inviti. */
+export function formatDate(iso: string): string {
+  return dateFormat.format(new Date(iso));
+}
+
 const integerFormat = new Intl.NumberFormat("it-IT", { maximumFractionDigits: 0 });
 
 /** Intero con separatori delle migliaia (it-IT), per i conteggi token. */

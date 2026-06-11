@@ -63,6 +63,9 @@ export const invites = pgTable("invites", {
   token: text("token").primaryKey(),
   email: text("email").notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  // Istante di creazione dell'invito: serve alla pagina Team per mostrare
+  // "invitato il …" e ordinare la lista degli inviti in sospeso.
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const sessions = pgTable(

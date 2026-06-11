@@ -50,6 +50,13 @@
       "when": 1781190090141,
       "tag": "0006_grey_killmonger",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1781191280177,
+      "tag": "0007_colossal_doorman",
+      "breakpoints": true
     }
   ]
 }

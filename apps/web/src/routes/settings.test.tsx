@@ -1,13 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "../router";
 
 /**
- * Pagina impostazioni: account per tutti, pannello inviti solo admin.
- * L'invito creato mostra il link /register?token=… pronto da copiare.
+ * Pagina impostazioni: solo i dati dell'account corrente. La gestione degli
+ * accessi (membri e inviti) è stata spostata nella pagina Team.
  */
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -56,19 +55,10 @@ function renderSettings() {
 }
 
 describe("impostazioni", () => {
-  it("admin: email, ruolo e creazione invito con link di registrazione", async () => {
-    const user = userEvent.setup();
-    let postBody: unknown;
+  it("admin: mostra email e ruolo dell'account, niente gestione inviti", async () => {
     mockApi({
       "GET /api/auth/me": () =>
         jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" } }),
-      "POST /api/auth/invites": (_url, init) => {
-        postBody = JSON.parse(String(init?.body));
-        return jsonResponse(201, {
-          token: "tok-segreto-123",
-          expiresAt: "2026-06-17T10:00:00.000Z",
-        });
-      },
     });
 
     renderSettings();
@@ -77,17 +67,11 @@ describe("impostazioni", () => {
     // L'email compare nel pannello account (oltre che nella sidebar).
     expect(screen.getAllByText("ada@example.com").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("Admin")).toBeInTheDocument();
-
-    await user.type(screen.getByLabelText("Email"), "collega@example.com");
-    await user.click(screen.getByRole("button", { name: "Crea invito" }));
-
-    expect(postBody).toEqual({ email: "collega@example.com" });
-    const link = await screen.findByTestId("invite-url");
-    expect(link.textContent).toContain("/register?token=tok-segreto-123");
-    expect(screen.getByRole("button", { name: "Copia link di invito" })).toBeInTheDocument();
+    // La gestione degli inviti è migrata nella pagina Team.
+    expect(screen.queryByRole("button", { name: "Crea invito" })).not.toBeInTheDocument();
   });
 
-  it("member: pannello account senza inviti", async () => {
+  it("member: pannello account con ruolo Member", async () => {
     mockApi({
       "GET /api/auth/me": () =>
         jsonResponse(200, { user: { id: "u2", email: "bea@example.com", role: "member" } }),
@@ -97,6 +81,5 @@ describe("impostazioni", () => {
 
     expect(await screen.findByText("Member")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Crea invito" })).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Email")).not.toBeInTheDocument();
   });
 });

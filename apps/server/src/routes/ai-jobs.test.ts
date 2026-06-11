@@ -284,7 +284,7 @@ describe("GET /api/users", () => {
     expect(res.statusCode).toBe(401);
   });
 
-  it("un member vede tutti gli utenti, senza campi sensibili e ordinati per email", async () => {
+  it("un member vede tutti gli utenti, senza campi sensibili e ordinati per registrazione", async () => {
     const res = await app.inject({
       method: "GET",
       url: "/api/users",
@@ -292,9 +292,22 @@ describe("GET /api/users", () => {
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as Record<string, unknown>[];
+    // Ordine per createdAt asc: l'admin (creato nel setup) precede il member.
     expect(body).toEqual([
-      { id: users.adminId, email: "admin@example.com", role: "admin" },
-      { id: users.memberId, email: "member@example.com", role: "member" },
+      {
+        id: users.adminId,
+        email: "admin@example.com",
+        role: "admin",
+        createdAt: expect.any(String),
+      },
+      {
+        id: users.memberId,
+        email: "member@example.com",
+        role: "member",
+        createdAt: expect.any(String),
+      },
     ]);
+    // Nessun campo sensibile trapela.
+    for (const u of body) expect(u).not.toHaveProperty("passwordHash");
   });
 });

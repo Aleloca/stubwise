@@ -14,6 +14,7 @@ import { meQueryOptions, setupStatusQueryOptions } from "./lib/auth";
 import {
   boardTicketsQueryOptions,
   commentsQueryOptions,
+  invitesQueryOptions,
   projectQueryOptions,
   projectsQueryOptions,
   ticketJobsQueryOptions,
@@ -30,6 +31,7 @@ import { NewProjectPage } from "./routes/projects/new";
 import { registerSearchSchema, RegisterPage } from "./routes/register";
 import { SettingsPage } from "./routes/settings";
 import { SetupPage } from "./routes/setup";
+import { TeamPage } from "./routes/team";
 import { TicketDetailPage } from "./routes/tickets/$id";
 import { ticketSearchSchema, TicketsPage } from "./routes/tickets/index";
 
@@ -181,6 +183,21 @@ const projectDetailRoute = createRoute({
   component: ProjectDetailPage,
 });
 
+const teamRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/team",
+  // Membri in cache prima del render; gli inviti (solo admin) si prefetchano
+  // qui se il ruolo lo consente, altrimenti la sezione resta non montata e la
+  // query non parte. Best-effort: un eventuale errore non blocca la pagina.
+  loader: async ({ context }) => {
+    await context.queryClient.ensureQueryData(usersQueryOptions);
+    if (context.user.role === "admin") {
+      await context.queryClient.ensureQueryData(invitesQueryOptions).catch(() => undefined);
+    }
+  },
+  component: TeamPage,
+});
+
 const settingsRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/settings",
@@ -199,6 +216,7 @@ const routeTree = rootRoute.addChildren([
     projectsRoute,
     projectNewRoute,
     projectDetailRoute,
+    teamRoute,
     settingsRoute,
   ]),
 ]);

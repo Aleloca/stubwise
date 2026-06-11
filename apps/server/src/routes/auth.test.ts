@@ -349,6 +349,118 @@ describe("inviti e registrazione", () => {
   });
 });
 
+describe("lista e revoca inviti", () => {
+  // Cookie di un member registrato via invito, per i controlli di ruolo.
+  let memberCookie: string;
+
+  /** Crea un invito via API (come admin) e restituisce il token. */
+  async function createInvite(email: string): Promise<string> {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/auth/invites",
+      headers: { cookie: adminCookie },
+      payload: { email },
+    });
+    expect(res.statusCode).toBe(201);
+    return (res.json() as { token: string }).token;
+  }
+
+  it("prepara un member per i controlli di ruolo", async () => {
+    const token = await createInvite("ruoli-member@example.com");
+    const reg = await app.inject({
+      method: "POST",
+      url: "/api/auth/register",
+      payload: { token, email: "ruoli-member@example.com", password: "password-member" },
+    });
+    expect(reg.statusCode).toBe(201);
+    const loginRes = await login("ruoli-member@example.com", "password-member");
+    expect(loginRes.statusCode).toBe(200);
+    memberCookie = sessionCookie(loginRes);
+  });
+
+  it("GET /api/auth/invites elenca gli inviti in sospeso, non quelli già usati", async () => {
+    // Un invito che resta in sospeso e uno che viene consumato dalla register.
+    const pendingToken = await createInvite("in-sospeso@example.com");
+    const usedToken = await createInvite("registrato@example.com");
+    const reg = await app.inject({
+      method: "POST",
+      url: "/api/auth/register",
+      payload: { token: usedToken, email: "registrato@example.com", password: "password-member" },
+    });
+    expect(reg.statusCode).toBe(201);
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/auth/invites",
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const list = res.json() as { token: string; email: string }[];
+    const emails = list.map((i) => i.email);
+    expect(emails).toContain("in-sospeso@example.com");
+    // L'invito consumato (utente registrato) non compare più.
+    expect(emails).not.toContain("registrato@example.com");
+    const pending = list.find((i) => i.token === pendingToken);
+    expect(pending).toMatchObject({ email: "in-sospeso@example.com" });
+    expect(pending).toHaveProperty("expiresAt");
+    expect(pending).toHaveProperty("createdAt");
+  });
+
+  it("DELETE /api/auth/invites/:token revoca un invito in sospeso (204) e lo rimuove", async () => {
+    const token = await createInvite("da-revocare@example.com");
+
+    const del = await app.inject({
+      method: "DELETE",
+      url: `/api/auth/invites/${token}`,
+      headers: { cookie: adminCookie },
+    });
+    expect(del.statusCode).toBe(204);
+
+    const remaining = await testDb.db.select().from(invites).where(eq(invites.token, token));
+    expect(remaining).toHaveLength(0);
+  });
+
+  it("DELETE /api/auth/invites/:token risponde 404 se il token non esiste", async () => {
+    const del = await app.inject({
+      method: "DELETE",
+      url: "/api/auth/invites/token-inesistente",
+      headers: { cookie: adminCookie },
+    });
+    expect(del.statusCode).toBe(404);
+  });
+
+  it("requireAdmin blocca un member su lista e revoca (403)", async () => {
+    const list = await app.inject({
+      method: "GET",
+      url: "/api/auth/invites",
+      headers: { cookie: memberCookie },
+    });
+    expect(list.statusCode).toBe(403);
+
+    const del = await app.inject({
+      method: "DELETE",
+      url: "/api/auth/invites/qualunque",
+      headers: { cookie: memberCookie },
+    });
+    expect(del.statusCode).toBe(403);
+  });
+
+  it("GET /api/users è accessibile a un member e include createdAt", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/users",
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const list = res.json() as { id: string; email: string; role: string; createdAt: string }[];
+    expect(list.length).toBeGreaterThan(0);
+    for (const u of list) {
+      expect(u).toHaveProperty("createdAt");
+      expect(Number.isNaN(new Date(u.createdAt).getTime())).toBe(false);
+    }
+  });
+});
+
 describe("register concorrente", () => {
   /** Crea un invito via API (come admin) e restituisce il token. */
   async function createInvite(email: string): Promise<string> {

@@ -11,6 +11,8 @@ export const publicUserSchema = z.object({
   id: z.uuid(),
   email: z.string(),
   role: z.enum(["admin", "member"]),
+  // Istante di registrazione: la pagina Team mostra "membro dal …".
+  createdAt: z.iso.datetime(),
 });
 
 /**
@@ -28,10 +30,16 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
       schema: { response: { 200: z.array(publicUserSchema), ...authErrorResponses } },
     },
     async () => {
-      return app.db
-        .select({ id: users.id, email: users.email, role: users.role })
+      const rows = await app.db
+        .select({
+          id: users.id,
+          email: users.email,
+          role: users.role,
+          createdAt: users.createdAt,
+        })
         .from(users)
-        .orderBy(asc(users.email));
+        .orderBy(asc(users.createdAt));
+      return rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() }));
     },
   );
 }
