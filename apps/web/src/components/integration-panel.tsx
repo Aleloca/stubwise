@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { postConfigureWebhook } from "../lib/api";
+import { formatDateTime } from "../lib/format";
 import { CopyButton } from "./copy-button";
 
 interface IntegrationPanelProps {
@@ -13,6 +14,14 @@ interface IntegrationPanelProps {
    * provider. Assente per i member: il segreto non deve mai raggiungerli.
    */
   webhook?: { webhookSecret: string; webhookPath: string };
+  /**
+   * ISO dell'ultima configurazione automatica del webhook, o null se mai. Se
+   * valorizzato l'azione di configurazione parte collassata in uno stato
+   * "configurato il <data>", riapribile con "Riconfigura".
+   */
+  webhookConfiguredAt?: string | null;
+  /** Notifica al genitore una (ri)configurazione riuscita, per riallineare lo stato. */
+  onWebhookConfigured?: () => void;
 }
 
 type ConfigureState =
@@ -27,8 +36,21 @@ type ConfigureState =
  * anche ai member: integrare l'SDK non richiede privilegi admin. La sezione
  * webhook compare solo se `webhook` è valorizzato (admin).
  */
-export function IntegrationPanel({ ingestionKey, slug, origin, webhook }: IntegrationPanelProps) {
+export function IntegrationPanel({
+  ingestionKey,
+  slug,
+  origin,
+  webhook,
+  webhookConfiguredAt,
+  onWebhookConfigured,
+}: IntegrationPanelProps) {
   const [configure, setConfigure] = useState<ConfigureState>({ kind: "idle" });
+  // Quando il webhook risulta già configurato l'azione parte collassata: il
+  // bottone "Riconfigura" la riapre. Una (ri)configurazione riuscita la mostra
+  // comunque (resta aperta per dare conferma all'utente).
+  const [reconfiguring, setReconfiguring] = useState(false);
+  const webhookConfigured = Boolean(webhookConfiguredAt);
+  const showConfigureAction = !webhookConfigured || reconfiguring || configure.kind === "ok";
 
   async function onConfigure() {
     setConfigure({ kind: "pending" });
@@ -36,6 +58,7 @@ export function IntegrationPanel({ ingestionKey, slug, origin, webhook }: Integr
       const result = await postConfigureWebhook(slug);
       const verb = result.updated ? "Webhook aggiornato" : "Webhook configurato";
       setConfigure({ kind: "ok", message: `${verb} su ${result.url}` });
+      onWebhookConfigured?.();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Configurazione del webhook fallita";
       setConfigure({ kind: "error", message });
@@ -104,6 +127,25 @@ export function IntegrationPanel({ ingestionKey, slug, origin, webhook }: Integr
               della PR il ticket passa a done
             </p>
             <div className="space-y-2">
+              {webhookConfigured && !showConfigureAction && (
+                <div
+                  data-testid="webhook-configured"
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-sm border border-ok/30 bg-ok/10 px-3 py-2.5"
+                >
+                  <span className="font-mono text-[12px] tracking-[0.04em] text-ok">
+                    ✓ Webhook configurato il {formatDateTime(webhookConfiguredAt as string)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setReconfiguring(true)}
+                    data-testid="reconfigure-webhook-button"
+                    className="rounded-sm border border-line-strong bg-ink-950/70 px-3 py-1.5 font-mono text-[11px] font-medium tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg"
+                  >
+                    Riconfigura
+                  </button>
+                </div>
+              )}
+              {showConfigureAction && (
               <button
                 type="button"
                 onClick={onConfigure}
@@ -113,6 +155,7 @@ export function IntegrationPanel({ ingestionKey, slug, origin, webhook }: Integr
               >
                 {configure.kind === "pending" ? "Configurazione…" : "Configura automaticamente"}
               </button>
+              )}
               {configure.kind === "ok" && (
                 <p data-testid="configure-webhook-ok" className="font-mono text-[11px] text-signal">
                   {configure.message}

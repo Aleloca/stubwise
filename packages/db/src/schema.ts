@@ -92,6 +92,10 @@ export const projects = pgTable("projects", {
   // pre-esistenti alla migrazione; un progetto con segreto vuoto rifiuta i
   // webhook (non li può verificare).
   webhookSecret: text("webhook_secret").notNull().default(""),
+  // Istante in cui il webhook git è stato configurato automaticamente sul
+  // provider (POST /configure-webhook). Nullable: null = mai configurato, la
+  // UI mostra l'azione di configurazione; valorizzato = stato "configurato".
+  webhookConfiguredAt: timestamp("webhook_configured_at", { withTimezone: true }),
   // Contatore per i numeri ticket sequenziali per-progetto: l'applicazione
   // lo incrementa in transazione quando crea un ticket.
   nextTicketNumber: integer("next_ticket_number").notNull().default(1),

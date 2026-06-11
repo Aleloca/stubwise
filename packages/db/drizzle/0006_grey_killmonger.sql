@@ -1,0 +1,1 @@
+ALTER TABLE "projects" ADD COLUMN "webhook_configured_at" timestamp with time zone;

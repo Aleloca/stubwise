@@ -52,6 +52,8 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     repoUrl: "https://github.com/acme/demo-shop",
     defaultBranch: "main",
     ingestionKey: "0123456789abcdef0123456789abcdef",
+    hasCredentials: false,
+    webhookConfiguredAt: null,
     createdAt: "2026-06-01T10:00:00.000Z",
     ...overrides,
   };
@@ -217,6 +219,44 @@ describe("dettaglio progetto", () => {
     const snippet = screen.getByTestId("init-snippet");
     expect(snippet.textContent).toContain('from "@stubwise/sdk/browser"');
     expect(snippet.textContent).toContain(dsn);
+  });
+
+  it("admin: con credenziali e webhook configurati mostra il banner 'configurato correttamente'", async () => {
+    const project = makeProject({
+      hasCredentials: true,
+      webhookConfiguredAt: "2026-06-05T09:30:00.000Z",
+    });
+    mockApi({
+      "GET /api/auth/me": meHandler("admin"),
+      "GET /api/projects/demo-shop": () => jsonResponse(200, project),
+      "GET /api/projects/demo-shop/webhook": () =>
+        jsonResponse(200, { webhookSecret: "s3cr3t", webhookPath: "/webhooks/git/demo-shop" }),
+    });
+
+    renderApp("/projects/demo-shop");
+
+    expect(await screen.findByTestId("project-configured-banner")).toHaveTextContent(
+      "Progetto configurato correttamente",
+    );
+    // Le credenziali partono collassate nello stato "configurato".
+    expect(screen.getByTestId("credentials-configured")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Token di accesso")).not.toBeInTheDocument();
+  });
+
+  it("admin: se manca il webhook non mostra il banner complessivo", async () => {
+    const project = makeProject({ hasCredentials: true, webhookConfiguredAt: null });
+    mockApi({
+      "GET /api/auth/me": meHandler("admin"),
+      "GET /api/projects/demo-shop": () => jsonResponse(200, project),
+      "GET /api/projects/demo-shop/webhook": () =>
+        jsonResponse(200, { webhookSecret: "s3cr3t", webhookPath: "/webhooks/git/demo-shop" }),
+    });
+
+    renderApp("/projects/demo-shop");
+
+    // La sezione integrazione c'è (rende il banner assente una condizione vera).
+    await screen.findByTestId("init-snippet");
+    expect(screen.queryByTestId("project-configured-banner")).not.toBeInTheDocument();
   });
 
   it("member: sola lettura ma con chiave di ingestion e snippet visibili", async () => {

@@ -43,6 +43,13 @@
       "when": 1781186136631,
       "tag": "0005_fearless_forgotten_one",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1781190090141,
+      "tag": "0006_grey_killmonger",
+      "breakpoints": true
     }
   ]
 }

@@ -207,6 +207,42 @@ describe("ProjectForm in modifica", () => {
     expect("provider" in payload).toBe(false);
   });
 
+  it("con credentialsConfigured parte collassato: conferma + 'Modifica credenziali', campi nascosti", async () => {
+    const user = userEvent.setup();
+    render(
+      <ProjectForm mode="edit" initial={initial} credentialsConfigured onSubmit={vi.fn()} />,
+    );
+
+    // Stato compatto "configurato": niente campi credenziali finché non si apre.
+    expect(screen.getByTestId("credentials-configured")).toHaveTextContent(
+      "Credenziali git configurate",
+    );
+    expect(screen.queryByLabelText("Token di accesso")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Username")).not.toBeInTheDocument();
+
+    // I campi sopra le credenziali (nome/repo/branch) restano sempre visibili.
+    expect(screen.getByLabelText("Nome")).toHaveValue("Demo Shop");
+
+    await user.click(screen.getByRole("button", { name: "Modifica credenziali" }));
+
+    // Ora i campi compaiono, vuoti (write-only), con il bottone Valida.
+    expect(screen.getByLabelText("Token di accesso")).toHaveValue("");
+    expect(screen.getByLabelText("Username")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Valida credenziali" })).toBeInTheDocument();
+    expect(screen.queryByTestId("credentials-configured")).not.toBeInTheDocument();
+
+    // Annulla richiude allo stato compatto.
+    await user.click(screen.getByRole("button", { name: "Annulla" }));
+    expect(screen.getByTestId("credentials-configured")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Token di accesso")).not.toBeInTheDocument();
+  });
+
+  it("senza credentialsConfigured i campi credenziali sono subito visibili", () => {
+    render(<ProjectForm mode="edit" initial={initial} onSubmit={vi.fn()} />);
+    expect(screen.queryByTestId("credentials-configured")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Token di accesso")).toBeInTheDocument();
+  });
+
   it("con un token nuovo il payload sostituisce le credenziali", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockResolvedValue(undefined);

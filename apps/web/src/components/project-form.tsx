@@ -24,7 +24,17 @@ interface ProjectInitialValues {
  */
 type ProjectFormProps =
   | { mode: "create"; initial?: undefined; onSubmit: (values: ProjectDraft) => Promise<void> }
-  | { mode: "edit"; initial: ProjectInitialValues; onSubmit: (values: ProjectPatch) => Promise<void> };
+  | {
+      mode: "edit";
+      initial: ProjectInitialValues;
+      /**
+       * Vero quando il progetto ha già delle credenziali salvate: il fieldset
+       * credenziali parte collassato in uno stato "configurato", riapribile via
+       * bottone. Solo in modifica (in creazione non c'è nulla da collassare).
+       */
+      credentialsConfigured?: boolean;
+      onSubmit: (values: ProjectPatch) => Promise<void>;
+    };
 
 /**
  * Form progetto puro: API e navigazione iniettate via `onSubmit`.
@@ -44,6 +54,14 @@ export function ProjectForm(props: ProjectFormProps) {
   const [token, setToken] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+
+  // Fieldset credenziali: se sono già configurate (solo in modifica) parte
+  // collassato in uno stato di conferma compatto; il bottone "Modifica
+  // credenziali" rivela i campi (comportamento attuale), con "Annulla" per
+  // richiudere e ripartire da campi vuoti.
+  const credentialsConfigured = mode === "edit" && props.credentialsConfigured === true;
+  const [editingCredentials, setEditingCredentials] = useState(false);
+  const credentialsCollapsed = credentialsConfigured && !editingCredentials;
 
   // Stato della validazione credenziali: advisory, non blocca il submit.
   const [validating, setValidating] = useState(false);
@@ -150,6 +168,24 @@ export function ProjectForm(props: ProjectFormProps) {
         <legend className="px-1.5 font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase">
           Credenziali git
         </legend>
+        {credentialsCollapsed ? (
+          <div
+            data-testid="credentials-configured"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-sm border border-ok/30 bg-ok/10 px-3 py-2.5"
+          >
+            <span className="font-mono text-[12px] tracking-[0.04em] text-ok">
+              ✓ Credenziali git configurate
+            </span>
+            <button
+              type="button"
+              onClick={() => setEditingCredentials(true)}
+              className="rounded-sm border border-line-strong bg-ink-950/70 px-3 py-1.5 font-mono text-[11px] font-medium tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg"
+            >
+              Modifica credenziali
+            </button>
+          </div>
+        ) : (
+          <>
         <p className="mb-4 font-mono text-[11px] leading-relaxed text-fg-faint">
           // write-only: vengono cifrate e non verranno mai mostrate di nuovo.
           <br />
@@ -198,15 +234,35 @@ export function ProjectForm(props: ProjectFormProps) {
         </div>
 
         <div className="mt-4 flex flex-col gap-3">
-          <button
-            type="button"
-            // Serve almeno il token: senza non c'è nulla da autenticare.
-            disabled={token.trim() === "" || validating}
-            onClick={() => void handleValidate()}
-            className="self-start rounded-sm border border-line-strong bg-ink-950/70 px-3 py-2 font-mono text-[12px] font-medium tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {validating ? "Verifica in corso…" : "Valida credenziali"}
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              // Serve almeno il token: senza non c'è nulla da autenticare.
+              disabled={token.trim() === "" || validating}
+              onClick={() => void handleValidate()}
+              className="rounded-sm border border-line-strong bg-ink-950/70 px-3 py-2 font-mono text-[12px] font-medium tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {validating ? "Verifica in corso…" : "Valida credenziali"}
+            </button>
+            {credentialsConfigured && (
+              <button
+                type="button"
+                // Richiude lo stato editing e ripristina i campi vuoti: tornare
+                // alla conferma compatta senza credenziali in sospeso.
+                onClick={() => {
+                  setEditingCredentials(false);
+                  setUsername("");
+                  setEmail("");
+                  setToken("");
+                  setValidation(null);
+                  setValidationError(null);
+                }}
+                className="rounded-sm px-3 py-2 font-mono text-[12px] font-medium tracking-[0.08em] text-fg-faint uppercase transition-colors hover:text-fg-muted"
+              >
+                Annulla
+              </button>
+            )}
+          </div>
 
           {validationError && (
             <p
@@ -239,6 +295,8 @@ export function ProjectForm(props: ProjectFormProps) {
             </div>
           )}
         </div>
+          </>
+        )}
       </fieldset>
 
       <FormError message={error} />

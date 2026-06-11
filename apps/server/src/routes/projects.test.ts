@@ -66,6 +66,9 @@ describe("POST /api/projects", () => {
       repoUrl: "https://github.com/acme/sito-vetrina",
       defaultBranch: "main",
       ingestionKey: expect.stringMatching(/^[0-9a-f]{32}$/),
+      // Creato con credenziali → hasCredentials true; webhook mai configurato.
+      hasCredentials: true,
+      webhookConfiguredAt: null,
       createdAt: expect.any(String),
     });
     // Il webhookSecret è un segreto HMAC: mai nella proiezione pubblica,
@@ -356,6 +359,45 @@ describe("GET /api/projects/:slug", () => {
   });
 });
 
+describe("stato di configurazione nella proiezione pubblica", () => {
+  it("progetto con credenziali → hasCredentials true e webhookConfiguredAt null", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/projects/sito-vetrina",
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { hasCredentials: boolean; webhookConfiguredAt: string | null };
+    expect(body.hasCredentials).toBe(true);
+    expect(body.webhookConfiguredAt).toBeNull();
+  });
+
+  it("progetto senza credenziali salvate → hasCredentials false", async () => {
+    // Il create richiede sempre il token, quindi inseriamo una riga grezza con
+    // encryptedCredentials vuoto per coprire il caso "credenziali non configurate".
+    await testDb.db.insert(projects).values({
+      name: "Senza Credenziali",
+      slug: "senza-credenziali",
+      provider: "github",
+      repoUrl: "https://github.com/acme/senza-credenziali",
+      defaultBranch: "main",
+      encryptedCredentials: "",
+      ingestionKey: randomBytes(16).toString("hex"),
+      webhookSecret: randomBytes(16).toString("hex"),
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/projects/senza-credenziali",
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { hasCredentials: boolean; webhookConfiguredAt: string | null };
+    expect(body.hasCredentials).toBe(false);
+    expect(body.webhookConfiguredAt).toBeNull();
+  });
+});
+
 describe("GET /api/projects/:slug/webhook", () => {
   it("l'admin legge il webhookSecret e il path del webhook", async () => {
     const res = await app.inject({
@@ -526,6 +568,21 @@ describe("POST /api/projects/:slug/configure-webhook", () => {
     expect(body.created).toBe(true);
     expect(body.updated).toBe(false);
     expect(body.url).toBe("https://stubwise.example.com/webhooks/git/sito-vetrina");
+
+    // Dopo una configurazione riuscita la riga registra webhookConfiguredAt, e
+    // la proiezione pubblica lo espone come timestamp ISO (era null prima).
+    const [row] = await testDb.db
+      .select({ at: projects.webhookConfiguredAt })
+      .from(projects)
+      .where(eq(projects.slug, "sito-vetrina"));
+    expect(row!.at).toBeInstanceOf(Date);
+    const publicRes = await app.inject({
+      method: "GET",
+      url: "/api/projects/sito-vetrina",
+      headers: { cookie: adminCookie },
+    });
+    const publicBody = publicRes.json() as { webhookConfiguredAt: string | null };
+    expect(publicBody.webhookConfiguredAt).toEqual(expect.any(String));
 
     // La risposta non deve MAI contenere il segreto né il token.
     expect(res.body).not.toContain(expectedSecret);

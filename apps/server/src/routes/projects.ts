@@ -127,6 +127,10 @@ function toPublicProject(row: ProjectRow): z.infer<typeof projectSchema> {
     repoUrl: row.repoUrl,
     defaultBranch: row.defaultBranch,
     ingestionKey: row.ingestionKey,
+    // Solo la presenza, mai il contenuto: le credenziali restano write-only.
+    // Vuote ('') = nessuna credenziale (non dovrebbe capitare, ma è esplicito).
+    hasCredentials: row.encryptedCredentials.length > 0,
+    webhookConfiguredAt: row.webhookConfiguredAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -310,6 +314,12 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
           { url, secret: row.webhookSecret },
           { fetchImpl: fetch },
         );
+        // Registra lo stato "configurato": la proiezione pubblica lo espone
+        // come webhookConfiguredAt e la UI collassa l'azione di configurazione.
+        await app.db
+          .update(projects)
+          .set({ webhookConfiguredAt: new Date() })
+          .where(eq(projects.id, row.id));
         return {
           ok: true as const,
           created: result.created,

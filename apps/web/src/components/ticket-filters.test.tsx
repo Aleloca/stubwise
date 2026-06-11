@@ -13,6 +13,8 @@ const projects: Project[] = [
     repoUrl: "https://github.com/acme/alfa",
     defaultBranch: "main",
     ingestionKey: "key-alfa",
+    hasCredentials: false,
+    webhookConfiguredAt: null,
     createdAt: "2026-01-01T00:00:00.000Z",
   },
   {
@@ -23,6 +25,8 @@ const projects: Project[] = [
     repoUrl: "https://bitbucket.org/acme/beta",
     defaultBranch: "main",
     ingestionKey: "key-beta",
+    hasCredentials: false,
+    webhookConfiguredAt: null,
     createdAt: "2026-01-02T00:00:00.000Z",
   },
 ];

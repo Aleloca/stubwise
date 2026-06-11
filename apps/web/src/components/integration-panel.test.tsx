@@ -147,4 +147,49 @@ describe("IntegrationPanel — configura webhook", () => {
     render(<IntegrationPanel {...props} />);
     expect(screen.queryByTestId("configure-webhook-button")).not.toBeInTheDocument();
   });
+
+  it("webhookConfiguredAt null: mostra il bottone configura, non lo stato configurato", () => {
+    render(<IntegrationPanel {...webhookProps} webhookConfiguredAt={null} />);
+    expect(screen.getByTestId("configure-webhook-button")).toBeInTheDocument();
+    expect(screen.queryByTestId("webhook-configured")).not.toBeInTheDocument();
+  });
+
+  it("webhookConfiguredAt valorizzato: stato compatto con data + 'Riconfigura', azione nascosta", async () => {
+    const user = userEvent.setup();
+    render(
+      <IntegrationPanel {...webhookProps} webhookConfiguredAt="2026-06-05T09:30:00.000Z" />,
+    );
+
+    expect(screen.getByTestId("webhook-configured")).toHaveTextContent("Webhook configurato il");
+    expect(screen.queryByTestId("configure-webhook-button")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("reconfigure-webhook-button"));
+    // "Riconfigura" rivela l'azione di configurazione automatica.
+    expect(screen.getByTestId("configure-webhook-button")).toBeInTheDocument();
+  });
+
+  it("dopo una riconfigurazione riuscita notifica il genitore via onWebhookConfigured", async () => {
+    const user = userEvent.setup();
+    const onConfigured = vi.fn();
+    vi.spyOn(api, "postConfigureWebhook").mockResolvedValue({
+      ok: true,
+      created: false,
+      updated: true,
+      detail: "Webhook aggiornato",
+      url: "https://track.example.com/webhooks/git/demo-shop",
+    });
+    render(
+      <IntegrationPanel
+        {...webhookProps}
+        webhookConfiguredAt="2026-06-05T09:30:00.000Z"
+        onWebhookConfigured={onConfigured}
+      />,
+    );
+
+    await user.click(screen.getByTestId("reconfigure-webhook-button"));
+    await user.click(screen.getByTestId("configure-webhook-button"));
+
+    await screen.findByTestId("configure-webhook-ok");
+    expect(onConfigured).toHaveBeenCalledTimes(1);
+  });
 });

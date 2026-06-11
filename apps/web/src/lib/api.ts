@@ -296,6 +296,10 @@ export interface Project {
   repoUrl: string;
   defaultBranch: string;
   ingestionKey: string;
+  /** true se sul progetto sono salvate delle credenziali git (mai il contenuto). */
+  hasCredentials: boolean;
+  /** ISO dell'ultima configurazione del webhook git, o null se mai configurato. */
+  webhookConfiguredAt: string | null;
   createdAt: string;
 }
 

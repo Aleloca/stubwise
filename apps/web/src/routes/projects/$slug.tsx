@@ -42,6 +42,18 @@ export function ProjectDetailPage() {
     setSaved(true);
   }
 
+  // Dopo una (ri)configurazione del webhook la proiezione del progetto cambia
+  // (webhookConfiguredAt): si rilegge per riflettere lo stato "configurato"
+  // senza reload manuale.
+  function handleWebhookConfigured() {
+    void queryClient.invalidateQueries({ queryKey: projectQueryOptions(slug).queryKey });
+  }
+
+  // Stato complessivo: credenziali salvate + webhook configurato. Il banner di
+  // conferma compare solo quando tutto è a posto; se manca qualcosa sono le
+  // sezioni a guidare l'utente.
+  const fullyConfigured = project.hasCredentials && project.webhookConfiguredAt !== null;
+
   return (
     <div className="p-8">
       <Link
@@ -63,6 +75,16 @@ export function ProjectDetailPage() {
         </p>
       </header>
 
+      {isAdmin && fullyConfigured && (
+        <p
+          data-testid="project-configured-banner"
+          role="status"
+          className="mt-6 rounded-sm border border-ok/30 bg-ok/10 px-4 py-2.5 font-mono text-[12px] tracking-[0.04em] text-ok"
+        >
+          ✓ Progetto configurato correttamente
+        </p>
+      )}
+
       <div className="mt-6 grid items-start gap-8 lg:grid-cols-2">
         <div className="min-w-0">
           <h2 className={sectionTitleClass}>Configurazione</h2>
@@ -79,6 +101,7 @@ export function ProjectDetailPage() {
                   repoUrl: project.repoUrl,
                   defaultBranch: project.defaultBranch,
                 }}
+                credentialsConfigured={project.hasCredentials}
                 onSubmit={handleSubmit}
               />
               {saved && (
@@ -92,6 +115,23 @@ export function ProjectDetailPage() {
               <ReadOnlyRow label="Nome" value={project.name} />
               <ReadOnlyRow label="URL repository" value={project.repoUrl} />
               <ReadOnlyRow label="Branch di default" value={project.defaultBranch} />
+              <div className="flex flex-col gap-1">
+                <dt className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
+                  Stato
+                </dt>
+                <dd className="flex flex-col gap-1 font-mono text-[12px]">
+                  <span className={project.hasCredentials ? "text-ok" : "text-fg-faint"}>
+                    {project.hasCredentials
+                      ? "✓ Credenziali git configurate"
+                      : "— Credenziali git non configurate"}
+                  </span>
+                  <span className={project.webhookConfiguredAt ? "text-ok" : "text-fg-faint"}>
+                    {project.webhookConfiguredAt
+                      ? `✓ Webhook configurato il ${formatDateTime(project.webhookConfiguredAt)}`
+                      : "— Webhook non configurato"}
+                  </span>
+                </dd>
+              </div>
               <p className="pt-1 font-mono text-[11px] text-fg-faint">
                 // sola lettura: la configurazione la modificano gli admin
               </p>
@@ -104,6 +144,8 @@ export function ProjectDetailPage() {
             ingestionKey={project.ingestionKey}
             slug={project.slug}
             webhook={isAdmin ? webhook : undefined}
+            webhookConfiguredAt={isAdmin ? project.webhookConfiguredAt : undefined}
+            onWebhookConfigured={handleWebhookConfigured}
           />
         </div>
       </div>
