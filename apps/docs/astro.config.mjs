@@ -46,6 +46,12 @@ export default defineConfig({
   integrations: [
     starlight({
       routeMiddleware: "./src/route-data.ts",
+      // Il titolo del sito è reso come wordmark di Stubwise (quadrato ambra +
+      // "stubwise" mono + cursore lampeggiante): vedi SiteTitle.astro. `title`
+      // resta per metadati/SEO (tab del browser, canonical, og:title).
+      components: {
+        SiteTitle: "./src/components/SiteTitle.astro",
+      },
       title: "Stubwise",
       // Favicon condivisa con la web app: la "S_" ambra su quadrato scuro.
       // Starlight prefissa automaticamente con `base`. Il PNG (fallback per i
