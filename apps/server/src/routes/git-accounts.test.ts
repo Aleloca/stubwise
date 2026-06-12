@@ -253,9 +253,10 @@ describe("POST /api/git-accounts/:id/validate", () => {
     });
     const id = (created.json() as { id: string }).id;
     const fetchMock = vi.fn((input: string) => {
-      // Solo l'endpoint account-level repositories?role=member dovrebbe essere
-      // contattato (niente repo placeholder, niente info/refs).
-      if (input.includes("api.bitbucket.org/2.0/repositories?role=member")) {
+      // Solo l'endpoint account-level /2.0/workspaces dovrebbe essere contattato
+      // (niente repo placeholder, niente info/refs). L'endpoint globale
+      // repositories?role=member è deprecato (410 Gone) e non va usato.
+      if (input.includes("api.bitbucket.org/2.0/workspaces")) {
         return Promise.resolve(new Response("{}", { status: 200 }));
       }
       return Promise.resolve(new Response("", { status: 404 }));
@@ -269,8 +270,10 @@ describe("POST /api/git-accounts/:id/validate", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json() as { ok: boolean; checks: { name: string }[] };
     expect(body.checks).toHaveLength(1);
-    expect(body.checks[0]!.name).toBe("Autenticazione e accesso repository");
+    expect(body.checks[0]!.name).toBe("Autenticazione e accesso workspace");
     expect(body.ok).toBe(true);
+    // Nessuna chiamata all'endpoint deprecato repositories?role=member.
+    expect(fetchMock.mock.calls.some(([u]) => String(u).includes("repositories?role=member"))).toBe(false);
     // Nessuna sonda repo-specifica (info/refs) sul repo placeholder.
     expect(fetchMock.mock.calls.some(([u]) => String(u).includes("info/refs"))).toBe(false);
   });

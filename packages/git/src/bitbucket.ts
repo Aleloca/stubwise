@@ -21,9 +21,17 @@ import {
 
 const API_BASE = "https://api.bitbucket.org/2.0";
 
-/** Tetto di repository elencati: ~3 pagine da 100 (~300 repo), seguendo il
- * cursore `next` di Bitbucket. Vedi MAX_REPO_PAGES di github.ts per la logica. */
+/** Tetto di pagine di repository PER WORKSPACE: ~3 pagine da 100 (~300 repo),
+ * seguendo il cursore `next` di Bitbucket. Vedi MAX_REPO_PAGES di github.ts. */
 const MAX_REPO_PAGES = 3;
+
+/** Tetto di pagine di workspace elencati: ~5 pagine da 100 (~500 workspace),
+ * seguendo il cursore `next`. */
+const MAX_WORKSPACE_PAGES = 5;
+
+/** Tetto TOTALE di repository restituiti dalla fusione tra workspace (~300):
+ * mantiene il picker reattivo e limita il fan-out delle chiamate. */
+const MAX_TOTAL_REPOS = 300;
 
 /** Tetto di branch elencati: ~2 pagine da 100 (~200 branch). */
 const MAX_BRANCH_PAGES = 2;
@@ -246,45 +254,54 @@ export class BitbucketProvider implements GitProvider {
     // api.bitbucket.org come email, non come username); fallback su username
     // per le app password legacy.
     const restUser = email ?? username;
+    const CHECK = "Autenticazione e accesso workspace";
     if (!restUser) {
       return [
         {
-          name: "Autenticazione e accesso repository",
+          name: CHECK,
           ok: false,
           detail: "email Atlassian (o username legacy) mancante",
         },
       ];
     }
 
-    const check = await this.probe("Autenticazione e accesso repository", async () => {
-      const r = await fetchWithTimeout(
-        fetchImpl,
-        "https://api.bitbucket.org/2.0/repositories?role=member&pagelen=1",
-        { headers: { Authorization: basicAuthHeader(restUser, token) } }
-      );
+    // L'endpoint globale GET /2.0/repositories?role=member è DEPRECATO da
+    // Bitbucket Cloud (410 Gone). Per la verifica account usiamo invece il
+    // listing dei workspace, che non è deprecato.
+    const check = await this.probe(CHECK, async () => {
+      const r = await fetchWithTimeout(fetchImpl, "https://api.bitbucket.org/2.0/workspaces?pagelen=1", {
+        headers: { Authorization: basicAuthHeader(restUser, token) },
+      });
       if (r.status === 200) {
         return {
-          name: "Autenticazione e accesso repository",
+          name: CHECK,
           ok: true,
-          detail: "token valido, accesso ai repository ok",
+          detail: "token valido, accesso ai workspace ok",
         };
       }
       if (r.status === 401) {
         return {
-          name: "Autenticazione e accesso repository",
+          name: CHECK,
           ok: false,
           detail: "autenticazione fallita (401): verifica email Atlassian e token",
         };
       }
       if (r.status === 403) {
         return {
-          name: "Autenticazione e accesso repository",
+          name: CHECK,
           ok: false,
-          detail: "manca lo scope repository (read)",
+          detail: "accesso negato (403): verifica gli scope del token (account/workspace)",
+        };
+      }
+      if (r.status === 410) {
+        return {
+          name: CHECK,
+          ok: false,
+          detail: "endpoint non disponibile (410)",
         };
       }
       return {
-        name: "Autenticazione e accesso repository",
+        name: CHECK,
         ok: false,
         detail: `risposta inattesa (status ${r.status})`,
       };
@@ -367,32 +384,70 @@ export class BitbucketProvider implements GitProvider {
   ): Promise<RepoSummary[]> {
     const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
     const auth = this.restAuthHeader(p);
-    let url: string | null = `${API_BASE}/repositories?role=member&pagelen=100&sort=-updated_on`;
-    const repos: RepoSummary[] = [];
-    for (let pageNumber = 0; pageNumber < MAX_REPO_PAGES && url; pageNumber++) {
-      const response = await fetchImpl(url, { method: "GET", headers: { Authorization: auth } });
+
+    // L'endpoint globale GET /2.0/repositories?role=member è DEPRECATO (410
+    // Gone). Approccio corretto: elencare i workspace, poi per ogni workspace
+    // elencarne i repo, e fondere i risultati.
+    //
+    // Comportamento sugli errori: una qualsiasi chiamata fallita (workspaces o
+    // repo di un singolo workspace) fa fallire l'intera operazione con un
+    // GitProviderError chiaro (via ensureListResponse). È la scelta più
+    // semplice e prevedibile: meglio un errore esplicito che un elenco parziale
+    // silenzioso.
+
+    // 1) Elenco workspace, seguendo `next` fino al tetto di pagine.
+    const slugs: string[] = [];
+    let wsUrl: string | null = `${API_BASE}/workspaces?pagelen=100`;
+    for (let page = 0; page < MAX_WORKSPACE_PAGES && wsUrl; page++) {
+      const response = await fetchImpl(wsUrl, { method: "GET", headers: { Authorization: auth } });
       await ensureListResponse(response, "Bitbucket");
       const data = (await readJsonResponse(response, "Bitbucket")) as {
-        values?: {
-          full_name?: unknown;
-          name?: unknown;
-          mainbranch?: { name?: unknown };
-          links?: { clone?: { name?: unknown; href?: unknown }[] };
-        }[];
+        values?: { slug?: unknown }[];
         next?: unknown;
       };
-      for (const r of data.values ?? []) {
-        if (typeof r.full_name !== "string" || typeof r.name !== "string") continue;
-        const httpsClone = (r.links?.clone ?? []).find((c) => c.name === "https");
-        const cloneUrl = typeof httpsClone?.href === "string" ? httpsClone.href : "";
-        repos.push({
-          fullName: r.full_name,
-          name: r.name,
-          cloneUrl,
-          defaultBranch: typeof r.mainbranch?.name === "string" ? r.mainbranch.name : null,
-        });
+      for (const w of data.values ?? []) {
+        if (typeof w.slug === "string") slugs.push(w.slug);
       }
-      url = typeof data.next === "string" ? data.next : null;
+      wsUrl = typeof data.next === "string" ? data.next : null;
+    }
+
+    // 2) Per ogni workspace, elenca i repo (cursore `next` fino a MAX_REPO_PAGES)
+    //    e fondi i risultati, fermandoti al tetto TOTALE.
+    const repos: RepoSummary[] = [];
+    for (const slug of slugs) {
+      let url: string | null = `${API_BASE}/repositories/${encodeURIComponent(
+        slug
+      )}?pagelen=100&sort=-updated_on`;
+      for (let page = 0; page < MAX_REPO_PAGES && url && repos.length < MAX_TOTAL_REPOS; page++) {
+        const response = await fetchImpl(url, { method: "GET", headers: { Authorization: auth } });
+        await ensureListResponse(response, "Bitbucket");
+        const data = (await readJsonResponse(response, "Bitbucket")) as {
+          values?: {
+            full_name?: unknown;
+            name?: unknown;
+            mainbranch?: { name?: unknown };
+            links?: { clone?: { name?: unknown; href?: unknown }[] };
+          }[];
+          next?: unknown;
+        };
+        for (const r of data.values ?? []) {
+          if (repos.length >= MAX_TOTAL_REPOS) break;
+          if (typeof r.full_name !== "string" || typeof r.name !== "string") continue;
+          const httpsClone = (r.links?.clone ?? []).find((c) => c.name === "https");
+          const cloneUrl =
+            typeof httpsClone?.href === "string"
+              ? httpsClone.href
+              : `https://bitbucket.org/${r.full_name}.git`;
+          repos.push({
+            fullName: r.full_name,
+            name: r.name,
+            cloneUrl,
+            defaultBranch: typeof r.mainbranch?.name === "string" ? r.mainbranch.name : null,
+          });
+        }
+        url = typeof data.next === "string" ? data.next : null;
+      }
+      if (repos.length >= MAX_TOTAL_REPOS) break;
     }
     return repos;
   }
