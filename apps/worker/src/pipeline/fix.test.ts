@@ -1,5 +1,5 @@
-import { agentRuns, aiJobs, comments, encrypt, projects, tickets, type Db } from "@stubwise/db";
-import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { agentRuns, aiJobs, comments, encrypt, gitAccounts, projects, tickets, type Db } from "@stubwise/db";
+import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { execa } from "execa";
 import { randomBytes } from "node:crypto";
@@ -34,6 +34,7 @@ beforeAll(async () => {
 
 afterEach(async () => {
   await testDb.db.delete(projects);
+  await testDb.db.delete(gitAccounts);
 });
 
 afterAll(async () => {
@@ -51,6 +52,7 @@ interface Fixture {
   upstreamDir: string;
   mirrors: MirrorManager;
   projectId: string;
+  gitAccountId: string;
 }
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -74,15 +76,20 @@ async function makeFixture(credentials: { token: string; username?: string } = {
   await git(["push", "origin", "main"], work);
 
   uniq++;
+  // Le credenziali vivono sull'account git collegato, non sul progetto.
+  const gitAccountId = await seedGitAccount(testDb.db, {
+    provider: "github",
+    encryptedCredentials: encrypt(JSON.stringify(credentials), ENCRYPTION_KEY),
+  });
   const [project] = await testDb.db
     .insert(projects)
     .values({
       name: `Fix ${uniq}`,
       slug: `fix-${uniq}`,
       provider: "github",
+      gitAccountId,
       repoUrl: pathToFileURL(upstreamDir).href,
       defaultBranch: "main",
-      encryptedCredentials: encrypt(JSON.stringify(credentials), ENCRYPTION_KEY),
       ingestionKey: `ingestion-fix-${uniq}`,
     })
     .returning();
@@ -92,6 +99,7 @@ async function makeFixture(credentials: { token: string; username?: string } = {
     upstreamDir,
     mirrors: new MirrorManager({ mirrorsDir: join(root, "mirrors") }),
     projectId: project.id,
+    gitAccountId,
   };
 }
 
@@ -724,11 +732,12 @@ describe("runFix", () => {
   it("credenziali non decifrabili → job failed senza toccare il repo", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    // Sovrascrive le credenziali con un payload cifrato con un'ALTRA chiave.
+    // Sovrascrive le credenziali dell'ACCOUNT con un payload cifrato con
+    // un'ALTRA chiave: il worker non potrà decifrarle.
     await db
-      .update(projects)
+      .update(gitAccounts)
       .set({ encryptedCredentials: encrypt(JSON.stringify({ token: "x" }), randomBytes(32)) })
-      .where(eq(projects.id, fixture.projectId));
+      .where(eq(gitAccounts.id, fixture.gitAccountId));
     const ticket = await createTicket(db, fixture.projectId);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner();

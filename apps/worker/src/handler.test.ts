@@ -1,5 +1,5 @@
-import { aiJobs, encrypt, projects, tickets, type Db } from "@stubwise/db";
-import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { aiJobs, encrypt, gitAccounts, projects, tickets, type Db } from "@stubwise/db";
+import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { execa } from "execa";
 import { randomBytes } from "node:crypto";
@@ -32,6 +32,7 @@ beforeAll(async () => {
 
 afterEach(async () => {
   await testDb.db.delete(projects);
+  await testDb.db.delete(gitAccounts);
 });
 
 afterAll(async () => {
@@ -72,15 +73,19 @@ async function makeMirrors(): Promise<MirrorManager> {
 
 async function createProject(db: Db, repoUrl: string): Promise<string> {
   uniq++;
+  const gitAccountId = await seedGitAccount(db, {
+    provider: "github",
+    encryptedCredentials: encrypt(JSON.stringify({ token: "tok" }), ENCRYPTION_KEY),
+  });
   const [project] = await db
     .insert(projects)
     .values({
       name: `Handler ${uniq}`,
       slug: `handler-${uniq}`,
       provider: "github",
+      gitAccountId,
       repoUrl,
       defaultBranch: "main",
-      encryptedCredentials: encrypt(JSON.stringify({ token: "tok" }), ENCRYPTION_KEY),
       ingestionKey: `ingestion-handler-${uniq}`,
     })
     .returning();

@@ -1,5 +1,5 @@
 import { agentRuns, aiJobs, comments, projects, tickets, type Db } from "@stubwise/db";
-import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -24,15 +24,16 @@ let nextNumber = 1;
 beforeAll(async () => {
   testDb = await startTestDb();
   workDir = await mkdtemp(join(tmpdir(), "stubwise-triage-test-"));
+  const gitAccountId = await seedGitAccount(testDb.db);
   const [project] = await testDb.db
     .insert(projects)
     .values({
       name: "Triage",
       slug: "triage",
       provider: "github",
+      gitAccountId,
       repoUrl: "https://github.com/acme/triage",
       defaultBranch: "main",
-      encryptedCredentials: "irrilevante",
       ingestionKey: "ingestion-triage",
     })
     .returning();

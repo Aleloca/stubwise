@@ -5,7 +5,8 @@ import { z } from "zod";
  * quella del server (apps/server/src/config.ts): un solo errore leggibile
  * che elenca tutte le variabili mancanti o non valide (self-hosting).
  * ENCRYPTION_KEY deve essere la STESSA del server: è la chiave con cui il
- * server cifra projects.encrypted_credentials che il worker decifra.
+ * server cifra git_accounts.encrypted_credentials che il worker decifra
+ * (caricando l'account collegato al progetto del ticket).
  */
 
 const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;

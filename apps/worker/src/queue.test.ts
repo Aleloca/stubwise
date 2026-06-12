@@ -1,5 +1,5 @@
 import { aiJobs, projects, tickets, type Db } from "@stubwise/db";
-import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
@@ -24,15 +24,16 @@ let ticketId: string;
 beforeAll(async () => {
   testDb = await startTestDb();
   const { db } = testDb;
+  const gitAccountId = await seedGitAccount(db);
   const [project] = await db
     .insert(projects)
     .values({
       name: "Coda",
       slug: "coda",
       provider: "github",
+      gitAccountId,
       repoUrl: "https://github.com/acme/coda",
       defaultBranch: "main",
-      encryptedCredentials: "irrilevante",
       ingestionKey: "ingestion-coda",
     })
     .returning();

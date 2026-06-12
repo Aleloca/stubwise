@@ -45,6 +45,7 @@ import {
   comments,
   createDb,
   encrypt,
+  gitAccounts,
   projects,
   runMigrations,
   tickets,
@@ -379,15 +380,25 @@ async function runLocal(keep: boolean): Promise<number> {
     // Progetto: provider "github" (le sue chiamate di rete sono FINTE qui), ma
     // repoUrl è il file:// dell'origin locale, così MirrorManager clona davvero
     // dal locale (mirrorRemoteUrl lascia passare gli URL non-https invariati).
+    // Le credenziali vivono sull'account git collegato, non sul progetto.
+    const [account] = await db
+      .insert(gitAccounts)
+      .values({
+        name: "Smoke Account",
+        provider: "github",
+        encryptedCredentials: encrypt(JSON.stringify({ token: "smoke-token" }), encryptionKey),
+      })
+      .returning();
+    if (!account) throw new Error("insert dell'account git non ha restituito la riga");
     const [project] = await db
       .insert(projects)
       .values({
         name: "Smoke Local",
         slug: `smoke-local-${Date.now()}`,
         provider: "github",
+        gitAccountId: account.id,
         repoUrl: origin.url,
         defaultBranch: "main",
-        encryptedCredentials: encrypt(JSON.stringify({ token: "smoke-token" }), encryptionKey),
         ingestionKey: `smoke-ingestion-${Date.now()}`,
       })
       .returning();

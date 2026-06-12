@@ -1,4 +1,4 @@
-import { comments, decrypt, projects, tickets, type Db } from "@stubwise/db";
+import { comments, decrypt, gitAccounts, projects, tickets, type Db } from "@stubwise/db";
 import { getProvider, type GitProvider } from "@stubwise/git";
 import type { GitProviderKind } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
@@ -194,25 +194,34 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     });
     return "failed";
   }
-  const [project] = await db.select().from(projects).where(eq(projects.id, ticket.projectId));
-  if (!project) {
+  // Carica il progetto E l'account git collegato in un colpo solo: le
+  // credenziali vivono ora sull'account (riutilizzabile tra progetti), non più
+  // sul progetto. Il provider usato è quello denormalizzato sul progetto.
+  const [row] = await db
+    .select({ project: projects, account: gitAccounts })
+    .from(projects)
+    .innerJoin(gitAccounts, eq(projects.gitAccountId, gitAccounts.id))
+    .where(eq(projects.id, ticket.projectId));
+  if (!row) {
     await failJob(db, job.id, {
-      log: `[fix] progetto ${ticket.projectId} non trovato`,
+      log: `[fix] progetto ${ticket.projectId} o account git collegato non trovato`,
       error: "progetto del ticket non trovato",
     });
     return "failed";
   }
+  const { project, account } = row;
 
-  // Credenziali: decifratura + parse PRIMA di toccare il repo. Un fallimento
-  // qui (chiave sbagliata, payload manomesso, JSON inatteso) è un errore di
-  // configurazione, non dell'agente: messaggio esplicito, MAI il payload.
+  // Credenziali: decifratura + parse PRIMA di toccare il repo, dall'ACCOUNT
+  // collegato. Un fallimento qui (chiave sbagliata, payload manomesso, JSON
+  // inatteso) è un errore di configurazione, non dell'agente: messaggio
+  // esplicito, MAI il payload.
   let credentials: z.infer<typeof credentialsSchema>;
   try {
-    credentials = credentialsSchema.parse(JSON.parse(decrypt(project.encryptedCredentials, deps.encryptionKey)));
+    credentials = credentialsSchema.parse(JSON.parse(decrypt(account.encryptedCredentials, deps.encryptionKey)));
   } catch {
     await failJob(db, job.id, {
-      log: "[fix] impossibile decifrare le credenziali del progetto (ENCRYPTION_KEY errata o payload non valido)",
-      error: "credenziali del progetto non decifrabili",
+      log: "[fix] impossibile decifrare le credenziali dell'account git (ENCRYPTION_KEY errata o payload non valido)",
+      error: "credenziali dell'account git non decifrabili",
     });
     return "failed";
   }
