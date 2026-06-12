@@ -15,7 +15,9 @@ import {
   automationSettingsQueryOptions,
   boardTicketsQueryOptions,
   commentsQueryOptions,
+  gitAccountsQueryOptions,
   invitesQueryOptions,
+  notificationSettingsQueryOptions,
   projectQueryOptions,
   projectsQueryOptions,
   ticketJobsQueryOptions,
@@ -30,7 +32,11 @@ import { ProjectDetailPage } from "./routes/projects/$slug";
 import { ProjectsPage } from "./routes/projects/index";
 import { NewProjectPage } from "./routes/projects/new";
 import { registerSearchSchema, RegisterPage } from "./routes/register";
-import { SettingsPage } from "./routes/settings";
+import { SettingsAccountPage } from "./routes/settings/account";
+import { SettingsAutomationPage } from "./routes/settings/automation";
+import { SettingsGitAccountsPage } from "./routes/settings/git-accounts";
+import { SettingsLayout } from "./routes/settings/layout";
+import { SettingsNotificationsPage } from "./routes/settings/notifications";
 import { SetupPage } from "./routes/setup";
 import { TeamPage } from "./routes/team";
 import { TicketDetailPage } from "./routes/tickets/$id";
@@ -199,18 +205,67 @@ const teamRoute = createRoute({
   component: TeamPage,
 });
 
+/**
+ * Layout delle impostazioni: la sotto-navigazione + l'Outlet della sotto-rotta.
+ * `/settings` da solo reindirizza ad Account (vedi settingsIndexRoute).
+ */
 const settingsRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/settings",
-  // Le regole di automazione (solo admin) si prefetchano qui se il ruolo lo
-  // consente, così la sezione monta senza attese; per i member la query non
-  // parte (la sezione non è montata). Best-effort: un errore non blocca.
-  loader: async ({ context }) => {
-    if (context.user.role === "admin") {
-      await context.queryClient.ensureQueryData(automationSettingsQueryOptions).catch(() => undefined);
-    }
+  component: SettingsLayout,
+});
+
+const settingsIndexRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/",
+  beforeLoad: () => {
+    throw redirect({ to: "/settings/account" });
   },
-  component: SettingsPage,
+});
+
+const settingsAccountRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/account",
+  component: SettingsAccountPage,
+});
+
+/**
+ * Guardia comune alle sotto-rotte admin: un member che digita l'URL viene
+ * rimandato ad Account invece di montare una sezione che il server rifiuterebbe.
+ */
+function requireAdmin(role: string): void {
+  if (role !== "admin") throw redirect({ to: "/settings/account" });
+}
+
+const settingsAutomationRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/automation",
+  beforeLoad: ({ context }) => requireAdmin(context.user.role),
+  // Prefetch best-effort: la sezione monta senza attese; un errore non blocca.
+  loader: async ({ context }) => {
+    await context.queryClient.ensureQueryData(automationSettingsQueryOptions).catch(() => undefined);
+  },
+  component: SettingsAutomationPage,
+});
+
+const settingsNotificationsRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/notifications",
+  beforeLoad: ({ context }) => requireAdmin(context.user.role),
+  loader: async ({ context }) => {
+    await context.queryClient.ensureQueryData(notificationSettingsQueryOptions).catch(() => undefined);
+  },
+  component: SettingsNotificationsPage,
+});
+
+const settingsGitAccountsRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/git-accounts",
+  beforeLoad: ({ context }) => requireAdmin(context.user.role),
+  loader: async ({ context }) => {
+    await context.queryClient.ensureQueryData(gitAccountsQueryOptions).catch(() => undefined);
+  },
+  component: SettingsGitAccountsPage,
 });
 
 const routeTree = rootRoute.addChildren([
@@ -226,7 +281,13 @@ const routeTree = rootRoute.addChildren([
     projectNewRoute,
     projectDetailRoute,
     teamRoute,
-    settingsRoute,
+    settingsRoute.addChildren([
+      settingsIndexRoute,
+      settingsAccountRoute,
+      settingsAutomationRoute,
+      settingsNotificationsRoute,
+      settingsGitAccountsRoute,
+    ]),
   ]),
 ]);
 

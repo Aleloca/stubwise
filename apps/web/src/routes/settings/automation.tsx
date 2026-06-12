@@ -1,69 +1,9 @@
 import { EFFORT_LABELS, ticketTypeSchema, type TicketType } from "@stubwise/shared";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { TypeBadge } from "../components/badges";
-import { GitAccountsSection } from "../components/git-accounts-section";
-import { NotificationsSection } from "../components/notifications-section";
-import { putAutomationSettings, type AutomationRule } from "../lib/api";
-import { meQueryOptions } from "../lib/auth";
-import { automationSettingsQueryOptions } from "../lib/queries";
-
-/**
- * Impostazioni: dati dell'account corrente e, per gli admin, le regole di
- * automazione AI per tipo di ticket (auto-fix on/off + soglia di sforzo).
- * La gestione degli accessi (membri e inviti) vive nella pagina Team.
- */
-export function SettingsPage() {
-  const { data: me } = useSuspenseQuery(meQueryOptions);
-  const isAdmin = me.user.role === "admin";
-
-  return (
-    <div className="p-8">
-      <header className="border-b border-line pb-4">
-        <h1 className="text-xl font-semibold">Settings</h1>
-        <p className="mt-1 text-sm text-fg-muted">Il tuo account e l'automazione AI.</p>
-      </header>
-
-      <div className="mt-6 grid items-start gap-8 lg:grid-cols-2">
-        <section className="rounded-sm border border-line bg-ink-900">
-          <header className="border-b border-line px-4 py-3">
-            <h2 className="font-mono text-[11px] font-medium tracking-[0.16em] text-fg-muted uppercase">
-              Account
-            </h2>
-          </header>
-          <dl className="space-y-3 px-4 py-4">
-            <div className="flex flex-col gap-1">
-              <dt className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
-                Email
-              </dt>
-              <dd className="font-mono text-[13px] text-fg">{me.user.email}</dd>
-            </div>
-            <div className="flex flex-col gap-1">
-              <dt className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
-                Ruolo
-              </dt>
-              <dd>
-                <span
-                  className={`inline-flex rounded-sm border px-2 py-0.5 font-mono text-[11px] tracking-[0.08em] uppercase ${
-                    isAdmin
-                      ? "border-signal-dim/40 text-signal"
-                      : "border-line-strong text-fg-muted"
-                  }`}
-                >
-                  {isAdmin ? "Admin" : "Member"}
-                </span>
-              </dd>
-            </div>
-          </dl>
-        </section>
-
-        {isAdmin && <AutomationSection />}
-        {isAdmin && <NotificationsSection />}
-        {isAdmin && <GitAccountsSection />}
-      </div>
-    </div>
-  );
-}
+import { TypeBadge } from "../../components/badges";
+import { putAutomationSettings, type AutomationRule } from "../../lib/api";
+import { automationSettingsQueryOptions } from "../../lib/queries";
 
 /** Etichetta "Medio (3/5)" per un valore di sforzo. */
 function effortOptionLabel(value: number): string {
@@ -71,11 +11,11 @@ function effortOptionLabel(value: number): string {
 }
 
 /**
- * Sezione Automazione AI (solo admin): una riga per ciascuno dei 4 tipi di
+ * Sotto-pagina Automazione AI (solo admin): una riga per ciascuno dei 4 tipi di
  * ticket con il toggle auto-fix e la soglia di sforzo. Un solo Save persiste
  * tutte le regole via PUT; lo stato locale parte dai dati del server.
  */
-function AutomationSection() {
+export function SettingsAutomationPage() {
   const queryClient = useQueryClient();
   const { data: settings } = useSuspenseQuery(automationSettingsQueryOptions);
 
@@ -98,9 +38,7 @@ function AutomationSection() {
   const orderedTypes = ticketTypeSchema.options as readonly TicketType[];
 
   const updateRule = (type: TicketType, patch: Partial<AutomationRule>): void => {
-    setRules((current) =>
-      current.map((r) => (r.type === type ? { ...r, ...patch } : r)),
-    );
+    setRules((current) => current.map((r) => (r.type === type ? { ...r, ...patch } : r)));
     // Un salvataggio andato a buon fine va "consumato": la riga di conferma
     // sparisce appena l'utente ritocca qualcosa.
     if (mutation.isSuccess) mutation.reset();
@@ -144,9 +82,7 @@ function AutomationSection() {
                 <select
                   value={rule.maxEffort}
                   disabled={mutation.isPending}
-                  onChange={(event) =>
-                    updateRule(type, { maxEffort: Number(event.target.value) })
-                  }
+                  onChange={(event) => updateRule(type, { maxEffort: Number(event.target.value) })}
                   aria-label={`Soglia effort ${type}`}
                   className="rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
                 >

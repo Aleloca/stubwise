@@ -46,7 +46,12 @@ test("primo setup: crea l'admin e atterra sulla lista ticket vuota", async () =>
 // usano davvero le credenziali (validate, elenco repo/branch) fallirebbero: per
 // questo la creazione del progetto usa il fallback manuale del wizard.
 test("crea un account git dalla UI (Settings → Account Git)", async () => {
+  // La sidebar porta a /settings, che reindirizza alla sotto-pagina Account.
   await page.getByRole("link", { name: /settings/i }).click();
+  await expect(page).toHaveURL(/\/settings\/account$/);
+  // "Account Git" è una sotto-pagina: la si raggiunge dalla sotto-navigazione.
+  const settingsNav = page.getByRole("navigation", { name: /impostazioni/i });
+  await settingsNav.getByRole("link", { name: "Account Git" }).click();
   await expect(page.getByRole("heading", { name: "Account Git" })).toBeVisible();
 
   await page.getByRole("button", { name: /nuovo account git/i }).click();

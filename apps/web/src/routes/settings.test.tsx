@@ -6,9 +6,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "../router";
 
 /**
- * Pagina impostazioni: dati dell'account corrente e, per gli admin, le regole
- * di automazione AI. La gestione degli accessi (membri e inviti) è nella
- * pagina Team.
+ * Impostazioni: ora suddivise in sotto-pagine sotto /settings con una
+ * sotto-navigazione. /settings/account è per tutti; automazione AI, notifiche e
+ * account git sono solo per gli admin. La gestione degli accessi (membri e
+ * inviti) vive nella pagina Team.
  */
 
 const DEFAULT_AUTOMATION = {
@@ -61,12 +62,26 @@ function mockApi(handlers: Record<string, Handler>) {
   });
 }
 
-function renderSettings() {
+function adminBase(notifications: Record<string, unknown> = DEFAULT_NOTIFICATIONS) {
+  return {
+    "GET /api/auth/me": () =>
+      jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" } }),
+    "GET /api/settings/automation": () => jsonResponse(200, DEFAULT_AUTOMATION),
+    "GET /api/settings/notifications": () => jsonResponse(200, notifications),
+    "GET /api/git-accounts": () => jsonResponse(200, []),
+  } satisfies Record<string, Handler>;
+}
+
+function memberBase() {
+  return {
+    "GET /api/auth/me": () =>
+      jsonResponse(200, { user: { id: "u2", email: "bea@example.com", role: "member" } }),
+  } satisfies Record<string, Handler>;
+}
+
+function renderAt(path: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const router = createAppRouter(
-    queryClient,
-    createMemoryHistory({ initialEntries: ["/settings"] }),
-  );
+  const router = createAppRouter(queryClient, createMemoryHistory({ initialEntries: [path] }));
   render(
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
@@ -75,63 +90,71 @@ function renderSettings() {
   return router;
 }
 
-describe("impostazioni", () => {
-  it("admin: mostra email e ruolo dell'account, niente gestione inviti", async () => {
-    mockApi({
-      "GET /api/auth/me": () =>
-        jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" } }),
-      "GET /api/settings/automation": () => jsonResponse(200, DEFAULT_AUTOMATION),
-      "GET /api/settings/notifications": () => jsonResponse(200, DEFAULT_NOTIFICATIONS),
-      // La sezione "Account Git" (solo admin) carica gli account.
-      "GET /api/git-accounts": () => jsonResponse(200, []),
-    });
+describe("impostazioni: routing e sotto-navigazione", () => {
+  it("/settings reindirizza a /settings/account", async () => {
+    mockApi(adminBase());
+    const router = renderAt("/settings");
 
-    renderSettings();
+    expect(await screen.findByRole("heading", { name: "Account" })).toBeInTheDocument();
+    await waitFor(() => expect(router.state.location.pathname).toBe("/settings/account"));
+  });
 
-    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+  it("admin: la sotto-nav mostra tutte e quattro le voci", async () => {
+    mockApi(adminBase());
+    renderAt("/settings/account");
+
+    const nav = await screen.findByRole("navigation", { name: /impostazioni/i });
+    const scope = within(nav);
+    expect(scope.getByRole("link", { name: "Account" })).toBeInTheDocument();
+    expect(scope.getByRole("link", { name: "Automazione AI" })).toBeInTheDocument();
+    expect(scope.getByRole("link", { name: "Notifiche" })).toBeInTheDocument();
+    expect(scope.getByRole("link", { name: "Account Git" })).toBeInTheDocument();
+  });
+
+  it("member: la sotto-nav mostra solo Account", async () => {
+    mockApi(memberBase());
+    renderAt("/settings/account");
+
+    const nav = await screen.findByRole("navigation", { name: /impostazioni/i });
+    const scope = within(nav);
+    expect(scope.getByRole("link", { name: "Account" })).toBeInTheDocument();
+    expect(scope.queryByRole("link", { name: "Automazione AI" })).not.toBeInTheDocument();
+    expect(scope.queryByRole("link", { name: "Notifiche" })).not.toBeInTheDocument();
+    expect(scope.queryByRole("link", { name: "Account Git" })).not.toBeInTheDocument();
+  });
+});
+
+describe("impostazioni: /settings/account", () => {
+  it("admin: mostra email e ruolo, niente gestione inviti", async () => {
+    mockApi(adminBase());
+    renderAt("/settings/account");
+
+    expect(await screen.findByRole("heading", { name: "Account" })).toBeInTheDocument();
     // L'email compare nel pannello account (oltre che nella sidebar).
     expect(screen.getAllByText("ada@example.com").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("Admin")).toBeInTheDocument();
     // La gestione degli inviti è migrata nella pagina Team.
     expect(screen.queryByRole("button", { name: "Crea invito" })).not.toBeInTheDocument();
-    // La sezione "Account Git" è presente per gli admin.
-    expect(screen.getByRole("heading", { name: "Account Git" })).toBeInTheDocument();
   });
 
-  it("member: pannello account con ruolo Member, niente sezione Automazione AI", async () => {
-    mockApi({
-      "GET /api/auth/me": () =>
-        jsonResponse(200, { user: { id: "u2", email: "bea@example.com", role: "member" } }),
-    });
-
-    renderSettings();
+  it("member: pannello account con ruolo Member", async () => {
+    mockApi(memberBase());
+    renderAt("/settings/account");
 
     expect(await screen.findByText("Member")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Crea invito" })).not.toBeInTheDocument();
-    // La sezione automazione è riservata agli admin.
-    expect(screen.queryByText("Automazione AI")).not.toBeInTheDocument();
-    // Anche la sezione "Account Git" è riservata agli admin.
-    expect(screen.queryByRole("heading", { name: "Account Git" })).not.toBeInTheDocument();
+    // L'email compare nel pannello account (oltre che nella sidebar).
+    expect(screen.getAllByText("bea@example.com").length).toBeGreaterThanOrEqual(2);
   });
 });
 
-describe("automazione AI (admin)", () => {
+describe("impostazioni: /settings/automation (admin)", () => {
   it("rende le 4 regole con toggle e soglia di sforzo", async () => {
-    mockApi({
-      "GET /api/auth/me": () =>
-        jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" } }),
-      "GET /api/settings/automation": () => jsonResponse(200, DEFAULT_AUTOMATION),
-      "GET /api/settings/notifications": () => jsonResponse(200, DEFAULT_NOTIFICATIONS),
-      // La sezione "Account Git" (solo admin) carica gli account.
-      "GET /api/git-accounts": () => jsonResponse(200, []),
-    });
+    mockApi(adminBase());
+    renderAt("/settings/automation");
 
-    renderSettings();
-
-    const heading = await screen.findByText("Automazione AI");
+    const heading = await screen.findByRole("heading", { name: "Automazione AI" });
     const section = heading.closest("section") as HTMLElement;
     const scope = within(section);
-    // Un toggle e una soglia per ciascuno dei 4 tipi.
     expect(scope.getByLabelText("Auto-fix bug")).toBeChecked();
     expect(scope.getByLabelText("Auto-fix feature")).not.toBeChecked();
     expect((scope.getByLabelText("Soglia effort task") as HTMLSelectElement).value).toBe("2");
@@ -140,11 +163,7 @@ describe("automazione AI (admin)", () => {
   it("salva tutte le regole via PUT e mostra la conferma", async () => {
     let putBody: unknown = null;
     mockApi({
-      "GET /api/auth/me": () =>
-        jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" } }),
-      "GET /api/settings/automation": () => jsonResponse(200, DEFAULT_AUTOMATION),
-      "GET /api/settings/notifications": () => jsonResponse(200, DEFAULT_NOTIFICATIONS),
-      "GET /api/git-accounts": () => jsonResponse(200, []),
+      ...adminBase(),
       "PUT /api/settings/automation": (_url, init) => {
         putBody = JSON.parse(String(init?.body));
         return jsonResponse(200, {
@@ -155,44 +174,58 @@ describe("automazione AI (admin)", () => {
       },
     });
 
-    renderSettings();
+    renderAt("/settings/automation");
 
     const toggle = (await screen.findByLabelText("Auto-fix bug")) as HTMLInputElement;
     await userEvent.click(toggle); // bug: true → false
-    // Scope al pannello Automazione: la pagina ha più pulsanti "Salva".
-    const autoSection = (await screen.findByText("Automazione AI")).closest(
-      "section",
-    ) as HTMLElement;
-    await userEvent.click(within(autoSection).getByRole("button", { name: "Salva" }));
+    await userEvent.click(screen.getByRole("button", { name: "Salva" }));
 
     await waitFor(() => expect(putBody).not.toBeNull());
     const body = putBody as { rules: { type: string; autoFix: boolean }[] };
     expect(body.rules.find((r) => r.type === "bug")?.autoFix).toBe(false);
-    // Conferma di salvataggio.
-    expect(await within(autoSection).findByText("Salvato")).toBeInTheDocument();
+    expect(await screen.findByText("Salvato")).toBeInTheDocument();
+  });
+
+  it("member: non raggiunge la rotta admin, viene rimandato ad account", async () => {
+    mockApi(memberBase());
+    const router = renderAt("/settings/automation");
+
+    expect(await screen.findByText("Member")).toBeInTheDocument();
+    await waitFor(() => expect(router.state.location.pathname).toBe("/settings/account"));
+    expect(screen.queryByText("Automazione AI")).not.toBeInTheDocument();
   });
 });
 
-describe("notifiche (admin)", () => {
-  function mockAdminBase(notifications: Record<string, unknown> = DEFAULT_NOTIFICATIONS) {
-    return {
-      "GET /api/auth/me": () =>
-        jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" } }),
-      "GET /api/settings/automation": () => jsonResponse(200, DEFAULT_AUTOMATION),
-      "GET /api/settings/notifications": () => jsonResponse(200, notifications),
-      "GET /api/git-accounts": () => jsonResponse(200, []),
-    } satisfies Record<string, Handler>;
-  }
+describe("impostazioni: /settings/git-accounts (admin)", () => {
+  it("admin: rende la sezione Account Git", async () => {
+    mockApi(adminBase());
+    renderAt("/settings/git-accounts");
 
+    expect(await screen.findByRole("heading", { name: "Account Git" })).toBeInTheDocument();
+  });
+
+  it("member: non raggiunge la rotta admin, viene rimandato ad account", async () => {
+    mockApi(memberBase());
+    const router = renderAt("/settings/git-accounts");
+
+    expect(await screen.findByText("Member")).toBeInTheDocument();
+    await waitFor(() => expect(router.state.location.pathname).toBe("/settings/account"));
+    expect(screen.queryByRole("heading", { name: "Account Git" })).not.toBeInTheDocument();
+  });
+});
+
+describe("impostazioni: /settings/notifications (admin)", () => {
   function notificationsSection(): HTMLElement {
-    return (screen.getByText("Notifiche").closest("section") as HTMLElement) ?? document.body;
+    // "Notifiche" compare anche nella sotto-nav: ci si àncora all'h2 della sezione.
+    const heading = screen.getByRole("heading", { name: "Notifiche" });
+    return (heading.closest("section") as HTMLElement) ?? document.body;
   }
 
   it("rende la sezione con master switch, URL, formato e toggle per-evento", async () => {
-    mockApi(mockAdminBase());
-    renderSettings();
+    mockApi(adminBase());
+    renderAt("/settings/notifications");
 
-    const heading = await screen.findByText("Notifiche");
+    const heading = await screen.findByRole("heading", { name: "Notifiche" });
     const scope = within(heading.closest("section") as HTMLElement);
     expect(scope.getByLabelText("Abilitate")).toBeChecked();
     expect(scope.getByLabelText("URL webhook")).toBeInTheDocument();
@@ -206,7 +239,7 @@ describe("notifiche (admin)", () => {
   it("salva via PUT con i valori del form", async () => {
     let putBody: unknown = null;
     mockApi({
-      ...mockAdminBase(),
+      ...adminBase(),
       "PUT /api/settings/notifications": (_url, init) => {
         putBody = JSON.parse(String(init?.body));
         return jsonResponse(200, {
@@ -216,9 +249,9 @@ describe("notifiche (admin)", () => {
         });
       },
     });
-    renderSettings();
+    renderAt("/settings/notifications");
 
-    await screen.findByText("Notifiche");
+    await screen.findByRole("heading", { name: "Notifiche" });
     const scope = within(notificationsSection());
     await userEvent.type(scope.getByLabelText("URL webhook"), "https://hooks.example.com/x");
     await userEvent.selectOptions(scope.getByLabelText("Formato"), "discord");
@@ -233,13 +266,13 @@ describe("notifiche (admin)", () => {
 
   it("il pulsante di test chiama l'API e mostra l'esito ok", async () => {
     mockApi({
-      ...mockAdminBase({ ...DEFAULT_NOTIFICATIONS, webhookUrl: "https://hooks.example.com/x" }),
+      ...adminBase({ ...DEFAULT_NOTIFICATIONS, webhookUrl: "https://hooks.example.com/x" }),
       "POST /api/settings/notifications/test": () =>
         jsonResponse(200, { ok: true, detail: "Notifica di test inviata correttamente." }),
     });
-    renderSettings();
+    renderAt("/settings/notifications");
 
-    await screen.findByText("Notifiche");
+    await screen.findByRole("heading", { name: "Notifiche" });
     const scope = within(notificationsSection());
     await userEvent.click(scope.getByRole("button", { name: "Invia notifica di test" }));
 
@@ -248,13 +281,13 @@ describe("notifiche (admin)", () => {
 
   it("il pulsante di test mostra l'errore quando il webhook fallisce", async () => {
     mockApi({
-      ...mockAdminBase({ ...DEFAULT_NOTIFICATIONS, webhookUrl: "https://hooks.example.com/x" }),
+      ...adminBase({ ...DEFAULT_NOTIFICATIONS, webhookUrl: "https://hooks.example.com/x" }),
       "POST /api/settings/notifications/test": () =>
         jsonResponse(200, { ok: false, detail: "Il webhook ha risposto con stato 500." }),
     });
-    renderSettings();
+    renderAt("/settings/notifications");
 
-    await screen.findByText("Notifiche");
+    await screen.findByRole("heading", { name: "Notifiche" });
     const scope = within(notificationsSection());
     await userEvent.click(scope.getByRole("button", { name: "Invia notifica di test" }));
 
@@ -262,65 +295,55 @@ describe("notifiche (admin)", () => {
   });
 
   it("mostra la guida di setup giusta e cambia col formato", async () => {
-    mockApi(mockAdminBase());
-    renderSettings();
+    mockApi(adminBase());
+    renderAt("/settings/notifications");
 
-    await screen.findByText("Notifiche");
+    await screen.findByRole("heading", { name: "Notifiche" });
     const scope = within(notificationsSection());
 
-    // Default Slack: la guida "Come configurare" (collassata) si apre e mostra
-    // i passi specifici di Slack con il link a api.slack.com/apps.
     await userEvent.click(scope.getByRole("button", { name: /Come configurare/i }));
     expect(scope.getByText(/api\.slack\.com\/apps/i)).toBeInTheDocument();
 
-    // Cambiando formato a Discord, la guida passa ai passi del canale Discord.
     await userEvent.selectOptions(scope.getByLabelText("Formato"), "discord");
     expect(scope.getByText(/Impostazioni del canale/i)).toBeInTheDocument();
     expect(scope.queryByText(/api\.slack\.com\/apps/i)).not.toBeInTheDocument();
 
-    // Generico: documenta lo schema del payload (campi event/ticketNumber…).
     await userEvent.selectOptions(scope.getByLabelText("Formato"), "generic");
     expect(scope.getByText(/Content-Type: application\/json/i)).toBeInTheDocument();
     expect(scope.getByText("event")).toBeInTheDocument();
   });
 
   it("l'anteprima dal vivo rende il messaggio per ogni formato", async () => {
-    mockApi(mockAdminBase());
-    renderSettings();
+    mockApi(adminBase());
+    renderAt("/settings/notifications");
 
-    await screen.findByText("Notifiche");
+    await screen.findByRole("heading", { name: "Notifiche" });
     const scope = within(notificationsSection());
 
-    // Slack: l'anteprima mostra il testo mrkdwn (con il link <url|label>).
     const slackPreview = scope.getByTestId("notification-preview");
     expect(slackPreview.textContent).toContain("PR aperta");
     expect(slackPreview.textContent).toContain("|Vedi PR>");
 
-    // Discord: stesso evento, ma link in stile markdown [label](url).
     await userEvent.selectOptions(scope.getByLabelText("Formato"), "discord");
     expect(scope.getByTestId("notification-preview").textContent).toContain("[Vedi PR](");
 
-    // Generico: pretty-print del JSON che riceverà l'endpoint.
     await userEvent.selectOptions(scope.getByLabelText("Formato"), "generic");
     const genericPreview = scope.getByTestId("notification-preview");
     expect(genericPreview.textContent).toContain('"event": "job.pr_opened"');
     expect(genericPreview.textContent).toContain('"prUrl"');
 
-    // Il selettore d'evento cambia l'anteprima (es. "Nuovo ticket").
     await userEvent.click(scope.getByRole("button", { name: "Nuovo ticket" }));
     expect(scope.getByTestId("notification-preview").textContent).toContain(
       '"event": "ticket.created"',
     );
   });
 
-  it("member: niente sezione Notifiche", async () => {
-    mockApi({
-      "GET /api/auth/me": () =>
-        jsonResponse(200, { user: { id: "u2", email: "bea@example.com", role: "member" } }),
-    });
-    renderSettings();
+  it("member: non raggiunge la rotta admin, viene rimandato ad account", async () => {
+    mockApi(memberBase());
+    const router = renderAt("/settings/notifications");
 
-    await screen.findByText("Member");
+    expect(await screen.findByText("Member")).toBeInTheDocument();
+    await waitFor(() => expect(router.state.location.pathname).toBe("/settings/account"));
     expect(screen.queryByText("Notifiche")).not.toBeInTheDocument();
   });
 });
