@@ -10,6 +10,7 @@ import {
 } from "../lib/api";
 import { gitAccountsQueryOptions } from "../lib/queries";
 import { ProviderBadge } from "./badges";
+import { BranchSelect } from "./branch-select";
 import { CredentialChecks } from "./credential-fields";
 import { FormError, SelectField, SubmitButton, TextField } from "./field";
 
@@ -86,14 +87,6 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
   const manualMode = reposQuery.isError;
 
   const repoUrl = manualMode ? manualRepoUrl.trim() : (selectedRepo?.cloneUrl ?? "");
-  const branches = branchesQuery.data?.branches ?? [];
-  // Il branch scelto potrebbe non essere nell'elenco (preselezione del repo):
-  // lo si include comunque come opzione per non perderlo.
-  const branchOptions = useMemo(() => {
-    const set = new Set(branches);
-    if (branch) set.add(branch);
-    return [...set];
-  }, [branches, branch]);
 
   // Nome completo del repo da verificare: dal picker (fullName) o, in fallback
   // manuale, ricavato dall'URL (gli ultimi due segmenti, senza .git).
@@ -290,35 +283,19 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
 
       {!manualMode && selectedRepo && (
         <Step label="Branch di default">
-          {branchesQuery.isLoading ? (
-            <p className="font-mono text-[12px] text-fg-faint">// caricamento branch…</p>
-          ) : branchesQuery.isError ? (
-            <>
-              <p
-                role="alert"
-                className="mb-3 rounded-sm border border-danger/30 bg-danger/10 px-3 py-2 font-mono text-[12px] text-danger"
-              >
-                {branchesQuery.error instanceof Error
-                  ? branchesQuery.error.message
-                  : "Impossibile elencare i branch"}
-              </p>
-              <TextField
-                id="wizard-branch-manual"
-                label="Branch di default"
-                required
-                value={branch}
-                onChange={(event) => setBranch(event.target.value)}
-              />
-            </>
-          ) : (
-            <SelectField
-              id="wizard-branch"
-              label="Branch di default"
-              value={branch}
-              onChange={(event) => setBranch(event.target.value)}
-              options={branchOptions.map((b) => ({ value: b, label: b }))}
-            />
-          )}
+          {/*
+            Stesso componente del form di modifica: select dei branch via API,
+            con fallback a input testuale su errore. Il branch è già
+            preselezionato dal defaultBranch del repo scelto (vedi l'effetto
+            sopra), quindi BranchSelect non lo sovrascrive.
+          */}
+          <BranchSelect
+            id="wizard-branch"
+            accountId={accountId}
+            repoFullName={selectedRepo.fullName}
+            value={branch}
+            onChange={setBranch}
+          />
         </Step>
       )}
 

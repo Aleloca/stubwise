@@ -50,3 +50,24 @@ export function formatTokens(value: number): string {
 export function formatCostUsd(value: number): string {
   return `$${value.toFixed(4)}`;
 }
+
+/**
+ * Ricava `owner/repo` da un URL repository (`https://host/owner/repo[.git][/]`):
+ * prende gli ultimi due segmenti del path, toglie `.git` e l'eventuale slash
+ * finale. Ritorna `null` se l'URL non è parsabile o non ha abbastanza segmenti
+ * — il chiamante può così degradare a un inserimento manuale.
+ */
+export function deriveFullName(repoUrl: string): string | null {
+  const trimmed = repoUrl.trim();
+  if (trimmed === "") return null;
+  try {
+    const segments = new URL(trimmed).pathname.split("/").filter((s) => s.length > 0);
+    if (segments.length < 2) return null;
+    const owner = segments[segments.length - 2]!;
+    const repo = segments[segments.length - 1]!.replace(/\.git$/, "");
+    if (owner === "" || repo === "") return null;
+    return `${owner}/${repo}`;
+  } catch {
+    return null;
+  }
+}

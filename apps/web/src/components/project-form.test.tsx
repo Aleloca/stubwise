@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GitAccount } from "../lib/api";
@@ -56,12 +56,29 @@ const initial = {
   gitAccountId: ACCOUNT_A.id,
 };
 
-function mockAccounts(accounts: GitAccount[]) {
+type Handler = (url: URL) => Response;
+
+function mockApi(handlers: Record<string, Handler>) {
   fetchMock.mockImplementation((input) => {
     const raw = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     const url = new URL(raw, "http://test.local");
-    if (url.pathname === "/api/git-accounts") return Promise.resolve(jsonResponse(200, accounts));
-    throw new Error(`fetch non mockata per ${raw}`);
+    const handler = handlers[url.pathname];
+    if (!handler) throw new Error(`fetch non mockata per ${raw}`);
+    return Promise.resolve(handler(url));
+  });
+}
+
+/**
+ * Mock di base: account git + elenco branch del repo (popola il BranchSelect).
+ * `repoUrl` iniziale → acme/demo-shop, da cui il form ricava owner/repo.
+ */
+function mockAccounts(accounts: GitAccount[]) {
+  mockApi({
+    "/api/git-accounts": () => jsonResponse(200, accounts),
+    [`/api/git-accounts/${ACCOUNT_A.id}/branches`]: () =>
+      jsonResponse(200, { branches: ["main", "develop"], defaultBranch: "main" }),
+    [`/api/git-accounts/${ACCOUNT_B.id}/branches`]: () =>
+      jsonResponse(200, { branches: ["main", "develop"], defaultBranch: "main" }),
   });
 }
 
@@ -72,8 +89,13 @@ async function renderForm(props: { onSubmit: (values: unknown) => Promise<void> 
       <ProjectForm initial={initial} onSubmit={props.onSubmit as never} />
     </QueryClientProvider>,
   );
-  // Attende che la suspense risolva (gli account sono caricati).
+  // Attende che la suspense risolva (gli account sono caricati) e che il
+  // BranchSelect abbia caricato i branch (passa da "caricamento" al select).
   await screen.findByLabelText("Nome");
+  await waitFor(() => {
+    const branch = screen.getByLabelText("Branch di default");
+    expect(branch.tagName).toBe("SELECT");
+  });
 }
 
 describe("ProjectForm in modifica", () => {
@@ -140,5 +162,38 @@ describe("ProjectForm in modifica", () => {
     await user.click(screen.getByRole("button", { name: "Salva modifiche" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Vietato");
+  });
+
+  it("con account e repoUrl validi il branch è una SELECT popolata dall'API", async () => {
+    mockApi({
+      "/api/git-accounts": () => jsonResponse(200, [ACCOUNT_A]),
+      [`/api/git-accounts/${ACCOUNT_A.id}/branches`]: () =>
+        jsonResponse(200, { branches: ["main", "develop", "release"], defaultBranch: "main" }),
+    });
+    await renderForm({ onSubmit: vi.fn() });
+
+    const branch = screen.getByLabelText("Branch di default");
+    expect(branch.tagName).toBe("SELECT");
+    expect(branch).toHaveValue("main");
+    // L'elenco arriva dall'API; "release" è una delle opzioni.
+    expect(screen.getByRole("option", { name: "release" })).toBeInTheDocument();
+  });
+
+  it("se l'elenco dei branch fallisce ricade su un input testuale", async () => {
+    mockApi({
+      "/api/git-accounts": () => jsonResponse(200, [ACCOUNT_A]),
+      [`/api/git-accounts/${ACCOUNT_A.id}/branches`]: () =>
+        jsonResponse(422, { message: "scope branch mancante" }),
+    });
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectForm initial={initial} onSubmit={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    const branch = await screen.findByLabelText("Branch di default");
+    await waitFor(() => expect(branch.tagName).toBe("INPUT"));
+    expect(branch).toHaveValue("main");
   });
 });

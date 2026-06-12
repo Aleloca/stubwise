@@ -1,7 +1,9 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import type { ProjectPatch } from "../lib/api";
+import { deriveFullName } from "../lib/format";
 import { gitAccountsQueryOptions } from "../lib/queries";
+import { BranchSelect } from "./branch-select";
 import { FormError, SelectField, SubmitButton, TextField } from "./field";
 
 interface ProjectInitialValues {
@@ -78,12 +80,17 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
         onChange={(event) => setRepoUrl(event.target.value)}
       />
 
-      <TextField
+      {/*
+        Branch via API dell'account collegato. Il repoUrl (anche se modificato a
+        mano) viene tradotto in owner/repo; se non parsabile, BranchSelect
+        degrada a input testuale così l'utente non resta bloccato.
+      */}
+      <BranchSelect
         id="project-default-branch"
-        label="Branch di default"
-        required
+        accountId={gitAccountId}
+        repoFullName={deriveFullName(repoUrl) ?? undefined}
         value={defaultBranch}
-        onChange={(event) => setDefaultBranch(event.target.value)}
+        onChange={setDefaultBranch}
       />
 
       <SelectField
