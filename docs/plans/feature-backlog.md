@@ -1,0 +1,40 @@
+# Stubwise — Backlog funzionalità future
+
+Idee di funzionalità valutate dopo la prima fase di sviluppo + deploy in produzione (giugno 2026). Ordinate per area, con una nota di valore/priorità. Da referenziare quando si pianifica il prossimo lavoro.
+
+## 1. Rendere l'AI più affidabile e "fidabile" (il differenziatore principale)
+
+- **Notifiche** (email / Slack / webhook). Oggi l'AI apre una PR e nessuno lo sa finché non guarda la UI. Eventi tipici: ticket assegnato, PR aperta sul ticket, job AI fallito, job in attesa. **Priorità più alta.** → *In sviluppo come prima feature.*
+- **Human-in-the-loop sul piano**: per tipi/effort rischiosi, far produrre a Opus il piano e fermarsi in attesa di approvazione umana prima dell'esecuzione (estensione dello stato "held").
+- **Loop di feedback sulla PR**: gestire la **PR rifiutata/chiusa senza merge** (riapri ticket) e il **"ri-esegui con istruzioni"** (un umano commenta una guida e rilancia il fix incorporandola). Oggi gestiamo solo merge→done.
+- **Self-repair**: se il fix produce un diff ma i test falliscono, loop limitato di auto-correzione invece del fallimento conservativo attuale.
+- **Budget/guardrail di costo**: tetti di spesa (per ticket/periodo) con stop/alert, sfruttando il tracking costi già presente.
+
+## 2. Essere un vero tracker da team
+
+- **Ricerca full-text** su titolo + body + commenti (oggi solo filtro ILIKE sul titolo).
+- **Cronologia/audit** delle azioni umane (chi ha cambiato cosa), oltre alla timeline AI.
+- **Relazioni tra ticket** (blocca / relativo / sotto-task).
+- **Allegati/screenshot** (lo screenshot del feedback SDK non è ancora salvato/mostrato).
+- **Editor markdown ricco** per body e commenti.
+- **Milestone / viste salvate** (gli sprint erano stati esclusi dal v1; valutare milestone leggere).
+
+## 3. Visione "confluire TUTTI i ticket di TUTTI i progetti"
+
+- **SDK per altri linguaggi** (PHP, Python). Oggi solo JS/TS: senza, i progetti non-JS non possono confluire nulla. Probabilmente l'investimento più allineato all'idea iniziale.
+- **Ingestion in entrata da fonti esterne**: email→ticket, GitHub Issues, Slack→ticket.
+- **Altri provider git**: GitLab / Gitea (l'interfaccia `GitProvider` è già pronta) — utile per l'adozione open-source.
+
+## 4. Operativo / analytics
+
+- **Dashboard metriche**: tasso di successo dei fix, costo medio, % auto-fix vs "in attesa", tempo medio — per tarare le soglie di automazione.
+- **Vista job falliti** con motivo + re-run di gruppo.
+- **Scaling multi-worker** (oggi worker singolo con lock in-process): coda distribuita se serve throughput.
+- **Quota/rate AI per progetto**: evitare che un progetto rumoroso saturi capacità/budget.
+
+---
+
+**Le tre da fare per prime (raccomandazione iniziale):**
+1. Notifiche → *partiti da qui.*
+2. Loop di feedback AI (rifiuto PR + ri-esegui-con-istruzioni + approvazione piano).
+3. SDK PHP/Python (se ci sono progetti non-JS) oppure dashboard analytics.
