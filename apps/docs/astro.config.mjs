@@ -99,6 +99,10 @@ export default defineConfig({
           ],
         },
         {
+          label: "Notifiche",
+          items: [{ label: "Webhook in uscita", slug: "notifications" }],
+        },
+        {
           label: "Reference",
           items: [
             { label: "Variabili d'ambiente", slug: "reference/configuration" },
