@@ -68,7 +68,14 @@ services:
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
       MIRRORS_DIR: /var/stubwise/mirrors
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
-      WORKER_STALE_MINUTES: ${WORKER_STALE_MINUTES:-45}
+      # Deve superare l'invariante: con fix a due fasi serve > plan(10') +
+      # fix(30') + 2x triage(2') + margine(5') ~= 49'. Default 60.
+      WORKER_STALE_MINUTES: ${WORKER_STALE_MINUTES:-60}
+      # --- Fix a due fasi: opus pianifica (sola lettura), sonnet esegue ---
+      FIX_TWO_PHASE: ${FIX_TWO_PHASE:-true}
+      FIX_PLAN_MODEL: ${FIX_PLAN_MODEL:-opus}
+      FIX_EXECUTE_MODEL: ${FIX_EXECUTE_MODEL:-sonnet}
+      FIX_PLAN_TIMEOUT_MS: ${FIX_PLAN_TIMEOUT_MS:-600000}
       # --- Auth del CLI claude (scegli UNA delle due) ---
       # 1) Chiave API: la via piu semplice in produzione (passa l'allowlist).
       #    NIENTE default `:-`: con `${ANTHROPIC_API_KEY}` compose OMETTE la var
