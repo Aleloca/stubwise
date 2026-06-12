@@ -198,6 +198,48 @@ export class GitHubProvider implements GitProvider {
     return [gitCheck, prCheck, webhookCheck];
   }
 
+  async validateAccount(
+    p: AccountCredentials,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<CredentialCheck[]> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { token } = p.credentials;
+
+    const check = await this.probe(async () => {
+      const r = await fetchWithTimeout(fetchImpl, `${API_BASE}/user/repos?per_page=1`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
+      });
+      if (r.status === 200) {
+        return {
+          name: "Autenticazione e accesso repository",
+          ok: true,
+          detail: "token valido, accesso ai repository ok",
+        };
+      }
+      if (r.status === 401) {
+        return {
+          name: "Autenticazione e accesso repository",
+          ok: false,
+          detail: "token non valido (401)",
+        };
+      }
+      if (r.status === 403) {
+        return {
+          name: "Autenticazione e accesso repository",
+          ok: false,
+          detail: "accesso negato (403): verifica gli scope del token",
+        };
+      }
+      return {
+        name: "Autenticazione e accesso repository",
+        ok: false,
+        detail: `risposta inattesa (status ${r.status})`,
+      };
+    }, "Autenticazione e accesso repository");
+
+    return [check];
+  }
+
   async ensureWebhook(
     p: ProjectGitConfig,
     hook: { url: string; secret: string },

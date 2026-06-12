@@ -149,6 +149,19 @@ export interface GitProvider {
     opts?: { fetchImpl?: FetchLike }
   ): Promise<CredentialCheck[]>;
   /**
+   * Valida le credenziali a LIVELLO DI ACCOUNT (niente repo): verifica solo che
+   * il TOKEN autentichi e abbia accesso in lettura ai repository. Serve alla
+   * validazione di un account git non ancora collegato a un repo specifico (i
+   * check repo-specifici — push git / PR / webhook — vivono in
+   * validateCredentials e vengono eseguiti nel wizard dopo la scelta del repo).
+   * Come validateCredentials non lancia mai: ogni problema (rete inclusa)
+   * diventa un check con `ok: false`.
+   */
+  validateAccount(
+    credentials: AccountCredentials,
+    opts?: { fetchImpl?: FetchLike }
+  ): Promise<CredentialCheck[]>;
+  /**
    * Registra in modo idempotente il webhook PR-merged sul provider git usando
    * l'autenticazione REST (Bitbucket: email-o-username:token Basic; GitHub:
    * Bearer). Elenca i webhook esistenti, cerca quello con lo stesso target URL

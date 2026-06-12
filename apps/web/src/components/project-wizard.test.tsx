@@ -156,6 +156,46 @@ describe("ProjectWizard — flusso completo", () => {
     });
   });
 
+  it("il pulsante di verifica chiama validate-repo e mostra i 3 check", async () => {
+    const user = userEvent.setup();
+    let validatedRepo: string | null = null;
+    mockApi({
+      "GET /api/auth/me": meHandler(),
+      "GET /api/projects": () => jsonResponse(200, []),
+      "GET /api/git-accounts": () => jsonResponse(200, [ACCOUNT]),
+      "GET /api/git-accounts/11111111-1111-4111-8111-111111111111/repositories": () =>
+        jsonResponse(200, REPOS),
+      "GET /api/git-accounts/11111111-1111-4111-8111-111111111111/branches": () =>
+        jsonResponse(200, { branches: ["main", "develop"], defaultBranch: "main" }),
+      "GET /api/git-accounts/11111111-1111-4111-8111-111111111111/validate-repo": (url) => {
+        validatedRepo = url.searchParams.get("repo");
+        return jsonResponse(200, {
+          ok: false,
+          checks: [
+            { name: "Accesso git (push)", ok: true, detail: "push ok" },
+            { name: "Accesso REST API (PR)", ok: true, detail: "PR ok" },
+            { name: "Accesso webhook (config automatica)", ok: false, detail: "manca admin" },
+          ],
+        });
+      },
+    });
+
+    renderWizard();
+
+    await screen.findByText("acme/demo-shop");
+    await user.click(screen.getByRole("button", { name: /acme\/backoffice/ }));
+
+    await user.click(
+      await screen.findByRole("button", { name: /verifica accesso al repository/i }),
+    );
+
+    expect(await screen.findByText(/Accesso git \(push\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Accesso REST API \(PR\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Accesso webhook/)).toBeInTheDocument();
+    expect(screen.getByText(/manca admin/)).toBeInTheDocument();
+    expect(validatedRepo).toBe("acme/backoffice");
+  });
+
   it("filtra i repository con la ricerca", async () => {
     const user = userEvent.setup();
     mockApi({

@@ -496,6 +496,19 @@ export function postValidateGitAccount(id: string): Promise<ValidateCredentialsR
   return api.post(`/api/git-accounts/${id}/validate`);
 }
 
+/**
+ * Verifica REPO-SPECIFICA delle credenziali dell'account su un repo scelto
+ * (solo admin): sonda i tre check che richiedono un repo reale — push git,
+ * REST/PR e webhook. Advisory nel wizard: anche se rossa non blocca la
+ * creazione del progetto (la config webhook è opzionale).
+ */
+export function getValidateAccountRepo(
+  id: string,
+  repoFullName: string,
+): Promise<ValidateCredentialsResult> {
+  return api.get(`/api/git-accounts/${id}/validate-repo?repo=${encodeURIComponent(repoFullName)}`);
+}
+
 /** Elenca i repository accessibili dall'account git (solo admin). */
 export function getAccountRepositories(id: string): Promise<RepoSummary[]> {
   return api.get(`/api/git-accounts/${id}/repositories`);

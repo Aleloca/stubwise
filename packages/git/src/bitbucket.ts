@@ -235,6 +235,64 @@ export class BitbucketProvider implements GitProvider {
     return [gitCheck, restCheck, webhookCheck];
   }
 
+  async validateAccount(
+    p: AccountCredentials,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<CredentialCheck[]> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { username, email, token } = p.credentials;
+
+    // Identità REST = email Atlassian (gli API token autenticano su
+    // api.bitbucket.org come email, non come username); fallback su username
+    // per le app password legacy.
+    const restUser = email ?? username;
+    if (!restUser) {
+      return [
+        {
+          name: "Autenticazione e accesso repository",
+          ok: false,
+          detail: "email Atlassian (o username legacy) mancante",
+        },
+      ];
+    }
+
+    const check = await this.probe("Autenticazione e accesso repository", async () => {
+      const r = await fetchWithTimeout(
+        fetchImpl,
+        "https://api.bitbucket.org/2.0/repositories?role=member&pagelen=1",
+        { headers: { Authorization: basicAuthHeader(restUser, token) } }
+      );
+      if (r.status === 200) {
+        return {
+          name: "Autenticazione e accesso repository",
+          ok: true,
+          detail: "token valido, accesso ai repository ok",
+        };
+      }
+      if (r.status === 401) {
+        return {
+          name: "Autenticazione e accesso repository",
+          ok: false,
+          detail: "autenticazione fallita (401): verifica email Atlassian e token",
+        };
+      }
+      if (r.status === 403) {
+        return {
+          name: "Autenticazione e accesso repository",
+          ok: false,
+          detail: "manca lo scope repository (read)",
+        };
+      }
+      return {
+        name: "Autenticazione e accesso repository",
+        ok: false,
+        detail: `risposta inattesa (status ${r.status})`,
+      };
+    });
+
+    return [check];
+  }
+
   async ensureWebhook(
     p: ProjectGitConfig,
     hook: { url: string; secret: string },

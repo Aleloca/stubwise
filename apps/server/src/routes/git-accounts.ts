@@ -62,6 +62,7 @@ const branchesResponseSchema = z.object({
 
 const repositoriesQuerySchema = z.object({});
 const branchesQuerySchema = z.object({ repo: z.string().min(1) });
+const validateRepoQuerySchema = z.object({ repo: z.string().min(1) });
 
 type GitAccountRow = typeof gitAccounts.$inferSelect;
 
@@ -221,8 +222,10 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
     },
   );
 
-  // Validazione delle credenziali memorizzate (solo admin): decifra e controlla
-  // via HTTPS che autentichino e abbiano gli scope per push git + PR + webhook.
+  // Validazione delle credenziali memorizzate (solo admin) a LIVELLO DI ACCOUNT:
+  // decifra e controlla via HTTPS che il token autentichi e abbia accesso in
+  // lettura ai repository. I check repo-specifici (push git / PR / webhook su un
+  // repo) vivono in /validate-repo, eseguiti nel wizard dopo la scelta del repo.
   app.post(
     "/:id/validate",
     {
@@ -246,15 +249,45 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
         return reply.code(400).send({ message: "credenziali dell'account non decifrabili" });
       }
 
-      // validateCredentials sonda il repo via info/refs e REST: senza un repo
-      // memorizzato sull'account, usiamo un repo "placeholder" sull'host del
-      // provider giusto. NB: i check git/repo richiedono un repo reale, quindi
-      // un account valido può comunque mostrare check rossi finché non lo si
-      // collega a un repo; serve a una verifica rapida dell'autenticazione.
-      const repoUrl =
-        row.provider === "bitbucket"
-          ? "https://bitbucket.org/_/_"
-          : "https://github.com/_/_";
+      const checks = await getProvider(row.provider).validateAccount(
+        { provider: row.provider, credentials },
+        { fetchImpl: fetch },
+      );
+      return { ok: checks.every((c) => c.ok), checks };
+    },
+  );
+
+  // Verifica REPO-SPECIFICA (solo admin): sonda i tre check che richiedono un
+  // repo reale (push git, REST/PR, webhook) su un repo scelto (query `repo` =
+  // "workspace/slug" o "owner/repo"). È advisory: la usa il wizard dopo la
+  // scelta del repo, prima di creare il progetto (anche se rossa non blocca).
+  app.get(
+    "/:id/validate-repo",
+    {
+      preHandler: requireAdmin,
+      schema: {
+        params: idParamsSchema,
+        querystring: validateRepoQuerySchema,
+        response: { 200: validateResponseSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const [row] = await app.db
+        .select()
+        .from(gitAccounts)
+        .where(eq(gitAccounts.id, request.params.id));
+      if (!row) return reply.code(404).send({ message: "Account git non trovato" });
+
+      let credentials: z.infer<typeof gitCredentialsSchema>;
+      try {
+        credentials = decryptAccountCredentials(row, app.encryptionKey);
+      } catch {
+        return reply.code(400).send({ message: "credenziali dell'account non decifrabili" });
+      }
+
+      // Ricostruisce il repoUrl dall'host del provider + fullName.
+      const host = row.provider === "bitbucket" ? "bitbucket.org" : "github.com";
+      const repoUrl = `https://${host}/${request.query.repo}`;
       const checks = await getProvider(row.provider).validateCredentials(
         { repoUrl, defaultBranch: "main", credentials },
         { fetchImpl: fetch },

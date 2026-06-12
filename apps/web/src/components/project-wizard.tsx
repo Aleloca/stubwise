@@ -1,14 +1,16 @@
-import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   getAccountBranches,
   getAccountRepositories,
+  getValidateAccountRepo,
   type ProjectDraft,
   type RepoSummary,
 } from "../lib/api";
 import { gitAccountsQueryOptions } from "../lib/queries";
 import { ProviderBadge } from "./badges";
+import { CredentialChecks } from "./credential-fields";
 import { FormError, SelectField, SubmitButton, TextField } from "./field";
 
 interface ProjectWizardProps {
@@ -61,14 +63,6 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
     staleTime: 30_000,
   });
 
-  // Cambiando account si azzera la scelta repo/branch: non avrebbero più senso.
-  useEffect(() => {
-    setSelectedRepo(null);
-    setSearch("");
-    setBranch("");
-    setManualRepoUrl("");
-  }, [accountId]);
-
   // Preseleziona il branch: defaultBranch del repo, o quello dichiarato
   // dall'API branches come fallback, appena disponibili.
   useEffect(() => {
@@ -100,6 +94,45 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
     if (branch) set.add(branch);
     return [...set];
   }, [branches, branch]);
+
+  // Nome completo del repo da verificare: dal picker (fullName) o, in fallback
+  // manuale, ricavato dall'URL (gli ultimi due segmenti, senza .git).
+  const repoFullName = useMemo(() => {
+    if (selectedRepo) return selectedRepo.fullName;
+    if (!manualMode || repoUrl === "") return null;
+    try {
+      const segments = new URL(repoUrl).pathname.split("/").filter((s) => s.length > 0);
+      if (segments.length < 2) return null;
+      const owner = segments[segments.length - 2]!;
+      const repo = segments[segments.length - 1]!.replace(/\.git$/, "");
+      return `${owner}/${repo}`;
+    } catch {
+      return null;
+    }
+  }, [selectedRepo, manualMode, repoUrl]);
+
+  // Verifica advisory dell'accesso al repo: i 3 check repo-specifici (push git /
+  // REST PR / webhook). NON blocca la creazione del progetto.
+  const repoCheck = useMutation({
+    mutationFn: (fullName: string) => getValidateAccountRepo(accountId, fullName),
+  });
+
+  // Cambiando account si azzera la scelta repo/branch e l'esito della verifica:
+  // non avrebbero più senso. (Definito dopo repoCheck per usarne reset.)
+  useEffect(() => {
+    setSelectedRepo(null);
+    setSearch("");
+    setBranch("");
+    setManualRepoUrl("");
+    // repoCheck.reset è stabile fra i render: azzera l'esito stantio.
+    repoCheck.reset();
+  }, [accountId]);
+
+  // L'esito della verifica è legato a un repo preciso: cambiando repo lo si
+  // azzera per non mostrare check di un altro repository.
+  useEffect(() => {
+    repoCheck.reset();
+  }, [repoFullName]);
 
   const canSubmit =
     name.trim() !== "" && accountId !== "" && repoUrl !== "" && branch.trim() !== "";
@@ -285,6 +318,36 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
               onChange={(event) => setBranch(event.target.value)}
               options={branchOptions.map((b) => ({ value: b, label: b }))}
             />
+          )}
+        </Step>
+      )}
+
+      {repoFullName && (
+        <Step label="Verifica accesso al repository">
+          <p className="mb-3 font-mono text-[11px] text-fg-faint">
+            // controllo advisory dei permessi sul repo (push git / PR / webhook).
+            <br />
+            // non blocca la creazione: la config del webhook è opzionale.
+          </p>
+          <button
+            type="button"
+            onClick={() => repoCheck.mutate(repoFullName)}
+            disabled={repoCheck.isPending}
+            className="rounded-sm border border-line-strong bg-ink-950/70 px-3 py-2 font-mono text-[12px] font-medium tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {repoCheck.isPending ? "Verifica…" : "Verifica accesso al repository"}
+          </button>
+          {repoCheck.isError && (
+            <p role="alert" className="mt-3 font-mono text-[12px] text-danger">
+              {repoCheck.error instanceof Error
+                ? repoCheck.error.message
+                : "Errore nella verifica del repository"}
+            </p>
+          )}
+          {repoCheck.data && (
+            <div className="mt-3">
+              <CredentialChecks result={repoCheck.data} />
+            </div>
           )}
         </Step>
       )}

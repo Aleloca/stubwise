@@ -280,6 +280,55 @@ describe("GitHubProvider.validateCredentials", () => {
   });
 });
 
+describe("GitHubProvider.validateAccount", () => {
+  const account: AccountCredentials = { provider: "github", credentials: { token: "ghp_secret" } };
+  const ACCOUNT_URL = "https://api.github.com/user/repos?per_page=1";
+
+  it("200: un solo check ok, con Bearer + Accept github", async () => {
+    const fetchImpl = vi.fn((input: string | URL, init?: RequestInit) => {
+      void input;
+      void init;
+      return Promise.resolve(jsonResponse([], 200));
+    });
+    const provider = new GitHubProvider();
+    const checks = await provider.validateAccount(account, { fetchImpl });
+
+    expect(checks).toHaveLength(1);
+    expect(checks[0]!.name).toBe("Autenticazione e accesso repository");
+    expect(checks[0]!.ok).toBe(true);
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(ACCOUNT_URL);
+    const headers = init.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe("Bearer ghp_secret");
+    expect(headers["Accept"]).toBe("application/vnd.github+json");
+  });
+
+  it("401: check fallito (token non valido)", async () => {
+    const fetchImpl = vi.fn(() => Promise.resolve(new Response("bad", { status: 401 })));
+    const provider = new GitHubProvider();
+    const checks = await provider.validateAccount(account, { fetchImpl });
+    expect(checks[0]!.ok).toBe(false);
+    expect(checks[0]!.detail).toMatch(/401/);
+  });
+
+  it("403: check fallito con messaggio sugli scope", async () => {
+    const fetchImpl = vi.fn(() => Promise.resolve(new Response("", { status: 403 })));
+    const provider = new GitHubProvider();
+    const checks = await provider.validateAccount(account, { fetchImpl });
+    expect(checks[0]!.ok).toBe(false);
+    expect(checks[0]!.detail).toMatch(/scope/i);
+  });
+
+  it("errore di rete: il check fallisce senza lanciare", async () => {
+    const fetchImpl = vi.fn(() => Promise.reject(new Error("network down")));
+    const provider = new GitHubProvider();
+    const checks = await provider.validateAccount(account, { fetchImpl });
+    expect(checks).toHaveLength(1);
+    expect(checks[0]!.ok).toBe(false);
+    expect(checks[0]!.detail).toMatch(/network down/);
+  });
+});
+
 describe("GitHubProvider.ensureWebhook", () => {
   const hook = { url: "https://stubwise.example.com/webhooks/git/demo", secret: "hmac-secret" };
   const LIST_URL = "https://api.github.com/repos/octo/repo/hooks";

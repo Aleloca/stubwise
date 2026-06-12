@@ -245,21 +245,22 @@ describe("POST /api/git-accounts/:id/validate", () => {
     vi.unstubAllGlobals();
   });
 
-  it("decifra le creds e restituisce i check (rete mockata)", async () => {
+  it("validazione a livello account: un singolo check (auth + repo-read)", async () => {
     const created = await createAccount({
       name: "Validabile",
       provider: "bitbucket",
       credentials: { username: "alice", email: "alice@corp.io", token: "api-token" },
     });
     const id = (created.json() as { id: string }).id;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: string) => {
-        if (input.includes("api.bitbucket.org")) return Promise.resolve(new Response("{}", { status: 200 }));
-        if (input.includes("info/refs")) return Promise.resolve(new Response("", { status: 200 }));
-        return Promise.resolve(new Response("", { status: 404 }));
-      }),
-    );
+    const fetchMock = vi.fn((input: string) => {
+      // Solo l'endpoint account-level repositories?role=member dovrebbe essere
+      // contattato (niente repo placeholder, niente info/refs).
+      if (input.includes("api.bitbucket.org/2.0/repositories?role=member")) {
+        return Promise.resolve(new Response("{}", { status: 200 }));
+      }
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
     const res = await app.inject({
       method: "POST",
       url: `/api/git-accounts/${id}/validate`,
@@ -267,7 +268,11 @@ describe("POST /api/git-accounts/:id/validate", () => {
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as { ok: boolean; checks: { name: string }[] };
-    expect(body.checks).toHaveLength(3);
+    expect(body.checks).toHaveLength(1);
+    expect(body.checks[0]!.name).toBe("Autenticazione e accesso repository");
+    expect(body.ok).toBe(true);
+    // Nessuna sonda repo-specifica (info/refs) sul repo placeholder.
+    expect(fetchMock.mock.calls.some(([u]) => String(u).includes("info/refs"))).toBe(false);
   });
 
   it("un member non può validare: 403", async () => {
@@ -276,6 +281,75 @@ describe("POST /api/git-accounts/:id/validate", () => {
     const res = await app.inject({
       method: "POST",
       url: `/api/git-accounts/${id}/validate`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+});
+
+describe("GET /api/git-accounts/:id/validate-repo", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("restituisce i 3 check repo-specifici per il repo dato (rete mockata)", async () => {
+    const created = await createAccount({
+      name: "RepoValidabile",
+      provider: "bitbucket",
+      credentials: { username: "alice", email: "alice@corp.io", token: "api-token" },
+    });
+    const id = (created.json() as { id: string }).id;
+    const fetchMock = vi.fn((input: string) => {
+      if (input.includes("api.bitbucket.org")) return Promise.resolve(new Response("{}", { status: 200 }));
+      if (input.includes("info/refs")) return Promise.resolve(new Response("", { status: 200 }));
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/git-accounts/${id}/validate-repo?repo=myws/myrepo`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { ok: boolean; checks: { name: string }[] };
+    expect(body.checks).toHaveLength(3);
+    expect(body.checks.map((c) => c.name)).toEqual([
+      "Accesso git (push)",
+      "Accesso REST API (PR)",
+      "Accesso webhook (config automatica)",
+    ]);
+    // Il repoUrl ricostruito deve contenere il fullName richiesto.
+    expect(
+      fetchMock.mock.calls.some(([u]) => String(u).includes("bitbucket.org/myws/myrepo")),
+    ).toBe(true);
+  });
+
+  it("repo mancante nella query: 400", async () => {
+    const created = await createAccount({ ...basePayload, name: "RepoNoQuery" });
+    const id = (created.json() as { id: string }).id;
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/git-accounts/${id}/validate-repo`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("account inesistente: 404", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/git-accounts/00000000-0000-0000-0000-000000000000/validate-repo?repo=a/b",
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("un member non può validare il repo: 403", async () => {
+    const created = await createAccount({ ...basePayload, name: "RepoNegato" });
+    const id = (created.json() as { id: string }).id;
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/git-accounts/${id}/validate-repo?repo=a/b`,
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(403);

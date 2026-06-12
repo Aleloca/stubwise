@@ -354,6 +354,72 @@ describe("BitbucketProvider.validateCredentials", () => {
   });
 });
 
+describe("BitbucketProvider.validateAccount", () => {
+  const account: AccountCredentials = {
+    provider: "bitbucket",
+    credentials: { username: "alice", email: "alice@corp.io", token: "api-token" },
+  };
+  const ACCOUNT_URL = "https://api.bitbucket.org/2.0/repositories?role=member&pagelen=1";
+
+  it("200: un solo check ok, con identità REST email:token", async () => {
+    const fetchImpl = vi.fn((input: string | URL, init?: RequestInit) => {
+      void input;
+      void init;
+      return Promise.resolve(new Response("{}", { status: 200 }));
+    });
+    const provider = new BitbucketProvider();
+    const checks = await provider.validateAccount(account, { fetchImpl });
+
+    expect(checks).toHaveLength(1);
+    expect(checks[0]!.name).toBe("Autenticazione e accesso repository");
+    expect(checks[0]!.ok).toBe(true);
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(ACCOUNT_URL);
+    expect((init.headers as Record<string, string>)["Authorization"]).toBe(
+      `Basic ${Buffer.from("alice@corp.io:api-token").toString("base64")}`
+    );
+  });
+
+  it("401: check fallito con messaggio su email/token", async () => {
+    const fetchImpl = vi.fn(() => Promise.resolve(new Response("nope", { status: 401 })));
+    const provider = new BitbucketProvider();
+    const checks = await provider.validateAccount(account, { fetchImpl });
+    expect(checks[0]!.ok).toBe(false);
+    expect(checks[0]!.detail).toMatch(/401/);
+    expect(checks[0]!.detail).toMatch(/email|token/i);
+  });
+
+  it("403: check fallito con messaggio sullo scope repository", async () => {
+    const fetchImpl = vi.fn(() => Promise.resolve(new Response("", { status: 403 })));
+    const provider = new BitbucketProvider();
+    const checks = await provider.validateAccount(account, { fetchImpl });
+    expect(checks[0]!.ok).toBe(false);
+    expect(checks[0]!.detail).toMatch(/scope repository/i);
+  });
+
+  it("email e username mancanti: un check fallito, nessuna chiamata di rete", async () => {
+    const fetchImpl = vi.fn();
+    const provider = new BitbucketProvider();
+    const checks = await provider.validateAccount(
+      { provider: "bitbucket", credentials: { token: "api-token" } },
+      { fetchImpl }
+    );
+    expect(checks).toHaveLength(1);
+    expect(checks[0]!.ok).toBe(false);
+    expect(checks[0]!.detail).toMatch(/email Atlassian.*username|mancante/i);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("errore di rete: il check fallisce senza lanciare", async () => {
+    const fetchImpl = vi.fn(() => Promise.reject(new Error("ECONNREFUSED boom")));
+    const provider = new BitbucketProvider();
+    const checks = await provider.validateAccount(account, { fetchImpl });
+    expect(checks).toHaveLength(1);
+    expect(checks[0]!.ok).toBe(false);
+    expect(checks[0]!.detail).toMatch(/ECONNREFUSED/);
+  });
+});
+
 describe("BitbucketProvider.ensureWebhook", () => {
   const apiConfig: ProjectGitConfig = {
     repoUrl: "https://bitbucket.org/myws/myrepo",
