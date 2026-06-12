@@ -21,7 +21,13 @@ import {
   touchJob,
   type AiJob,
 } from "../queue.js";
-import { buildFixPrompt, REPORT_FILENAME, toSingleLine } from "./prompts.js";
+import {
+  buildFixExecutePrompt,
+  buildFixPlanPrompt,
+  buildFixPrompt,
+  REPORT_FILENAME,
+  toSingleLine,
+} from "./prompts.js";
 
 /**
  * Fase 2 della pipeline: il fix. Il job è già in stato `fixing` (markFixing
@@ -61,6 +67,14 @@ export const DEFAULT_FIX_ALLOWED_TOOLS = [
  * di staleness verificata all'avvio del worker (vedi index.ts). */
 export const DEFAULT_FIX_TIMEOUT_MS = 1_800_000;
 
+/** Timeout di default del run di PIANIFICAZIONE (10'): sola analisi, più corto
+ * del fix. Esportato per l'invariante di staleness (vedi index.ts), che con il
+ * fix in due fasi conta plan + execute invece di 2× execute. */
+export const DEFAULT_FIX_PLAN_TIMEOUT_MS = 600_000;
+
+/** Turni di default del run di pianificazione: meno del fix (sola analisi). */
+const DEFAULT_PLAN_MAX_TURNS = 40;
+
 export interface FixDeps {
   db: Db;
   runner: AgentRunner;
@@ -69,11 +83,21 @@ export interface FixDeps {
   encryptionKey: Buffer;
   /** Iniettabile nei test: provider FINTO senza HTTP. Default: getProvider. */
   getProviderFn?: (kind: GitProviderKind) => Pick<GitProvider, "openPullRequest">;
-  /** Modello per il fix; omesso = default del CLI (la fase "costosa"). */
+  /** Modello per il fix monolitico (FIX_TWO_PHASE=false); omesso = default del
+   * CLI. Nel percorso a due fasi i modelli sono planModel/executeModel. */
   model?: string;
-  /** Turni agentici massimi (default 80: il fix deve poter esplorare). */
+  /** Fix in DUE FASI: pianificazione (planModel, read-only) + esecuzione
+   * (executeModel). Default true. */
+  twoPhase?: boolean;
+  /** Modello del run di pianificazione (forte, read-only; default "opus"). */
+  planModel?: string;
+  /** Modello del run di esecuzione (economico; default "sonnet"). */
+  executeModel?: string;
+  /** Timeout del run di pianificazione (default 10 minuti). */
+  planTimeoutMs?: number;
+  /** Turni agentici massimi del run di esecuzione/fix (default 80). */
   maxTurns?: number;
-  /** Timeout complessivo (default 30 minuti). */
+  /** Timeout complessivo del run di esecuzione/fix (default 30 minuti). */
   timeoutMs?: number;
   /** Override dei tool extra consentiti (default DEFAULT_FIX_ALLOWED_TOOLS). */
   allowedTools?: string[];
@@ -157,6 +181,10 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   const timeoutMs = deps.timeoutMs ?? DEFAULT_FIX_TIMEOUT_MS;
   const allowedTools = deps.allowedTools ?? DEFAULT_FIX_ALLOWED_TOOLS;
   const getProviderFn = deps.getProviderFn ?? getProvider;
+  const twoPhase = deps.twoPhase ?? true;
+  const planModel = deps.planModel ?? "opus";
+  const executeModel = deps.executeModel ?? "sonnet";
+  const planTimeoutMs = deps.planTimeoutMs ?? DEFAULT_FIX_PLAN_TIMEOUT_MS;
 
   const [ticket] = await db.select().from(tickets).where(eq(tickets.id, job.ticketId));
   if (!ticket) {
@@ -199,20 +227,33 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   const titleLine = toSingleLine(ticket.title, TITLE_MAX_CHARS);
   const prTitle = `fix: ${titleLine} (#${ticket.number})`;
 
-  await appendLog(db, job.id, `[fix] avviato per il ticket #${ticket.number} (branch ${branch})`);
-
-  const prompt = buildFixPrompt({ ticket });
+  await appendLog(
+    db,
+    job.id,
+    `[fix] avviato per il ticket #${ticket.number} (branch ${branch}` +
+      `${twoPhase ? `, due fasi: plan ${planModel} + execute ${executeModel}` : `, fase singola`})`,
+  );
 
   let report: string | null;
   let agentOutput: string;
-  // Consumi del run di fix: estratti dentro la callback e registrati DOPO la
-  // chiusura del worktree (best-effort, fuori dal percorso critico).
-  let fixUsage: AgentRunUsage | undefined;
+  // Consumi dei run dell'agente: ogni run (plan ed execute, o l'unico run nella
+  // modalità a fase singola) registra la PROPRIA riga sotto phase 'fix' così i
+  // costi dei due modelli restano separati. Si accumulano qui e si registrano
+  // DOPO la chiusura del worktree (best-effort, fuori dal percorso critico).
+  const fixUsages: Array<AgentRunUsage | undefined> = [];
+  // Registra tutti i consumi accumulati: una chiamata a recordAgentRun per
+  // run (best-effort, non fa mai fallire il job).
+  const recordAllUsages = async (): Promise<void> => {
+    for (const usage of fixUsages) {
+      await recordAgentRun(db, { jobId: job.id, phase: "fix", usage });
+    }
+  };
   try {
     ({ report, agentOutput } = await mirrors.withWorktree(mirrorProject, branch, async (dir) => {
-      // Heartbeat: il run può durare a lungo senza scrivere nel log. Senza
-      // questo touchJob periodico, requeueStale crederebbe il job orfano e
-      // ne aprirebbe un duplicato. L'interval è cancellato in finally.
+      // Heartbeat: il fix può durare a lungo (plan + execute) senza scrivere
+      // nel log. Senza questo touchJob periodico, requeueStale crederebbe il
+      // job orfano e ne aprirebbe un duplicato. L'interval avvolge ENTRAMBI i
+      // run ed è cancellato in finally.
       const heartbeat = setInterval(() => {
         void touchJob(db, job.id).catch(() => {
           // Un bump fallito (DB transitorio) non deve uccidere il fix: il
@@ -224,10 +265,44 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       let output: string;
       let exitCode: number;
       try {
+        // FASE 1 — pianificazione (opzionale): modello forte in sola lettura
+        // (permission-mode "plan"), nessun allowedTools di test, turni/timeout
+        // ridotti. Produce un piano che guida l'esecuzione. Consumi registrati
+        // a parte (riga 'fix' del planModel).
+        let executePrompt: string;
+        if (twoPhase) {
+          const planResult = await runner.run({
+            cwd: dir,
+            prompt: buildFixPlanPrompt({ ticket }),
+            model: planModel,
+            permissionMode: "plan",
+            maxTurns: DEFAULT_PLAN_MAX_TURNS,
+            timeoutMs: planTimeoutMs,
+          });
+          fixUsages.push(planResult.usage);
+          // Un exit non-zero della pianificazione è trattato come gli altri
+          // fallimenti del fix: niente esecuzione, niente PR (vedi catch).
+          if (planResult.exitCode !== 0) {
+            throw new AgentExitError(planResult.exitCode, planResult.output);
+          }
+          executePrompt = buildFixExecutePrompt({ ticket, plan: planResult.output });
+        } else {
+          // Fase singola (FIX_TWO_PHASE=false): un solo run con il prompt
+          // monolitico storico, come prima dell'introduzione delle due fasi.
+          executePrompt = buildFixPrompt({ ticket });
+        }
+
+        // FASE 2 — esecuzione: modello economico, acceptEdits + allowedTools di
+        // test, turni/timeout pieni. Implementa il fix e scrive il report.
         const result = await runner.run({
           cwd: dir,
-          prompt,
-          ...(deps.model !== undefined ? { model: deps.model } : {}),
+          prompt: executePrompt,
+          ...(twoPhase
+            ? { model: executeModel }
+            : deps.model !== undefined
+              ? { model: deps.model }
+              : {}),
+          permissionMode: "acceptEdits",
           maxTurns,
           timeoutMs,
           allowedTools,
@@ -236,7 +311,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
         exitCode = result.exitCode;
         // Catturato anche su exit non-zero (il CLI riporta usage comunque):
         // registrato dopo la chiusura del worktree, qualunque sia l'esito.
-        fixUsage = result.usage;
+        fixUsages.push(result.usage);
       } finally {
         clearInterval(heartbeat);
       }
@@ -283,10 +358,10 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     }));
   } catch (err) {
     // Qualunque sia l'errore, il worktree è già stato rimosso da withWorktree.
-    // Consumi del run di fix (best-effort): se l'agente ha prodotto usage
-    // prima di fallire (es. exit non-zero, nessuna modifica) lo registriamo
-    // comunque — il lavoro AI è stato speso anche se il job fallisce.
-    await recordAgentRun(db, { jobId: job.id, phase: "fix", usage: fixUsage });
+    // Consumi dei run di fix (best-effort): se l'agente ha prodotto usage prima
+    // di fallire (es. plan riuscito ma execute in errore, nessuna modifica) li
+    // registriamo comunque — il lavoro AI è stato speso anche se il job fallisce.
+    await recordAllUsages();
     if (err instanceof NoChangesError) {
       await failJob(db, job.id, {
         log: `[fix] output agente:\n${truncateForLog(err.agentOutput)}\n[fix] nessuna modifica prodotta: niente PR`,
@@ -321,9 +396,9 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     return "failed";
   }
 
-  // Run di fix riuscito: registra i consumi (best-effort) prima di proseguire
-  // con commit/PR. Non fa mai fallire il job.
-  await recordAgentRun(db, { jobId: job.id, phase: "fix", usage: fixUsage });
+  // Run di fix riusciti: registra i consumi di TUTTI i run (best-effort) prima
+  // di proseguire con commit/PR. Non fa mai fallire il job.
+  await recordAllUsages();
 
   const logLines: string[] = [`[fix] output agente:\n${truncateForLog(agentOutput)}`];
   let reportBody: string;

@@ -3,7 +3,7 @@ import { ClaudeCliRunner } from "./agent/claude-cli.js";
 import { loadWorkerConfig, type WorkerConfig } from "./config.js";
 import { MirrorManager } from "./git/mirrors.js";
 import { createHandler } from "./handler.js";
-import { DEFAULT_FIX_TIMEOUT_MS } from "./pipeline/fix.js";
+import { DEFAULT_FIX_PLAN_TIMEOUT_MS, DEFAULT_FIX_TIMEOUT_MS } from "./pipeline/fix.js";
 import { DEFAULT_TRIAGE_TIMEOUT_MS } from "./pipeline/triage.js";
 import { runWorker } from "./queue.js";
 
@@ -18,16 +18,22 @@ const STALE_MARGIN_MS = 5 * 60_000;
  * INVARIANTE: la soglia di staleness deve superare il tempo MASSIMO che un job
  * legittimo può impiegare, altrimenti requeueStale lo riporterebbe in coda
  * mentre è ancora in corso → PR duplicata sullo stesso progetto. Il triage può
- * ritentare una volta (≈ 2× il suo timeout). L'heartbeat in runFix è la difesa
- * primaria; questa è la rete di sicurezza che impedisce una config rotta.
+ * ritentare una volta (≈ 2× il suo timeout). Con il fix in DUE FASI il fix gira
+ * pianificazione + esecuzione back-to-back: il caso peggiore è plan timeout +
+ * fix timeout (con la fase singola basta il solo fix). L'heartbeat in runFix è
+ * la difesa primaria; questa è la rete di sicurezza contro una config rotta.
  */
-function assertStaleInvariant(staleAfterMinutes: number): void {
+function assertStaleInvariant(staleAfterMinutes: number, twoPhase: boolean): void {
   const staleMs = staleAfterMinutes * 60_000;
-  const minRequiredMs = DEFAULT_FIX_TIMEOUT_MS + 2 * DEFAULT_TRIAGE_TIMEOUT_MS + STALE_MARGIN_MS;
+  // Due fasi: plan (10') + execute (30'); fase singola: solo execute (30').
+  const fixMaxMs = twoPhase
+    ? DEFAULT_FIX_PLAN_TIMEOUT_MS + DEFAULT_FIX_TIMEOUT_MS
+    : DEFAULT_FIX_TIMEOUT_MS;
+  const minRequiredMs = fixMaxMs + 2 * DEFAULT_TRIAGE_TIMEOUT_MS + STALE_MARGIN_MS;
   if (staleMs <= minRequiredMs) {
     throw new Error(
       `WORKER_STALE_MINUTES=${staleAfterMinutes} è troppo basso: deve superare ` +
-        `${Math.ceil(minRequiredMs / 60_000)} minuti (timeout fix + 2× triage + margine), ` +
+        `${Math.ceil(minRequiredMs / 60_000)} minuti (timeout fix${twoPhase ? " plan + execute" : ""} + 2× triage + margine), ` +
         `altrimenti un job lungo ma vivo verrebbe riaccodato e si aprirebbe una PR duplicata.`,
     );
   }
@@ -51,7 +57,7 @@ function loadConfigOrExit(): WorkerConfig {
 
 const config = loadConfigOrExit();
 try {
-  assertStaleInvariant(config.staleAfterMinutes);
+  assertStaleInvariant(config.staleAfterMinutes, config.fixTwoPhase);
 } catch (err) {
   console.error(err instanceof Error ? err.message : err);
   process.exit(1);
@@ -63,6 +69,12 @@ const handler = createHandler({
   runner: new ClaudeCliRunner(),
   mirrors: new MirrorManager({ mirrorsDir: config.mirrorsDir }),
   encryptionKey: config.encryptionKey,
+  fix: {
+    twoPhase: config.fixTwoPhase,
+    planModel: config.fixPlanModel,
+    executeModel: config.fixExecuteModel,
+    planTimeoutMs: config.fixPlanTimeoutMs,
+  },
 });
 
 // Shutdown pulito: al primo segnale il loop smette di reclamare job e

@@ -80,6 +80,38 @@ describe("ClaudeCliRunner", () => {
     );
   });
 
+  it("usa --permission-mode acceptEdits di default (nessun permissionMode esplicito)", async () => {
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(root);
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    const result = await runner.run({ cwd, prompt: "ciao", maxTurns: 3, timeoutMs: 10_000 });
+
+    expect(result.output).toContain("--permission-mode acceptEdits");
+    expect(result.output).not.toContain("--permission-mode plan");
+  });
+
+  it("mappa permissionMode 'plan' su --permission-mode plan (run di pianificazione)", async () => {
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(root);
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    const result = await runner.run({
+      cwd,
+      prompt: "analizza",
+      maxTurns: 40,
+      timeoutMs: 10_000,
+      permissionMode: "plan",
+    });
+
+    expect(result.output).toContain(
+      "ARGS:-p --output-format json --permission-mode plan --max-turns 40",
+    );
+    expect(result.output).not.toContain("--permission-mode acceptEdits");
+  });
+
   it("su exit 0 imposta output = result del JSON ed estrae usage da modelUsage", async () => {
     const root = await makeRoot();
     const claudePath = await makeFakeClaude(root);

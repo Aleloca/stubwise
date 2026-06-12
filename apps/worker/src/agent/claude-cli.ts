@@ -214,12 +214,15 @@ export class ClaudeCliRunner implements AgentRunner {
       throw new AgentRunError(`timeoutMs non valido: ${opts.timeoutMs} (atteso > 0)`);
     }
 
+    // Permission mode: default "acceptEdits" (comportamento storico del fix).
+    // Il run di pianificazione passa "plan" (sola analisi, nessuna modifica).
+    const permissionMode = opts.permissionMode ?? "acceptEdits";
     const args = [
       "-p",
       "--output-format",
       "json",
       "--permission-mode",
-      "acceptEdits",
+      permissionMode,
       "--max-turns",
       String(opts.maxTurns),
     ];

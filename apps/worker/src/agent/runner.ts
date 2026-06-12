@@ -30,6 +30,17 @@ export interface AgentRunOptions {
    * all'agente di eseguire i test. Omesso = nessun tool extra.
    */
   allowedTools?: string[];
+  /**
+   * Permission mode del CLI claude, mappato su `--permission-mode <mode>`:
+   * - "acceptEdits" (default): consente le modifiche ai file ma NEGA Bash in
+   *   headless (i comandi vanno abilitati via allowedTools). È la modalità del
+   *   run di esecuzione del fix.
+   * - "plan": modalità di SOLA ANALISI — il modello esplora (Read/Grep/Glob) e
+   *   propone un piano senza modificare file. È la modalità del run di
+   *   pianificazione del fix (il modello "costoso", read-only).
+   * - "default": permission mode di default del CLI.
+   */
+  permissionMode?: "default" | "acceptEdits" | "plan";
   /** Numero massimo di turni agentici (> 0). */
   maxTurns: number;
   /** Timeout complessivo in millisecondi (> 0). */

@@ -37,6 +37,15 @@ export interface FakeAgentRunnerOptions {
    * dei consumi lo valorizzano esplicitamente.
    */
   usage?: AgentRunUsage;
+  /**
+   * Coda di risultati SCRIPTATI per chiamate successive: la prima run()
+   * restituisce results[0], la seconda results[1], ecc. Pensata per il fix in
+   * due fasi (plan poi execute), dove ogni run deve poter restituire output e
+   * usage diversi. Ha la precedenza su output/exitCode/usage fissi; quando la
+   * coda è esaurita si ricade sui valori fissi. `script`, se presente, ha la
+   * precedenza su tutto. Le fileChanges vengono comunque applicate ad ogni run.
+   */
+  results?: AgentRunResult[];
 }
 
 export class FakeAgentRunner implements AgentRunner {
@@ -48,6 +57,9 @@ export class FakeAgentRunner implements AgentRunner {
   private readonly output: string;
   private readonly exitCode: number;
   private readonly usage: AgentRunUsage | undefined;
+  private readonly results: AgentRunResult[];
+  /** Indice della prossima voce di `results` da restituire. */
+  private resultIndex = 0;
 
   constructor(options: FakeAgentRunnerOptions = {}) {
     this.script = options.script;
@@ -55,6 +67,7 @@ export class FakeAgentRunner implements AgentRunner {
     this.output = options.output ?? "FAKE OK";
     this.exitCode = options.exitCode ?? 0;
     this.usage = options.usage;
+    this.results = options.results ?? [];
   }
 
   async run(opts: AgentRunOptions): Promise<AgentRunResult> {
@@ -66,6 +79,12 @@ export class FakeAgentRunner implements AgentRunner {
     }
     if (this.script) {
       return await this.script(opts);
+    }
+    // Coda scriptata: una voce per chiamata, in ordine. Esaurita → valori fissi.
+    if (this.resultIndex < this.results.length) {
+      const result = this.results[this.resultIndex];
+      this.resultIndex++;
+      if (result) return result;
     }
     return {
       output: this.output,

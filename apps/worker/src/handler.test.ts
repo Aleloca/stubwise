@@ -143,10 +143,14 @@ describe("createHandler", () => {
     const job = await claim(db);
     await handler(job);
 
-    // Triage (haiku) e fix: due chiamate al runner, in quest'ordine.
-    expect(runner.calls).toHaveLength(2);
+    // Triage (haiku) + fix in DUE FASI (plan opus, execute sonnet): TRE
+    // chiamate al runner, in quest'ordine.
+    expect(runner.calls).toHaveLength(3);
     expect(runner.calls[0]?.model).toBe("haiku");
-    expect(runner.calls[1]?.model).not.toBe("haiku");
+    expect(runner.calls[1]?.model).toBe("opus");
+    expect(runner.calls[1]?.permissionMode).toBe("plan");
+    expect(runner.calls[2]?.model).toBe("sonnet");
+    expect(runner.calls[2]?.permissionMode).toBe("acceptEdits");
 
     const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
     expect(jobAfter?.status).toBe("pr_opened");

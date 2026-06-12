@@ -48,16 +48,51 @@ const envSchema = z.object({
   ),
   // Soglia di staleness per requeueStale: un job in lavorazione senza
   // heartbeat oltre questo limite è orfano di un worker crashato e torna in
-  // coda. Deve restare > del timeout del fix (+ triage): vedi l'invariante
-  // verificata in index.ts. Min 1; il default 45 min supera con margine
-  // l'invariante (fix 30' + 2× triage 2' + margine 5' = 40').
+  // coda. Deve restare > del tempo massimo di un job: vedi l'invariante
+  // verificata in index.ts. Min 1; il default 60 min supera con margine
+  // l'invariante con il fix in due fasi attivo (plan 10' + fix 30' + 2× triage
+  // 2' + margine 5' = 49').
   WORKER_STALE_MINUTES: z.preprocess(
     emptyAsUndefined,
     z.coerce
-      .number({ error: "deve essere un intero ≥ 1 in minuti (es. 45)" })
-      .int("deve essere un intero ≥ 1 in minuti (es. 45)")
-      .min(1, "deve essere un intero ≥ 1 in minuti (es. 45)")
-      .default(45),
+      .number({ error: "deve essere un intero ≥ 1 in minuti (es. 60)" })
+      .int("deve essere un intero ≥ 1 in minuti (es. 60)")
+      .min(1, "deve essere un intero ≥ 1 in minuti (es. 60)")
+      .default(60),
+  ),
+  // Fix in DUE FASI per ridurre i costi: un modello "forte" (FIX_PLAN_MODEL)
+  // analizza il bug in sola lettura e produce un piano; un modello più
+  // economico (FIX_EXECUTE_MODEL) implementa il fix seguendo il piano. Con
+  // FIX_TWO_PHASE=false si esegue un singolo run con FIX_EXECUTE_MODEL (il
+  // comportamento storico, utile per confronto/rollback).
+  FIX_PLAN_MODEL: z.preprocess(
+    emptyAsUndefined,
+    z
+      .string({ error: "deve essere il nome di un modello (es. opus)" })
+      .min(1)
+      .default("opus"),
+  ),
+  FIX_EXECUTE_MODEL: z.preprocess(
+    emptyAsUndefined,
+    z
+      .string({ error: "deve essere il nome di un modello (es. sonnet)" })
+      .min(1)
+      .default("sonnet"),
+  ),
+  FIX_TWO_PHASE: z.preprocess(
+    (value) => (value === "" ? undefined : value === "true" ? true : value === "false" ? false : value),
+    z.boolean({ error: "deve essere true o false" }).default(true),
+  ),
+  // Timeout dedicato del run di pianificazione (default 10'): più corto del fix
+  // perché è sola analisi. Entra nell'invariante di staleness in index.ts
+  // (plan + fix invece di 2× fix), così la soglia resta più contenuta.
+  FIX_PLAN_TIMEOUT_MS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero > 0 in millisecondi (es. 600000)" })
+      .int("deve essere un intero > 0 in millisecondi (es. 600000)")
+      .min(1, "deve essere un intero > 0 in millisecondi (es. 600000)")
+      .default(600_000),
   ),
 });
 
@@ -70,8 +105,18 @@ export interface WorkerConfig {
    * progetto vengono comunque serializzati dall'handler). */
   concurrency: number;
   /** Minuti di inattività oltre cui un job in lavorazione è considerato
-   * orfano e riportato in coda (default 45). */
+   * orfano e riportato in coda (default 60). */
   staleAfterMinutes: number;
+  /** Modello del run di pianificazione del fix (forte, read-only; default
+   * "opus"). */
+  fixPlanModel: string;
+  /** Modello del run di esecuzione del fix (economico; default "sonnet"). */
+  fixExecuteModel: string;
+  /** Se true (default) il fix gira in due fasi (plan + execute); se false un
+   * solo run con fixExecuteModel (comportamento storico). */
+  fixTwoPhase: boolean;
+  /** Timeout del run di pianificazione in ms (default 600000 = 10'). */
+  fixPlanTimeoutMs: number;
 }
 
 /**
@@ -100,5 +145,9 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     mirrorsDir: parsed.MIRRORS_DIR,
     concurrency: parsed.WORKER_CONCURRENCY,
     staleAfterMinutes: parsed.WORKER_STALE_MINUTES,
+    fixPlanModel: parsed.FIX_PLAN_MODEL,
+    fixExecuteModel: parsed.FIX_EXECUTE_MODEL,
+    fixTwoPhase: parsed.FIX_TWO_PHASE,
+    fixPlanTimeoutMs: parsed.FIX_PLAN_TIMEOUT_MS,
   };
 }

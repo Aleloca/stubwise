@@ -21,16 +21,18 @@ può clonare e buildare un repo e far girare un agente per minuti. Vedi le
 ## `WORKER_STALE_MINUTES`
 
 Minuti di inattività oltre cui un job in lavorazione è considerato **orfano** di
-un worker crashato e riportato in coda. Default **`45`**.
+un worker crashato e riportato in coda. Default **`60`**.
 
-:::caution[Deve superare ~40 minuti, o il worker non parte]
+:::caution[Deve superare ~49 minuti col fix in due fasi, o il worker non parte]
 La soglia di staleness deve superare il tempo massimo che un job legittimo può
-impiegare: **timeout fix (30') + 2× triage (2' ciascuno, per il retry) +
-margine (5') ≈ 40 minuti**. Un valore troppo basso riaccoderebbe un job lungo
-ma ancora vivo, generando una **PR duplicata** sullo stesso progetto. Il worker
-**verifica questa invariante all'avvio e si rifiuta di partire (exit 1)** se è
-violata: con `restart: unless-stopped` finirebbe in crash-loop. Lascia il
-default `45` se non hai un motivo preciso per cambiarlo.
+impiegare. Col **fix in due fasi** attivo (default): **timeout pianificazione
+(10') + timeout fix (30') + 2× triage (2' ciascuno, per il retry) + margine
+(5') ≈ 49 minuti**. Con `FIX_TWO_PHASE=false` basta **timeout fix (30') + 2×
+triage + margine ≈ 40 minuti**. Un valore troppo basso riaccoderebbe un job
+lungo ma ancora vivo, generando una **PR duplicata** sullo stesso progetto. Il
+worker **verifica questa invariante all'avvio e si rifiuta di partire (exit 1)**
+se è violata: con `restart: unless-stopped` finirebbe in crash-loop. Lascia il
+default `60` se non hai un motivo preciso per cambiarlo.
 :::
 
 La difesa primaria contro i falsi orfani è comunque l'**heartbeat**: durante il
@@ -48,12 +50,23 @@ del fix sono invece **effimeri** e vengono rimossi a fine job.
 
 - **Triage**: modello **`haiku`** (la fase economica), con pochi turni
   (default 10) e timeout 2 minuti.
-- **Fix**: usa il **modello di default del CLI** `claude` (la fase costosa), con
-  fino a 80 turni e timeout 30 minuti.
+- **Fix in due fasi** (default, per ridurre i costi): la fase costosa fa **solo
+  analisi**, quella economica scrive il codice.
+  - **Pianificazione** — modello **`opus`** (`FIX_PLAN_MODEL`), in **sola
+    lettura** (`--permission-mode plan`): analizza il bug e produce un piano
+    concreto (causa radice, file da toccare, modifica, test). Non modifica file.
+    Fino a 40 turni e timeout 10 minuti (`FIX_PLAN_TIMEOUT_MS`).
+  - **Esecuzione** — modello **`sonnet`** (`FIX_EXECUTE_MODEL`): implementa il
+    piano, scrive il test di regressione, esegue i test e scrive il report.
+    Fino a 80 turni e timeout 30 minuti.
+  - I consumi dei due modelli sono **registrati separatamente** (righe
+    `agent_runs` distinte sotto la fase `fix`), così vedi quanto costa ciascuna.
+- Con **`FIX_TWO_PHASE=false`** il fix torna a un **singolo run** con
+  `FIX_EXECUTE_MODEL` (comportamento storico, per confronto/rollback).
 
-Questi parametri sono interni alla pipeline; il modello dell'auth è quello con
-cui hai autenticato il CLI (API key o login OAuth/MAX, vedi
-[Auth del worker](/docs/getting-started/claude-setup/)).
+Questi parametri sono configurabili via variabili d'ambiente; il modello
+dell'auth è quello con cui hai autenticato il CLI (API key o login OAuth/MAX,
+vedi [Auth del worker](/docs/getting-started/claude-setup/)).
 
 ## Comandi consentiti all'agente di fix
 

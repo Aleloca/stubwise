@@ -15,7 +15,12 @@ describe("loadWorkerConfig", () => {
     expect(config.encryptionKey.toString("base64")).toBe(VALID.ENCRYPTION_KEY);
     expect(config.mirrorsDir).toBe("/var/stubwise/mirrors");
     expect(config.concurrency).toBe(2);
-    expect(config.staleAfterMinutes).toBe(45);
+    expect(config.staleAfterMinutes).toBe(60);
+    // Fix in due fasi: default opus/sonnet, attivo, plan timeout 10'.
+    expect(config.fixPlanModel).toBe("opus");
+    expect(config.fixExecuteModel).toBe("sonnet");
+    expect(config.fixTwoPhase).toBe(true);
+    expect(config.fixPlanTimeoutMs).toBe(600_000);
   });
 
   it("rispetta MIRRORS_DIR, WORKER_CONCURRENCY e WORKER_STALE_MINUTES espliciti", () => {
@@ -23,11 +28,25 @@ describe("loadWorkerConfig", () => {
       ...VALID,
       MIRRORS_DIR: "/data/mirrors",
       WORKER_CONCURRENCY: "4",
-      WORKER_STALE_MINUTES: "60",
+      WORKER_STALE_MINUTES: "75",
     });
     expect(config.mirrorsDir).toBe("/data/mirrors");
     expect(config.concurrency).toBe(4);
-    expect(config.staleAfterMinutes).toBe(60);
+    expect(config.staleAfterMinutes).toBe(75);
+  });
+
+  it("rispetta le variabili del fix in due fasi (modelli, flag, timeout)", () => {
+    const config = loadWorkerConfig({
+      ...VALID,
+      FIX_PLAN_MODEL: "opus-4-8",
+      FIX_EXECUTE_MODEL: "haiku",
+      FIX_TWO_PHASE: "false",
+      FIX_PLAN_TIMEOUT_MS: "300000",
+    });
+    expect(config.fixPlanModel).toBe("opus-4-8");
+    expect(config.fixExecuteModel).toBe("haiku");
+    expect(config.fixTwoPhase).toBe(false);
+    expect(config.fixPlanTimeoutMs).toBe(300_000);
   });
 
   it("variabili vuote (es. copiate da .env.example) usano il default", () => {
@@ -36,10 +55,18 @@ describe("loadWorkerConfig", () => {
       MIRRORS_DIR: "",
       WORKER_CONCURRENCY: "",
       WORKER_STALE_MINUTES: "",
+      FIX_PLAN_MODEL: "",
+      FIX_EXECUTE_MODEL: "",
+      FIX_TWO_PHASE: "",
+      FIX_PLAN_TIMEOUT_MS: "",
     });
     expect(config.mirrorsDir).toBe("/var/stubwise/mirrors");
     expect(config.concurrency).toBe(2);
-    expect(config.staleAfterMinutes).toBe(45);
+    expect(config.staleAfterMinutes).toBe(60);
+    expect(config.fixPlanModel).toBe("opus");
+    expect(config.fixExecuteModel).toBe("sonnet");
+    expect(config.fixTwoPhase).toBe(true);
+    expect(config.fixPlanTimeoutMs).toBe(600_000);
   });
 
   it("rifiuta una WORKER_STALE_MINUTES non numerica o < 1", () => {

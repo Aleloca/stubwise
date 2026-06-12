@@ -34,7 +34,11 @@ Il worker riusa `DATABASE_URL` ed `ENCRYPTION_KEY` (la stessa del server), più:
 | `ENCRYPTION_KEY`        | Sì           | —                        | **La stessa del server** (vedi sopra). 32 byte in base64.                                  |
 | `MIRRORS_DIR`           | No           | `/var/stubwise/mirrors`  | Directory dei mirror git persistenti.                                                      |
 | `WORKER_CONCURRENCY`    | No           | `2`                      | Job in parallelo su progetti diversi (1–16).                                               |
-| `WORKER_STALE_MINUTES`  | No           | `45`                     | Minuti di inattività oltre cui un job è orfano. **Deve superare ~40'** o il worker non parte. |
+| `WORKER_STALE_MINUTES`  | No           | `60`                     | Minuti di inattività oltre cui un job è orfano. **Deve superare ~49'** (fix in due fasi) o il worker non parte. |
+| `FIX_TWO_PHASE`         | No           | `true`                   | Fix in due fasi: pianificazione (modello forte, read-only) + esecuzione (modello economico). `false` = singolo run. |
+| `FIX_PLAN_MODEL`        | No           | `opus`                   | Modello del run di pianificazione (analisi + piano, nessuna modifica).                     |
+| `FIX_EXECUTE_MODEL`     | No           | `sonnet`                 | Modello del run di esecuzione (scrive il fix, il test e il report).                        |
+| `FIX_PLAN_TIMEOUT_MS`   | No           | `600000`                 | Timeout del run di pianificazione in ms (10'). Entra nell'invariante di staleness.         |
 | `ANTHROPIC_API_KEY`     | No           | —                        | Auth del CLI `claude` (via API key). Alternativa: login OAuth/MAX. Vedi sotto.             |
 | `CLAUDE_CONFIG_DIR`     | No           | —                        | Config home del CLI `claude`. Nel compose è `/home/worker/.claude` (volume persistente).   |
 
@@ -44,10 +48,11 @@ Le variabili `ANTHROPIC_*` e `CLAUDE_*` vengono inoltrate al sottoprocesso
 e [Sicurezza](/docs/ai-pipeline/security/).
 
 :::caution[`WORKER_STALE_MINUTES` ha un'invariante]
-Deve superare **timeout fix (30') + 2× triage (2') + margine (5') ≈ 40 minuti**.
-Il worker verifica questa condizione all'avvio e **esce (exit 1)** se è violata.
-Lascia il default `45` salvo motivi precisi. Vedi
-[Configurazione della pipeline](/docs/ai-pipeline/configuration/).
+Col fix in due fasi (default) deve superare **timeout pianificazione (10') +
+timeout fix (30') + 2× triage (2') + margine (5') ≈ 49 minuti**; con
+`FIX_TWO_PHASE=false` bastano ~40 minuti. Il worker verifica questa condizione
+all'avvio e **esce (exit 1)** se è violata. Lascia il default `60` salvo motivi
+precisi. Vedi [Configurazione della pipeline](/docs/ai-pipeline/configuration/).
 :::
 
 ## Deploy (Docker Compose)

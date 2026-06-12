@@ -33,8 +33,17 @@ export interface HandlerDeps {
   getProviderFn?: FixDeps["getProviderFn"];
   /** Override delle opzioni di triage (model/maxTurns/timeoutMs). */
   triage?: { model?: string; maxTurns?: number; timeoutMs?: number };
-  /** Override delle opzioni di fix (model/maxTurns/timeoutMs/allowedTools). */
-  fix?: { model?: string; maxTurns?: number; timeoutMs?: number; allowedTools?: string[] };
+  /** Override delle opzioni di fix (modelli, due fasi, timeout, allowedTools). */
+  fix?: {
+    model?: string;
+    twoPhase?: boolean;
+    planModel?: string;
+    executeModel?: string;
+    planTimeoutMs?: number;
+    maxTurns?: number;
+    timeoutMs?: number;
+    allowedTools?: string[];
+  };
 }
 
 async function processJob(deps: HandlerDeps, job: AiJob): Promise<void> {
