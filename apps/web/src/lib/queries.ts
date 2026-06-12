@@ -2,6 +2,8 @@ import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import {
   getAutomationSettings,
   getComments,
+  getGitAccount,
+  getGitAccounts,
   getInvites,
   getProject,
   getProjects,
@@ -145,6 +147,26 @@ export function projectQueryOptions(slug: string) {
   return queryOptions({
     queryKey: ["projects", "detail", slug],
     queryFn: () => getProject(slug),
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * Account git riutilizzabili: lista visibile a ogni utente autenticato (serve
+ * al selettore in creazione progetto), gestione riservata agli admin in
+ * Settings. Chiave radice ["git-accounts"]: invalidarla riconcilia lista e
+ * dettagli in un colpo solo.
+ */
+export const gitAccountsQueryOptions = queryOptions({
+  queryKey: ["git-accounts"],
+  queryFn: getGitAccounts,
+  staleTime: 60_000,
+});
+
+export function gitAccountQueryOptions(id: string) {
+  return queryOptions({
+    queryKey: ["git-accounts", "detail", id],
+    queryFn: () => getGitAccount(id),
     staleTime: 60_000,
   });
 }

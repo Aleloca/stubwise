@@ -342,15 +342,17 @@ export interface Project {
   repoUrl: string;
   defaultBranch: string;
   ingestionKey: string;
-  /** true se sul progetto sono salvate delle credenziali git (mai il contenuto). */
-  hasCredentials: boolean;
+  /** Account git che fornisce le credenziali del progetto. */
+  gitAccountId: string;
+  /** Nome dell'account git collegato (per la UI). */
+  gitAccountName: string;
   /** ISO dell'ultima configurazione del webhook git, o null se mai configurato. */
   webhookConfiguredAt: string | null;
   createdAt: string;
 }
 
 /**
- * Credenziali git di un progetto: write-only. Si inviano alla creazione o
+ * Credenziali git: write-only. Si inviano alla creazione di un account git o
  * per sostituirle, il server non le restituisce mai.
  */
 export interface GitCredentials {
@@ -363,18 +365,18 @@ export interface GitCredentials {
 
 export interface ProjectDraft {
   name: string;
-  provider: GitProviderKind;
+  /** Account git riutilizzabile da cui il progetto eredita provider e credenziali. */
+  gitAccountId: string;
   repoUrl: string;
-  defaultBranch: string;
-  credentials: GitCredentials;
+  defaultBranch?: string;
 }
 
 export interface ProjectPatch {
   name?: string;
   repoUrl?: string;
   defaultBranch?: string;
-  /** Assente = le credenziali salvate restano invariate. */
-  credentials?: GitCredentials;
+  /** Assente = l'account collegato resta invariato. */
+  gitAccountId?: string;
 }
 
 export function getProjects(): Promise<Project[]> {
@@ -404,17 +406,17 @@ export function postProject(draft: ProjectDraft): Promise<Project> {
   return api.post("/api/projects", draft);
 }
 
+export function patchProject(slug: string, patch: ProjectPatch): Promise<Project> {
+  return api.patch(`/api/projects/${slug}`, patch);
+}
+
+// --- Git accounts ---
+
 /** Esito di un singolo controllo di validazione credenziali (gemello del tipo server). */
 export interface CredentialCheck {
   name: string;
   ok: boolean;
   detail: string;
-}
-
-export interface ValidateCredentialsBody {
-  provider: GitProviderKind;
-  repoUrl: string;
-  credentials: GitCredentials;
 }
 
 export interface ValidateCredentialsResult {
@@ -423,18 +425,85 @@ export interface ValidateCredentialsResult {
 }
 
 /**
- * Verifica (senza salvare) che le credenziali git inserite autentichino e
- * abbiano gli scope necessari alla pipeline: push git + apertura PR. Endpoint
- * solo admin.
+ * Account git riutilizzabile: proiezione pubblica (mai le credenziali, che
+ * vivono cifrate at-rest e write-only sul server). Un account può essere
+ * collegato a più progetti.
  */
-export function postValidateCredentials(
-  body: ValidateCredentialsBody,
-): Promise<ValidateCredentialsResult> {
-  return api.post("/api/projects/validate-credentials", body);
+export interface GitAccount {
+  id: string;
+  name: string;
+  provider: GitProviderKind;
+  createdAt: string;
 }
 
-export function patchProject(slug: string, patch: ProjectPatch): Promise<Project> {
-  return api.patch(`/api/projects/${slug}`, patch);
+/** Creazione di un account git (solo admin): nome, provider e credenziali. */
+export interface GitAccountDraft {
+  name: string;
+  provider: GitProviderKind;
+  credentials: GitCredentials;
+}
+
+/**
+ * Modifica di un account git (solo admin): nome e/o credenziali. Credenziali
+ * assenti = quelle salvate restano invariate (non si possono svuotare).
+ */
+export interface GitAccountPatch {
+  name?: string;
+  credentials?: GitCredentials;
+}
+
+/** Repository scoperto su un account git (per il picker del wizard). */
+export interface RepoSummary {
+  fullName: string;
+  name: string;
+  cloneUrl: string;
+  defaultBranch: string | null;
+}
+
+/** Branch di un repository: elenco + branch di default dichiarato dal provider. */
+export interface AccountBranches {
+  branches: string[];
+  defaultBranch: string | null;
+}
+
+/** Account git visibili (auth): serve al selettore in creazione progetto. */
+export function getGitAccounts(): Promise<GitAccount[]> {
+  return api.get("/api/git-accounts");
+}
+
+export function getGitAccount(id: string): Promise<GitAccount> {
+  return api.get(`/api/git-accounts/${id}`);
+}
+
+export function postGitAccount(draft: GitAccountDraft): Promise<GitAccount> {
+  return api.post("/api/git-accounts", draft);
+}
+
+export function patchGitAccount(id: string, patch: GitAccountPatch): Promise<GitAccount> {
+  return api.patch(`/api/git-accounts/${id}`, patch);
+}
+
+/** Elimina un account git (solo admin): 409 se è collegato a un progetto. */
+export function deleteGitAccount(id: string): Promise<void> {
+  return request("DELETE", `/api/git-accounts/${encodeURIComponent(id)}`);
+}
+
+/**
+ * Valida le credenziali memorizzate di un account git (solo admin): autentica
+ * e verifica gli scope per push git + PR + webhook. Ritorna i singoli check.
+ */
+export function postValidateGitAccount(id: string): Promise<ValidateCredentialsResult> {
+  return api.post(`/api/git-accounts/${id}/validate`);
+}
+
+/** Elenca i repository accessibili dall'account git (solo admin). */
+export function getAccountRepositories(id: string): Promise<RepoSummary[]> {
+  return api.get(`/api/git-accounts/${id}/repositories`);
+}
+
+/** Elenca i branch di un repository dell'account git (solo admin). */
+export function getAccountBranches(id: string, repoFullName: string): Promise<AccountBranches> {
+  return api.get(`/api/git-accounts/${id}/branches?repo=${encodeURIComponent(repoFullName)}`);
 }
 
 /** Esito della configurazione automatica del webhook (gemello del tipo server). */
