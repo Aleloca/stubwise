@@ -42,15 +42,24 @@ beforeAll(async () => {
     encryptionKey: ENCRYPTION_KEY,
   });
   const { adminCookie } = await seedUsers(app);
+  const account = await app.inject({
+    method: "POST",
+    url: "/api/git-accounts",
+    headers: { cookie: adminCookie },
+    payload: { name: "Account e2e", provider: "github", credentials: { token: "token-di-test" } },
+  });
+  if (account.statusCode !== 201) {
+    throw new Error(`creazione account git fallita: ${account.statusCode} ${account.body}`);
+  }
+  const gitAccountId = (account.json() as { id: string }).id;
   const created = await app.inject({
     method: "POST",
     url: "/api/projects",
     headers: { cookie: adminCookie },
     payload: {
       name: "e2e-ingestion",
-      provider: "github",
+      gitAccountId,
       repoUrl: "https://github.com/acme/e2e-ingestion",
-      credentials: { token: "token-di-test" },
     },
   });
   if (created.statusCode !== 201) {

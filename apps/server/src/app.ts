@@ -16,6 +16,7 @@ import type { Db } from "@stubwise/db";
 import { aiJobRoutes, ticketUsageRoutes } from "./routes/ai-jobs.js";
 import { authRoutes } from "./routes/auth.js";
 import { commentRoutes } from "./routes/comments.js";
+import { gitAccountRoutes } from "./routes/git-accounts.js";
 import { ingestRoutes } from "./routes/ingest.js";
 import { projectRoutes } from "./routes/projects.js";
 import { settingsRoutes } from "./routes/settings.js";
@@ -180,6 +181,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     prefix: "/api/auth",
     rateLimit: opts.authRateLimit ?? { max: 10, timeWindow: "1 minute" },
   });
+  // Account git riutilizzabili (credenziali slegate dal progetto): lettura per
+  // ogni utente (scelta in fase di creazione progetto), scrittura solo admin.
+  void app.register(gitAccountRoutes, { prefix: "/api/git-accounts" });
   void app.register(projectRoutes, { prefix: "/api/projects" });
   void app.register(ticketRoutes, { prefix: "/api/tickets" });
   // I commenti vivono sotto il singolo ticket: il prefisso porta il

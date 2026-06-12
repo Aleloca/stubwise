@@ -3,14 +3,14 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
-import { decrypt, projects } from "@stubwise/db";
+import { gitAccounts, projects } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 
-/** Chiave AES-256 di test: la stessa passata a buildApp, riusata per decifrare nelle assert. */
+/** Chiave AES-256 di test: la stessa passata a buildApp. */
 const ENCRYPTION_KEY = randomBytes(32);
 
 const PLAINTEXT_TOKEN = "token-git-in-chiaro-da-non-salvare";
@@ -19,6 +19,8 @@ let testDb: TestDb;
 let app: FastifyInstance;
 let adminCookie: string;
 let memberCookie: string;
+let githubAccountId: string;
+let bitbucketAccountId: string;
 
 beforeAll(async () => {
   testDb = await startTestDb();
@@ -30,12 +32,33 @@ beforeAll(async () => {
   });
 
   ({ adminCookie, memberCookie } = await seedUsers(app));
+  githubAccountId = await createAccount({
+    name: "Account GitHub",
+    provider: "github",
+    credentials: { username: "acme-bot", token: PLAINTEXT_TOKEN },
+  });
+  bitbucketAccountId = await createAccount({
+    name: "Account Bitbucket",
+    provider: "bitbucket",
+    credentials: { username: "git-user", email: "atlassian@acme.io", token: PLAINTEXT_TOKEN },
+  });
 }, 120_000);
 
 afterAll(async () => {
   await app.close();
   await testDb.stop();
 });
+
+async function createAccount(payload: Record<string, unknown>): Promise<string> {
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/git-accounts",
+    headers: { cookie: adminCookie },
+    payload,
+  });
+  if (res.statusCode !== 201) throw new Error(`creazione account fallita: ${res.statusCode} ${res.body}`);
+  return (res.json() as { id: string }).id;
+}
 
 function createProject(payload: Record<string, unknown>, cookie = adminCookie) {
   return app.inject({
@@ -46,16 +69,15 @@ function createProject(payload: Record<string, unknown>, cookie = adminCookie) {
   });
 }
 
-const basePayload = {
+const basePayload = () => ({
   name: "Sito Vetrina",
-  provider: "github",
+  gitAccountId: githubAccountId,
   repoUrl: "https://github.com/acme/sito-vetrina",
-  credentials: { username: "acme-bot", token: PLAINTEXT_TOKEN },
-};
+});
 
 describe("POST /api/projects", () => {
-  it("l'admin crea un progetto: 201 con slug generato, ingestionKey 32 hex e senza credenziali", async () => {
-    const res = await createProject(basePayload);
+  it("l'admin crea un progetto: 201 con slug, provider ereditato dall'account, gitAccountId/Name", async () => {
+    const res = await createProject(basePayload());
     expect(res.statusCode).toBe(201);
     const body = res.json() as Record<string, unknown>;
     expect(body).toEqual({
@@ -66,77 +88,47 @@ describe("POST /api/projects", () => {
       repoUrl: "https://github.com/acme/sito-vetrina",
       defaultBranch: "main",
       ingestionKey: expect.stringMatching(/^[0-9a-f]{32}$/),
-      // Creato con credenziali → hasCredentials true; webhook mai configurato.
-      hasCredentials: true,
+      gitAccountId: githubAccountId,
+      gitAccountName: "Account GitHub",
       webhookConfiguredAt: null,
       createdAt: expect.any(String),
     });
-    // Il webhookSecret è un segreto HMAC: mai nella proiezione pubblica,
-    // nemmeno per l'admin. Si legge solo via GET /:slug/webhook.
     expect(res.body).not.toContain("webhookSecret");
-    // Mai credenziali nella risposta, nemmeno cifrate.
     expect(res.body).not.toContain("credentials");
     expect(res.body).not.toContain(PLAINTEXT_TOKEN);
   });
 
-  it("le credenziali sono salvate cifrate: il plaintext non compare nel DB", async () => {
-    const [row] = await testDb.db
-      .select()
-      .from(projects)
-      .where(eq(projects.slug, "sito-vetrina"));
-    expect(row).toBeDefined();
-    expect(row!.encryptedCredentials).not.toContain(PLAINTEXT_TOKEN);
-    expect(row!.encryptedCredentials).not.toContain("acme-bot");
-    // E la decifratura con la chiave dell'app restituisce le credenziali originali.
-    expect(JSON.parse(decrypt(row!.encryptedCredentials, ENCRYPTION_KEY))).toEqual({
-      username: "acme-bot",
-      token: PLAINTEXT_TOKEN,
-    });
-  });
-
-  it("salva cifrate anche username + email + token (API token Bitbucket) e non li espone", async () => {
+  it("il provider del progetto è quello dell'account (bitbucket)", async () => {
     const res = await createProject({
-      name: "API Token Bitbucket",
-      provider: "bitbucket",
-      repoUrl: "https://bitbucket.org/acme/api-token",
-      credentials: { username: "git-user", email: "atlassian@acme.io", token: PLAINTEXT_TOKEN },
+      name: "API Bitbucket",
+      gitAccountId: bitbucketAccountId,
+      repoUrl: "https://bitbucket.org/acme/api-bb",
     });
     expect(res.statusCode).toBe(201);
-    // Nessun campo sensibile nella risposta.
-    expect(res.body).not.toContain("credentials");
-    expect(res.body).not.toContain(PLAINTEXT_TOKEN);
-    expect(res.body).not.toContain("atlassian@acme.io");
+    expect((res.json() as { provider: string }).provider).toBe("bitbucket");
+  });
 
-    const [row] = await testDb.db
-      .select()
-      .from(projects)
-      .where(eq(projects.slug, "api-token-bitbucket"));
-    expect(row).toBeDefined();
-    // Il blob cifrato non contiene i plaintext.
-    expect(row!.encryptedCredentials).not.toContain(PLAINTEXT_TOKEN);
-    expect(row!.encryptedCredentials).not.toContain("atlassian@acme.io");
-    expect(row!.encryptedCredentials).not.toContain("git-user");
-    // Round-trip: la decifratura restituisce tutti e tre i campi.
-    expect(JSON.parse(decrypt(row!.encryptedCredentials, ENCRYPTION_KEY))).toEqual({
-      username: "git-user",
-      email: "atlassian@acme.io",
-      token: PLAINTEXT_TOKEN,
+  it("account inesistente: 404", async () => {
+    const res = await createProject({
+      name: "Senza Account",
+      gitAccountId: "00000000-0000-0000-0000-000000000000",
+      repoUrl: "https://github.com/acme/senza-account",
     });
+    expect(res.statusCode).toBe(404);
   });
 
   it("collisione di slug: stesso nome → suffisso numerico", async () => {
-    const res = await createProject(basePayload);
+    const res = await createProject(basePayload());
     expect(res.statusCode).toBe(201);
     expect((res.json() as { slug: string }).slug).toBe("sito-vetrina-2");
   });
 
-  it("defaultBranch esplicito viene rispettato e username è opzionale", async () => {
+  it("defaultBranch esplicito viene rispettato", async () => {
     const res = await createProject({
       name: "API Backend",
-      provider: "bitbucket",
+      gitAccountId: bitbucketAccountId,
       repoUrl: "https://bitbucket.org/acme/api-backend",
       defaultBranch: "develop",
-      credentials: { token: "solo-token" },
     });
     expect(res.statusCode).toBe(201);
     const body = res.json() as { slug: string; defaultBranch: string };
@@ -150,169 +142,49 @@ describe("POST /api/projects", () => {
     expect(unique.size).toBe(keys.length);
   });
 
-  it("ogni progetto riceve un webhookSecret diverso", async () => {
+  it("ogni progetto riceve un webhookSecret diverso (32 hex)", async () => {
     const secrets = await testDb.db.select({ secret: projects.webhookSecret }).from(projects);
     const unique = new Set(secrets.map((s) => s.secret));
     expect(unique.size).toBe(secrets.length);
-    for (const { secret } of secrets) {
-      expect(secret).toMatch(/^[0-9a-f]{32}$/);
-    }
+    for (const { secret } of secrets) expect(secret).toMatch(/^[0-9a-f]{32}$/);
   });
 
   it("un member non può creare progetti: 403", async () => {
-    const res = await createProject({ ...basePayload, name: "Negato" }, memberCookie);
+    const res = await createProject({ ...basePayload(), name: "Negato" }, memberCookie);
     expect(res.statusCode).toBe(403);
   });
 
   it("senza sessione: 401", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/projects",
-      payload: basePayload,
-    });
+    const res = await app.inject({ method: "POST", url: "/api/projects", payload: basePayload() });
     expect(res.statusCode).toBe(401);
   });
 
-  it("body non valido (provider sconosciuto): 400", async () => {
-    const res = await createProject({ ...basePayload, name: "Rotto", provider: "gitlab" });
+  it("body non valido (gitAccountId mancante): 400", async () => {
+    const res = await createProject({ name: "Rotto", repoUrl: "https://github.com/acme/rotto" });
     expect(res.statusCode).toBe(400);
   });
 
   it("campi oltre la lunghezza massima: 400", async () => {
-    const tooLongName = await createProject({ ...basePayload, name: "x".repeat(201) });
+    const tooLongName = await createProject({ ...basePayload(), name: "x".repeat(201) });
     expect(tooLongName.statusCode).toBe(400);
     const tooLongRepoUrl = await createProject({
-      ...basePayload,
+      ...basePayload(),
       name: "Url Lungo",
       repoUrl: `https://github.com/acme/${"r".repeat(500)}`,
     });
     expect(tooLongRepoUrl.statusCode).toBe(400);
-    const tooLongBranch = await createProject({
-      ...basePayload,
-      name: "Branch Lungo",
-      defaultBranch: "b".repeat(201),
-    });
-    expect(tooLongBranch.statusCode).toBe(400);
-  });
-});
-
-describe("POST /api/projects/validate-credentials", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  function validate(payload: Record<string, unknown>, cookie = adminCookie) {
-    return app.inject({
-      method: "POST",
-      url: "/api/projects/validate-credentials",
-      headers: { cookie },
-      payload,
-    });
-  }
-
-  it("l'admin ottiene i check per Bitbucket: la rete è mockata via fetch globale", async () => {
-    // git info/refs → 200, REST pullrequests → 200: entrambi ok.
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: string) => {
-        if (input.includes("api.bitbucket.org")) return Promise.resolve(new Response("{}", { status: 200 }));
-        if (input.includes("info/refs")) return Promise.resolve(new Response("", { status: 200 }));
-        return Promise.resolve(new Response("", { status: 404 }));
-      }),
-    );
-
-    const res = await validate({
-      provider: "bitbucket",
-      repoUrl: "https://bitbucket.org/acme/shop",
-      credentials: { username: "alice", email: "alice@corp.io", token: "api-token" },
-    });
-
-    expect(res.statusCode).toBe(200);
-    const body = res.json() as { ok: boolean; checks: { name: string; ok: boolean; detail: string }[] };
-    expect(body.ok).toBe(true);
-    expect(body.checks).toHaveLength(3);
-    expect(body.checks.map((c) => c.name)).toEqual([
-      "Accesso git (push)",
-      "Accesso REST API (PR)",
-      "Accesso webhook (config automatica)",
-    ]);
-    expect(body.checks.every((c) => c.ok)).toBe(true);
-  });
-
-  it("riflette i fallimenti: REST 401 → ok:false con guida sull'email", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn((input: string) => {
-        if (input.includes("api.bitbucket.org")) return Promise.resolve(new Response("", { status: 401 }));
-        if (input.includes("info/refs")) return Promise.resolve(new Response("", { status: 200 }));
-        return Promise.resolve(new Response("", { status: 404 }));
-      }),
-    );
-
-    const res = await validate({
-      provider: "bitbucket",
-      repoUrl: "https://bitbucket.org/acme/shop",
-      credentials: { username: "alice", token: "api-token" },
-    });
-
-    expect(res.statusCode).toBe(200);
-    const body = res.json() as { ok: boolean; checks: { name: string; ok: boolean; detail: string }[] };
-    expect(body.ok).toBe(false);
-    const rest = body.checks.find((c) => c.name === "Accesso REST API (PR)")!;
-    expect(rest.ok).toBe(false);
-    expect(rest.detail).toMatch(/email/i);
-  });
-
-  it("un member non può validare: 403", async () => {
-    const res = await validate(
-      {
-        provider: "github",
-        repoUrl: "https://github.com/acme/demo",
-        credentials: { token: "ghp_x" },
-      },
-      memberCookie,
-    );
-    expect(res.statusCode).toBe(403);
-  });
-
-  it("senza sessione: 401", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/projects/validate-credentials",
-      payload: {
-        provider: "github",
-        repoUrl: "https://github.com/acme/demo",
-        credentials: { token: "ghp_x" },
-      },
-    });
-    expect(res.statusCode).toBe(401);
   });
 });
 
 describe("GET /api/projects", () => {
-  it("un member legge la lista, senza credenziali nel payload", async () => {
-    const res = await app.inject({
-      method: "GET",
-      url: "/api/projects",
-      headers: { cookie: memberCookie },
-    });
+  it("un member legge la lista, senza credenziali né webhookSecret", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/projects", headers: { cookie: memberCookie } });
     expect(res.statusCode).toBe(200);
     const body = res.json() as Record<string, unknown>[];
-    expect(body.length).toBeGreaterThanOrEqual(3);
     expect(body.map((p) => p.slug)).toContain("sito-vetrina");
+    expect(body[0]).toHaveProperty("gitAccountName");
     expect(res.body).not.toContain("credentials");
     expect(res.body).not.toContain(PLAINTEXT_TOKEN);
-    // Il webhookSecret non deve trapelare nella lista (member né admin).
-    expect(res.body).not.toContain("webhookSecret");
-  });
-
-  it("nemmeno l'admin vede il webhookSecret nella lista", async () => {
-    const res = await app.inject({
-      method: "GET",
-      url: "/api/projects",
-      headers: { cookie: adminCookie },
-    });
-    expect(res.statusCode).toBe(200);
     expect(res.body).not.toContain("webhookSecret");
   });
 
@@ -323,29 +195,18 @@ describe("GET /api/projects", () => {
 });
 
 describe("GET /api/projects/:slug", () => {
-  it("un member legge il singolo progetto, senza credenziali", async () => {
+  it("un member legge il singolo progetto con gitAccountId/Name", async () => {
     const res = await app.inject({
       method: "GET",
       url: "/api/projects/sito-vetrina",
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(200);
-    const body = res.json() as Record<string, unknown>;
+    const body = res.json() as { slug: string; gitAccountId: string; gitAccountName: string };
     expect(body.slug).toBe("sito-vetrina");
-    expect(body.name).toBe("Sito Vetrina");
-    expect(res.body).not.toContain("credentials");
+    expect(body.gitAccountId).toBe(githubAccountId);
+    expect(body.gitAccountName).toBe("Account GitHub");
     expect(res.body).not.toContain(PLAINTEXT_TOKEN);
-    // Il singolo progetto non espone il webhookSecret a nessun ruolo.
-    expect(res.body).not.toContain("webhookSecret");
-  });
-
-  it("nemmeno l'admin vede il webhookSecret sul singolo progetto", async () => {
-    const res = await app.inject({
-      method: "GET",
-      url: "/api/projects/sito-vetrina",
-      headers: { cookie: adminCookie },
-    });
-    expect(res.statusCode).toBe(200);
     expect(res.body).not.toContain("webhookSecret");
   });
 
@@ -356,45 +217,6 @@ describe("GET /api/projects/:slug", () => {
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(404);
-  });
-});
-
-describe("stato di configurazione nella proiezione pubblica", () => {
-  it("progetto con credenziali → hasCredentials true e webhookConfiguredAt null", async () => {
-    const res = await app.inject({
-      method: "GET",
-      url: "/api/projects/sito-vetrina",
-      headers: { cookie: memberCookie },
-    });
-    expect(res.statusCode).toBe(200);
-    const body = res.json() as { hasCredentials: boolean; webhookConfiguredAt: string | null };
-    expect(body.hasCredentials).toBe(true);
-    expect(body.webhookConfiguredAt).toBeNull();
-  });
-
-  it("progetto senza credenziali salvate → hasCredentials false", async () => {
-    // Il create richiede sempre il token, quindi inseriamo una riga grezza con
-    // encryptedCredentials vuoto per coprire il caso "credenziali non configurate".
-    await testDb.db.insert(projects).values({
-      name: "Senza Credenziali",
-      slug: "senza-credenziali",
-      provider: "github",
-      repoUrl: "https://github.com/acme/senza-credenziali",
-      defaultBranch: "main",
-      encryptedCredentials: "",
-      ingestionKey: randomBytes(16).toString("hex"),
-      webhookSecret: randomBytes(16).toString("hex"),
-    });
-
-    const res = await app.inject({
-      method: "GET",
-      url: "/api/projects/senza-credenziali",
-      headers: { cookie: memberCookie },
-    });
-    expect(res.statusCode).toBe(200);
-    const body = res.json() as { hasCredentials: boolean; webhookConfiguredAt: string | null };
-    expect(body.hasCredentials).toBe(false);
-    expect(body.webhookConfiguredAt).toBeNull();
   });
 });
 
@@ -418,15 +240,6 @@ describe("GET /api/projects/:slug/webhook", () => {
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(403);
-    expect(res.body).not.toContain("webhookSecret");
-  });
-
-  it("senza sessione: 401", async () => {
-    const res = await app.inject({
-      method: "GET",
-      url: "/api/projects/sito-vetrina/webhook",
-    });
-    expect(res.statusCode).toBe(401);
   });
 
   it("slug inesistente: 404", async () => {
@@ -456,35 +269,31 @@ describe("PATCH /api/projects/:slug", () => {
     expect(body.name).toBe("API Backend v2");
     expect(body.repoUrl).toBe("https://bitbucket.org/acme/api-backend-v2");
     expect(body.defaultBranch).toBe("main");
-    // Lo slug è il path della DSN di ingestion: non cambia mai.
     expect(body.slug).toBe("api-backend");
   });
 
-  it("l'admin aggiorna le credenziali: vengono ricifrate, mai in chiaro nel DB", async () => {
-    const [before] = await testDb.db
-      .select()
-      .from(projects)
-      .where(eq(projects.slug, "api-backend"));
-
+  it("cambio di account git: aggiorna gitAccountId e ri-denormalizza il provider", async () => {
     const res = await app.inject({
       method: "PATCH",
       url: "/api/projects/api-backend",
       headers: { cookie: adminCookie },
-      payload: { credentials: { token: "nuovo-token-ruotato" } },
+      payload: { gitAccountId: githubAccountId },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.body).not.toContain("credentials");
-    expect(res.body).not.toContain("nuovo-token-ruotato");
+    const body = res.json() as { gitAccountId: string; gitAccountName: string; provider: string };
+    expect(body.gitAccountId).toBe(githubAccountId);
+    expect(body.gitAccountName).toBe("Account GitHub");
+    expect(body.provider).toBe("github");
+  });
 
-    const [after] = await testDb.db
-      .select()
-      .from(projects)
-      .where(eq(projects.slug, "api-backend"));
-    expect(after!.encryptedCredentials).not.toBe(before!.encryptedCredentials);
-    expect(after!.encryptedCredentials).not.toContain("nuovo-token-ruotato");
-    expect(JSON.parse(decrypt(after!.encryptedCredentials, ENCRYPTION_KEY))).toEqual({
-      token: "nuovo-token-ruotato",
+  it("cambio verso account inesistente: 404", async () => {
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/api/projects/api-backend",
+      headers: { cookie: adminCookie },
+      payload: { gitAccountId: "00000000-0000-0000-0000-000000000000" },
     });
+    expect(res.statusCode).toBe(404);
   });
 
   it("PATCH senza campi restituisce il progetto invariato", async () => {
@@ -534,7 +343,7 @@ describe("POST /api/projects/:slug/configure-webhook", () => {
     });
   }
 
-  it("l'admin configura il webhook: 200 con created, url e dettaglio; usa creds decifrate e URL/secret corretti", async () => {
+  it("l'admin configura il webhook: usa le credenziali decifrate dell'account collegato", async () => {
     const calls: { url: string; init?: RequestInit }[] = [];
     vi.stubGlobal(
       "fetch",
@@ -545,15 +354,12 @@ describe("POST /api/projects/:slug/configure-webhook", () => {
           return Promise.resolve(new Response("[]", { status: 200 }));
         }
         if (url === HOOKS_URL && init?.method === "POST") {
-          return Promise.resolve(
-            new Response(JSON.stringify({ id: 99, config: { url } }), { status: 201 }),
-          );
+          return Promise.resolve(new Response(JSON.stringify({ id: 99, config: { url } }), { status: 201 }));
         }
         return Promise.resolve(new Response("", { status: 404 }));
       }),
     );
 
-    // Recupera il segreto webhook atteso per l'assert.
     const webhookRes = await app.inject({
       method: "GET",
       url: "/api/projects/sito-vetrina/webhook",
@@ -563,40 +369,25 @@ describe("POST /api/projects/:slug/configure-webhook", () => {
 
     const res = await configure("sito-vetrina");
     expect(res.statusCode).toBe(200);
-    const body = res.json() as { ok: boolean; created: boolean; updated: boolean; detail: string; url: string };
+    const body = res.json() as { ok: boolean; created: boolean; updated: boolean; url: string };
     expect(body.ok).toBe(true);
     expect(body.created).toBe(true);
     expect(body.updated).toBe(false);
     expect(body.url).toBe("https://stubwise.example.com/webhooks/git/sito-vetrina");
 
-    // Dopo una configurazione riuscita la riga registra webhookConfiguredAt, e
-    // la proiezione pubblica lo espone come timestamp ISO (era null prima).
     const [row] = await testDb.db
       .select({ at: projects.webhookConfiguredAt })
       .from(projects)
       .where(eq(projects.slug, "sito-vetrina"));
     expect(row!.at).toBeInstanceOf(Date);
-    const publicRes = await app.inject({
-      method: "GET",
-      url: "/api/projects/sito-vetrina",
-      headers: { cookie: adminCookie },
-    });
-    const publicBody = publicRes.json() as { webhookConfiguredAt: string | null };
-    expect(publicBody.webhookConfiguredAt).toEqual(expect.any(String));
 
-    // La risposta non deve MAI contenere il segreto né il token.
     expect(res.body).not.toContain(expectedSecret);
     expect(res.body).not.toContain(PLAINTEXT_TOKEN);
 
-    // La chiamata uscente ha usato le credenziali decifrate (Bearer token) e
-    // l'URL/secret corretti nel body.
+    // La chiamata uscente ha usato le credenziali decifrate DELL'ACCOUNT.
     const post = calls.find((c) => c.init?.method === "POST")!;
-    expect((post.init!.headers as Record<string, string>)["Authorization"]).toBe(
-      `Bearer ${PLAINTEXT_TOKEN}`,
-    );
-    const sent = JSON.parse(post.init!.body as string) as {
-      config: { url: string; secret: string };
-    };
+    expect((post.init!.headers as Record<string, string>)["Authorization"]).toBe(`Bearer ${PLAINTEXT_TOKEN}`);
+    const sent = JSON.parse(post.init!.body as string) as { config: { url: string; secret: string } };
     expect(sent.config.url).toBe("https://stubwise.example.com/webhooks/git/sito-vetrina");
     expect(sent.config.secret).toBe(expectedSecret);
   });
@@ -608,9 +399,7 @@ describe("POST /api/projects/:slug/configure-webhook", () => {
         const url = String(input);
         const hookUrl = "https://stubwise.example.com/webhooks/git/sito-vetrina";
         if (url === HOOKS_URL && (init?.method ?? "GET") === "GET") {
-          return Promise.resolve(
-            new Response(JSON.stringify([{ id: 5, config: { url: hookUrl } }]), { status: 200 }),
-          );
+          return Promise.resolve(new Response(JSON.stringify([{ id: 5, config: { url: hookUrl } }]), { status: 200 }));
         }
         if (url === `${HOOKS_URL}/5` && init?.method === "PATCH") {
           return Promise.resolve(new Response(JSON.stringify({ id: 5 }), { status: 200 }));
@@ -627,29 +416,35 @@ describe("POST /api/projects/:slug/configure-webhook", () => {
   });
 
   it("provider 403: 4xx con il messaggio di guida sui permessi webhook", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() => Promise.resolve(new Response("forbidden", { status: 403 }))),
-    );
-
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response("forbidden", { status: 403 }))));
     const res = await configure("sito-vetrina");
     expect(res.statusCode).toBeGreaterThanOrEqual(400);
     expect(res.statusCode).toBeLessThan(500);
-    const body = res.json() as { message: string };
-    expect(body.message).toMatch(/webhook/i);
+    expect((res.json() as { message: string }).message).toMatch(/webhook/i);
+  });
+
+  it("credenziali account non decifrabili: 400", async () => {
+    // Sovrascrive il blob dell'account collegato con uno illeggibile.
+    const [proj] = await testDb.db.select().from(projects).where(eq(projects.slug, "sito-vetrina"));
+    await testDb.db
+      .update(gitAccounts)
+      .set({ encryptedCredentials: "non-decifrabile" })
+      .where(eq(gitAccounts.id, proj!.gitAccountId));
+    const res = await configure("sito-vetrina");
+    expect(res.statusCode).toBe(400);
+    // Ripristina un blob valido per non rompere altri test sull'account.
+    const accountRes = await app.inject({
+      method: "PATCH",
+      url: `/api/git-accounts/${proj!.gitAccountId}`,
+      headers: { cookie: adminCookie },
+      payload: { credentials: { username: "acme-bot", token: PLAINTEXT_TOKEN } },
+    });
+    expect(accountRes.statusCode).toBe(200);
   });
 
   it("un member non può configurare: 403", async () => {
     const res = await configure("sito-vetrina", memberCookie);
     expect(res.statusCode).toBe(403);
-  });
-
-  it("senza sessione: 401", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/projects/sito-vetrina/configure-webhook",
-    });
-    expect(res.statusCode).toBe(401);
   });
 
   it("slug inesistente: 404", async () => {

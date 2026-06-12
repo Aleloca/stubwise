@@ -39,16 +39,29 @@ function feedbackEvent(message: string) {
   return { kind: "feedback", message };
 }
 
+async function createGitAccount(): Promise<string> {
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/git-accounts",
+    headers: { cookie: adminCookie },
+    payload: { name: "Account di test", provider: "github", credentials: { token: "token-di-test" } },
+  });
+  if (res.statusCode !== 201) {
+    throw new Error(`creazione account git fallita: ${res.statusCode} ${res.body}`);
+  }
+  return (res.json() as { id: string }).id;
+}
+
 async function createProject(name: string): Promise<SeededProject> {
+  const gitAccountId = await createGitAccount();
   const res = await app.inject({
     method: "POST",
     url: "/api/projects",
     headers: { cookie: adminCookie },
     payload: {
       name,
-      provider: "github",
+      gitAccountId,
       repoUrl: `https://github.com/acme/${name}`,
-      credentials: { token: "token-di-test" },
     },
   });
   if (res.statusCode !== 201) {

@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { aiJobs, errorGroups, projects, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { startTestDb } from "@stubwise/db/testing";
+import { seedGitAccount, startTestDb } from "@stubwise/db/testing";
 import { processEvents } from "./processor.js";
 
 let testDb: TestDb;
@@ -21,15 +21,16 @@ let projectCounter = 0;
 /** Ogni test lavora su un progetto fresco: isolamento senza truncate. */
 async function createProject(): Promise<{ id: string }> {
   projectCounter += 1;
+  const gitAccountId = await seedGitAccount(testDb.db);
   const [project] = await testDb.db
     .insert(projects)
     .values({
       name: `Progetto ${projectCounter}`,
       slug: `progetto-${projectCounter}`,
       provider: "github",
+      gitAccountId,
       repoUrl: "https://github.com/acme/demo",
       defaultBranch: "main",
-      encryptedCredentials: "cifrato",
       ingestionKey: `chiave-${projectCounter}`,
     })
     .returning({ id: projects.id });

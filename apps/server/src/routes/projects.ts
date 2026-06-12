@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { gitProviderKindSchema, projectSchema } from "@stubwise/shared";
+import { projectSchema } from "@stubwise/shared";
 import { getProvider } from "@stubwise/git";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -7,7 +7,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAdmin, requireAuth } from "../auth/session.js";
 import { GitProviderError } from "@stubwise/git";
-import { decrypt, encrypt, projects } from "@stubwise/db";
+import { decrypt, gitAccounts, projects } from "@stubwise/db";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 
 /**
@@ -18,11 +18,9 @@ import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js"
 const MAX_SLUG_ATTEMPTS = 100;
 
 /**
- * Credenziali git del progetto: `token` sempre; `username` è l'identità git
- * (username Bitbucket per gli API token, o l'account per le app password
- * legacy); `email` è l'identità della REST API (email Atlassian), serve solo
- * agli API token di Bitbucket. Vengono serializzate in JSON e cifrate prima di
- * toccare il DB; non compaiono mai in nessuna risposta.
+ * Forma delle credenziali git decifrate dall'account (vedi git-accounts.ts).
+ * Usata solo internamente per configurare il webhook; non entra né esce mai
+ * dalle risposte dei progetti.
  */
 const gitCredentialsSchema = z.object({
   username: z.string().min(1).optional(),
@@ -32,10 +30,11 @@ const gitCredentialsSchema = z.object({
 
 const createProjectSchema = z.object({
   name: z.string().min(1).max(200),
-  provider: gitProviderKindSchema,
+  // Le credenziali e il provider vivono ora sull'account git: il progetto
+  // referenzia l'account e ne eredita il provider (denormalizzato sulla riga).
+  gitAccountId: z.uuid(),
   repoUrl: z.url().max(500),
   defaultBranch: z.string().min(1).max(200).default("main"),
-  credentials: gitCredentialsSchema,
 });
 
 // Lo slug non è aggiornabile: è il path della DSN di ingestion degli SDK
@@ -44,33 +43,13 @@ const updateProjectSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   repoUrl: z.url().max(500).optional(),
   defaultBranch: z.string().min(1).max(200).optional(),
-  credentials: gitCredentialsSchema.optional(),
+  // Cambio di account git (es. credenziali ruotate su un altro account):
+  // aggiorna anche il provider denormalizzato del progetto. Le credenziali
+  // dirette sul progetto non esistono più.
+  gitAccountId: z.uuid().optional(),
 });
 
 const slugParamsSchema = z.object({ slug: z.string().min(1) });
-
-/**
- * Body della validazione credenziali: provider + URL repo + credenziali in
- * chiaro così com'è stato digitato nel form. Validato senza toccare il DB:
- * utile sia in creazione (progetto non ancora esistente) sia in modifica.
- */
-const validateCredentialsSchema = z.object({
-  provider: gitProviderKindSchema,
-  repoUrl: z.url().max(500),
-  credentials: gitCredentialsSchema,
-});
-
-const credentialCheckSchema = z.object({
-  name: z.string(),
-  ok: z.boolean(),
-  detail: z.string(),
-});
-
-/** Risultato della validazione: `ok` riassume i singoli check (tutti ok). */
-const validateCredentialsResponseSchema = z.object({
-  ok: z.boolean(),
-  checks: z.array(credentialCheckSchema),
-});
 
 /**
  * Risposta dell'endpoint admin del webhook: il segreto HMAC e il path su cui
@@ -115,10 +94,13 @@ type ProjectRow = typeof projects.$inferSelect;
 
 /**
  * Proiezione pubblica di un progetto: campi elencati esplicitamente, mai
- * spread della riga, così `encryptedCredentials` non può trapelare nemmeno
- * se lo schema di risposta cambiasse.
+ * spread della riga. Le credenziali non vivono più sul progetto (stanno
+ * sull'account git); si espongono `gitAccountId` e `gitAccountName` per la UI.
  */
-function toPublicProject(row: ProjectRow): z.infer<typeof projectSchema> {
+function toPublicProject(
+  row: ProjectRow,
+  gitAccountName: string,
+): z.infer<typeof projectSchema> {
   return {
     id: row.id,
     name: row.name,
@@ -127,9 +109,8 @@ function toPublicProject(row: ProjectRow): z.infer<typeof projectSchema> {
     repoUrl: row.repoUrl,
     defaultBranch: row.defaultBranch,
     ingestionKey: row.ingestionKey,
-    // Solo la presenza, mai il contenuto: le credenziali restano write-only.
-    // Vuote ('') = nessuna credenziale (non dovrebbe capitare, ma è esplicito).
-    hasCredentials: row.encryptedCredentials.length > 0,
+    gitAccountId: row.gitAccountId,
+    gitAccountName,
     webhookConfiguredAt: row.webhookConfiguredAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
   };
@@ -138,7 +119,7 @@ function toPublicProject(row: ProjectRow): z.infer<typeof projectSchema> {
 /**
  * Route dei progetti, registrate sotto /api/projects. Lettura per ogni
  * utente autenticato; creazione e modifica solo admin. Le credenziali git
- * sono cifrate AES-256-GCM at rest e non escono mai dall'API.
+ * vivono sull'account collegato (git_accounts), non sul progetto.
  */
 export async function projectRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -149,12 +130,19 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       preHandler: requireAdmin,
       schema: {
         body: createProjectSchema,
-        response: { 201: projectSchema, ...authErrorResponses },
+        response: { 201: projectSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
-      const { name, provider, repoUrl, defaultBranch, credentials } = request.body;
-      const encryptedCredentials = encrypt(JSON.stringify(credentials), app.encryptionKey);
+      const { name, gitAccountId, repoUrl, defaultBranch } = request.body;
+
+      // L'account deve esistere: il provider del progetto è quello dell'account.
+      const [account] = await app.db
+        .select()
+        .from(gitAccounts)
+        .where(eq(gitAccounts.id, gitAccountId));
+      if (!account) return reply.code(404).send({ message: "Account git non trovato" });
+
       const baseSlug = slugify(name);
       // Unicità dello slug per insert-e-riprova: in caso di collisione si
       // aggiunge un suffisso numerico. Niente select preventiva: il vincolo
@@ -167,10 +155,11 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
             .values({
               name,
               slug,
-              provider,
+              // Provider denormalizzato dall'account: fonte di verità è l'account.
+              provider: account.provider,
+              gitAccountId: account.id,
               repoUrl,
               defaultBranch,
-              encryptedCredentials,
               // Chiave di ingestion per gli SDK: 32 caratteri esadecimali.
               ingestionKey: randomBytes(16).toString("hex"),
               // Segreto HMAC del webhook git, generato come l'ingestionKey:
@@ -180,7 +169,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
             })
             .returning();
           if (!created) throw new Error("insert del progetto non ha restituito la riga");
-          return await reply.code(201).send(toPublicProject(created));
+          return await reply.code(201).send(toPublicProject(created, account.name));
         } catch (error) {
           // Collisione di slug (o, in teoria, di ingestionKey: entrambi
           // vengono rigenerati al giro dopo). Tutto il resto riemerge.
@@ -191,28 +180,6 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
-  // Validazione credenziali (solo admin): controlla via HTTPS che le
-  // credenziali inserite autentichino e abbiano gli scope per push git + PR.
-  // Non persiste nulla e non legge la riga del progetto: valida l'input grezzo.
-  app.post(
-    "/validate-credentials",
-    {
-      preHandler: requireAdmin,
-      schema: {
-        body: validateCredentialsSchema,
-        response: { 200: validateCredentialsResponseSchema, ...authErrorResponses },
-      },
-    },
-    async (request) => {
-      const { provider, repoUrl, credentials } = request.body;
-      const checks = await getProvider(provider).validateCredentials(
-        { repoUrl, defaultBranch: "main", credentials },
-        { fetchImpl: fetch },
-      );
-      return { ok: checks.every((c) => c.ok), checks };
-    },
-  );
-
   app.get(
     "/",
     {
@@ -220,8 +187,12 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       schema: { response: { 200: z.array(projectSchema), ...authErrorResponses } },
     },
     async () => {
-      const rows = await app.db.select().from(projects).orderBy(projects.createdAt);
-      return rows.map(toPublicProject);
+      const rows = await app.db
+        .select({ project: projects, gitAccountName: gitAccounts.name })
+        .from(projects)
+        .innerJoin(gitAccounts, eq(projects.gitAccountId, gitAccounts.id))
+        .orderBy(projects.createdAt);
+      return rows.map((r) => toPublicProject(r.project, r.gitAccountName));
     },
   );
 
@@ -236,11 +207,12 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const [row] = await app.db
-        .select()
+        .select({ project: projects, gitAccountName: gitAccounts.name })
         .from(projects)
+        .innerJoin(gitAccounts, eq(projects.gitAccountId, gitAccounts.id))
         .where(eq(projects.slug, request.params.slug));
       if (!row) return reply.code(404).send({ message: "Progetto non trovato" });
-      return toPublicProject(row);
+      return toPublicProject(row.project, row.gitAccountName);
     },
   );
 
@@ -268,9 +240,10 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
 
   // Configurazione automatica del webhook (solo admin): registra in modo
   // idempotente il webhook PR-merged sul provider git usando le credenziali
-  // cifrate del progetto. Né il segreto né le credenziali escono mai dalla
-  // risposta. Gli errori del provider (es. scope mancante) sono GitProviderError
-  // e vengono mappati su un 4xx col messaggio di guida intatto per il client.
+  // cifrate dell'ACCOUNT git collegato al progetto. Né il segreto né le
+  // credenziali escono mai dalla risposta. Gli errori del provider (es. scope
+  // mancante) sono GitProviderError e vengono mappati su un 4xx col messaggio
+  // di guida intatto per il client.
   app.post(
     "/:slug/configure-webhook",
     {
@@ -288,30 +261,32 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const [row] = await app.db
-        .select()
+        .select({ project: projects, account: gitAccounts })
         .from(projects)
+        .innerJoin(gitAccounts, eq(projects.gitAccountId, gitAccounts.id))
         .where(eq(projects.slug, request.params.slug));
       if (!row) return reply.code(404).send({ message: "Progetto non trovato" });
+      const { project, account } = row;
 
-      // Decifratura delle credenziali con la chiave dell'app (stesso percorso
-      // del worker). Un fallimento qui è un errore di configurazione: messaggio
-      // esplicito, MAI il payload cifrato nella risposta.
+      // Decifratura delle credenziali dell'ACCOUNT con la chiave dell'app
+      // (stesso percorso del worker). Un fallimento qui è un errore di
+      // configurazione: messaggio esplicito, MAI il payload cifrato.
       let credentials: z.infer<typeof gitCredentialsSchema>;
       try {
         credentials = gitCredentialsSchema.parse(
-          JSON.parse(decrypt(row.encryptedCredentials, app.encryptionKey)),
+          JSON.parse(decrypt(account.encryptedCredentials, app.encryptionKey)),
         );
       } catch {
         return reply
           .code(400)
-          .send({ message: "configura prima le credenziali git del progetto" });
+          .send({ message: "credenziali dell'account git non decifrabili" });
       }
 
       const url = `${app.publicUrl}/webhooks/git/${request.params.slug}`;
       try {
-        const result = await getProvider(row.provider).ensureWebhook(
-          { repoUrl: row.repoUrl, defaultBranch: row.defaultBranch, credentials },
-          { url, secret: row.webhookSecret },
+        const result = await getProvider(project.provider).ensureWebhook(
+          { repoUrl: project.repoUrl, defaultBranch: project.defaultBranch, credentials },
+          { url, secret: project.webhookSecret },
           { fetchImpl: fetch },
         );
         // Registra lo stato "configurato": la proiezione pubblica lo espone
@@ -319,7 +294,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         await app.db
           .update(projects)
           .set({ webhookConfiguredAt: new Date() })
-          .where(eq(projects.id, row.id));
+          .where(eq(projects.id, project.id));
         return {
           ok: true as const,
           created: result.created,
@@ -349,27 +324,39 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { name, repoUrl, defaultBranch, credentials } = request.body;
+      const { name, repoUrl, defaultBranch, gitAccountId } = request.body;
       const updates: Partial<ProjectRow> = {};
       if (name !== undefined) updates.name = name;
       if (repoUrl !== undefined) updates.repoUrl = repoUrl;
       if (defaultBranch !== undefined) updates.defaultBranch = defaultBranch;
-      if (credentials !== undefined) {
-        updates.encryptedCredentials = encrypt(JSON.stringify(credentials), app.encryptionKey);
+      // Cambio di account: valida l'esistenza e ri-denormalizza il provider.
+      if (gitAccountId !== undefined) {
+        const [account] = await app.db
+          .select()
+          .from(gitAccounts)
+          .where(eq(gitAccounts.id, gitAccountId));
+        if (!account) return reply.code(404).send({ message: "Account git non trovato" });
+        updates.gitAccountId = account.id;
+        updates.provider = account.provider;
       }
 
-      // Drizzle rifiuta un update senza colonne: un PATCH vuoto è una
-      // lettura, si risponde con lo stato corrente.
-      const [row] =
-        Object.keys(updates).length === 0
-          ? await app.db.select().from(projects).where(eq(projects.slug, request.params.slug))
-          : await app.db
-              .update(projects)
-              .set(updates)
-              .where(eq(projects.slug, request.params.slug))
-              .returning();
+      // Drizzle rifiuta un update senza colonne: un PATCH vuoto è una lettura.
+      if (Object.keys(updates).length > 0) {
+        const [updated] = await app.db
+          .update(projects)
+          .set(updates)
+          .where(eq(projects.slug, request.params.slug))
+          .returning();
+        if (!updated) return reply.code(404).send({ message: "Progetto non trovato" });
+      }
+
+      const [row] = await app.db
+        .select({ project: projects, gitAccountName: gitAccounts.name })
+        .from(projects)
+        .innerJoin(gitAccounts, eq(projects.gitAccountId, gitAccounts.id))
+        .where(eq(projects.slug, request.params.slug));
       if (!row) return reply.code(404).send({ message: "Progetto non trovato" });
-      return toPublicProject(row);
+      return toPublicProject(row.project, row.gitAccountName);
     },
   );
 }

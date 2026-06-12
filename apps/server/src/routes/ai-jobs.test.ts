@@ -24,15 +24,23 @@ beforeAll(async () => {
   });
   users = await seedUsers(app);
 
+  const accountRes = await app.inject({
+    method: "POST",
+    url: "/api/git-accounts",
+    headers: { cookie: users.adminCookie },
+    payload: { name: "Account Jobs", provider: "github", credentials: { token: "token-di-test" } },
+  });
+  expect(accountRes.statusCode).toBe(201);
+  const gitAccountId = (accountRes.json() as { id: string }).id;
+
   const projectRes = await app.inject({
     method: "POST",
     url: "/api/projects",
     headers: { cookie: users.adminCookie },
     payload: {
       name: "Progetto Jobs",
-      provider: "github",
+      gitAccountId,
       repoUrl: "https://github.com/acme/progetto-jobs",
-      credentials: { token: "token-di-test" },
     },
   });
   expect(projectRes.statusCode).toBe(201);

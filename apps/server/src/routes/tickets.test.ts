@@ -36,16 +36,27 @@ afterAll(async () => {
   await testDb.stop();
 });
 
+async function createGitAccount(): Promise<string> {
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/git-accounts",
+    headers: { cookie: users.adminCookie },
+    payload: { name: "Account di test", provider: "github", credentials: { token: "token-di-test" } },
+  });
+  expect(res.statusCode).toBe(201);
+  return (res.json() as { id: string }).id;
+}
+
 async function createProject(name: string): Promise<string> {
+  const gitAccountId = await createGitAccount();
   const res = await app.inject({
     method: "POST",
     url: "/api/projects",
     headers: { cookie: users.adminCookie },
     payload: {
       name,
-      provider: "github",
+      gitAccountId,
       repoUrl: `https://github.com/acme/${name.toLowerCase().replace(/\s+/g, "-")}`,
-      credentials: { token: "token-di-test" },
     },
   });
   expect(res.statusCode).toBe(201);

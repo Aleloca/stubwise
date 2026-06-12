@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { aiJobs, comments, projects, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { startTestDb } from "@stubwise/db/testing";
+import { seedGitAccount, startTestDb } from "@stubwise/db/testing";
 import { seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
@@ -40,13 +40,34 @@ interface CreatedProject {
 /**
  * Crea un progetto via API e ne legge il webhookSecret reale dall'endpoint
  * admin dedicato (la proiezione pubblica del progetto non lo espone più).
+ * Le credenziali e il provider, passati nel payload in forma "legacy", vengono
+ * tradotti nella creazione di un account git dedicato, a cui il progetto si
+ * collega: lo shape della creazione progetto è ora { name, gitAccountId, ... }.
  */
 async function createProject(payload: Record<string, unknown>): Promise<CreatedProject> {
+  const { provider, credentials, name, ...rest } = payload as {
+    provider: string;
+    credentials: unknown;
+    name: string;
+    repoUrl?: string;
+    defaultBranch?: string;
+  };
+  const accountRes = await app.inject({
+    method: "POST",
+    url: "/api/git-accounts",
+    headers: { cookie: adminCookie },
+    payload: { name: `${name} — account`, provider, credentials },
+  });
+  if (accountRes.statusCode !== 201) {
+    throw new Error(`creazione account git fallita: ${accountRes.statusCode} ${accountRes.body}`);
+  }
+  const gitAccountId = (accountRes.json() as { id: string }).id;
+
   const res = await app.inject({
     method: "POST",
     url: "/api/projects",
     headers: { cookie: adminCookie },
-    payload,
+    payload: { name, gitAccountId, ...rest },
   });
   if (res.statusCode !== 201) {
     throw new Error(`creazione progetto fallita: ${res.statusCode} ${res.body}`);
@@ -312,15 +333,16 @@ describe("POST /webhooks/git/:projectSlug", () => {
   });
 
   it("progetto con segreto vuoto (legacy) → 401", async () => {
+    const gitAccountId = await seedGitAccount(testDb.db);
     const [row] = await testDb.db
       .insert(projects)
       .values({
         name: "Legacy",
         slug: "legacy-no-secret",
         provider: "github",
+        gitAccountId,
         repoUrl: "https://github.com/acme/legacy",
         defaultBranch: "main",
-        encryptedCredentials: "x",
         ingestionKey: randomBytes(16).toString("hex"),
         webhookSecret: "",
       })

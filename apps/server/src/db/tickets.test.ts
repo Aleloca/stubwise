@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TestDb } from "@stubwise/db/testing";
-import { startTestDb } from "@stubwise/db/testing";
+import { seedGitAccount, startTestDb } from "@stubwise/db/testing";
 import type { Db } from "@stubwise/db";
 import { errorGroups, projects } from "@stubwise/db";
 import { createTicket, ProjectNotFoundError } from "./tickets.js";
@@ -19,15 +19,16 @@ function pgErrorCode(error: unknown): string | undefined {
 
 /** Inserisce un progetto minimo valido, con slug e ingestion key univoci. */
 async function insertProject(db: Db, slug: string) {
+  const gitAccountId = await seedGitAccount(db);
   const [project] = await db
     .insert(projects)
     .values({
       name: slug,
       slug,
       provider: "github",
+      gitAccountId,
       repoUrl: "https://github.com/acme/demo",
       defaultBranch: "main",
-      encryptedCredentials: "irrelevant",
       ingestionKey: `ingestion-${slug}`,
     })
     .returning();
