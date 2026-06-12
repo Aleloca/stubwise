@@ -780,3 +780,106 @@ describe("runTriage", () => {
     expect(after.error).toContain("binario claude non trovato");
   });
 });
+
+describe("runTriage — notifiche", () => {
+  interface Dispatched {
+    kind: string;
+    type?: string;
+    effort?: number;
+    error?: string;
+    ticketUrl: string;
+  }
+
+  it("dispatcha job.held sull'esito HELD con tipo, effort e link", async () => {
+    const { db } = testDb;
+    const ticket = await createTicket(db);
+    const job = await createTriagingJob(db, ticket.id);
+    // feature: auto_fix false → held.
+    const runner = new FakeAgentRunner({
+      output: `{"decision":"fix","type":"feature","effort":3}`,
+    });
+    const calls: Dispatched[] = [];
+
+    const outcome = await runTriage(
+      makeDeps(runner, {
+        publicUrl: "https://stubwise.example.com",
+        dispatch: async (_db, event) => {
+          calls.push(event as unknown as Dispatched);
+        },
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("held");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.kind).toBe("job.held");
+    expect(calls[0]!.type).toBe("feature");
+    expect(calls[0]!.effort).toBe(3);
+    expect(calls[0]!.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
+  });
+
+  it("dispatcha job.failed quando il triage fallisce (output non valido)", async () => {
+    const { db } = testDb;
+    const ticket = await createTicket(db);
+    const job = await createTriagingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({ output: "non è JSON" });
+    const calls: Dispatched[] = [];
+
+    const outcome = await runTriage(
+      makeDeps(runner, {
+        publicUrl: "https://stubwise.example.com",
+        dispatch: async (_db, event) => {
+          calls.push(event as unknown as Dispatched);
+        },
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("failed");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.kind).toBe("job.failed");
+    expect(calls[0]!.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
+  });
+
+  it("NON dispatcha quando l'esito è fixing (la notifica pr_opened arriva dal fix)", async () => {
+    const { db } = testDb;
+    const ticket = await createTicket(db);
+    const job = await createTriagingJob(db, ticket.id);
+    // bug: auto_fix true, max_effort 3, effort 2 → fixing.
+    const runner = new FakeAgentRunner({ output: `{"decision":"fix","type":"bug","effort":2}` });
+    const calls: Dispatched[] = [];
+
+    const outcome = await runTriage(
+      makeDeps(runner, {
+        dispatch: async (_db, event) => {
+          calls.push(event as unknown as Dispatched);
+        },
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("fixing");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("un dispatch che lancia non altera l'esito held (best-effort)", async () => {
+    const { db } = testDb;
+    const ticket = await createTicket(db);
+    const job = await createTriagingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      output: `{"decision":"fix","type":"feature","effort":3}`,
+    });
+
+    const outcome = await runTriage(
+      makeDeps(runner, {
+        dispatch: async () => {
+          throw new Error("notifica esplosa");
+        },
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("held");
+    expect((await getJob(db, job.id)).status).toBe("held");
+  });
+});

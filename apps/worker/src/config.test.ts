@@ -21,6 +21,20 @@ describe("loadWorkerConfig", () => {
     expect(config.fixExecuteModel).toBe("sonnet");
     expect(config.fixTwoPhase).toBe(true);
     expect(config.fixPlanTimeoutMs).toBe(600_000);
+    // PUBLIC_URL non impostato: default stringa vuota (il link al ticket nelle
+    // notifiche è il solo path).
+    expect(config.publicUrl).toBe("");
+  });
+
+  it("rispetta PUBLIC_URL e ne rimuove gli slash finali", () => {
+    expect(loadWorkerConfig({ ...VALID, PUBLIC_URL: "https://stubwise.example.com" }).publicUrl).toBe(
+      "https://stubwise.example.com",
+    );
+    expect(loadWorkerConfig({ ...VALID, PUBLIC_URL: "https://stubwise.example.com/" }).publicUrl).toBe(
+      "https://stubwise.example.com",
+    );
+    // Vuoto (es. da .env.example) resta vuoto.
+    expect(loadWorkerConfig({ ...VALID, PUBLIC_URL: "" }).publicUrl).toBe("");
   });
 
   it("rispetta MIRRORS_DIR, WORKER_CONCURRENCY e WORKER_STALE_MINUTES espliciti", () => {

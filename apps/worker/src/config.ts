@@ -95,6 +95,14 @@ const envSchema = z.object({
       .min(1, "deve essere un intero > 0 in millisecondi (es. 600000)")
       .default(600_000),
   ),
+  // URL pubblico dell'istanza, usato SOLO per comporre il link al ticket nelle
+  // notifiche webhook in uscita. Opzionale: vuoto (default) = il link è il solo
+  // path (/tickets/:id). Gli slash finali vengono rimossi così la concatenazione
+  // non produce doppi slash.
+  PUBLIC_URL: z.preprocess(
+    (value) => (typeof value === "string" ? value.replace(/\/+$/, "") : value),
+    z.string().default(""),
+  ),
 });
 
 export interface WorkerConfig {
@@ -118,6 +126,9 @@ export interface WorkerConfig {
   fixTwoPhase: boolean;
   /** Timeout del run di pianificazione in ms (default 600000 = 10'). */
   fixPlanTimeoutMs: number;
+  /** URL pubblico dell'istanza (senza slash finali) per i link nelle notifiche;
+   * vuoto = il link al ticket è il solo path. */
+  publicUrl: string;
 }
 
 /**
@@ -150,5 +161,6 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     fixExecuteModel: parsed.FIX_EXECUTE_MODEL,
     fixTwoPhase: parsed.FIX_TWO_PHASE,
     fixPlanTimeoutMs: parsed.FIX_PLAN_TIMEOUT_MS,
+    publicUrl: parsed.PUBLIC_URL,
   };
 }

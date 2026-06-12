@@ -7,13 +7,14 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "build": "tsc -p tsconfig.build.json",
-    "test": "pnpm --filter @stubwise/db... --filter @stubwise/git... build && vitest run",
+    "test": "pnpm --filter @stubwise/db... --filter @stubwise/git... --filter @stubwise/notifications... build && vitest run",
     "smoke": "tsx scripts/smoke.ts",
     "typecheck": "tsc --noEmit && tsc -p scripts/tsconfig.json"
   },
   "dependencies": {
     "@stubwise/db": "workspace:*",
     "@stubwise/git": "workspace:*",
+    "@stubwise/notifications": "workspace:*",
     "@stubwise/shared": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "execa": "^9.5.0",

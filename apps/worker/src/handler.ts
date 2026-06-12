@@ -1,4 +1,4 @@
-import { tickets, type Db } from "@stubwise/db";
+import { projects, tickets, type Db } from "@stubwise/db";
 import { eq } from "drizzle-orm";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { AgentRunner } from "./agent/runner.js";
 import type { MirrorManager } from "./git/mirrors.js";
 import { runFix, type FixDeps } from "./pipeline/fix.js";
+import type { DispatchFn } from "./pipeline/notify.js";
 import { runTriage } from "./pipeline/triage.js";
 import { failJob, type AiJob } from "./queue.js";
 
@@ -31,6 +32,12 @@ export interface HandlerDeps {
   encryptionKey: Buffer;
   /** Iniettabile nei test (provider finto, niente HTTP). */
   getProviderFn?: FixDeps["getProviderFn"];
+  /** URL pubblico dell'istanza (PUBLIC_URL), per i link nelle notifiche. Vuoto
+   * = il link al ticket è il solo path. */
+  publicUrl?: string;
+  /** Dispatch delle notifiche iniettabile nei test. Default:
+   * dispatchNotification (best-effort, non lancia mai). */
+  dispatch?: DispatchFn;
   /** Override delle opzioni di triage (model/maxTurns/timeoutMs). */
   triage?: { model?: string; maxTurns?: number; timeoutMs?: number };
   /** Override delle opzioni di fix (modelli, due fasi, timeout, allowedTools). */
@@ -46,13 +53,20 @@ export interface HandlerDeps {
   };
 }
 
-async function processJob(deps: HandlerDeps, job: AiJob): Promise<void> {
+async function processJob(deps: HandlerDeps, job: AiJob, projectName: string): Promise<void> {
+  // Contesto delle notifiche comune a triage e fix (best-effort): URL pubblico
+  // per i link, nome progetto per il messaggio, dispatch iniettabile nei test.
+  const notifyOpts = {
+    ...(deps.publicUrl !== undefined ? { publicUrl: deps.publicUrl } : {}),
+    projectName,
+    ...(deps.dispatch !== undefined ? { dispatch: deps.dispatch } : {}),
+  };
   // Il triage non tocca il repo: il suo cwd è una tmpdir vuota e innocua,
   // creata per-job e rimossa comunque vada.
   const workDir = await mkdtemp(join(tmpdir(), "stubwise-triage-"));
   try {
     const outcome = await runTriage(
-      { db: deps.db, runner: deps.runner, workDir, ...deps.triage },
+      { db: deps.db, runner: deps.runner, workDir, ...notifyOpts, ...deps.triage },
       job,
     );
     if (outcome !== "fixing") return;
@@ -63,6 +77,7 @@ async function processJob(deps: HandlerDeps, job: AiJob): Promise<void> {
         mirrors: deps.mirrors,
         encryptionKey: deps.encryptionKey,
         ...(deps.getProviderFn ? { getProviderFn: deps.getProviderFn } : {}),
+        ...notifyOpts,
         ...deps.fix,
       },
       job,
@@ -78,9 +93,12 @@ export function createHandler(deps: HandlerDeps): (job: AiJob) => Promise<void> 
   const chains = new Map<string, Promise<void>>();
 
   return async function handler(job: AiJob): Promise<void> {
+    // projectId per la serializzazione + nome del progetto per le notifiche,
+    // in un'unica join.
     const [row] = await deps.db
-      .select({ projectId: tickets.projectId })
+      .select({ projectId: tickets.projectId, projectName: projects.name })
       .from(tickets)
+      .innerJoin(projects, eq(projects.id, tickets.projectId))
       .where(eq(tickets.id, job.ticketId));
     if (!row) {
       await failJob(deps.db, job.id, {
@@ -93,7 +111,7 @@ export function createHandler(deps: HandlerDeps): (job: AiJob) => Promise<void> 
     // Sezione SINCRONA (niente await tra get e set): due handler concorrenti
     // sullo stesso progetto vedono e allungano la stessa catena.
     const prev = chains.get(row.projectId) ?? Promise.resolve();
-    const run = prev.then(() => processJob(deps, job));
+    const run = prev.then(() => processJob(deps, job, row.projectName));
     // La catena memorizzata non rigetta mai: un job fallito non blocca i
     // successivi dello stesso progetto.
     const tail = run.then(

@@ -16,6 +16,7 @@ import {
   recordAgentRun,
   type AiJob,
 } from "../queue.js";
+import { notify, ticketUrl, type NotifyDeps } from "./notify.js";
 import { buildTriagePrompt, parseTriageDecision, type TriageDecision } from "./prompts.js";
 
 /**
@@ -41,7 +42,7 @@ const DEFAULT_AUTOMATION_RULE = { autoFix: true, maxEffort: 3 } as const;
  * una volta, quindi nel caso pessimo vale ~2× questo valore. */
 export const DEFAULT_TRIAGE_TIMEOUT_MS = 120_000;
 
-export interface TriageDeps {
+export interface TriageDeps extends NotifyDeps {
   db: Db;
   runner: AgentRunner;
   /** Modello per il triage (default "haiku": è la fase economica). */
@@ -93,6 +94,25 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
     });
     return "failed";
   }
+
+  // Contesto per le notifiche di QUESTA fase (best-effort, post-commit).
+  const notifyDeps: NotifyDeps = {
+    ...(deps.publicUrl !== undefined ? { publicUrl: deps.publicUrl } : {}),
+    ...(deps.projectName !== undefined ? { projectName: deps.projectName } : {}),
+    ...(deps.dispatch !== undefined ? { dispatch: deps.dispatch } : {}),
+  };
+  const url = ticketUrl(deps.publicUrl, ticket.id);
+  const projectName = deps.projectName ?? "";
+  /** Notifica job.failed best-effort dopo il failJob (stato già committato). */
+  const notifyFailed = (error: string): Promise<void> =>
+    notify(notifyDeps, db, {
+      kind: "job.failed",
+      ticketNumber: ticket.number,
+      ticketTitle: ticket.title,
+      projectName,
+      error,
+      ticketUrl: url,
+    });
 
   const recentTickets = await db
     .select({ number: tickets.number, title: tickets.title, status: tickets.status })
@@ -146,10 +166,12 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
       lastUsage = result.usage;
     } catch (err) {
       if (err instanceof AgentTimeoutError) {
+        const message = `triage interrotto per timeout dopo ${err.timeoutMs}ms`;
         await failJob(db, job.id, {
           log: `${invalidOutputsPrefix()}[triage] output parziale prima del timeout:\n${truncateForLog(err.partialOutput)}`,
-          error: `triage interrotto per timeout dopo ${err.timeoutMs}ms`,
+          error: message,
         });
+        await notifyFailed(message);
         return "failed";
       }
       if (err instanceof AgentRunError) {
@@ -157,6 +179,7 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
           log: `${invalidOutputsPrefix()}[triage] agente non eseguibile: ${err.message}`,
           error: err.message,
         });
+        await notifyFailed(err.message);
         return "failed";
       }
       throw err;
@@ -201,6 +224,7 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
 
   if (!decision) {
     await failJob(db, job.id, { log: renderInvalidOutputs(), error: "triage output non valido" });
+    await notifyFailed("triage output non valido");
     return "failed";
   }
 
@@ -260,6 +284,17 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
       if (!held) {
         await appendLog(db, job.id, "[triage] ownership persa dopo il hold");
       }
+      // Notifica job.held best-effort, DOPO holdJob (stato committato). Il tipo
+      // è quello riclassificato dal triage.
+      await notify(notifyDeps, db, {
+        kind: "job.held",
+        ticketNumber: ticket.number,
+        ticketTitle: ticket.title,
+        projectName,
+        type: decision.type,
+        effort: decision.effort,
+        ticketUrl: url,
+      });
       return "held";
     }
 

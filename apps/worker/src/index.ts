@@ -69,6 +69,8 @@ const handler = createHandler({
   runner: new ClaudeCliRunner(),
   mirrors: new MirrorManager({ mirrorsDir: config.mirrorsDir }),
   encryptionKey: config.encryptionKey,
+  // URL pubblico per i link nelle notifiche webhook (vuoto = solo path).
+  publicUrl: config.publicUrl,
   fix: {
     twoPhase: config.fixTwoPhase,
     planModel: config.fixPlanModel,

@@ -752,3 +752,94 @@ describe("runFix", () => {
     expect(jobAfter.error).toMatch(/credenziali/i);
   });
 });
+
+describe("runFix — notifiche", () => {
+  interface Dispatched {
+    kind: string;
+    prUrl?: string;
+    ticketUrl: string;
+    error?: string;
+  }
+
+  it("dispatcha job.pr_opened con prUrl e link al ticket sul successo", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+    });
+    const provider = makeProvider("https://github.com/acme/repo/pull/77");
+    const calls: Dispatched[] = [];
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, {
+        twoPhase: false,
+        publicUrl: "https://stubwise.example.com",
+        dispatch: async (_db, event) => {
+          calls.push(event as unknown as Dispatched);
+        },
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("pr_opened");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.kind).toBe("job.pr_opened");
+    expect(calls[0]!.prUrl).toBe("https://github.com/acme/repo/pull/77");
+    expect(calls[0]!.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
+  });
+
+  it("dispatcha job.failed sul fallimento (nessuna modifica)", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    // Nessun file change → NoChangesError → failJob.
+    const runner = new FakeAgentRunner();
+    const provider = makeProvider();
+    const calls: Dispatched[] = [];
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, {
+        twoPhase: false,
+        publicUrl: "https://stubwise.example.com",
+        dispatch: async (_db, event) => {
+          calls.push(event as unknown as Dispatched);
+        },
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("failed");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.kind).toBe("job.failed");
+    expect(calls[0]!.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
+    expect(typeof calls[0]!.error).toBe("string");
+  });
+
+  it("un dispatch che lancia non altera l'esito (best-effort)", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+    });
+    const provider = makeProvider();
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, {
+        twoPhase: false,
+        dispatch: async () => {
+          throw new Error("notifica esplosa");
+        },
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("pr_opened");
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("pr_opened");
+  });
+});

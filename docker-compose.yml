@@ -66,6 +66,9 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       # STESSA chiave del server: decifra le credenziali git dei progetti.
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      # URL pubblico dell'istanza: il worker lo usa SOLO per i link al ticket
+      # nelle notifiche webhook in uscita. Vuoto = il link e' il solo path.
+      PUBLIC_URL: ${PUBLIC_URL}
       MIRRORS_DIR: /var/stubwise/mirrors
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
       # Deve superare l'invariante: con fix a due fasi serve > plan(10') +

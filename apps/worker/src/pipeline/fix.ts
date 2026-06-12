@@ -21,6 +21,7 @@ import {
   touchJob,
   type AiJob,
 } from "../queue.js";
+import { notify, ticketUrl, type NotifyDeps } from "./notify.js";
 import {
   buildFixExecutePrompt,
   buildFixPlanPrompt,
@@ -75,7 +76,7 @@ export const DEFAULT_FIX_PLAN_TIMEOUT_MS = 600_000;
 /** Turni di default del run di pianificazione: meno del fix (sola analisi). */
 const DEFAULT_PLAN_MAX_TURNS = 40;
 
-export interface FixDeps {
+export interface FixDeps extends NotifyDeps {
   db: Db;
   runner: AgentRunner;
   mirrors: MirrorManager;
@@ -210,6 +211,23 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     return "failed";
   }
   const { project, account } = row;
+  // Contesto comune alle notifiche di QUESTA fase (best-effort, post-commit).
+  const notifyDeps: NotifyDeps = {
+    ...(deps.publicUrl !== undefined ? { publicUrl: deps.publicUrl } : {}),
+    projectName: project.name,
+    ...(deps.dispatch !== undefined ? { dispatch: deps.dispatch } : {}),
+  };
+  const url = ticketUrl(deps.publicUrl, ticket.id);
+  /** Notifica job.failed best-effort dopo il failJob (lo stato è già committato). */
+  const notifyFailed = (error: string): Promise<void> =>
+    notify(notifyDeps, db, {
+      kind: "job.failed",
+      ticketNumber: ticket.number,
+      ticketTitle: ticket.title,
+      projectName: project.name,
+      error,
+      ticketUrl: url,
+    });
 
   // Credenziali: decifratura + parse PRIMA di toccare il repo, dall'ACCOUNT
   // collegato. Un fallimento qui (chiave sbagliata, payload manomesso, JSON
@@ -376,6 +394,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
         log: `[fix] output agente:\n${truncateForLog(err.agentOutput)}\n[fix] nessuna modifica prodotta: niente PR`,
         error: err.message,
       });
+      await notifyFailed(err.message);
       return "failed";
     }
     if (err instanceof AgentExitError) {
@@ -383,13 +402,16 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
         log: `[fix] output agente (exit ${err.exitCode}):\n${truncateForLog(err.agentOutput)}\n[fix] exit non-zero: per prudenza nessuna PR anche se ci fossero modifiche`,
         error: err.message,
       });
+      await notifyFailed(err.message);
       return "failed";
     }
     if (err instanceof AgentTimeoutError) {
+      const message = `fix interrotto per timeout dopo ${err.timeoutMs}ms`;
       await failJob(db, job.id, {
         log: `[fix] output parziale prima del timeout:\n${truncateForLog(err.partialOutput)}`,
-        error: `fix interrotto per timeout dopo ${err.timeoutMs}ms`,
+        error: message,
       });
+      await notifyFailed(message);
       return "failed";
     }
     if (err instanceof AgentRunError) {
@@ -397,11 +419,13 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
         log: `[fix] agente non eseguibile: ${err.message}`,
         error: err.message,
       });
+      await notifyFailed(err.message);
       return "failed";
     }
     // Errori git/mirror (GitCommandError redige già i segreti) o imprevisti.
     const message = err instanceof Error ? err.message : String(err);
     await failJob(db, job.id, { log: `[fix] errore: ${message}`, error: message });
+    await notifyFailed(message);
     return "failed";
   }
 
@@ -444,6 +468,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
         `prima di aprire la PR a mano o ri-accodare il job (un re-run riparte da un branch pulito).`,
       error: `apertura PR fallita: ${message}`,
     });
+    await notifyFailed(`apertura PR fallita: ${message}`);
     return "failed";
   }
 
@@ -469,5 +494,17 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     // (informazione vera comunque); solo una riga di log, niente overwrite.
     await appendLog(db, job.id, `[fix] ownership persa dopo l'apertura della PR ${prUrl}`);
   }
+
+  // Notifica job.pr_opened best-effort, DOPO la chiusura del job (stato
+  // committato). costUsd: null per v1 (il costo aggregato è ricavabile altrove).
+  await notify(notifyDeps, db, {
+    kind: "job.pr_opened",
+    ticketNumber: ticket.number,
+    ticketTitle: ticket.title,
+    projectName: project.name,
+    prUrl,
+    ticketUrl: url,
+    costUsd: null,
+  });
   return "pr_opened";
 }
