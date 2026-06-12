@@ -39,40 +39,56 @@ test("primo setup: crea l'admin e atterra sulla lista ticket vuota", async () =>
   await expect(page.getByText("// nessun ticket trovato")).toBeVisible();
 });
 
-// TODO(web-wizard): il wizard di creazione progetto basato su account git
-// riutilizzabili (selezione di un git_account anziché inserimento diretto di
-// provider+credenziali) arriva nel task successivo. Finché la UI non è
-// aggiornata, seminiamo l'account git e il progetto VIA API (con la sessione
-// admin del browser), così il resto del flusso seriale (ticket, dettaglio,
-// board, logout/login) continua a esercitare la UI reale. Quando il wizard
-// sarà pronto, questo step va riportato a una creazione interamente via UI.
-test("crea un progetto (via API, in attesa del nuovo wizard) e lo vede in lista", async () => {
+// Account git riutilizzabile creato INTERAMENTE dalla UI: Settings → Account Git
+// → "Nuovo account git". Il form invia un POST reale con le credenziali; nello
+// stack e2e sono finte (GitHub non viene mai contattato alla creazione), quindi
+// l'account viene salvato e compare in lista. Le operazioni che decifrano e
+// usano davvero le credenziali (validate, elenco repo/branch) fallirebbero: per
+// questo la creazione del progetto usa il fallback manuale del wizard.
+test("crea un account git dalla UI (Settings → Account Git)", async () => {
+  await page.getByRole("link", { name: /settings/i }).click();
+  await expect(page.getByRole("heading", { name: "Account Git" })).toBeVisible();
+
+  await page.getByRole("button", { name: /nuovo account git/i }).click();
+  await page.getByLabel("Nome").fill("Account Demo");
+  await page.getByLabel("Provider").selectOption("github");
+  // GitHub: username/email vuoti, solo il token (qui finto per l'ambiente e2e).
+  await page.getByLabel("Token di accesso").fill("ghp_token_di_prova");
+  await page.getByRole("button", { name: "Crea account" }).click();
+
+  // Salvato: il form si chiude e l'account compare nella lista con il badge.
+  await expect(page.getByText("Account Demo")).toBeVisible();
+  await expect(page.getByText("GitHub")).toBeVisible();
+});
+
+// Creazione del progetto INTERAMENTE dalla UI tramite il wizard. Si sceglie
+// l'account git (preselezionato, unico) e si attende che il wizard tenti di
+// elencare i repository: con le credenziali finte dell'e2e quella chiamata
+// fallisce (4xx dal provider), il wizard mostra l'errore e rivela il FALLBACK
+// MANUALE (URL repository + branch a mano). Si completa la creazione da lì, così
+// l'intero flusso resta nella UI senza dipendere da un provider git reale.
+test("crea un progetto dal wizard (fallback manuale) e lo vede in lista", async () => {
   await page.getByRole("link", { name: /projects/i }).click();
   await expect(page.getByText("// nessun progetto collegato")).toBeVisible();
+  await page.getByRole("link", { name: /nuovo progetto/i }).click();
 
-  // Account git + progetto via API, riusando i cookie di sessione della pagina.
-  const account = await page.request.post("/api/git-accounts", {
-    data: {
-      name: "Account Demo",
-      provider: "github",
-      credentials: { username: "acme-bot", token: "ghp_token_di_prova" },
-    },
-  });
-  expect(account.ok()).toBeTruthy();
-  const gitAccountId = (await account.json()).id as string;
+  await expect(page.getByRole("heading", { name: "Nuovo progetto" })).toBeVisible();
+  await page.getByLabel("Nome").fill("Demo Shop");
+  // L'account "Account Demo" è preselezionato (unico). Il wizard tenta l'elenco
+  // repo e, fallendo con le credenziali finte, scopre i campi manuali.
+  const repoUrl = page.getByLabel("URL repository");
+  await expect(repoUrl).toBeVisible();
+  await repoUrl.fill("https://github.com/acme/demo-shop");
+  const branch = page.getByLabel("Branch di default");
+  await branch.fill("main");
+  await page.getByRole("button", { name: "Crea progetto" }).click();
 
-  const project = await page.request.post("/api/projects", {
-    data: {
-      name: "Demo Shop",
-      gitAccountId,
-      repoUrl: "https://github.com/acme/demo-shop",
-    },
-  });
-  expect(project.ok()).toBeTruthy();
-  expect((await project.json()).slug).toBe("demo-shop");
+  // Sul 201 si atterra sul dettaglio del progetto.
+  await expect(page).toHaveURL(/\/projects\/demo-shop$/);
+  await expect(page.getByRole("heading", { name: "Demo Shop" })).toBeVisible();
 
-  // La lista progetti, ricaricata, mostra il progetto appena creato.
-  await page.reload();
+  // E nella lista progetti il nuovo progetto è presente.
+  await page.getByRole("link", { name: /projects/i }).click();
   await expect(page.getByRole("link", { name: /demo shop/i })).toBeVisible();
 });
 
