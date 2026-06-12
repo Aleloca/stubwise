@@ -261,6 +261,58 @@ describe("notifiche (admin)", () => {
     expect(await scope.findByText(/stato 500/i)).toBeInTheDocument();
   });
 
+  it("mostra la guida di setup giusta e cambia col formato", async () => {
+    mockApi(mockAdminBase());
+    renderSettings();
+
+    await screen.findByText("Notifiche");
+    const scope = within(notificationsSection());
+
+    // Default Slack: la guida "Come configurare" (collassata) si apre e mostra
+    // i passi specifici di Slack con il link a api.slack.com/apps.
+    await userEvent.click(scope.getByRole("button", { name: /Come configurare/i }));
+    expect(scope.getByText(/api\.slack\.com\/apps/i)).toBeInTheDocument();
+
+    // Cambiando formato a Discord, la guida passa ai passi del canale Discord.
+    await userEvent.selectOptions(scope.getByLabelText("Formato"), "discord");
+    expect(scope.getByText(/Impostazioni del canale/i)).toBeInTheDocument();
+    expect(scope.queryByText(/api\.slack\.com\/apps/i)).not.toBeInTheDocument();
+
+    // Generico: documenta lo schema del payload (campi event/ticketNumber…).
+    await userEvent.selectOptions(scope.getByLabelText("Formato"), "generic");
+    expect(scope.getByText(/Content-Type: application\/json/i)).toBeInTheDocument();
+    expect(scope.getByText("event")).toBeInTheDocument();
+  });
+
+  it("l'anteprima dal vivo rende il messaggio per ogni formato", async () => {
+    mockApi(mockAdminBase());
+    renderSettings();
+
+    await screen.findByText("Notifiche");
+    const scope = within(notificationsSection());
+
+    // Slack: l'anteprima mostra il testo mrkdwn (con il link <url|label>).
+    const slackPreview = scope.getByTestId("notification-preview");
+    expect(slackPreview.textContent).toContain("PR aperta");
+    expect(slackPreview.textContent).toContain("|Vedi PR>");
+
+    // Discord: stesso evento, ma link in stile markdown [label](url).
+    await userEvent.selectOptions(scope.getByLabelText("Formato"), "discord");
+    expect(scope.getByTestId("notification-preview").textContent).toContain("[Vedi PR](");
+
+    // Generico: pretty-print del JSON che riceverà l'endpoint.
+    await userEvent.selectOptions(scope.getByLabelText("Formato"), "generic");
+    const genericPreview = scope.getByTestId("notification-preview");
+    expect(genericPreview.textContent).toContain('"event": "job.pr_opened"');
+    expect(genericPreview.textContent).toContain('"prUrl"');
+
+    // Il selettore d'evento cambia l'anteprima (es. "Nuovo ticket").
+    await userEvent.click(scope.getByRole("button", { name: "Nuovo ticket" }));
+    expect(scope.getByTestId("notification-preview").textContent).toContain(
+      '"event": "ticket.created"',
+    );
+  });
+
   it("member: niente sezione Notifiche", async () => {
     mockApi({
       "GET /api/auth/me": () =>

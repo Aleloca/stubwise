@@ -57,8 +57,13 @@ test("crea un account git dalla UI (Settings → Account Git)", async () => {
   await page.getByRole("button", { name: "Crea account" }).click();
 
   // Salvato: il form si chiude e l'account compare nella lista con il badge.
-  await expect(page.getByText("Account Demo")).toBeVisible();
-  await expect(page.getByText("GitHub")).toBeVisible();
+  // Si scopa la sezione "Account Git": altre sezioni della pagina (es.
+  // l'anteprima delle notifiche) possono citare "github" nei link d'esempio.
+  const gitSection = page
+    .getByRole("heading", { name: "Account Git" })
+    .locator("xpath=ancestor::section[1]");
+  await expect(gitSection.getByText("Account Demo")).toBeVisible();
+  await expect(gitSection.getByText("GitHub")).toBeVisible();
 });
 
 // Creazione del progetto INTERAMENTE dalla UI tramite il wizard. Si sceglie
