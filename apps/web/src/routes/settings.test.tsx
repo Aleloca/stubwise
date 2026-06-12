@@ -20,6 +20,16 @@ const DEFAULT_AUTOMATION = {
   ],
 };
 
+const DEFAULT_NOTIFICATIONS = {
+  webhookUrl: null,
+  format: "slack",
+  enabled: true,
+  notifyTicketCreated: true,
+  notifyPrOpened: true,
+  notifyJobHeld: true,
+  notifyJobFailed: true,
+};
+
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -71,6 +81,7 @@ describe("impostazioni", () => {
       "GET /api/auth/me": () =>
         jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" } }),
       "GET /api/settings/automation": () => jsonResponse(200, DEFAULT_AUTOMATION),
+      "GET /api/settings/notifications": () => jsonResponse(200, DEFAULT_NOTIFICATIONS),
       // La sezione "Account Git" (solo admin) carica gli account.
       "GET /api/git-accounts": () => jsonResponse(200, []),
     });
@@ -110,6 +121,7 @@ describe("automazione AI (admin)", () => {
       "GET /api/auth/me": () =>
         jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" } }),
       "GET /api/settings/automation": () => jsonResponse(200, DEFAULT_AUTOMATION),
+      "GET /api/settings/notifications": () => jsonResponse(200, DEFAULT_NOTIFICATIONS),
       // La sezione "Account Git" (solo admin) carica gli account.
       "GET /api/git-accounts": () => jsonResponse(200, []),
     });
@@ -131,6 +143,7 @@ describe("automazione AI (admin)", () => {
       "GET /api/auth/me": () =>
         jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" } }),
       "GET /api/settings/automation": () => jsonResponse(200, DEFAULT_AUTOMATION),
+      "GET /api/settings/notifications": () => jsonResponse(200, DEFAULT_NOTIFICATIONS),
       "GET /api/git-accounts": () => jsonResponse(200, []),
       "PUT /api/settings/automation": (_url, init) => {
         putBody = JSON.parse(String(init?.body));
@@ -146,12 +159,116 @@ describe("automazione AI (admin)", () => {
 
     const toggle = (await screen.findByLabelText("Auto-fix bug")) as HTMLInputElement;
     await userEvent.click(toggle); // bug: true → false
-    await userEvent.click(screen.getByRole("button", { name: "Salva" }));
+    // Scope al pannello Automazione: la pagina ha più pulsanti "Salva".
+    const autoSection = (await screen.findByText("Automazione AI")).closest(
+      "section",
+    ) as HTMLElement;
+    await userEvent.click(within(autoSection).getByRole("button", { name: "Salva" }));
 
     await waitFor(() => expect(putBody).not.toBeNull());
     const body = putBody as { rules: { type: string; autoFix: boolean }[] };
     expect(body.rules.find((r) => r.type === "bug")?.autoFix).toBe(false);
     // Conferma di salvataggio.
-    expect(await screen.findByText("Salvato")).toBeInTheDocument();
+    expect(await within(autoSection).findByText("Salvato")).toBeInTheDocument();
+  });
+});
+
+describe("notifiche (admin)", () => {
+  function mockAdminBase(notifications: Record<string, unknown> = DEFAULT_NOTIFICATIONS) {
+    return {
+      "GET /api/auth/me": () =>
+        jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" } }),
+      "GET /api/settings/automation": () => jsonResponse(200, DEFAULT_AUTOMATION),
+      "GET /api/settings/notifications": () => jsonResponse(200, notifications),
+      "GET /api/git-accounts": () => jsonResponse(200, []),
+    } satisfies Record<string, Handler>;
+  }
+
+  function notificationsSection(): HTMLElement {
+    return (screen.getByText("Notifiche").closest("section") as HTMLElement) ?? document.body;
+  }
+
+  it("rende la sezione con master switch, URL, formato e toggle per-evento", async () => {
+    mockApi(mockAdminBase());
+    renderSettings();
+
+    const heading = await screen.findByText("Notifiche");
+    const scope = within(heading.closest("section") as HTMLElement);
+    expect(scope.getByLabelText("Abilitate")).toBeChecked();
+    expect(scope.getByLabelText("URL webhook")).toBeInTheDocument();
+    expect(scope.getByLabelText("Formato")).toBeInTheDocument();
+    expect(scope.getByLabelText("Nuovo ticket SDK")).toBeChecked();
+    expect(scope.getByLabelText("PR aperta")).toBeChecked();
+    expect(scope.getByLabelText("In attesa")).toBeChecked();
+    expect(scope.getByLabelText("Fix fallito")).toBeChecked();
+  });
+
+  it("salva via PUT con i valori del form", async () => {
+    let putBody: unknown = null;
+    mockApi({
+      ...mockAdminBase(),
+      "PUT /api/settings/notifications": (_url, init) => {
+        putBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, {
+          ...DEFAULT_NOTIFICATIONS,
+          webhookUrl: "https://hooks.example.com/x",
+          format: "discord",
+        });
+      },
+    });
+    renderSettings();
+
+    await screen.findByText("Notifiche");
+    const scope = within(notificationsSection());
+    await userEvent.type(scope.getByLabelText("URL webhook"), "https://hooks.example.com/x");
+    await userEvent.selectOptions(scope.getByLabelText("Formato"), "discord");
+    await userEvent.click(scope.getByRole("button", { name: "Salva" }));
+
+    await waitFor(() => expect(putBody).not.toBeNull());
+    const body = putBody as { webhookUrl: string; format: string };
+    expect(body.webhookUrl).toBe("https://hooks.example.com/x");
+    expect(body.format).toBe("discord");
+    expect(await scope.findByText("Salvato")).toBeInTheDocument();
+  });
+
+  it("il pulsante di test chiama l'API e mostra l'esito ok", async () => {
+    mockApi({
+      ...mockAdminBase({ ...DEFAULT_NOTIFICATIONS, webhookUrl: "https://hooks.example.com/x" }),
+      "POST /api/settings/notifications/test": () =>
+        jsonResponse(200, { ok: true, detail: "Notifica di test inviata correttamente." }),
+    });
+    renderSettings();
+
+    await screen.findByText("Notifiche");
+    const scope = within(notificationsSection());
+    await userEvent.click(scope.getByRole("button", { name: "Invia notifica di test" }));
+
+    expect(await scope.findByText(/inviata correttamente/i)).toBeInTheDocument();
+  });
+
+  it("il pulsante di test mostra l'errore quando il webhook fallisce", async () => {
+    mockApi({
+      ...mockAdminBase({ ...DEFAULT_NOTIFICATIONS, webhookUrl: "https://hooks.example.com/x" }),
+      "POST /api/settings/notifications/test": () =>
+        jsonResponse(200, { ok: false, detail: "Il webhook ha risposto con stato 500." }),
+    });
+    renderSettings();
+
+    await screen.findByText("Notifiche");
+    const scope = within(notificationsSection());
+    await userEvent.click(scope.getByRole("button", { name: "Invia notifica di test" }));
+
+    expect(await scope.findByText(/stato 500/i)).toBeInTheDocument();
+  });
+
+  it("member: niente sezione Notifiche", async () => {
+    mockApi({
+      "GET /api/auth/me": () =>
+        jsonResponse(200, { user: { id: "u2", email: "bea@example.com", role: "member" } }),
+    });
+    renderSettings();
+
+    await screen.findByText("Member");
+    expect(screen.queryByText("Notifiche")).not.toBeInTheDocument();
   });
 });

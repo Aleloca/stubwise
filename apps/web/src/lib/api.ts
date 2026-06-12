@@ -570,3 +570,57 @@ export function getAutomationSettings(): Promise<AutomationSettings> {
 export function putAutomationSettings(rules: AutomationRule[]): Promise<AutomationSettings> {
   return api.put("/api/settings/automation", { rules });
 }
+
+// --- Settings: notifiche webhook ---
+
+/** Formato del messaggio del webhook di notifica in uscita. */
+export type NotificationFormat = "slack" | "discord" | "generic";
+
+/**
+ * Configurazione (riga singola) del webhook di notifica in uscita. Il webhook
+ * non è un segreto (lo conosce chi lo configura): viene restituito così com'è.
+ */
+export interface NotificationSettings {
+  /** URL https del webhook; null = nessun webhook configurato. */
+  webhookUrl: string | null;
+  format: NotificationFormat;
+  /** Interruttore generale: false = nessuna notifica, qualunque sia il toggle. */
+  enabled: boolean;
+  notifyTicketCreated: boolean;
+  notifyPrOpened: boolean;
+  notifyJobHeld: boolean;
+  notifyJobFailed: boolean;
+}
+
+/** Esito dell'invio di una notifica di test (lo restituisce l'endpoint /test). */
+export interface TestNotificationResult {
+  ok: boolean;
+  detail: string;
+}
+
+/** Impostazioni notifiche (solo admin): 403 per i member. */
+export function getNotificationSettings(): Promise<NotificationSettings> {
+  return api.get("/api/settings/notifications");
+}
+
+/** Upsert della configurazione notifiche (solo admin). Ritorna lo stato aggiornato. */
+export function putNotificationSettings(
+  settings: NotificationSettings,
+): Promise<NotificationSettings> {
+  return api.put("/api/settings/notifications", {
+    // webhookUrl null → "" (il server lo ritrasforma in null): il body è sempre
+    // ben formato qualunque sia lo stato del campo.
+    webhookUrl: settings.webhookUrl ?? "",
+    format: settings.format,
+    enabled: settings.enabled,
+    notifyTicketCreated: settings.notifyTicketCreated,
+    notifyPrOpened: settings.notifyPrOpened,
+    notifyJobHeld: settings.notifyJobHeld,
+    notifyJobFailed: settings.notifyJobFailed,
+  });
+}
+
+/** Invia una notifica di test al webhook configurato (solo admin). */
+export function postTestNotification(): Promise<TestNotificationResult> {
+  return api.post("/api/settings/notifications/test");
+}

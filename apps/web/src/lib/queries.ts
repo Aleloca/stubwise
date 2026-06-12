@@ -5,6 +5,7 @@ import {
   getGitAccount,
   getGitAccounts,
   getInvites,
+  getNotificationSettings,
   getProject,
   getProjects,
   getProjectWebhook,
@@ -136,6 +137,17 @@ export const projectsQueryOptions = queryOptions({
 export const automationSettingsQueryOptions = queryOptions({
   queryKey: ["settings", "automation"],
   queryFn: getAutomationSettings,
+  staleTime: 30_000,
+});
+
+/**
+ * Impostazioni del webhook di notifica (solo admin): la pagina Settings la
+ * abilita in base al ruolo. Chiave gemella di quella dell'automazione sotto il
+ * prefisso "settings".
+ */
+export const notificationSettingsQueryOptions = queryOptions({
+  queryKey: ["settings", "notifications"],
+  queryFn: getNotificationSettings,
   staleTime: 30_000,
 });
 
