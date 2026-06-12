@@ -57,11 +57,27 @@ describe("POST /api/git-accounts", () => {
       id: expect.any(String),
       name: "Account GitHub",
       provider: "github",
+      workspace: null,
       createdAt: expect.any(String),
     });
     expect(res.body).not.toContain("credentials");
     expect(res.body).not.toContain(PLAINTEXT_TOKEN);
     expect(res.body).not.toContain("acme-bot");
+  });
+
+  it("salva il workspace Bitbucket e lo espone nella proiezione pubblica", async () => {
+    const res = await createAccount({
+      name: "Account Bitbucket WS",
+      provider: "bitbucket",
+      credentials: { username: "git-user", email: "atlassian@acme.io", token: PLAINTEXT_TOKEN },
+      workspace: "mio-workspace",
+    });
+    expect(res.statusCode).toBe(201);
+    const body = res.json() as Record<string, unknown>;
+    expect(body.workspace).toBe("mio-workspace");
+    const id = (body as { id: string }).id;
+    const [row] = await testDb.db.select().from(gitAccounts).where(eq(gitAccounts.id, id));
+    expect(row!.workspace).toBe("mio-workspace");
   });
 
   it("le credenziali sono salvate cifrate (round-trip con la chiave dell'app)", async () => {
@@ -162,6 +178,24 @@ describe("PATCH /api/git-accounts/:id", () => {
     });
   });
 
+  it("l'admin aggiorna il workspace", async () => {
+    const created = await createAccount({
+      name: "WS da modificare",
+      provider: "bitbucket",
+      credentials: { email: "a@b.io", token: PLAINTEXT_TOKEN },
+      workspace: "vecchio-ws",
+    });
+    const id = (created.json() as { id: string }).id;
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/git-accounts/${id}`,
+      headers: { cookie: adminCookie },
+      payload: { workspace: "nuovo-ws" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { workspace: string }).workspace).toBe("nuovo-ws");
+  });
+
   it("PATCH vuoto restituisce l'account invariato", async () => {
     const created = await createAccount({ ...basePayload, name: "Invariato" });
     const id = (created.json() as { id: string }).id;
@@ -245,18 +279,18 @@ describe("POST /api/git-accounts/:id/validate", () => {
     vi.unstubAllGlobals();
   });
 
-  it("validazione a livello account: un singolo check (auth + repo-read)", async () => {
+  it("validazione a livello account: usa /2.0/repositories/{workspace} e dà un singolo check", async () => {
     const created = await createAccount({
       name: "Validabile",
       provider: "bitbucket",
       credentials: { username: "alice", email: "alice@corp.io", token: "api-token" },
+      workspace: "mio-ws",
     });
     const id = (created.json() as { id: string }).id;
     const fetchMock = vi.fn((input: string) => {
-      // Solo l'endpoint account-level /2.0/workspaces dovrebbe essere contattato
-      // (niente repo placeholder, niente info/refs). L'endpoint globale
-      // repositories?role=member è deprecato (410 Gone) e non va usato.
-      if (input.includes("api.bitbucket.org/2.0/workspaces")) {
+      // Solo l'endpoint scoped al workspace GET /2.0/repositories/{workspace}
+      // deve essere contattato (gli endpoint account/globali sono dismessi: 410).
+      if (input.includes("api.bitbucket.org/2.0/repositories/mio-ws")) {
         return Promise.resolve(new Response("{}", { status: 200 }));
       }
       return Promise.resolve(new Response("", { status: 404 }));
@@ -272,10 +306,32 @@ describe("POST /api/git-accounts/:id/validate", () => {
     expect(body.checks).toHaveLength(1);
     expect(body.checks[0]!.name).toBe("Autenticazione e accesso workspace");
     expect(body.ok).toBe(true);
-    // Nessuna chiamata all'endpoint deprecato repositories?role=member.
+    // Nessuna chiamata agli endpoint account/globali dismessi.
     expect(fetchMock.mock.calls.some(([u]) => String(u).includes("repositories?role=member"))).toBe(false);
-    // Nessuna sonda repo-specifica (info/refs) sul repo placeholder.
+    expect(fetchMock.mock.calls.some(([u]) => String(u).includes("/2.0/workspaces"))).toBe(false);
+    // Nessuna sonda repo-specifica (info/refs).
     expect(fetchMock.mock.calls.some(([u]) => String(u).includes("info/refs"))).toBe(false);
+  });
+
+  it("account Bitbucket senza workspace: check fallito che richiede il workspace", async () => {
+    const created = await createAccount({
+      name: "SenzaWS",
+      provider: "bitbucket",
+      credentials: { username: "alice", email: "alice@corp.io", token: "api-token" },
+    });
+    const id = (created.json() as { id: string }).id;
+    const fetchMock = vi.fn(() => Promise.resolve(new Response("", { status: 404 })));
+    vi.stubGlobal("fetch", fetchMock);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/git-accounts/${id}/validate`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { ok: boolean; checks: { ok: boolean; detail: string }[] };
+    expect(body.ok).toBe(false);
+    expect(body.checks[0]!.detail).toMatch(/workspace/i);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("un member non può validare: 403", async () => {
@@ -390,6 +446,67 @@ describe("GET /api/git-accounts/:id/repositories", () => {
     expect(body).toEqual([
       { fullName: "acme/a", name: "a", cloneUrl: "https://github.com/acme/a.git", defaultBranch: "main" },
     ]);
+  });
+
+  it("Bitbucket: elenca i repo del workspace dell'account via /2.0/repositories/{workspace}", async () => {
+    const created = await createAccount({
+      name: "Bitbucket Repos",
+      provider: "bitbucket",
+      credentials: { username: "alice", email: "alice@corp.io", token: "api-token" },
+      workspace: "mio-ws",
+    });
+    const id = (created.json() as { id: string }).id;
+    const fetchMock = vi.fn((input: string) => {
+      if (input.includes("api.bitbucket.org/2.0/repositories/mio-ws")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              values: [
+                {
+                  full_name: "mio-ws/repo-a",
+                  name: "repo-a",
+                  mainbranch: { name: "main" },
+                  links: { clone: [{ name: "https", href: "https://bitbucket.org/mio-ws/repo-a.git" }] },
+                },
+              ],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+        );
+      }
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/git-accounts/${id}/repositories`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { fullName: string }[];
+    expect(body).toEqual([
+      { fullName: "mio-ws/repo-a", name: "repo-a", cloneUrl: "https://bitbucket.org/mio-ws/repo-a.git", defaultBranch: "main" },
+    ]);
+    expect(fetchMock.mock.calls.some(([u]) => String(u).includes("/2.0/workspaces"))).toBe(false);
+  });
+
+  it("Bitbucket senza workspace → 422", async () => {
+    const created = await createAccount({
+      name: "Bitbucket NoWS",
+      provider: "bitbucket",
+      credentials: { username: "alice", email: "alice@corp.io", token: "api-token" },
+    });
+    const id = (created.json() as { id: string }).id;
+    const fetchMock = vi.fn(() => Promise.resolve(new Response("", { status: 404 })));
+    vi.stubGlobal("fetch", fetchMock);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/git-accounts/${id}/repositories`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(422);
+    expect((res.json() as { message: string }).message).toMatch(/workspace/i);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("errore del provider (401) → 422 con messaggio", async () => {

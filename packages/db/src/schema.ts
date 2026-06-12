@@ -101,6 +101,12 @@ export const gitAccounts = pgTable("git_accounts", {
   // JSON { username?, email?, token } cifrato AES-256-GCM (vedi secrets.ts).
   // Non esce MAI dall'API: si legge solo per validare/decifrare lato server.
   encryptedCredentials: text("encrypted_credentials").notNull(),
+  // Slug del workspace Bitbucket. Obbligatorio per usare le feature repo di un
+  // account Bitbucket con API token: Bitbucket Cloud (CHANGE-2770) ha dismesso
+  // gli endpoint account/globali (410 Gone), quindi i repo si elencano solo
+  // per workspace (GET /2.0/repositories/{workspace}). Null per GitHub, che
+  // continua a usare /user/repos.
+  workspace: text("workspace"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

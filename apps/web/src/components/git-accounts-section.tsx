@@ -85,6 +85,7 @@ function NewAccountForm({ onDone }: { onDone: () => void }) {
   const [name, setName] = useState("");
   const [provider, setProvider] = useState<GitProviderKind>("bitbucket");
   const [credentials, setCredentials] = useState<CredentialFieldsValue>(emptyCredentials);
+  const [workspace, setWorkspace] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const mutation = useMutation({
@@ -103,7 +104,13 @@ function NewAccountForm({ onDone }: { onDone: () => void }) {
       setError("Il token di accesso è obbligatorio");
       return;
     }
-    mutation.mutate({ name, provider, credentials: creds });
+    const trimmedWorkspace = workspace.trim();
+    mutation.mutate({
+      name,
+      provider,
+      credentials: creds,
+      ...(provider === "bitbucket" && trimmedWorkspace ? { workspace: trimmedWorkspace } : {}),
+    });
   }
 
   return (
@@ -126,6 +133,22 @@ function NewAccountForm({ onDone }: { onDone: () => void }) {
           label: PROVIDER_LABELS[kind],
         }))}
       />
+
+      {provider === "bitbucket" && (
+        <div className="flex flex-col gap-1.5">
+          <TextField
+            id="new-account-workspace"
+            label="Workspace"
+            placeholder="es. mio-workspace"
+            value={workspace}
+            onChange={(event) => setWorkspace(event.target.value)}
+          />
+          <p className="font-mono text-[11px] text-fg-faint">
+            Slug del workspace Bitbucket (es. mio-workspace) — richiesto per gli API token, dato che
+            Bitbucket ha dismesso l&apos;elenco globale dei repo.
+          </p>
+        </div>
+      )}
 
       <fieldset className="rounded-sm border border-line bg-ink-950/40 p-4">
         <legend className="px-1.5 font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase">
@@ -246,10 +269,14 @@ function EditAccountForm({ account, onDone }: { account: GitAccount; onDone: () 
   const queryClient = useQueryClient();
   const [name, setName] = useState(account.name);
   const [credentials, setCredentials] = useState<CredentialFieldsValue>(emptyCredentials);
+  const [workspace, setWorkspace] = useState(account.workspace ?? "");
 
   const mutation = useMutation({
-    mutationFn: (patch: { name?: string; credentials?: ReturnType<typeof buildCredentials> }) =>
-      patchGitAccount(account.id, patch as never),
+    mutationFn: (patch: {
+      name?: string;
+      credentials?: ReturnType<typeof buildCredentials>;
+      workspace?: string;
+    }) => patchGitAccount(account.id, patch as never),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: gitAccountsQueryOptions.queryKey });
       onDone();
@@ -259,7 +286,14 @@ function EditAccountForm({ account, onDone }: { account: GitAccount; onDone: () 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
     const creds = buildCredentials(credentials);
-    mutation.mutate({ name, ...(creds && { credentials: creds }) });
+    const trimmedWorkspace = workspace.trim();
+    mutation.mutate({
+      name,
+      ...(creds && { credentials: creds }),
+      ...(account.provider === "bitbucket" && trimmedWorkspace
+        ? { workspace: trimmedWorkspace }
+        : {}),
+    });
   }
 
   return (
@@ -271,6 +305,21 @@ function EditAccountForm({ account, onDone }: { account: GitAccount; onDone: () 
         value={name}
         onChange={(event) => setName(event.target.value)}
       />
+      {account.provider === "bitbucket" && (
+        <div className="flex flex-col gap-1.5">
+          <TextField
+            id={`edit-account-workspace-${account.id}`}
+            label="Workspace"
+            placeholder="es. mio-workspace"
+            value={workspace}
+            onChange={(event) => setWorkspace(event.target.value)}
+          />
+          <p className="font-mono text-[11px] text-fg-faint">
+            Slug del workspace Bitbucket (es. mio-workspace) — richiesto per gli API token, dato che
+            Bitbucket ha dismesso l&apos;elenco globale dei repo.
+          </p>
+        </div>
+      )}
       <fieldset className="rounded-sm border border-line bg-ink-950/40 p-4">
         <legend className="px-1.5 font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase">
           Credenziali git

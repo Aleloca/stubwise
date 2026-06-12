@@ -25,13 +25,18 @@ const createAccountSchema = z.object({
   name: z.string().min(1).max(200),
   provider: gitProviderKindSchema,
   credentials: gitCredentialsSchema,
+  // Slug del workspace Bitbucket: di fatto richiesto per usare le feature repo
+  // di un account Bitbucket (vedi gitAccountSchema), ma non blocchiamo la
+  // creazione — la validazione/elenco segnalerà l'eventuale mancanza.
+  workspace: z.string().min(1).max(200).optional(),
 });
 
-// In modifica: nome e/o credenziali. Credenziali assenti = invariate (non si
-// possono "svuotare": un account senza credenziali non avrebbe senso).
+// In modifica: nome, credenziali e/o workspace. Credenziali assenti = invariate
+// (non si possono "svuotare": un account senza credenziali non avrebbe senso).
 const updateAccountSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   credentials: gitCredentialsSchema.optional(),
+  workspace: z.string().min(1).max(200).optional(),
 });
 
 const idParamsSchema = z.object({ id: z.uuid() });
@@ -76,6 +81,7 @@ function toPublicAccount(row: GitAccountRow): z.infer<typeof gitAccountSchema> {
     id: row.id,
     name: row.name,
     provider: row.provider,
+    workspace: row.workspace,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -112,11 +118,11 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
       },
     },
     async (request, reply) => {
-      const { name, provider, credentials } = request.body;
+      const { name, provider, credentials, workspace } = request.body;
       const encryptedCredentials = encrypt(JSON.stringify(credentials), app.encryptionKey);
       const [created] = await app.db
         .insert(gitAccounts)
-        .values({ name, provider, encryptedCredentials })
+        .values({ name, provider, encryptedCredentials, workspace: workspace ?? null })
         .returning();
       if (!created) throw new Error("insert dell'account non ha restituito la riga");
       return reply.code(201).send(toPublicAccount(created));
@@ -165,9 +171,10 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
       },
     },
     async (request, reply) => {
-      const { name, credentials } = request.body;
+      const { name, credentials, workspace } = request.body;
       const updates: Partial<GitAccountRow> = {};
       if (name !== undefined) updates.name = name;
+      if (workspace !== undefined) updates.workspace = workspace;
       if (credentials !== undefined) {
         updates.encryptedCredentials = encrypt(JSON.stringify(credentials), app.encryptionKey);
       }
@@ -250,7 +257,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
       }
 
       const checks = await getProvider(row.provider).validateAccount(
-        { provider: row.provider, credentials },
+        { credentials: { provider: row.provider, credentials }, workspace: row.workspace ?? undefined },
         { fetchImpl: fetch },
       );
       return { ok: checks.every((c) => c.ok), checks };
@@ -328,7 +335,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
 
       try {
         return await getProvider(row.provider).listRepositories(
-          { provider: row.provider, credentials },
+          { credentials: { provider: row.provider, credentials }, workspace: row.workspace ?? undefined },
           { fetchImpl: fetch },
         );
       } catch (error) {

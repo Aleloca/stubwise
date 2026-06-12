@@ -355,56 +355,85 @@ describe("BitbucketProvider.validateCredentials", () => {
 });
 
 describe("BitbucketProvider.validateAccount", () => {
-  const account: AccountCredentials = {
+  const credentials: AccountCredentials = {
     provider: "bitbucket",
     credentials: { username: "alice", email: "alice@corp.io", token: "api-token" },
   };
-  const ACCOUNT_URL = "https://api.bitbucket.org/2.0/workspaces?pagelen=1";
+  const accountConfig = { credentials, workspace: "myws" };
+  const ACCOUNT_URL = "https://api.bitbucket.org/2.0/repositories/myws?pagelen=1";
 
-  it("200: un solo check ok, con identità REST email:token; chiama /2.0/workspaces", async () => {
+  it("200: un solo check ok, con identità REST email:token; chiama /2.0/repositories/{workspace}", async () => {
     const fetchImpl = vi.fn((input: string | URL, init?: RequestInit) => {
       void input;
       void init;
       return Promise.resolve(new Response("{}", { status: 200 }));
     });
     const provider = new BitbucketProvider();
-    const checks = await provider.validateAccount(account, { fetchImpl });
+    const checks = await provider.validateAccount(accountConfig, { fetchImpl });
 
     expect(checks).toHaveLength(1);
     expect(checks[0]!.name).toBe("Autenticazione e accesso workspace");
     expect(checks[0]!.ok).toBe(true);
+    expect(checks[0]!.detail).toMatch(/myws/);
     const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
     expect(url).toBe(ACCOUNT_URL);
-    // NON deve usare l'endpoint deprecato repositories?role=member (410 Gone).
+    // NON deve usare gli endpoint account/globali dismessi (410 Gone).
     expect(url).not.toContain("repositories?role=member");
+    expect(url).not.toContain("/2.0/workspaces");
     expect((init.headers as Record<string, string>)["Authorization"]).toBe(
       `Basic ${Buffer.from("alice@corp.io:api-token").toString("base64")}`
     );
   });
 
+  it("workspace mancante: un check fallito, nessuna chiamata di rete", async () => {
+    const fetchImpl = vi.fn();
+    const provider = new BitbucketProvider();
+    const checks = await provider.validateAccount({ credentials }, { fetchImpl });
+    expect(checks).toHaveLength(1);
+    expect(checks[0]!.ok).toBe(false);
+    expect(checks[0]!.detail).toMatch(/workspace Bitbucket mancante/i);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("401: check fallito con messaggio su email/token", async () => {
     const fetchImpl = vi.fn(() => Promise.resolve(new Response("nope", { status: 401 })));
     const provider = new BitbucketProvider();
-    const checks = await provider.validateAccount(account, { fetchImpl });
+    const checks = await provider.validateAccount(accountConfig, { fetchImpl });
     expect(checks[0]!.ok).toBe(false);
     expect(checks[0]!.detail).toMatch(/401/);
     expect(checks[0]!.detail).toMatch(/email|token/i);
   });
 
-  it("403: check fallito con messaggio sugli scope del token", async () => {
+  it("403: check fallito con messaggio sull'accesso al workspace/scope", async () => {
     const fetchImpl = vi.fn(() => Promise.resolve(new Response("", { status: 403 })));
     const provider = new BitbucketProvider();
-    const checks = await provider.validateAccount(account, { fetchImpl });
+    const checks = await provider.validateAccount(accountConfig, { fetchImpl });
     expect(checks[0]!.ok).toBe(false);
     expect(checks[0]!.detail).toMatch(/403/);
-    expect(checks[0]!.detail).toMatch(/scope/i);
+    expect(checks[0]!.detail).toMatch(/workspace|scope/i);
+  });
+
+  it("404: check fallito con messaggio sullo slug del workspace", async () => {
+    const fetchImpl = vi.fn(() => Promise.resolve(new Response("", { status: 404 })));
+    const provider = new BitbucketProvider();
+    const checks = await provider.validateAccount(accountConfig, { fetchImpl });
+    expect(checks[0]!.ok).toBe(false);
+    expect(checks[0]!.detail).toMatch(/404|non trovato|slug/i);
+  });
+
+  it("410: check fallito con messaggio sull'endpoint non disponibile", async () => {
+    const fetchImpl = vi.fn(() => Promise.resolve(new Response("", { status: 410 })));
+    const provider = new BitbucketProvider();
+    const checks = await provider.validateAccount(accountConfig, { fetchImpl });
+    expect(checks[0]!.ok).toBe(false);
+    expect(checks[0]!.detail).toMatch(/410/);
   });
 
   it("email e username mancanti: un check fallito, nessuna chiamata di rete", async () => {
     const fetchImpl = vi.fn();
     const provider = new BitbucketProvider();
     const checks = await provider.validateAccount(
-      { provider: "bitbucket", credentials: { token: "api-token" } },
+      { credentials: { provider: "bitbucket", credentials: { token: "api-token" } }, workspace: "myws" },
       { fetchImpl }
     );
     expect(checks).toHaveLength(1);
@@ -416,7 +445,7 @@ describe("BitbucketProvider.validateAccount", () => {
   it("errore di rete: il check fallisce senza lanciare", async () => {
     const fetchImpl = vi.fn(() => Promise.reject(new Error("ECONNREFUSED boom")));
     const provider = new BitbucketProvider();
-    const checks = await provider.validateAccount(account, { fetchImpl });
+    const checks = await provider.validateAccount(accountConfig, { fetchImpl });
     expect(checks).toHaveLength(1);
     expect(checks[0]!.ok).toBe(false);
     expect(checks[0]!.detail).toMatch(/ECONNREFUSED/);
@@ -563,10 +592,11 @@ describe("BitbucketProvider.verifyWebhook", () => {
   });
 });
 
-const account: AccountCredentials = {
+const credentials: AccountCredentials = {
   provider: "bitbucket",
   credentials: { username: "alice", email: "alice@corp.io", token: "api-token" },
 };
+const account = { credentials, workspace: "myws" };
 
 function bbRepo(fullName: string, mainbranch: string | null) {
   return {
@@ -589,21 +619,15 @@ function jsonOk(body: unknown): Response {
   });
 }
 
-const WORKSPACES_URL = "https://api.bitbucket.org/2.0/workspaces?pagelen=100";
+const REPOS_URL = "https://api.bitbucket.org/2.0/repositories/myws?pagelen=100&sort=-updated_on";
 
 describe("BitbucketProvider.listRepositories", () => {
-  it("elenca i workspace e poi i repo per workspace, fondendo i RepoSummary con auth email:token", async () => {
+  it("elenca i repo del workspace mappando i RepoSummary con auth email:token", async () => {
     const fetchImpl = vi.fn((input: string | URL, _init?: RequestInit) => {
       void _init;
       const url = String(input);
-      if (url === WORKSPACES_URL) {
-        return Promise.resolve(jsonOk({ values: [{ slug: "ws1" }, { slug: "ws2" }] }));
-      }
-      if (url === "https://api.bitbucket.org/2.0/repositories/ws1?pagelen=100&sort=-updated_on") {
-        return Promise.resolve(jsonOk({ values: [bbRepo("ws1/repo-a", "main")] }));
-      }
-      if (url === "https://api.bitbucket.org/2.0/repositories/ws2?pagelen=100&sort=-updated_on") {
-        return Promise.resolve(jsonOk({ values: [bbRepo("ws2/repo-b", null)] }));
+      if (url === REPOS_URL) {
+        return Promise.resolve(jsonOk({ values: [bbRepo("myws/repo-a", "main"), bbRepo("myws/repo-b", null)] }));
       }
       return Promise.resolve(new Response("", { status: 404 }));
     });
@@ -611,122 +635,86 @@ describe("BitbucketProvider.listRepositories", () => {
 
     const repos = await provider.listRepositories(account);
     expect(repos).toEqual([
-      { fullName: "ws1/repo-a", name: "repo-a", cloneUrl: "https://bitbucket.org/ws1/repo-a.git", defaultBranch: "main" },
-      { fullName: "ws2/repo-b", name: "repo-b", cloneUrl: "https://bitbucket.org/ws2/repo-b.git", defaultBranch: null },
+      { fullName: "myws/repo-a", name: "repo-a", cloneUrl: "https://bitbucket.org/myws/repo-a.git", defaultBranch: "main" },
+      { fullName: "myws/repo-b", name: "repo-b", cloneUrl: "https://bitbucket.org/myws/repo-b.git", defaultBranch: null },
     ]);
 
-    // Prima chiamata: /2.0/workspaces (NON l'endpoint deprecato repositories?role=member).
+    // Unica risorsa interrogata: GET /2.0/repositories/{workspace} (NON gli
+    // endpoint account/globali dismessi).
     const [firstUrl, firstInit] = fetchImpl.mock.calls[0] as [string, RequestInit];
-    expect(firstUrl).toBe(WORKSPACES_URL);
+    expect(firstUrl).toBe(REPOS_URL);
     expect(String(firstUrl)).not.toContain("repositories?role=member");
+    expect(String(firstUrl)).not.toContain("/2.0/workspaces");
     const headers = (firstInit.headers as Record<string, string>) ?? {};
     // base64("alice@corp.io:api-token")
     expect(headers["Authorization"]).toBe(`Basic ${Buffer.from("alice@corp.io:api-token").toString("base64")}`);
+  });
 
-    // Le chiamate repo per-workspace usano la stessa identità email:token.
-    const repoCall = fetchImpl.mock.calls.find((c) =>
-      String(c[0]).startsWith("https://api.bitbucket.org/2.0/repositories/ws1"),
-    ) as [string, RequestInit];
-    expect((repoCall[1].headers as Record<string, string>)["Authorization"]).toBe(
-      `Basic ${Buffer.from("alice@corp.io:api-token").toString("base64")}`,
-    );
+  it("workspace mancante → GitProviderError, nessuna chiamata di rete", async () => {
+    const fetchImpl = vi.fn();
+    const provider = new BitbucketProvider({ fetchImpl });
+    await expect(provider.listRepositories({ credentials })).rejects.toBeInstanceOf(GitProviderError);
+    await expect(provider.listRepositories({ credentials })).rejects.toThrow(/workspace Bitbucket mancante/i);
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("costruisce il cloneUrl di fallback quando manca il clone https", async () => {
     const fetchImpl = vi.fn((input: string | URL) => {
-      const url = String(input);
-      if (url === WORKSPACES_URL) {
-        return Promise.resolve(jsonOk({ values: [{ slug: "ws1" }] }));
-      }
+      void input;
       return Promise.resolve(
-        jsonOk({ values: [{ full_name: "ws1/repo-x", name: "repo-x", links: { clone: [] } }] }),
+        jsonOk({ values: [{ full_name: "myws/repo-x", name: "repo-x", links: { clone: [] } }] }),
       );
     });
     const provider = new BitbucketProvider({ fetchImpl });
     const repos = await provider.listRepositories(account);
     expect(repos).toEqual([
-      { fullName: "ws1/repo-x", name: "repo-x", cloneUrl: "https://bitbucket.org/ws1/repo-x.git", defaultBranch: null },
+      { fullName: "myws/repo-x", name: "repo-x", cloneUrl: "https://bitbucket.org/myws/repo-x.git", defaultBranch: null },
     ]);
   });
 
-  it("segue `next` nei repo di un workspace ma rispetta il tetto di pagine (~3)", async () => {
+  it("segue `next` ma rispetta il tetto di pagine (~3) e ~300 repo", async () => {
     let page = 0;
     const fetchImpl = vi.fn((input: string | URL) => {
-      const url = String(input);
-      if (url === WORKSPACES_URL) {
-        return Promise.resolve(jsonOk({ values: [{ slug: "ws1" }] }));
-      }
+      void input;
       page++;
-      const values = Array.from({ length: 100 }, (_, i) => bbRepo(`ws1/r-${page}-${i}`, "main"));
+      const values = Array.from({ length: 100 }, (_, i) => bbRepo(`myws/r-${page}-${i}`, "main"));
       return Promise.resolve(
-        jsonOk({ values, next: `https://api.bitbucket.org/2.0/repositories/ws1?page=${page + 1}` }),
+        jsonOk({ values, next: `https://api.bitbucket.org/2.0/repositories/myws?page=${page + 1}` }),
       );
     });
     const provider = new BitbucketProvider({ fetchImpl });
     const repos = await provider.listRepositories(account);
     expect(repos).toHaveLength(300);
-    // 1 chiamata workspaces + 3 chiamate repo (cap MAX_REPO_PAGES).
-    expect(fetchImpl).toHaveBeenCalledTimes(4);
+    // 3 chiamate (cap MAX_REPO_PAGES).
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
-  it("segue `next` tra i workspace ma rispetta il tetto di pagine workspace", async () => {
-    let wsPage = 0;
-    const fetchImpl = vi.fn((input: string | URL) => {
-      const url = String(input);
-      if (url.includes("/2.0/workspaces")) {
-        wsPage++;
-        // Ogni pagina ha 1 workspace e un cursore `next` infinito.
-        return Promise.resolve(
-          jsonOk({
-            values: [{ slug: `ws-${wsPage}` }],
-            next: `https://api.bitbucket.org/2.0/workspaces?page=${wsPage + 1}`,
-          }),
-        );
-      }
-      return Promise.resolve(jsonOk({ values: [] }));
-    });
-    const provider = new BitbucketProvider({ fetchImpl });
-    await provider.listRepositories(account);
-    // Cap workspace = 5 pagine.
-    expect(wsPage).toBe(5);
-  });
-
-  it("totale repo limitato a ~300 anche con molti workspace", async () => {
-    const fetchImpl = vi.fn((input: string | URL) => {
-      const url = String(input);
-      if (url === WORKSPACES_URL) {
-        return Promise.resolve(
-          jsonOk({ values: Array.from({ length: 10 }, (_, i) => ({ slug: `ws${i}` })) }),
-        );
-      }
-      // Ogni workspace ha 100 repo su una pagina (no next).
-      const slug = url.match(/repositories\/(ws\d+)/)?.[1] ?? "ws";
-      const values = Array.from({ length: 100 }, (_, i) => bbRepo(`${slug}/r-${i}`, "main"));
-      return Promise.resolve(jsonOk({ values }));
-    });
-    const provider = new BitbucketProvider({ fetchImpl });
-    const repos = await provider.listRepositories(account);
-    expect(repos.length).toBeLessThanOrEqual(300);
-    expect(repos).toHaveLength(300);
-  });
-
-  it("401 sul listing workspace → GitProviderError in italiano", async () => {
+  it("401 sul listing → GitProviderError in italiano", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 401 }));
     const provider = new BitbucketProvider({ fetchImpl });
     await expect(provider.listRepositories(account)).rejects.toBeInstanceOf(GitProviderError);
     await expect(provider.listRepositories(account)).rejects.toThrow(/autenticazione|401/i);
   });
 
-  it("410 sul listing repo di un workspace → GitProviderError", async () => {
-    const fetchImpl = vi.fn((input: string | URL) => {
-      const url = String(input);
-      if (url === WORKSPACES_URL) {
-        return Promise.resolve(jsonOk({ values: [{ slug: "ws1" }] }));
-      }
-      return Promise.resolve(new Response("gone", { status: 410 }));
-    });
+  it("403 sul listing → GitProviderError in italiano", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 403 }));
     const provider = new BitbucketProvider({ fetchImpl });
     await expect(provider.listRepositories(account)).rejects.toBeInstanceOf(GitProviderError);
+    await expect(provider.listRepositories(account)).rejects.toThrow(/403|accesso negato/i);
+  });
+
+  it("404 sul listing → GitProviderError in italiano", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 404 }));
+    const provider = new BitbucketProvider({ fetchImpl });
+    await expect(provider.listRepositories(account)).rejects.toBeInstanceOf(GitProviderError);
+    await expect(provider.listRepositories(account)).rejects.toThrow(/404|workspace|repository/i);
+  });
+
+  it("410 sul listing → GitProviderError", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("gone", { status: 410 }));
+    const provider = new BitbucketProvider({ fetchImpl });
+    await expect(provider.listRepositories(account)).rejects.toBeInstanceOf(GitProviderError);
+    await expect(provider.listRepositories(account)).rejects.toThrow(/410/);
   });
 });
 
@@ -753,7 +741,7 @@ describe("BitbucketProvider.listBranches", () => {
     });
     const provider = new BitbucketProvider({ fetchImpl });
 
-    const result = await provider.listBranches(account, "myws/repo");
+    const result = await provider.listBranches(credentials, "myws/repo");
     expect(result.defaultBranch).toBe("develop");
     expect(result.branches).toEqual(["main", "develop"]);
   });
@@ -779,13 +767,13 @@ describe("BitbucketProvider.listBranches", () => {
       );
     });
     const provider = new BitbucketProvider({ fetchImpl });
-    const result = await provider.listBranches(account, "myws/repo");
+    const result = await provider.listBranches(credentials, "myws/repo");
     expect(result.branches).toHaveLength(200);
   });
 
   it("401 → GitProviderError", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 401 }));
     const provider = new BitbucketProvider({ fetchImpl });
-    await expect(provider.listBranches(account, "myws/repo")).rejects.toBeInstanceOf(GitProviderError);
+    await expect(provider.listBranches(credentials, "myws/repo")).rejects.toBeInstanceOf(GitProviderError);
   });
 });

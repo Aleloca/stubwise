@@ -8,6 +8,7 @@ import {
   parseRepoUrl,
   readJsonResponse,
   verifyHmacSignature,
+  type AccountConfig,
   type AccountCredentials,
   type CredentialCheck,
   type FetchLike,
@@ -25,12 +26,8 @@ const API_BASE = "https://api.bitbucket.org/2.0";
  * seguendo il cursore `next` di Bitbucket. Vedi MAX_REPO_PAGES di github.ts. */
 const MAX_REPO_PAGES = 3;
 
-/** Tetto di pagine di workspace elencati: ~5 pagine da 100 (~500 workspace),
- * seguendo il cursore `next`. */
-const MAX_WORKSPACE_PAGES = 5;
-
-/** Tetto TOTALE di repository restituiti dalla fusione tra workspace (~300):
- * mantiene il picker reattivo e limita il fan-out delle chiamate. */
+/** Tetto TOTALE di repository restituiti (~300): mantiene il picker reattivo e
+ * limita il fan-out delle chiamate. */
 const MAX_TOTAL_REPOS = 300;
 
 /** Tetto di branch elencati: ~2 pagine da 100 (~200 branch). */
@@ -244,11 +241,12 @@ export class BitbucketProvider implements GitProvider {
   }
 
   async validateAccount(
-    p: AccountCredentials,
+    config: AccountConfig,
     opts: { fetchImpl?: FetchLike } = {}
   ): Promise<CredentialCheck[]> {
     const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
-    const { username, email, token } = p.credentials;
+    const { username, email, token } = config.credentials.credentials;
+    const workspace = config.workspace;
 
     // Identità REST = email Atlassian (gli API token autenticano su
     // api.bitbucket.org come email, non come username); fallback su username
@@ -265,18 +263,33 @@ export class BitbucketProvider implements GitProvider {
       ];
     }
 
-    // L'endpoint globale GET /2.0/repositories?role=member è DEPRECATO da
-    // Bitbucket Cloud (410 Gone). Per la verifica account usiamo invece il
-    // listing dei workspace, che non è deprecato.
+    // CHANGE-2770: Bitbucket Cloud ha dismesso TUTTI gli endpoint account/globali
+    // per gli API token (GET /2.0/workspaces, /2.0/repositories?role=member,
+    // /2.0/user/permissions/* → 410 Gone). Funzionano solo quelli scoped al
+    // workspace, quindi il workspace è obbligatorio: senza, non possiamo
+    // enumerarli e lo segnaliamo come check fallito.
+    if (!workspace) {
+      return [
+        {
+          name: CHECK,
+          ok: false,
+          detail:
+            "workspace Bitbucket mancante (richiesto per gli API token: indica lo slug del workspace, es. mio-workspace)",
+        },
+      ];
+    }
+
     const check = await this.probe(CHECK, async () => {
-      const r = await fetchWithTimeout(fetchImpl, "https://api.bitbucket.org/2.0/workspaces?pagelen=1", {
-        headers: { Authorization: basicAuthHeader(restUser, token) },
-      });
+      const r = await fetchWithTimeout(
+        fetchImpl,
+        `https://api.bitbucket.org/2.0/repositories/${encodeURIComponent(workspace)}?pagelen=1`,
+        { headers: { Authorization: basicAuthHeader(restUser, token) } }
+      );
       if (r.status === 200) {
         return {
           name: CHECK,
           ok: true,
-          detail: "token valido, accesso ai workspace ok",
+          detail: `token valido, accesso al workspace «${workspace}» ok`,
         };
       }
       if (r.status === 401) {
@@ -290,7 +303,15 @@ export class BitbucketProvider implements GitProvider {
         return {
           name: CHECK,
           ok: false,
-          detail: "accesso negato (403): verifica gli scope del token (account/workspace)",
+          detail:
+            "accesso negato (403): il token non ha accesso a questo workspace o manca lo scope repository",
+        };
+      }
+      if (r.status === 404) {
+        return {
+          name: CHECK,
+          ok: false,
+          detail: `workspace «${workspace}» non trovato: verifica lo slug`,
         };
       }
       if (r.status === 410) {
@@ -379,75 +400,53 @@ export class BitbucketProvider implements GitProvider {
   }
 
   async listRepositories(
-    p: AccountCredentials,
+    config: AccountConfig,
     opts: { fetchImpl?: FetchLike } = {}
   ): Promise<RepoSummary[]> {
     const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
-    const auth = this.restAuthHeader(p);
 
-    // L'endpoint globale GET /2.0/repositories?role=member è DEPRECATO (410
-    // Gone). Approccio corretto: elencare i workspace, poi per ogni workspace
-    // elencarne i repo, e fondere i risultati.
-    //
-    // Comportamento sugli errori: una qualsiasi chiamata fallita (workspaces o
-    // repo di un singolo workspace) fa fallire l'intera operazione con un
-    // GitProviderError chiaro (via ensureListResponse). È la scelta più
-    // semplice e prevedibile: meglio un errore esplicito che un elenco parziale
-    // silenzioso.
+    // CHANGE-2770: l'endpoint globale GET /2.0/repositories?role=member (e tutti
+    // gli endpoint account) sono DISMESSI (410 Gone) per gli API token. Si può
+    // elencare solo per workspace: GET /2.0/repositories/{workspace}. Senza il
+    // workspace non possiamo enumerare nulla → errore esplicito.
+    const workspace = config.workspace;
+    if (!workspace) {
+      throw new GitProviderError("workspace Bitbucket mancante", 0, "");
+    }
+    const auth = this.restAuthHeader(config.credentials);
 
-    // 1) Elenco workspace, seguendo `next` fino al tetto di pagine.
-    const slugs: string[] = [];
-    let wsUrl: string | null = `${API_BASE}/workspaces?pagelen=100`;
-    for (let page = 0; page < MAX_WORKSPACE_PAGES && wsUrl; page++) {
-      const response = await fetchImpl(wsUrl, { method: "GET", headers: { Authorization: auth } });
+    const repos: RepoSummary[] = [];
+    let url: string | null = `${API_BASE}/repositories/${encodeURIComponent(
+      workspace
+    )}?pagelen=100&sort=-updated_on`;
+    for (let page = 0; page < MAX_REPO_PAGES && url && repos.length < MAX_TOTAL_REPOS; page++) {
+      const response = await fetchImpl(url, { method: "GET", headers: { Authorization: auth } });
       await ensureListResponse(response, "Bitbucket");
       const data = (await readJsonResponse(response, "Bitbucket")) as {
-        values?: { slug?: unknown }[];
+        values?: {
+          full_name?: unknown;
+          name?: unknown;
+          mainbranch?: { name?: unknown };
+          links?: { clone?: { name?: unknown; href?: unknown }[] };
+        }[];
         next?: unknown;
       };
-      for (const w of data.values ?? []) {
-        if (typeof w.slug === "string") slugs.push(w.slug);
+      for (const r of data.values ?? []) {
+        if (repos.length >= MAX_TOTAL_REPOS) break;
+        if (typeof r.full_name !== "string" || typeof r.name !== "string") continue;
+        const httpsClone = (r.links?.clone ?? []).find((c) => c.name === "https");
+        const cloneUrl =
+          typeof httpsClone?.href === "string"
+            ? httpsClone.href
+            : `https://bitbucket.org/${r.full_name}.git`;
+        repos.push({
+          fullName: r.full_name,
+          name: r.name,
+          cloneUrl,
+          defaultBranch: typeof r.mainbranch?.name === "string" ? r.mainbranch.name : null,
+        });
       }
-      wsUrl = typeof data.next === "string" ? data.next : null;
-    }
-
-    // 2) Per ogni workspace, elenca i repo (cursore `next` fino a MAX_REPO_PAGES)
-    //    e fondi i risultati, fermandoti al tetto TOTALE.
-    const repos: RepoSummary[] = [];
-    for (const slug of slugs) {
-      let url: string | null = `${API_BASE}/repositories/${encodeURIComponent(
-        slug
-      )}?pagelen=100&sort=-updated_on`;
-      for (let page = 0; page < MAX_REPO_PAGES && url && repos.length < MAX_TOTAL_REPOS; page++) {
-        const response = await fetchImpl(url, { method: "GET", headers: { Authorization: auth } });
-        await ensureListResponse(response, "Bitbucket");
-        const data = (await readJsonResponse(response, "Bitbucket")) as {
-          values?: {
-            full_name?: unknown;
-            name?: unknown;
-            mainbranch?: { name?: unknown };
-            links?: { clone?: { name?: unknown; href?: unknown }[] };
-          }[];
-          next?: unknown;
-        };
-        for (const r of data.values ?? []) {
-          if (repos.length >= MAX_TOTAL_REPOS) break;
-          if (typeof r.full_name !== "string" || typeof r.name !== "string") continue;
-          const httpsClone = (r.links?.clone ?? []).find((c) => c.name === "https");
-          const cloneUrl =
-            typeof httpsClone?.href === "string"
-              ? httpsClone.href
-              : `https://bitbucket.org/${r.full_name}.git`;
-          repos.push({
-            fullName: r.full_name,
-            name: r.name,
-            cloneUrl,
-            defaultBranch: typeof r.mainbranch?.name === "string" ? r.mainbranch.name : null,
-          });
-        }
-        url = typeof data.next === "string" ? data.next : null;
-      }
-      if (repos.length >= MAX_TOTAL_REPOS) break;
+      url = typeof data.next === "string" ? data.next : null;
     }
     return repos;
   }
@@ -492,8 +491,8 @@ export class BitbucketProvider implements GitProvider {
    * token) o, in fallback, username (app password legacy). Lancia se manca
    * entrambe. Stessa regola di openPullRequest/validateCredentials.
    */
-  private restAuthHeader(p: AccountCredentials): string {
-    const restUser = p.credentials.email ?? p.credentials.username;
+  private restAuthHeader(creds: AccountCredentials): string {
+    const restUser = creds.credentials.email ?? creds.credentials.username;
     if (!restUser) {
       throw new GitProviderError(
         "Per elencare i repository Bitbucket serve un'email Atlassian (API token) o uno username (app password legacy)",
@@ -501,7 +500,7 @@ export class BitbucketProvider implements GitProvider {
         ""
       );
     }
-    return basicAuthHeader(restUser, p.credentials.token);
+    return basicAuthHeader(restUser, creds.credentials.token);
   }
 
   /**

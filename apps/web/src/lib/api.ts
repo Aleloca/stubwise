@@ -433,23 +433,29 @@ export interface GitAccount {
   id: string;
   name: string;
   provider: GitProviderKind;
+  // Slug del workspace Bitbucket (null per GitHub). Serve a elencare/validare i
+  // repo Bitbucket: gli endpoint account/globali sono stati dismessi (410).
+  workspace: string | null;
   createdAt: string;
 }
 
-/** Creazione di un account git (solo admin): nome, provider e credenziali. */
+/** Creazione di un account git (solo admin): nome, provider, credenziali e
+ * (solo Bitbucket) lo slug del workspace. */
 export interface GitAccountDraft {
   name: string;
   provider: GitProviderKind;
   credentials: GitCredentials;
+  workspace?: string;
 }
 
 /**
- * Modifica di un account git (solo admin): nome e/o credenziali. Credenziali
- * assenti = quelle salvate restano invariate (non si possono svuotare).
+ * Modifica di un account git (solo admin): nome, credenziali e/o workspace.
+ * Credenziali assenti = quelle salvate restano invariate (non si possono svuotare).
  */
 export interface GitAccountPatch {
   name?: string;
   credentials?: GitCredentials;
+  workspace?: string;
 }
 
 /** Repository scoperto su un account git (per il picker del wizard). */

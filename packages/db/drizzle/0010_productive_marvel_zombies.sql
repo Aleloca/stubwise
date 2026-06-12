@@ -1,0 +1,1 @@
+ALTER TABLE "git_accounts" ADD COLUMN IF NOT EXISTS "workspace" text;

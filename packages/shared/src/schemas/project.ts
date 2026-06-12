@@ -13,6 +13,10 @@ export const gitAccountSchema = z.object({
   id: z.uuid(),
   name: z.string().min(1),
   provider: gitProviderKindSchema,
+  // Slug del workspace Bitbucket (null per GitHub). Su Bitbucket serve a
+  // elencare/validare i repo: gli endpoint account/globali sono stati dismessi
+  // (CHANGE-2770, 410 Gone) e si può interrogare solo GET /2.0/repositories/{workspace}.
+  workspace: z.string().nullable(),
   createdAt: z.iso.datetime(),
 });
 export type GitAccount = z.infer<typeof gitAccountSchema>;

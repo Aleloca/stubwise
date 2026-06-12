@@ -9,6 +9,7 @@ import {
   parseRepoUrl,
   readJsonResponse,
   verifyHmacSignature,
+  type AccountConfig,
   type AccountCredentials,
   type CredentialCheck,
   type FetchLike,
@@ -199,11 +200,12 @@ export class GitHubProvider implements GitProvider {
   }
 
   async validateAccount(
-    p: AccountCredentials,
+    config: AccountConfig,
     opts: { fetchImpl?: FetchLike } = {}
   ): Promise<CredentialCheck[]> {
     const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
-    const { token } = p.credentials;
+    // GitHub ignora il workspace: /user/repos elenca già tutti i repo accessibili.
+    const { token } = config.credentials.credentials;
 
     const check = await this.probe(async () => {
       const r = await fetchWithTimeout(fetchImpl, `${API_BASE}/user/repos?per_page=1`, {
@@ -293,12 +295,13 @@ export class GitHubProvider implements GitProvider {
   }
 
   async listRepositories(
-    p: AccountCredentials,
+    config: AccountConfig,
     opts: { fetchImpl?: FetchLike } = {}
   ): Promise<RepoSummary[]> {
     const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    // GitHub ignora il workspace: /user/repos elenca già tutti i repo accessibili.
     const headers = {
-      Authorization: `Bearer ${p.credentials.token}`,
+      Authorization: `Bearer ${config.credentials.credentials.token}`,
       Accept: "application/vnd.github+json",
     };
     let url: string | null =

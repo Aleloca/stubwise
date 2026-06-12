@@ -37,6 +37,7 @@ const ACCOUNT_A: GitAccount = {
   id: "11111111-1111-4111-8111-111111111111",
   name: "GitHub Demo",
   provider: "github",
+  workspace: null,
   createdAt: "2026-06-01T10:00:00.000Z",
 };
 
@@ -44,6 +45,7 @@ const ACCOUNT_B: GitAccount = {
   id: "22222222-2222-4222-8222-222222222222",
   name: "Bitbucket Prod",
   provider: "bitbucket",
+  workspace: "bb-prod",
   createdAt: "2026-06-02T10:00:00.000Z",
 };
 

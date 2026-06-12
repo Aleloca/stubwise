@@ -281,8 +281,18 @@ describe("GitHubProvider.validateCredentials", () => {
 });
 
 describe("GitHubProvider.validateAccount", () => {
-  const account: AccountCredentials = { provider: "github", credentials: { token: "ghp_secret" } };
+  const account = {
+    credentials: { provider: "github", credentials: { token: "ghp_secret" } } satisfies AccountCredentials,
+  };
   const ACCOUNT_URL = "https://api.github.com/user/repos?per_page=1";
+
+  it("ignora il workspace (resta su /user/repos)", async () => {
+    const fetchImpl = vi.fn(() => Promise.resolve(jsonResponse([], 200)));
+    const provider = new GitHubProvider();
+    await provider.validateAccount({ ...account, workspace: "ignored" }, { fetchImpl });
+    const [url] = fetchImpl.mock.calls[0] as unknown as [string];
+    expect(url).toBe(ACCOUNT_URL);
+  });
 
   it("200: un solo check ok, con Bearer + Accept github", async () => {
     const fetchImpl = vi.fn((input: string | URL, init?: RequestInit) => {
@@ -448,7 +458,8 @@ describe("GitHubProvider.verifyWebhook", () => {
   });
 });
 
-const account: AccountCredentials = { provider: "github", credentials: { token: "ghp_secret" } };
+const credentials: AccountCredentials = { provider: "github", credentials: { token: "ghp_secret" } };
+const account = { credentials };
 
 function repoPage(repos: { full_name: string; name: string; clone_url: string; default_branch: string }[]): Response {
   return new Response(JSON.stringify(repos), {
@@ -551,7 +562,7 @@ describe("GitHubProvider.listBranches", () => {
     });
     const provider = new GitHubProvider({ fetchImpl });
 
-    const result = await provider.listBranches(account, "octo/repo");
+    const result = await provider.listBranches(credentials, "octo/repo");
     expect(result.defaultBranch).toBe("main");
     expect(result.branches).toEqual(["main", "develop", "feature/x"]);
     const branchCall = fetchImpl.mock.calls.find(([u]) => String(u).includes("/branches"))!;
@@ -582,13 +593,13 @@ describe("GitHubProvider.listBranches", () => {
       );
     });
     const provider = new GitHubProvider({ fetchImpl });
-    const result = await provider.listBranches(account, "octo/repo");
+    const result = await provider.listBranches(credentials, "octo/repo");
     expect(result.branches).toHaveLength(200);
   });
 
   it("401 → GitProviderError", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 401 }));
     const provider = new GitHubProvider({ fetchImpl });
-    await expect(provider.listBranches(account, "octo/repo")).rejects.toBeInstanceOf(GitProviderError);
+    await expect(provider.listBranches(credentials, "octo/repo")).rejects.toBeInstanceOf(GitProviderError);
   });
 });

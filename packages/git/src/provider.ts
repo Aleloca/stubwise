@@ -44,6 +44,19 @@ export interface AccountCredentials {
 }
 
 /**
+ * Configurazione a livello di account passata a validateAccount/listRepositories:
+ * le {@link AccountCredentials} più, opzionalmente, lo slug del `workspace`. Su
+ * Bitbucket il workspace è obbligatorio (gli endpoint globali/account sono stati
+ * dismessi — CHANGE-2770 — e restituiscono 410: si può elencare solo per
+ * workspace via GET /2.0/repositories/{workspace}). GitHub lo ignora (resta
+ * null) e continua a usare /user/repos.
+ */
+export interface AccountConfig {
+  credentials: AccountCredentials;
+  workspace?: string;
+}
+
+/**
  * Riepilogo di un repository remoto restituito da listRepositories.
  * `fullName` è "owner/repo" (workspace/repo su Bitbucket), `cloneUrl` è l'URL
  * https di clone, `defaultBranch` può mancare (null) se il provider non lo
@@ -158,7 +171,7 @@ export interface GitProvider {
    * diventa un check con `ok: false`.
    */
   validateAccount(
-    credentials: AccountCredentials,
+    config: AccountConfig,
     opts?: { fetchImpl?: FetchLike }
   ): Promise<CredentialCheck[]>;
   /**
@@ -182,7 +195,7 @@ export interface GitProvider {
    * provider (~300 repo / ~3 pagine). Lancia SOLO GitProviderError con un
    * messaggio in italiano su 401/403.
    */
-  listRepositories(p: AccountCredentials, opts?: { fetchImpl?: FetchLike }): Promise<RepoSummary[]>;
+  listRepositories(config: AccountConfig, opts?: { fetchImpl?: FetchLike }): Promise<RepoSummary[]>;
   /**
    * Elenca i branch di un repository (per nome completo "owner/repo") usando le
    * credenziali dell'account, più il branch di default. Pagina fino a un tetto
@@ -299,6 +312,20 @@ export async function ensureListResponse(response: Response, provider: string): 
     throw new GitProviderError(
       `${provider}: accesso negato (403), il token non ha gli scope necessari per elencare i repository`,
       403,
+      text
+    );
+  }
+  if (response.status === 404) {
+    throw new GitProviderError(
+      `${provider}: risorsa non trovata (404), verifica lo slug del workspace o del repository`,
+      404,
+      text
+    );
+  }
+  if (response.status === 410) {
+    throw new GitProviderError(
+      `${provider}: endpoint non disponibile (410), l'API usata è stata dismessa dal provider`,
+      410,
       text
     );
   }

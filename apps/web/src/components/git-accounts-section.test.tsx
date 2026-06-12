@@ -48,6 +48,7 @@ function makeAccount(overrides: Partial<GitAccount> = {}): GitAccount {
     id: "11111111-1111-4111-8111-111111111111",
     name: "Account Demo",
     provider: "github",
+    workspace: null,
     createdAt: "2026-06-01T10:00:00.000Z",
     ...overrides,
   };
@@ -109,6 +110,7 @@ describe("GitAccountsSection — creazione", () => {
 
     await user.type(screen.getByLabelText("Nome"), "Account Demo");
     await user.selectOptions(screen.getByLabelText("Provider"), "bitbucket");
+    await user.type(screen.getByLabelText("Workspace"), "mio-workspace");
     await user.type(screen.getByLabelText("Username"), "acme-bot");
     await user.type(screen.getByLabelText("Email"), "bot@acme.io");
     await user.type(screen.getByLabelText("Token di accesso"), "api-token");
@@ -119,8 +121,25 @@ describe("GitAccountsSection — creazione", () => {
         name: "Account Demo",
         provider: "bitbucket",
         credentials: { username: "acme-bot", email: "bot@acme.io", token: "api-token" },
+        workspace: "mio-workspace",
       }),
     );
+  });
+
+  it("il campo Workspace è mostrato solo per Bitbucket, non per GitHub", async () => {
+    const user = userEvent.setup();
+    mockApi({ "GET /api/git-accounts": () => jsonResponse(200, []) });
+
+    renderSection();
+
+    await user.click(await screen.findByRole("button", { name: /nuovo account git/i }));
+
+    // Default provider = Bitbucket: il campo Workspace c'è.
+    expect(screen.getByLabelText("Workspace")).toBeInTheDocument();
+
+    // Passando a GitHub il campo sparisce.
+    await user.selectOptions(screen.getByLabelText("Provider"), "github");
+    expect(screen.queryByLabelText("Workspace")).not.toBeInTheDocument();
   });
 });
 
