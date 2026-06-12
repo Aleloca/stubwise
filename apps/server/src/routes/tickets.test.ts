@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { tickets } from "@stubwise/db";
+import { aiJobs, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
@@ -76,6 +76,7 @@ interface TicketBody {
   status: string;
   source: string;
   assigneeId: string | null;
+  effort: number | null;
   labels: string[];
   technicalPayload: unknown;
   occurrences: number;
@@ -109,6 +110,7 @@ describe("POST /api/tickets", () => {
       status: "open",
       source: "manual",
       assigneeId: null,
+      effort: null,
       labels: [],
       technicalPayload: null,
       occurrences: 1,
@@ -592,5 +594,102 @@ describe("commenti — /api/tickets/:ticketId/comments", () => {
       url: `/api/tickets/${ticketId}/comments`,
     });
     expect(get.statusCode).toBe(401);
+  });
+});
+
+describe("effort nella risposta del ticket", () => {
+  it("GET /:id include effort (null finché non triagiato, valorizzato dopo)", async () => {
+    const created = (await postTicket({ projectId, title: "Con effort", type: "bug" })).json() as {
+      id: string;
+    };
+    // Appena creato: effort null.
+    const before = await app.inject({
+      method: "GET",
+      url: `/api/tickets/${created.id}`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect((before.json() as TicketBody).effort).toBeNull();
+
+    // Il triage valorizza effort sul ticket: lo simuliamo via DB.
+    await testDb.db.update(tickets).set({ effort: 4 }).where(eq(tickets.id, created.id));
+    const after = await app.inject({
+      method: "GET",
+      url: `/api/tickets/${created.id}`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect((after.json() as TicketBody).effort).toBe(4);
+  });
+});
+
+describe("POST /api/tickets/:id/run-ai", () => {
+  it("ticket inesistente: 404", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${randomUUID()}/run-ai`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("senza sessione: 401", async () => {
+    const created = (await postTicket({ projectId, title: "Run AI 401", type: "bug" })).json() as {
+      id: string;
+    };
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/run-ai`,
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("member (requireAuth, non admin): 202 e crea un job queued+manuale se non ne esistono", async () => {
+    const created = (await postTicket({ projectId, title: "Run AI nuovo", type: "bug" })).json() as {
+      id: string;
+    };
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/run-ai`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(res.statusCode).toBe(202);
+    const { jobId } = res.json() as { jobId: string };
+
+    const [job] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
+    expect(job?.ticketId).toBe(created.id);
+    expect(job?.status).toBe("queued");
+    expect(job?.manualTrigger).toBe(true);
+  });
+
+  it("rimette in coda l'ultimo job con manual_trigger, azzerando started/finished/error", async () => {
+    const created = (await postTicket({ projectId, title: "Run AI esistente", type: "bug" })).json() as {
+      id: string;
+    };
+    // Un job concluso (es. held o failed) già presente sul ticket.
+    const [existing] = await testDb.db
+      .insert(aiJobs)
+      .values({
+        ticketId: created.id,
+        status: "held",
+        startedAt: new Date(),
+        finishedAt: new Date(),
+        error: "vecchio errore",
+        manualTrigger: false,
+      })
+      .returning();
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/run-ai`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(res.statusCode).toBe(202);
+    expect((res.json() as { jobId: string }).jobId).toBe(existing!.id);
+
+    const [job] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, existing!.id));
+    expect(job?.status).toBe("queued");
+    expect(job?.manualTrigger).toBe(true);
+    expect(job?.startedAt).toBeNull();
+    expect(job?.finishedAt).toBeNull();
+    expect(job?.error).toBeNull();
   });
 });

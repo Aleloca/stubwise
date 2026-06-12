@@ -12,6 +12,7 @@ import { RouteError } from "./components/route-error";
 import { ApiError } from "./lib/api";
 import { meQueryOptions, setupStatusQueryOptions } from "./lib/auth";
 import {
+  automationSettingsQueryOptions,
   boardTicketsQueryOptions,
   commentsQueryOptions,
   invitesQueryOptions,
@@ -201,6 +202,14 @@ const teamRoute = createRoute({
 const settingsRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/settings",
+  // Le regole di automazione (solo admin) si prefetchano qui se il ruolo lo
+  // consente, così la sezione monta senza attese; per i member la query non
+  // parte (la sezione non è montata). Best-effort: un errore non blocca.
+  loader: async ({ context }) => {
+    if (context.user.role === "admin") {
+      await context.queryClient.ensureQueryData(automationSettingsQueryOptions).catch(() => undefined);
+    }
+  },
   component: SettingsPage,
 });
 

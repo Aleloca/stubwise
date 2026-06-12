@@ -165,6 +165,32 @@ export async function markFixing(db: Db, jobId: string): Promise<boolean> {
   return updated.length > 0;
 }
 
+export interface HoldJobInput {
+  log: string;
+}
+
+/**
+ * Transizione triage → held: il triage ha deciso "fix" ma il gate di
+ * automazione non lo consente (auto-fix off per il tipo, oppure effort sopra
+ * soglia) e il job non è stato avviato manualmente. Il job resta in attesa di
+ * un avvio umano (POST /run-ai). Status-guarded come markFixing: restituisce
+ * false se la ownership è persa (job requeued e reclamato altrove) e in quel
+ * caso il chiamante non deve toccare nulla.
+ */
+export async function holdJob(db: Db, jobId: string, input: HoldJobInput): Promise<boolean> {
+  const updated = await db
+    .update(aiJobs)
+    .set({
+      status: "held",
+      log: sql`${aiJobs.log} || ${`${input.log}\n`}`,
+      finishedAt: sql`now()`,
+      lastActivityAt: sql`now()`,
+    })
+    .where(and(eq(aiJobs.id, jobId), inArray(aiJobs.status, [...ACTIVE_STATUSES])))
+    .returning({ id: aiJobs.id });
+  return updated.length > 0;
+}
+
 export interface RequeueStaleOptions {
   olderThanMinutes: number;
 }

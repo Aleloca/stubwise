@@ -1,4 +1,5 @@
 import {
+  EFFORT_LABELS,
   ticketPrioritySchema,
   ticketStatusSchema,
   type TicketPriority,
@@ -23,7 +24,7 @@ import { LabelsEditor } from "../../components/labels-editor";
 import { Markdown } from "../../components/markdown";
 import { TechnicalPayload } from "../../components/technical-payload";
 import { UsagePanel } from "../../components/usage-panel";
-import { patchTicket, postComment, type TicketPatch } from "../../lib/api";
+import { patchTicket, postComment, postRunAi, type TicketPatch } from "../../lib/api";
 import { formatDateTime } from "../../lib/format";
 import {
   commentsQueryOptions,
@@ -80,6 +81,21 @@ export function TicketDetailPage() {
       queryClient.invalidateQueries({ queryKey: commentsQueryOptions(id).queryKey }),
   });
 
+  const runAiMutation = useMutation({
+    mutationFn: () => postRunAi(id),
+    // Rilanciato il job: la timeline (e lo stato del ticket, che il triage
+    // riporta in lavorazione) vanno riconciliati col backend.
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ticketKeys.jobs(id) });
+      void queryClient.invalidateQueries({ queryKey: ticketKeys.detail(id) });
+    },
+  });
+
+  // Il job più recente è il primo della lista (ordinata desc dal server). Se è
+  // "held", un umano può lanciare il fix manualmente scavalcando il gate.
+  const latestJob = jobs[0];
+  const isHeld = latestJob?.status === "held";
+
   return (
     <div className="p-8">
       <Link
@@ -98,6 +114,14 @@ export function TicketDetailPage() {
           <StatusBadge status={ticket.status} />
           <PriorityBadge priority={ticket.priority} />
           <TypeBadge type={ticket.type} />
+          {ticket.effort !== null && (
+            <span
+              className="font-mono text-[11px] text-fg-muted"
+              title="Stima di sforzo del triage AI"
+            >
+              Effort: {EFFORT_LABELS[ticket.effort] ?? ticket.effort} ({ticket.effort}/5)
+            </span>
+          )}
           <SourceBadge source={ticket.source} />
           <span className="font-mono text-[11px] text-fg-muted">{projectName}</span>
           {ticket.occurrences > 1 && (
@@ -128,6 +152,23 @@ export function TicketDetailPage() {
           <section>
             <h2 className={sectionTitleClass}>Attività AI</h2>
             <AIJobTimeline jobs={jobs} />
+            {isHeld && (
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  disabled={runAiMutation.isPending}
+                  onClick={() => runAiMutation.mutate()}
+                  className="rounded-sm bg-signal px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright active:bg-signal-dim disabled:cursor-not-allowed disabled:bg-signal-dim"
+                >
+                  {runAiMutation.isPending ? "Avvio…" : "Avvia fix AI"}
+                </button>
+                {runAiMutation.isError && (
+                  <span role="alert" className="font-mono text-[12px] text-danger">
+                    {runAiMutation.error.message}
+                  </span>
+                )}
+              </div>
+            )}
           </section>
 
           {/* Solo quando ci sono consumi: un CLI senza usage non mostra nulla. */}

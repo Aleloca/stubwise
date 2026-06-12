@@ -1,13 +1,24 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "../router";
 
 /**
- * Pagina impostazioni: solo i dati dell'account corrente. La gestione degli
- * accessi (membri e inviti) è stata spostata nella pagina Team.
+ * Pagina impostazioni: dati dell'account corrente e, per gli admin, le regole
+ * di automazione AI. La gestione degli accessi (membri e inviti) è nella
+ * pagina Team.
  */
+
+const DEFAULT_AUTOMATION = {
+  rules: [
+    { type: "bug", autoFix: true, maxEffort: 3 },
+    { type: "task", autoFix: true, maxEffort: 2 },
+    { type: "feature", autoFix: false, maxEffort: 3 },
+    { type: "feedback", autoFix: false, maxEffort: 3 },
+  ],
+};
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -59,6 +70,7 @@ describe("impostazioni", () => {
     mockApi({
       "GET /api/auth/me": () =>
         jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" } }),
+      "GET /api/settings/automation": () => jsonResponse(200, DEFAULT_AUTOMATION),
     });
 
     renderSettings();
@@ -71,7 +83,7 @@ describe("impostazioni", () => {
     expect(screen.queryByRole("button", { name: "Crea invito" })).not.toBeInTheDocument();
   });
 
-  it("member: pannello account con ruolo Member", async () => {
+  it("member: pannello account con ruolo Member, niente sezione Automazione AI", async () => {
     mockApi({
       "GET /api/auth/me": () =>
         jsonResponse(200, { user: { id: "u2", email: "bea@example.com", role: "member" } }),
@@ -81,5 +93,56 @@ describe("impostazioni", () => {
 
     expect(await screen.findByText("Member")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Crea invito" })).not.toBeInTheDocument();
+    // La sezione automazione è riservata agli admin.
+    expect(screen.queryByText("Automazione AI")).not.toBeInTheDocument();
+  });
+});
+
+describe("automazione AI (admin)", () => {
+  it("rende le 4 regole con toggle e soglia di sforzo", async () => {
+    mockApi({
+      "GET /api/auth/me": () =>
+        jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" } }),
+      "GET /api/settings/automation": () => jsonResponse(200, DEFAULT_AUTOMATION),
+    });
+
+    renderSettings();
+
+    const heading = await screen.findByText("Automazione AI");
+    const section = heading.closest("section") as HTMLElement;
+    const scope = within(section);
+    // Un toggle e una soglia per ciascuno dei 4 tipi.
+    expect(scope.getByLabelText("Auto-fix bug")).toBeChecked();
+    expect(scope.getByLabelText("Auto-fix feature")).not.toBeChecked();
+    expect((scope.getByLabelText("Soglia effort task") as HTMLSelectElement).value).toBe("2");
+  });
+
+  it("salva tutte le regole via PUT e mostra la conferma", async () => {
+    let putBody: unknown = null;
+    mockApi({
+      "GET /api/auth/me": () =>
+        jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" } }),
+      "GET /api/settings/automation": () => jsonResponse(200, DEFAULT_AUTOMATION),
+      "PUT /api/settings/automation": (_url, init) => {
+        putBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, {
+          rules: DEFAULT_AUTOMATION.rules.map((r) =>
+            r.type === "bug" ? { ...r, autoFix: false } : r,
+          ),
+        });
+      },
+    });
+
+    renderSettings();
+
+    const toggle = (await screen.findByLabelText("Auto-fix bug")) as HTMLInputElement;
+    await userEvent.click(toggle); // bug: true → false
+    await userEvent.click(screen.getByRole("button", { name: "Salva" }));
+
+    await waitFor(() => expect(putBody).not.toBeNull());
+    const body = putBody as { rules: { type: string; autoFix: boolean }[] };
+    expect(body.rules.find((r) => r.type === "bug")?.autoFix).toBe(false);
+    // Conferma di salvataggio.
+    expect(await screen.findByText("Salvato")).toBeInTheDocument();
   });
 });

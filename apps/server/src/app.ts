@@ -18,6 +18,7 @@ import { authRoutes } from "./routes/auth.js";
 import { commentRoutes } from "./routes/comments.js";
 import { ingestRoutes } from "./routes/ingest.js";
 import { projectRoutes } from "./routes/projects.js";
+import { settingsRoutes } from "./routes/settings.js";
 import type { RateLimitConfig } from "./routes/shared.js";
 import { ticketRoutes } from "./routes/tickets.js";
 import { userRoutes } from "./routes/users.js";
@@ -189,6 +190,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Riepilogo consumi AI del ticket (token + costo per modello).
   void app.register(ticketUsageRoutes, { prefix: "/api/tickets/:ticketId/usage" });
   void app.register(userRoutes, { prefix: "/api/users" });
+  // Impostazioni di automazione AI (regole per tipo): solo admin.
+  void app.register(settingsRoutes, { prefix: "/api/settings" });
   // Superficie pubblica per gli SDK: fuori da /api, CORS aperto solo qui
   // (registrato dentro il plugin), autenticazione via X-Stubwise-Key.
   void app.register(ingestRoutes, {

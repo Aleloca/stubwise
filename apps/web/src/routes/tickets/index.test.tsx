@@ -53,6 +53,7 @@ function makeTicket(overrides: Partial<Ticket>): Ticket {
     status: "open",
     source: "manual",
     assigneeId: null,
+    effort: null,
     labels: [],
     technicalPayload: null,
     occurrences: 1,

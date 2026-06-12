@@ -54,6 +54,7 @@ type Ticket = typeof tickets.$inferSelect;
 interface TicketOverrides {
   title?: string;
   body?: string;
+  type?: Ticket["type"];
   status?: Ticket["status"];
   technicalPayload?: unknown;
   createdAt?: Date;
@@ -109,42 +110,78 @@ function minutesAgo(minutes: number): Date {
 
 describe("parseTriageDecision", () => {
   it("estrae l'ULTIMO oggetto JSON anche se preceduto da prosa", () => {
-    const output = `Sto analizzando il ticket.\nIl bug sembra riproducibile.\n{"decision":"fix"}`;
-    expect(parseTriageDecision(output)).toEqual({ decision: "fix" });
+    const output = `Sto analizzando il ticket.\nIl bug sembra riproducibile.\n{"decision":"fix","type":"bug","effort":3}`;
+    expect(parseTriageDecision(output)).toEqual({ decision: "fix", type: "bug", effort: 3 });
   });
 
-  it("riconosce skip con motivo e duplicate con numero", () => {
-    expect(parseTriageDecision(`{"decision":"skip","reason":"troppo vago"}`)).toEqual({
+  it("riconosce skip con motivo e duplicate con numero (sempre con type+effort)", () => {
+    expect(
+      parseTriageDecision(`{"decision":"skip","type":"feedback","effort":2,"reason":"troppo vago"}`),
+    ).toEqual({
       decision: "skip",
+      type: "feedback",
+      effort: 2,
       reason: "troppo vago",
     });
-    expect(parseTriageDecision(`{"decision":"duplicate","of":12}`)).toEqual({
+    expect(parseTriageDecision(`{"decision":"duplicate","type":"bug","effort":2,"of":12}`)).toEqual({
       decision: "duplicate",
+      type: "bug",
+      effort: 2,
       of: 12,
     });
   });
 
+  it("riclassifica il type rispetto a quello in ingresso", () => {
+    expect(parseTriageDecision(`{"decision":"skip","type":"feature","effort":4,"reason":"x"}`)).toEqual(
+      { decision: "skip", type: "feature", effort: 4, reason: "x" },
+    );
+  });
+
   it("tollera fence markdown e prosa sulla stessa riga", () => {
-    expect(parseTriageDecision('```json\n{"decision":"fix"}\n```')).toEqual({ decision: "fix" });
-    expect(parseTriageDecision('Risposta finale: {"decision":"fix"}')).toEqual({
+    expect(parseTriageDecision('```json\n{"decision":"fix","type":"bug","effort":1}\n```')).toEqual({
       decision: "fix",
+      type: "bug",
+      effort: 1,
+    });
+    expect(parseTriageDecision('Risposta finale: {"decision":"fix","type":"task","effort":5}')).toEqual({
+      decision: "fix",
+      type: "task",
+      effort: 5,
     });
   });
 
   it("restituisce null per output non-JSON o decisioni non valide", () => {
     expect(parseTriageDecision("nessun JSON qui")).toBeNull();
     expect(parseTriageDecision("")).toBeNull();
-    expect(parseTriageDecision(`{"decision":"banana"}`)).toBeNull();
-    expect(parseTriageDecision(`{"decision":"skip"}`)).toBeNull(); // reason mancante
-    expect(parseTriageDecision(`{"decision":"duplicate","of":0}`)).toBeNull();
-    expect(parseTriageDecision(`{"decision":"duplicate","of":1.5}`)).toBeNull();
-    expect(parseTriageDecision(`{"decision":"duplicate","of":"12"}`)).toBeNull();
+    expect(parseTriageDecision(`{"decision":"banana","type":"bug","effort":3}`)).toBeNull();
+    expect(parseTriageDecision(`{"decision":"skip","type":"bug","effort":3}`)).toBeNull(); // reason mancante
+    expect(parseTriageDecision(`{"decision":"duplicate","type":"bug","effort":3,"of":0}`)).toBeNull();
+    expect(parseTriageDecision(`{"decision":"duplicate","type":"bug","effort":3,"of":1.5}`)).toBeNull();
+    expect(parseTriageDecision(`{"decision":"duplicate","type":"bug","effort":3,"of":"12"}`)).toBeNull();
+  });
+
+  it("type mancante o fuori enum → decisione non valida (null)", () => {
+    expect(parseTriageDecision(`{"decision":"fix","effort":3}`)).toBeNull();
+    expect(parseTriageDecision(`{"decision":"fix","type":"banana","effort":3}`)).toBeNull();
+  });
+
+  it("effort mancante o fuori scala 1–5 → decisione non valida (null)", () => {
+    expect(parseTriageDecision(`{"decision":"fix","type":"bug"}`)).toBeNull();
+    expect(parseTriageDecision(`{"decision":"fix","type":"bug","effort":0}`)).toBeNull();
+    expect(parseTriageDecision(`{"decision":"fix","type":"bug","effort":6}`)).toBeNull();
+    expect(parseTriageDecision(`{"decision":"fix","type":"bug","effort":2.5}`)).toBeNull();
   });
 
   it("reason oltre i 500 caratteri → decisione non valida (null)", () => {
-    expect(parseTriageDecision(`{"decision":"skip","reason":"${"x".repeat(501)}"}`)).toBeNull();
-    expect(parseTriageDecision(`{"decision":"skip","reason":"${"x".repeat(500)}"}`)).toEqual({
+    expect(
+      parseTriageDecision(`{"decision":"skip","type":"bug","effort":3,"reason":"${"x".repeat(501)}"}`),
+    ).toBeNull();
+    expect(
+      parseTriageDecision(`{"decision":"skip","type":"bug","effort":3,"reason":"${"x".repeat(500)}"}`),
+    ).toEqual({
       decision: "skip",
+      type: "bug",
+      effort: 3,
       reason: "x".repeat(500),
     });
   });
@@ -326,11 +363,22 @@ describe("buildTriagePrompt", () => {
     expect(prompt).not.toContain("b".repeat(6001));
   });
 
-  it("richiede il formato di output JSON stretto", () => {
+  it("richiede il formato di output JSON stretto con type ed effort", () => {
     const prompt = buildTriagePrompt({ ticket: baseTicket, recentTickets: [] });
-    expect(prompt).toContain(`{"decision":"fix"}`);
+    expect(prompt).toContain(`{"decision":"fix","type":"bug","effort":3}`);
     expect(prompt).toContain(`"skip"`);
     expect(prompt).toContain(`"duplicate"`);
+    expect(prompt).toContain(`"effort"`);
+  });
+
+  it("istruisce a riclassificare il type e a stimare l'effort 1–5", () => {
+    const prompt = buildTriagePrompt({ ticket: baseTicket, recentTickets: [] });
+    // Tipo riclassificato (non fidarsi di quello in ingresso).
+    expect(prompt).toMatch(/bug\|feature\|task\|feedback/);
+    expect(prompt).toMatch(/re-classify/i);
+    // Scala di effort 1–5 con descrizione.
+    expect(prompt).toMatch(/effort/i);
+    expect(prompt).toMatch(/1\s*to\s*5|1.{0,3}5/i);
   });
 });
 
@@ -339,7 +387,7 @@ describe("runTriage", () => {
     const { db } = testDb;
     const ticket = await createTicket(db);
     const job = await createTriagingJob(db, ticket.id);
-    const runner = new FakeAgentRunner({ output: `{"decision":"fix"}` });
+    const runner = new FakeAgentRunner({ output: `{"decision":"fix","type":"bug","effort":3}` });
 
     const outcome = await runTriage(makeDeps(runner), job);
 
@@ -355,6 +403,112 @@ describe("runTriage", () => {
     expect(runner.calls[0]?.timeoutMs).toBe(120_000);
   });
 
+  it("registra SEMPRE tipo ed effort sul ticket (decisione fix)", async () => {
+    const { db } = testDb;
+    const ticket = await createTicket(db);
+    const job = await createTriagingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({ output: `{"decision":"fix","type":"bug","effort":2}` });
+
+    await runTriage(makeDeps(runner), job);
+
+    const after = await getTicket(db, ticket.id);
+    expect(after.type).toBe("bug");
+    expect(after.effort).toBe(2);
+  });
+
+  it("riclassifica il tipo del ticket: bug in ingresso → feature dopo il triage", async () => {
+    const { db } = testDb;
+    // Tipo in ingresso "bug"; il triage lo riclassifica come "feature".
+    const ticket = await createTicket(db, { type: "bug" });
+    const job = await createTriagingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      output: `{"decision":"skip","type":"feature","effort":3,"reason":"è una richiesta di funzionalità, non un bug"}`,
+    });
+
+    await runTriage(makeDeps(runner), job);
+
+    const after = await getTicket(db, ticket.id);
+    expect(after.type).toBe("feature");
+    expect(after.effort).toBe(3);
+  });
+
+  it("fix + la regola consente (effort entro soglia) → fixing", async () => {
+    const { db } = testDb;
+    const ticket = await createTicket(db);
+    const job = await createTriagingJob(db, ticket.id);
+    // bug: auto_fix true, max_effort 3 (seed). effort 3 ≤ 3 → fixing.
+    const runner = new FakeAgentRunner({ output: `{"decision":"fix","type":"bug","effort":3}` });
+
+    const outcome = await runTriage(makeDeps(runner), job);
+
+    expect(outcome).toBe("fixing");
+    expect((await getJob(db, job.id)).status).toBe("fixing");
+  });
+
+  it("fix + auto-fix off per il tipo → held (job 'held', ticket 'triaged', commento, niente markFixing)", async () => {
+    const { db } = testDb;
+    const ticket = await createTicket(db);
+    const job = await createTriagingJob(db, ticket.id);
+    // feature: auto_fix false (seed) → hold, qualunque sia l'effort.
+    const runner = new FakeAgentRunner({
+      output: `{"decision":"fix","type":"feature","effort":1}`,
+    });
+
+    const outcome = await runTriage(makeDeps(runner), job);
+
+    expect(outcome).toBe("held");
+    const after = await getJob(db, job.id);
+    expect(after.status).toBe("held");
+    expect(after.finishedAt).not.toBeNull();
+
+    // Ticket riportato a "triaged" con tipo+effort registrati.
+    const afterTicket = await getTicket(db, ticket.id);
+    expect(afterTicket.status).toBe("triaged");
+    expect(afterTicket.type).toBe("feature");
+    expect(afterTicket.effort).toBe(1);
+
+    // Commento AI esplicativo.
+    const ticketComments = await db.select().from(comments).where(eq(comments.ticketId, ticket.id));
+    expect(ticketComments).toHaveLength(1);
+    expect(ticketComments[0]?.authorType).toBe("ai");
+    expect(ticketComments[0]?.body).toContain("Automazione non avviata");
+    expect(ticketComments[0]?.body).toContain("manualmente");
+  });
+
+  it("fix + effort sopra la soglia del tipo → held", async () => {
+    const { db } = testDb;
+    const ticket = await createTicket(db);
+    const job = await createTriagingJob(db, ticket.id);
+    // task: auto_fix true, max_effort 2 (seed). effort 4 > 2 → hold.
+    const runner = new FakeAgentRunner({ output: `{"decision":"fix","type":"task","effort":4}` });
+
+    const outcome = await runTriage(makeDeps(runner), job);
+
+    expect(outcome).toBe("held");
+    expect((await getJob(db, job.id)).status).toBe("held");
+    expect((await getTicket(db, ticket.id)).status).toBe("triaged");
+  });
+
+  it("fix + manual_trigger true → fixing, scavalcando il gate che terrebbe in hold", async () => {
+    const { db } = testDb;
+    const ticket = await createTicket(db);
+    // Job avviato manualmente: bypassa il gate.
+    const [job] = await db
+      .insert(aiJobs)
+      .values({ ticketId: ticket.id, status: "triaging", startedAt: new Date(), manualTrigger: true })
+      .returning();
+    if (!job) throw new Error("insert del job non ha restituito la riga");
+    // feature: auto_fix false → terrebbe in hold senza il manual trigger.
+    const runner = new FakeAgentRunner({
+      output: `{"decision":"fix","type":"feature","effort":5}`,
+    });
+
+    const outcome = await runTriage(makeDeps(runner), job);
+
+    expect(outcome).toBe("fixing");
+    expect((await getJob(db, job.id)).status).toBe("fixing");
+  });
+
   it("con --output-format json: parsa la decisione dall'output E registra i consumi per modello", async () => {
     // Verifica l'invariante del Task: il runner restituisce `output` = la
     // stringa `result` del CLI (che contiene comunque il JSON della decisione)
@@ -364,7 +518,7 @@ describe("runTriage", () => {
     const ticket = await createTicket(db);
     const job = await createTriagingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
-      output: `Ho analizzato il ticket.\n{"decision":"fix"}`,
+      output: `Ho analizzato il ticket.\n{"decision":"fix","type":"bug","effort":3}`,
       usage: {
         totalCostUsd: 0.0123,
         models: [
@@ -399,7 +553,7 @@ describe("runTriage", () => {
     const { db } = testDb;
     const ticket = await createTicket(db);
     const job = await createTriagingJob(db, ticket.id);
-    const runner = new FakeAgentRunner({ output: `{"decision":"fix"}` });
+    const runner = new FakeAgentRunner({ output: `{"decision":"fix","type":"bug","effort":3}` });
 
     await runTriage(makeDeps(runner), job);
 
@@ -418,7 +572,7 @@ describe("runTriage", () => {
     }
     const ticket = await createTicket(db, { title: "Ticket in triage adesso" });
     const job = await createTriagingJob(db, ticket.id);
-    const runner = new FakeAgentRunner({ output: `{"decision":"fix"}` });
+    const runner = new FakeAgentRunner({ output: `{"decision":"fix","type":"bug","effort":3}` });
 
     await runTriage(makeDeps(runner), job);
 
@@ -437,7 +591,7 @@ describe("runTriage", () => {
     const ticket = await createTicket(db);
     const job = await createTriagingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
-      output: `{"decision":"skip","reason":"descrizione troppo vaga per un fix automatico"}`,
+      output: `{"decision":"skip","type":"feedback","effort":2,"reason":"descrizione troppo vaga per un fix automatico"}`,
     });
 
     const outcome = await runTriage(makeDeps(runner), job);
@@ -454,8 +608,12 @@ describe("runTriage", () => {
     expect(ticketComments[0]?.authorId).toBeNull();
     expect(ticketComments[0]?.body).toContain("descrizione troppo vaga per un fix automatico");
 
-    // Lo stato del ticket NON cambia: la decisione resta a un umano.
-    expect((await getTicket(db, ticket.id)).status).toBe("open");
+    // Lo stato del ticket NON cambia: la decisione resta a un umano. Ma tipo
+    // ed effort vengono comunque registrati.
+    const afterTicket = await getTicket(db, ticket.id);
+    expect(afterTicket.status).toBe("open");
+    expect(afterTicket.type).toBe("feedback");
+    expect(afterTicket.effort).toBe(2);
   });
 
   it("decision duplicate → ticket 'closed', commento col riferimento al duplicato, job 'skipped'", async () => {
@@ -464,13 +622,17 @@ describe("runTriage", () => {
     const ticket = await createTicket(db, { title: "Crash al checkout (di nuovo)" });
     const job = await createTriagingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
-      output: `Sembra già noto.\n{"decision":"duplicate","of":${original.number}}`,
+      output: `Sembra già noto.\n{"decision":"duplicate","type":"bug","effort":2,"of":${original.number}}`,
     });
 
     const outcome = await runTriage(makeDeps(runner), job);
 
     expect(outcome).toBe("closed_duplicate");
-    expect((await getTicket(db, ticket.id)).status).toBe("closed");
+    const afterTicket = await getTicket(db, ticket.id);
+    expect(afterTicket.status).toBe("closed");
+    // Tipo ed effort registrati anche per il duplicato.
+    expect(afterTicket.type).toBe("bug");
+    expect(afterTicket.effort).toBe(2);
     // Il ticket originale non viene toccato.
     expect((await getTicket(db, original.id)).status).toBe("open");
 
@@ -517,7 +679,9 @@ describe("runTriage", () => {
     const { db } = testDb;
     const ticket = await createTicket(db);
     const job = await createTriagingJob(db, ticket.id);
-    const runner = new FakeAgentRunner({ output: `{"decision":"duplicate","of":99999}` });
+    const runner = new FakeAgentRunner({
+      output: `{"decision":"duplicate","type":"bug","effort":2,"of":99999}`,
+    });
 
     const outcome = await runTriage(makeDeps(runner), job);
 
@@ -542,7 +706,7 @@ describe("runTriage", () => {
         // Mentre l'agente "gira", requeueStale riporta il job in coda (worker
         // creduto morto): la ownership è persa.
         await db.update(aiJobs).set({ status: "queued" }).where(eq(aiJobs.id, job.id));
-        return { output: `{"decision":"fix"}`, exitCode: 0 };
+        return { output: `{"decision":"fix","type":"bug","effort":3}`, exitCode: 0 };
       },
     });
 

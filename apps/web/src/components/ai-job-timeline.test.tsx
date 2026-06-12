@@ -85,6 +85,13 @@ describe("AIJobTimeline", () => {
     );
   });
 
+  it("job 'held': etichetta In attesa e nota esplicativa", () => {
+    render(<AIJobTimeline jobs={[makeJob({ id: "j1", status: "held" })]} />);
+
+    expect(screen.getByText("In attesa")).toBeInTheDocument();
+    expect(screen.getByText(/Automazione non avviata/i)).toBeInTheDocument();
+  });
+
   it("job fallito: mostra il messaggio d'errore", () => {
     render(
       <AIJobTimeline

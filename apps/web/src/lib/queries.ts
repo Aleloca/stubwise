@@ -1,5 +1,6 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import {
+  getAutomationSettings,
   getComments,
   getInvites,
   getProject,
@@ -123,6 +124,17 @@ export const projectsQueryOptions = queryOptions({
   queryKey: ["projects"],
   queryFn: getProjects,
   staleTime: 60_000,
+});
+
+/**
+ * Regole di automazione AI per tipo (solo admin): la pagina Settings la
+ * abilita in base al ruolo. Staleness breve: le si modifica raramente ma la
+ * UI deve riflettere subito un salvataggio.
+ */
+export const automationSettingsQueryOptions = queryOptions({
+  queryKey: ["settings", "automation"],
+  queryFn: getAutomationSettings,
+  staleTime: 30_000,
 });
 
 /**

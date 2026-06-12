@@ -7,6 +7,7 @@ import {
   claimNextJob,
   completeJob,
   failJob,
+  holdJob,
   markFixing,
   requeueStale,
   runWorker,
@@ -206,6 +207,19 @@ describe("transizioni di stato", () => {
     expect(persisted.lastActivityAt.getTime()).toBeGreaterThan(Date.now() - 60_000);
   });
 
+  it("holdJob porta il job da triaging a held, registra finishedAt e accoda il log", async () => {
+    const { db } = testDb;
+    const job = await enqueueJob(db);
+    await claimNextJob(db);
+
+    expect(await holdJob(db, job.id, { log: "[triage] in attesa" })).toBe(true);
+
+    const persisted = await getJob(db, job.id);
+    expect(persisted.status).toBe("held");
+    expect(persisted.finishedAt).not.toBeNull();
+    expect(persisted.log).toContain("[triage] in attesa");
+  });
+
   it("le transizioni su un job non in lavorazione restituiscono false e non toccano la riga", async () => {
     const { db } = testDb;
     const job = await enqueueJob(db); // ancora `queued`: nessuno lo possiede
@@ -213,6 +227,7 @@ describe("transizioni di stato", () => {
     expect(await completeJob(db, job.id, { status: "skipped", log: "tardivo" })).toBe(false);
     expect(await failJob(db, job.id, { log: "tardivo", error: "boom" })).toBe(false);
     expect(await markFixing(db, job.id)).toBe(false);
+    expect(await holdJob(db, job.id, { log: "tardivo" })).toBe(false);
 
     const persisted = await getJob(db, job.id);
     expect(persisted.status).toBe("queued");

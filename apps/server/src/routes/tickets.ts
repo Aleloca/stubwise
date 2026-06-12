@@ -10,7 +10,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAuth } from "../auth/session.js";
 import type { Db } from "@stubwise/db";
-import { tickets, users } from "@stubwise/db";
+import { aiJobs, tickets, users } from "@stubwise/db";
 import { createTicket, ProjectNotFoundError, type Ticket } from "../db/tickets.js";
 import { authErrorResponses, errorSchema, isForeignKeyViolation } from "./shared.js";
 
@@ -29,6 +29,8 @@ export const ticketSchema = z.object({
   status: ticketStatusSchema,
   source: ticketSourceSchema,
   assigneeId: z.uuid().nullable(),
+  // Stima di sforzo 1–5 del triage AI; null finché il ticket non è triagiato.
+  effort: z.number().int().min(1).max(5).nullable(),
   labels: z.array(z.string()),
   technicalPayload: z.unknown().nullable(),
   occurrences: z.number().int(),
@@ -93,6 +95,7 @@ function toPublicTicket(row: Ticket): z.infer<typeof ticketSchema> {
     status: row.status,
     source: row.source,
     assigneeId: row.assigneeId,
+    effort: row.effort,
     labels: row.labels,
     technicalPayload: row.technicalPayload ?? null,
     occurrences: row.occurrences,
@@ -328,6 +331,60 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         }
         throw error;
       }
+    },
+  );
+
+  // Avvio manuale dell'AI: rimette in coda l'ultimo job del ticket con il
+  // flag manual_trigger, così il worker rifà il triage e, su decisione "fix",
+  // procede SCAVALCANDO il gate di automazione (soglia/auto-fix). Se il ticket
+  // non ha ancora job, ne crea uno queued+manuale. Aperta a ogni utente
+  // autenticato: lanciare il fix è lavoro quotidiano, non un privilegio admin.
+  app.post(
+    "/:id/run-ai",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        response: { 202: z.object({ jobId: z.uuid() }), 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const [ticket] = await app.db
+        .select({ id: tickets.id })
+        .from(tickets)
+        .where(eq(tickets.id, id));
+      if (!ticket) return reply.code(404).send({ message: "Ticket non trovato" });
+
+      // L'ultimo job del ticket (per createdAt, id come spareggio): è quello
+      // che la timeline mostra in cima e che l'utente intende rilanciare.
+      const [latest] = await app.db
+        .select({ id: aiJobs.id })
+        .from(aiJobs)
+        .where(eq(aiJobs.ticketId, id))
+        .orderBy(desc(aiJobs.createdAt), desc(aiJobs.id))
+        .limit(1);
+
+      if (latest) {
+        await app.db
+          .update(aiJobs)
+          .set({
+            status: "queued",
+            manualTrigger: true,
+            startedAt: null,
+            finishedAt: null,
+            error: null,
+            lastActivityAt: sql`now()`,
+          })
+          .where(eq(aiJobs.id, latest.id));
+        return reply.code(202).send({ jobId: latest.id });
+      }
+
+      const [created] = await app.db
+        .insert(aiJobs)
+        .values({ ticketId: id, status: "queued", manualTrigger: true })
+        .returning({ id: aiJobs.id });
+      return reply.code(202).send({ jobId: created!.id });
     },
   );
 }

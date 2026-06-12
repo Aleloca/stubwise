@@ -6,6 +6,7 @@ const JOB_STATUS_LABELS: Record<AIJobStatus, string> = {
   queued: "In coda",
   triaging: "Triage",
   fixing: "Fix in corso",
+  held: "In attesa",
   pr_opened: "PR aperta",
   pr_merged: "PR mergiata",
   failed: "Fallito",
@@ -17,6 +18,7 @@ const JOB_STATUS_DOT: Record<AIJobStatus, string> = {
   queued: "bg-fg-faint",
   triaging: "bg-sky-400 animate-blink",
   fixing: "bg-sky-400 animate-blink",
+  held: "bg-signal",
   pr_opened: "bg-ok",
   pr_merged: "bg-ok",
   failed: "bg-danger",
@@ -27,10 +29,16 @@ const JOB_STATUS_TEXT: Record<AIJobStatus, string> = {
   queued: "text-fg-muted",
   triaging: "text-sky-400",
   fixing: "text-sky-400",
+  held: "text-signal",
   pr_opened: "text-ok",
   pr_merged: "text-ok",
   failed: "text-danger",
   skipped: "text-fg-faint",
+};
+
+/** Nota breve mostrata sotto lo stato per gli stati che la richiedono. */
+const JOB_STATUS_NOTE: Partial<Record<AIJobStatus, string>> = {
+  held: "Automazione non avviata: serve un avvio manuale del fix.",
 };
 
 /**
@@ -105,6 +113,10 @@ function JobEntry({ job, last }: { job: AIJob; last: boolean }) {
         <p className="mt-1.5 rounded-sm border border-danger/30 bg-danger/10 px-2.5 py-1.5 font-mono text-[12px] text-danger">
           {job.error}
         </p>
+      )}
+
+      {JOB_STATUS_NOTE[job.status] && (
+        <p className="mt-1.5 font-mono text-[11px] text-fg-muted">{JOB_STATUS_NOTE[job.status]}</p>
       )}
 
       {job.log && (

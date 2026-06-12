@@ -7,6 +7,7 @@ import {
 } from "@stubwise/shared";
 import { sql } from "drizzle-orm";
 import {
+  boolean,
   index,
   integer,
   jsonb,
@@ -43,6 +44,10 @@ export const aiJobStatus = pgEnum("ai_job_status", [
   "queued",
   "triaging",
   "fixing",
+  // "held": il triage ha deciso "fix" ma il gate di automazione non lo
+  // consente (auto-fix disattivato per il tipo, oppure effort sopra soglia).
+  // Il job resta in attesa di un avvio manuale (POST /run-ai).
+  "held",
   "pr_opened",
   "pr_merged",
   "failed",
@@ -119,6 +124,9 @@ export const tickets = pgTable(
     priority: ticketPriority("priority").notNull(),
     status: ticketStatus("status").notNull().default("open"),
     source: ticketSource("source").notNull(),
+    // Stima di sforzo 1–5 prodotta dal triage AI (null finché non triagiato).
+    // Alimenta il gate di automazione (auto-fix solo se effort <= maxEffort).
+    effort: integer("effort"),
     assigneeId: uuid("assignee_id").references(() => users.id, { onDelete: "set null" }),
     labels: text("labels").array().notNull().default([]),
     // Payload tecnico per i ticket da SDK: stack trace, browser, URL,
@@ -186,6 +194,10 @@ export const aiJobs = pgTable(
       .notNull()
       .references(() => tickets.id, { onDelete: "cascade" }),
     status: aiJobStatus("status").notNull().default("queued"),
+    // Avvio manuale dell'AI da parte di un umano (POST /run-ai): scavalca il
+    // gate di automazione, quindi un fix procede anche con auto-fix off o
+    // effort sopra soglia. False per i job nati automaticamente dall'ingest.
+    manualTrigger: boolean("manual_trigger").notNull().default(false),
     log: text("log").notNull().default(""),
     prUrl: text("pr_url"),
     error: text("error"),
@@ -238,3 +250,17 @@ export const agentRuns = pgTable(
     index("agent_runs_job_id_idx").on(table.jobId),
   ],
 );
+
+/**
+ * Regole di automazione AI per tipo di ticket: l'admin decide in Settings se
+ * l'auto-fix è attivo e fino a quale sforzo. Una riga per ciascun ticket_type
+ * (il tipo è chiave primaria). Il gate del triage le legge dopo aver
+ * (ri)classificato il tipo: auto-fix parte solo se `auto_fix` è true e
+ * `effort <= max_effort`. Le 4 righe sono seedate dalla migrazione con default
+ * sensati; il server fa comunque fallback a un default se una riga mancasse.
+ */
+export const automationRules = pgTable("automation_rules", {
+  type: ticketType("type").primaryKey(),
+  autoFix: boolean("auto_fix").notNull().default(true),
+  maxEffort: integer("max_effort").notNull().default(3),
+});

@@ -122,7 +122,7 @@ describe("createHandler", () => {
       script: async (opts: AgentRunOptions) => {
         if (opts.model === "haiku") {
           // Fase di triage: nessun file, solo la decisione.
-          return { output: `{"decision":"fix"}`, exitCode: 0 };
+          return { output: `{"decision":"fix","type":"bug","effort":3}`, exitCode: 0 };
         }
         // Fase di fix: scrive il "diff" e il report nel worktree.
         await writeFile(join(opts.cwd, "app.js"), "exports.sum = (a, b) => a + b;\n");
@@ -164,7 +164,9 @@ describe("createHandler", () => {
     const projectId = await createProject(db, "https://github.com/acme/mai-clonato");
     await createQueuedJob(db, projectId, "ticket vago", 1);
 
-    const runner = new FakeAgentRunner({ output: `{"decision":"skip","reason":"troppo vago"}` });
+    const runner = new FakeAgentRunner({
+      output: `{"decision":"skip","type":"bug","effort":1,"reason":"troppo vago"}`,
+    });
     const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY });
 
     const job = await claim(db);
@@ -189,7 +191,10 @@ describe("createHandler", () => {
         const start = Date.now();
         await sleep(300);
         windows.push({ title, start, end: Date.now() });
-        return { output: `{"decision":"skip","reason":"test di serializzazione"}`, exitCode: 0 };
+        return {
+          output: `{"decision":"skip","type":"bug","effort":1,"reason":"test di serializzazione"}`,
+          exitCode: 0,
+        };
       },
     });
     const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY });
@@ -222,7 +227,10 @@ describe("createHandler", () => {
         const start = Date.now();
         await sleep(300);
         windows.push({ start, end: Date.now() });
-        return { output: `{"decision":"skip","reason":"test di parallelismo"}`, exitCode: 0 };
+        return {
+          output: `{"decision":"skip","type":"bug","effort":1,"reason":"test di parallelismo"}`,
+          exitCode: 0,
+        };
       },
     });
     const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY });

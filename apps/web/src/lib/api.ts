@@ -71,6 +71,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 export const api = {
   get: <T>(path: string) => request<T>("GET", path),
   post: <T>(path: string, body?: unknown) => request<T>("POST", path, body),
+  put: <T>(path: string, body?: unknown) => request<T>("PUT", path, body),
   patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, body),
 };
 
@@ -160,6 +161,8 @@ export interface Ticket {
   status: TicketStatus;
   source: TicketSource;
   assigneeId: string | null;
+  /** Stima di sforzo 1–5 del triage AI; null finché non triagiato. */
+  effort: number | null;
   labels: string[];
   technicalPayload: unknown;
   occurrences: number;
@@ -257,6 +260,9 @@ export type AIJobStatus =
   | "queued"
   | "triaging"
   | "fixing"
+  // "held": triage ha deciso fix ma il gate di automazione lo tiene in attesa
+  // di un avvio manuale.
+  | "held"
   | "pr_opened"
   | "pr_merged"
   | "failed"
@@ -276,6 +282,15 @@ export interface AIJob {
 
 export function getTicketJobs(ticketId: string): Promise<AIJob[]> {
   return api.get(`/api/tickets/${ticketId}/jobs`);
+}
+
+/**
+ * Avvio manuale dell'AI su un ticket: rimette in coda l'ultimo job con il
+ * flag manual_trigger, così il worker rifà il triage e procede sul fix
+ * scavalcando il gate di automazione (soglia/auto-fix). 202 con l'id del job.
+ */
+export function postRunAi(ticketId: string): Promise<{ jobId: string }> {
+  return api.post(`/api/tickets/${ticketId}/run-ai`);
 }
 
 /** Consumo aggregato di un singolo modello sui job AI del ticket. */
@@ -438,4 +453,32 @@ export interface ConfigureWebhookResult {
  */
 export function postConfigureWebhook(slug: string): Promise<ConfigureWebhookResult> {
   return api.post(`/api/projects/${slug}/configure-webhook`);
+}
+
+// --- Settings: automazione AI ---
+
+/**
+ * Regola di automazione AI per un tipo di ticket: l'auto-fix parte solo se
+ * `autoFix` è attivo E l'effort stimato è <= `maxEffort`. Una per ciascuno
+ * dei 4 tipi.
+ */
+export interface AutomationRule {
+  type: TicketType;
+  autoFix: boolean;
+  /** Soglia di sforzo 1–5: auto-fix solo se effort <= maxEffort. */
+  maxEffort: number;
+}
+
+export interface AutomationSettings {
+  rules: AutomationRule[];
+}
+
+/** Regole di automazione AI (solo admin): 403 per i member. */
+export function getAutomationSettings(): Promise<AutomationSettings> {
+  return api.get("/api/settings/automation");
+}
+
+/** Upsert delle regole di automazione AI (solo admin). Ritorna lo stato aggiornato. */
+export function putAutomationSettings(rules: AutomationRule[]): Promise<AutomationSettings> {
+  return api.put("/api/settings/automation", { rules });
 }

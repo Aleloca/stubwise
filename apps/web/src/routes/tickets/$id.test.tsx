@@ -29,6 +29,7 @@ const ticketFixture: Ticket = {
   status: "open",
   source: "sdk_error",
   assigneeId: null,
+  effort: null,
   labels: ["pagamenti"],
   technicalPayload: {
     message: "Cannot read properties of undefined (reading 'total')",
@@ -154,15 +155,22 @@ interface MockState {
   patches: unknown[];
   postedComments: unknown[];
   usage: TicketUsage;
+  jobs: AIJob[];
+  /** Quante volte è stato chiamato POST /run-ai. */
+  runAiCalls: number;
 }
 
-function mockDetailApi(overrides: { usage?: TicketUsage } = {}): MockState {
+function mockDetailApi(
+  overrides: { usage?: TicketUsage; ticket?: Ticket; jobs?: AIJob[] } = {},
+): MockState {
   const state: MockState = {
-    ticket: { ...ticketFixture },
+    ticket: overrides.ticket ?? { ...ticketFixture },
     comments: [...commentsFixture],
     patches: [],
     postedComments: [],
     usage: overrides.usage ?? usageFixture,
+    jobs: overrides.jobs ?? jobsFixture,
+    runAiCalls: 0,
   };
 
   mockApi({
@@ -207,12 +215,29 @@ function mockDetailApi(overrides: { usage?: TicketUsage } = {}): MockState {
       state.comments = [...state.comments, created];
       return jsonResponse(201, created);
     },
-    [`GET /api/tickets/${TICKET_ID}/jobs`]: () => jsonResponse(200, jobsFixture),
+    [`GET /api/tickets/${TICKET_ID}/jobs`]: () => jsonResponse(200, state.jobs),
     [`GET /api/tickets/${TICKET_ID}/usage`]: () => jsonResponse(200, state.usage),
+    [`POST /api/tickets/${TICKET_ID}/run-ai`]: () => {
+      state.runAiCalls += 1;
+      return jsonResponse(202, { jobId: "j3" });
+    },
   });
 
   return state;
 }
+
+/** Job singolo in stato "held": l'ultimo della lista (più recente). */
+const heldJobFixture: AIJob = {
+  id: "jh",
+  ticketId: TICKET_ID,
+  status: "held",
+  log: "[triage] decisione: fix, ma automazione in attesa",
+  prUrl: null,
+  error: null,
+  createdAt: "2026-06-04T10:00:00.000Z",
+  startedAt: "2026-06-04T10:00:02.000Z",
+  finishedAt: "2026-06-04T10:00:05.000Z",
+};
 
 function renderDetail() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -245,6 +270,43 @@ describe("dettaglio ticket", () => {
     expect(within(header).getByText(/SDK/)).toBeInTheDocument();
     expect(within(header).getByText("Shop Acme")).toBeInTheDocument();
     expect(within(header).getByText("×12")).toBeInTheDocument();
+  });
+
+  it("mostra l'effort stimato quando valorizzato (etichetta + n/5)", async () => {
+    mockDetailApi({ ticket: { ...ticketFixture, effort: 3 } });
+    renderDetail();
+
+    const header = await screen.findByRole("banner");
+    expect(within(header).getByText(/Effort: Medio \(3\/5\)/)).toBeInTheDocument();
+  });
+
+  it("NON mostra l'effort quando è null (ticket non ancora triagiato)", async () => {
+    mockDetailApi({ ticket: { ...ticketFixture, effort: null } });
+    renderDetail();
+
+    await screen.findByRole("banner");
+    expect(screen.queryByText(/Effort:/)).not.toBeInTheDocument();
+  });
+
+  it("job 'held': mostra lo stato IN ATTESA e il bottone Avvia fix AI che chiama run-ai", async () => {
+    const state = mockDetailApi({ jobs: [heldJobFixture] });
+    renderDetail();
+
+    // Stato held reso nella timeline.
+    expect(await screen.findByText("In attesa")).toBeInTheDocument();
+
+    const button = screen.getByRole("button", { name: "Avvia fix AI" });
+    await userEvent.click(button);
+
+    await waitFor(() => expect(state.runAiCalls).toBe(1));
+  });
+
+  it("senza job 'held' in cima: il bottone Avvia fix AI non compare", async () => {
+    mockDetailApi(); // l'ultimo job è pr_opened
+    renderDetail();
+
+    await screen.findByRole("heading", { name: "TypeError al checkout" });
+    expect(screen.queryByRole("button", { name: "Avvia fix AI" })).not.toBeInTheDocument();
   });
 
   it("la descrizione è markdown renderizzato", async () => {

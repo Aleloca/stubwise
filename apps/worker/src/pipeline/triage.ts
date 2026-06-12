@@ -1,4 +1,5 @@
-import { comments, tickets, type Db } from "@stubwise/db";
+import { automationRules, comments, tickets, type Db } from "@stubwise/db";
+import { EFFORT_LABELS } from "@stubwise/shared";
 import { and, desc, eq, ne } from "drizzle-orm";
 import {
   AgentRunError,
@@ -10,11 +11,19 @@ import {
   appendLog,
   completeJob,
   failJob,
+  holdJob,
   markFixing,
   recordAgentRun,
   type AiJob,
 } from "../queue.js";
 import { buildTriagePrompt, parseTriageDecision, type TriageDecision } from "./prompts.js";
+
+/**
+ * Default difensivo del gate quando manca la riga automation_rules del tipo
+ * (non dovrebbe accadere: la migrazione seeda tutti e 4 i tipi). Conservativo
+ * ma non bloccante: auto-fix attivo fino a effort medio, come per i bug.
+ */
+const DEFAULT_AUTOMATION_RULE = { autoFix: true, maxEffort: 3 } as const;
 
 /**
  * Fase 1 della pipeline: il triage. Economica (model haiku, pochi turni),
@@ -45,7 +54,7 @@ export interface TriageDeps {
   workDir: string;
 }
 
-export type TriageOutcome = "fixing" | "skipped" | "closed_duplicate" | "failed";
+export type TriageOutcome = "fixing" | "held" | "skipped" | "closed_duplicate" | "failed";
 
 /** Quanti ticket recenti del progetto mostrare al modello per i duplicati. */
 const RECENT_TICKETS_LIMIT = 30;
@@ -195,18 +204,63 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
     return "failed";
   }
 
+  // SEMPRE, prima di agire sulla decisione: il triage ha (ri)validato il tipo
+  // e stimato l'effort, e questi vanno salvati sul ticket a prescindere
+  // dall'esito (fix/skip/duplicate). Il tipo può cambiare rispetto a quello in
+  // ingresso (un "bug" riclassificato "feature"), ed è il tipo riclassificato
+  // a guidare il gate di automazione qui sotto.
+  await db
+    .update(tickets)
+    .set({ type: decision.type, effort: decision.effort })
+    .where(eq(tickets.id, ticket.id));
+
   switch (decision.decision) {
     case "fix": {
       await appendLog(db, job.id, "[triage] decisione: fix");
-      const owned = await markFixing(db, job.id);
-      if (!owned) {
-        // Ownership persa (job requeued e reclamato altrove): non si tocca
-        // più nulla, l'altro worker procede. Solo una riga di log (append,
-        // non sovrascrive) per spiegare cosa è successo.
-        await appendLog(db, job.id, "[triage] ownership persa, mi fermo senza toccare il job");
-        return "failed";
+
+      // Gate di automazione: per il tipo riclassificato, l'auto-fix parte solo
+      // se la regola lo consente E l'effort è entro la soglia. L'avvio manuale
+      // (manualTrigger) scavalca il gate: un umano ha già deciso di lanciare.
+      const [rule] = await db
+        .select({ autoFix: automationRules.autoFix, maxEffort: automationRules.maxEffort })
+        .from(automationRules)
+        .where(eq(automationRules.type, decision.type));
+      const effectiveRule = rule ?? DEFAULT_AUTOMATION_RULE;
+      const allowAuto = effectiveRule.autoFix && decision.effort <= effectiveRule.maxEffort;
+
+      if (job.manualTrigger || allowAuto) {
+        const owned = await markFixing(db, job.id);
+        if (!owned) {
+          // Ownership persa (job requeued e reclamato altrove): non si tocca
+          // più nulla, l'altro worker procede. Solo una riga di log (append,
+          // non sovrascrive) per spiegare cosa è successo.
+          await appendLog(db, job.id, "[triage] ownership persa, mi fermo senza toccare il job");
+          return "failed";
+        }
+        return "fixing";
       }
-      return "fixing";
+
+      // HOLD: il gate non consente l'auto-fix. Il job resta in attesa di un
+      // avvio manuale; il ticket torna "triaged" (triagiato ma non in fix) e
+      // un commento AI spiega il perché. Il commento sta in transazione con la
+      // chiusura del ticket; holdJob è il commit point separato (come gli
+      // altri esiti): se la ownership è persa il commento resta, accettabile.
+      const effortLabel = EFFORT_LABELS[decision.effort] ?? String(decision.effort);
+      await db.transaction(async (tx) => {
+        await tx.insert(comments).values({
+          ticketId: ticket.id,
+          authorType: "ai",
+          body: `Triage AI: tipo=${decision.type}, effort=${effortLabel} (${decision.effort}/5). Automazione non avviata (auto-fix disattivato per questo tipo, oppure effort sopra la soglia di ${effectiveRule.maxEffort}). Puoi avviare il fix manualmente.`,
+        });
+        await tx.update(tickets).set({ status: "triaged" }).where(eq(tickets.id, ticket.id));
+      });
+      const held = await holdJob(db, job.id, {
+        log: `[triage] decisione: fix, ma automazione in attesa (tipo=${decision.type}, effort=${decision.effort}/5, soglia=${effectiveRule.maxEffort}, auto-fix=${effectiveRule.autoFix})`,
+      });
+      if (!held) {
+        await appendLog(db, job.id, "[triage] ownership persa dopo il hold");
+      }
+      return "held";
     }
 
     case "skip": {
