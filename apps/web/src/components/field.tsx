@@ -69,11 +69,20 @@ export function FormError({ message }: { message: string | null }) {
 }
 
 /** Bottone primario dei form auth: blocco ambra pieno, testo inchiostro. */
-export function SubmitButton({ children, pending }: { children: string; pending: boolean }) {
+export function SubmitButton({
+  children,
+  pending,
+  disabled,
+}: {
+  children: string;
+  pending: boolean;
+  /** Disabilita il bottone anche fuori dal pending (es. form incompleto). */
+  disabled?: boolean;
+}) {
   return (
     <button
       type="submit"
-      disabled={pending}
+      disabled={pending || disabled}
       className="mt-1 rounded-sm bg-signal px-3 py-2.5 font-mono text-[13px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright active:bg-signal-dim disabled:cursor-not-allowed disabled:bg-signal-dim"
     >
       {children}

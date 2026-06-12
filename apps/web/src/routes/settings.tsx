@@ -2,6 +2,7 @@ import { EFFORT_LABELS, ticketTypeSchema, type TicketType } from "@stubwise/shar
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { TypeBadge } from "../components/badges";
+import { GitAccountsSection } from "../components/git-accounts-section";
 import { putAutomationSettings, type AutomationRule } from "../lib/api";
 import { meQueryOptions } from "../lib/auth";
 import { automationSettingsQueryOptions } from "../lib/queries";
@@ -56,6 +57,7 @@ export function SettingsPage() {
         </section>
 
         {isAdmin && <AutomationSection />}
+        {isAdmin && <GitAccountsSection />}
       </div>
     </div>
   );

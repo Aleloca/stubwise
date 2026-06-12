@@ -71,6 +71,8 @@ describe("impostazioni", () => {
       "GET /api/auth/me": () =>
         jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" } }),
       "GET /api/settings/automation": () => jsonResponse(200, DEFAULT_AUTOMATION),
+      // La sezione "Account Git" (solo admin) carica gli account.
+      "GET /api/git-accounts": () => jsonResponse(200, []),
     });
 
     renderSettings();
@@ -81,6 +83,8 @@ describe("impostazioni", () => {
     expect(screen.getByText("Admin")).toBeInTheDocument();
     // La gestione degli inviti è migrata nella pagina Team.
     expect(screen.queryByRole("button", { name: "Crea invito" })).not.toBeInTheDocument();
+    // La sezione "Account Git" è presente per gli admin.
+    expect(screen.getByRole("heading", { name: "Account Git" })).toBeInTheDocument();
   });
 
   it("member: pannello account con ruolo Member, niente sezione Automazione AI", async () => {
@@ -95,6 +99,8 @@ describe("impostazioni", () => {
     expect(screen.queryByRole("button", { name: "Crea invito" })).not.toBeInTheDocument();
     // La sezione automazione è riservata agli admin.
     expect(screen.queryByText("Automazione AI")).not.toBeInTheDocument();
+    // Anche la sezione "Account Git" è riservata agli admin.
+    expect(screen.queryByRole("heading", { name: "Account Git" })).not.toBeInTheDocument();
   });
 });
 
@@ -104,6 +110,8 @@ describe("automazione AI (admin)", () => {
       "GET /api/auth/me": () =>
         jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" } }),
       "GET /api/settings/automation": () => jsonResponse(200, DEFAULT_AUTOMATION),
+      // La sezione "Account Git" (solo admin) carica gli account.
+      "GET /api/git-accounts": () => jsonResponse(200, []),
     });
 
     renderSettings();
@@ -123,6 +131,7 @@ describe("automazione AI (admin)", () => {
       "GET /api/auth/me": () =>
         jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" } }),
       "GET /api/settings/automation": () => jsonResponse(200, DEFAULT_AUTOMATION),
+      "GET /api/git-accounts": () => jsonResponse(200, []),
       "PUT /api/settings/automation": (_url, init) => {
         putBody = JSON.parse(String(init?.body));
         return jsonResponse(200, {
