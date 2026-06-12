@@ -86,14 +86,37 @@ export const sessions = pgTable(
   (table) => [index("sessions_user_id_idx").on(table.userId)],
 );
 
+/**
+ * Account git riutilizzabile: contiene le credenziali (cifrate AES-256-GCM)
+ * di accesso a un provider, slegate dal singolo progetto. Un account può
+ * essere usato da più progetti; il worker e la configurazione webhook leggono
+ * le credenziali da qui (via projects.git_account_id), mai più dal progetto.
+ * Il provider è ridondato sul progetto (denormalizzato) per comodità di lettura,
+ * ma la fonte di verità delle credenziali è l'account.
+ */
+export const gitAccounts = pgTable("git_accounts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  provider: gitProviderKind("provider").notNull(),
+  // JSON { username?, email?, token } cifrato AES-256-GCM (vedi secrets.ts).
+  // Non esce MAI dall'API: si legge solo per validare/decifrare lato server.
+  encryptedCredentials: text("encrypted_credentials").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const projects = pgTable("projects", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   provider: gitProviderKind("provider").notNull(),
+  // Account git che fornisce le credenziali del progetto. ON DELETE RESTRICT:
+  // un account in uso da almeno un progetto non può essere eliminato (il
+  // server risponde 409). Le credenziali NON vivono più qui: stanno sull'account.
+  gitAccountId: uuid("git_account_id")
+    .notNull()
+    .references(() => gitAccounts.id, { onDelete: "restrict" }),
   repoUrl: text("repo_url").notNull(),
   defaultBranch: text("default_branch").notNull(),
-  encryptedCredentials: text("encrypted_credentials").notNull(),
   ingestionKey: text("ingestion_key").notNull().unique(),
   // Segreto HMAC del webhook git (chiusura automatica al merge): 32 hex
   // generati alla creazione del progetto. Il default '' copre le righe

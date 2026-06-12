@@ -64,6 +64,13 @@
       "when": 1781192805888,
       "tag": "0008_perpetual_jack_murdock",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1781255187852,
+      "tag": "0009_simple_secret_warriors",
+      "breakpoints": true
     }
   ]
 }
