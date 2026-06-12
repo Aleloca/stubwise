@@ -47,6 +47,21 @@ export default defineConfig({
     starlight({
       routeMiddleware: "./src/route-data.ts",
       title: "Stubwise",
+      // Favicon condivisa con la web app: la "S_" ambra su quadrato scuro.
+      // Starlight prefissa automaticamente con `base`. Il PNG (fallback per i
+      // browser senza SVG) e l'apple-touch-icon vanno aggiunti a mano in head,
+      // con il prefisso del base esplicito.
+      favicon: "/favicon.svg",
+      head: [
+        {
+          tag: "link",
+          attrs: { rel: "icon", type: "image/png", sizes: "32x32", href: `${base}/favicon.png` },
+        },
+        {
+          tag: "link",
+          attrs: { rel: "apple-touch-icon", href: `${base}/apple-touch-icon.png` },
+        },
+      ],
       description:
         "Issue tracker self-hostabile con pipeline AI: dagli errori degli SDK ai ticket, fino alle pull request automatiche.",
       defaultLocale: "it",
