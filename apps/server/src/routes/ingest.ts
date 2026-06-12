@@ -16,6 +16,20 @@ export interface IngestRoutesOptions {
 }
 
 /**
+ * publicUrl dell'app, o undefined se non configurato. Il decorator espone un
+ * getter che ESPLODE quando l'app è stata costruita senza publicUrl (alcuni
+ * unit test): qui la notifica è opzionale, quindi assorbiamo l'errore e
+ * lasciamo che il link al ticket sia il solo path.
+ */
+function publicUrlOrUndefined(app: FastifyInstance): string | undefined {
+  try {
+    return app.publicUrl;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Confronto a tempo costante tra chiave fornita e attesa. Con lunghezze
  * diverse timingSafeEqual non è applicabile: si paga comunque un confronto
  * della stessa forma per non rendere la lunghezza osservabile dal timing.
@@ -80,7 +94,7 @@ export async function ingestRoutes(
         const provided = request.headers["x-stubwise-key"];
         const { slug } = request.params as { slug: string };
         const [project] = await app.db
-          .select({ id: projects.id, ingestionKey: projects.ingestionKey })
+          .select({ id: projects.id, name: projects.name, ingestionKey: projects.ingestionKey })
           .from(projects)
           .where(eq(projects.slug, slug));
         // Ramo unico di rifiuto: header assente, slug sconosciuto e chiave
@@ -92,7 +106,7 @@ export async function ingestRoutes(
         ) {
           return reply.code(401).send({ message: "Chiave di ingestion non valida" });
         }
-        request.ingestProject = { id: project.id };
+        request.ingestProject = { id: project.id, name: project.name };
       },
       schemaErrorFormatter: (errors, dataVar) => {
         const error = new Error(
@@ -118,11 +132,15 @@ export async function ingestRoutes(
     },
     async (request, reply) => {
       const { events } = request.body;
-      const { created, deduped } = await processEvents(
-        app.db,
-        request.ingestProject!,
-        events,
-      );
+      const project = request.ingestProject!;
+      const { created, deduped } = await processEvents(app.db, project, events, {
+        // publicUrl per comporre il link assoluto al ticket nella notifica;
+        // projectName per il messaggio. La notifica è best-effort (non lancia).
+        // Il getter publicUrl esplode se l'app è stata costruita senza (alcuni
+        // test): la notifica è opzionale, in quel caso il link è il solo path.
+        publicUrl: publicUrlOrUndefined(app),
+        projectName: project.name,
+      });
       return reply.code(202).send({ accepted: events.length, created, deduped });
     },
   );
@@ -131,6 +149,6 @@ export async function ingestRoutes(
 declare module "fastify" {
   interface FastifyRequest {
     /** Progetto autenticato dalla preValidation dell'ingestion. */
-    ingestProject?: { id: string };
+    ingestProject?: { id: string; name: string };
   }
 }

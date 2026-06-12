@@ -292,3 +292,100 @@ describe("processEvents — batch misti", () => {
     expect(await projectTickets(project.id)).toHaveLength(3);
   });
 });
+
+describe("processEvents — notifica ticket.created", () => {
+  interface DispatchedEvent {
+    kind: string;
+    ticketNumber: number;
+    ticketTitle: string;
+    projectName: string;
+    source?: string;
+    ticketUrl: string;
+  }
+
+  it("dispatcha ticket.created per un errore SDK nuovo, con URL e nome progetto", async () => {
+    const project = await createProject();
+    const calls: DispatchedEvent[] = [];
+    const result = await processEvents(testDb.db, project, [errorEvent()], {
+      publicUrl: "https://stubwise.example.com",
+      projectName: "Acme",
+      dispatch: async (_db, event) => {
+        calls.push(event as unknown as DispatchedEvent);
+      },
+    });
+    expect(result).toEqual({ created: 1, deduped: 0 });
+    const [ticket] = await projectTickets(project.id);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.kind).toBe("ticket.created");
+    expect(calls[0]!.source).toBe("sdk_error");
+    expect(calls[0]!.projectName).toBe("Acme");
+    expect(calls[0]!.ticketNumber).toBe(ticket!.number);
+    expect(calls[0]!.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket!.id}`);
+  });
+
+  it("dispatcha ticket.created per un feedback SDK nuovo (source sdk_feedback)", async () => {
+    const project = await createProject();
+    const calls: DispatchedEvent[] = [];
+    await processEvents(
+      testDb.db,
+      project,
+      [{ kind: "feedback", message: "non va" }],
+      {
+        publicUrl: "https://stubwise.example.com",
+        projectName: "Acme",
+        dispatch: async (_db, event) => {
+          calls.push(event as unknown as DispatchedEvent);
+        },
+      },
+    );
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.source).toBe("sdk_feedback");
+  });
+
+  it("NON dispatcha sul dedup di un errore (solo sui ticket genuinamente nuovi)", async () => {
+    const project = await createProject();
+    await processEvents(testDb.db, project, [errorEvent()]);
+    const calls: DispatchedEvent[] = [];
+    const result = await processEvents(testDb.db, project, [errorEvent()], {
+      publicUrl: "https://stubwise.example.com",
+      projectName: "Acme",
+      dispatch: async (_db, event) => {
+        calls.push(event as unknown as DispatchedEvent);
+      },
+    });
+    expect(result).toEqual({ created: 0, deduped: 1 });
+    expect(calls).toHaveLength(0);
+  });
+
+  it("NON dispatcha per i ticket api (solo sorgenti SDK)", async () => {
+    const project = await createProject();
+    const calls: DispatchedEvent[] = [];
+    await processEvents(
+      testDb.db,
+      project,
+      [{ kind: "ticket", title: "manuale", type: "task", priority: "low" }],
+      {
+        publicUrl: "https://stubwise.example.com",
+        projectName: "Acme",
+        dispatch: async (_db, event) => {
+          calls.push(event as unknown as DispatchedEvent);
+        },
+      },
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it("un dispatch che lancia non rompe il batch (best-effort)", async () => {
+    const project = await createProject();
+    const result = await processEvents(testDb.db, project, [errorEvent()], {
+      publicUrl: "https://stubwise.example.com",
+      projectName: "Acme",
+      dispatch: async () => {
+        throw new Error("notifica esplosa");
+      },
+    });
+    // L'ingestion è andata a buon fine nonostante il dispatch rotto.
+    expect(result).toEqual({ created: 1, deduped: 0 });
+    expect(await projectTickets(project.id)).toHaveLength(1);
+  });
+});

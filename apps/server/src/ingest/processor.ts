@@ -1,8 +1,9 @@
 import type { ErrorEvent, FeedbackEvent, IngestEvent, TicketCreateEvent } from "@stubwise/shared";
+import { dispatchNotification, type NotificationEvent } from "@stubwise/notifications";
 import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "@stubwise/db";
 import { aiJobs, errorGroups, tickets } from "@stubwise/db";
-import { createTicket } from "../db/tickets.js";
+import { createTicket, type Ticket } from "../db/tickets.js";
 import { fingerprint } from "./fingerprint.js";
 
 /** Lunghezza massima del titolo di un ticket (allineata alla validazione API). */
@@ -20,14 +21,27 @@ export interface ProcessResult {
   deduped: number;
 }
 
+/** Firma del dispatch di notifica iniettabile (default: dispatchNotification). */
+export type DispatchFn = (db: Db, event: NotificationEvent) => Promise<void>;
+
 /**
- * Hook riservati ai test: permettono di iniettare deterministicamente la
- * race sul vincolo unique di errorGroups. Nessun uso in produzione.
+ * Opzioni di processEvents. Oltre agli hook di test, trasportano il contesto
+ * necessario alla notifica `ticket.created`: l'URL pubblico per comporre il
+ * link al ticket e il nome del progetto da mostrare nel messaggio. `dispatch`
+ * è iniettabile nei test (default: la dispatchNotification reale, best-effort).
  */
-export interface ProcessorTestHooks {
-  /** Chiamato nel percorso errore quando la SELECT non trova il gruppo,
-   * prima della creazione del ticket. */
+export interface ProcessOptions {
+  /** Hook di test: chiamato nel percorso errore quando la SELECT non trova il
+   * gruppo, prima della creazione del ticket. Nessun uso in produzione. */
   beforeTicketCreate?: () => Promise<void>;
+  /** URL pubblico dell'istanza (PUBLIC_URL), per il link al ticket. Se assente
+   * il link è il solo path. */
+  publicUrl?: string;
+  /** Nome del progetto da mostrare nella notifica. */
+  projectName?: string;
+  /** Dispatch della notifica (iniettabile nei test). Default:
+   * dispatchNotification (best-effort, non lancia mai). */
+  dispatch?: DispatchFn;
 }
 
 function truncate(text: string): string {
@@ -73,8 +87,8 @@ async function processErrorEvent(
   db: Db,
   projectId: string,
   event: ErrorEvent,
-  hooks?: ProcessorTestHooks,
-): Promise<"created" | "deduped"> {
+  opts?: ProcessOptions,
+): Promise<{ outcome: "created"; ticket: Ticket } | { outcome: "deduped" }> {
   const fp = fingerprint({
     errorType: event.errorType,
     message: event.message,
@@ -98,10 +112,10 @@ async function processErrorEvent(
               lastSeenAt: new Date(),
             })
             .where(eq(tickets.id, group.ticketId));
-          return "deduped";
+          return { outcome: "deduped" };
         }
 
-        await hooks?.beforeTicketCreate?.();
+        await opts?.beforeTicketCreate?.();
 
         const ticket = await createTicket(tx, {
           projectId,
@@ -131,7 +145,7 @@ async function processErrorEvent(
         }
 
         await tx.insert(aiJobs).values({ ticketId: ticket.id });
-        return "created";
+        return { outcome: "created", ticket };
       });
     } catch (err) {
       if (err instanceof GroupConflictError) continue;
@@ -148,14 +162,14 @@ async function processFeedbackEvent(
   db: Db,
   projectId: string,
   event: FeedbackEvent,
-): Promise<void> {
+): Promise<Ticket> {
   const bodyLines = [
     event.message,
     ...(event.email !== undefined ? [`Email: ${event.email}`] : []),
     ...(event.url !== undefined ? [`URL: ${event.url}`] : []),
     ...(event.release !== undefined ? [`Release: ${event.release}`] : []),
   ];
-  await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
     const ticket = await createTicket(tx, {
       projectId,
       title: truncate(event.message),
@@ -165,6 +179,7 @@ async function processFeedbackEvent(
       source: "sdk_feedback",
     });
     await tx.insert(aiJobs).values({ ticketId: ticket.id });
+    return ticket;
   });
 }
 
@@ -173,8 +188,8 @@ async function processTicketEvent(
   db: Db,
   projectId: string,
   event: TicketCreateEvent,
-): Promise<void> {
-  await db.transaction(async (tx) => {
+): Promise<Ticket> {
+  return db.transaction(async (tx) => {
     const ticket = await createTicket(tx, {
       projectId,
       title: truncate(event.title),
@@ -184,7 +199,45 @@ async function processTicketEvent(
       source: "api",
     });
     await tx.insert(aiJobs).values({ ticketId: ticket.id });
+    return ticket;
   });
+}
+
+/**
+ * Compone l'URL del ticket: assoluto se `publicUrl` è valorizzato, altrimenti
+ * solo il path. publicUrl viene normalizzato togliendo gli slash finali.
+ */
+function ticketUrl(publicUrl: string | undefined, ticketId: string): string {
+  const base = (publicUrl ?? "").replace(/\/+$/, "");
+  return `${base}/tickets/${ticketId}`;
+}
+
+/**
+ * Notifica `ticket.created` per un ticket SDK appena creato (best-effort, DOPO
+ * il commit della transazione). Solo per le sorgenti SDK (sdk_error /
+ * sdk_feedback): i ticket api/manuali non generano notifica per evitare rumore.
+ * Il dispatch reale non lancia mai; il try/catch difende comunque da un
+ * dispatch iniettato che lancia, così una notifica non rompe l'ingestion.
+ */
+async function notifyTicketCreated(
+  db: Db,
+  ticket: Ticket,
+  opts: ProcessOptions | undefined,
+): Promise<void> {
+  if (ticket.source !== "sdk_error" && ticket.source !== "sdk_feedback") return;
+  const dispatch = opts?.dispatch ?? dispatchNotification;
+  try {
+    await dispatch(db, {
+      kind: "ticket.created",
+      ticketNumber: ticket.number,
+      ticketTitle: ticket.title,
+      projectName: opts?.projectName ?? "",
+      source: ticket.source,
+      ticketUrl: ticketUrl(opts?.publicUrl, ticket.id),
+    });
+  } catch {
+    // Best-effort: una notifica fallita non deve mai disfare l'ingestion.
+  }
 }
 
 /**
@@ -201,21 +254,28 @@ export async function processEvents(
   db: Db,
   project: { id: string },
   events: IngestEvent[],
-  hooks?: ProcessorTestHooks,
+  opts?: ProcessOptions,
 ): Promise<ProcessResult> {
   const result: ProcessResult = { created: 0, deduped: 0 };
   for (const event of events) {
     switch (event.kind) {
       case "error": {
-        const outcome = await processErrorEvent(db, project.id, event, hooks);
-        result[outcome] += 1;
+        const res = await processErrorEvent(db, project.id, event, opts);
+        result[res.outcome] += 1;
+        // Notifica solo sui ticket genuinamente nuovi (mai sul dedup), DOPO il
+        // commit della transazione: la notifica riflette così realtà committata.
+        if (res.outcome === "created") await notifyTicketCreated(db, res.ticket, opts);
         break;
       }
-      case "feedback":
-        await processFeedbackEvent(db, project.id, event);
+      case "feedback": {
+        const ticket = await processFeedbackEvent(db, project.id, event);
         result.created += 1;
+        await notifyTicketCreated(db, ticket, opts);
         break;
+      }
       case "ticket":
+        // I ticket api/manuali non generano notifica (rumore): notifyTicketCreated
+        // ignora le sorgenti non-SDK, ma non lo chiamiamo nemmeno qui.
         await processTicketEvent(db, project.id, event);
         result.created += 1;
         break;

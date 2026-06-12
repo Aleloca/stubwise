@@ -1,9 +1,10 @@
 import { effortSchema, ticketTypeSchema, type TicketType } from "@stubwise/shared";
+import { sendTest } from "@stubwise/notifications";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { Db } from "@stubwise/db";
-import { automationRules } from "@stubwise/db";
+import { automationRules, notificationSettings } from "@stubwise/db";
 import { requireAdmin } from "../auth/session.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -36,6 +37,77 @@ const updateAutomationBodySchema = z.object({
 });
 
 type AutomationRule = z.infer<typeof automationRuleSchema>;
+
+/**
+ * Impostazioni del webhook di notifica in uscita (riga singleton id=1). La
+ * proiezione pubblica espone tutti i campi tranne quelli interni (id/timestamp):
+ * il webhook NON è un segreto (lo conosce chi configura), quindi viene
+ * restituito così com'è per riempire il form.
+ */
+const notificationFormatSchema = z.enum(["slack", "discord", "generic"]);
+
+const notificationSettingsResponseSchema = z.object({
+  webhookUrl: z.string().nullable(),
+  format: notificationFormatSchema,
+  enabled: z.boolean(),
+  notifyTicketCreated: z.boolean(),
+  notifyPrOpened: z.boolean(),
+  notifyJobHeld: z.boolean(),
+  notifyJobFailed: z.boolean(),
+});
+
+/**
+ * Body del PUT: il webhook deve essere un URL https quando valorizzato; la
+ * stringa vuota è ammessa e significa "nessun webhook" (salvata come null),
+ * così la UI può svuotare il campo senza un endpoint dedicato.
+ */
+const updateNotificationsBodySchema = z.object({
+  webhookUrl: z
+    .union([z.literal(""), z.url({ protocol: /^https$/, error: "deve essere un URL https" })])
+    .optional()
+    .default(""),
+  format: notificationFormatSchema,
+  enabled: z.boolean(),
+  notifyTicketCreated: z.boolean(),
+  notifyPrOpened: z.boolean(),
+  notifyJobHeld: z.boolean(),
+  notifyJobFailed: z.boolean(),
+});
+
+const testNotificationResponseSchema = z.object({
+  ok: z.boolean(),
+  detail: z.string(),
+});
+
+/**
+ * Legge la riga di configurazione delle notifiche. La migrazione seeda la riga
+ * id=1, ma per robustezza (DB ripristinato senza seed) si ripiega su default.
+ */
+async function loadNotificationSettings(
+  db: Db,
+): Promise<z.infer<typeof notificationSettingsResponseSchema>> {
+  const [row] = await db.select().from(notificationSettings).limit(1);
+  if (!row) {
+    return {
+      webhookUrl: null,
+      format: "slack",
+      enabled: true,
+      notifyTicketCreated: true,
+      notifyPrOpened: true,
+      notifyJobHeld: true,
+      notifyJobFailed: true,
+    };
+  }
+  return {
+    webhookUrl: row.webhookUrl,
+    format: row.format,
+    enabled: row.enabled,
+    notifyTicketCreated: row.notifyTicketCreated,
+    notifyPrOpened: row.notifyPrOpened,
+    notifyJobHeld: row.notifyJobHeld,
+    notifyJobFailed: row.notifyJobFailed,
+  };
+}
 
 /**
  * Restituisce le regole per TUTTI e 4 i tipi, riempiendo con il default
@@ -98,6 +170,82 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
         }
       });
       return { rules: await loadAllRules(app.db) };
+    },
+  );
+
+  app.get(
+    "/notifications",
+    {
+      preHandler: requireAdmin,
+      schema: {
+        response: { 200: notificationSettingsResponseSchema, ...authErrorResponses },
+      },
+    },
+    async () => {
+      return loadNotificationSettings(app.db);
+    },
+  );
+
+  app.put(
+    "/notifications",
+    {
+      preHandler: requireAdmin,
+      schema: {
+        body: updateNotificationsBodySchema,
+        response: {
+          200: notificationSettingsResponseSchema,
+          400: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request) => {
+      const body = request.body;
+      // Stringa vuota → null: "nessun webhook configurato".
+      const webhookUrl = body.webhookUrl === "" ? null : body.webhookUrl;
+      // Upsert sul singleton (id=1): la migrazione seeda la riga, ma onConflict
+      // la rende idempotente anche se mancasse. updatedAt è gestito da $onUpdate.
+      await app.db
+        .insert(notificationSettings)
+        .values({
+          id: 1,
+          webhookUrl,
+          format: body.format,
+          enabled: body.enabled,
+          notifyTicketCreated: body.notifyTicketCreated,
+          notifyPrOpened: body.notifyPrOpened,
+          notifyJobHeld: body.notifyJobHeld,
+          notifyJobFailed: body.notifyJobFailed,
+        })
+        .onConflictDoUpdate({
+          target: notificationSettings.id,
+          set: {
+            webhookUrl,
+            format: body.format,
+            enabled: body.enabled,
+            notifyTicketCreated: body.notifyTicketCreated,
+            notifyPrOpened: body.notifyPrOpened,
+            notifyJobHeld: body.notifyJobHeld,
+            notifyJobFailed: body.notifyJobFailed,
+          },
+        });
+      return loadNotificationSettings(app.db);
+    },
+  );
+
+  app.post(
+    "/notifications/test",
+    {
+      preHandler: requireAdmin,
+      schema: {
+        response: { 200: testNotificationResponseSchema, ...authErrorResponses },
+      },
+    },
+    async () => {
+      // sendTest fa emergere l'esito (a differenza del dispatch best-effort):
+      // l'admin deve sapere se il webhook è corretto. Usa il format salvato e
+      // un evento ticket.created fittizio con link a ${publicUrl}/tickets/test.
+      return sendTest(app.db, app.publicUrl);
     },
   );
 }
