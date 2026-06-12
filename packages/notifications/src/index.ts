@@ -4,13 +4,19 @@ export {
   formatEvent,
   sendTest,
   type DispatchOptions,
+  type NotificationSettingsRow,
+  type SendTestResult,
+} from "./dispatch.js";
+
+export {
+  formatNotification,
+  sampleEvents,
+  type FormattedNotification,
   type JobFailedEvent,
   type JobHeldEvent,
   type NotificationEvent,
   type NotificationFormat,
   type NotificationKind,
-  type NotificationSettingsRow,
   type PrOpenedEvent,
-  type SendTestResult,
   type TicketCreatedEvent,
-} from "./dispatch.js";
+} from "./format.js";

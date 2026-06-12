@@ -5,9 +5,9 @@ import {
   buildTestEvent,
   dispatchNotification,
   sendTest,
-  type NotificationEvent,
   type NotificationSettingsRow,
 } from "./dispatch.js";
+import { type NotificationEvent } from "./format.js";
 
 /**
  * Test del modulo di dispatch SENZA un Postgres reale: il modulo legge la

@@ -1,4 +1,11 @@
 import { notificationSettings, type Db } from "@stubwise/db";
+import {
+  formatNotification,
+  type NotificationEvent,
+  type NotificationFormat,
+  type NotificationKind,
+  type TicketCreatedEvent,
+} from "./format.js";
 
 /**
  * Modulo di dispatch delle notifiche in uscita di Stubwise.
@@ -9,14 +16,16 @@ import { notificationSettings, type Db } from "@stubwise/db";
  * con tutto il necessario a comporre il messaggio: il modulo NON interroga
  * ticket/job, formatta soltanto e POSTa.
  *
+ * La FORMATTAZIONE pura (evento → body del webhook) vive in `./format.ts`
+ * (senza dipendenze dal DB, riusabile lato web): qui ci si occupa solo di
+ * lettura config, gating e POST. {@link dispatchNotification} riusa
+ * {@link formatNotification} come unica fonte di verità.
+ *
  * BEST-EFFORT: {@link dispatchNotification} non lancia MAI. Un fallimento di
  * rete, una config rotta o un formato imprevisto vengono inghiottiti — una
  * notifica mancata non deve mai rompere l'ingestion né un job. La verifica
  * esplicita del webhook (che DEVE far emergere gli errori) è {@link sendTest}.
  */
-
-/** Formato del messaggio: combacia con l'enum DB `notification_format`. */
-export type NotificationFormat = "slack" | "discord" | "generic";
 
 /**
  * Proiezione (read-only) della riga di configurazione `notification_settings`
@@ -31,62 +40,6 @@ export interface NotificationSettingsRow {
   notifyJobHeld: boolean;
   notifyJobFailed: boolean;
 }
-
-/** Nuovo ticket SDK (errore o feedback) appena creato. */
-export interface TicketCreatedEvent {
-  kind: "ticket.created";
-  ticketNumber: number;
-  ticketTitle: string;
-  projectName: string;
-  /** Sorgente SDK: "sdk_error" o "sdk_feedback". */
-  source: string;
-  ticketUrl: string;
-}
-
-/** L'AI ha aperto una PR sul ticket. */
-export interface PrOpenedEvent {
-  kind: "job.pr_opened";
-  ticketNumber: number;
-  ticketTitle: string;
-  projectName: string;
-  prUrl: string;
-  ticketUrl: string;
-  /** Costo USD del run di fix, se noto. */
-  costUsd?: number | null;
-}
-
-/** Il job è in attesa di revisione umana (gate di automazione / soglia effort). */
-export interface JobHeldEvent {
-  kind: "job.held";
-  ticketNumber: number;
-  ticketTitle: string;
-  projectName: string;
-  /** Tipo (ri)classificato dal triage. */
-  type: string;
-  /** Sforzo stimato 1–5. */
-  effort: number;
-  ticketUrl: string;
-}
-
-/** Il fix AI è fallito. */
-export interface JobFailedEvent {
-  kind: "job.failed";
-  ticketNumber: number;
-  ticketTitle: string;
-  projectName: string;
-  error: string;
-  ticketUrl: string;
-}
-
-/** Unione tipata di tutti gli eventi che generano una notifica. */
-export type NotificationEvent =
-  | TicketCreatedEvent
-  | PrOpenedEvent
-  | JobHeldEvent
-  | JobFailedEvent;
-
-/** Tipo dei `kind` degli eventi, per mappare evento → toggle. */
-export type NotificationKind = NotificationEvent["kind"];
 
 export interface DispatchOptions {
   /** fetch iniettabile nei test. Default: il fetch globale. */
@@ -129,127 +82,16 @@ async function loadSettings(db: Db): Promise<NotificationSettingsRow | null> {
 
 // --- Formattazione ---
 
-/** Etichetta del costo in USD, o stringa vuota se assente. */
-function costSuffixSlack(costUsd: number | null | undefined): string {
-  return costUsd != null ? ` (costo $${costUsd})` : "";
-}
-
-/** Corpo Slack: `{ text }` in mrkdwn, link in stile `<url|label>`. */
-function formatSlack(event: NotificationEvent): Record<string, unknown> {
-  switch (event.kind) {
-    case "ticket.created":
-      return {
-        text:
-          `🐛 Nuovo ticket *#${event.ticketNumber}* — ${event.ticketTitle} ` +
-          `(${event.projectName}, ${event.source}). <${event.ticketUrl}|Apri>`,
-      };
-    case "job.pr_opened":
-      return {
-        text:
-          `✅ PR aperta per *#${event.ticketNumber}* — ${event.ticketTitle}` +
-          `${costSuffixSlack(event.costUsd)}. ` +
-          `<${event.prUrl}|Vedi PR> · <${event.ticketUrl}|Ticket>`,
-      };
-    case "job.held":
-      return {
-        text:
-          `⏸️ *#${event.ticketNumber}* in attesa di revisione — ${event.ticketTitle} ` +
-          `(${event.type}, effort ${event.effort}/5). <${event.ticketUrl}|Apri>`,
-      };
-    case "job.failed":
-      return {
-        text:
-          `❌ Fix AI fallito su *#${event.ticketNumber}* — ${event.ticketTitle}: ` +
-          `${event.error}. <${event.ticketUrl}|Apri>`,
-      };
-  }
-}
-
-/** Etichetta del costo per Discord/markdown. */
-function costSuffixMd(costUsd: number | null | undefined): string {
-  return costUsd != null ? ` (costo $${costUsd})` : "";
-}
-
-/** Corpo Discord: `{ content }` in markdown, link in stile `[label](url)`. */
-function formatDiscord(event: NotificationEvent): Record<string, unknown> {
-  switch (event.kind) {
-    case "ticket.created":
-      return {
-        content:
-          `🐛 Nuovo ticket **#${event.ticketNumber}** — ${event.ticketTitle} ` +
-          `(${event.projectName}, ${event.source}). [Apri](${event.ticketUrl})`,
-      };
-    case "job.pr_opened":
-      return {
-        content:
-          `✅ PR aperta per **#${event.ticketNumber}** — ${event.ticketTitle}` +
-          `${costSuffixMd(event.costUsd)}. ` +
-          `[Vedi PR](${event.prUrl}) · [Ticket](${event.ticketUrl})`,
-      };
-    case "job.held":
-      return {
-        content:
-          `⏸️ **#${event.ticketNumber}** in attesa di revisione — ${event.ticketTitle} ` +
-          `(${event.type}, effort ${event.effort}/5). [Apri](${event.ticketUrl})`,
-      };
-    case "job.failed":
-      return {
-        content:
-          `❌ Fix AI fallito su **#${event.ticketNumber}** — ${event.ticketTitle}: ` +
-          `${event.error}. [Apri](${event.ticketUrl})`,
-      };
-  }
-}
-
-/** Frase di riepilogo (italiano, senza markup) per il payload generico. */
-function plainMessage(event: NotificationEvent): string {
-  switch (event.kind) {
-    case "ticket.created":
-      return `Nuovo ticket #${event.ticketNumber} — ${event.ticketTitle} (${event.projectName}, ${event.source}).`;
-    case "job.pr_opened":
-      return `PR aperta per #${event.ticketNumber} — ${event.ticketTitle}.`;
-    case "job.held":
-      return `#${event.ticketNumber} in attesa di revisione — ${event.ticketTitle} (${event.type}, effort ${event.effort}/5).`;
-    case "job.failed":
-      return `Fix AI fallito su #${event.ticketNumber} — ${event.ticketTitle}: ${event.error}.`;
-  }
-}
-
-/** Payload generico machine-readable: campi piatti, niente markup. */
-function formatGeneric(event: NotificationEvent): Record<string, unknown> {
-  const base = {
-    event: event.kind,
-    ticketNumber: event.ticketNumber,
-    title: event.ticketTitle,
-    projectName: event.projectName,
-    message: plainMessage(event),
-    ticketUrl: event.ticketUrl,
-  };
-  switch (event.kind) {
-    case "ticket.created":
-      return { ...base, source: event.source };
-    case "job.pr_opened":
-      return { ...base, prUrl: event.prUrl, costUsd: event.costUsd ?? null };
-    case "job.held":
-      return { ...base, type: event.type, effort: event.effort };
-    case "job.failed":
-      return { ...base, error: event.error };
-  }
-}
-
-/** Compone il body JSON per il formato configurato. */
+/**
+ * Compone il body JSON per il formato configurato. Adattatore sottile attorno
+ * a {@link formatNotification} (unica fonte di verità in `./format.ts`):
+ * restituisce solo il `body`, quel che effettivamente si serializza nel POST.
+ */
 export function formatEvent(
   format: NotificationFormat,
   event: NotificationEvent,
 ): Record<string, unknown> {
-  switch (format) {
-    case "slack":
-      return formatSlack(event);
-    case "discord":
-      return formatDiscord(event);
-    case "generic":
-      return formatGeneric(event);
-  }
+  return formatNotification(event, format).body as Record<string, unknown>;
 }
 
 /**
