@@ -293,3 +293,37 @@ export const automationRules = pgTable("automation_rules", {
   autoFix: boolean("auto_fix").notNull().default(true),
   maxEffort: integer("max_effort").notNull().default(3),
 });
+
+// Formato del messaggio del webhook di notifica in uscita: Slack (mrkdwn),
+// Discord (markdown) o un payload JSON generico machine-readable.
+export const notificationFormat = pgEnum("notification_format", ["slack", "discord", "generic"]);
+
+/**
+ * Configurazione (riga singola) del webhook di notifica in uscita: Stubwise
+ * posta un messaggio su eventi chiave (nuovo ticket SDK, PR aperta, job in
+ * attesa, fix fallito). È un singleton: l'id è fissato a 1 e la migrazione
+ * seeda l'unica riga, così il server fa upsert su id=1 e non ci sono righe
+ * multiple da riconciliare. `enabled` è l'interruttore generale; i toggle
+ * per-evento permettono di scegliere quali notifiche inviare. `webhookUrl`
+ * nullo (o `enabled` false) = nessuna notifica.
+ */
+export const notificationSettings = pgTable("notification_settings", {
+  // Singleton: id fissato a 1. Il server fa upsert su questa PK; la migrazione
+  // seeda la riga, quindi esiste sempre esattamente una configurazione.
+  id: integer("id").primaryKey().default(1),
+  // URL HTTPS del webhook (Slack/Discord/endpoint generico). Null = non
+  // configurato: il dispatch è un no-op.
+  webhookUrl: text("webhook_url"),
+  format: notificationFormat("format").notNull().default("slack"),
+  // Interruttore generale: false = nessuna notifica, qualunque sia il toggle.
+  enabled: boolean("enabled").notNull().default(true),
+  notifyTicketCreated: boolean("notify_ticket_created").notNull().default(true),
+  notifyPrOpened: boolean("notify_pr_opened").notNull().default(true),
+  notifyJobHeld: boolean("notify_job_held").notNull().default(true),
+  notifyJobFailed: boolean("notify_job_failed").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
