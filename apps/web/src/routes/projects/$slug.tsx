@@ -49,10 +49,11 @@ export function ProjectDetailPage() {
     void queryClient.invalidateQueries({ queryKey: projectQueryOptions(slug).queryKey });
   }
 
-  // Stato complessivo: credenziali salvate + webhook configurato. Il banner di
-  // conferma compare solo quando tutto è a posto; se manca qualcosa sono le
-  // sezioni a guidare l'utente.
-  const fullyConfigured = project.hasCredentials && project.webhookConfiguredAt !== null;
+  // Stato complessivo: un progetto ha sempre un account git collegato (le
+  // credenziali vivono lì), quindi "configurato" dipende solo dal webhook. Il
+  // banner di conferma compare quando il webhook è a posto; se manca, è la
+  // sezione Integrazione a guidare l'utente.
+  const fullyConfigured = project.webhookConfiguredAt !== null;
 
   return (
     <div className="p-8">
@@ -94,14 +95,12 @@ export function ProjectDetailPage() {
                 // key sullo slug: cambiando progetto il form riparte dai
                 // valori giusti invece di trascinarsi lo stato precedente.
                 key={project.slug}
-                mode="edit"
                 initial={{
                   name: project.name,
-                  provider: project.provider,
                   repoUrl: project.repoUrl,
                   defaultBranch: project.defaultBranch,
+                  gitAccountId: project.gitAccountId,
                 }}
-                credentialsConfigured={project.hasCredentials}
                 onSubmit={handleSubmit}
               />
               {saved && (
@@ -115,16 +114,12 @@ export function ProjectDetailPage() {
               <ReadOnlyRow label="Nome" value={project.name} />
               <ReadOnlyRow label="URL repository" value={project.repoUrl} />
               <ReadOnlyRow label="Branch di default" value={project.defaultBranch} />
+              <ReadOnlyRow label="Account git" value={project.gitAccountName} />
               <div className="flex flex-col gap-1">
                 <dt className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
                   Stato
                 </dt>
                 <dd className="flex flex-col gap-1 font-mono text-[12px]">
-                  <span className={project.hasCredentials ? "text-ok" : "text-fg-faint"}>
-                    {project.hasCredentials
-                      ? "✓ Credenziali git configurate"
-                      : "— Credenziali git non configurate"}
-                  </span>
                   <span className={project.webhookConfiguredAt ? "text-ok" : "text-fg-faint"}>
                     {project.webhookConfiguredAt
                       ? `✓ Webhook configurato il ${formatDateTime(project.webhookConfiguredAt)}`

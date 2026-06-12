@@ -3,13 +3,14 @@ import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Project } from "../../lib/api";
+import type { GitAccount, Project } from "../../lib/api";
 import { createAppRouter } from "../../router";
 
 /**
  * Route dei progetti con il router vero (memory history) e fetch mockata a
- * livello di rete: lista, creazione (payload POST con credenziali mai
- * rispecchiate), modifica (credenziali vuote = omesse) e vista member.
+ * livello di rete: lista, creazione tramite wizard (account → repo → branch →
+ * POST senza credenziali), modifica (account collegato switchabile) e vista
+ * member. Le credenziali non vivono più sul progetto: stanno sull'account git.
  */
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -43,6 +44,20 @@ function mockApi(handlers: Record<string, Handler>) {
   });
 }
 
+const ACCOUNT: GitAccount = {
+  id: "11111111-1111-4111-8111-111111111111",
+  name: "GitHub Demo",
+  provider: "github",
+  createdAt: "2026-06-01T10:00:00.000Z",
+};
+
+const ACCOUNT_B: GitAccount = {
+  id: "22222222-2222-4222-8222-222222222222",
+  name: "Bitbucket Prod",
+  provider: "bitbucket",
+  createdAt: "2026-06-02T10:00:00.000Z",
+};
+
 function makeProject(overrides: Partial<Project> = {}): Project {
   return {
     id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -52,7 +67,8 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     repoUrl: "https://github.com/acme/demo-shop",
     defaultBranch: "main",
     ingestionKey: "0123456789abcdef0123456789abcdef",
-    hasCredentials: false,
+    gitAccountId: ACCOUNT.id,
+    gitAccountName: ACCOUNT.name,
     webhookConfiguredAt: null,
     createdAt: "2026-06-01T10:00:00.000Z",
     ...overrides,
@@ -119,13 +135,25 @@ describe("lista progetti", () => {
 });
 
 describe("creazione progetto", () => {
-  it("invia il POST con le credenziali e atterra sul dettaglio con la chiave", async () => {
+  it("wizard: scelta account → repo → branch → POST senza credenziali, atterra sul dettaglio", async () => {
     const user = userEvent.setup();
     let postBody: unknown;
     const created = makeProject();
     mockApi({
       "GET /api/auth/me": meHandler("admin"),
       "GET /api/projects": () => jsonResponse(200, []),
+      "GET /api/git-accounts": () => jsonResponse(200, [ACCOUNT]),
+      "GET /api/git-accounts/11111111-1111-4111-8111-111111111111/repositories": () =>
+        jsonResponse(200, [
+          {
+            fullName: "acme/demo-shop",
+            name: "demo-shop",
+            cloneUrl: "https://github.com/acme/demo-shop",
+            defaultBranch: "main",
+          },
+        ]),
+      "GET /api/git-accounts/11111111-1111-4111-8111-111111111111/branches": () =>
+        jsonResponse(200, { branches: ["main", "develop"], defaultBranch: "main" }),
       "POST /api/projects": (_url, init) => {
         postBody = JSON.parse(String(init?.body));
         return jsonResponse(201, created);
@@ -137,25 +165,23 @@ describe("creazione progetto", () => {
 
     await screen.findByRole("heading", { name: "Nuovo progetto" });
     await user.type(screen.getByLabelText("Nome"), "Demo Shop");
-    await user.selectOptions(screen.getByLabelText("Provider"), "github");
-    await user.type(
-      screen.getByLabelText("URL repository"),
-      "https://github.com/acme/demo-shop",
-    );
-    await user.type(screen.getByLabelText("Token di accesso"), "ghp_supersegreto");
+    // Account preselezionato (unico): i repository si caricano.
+    await user.click(await screen.findByRole("button", { name: /acme\/demo-shop/ }));
+
+    const branchSelect = await screen.findByLabelText("Branch di default");
+    await waitFor(() => expect((branchSelect as HTMLSelectElement).value).toBe("main"));
+
     await user.click(screen.getByRole("button", { name: "Crea progetto" }));
 
     await waitFor(() => expect(router.state.location.pathname).toBe("/projects/demo-shop"));
+    // Nessuna credenziale nel body: vivono sull'account git.
     expect(postBody).toEqual({
       name: "Demo Shop",
-      provider: "github",
+      gitAccountId: ACCOUNT.id,
       repoUrl: "https://github.com/acme/demo-shop",
       defaultBranch: "main",
-      credentials: { token: "ghp_supersegreto" },
     });
-    // Sul dettaglio campeggia la chiave di ingestion, mai il token inviato.
     expect(await screen.findByText(created.ingestionKey)).toBeInTheDocument();
-    expect(screen.queryByText(/ghp_supersegreto/)).not.toBeInTheDocument();
   });
 
   it("member: /projects/new reindirizza alla lista", async () => {
@@ -172,7 +198,7 @@ describe("creazione progetto", () => {
 });
 
 describe("dettaglio progetto", () => {
-  it("admin: form prefillato senza credenziali, PATCH con token vuoto le omette", async () => {
+  it("admin: form senza campi credenziali, PATCH del nome non tocca l'account", async () => {
     const user = userEvent.setup();
     let patchBody: unknown;
     const project = makeProject();
@@ -180,6 +206,7 @@ describe("dettaglio progetto", () => {
       "GET /api/auth/me": meHandler("admin"),
       "GET /api/projects/demo-shop": () => jsonResponse(200, project),
       "GET /api/projects": () => jsonResponse(200, [project]),
+      "GET /api/git-accounts": () => jsonResponse(200, [ACCOUNT, ACCOUNT_B]),
       "PATCH /api/projects/demo-shop": (_url, init) => {
         patchBody = JSON.parse(String(init?.body));
         return jsonResponse(200, { ...project, name: "Demo Shop EU" });
@@ -190,17 +217,51 @@ describe("dettaglio progetto", () => {
 
     const name = await screen.findByLabelText("Nome");
     expect(name).toHaveValue("Demo Shop");
-    expect(screen.getByLabelText("Token di accesso")).toHaveValue("");
+    // Niente campi credenziali sul progetto: vivono sull'account.
+    expect(screen.queryByLabelText("Token di accesso")).not.toBeInTheDocument();
+    // L'account collegato è mostrato e preselezionato.
+    expect(screen.getByLabelText("Account git")).toHaveValue(ACCOUNT.id);
 
     await user.clear(name);
     await user.type(name, "Demo Shop EU");
     await user.click(screen.getByRole("button", { name: "Salva modifiche" }));
 
     expect(await screen.findByText("Modifiche salvate.")).toBeInTheDocument();
+    // Account invariato: gitAccountId omesso dal PATCH.
     expect(patchBody).toEqual({
       name: "Demo Shop EU",
       repoUrl: "https://github.com/acme/demo-shop",
       defaultBranch: "main",
+    });
+  });
+
+  it("admin: cambiando account il PATCH include il nuovo gitAccountId", async () => {
+    const user = userEvent.setup();
+    let patchBody: unknown;
+    const project = makeProject();
+    mockApi({
+      "GET /api/auth/me": meHandler("admin"),
+      "GET /api/projects/demo-shop": () => jsonResponse(200, project),
+      "GET /api/projects": () => jsonResponse(200, [project]),
+      "GET /api/git-accounts": () => jsonResponse(200, [ACCOUNT, ACCOUNT_B]),
+      "PATCH /api/projects/demo-shop": (_url, init) => {
+        patchBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, { ...project, gitAccountId: ACCOUNT_B.id });
+      },
+    });
+
+    renderApp("/projects/demo-shop");
+
+    await screen.findByLabelText("Nome");
+    await user.selectOptions(screen.getByLabelText("Account git"), ACCOUNT_B.id);
+    await user.click(screen.getByRole("button", { name: "Salva modifiche" }));
+
+    expect(await screen.findByText("Modifiche salvate.")).toBeInTheDocument();
+    expect(patchBody).toEqual({
+      name: "Demo Shop",
+      repoUrl: "https://github.com/acme/demo-shop",
+      defaultBranch: "main",
+      gitAccountId: ACCOUNT_B.id,
     });
   });
 
@@ -209,6 +270,8 @@ describe("dettaglio progetto", () => {
     mockApi({
       "GET /api/auth/me": meHandler("admin"),
       "GET /api/projects/demo-shop": () => jsonResponse(200, project),
+      "GET /api/projects": () => jsonResponse(200, [project]),
+      "GET /api/git-accounts": () => jsonResponse(200, [ACCOUNT]),
     });
 
     renderApp("/projects/demo-shop");
@@ -221,14 +284,15 @@ describe("dettaglio progetto", () => {
     expect(snippet.textContent).toContain(dsn);
   });
 
-  it("admin: con credenziali e webhook configurati mostra il banner 'configurato correttamente'", async () => {
+  it("admin: con webhook configurato mostra il banner 'configurato correttamente'", async () => {
     const project = makeProject({
-      hasCredentials: true,
       webhookConfiguredAt: "2026-06-05T09:30:00.000Z",
     });
     mockApi({
       "GET /api/auth/me": meHandler("admin"),
       "GET /api/projects/demo-shop": () => jsonResponse(200, project),
+      "GET /api/projects": () => jsonResponse(200, [project]),
+      "GET /api/git-accounts": () => jsonResponse(200, [ACCOUNT]),
       "GET /api/projects/demo-shop/webhook": () =>
         jsonResponse(200, { webhookSecret: "s3cr3t", webhookPath: "/webhooks/git/demo-shop" }),
     });
@@ -238,16 +302,17 @@ describe("dettaglio progetto", () => {
     expect(await screen.findByTestId("project-configured-banner")).toHaveTextContent(
       "Progetto configurato correttamente",
     );
-    // Le credenziali partono collassate nello stato "configurato".
-    expect(screen.getByTestId("credentials-configured")).toBeInTheDocument();
+    // Nessun campo credenziale: vivono sull'account git.
     expect(screen.queryByLabelText("Token di accesso")).not.toBeInTheDocument();
   });
 
   it("admin: se manca il webhook non mostra il banner complessivo", async () => {
-    const project = makeProject({ hasCredentials: true, webhookConfiguredAt: null });
+    const project = makeProject({ webhookConfiguredAt: null });
     mockApi({
       "GET /api/auth/me": meHandler("admin"),
       "GET /api/projects/demo-shop": () => jsonResponse(200, project),
+      "GET /api/projects": () => jsonResponse(200, [project]),
+      "GET /api/git-accounts": () => jsonResponse(200, [ACCOUNT]),
       "GET /api/projects/demo-shop/webhook": () =>
         jsonResponse(200, { webhookSecret: "s3cr3t", webhookPath: "/webhooks/git/demo-shop" }),
     });

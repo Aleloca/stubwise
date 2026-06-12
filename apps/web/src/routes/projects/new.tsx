@@ -1,13 +1,14 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ProjectForm } from "../../components/project-form";
+import { ProjectWizard } from "../../components/project-wizard";
 import { postProject, type ProjectDraft } from "../../lib/api";
 import { projectQueryOptions } from "../../lib/queries";
 
 /**
- * Creazione di un progetto (solo admin, guardia nella route). Sul 201 il
- * dettaglio appena creato viene messo in cache e si atterra sulla sua
- * pagina, dove campeggiano chiave di ingestion e snippet.
+ * Creazione di un progetto (solo admin, guardia nella route) tramite wizard:
+ * scelta dell'account git → repository → branch di default. Sul 201 il
+ * dettaglio appena creato viene messo in cache e si atterra sulla sua pagina,
+ * dove campeggiano chiave di ingestion e snippet.
  */
 export function NewProjectPage() {
   const navigate = useNavigate();
@@ -34,12 +35,13 @@ export function NewProjectPage() {
       <header className="mt-3 border-b border-line pb-4">
         <h1 className="text-xl font-semibold">Nuovo progetto</h1>
         <p className="mt-1 text-sm text-fg-muted">
-          Collega un repository: slug e chiave di ingestion vengono generati alla creazione.
+          Scegli un account git, il repository e il branch: slug e chiave di ingestion vengono
+          generati alla creazione.
         </p>
       </header>
 
       <div className="mt-6 max-w-2xl">
-        <ProjectForm mode="create" onSubmit={handleSubmit} />
+        <ProjectWizard onSubmit={handleSubmit} />
       </div>
     </div>
   );
