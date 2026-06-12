@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { GitHubProvider } from "./github.js";
-import { GitProviderError, type ProjectGitConfig } from "./provider.js";
+import { GitProviderError, type AccountCredentials, type ProjectGitConfig } from "./provider.js";
 
 const config: ProjectGitConfig = {
   repoUrl: "https://github.com/octo/repo",
@@ -396,5 +396,150 @@ describe("GitHubProvider.verifyWebhook", () => {
 
   it("rejects when the header is missing", () => {
     expect(provider.verifyWebhook({}, rawBody, secret)).toBe(false);
+  });
+});
+
+const account: AccountCredentials = { provider: "github", credentials: { token: "ghp_secret" } };
+
+function repoPage(repos: { full_name: string; name: string; clone_url: string; default_branch: string }[]): Response {
+  return new Response(JSON.stringify(repos), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+describe("GitHubProvider.listRepositories", () => {
+  it("maps fields, uses Bearer auth + github Accept header and the affiliation query", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      repoPage([
+        {
+          full_name: "octo/repo-a",
+          name: "repo-a",
+          clone_url: "https://github.com/octo/repo-a.git",
+          default_branch: "main",
+        },
+        {
+          full_name: "octo/repo-b",
+          name: "repo-b",
+          clone_url: "https://github.com/octo/repo-b.git",
+          default_branch: "develop",
+        },
+      ]),
+    );
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const repos = await provider.listRepositories(account);
+
+    expect(repos).toEqual([
+      { fullName: "octo/repo-a", name: "repo-a", cloneUrl: "https://github.com/octo/repo-a.git", defaultBranch: "main" },
+      { fullName: "octo/repo-b", name: "repo-b", cloneUrl: "https://github.com/octo/repo-b.git", defaultBranch: "develop" },
+    ]);
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("https://api.github.com/user/repos");
+    expect(url).toContain("per_page=100");
+    expect(url).toContain("affiliation=owner%2Ccollaborator%2Corganization_member");
+    const headers = init.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe("Bearer ghp_secret");
+    expect(headers["Accept"]).toBe("application/vnd.github+json");
+  });
+
+  it("follows the Link header for pagination but caps at ~300 repos", async () => {
+    // Each page returns 100 repos AND a `next` Link, so without the cap it
+    // would loop forever; the cap stops at 3 pages.
+    let page = 0;
+    const fetchImpl = vi.fn().mockImplementation((url: string) => {
+      page++;
+      const repos = Array.from({ length: 100 }, (_, i) => ({
+        full_name: `octo/r-${page}-${i}`,
+        name: `r-${page}-${i}`,
+        clone_url: `https://github.com/octo/r-${page}-${i}.git`,
+        default_branch: "main",
+      }));
+      const next = `<https://api.github.com/user/repos?page=${page + 1}>; rel="next"`;
+      void url;
+      return Promise.resolve(
+        new Response(JSON.stringify(repos), {
+          status: 200,
+          headers: { "content-type": "application/json", link: next },
+        }),
+      );
+    });
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const repos = await provider.listRepositories(account);
+    expect(repos).toHaveLength(300);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it("401 → GitProviderError in italiano", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("bad creds", { status: 401 }));
+    const provider = new GitHubProvider({ fetchImpl });
+    await expect(provider.listRepositories(account)).rejects.toBeInstanceOf(GitProviderError);
+    await expect(provider.listRepositories(account)).rejects.toThrow(/autenticazione|401/i);
+  });
+});
+
+describe("GitHubProvider.listBranches", () => {
+  it("returns the default branch from the repo and the branch names", async () => {
+    const fetchImpl = vi.fn().mockImplementation((url: string) => {
+      if (url === "https://api.github.com/repos/octo/repo") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ default_branch: "main" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      }
+      if (url.startsWith("https://api.github.com/repos/octo/repo/branches")) {
+        return Promise.resolve(
+          new Response(JSON.stringify([{ name: "main" }, { name: "develop" }, { name: "feature/x" }]), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      }
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const result = await provider.listBranches(account, "octo/repo");
+    expect(result.defaultBranch).toBe("main");
+    expect(result.branches).toEqual(["main", "develop", "feature/x"]);
+    const branchCall = fetchImpl.mock.calls.find(([u]) => String(u).includes("/branches"))!;
+    expect((branchCall[1] as RequestInit).headers as Record<string, string>).toMatchObject({
+      Authorization: "Bearer ghp_secret",
+    });
+  });
+
+  it("caps branches at ~200 via pagination", async () => {
+    let page = 0;
+    const fetchImpl = vi.fn().mockImplementation((url: string) => {
+      if (url === "https://api.github.com/repos/octo/repo") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ default_branch: "main" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      }
+      page++;
+      const branches = Array.from({ length: 100 }, (_, i) => ({ name: `b-${page}-${i}` }));
+      const next = `<https://api.github.com/repos/octo/repo/branches?page=${page + 1}>; rel="next"`;
+      return Promise.resolve(
+        new Response(JSON.stringify(branches), {
+          status: 200,
+          headers: { "content-type": "application/json", link: next },
+        }),
+      );
+    });
+    const provider = new GitHubProvider({ fetchImpl });
+    const result = await provider.listBranches(account, "octo/repo");
+    expect(result.branches).toHaveLength(200);
+  });
+
+  it("401 → GitProviderError", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 401 }));
+    const provider = new GitHubProvider({ fetchImpl });
+    await expect(provider.listBranches(account, "octo/repo")).rejects.toBeInstanceOf(GitProviderError);
   });
 });

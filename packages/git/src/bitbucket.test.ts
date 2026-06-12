@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { BitbucketProvider } from "./bitbucket.js";
-import { GitProviderError, type ProjectGitConfig } from "./provider.js";
+import { GitProviderError, type AccountCredentials, type ProjectGitConfig } from "./provider.js";
 
 const config: ProjectGitConfig = {
   repoUrl: "https://bitbucket.org/myws/myrepo",
@@ -491,5 +491,134 @@ describe("BitbucketProvider.verifyWebhook", () => {
 
   it("rejects when the header is missing", () => {
     expect(provider.verifyWebhook({}, rawBody, secret)).toBe(false);
+  });
+});
+
+const account: AccountCredentials = {
+  provider: "bitbucket",
+  credentials: { username: "alice", email: "alice@corp.io", token: "api-token" },
+};
+
+function bbRepo(fullName: string, mainbranch: string | null) {
+  return {
+    full_name: fullName,
+    name: fullName.split("/")[1],
+    mainbranch: mainbranch ? { name: mainbranch } : undefined,
+    links: {
+      clone: [
+        { name: "https", href: `https://bitbucket.org/${fullName}.git` },
+        { name: "ssh", href: `git@bitbucket.org:${fullName}.git` },
+      ],
+    },
+  };
+}
+
+describe("BitbucketProvider.listRepositories", () => {
+  it("maps fields, uses Basic email:token auth and the member role query, picking the https clone href", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ values: [bbRepo("myws/repo-a", "main"), bbRepo("myws/repo-b", null)] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const repos = await provider.listRepositories(account);
+    expect(repos).toEqual([
+      { fullName: "myws/repo-a", name: "repo-a", cloneUrl: "https://bitbucket.org/myws/repo-a.git", defaultBranch: "main" },
+      { fullName: "myws/repo-b", name: "repo-b", cloneUrl: "https://bitbucket.org/myws/repo-b.git", defaultBranch: null },
+    ]);
+    const [url, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    expect(url).toContain("https://api.bitbucket.org/2.0/repositories");
+    expect(url).toContain("role=member");
+    expect(url).toContain("pagelen=100");
+    const headers = (init.headers as Record<string, string>) ?? {};
+    // base64("alice@corp.io:api-token")
+    expect(headers["Authorization"]).toBe(`Basic ${Buffer.from("alice@corp.io:api-token").toString("base64")}`);
+  });
+
+  it("follows `next` for pagination but caps at ~3 pages", async () => {
+    let page = 0;
+    const fetchImpl = vi.fn().mockImplementation(() => {
+      page++;
+      const values = Array.from({ length: 100 }, (_, i) => bbRepo(`myws/r-${page}-${i}`, "main"));
+      return Promise.resolve(
+        new Response(JSON.stringify({ values, next: `https://api.bitbucket.org/2.0/repositories?page=${page + 1}` }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    });
+    const provider = new BitbucketProvider({ fetchImpl });
+    const repos = await provider.listRepositories(account);
+    expect(repos).toHaveLength(300);
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it("401 → GitProviderError in italiano", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 401 }));
+    const provider = new BitbucketProvider({ fetchImpl });
+    await expect(provider.listRepositories(account)).rejects.toBeInstanceOf(GitProviderError);
+    await expect(provider.listRepositories(account)).rejects.toThrow(/autenticazione|401/i);
+  });
+});
+
+describe("BitbucketProvider.listBranches", () => {
+  it("returns the default branch from the repo and the branch names", async () => {
+    const fetchImpl = vi.fn().mockImplementation((url: string) => {
+      if (url === "https://api.bitbucket.org/2.0/repositories/myws/repo") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ mainbranch: { name: "develop" } }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      }
+      if (url.includes("/refs/branches")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ values: [{ name: "main" }, { name: "develop" }] }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      }
+      return Promise.resolve(new Response("", { status: 404 }));
+    });
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const result = await provider.listBranches(account, "myws/repo");
+    expect(result.defaultBranch).toBe("develop");
+    expect(result.branches).toEqual(["main", "develop"]);
+  });
+
+  it("caps branches at ~200 via the `next` cursor", async () => {
+    let page = 0;
+    const fetchImpl = vi.fn().mockImplementation((url: string) => {
+      if (url === "https://api.bitbucket.org/2.0/repositories/myws/repo") {
+        return Promise.resolve(
+          new Response(JSON.stringify({ mainbranch: { name: "main" } }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      }
+      page++;
+      const values = Array.from({ length: 100 }, (_, i) => ({ name: `b-${page}-${i}` }));
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({ values, next: `https://api.bitbucket.org/2.0/repositories/myws/repo/refs/branches?page=${page + 1}` }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      );
+    });
+    const provider = new BitbucketProvider({ fetchImpl });
+    const result = await provider.listBranches(account, "myws/repo");
+    expect(result.branches).toHaveLength(200);
+  });
+
+  it("401 → GitProviderError", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 401 }));
+    const provider = new BitbucketProvider({ fetchImpl });
+    await expect(provider.listBranches(account, "myws/repo")).rejects.toBeInstanceOf(GitProviderError);
   });
 });

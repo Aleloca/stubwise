@@ -28,6 +28,34 @@ export interface ProjectGitConfig {
   };
 }
 
+/**
+ * Credenziali git già decifrate, senza repo: usate dai metodi che operano a
+ * livello di account (elenco repository/branch) anziché di singolo progetto.
+ * Stessa forma di {@link ProjectGitConfig.credentials} più il provider, così
+ * un account può essere passato direttamente senza un progetto memorizzato.
+ */
+export interface AccountCredentials {
+  provider: GitProviderKind;
+  credentials: {
+    username?: string;
+    email?: string;
+    token: string;
+  };
+}
+
+/**
+ * Riepilogo di un repository remoto restituito da listRepositories.
+ * `fullName` è "owner/repo" (workspace/repo su Bitbucket), `cloneUrl` è l'URL
+ * https di clone, `defaultBranch` può mancare (null) se il provider non lo
+ * espone nell'elenco.
+ */
+export interface RepoSummary {
+  fullName: string;
+  name: string;
+  cloneUrl: string;
+  defaultBranch: string | null;
+}
+
 export interface PrMergedEvent {
   provider: GitProviderKind;
   /** Source branch of the merged pull request. */
@@ -134,6 +162,24 @@ export interface GitProvider {
     hook: { url: string; secret: string },
     opts?: { fetchImpl?: FetchLike }
   ): Promise<WebhookResult>;
+  /**
+   * Elenca i repository accessibili con le credenziali dell'account (NON serve
+   * un progetto memorizzato): serve alla UI per scegliere il repo quando si
+   * crea un progetto. Pagina i risultati fino a un tetto documentato per
+   * provider (~300 repo / ~3 pagine). Lancia SOLO GitProviderError con un
+   * messaggio in italiano su 401/403.
+   */
+  listRepositories(p: AccountCredentials, opts?: { fetchImpl?: FetchLike }): Promise<RepoSummary[]>;
+  /**
+   * Elenca i branch di un repository (per nome completo "owner/repo") usando le
+   * credenziali dell'account, più il branch di default. Pagina fino a un tetto
+   * documentato (~200 branch). Lancia SOLO GitProviderError su 401/403.
+   */
+  listBranches(
+    p: AccountCredentials,
+    repoFullName: string,
+    opts?: { fetchImpl?: FetchLike }
+  ): Promise<{ branches: string[]; defaultBranch: string | null }>;
 }
 
 export class GitProviderError extends Error {
@@ -221,6 +267,35 @@ export function verifyHmacSignature(
   return timingSafeEqual(provided, expected);
 }
 
+/**
+ * Lancia GitProviderError sui non-2xx delle chiamate di elenco (repository/
+ * branch), con messaggio in italiano dedicato a 401/403 (token non valido o
+ * scope insufficiente). Gli altri status riportano lo stato e il corpo troncato.
+ */
+export async function ensureListResponse(response: Response, provider: string): Promise<void> {
+  if (response.ok) return;
+  const text = (await response.text().catch(() => "")).slice(0, 500);
+  if (response.status === 401) {
+    throw new GitProviderError(
+      `${provider}: autenticazione fallita (401), token non valido o scaduto`,
+      401,
+      text
+    );
+  }
+  if (response.status === 403) {
+    throw new GitProviderError(
+      `${provider}: accesso negato (403), il token non ha gli scope necessari per elencare i repository`,
+      403,
+      text
+    );
+  }
+  throw new GitProviderError(
+    `${provider} API request failed with status ${response.status}: ${text}`,
+    response.status,
+    text
+  );
+}
+
 /** Throws GitProviderError if the response is non-2xx. */
 export async function ensureOkResponse(response: Response, provider: string): Promise<void> {
   if (response.ok) return;
@@ -251,6 +326,20 @@ export async function fetchWithTimeout(
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Estrae l'URL `rel="next"` dall'header Link in stile GitHub
+ * (`<url>; rel="next", <url2>; rel="prev"`), o null se assente. Usato per
+ * paginare gli elenchi GitHub di repository e branch.
+ */
+export function parseNextLink(linkHeader: string | null): string | null {
+  if (!linkHeader) return null;
+  for (const part of linkHeader.split(",")) {
+    const match = /<([^>]+)>\s*;\s*rel="next"/.exec(part.trim());
+    if (match) return match[1] ?? null;
+  }
+  return null;
 }
 
 /** Codifica `user:pass` in un header Authorization Basic. */

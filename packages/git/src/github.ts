@@ -1,22 +1,36 @@
 import {
   basicAuthHeader,
+  ensureListResponse,
   ensureOkResponse,
   fetchWithTimeout,
   getHeader,
   GitProviderError,
+  parseNextLink,
   parseRepoUrl,
   readJsonResponse,
   verifyHmacSignature,
+  type AccountCredentials,
   type CredentialCheck,
   type FetchLike,
   type GitProvider,
   type GitProviderOptions,
   type PrMergedEvent,
   type ProjectGitConfig,
+  type RepoSummary,
   type WebhookResult,
 } from "./provider.js";
 
 const API_BASE = "https://api.github.com";
+
+/**
+ * Tetto di repository elencati: ~3 pagine da 100. Oltre questa soglia la UI
+ * di scelta repo diventa comunque ingestibile; l'utente può sempre incollare
+ * l'URL a mano. Evita anche un loop infinito se il Link `next` non termina.
+ */
+const MAX_REPO_PAGES = 3;
+
+/** Tetto di branch elencati: ~2 pagine da 100. */
+const MAX_BRANCH_PAGES = 2;
 
 export class GitHubProvider implements GitProvider {
   private readonly fetchImpl: FetchLike;
@@ -234,6 +248,79 @@ export class GitHubProvider implements GitProvider {
       const message = error instanceof Error ? error.message : String(error);
       throw new GitProviderError(`Errore di rete configurando il webhook GitHub: ${message}`, 0, "");
     }
+  }
+
+  async listRepositories(
+    p: AccountCredentials,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<RepoSummary[]> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const headers = {
+      Authorization: `Bearer ${p.credentials.token}`,
+      Accept: "application/vnd.github+json",
+    };
+    let url: string | null =
+      `${API_BASE}/user/repos?per_page=100&sort=updated&affiliation=${encodeURIComponent("owner,collaborator,organization_member")}`;
+    const repos: RepoSummary[] = [];
+    for (let pageNumber = 0; pageNumber < MAX_REPO_PAGES && url; pageNumber++) {
+      const response = await fetchImpl(url, { method: "GET", headers });
+      await ensureListResponse(response, "GitHub");
+      const link = response.headers.get("link");
+      const page = (await readJsonResponse(response, "GitHub")) as {
+        full_name?: unknown;
+        name?: unknown;
+        clone_url?: unknown;
+        default_branch?: unknown;
+      }[];
+      if (!Array.isArray(page)) break;
+      for (const r of page) {
+        if (typeof r.full_name !== "string" || typeof r.name !== "string" || typeof r.clone_url !== "string") {
+          continue;
+        }
+        repos.push({
+          fullName: r.full_name,
+          name: r.name,
+          cloneUrl: r.clone_url,
+          defaultBranch: typeof r.default_branch === "string" ? r.default_branch : null,
+        });
+      }
+      url = parseNextLink(link);
+    }
+    return repos;
+  }
+
+  async listBranches(
+    p: AccountCredentials,
+    repoFullName: string,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<{ branches: string[]; defaultBranch: string | null }> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const headers = {
+      Authorization: `Bearer ${p.credentials.token}`,
+      Accept: "application/vnd.github+json",
+    };
+
+    // Branch di default: dal repo stesso.
+    const repoResponse = await fetchImpl(`${API_BASE}/repos/${repoFullName}`, { method: "GET", headers });
+    await ensureListResponse(repoResponse, "GitHub");
+    const repo = (await readJsonResponse(repoResponse, "GitHub")) as { default_branch?: unknown };
+    const defaultBranch = typeof repo.default_branch === "string" ? repo.default_branch : null;
+
+    // Elenco branch (paginato col Link header, fino al tetto).
+    let url: string | null = `${API_BASE}/repos/${repoFullName}/branches?per_page=100`;
+    const branches: string[] = [];
+    for (let pageNumber = 0; pageNumber < MAX_BRANCH_PAGES && url; pageNumber++) {
+      const response = await fetchImpl(url, { method: "GET", headers });
+      await ensureListResponse(response, "GitHub");
+      const link = response.headers.get("link");
+      const page = (await readJsonResponse(response, "GitHub")) as { name?: unknown }[];
+      if (!Array.isArray(page)) break;
+      for (const b of page) {
+        if (typeof b.name === "string") branches.push(b.name);
+      }
+      url = parseNextLink(link);
+    }
+    return { branches, defaultBranch };
   }
 
   /**

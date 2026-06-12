@@ -1,5 +1,6 @@
 import {
   basicAuthHeader,
+  ensureListResponse,
   ensureOkResponse,
   fetchWithTimeout,
   getHeader,
@@ -7,16 +8,25 @@ import {
   parseRepoUrl,
   readJsonResponse,
   verifyHmacSignature,
+  type AccountCredentials,
   type CredentialCheck,
   type FetchLike,
   type GitProvider,
   type GitProviderOptions,
   type PrMergedEvent,
   type ProjectGitConfig,
+  type RepoSummary,
   type WebhookResult,
 } from "./provider.js";
 
 const API_BASE = "https://api.bitbucket.org/2.0";
+
+/** Tetto di repository elencati: ~3 pagine da 100 (~300 repo), seguendo il
+ * cursore `next` di Bitbucket. Vedi MAX_REPO_PAGES di github.ts per la logica. */
+const MAX_REPO_PAGES = 3;
+
+/** Tetto di branch elencati: ~2 pagine da 100 (~200 branch). */
+const MAX_BRANCH_PAGES = 2;
 
 interface BitbucketPrResponse {
   links?: { html?: { href?: unknown } };
@@ -291,6 +301,94 @@ export class BitbucketProvider implements GitProvider {
       const message = error instanceof Error ? error.message : String(error);
       throw new GitProviderError(`Errore di rete configurando il webhook Bitbucket: ${message}`, 0, "");
     }
+  }
+
+  async listRepositories(
+    p: AccountCredentials,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<RepoSummary[]> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const auth = this.restAuthHeader(p);
+    let url: string | null = `${API_BASE}/repositories?role=member&pagelen=100&sort=-updated_on`;
+    const repos: RepoSummary[] = [];
+    for (let pageNumber = 0; pageNumber < MAX_REPO_PAGES && url; pageNumber++) {
+      const response = await fetchImpl(url, { method: "GET", headers: { Authorization: auth } });
+      await ensureListResponse(response, "Bitbucket");
+      const data = (await readJsonResponse(response, "Bitbucket")) as {
+        values?: {
+          full_name?: unknown;
+          name?: unknown;
+          mainbranch?: { name?: unknown };
+          links?: { clone?: { name?: unknown; href?: unknown }[] };
+        }[];
+        next?: unknown;
+      };
+      for (const r of data.values ?? []) {
+        if (typeof r.full_name !== "string" || typeof r.name !== "string") continue;
+        const httpsClone = (r.links?.clone ?? []).find((c) => c.name === "https");
+        const cloneUrl = typeof httpsClone?.href === "string" ? httpsClone.href : "";
+        repos.push({
+          fullName: r.full_name,
+          name: r.name,
+          cloneUrl,
+          defaultBranch: typeof r.mainbranch?.name === "string" ? r.mainbranch.name : null,
+        });
+      }
+      url = typeof data.next === "string" ? data.next : null;
+    }
+    return repos;
+  }
+
+  async listBranches(
+    p: AccountCredentials,
+    repoFullName: string,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<{ branches: string[]; defaultBranch: string | null }> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const auth = this.restAuthHeader(p);
+
+    // Branch di default: dal repo stesso (mainbranch.name).
+    const repoResponse = await fetchImpl(`${API_BASE}/repositories/${repoFullName}`, {
+      method: "GET",
+      headers: { Authorization: auth },
+    });
+    await ensureListResponse(repoResponse, "Bitbucket");
+    const repo = (await readJsonResponse(repoResponse, "Bitbucket")) as { mainbranch?: { name?: unknown } };
+    const defaultBranch = typeof repo.mainbranch?.name === "string" ? repo.mainbranch.name : null;
+
+    // Elenco branch col cursore `next`, fino al tetto.
+    let url: string | null = `${API_BASE}/repositories/${repoFullName}/refs/branches?pagelen=100`;
+    const branches: string[] = [];
+    for (let pageNumber = 0; pageNumber < MAX_BRANCH_PAGES && url; pageNumber++) {
+      const response = await fetchImpl(url, { method: "GET", headers: { Authorization: auth } });
+      await ensureListResponse(response, "Bitbucket");
+      const data = (await readJsonResponse(response, "Bitbucket")) as {
+        values?: { name?: unknown }[];
+        next?: unknown;
+      };
+      for (const b of data.values ?? []) {
+        if (typeof b.name === "string") branches.push(b.name);
+      }
+      url = typeof data.next === "string" ? data.next : null;
+    }
+    return { branches, defaultBranch };
+  }
+
+  /**
+   * Header Basic per la REST API di Bitbucket: identità = email Atlassian (API
+   * token) o, in fallback, username (app password legacy). Lancia se manca
+   * entrambe. Stessa regola di openPullRequest/validateCredentials.
+   */
+  private restAuthHeader(p: AccountCredentials): string {
+    const restUser = p.credentials.email ?? p.credentials.username;
+    if (!restUser) {
+      throw new GitProviderError(
+        "Per elencare i repository Bitbucket serve un'email Atlassian (API token) o uno username (app password legacy)",
+        0,
+        ""
+      );
+    }
+    return basicAuthHeader(restUser, p.credentials.token);
   }
 
   /**
