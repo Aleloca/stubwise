@@ -1,7 +1,7 @@
 import { comments, decrypt, gitAccounts, projects, tickets, type Db } from "@stubwise/db";
 import { getProvider, type GitProvider } from "@stubwise/git";
 import type { GitProviderKind } from "@stubwise/shared";
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { execa } from "execa";
 import { readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
@@ -261,6 +261,18 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       `${twoPhase ? `, due fasi: plan ${planModel} + execute ${executeModel}` : `, fase singola`})`,
   );
 
+  // Indicazioni del team: i commenti UTENTE lasciati sul ticket (gli ultimi
+  // ~10, dal più recente) entrano nei prompt di fix come input NON fidato.
+  // Solo authorType 'user': i commenti AI (col piano) e gli avvisi di sistema
+  // non sono indicazioni del team.
+  const teamCommentRows = await db
+    .select({ body: comments.body })
+    .from(comments)
+    .where(and(eq(comments.ticketId, ticket.id), eq(comments.authorType, "user")))
+    .orderBy(desc(comments.createdAt))
+    .limit(10);
+  const teamComments = teamCommentRows.map((r) => r.body);
+
   let report: string | null;
   let agentOutput: string;
   // Consumi dei run dell'agente: ogni run (plan ed execute, o l'unico run nella
@@ -300,7 +312,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
         if (twoPhase) {
           const planResult = await runner.run({
             cwd: dir,
-            prompt: buildFixPlanPrompt({ ticket }),
+            prompt: buildFixPlanPrompt({ ticket, teamComments }),
             model: planModel,
             permissionMode: "plan",
             maxTurns: DEFAULT_PLAN_MAX_TURNS,
@@ -312,11 +324,15 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
           if (planResult.exitCode !== 0) {
             throw new AgentExitError(planResult.exitCode, planResult.output);
           }
-          executePrompt = buildFixExecutePrompt({ ticket, plan: planResult.output });
+          executePrompt = buildFixExecutePrompt({
+            ticket,
+            plan: planResult.output,
+            teamComments,
+          });
         } else {
           // Fase singola (FIX_TWO_PHASE=false): un solo run con il prompt
           // monolitico storico, come prima dell'introduzione delle due fasi.
-          executePrompt = buildFixPrompt({ ticket });
+          executePrompt = buildFixPrompt({ ticket, teamComments });
         }
 
         // FASE 2 — esecuzione: modello economico, acceptEdits + allowedTools di
