@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Db } from "@stubwise/db";
 import { sessions, users } from "@stubwise/db";
+import type { Language } from "@stubwise/shared";
 import { apiError } from "../errors.js";
 
 export const SESSION_COOKIE = "stubwise_session";
@@ -15,6 +16,7 @@ export interface SessionUser {
   id: string;
   email: string;
   role: "admin" | "member";
+  language: Language;
 }
 
 declare module "fastify" {
@@ -56,6 +58,7 @@ export async function findSessionUser(db: Db, sessionId: string): Promise<Sessio
       id: users.id,
       email: users.email,
       role: users.role,
+      language: users.language,
     })
     .from(sessions)
     .innerJoin(users, eq(sessions.userId, users.id))
@@ -66,7 +69,7 @@ export async function findSessionUser(db: Db, sessionId: string): Promise<Sessio
     await deleteSession(db, sessionId);
     return null;
   }
-  return { id: row.id, email: row.email, role: row.role };
+  return { id: row.id, email: row.email, role: row.role, language: row.language };
 }
 
 /**

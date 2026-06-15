@@ -14,6 +14,7 @@ import {
   sessionIdFromRequest,
 } from "../auth/session.js";
 import { invites, sessions, users } from "@stubwise/db";
+import { languageSchema } from "@stubwise/shared";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
 import { apiError } from "../errors.js";
@@ -58,6 +59,15 @@ const publicUserSchema = z.object({
   id: z.uuid(),
   email: z.email(),
   role: z.enum(["admin", "member"]),
+});
+
+/**
+ * L'utente di sessione esposto da /me: come publicUserSchema ma con la
+ * preferenza di lingua, che le altre route (setup/login/register) non
+ * restituiscono perché creano l'utente prima di conoscerne la sessione.
+ */
+const sessionUserSchema = publicUserSchema.extend({
+  language: languageSchema,
 });
 
 const credentialsSchema = z.object({
@@ -191,10 +201,28 @@ export async function authRoutes(
     {
       preHandler: requireAuth,
       schema: {
-        response: { 200: z.object({ user: publicUserSchema }), ...authErrorResponses },
+        response: { 200: z.object({ user: sessionUserSchema }), ...authErrorResponses },
       },
     },
     async (request) => ({ user: request.user! }),
+  );
+
+  // Ogni utente cambia solo la propria preferenza di lingua: l'id è quello
+  // della sessione, mai dal body, quindi non serve un controllo di ruolo.
+  app.patch(
+    "/me",
+    {
+      preHandler: requireAuth,
+      schema: {
+        body: z.object({ language: languageSchema }),
+        response: { 200: z.object({ language: languageSchema }), ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { language } = request.body;
+      await app.db.update(users).set({ language }).where(eq(users.id, request.user!.id));
+      return reply.code(200).send({ language });
+    },
   );
 
   app.post(
