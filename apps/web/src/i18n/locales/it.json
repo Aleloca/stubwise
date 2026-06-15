@@ -1,6 +1,21 @@
 {
   "common": {
-    "appName": "Stubwise"
+    "appName": "Stubwise",
+    "unexpectedError": "Errore imprevisto",
+    "loading": "Caricamento…",
+    "save": "Salva",
+    "cancel": "Annulla",
+    "retry": "Riprova",
+    "logout": "Esci",
+    "loggingOut": "Uscita…",
+    "nav": {
+      "tickets": "Ticket",
+      "board": "Bacheca",
+      "projects": "Progetti",
+      "team": "Team",
+      "settings": "Impostazioni",
+      "docs": "Documentazione"
+    }
   },
   "errors": {
     "unauthorized": "Autenticazione richiesta",
@@ -24,7 +39,37 @@
     "email_already_exists": "Esiste già un utente con questa email",
     "generic": "Qualcosa è andato storto"
   },
-  "auth": {},
+  "auth": {
+    "shell": {
+      "status": "self-hosted",
+      "tagline": "issue tracking · ai pipeline"
+    },
+    "fields": {
+      "email": "Email",
+      "password": "Password"
+    },
+    "login": {
+      "title": "Accedi",
+      "subtitle": "Entra nella tua istanza Stubwise.",
+      "submit": "Accedi",
+      "submitPending": "Accesso…"
+    },
+    "register": {
+      "title": "Crea il tuo account",
+      "subtitle": "Sei stato invitato su questa istanza Stubwise.",
+      "tokenLabel": "Token di invito",
+      "submit": "Registrati",
+      "submitPending": "Registrazione…"
+    },
+    "setup": {
+      "title": "Crea l'account amministratore",
+      "subtitle": "Questa istanza è nuova: il primo account ha i privilegi di admin.",
+      "confirmLabel": "Conferma password",
+      "passwordMismatch": "Le password non coincidono",
+      "submit": "Crea account",
+      "submitPending": "Creazione…"
+    }
+  },
   "tickets": {},
   "settings": {},
   "notifications": {},

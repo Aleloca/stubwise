@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import { Wordmark } from "./wordmark";
 
 interface AuthShellProps {
@@ -12,6 +13,7 @@ interface AuthShellProps {
  * griglia blueprint con alone ambra. È la prima impressione del prodotto.
  */
 export function AuthShell({ title, subtitle, children }: AuthShellProps) {
+  const { t } = useTranslation();
   return (
     <div className="bg-grid relative flex min-h-screen items-center justify-center overflow-hidden p-6">
       {/* Alone ambra dietro la card, come la spia di uno strumento. */}
@@ -31,7 +33,7 @@ export function AuthShell({ title, subtitle, children }: AuthShellProps) {
           <div className="flex items-baseline justify-between border-b border-line px-6 py-4">
             <Wordmark className="text-lg" />
             <span className="font-mono text-[10px] tracking-[0.2em] text-fg-faint uppercase">
-              self-hosted
+              {t("auth:shell.status")}
             </span>
           </div>
 
@@ -43,7 +45,7 @@ export function AuthShell({ title, subtitle, children }: AuthShellProps) {
         </div>
 
         <p className="mt-4 text-center font-mono text-[11px] tracking-[0.14em] text-fg-faint uppercase">
-          issue tracking · ai pipeline
+          {t("auth:shell.tagline")}
         </p>
       </main>
     </div>

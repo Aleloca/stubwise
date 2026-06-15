@@ -250,7 +250,7 @@ describe("lista ticket", () => {
 
     const router = renderApp();
 
-    expect(await screen.findByRole("heading", { name: "Accedi" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
     await waitFor(() => expect(router.state.location.pathname).toBe("/login"));
   });
 });

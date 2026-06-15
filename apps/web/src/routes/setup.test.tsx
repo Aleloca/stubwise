@@ -40,8 +40,8 @@ function renderPage(): void {
 async function fillAndSubmit(email: string, password: string, confirm: string) {
   await userEvent.type(screen.getByLabelText(/email/i), email);
   await userEvent.type(screen.getByLabelText(/^password/i), password);
-  await userEvent.type(screen.getByLabelText(/conferma password/i), confirm);
-  await userEvent.click(screen.getByRole("button", { name: /crea account/i }));
+  await userEvent.type(screen.getByLabelText(/confirm password/i), confirm);
+  await userEvent.click(screen.getByRole("button", { name: /create account/i }));
 }
 
 describe("SetupPage", () => {
@@ -51,7 +51,7 @@ describe("SetupPage", () => {
     await fillAndSubmit("admin@example.com", "password-1", "password-2");
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Le password non coincidono",
+      "Passwords do not match",
     );
     expect(postSetupMock).not.toHaveBeenCalled();
     expect(postLoginMock).not.toHaveBeenCalled();

@@ -1,6 +1,21 @@
 {
   "common": {
-    "appName": "Stubwise"
+    "appName": "Stubwise",
+    "unexpectedError": "Unexpected error",
+    "loading": "Loading…",
+    "save": "Save",
+    "cancel": "Cancel",
+    "retry": "Retry",
+    "logout": "Sign out",
+    "loggingOut": "Signing out…",
+    "nav": {
+      "tickets": "Tickets",
+      "board": "Board",
+      "projects": "Projects",
+      "team": "Team",
+      "settings": "Settings",
+      "docs": "Documentation"
+    }
   },
   "errors": {
     "unauthorized": "Authentication required",
@@ -24,7 +39,37 @@
     "email_already_exists": "A user with this email already exists",
     "generic": "Something went wrong"
   },
-  "auth": {},
+  "auth": {
+    "shell": {
+      "status": "self-hosted",
+      "tagline": "issue tracking · ai pipeline"
+    },
+    "fields": {
+      "email": "Email",
+      "password": "Password"
+    },
+    "login": {
+      "title": "Sign in",
+      "subtitle": "Enter your Stubwise instance.",
+      "submit": "Sign in",
+      "submitPending": "Signing in…"
+    },
+    "register": {
+      "title": "Create your account",
+      "subtitle": "You have been invited to this Stubwise instance.",
+      "tokenLabel": "Invite token",
+      "submit": "Sign up",
+      "submitPending": "Signing up…"
+    },
+    "setup": {
+      "title": "Create the administrator account",
+      "subtitle": "This instance is new: the first account gets admin privileges.",
+      "confirmLabel": "Confirm password",
+      "passwordMismatch": "Passwords do not match",
+      "submit": "Create account",
+      "submitPending": "Creating…"
+    }
+  },
   "tickets": {},
   "settings": {},
   "notifications": {},

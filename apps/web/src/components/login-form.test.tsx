@@ -10,7 +10,7 @@ describe("LoginForm", () => {
 
     expect(screen.getByLabelText(/email/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/password/i)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /accedi/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /sign in/i })).toBeInTheDocument();
   });
 
   it("al submit chiama onSubmit con i valori inseriti", async () => {
@@ -19,7 +19,7 @@ describe("LoginForm", () => {
 
     await userEvent.type(screen.getByLabelText(/email/i), "ada@example.com");
     await userEvent.type(screen.getByLabelText(/password/i), "hunter22");
-    await userEvent.click(screen.getByRole("button", { name: /accedi/i }));
+    await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
 
     expect(onSubmit).toHaveBeenCalledExactlyOnceWith({
       email: "ada@example.com",
@@ -33,7 +33,7 @@ describe("LoginForm", () => {
 
     await userEvent.type(screen.getByLabelText(/email/i), "ada@example.com");
     await userEvent.type(screen.getByLabelText(/password/i), "sbagliata");
-    await userEvent.click(screen.getByRole("button", { name: /accedi/i }));
+    await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Credenziali non valide");
   });
@@ -47,12 +47,12 @@ describe("LoginForm", () => {
 
     await userEvent.type(screen.getByLabelText(/email/i), "ada@example.com");
     await userEvent.type(screen.getByLabelText(/password/i), "hunter22");
-    await userEvent.click(screen.getByRole("button", { name: /accedi/i }));
+    await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
 
-    expect(screen.getByRole("button", { name: /accesso/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /signing in/i })).toBeDisabled();
     resolveSubmit();
     await waitFor(() =>
-      expect(screen.getByRole("button", { name: /accedi/i })).toBeEnabled(),
+      expect(screen.getByRole("button", { name: /sign in/i })).toBeEnabled(),
     );
   });
 
@@ -65,10 +65,10 @@ describe("LoginForm", () => {
 
     await userEvent.type(screen.getByLabelText(/email/i), "ada@example.com");
     await userEvent.type(screen.getByLabelText(/password/i), "sbagliata");
-    await userEvent.click(screen.getByRole("button", { name: /accedi/i }));
+    await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
     expect(await screen.findByRole("alert")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: /accedi/i }));
+    await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
     await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
   });
 });
