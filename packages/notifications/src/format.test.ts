@@ -53,6 +53,15 @@ const JOB_FAILED: NotificationEvent = {
   ticketUrl: "https://app.example.com/tickets/t1",
 };
 
+const PR_CLOSED: NotificationEvent = {
+  kind: "job.pr_closed",
+  ticketNumber: 42,
+  ticketTitle: "Crash al login",
+  projectName: "webapp",
+  prUrl: "https://github.com/o/r/pull/7",
+  ticketUrl: "https://app.example.com/tickets/t1",
+};
+
 describe("formatNotification — contratto", () => {
   it("ogni formato dichiara content-type application/json", () => {
     for (const format of ["slack", "discord", "generic"] as NotificationFormat[]) {
@@ -96,6 +105,14 @@ describe("formatNotification — slack", () => {
     const text = (formatNotification(JOB_FAILED, "slack").body as { text: string }).text;
     expect(text).toContain("timeout del fix");
   });
+
+  it("pr_closed → PR chiusa senza merge, link PR e ticket", () => {
+    const text = (formatNotification(PR_CLOSED, "slack").body as { text: string }).text;
+    expect(text).toContain("*#42*");
+    expect(text).toContain("PR chiusa senza merge");
+    expect(text).toContain("<https://github.com/o/r/pull/7|Vedi PR>");
+    expect(text).toContain("<https://app.example.com/tickets/t1|Ticket>");
+  });
 });
 
 describe("formatNotification — discord", () => {
@@ -108,6 +125,13 @@ describe("formatNotification — discord", () => {
 
   it("pr_opened: link PR e ticket in stile markdown", () => {
     const content = (formatNotification(PR_OPENED, "discord").body as { content: string }).content;
+    expect(content).toContain("[Vedi PR](https://github.com/o/r/pull/7)");
+    expect(content).toContain("[Ticket](https://app.example.com/tickets/t1)");
+  });
+
+  it("pr_closed: PR chiusa senza merge, link in stile markdown", () => {
+    const content = (formatNotification(PR_CLOSED, "discord").body as { content: string }).content;
+    expect(content).toContain("PR chiusa senza merge");
     expect(content).toContain("[Vedi PR](https://github.com/o/r/pull/7)");
     expect(content).toContain("[Ticket](https://app.example.com/tickets/t1)");
   });
@@ -152,13 +176,27 @@ describe("formatNotification — generic", () => {
     expect(body.event).toBe("job.failed");
     expect(body.error).toBe("timeout del fix");
   });
+
+  it("pr_closed → include prUrl", () => {
+    const body = formatNotification(PR_CLOSED, "generic").body as Record<string, unknown>;
+    expect(body.event).toBe("job.pr_closed");
+    expect(body.prUrl).toBe("https://github.com/o/r/pull/7");
+    expect(typeof body.message).toBe("string");
+    expect(body.message as string).toContain("PR chiusa senza merge");
+  });
 });
 
 describe("sampleEvents", () => {
-  it("produce un esempio per ciascuno dei 4 kind, con link sotto baseUrl", () => {
+  it("produce un esempio per ciascun kind, con link sotto baseUrl", () => {
     const events = sampleEvents("https://app.example.com/");
     const kinds = events.map((e) => e.kind);
-    expect(kinds).toEqual(["ticket.created", "job.pr_opened", "job.held", "job.failed"]);
+    expect(kinds).toEqual([
+      "ticket.created",
+      "job.pr_opened",
+      "job.pr_closed",
+      "job.held",
+      "job.failed",
+    ]);
     for (const event of events) {
       expect(event.ticketUrl.startsWith("https://app.example.com/tickets/")).toBe(true);
     }
