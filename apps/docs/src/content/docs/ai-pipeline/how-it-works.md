@@ -78,6 +78,46 @@ Quando un umano **mergia la PR**, il provider git invia un webhook a Stubwise
 porta automaticamente il ticket a **`done`**. Se il webhook non è configurato,
 sposti tu il ticket dalla board.
 
+## Loop di feedback
+
+La pipeline non è a senso unico: se una PR non va a buon fine, o se vuoi
+guidare l'AI, il ticket torna in gioco senza ripartire da zero.
+
+### Riapertura su PR rifiutata
+
+Quando la PR aperta dalla pipeline viene **chiusa senza merge** (su GitHub: PR
+*closed* non mergiata; su Bitbucket: `pullrequest:rejected`) e il ticket è in
+`in_review`, Stubwise lo **riapre**: il ticket torna a `triaged`, il job AI
+passa allo stato `pr_closed` e un **commento di sistema** annota *"PR chiusa
+senza merge: &lt;url&gt; — ticket riaperto, rilancia il fix quando vuoi"*. Se
+hai configurato le notifiche, scatta l'evento
+[`job.pr_closed`](/docs/notifications/).
+
+L'azione è **idempotente**: agisce solo se il ticket è in `in_review`, così un
+webhook recapitato due volte non fa danni. Il webhook che la pipeline registra
+sul provider include anche l'evento di rifiuto della PR, oltre a quello di
+merge.
+
+### Rilancia con istruzioni
+
+Sul dettaglio del ticket, accanto ad **"Avvia fix AI"**, c'è **"Rilancia con
+istruzioni"**: scrivi un commento con la tua guida (cosa correggere, dove
+guardare, cosa evitare), poi rilancia. Questo rilancio mette il job in coda
+**saltando il triage**, dritto al fix.
+
+Più in generale, **tutti i fix** — anche quelli automatici — includono nel
+prompt gli ultimi commenti **dell'utente** sul ticket (circa gli ultimi 10),
+in un blocco di **"indicazioni del team"**. Questo blocco è trattato come input
+**non fidato**: orienta l'agente ma **non scavalca le regole di sicurezza**
+(vedi [Sicurezza](/docs/ai-pipeline/security/)).
+
+:::note[Approvazione del piano]
+Per i fix più impegnativi puoi inserire un passo di **approvazione umana del
+piano**: l'AI pianifica, si ferma e attende il tuo via libera prima di scrivere
+codice. Lo configuri per tipo di ticket in
+[Automazione AI](/docs/ai-pipeline/automation/).
+:::
+
 ## Deduplicazione
 
 Gli errori identici **non** generano un ticket nuovo ogni volta. L'ingestion
