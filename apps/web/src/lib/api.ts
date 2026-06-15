@@ -621,7 +621,11 @@ export interface NotificationSettings {
   enabled: boolean;
   notifyTicketCreated: boolean;
   notifyPrOpened: boolean;
+  /** PR chiusa senza merge → il ticket viene riaperto. */
+  notifyPrClosed: boolean;
   notifyJobHeld: boolean;
+  /** Un piano AI è in attesa di approvazione umana. */
+  notifyPlanReview: boolean;
   notifyJobFailed: boolean;
 }
 
@@ -648,7 +652,9 @@ export function putNotificationSettings(
     enabled: settings.enabled,
     notifyTicketCreated: settings.notifyTicketCreated,
     notifyPrOpened: settings.notifyPrOpened,
+    notifyPrClosed: settings.notifyPrClosed,
     notifyJobHeld: settings.notifyJobHeld,
+    notifyPlanReview: settings.notifyPlanReview,
     notifyJobFailed: settings.notifyJobFailed,
   });
 }

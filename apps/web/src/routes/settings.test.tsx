@@ -14,10 +14,10 @@ import { createAppRouter } from "../router";
 
 const DEFAULT_AUTOMATION = {
   rules: [
-    { type: "bug", autoFix: true, maxEffort: 3 },
-    { type: "task", autoFix: true, maxEffort: 2 },
-    { type: "feature", autoFix: false, maxEffort: 3 },
-    { type: "feedback", autoFix: false, maxEffort: 3 },
+    { type: "bug", autoFix: true, maxEffort: 3, planApprovalMinEffort: null },
+    { type: "task", autoFix: true, maxEffort: 2, planApprovalMinEffort: 4 },
+    { type: "feature", autoFix: false, maxEffort: 3, planApprovalMinEffort: null },
+    { type: "feedback", autoFix: false, maxEffort: 3, planApprovalMinEffort: null },
   ],
 };
 
@@ -27,7 +27,9 @@ const DEFAULT_NOTIFICATIONS = {
   enabled: true,
   notifyTicketCreated: true,
   notifyPrOpened: true,
+  notifyPrClosed: true,
   notifyJobHeld: true,
+  notifyPlanReview: true,
   notifyJobFailed: true,
 };
 
@@ -158,6 +160,9 @@ describe("impostazioni: /settings/automation (admin)", () => {
     expect(scope.getByLabelText("Auto-fix bug")).toBeChecked();
     expect(scope.getByLabelText("Auto-fix feature")).not.toBeChecked();
     expect((scope.getByLabelText("Soglia effort task") as HTMLSelectElement).value).toBe("2");
+    // Soglia approvazione piano: bug = Mai (null → ""), task = 4.
+    expect((scope.getByLabelText("Approvazione piano bug") as HTMLSelectElement).value).toBe("");
+    expect((scope.getByLabelText("Approvazione piano task") as HTMLSelectElement).value).toBe("4");
   });
 
   it("salva tutte le regole via PUT e mostra la conferma", async () => {
@@ -184,6 +189,34 @@ describe("impostazioni: /settings/automation (admin)", () => {
     const body = putBody as { rules: { type: string; autoFix: boolean }[] };
     expect(body.rules.find((r) => r.type === "bug")?.autoFix).toBe(false);
     expect(await screen.findByText("Salvato")).toBeInTheDocument();
+  });
+
+  it("la soglia di approvazione piano (Mai/1-5) entra nel payload PUT", async () => {
+    let putBody: unknown = null;
+    mockApi({
+      ...adminBase(),
+      "PUT /api/settings/automation": (_url, init) => {
+        putBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, DEFAULT_AUTOMATION);
+      },
+    });
+
+    renderAt("/settings/automation");
+
+    // bug parte da "Mai" (null) → impostalo a 3.
+    const bugSelect = (await screen.findByLabelText("Approvazione piano bug")) as HTMLSelectElement;
+    await userEvent.selectOptions(bugSelect, "3");
+    // task parte da 4 → riportalo a "Mai" (null).
+    const taskSelect = screen.getByLabelText("Approvazione piano task") as HTMLSelectElement;
+    await userEvent.selectOptions(taskSelect, "");
+    await userEvent.click(screen.getByRole("button", { name: "Salva" }));
+
+    await waitFor(() => expect(putBody).not.toBeNull());
+    const body = putBody as {
+      rules: { type: string; planApprovalMinEffort: number | null }[];
+    };
+    expect(body.rules.find((r) => r.type === "bug")?.planApprovalMinEffort).toBe(3);
+    expect(body.rules.find((r) => r.type === "task")?.planApprovalMinEffort).toBeNull();
   });
 
   it("member: non raggiunge la rotta admin, viene rimandato ad account", async () => {
@@ -232,7 +265,9 @@ describe("impostazioni: /settings/notifications (admin)", () => {
     expect(scope.getByLabelText("Formato")).toBeInTheDocument();
     expect(scope.getByLabelText("Nuovo ticket SDK")).toBeChecked();
     expect(scope.getByLabelText("PR aperta")).toBeChecked();
+    expect(scope.getByLabelText("PR chiusa senza merge (ticket riaperto)")).toBeChecked();
     expect(scope.getByLabelText("In attesa")).toBeChecked();
+    expect(scope.getByLabelText("Piano AI in attesa di approvazione")).toBeChecked();
     expect(scope.getByLabelText("Fix fallito")).toBeChecked();
   });
 
@@ -255,12 +290,22 @@ describe("impostazioni: /settings/notifications (admin)", () => {
     const scope = within(notificationsSection());
     await userEvent.type(scope.getByLabelText("URL webhook"), "https://hooks.example.com/x");
     await userEvent.selectOptions(scope.getByLabelText("Formato"), "discord");
+    // Disattiva i due nuovi toggle per verificarli nel payload.
+    await userEvent.click(scope.getByLabelText("PR chiusa senza merge (ticket riaperto)"));
+    await userEvent.click(scope.getByLabelText("Piano AI in attesa di approvazione"));
     await userEvent.click(scope.getByRole("button", { name: "Salva" }));
 
     await waitFor(() => expect(putBody).not.toBeNull());
-    const body = putBody as { webhookUrl: string; format: string };
+    const body = putBody as {
+      webhookUrl: string;
+      format: string;
+      notifyPrClosed: boolean;
+      notifyPlanReview: boolean;
+    };
     expect(body.webhookUrl).toBe("https://hooks.example.com/x");
     expect(body.format).toBe("discord");
+    expect(body.notifyPrClosed).toBe(false);
+    expect(body.notifyPlanReview).toBe(false);
     expect(await scope.findByText("Salvato")).toBeInTheDocument();
   });
 
