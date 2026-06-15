@@ -707,7 +707,7 @@ describe("runFix", () => {
     expect(outcome).toBe("pr_opened");
     expect(provider.openPullRequest).toHaveBeenCalledTimes(1);
     const [, pr] = provider.openPullRequest.mock.calls[0] as [unknown, { body: string }];
-    expect(pr.body).toContain("Il report non è stato generato");
+    expect(pr.body).toContain("The agent did not generate a report");
     const jobAfter = await getJob(db, job.id);
     expect(jobAfter.status).toBe("pr_opened");
     expect(jobAfter.log).toContain("STUBWISE_REPORT.md non trovato");
@@ -735,7 +735,7 @@ describe("runFix", () => {
     // Fallback come report mancante: la PR si apre comunque (il diff ha valore).
     expect(outcome).toBe("pr_opened");
     const [, pr] = provider.openPullRequest.mock.calls[0] as [unknown, { body: string }];
-    expect(pr.body).toContain("Il report non è stato generato");
+    expect(pr.body).toContain("The agent did not generate a report");
     // La directory NON deve finire nel commit pushato.
     const branch = `stubwise/ticket-${ticket.number}`;
     const files = await git(["ls-tree", "-r", "--name-only", branch], fixture.upstreamDir);

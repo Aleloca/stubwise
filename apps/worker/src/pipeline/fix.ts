@@ -571,7 +571,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   if (report === null) {
     // Documentato: un diff valido senza report ha comunque valore — si apre
     // la PR con un corpo di cortesia e si lascia traccia nel log.
-    reportBody = `Il report non è stato generato dall'agente (${REPORT_FILENAME} mancante). Esaminare il diff della PR.`;
+    reportBody = t(lang, "comment.reportMissing", { filename: REPORT_FILENAME });
     logLines.push(`[fix] attenzione: ${REPORT_FILENAME} non trovato, PR aperta con body di fallback`);
   } else {
     reportBody = report.trim();

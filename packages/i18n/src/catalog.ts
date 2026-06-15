@@ -30,6 +30,8 @@ export const en: Catalog = {
   "comment.planApproved": "Plan approved — execution in progress",
   "comment.planRejected": "Plan rejected — replanning in progress",
   "comment.reportFooter": "Generated automatically by Stubwise AI for ticket #{number}.",
+  "comment.reportMissing":
+    "The agent did not generate a report ({filename} missing). Review the PR diff.",
 
   // --- notify.* — messaggi di notifica (frasi plain, senza markup) ---
   "notify.ticketCreated":
@@ -73,6 +75,8 @@ export const it: Catalog = {
   "comment.planRejected": "Piano rifiutato — ripianificazione in corso",
   "comment.reportFooter":
     "Generato automaticamente da Stubwise AI per il ticket #{number}.",
+  "comment.reportMissing":
+    "Il report non è stato generato dall'agente ({filename} mancante). Esaminare il diff della PR.",
 
   // --- notify.* ---
   "notify.ticketCreated":
