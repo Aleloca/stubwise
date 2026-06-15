@@ -1,4 +1,4 @@
-import { agentRuns, aiJobs, comments, encrypt, gitAccounts, projects, tickets, type Db } from "@stubwise/db";
+import { agentRuns, aiJobs, automationRules, comments, encrypt, gitAccounts, projects, tickets, type Db } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { execa } from "execa";
@@ -35,6 +35,10 @@ beforeAll(async () => {
 afterEach(async () => {
   await testDb.db.delete(projects);
   await testDb.db.delete(gitAccounts);
+  // Le righe di automation_rules sono seedate dalla migrazione e condivise tra
+  // test: i test plan-only le mutano (planApprovalMinEffort) ma non sono
+  // ricreate, quindi ripristiniamo la soglia a null per non sporcare l'ordine.
+  await testDb.db.update(automationRules).set({ planApprovalMinEffort: null });
 });
 
 afterAll(async () => {
@@ -843,6 +847,180 @@ describe("runFix", () => {
     expect(jobAfter.status).toBe("failed");
     expect(jobAfter.error).toMatch(/credenziali/i);
   });
+
+  it("plan-only: effort >= soglia → pianifica e si ferma, niente repo/PR, job in awaiting_plan_approval", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    // Soglia di approvazione del piano per il tipo 'bug' a 3; ticket con effort 4.
+    await db.update(automationRules).set({ planApprovalMinEffort: 3 }).where(eq(automationRules.type, "bug"));
+    const ticket = await createTicket(db, fixture.projectId, { type: "bug", effort: 4 });
+    const job = await createFixingJob(db, ticket.id);
+    // Se l'esecuzione partisse scriverebbe questi file: NON devono mai comparire.
+    const runner = new FakeAgentRunner({
+      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      results: [
+        {
+          output: "PIANO PROPOSTO: cambia - in + in app.js",
+          exitCode: 0,
+          usage: { totalCostUsd: 0.5, models: [{ model: "opus", inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, costUsd: 0.5 }] },
+        },
+      ],
+    });
+    const provider = makeProvider();
+
+    const outcome = await runFix(makeDeps(fixture, runner, provider), job);
+
+    expect(outcome).toBe("awaiting_approval");
+    // UN solo run: la pianificazione (opus, plan mode). Niente esecuzione.
+    expect(runner.calls).toHaveLength(1);
+    expect(runner.calls[0]?.model).toBe("opus");
+    expect(runner.calls[0]?.permissionMode).toBe("plan");
+    // Nessuna PR aperta, nessun branch sull'upstream (il repo non è stato toccato).
+    expect(provider.openPullRequest).not.toHaveBeenCalled();
+    const branches = await git(["branch", "--list", `stubwise/ticket-${ticket.number}`], fixture.upstreamDir);
+    expect(branches).toBe("");
+
+    // Il piano è persistito sul job; lo stato è awaiting_plan_approval, NON terminale.
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("awaiting_plan_approval");
+    expect(jobAfter.planText).toBe("PIANO PROPOSTO: cambia - in + in app.js");
+    expect(jobAfter.finishedAt).toBeNull();
+    expect(jobAfter.prUrl).toBeNull();
+
+    // Commento AI col piano; ticket in_progress (non in_review).
+    const ticketComments = await db.select().from(comments).where(eq(comments.ticketId, ticket.id));
+    expect(ticketComments).toHaveLength(1);
+    expect(ticketComments[0]?.authorType).toBe("ai");
+    expect(ticketComments[0]?.body).toContain("PIANO PROPOSTO: cambia - in + in app.js");
+    expect(ticketComments[0]?.body).toMatch(/approvazione/i);
+    const [after] = await db.select().from(tickets).where(eq(tickets.id, ticket.id));
+    expect(after?.status).toBe("in_progress");
+
+    // Consumo del run di pianificazione registrato (best-effort).
+    const runs = await db.select().from(agentRuns).where(eq(agentRuns.jobId, job.id));
+    expect(runs.filter((r) => r.phase === "fix").map((r) => r.model)).toEqual(["opus"]);
+  });
+
+  it("plan-only: il gate è ortogonale a un job avviato manualmente (manualTrigger non lo bypassa)", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    await db.update(automationRules).set({ planApprovalMinEffort: 3 }).where(eq(automationRules.type, "bug"));
+    const ticket = await createTicket(db, fixture.projectId, { type: "bug", effort: 5 });
+    // manualTrigger=true: un avvio a mano NON aggira l'approvazione del piano.
+    const [job] = await db
+      .insert(aiJobs)
+      .values({ ticketId: ticket.id, status: "fixing", startedAt: new Date(), manualTrigger: true })
+      .returning();
+    if (!job) throw new Error("insert del job non ha restituito la riga");
+    const runner = new FakeAgentRunner({
+      results: [{ output: "PIANO", exitCode: 0 }],
+    });
+    const provider = makeProvider();
+
+    const outcome = await runFix(makeDeps(fixture, runner, provider), job);
+
+    expect(outcome).toBe("awaiting_approval");
+    expect(runner.calls).toHaveLength(1);
+    expect(provider.openPullRequest).not.toHaveBeenCalled();
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("awaiting_plan_approval");
+  });
+
+  it("plan-only: il run di pianificazione fallisce (exit non-zero) → job failed, niente parcheggio", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    await db.update(automationRules).set({ planApprovalMinEffort: 3 }).where(eq(automationRules.type, "bug"));
+    const ticket = await createTicket(db, fixture.projectId, { type: "bug", effort: 4 });
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      results: [{ output: "pianificazione esplosa", exitCode: 7 }],
+    });
+    const provider = makeProvider();
+
+    const outcome = await runFix(makeDeps(fixture, runner, provider), job);
+
+    expect(outcome).toBe("failed");
+    expect(runner.calls).toHaveLength(1);
+    expect(provider.openPullRequest).not.toHaveBeenCalled();
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("failed");
+    expect(jobAfter.error).toContain("exit 7");
+    expect(jobAfter.planText).toBeNull();
+  });
+
+  it("execute-only: resumeMode=execute + planText → niente pianificazione, riprende dal piano e apre la PR", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture.projectId);
+    const PLAN = "PIANO APPROVATO: sostituisci - con + in app.js e aggiungi un test";
+    const [job] = await db
+      .insert(aiJobs)
+      .values({ ticketId: ticket.id, status: "fixing", startedAt: new Date(), resumeMode: "execute", planText: PLAN })
+      .returning();
+    if (!job) throw new Error("insert del job non ha restituito la riga");
+    const runner = new FakeAgentRunner({
+      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      results: [
+        {
+          output: "ho applicato il piano approvato",
+          exitCode: 0,
+          usage: { totalCostUsd: 0.1, models: [{ model: "sonnet", inputTokens: 80, outputTokens: 40, cacheReadTokens: 0, costUsd: 0.1 }] },
+        },
+      ],
+    });
+    const provider = makeProvider("https://github.com/acme/repo/pull/123");
+
+    const outcome = await runFix(makeDeps(fixture, runner, provider), job);
+
+    expect(outcome).toBe("pr_opened");
+    // UN solo run: SOLO l'esecuzione (niente ri-pianificazione), col piano nel prompt.
+    expect(runner.calls).toHaveLength(1);
+    expect(runner.calls[0]?.model).toBe("sonnet");
+    expect(runner.calls[0]?.permissionMode).toBe("acceptEdits");
+    expect(runner.calls[0]?.allowedTools).toEqual(DEFAULT_FIX_ALLOWED_TOOLS);
+    expect(runner.calls[0]?.prompt).toContain(PLAN);
+
+    // PR aperta, branch pushato, commento AI, ticket in_review, job pr_opened.
+    expect(provider.openPullRequest).toHaveBeenCalledTimes(1);
+    const branch = `stubwise/ticket-${ticket.number}`;
+    const files = await git(["ls-tree", "-r", "--name-only", branch], fixture.upstreamDir);
+    expect(files).toContain("app.js");
+    const [after] = await db.select().from(tickets).where(eq(tickets.id, ticket.id));
+    expect(after?.status).toBe("in_review");
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("pr_opened");
+    expect(jobAfter.prUrl).toBe("https://github.com/acme/repo/pull/123");
+  });
+
+  it("full (regressione): soglia non impostata → plan + execute in fila, PR aperta", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    // Gate disattivato per 'bug' (null): il fix procede senza fermarsi. Reset
+    // esplicito perché le righe automation_rules sono seedate e condivise tra
+    // test (afterEach non le ripulisce).
+    await db.update(automationRules).set({ planApprovalMinEffort: null }).where(eq(automationRules.type, "bug"));
+    const ticket = await createTicket(db, fixture.projectId, { type: "bug", effort: 5 });
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "fatto", exitCode: 0 },
+      ],
+    });
+    const provider = makeProvider();
+
+    const outcome = await runFix(makeDeps(fixture, runner, provider), job);
+
+    expect(outcome).toBe("pr_opened");
+    // Due run come oggi: plan + execute.
+    expect(runner.calls).toHaveLength(2);
+    expect(runner.calls[0]?.permissionMode).toBe("plan");
+    expect(runner.calls[1]?.permissionMode).toBe("acceptEdits");
+    expect(provider.openPullRequest).toHaveBeenCalledTimes(1);
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("pr_opened");
+  });
 });
 
 describe("runFix — notifiche", () => {
@@ -933,5 +1111,31 @@ describe("runFix — notifiche", () => {
     expect(outcome).toBe("pr_opened");
     const jobAfter = await getJob(db, job.id);
     expect(jobAfter.status).toBe("pr_opened");
+  });
+
+  it("plan-only dispatcha job.plan_review con link al ticket", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    await db.update(automationRules).set({ planApprovalMinEffort: 3 }).where(eq(automationRules.type, "bug"));
+    const ticket = await createTicket(db, fixture.projectId, { type: "bug", effort: 4 });
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({ results: [{ output: "PIANO", exitCode: 0 }] });
+    const provider = makeProvider();
+    const calls: Dispatched[] = [];
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, {
+        publicUrl: "https://stubwise.example.com",
+        dispatch: async (_db, event) => {
+          calls.push(event as unknown as Dispatched);
+        },
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("awaiting_approval");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.kind).toBe("job.plan_review");
+    expect(calls[0]!.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
   });
 });

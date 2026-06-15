@@ -57,6 +57,19 @@ export interface PrClosedEvent {
   ticketUrl: string;
 }
 
+/**
+ * La pianificazione AI ha prodotto un piano in attesa di approvazione umana
+ * (gate `plan_approval_min_effort`): il job è parcheggiato finché un umano
+ * approva o rifiuta il piano.
+ */
+export interface JobPlanReviewEvent {
+  kind: "job.plan_review";
+  ticketNumber: number;
+  ticketTitle: string;
+  projectName: string;
+  ticketUrl: string;
+}
+
 /** Il fix AI è fallito. */
 export interface JobFailedEvent {
   kind: "job.failed";
@@ -73,6 +86,7 @@ export type NotificationEvent =
   | PrOpenedEvent
   | PrClosedEvent
   | JobHeldEvent
+  | JobPlanReviewEvent
   | JobFailedEvent;
 
 /** Tipo dei `kind` degli eventi, per mappare evento → toggle. */
@@ -124,6 +138,12 @@ function formatSlack(event: NotificationEvent): Record<string, unknown> {
           `⏸️ *#${event.ticketNumber}* in attesa di revisione — ${event.ticketTitle} ` +
           `(${event.type}, effort ${event.effort}/5). <${event.ticketUrl}|Apri>`,
       };
+    case "job.plan_review":
+      return {
+        text:
+          `📝 Piano in attesa di approvazione — *#${event.ticketNumber}* — ${event.ticketTitle} ` +
+          `(${event.projectName}). <${event.ticketUrl}|Rivedi>`,
+      };
     case "job.failed":
       return {
         text:
@@ -166,6 +186,12 @@ function formatDiscord(event: NotificationEvent): Record<string, unknown> {
           `⏸️ **#${event.ticketNumber}** in attesa di revisione — ${event.ticketTitle} ` +
           `(${event.type}, effort ${event.effort}/5). [Apri](${event.ticketUrl})`,
       };
+    case "job.plan_review":
+      return {
+        content:
+          `📝 Piano in attesa di approvazione — **#${event.ticketNumber}** — ${event.ticketTitle} ` +
+          `(${event.projectName}). [Rivedi](${event.ticketUrl})`,
+      };
     case "job.failed":
       return {
         content:
@@ -186,6 +212,8 @@ function plainMessage(event: NotificationEvent): string {
       return `PR chiusa senza merge — ticket riaperto: #${event.ticketNumber} — ${event.ticketTitle}.`;
     case "job.held":
       return `#${event.ticketNumber} in attesa di revisione — ${event.ticketTitle} (${event.type}, effort ${event.effort}/5).`;
+    case "job.plan_review":
+      return `Piano in attesa di approvazione — #${event.ticketNumber} — ${event.ticketTitle} (${event.projectName}).`;
     case "job.failed":
       return `Fix AI fallito su #${event.ticketNumber} — ${event.ticketTitle}: ${event.error}.`;
   }
@@ -210,6 +238,8 @@ function formatGeneric(event: NotificationEvent): Record<string, unknown> {
       return { ...base, prUrl: event.prUrl };
     case "job.held":
       return { ...base, type: event.type, effort: event.effort };
+    case "job.plan_review":
+      return base;
     case "job.failed":
       return { ...base, error: event.error };
   }

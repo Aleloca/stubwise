@@ -24,6 +24,7 @@ const BASE_ROW: NotificationSettingsRow = {
   notifyTicketCreated: true,
   notifyPrOpened: true,
   notifyJobHeld: true,
+  notifyPlanReview: true,
   notifyJobFailed: true,
   notifyPrClosed: true,
 };

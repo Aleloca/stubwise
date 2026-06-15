@@ -14,6 +14,7 @@ export {
   type FormattedNotification,
   type JobFailedEvent,
   type JobHeldEvent,
+  type JobPlanReviewEvent,
   type NotificationEvent,
   type NotificationFormat,
   type NotificationKind,
