@@ -1,8 +1,10 @@
 import { getProvider } from "@stubwise/git";
+import { t } from "@stubwise/i18n";
 import { dispatchNotification } from "@stubwise/notifications";
 import { and, eq, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { aiJobs, comments, projects, tickets } from "@stubwise/db";
+import { getContentLanguage } from "../settings.js";
 
 /**
  * Tetto al corpo del webhook: 1 MiB. I payload di Bitbucket/GitHub per una PR
@@ -132,6 +134,11 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
         .from(tickets)
         .where(and(eq(tickets.projectId, context.projectId), eq(tickets.number, ticketNumber)));
 
+      // Lingua dei contenuti d'istanza, risolta UNA VOLTA prima della
+      // transazione (una sola select, non allunga la tx): i body dei commenti
+      // di sistema parlano la lingua configurata, fallback 'en'.
+      const lang = await getContentLanguage(instance.db);
+
       if (event.kind === "merged") {
         // Nessun ticket per quel numero, o già chiuso/concluso: nulla da fare,
         // idempotente. Non si crea un secondo commento di sistema.
@@ -144,7 +151,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
           await tx.insert(comments).values({
             ticketId: ticket.id,
             authorType: "system",
-            body: `PR mergiata: ${event.prUrl} — ticket chiuso automaticamente`,
+            body: t(lang, "comment.prMerged", { url: event.prUrl }),
           });
           // Allinea il job AI alla realtà: la PR aperta dalla pipeline è stata
           // mergiata. Si tocca SOLO il job in stato `pr_opened` (al più uno per
@@ -174,7 +181,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
         await tx.insert(comments).values({
           ticketId: ticket.id,
           authorType: "system",
-          body: `PR chiusa senza merge: ${event.prUrl} — ticket riaperto, rilancia il fix quando vuoi`,
+          body: t(lang, "comment.prClosed", { url: event.prUrl }),
         });
         // Allinea il job AI: la PR aperta dalla pipeline è stata chiusa senza
         // merge. Si tocca SOLO il job `pr_opened` (idempotenza: una ri-consegna
