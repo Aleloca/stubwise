@@ -69,9 +69,10 @@ export interface RepoSummary {
   defaultBranch: string | null;
 }
 
-export interface PrMergedEvent {
+export interface WebhookEvent {
+  kind: "merged" | "closed_unmerged";
   provider: GitProviderKind;
-  /** Source branch of the merged pull request. */
+  /** Source branch della PR. */
   branch: string;
   prUrl: string;
 }
@@ -138,11 +139,12 @@ export interface GitProvider {
     pr: { branch: string; title: string; body: string }
   ): Promise<{ url: string }>;
   /**
-   * Returns a PrMergedEvent if the webhook payload represents a merged PR,
-   * otherwise null. Never throws on malformed input. Does NOT verify the
-   * signature — call verifyWebhook first.
+   * Returns a WebhookEvent if the webhook payload represents a closed PR —
+   * `kind: "merged"` if it was merged, `kind: "closed_unmerged"` if it was
+   * closed/rejected without merging — otherwise null. Never throws on malformed
+   * input. Does NOT verify the signature — call verifyWebhook first.
    */
-  parseWebhook(headers: Record<string, string>, body: unknown): PrMergedEvent | null;
+  parseWebhook(headers: Record<string, string>, body: unknown): WebhookEvent | null;
   /**
    * Verifies the webhook HMAC-SHA256 signature against the RAW body.
    * Returns false if the signature header is missing or invalid.
@@ -175,7 +177,7 @@ export interface GitProvider {
     opts?: { fetchImpl?: FetchLike }
   ): Promise<CredentialCheck[]>;
   /**
-   * Registra in modo idempotente il webhook PR-merged sul provider git usando
+   * Registra in modo idempotente il webhook delle PR chiuse (merge e rifiuto) sul provider git usando
    * l'autenticazione REST (Bitbucket: email-o-username:token Basic; GitHub:
    * Bearer). Elenca i webhook esistenti, cerca quello con lo stesso target URL
    * di `hook.url`: se lo trova lo aggiorna (attivo + eventi corretti + secret

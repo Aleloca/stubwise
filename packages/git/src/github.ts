@@ -15,9 +15,9 @@ import {
   type FetchLike,
   type GitProvider,
   type GitProviderOptions,
-  type PrMergedEvent,
   type ProjectGitConfig,
   type RepoSummary,
+  type WebhookEvent,
   type WebhookResult,
 } from "./provider.js";
 
@@ -80,18 +80,18 @@ export class GitHubProvider implements GitProvider {
     return { url: data.html_url };
   }
 
-  parseWebhook(headers: Record<string, string>, body: unknown): PrMergedEvent | null {
+  parseWebhook(headers: Record<string, string>, body: unknown): WebhookEvent | null {
     if (getHeader(headers, "x-github-event") !== "pull_request") return null;
     if (typeof body !== "object" || body === null) return null;
     const payload = body as { action?: unknown; pull_request?: unknown };
     if (payload.action !== "closed") return null;
     if (typeof payload.pull_request !== "object" || payload.pull_request === null) return null;
     const pr = payload.pull_request as { merged?: unknown; head?: { ref?: unknown }; html_url?: unknown };
-    if (pr.merged !== true) return null;
     const branch = pr.head?.ref;
     const prUrl = pr.html_url;
     if (typeof branch !== "string" || typeof prUrl !== "string") return null;
-    return { provider: "github", branch, prUrl };
+    const kind = pr.merged === true ? "merged" : "closed_unmerged";
+    return { kind, provider: "github", branch, prUrl };
   }
 
   verifyWebhook(headers: Record<string, string>, rawBody: string | Buffer, secret: string): boolean {

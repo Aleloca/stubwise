@@ -201,9 +201,20 @@ describe("BitbucketProvider.parseWebhook", () => {
     },
   };
 
-  it("recognizes pullrequest:fulfilled and extracts the source branch", () => {
+  it("recognizes pullrequest:fulfilled as merged and extracts the source branch", () => {
     const event = provider.parseWebhook({ "X-Event-Key": "pullrequest:fulfilled" }, mergedBody);
     expect(event).toEqual({
+      kind: "merged",
+      provider: "bitbucket",
+      branch: "stubwise/fix-1",
+      prUrl: "https://bitbucket.org/myws/myrepo/pull-requests/7",
+    });
+  });
+
+  it("recognizes pullrequest:rejected as closed_unmerged", () => {
+    const event = provider.parseWebhook({ "x-event-key": "pullrequest:rejected" }, mergedBody);
+    expect(event).toEqual({
+      kind: "closed_unmerged",
       provider: "bitbucket",
       branch: "stubwise/fix-1",
       prUrl: "https://bitbucket.org/myws/myrepo/pull-requests/7",
@@ -488,7 +499,7 @@ describe("BitbucketProvider.ensureWebhook", () => {
       description: "Stubwise",
       url: hook.url,
       active: true,
-      events: ["pullrequest:fulfilled"],
+      events: ["pullrequest:fulfilled", "pullrequest:rejected"],
       secret: hook.secret,
     });
   });
@@ -520,7 +531,7 @@ describe("BitbucketProvider.ensureWebhook", () => {
       description: "Stubwise",
       url: hook.url,
       active: true,
-      events: ["pullrequest:fulfilled"],
+      events: ["pullrequest:fulfilled", "pullrequest:rejected"],
       secret: hook.secret,
     });
   });
