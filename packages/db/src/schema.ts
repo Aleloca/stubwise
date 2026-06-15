@@ -1,5 +1,6 @@
 import {
   gitProviderKindSchema,
+  languageSchema,
   ticketPrioritySchema,
   ticketSourceSchema,
   ticketStatusSchema,
@@ -31,6 +32,7 @@ function enumValues<T extends string>(schema: { options: readonly T[] }): [T, ..
 }
 
 export const userRole = pgEnum("user_role", ["admin", "member"]);
+export const language = pgEnum("language", enumValues(languageSchema));
 export const gitProviderKind = pgEnum("git_provider_kind", enumValues(gitProviderKindSchema));
 export const ticketType = pgEnum("ticket_type", enumValues(ticketTypeSchema));
 export const ticketPriority = pgEnum("ticket_priority", enumValues(ticketPrioritySchema));
@@ -74,6 +76,9 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   role: userRole("role").notNull(),
+  // Lingua preferita dell'utente per la UI. Default "en"; ogni utente la
+  // sceglie indipendentemente dalla lingua dei contenuti generati.
+  language: language("language").notNull().default("en"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -347,6 +352,23 @@ export const notificationSettings = pgTable("notification_settings", {
   notifyJobFailed: boolean("notify_job_failed").notNull().default(true),
   notifyPrClosed: boolean("notify_pr_closed").notNull().default(true),
   notifyPlanReview: boolean("notify_plan_review").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+/**
+ * Impostazioni globali dell'istanza (riga singola). Singleton come
+ * notificationSettings: id fissato a 1, la migrazione seeda l'unica riga e il
+ * server fa upsert su id=1. `contentLanguage` è la lingua dei contenuti
+ * generati dall'AI (titoli, descrizioni, commenti), distinta dalla lingua di
+ * UI scelta dal singolo utente (users.language).
+ */
+export const instanceSettings = pgTable("instance_settings", {
+  id: integer("id").primaryKey().default(1),
+  contentLanguage: language("content_language").notNull().default("en"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
