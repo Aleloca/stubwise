@@ -53,6 +53,14 @@ export function SettingsAutomationPage() {
         <p className="mt-1 font-mono text-[11px] text-fg-faint">
           Il fix automatico parte solo se l'auto-fix è attivo e l'effort stimato è entro la soglia.
         </p>
+        <a
+          href="/docs/ai-pipeline/automation/"
+          target="_blank"
+          rel="noreferrer"
+          className="mt-2 inline-block font-mono text-[11px] text-signal underline-offset-2 hover:underline"
+        >
+          Vedi documentazione →
+        </a>
       </header>
 
       <div className="divide-y divide-line">

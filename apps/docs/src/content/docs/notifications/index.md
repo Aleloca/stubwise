@@ -21,16 +21,34 @@ Ogni evento ha un toggle dedicato: puoi abilitare solo quelli che ti interessano
 L'interruttore generale **Abilitate** sospende tutte le notifiche senza perdere
 la configurazione.
 
+## Configurazione in-app (Impostazioni → Notifiche)
+
+Tutta la configurazione vive in **Impostazioni → Notifiche** (solo admin). Il
+flusso è:
+
+1. **Abilita** le notifiche con l'interruttore **Abilitate** (lo stesso che le
+   sospende tutte senza cancellare nulla).
+2. **Incolla l'URL del webhook** nel campo dedicato.
+3. **Scegli il formato**: **Slack**, **Discord** o **JSON generico** (vedi le
+   guide per provider più sotto). Il formato determina sia la forma del payload
+   sia l'anteprima.
+4. **Attiva i toggle per-evento** che ti interessano tra i
+   [quattro eventi](#i-quattro-eventi).
+5. Controlla l'**anteprima dal vivo**: mostra il messaggio o il payload esatto
+   che verrà inviato per il formato scelto, generato con la stessa funzione del
+   dispatch reale (testo *mrkdwn* per Slack, markdown per Discord, JSON pretty
+   per il generico).
+6. Premi **Invia notifica di test** per verificare il webhook: invia un evento
+   `ticket.created` fittizio all'URL configurato. A differenza del dispatch
+   reale (best-effort, silenzioso), questo percorso **riporta gli errori**, così
+   capisci subito se l'URL o il formato sono sbagliati.
+
 ## Caratteristiche del recapito
 
 - Richiesta **`POST`** con header **`Content-Type: application/json`**.
 - **Best-effort**: una notifica mancata non rompe mai l'ingestion né un job. In
   caso di errore di rete o risposta non-2xx **non ci sono ritentativi**.
 - Timeout di circa **10 secondi** per richiesta.
-
-Il pulsante **Invia notifica di test** nelle impostazioni verifica il webhook in
-modo esplicito (questo percorso, a differenza del dispatch reale, riporta gli
-errori) inviando un evento `ticket.created` fittizio.
 
 ## Slack
 

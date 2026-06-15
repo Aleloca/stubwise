@@ -115,6 +115,7 @@ export default defineConfig({
           label: "Pipeline AI",
           items: [
             { label: "Come funziona", slug: "ai-pipeline/how-it-works" },
+            { label: "Automazione", slug: "ai-pipeline/automation" },
             { label: "Configurazione", slug: "ai-pipeline/configuration" },
             { label: "Sicurezza", slug: "ai-pipeline/security" },
           ],

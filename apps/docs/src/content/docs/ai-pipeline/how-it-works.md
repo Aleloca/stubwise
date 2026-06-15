@@ -32,6 +32,13 @@ progetto, e produce una di tre decisioni:
 Se il modello non emette una decisione valida, il triage **ritenta una volta**;
 poi il job fallisce, con entrambi gli output nel log.
 
+:::note[Non tutti i `fix` partono da soli]
+Sulla decisione `fix`, il fix avanza in automatico solo se le regole per tipo di
+ticket lo consentono (auto-fix attivo ed effort entro la soglia). Altrimenti il
+job resta **in attesa** e lo avvii a mano. Vedi
+[Automazione AI](/docs/ai-pipeline/automation/).
+:::
+
 ## Fase 2 — Fix
 
 Sulla decisione `fix`, parte la fase **costosa**. L'agente lavora in un
