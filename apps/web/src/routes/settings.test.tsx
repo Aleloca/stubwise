@@ -3,6 +3,7 @@ import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import i18n from "../i18n";
 import { createAppRouter } from "../router";
 
 /**
@@ -67,7 +68,9 @@ function mockApi(handlers: Record<string, Handler>) {
 function adminBase(notifications: Record<string, unknown> = DEFAULT_NOTIFICATIONS) {
   return {
     "GET /api/auth/me": () =>
-      jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" } }),
+      jsonResponse(200, {
+        user: { id: "u1", email: "ada@example.com", role: "admin", language: "en" },
+      }),
     "GET /api/settings/automation": () => jsonResponse(200, DEFAULT_AUTOMATION),
     "GET /api/settings/notifications": () => jsonResponse(200, notifications),
     "GET /api/git-accounts": () => jsonResponse(200, []),
@@ -77,7 +80,9 @@ function adminBase(notifications: Record<string, unknown> = DEFAULT_NOTIFICATION
 function memberBase() {
   return {
     "GET /api/auth/me": () =>
-      jsonResponse(200, { user: { id: "u2", email: "bea@example.com", role: "member" } }),
+      jsonResponse(200, {
+        user: { id: "u2", email: "bea@example.com", role: "member", language: "en" },
+      }),
   } satisfies Record<string, Handler>;
 }
 
@@ -105,24 +110,24 @@ describe("impostazioni: routing e sotto-navigazione", () => {
     mockApi(adminBase());
     renderAt("/settings/account");
 
-    const nav = await screen.findByRole("navigation", { name: /impostazioni/i });
+    const nav = await screen.findByRole("navigation", { name: /settings/i });
     const scope = within(nav);
     expect(scope.getByRole("link", { name: "Account" })).toBeInTheDocument();
-    expect(scope.getByRole("link", { name: "Automazione AI" })).toBeInTheDocument();
-    expect(scope.getByRole("link", { name: "Notifiche" })).toBeInTheDocument();
-    expect(scope.getByRole("link", { name: "Account Git" })).toBeInTheDocument();
+    expect(scope.getByRole("link", { name: "AI automation" })).toBeInTheDocument();
+    expect(scope.getByRole("link", { name: "Notifications" })).toBeInTheDocument();
+    expect(scope.getByRole("link", { name: "Git accounts" })).toBeInTheDocument();
   });
 
   it("member: la sotto-nav mostra solo Account", async () => {
     mockApi(memberBase());
     renderAt("/settings/account");
 
-    const nav = await screen.findByRole("navigation", { name: /impostazioni/i });
+    const nav = await screen.findByRole("navigation", { name: /settings/i });
     const scope = within(nav);
     expect(scope.getByRole("link", { name: "Account" })).toBeInTheDocument();
-    expect(scope.queryByRole("link", { name: "Automazione AI" })).not.toBeInTheDocument();
-    expect(scope.queryByRole("link", { name: "Notifiche" })).not.toBeInTheDocument();
-    expect(scope.queryByRole("link", { name: "Account Git" })).not.toBeInTheDocument();
+    expect(scope.queryByRole("link", { name: "AI automation" })).not.toBeInTheDocument();
+    expect(scope.queryByRole("link", { name: "Notifications" })).not.toBeInTheDocument();
+    expect(scope.queryByRole("link", { name: "Git accounts" })).not.toBeInTheDocument();
   });
 });
 
@@ -147,6 +152,34 @@ describe("impostazioni: /settings/account", () => {
     // L'email compare nel pannello account (oltre che nella sidebar).
     expect(screen.getAllByText("bea@example.com").length).toBeGreaterThanOrEqual(2);
   });
+
+  it("selettore lingua: cambia → PATCH /me, changeLanguage e cache me aggiornata", async () => {
+    // Torna allo stato di default (en) anche se un test precedente ha cambiato lingua.
+    await i18n.changeLanguage("en");
+    let patchBody: unknown = null;
+    mockApi({
+      ...adminBase(),
+      "PATCH /api/auth/me": (_url, init) => {
+        patchBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, { language: "it" });
+      },
+    });
+
+    renderAt("/settings/account");
+
+    const select = (await screen.findByLabelText("Language")) as HTMLSelectElement;
+    expect(select.value).toBe("en");
+    await userEvent.selectOptions(select, "it");
+
+    // PATCH inviato con la nuova lingua.
+    await waitFor(() => expect(patchBody).toEqual({ language: "it" }));
+    // UI live: i18n cambia lingua → la label del campo diventa "Lingua".
+    await waitFor(() => expect(i18n.language).toBe("it"));
+    expect(await screen.findByLabelText("Lingua")).toBeInTheDocument();
+
+    // Ripristina la lingua di default per non sporcare gli altri test.
+    await i18n.changeLanguage("en");
+  });
 });
 
 describe("impostazioni: /settings/automation (admin)", () => {
@@ -154,15 +187,15 @@ describe("impostazioni: /settings/automation (admin)", () => {
     mockApi(adminBase());
     renderAt("/settings/automation");
 
-    const heading = await screen.findByRole("heading", { name: "Automazione AI" });
+    const heading = await screen.findByRole("heading", { name: "AI automation" });
     const section = heading.closest("section") as HTMLElement;
     const scope = within(section);
     expect(scope.getByLabelText("Auto-fix bug")).toBeChecked();
     expect(scope.getByLabelText("Auto-fix feature")).not.toBeChecked();
-    expect((scope.getByLabelText("Soglia effort task") as HTMLSelectElement).value).toBe("2");
-    // Soglia approvazione piano: bug = Mai (null → ""), task = 4.
-    expect((scope.getByLabelText("Approvazione piano bug") as HTMLSelectElement).value).toBe("");
-    expect((scope.getByLabelText("Approvazione piano task") as HTMLSelectElement).value).toBe("4");
+    expect((scope.getByLabelText("Effort threshold task") as HTMLSelectElement).value).toBe("2");
+    // Soglia approvazione piano: bug = Never (null → ""), task = 4.
+    expect((scope.getByLabelText("Plan approval bug") as HTMLSelectElement).value).toBe("");
+    expect((scope.getByLabelText("Plan approval task") as HTMLSelectElement).value).toBe("4");
   });
 
   it("salva tutte le regole via PUT e mostra la conferma", async () => {
@@ -183,12 +216,12 @@ describe("impostazioni: /settings/automation (admin)", () => {
 
     const toggle = (await screen.findByLabelText("Auto-fix bug")) as HTMLInputElement;
     await userEvent.click(toggle); // bug: true → false
-    await userEvent.click(screen.getByRole("button", { name: "Salva" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(putBody).not.toBeNull());
     const body = putBody as { rules: { type: string; autoFix: boolean }[] };
     expect(body.rules.find((r) => r.type === "bug")?.autoFix).toBe(false);
-    expect(await screen.findByText("Salvato")).toBeInTheDocument();
+    expect(await screen.findByText("Saved")).toBeInTheDocument();
   });
 
   it("la soglia di approvazione piano (Mai/1-5) entra nel payload PUT", async () => {
@@ -203,13 +236,13 @@ describe("impostazioni: /settings/automation (admin)", () => {
 
     renderAt("/settings/automation");
 
-    // bug parte da "Mai" (null) → impostalo a 3.
-    const bugSelect = (await screen.findByLabelText("Approvazione piano bug")) as HTMLSelectElement;
+    // bug parte da "Never" (null) → impostalo a 3.
+    const bugSelect = (await screen.findByLabelText("Plan approval bug")) as HTMLSelectElement;
     await userEvent.selectOptions(bugSelect, "3");
-    // task parte da 4 → riportalo a "Mai" (null).
-    const taskSelect = screen.getByLabelText("Approvazione piano task") as HTMLSelectElement;
+    // task parte da 4 → riportalo a "Never" (null).
+    const taskSelect = screen.getByLabelText("Plan approval task") as HTMLSelectElement;
     await userEvent.selectOptions(taskSelect, "");
-    await userEvent.click(screen.getByRole("button", { name: "Salva" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(putBody).not.toBeNull());
     const body = putBody as {
@@ -225,7 +258,7 @@ describe("impostazioni: /settings/automation (admin)", () => {
 
     expect(await screen.findByText("Member")).toBeInTheDocument();
     await waitFor(() => expect(router.state.location.pathname).toBe("/settings/account"));
-    expect(screen.queryByText("Automazione AI")).not.toBeInTheDocument();
+    expect(screen.queryByText("AI automation")).not.toBeInTheDocument();
   });
 });
 
@@ -234,7 +267,7 @@ describe("impostazioni: /settings/git-accounts (admin)", () => {
     mockApi(adminBase());
     renderAt("/settings/git-accounts");
 
-    expect(await screen.findByRole("heading", { name: "Account Git" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Git accounts" })).toBeInTheDocument();
   });
 
   it("member: non raggiunge la rotta admin, viene rimandato ad account", async () => {
@@ -243,14 +276,14 @@ describe("impostazioni: /settings/git-accounts (admin)", () => {
 
     expect(await screen.findByText("Member")).toBeInTheDocument();
     await waitFor(() => expect(router.state.location.pathname).toBe("/settings/account"));
-    expect(screen.queryByRole("heading", { name: "Account Git" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Git accounts" })).not.toBeInTheDocument();
   });
 });
 
 describe("impostazioni: /settings/notifications (admin)", () => {
   function notificationsSection(): HTMLElement {
-    // "Notifiche" compare anche nella sotto-nav: ci si àncora all'h2 della sezione.
-    const heading = screen.getByRole("heading", { name: "Notifiche" });
+    // "Notifications" compare anche nella sotto-nav: ci si àncora all'h2 della sezione.
+    const heading = screen.getByRole("heading", { name: "Notifications" });
     return (heading.closest("section") as HTMLElement) ?? document.body;
   }
 
@@ -258,17 +291,17 @@ describe("impostazioni: /settings/notifications (admin)", () => {
     mockApi(adminBase());
     renderAt("/settings/notifications");
 
-    const heading = await screen.findByRole("heading", { name: "Notifiche" });
+    const heading = await screen.findByRole("heading", { name: "Notifications" });
     const scope = within(heading.closest("section") as HTMLElement);
-    expect(scope.getByLabelText("Abilitate")).toBeChecked();
-    expect(scope.getByLabelText("URL webhook")).toBeInTheDocument();
-    expect(scope.getByLabelText("Formato")).toBeInTheDocument();
-    expect(scope.getByLabelText("Nuovo ticket SDK")).toBeChecked();
-    expect(scope.getByLabelText("PR aperta")).toBeChecked();
-    expect(scope.getByLabelText("PR chiusa senza merge (ticket riaperto)")).toBeChecked();
-    expect(scope.getByLabelText("In attesa")).toBeChecked();
-    expect(scope.getByLabelText("Piano AI in attesa di approvazione")).toBeChecked();
-    expect(scope.getByLabelText("Fix fallito")).toBeChecked();
+    expect(scope.getByLabelText("Enabled")).toBeChecked();
+    expect(scope.getByLabelText("Webhook URL")).toBeInTheDocument();
+    expect(scope.getByLabelText("Format")).toBeInTheDocument();
+    expect(scope.getByLabelText("New SDK ticket")).toBeChecked();
+    expect(scope.getByLabelText("PR opened")).toBeChecked();
+    expect(scope.getByLabelText("PR closed without merge (ticket reopened)")).toBeChecked();
+    expect(scope.getByLabelText("On hold")).toBeChecked();
+    expect(scope.getByLabelText("AI plan awaiting approval")).toBeChecked();
+    expect(scope.getByLabelText("Fix failed")).toBeChecked();
   });
 
   it("salva via PUT con i valori del form", async () => {
@@ -286,14 +319,14 @@ describe("impostazioni: /settings/notifications (admin)", () => {
     });
     renderAt("/settings/notifications");
 
-    await screen.findByRole("heading", { name: "Notifiche" });
+    await screen.findByRole("heading", { name: "Notifications" });
     const scope = within(notificationsSection());
-    await userEvent.type(scope.getByLabelText("URL webhook"), "https://hooks.example.com/x");
-    await userEvent.selectOptions(scope.getByLabelText("Formato"), "discord");
+    await userEvent.type(scope.getByLabelText("Webhook URL"), "https://hooks.example.com/x");
+    await userEvent.selectOptions(scope.getByLabelText("Format"), "discord");
     // Disattiva i due nuovi toggle per verificarli nel payload.
-    await userEvent.click(scope.getByLabelText("PR chiusa senza merge (ticket riaperto)"));
-    await userEvent.click(scope.getByLabelText("Piano AI in attesa di approvazione"));
-    await userEvent.click(scope.getByRole("button", { name: "Salva" }));
+    await userEvent.click(scope.getByLabelText("PR closed without merge (ticket reopened)"));
+    await userEvent.click(scope.getByLabelText("AI plan awaiting approval"));
+    await userEvent.click(scope.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(putBody).not.toBeNull());
     const body = putBody as {
@@ -306,7 +339,7 @@ describe("impostazioni: /settings/notifications (admin)", () => {
     expect(body.format).toBe("discord");
     expect(body.notifyPrClosed).toBe(false);
     expect(body.notifyPlanReview).toBe(false);
-    expect(await scope.findByText("Salvato")).toBeInTheDocument();
+    expect(await scope.findByText("Saved")).toBeInTheDocument();
   });
 
   it("il pulsante di test chiama l'API e mostra l'esito ok", async () => {
@@ -317,9 +350,9 @@ describe("impostazioni: /settings/notifications (admin)", () => {
     });
     renderAt("/settings/notifications");
 
-    await screen.findByRole("heading", { name: "Notifiche" });
+    await screen.findByRole("heading", { name: "Notifications" });
     const scope = within(notificationsSection());
-    await userEvent.click(scope.getByRole("button", { name: "Invia notifica di test" }));
+    await userEvent.click(scope.getByRole("button", { name: "Send test notification" }));
 
     expect(await scope.findByText(/inviata correttamente/i)).toBeInTheDocument();
   });
@@ -332,9 +365,9 @@ describe("impostazioni: /settings/notifications (admin)", () => {
     });
     renderAt("/settings/notifications");
 
-    await screen.findByRole("heading", { name: "Notifiche" });
+    await screen.findByRole("heading", { name: "Notifications" });
     const scope = within(notificationsSection());
-    await userEvent.click(scope.getByRole("button", { name: "Invia notifica di test" }));
+    await userEvent.click(scope.getByRole("button", { name: "Send test notification" }));
 
     expect(await scope.findByText(/stato 500/i)).toBeInTheDocument();
   });
@@ -343,17 +376,17 @@ describe("impostazioni: /settings/notifications (admin)", () => {
     mockApi(adminBase());
     renderAt("/settings/notifications");
 
-    await screen.findByRole("heading", { name: "Notifiche" });
+    await screen.findByRole("heading", { name: "Notifications" });
     const scope = within(notificationsSection());
 
-    await userEvent.click(scope.getByRole("button", { name: /Come configurare/i }));
+    await userEvent.click(scope.getByRole("button", { name: /How to configure/i }));
     expect(scope.getByText(/api\.slack\.com\/apps/i)).toBeInTheDocument();
 
-    await userEvent.selectOptions(scope.getByLabelText("Formato"), "discord");
-    expect(scope.getByText(/Impostazioni del canale/i)).toBeInTheDocument();
+    await userEvent.selectOptions(scope.getByLabelText("Format"), "discord");
+    expect(scope.getByText(/Channel settings/i)).toBeInTheDocument();
     expect(scope.queryByText(/api\.slack\.com\/apps/i)).not.toBeInTheDocument();
 
-    await userEvent.selectOptions(scope.getByLabelText("Formato"), "generic");
+    await userEvent.selectOptions(scope.getByLabelText("Format"), "generic");
     expect(scope.getByText(/Content-Type: application\/json/i)).toBeInTheDocument();
     expect(scope.getByText("event")).toBeInTheDocument();
   });
@@ -362,7 +395,7 @@ describe("impostazioni: /settings/notifications (admin)", () => {
     mockApi(adminBase());
     renderAt("/settings/notifications");
 
-    await screen.findByRole("heading", { name: "Notifiche" });
+    await screen.findByRole("heading", { name: "Notifications" });
     const scope = within(notificationsSection());
 
     // NOTA: l'anteprima usa la lingua d'istanza; finché il Task 13 non la passa al componente, il default è "en". Quando il Task 13 wira instance content_language alla preview, aggiornare queste asserzioni.
@@ -370,15 +403,15 @@ describe("impostazioni: /settings/notifications (admin)", () => {
     expect(slackPreview.textContent).toContain("PR opened");
     expect(slackPreview.textContent).toContain("|View PR>");
 
-    await userEvent.selectOptions(scope.getByLabelText("Formato"), "discord");
+    await userEvent.selectOptions(scope.getByLabelText("Format"), "discord");
     expect(scope.getByTestId("notification-preview").textContent).toContain("[View PR](");
 
-    await userEvent.selectOptions(scope.getByLabelText("Formato"), "generic");
+    await userEvent.selectOptions(scope.getByLabelText("Format"), "generic");
     const genericPreview = scope.getByTestId("notification-preview");
     expect(genericPreview.textContent).toContain('"event": "job.pr_opened"');
     expect(genericPreview.textContent).toContain('"prUrl"');
 
-    await userEvent.click(scope.getByRole("button", { name: "Nuovo ticket" }));
+    await userEvent.click(scope.getByRole("button", { name: "New ticket" }));
     expect(scope.getByTestId("notification-preview").textContent).toContain(
       '"event": "ticket.created"',
     );
@@ -390,6 +423,6 @@ describe("impostazioni: /settings/notifications (admin)", () => {
 
     expect(await screen.findByText("Member")).toBeInTheDocument();
     await waitFor(() => expect(router.state.location.pathname).toBe("/settings/account"));
-    expect(screen.queryByText("Notifiche")).not.toBeInTheDocument();
+    expect(screen.queryByText("Notifications")).not.toBeInTheDocument();
   });
 });

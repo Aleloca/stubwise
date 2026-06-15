@@ -125,6 +125,14 @@ export function postLogout(): Promise<void> {
   return api.post("/api/auth/logout");
 }
 
+/**
+ * Aggiorna la preferenza di lingua dell'utente corrente. Il server ricava
+ * l'id dalla sessione (mai dal body), quindi si invia solo `{ language }`.
+ */
+export function patchMyLanguage(language: Language): Promise<{ language: Language }> {
+  return api.patch("/api/auth/me", { language });
+}
+
 export interface Invite {
   token: string;
   expiresAt: string;
