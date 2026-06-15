@@ -1,3 +1,4 @@
+import { t, languageName, type Language } from "@stubwise/i18n";
 import { effortSchema, ticketTypeSchema } from "@stubwise/shared";
 import { z } from "zod";
 
@@ -10,6 +11,13 @@ import { z } from "zod";
  * istruzioni in inglese, soprattutto i vincoli sul formato di output. Il
  * contenuto del ticket (titolo, body, payload tecnico) può invece essere in
  * qualunque lingua: è solo dato.
+ *
+ * LINGUA DEI CONTENUTI: la STRUTTURA del prompt resta in inglese, ma i testi
+ * che il modello deve PRODURRE (report, piano, `reason` del triage) sono
+ * chiesti nella lingua d'istanza `lang` (instance_settings.content_language).
+ * Gli header/label fissi del report e del piano vengono da `@stubwise/i18n`
+ * (`t(lang, "report.*"/"plan.*")`); i prefissi markdown (`## `, `- `) restano
+ * qui nel codice, da i18n viene SOLO il testo della label.
  */
 
 /** Sottoinsieme del ticket che serve al prompt di triage. */
@@ -142,7 +150,7 @@ function renderTechnicalSection(payload: unknown): string {
  *    injection;
  * 5. formato di output stretto: un singolo oggetto JSON sull'ultima riga.
  */
-export function buildTriagePrompt(input: BuildTriagePromptInput): string {
+export function buildTriagePrompt(input: BuildTriagePromptInput, lang: Language): string {
   const { ticket, recentTickets } = input;
 
   const recentList =
@@ -182,7 +190,7 @@ Body:
 ${ticket.body ? defangDelimiters(truncate(ticket.body, BODY_MAX_CHARS)) : "(empty)"}
 ${technicalSection}</ticket_content>
 
-Output format (strict): end your reply with a single JSON object on its own line, no markdown fences. The "type" and "effort" fields are ALWAYS required. One of:
+Output format (strict): end your reply with a single JSON object on its own line, no markdown fences. The "type" and "effort" fields are ALWAYS required. Write the "reason" field (when present) in ${languageName(lang)}. One of:
 {"decision":"fix","type":"bug","effort":3}
 {"decision":"skip","type":"feature","effort":2,"reason":"<short reason>"}
 {"decision":"duplicate","type":"bug","effort":2,"of":<ticket number from the list above>}`;
@@ -341,7 +349,7 @@ ${ticket.body ? defangDelimiters(truncate(ticket.body, BODY_MAX_CHARS)) : "(empt
 ${technicalSection}</ticket_content>`;
 }
 
-export function buildFixPrompt(input: BuildFixPromptInput): string {
+export function buildFixPrompt(input: BuildFixPromptInput, lang: Language): string {
   const { ticket, teamComments } = input;
 
   return `You are the automated fix engineer of Stubwise, an issue tracker with an AI fix pipeline. You are working inside a fresh checkout of the project repository (your current working directory). Your job is to fix the ticket below.
@@ -351,11 +359,11 @@ Procedure:
 2. If the repository setup allows it (an existing test framework and configuration), write a test that demonstrates the bug before fixing it.
 3. Apply the MINIMAL fix that resolves the issue. Do not refactor unrelated code.
 4. Run the existing tests of the repository (e.g. \`npm test\` or \`pnpm test\`) and make sure they pass.
-5. Write your report in a file named ${REPORT_FILENAME} at the repository root, in Italian, using exactly these four markdown sections:
-   ## Processo di indagine
-   ## Causa radice
-   ## Soluzione
-   ## Motivazione
+5. Write your report in a file named ${REPORT_FILENAME} at the repository root, in ${languageName(lang)}, using exactly these four markdown sections:
+   ## ${t(lang, "report.investigation")}
+   ## ${t(lang, "report.rootCause")}
+   ## ${t(lang, "report.solution")}
+   ## ${t(lang, "report.rationale")}
 
 Rules:
 - Do NOT commit and do NOT push: Stubwise commits and publishes your changes for you.
@@ -389,7 +397,7 @@ export interface BuildFixExecutePromptInput {
  * NON scrive il report — l'esecuzione tocca il repo. Stessa disciplina di
  * contenuto non fidato del prompt di fix monolitico.
  */
-export function buildFixPlanPrompt(input: BuildFixPromptInput): string {
+export function buildFixPlanPrompt(input: BuildFixPromptInput, lang: Language): string {
   const { ticket, teamComments } = input;
 
   return `You are the planning engineer of Stubwise, an issue tracker with an AI fix pipeline. You are working inside a fresh checkout of the project repository (your current working directory) in READ-ONLY mode: you can explore the code but you must NOT modify any file. A separate, cheaper model will implement your plan afterwards.
@@ -403,12 +411,12 @@ Procedure:
 4. Describe the regression test to add (which file, what it asserts).
 5. List the test command(s) to run to verify the fix (e.g. \`npm test\` or \`pnpm test\`).
 
-Output your plan in Italian with these labelled sections, kept short and concrete:
-- Causa radice
-- File/funzione da modificare
-- Modifica da applicare
-- Test di regressione da aggiungere
-- Comandi di test da eseguire
+Output your plan in ${languageName(lang)} with these labelled sections, kept short and concrete:
+- ${t(lang, "plan.rootCause")}
+- ${t(lang, "plan.filesToChange")}
+- ${t(lang, "plan.changeToApply")}
+- ${t(lang, "plan.regressionTest")}
+- ${t(lang, "plan.testCommands")}
 
 Rules:
 - Do NOT edit, create or delete any file. Do NOT write ${REPORT_FILENAME}. Only output the plan as your final message.
@@ -426,7 +434,7 @@ ${renderTicketContentBlock(ticket)}`;
  * VERBATIM in un blocco <piano> FIDATO (lo ha generato il nostro modello di
  * pianificazione, non l'utente); il <ticket_content> resta NON fidato.
  */
-export function buildFixExecutePrompt(input: BuildFixExecutePromptInput): string {
+export function buildFixExecutePrompt(input: BuildFixExecutePromptInput, lang: Language): string {
   const { ticket, plan, teamComments } = input;
 
   return `You are the automated fix engineer of Stubwise, an issue tracker with an AI fix pipeline. You are working inside a fresh checkout of the project repository (your current working directory). A stronger planning model has already analyzed the bug and produced the plan below. Your job is to IMPLEMENT that plan.
@@ -441,11 +449,11 @@ Procedure:
 1. Apply the MINIMAL fix following the plan above. Do not refactor unrelated code.
 2. Add the regression test described in the plan (or, if the plan leaves it implicit, a test that demonstrates the bug), provided the repository has a test framework configured.
 3. Run the existing tests of the repository (e.g. \`npm test\` or \`pnpm test\`) and make sure they pass.
-4. Write your report in a file named ${REPORT_FILENAME} at the repository root, in Italian, using exactly these four markdown sections:
-   ## Processo di indagine
-   ## Causa radice
-   ## Soluzione
-   ## Motivazione
+4. Write your report in a file named ${REPORT_FILENAME} at the repository root, in ${languageName(lang)}, using exactly these four markdown sections:
+   ## ${t(lang, "report.investigation")}
+   ## ${t(lang, "report.rootCause")}
+   ## ${t(lang, "report.solution")}
+   ## ${t(lang, "report.rationale")}
 
 Rules:
 - Do NOT commit and do NOT push: Stubwise commits and publishes your changes for you.

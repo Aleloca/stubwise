@@ -215,6 +215,9 @@ importers:
       '@stubwise/git':
         specifier: workspace:*
         version: link:../../packages/git
+      '@stubwise/i18n':
+        specifier: workspace:*
+        version: link:../../packages/i18n
       '@stubwise/notifications':
         specifier: workspace:*
         version: link:../../packages/notifications

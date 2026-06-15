@@ -1,5 +1,6 @@
 import { automationRules, comments, decrypt, gitAccounts, projects, tickets, type Db } from "@stubwise/db";
 import { getProvider, type GitProvider } from "@stubwise/git";
+import { t } from "@stubwise/i18n";
 import type { GitProviderKind } from "@stubwise/shared";
 import { and, desc, eq } from "drizzle-orm";
 import { execa } from "execa";
@@ -22,6 +23,7 @@ import {
   touchJob,
   type AiJob,
 } from "../queue.js";
+import { getContentLanguage } from "../settings.js";
 import { notify, ticketUrl, type NotifyDeps } from "./notify.js";
 import {
   buildFixExecutePrompt,
@@ -221,6 +223,12 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   const executeModel = deps.executeModel ?? "sonnet";
   const planTimeoutMs = deps.planTimeoutMs ?? DEFAULT_FIX_PLAN_TIMEOUT_MS;
 
+  // Lingua dei contenuti generati (report nel prompt + commenti AB sul ticket),
+  // risolta UNA VOLTA per job: tutti i prompt e i `t(lang, ...)` di seguito la
+  // condividono, così il fix parla una sola lingua anche se l'impostazione
+  // d'istanza cambia a metà.
+  const lang = await getContentLanguage(db);
+
   const [ticket] = await db.select().from(tickets).where(eq(tickets.id, job.ticketId));
   if (!ticket) {
     await failJob(db, job.id, {
@@ -354,7 +362,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
         if (fixMode === "plan-only") {
           const planResult = await runner.run({
             cwd: dir,
-            prompt: buildFixPlanPrompt({ ticket, teamComments }),
+            prompt: buildFixPlanPrompt({ ticket, teamComments }, lang),
             model: planModel,
             permissionMode: "plan",
             maxTurns: DEFAULT_PLAN_MAX_TURNS,
@@ -380,11 +388,11 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
             ticket,
             plan: job.planText!,
             teamComments,
-          });
+          }, lang);
         } else if (twoPhase) {
           const planResult = await runner.run({
             cwd: dir,
-            prompt: buildFixPlanPrompt({ ticket, teamComments }),
+            prompt: buildFixPlanPrompt({ ticket, teamComments }, lang),
             model: planModel,
             permissionMode: "plan",
             maxTurns: DEFAULT_PLAN_MAX_TURNS,
@@ -400,11 +408,11 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
             ticket,
             plan: planResult.output,
             teamComments,
-          });
+          }, lang);
         } else {
           // Fase singola (FIX_TWO_PHASE=false): un solo run con il prompt
           // monolitico storico, come prima dell'introduzione delle due fasi.
-          executePrompt = buildFixPrompt({ ticket, teamComments });
+          executePrompt = buildFixPrompt({ ticket, teamComments }, lang);
         }
 
         // FASE 2 — esecuzione: modello economico, acceptEdits + allowedTools di
@@ -534,7 +542,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       await tx.insert(comments).values({
         ticketId: ticket.id,
         authorType: "ai",
-        body: `Piano proposto (in attesa di approvazione):\n\n${planText}`,
+        body: `${t(lang, "comment.planProposed")}\n\n${planText}`,
       });
       await tx.update(tickets).set({ status: "in_progress" }).where(eq(tickets.id, ticket.id));
     });
@@ -574,7 +582,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     ({ url: prUrl } = await getProviderFn(project.provider).openPullRequest(mirrorProject, {
       branch,
       title: prTitle,
-      body: `${reportBody}\n\n---\nGenerato automaticamente da Stubwise AI per il ticket #${ticket.number}.`,
+      body: `${reportBody}\n\n---\n${t(lang, "comment.reportFooter", { number: ticket.number })}`,
     }));
   } catch (err) {
     // LIMITE NOTO (nessun retry automatico): il push è già atterrato sul
@@ -603,7 +611,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     await tx.insert(comments).values({
       ticketId: ticket.id,
       authorType: "ai",
-      body: `Fix automatico pronto: ${prUrl}\n\n${reportBody}`,
+      body: `${t(lang, "comment.fixReady", { url: prUrl })}\n\n${reportBody}`,
     });
     await tx.update(tickets).set({ status: "in_review" }).where(eq(tickets.id, ticket.id));
   });
