@@ -365,12 +365,13 @@ describe("impostazioni: /settings/notifications (admin)", () => {
     await screen.findByRole("heading", { name: "Notifiche" });
     const scope = within(notificationsSection());
 
+    // NOTA: l'anteprima usa la lingua d'istanza; finché il Task 13 non la passa al componente, il default è "en". Quando il Task 13 wira instance content_language alla preview, aggiornare queste asserzioni.
     const slackPreview = scope.getByTestId("notification-preview");
-    expect(slackPreview.textContent).toContain("PR aperta");
-    expect(slackPreview.textContent).toContain("|Vedi PR>");
+    expect(slackPreview.textContent).toContain("PR opened");
+    expect(slackPreview.textContent).toContain("|View PR>");
 
     await userEvent.selectOptions(scope.getByLabelText("Formato"), "discord");
-    expect(scope.getByTestId("notification-preview").textContent).toContain("[Vedi PR](");
+    expect(scope.getByTestId("notification-preview").textContent).toContain("[View PR](");
 
     await userEvent.selectOptions(scope.getByLabelText("Formato"), "generic");
     const genericPreview = scope.getByTestId("notification-preview");
