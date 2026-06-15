@@ -1,0 +1,33 @@
+{
+  "common": {
+    "appName": "Stubwise"
+  },
+  "errors": {
+    "unauthorized": "Authentication required",
+    "forbidden": "Administrators only",
+    "ticket_not_found": "Ticket not found",
+    "project_not_found": "Project not found",
+    "git_account_not_found": "Git account not found",
+    "assignee_not_found": "Assignee not found",
+    "invalid_cursor": "Invalid pagination cursor",
+    "plan_not_pending": "No plan pending approval",
+    "webhook_unauthorized": "Webhook unauthorized",
+    "invalid_ingestion_key": "Invalid ingestion key",
+    "credentials_undecryptable": "Git account credentials cannot be decrypted",
+    "git_account_in_use": "Git account in use by one or more projects: unlink it before deleting",
+    "git_provider_error": "Git provider error",
+    "setup_already_completed": "Setup already completed",
+    "invalid_credentials": "Invalid credentials",
+    "invite_not_found": "Invite not found",
+    "invite_invalid": "Invite invalid or already used",
+    "invite_expired": "Invite expired",
+    "email_already_exists": "A user with this email already exists",
+    "generic": "Something went wrong"
+  },
+  "auth": {},
+  "tickets": {},
+  "settings": {},
+  "notifications": {},
+  "automation": {},
+  "jobStatus": {}
+}

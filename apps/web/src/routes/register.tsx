@@ -42,8 +42,10 @@ export function RegisterPage() {
       return;
     }
     try {
-      const { user } = await postLogin({ email, password });
-      queryClient.setQueryData(meQueryOptions.queryKey, { user });
+      await postLogin({ email, password });
+      // `/me` è l'unica fonte della lingua: la guardia del layout la rifetcha
+      // prima del render, quindi non primiamo una cache `me` incompleta.
+      queryClient.removeQueries({ queryKey: meQueryOptions.queryKey });
       await navigate({ to: "/tickets" });
     } catch {
       // L'account esiste e l'invito è consumato: ritentare il form sarebbe

@@ -1,6 +1,7 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, Outlet, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { postLogout } from "../lib/api";
 import { meQueryOptions } from "../lib/auth";
 import { Wordmark } from "./wordmark";
@@ -22,7 +23,19 @@ export function AppLayout() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data } = useSuspenseQuery(meQueryOptions);
+  const { i18n } = useTranslation();
   const [loggingOut, setLoggingOut] = useState(false);
+
+  // Allinea la lingua della UI alla preferenza persistita dell'utente: questo
+  // layout monta su ogni pagina autenticata, quindi è il primo punto dopo il
+  // login dove l'utente (con `language`) è disponibile. Pre-login si resta
+  // sulla lingua iniziale (browser → it, altrimenti en).
+  const userLanguage = data.user.language;
+  useEffect(() => {
+    if (i18n.language !== userLanguage) {
+      void i18n.changeLanguage(userLanguage);
+    }
+  }, [i18n, userLanguage]);
 
   async function handleLogout() {
     setLoggingOut(true);

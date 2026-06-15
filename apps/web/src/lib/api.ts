@@ -1,5 +1,6 @@
 import type {
   GitProviderKind,
+  Language,
   TicketPriority,
   TicketSource,
   TicketStatus,
@@ -17,15 +18,20 @@ import type {
 
 /**
  * Errore HTTP dell'API: status + messaggio estratto dal body del server.
- * Status 0 = errore di rete (il server non ha mai risposto).
+ * `code` è l'identificatore stabile (snake_case, indipendente dalla lingua)
+ * che il server invia su `{ code, message }`: la UI lo usa per la traduzione
+ * via `translateApiError`. Assente su risposte non-JSON, errori di validazione
+ * Zod ed errori di rete. Status 0 = errore di rete (il server non ha risposto).
  */
 export class ApiError extends Error {
   readonly status: number;
+  readonly code?: string;
 
-  constructor(status: number, message: string, options?: ErrorOptions) {
+  constructor(status: number, message: string, code?: string, options?: ErrorOptions) {
     super(message, options);
     this.name = "ApiError";
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -44,24 +50,27 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     // CORS): normalizzato in ApiError così i chiamanti hanno un solo tipo
     // di errore da gestire. Tutto il resto (es. AbortError) riemerge as-is.
     if (error instanceof TypeError) {
-      throw new ApiError(0, "Impossibile contattare il server", { cause: error });
+      throw new ApiError(0, "Impossibile contattare il server", undefined, { cause: error });
     }
     throw error;
   }
 
   if (!response.ok) {
-    // Il server risponde sempre { message } sugli errori; il fallback copre
-    // risposte non-JSON (proxy, gateway, ecc.).
+    // Il server risponde { code, message } sugli errori user-facing (code
+    // assente sugli errori di validazione Zod); il fallback copre risposte
+    // non-JSON (proxy, gateway, ecc.).
     const fallback = `Errore ${response.status}`;
-    const message = await response
+    const { message, code } = await response
       .json()
-      .then((data: unknown) =>
-        typeof data === "object" && data !== null && "message" in data
-          ? String((data as { message: unknown }).message)
-          : fallback,
-      )
-      .catch(() => fallback);
-    throw new ApiError(response.status, message);
+      .then((data: unknown) => {
+        const obj = typeof data === "object" && data !== null ? (data as Record<string, unknown>) : {};
+        return {
+          message: "message" in obj ? String(obj.message) : fallback,
+          code: typeof obj.code === "string" ? obj.code : undefined,
+        };
+      })
+      .catch(() => ({ message: fallback, code: undefined }));
+    throw new ApiError(response.status, message, code);
   }
 
   if (response.status === 204) return undefined as T;
@@ -83,12 +92,20 @@ export interface PublicUser {
   role: "admin" | "member";
 }
 
+/**
+ * Utente della sessione corrente esposto da `/me`: l'identità pubblica più la
+ * lingua persistita, che la UI usa per allineare i18n dopo il login.
+ */
+export interface SessionUser extends PublicUser {
+  language: Language;
+}
+
 export interface Credentials {
   email: string;
   password: string;
 }
 
-export function getMe(): Promise<{ user: PublicUser }> {
+export function getMe(): Promise<{ user: SessionUser }> {
   return api.get("/api/auth/me");
 }
 

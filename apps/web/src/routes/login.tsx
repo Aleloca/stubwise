@@ -11,10 +11,11 @@ export function LoginPage() {
   const queryClient = useQueryClient();
 
   async function handleSubmit(credentials: Credentials) {
-    const { user } = await postLogin(credentials);
-    // La cache di `me` viene riempita subito: la guardia del layout
-    // autenticato non rifarà la richiesta appena atterrati su /tickets.
-    queryClient.setQueryData(meQueryOptions.queryKey, { user });
+    await postLogin(credentials);
+    // La risposta di login non porta la lingua dell'utente (la espone solo
+    // `/me`): la guardia del layout autenticato fa la fetch di `/me` prima del
+    // render, così l'identità in cache è completa e i18n può allinearsi.
+    queryClient.removeQueries({ queryKey: meQueryOptions.queryKey });
     await navigate({ to: "/tickets" });
   }
 

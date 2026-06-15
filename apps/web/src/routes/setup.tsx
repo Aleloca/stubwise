@@ -34,8 +34,10 @@ export function SetupPage() {
     try {
       const credentials = { email, password };
       await postSetup(credentials);
-      const { user } = await postLogin(credentials);
-      queryClient.setQueryData(meQueryOptions.queryKey, { user });
+      await postLogin(credentials);
+      // La lingua dell'utente arriva solo da `/me`: la guardia del layout la
+      // rifetcha prima del render, niente prime di una cache `me` incompleta.
+      queryClient.removeQueries({ queryKey: meQueryOptions.queryKey });
       await navigate({ to: "/tickets" });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Errore imprevisto");
