@@ -4,9 +4,9 @@ Idee di funzionalità valutate dopo la prima fase di sviluppo + deploy in produz
 
 ## 1. Rendere l'AI più affidabile e "fidabile" (il differenziatore principale)
 
-- **Notifiche** (email / Slack / webhook). Oggi l'AI apre una PR e nessuno lo sa finché non guarda la UI. Eventi tipici: ticket assegnato, PR aperta sul ticket, job AI fallito, job in attesa. **Priorità più alta.** → *In sviluppo come prima feature.*
-- **Human-in-the-loop sul piano**: per tipi/effort rischiosi, far produrre a Opus il piano e fermarsi in attesa di approvazione umana prima dell'esecuzione (estensione dello stato "held").
-- **Loop di feedback sulla PR**: gestire la **PR rifiutata/chiusa senza merge** (riapri ticket) e il **"ri-esegui con istruzioni"** (un umano commenta una guida e rilancia il fix incorporandola). Oggi gestiamo solo merge→done.
+- ~~**Notifiche** (email / Slack / webhook). Oggi l'AI apre una PR e nessuno lo sa finché non guarda la UI. Eventi tipici: ticket assegnato, PR aperta sul ticket, job AI fallito, job in attesa.~~ → ✅ **FATTA** (webhook Slack/Discord/generic, con docs).
+- **Human-in-the-loop sul piano**: per tipi/effort rischiosi, far produrre a Opus il piano e fermarsi in attesa di approvazione umana prima dell'esecuzione (estensione dello stato "held"). → 🚧 **WIP** (parte del loop di feedback AI).
+- **Loop di feedback sulla PR**: gestire la **PR rifiutata/chiusa senza merge** (riapri ticket) e il **"ri-esegui con istruzioni"** (un umano commenta una guida e rilancia il fix incorporandola). Oggi gestiamo solo merge→done. → 🚧 **WIP**.
 - **Self-repair**: se il fix produce un diff ma i test falliscono, loop limitato di auto-correzione invece del fallimento conservativo attuale.
 - **Budget/guardrail di costo**: tetti di spesa (per ticket/periodo) con stop/alert, sfruttando il tracking costi già presente.
 
@@ -35,6 +35,6 @@ Idee di funzionalità valutate dopo la prima fase di sviluppo + deploy in produz
 ---
 
 **Le tre da fare per prime (raccomandazione iniziale):**
-1. Notifiche → *partiti da qui.*
-2. Loop di feedback AI (rifiuto PR + ri-esegui-con-istruzioni + approvazione piano).
+1. ~~Notifiche~~ → ✅ **FATTA.**
+2. Loop di feedback AI (rifiuto PR + ri-esegui-con-istruzioni + approvazione piano). → 🚧 **WIP.**
 3. SDK PHP/Python (se ci sono progetti non-JS) oppure dashboard analytics.
