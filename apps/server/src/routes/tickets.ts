@@ -345,11 +345,17 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       preHandler: requireAuth,
       schema: {
         params: idParamsSchema,
+        // nullish (non optional): fastify-type-provider-zod passa `null` quando
+        // la POST arriva senza corpo, e un `.optional()` puro lo rifiuterebbe.
+        body: z.object({ withInstructions: z.boolean().optional() }).nullish(),
         response: { 202: z.object({ jobId: z.uuid() }), 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
       const { id } = request.params;
+      // withInstructions=true => il worker riprende sul fix scavalcando il
+      // triage (resume_mode=fix). Altrimenti si rifà il triage da capo.
+      const resume = request.body?.withInstructions ? "fix" : null;
       const [ticket] = await app.db
         .select({ id: tickets.id })
         .from(tickets)
@@ -371,6 +377,8 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
           .set({
             status: "queued",
             manualTrigger: true,
+            resumeMode: resume,
+            planText: null,
             startedAt: null,
             finishedAt: null,
             error: null,
@@ -382,7 +390,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
 
       const [created] = await app.db
         .insert(aiJobs)
-        .values({ ticketId: id, status: "queued", manualTrigger: true })
+        .values({ ticketId: id, status: "queued", manualTrigger: true, resumeMode: resume, planText: null })
         .returning({ id: aiJobs.id });
       return reply.code(202).send({ jobId: created!.id });
     },

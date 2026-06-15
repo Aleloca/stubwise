@@ -288,9 +288,15 @@ export function getTicketJobs(ticketId: string): Promise<AIJob[]> {
  * Avvio manuale dell'AI su un ticket: rimette in coda l'ultimo job con il
  * flag manual_trigger, così il worker rifà il triage e procede sul fix
  * scavalcando il gate di automazione (soglia/auto-fix). 202 con l'id del job.
+ *
+ * Con `withInstructions:true` il job riparte in resume_mode=fix (riprende sul
+ * fix senza rifare il triage); senza opzione si rifà il triage da capo.
  */
-export function postRunAi(ticketId: string): Promise<{ jobId: string }> {
-  return api.post(`/api/tickets/${ticketId}/run-ai`);
+export function postRunAi(
+  ticketId: string,
+  opts?: { withInstructions?: boolean },
+): Promise<{ jobId: string }> {
+  return api.post(`/api/tickets/${ticketId}/run-ai`, opts);
 }
 
 /** Consumo aggregato di un singolo modello sui job AI del ticket. */

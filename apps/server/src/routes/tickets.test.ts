@@ -703,4 +703,102 @@ describe("POST /api/tickets/:id/run-ai", () => {
     expect(job?.finishedAt).toBeNull();
     expect(job?.error).toBeNull();
   });
+
+  it("withInstructions:true sull'ultimo job imposta resumeMode=fix e azzera planText", async () => {
+    const created = (await postTicket({ projectId, title: "Run AI fix", type: "bug" })).json() as {
+      id: string;
+    };
+    // Un job fermo in attesa di approvazione, con un piano già prodotto.
+    const [existing] = await testDb.db
+      .insert(aiJobs)
+      .values({
+        ticketId: created.id,
+        status: "awaiting_plan_approval",
+        planText: "vecchio piano",
+        manualTrigger: false,
+      })
+      .returning();
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/run-ai`,
+      headers: { cookie: users.memberCookie },
+      payload: { withInstructions: true },
+    });
+    expect(res.statusCode).toBe(202);
+    expect((res.json() as { jobId: string }).jobId).toBe(existing!.id);
+
+    const [job] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, existing!.id));
+    expect(job?.status).toBe("queued");
+    expect(job?.manualTrigger).toBe(true);
+    expect(job?.resumeMode).toBe("fix");
+    expect(job?.planText).toBeNull();
+  });
+
+  it("senza body (re-triage) imposta resumeMode=null e azzera planText", async () => {
+    const created = (await postTicket({ projectId, title: "Run AI re-triage", type: "bug" })).json() as {
+      id: string;
+    };
+    // Un job che aveva un resumeMode/planText residui da un run precedente.
+    const [existing] = await testDb.db
+      .insert(aiJobs)
+      .values({
+        ticketId: created.id,
+        status: "awaiting_plan_approval",
+        resumeMode: "execute",
+        planText: "vecchio piano",
+        manualTrigger: false,
+      })
+      .returning();
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/run-ai`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(res.statusCode).toBe(202);
+
+    const [job] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, existing!.id));
+    expect(job?.status).toBe("queued");
+    expect(job?.manualTrigger).toBe(true);
+    expect(job?.resumeMode).toBeNull();
+    expect(job?.planText).toBeNull();
+  });
+
+  it("withInstructions:false è equivalente al re-triage (resumeMode=null)", async () => {
+    const created = (await postTicket({ projectId, title: "Run AI no fix", type: "bug" })).json() as {
+      id: string;
+    };
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/run-ai`,
+      headers: { cookie: users.memberCookie },
+      payload: { withInstructions: false },
+    });
+    expect(res.statusCode).toBe(202);
+    const { jobId } = res.json() as { jobId: string };
+
+    const [job] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
+    expect(job?.resumeMode).toBeNull();
+  });
+
+  it("creazione ex-novo con withInstructions:true: job queued+manuale con resumeMode=fix", async () => {
+    const created = (await postTicket({ projectId, title: "Run AI nuovo fix", type: "bug" })).json() as {
+      id: string;
+    };
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/run-ai`,
+      headers: { cookie: users.memberCookie },
+      payload: { withInstructions: true },
+    });
+    expect(res.statusCode).toBe(202);
+    const { jobId } = res.json() as { jobId: string };
+
+    const [job] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
+    expect(job?.status).toBe("queued");
+    expect(job?.manualTrigger).toBe(true);
+    expect(job?.resumeMode).toBe("fix");
+    expect(job?.planText).toBeNull();
+  });
 });
