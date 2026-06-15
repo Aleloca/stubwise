@@ -52,6 +52,7 @@ const notificationSettingsResponseSchema = z.object({
   enabled: z.boolean(),
   notifyTicketCreated: z.boolean(),
   notifyPrOpened: z.boolean(),
+  notifyPrClosed: z.boolean(),
   notifyJobHeld: z.boolean(),
   notifyJobFailed: z.boolean(),
 });
@@ -70,6 +71,9 @@ const updateNotificationsBodySchema = z.object({
   enabled: z.boolean(),
   notifyTicketCreated: z.boolean(),
   notifyPrOpened: z.boolean(),
+  // Default true: i client esistenti che non inviano il campo conservano il
+  // comportamento "notifica anche le PR chiuse senza merge" come gli altri toggle.
+  notifyPrClosed: z.boolean().default(true),
   notifyJobHeld: z.boolean(),
   notifyJobFailed: z.boolean(),
 });
@@ -94,6 +98,7 @@ async function loadNotificationSettings(
       enabled: true,
       notifyTicketCreated: true,
       notifyPrOpened: true,
+      notifyPrClosed: true,
       notifyJobHeld: true,
       notifyJobFailed: true,
     };
@@ -104,6 +109,7 @@ async function loadNotificationSettings(
     enabled: row.enabled,
     notifyTicketCreated: row.notifyTicketCreated,
     notifyPrOpened: row.notifyPrOpened,
+    notifyPrClosed: row.notifyPrClosed,
     notifyJobHeld: row.notifyJobHeld,
     notifyJobFailed: row.notifyJobFailed,
   };
@@ -214,6 +220,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
           enabled: body.enabled,
           notifyTicketCreated: body.notifyTicketCreated,
           notifyPrOpened: body.notifyPrOpened,
+          notifyPrClosed: body.notifyPrClosed,
           notifyJobHeld: body.notifyJobHeld,
           notifyJobFailed: body.notifyJobFailed,
         })
@@ -225,6 +232,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
             enabled: body.enabled,
             notifyTicketCreated: body.notifyTicketCreated,
             notifyPrOpened: body.notifyPrOpened,
+            notifyPrClosed: body.notifyPrClosed,
             notifyJobHeld: body.notifyJobHeld,
             notifyJobFailed: body.notifyJobFailed,
           },

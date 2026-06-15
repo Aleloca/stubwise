@@ -187,6 +187,7 @@ interface NotificationSettings {
   enabled: boolean;
   notifyTicketCreated: boolean;
   notifyPrOpened: boolean;
+  notifyPrClosed: boolean;
   notifyJobHeld: boolean;
   notifyJobFailed: boolean;
 }
@@ -208,6 +209,7 @@ describe("GET /api/settings/notifications", () => {
     expect(body.format).toBe("slack");
     expect(body.enabled).toBe(true);
     expect(body.notifyTicketCreated).toBe(true);
+    expect(body.notifyPrClosed).toBe(true);
     expect(body.notifyJobFailed).toBe(true);
   });
 });
@@ -237,6 +239,7 @@ describe("PUT /api/settings/notifications", () => {
         enabled: false,
         notifyTicketCreated: false,
         notifyPrOpened: true,
+        notifyPrClosed: false,
         notifyJobHeld: false,
         notifyJobFailed: true,
       },
@@ -248,6 +251,7 @@ describe("PUT /api/settings/notifications", () => {
     expect(body.format).toBe("discord");
     expect(body.enabled).toBe(false);
     expect(body.notifyTicketCreated).toBe(false);
+    expect(body.notifyPrClosed).toBe(false);
 
     // Persistito: una sola riga (id=1) e la GET la riflette.
     const rows = await testDb.db.select().from(notificationSettings);
@@ -255,6 +259,25 @@ describe("PUT /api/settings/notifications", () => {
     const after = (await getNotifications(users.adminCookie)).json() as NotificationSettings;
     expect(after.format).toBe("discord");
     expect(after.notifyJobHeld).toBe(false);
+    expect(after.notifyPrClosed).toBe(false);
+  });
+
+  it("admin: notifyPrClosed omesso → default true (compatibilità client legacy)", async () => {
+    const res = await putNotifications(
+      {
+        webhookUrl: "https://hooks.example.com/legacy",
+        format: "slack",
+        enabled: true,
+        notifyTicketCreated: true,
+        notifyPrOpened: true,
+        // notifyPrClosed volutamente assente: deve defaultare a true.
+        notifyJobHeld: true,
+        notifyJobFailed: true,
+      },
+      users.adminCookie,
+    );
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as NotificationSettings).notifyPrClosed).toBe(true);
   });
 
   it("webhookUrl vuoto è ammesso (disattiva il webhook) e salvato come null", async () => {
