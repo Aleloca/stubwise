@@ -12,6 +12,7 @@ import { requireAuth } from "../auth/session.js";
 import type { Db } from "@stubwise/db";
 import { aiJobs, comments, tickets, users } from "@stubwise/db";
 import { createTicket, ProjectNotFoundError, type Ticket } from "../db/tickets.js";
+import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema, isForeignKeyViolation } from "./shared.js";
 
 /**
@@ -183,7 +184,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { projectId, title, body, type, priority, assigneeId, labels } = request.body;
       if (assigneeId !== undefined && !(await userExists(app.db, assigneeId))) {
-        return reply.code(400).send({ message: "Assegnatario inesistente" });
+        return apiError(reply, 400, "assignee_not_found", "Assignee not found");
       }
       try {
         const ticket = await createTicket(app.db, {
@@ -201,12 +202,12 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         return await reply.code(201).send(toPublicTicket(ticket));
       } catch (error) {
         if (error instanceof ProjectNotFoundError) {
-          return reply.code(404).send({ message: "Progetto non trovato" });
+          return apiError(reply, 404, "project_not_found", "Project not found");
         }
         // Finestra TOCTOU: l'utente verificato sopra può sparire prima
         // dell'insert; la FK su assignee_id lo segnala a posteriori.
         if (isForeignKeyViolation(error)) {
-          return reply.code(400).send({ message: "Assegnatario inesistente" });
+          return apiError(reply, 400, "assignee_not_found", "Assignee not found");
         }
         throw error;
       }
@@ -236,7 +237,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       if (cursor !== undefined) {
         const decoded = decodeCursor(cursor);
         if (!decoded) {
-          return reply.code(400).send({ message: "Cursore di paginazione non valido" });
+          return apiError(reply, 400, "invalid_cursor", "Invalid pagination cursor");
         }
         // Confronto di tupla: tutto ciò che viene strettamente "dopo" il
         // cursore nell'ordinamento (createdAt DESC, id DESC).
@@ -280,7 +281,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         .select()
         .from(tickets)
         .where(eq(tickets.id, request.params.id));
-      if (!row) return reply.code(404).send({ message: "Ticket non trovato" });
+      if (!row) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
       return toPublicTicket(row);
     },
   );
@@ -298,7 +299,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { title, body, type, priority, status, assigneeId, labels } = request.body;
       if (typeof assigneeId === "string" && !(await userExists(app.db, assigneeId))) {
-        return reply.code(400).send({ message: "Assegnatario inesistente" });
+        return apiError(reply, 400, "assignee_not_found", "Assignee not found");
       }
 
       const updates: Partial<Ticket> = {};
@@ -321,13 +322,13 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
                 .set(updates)
                 .where(eq(tickets.id, request.params.id))
                 .returning();
-        if (!row) return reply.code(404).send({ message: "Ticket non trovato" });
+        if (!row) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
         return toPublicTicket(row);
       } catch (error) {
         // Finestra TOCTOU: l'utente verificato sopra può sparire prima
         // dell'update; la FK su assignee_id lo segnala a posteriori.
         if (isForeignKeyViolation(error)) {
-          return reply.code(400).send({ message: "Assegnatario inesistente" });
+          return apiError(reply, 400, "assignee_not_found", "Assignee not found");
         }
         throw error;
       }
@@ -360,7 +361,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         .select({ id: tickets.id })
         .from(tickets)
         .where(eq(tickets.id, id));
-      if (!ticket) return reply.code(404).send({ message: "Ticket non trovato" });
+      if (!ticket) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
 
       // L'ultimo job del ticket (per createdAt, id come spareggio): è quello
       // che la timeline mostra in cima e che l'utente intende rilanciare.
@@ -456,7 +457,7 @@ async function resumeFromPlanApproval(
   reply: FastifyReply,
 ): Promise<FastifyReply> {
   const [ticket] = await db.select({ id: tickets.id }).from(tickets).where(eq(tickets.id, ticketId));
-  if (!ticket) return reply.code(404).send({ message: "Ticket non trovato" });
+  if (!ticket) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
 
   // Si prende l'ultimo job IN STATO awaiting_plan_approval, non l'ultimo job in
   // assoluto: un job più recente in altro stato (es. un re-triage queued)
@@ -468,7 +469,7 @@ async function resumeFromPlanApproval(
     .orderBy(desc(aiJobs.createdAt), desc(aiJobs.id))
     .limit(1);
   if (!latest) {
-    return reply.code(409).send({ message: "Nessun piano in attesa di approvazione" });
+    return apiError(reply, 409, "plan_not_pending", "No plan pending approval");
   }
 
   // planText: conservato in execute (è il piano approvato), azzerato in fix
@@ -502,7 +503,7 @@ async function resumeFromPlanApproval(
   });
 
   if (!result) {
-    return reply.code(409).send({ message: "Nessun piano in attesa di approvazione" });
+    return apiError(reply, 409, "plan_not_pending", "No plan pending approval");
   }
   return reply.code(202).send({ jobId: result.id });
 }

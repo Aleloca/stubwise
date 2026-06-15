@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Db } from "@stubwise/db";
 import { sessions, users } from "@stubwise/db";
+import { apiError } from "../errors.js";
 
 export const SESSION_COOKIE = "stubwise_session";
 
@@ -88,7 +89,7 @@ export async function requireAuth(request: FastifyRequest, reply: FastifyReply):
   const sessionId = sessionIdFromRequest(request);
   const user = sessionId ? await findSessionUser(request.server.db, sessionId) : null;
   if (!user) {
-    await reply.code(401).send({ message: "Autenticazione richiesta" });
+    await apiError(reply, 401, "unauthorized", "Authentication required");
     return;
   }
   request.user = user;
@@ -99,6 +100,6 @@ export async function requireAdmin(request: FastifyRequest, reply: FastifyReply)
   await requireAuth(request, reply);
   if (reply.sent) return;
   if (request.user?.role !== "admin") {
-    await reply.code(403).send({ message: "Riservato agli amministratori" });
+    await apiError(reply, 403, "forbidden", "Administrators only");
   }
 }

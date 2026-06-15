@@ -5,6 +5,7 @@ import { and, eq, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { aiJobs, comments, projects, tickets } from "@stubwise/db";
 import { getContentLanguage } from "../settings.js";
+import { apiError } from "../errors.js";
 
 /**
  * Tetto al corpo del webhook: 1 MiB. I payload di Bitbucket/GitHub per una PR
@@ -98,13 +99,13 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
         // Slug sconosciuto o segreto vuoto (legacy, non verificabile): 401,
         // indistinguibile da una firma errata.
         if (!project || project.webhookSecret === "") {
-          return reply.code(401).send({ message: "Webhook non autorizzato" });
+          return apiError(reply, 401, "webhook_unauthorized", "Webhook unauthorized");
         }
         const provider = getProvider(project.provider);
         const headers = normalizeHeaders(request.headers);
         const rawBody = request.rawBody ?? Buffer.alloc(0);
         if (!provider.verifyWebhook(headers, rawBody, project.webhookSecret)) {
-          return reply.code(401).send({ message: "Webhook non autorizzato" });
+          return apiError(reply, 401, "webhook_unauthorized", "Webhook unauthorized");
         }
 
         request.webhookContext = { projectId: project.id, provider: project.provider };

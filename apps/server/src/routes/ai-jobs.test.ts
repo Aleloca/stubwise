@@ -78,7 +78,7 @@ describe("GET /api/tickets/:ticketId/jobs", () => {
   it("ticket inesistente: 404", async () => {
     const res = await listJobs(randomUUID(), users.memberCookie);
     expect(res.statusCode).toBe(404);
-    expect(res.json()).toEqual({ message: "Ticket non trovato" });
+    expect(res.json()).toEqual({ code: "ticket_not_found", message: "Ticket not found" });
   });
 
   it("ticket senza job: lista vuota", async () => {

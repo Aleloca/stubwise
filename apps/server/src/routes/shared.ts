@@ -1,7 +1,12 @@
 import { z } from "zod";
 
-/** Corpo standard delle risposte di errore JSON: `{ message }`. */
-export const errorSchema = z.object({ message: z.string() });
+/**
+ * Corpo standard delle risposte di errore JSON: `{ message }` più un `code`
+ * stabile (snake_case) opzionale. Gli errori user-facing espliciti
+ * (vedi `apiError`) valorizzano `code`; gli errori di validazione Zod
+ * auto-generati no, perciò resta opzionale.
+ */
+export const errorSchema = z.object({ code: z.string().optional(), message: z.string() });
 
 /**
  * Configurazione di un limite di rate per @fastify/rate-limit: quante

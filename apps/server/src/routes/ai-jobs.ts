@@ -6,6 +6,7 @@ import { requireAuth } from "../auth/session.js";
 import type { Db } from "@stubwise/db";
 import { agentRuns, aiJobs, aiJobStatus, tickets } from "@stubwise/db";
 import { authErrorResponses, errorSchema } from "./shared.js";
+import { apiError } from "../errors.js";
 
 /**
  * Forma pubblica di un AIJob nelle risposte API: la riga del DB con le date
@@ -135,7 +136,7 @@ export async function aiJobRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { ticketId } = request.params;
       if (!(await ticketExists(app.db, ticketId))) {
-        return reply.code(404).send({ message: "Ticket non trovato" });
+        return apiError(reply, 404, "ticket_not_found", "Ticket not found");
       }
       // Dal più recente al più vecchio: la timeline in UI parte dall'ultimo
       // tentativo. L'id spareggia i job creati nello stesso istante.
@@ -170,7 +171,7 @@ export async function ticketUsageRoutes(instance: FastifyInstance): Promise<void
     async (request, reply) => {
       const { ticketId } = request.params;
       if (!(await ticketExists(app.db, ticketId))) {
-        return reply.code(404).send({ message: "Ticket non trovato" });
+        return apiError(reply, 404, "ticket_not_found", "Ticket not found");
       }
       return aggregateUsage(app.db, ticketId);
     },

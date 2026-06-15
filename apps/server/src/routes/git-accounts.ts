@@ -7,6 +7,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAdmin, requireAuth } from "../auth/session.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
+import { apiError } from "../errors.js";
 
 /**
  * Credenziali git di un account: `token` sempre; `username` è l'identità git
@@ -155,7 +156,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
         .select()
         .from(gitAccounts)
         .where(eq(gitAccounts.id, request.params.id));
-      if (!row) return reply.code(404).send({ message: "Account git non trovato" });
+      if (!row) return apiError(reply, 404, "git_account_not_found", "Git account not found");
       return toPublicAccount(row);
     },
   );
@@ -188,7 +189,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
               .set(updates)
               .where(eq(gitAccounts.id, request.params.id))
               .returning();
-      if (!row) return reply.code(404).send({ message: "Account git non trovato" });
+      if (!row) return apiError(reply, 404, "git_account_not_found", "Git account not found");
       return toPublicAccount(row);
     },
   );
@@ -216,15 +217,13 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
         .where(eq(projects.gitAccountId, request.params.id))
         .limit(1);
       if (used) {
-        return reply
-          .code(409)
-          .send({ message: "Account git in uso da uno o più progetti: scollegalo prima di eliminarlo" });
+        return apiError(reply, 409, "git_account_in_use", "Git account in use by one or more projects: unlink it before deleting");
       }
       const deleted = await app.db
         .delete(gitAccounts)
         .where(eq(gitAccounts.id, request.params.id))
         .returning({ id: gitAccounts.id });
-      if (deleted.length === 0) return reply.code(404).send({ message: "Account git non trovato" });
+      if (deleted.length === 0) return apiError(reply, 404, "git_account_not_found", "Git account not found");
       return reply.code(204).send(null);
     },
   );
@@ -247,13 +246,13 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
         .select()
         .from(gitAccounts)
         .where(eq(gitAccounts.id, request.params.id));
-      if (!row) return reply.code(404).send({ message: "Account git non trovato" });
+      if (!row) return apiError(reply, 404, "git_account_not_found", "Git account not found");
 
       let credentials: z.infer<typeof gitCredentialsSchema>;
       try {
         credentials = decryptAccountCredentials(row, app.encryptionKey);
       } catch {
-        return reply.code(400).send({ message: "credenziali dell'account non decifrabili" });
+        return apiError(reply, 400, "credentials_undecryptable", "Account credentials cannot be decrypted");
       }
 
       const checks = await getProvider(row.provider).validateAccount(
@@ -283,13 +282,13 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
         .select()
         .from(gitAccounts)
         .where(eq(gitAccounts.id, request.params.id));
-      if (!row) return reply.code(404).send({ message: "Account git non trovato" });
+      if (!row) return apiError(reply, 404, "git_account_not_found", "Git account not found");
 
       let credentials: z.infer<typeof gitCredentialsSchema>;
       try {
         credentials = decryptAccountCredentials(row, app.encryptionKey);
       } catch {
-        return reply.code(400).send({ message: "credenziali dell'account non decifrabili" });
+        return apiError(reply, 400, "credentials_undecryptable", "Account credentials cannot be decrypted");
       }
 
       // Ricostruisce il repoUrl dall'host del provider + fullName.
@@ -324,13 +323,13 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
         .select()
         .from(gitAccounts)
         .where(eq(gitAccounts.id, request.params.id));
-      if (!row) return reply.code(404).send({ message: "Account git non trovato" });
+      if (!row) return apiError(reply, 404, "git_account_not_found", "Git account not found");
 
       let credentials: z.infer<typeof gitCredentialsSchema>;
       try {
         credentials = decryptAccountCredentials(row, app.encryptionKey);
       } catch {
-        return reply.code(400).send({ message: "credenziali dell'account non decifrabili" });
+        return apiError(reply, 400, "credentials_undecryptable", "Account credentials cannot be decrypted");
       }
 
       try {
@@ -340,7 +339,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
         );
       } catch (error) {
         if (error instanceof GitProviderError) {
-          return reply.code(422).send({ message: error.message });
+          return apiError(reply, 422, "git_provider_error", error.message);
         }
         throw error;
       }
@@ -368,13 +367,13 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
         .select()
         .from(gitAccounts)
         .where(eq(gitAccounts.id, request.params.id));
-      if (!row) return reply.code(404).send({ message: "Account git non trovato" });
+      if (!row) return apiError(reply, 404, "git_account_not_found", "Git account not found");
 
       let credentials: z.infer<typeof gitCredentialsSchema>;
       try {
         credentials = decryptAccountCredentials(row, app.encryptionKey);
       } catch {
-        return reply.code(400).send({ message: "credenziali dell'account non decifrabili" });
+        return apiError(reply, 400, "credentials_undecryptable", "Account credentials cannot be decrypted");
       }
 
       try {
@@ -385,7 +384,7 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
         );
       } catch (error) {
         if (error instanceof GitProviderError) {
-          return reply.code(422).send({ message: error.message });
+          return apiError(reply, 422, "git_provider_error", error.message);
         }
         throw error;
       }
