@@ -103,6 +103,15 @@ export interface CompleteJobInput {
 }
 
 /**
+ * Invariante resume_mode/plan_text: questi campi sono di PROPRIETÀ di chi
+ * rimette il job in coda (run-ai/approve-plan/reject-plan/requeueStale), NON
+ * vengono azzerati alla chiusura terminale (completeJob/failJob/holdJob). Ogni
+ * percorso che riporta un job a `queued` imposta esplicitamente resume_mode
+ * (e gestisce plan_text), quindi le transizioni terminali qui sotto possono
+ * lasciarli invariati senza rischio di stato sporco al prossimo claim.
+ */
+
+/**
  * Chiude il job con un esito positivo (`pr_opened` o `skipped`): accoda il
  * log finale, registra l'eventuale URL della PR e imposta `finishedAt`.
  * Restituisce false se il job non era più in lavorazione (ownership persa):

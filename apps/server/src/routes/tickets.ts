@@ -458,10 +458,13 @@ async function resumeFromPlanApproval(
   const [ticket] = await db.select({ id: tickets.id }).from(tickets).where(eq(tickets.id, ticketId));
   if (!ticket) return reply.code(404).send({ message: "Ticket non trovato" });
 
+  // Si prende l'ultimo job IN STATO awaiting_plan_approval, non l'ultimo job in
+  // assoluto: un job più recente in altro stato (es. un re-triage queued)
+  // renderebbe altrimenti irraggiungibile un piano genuinamente in attesa (409).
   const [latest] = await db
     .select({ id: aiJobs.id })
     .from(aiJobs)
-    .where(eq(aiJobs.ticketId, ticketId))
+    .where(and(eq(aiJobs.ticketId, ticketId), eq(aiJobs.status, "awaiting_plan_approval")))
     .orderBy(desc(aiJobs.createdAt), desc(aiJobs.id))
     .limit(1);
   if (!latest) {

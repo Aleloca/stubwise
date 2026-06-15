@@ -253,6 +253,58 @@ const heldJobFixture: AIJob = {
   finishedAt: "2026-06-04T10:00:05.000Z",
 };
 
+/** Job singolo in stato "pr_closed": PR rifiutata, il ticket è stato riaperto. */
+const prClosedJobFixture: AIJob = {
+  id: "jc",
+  ticketId: TICKET_ID,
+  status: "pr_closed",
+  log: "[fix] PR aperta\n[webhook] PR chiusa senza merge",
+  prUrl: "https://github.com/acme/shop/pull/13",
+  error: null,
+  createdAt: "2026-06-06T10:00:00.000Z",
+  startedAt: "2026-06-06T10:00:02.000Z",
+  finishedAt: "2026-06-06T10:04:00.000Z",
+};
+
+/** Job singolo in stato "failed": un re-run manuale ha senso. */
+const failedJobFixture: AIJob = {
+  id: "jf",
+  ticketId: TICKET_ID,
+  status: "failed",
+  log: "clone fallito",
+  prUrl: null,
+  error: "git clone: timeout",
+  createdAt: "2026-06-06T10:00:00.000Z",
+  startedAt: "2026-06-06T10:00:02.000Z",
+  finishedAt: "2026-06-06T10:00:40.000Z",
+};
+
+/** Job singolo in stato "pr_merged": PR già mergiata, niente rilancio. */
+const prMergedJobFixture: AIJob = {
+  id: "jm",
+  ticketId: TICKET_ID,
+  status: "pr_merged",
+  log: "[fix] PR aperta\n[webhook] PR mergiata",
+  prUrl: "https://github.com/acme/shop/pull/14",
+  error: null,
+  createdAt: "2026-06-06T10:00:00.000Z",
+  startedAt: "2026-06-06T10:00:02.000Z",
+  finishedAt: "2026-06-06T10:04:00.000Z",
+};
+
+/** Job singolo in volo ("fixing"): nessun bottone di rilancio. */
+const fixingJobFixture: AIJob = {
+  id: "jx",
+  ticketId: TICKET_ID,
+  status: "fixing",
+  log: "[fix] in corso",
+  prUrl: null,
+  error: null,
+  createdAt: "2026-06-06T10:00:00.000Z",
+  startedAt: "2026-06-06T10:00:02.000Z",
+  finishedAt: null,
+};
+
 /** Job singolo in stato "awaiting_plan_approval": piano in attesa di decisione. */
 const awaitingPlanJobFixture: AIJob = {
   id: "jp",
@@ -391,12 +443,68 @@ describe("dettaglio ticket", () => {
     expect(screen.queryByRole("button", { name: "Rifiuta" })).not.toBeInTheDocument();
   });
 
-  it("senza job 'held' in cima: il bottone Avvia fix AI non compare", async () => {
+  it("job 'pr_closed': mostra i bottoni di rilancio (PR rifiutata, ticket riaperto)", async () => {
+    const state = mockDetailApi({ jobs: [prClosedJobFixture] });
+    renderDetail();
+
+    const avvia = await screen.findByRole("button", { name: "Avvia fix AI" });
+    expect(screen.getByRole("button", { name: "Rilancia con istruzioni" })).toBeInTheDocument();
+
+    await userEvent.click(avvia);
+    await waitFor(() => expect(state.runAiCalls).toEqual([undefined]));
+  });
+
+  it("job 'failed': mostra i bottoni di rilancio (re-run manuale)", async () => {
+    mockDetailApi({ jobs: [failedJobFixture] });
+    renderDetail();
+
+    expect(await screen.findByRole("button", { name: "Avvia fix AI" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Rilancia con istruzioni" })).toBeInTheDocument();
+  });
+
+  it("job 'pr_opened' in cima: nessun bottone di rilancio (PR già aperta)", async () => {
     mockDetailApi(); // l'ultimo job è pr_opened
     renderDetail();
 
     await screen.findByRole("heading", { name: "TypeError al checkout" });
     expect(screen.queryByRole("button", { name: "Avvia fix AI" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Rilancia con istruzioni" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("job 'pr_merged' in cima: nessun bottone di rilancio (PR mergiata)", async () => {
+    mockDetailApi({ jobs: [prMergedJobFixture] });
+    renderDetail();
+
+    await screen.findByRole("heading", { name: "TypeError al checkout" });
+    expect(screen.queryByRole("button", { name: "Avvia fix AI" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Rilancia con istruzioni" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("job in volo ('fixing'): nessun bottone di rilancio", async () => {
+    mockDetailApi({ jobs: [fixingJobFixture] });
+    renderDetail();
+
+    await screen.findByRole("heading", { name: "TypeError al checkout" });
+    expect(screen.queryByRole("button", { name: "Avvia fix AI" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Rilancia con istruzioni" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("job 'awaiting_plan_approval': Approva/Rifiuta presenti, bottoni di rilancio assenti", async () => {
+    mockDetailApi({ jobs: [awaitingPlanJobFixture] });
+    renderDetail();
+
+    expect(await screen.findByRole("button", { name: "Approva" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Rifiuta" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Avvia fix AI" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Rilancia con istruzioni" }),
+    ).not.toBeInTheDocument();
   });
 
   it("la descrizione è markdown renderizzato", async () => {

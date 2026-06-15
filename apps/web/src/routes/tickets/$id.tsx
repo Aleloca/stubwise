@@ -112,11 +112,18 @@ export function TicketDetailPage() {
     onSuccess: invalidateJobAndDetail,
   });
 
-  // Il job più recente è il primo della lista (ordinata desc dal server). Se è
-  // "held", un umano può lanciare il fix manualmente scavalcando il gate;
-  // se è "awaiting_plan_approval", può approvare o rifiutare il piano.
+  // Il job più recente è il primo della lista (ordinata desc dal server).
+  // Da un set di stati TERMINALI un umano può (ri)lanciare il fix manualmente:
+  // "held" (gate di automazione in attesa), "pr_closed" (PR rifiutata, ticket
+  // riaperto), "failed"/"skipped" (re-run manuale dopo un esito negativo).
+  // NON si rilancia da "pr_opened"/"pr_merged" (PR già aperta/mergiata), dagli
+  // stati in volo (queued/triaging/fixing) né da "awaiting_plan_approval" (che
+  // ha i suoi bottoni Approva/Rifiuta — mutuamente esclusivi col rilancio).
   const latestJob = jobs[0];
-  const isHeld = latestJob?.status === "held";
+  const RELAUNCHABLE_STATUSES = ["held", "pr_closed", "failed", "skipped"] as const;
+  const canRelaunch =
+    latestJob !== undefined &&
+    (RELAUNCHABLE_STATUSES as readonly string[]).includes(latestJob.status);
   const awaitingPlanApproval = latestJob?.status === "awaiting_plan_approval";
 
   // Hint per "Rilancia con istruzioni": senza commenti dell'utente il rilancio
@@ -189,7 +196,7 @@ export function TicketDetailPage() {
           <section>
             <h2 className={sectionTitleClass}>Attività AI</h2>
             <AIJobTimeline jobs={jobs} />
-            {isHeld && (
+            {canRelaunch && (
               <div className="mt-3 space-y-2">
                 <div className="flex flex-wrap items-center gap-3">
                   <button
