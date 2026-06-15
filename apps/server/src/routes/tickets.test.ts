@@ -869,6 +869,42 @@ describe("POST /api/tickets/:id/approve-plan", () => {
     expect(systemComment?.body).toMatch(/approvat/i);
   });
 
+  it("agisce sull'ultimo job AWAITING anche se ne esiste uno più recente in altro stato", async () => {
+    const created = (
+      await postTicket({ projectId, title: "Approve awaiting più vecchio", type: "bug" })
+    ).json() as { id: string };
+    // Job awaiting più vecchio…
+    const awaiting = await seedAwaitingJob(created.id);
+    // …e un job queued più recente (createdAt successivo): non deve mascherare
+    // il piano genuinamente in attesa rendendolo irraggiungibile (409).
+    const [newer] = await testDb.db
+      .insert(aiJobs)
+      .values({
+        ticketId: created.id,
+        status: "queued",
+        createdAt: new Date(awaiting.createdAt.getTime() + 60_000),
+      })
+      .returning();
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/approve-plan`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(res.statusCode).toBe(202);
+    expect((res.json() as { jobId: string }).jobId).toBe(awaiting.id);
+
+    const [updatedAwaiting] = await testDb.db
+      .select()
+      .from(aiJobs)
+      .where(eq(aiJobs.id, awaiting.id));
+    expect(updatedAwaiting?.status).toBe("queued");
+    expect(updatedAwaiting?.resumeMode).toBe("execute");
+    // Il job queued più recente resta intatto.
+    const [untouched] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, newer!.id));
+    expect(untouched?.resumeMode).toBeNull();
+  });
+
   it("job NON in awaiting_plan_approval: 409, nessuna modifica e nessun commento", async () => {
     const created = (
       await postTicket({ projectId, title: "Approve conflitto", type: "bug" })
