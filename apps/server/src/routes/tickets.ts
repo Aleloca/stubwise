@@ -5,12 +5,12 @@ import {
   ticketTypeSchema,
 } from "@stubwise/shared";
 import { and, desc, eq, ilike, sql, type SQL } from "drizzle-orm";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAuth } from "../auth/session.js";
 import type { Db } from "@stubwise/db";
-import { aiJobs, tickets, users } from "@stubwise/db";
+import { aiJobs, comments, tickets, users } from "@stubwise/db";
 import { createTicket, ProjectNotFoundError, type Ticket } from "../db/tickets.js";
 import { authErrorResponses, errorSchema, isForeignKeyViolation } from "./shared.js";
 
@@ -395,4 +395,111 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       return reply.code(202).send({ jobId: created!.id });
     },
   );
+
+  // Approvazione del piano: porta l'ultimo job (se in awaiting_plan_approval) a
+  // queued con resume_mode="execute", CONSERVANDO planText — è il piano che il
+  // worker eseguirà. Azzera started/finished/error e bumpa lastActivityAt.
+  app.post(
+    "/:id/approve-plan",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        response: {
+          202: z.object({ jobId: z.uuid() }),
+          404: errorSchema,
+          409: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      return resumeFromPlanApproval(app.db, request.params.id, "execute", reply);
+    },
+  );
+
+  // Rifiuto del piano: porta l'ultimo job (se in awaiting_plan_approval) a queued
+  // con resume_mode="fix" e planText=null — il worker ri-pianifica incorporando
+  // gli eventuali commenti utente. Azzera started/finished/error, bumpa lastActivityAt.
+  app.post(
+    "/:id/reject-plan",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        response: {
+          202: z.object({ jobId: z.uuid() }),
+          404: errorSchema,
+          409: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      return resumeFromPlanApproval(app.db, request.params.id, "fix", reply);
+    },
+  );
+}
+
+/**
+ * Logica condivisa di approve/reject del piano. Verifica il ticket (404),
+ * individua l'ultimo job e, in una transazione, fa un UPDATE CONDIZIONATO allo
+ * stato awaiting_plan_approval: se 0 righe tocca → 409 (nessun piano in attesa,
+ * idempotente contro doppi click/race). Altrimenti inserisce il commento system
+ * nella stessa transazione e risponde 202. mode="execute" conserva il piano;
+ * mode="fix" lo azzera per la ripianificazione.
+ */
+async function resumeFromPlanApproval(
+  db: Db,
+  ticketId: string,
+  mode: "execute" | "fix",
+  reply: FastifyReply,
+): Promise<FastifyReply> {
+  const [ticket] = await db.select({ id: tickets.id }).from(tickets).where(eq(tickets.id, ticketId));
+  if (!ticket) return reply.code(404).send({ message: "Ticket non trovato" });
+
+  const [latest] = await db
+    .select({ id: aiJobs.id })
+    .from(aiJobs)
+    .where(eq(aiJobs.ticketId, ticketId))
+    .orderBy(desc(aiJobs.createdAt), desc(aiJobs.id))
+    .limit(1);
+  if (!latest) {
+    return reply.code(409).send({ message: "Nessun piano in attesa di approvazione" });
+  }
+
+  // planText: conservato in execute (è il piano approvato), azzerato in fix
+  // (ripianificazione). L'UPDATE è condizionato allo stato per idempotenza.
+  const planTextUpdate = mode === "fix" ? { planText: null } : {};
+  const result = await db.transaction(async (tx) => {
+    const updated = await tx
+      .update(aiJobs)
+      .set({
+        status: "queued",
+        resumeMode: mode,
+        ...planTextUpdate,
+        startedAt: null,
+        finishedAt: null,
+        error: null,
+        lastActivityAt: sql`now()`,
+      })
+      .where(and(eq(aiJobs.id, latest.id), eq(aiJobs.status, "awaiting_plan_approval")))
+      .returning({ id: aiJobs.id });
+    if (updated.length === 0) return null;
+
+    await tx.insert(comments).values({
+      ticketId,
+      authorType: "system",
+      body:
+        mode === "execute"
+          ? "Piano approvato — esecuzione in corso"
+          : "Piano rifiutato — ripianificazione in corso",
+    });
+    return updated[0]!;
+  });
+
+  if (!result) {
+    return reply.code(409).send({ message: "Nessun piano in attesa di approvazione" });
+  }
+  return reply.code(202).send({ jobId: result.id });
 }

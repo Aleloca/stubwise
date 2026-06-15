@@ -56,6 +56,7 @@ interface Rule {
   type: string;
   autoFix: boolean;
   maxEffort: number;
+  planApprovalMinEffort: number | null;
 }
 
 describe("GET /api/settings/automation", () => {
@@ -73,11 +74,31 @@ describe("GET /api/settings/automation", () => {
     const { rules } = res.json() as { rules: Rule[] };
     expect(rules).toHaveLength(4);
     const byType = new Map(rules.map((r) => [r.type, r]));
-    // Default di seed della migrazione.
-    expect(byType.get("bug")).toEqual({ type: "bug", autoFix: true, maxEffort: 3 });
-    expect(byType.get("task")).toEqual({ type: "task", autoFix: true, maxEffort: 2 });
-    expect(byType.get("feature")).toEqual({ type: "feature", autoFix: false, maxEffort: 3 });
-    expect(byType.get("feedback")).toEqual({ type: "feedback", autoFix: false, maxEffort: 3 });
+    // Default di seed della migrazione. planApprovalMinEffort null = mai.
+    expect(byType.get("bug")).toEqual({
+      type: "bug",
+      autoFix: true,
+      maxEffort: 3,
+      planApprovalMinEffort: null,
+    });
+    expect(byType.get("task")).toEqual({
+      type: "task",
+      autoFix: true,
+      maxEffort: 2,
+      planApprovalMinEffort: null,
+    });
+    expect(byType.get("feature")).toEqual({
+      type: "feature",
+      autoFix: false,
+      maxEffort: 3,
+      planApprovalMinEffort: null,
+    });
+    expect(byType.get("feedback")).toEqual({
+      type: "feedback",
+      autoFix: false,
+      maxEffort: 3,
+      planApprovalMinEffort: null,
+    });
   });
 
   it("admin: una riga mancante nel DB viene riempita con il default", async () => {
@@ -87,8 +108,13 @@ describe("GET /api/settings/automation", () => {
     const { rules } = res.json() as { rules: Rule[] };
     expect(rules).toHaveLength(4);
     const feedback = rules.find((r) => r.type === "feedback");
-    // Default difensivo: auto-fix true, max 3.
-    expect(feedback).toEqual({ type: "feedback", autoFix: true, maxEffort: 3 });
+    // Default difensivo: auto-fix true, max 3, nessuna soglia di approvazione.
+    expect(feedback).toEqual({
+      type: "feedback",
+      autoFix: true,
+      maxEffort: 3,
+      planApprovalMinEffort: null,
+    });
   });
 });
 
@@ -105,8 +131,8 @@ describe("PUT /api/settings/automation", () => {
     const res = await putAutomation(
       {
         rules: [
-          { type: "bug", autoFix: false, maxEffort: 5 },
-          { type: "feature", autoFix: true, maxEffort: 4 },
+          { type: "bug", autoFix: false, maxEffort: 5, planApprovalMinEffort: 4 },
+          { type: "feature", autoFix: true, maxEffort: 4, planApprovalMinEffort: null },
         ],
       },
       users.adminCookie,
@@ -114,16 +140,56 @@ describe("PUT /api/settings/automation", () => {
     expect(res.statusCode).toBe(200);
     const { rules } = res.json() as { rules: Rule[] };
     const byType = new Map(rules.map((r) => [r.type, r]));
-    expect(byType.get("bug")).toEqual({ type: "bug", autoFix: false, maxEffort: 5 });
-    expect(byType.get("feature")).toEqual({ type: "feature", autoFix: true, maxEffort: 4 });
+    expect(byType.get("bug")).toEqual({
+      type: "bug",
+      autoFix: false,
+      maxEffort: 5,
+      planApprovalMinEffort: 4,
+    });
+    expect(byType.get("feature")).toEqual({
+      type: "feature",
+      autoFix: true,
+      maxEffort: 4,
+      planApprovalMinEffort: null,
+    });
 
-    // Persistito: una GET successiva riflette l'upsert.
+    // Persistito: una GET successiva riflette l'upsert, soglia inclusa.
     const after = (await getAutomation(users.adminCookie)).json() as { rules: Rule[] };
     expect(after.rules.find((r) => r.type === "bug")).toEqual({
       type: "bug",
       autoFix: false,
       maxEffort: 5,
+      planApprovalMinEffort: 4,
     });
+  });
+
+  it("planApprovalMinEffort fuori scala 1–5 → 400", async () => {
+    expect(
+      (
+        await putAutomation(
+          { rules: [{ type: "bug", autoFix: true, maxEffort: 3, planApprovalMinEffort: 6 }] },
+          users.adminCookie,
+        )
+      ).statusCode,
+    ).toBe(400);
+    expect(
+      (
+        await putAutomation(
+          { rules: [{ type: "bug", autoFix: true, maxEffort: 3, planApprovalMinEffort: 0 }] },
+          users.adminCookie,
+        )
+      ).statusCode,
+    ).toBe(400);
+  });
+
+  it("planApprovalMinEffort omesso → trattato come null (compatibilità client legacy)", async () => {
+    const res = await putAutomation(
+      { rules: [{ type: "task", autoFix: true, maxEffort: 2 }] },
+      users.adminCookie,
+    );
+    expect(res.statusCode).toBe(200);
+    const { rules } = res.json() as { rules: Rule[] };
+    expect(rules.find((r) => r.type === "task")?.planApprovalMinEffort).toBeNull();
   });
 
   it("maxEffort fuori scala 1–5 → 400", async () => {

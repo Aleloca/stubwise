@@ -299,6 +299,22 @@ export function postRunAi(
   return api.post(`/api/tickets/${ticketId}/run-ai`, opts);
 }
 
+/**
+ * Approva il piano in attesa sull'ultimo job del ticket: il worker lo eseguirà
+ * (resume_mode=execute, piano conservato). 409 se nessun piano è in attesa.
+ */
+export function approvePlan(ticketId: string): Promise<{ jobId: string }> {
+  return api.post(`/api/tickets/${ticketId}/approve-plan`);
+}
+
+/**
+ * Rifiuta il piano in attesa: il worker ri-pianifica (resume_mode=fix, piano
+ * azzerato), incorporando gli eventuali commenti utente. 409 se nessun piano.
+ */
+export function rejectPlan(ticketId: string): Promise<{ jobId: string }> {
+  return api.post(`/api/tickets/${ticketId}/reject-plan`);
+}
+
 /** Consumo aggregato di un singolo modello sui job AI del ticket. */
 export interface UsageByModel {
   model: string;
@@ -561,6 +577,11 @@ export interface AutomationRule {
   autoFix: boolean;
   /** Soglia di sforzo 1–5: auto-fix solo se effort <= maxEffort. */
   maxEffort: number;
+  /**
+   * Soglia di sforzo 1–5 oltre la quale (effort >= soglia) il fix richiede
+   * l'approvazione umana del piano. null = mai (nessun gate di approvazione).
+   */
+  planApprovalMinEffort: number | null;
 }
 
 export interface AutomationSettings {

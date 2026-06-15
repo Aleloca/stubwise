@@ -18,12 +18,16 @@ import { authErrorResponses, errorSchema } from "./shared.js";
  */
 
 /** Default difensivo, gemello di quello del worker: se una riga manca. */
-const DEFAULT_RULE = { autoFix: true, maxEffort: 3 } as const;
+const DEFAULT_RULE = { autoFix: true, maxEffort: 3, planApprovalMinEffort: null } as const;
 
 const automationRuleSchema = z.object({
   type: ticketTypeSchema,
   autoFix: z.boolean(),
   maxEffort: effortSchema,
+  // Soglia 1–5 oltre la quale (effort >= soglia) il fix richiede approvazione
+  // umana del piano. null = mai (nessun gate di approvazione). Default null per
+  // i client legacy che non inviano il campo.
+  planApprovalMinEffort: effortSchema.nullable().default(null),
 });
 
 const automationSettingsSchema = z.object({
@@ -134,6 +138,7 @@ async function loadAllRules(db: Db): Promise<AutomationRule[]> {
       type,
       autoFix: row?.autoFix ?? DEFAULT_RULE.autoFix,
       maxEffort: row?.maxEffort ?? DEFAULT_RULE.maxEffort,
+      planApprovalMinEffort: row?.planApprovalMinEffort ?? DEFAULT_RULE.planApprovalMinEffort,
     };
   });
 }
@@ -174,10 +179,19 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
         for (const rule of request.body.rules) {
           await tx
             .insert(automationRules)
-            .values({ type: rule.type, autoFix: rule.autoFix, maxEffort: rule.maxEffort })
+            .values({
+              type: rule.type,
+              autoFix: rule.autoFix,
+              maxEffort: rule.maxEffort,
+              planApprovalMinEffort: rule.planApprovalMinEffort,
+            })
             .onConflictDoUpdate({
               target: automationRules.type,
-              set: { autoFix: rule.autoFix, maxEffort: rule.maxEffort },
+              set: {
+                autoFix: rule.autoFix,
+                maxEffort: rule.maxEffort,
+                planApprovalMinEffort: rule.planApprovalMinEffort,
+              },
             });
         }
       });

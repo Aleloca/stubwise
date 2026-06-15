@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { aiJobs, tickets } from "@stubwise/db";
+import { aiJobs, comments, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
@@ -800,5 +800,184 @@ describe("POST /api/tickets/:id/run-ai", () => {
     expect(job?.manualTrigger).toBe(true);
     expect(job?.resumeMode).toBe("fix");
     expect(job?.planText).toBeNull();
+  });
+});
+
+describe("POST /api/tickets/:id/approve-plan", () => {
+  /** Inserisce un job in awaiting_plan_approval con un piano e residui da azzerare. */
+  async function seedAwaitingJob(ticketId: string) {
+    const [job] = await testDb.db
+      .insert(aiJobs)
+      .values({
+        ticketId,
+        status: "awaiting_plan_approval",
+        planText: "## Piano\n1. fai questo\n2. poi quello",
+        startedAt: new Date(),
+        finishedAt: new Date(),
+        error: "vecchio errore",
+      })
+      .returning();
+    return job!;
+  }
+
+  it("ticket inesistente: 404", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${randomUUID()}/approve-plan`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("senza sessione: 401", async () => {
+    const created = (
+      await postTicket({ projectId, title: "Approve 401", type: "bug" })
+    ).json() as { id: string };
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/approve-plan`,
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("approva il piano: 202, job queued+execute, planText CONSERVATO, started/finished/error azzerati, commento system", async () => {
+    const created = (
+      await postTicket({ projectId, title: "Approve ok", type: "bug" })
+    ).json() as { id: string };
+    const job = await seedAwaitingJob(created.id);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/approve-plan`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(res.statusCode).toBe(202);
+    expect((res.json() as { jobId: string }).jobId).toBe(job.id);
+
+    const [updated] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(updated?.status).toBe("queued");
+    expect(updated?.resumeMode).toBe("execute");
+    // Il piano approvato è ciò che il worker eseguirà: NON va azzerato.
+    expect(updated?.planText).toBe("## Piano\n1. fai questo\n2. poi quello");
+    expect(updated?.startedAt).toBeNull();
+    expect(updated?.finishedAt).toBeNull();
+    expect(updated?.error).toBeNull();
+
+    const cmts = await testDb.db.select().from(comments).where(eq(comments.ticketId, created.id));
+    const systemComment = cmts.find((c) => c.authorType === "system");
+    expect(systemComment).toBeDefined();
+    expect(systemComment?.body).toMatch(/approvat/i);
+  });
+
+  it("job NON in awaiting_plan_approval: 409, nessuna modifica e nessun commento", async () => {
+    const created = (
+      await postTicket({ projectId, title: "Approve conflitto", type: "bug" })
+    ).json() as { id: string };
+    const [job] = await testDb.db
+      .insert(aiJobs)
+      .values({ ticketId: created.id, status: "queued", planText: "piano" })
+      .returning();
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/approve-plan`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(res.statusCode).toBe(409);
+
+    const [unchanged] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job!.id));
+    expect(unchanged?.status).toBe("queued");
+    expect(unchanged?.resumeMode).toBeNull();
+    const cmts = await testDb.db.select().from(comments).where(eq(comments.ticketId, created.id));
+    expect(cmts).toHaveLength(0);
+  });
+});
+
+describe("POST /api/tickets/:id/reject-plan", () => {
+  async function seedAwaitingJob(ticketId: string) {
+    const [job] = await testDb.db
+      .insert(aiJobs)
+      .values({
+        ticketId,
+        status: "awaiting_plan_approval",
+        planText: "## Piano scartato",
+        startedAt: new Date(),
+        finishedAt: new Date(),
+        error: "vecchio errore",
+      })
+      .returning();
+    return job!;
+  }
+
+  it("ticket inesistente: 404", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${randomUUID()}/reject-plan`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("senza sessione: 401", async () => {
+    const created = (
+      await postTicket({ projectId, title: "Reject 401", type: "bug" })
+    ).json() as { id: string };
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/reject-plan`,
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("rifiuta il piano: 202, job queued+fix, planText=null, started/finished/error azzerati, commento system", async () => {
+    const created = (
+      await postTicket({ projectId, title: "Reject ok", type: "bug" })
+    ).json() as { id: string };
+    const job = await seedAwaitingJob(created.id);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/reject-plan`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(res.statusCode).toBe(202);
+    expect((res.json() as { jobId: string }).jobId).toBe(job.id);
+
+    const [updated] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(updated?.status).toBe("queued");
+    expect(updated?.resumeMode).toBe("fix");
+    // Piano rifiutato: il worker ri-pianifica, quindi planText va azzerato.
+    expect(updated?.planText).toBeNull();
+    expect(updated?.startedAt).toBeNull();
+    expect(updated?.finishedAt).toBeNull();
+    expect(updated?.error).toBeNull();
+
+    const cmts = await testDb.db.select().from(comments).where(eq(comments.ticketId, created.id));
+    const systemComment = cmts.find((c) => c.authorType === "system");
+    expect(systemComment).toBeDefined();
+    expect(systemComment?.body).toMatch(/rifiutat/i);
+  });
+
+  it("job NON in awaiting_plan_approval: 409, nessuna modifica e nessun commento", async () => {
+    const created = (
+      await postTicket({ projectId, title: "Reject conflitto", type: "bug" })
+    ).json() as { id: string };
+    const [job] = await testDb.db
+      .insert(aiJobs)
+      .values({ ticketId: created.id, status: "fixing", planText: "piano" })
+      .returning();
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/reject-plan`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(res.statusCode).toBe(409);
+
+    const [unchanged] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job!.id));
+    expect(unchanged?.status).toBe("fixing");
+    expect(unchanged?.planText).toBe("piano");
+    const cmts = await testDb.db.select().from(comments).where(eq(comments.ticketId, created.id));
+    expect(cmts).toHaveLength(0);
   });
 });
