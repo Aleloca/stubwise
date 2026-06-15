@@ -8,7 +8,7 @@ import type { MirrorManager } from "./git/mirrors.js";
 import { runFix, type FixDeps } from "./pipeline/fix.js";
 import type { DispatchFn } from "./pipeline/notify.js";
 import { runTriage } from "./pipeline/triage.js";
-import { failJob, type AiJob } from "./queue.js";
+import { appendLog, failJob, markFixing, type AiJob } from "./queue.js";
 
 /**
  * Wiring della pipeline per runWorker: handler(job) = triage → (se "fixing")
@@ -61,6 +61,33 @@ async function processJob(deps: HandlerDeps, job: AiJob, projectName: string): P
     projectName,
     ...(deps.dispatch !== undefined ? { dispatch: deps.dispatch } : {}),
   };
+  const fixDeps: FixDeps = {
+    db: deps.db,
+    runner: deps.runner,
+    mirrors: deps.mirrors,
+    encryptionKey: deps.encryptionKey,
+    ...(deps.getProviderFn ? { getProviderFn: deps.getProviderFn } : {}),
+    ...notifyOpts,
+    ...deps.fix,
+  };
+
+  // Percorso di RIPRESA (resume_mode "fix" | "execute"): niente triage. Il job
+  // arriva `triaging` (claimNextJob marca sempre così, anche i job di ripresa);
+  // lo portiamo a `fixing` con markFixing — l'assunzione di runFix (job già
+  // `fixing`) regge — e andiamo dritti al fix, che leggerà resumeMode/planText
+  // per scegliere la modalità (full / plan-only / execute-only). Nessuna tmpdir
+  // di triage: il fix crea il proprio worktree dal mirror.
+  if (job.resumeMode === "fix" || job.resumeMode === "execute") {
+    const owned = await markFixing(deps.db, job.id);
+    if (!owned) {
+      await appendLog(deps.db, job.id, "[resume] ownership persa, mi fermo");
+      return;
+    }
+    await runFix(fixDeps, job);
+    return;
+  }
+
+  // Percorso STANDARD: triage → (se "fixing") fix.
   // Il triage non tocca il repo: il suo cwd è una tmpdir vuota e innocua,
   // creata per-job e rimossa comunque vada.
   const workDir = await mkdtemp(join(tmpdir(), "stubwise-triage-"));
@@ -70,18 +97,7 @@ async function processJob(deps: HandlerDeps, job: AiJob, projectName: string): P
       job,
     );
     if (outcome !== "fixing") return;
-    await runFix(
-      {
-        db: deps.db,
-        runner: deps.runner,
-        mirrors: deps.mirrors,
-        encryptionKey: deps.encryptionKey,
-        ...(deps.getProviderFn ? { getProviderFn: deps.getProviderFn } : {}),
-        ...notifyOpts,
-        ...deps.fix,
-      },
-      job,
-    );
+    await runFix(fixDeps, job);
   } finally {
     await rm(workDir, { recursive: true, force: true });
   }

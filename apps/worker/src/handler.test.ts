@@ -93,13 +93,19 @@ async function createProject(db: Db, repoUrl: string): Promise<string> {
   return project.id;
 }
 
-async function createQueuedJob(db: Db, projectId: string, title: string, number: number): Promise<string> {
+async function createQueuedJob(
+  db: Db,
+  projectId: string,
+  title: string,
+  number: number,
+  jobValues: Partial<typeof aiJobs.$inferInsert> = {},
+): Promise<string> {
   const [ticket] = await db
     .insert(tickets)
     .values({ projectId, number, title, type: "bug", priority: "high", source: "sdk_error" })
     .returning();
   if (!ticket) throw new Error("insert del ticket non ha restituito la riga");
-  const [job] = await db.insert(aiJobs).values({ ticketId: ticket.id }).returning();
+  const [job] = await db.insert(aiJobs).values({ ticketId: ticket.id, ...jobValues }).returning();
   if (!job) throw new Error("insert del job non ha restituito la riga");
   return ticket.id;
 }
@@ -184,6 +190,94 @@ describe("createHandler", () => {
     expect(runner.calls).toHaveLength(1);
     const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
     expect(jobAfter?.status).toBe("skipped");
+  });
+
+  it("job con resume_mode=fix: salta il triage e va dritto al fix", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, upstream.url);
+    const ticketId = await createQueuedJob(db, projectId, "sum sbaglia il segno", 7, {
+      resumeMode: "fix",
+    });
+
+    const REPORT = "## Processo di indagine\nok\n## Causa radice\nok\n## Soluzione\nok\n## Motivazione\nok\n";
+    const runner = new FakeAgentRunner({
+      script: async (opts: AgentRunOptions) => {
+        // Il triage gira con model haiku: se mai venisse invocato, qui lo
+        // intercetteremmo e il test fallirebbe (nessuna call deve essere haiku).
+        if (opts.model === "haiku") {
+          return { output: `{"decision":"fix","type":"bug","effort":3}`, exitCode: 0 };
+        }
+        await writeFile(join(opts.cwd, "app.js"), "exports.sum = (a, b) => a + b;\n");
+        await writeFile(join(opts.cwd, "STUBWISE_REPORT.md"), REPORT);
+        return { output: "fix applicato", exitCode: 0 };
+      },
+    });
+    const openPullRequest = vi.fn().mockResolvedValue({ url: "https://github.com/acme/repo/pull/9" });
+
+    const handler = createHandler({
+      db,
+      runner,
+      mirrors,
+      encryptionKey: ENCRYPTION_KEY,
+      getProviderFn: () => ({ openPullRequest }) as never,
+    });
+
+    const job = await claim(db);
+    await handler(job);
+
+    // NIENTE triage: solo le DUE fasi del fix (plan opus + execute sonnet).
+    expect(runner.calls).toHaveLength(2);
+    expect(runner.calls.map((c) => c.model)).not.toContain("haiku");
+    expect(runner.calls[0]?.model).toBe("opus");
+    expect(runner.calls[0]?.permissionMode).toBe("plan");
+    expect(runner.calls[1]?.model).toBe("sonnet");
+    expect(runner.calls[1]?.permissionMode).toBe("acceptEdits");
+
+    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter?.status).toBe("pr_opened");
+    expect(jobAfter?.prUrl).toBe("https://github.com/acme/repo/pull/9");
+    const [ticketAfter] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
+    expect(ticketAfter?.status).toBe("in_review");
+    expect(openPullRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("resume_mode=fix con ownership persa: markFixing fallisce → il fix NON parte", async () => {
+    const { db } = testDb;
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, "https://github.com/acme/mai-clonato");
+    await createQueuedJob(db, projectId, "job di ripresa orfano", 11, { resumeMode: "fix" });
+
+    // Lo script lancerebbe se il runner venisse invocato: ci serve solo per
+    // accorgerci se per errore il fix partisse (runner.calls dovrà restare vuoto).
+    const runner = new FakeAgentRunner({ output: "non dovrei mai girare" });
+    const openPullRequest = vi.fn();
+
+    const handler = createHandler({
+      db,
+      runner,
+      mirrors,
+      encryptionKey: ENCRYPTION_KEY,
+      getProviderFn: () => ({ openPullRequest }) as never,
+    });
+
+    const job = await claim(db);
+    // OWNERSHIP PERSA: claimNextJob ha marcato `triaging`, ma prima di invocare
+    // l'handler portiamo il job a uno stato NON-ACTIVE (es. requeue + reclamo
+    // da un altro worker). markFixing è status-guarded su [triaging, fixing]:
+    // su `failed` non aggiorna nulla e restituisce false.
+    await db.update(aiJobs).set({ status: "failed" }).where(eq(aiJobs.id, job.id));
+
+    await handler(job);
+
+    // Il runner non viene MAI chiamato: il fix non è partito.
+    expect(runner.calls).toHaveLength(0);
+    expect(openPullRequest).not.toHaveBeenCalled();
+    // Il log del job riporta la perdita di ownership e lo stato resta failed.
+    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter?.log).toContain("ownership persa");
+    expect(jobAfter?.status).toBe("failed");
   });
 
   it("serializza i job dello STESSO progetto: il secondo parte solo dopo la fine del primo", async () => {
