@@ -14,9 +14,9 @@ import {
   type FetchLike,
   type GitProvider,
   type GitProviderOptions,
-  type PrMergedEvent,
   type ProjectGitConfig,
   type RepoSummary,
+  type WebhookEvent,
   type WebhookResult,
 } from "./provider.js";
 
@@ -98,8 +98,15 @@ export class BitbucketProvider implements GitProvider {
     return { url };
   }
 
-  parseWebhook(headers: Record<string, string>, body: unknown): PrMergedEvent | null {
-    if (getHeader(headers, "x-event-key") !== "pullrequest:fulfilled") return null;
+  parseWebhook(headers: Record<string, string>, body: unknown): WebhookEvent | null {
+    const eventKey = getHeader(headers, "x-event-key");
+    const kind =
+      eventKey === "pullrequest:fulfilled"
+        ? "merged"
+        : eventKey === "pullrequest:rejected"
+          ? "closed_unmerged"
+          : null;
+    if (kind === null) return null;
     if (typeof body !== "object" || body === null) return null;
     const pullrequest = (body as { pullrequest?: unknown }).pullrequest;
     if (typeof pullrequest !== "object" || pullrequest === null) return null;
@@ -110,7 +117,7 @@ export class BitbucketProvider implements GitProvider {
     const branch = pr.source?.branch?.name;
     const prUrl = pr.links?.html?.href;
     if (typeof branch !== "string" || typeof prUrl !== "string") return null;
-    return { provider: "bitbucket", branch, prUrl };
+    return { kind, provider: "bitbucket", branch, prUrl };
   }
 
   verifyWebhook(headers: Record<string, string>, rawBody: string | Buffer, secret: string): boolean {
@@ -352,7 +359,7 @@ export class BitbucketProvider implements GitProvider {
       description: "Stubwise",
       url: hook.url,
       active: true,
-      events: ["pullrequest:fulfilled"],
+      events: ["pullrequest:fulfilled", "pullrequest:rejected"],
       secret: hook.secret,
     };
 

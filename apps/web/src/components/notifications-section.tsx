@@ -26,7 +26,9 @@ const FORMAT_OPTIONS: { value: NotificationFormat; label: string }[] = [
 const EVENT_TOGGLES: { key: keyof NotificationSettings; label: string }[] = [
   { key: "notifyTicketCreated", label: "Nuovo ticket SDK" },
   { key: "notifyPrOpened", label: "PR aperta" },
+  { key: "notifyPrClosed", label: "PR chiusa senza merge (ticket riaperto)" },
   { key: "notifyJobHeld", label: "In attesa" },
+  { key: "notifyPlanReview", label: "Piano AI in attesa di approvazione" },
   { key: "notifyJobFailed", label: "Fix fallito" },
 ];
 
@@ -34,7 +36,9 @@ const EVENT_TOGGLES: { key: keyof NotificationSettings; label: string }[] = [
 const SAMPLE_LABELS: { kind: NotificationEvent["kind"]; label: string }[] = [
   { kind: "ticket.created", label: "Nuovo ticket" },
   { kind: "job.pr_opened", label: "PR aperta" },
+  { kind: "job.pr_closed", label: "PR chiusa" },
   { kind: "job.held", label: "In attesa" },
+  { kind: "job.plan_review", label: "Piano in attesa" },
   { kind: "job.failed", label: "Fix fallito" },
 ];
 
@@ -47,14 +51,14 @@ const URL_PLACEHOLDER: Record<NotificationFormat, string> = {
 
 /** I campi del payload generico, documentati inline. */
 const GENERIC_FIELDS: { name: string; desc: string }[] = [
-  { name: "event", desc: "il tipo di evento (ticket.created, job.pr_opened, job.held, job.failed)" },
+  { name: "event", desc: "il tipo di evento (ticket.created, job.pr_opened, job.pr_closed, job.held, job.plan_review, job.failed)" },
   { name: "ticketNumber", desc: "numero del ticket" },
   { name: "title", desc: "titolo del ticket" },
   { name: "projectName", desc: "nome del progetto" },
   { name: "message", desc: "riepilogo leggibile dell'evento" },
   { name: "ticketUrl", desc: "link al ticket in Stubwise" },
   { name: "source", desc: "solo ticket.created — sorgente SDK (sdk_error / sdk_feedback)" },
-  { name: "prUrl", desc: "solo job.pr_opened — URL della pull request" },
+  { name: "prUrl", desc: "su job.pr_opened e job.pr_closed — URL della pull request" },
   { name: "costUsd", desc: "solo job.pr_opened — costo USD del run (o null)" },
   { name: "type", desc: "solo job.held — tipo del ticket riclassificato" },
   { name: "effort", desc: "solo job.held — sforzo stimato 1–5" },
@@ -287,7 +291,7 @@ export function NotificationsSection() {
         </div>
         <p className="mt-1 font-mono text-[11px] text-fg-faint">
           Un webhook in uscita riceve un messaggio sugli eventi chiave (nuovo ticket SDK, PR
-          aperta, in attesa, fix fallito).
+          aperta, PR chiusa, in attesa, piano da approvare, fix fallito).
         </p>
       </header>
 

@@ -37,11 +37,14 @@ motivo. Solo su `fix` entra in gioco il gate.
 ## Regole per tipo (Impostazioni → Automazione AI)
 
 In **Impostazioni → Automazione AI** (solo admin) configuri, per ciascuno dei
-quattro tipi di ticket, due parametri:
+quattro tipi di ticket, tre parametri:
 
 - **Auto-fix** (on/off): se la pipeline può avviare il fix da sola per quel tipo.
 - **Soglia effort** (`maxEffort`, 1–5): l'effort massimo per cui il fix parte in
   automatico.
+- **Approvazione piano da effort ≥** (`Mai`, oppure 1–5): la soglia oltre la
+  quale il fix si ferma a far approvare il piano da un umano prima di scrivere
+  codice. Vedi [Approvazione del piano](#approvazione-del-piano) qui sotto.
 
 I valori di default seminati sono:
 
@@ -85,6 +88,40 @@ AI"**: lo lanci a mano e il fix parte **bypassando il gate** (ignora auto-fix e
 soglia). È il modo per dare il via libera caso per caso, senza allentare le
 regole generali — utile per una feature che hai valutato tu, o per un bug
 grande che vuoi comunque far tentare all'AI.
+
+## Approvazione del piano
+
+Per ogni tipo di ticket puoi pretendere che, **oltre una certa difficoltà**, un
+umano approvi il piano dell'AI prima che questa tocchi il codice. Lo imposti con
+la soglia **"Approvazione piano da effort ≥"**: `Mai` (default: nessun gate),
+oppure un valore da **1 a 5**.
+
+Se per il tipo del ticket la soglia è impostata e **l'effort stimato la
+raggiunge**, il fix esegue **solo la fase di pianificazione** (Opus, sola
+lettura) e poi **si ferma**:
+
+- il **piano** viene salvato e mostrato come commento `ai` sul ticket;
+- il job va in stato **`awaiting_plan_approval`**;
+- il ticket passa a **`in_progress`**;
+- scatta l'evento [`job.plan_review`](/docs/notifications/) (se configurato).
+
+Sul dettaglio del ticket compaiono i pulsanti **Approva** / **Rifiuta**:
+
+- **Approva** → il job riprende in **modalità esecuzione**, usando
+  **esattamente il piano approvato** (Sonnet esegue, niente ri-pianificazione),
+  poi commit, push e PR come di consueto.
+- **Rifiuta** → il job **torna a pianificare** (il piano salvato viene scartato)
+  incorporando i tuoi commenti come guida, e **si ferma di nuovo** in attesa di
+  approvazione. Per indirizzare la nuova pianificazione, **scrivi un commento**
+  con cosa correggere **prima** di premere Rifiuta.
+
+:::note[Ortogonale all'avvio manuale]
+Il gate di approvazione è **indipendente** da come è partito il fix: un fix
+rischioso richiede l'approvazione del piano **anche se l'hai avviato a mano** con
+"Avvia fix AI". Le due soglie hanno scopi diversi: `maxEffort` decide se il fix
+parte da solo, "Approvazione piano da effort ≥" decide se il fix si ferma a far
+rivedere il piano.
+:::
 
 ## Come si lega al fix in due fasi e ai costi
 

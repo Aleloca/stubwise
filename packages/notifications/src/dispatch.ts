@@ -38,7 +38,9 @@ export interface NotificationSettingsRow {
   notifyTicketCreated: boolean;
   notifyPrOpened: boolean;
   notifyJobHeld: boolean;
+  notifyPlanReview: boolean;
   notifyJobFailed: boolean;
+  notifyPrClosed: boolean;
 }
 
 export interface DispatchOptions {
@@ -56,7 +58,9 @@ const TOGGLE_FOR_KIND: Record<NotificationKind, keyof NotificationSettingsRow> =
   "ticket.created": "notifyTicketCreated",
   "job.pr_opened": "notifyPrOpened",
   "job.held": "notifyJobHeld",
+  "job.plan_review": "notifyPlanReview",
   "job.failed": "notifyJobFailed",
+  "job.pr_closed": "notifyPrClosed",
 };
 
 /**
@@ -73,7 +77,9 @@ async function loadSettings(db: Db): Promise<NotificationSettingsRow | null> {
       notifyTicketCreated: notificationSettings.notifyTicketCreated,
       notifyPrOpened: notificationSettings.notifyPrOpened,
       notifyJobHeld: notificationSettings.notifyJobHeld,
+      notifyPlanReview: notificationSettings.notifyPlanReview,
       notifyJobFailed: notificationSettings.notifyJobFailed,
+      notifyPrClosed: notificationSettings.notifyPrClosed,
     })
     .from(notificationSettings)
     .limit(1);

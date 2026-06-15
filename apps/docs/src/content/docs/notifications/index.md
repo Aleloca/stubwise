@@ -1,6 +1,6 @@
 ---
 title: Notifiche
-description: "Un webhook in uscita (Slack, Discord o JSON generico) avvisa sugli eventi chiave: nuovo ticket, PR aperta, job in attesa, fix fallito."
+description: "Un webhook in uscita (Slack, Discord o JSON generico) avvisa sugli eventi chiave: nuovo ticket, PR aperta, PR chiusa, job in attesa, piano da approvare, fix fallito."
 ---
 
 Stubwise può inviare una notifica a un **webhook in uscita** sugli eventi chiave
@@ -8,14 +8,16 @@ della piattaforma. È un'unica configurazione (Impostazioni → Notifiche, solo
 admin): scegli il formato, incolla l'URL del webhook e decidi su quali eventi
 ricevere il messaggio.
 
-## I quattro eventi
+## Gli eventi
 
-| Evento           | Quando scatta                                                              |
-| ---------------- | -------------------------------------------------------------------------- |
-| `ticket.created` | Un nuovo ticket arriva dall'SDK (errore o feedback).                       |
-| `job.pr_opened`  | La pipeline AI ha aperto una pull request per un ticket.                   |
-| `job.held`       | Un job è in attesa di revisione umana (gate di automazione / soglia effort). |
-| `job.failed`     | Il fix AI è fallito.                                                        |
+| Evento             | Quando scatta                                                              |
+| ------------------ | -------------------------------------------------------------------------- |
+| `ticket.created`   | Un nuovo ticket arriva dall'SDK (errore o feedback).                       |
+| `job.pr_opened`    | La pipeline AI ha aperto una pull request per un ticket.                   |
+| `job.pr_closed`    | Una PR aperta dall'AI è stata chiusa senza merge: il ticket viene riaperto. |
+| `job.held`         | Un job è in attesa di revisione umana (gate di automazione / soglia effort). |
+| `job.plan_review`  | La pianificazione ha prodotto un piano in attesa di approvazione umana.    |
+| `job.failed`       | Il fix AI è fallito.                                                        |
 
 Ogni evento ha un toggle dedicato: puoi abilitare solo quelli che ti interessano.
 L'interruttore generale **Abilitate** sospende tutte le notifiche senza perdere
@@ -32,8 +34,8 @@ flusso è:
 3. **Scegli il formato**: **Slack**, **Discord** o **JSON generico** (vedi le
    guide per provider più sotto). Il formato determina sia la forma del payload
    sia l'anteprima.
-4. **Attiva i toggle per-evento** che ti interessano tra i
-   [quattro eventi](#i-quattro-eventi).
+4. **Attiva i toggle per-evento** che ti interessano tra gli
+   [eventi disponibili](#gli-eventi).
 5. Controlla l'**anteprima dal vivo**: mostra il messaggio o il payload esatto
    che verrà inviato per il formato scelto, generato con la stessa funzione del
    dispatch reale (testo *mrkdwn* per Slack, markdown per Discord, JSON pretty
@@ -84,14 +86,14 @@ Con formato **JSON generico** il tuo endpoint riceve una richiesta `POST` con
 
 | Campo          | Tipo             | Presenza                | Descrizione                                              |
 | -------------- | ---------------- | ----------------------- | ------------------------------------------------------- |
-| `event`        | string           | sempre                  | Tipo di evento: uno tra i quattro `kind`.               |
+| `event`        | string           | sempre                  | Tipo di evento: uno dei `kind` elencati sopra.          |
 | `ticketNumber` | number           | sempre                  | Numero del ticket.                                      |
 | `title`        | string           | sempre                  | Titolo del ticket.                                      |
 | `projectName`  | string           | sempre                  | Nome del progetto.                                      |
 | `message`      | string           | sempre                  | Riepilogo leggibile dell'evento (italiano, senza markup). |
 | `ticketUrl`    | string           | sempre                  | Link al ticket in Stubwise.                             |
 | `source`       | string           | solo `ticket.created`   | Sorgente SDK: `sdk_error` o `sdk_feedback`.             |
-| `prUrl`        | string           | solo `job.pr_opened`    | URL della pull request aperta.                          |
+| `prUrl`        | string           | solo `job.pr_opened` / `job.pr_closed` | URL della pull request (aperta o chiusa). |
 | `costUsd`      | number \| null   | solo `job.pr_opened`    | Costo USD del run di fix (`null` se non noto).          |
 | `type`         | string           | solo `job.held`         | Tipo del ticket (ri)classificato dal triage.            |
 | `effort`       | number           | solo `job.held`         | Sforzo stimato, da 1 a 5.                               |
@@ -128,6 +130,20 @@ Con formato **JSON generico** il tuo endpoint riceve una richiesta `POST` con
 }
 ```
 
+`job.pr_closed`:
+
+```json
+{
+  "event": "job.pr_closed",
+  "ticketNumber": 128,
+  "title": "TypeError: cannot read 'id' of undefined al checkout",
+  "projectName": "negozio-web",
+  "message": "PR chiusa senza merge — ticket riaperto: #128 — TypeError: cannot read 'id' of undefined al checkout.",
+  "ticketUrl": "https://stubwise.example.com/tickets/128",
+  "prUrl": "https://github.com/acme/negozio-web/pull/342"
+}
+```
+
 `job.held`:
 
 ```json
@@ -140,6 +156,19 @@ Con formato **JSON generico** il tuo endpoint riceve una richiesta `POST` con
   "ticketUrl": "https://stubwise.example.com/tickets/131",
   "type": "feature",
   "effort": 4
+}
+```
+
+`job.plan_review`:
+
+```json
+{
+  "event": "job.plan_review",
+  "ticketNumber": 131,
+  "title": "Aggiungere export CSV allo storico ordini",
+  "projectName": "negozio-web",
+  "message": "Piano in attesa di approvazione — #131 — Aggiungere export CSV allo storico ordini (negozio-web).",
+  "ticketUrl": "https://stubwise.example.com/tickets/131"
 }
 ```
 

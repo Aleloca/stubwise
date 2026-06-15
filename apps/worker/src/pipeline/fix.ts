@@ -1,7 +1,7 @@
-import { comments, decrypt, gitAccounts, projects, tickets, type Db } from "@stubwise/db";
+import { automationRules, comments, decrypt, gitAccounts, projects, tickets, type Db } from "@stubwise/db";
 import { getProvider, type GitProvider } from "@stubwise/git";
 import type { GitProviderKind } from "@stubwise/shared";
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { execa } from "execa";
 import { readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
@@ -17,6 +17,7 @@ import {
   appendLog,
   completeJob,
   failJob,
+  parkForPlanApproval,
   recordAgentRun,
   touchJob,
   type AiJob,
@@ -107,7 +108,40 @@ export interface FixDeps extends NotifyDeps {
   heartbeatIntervalMs?: number;
 }
 
-export type FixOutcome = "pr_opened" | "failed";
+export type FixOutcome = "pr_opened" | "failed" | "awaiting_approval";
+
+/** Modalità di esecuzione del fix, risolta PRIMA di toccare il repo. */
+type FixMode = "full" | "plan-only" | "execute-only";
+
+/** Riga `tickets` (campi usati per risolvere la modalità). */
+type Ticket = typeof tickets.$inferSelect;
+
+/**
+ * Risolve la modalità del fix dal job e dalle regole di automazione del tipo
+ * del ticket:
+ * - `execute-only`: il piano è già stato approvato (resumeMode="execute" con un
+ *   planText): si salta la pianificazione e si esegue direttamente dal piano.
+ * - `plan-only`: per il tipo del ticket è impostata una soglia di approvazione
+ *   del piano (`plan_approval_min_effort`) e l'effort stimato la raggiunge: si
+ *   pianifica e ci si ferma in attesa dell'approvazione umana.
+ * - `full`: comportamento storico (plan + execute in fila).
+ *
+ * NOTA: il gate di approvazione del piano è ORTOGONALE a `manualTrigger`. Un
+ * avvio a mano NON aggira l'approvazione: un fix rischioso (effort alto) deve
+ * comunque proporre un piano e attendere l'ok umano prima di toccare il codice.
+ */
+async function resolveFixMode(db: Db, job: AiJob, ticket: Ticket): Promise<FixMode> {
+  if (job.resumeMode === "execute" && job.planText) return "execute-only";
+  const [rule] = await db
+    .select({ minEffort: automationRules.planApprovalMinEffort })
+    .from(automationRules)
+    .where(eq(automationRules.type, ticket.type));
+  const minEffort = rule?.minEffort ?? null;
+  if (minEffort !== null && ticket.effort !== null && ticket.effort >= minEffort) {
+    return "plan-only";
+  }
+  return "full";
+}
 
 /** Tetto per gli output dell'agente accodati al log del job. */
 const LOG_OUTPUT_MAX_CHARS = 4000;
@@ -254,15 +288,37 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   const titleLine = toSingleLine(ticket.title, TITLE_MAX_CHARS);
   const prTitle = `fix: ${titleLine} (#${ticket.number})`;
 
+  // Modalità del fix risolta PRIMA di toccare il repo: decide se pianificare e
+  // basta (plan-only), riprendere dal piano approvato (execute-only) o fare
+  // tutto in fila (full). Vedi resolveFixMode per il gate di approvazione.
+  const fixMode = await resolveFixMode(db, job, ticket);
+
   await appendLog(
     db,
     job.id,
-    `[fix] avviato per il ticket #${ticket.number} (branch ${branch}` +
-      `${twoPhase ? `, due fasi: plan ${planModel} + execute ${executeModel}` : `, fase singola`})`,
+    `[fix] avviato per il ticket #${ticket.number} (branch ${branch}, modalità ${fixMode}` +
+      `${twoPhase ? `, plan ${planModel} + execute ${executeModel}` : `, fase singola`})`,
   );
 
-  let report: string | null;
-  let agentOutput: string;
+  // Indicazioni del team: i commenti UTENTE lasciati sul ticket (gli ultimi
+  // ~10, dal più recente) entrano nei prompt di fix come input NON fidato.
+  // Solo authorType 'user': i commenti AI (col piano) e gli avvisi di sistema
+  // non sono indicazioni del team.
+  const teamCommentRows = await db
+    .select({ body: comments.body })
+    .from(comments)
+    .where(and(eq(comments.ticketId, ticket.id), eq(comments.authorType, "user")))
+    .orderBy(desc(comments.createdAt))
+    .limit(10);
+  const teamComments = teamCommentRows.map((r) => r.body);
+
+  // Esito della callback withWorktree, discriminato sulla modalità: in
+  // plan-only la callback produce SOLO il piano (niente report/commit/push); in
+  // full/execute-only produce il fix eseguito (report + output dell'agente).
+  type WorktreeResult =
+    | { kind: "executed"; report: string | null; agentOutput: string }
+    | { kind: "planned"; planText: string };
+  let worktreeResult: WorktreeResult;
   // Consumi dei run dell'agente: ogni run (plan ed execute, o l'unico run nella
   // modalità a fase singola) registra la PROPRIA riga sotto phase 'fix' così i
   // costi dei due modelli restano separati. Si accumulano qui e si registrano
@@ -276,11 +332,11 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     }
   };
   try {
-    ({ report, agentOutput } = await mirrors.withWorktree(mirrorProject, branch, async (dir) => {
+    worktreeResult = await mirrors.withWorktree(mirrorProject, branch, async (dir): Promise<WorktreeResult> => {
       // Heartbeat: il fix può durare a lungo (plan + execute) senza scrivere
       // nel log. Senza questo touchJob periodico, requeueStale crederebbe il
-      // job orfano e ne aprirebbe un duplicato. L'interval avvolge ENTRAMBI i
-      // run ed è cancellato in finally.
+      // job orfano e ne aprirebbe un duplicato. L'interval avvolge il/i run
+      // (anche il solo plan run in plan-only) ed è cancellato in finally.
       const heartbeat = setInterval(() => {
         void touchJob(db, job.id).catch(() => {
           // Un bump fallito (DB transitorio) non deve uccidere il fix: il
@@ -292,15 +348,43 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       let output: string;
       let exitCode: number;
       try {
-        // FASE 1 — pianificazione (opzionale): modello forte in sola lettura
-        // (permission-mode "plan"), nessun allowedTools di test, turni/timeout
-        // ridotti. Produce un piano che guida l'esecuzione. Consumi registrati
-        // a parte (riga 'fix' del planModel).
-        let executePrompt: string;
-        if (twoPhase) {
+        // PLAN-ONLY: solo il run di pianificazione (Opus, sola lettura). Si
+        // cattura il piano, NON si esegue il fix, NON si committa/pusha. Il
+        // plan run gira QUI perché l'agente deve esplorare il repo reale.
+        if (fixMode === "plan-only") {
           const planResult = await runner.run({
             cwd: dir,
-            prompt: buildFixPlanPrompt({ ticket }),
+            prompt: buildFixPlanPrompt({ ticket, teamComments }),
+            model: planModel,
+            permissionMode: "plan",
+            maxTurns: DEFAULT_PLAN_MAX_TURNS,
+            timeoutMs: planTimeoutMs,
+          });
+          fixUsages.push(planResult.usage);
+          // Un exit non-zero della pianificazione è un fallimento del fix
+          // (gestito nel catch → failJob): niente parcheggio, niente piano.
+          if (planResult.exitCode !== 0) {
+            throw new AgentExitError(planResult.exitCode, planResult.output);
+          }
+          return { kind: "planned", planText: planResult.output };
+        }
+
+        // FASE 1 — pianificazione (full + twoPhase): modello forte in sola
+        // lettura (permission-mode "plan"), nessun allowedTools di test,
+        // turni/timeout ridotti. In execute-only si SALTA: il piano è già
+        // stato approvato (job.planText) e va riusato verbatim.
+        let executePrompt: string;
+        if (fixMode === "execute-only") {
+          // job.planText è garantito non-null/non-vuoto da resolveFixMode.
+          executePrompt = buildFixExecutePrompt({
+            ticket,
+            plan: job.planText!,
+            teamComments,
+          });
+        } else if (twoPhase) {
+          const planResult = await runner.run({
+            cwd: dir,
+            prompt: buildFixPlanPrompt({ ticket, teamComments }),
             model: planModel,
             permissionMode: "plan",
             maxTurns: DEFAULT_PLAN_MAX_TURNS,
@@ -312,19 +396,25 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
           if (planResult.exitCode !== 0) {
             throw new AgentExitError(planResult.exitCode, planResult.output);
           }
-          executePrompt = buildFixExecutePrompt({ ticket, plan: planResult.output });
+          executePrompt = buildFixExecutePrompt({
+            ticket,
+            plan: planResult.output,
+            teamComments,
+          });
         } else {
           // Fase singola (FIX_TWO_PHASE=false): un solo run con il prompt
           // monolitico storico, come prima dell'introduzione delle due fasi.
-          executePrompt = buildFixPrompt({ ticket });
+          executePrompt = buildFixPrompt({ ticket, teamComments });
         }
 
         // FASE 2 — esecuzione: modello economico, acceptEdits + allowedTools di
-        // test, turni/timeout pieni. Implementa il fix e scrive il report.
+        // test, turni/timeout pieni. Implementa il fix e scrive il report. In
+        // execute-only il piano è già stato approvato: si usa executeModel
+        // (c'è sempre un piano, quindi è di fatto la fase di esecuzione).
         const result = await runner.run({
           cwd: dir,
           prompt: executePrompt,
-          ...(twoPhase
+          ...(twoPhase || fixMode === "execute-only"
             ? { model: executeModel }
             : deps.model !== undefined
               ? { model: deps.model }
@@ -381,8 +471,8 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       // Push DENTRO la callback: il branch ref vive nel mirror e viene
       // cancellato all'uscita da withWorktree (vedi mirrors.ts).
       await mirrors.pushBranch(mirrorProject, branch);
-      return { report: reportContent, agentOutput: output };
-    }));
+      return { kind: "executed", report: reportContent, agentOutput: output };
+    });
   } catch (err) {
     // Qualunque sia l'errore, il worktree è già stato rimosso da withWorktree.
     // Consumi dei run di fix (best-effort): se l'agente ha prodotto usage prima
@@ -429,10 +519,45 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     return "failed";
   }
 
-  // Run di fix riusciti: registra i consumi di TUTTI i run (best-effort) prima
-  // di proseguire con commit/PR. Non fa mai fallire il job.
+  // Run riusciti: registra i consumi di TUTTI i run (best-effort) prima di
+  // proseguire. Non fa mai fallire il job. Vale sia per plan-only sia per
+  // l'esecuzione.
   await recordAllUsages();
 
+  // PLAN-ONLY: la pianificazione è andata a buon fine. Niente PR: si persiste
+  // il piano (commento AI + ticket in_progress), si parcheggia il job in
+  // awaiting_plan_approval (NON terminale) e si notifica la richiesta di
+  // revisione. La ripresa avverrà con un job resumeMode="execute" (execute-only).
+  if (worktreeResult.kind === "planned") {
+    const { planText } = worktreeResult;
+    await db.transaction(async (tx) => {
+      await tx.insert(comments).values({
+        ticketId: ticket.id,
+        authorType: "ai",
+        body: `Piano proposto (in attesa di approvazione):\n\n${planText}`,
+      });
+      await tx.update(tickets).set({ status: "in_progress" }).where(eq(tickets.id, ticket.id));
+    });
+    const parked = await parkForPlanApproval(db, job.id, {
+      planText,
+      log: "[fix] piano pronto, in attesa di approvazione",
+    });
+    if (!parked) {
+      // Ownership persa dopo la pianificazione: il commento e lo stato del
+      // ticket sono comunque veri; solo una riga di log, niente overwrite.
+      await appendLog(db, job.id, "[fix] ownership persa dopo la pianificazione");
+    }
+    await notify(notifyDeps, db, {
+      kind: "job.plan_review",
+      ticketNumber: ticket.number,
+      ticketTitle: ticket.title,
+      projectName: project.name,
+      ticketUrl: url,
+    });
+    return "awaiting_approval";
+  }
+
+  const { report, agentOutput } = worktreeResult;
   const logLines: string[] = [`[fix] output agente:\n${truncateForLog(agentOutput)}`];
   let reportBody: string;
   if (report === null) {

@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { aiJobs, tickets } from "@stubwise/db";
+import { aiJobs, comments, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
@@ -702,5 +702,318 @@ describe("POST /api/tickets/:id/run-ai", () => {
     expect(job?.startedAt).toBeNull();
     expect(job?.finishedAt).toBeNull();
     expect(job?.error).toBeNull();
+  });
+
+  it("withInstructions:true sull'ultimo job imposta resumeMode=fix e azzera planText", async () => {
+    const created = (await postTicket({ projectId, title: "Run AI fix", type: "bug" })).json() as {
+      id: string;
+    };
+    // Un job fermo in attesa di approvazione, con un piano già prodotto.
+    const [existing] = await testDb.db
+      .insert(aiJobs)
+      .values({
+        ticketId: created.id,
+        status: "awaiting_plan_approval",
+        planText: "vecchio piano",
+        manualTrigger: false,
+      })
+      .returning();
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/run-ai`,
+      headers: { cookie: users.memberCookie },
+      payload: { withInstructions: true },
+    });
+    expect(res.statusCode).toBe(202);
+    expect((res.json() as { jobId: string }).jobId).toBe(existing!.id);
+
+    const [job] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, existing!.id));
+    expect(job?.status).toBe("queued");
+    expect(job?.manualTrigger).toBe(true);
+    expect(job?.resumeMode).toBe("fix");
+    expect(job?.planText).toBeNull();
+  });
+
+  it("senza body (re-triage) imposta resumeMode=null e azzera planText", async () => {
+    const created = (await postTicket({ projectId, title: "Run AI re-triage", type: "bug" })).json() as {
+      id: string;
+    };
+    // Un job che aveva un resumeMode/planText residui da un run precedente.
+    const [existing] = await testDb.db
+      .insert(aiJobs)
+      .values({
+        ticketId: created.id,
+        status: "awaiting_plan_approval",
+        resumeMode: "execute",
+        planText: "vecchio piano",
+        manualTrigger: false,
+      })
+      .returning();
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/run-ai`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(res.statusCode).toBe(202);
+
+    const [job] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, existing!.id));
+    expect(job?.status).toBe("queued");
+    expect(job?.manualTrigger).toBe(true);
+    expect(job?.resumeMode).toBeNull();
+    expect(job?.planText).toBeNull();
+  });
+
+  it("withInstructions:false è equivalente al re-triage (resumeMode=null)", async () => {
+    const created = (await postTicket({ projectId, title: "Run AI no fix", type: "bug" })).json() as {
+      id: string;
+    };
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/run-ai`,
+      headers: { cookie: users.memberCookie },
+      payload: { withInstructions: false },
+    });
+    expect(res.statusCode).toBe(202);
+    const { jobId } = res.json() as { jobId: string };
+
+    const [job] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
+    expect(job?.resumeMode).toBeNull();
+  });
+
+  it("creazione ex-novo con withInstructions:true: job queued+manuale con resumeMode=fix", async () => {
+    const created = (await postTicket({ projectId, title: "Run AI nuovo fix", type: "bug" })).json() as {
+      id: string;
+    };
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/run-ai`,
+      headers: { cookie: users.memberCookie },
+      payload: { withInstructions: true },
+    });
+    expect(res.statusCode).toBe(202);
+    const { jobId } = res.json() as { jobId: string };
+
+    const [job] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
+    expect(job?.status).toBe("queued");
+    expect(job?.manualTrigger).toBe(true);
+    expect(job?.resumeMode).toBe("fix");
+    expect(job?.planText).toBeNull();
+  });
+});
+
+describe("POST /api/tickets/:id/approve-plan", () => {
+  /** Inserisce un job in awaiting_plan_approval con un piano e residui da azzerare. */
+  async function seedAwaitingJob(ticketId: string) {
+    const [job] = await testDb.db
+      .insert(aiJobs)
+      .values({
+        ticketId,
+        status: "awaiting_plan_approval",
+        planText: "## Piano\n1. fai questo\n2. poi quello",
+        startedAt: new Date(),
+        finishedAt: new Date(),
+        error: "vecchio errore",
+      })
+      .returning();
+    return job!;
+  }
+
+  it("ticket inesistente: 404", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${randomUUID()}/approve-plan`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("senza sessione: 401", async () => {
+    const created = (
+      await postTicket({ projectId, title: "Approve 401", type: "bug" })
+    ).json() as { id: string };
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/approve-plan`,
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("approva il piano: 202, job queued+execute, planText CONSERVATO, started/finished/error azzerati, commento system", async () => {
+    const created = (
+      await postTicket({ projectId, title: "Approve ok", type: "bug" })
+    ).json() as { id: string };
+    const job = await seedAwaitingJob(created.id);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/approve-plan`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(res.statusCode).toBe(202);
+    expect((res.json() as { jobId: string }).jobId).toBe(job.id);
+
+    const [updated] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(updated?.status).toBe("queued");
+    expect(updated?.resumeMode).toBe("execute");
+    // Il piano approvato è ciò che il worker eseguirà: NON va azzerato.
+    expect(updated?.planText).toBe("## Piano\n1. fai questo\n2. poi quello");
+    expect(updated?.startedAt).toBeNull();
+    expect(updated?.finishedAt).toBeNull();
+    expect(updated?.error).toBeNull();
+
+    const cmts = await testDb.db.select().from(comments).where(eq(comments.ticketId, created.id));
+    const systemComment = cmts.find((c) => c.authorType === "system");
+    expect(systemComment).toBeDefined();
+    expect(systemComment?.body).toMatch(/approvat/i);
+  });
+
+  it("agisce sull'ultimo job AWAITING anche se ne esiste uno più recente in altro stato", async () => {
+    const created = (
+      await postTicket({ projectId, title: "Approve awaiting più vecchio", type: "bug" })
+    ).json() as { id: string };
+    // Job awaiting più vecchio…
+    const awaiting = await seedAwaitingJob(created.id);
+    // …e un job queued più recente (createdAt successivo): non deve mascherare
+    // il piano genuinamente in attesa rendendolo irraggiungibile (409).
+    const [newer] = await testDb.db
+      .insert(aiJobs)
+      .values({
+        ticketId: created.id,
+        status: "queued",
+        createdAt: new Date(awaiting.createdAt.getTime() + 60_000),
+      })
+      .returning();
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/approve-plan`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(res.statusCode).toBe(202);
+    expect((res.json() as { jobId: string }).jobId).toBe(awaiting.id);
+
+    const [updatedAwaiting] = await testDb.db
+      .select()
+      .from(aiJobs)
+      .where(eq(aiJobs.id, awaiting.id));
+    expect(updatedAwaiting?.status).toBe("queued");
+    expect(updatedAwaiting?.resumeMode).toBe("execute");
+    // Il job queued più recente resta intatto.
+    const [untouched] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, newer!.id));
+    expect(untouched?.resumeMode).toBeNull();
+  });
+
+  it("job NON in awaiting_plan_approval: 409, nessuna modifica e nessun commento", async () => {
+    const created = (
+      await postTicket({ projectId, title: "Approve conflitto", type: "bug" })
+    ).json() as { id: string };
+    const [job] = await testDb.db
+      .insert(aiJobs)
+      .values({ ticketId: created.id, status: "queued", planText: "piano" })
+      .returning();
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/approve-plan`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(res.statusCode).toBe(409);
+
+    const [unchanged] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job!.id));
+    expect(unchanged?.status).toBe("queued");
+    expect(unchanged?.resumeMode).toBeNull();
+    const cmts = await testDb.db.select().from(comments).where(eq(comments.ticketId, created.id));
+    expect(cmts).toHaveLength(0);
+  });
+});
+
+describe("POST /api/tickets/:id/reject-plan", () => {
+  async function seedAwaitingJob(ticketId: string) {
+    const [job] = await testDb.db
+      .insert(aiJobs)
+      .values({
+        ticketId,
+        status: "awaiting_plan_approval",
+        planText: "## Piano scartato",
+        startedAt: new Date(),
+        finishedAt: new Date(),
+        error: "vecchio errore",
+      })
+      .returning();
+    return job!;
+  }
+
+  it("ticket inesistente: 404", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${randomUUID()}/reject-plan`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("senza sessione: 401", async () => {
+    const created = (
+      await postTicket({ projectId, title: "Reject 401", type: "bug" })
+    ).json() as { id: string };
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/reject-plan`,
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("rifiuta il piano: 202, job queued+fix, planText=null, started/finished/error azzerati, commento system", async () => {
+    const created = (
+      await postTicket({ projectId, title: "Reject ok", type: "bug" })
+    ).json() as { id: string };
+    const job = await seedAwaitingJob(created.id);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/reject-plan`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(res.statusCode).toBe(202);
+    expect((res.json() as { jobId: string }).jobId).toBe(job.id);
+
+    const [updated] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(updated?.status).toBe("queued");
+    expect(updated?.resumeMode).toBe("fix");
+    // Piano rifiutato: il worker ri-pianifica, quindi planText va azzerato.
+    expect(updated?.planText).toBeNull();
+    expect(updated?.startedAt).toBeNull();
+    expect(updated?.finishedAt).toBeNull();
+    expect(updated?.error).toBeNull();
+
+    const cmts = await testDb.db.select().from(comments).where(eq(comments.ticketId, created.id));
+    const systemComment = cmts.find((c) => c.authorType === "system");
+    expect(systemComment).toBeDefined();
+    expect(systemComment?.body).toMatch(/rifiutat/i);
+  });
+
+  it("job NON in awaiting_plan_approval: 409, nessuna modifica e nessun commento", async () => {
+    const created = (
+      await postTicket({ projectId, title: "Reject conflitto", type: "bug" })
+    ).json() as { id: string };
+    const [job] = await testDb.db
+      .insert(aiJobs)
+      .values({ ticketId: created.id, status: "fixing", planText: "piano" })
+      .returning();
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/reject-plan`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(res.statusCode).toBe(409);
+
+    const [unchanged] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job!.id));
+    expect(unchanged?.status).toBe("fixing");
+    expect(unchanged?.planText).toBe("piano");
+    const cmts = await testDb.db.select().from(comments).where(eq(comments.ticketId, created.id));
+    expect(cmts).toHaveLength(0);
   });
 });

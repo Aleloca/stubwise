@@ -101,6 +101,29 @@ export function SettingsAutomationPage() {
                   ))}
                 </select>
               </label>
+
+              <label className="flex items-center gap-2 font-mono text-[12px] text-fg-muted">
+                <span className="text-fg-faint">Approvazione piano da effort ≥</span>
+                <select
+                  value={rule.planApprovalMinEffort ?? ""}
+                  disabled={mutation.isPending}
+                  onChange={(event) =>
+                    updateRule(type, {
+                      planApprovalMinEffort:
+                        event.target.value === "" ? null : Number(event.target.value),
+                    })
+                  }
+                  aria-label={`Approvazione piano ${type}`}
+                  className="rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
+                >
+                  <option value="">Mai</option>
+                  {[1, 2, 3, 4, 5].map((value) => (
+                    <option key={value} value={value}>
+                      {effortOptionLabel(value)}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
           );
         })}

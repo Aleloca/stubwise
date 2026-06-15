@@ -1,4 +1,5 @@
 import { getProvider } from "@stubwise/git";
+import { dispatchNotification } from "@stubwise/notifications";
 import { and, eq, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { aiJobs, comments, projects, tickets } from "@stubwise/db";
@@ -26,6 +27,15 @@ function normalizeHeaders(raw: FastifyRequest["headers"]): Record<string, string
     out[key.toLowerCase()] = Array.isArray(value) ? (value[0] ?? "") : value;
   }
   return out;
+}
+
+/**
+ * Compone l'URL assoluto del ticket a partire dal base pubblico. Il getter
+ * `instance.publicUrl` normalizza già togliendo gli slash finali; questo helper
+ * si limita a comporre il path, allineato al `ticketUrl` del processor.
+ */
+function ticketUrl(base: string, ticketId: string): string {
+  return `${base}/tickets/${ticketId}`;
 }
 
 /**
@@ -113,36 +123,93 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
       const ticketNumber = Number(match[1]);
 
       const [ticket] = await instance.db
-        .select({ id: tickets.id, status: tickets.status })
+        .select({
+          id: tickets.id,
+          status: tickets.status,
+          number: tickets.number,
+          title: tickets.title,
+        })
         .from(tickets)
         .where(and(eq(tickets.projectId, context.projectId), eq(tickets.number, ticketNumber)));
 
-      // Nessun ticket per quel numero, o già chiuso/concluso: nulla da fare,
-      // idempotente. Non si crea un secondo commento di sistema.
-      if (!ticket || ticket.status === "done" || ticket.status === "closed") {
+      if (event.kind === "merged") {
+        // Nessun ticket per quel numero, o già chiuso/concluso: nulla da fare,
+        // idempotente. Non si crea un secondo commento di sistema.
+        if (!ticket || ticket.status === "done" || ticket.status === "closed") {
+          return reply.code(204).send();
+        }
+
+        await instance.db.transaction(async (tx) => {
+          await tx.update(tickets).set({ status: "done" }).where(eq(tickets.id, ticket.id));
+          await tx.insert(comments).values({
+            ticketId: ticket.id,
+            authorType: "system",
+            body: `PR mergiata: ${event.prUrl} — ticket chiuso automaticamente`,
+          });
+          // Allinea il job AI alla realtà: la PR aperta dalla pipeline è stata
+          // mergiata. Si tocca SOLO il job in stato `pr_opened` (al più uno per
+          // ticket), così una ri-consegna del webhook trova zero righe da
+          // aggiornare (idempotenza) e gli altri stati restano intatti.
+          await tx
+            .update(aiJobs)
+            .set({
+              status: "pr_merged",
+              finishedAt: sql`coalesce(${aiJobs.finishedAt}, now())`,
+              lastActivityAt: sql`now()`,
+            })
+            .where(and(eq(aiJobs.ticketId, ticket.id), eq(aiJobs.status, "pr_opened")));
+        });
+
         return reply.code(204).send();
       }
 
+      // event.kind === "closed_unmerged": riapertura del ticket.
+      // Agiamo SOLO se il ticket è ancora in review (la pipeline ci ha appena
+      // aperto la PR). Qualunque altro stato → 204 idempotente: una ri-consegna,
+      // o un ticket già ripreso/concluso a mano, non deve produrre effetti.
+      if (!ticket || ticket.status !== "in_review") return reply.code(204).send();
+
       await instance.db.transaction(async (tx) => {
-        await tx.update(tickets).set({ status: "done" }).where(eq(tickets.id, ticket.id));
+        await tx.update(tickets).set({ status: "triaged" }).where(eq(tickets.id, ticket.id));
         await tx.insert(comments).values({
           ticketId: ticket.id,
           authorType: "system",
-          body: `PR mergiata: ${event.prUrl} — ticket chiuso automaticamente`,
+          body: `PR chiusa senza merge: ${event.prUrl} — ticket riaperto, rilancia il fix quando vuoi`,
         });
-        // Allinea il job AI alla realtà: la PR aperta dalla pipeline è stata
-        // mergiata. Si tocca SOLO il job in stato `pr_opened` (al più uno per
-        // ticket), così una ri-consegna del webhook trova zero righe da
-        // aggiornare (idempotenza) e gli altri stati restano intatti.
+        // Allinea il job AI: la PR aperta dalla pipeline è stata chiusa senza
+        // merge. Si tocca SOLO il job `pr_opened` (idempotenza: una ri-consegna
+        // non trova righe), gli altri stati restano intatti.
         await tx
           .update(aiJobs)
           .set({
-            status: "pr_merged",
+            status: "pr_closed",
             finishedAt: sql`coalesce(${aiJobs.finishedAt}, now())`,
             lastActivityAt: sql`now()`,
           })
           .where(and(eq(aiJobs.ticketId, ticket.id), eq(aiJobs.status, "pr_opened")));
       });
+
+      // Notifica best-effort job.pr_closed DOPO il commit (riflette realtà
+      // committata). Il gating del toggle `notifyPrClosed` è centralizzato in
+      // dispatchNotification, qui non si decide nulla. dispatchNotification non
+      // lancia mai, ma il nome del progetto è in una query a parte: la
+      // racchiudiamo comunque in try/catch per non far fallire la 204.
+      try {
+        const [project] = await instance.db
+          .select({ name: projects.name })
+          .from(projects)
+          .where(eq(projects.id, context.projectId));
+        await dispatchNotification(instance.db, {
+          kind: "job.pr_closed",
+          ticketNumber: ticket.number,
+          ticketTitle: ticket.title,
+          projectName: project?.name ?? "",
+          prUrl: event.prUrl,
+          ticketUrl: ticketUrl(instance.publicUrl, ticket.id),
+        });
+      } catch {
+        // Best-effort: una notifica mancata non deve disfare la riapertura.
+      }
 
       return reply.code(204).send();
     },

@@ -52,9 +52,22 @@ export const aiJobStatus = pgEnum("ai_job_status", [
   "pr_merged",
   "failed",
   "skipped",
+  // "pr_closed": la PR aperta dal fix è stata chiusa senza merge (rifiutata da
+  // un umano). Stato terminale, distinto da "pr_merged".
+  "pr_closed",
+  // "awaiting_plan_approval": la pianificazione ha prodotto un piano che
+  // supera la soglia di effort configurata; il job è parcheggiato in attesa
+  // dell'approvazione umana prima di eseguirlo.
+  "awaiting_plan_approval",
 ]);
 // Le due fasi AI di cui tracciamo i consumi (token + costo): triage e fix.
 export const agentRunPhase = pgEnum("agent_run_phase", ["triage", "fix"]);
+
+// Modalità di ripresa di un job rimesso in coda da un intervento umano:
+//  null     → job normale: triage → (gate) → fix;
+//  "fix"    → salta il triage, va al fix (può ri-fermarsi sul gate del piano);
+//  "execute"→ salta triage E pianificazione, esegue usando plan_text.
+export const resumeMode = pgEnum("resume_mode", ["fix", "execute"]);
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -237,6 +250,14 @@ export const aiJobs = pgTable(
     // base del recupero dei job orfani (requeueStale): un job che logga è
     // vivo anche se in lavorazione da molto.
     lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
+    // Modalità di ripresa di un job rimesso in coda da un intervento umano:
+    //  null     → job normale: triage → (gate) → fix;
+    //  "fix"    → salta il triage, va al fix (può ri-fermarsi sul gate del piano);
+    //  "execute"→ salta triage E pianificazione, esegue usando plan_text.
+    resumeMode: resumeMode("resume_mode"),
+    // Piano prodotto dalla fase di pianificazione, persistito tra il parcheggio
+    // in awaiting_plan_approval e la ripresa in esecuzione (resume_mode="execute").
+    planText: text("plan_text"),
   },
   (table) => [
     // Lookup dei job di un ticket (storico e dettaglio).
@@ -292,6 +313,9 @@ export const automationRules = pgTable("automation_rules", {
   type: ticketType("type").primaryKey(),
   autoFix: boolean("auto_fix").notNull().default(true),
   maxEffort: integer("max_effort").notNull().default(3),
+  // Approvazione umana del piano richiesta quando l'effort stimato è >= a
+  // questo valore. null = mai (default): il fix procede senza fermarsi.
+  planApprovalMinEffort: integer("plan_approval_min_effort"),
 });
 
 // Formato del messaggio del webhook di notifica in uscita: Slack (mrkdwn),
@@ -321,6 +345,8 @@ export const notificationSettings = pgTable("notification_settings", {
   notifyPrOpened: boolean("notify_pr_opened").notNull().default(true),
   notifyJobHeld: boolean("notify_job_held").notNull().default(true),
   notifyJobFailed: boolean("notify_job_failed").notNull().default(true),
+  notifyPrClosed: boolean("notify_pr_closed").notNull().default(true),
+  notifyPlanReview: boolean("notify_plan_review").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()

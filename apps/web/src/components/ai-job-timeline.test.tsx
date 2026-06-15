@@ -92,6 +92,19 @@ describe("AIJobTimeline", () => {
     expect(screen.getByText(/Automazione non avviata/i)).toBeInTheDocument();
   });
 
+  it("job 'pr_closed': etichetta PR chiusa", () => {
+    render(<AIJobTimeline jobs={[makeJob({ id: "j1", status: "pr_closed" })]} />);
+
+    expect(screen.getByText("PR chiusa")).toBeInTheDocument();
+  });
+
+  it("job 'awaiting_plan_approval': etichetta Piano da approvare e nota esplicativa", () => {
+    render(<AIJobTimeline jobs={[makeJob({ id: "j1", status: "awaiting_plan_approval" })]} />);
+
+    expect(screen.getByText("Piano da approvare")).toBeInTheDocument();
+    expect(screen.getByText(/approvalo o rifiutalo/i)).toBeInTheDocument();
+  });
+
   it("job fallito: mostra il messaggio d'errore", () => {
     render(
       <AIJobTimeline

@@ -103,6 +103,15 @@ export interface CompleteJobInput {
 }
 
 /**
+ * Invariante resume_mode/plan_text: questi campi sono di PROPRIETÀ di chi
+ * rimette il job in coda (run-ai/approve-plan/reject-plan/requeueStale), NON
+ * vengono azzerati alla chiusura terminale (completeJob/failJob/holdJob). Ogni
+ * percorso che riporta un job a `queued` imposta esplicitamente resume_mode
+ * (e gestisce plan_text), quindi le transizioni terminali qui sotto possono
+ * lasciarli invariati senza rischio di stato sporco al prossimo claim.
+ */
+
+/**
  * Chiude il job con un esito positivo (`pr_opened` o `skipped`): accoda il
  * log finale, registra l'eventuale URL della PR e imposta `finishedAt`.
  * Restituisce false se il job non era più in lavorazione (ownership persa):
@@ -184,6 +193,37 @@ export async function holdJob(db: Db, jobId: string, input: HoldJobInput): Promi
       status: "held",
       log: sql`${aiJobs.log} || ${`${input.log}\n`}`,
       finishedAt: sql`now()`,
+      lastActivityAt: sql`now()`,
+    })
+    .where(and(eq(aiJobs.id, jobId), inArray(aiJobs.status, [...ACTIVE_STATUSES])))
+    .returning({ id: aiJobs.id });
+  return updated.length > 0;
+}
+
+export interface ParkForPlanApprovalInput {
+  planText: string;
+  log: string;
+}
+
+/**
+ * Transizione fix → awaiting_plan_approval: la pianificazione ha prodotto un
+ * piano pronto che attende l'approvazione umana. A differenza di holdJob NON
+ * imposta finishedAt: il job non è concluso, è in pausa e riprenderà quando il
+ * piano sarà approvato. Status-guarded come markFixing/holdJob: restituisce
+ * false se la ownership è persa (job requeued e reclamato altrove) e in quel
+ * caso il chiamante non deve toccare nulla.
+ */
+export async function parkForPlanApproval(
+  db: Db,
+  jobId: string,
+  input: ParkForPlanApprovalInput,
+): Promise<boolean> {
+  const updated = await db
+    .update(aiJobs)
+    .set({
+      status: "awaiting_plan_approval",
+      planText: input.planText,
+      log: sql`${aiJobs.log} || ${`${input.log}\n`}`,
       lastActivityAt: sql`now()`,
     })
     .where(and(eq(aiJobs.id, jobId), inArray(aiJobs.status, [...ACTIVE_STATUSES])))

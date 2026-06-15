@@ -11,6 +11,8 @@ const JOB_STATUS_LABELS: Record<AIJobStatus, string> = {
   pr_merged: "PR mergiata",
   failed: "Fallito",
   skipped: "Saltato",
+  pr_closed: "PR chiusa",
+  awaiting_plan_approval: "Piano da approvare",
 };
 
 /** Colore del pallino di stato sulla rotaia della timeline. */
@@ -23,6 +25,11 @@ const JOB_STATUS_DOT: Record<AIJobStatus, string> = {
   pr_merged: "bg-ok",
   failed: "bg-danger",
   skipped: "bg-fg-faint",
+  // PR chiusa senza merge: esito terminale negativo, ma non un errore di
+  // sistema come "failed" → neutro spento.
+  pr_closed: "bg-fg-faint",
+  // In attesa di una decisione umana sul piano: stesso ambra del gate "held".
+  awaiting_plan_approval: "bg-signal",
 };
 
 const JOB_STATUS_TEXT: Record<AIJobStatus, string> = {
@@ -34,11 +41,14 @@ const JOB_STATUS_TEXT: Record<AIJobStatus, string> = {
   pr_merged: "text-ok",
   failed: "text-danger",
   skipped: "text-fg-faint",
+  pr_closed: "text-fg-faint",
+  awaiting_plan_approval: "text-signal",
 };
 
 /** Nota breve mostrata sotto lo stato per gli stati che la richiedono. */
 const JOB_STATUS_NOTE: Partial<Record<AIJobStatus, string>> = {
   held: "Automazione non avviata: serve un avvio manuale del fix.",
+  awaiting_plan_approval: "Il piano supera la soglia di effort: approvalo o rifiutalo per procedere.",
 };
 
 /**

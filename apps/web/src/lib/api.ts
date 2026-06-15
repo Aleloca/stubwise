@@ -266,7 +266,13 @@ export type AIJobStatus =
   | "pr_opened"
   | "pr_merged"
   | "failed"
-  | "skipped";
+  | "skipped"
+  // "pr_closed": la PR aperta dal fix è stata chiusa senza merge (rifiutata da
+  // un umano). Stato terminale, distinto da "pr_merged".
+  | "pr_closed"
+  // "awaiting_plan_approval": il piano prodotto supera la soglia di effort
+  // configurata; il job attende l'approvazione umana prima di eseguirlo.
+  | "awaiting_plan_approval";
 
 export interface AIJob {
   id: string;
@@ -288,9 +294,31 @@ export function getTicketJobs(ticketId: string): Promise<AIJob[]> {
  * Avvio manuale dell'AI su un ticket: rimette in coda l'ultimo job con il
  * flag manual_trigger, così il worker rifà il triage e procede sul fix
  * scavalcando il gate di automazione (soglia/auto-fix). 202 con l'id del job.
+ *
+ * Con `withInstructions:true` il job riparte in resume_mode=fix (riprende sul
+ * fix senza rifare il triage); senza opzione si rifà il triage da capo.
  */
-export function postRunAi(ticketId: string): Promise<{ jobId: string }> {
-  return api.post(`/api/tickets/${ticketId}/run-ai`);
+export function postRunAi(
+  ticketId: string,
+  opts?: { withInstructions?: boolean },
+): Promise<{ jobId: string }> {
+  return api.post(`/api/tickets/${ticketId}/run-ai`, opts);
+}
+
+/**
+ * Approva il piano in attesa sull'ultimo job del ticket: il worker lo eseguirà
+ * (resume_mode=execute, piano conservato). 409 se nessun piano è in attesa.
+ */
+export function approvePlan(ticketId: string): Promise<{ jobId: string }> {
+  return api.post(`/api/tickets/${ticketId}/approve-plan`);
+}
+
+/**
+ * Rifiuta il piano in attesa: il worker ri-pianifica (resume_mode=fix, piano
+ * azzerato), incorporando gli eventuali commenti utente. 409 se nessun piano.
+ */
+export function rejectPlan(ticketId: string): Promise<{ jobId: string }> {
+  return api.post(`/api/tickets/${ticketId}/reject-plan`);
 }
 
 /** Consumo aggregato di un singolo modello sui job AI del ticket. */
@@ -555,6 +583,11 @@ export interface AutomationRule {
   autoFix: boolean;
   /** Soglia di sforzo 1–5: auto-fix solo se effort <= maxEffort. */
   maxEffort: number;
+  /**
+   * Soglia di sforzo 1–5 oltre la quale (effort >= soglia) il fix richiede
+   * l'approvazione umana del piano. null = mai (nessun gate di approvazione).
+   */
+  planApprovalMinEffort: number | null;
 }
 
 export interface AutomationSettings {
@@ -588,7 +621,11 @@ export interface NotificationSettings {
   enabled: boolean;
   notifyTicketCreated: boolean;
   notifyPrOpened: boolean;
+  /** PR chiusa senza merge → il ticket viene riaperto. */
+  notifyPrClosed: boolean;
   notifyJobHeld: boolean;
+  /** Un piano AI è in attesa di approvazione umana. */
+  notifyPlanReview: boolean;
   notifyJobFailed: boolean;
 }
 
@@ -615,7 +652,9 @@ export function putNotificationSettings(
     enabled: settings.enabled,
     notifyTicketCreated: settings.notifyTicketCreated,
     notifyPrOpened: settings.notifyPrOpened,
+    notifyPrClosed: settings.notifyPrClosed,
     notifyJobHeld: settings.notifyJobHeld,
+    notifyPlanReview: settings.notifyPlanReview,
     notifyJobFailed: settings.notifyJobFailed,
   });
 }

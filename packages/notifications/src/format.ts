@@ -47,6 +47,29 @@ export interface JobHeldEvent {
   ticketUrl: string;
 }
 
+/** La PR aperta dall'AI è stata chiusa senza merge: il ticket viene riaperto. */
+export interface PrClosedEvent {
+  kind: "job.pr_closed";
+  ticketNumber: number;
+  ticketTitle: string;
+  projectName: string;
+  prUrl: string;
+  ticketUrl: string;
+}
+
+/**
+ * La pianificazione AI ha prodotto un piano in attesa di approvazione umana
+ * (gate `plan_approval_min_effort`): il job è parcheggiato finché un umano
+ * approva o rifiuta il piano.
+ */
+export interface JobPlanReviewEvent {
+  kind: "job.plan_review";
+  ticketNumber: number;
+  ticketTitle: string;
+  projectName: string;
+  ticketUrl: string;
+}
+
 /** Il fix AI è fallito. */
 export interface JobFailedEvent {
   kind: "job.failed";
@@ -61,7 +84,9 @@ export interface JobFailedEvent {
 export type NotificationEvent =
   | TicketCreatedEvent
   | PrOpenedEvent
+  | PrClosedEvent
   | JobHeldEvent
+  | JobPlanReviewEvent
   | JobFailedEvent;
 
 /** Tipo dei `kind` degli eventi, per mappare evento → toggle. */
@@ -101,11 +126,23 @@ function formatSlack(event: NotificationEvent): Record<string, unknown> {
           `${costSuffixSlack(event.costUsd)}. ` +
           `<${event.prUrl}|Vedi PR> · <${event.ticketUrl}|Ticket>`,
       };
+    case "job.pr_closed":
+      return {
+        text:
+          `🔁 PR chiusa senza merge — ticket riaperto: *#${event.ticketNumber}* — ${event.ticketTitle}. ` +
+          `<${event.prUrl}|Vedi PR> · <${event.ticketUrl}|Ticket>`,
+      };
     case "job.held":
       return {
         text:
           `⏸️ *#${event.ticketNumber}* in attesa di revisione — ${event.ticketTitle} ` +
           `(${event.type}, effort ${event.effort}/5). <${event.ticketUrl}|Apri>`,
+      };
+    case "job.plan_review":
+      return {
+        text:
+          `📝 Piano in attesa di approvazione — *#${event.ticketNumber}* — ${event.ticketTitle} ` +
+          `(${event.projectName}). <${event.ticketUrl}|Rivedi>`,
       };
     case "job.failed":
       return {
@@ -137,11 +174,23 @@ function formatDiscord(event: NotificationEvent): Record<string, unknown> {
           `${costSuffixMd(event.costUsd)}. ` +
           `[Vedi PR](${event.prUrl}) · [Ticket](${event.ticketUrl})`,
       };
+    case "job.pr_closed":
+      return {
+        content:
+          `🔁 PR chiusa senza merge — ticket riaperto: **#${event.ticketNumber}** — ${event.ticketTitle}. ` +
+          `[Vedi PR](${event.prUrl}) · [Ticket](${event.ticketUrl})`,
+      };
     case "job.held":
       return {
         content:
           `⏸️ **#${event.ticketNumber}** in attesa di revisione — ${event.ticketTitle} ` +
           `(${event.type}, effort ${event.effort}/5). [Apri](${event.ticketUrl})`,
+      };
+    case "job.plan_review":
+      return {
+        content:
+          `📝 Piano in attesa di approvazione — **#${event.ticketNumber}** — ${event.ticketTitle} ` +
+          `(${event.projectName}). [Rivedi](${event.ticketUrl})`,
       };
     case "job.failed":
       return {
@@ -159,8 +208,12 @@ function plainMessage(event: NotificationEvent): string {
       return `Nuovo ticket #${event.ticketNumber} — ${event.ticketTitle} (${event.projectName}, ${event.source}).`;
     case "job.pr_opened":
       return `PR aperta per #${event.ticketNumber} — ${event.ticketTitle}.`;
+    case "job.pr_closed":
+      return `PR chiusa senza merge — ticket riaperto: #${event.ticketNumber} — ${event.ticketTitle}.`;
     case "job.held":
       return `#${event.ticketNumber} in attesa di revisione — ${event.ticketTitle} (${event.type}, effort ${event.effort}/5).`;
+    case "job.plan_review":
+      return `Piano in attesa di approvazione — #${event.ticketNumber} — ${event.ticketTitle} (${event.projectName}).`;
     case "job.failed":
       return `Fix AI fallito su #${event.ticketNumber} — ${event.ticketTitle}: ${event.error}.`;
   }
@@ -181,8 +234,12 @@ function formatGeneric(event: NotificationEvent): Record<string, unknown> {
       return { ...base, source: event.source };
     case "job.pr_opened":
       return { ...base, prUrl: event.prUrl, costUsd: event.costUsd ?? null };
+    case "job.pr_closed":
+      return { ...base, prUrl: event.prUrl };
     case "job.held":
       return { ...base, type: event.type, effort: event.effort };
+    case "job.plan_review":
+      return base;
     case "job.failed":
       return { ...base, error: event.error };
   }
@@ -233,12 +290,27 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       costUsd: 0.18,
     },
     {
+      kind: "job.pr_closed",
+      ticketNumber: 128,
+      ticketTitle: "TypeError: cannot read 'id' of undefined al checkout",
+      projectName: "negozio-web",
+      prUrl: "https://github.com/acme/negozio-web/pull/342",
+      ticketUrl: `${base}/tickets/128`,
+    },
+    {
       kind: "job.held",
       ticketNumber: 131,
       ticketTitle: "Aggiungere export CSV allo storico ordini",
       projectName: "negozio-web",
       type: "feature",
       effort: 4,
+      ticketUrl: `${base}/tickets/131`,
+    },
+    {
+      kind: "job.plan_review",
+      ticketNumber: 131,
+      ticketTitle: "Aggiungere export CSV allo storico ordini",
+      projectName: "negozio-web",
       ticketUrl: `${base}/tickets/131`,
     },
     {

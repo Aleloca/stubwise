@@ -1,15 +1,16 @@
 import { createHmac, randomBytes } from "node:crypto";
 import { asc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
-import { aiJobs, comments, projects, tickets } from "@stubwise/db";
+import { aiJobs, comments, notificationSettings, projects, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedGitAccount, startTestDb } from "@stubwise/db/testing";
 import { seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
+const PUBLIC_URL = "https://stubwise.example.com";
 
 let testDb: TestDb;
 let app: FastifyInstance;
@@ -21,6 +22,10 @@ beforeAll(async () => {
     db: testDb.db,
     sessionSecret: SESSION_SECRET,
     encryptionKey: ENCRYPTION_KEY.toString("base64"),
+    // publicUrl configurato: senza, il getter instance.publicUrl lancerebbe e
+    // il try/catch best-effort della route inghiottirebbe l'eccezione PRIMA di
+    // raggiungere dispatchNotification — il dispatch non verrebbe mai esercitato.
+    publicUrl: PUBLIC_URL,
   });
   ({ adminCookie } = await seedUsers(app));
 }, 120_000);
@@ -28,6 +33,16 @@ beforeAll(async () => {
 afterAll(async () => {
   await app.close();
   await testDb.stop();
+});
+
+afterEach(async () => {
+  vi.restoreAllMocks();
+  // Riporta il singleton di notifica allo stato seedato (webhookUrl null =
+  // dispatch no-op), così la configurazione di un test non perde nei successivi.
+  await testDb.db
+    .update(notificationSettings)
+    .set({ webhookUrl: null })
+    .where(eq(notificationSettings.id, 1));
 });
 
 interface CreatedProject {
@@ -90,7 +105,7 @@ async function createProject(payload: Record<string, unknown>): Promise<CreatedP
 async function insertTicket(
   projectId: string,
   number: number,
-  status: "in_review" | "done",
+  status: "in_review" | "done" | "triaged",
 ): Promise<string> {
   const [row] = await testDb.db
     .insert(tickets)
@@ -129,6 +144,47 @@ function sign(secret: string, rawBody: string): string {
   return `sha256=${createHmac("sha256", secret).update(rawBody).digest("hex")}`;
 }
 
+const NOTIFY_WEBHOOK_URL = "https://hooks.example.com/stubwise";
+
+/**
+ * Configura il singleton `notification_settings` (id=1, seedato dalla
+ * migrazione) per il dispatch reale: webhook URL + formato `generic`
+ * (payload a campi piatti, comodo da asserire) e gating del solo toggle
+ * `notifyPrClosed`. enabled=true, gli altri toggle off (irrilevanti qui).
+ */
+async function configureNotifications(notifyPrClosed: boolean): Promise<void> {
+  await testDb.db
+    .update(notificationSettings)
+    .set({
+      webhookUrl: NOTIFY_WEBHOOK_URL,
+      format: "generic",
+      enabled: true,
+      notifyPrClosed,
+    })
+    .where(eq(notificationSettings.id, 1));
+}
+
+/**
+ * Intercetta il POST del webhook di notifica sostituendo il `fetch` globale
+ * (quello che dispatchNotification usa di default): cattura url e body parsato
+ * e risponde 200. Restituisce l'array delle chiamate catturate, popolato in
+ * modo asincrono dal dispatch best-effort. vi.restoreAllMocks (afterEach)
+ * ripristina il fetch originale.
+ */
+function captureNotificationPosts(): Array<{ url: string; body: Record<string, unknown> }> {
+  const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(
+    async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push({
+        url: String(input),
+        body: JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>,
+      });
+      return new Response(null, { status: 200 });
+    },
+  );
+  return calls;
+}
+
 function bitbucketPayload(branch: string, prUrl = "https://bitbucket.org/acme/repo/pull-requests/7") {
   return JSON.stringify({
     pullrequest: { source: { branch: { name: branch } }, links: { html: { href: prUrl } } },
@@ -139,6 +195,27 @@ function githubPayload(branch: string, prUrl = "https://github.com/acme/repo/pul
   return JSON.stringify({
     action: "closed",
     pull_request: { merged: true, head: { ref: branch }, html_url: prUrl },
+  });
+}
+
+/** GitHub PR chiusa SENZA merge (closed_unmerged): action=closed, merged=false. */
+function githubClosedUnmergedPayload(
+  branch: string,
+  prUrl = "https://github.com/acme/repo/pull/7",
+) {
+  return JSON.stringify({
+    action: "closed",
+    pull_request: { merged: false, head: { ref: branch }, html_url: prUrl },
+  });
+}
+
+/** Bitbucket PR rifiutata (closed_unmerged): x-event-key pullrequest:rejected. */
+function bitbucketRejectedPayload(
+  branch: string,
+  prUrl = "https://bitbucket.org/acme/repo/pull-requests/7",
+) {
+  return JSON.stringify({
+    pullrequest: { source: { branch: { name: branch } }, links: { html: { href: prUrl } } },
   });
 }
 
@@ -293,7 +370,7 @@ describe("POST /webhooks/git/:projectSlug", () => {
     expect(await ticketComments(ticketId)).toHaveLength(0);
   });
 
-  it("evento non rilevante (PR non mergiata) firmato → 204 ignorato", async () => {
+  it("closed_unmerged senza ticket → 204", async () => {
     const project = await createProject({
       name: "Webhook NonMerge",
       provider: "github",
@@ -507,5 +584,202 @@ describe("POST /webhooks/git/:projectSlug", () => {
     expect(await ticketStatus(ticketB)).toBe("in_review");
     // Sanity: il ticket di B non ha ricevuto commenti.
     expect(await ticketComments(ticketB)).toHaveLength(0);
+  });
+
+  // --- PR chiusa senza merge: riapertura del ticket ---
+
+  it("GitHub pull_request closed+merged:false firmato per ticket in_review → ticket triaged, job pr_closed, commento di sistema", async () => {
+    const project = await createProject({
+      name: "Webhook GH Riapri",
+      provider: "github",
+      repoUrl: "https://github.com/acme/webhook-gh-riapri",
+      credentials: { token: "tok" },
+    });
+    const ticketId = await insertTicket(project.id, 1, "in_review");
+    const jobId = await insertJob(ticketId, "pr_opened");
+    const body = githubClosedUnmergedPayload("stubwise/ticket-1");
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/webhooks/git/${project.slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": sign(project.webhookSecret, body),
+      },
+      payload: body,
+    });
+
+    expect(res.statusCode).toBe(204);
+    // Il ticket torna a triaged: pronto per un nuovo tentativo di fix.
+    expect(await ticketStatus(ticketId)).toBe("triaged");
+    const cmts = await ticketComments(ticketId);
+    expect(cmts).toHaveLength(1);
+    expect(cmts[0]!.authorType).toBe("system");
+    expect(cmts[0]!.body).toContain("https://github.com/acme/repo/pull/7");
+    expect(cmts[0]!.body).toContain("PR chiusa senza merge");
+    // Il job pr_opened diventa pr_closed con finishedAt valorizzato.
+    const job = await jobById(jobId);
+    expect(job.status).toBe("pr_closed");
+    expect(job.finishedAt).not.toBeNull();
+  });
+
+  it("PR chiusa senza merge su ticket in_review → dispatch reale job.pr_closed con i campi corretti", async () => {
+    const project = await createProject({
+      name: "Webhook Notify Dispatch",
+      provider: "github",
+      repoUrl: "https://github.com/acme/webhook-notify-dispatch",
+      credentials: { token: "tok" },
+    });
+    await configureNotifications(true);
+    const calls = captureNotificationPosts();
+    const ticketId = await insertTicket(project.id, 1, "in_review");
+    await insertJob(ticketId, "pr_opened");
+    const body = githubClosedUnmergedPayload("stubwise/ticket-1");
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/webhooks/git/${project.slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": sign(project.webhookSecret, body),
+      },
+      payload: body,
+    });
+
+    expect(res.statusCode).toBe(204);
+    // Il dispatch reale è stato esercitato: un solo POST al webhook configurato.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.url).toBe(NOTIFY_WEBHOOK_URL);
+    const payload = calls[0]!.body;
+    // Formato generic: campi piatti, ben asseribili.
+    expect(payload.event).toBe("job.pr_closed");
+    expect(payload.ticketNumber).toBe(1);
+    expect(payload.title).toBe("Ticket 1");
+    expect(payload.projectName).toBe("Webhook Notify Dispatch");
+    expect(payload.prUrl).toBe("https://github.com/acme/repo/pull/7");
+    // ticketUrl assoluto e ben formato a partire dal PUBLIC_URL dell'istanza.
+    expect(payload.ticketUrl).toBe(`${PUBLIC_URL}/tickets/${ticketId}`);
+  });
+
+  it("toggle notifyPrClosed off → riapertura avviene ma nessun dispatch", async () => {
+    const project = await createProject({
+      name: "Webhook Notify Off",
+      provider: "github",
+      repoUrl: "https://github.com/acme/webhook-notify-off",
+      credentials: { token: "tok" },
+    });
+    // Gating: toggle del singolo evento disattivato.
+    await configureNotifications(false);
+    const calls = captureNotificationPosts();
+    const ticketId = await insertTicket(project.id, 1, "in_review");
+    await insertJob(ticketId, "pr_opened");
+    const body = githubClosedUnmergedPayload("stubwise/ticket-1");
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/webhooks/git/${project.slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": sign(project.webhookSecret, body),
+      },
+      payload: body,
+    });
+
+    expect(res.statusCode).toBe(204);
+    // La riapertura avviene comunque...
+    expect(await ticketStatus(ticketId)).toBe("triaged");
+    // ...ma il toggle off taglia il POST: nessun dispatch.
+    expect(calls).toHaveLength(0);
+  });
+
+  it("Bitbucket pullrequest:rejected firmato per ticket in_review → ticket triaged + job pr_closed", async () => {
+    const project = await createProject({
+      name: "Webhook BB Rejected",
+      provider: "bitbucket",
+      repoUrl: "https://bitbucket.org/acme/webhook-bb-rejected",
+      credentials: { username: "acme-bot", token: "tok" },
+    });
+    const ticketId = await insertTicket(project.id, 1, "in_review");
+    const jobId = await insertJob(ticketId, "pr_opened");
+    const body = bitbucketRejectedPayload("stubwise/ticket-1");
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/webhooks/git/${project.slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-event-key": "pullrequest:rejected",
+        "x-hub-signature": sign(project.webhookSecret, body),
+      },
+      payload: body,
+    });
+
+    expect(res.statusCode).toBe(204);
+    expect(await ticketStatus(ticketId)).toBe("triaged");
+    const cmts = await ticketComments(ticketId);
+    expect(cmts).toHaveLength(1);
+    expect(cmts[0]!.body).toContain("PR chiusa senza merge");
+    const job = await jobById(jobId);
+    expect(job.status).toBe("pr_closed");
+    expect(job.finishedAt).not.toBeNull();
+  });
+
+  it("PR chiusa senza merge su ticket NON in_review (triaged) → 204 idempotente, nessun commento, job intatto", async () => {
+    const project = await createProject({
+      name: "Webhook Riapri Idem",
+      provider: "github",
+      repoUrl: "https://github.com/acme/webhook-riapri-idem",
+      credentials: { token: "tok" },
+    });
+    // Ticket già triaged (es. seconda consegna del webhook, o riaperto a mano).
+    const ticketId = await insertTicket(project.id, 1, "triaged");
+    const jobId = await insertJob(ticketId, "pr_opened");
+    const body = githubClosedUnmergedPayload("stubwise/ticket-1");
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/webhooks/git/${project.slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": sign(project.webhookSecret, body),
+      },
+      payload: body,
+    });
+
+    expect(res.statusCode).toBe(204);
+    expect(await ticketStatus(ticketId)).toBe("triaged");
+    expect(await ticketComments(ticketId)).toHaveLength(0);
+    // Il job non viene toccato: resta pr_opened.
+    expect((await jobById(jobId)).status).toBe("pr_opened");
+  });
+
+  it("PR chiusa senza merge su ticket done → 204 idempotente, nessun cambiamento", async () => {
+    const project = await createProject({
+      name: "Webhook Riapri Done",
+      provider: "github",
+      repoUrl: "https://github.com/acme/webhook-riapri-done",
+      credentials: { token: "tok" },
+    });
+    const ticketId = await insertTicket(project.id, 1, "done");
+    const body = githubClosedUnmergedPayload("stubwise/ticket-1");
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/webhooks/git/${project.slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": sign(project.webhookSecret, body),
+      },
+      payload: body,
+    });
+
+    expect(res.statusCode).toBe(204);
+    expect(await ticketStatus(ticketId)).toBe("done");
+    expect(await ticketComments(ticketId)).toHaveLength(0);
   });
 });

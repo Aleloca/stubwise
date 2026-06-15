@@ -153,6 +153,7 @@ describe("GitHubProvider.parseWebhook", () => {
   it("recognizes pull_request closed+merged and extracts the head branch", () => {
     const event = provider.parseWebhook({ "X-GitHub-Event": "pull_request" }, mergedBody);
     expect(event).toEqual({
+      kind: "merged",
       provider: "github",
       branch: "stubwise/fix-1",
       prUrl: "https://github.com/octo/repo/pull/42",
@@ -171,9 +172,14 @@ describe("GitHubProvider.parseWebhook", () => {
     ).toBeNull();
   });
 
-  it("returns null when the PR was closed without merging", () => {
+  it("recognizes a PR closed without merging as closed_unmerged", () => {
     const body = { ...mergedBody, pull_request: { ...mergedBody.pull_request, merged: false } };
-    expect(provider.parseWebhook({ "x-github-event": "pull_request" }, body)).toBeNull();
+    expect(provider.parseWebhook({ "x-github-event": "pull_request" }, body)).toEqual({
+      kind: "closed_unmerged",
+      provider: "github",
+      branch: "stubwise/fix-1",
+      prUrl: "https://github.com/octo/repo/pull/42",
+    });
   });
 
   it("returns null (does not throw) on malformed bodies", () => {
