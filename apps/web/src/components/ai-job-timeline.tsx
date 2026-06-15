@@ -1,19 +1,7 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { AIJob, AIJobStatus } from "../lib/api";
 import { formatDateTime, formatRelativeTime } from "../lib/format";
-
-const JOB_STATUS_LABELS: Record<AIJobStatus, string> = {
-  queued: "In coda",
-  triaging: "Triage",
-  fixing: "Fix in corso",
-  held: "In attesa",
-  pr_opened: "PR aperta",
-  pr_merged: "PR mergiata",
-  failed: "Fallito",
-  skipped: "Saltato",
-  pr_closed: "PR chiusa",
-  awaiting_plan_approval: "Piano da approvare",
-};
 
 /** Colore del pallino di stato sulla rotaia della timeline. */
 const JOB_STATUS_DOT: Record<AIJobStatus, string> = {
@@ -45,11 +33,15 @@ const JOB_STATUS_TEXT: Record<AIJobStatus, string> = {
   awaiting_plan_approval: "text-signal",
 };
 
-/** Nota breve mostrata sotto lo stato per gli stati che la richiedono. */
-const JOB_STATUS_NOTE: Partial<Record<AIJobStatus, string>> = {
-  held: "Automazione non avviata: serve un avvio manuale del fix.",
-  awaiting_plan_approval: "Il piano supera la soglia di effort: approvalo o rifiutalo per procedere.",
-};
+/**
+ * Stati con una nota esplicativa sotto l'etichetta. Il testo vive nel
+ * catalogo i18n (`jobStatus:notes.<stato>`); qui si elencano solo gli stati
+ * che la nota ce l'hanno.
+ */
+const JOB_STATUS_WITH_NOTE: ReadonlySet<AIJobStatus> = new Set<AIJobStatus>([
+  "held",
+  "awaiting_plan_approval",
+]);
 
 /**
  * Timeline dei job della pipeline AI di un ticket, dal tentativo più
@@ -57,11 +49,11 @@ const JOB_STATUS_NOTE: Partial<Record<AIJobStatus, string>> = {
  * quando è stata aperta e messaggio d'errore quando il job è fallito.
  */
 export function AIJobTimeline({ jobs }: { jobs: AIJob[] }) {
+  const { t } = useTranslation();
+
   if (jobs.length === 0) {
     return (
-      <p className="font-mono text-[12px] text-fg-faint">
-        // nessuna attività AI per questo ticket
-      </p>
+      <p className="font-mono text-[12px] text-fg-faint">{t("tickets:timeline.empty")}</p>
     );
   }
 
@@ -75,6 +67,7 @@ export function AIJobTimeline({ jobs }: { jobs: AIJob[] }) {
 }
 
 function JobEntry({ job, last }: { job: AIJob; last: boolean }) {
+  const { t } = useTranslation();
   const [showLog, setShowLog] = useState(false);
 
   return (
@@ -90,7 +83,7 @@ function JobEntry({ job, last }: { job: AIJob; last: boolean }) {
         <span
           className={`font-mono text-[12px] font-medium tracking-[0.08em] uppercase ${JOB_STATUS_TEXT[job.status]}`}
         >
-          {JOB_STATUS_LABELS[job.status]}
+          {t(`jobStatus:labels.${job.status}`)}
         </span>
         <time
           dateTime={job.createdAt}
@@ -106,16 +99,16 @@ function JobEntry({ job, last }: { job: AIJob; last: boolean }) {
             rel="noreferrer"
             className="rounded-sm border border-ok/40 px-2 py-0.5 font-mono text-[11px] tracking-[0.08em] text-ok uppercase transition-colors hover:border-ok hover:bg-ok/10"
           >
-            Vedi PR ↗
+            {t("tickets:timeline.viewPr")}
           </a>
         )}
       </div>
 
       {(job.startedAt ?? job.finishedAt) && (
         <p className="mt-1 font-mono text-[11px] text-fg-faint">
-          {job.startedAt && <>Inizio {formatDateTime(job.startedAt)}</>}
+          {job.startedAt && <>{t("tickets:timeline.startedAt", { date: formatDateTime(job.startedAt) })}</>}
           {job.startedAt && job.finishedAt && <span className="mx-1.5">·</span>}
-          {job.finishedAt && <>Fine {formatDateTime(job.finishedAt)}</>}
+          {job.finishedAt && <>{t("tickets:timeline.finishedAt", { date: formatDateTime(job.finishedAt) })}</>}
         </p>
       )}
 
@@ -125,8 +118,10 @@ function JobEntry({ job, last }: { job: AIJob; last: boolean }) {
         </p>
       )}
 
-      {JOB_STATUS_NOTE[job.status] && (
-        <p className="mt-1.5 font-mono text-[11px] text-fg-muted">{JOB_STATUS_NOTE[job.status]}</p>
+      {JOB_STATUS_WITH_NOTE.has(job.status) && (
+        <p className="mt-1.5 font-mono text-[11px] text-fg-muted">
+          {t(`jobStatus:notes.${job.status}`)}
+        </p>
       )}
 
       {job.log && (
@@ -137,7 +132,7 @@ function JobEntry({ job, last }: { job: AIJob; last: boolean }) {
             onClick={() => setShowLog((current) => !current)}
             className="font-mono text-[11px] tracking-[0.12em] text-fg-faint uppercase transition-colors hover:text-fg-muted"
           >
-            {showLog ? "▾ Nascondi log" : "▸ Mostra log"}
+            {showLog ? t("tickets:timeline.hideLog") : t("tickets:timeline.showLog")}
           </button>
           {showLog && (
             <pre className="mt-1.5 max-h-72 overflow-auto rounded-sm border border-line bg-ink-950/70 p-3 font-mono text-[12px] leading-relaxed text-fg-muted">

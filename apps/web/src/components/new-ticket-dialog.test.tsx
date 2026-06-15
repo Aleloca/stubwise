@@ -44,14 +44,14 @@ describe("NewTicketDialog", () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     render(<NewTicketDialog projects={projects} onSubmit={onSubmit} onClose={vi.fn()} />);
 
-    expect(screen.getByRole("dialog", { name: "Nuovo ticket" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "New ticket" })).toBeInTheDocument();
 
-    await user.type(screen.getByLabelText("Titolo"), "Crash al checkout");
-    await user.selectOptions(screen.getByLabelText("Progetto"), "Progetto Beta");
-    await user.selectOptions(screen.getByLabelText("Tipo"), "Bug");
-    await user.selectOptions(screen.getByLabelText("Priorità"), "Alta");
-    await user.type(screen.getByLabelText("Descrizione (opzionale)"), "Stacktrace in allegato");
-    await user.click(screen.getByRole("button", { name: "Crea ticket" }));
+    await user.type(screen.getByLabelText("Title"), "Crash al checkout");
+    await user.selectOptions(screen.getByLabelText("Project"), "Progetto Beta");
+    await user.selectOptions(screen.getByLabelText("Type"), "Bug");
+    await user.selectOptions(screen.getByLabelText("Priority"), "Alta");
+    await user.type(screen.getByLabelText("Description (optional)"), "Stacktrace in allegato");
+    await user.click(screen.getByRole("button", { name: "Create ticket" }));
 
     expect(onSubmit).toHaveBeenCalledWith({
       projectId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
@@ -67,8 +67,8 @@ describe("NewTicketDialog", () => {
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     render(<NewTicketDialog projects={projects} onSubmit={onSubmit} onClose={vi.fn()} />);
 
-    await user.type(screen.getByLabelText("Titolo"), "Solo titolo");
-    await user.click(screen.getByRole("button", { name: "Crea ticket" }));
+    await user.type(screen.getByLabelText("Title"), "Solo titolo");
+    await user.click(screen.getByRole("button", { name: "Create ticket" }));
 
     expect(onSubmit).toHaveBeenCalledWith({
       projectId: projects[0]!.id,
@@ -84,7 +84,7 @@ describe("NewTicketDialog", () => {
     const onClose = vi.fn();
     render(<NewTicketDialog projects={projects} onSubmit={onSubmit} onClose={onClose} />);
 
-    await user.click(screen.getByRole("button", { name: "Annulla" }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onClose).toHaveBeenCalledTimes(1);
 
     await user.keyboard("{Escape}");
@@ -98,8 +98,8 @@ describe("NewTicketDialog", () => {
     const onClose = vi.fn();
     render(<NewTicketDialog projects={projects} onSubmit={onSubmit} onClose={onClose} />);
 
-    await user.type(screen.getByLabelText("Titolo"), "Boom");
-    await user.click(screen.getByRole("button", { name: "Crea ticket" }));
+    await user.type(screen.getByLabelText("Title"), "Boom");
+    await user.click(screen.getByRole("button", { name: "Create ticket" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Progetto non trovato");
     expect(onClose).not.toHaveBeenCalled();

@@ -10,6 +10,7 @@ import {
 } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { NewTicketDialog } from "../../components/new-ticket-dialog";
 import { TicketFilters } from "../../components/ticket-filters";
@@ -45,6 +46,7 @@ const route = getRouteApi("/authed/tickets");
  * route ha già messo in cache la prima pagina per quei filtri.
  */
 export function TicketsPage() {
+  const { t } = useTranslation();
   const search = route.useSearch();
   const navigate = route.useNavigate();
   const queryClient = useQueryClient();
@@ -80,19 +82,17 @@ export function TicketsPage() {
     <div className="p-8">
       <header className="flex flex-wrap items-end justify-between gap-4 border-b border-line pb-4">
         <div>
-          <h1 className="text-xl font-semibold">Tickets</h1>
-          <p className="mt-1 text-sm text-fg-muted">
-            Tutti i ticket dei tuoi progetti, dal più recente.
-          </p>
+          <h1 className="text-xl font-semibold">{t("tickets:list.title")}</h1>
+          <p className="mt-1 text-sm text-fg-muted">{t("tickets:list.subtitle")}</p>
         </div>
         <button
           type="button"
           onClick={() => setCreating(true)}
           disabled={projects.length === 0}
-          title={projects.length === 0 ? "Crea prima un progetto" : undefined}
+          title={projects.length === 0 ? t("tickets:list.createProjectFirst") : undefined}
           className="rounded-sm bg-signal px-4 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright active:bg-signal-dim disabled:cursor-not-allowed disabled:bg-signal-dim disabled:opacity-60"
         >
-          Nuovo ticket
+          {t("tickets:list.newTicket")}
         </button>
       </header>
 
@@ -111,11 +111,9 @@ export function TicketsPage() {
       {tickets.length === 0 ? (
         <div className="mt-6 grid place-items-center rounded-sm border border-dashed border-line-strong py-24">
           <p className="font-mono text-[12px] tracking-[0.18em] text-fg-faint uppercase">
-            // nessun ticket trovato
+            {t("tickets:list.empty")}
           </p>
-          <p className="mt-2 text-sm text-fg-muted">
-            Prova ad allargare i filtri o a cambiare il termine di ricerca.
-          </p>
+          <p className="mt-2 text-sm text-fg-muted">{t("tickets:list.emptyHint")}</p>
         </div>
       ) : (
         <div className="mt-6 rounded-sm border border-line bg-ink-900">
@@ -135,7 +133,7 @@ export function TicketsPage() {
                 disabled={isFetchingNextPage}
                 className="rounded-sm border border-line-strong px-4 py-1.5 font-mono text-[11px] tracking-[0.12em] text-fg-muted uppercase transition-colors hover:border-signal-dim hover:text-fg disabled:opacity-50"
               >
-                {isFetchingNextPage ? "Carico…" : "Carica altri"}
+                {isFetchingNextPage ? t("tickets:list.loadingMore") : t("tickets:list.loadMore")}
               </button>
             </div>
           )}

@@ -19,6 +19,7 @@ import { ticketStatusSchema, type TicketStatus } from "@stubwise/shared";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import { useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { PriorityBadge, STATUS_DOT, STATUS_LABELS, TypeBadge } from "../components/badges";
 import { patchTicket, type Ticket } from "../lib/api";
@@ -123,6 +124,7 @@ export function useMoveTicket(projectId?: string) {
 const route = getRouteApi("/authed/board");
 
 export function BoardPage() {
+  const { t } = useTranslation();
   const search = route.useSearch();
   const navigate = route.useNavigate();
 
@@ -167,11 +169,8 @@ export function BoardPage() {
     <div className="flex h-screen flex-col p-8">
       <header className="flex flex-wrap items-end justify-between gap-4 border-b border-line pb-4">
         <div>
-          <h1 className="text-xl font-semibold">Board</h1>
-          <p className="mt-1 text-sm text-fg-muted">
-            Trascina le card tra le colonne per cambiare stato. Da tastiera: Spazio prende e
-            posa, frecce per muoversi, Invio apre il dettaglio.
-          </p>
+          <h1 className="text-xl font-semibold">{t("tickets:board.title")}</h1>
+          <p className="mt-1 text-sm text-fg-muted">{t("tickets:board.subtitle")}</p>
         </div>
 
         <div className="flex flex-col gap-1">
@@ -179,7 +178,7 @@ export function BoardPage() {
             htmlFor="board-project"
             className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase"
           >
-            Progetto
+            {t("tickets:board.project")}
           </label>
           <select
             id="board-project"
@@ -192,7 +191,7 @@ export function BoardPage() {
             }
             className="rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1.5 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
           >
-            <option value="">Tutti</option>
+            <option value="">{t("tickets:board.all")}</option>
             {projects.map((project) => (
               <option key={project.id} value={project.id}>
                 {project.name}
@@ -204,8 +203,7 @@ export function BoardPage() {
 
       {tickets.length === BOARD_TICKETS_LIMIT && (
         <p className="mt-4 rounded-sm border border-line bg-ink-900 px-3 py-2 font-mono text-[12px] text-fg-muted">
-          Mostrati i primi {BOARD_TICKETS_LIMIT} ticket — filtra per progetto per vederli
-          tutti.
+          {t("tickets:board.truncated", { limit: BOARD_TICKETS_LIMIT })}
         </p>
       )}
 
@@ -214,13 +212,13 @@ export function BoardPage() {
           role="alert"
           className="mt-4 flex items-baseline justify-between gap-4 rounded-sm border border-danger/30 bg-danger/10 px-3 py-2 font-mono text-[13px] text-danger"
         >
-          <span>Spostamento non riuscito: {error?.message}. La card è tornata al suo posto.</span>
+          <span>{t("tickets:board.moveFailed", { error: error?.message })}</span>
           <button
             type="button"
             onClick={reset}
             className="shrink-0 text-[11px] tracking-[0.12em] uppercase underline underline-offset-2 hover:text-fg"
           >
-            Chiudi
+            {t("tickets:board.dismiss")}
           </button>
         </div>
       )}
@@ -248,12 +246,16 @@ interface BoardColumnProps {
 }
 
 function BoardColumn({ status, tickets, onOpen }: BoardColumnProps) {
+  const { t } = useTranslation();
   const { setNodeRef, isOver } = useDroppable({ id: status });
 
   return (
     <section
       ref={setNodeRef}
-      aria-label={`${STATUS_LABELS[status]}: ${tickets.length} ticket`}
+      aria-label={t("tickets:board.columnLabel", {
+        status: STATUS_LABELS[status],
+        count: tickets.length,
+      })}
       className={`flex min-h-0 flex-col rounded-sm border bg-ink-900 transition-colors ${
         isOver ? "border-signal-dim bg-ink-850" : "border-line"
       }`}
@@ -279,7 +281,7 @@ function BoardColumn({ status, tickets, onOpen }: BoardColumnProps) {
           {tickets.length === 0 && (
             <li className="grid flex-1 place-items-center rounded-sm border border-dashed border-line py-6">
               <span className="font-mono text-[11px] tracking-[0.14em] text-fg-faint uppercase">
-                Nessun ticket
+                {t("tickets:board.emptyColumn")}
               </span>
             </li>
           )}
@@ -295,12 +297,13 @@ interface BoardCardProps {
 }
 
 function BoardCard({ ticket, onOpen }: BoardCardProps) {
+  const { t } = useTranslation();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: ticket.id,
     // Lo stato viaggia con la card: onDragEnd lo legge quando si rilascia
     // sopra un'altra card invece che sulla colonna.
     data: { status: ticket.status },
-    attributes: { roleDescription: "Card trascinabile" },
+    attributes: { roleDescription: t("tickets:board.cardRoleDescription") },
   });
 
   return (
@@ -327,7 +330,7 @@ function BoardCard({ ticket, onOpen }: BoardCardProps) {
       <div className="flex items-baseline gap-2 font-mono text-[12px]">
         <span className="text-fg-faint">#{ticket.number}</span>
         {ticket.occurrences > 1 && (
-          <span className="text-signal" title="Occorrenze deduplicate">
+          <span className="text-signal" title={t("tickets:row.occurrences")}>
             ×{ticket.occurrences}
           </span>
         )}

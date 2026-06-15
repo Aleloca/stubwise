@@ -70,9 +70,122 @@
       "submitPending": "Creazione…"
     }
   },
-  "tickets": {},
+  "tickets": {
+    "list": {
+      "title": "Tickets",
+      "subtitle": "Tutti i ticket dei tuoi progetti, dal più recente.",
+      "newTicket": "Nuovo ticket",
+      "createProjectFirst": "Crea prima un progetto",
+      "empty": "// nessun ticket trovato",
+      "emptyHint": "Prova ad allargare i filtri o a cambiare il termine di ricerca.",
+      "loadMore": "Carica altri",
+      "loadingMore": "Carico…"
+    },
+    "board": {
+      "title": "Board",
+      "subtitle": "Trascina le card tra le colonne per cambiare stato. Da tastiera: Spazio prende e posa, frecce per muoversi, Invio apre il dettaglio.",
+      "project": "Progetto",
+      "all": "Tutti",
+      "truncated": "Mostrati i primi {{limit}} ticket — filtra per progetto per vederli tutti.",
+      "moveFailed": "Spostamento non riuscito: {{error}}. La card è tornata al suo posto.",
+      "dismiss": "Chiudi",
+      "columnLabel": "{{status}}: {{count}} ticket",
+      "emptyColumn": "Nessun ticket",
+      "cardRoleDescription": "Card trascinabile"
+    },
+    "filters": {
+      "search": "Cerca",
+      "searchPlaceholder": "Cerca nel titolo…",
+      "project": "Progetto",
+      "status": "Stato",
+      "type": "Tipo",
+      "priority": "Priorità",
+      "all": "Tutti"
+    },
+    "row": {
+      "occurrences": "Occorrenze deduplicate"
+    },
+    "newDialog": {
+      "title": "Nuovo ticket",
+      "badge": "manuale",
+      "ticketTitle": "Titolo",
+      "titlePlaceholder": "Es. Crash al checkout",
+      "project": "Progetto",
+      "type": "Tipo",
+      "priority": "Priorità",
+      "description": "Descrizione (opzionale)",
+      "descriptionPlaceholder": "Markdown supportato…",
+      "cancel": "Annulla",
+      "submit": "Crea ticket",
+      "submitPending": "Creazione…"
+    },
+    "detail": {
+      "back": "← Tutti i ticket",
+      "effortTitle": "Stima di sforzo del triage AI",
+      "effort": "Effort: {{label}} ({{value}}/5)",
+      "occurrences": "Occorrenze deduplicate",
+      "description": "Descrizione",
+      "noDescription": "// nessuna descrizione",
+      "technicalPayload": "Payload tecnico",
+      "aiActivity": "Attività AI",
+      "startFix": "Avvia fix AI",
+      "startingFix": "Avvio…",
+      "relaunchWithInstructions": "Rilancia con istruzioni",
+      "addCommentHint": "Aggiungi prima un commento con le istruzioni.",
+      "approve": "Approva",
+      "approving": "Approvazione…",
+      "reject": "Rifiuta",
+      "rejecting": "Rifiuto…",
+      "rejectHint": "Per rifiutare, scrivi cosa correggere nel commento e poi rifiuta: il prossimo piano ne terrà conto.",
+      "comments": "Commenti ({{count}})",
+      "status": "Stato",
+      "priority": "Priorità",
+      "assignee": "Assegnatario",
+      "unassigned": "Non assegnato",
+      "labels": "Label",
+      "createdAt": "Creato",
+      "updatedAt": "Aggiornato",
+      "lastSeenAt": "Ultimo visto",
+      "occurrencesMeta": "Occorrenze"
+    },
+    "timeline": {
+      "empty": "// nessuna attività AI per questo ticket",
+      "viewPr": "Vedi PR ↗",
+      "startedAt": "Inizio {{date}}",
+      "finishedAt": "Fine {{date}}",
+      "showLog": "▸ Mostra log",
+      "hideLog": "▾ Nascondi log"
+    },
+    "comments": {
+      "empty": "// ancora nessun commento",
+      "system": "SISTEMA",
+      "removedUser": "Utente rimosso",
+      "submitFailed": "Invio del commento fallito",
+      "addComment": "Aggiungi un commento",
+      "placeholder": "Markdown supportato…",
+      "submit": "Commenta",
+      "submitPending": "Invio…"
+    }
+  },
   "settings": {},
   "notifications": {},
   "automation": {},
-  "jobStatus": {}
+  "jobStatus": {
+    "labels": {
+      "queued": "In coda",
+      "triaging": "Triage",
+      "fixing": "Fix in corso",
+      "held": "In attesa",
+      "pr_opened": "PR aperta",
+      "pr_merged": "PR mergiata",
+      "failed": "Fallito",
+      "skipped": "Saltato",
+      "pr_closed": "PR chiusa",
+      "awaiting_plan_approval": "Piano da approvare"
+    },
+    "notes": {
+      "held": "Automazione non avviata: serve un avvio manuale del fix.",
+      "awaiting_plan_approval": "Il piano supera la soglia di effort: approvalo o rifiutalo per procedere."
+    }
+  }
 }

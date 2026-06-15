@@ -167,12 +167,12 @@ describe("board kanban", () => {
     // Sei colonne, una per stato, nell'ordine open → closed.
     const columns = screen.getAllByRole("region");
     expect(columns.map((column) => column.getAttribute("aria-label"))).toEqual([
-      "Aperto: 1 ticket",
-      "Triage: 0 ticket",
-      "In corso: 1 ticket",
-      "In review: 0 ticket",
-      "Fatto: 1 ticket",
-      "Chiuso: 0 ticket",
+      "Aperto: 1 tickets",
+      "Triage: 0 tickets",
+      "In corso: 1 tickets",
+      "In review: 0 tickets",
+      "Fatto: 1 tickets",
+      "Chiuso: 0 tickets",
     ]);
 
     // Ogni card sta nella colonna del suo stato.
@@ -190,10 +190,10 @@ describe("board kanban", () => {
     expect(within(done).getByText("Refactoring onboarding")).toBeInTheDocument();
 
     // Le colonne senza ticket mostrano il placeholder.
-    expect(screen.getAllByText(/nessun ticket/i)).toHaveLength(3);
+    expect(screen.getAllByText(/no tickets/i)).toHaveLength(3);
 
     // Sotto la soglia di troncamento non c'è alcun avviso.
-    expect(screen.queryByText(/mostrati i primi/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/showing the first/i)).not.toBeInTheDocument();
   });
 
   it("con esattamente 100 ticket (limite board) mostra l'avviso di troncamento", async () => {
@@ -212,7 +212,7 @@ describe("board kanban", () => {
     renderApp();
 
     expect(
-      await screen.findByText(/mostrati i primi 100 ticket — filtra per progetto/i),
+      await screen.findByText(/showing the first 100 tickets — filter by project/i),
     ).toBeInTheDocument();
   });
 
@@ -231,7 +231,7 @@ describe("board kanban", () => {
     // La board è uno snapshot a pagina singola: chiede il massimo consentito.
     expect(seen[0]).toContain("limit=100");
 
-    await userEvent.selectOptions(screen.getByLabelText(/progetto/i), PROJECT_B);
+    await userEvent.selectOptions(screen.getByLabelText(/project/i), PROJECT_B);
 
     expect(await screen.findByText("Refactoring onboarding")).toBeInTheDocument();
     expect(screen.queryByText("Crash al checkout")).not.toBeInTheDocument();

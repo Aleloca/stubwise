@@ -51,7 +51,7 @@ describe("CommentThread", () => {
     expect(screen.getByText("Stubwise")).toBeInTheDocument();
   });
 
-  it("marca i commenti di sistema con il badge SISTEMA, non 'Utente rimosso'", () => {
+  it("marca i commenti di sistema con il badge SYSTEM, non 'Removed user'", () => {
     render(
       <CommentThread
         comments={[
@@ -67,8 +67,8 @@ describe("CommentThread", () => {
         pending={false}
       />,
     );
-    expect(screen.getByText("SISTEMA")).toBeInTheDocument();
-    expect(screen.queryByText("Utente rimosso")).not.toBeInTheDocument();
+    expect(screen.getByText("SYSTEM")).toBeInTheDocument();
+    expect(screen.queryByText("Removed user")).not.toBeInTheDocument();
     // Niente badge AI: il sistema non è l'AI.
     expect(screen.queryByText("AI")).not.toBeInTheDocument();
     expect(

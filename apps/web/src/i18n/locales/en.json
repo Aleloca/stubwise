@@ -70,9 +70,122 @@
       "submitPending": "Creating…"
     }
   },
-  "tickets": {},
+  "tickets": {
+    "list": {
+      "title": "Tickets",
+      "subtitle": "All the tickets from your projects, most recent first.",
+      "newTicket": "New ticket",
+      "createProjectFirst": "Create a project first",
+      "empty": "// no tickets found",
+      "emptyHint": "Try widening the filters or changing the search term.",
+      "loadMore": "Load more",
+      "loadingMore": "Loading…"
+    },
+    "board": {
+      "title": "Board",
+      "subtitle": "Drag the cards between columns to change status. Keyboard: Space to pick up and drop, arrows to move, Enter to open the detail.",
+      "project": "Project",
+      "all": "All",
+      "truncated": "Showing the first {{limit}} tickets — filter by project to see them all.",
+      "moveFailed": "Move failed: {{error}}. The card returned to its place.",
+      "dismiss": "Dismiss",
+      "columnLabel": "{{status}}: {{count}} tickets",
+      "emptyColumn": "No tickets",
+      "cardRoleDescription": "Draggable card"
+    },
+    "filters": {
+      "search": "Search",
+      "searchPlaceholder": "Search the title…",
+      "project": "Project",
+      "status": "Status",
+      "type": "Type",
+      "priority": "Priority",
+      "all": "All"
+    },
+    "row": {
+      "occurrences": "Deduplicated occurrences"
+    },
+    "newDialog": {
+      "title": "New ticket",
+      "badge": "manual",
+      "ticketTitle": "Title",
+      "titlePlaceholder": "E.g. Crash at checkout",
+      "project": "Project",
+      "type": "Type",
+      "priority": "Priority",
+      "description": "Description (optional)",
+      "descriptionPlaceholder": "Markdown supported…",
+      "cancel": "Cancel",
+      "submit": "Create ticket",
+      "submitPending": "Creating…"
+    },
+    "detail": {
+      "back": "← All tickets",
+      "effortTitle": "AI triage effort estimate",
+      "effort": "Effort: {{label}} ({{value}}/5)",
+      "occurrences": "Deduplicated occurrences",
+      "description": "Description",
+      "noDescription": "// no description",
+      "technicalPayload": "Technical payload",
+      "aiActivity": "AI activity",
+      "startFix": "Start AI fix",
+      "startingFix": "Starting…",
+      "relaunchWithInstructions": "Relaunch with instructions",
+      "addCommentHint": "Add a comment with the instructions first.",
+      "approve": "Approve",
+      "approving": "Approving…",
+      "reject": "Reject",
+      "rejecting": "Rejecting…",
+      "rejectHint": "To reject, write what to fix in the comment and then reject: the next plan will take it into account.",
+      "comments": "Comments ({{count}})",
+      "status": "Status",
+      "priority": "Priority",
+      "assignee": "Assignee",
+      "unassigned": "Unassigned",
+      "labels": "Labels",
+      "createdAt": "Created",
+      "updatedAt": "Updated",
+      "lastSeenAt": "Last seen",
+      "occurrencesMeta": "Occurrences"
+    },
+    "timeline": {
+      "empty": "// no AI activity for this ticket",
+      "viewPr": "View PR ↗",
+      "startedAt": "Started {{date}}",
+      "finishedAt": "Finished {{date}}",
+      "showLog": "▸ Show log",
+      "hideLog": "▾ Hide log"
+    },
+    "comments": {
+      "empty": "// no comments yet",
+      "system": "SYSTEM",
+      "removedUser": "Removed user",
+      "submitFailed": "Failed to submit the comment",
+      "addComment": "Add a comment",
+      "placeholder": "Markdown supported…",
+      "submit": "Comment",
+      "submitPending": "Submitting…"
+    }
+  },
   "settings": {},
   "notifications": {},
   "automation": {},
-  "jobStatus": {}
+  "jobStatus": {
+    "labels": {
+      "queued": "Queued",
+      "triaging": "Triaging",
+      "fixing": "Fixing",
+      "held": "On hold",
+      "pr_opened": "PR opened",
+      "pr_merged": "PR merged",
+      "failed": "Failed",
+      "skipped": "Skipped",
+      "pr_closed": "PR closed",
+      "awaiting_plan_approval": "Plan to approve"
+    },
+    "notes": {
+      "held": "Automation not started: a manual fix start is required.",
+      "awaiting_plan_approval": "The plan exceeds the effort threshold: approve or reject it to proceed."
+    }
+  }
 }
