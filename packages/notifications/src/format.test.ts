@@ -62,6 +62,14 @@ const PR_CLOSED: NotificationEvent = {
   ticketUrl: "https://app.example.com/tickets/t1",
 };
 
+const JOB_PLAN_REVIEW: NotificationEvent = {
+  kind: "job.plan_review",
+  ticketNumber: 42,
+  ticketTitle: "Crash al login",
+  projectName: "webapp",
+  ticketUrl: "https://app.example.com/tickets/42",
+};
+
 describe("formatNotification — contratto", () => {
   it("ogni formato dichiara content-type application/json", () => {
     for (const format of ["slack", "discord", "generic"] as NotificationFormat[]) {
@@ -113,6 +121,13 @@ describe("formatNotification — slack", () => {
     expect(text).toContain("<https://github.com/o/r/pull/7|Vedi PR>");
     expect(text).toContain("<https://app.example.com/tickets/t1|Ticket>");
   });
+
+  it("job.plan_review → piano in attesa di approvazione, con link al ticket", () => {
+    const text = (formatNotification(JOB_PLAN_REVIEW, "slack").body as { text: string }).text;
+    expect(text).toContain("*#42*");
+    expect(text).toContain("Piano in attesa di approvazione");
+    expect(text).toContain("<https://app.example.com/tickets/42|Rivedi>");
+  });
 });
 
 describe("formatNotification — discord", () => {
@@ -134,6 +149,13 @@ describe("formatNotification — discord", () => {
     expect(content).toContain("PR chiusa senza merge");
     expect(content).toContain("[Vedi PR](https://github.com/o/r/pull/7)");
     expect(content).toContain("[Ticket](https://app.example.com/tickets/t1)");
+  });
+
+  it("job.plan_review: piano in attesa di approvazione, link in stile markdown", () => {
+    const content = (formatNotification(JOB_PLAN_REVIEW, "discord").body as { content: string })
+      .content;
+    expect(content).toContain("Piano in attesa di approvazione");
+    expect(content).toContain("[Rivedi](https://app.example.com/tickets/42)");
   });
 });
 
@@ -184,6 +206,16 @@ describe("formatNotification — generic", () => {
     expect(typeof body.message).toBe("string");
     expect(body.message as string).toContain("PR chiusa senza merge");
   });
+
+  it("job.plan_review → payload piatto con messaggio di piano in attesa", () => {
+    const body = formatNotification(JOB_PLAN_REVIEW, "generic").body as Record<string, unknown>;
+    expect(body.event).toBe("job.plan_review");
+    expect(body.ticketNumber).toBe(42);
+    expect(body.title).toBe("Crash al login");
+    expect(body.projectName).toBe("webapp");
+    expect(body.ticketUrl).toBe("https://app.example.com/tickets/42");
+    expect(body.message as string).toContain("Piano in attesa di approvazione");
+  });
 });
 
 describe("sampleEvents", () => {
@@ -195,6 +227,7 @@ describe("sampleEvents", () => {
       "job.pr_opened",
       "job.pr_closed",
       "job.held",
+      "job.plan_review",
       "job.failed",
     ]);
     for (const event of events) {

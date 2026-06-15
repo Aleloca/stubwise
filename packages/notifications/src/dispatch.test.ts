@@ -93,6 +93,14 @@ const PR_CLOSED: NotificationEvent = {
   ticketUrl: "https://app.example.com/tickets/t1",
 };
 
+const PLAN_REVIEW: NotificationEvent = {
+  kind: "job.plan_review",
+  ticketNumber: 42,
+  ticketTitle: "Crash al login",
+  projectName: "webapp",
+  ticketUrl: "https://app.example.com/tickets/t1",
+};
+
 function okFetch() {
   return vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
 }
@@ -154,6 +162,20 @@ describe("dispatchNotification — gating", () => {
   it("notifyPrClosed on posta job.pr_closed", async () => {
     const fetchImpl = okFetch();
     await dispatchNotification(fakeDb(BASE_ROW), PR_CLOSED, { fetchImpl });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("notifyPlanReview off blocca job.plan_review", async () => {
+    const fetchImpl = okFetch();
+    await dispatchNotification(fakeDb({ ...BASE_ROW, notifyPlanReview: false }), PLAN_REVIEW, {
+      fetchImpl,
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("notifyPlanReview on posta job.plan_review", async () => {
+    const fetchImpl = okFetch();
+    await dispatchNotification(fakeDb(BASE_ROW), PLAN_REVIEW, { fetchImpl });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 

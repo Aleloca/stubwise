@@ -54,6 +54,7 @@ const notificationSettingsResponseSchema = z.object({
   notifyPrOpened: z.boolean(),
   notifyPrClosed: z.boolean(),
   notifyJobHeld: z.boolean(),
+  notifyPlanReview: z.boolean(),
   notifyJobFailed: z.boolean(),
 });
 
@@ -75,6 +76,9 @@ const updateNotificationsBodySchema = z.object({
   // comportamento "notifica anche le PR chiuse senza merge" come gli altri toggle.
   notifyPrClosed: z.boolean().default(true),
   notifyJobHeld: z.boolean(),
+  // Default true: i client esistenti che non inviano il campo conservano il
+  // comportamento "notifica i piani in attesa di approvazione" come gli altri toggle.
+  notifyPlanReview: z.boolean().default(true),
   notifyJobFailed: z.boolean(),
 });
 
@@ -100,6 +104,7 @@ async function loadNotificationSettings(
       notifyPrOpened: true,
       notifyPrClosed: true,
       notifyJobHeld: true,
+      notifyPlanReview: true,
       notifyJobFailed: true,
     };
   }
@@ -111,6 +116,7 @@ async function loadNotificationSettings(
     notifyPrOpened: row.notifyPrOpened,
     notifyPrClosed: row.notifyPrClosed,
     notifyJobHeld: row.notifyJobHeld,
+    notifyPlanReview: row.notifyPlanReview,
     notifyJobFailed: row.notifyJobFailed,
   };
 }
@@ -222,6 +228,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
           notifyPrOpened: body.notifyPrOpened,
           notifyPrClosed: body.notifyPrClosed,
           notifyJobHeld: body.notifyJobHeld,
+          notifyPlanReview: body.notifyPlanReview,
           notifyJobFailed: body.notifyJobFailed,
         })
         .onConflictDoUpdate({
@@ -234,6 +241,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
             notifyPrOpened: body.notifyPrOpened,
             notifyPrClosed: body.notifyPrClosed,
             notifyJobHeld: body.notifyJobHeld,
+            notifyPlanReview: body.notifyPlanReview,
             notifyJobFailed: body.notifyJobFailed,
           },
         });

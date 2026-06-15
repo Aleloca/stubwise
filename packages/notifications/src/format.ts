@@ -307,6 +307,13 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       ticketUrl: `${base}/tickets/131`,
     },
     {
+      kind: "job.plan_review",
+      ticketNumber: 131,
+      ticketTitle: "Aggiungere export CSV allo storico ordini",
+      projectName: "negozio-web",
+      ticketUrl: `${base}/tickets/131`,
+    },
+    {
       kind: "job.failed",
       ticketNumber: 129,
       ticketTitle: "Pagamento non confermato dopo il redirect",

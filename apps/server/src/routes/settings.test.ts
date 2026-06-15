@@ -189,6 +189,7 @@ interface NotificationSettings {
   notifyPrOpened: boolean;
   notifyPrClosed: boolean;
   notifyJobHeld: boolean;
+  notifyPlanReview: boolean;
   notifyJobFailed: boolean;
 }
 
@@ -210,6 +211,7 @@ describe("GET /api/settings/notifications", () => {
     expect(body.enabled).toBe(true);
     expect(body.notifyTicketCreated).toBe(true);
     expect(body.notifyPrClosed).toBe(true);
+    expect(body.notifyPlanReview).toBe(true);
     expect(body.notifyJobFailed).toBe(true);
   });
 });
@@ -241,6 +243,7 @@ describe("PUT /api/settings/notifications", () => {
         notifyPrOpened: true,
         notifyPrClosed: false,
         notifyJobHeld: false,
+        notifyPlanReview: false,
         notifyJobFailed: true,
       },
       users.adminCookie,
@@ -252,6 +255,7 @@ describe("PUT /api/settings/notifications", () => {
     expect(body.enabled).toBe(false);
     expect(body.notifyTicketCreated).toBe(false);
     expect(body.notifyPrClosed).toBe(false);
+    expect(body.notifyPlanReview).toBe(false);
 
     // Persistito: una sola riga (id=1) e la GET la riflette.
     const rows = await testDb.db.select().from(notificationSettings);
@@ -260,6 +264,7 @@ describe("PUT /api/settings/notifications", () => {
     expect(after.format).toBe("discord");
     expect(after.notifyJobHeld).toBe(false);
     expect(after.notifyPrClosed).toBe(false);
+    expect(after.notifyPlanReview).toBe(false);
   });
 
   it("admin: notifyPrClosed omesso → default true (compatibilità client legacy)", async () => {
@@ -278,6 +283,25 @@ describe("PUT /api/settings/notifications", () => {
     );
     expect(res.statusCode).toBe(200);
     expect((res.json() as NotificationSettings).notifyPrClosed).toBe(true);
+  });
+
+  it("admin: notifyPlanReview omesso → default true (compatibilità client legacy)", async () => {
+    const res = await putNotifications(
+      {
+        webhookUrl: "https://hooks.example.com/legacy-plan",
+        format: "slack",
+        enabled: true,
+        notifyTicketCreated: true,
+        notifyPrOpened: true,
+        notifyPrClosed: true,
+        notifyJobHeld: true,
+        // notifyPlanReview volutamente assente: deve defaultare a true.
+        notifyJobFailed: true,
+      },
+      users.adminCookie,
+    );
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as NotificationSettings).notifyPlanReview).toBe(true);
   });
 
   it("webhookUrl vuoto è ammesso (disattiva il webhook) e salvato come null", async () => {
