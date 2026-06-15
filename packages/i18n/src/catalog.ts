@@ -33,17 +33,29 @@ export const en: Catalog = {
   "comment.reportMissing":
     "The agent did not generate a report ({filename} missing). Review the PR diff.",
 
-  // --- notify.* — messaggi di notifica (frasi plain, senza markup) ---
+  // --- notify.* — messaggi di notifica.
+  // `{ref}` è il riferimento al ticket (`#42`), reso con il markup del formato
+  // (Slack `*#42*`, Discord `**#42**`, generico `#42`); `{link}` è il/i link
+  // già reso/i nel markup del formato (vuoto per il payload generico, che porta
+  // gli URL come campi); `{cost}` è il suffisso costo localizzato o vuoto.
+  // Un'UNICA chiave per evento serve tutti i formati: vedi `format.ts`.
   "notify.ticketCreated":
-    "New ticket #{ticketNumber} — {ticketTitle} ({projectName}, {source}).",
-  "notify.prOpened": "PR opened for #{ticketNumber} — {ticketTitle}.",
+    "New ticket {ref} — {ticketTitle} ({projectName}, {source}). {link}",
+  "notify.prOpened": "PR opened for {ref} — {ticketTitle}{cost}. {link}",
   "notify.prClosed":
-    "PR closed without merging — ticket reopened: #{ticketNumber} — {ticketTitle}.",
+    "PR closed without merging — ticket reopened: {ref} — {ticketTitle}. {link}",
   "notify.jobHeld":
-    "#{ticketNumber} awaiting review — {ticketTitle} ({type}, effort {effort}/5).",
+    "{ref} awaiting review — {ticketTitle} ({type}, effort {effort}/5). {link}",
   "notify.planReview":
-    "Plan awaiting approval — #{ticketNumber} — {ticketTitle} ({projectName}).",
-  "notify.jobFailed": "AI fix failed on #{ticketNumber} — {ticketTitle}: {error}.",
+    "Plan awaiting approval — {ref} — {ticketTitle} ({projectName}). {link}",
+  "notify.jobFailed": "AI fix failed on {ref} — {ticketTitle}: {error}. {link}",
+  // Suffisso costo (anteposto allo spazio: la frase ha già lo spazio prima).
+  "notify.costSuffix": " (cost ${cost})",
+  // Etichette dei link (rese nel markup del formato attorno all'URL).
+  "notify.linkOpen": "Open",
+  "notify.linkReview": "Review",
+  "notify.linkPr": "View PR",
+  "notify.linkTicket": "Ticket",
 
   // --- report.* — header delle sezioni del report ---
   "report.investigation": "Investigation process",
@@ -78,17 +90,22 @@ export const it: Catalog = {
   "comment.reportMissing":
     "Il report non è stato generato dall'agente ({filename} mancante). Esaminare il diff della PR.",
 
-  // --- notify.* ---
+  // --- notify.* (vedi note sui placeholder {ref}/{link}/{cost} in `en`) ---
   "notify.ticketCreated":
-    "Nuovo ticket #{ticketNumber} — {ticketTitle} ({projectName}, {source}).",
-  "notify.prOpened": "PR aperta per #{ticketNumber} — {ticketTitle}.",
+    "Nuovo ticket {ref} — {ticketTitle} ({projectName}, {source}). {link}",
+  "notify.prOpened": "PR aperta per {ref} — {ticketTitle}{cost}. {link}",
   "notify.prClosed":
-    "PR chiusa senza merge — ticket riaperto: #{ticketNumber} — {ticketTitle}.",
+    "PR chiusa senza merge — ticket riaperto: {ref} — {ticketTitle}. {link}",
   "notify.jobHeld":
-    "#{ticketNumber} in attesa di revisione — {ticketTitle} ({type}, effort {effort}/5).",
+    "{ref} in attesa di revisione — {ticketTitle} ({type}, effort {effort}/5). {link}",
   "notify.planReview":
-    "Piano in attesa di approvazione — #{ticketNumber} — {ticketTitle} ({projectName}).",
-  "notify.jobFailed": "Fix AI fallito su #{ticketNumber} — {ticketTitle}: {error}.",
+    "Piano in attesa di approvazione — {ref} — {ticketTitle} ({projectName}). {link}",
+  "notify.jobFailed": "Fix AI fallito su {ref} — {ticketTitle}: {error}. {link}",
+  "notify.costSuffix": " (costo ${cost})",
+  "notify.linkOpen": "Apri",
+  "notify.linkReview": "Rivedi",
+  "notify.linkPr": "Vedi PR",
+  "notify.linkTicket": "Ticket",
 
   // --- report.* ---
   "report.investigation": "Processo di indagine",
