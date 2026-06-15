@@ -191,6 +191,37 @@ export async function holdJob(db: Db, jobId: string, input: HoldJobInput): Promi
   return updated.length > 0;
 }
 
+export interface ParkForPlanApprovalInput {
+  planText: string;
+  log: string;
+}
+
+/**
+ * Transizione fix → awaiting_plan_approval: la pianificazione ha prodotto un
+ * piano pronto che attende l'approvazione umana. A differenza di holdJob NON
+ * imposta finishedAt: il job non è concluso, è in pausa e riprenderà quando il
+ * piano sarà approvato. Status-guarded come markFixing/holdJob: restituisce
+ * false se la ownership è persa (job requeued e reclamato altrove) e in quel
+ * caso il chiamante non deve toccare nulla.
+ */
+export async function parkForPlanApproval(
+  db: Db,
+  jobId: string,
+  input: ParkForPlanApprovalInput,
+): Promise<boolean> {
+  const updated = await db
+    .update(aiJobs)
+    .set({
+      status: "awaiting_plan_approval",
+      planText: input.planText,
+      log: sql`${aiJobs.log} || ${`${input.log}\n`}`,
+      lastActivityAt: sql`now()`,
+    })
+    .where(and(eq(aiJobs.id, jobId), inArray(aiJobs.status, [...ACTIVE_STATUSES])))
+    .returning({ id: aiJobs.id });
+  return updated.length > 0;
+}
+
 export interface RequeueStaleOptions {
   olderThanMinutes: number;
 }

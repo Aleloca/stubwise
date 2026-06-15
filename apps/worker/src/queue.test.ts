@@ -9,6 +9,7 @@ import {
   failJob,
   holdJob,
   markFixing,
+  parkForPlanApproval,
   requeueStale,
   runWorker,
   touchJob,
@@ -219,6 +220,39 @@ describe("transizioni di stato", () => {
     expect(persisted.status).toBe("held");
     expect(persisted.finishedAt).not.toBeNull();
     expect(persisted.log).toContain("[triage] in attesa");
+  });
+
+  it("parkForPlanApproval porta il job da fixing a awaiting_plan_approval, salva planText e accoda il log SENZA finishedAt", async () => {
+    const { db } = testDb;
+    const job = await enqueueJob(db, { status: "fixing", startedAt: minutesAgo(1) });
+
+    expect(
+      await parkForPlanApproval(db, job.id, { planText: "1. fix A\n2. fix B", log: "[fix] piano pronto" }),
+    ).toBe(true);
+
+    const persisted = await getJob(db, job.id);
+    expect(persisted.status).toBe("awaiting_plan_approval");
+    expect(persisted.planText).toBe("1. fix A\n2. fix B");
+    expect(persisted.log).toContain("[fix] piano pronto");
+    // Il job è in pausa, non concluso: finishedAt resta NULL.
+    expect(persisted.finishedAt).toBeNull();
+    // La transizione è attività: rinfresca l'heartbeat.
+    expect(persisted.lastActivityAt.getTime()).toBeGreaterThan(Date.now() - 60_000);
+  });
+
+  it("parkForPlanApproval su un job non in lavorazione restituisce false e non tocca la riga", async () => {
+    const { db } = testDb;
+    const job = await enqueueJob(db); // ancora `queued`: nessuno lo possiede
+
+    expect(
+      await parkForPlanApproval(db, job.id, { planText: "tardivo", log: "tardivo" }),
+    ).toBe(false);
+
+    const persisted = await getJob(db, job.id);
+    expect(persisted.status).toBe("queued");
+    expect(persisted.planText).toBeNull();
+    expect(persisted.log).toBe("");
+    expect(persisted.finishedAt).toBeNull();
   });
 
   it("le transizioni su un job non in lavorazione restituiscono false e non toccano la riga", async () => {
