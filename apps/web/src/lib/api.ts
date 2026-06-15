@@ -266,7 +266,13 @@ export type AIJobStatus =
   | "pr_opened"
   | "pr_merged"
   | "failed"
-  | "skipped";
+  | "skipped"
+  // "pr_closed": la PR aperta dal fix è stata chiusa senza merge (rifiutata da
+  // un umano). Stato terminale, distinto da "pr_merged".
+  | "pr_closed"
+  // "awaiting_plan_approval": il piano prodotto supera la soglia di effort
+  // configurata; il job attende l'approvazione umana prima di eseguirlo.
+  | "awaiting_plan_approval";
 
 export interface AIJob {
   id: string;

@@ -156,21 +156,27 @@ interface MockState {
   postedComments: unknown[];
   usage: TicketUsage;
   jobs: AIJob[];
-  /** Quante volte è stato chiamato POST /run-ai. */
-  runAiCalls: number;
+  /** Body inviati a POST /run-ai (per verificare il flag withInstructions). */
+  runAiCalls: unknown[];
+  /** Quante volte è stato chiamato POST /approve-plan. */
+  approveCalls: number;
+  /** Quante volte è stato chiamato POST /reject-plan. */
+  rejectCalls: number;
 }
 
 function mockDetailApi(
-  overrides: { usage?: TicketUsage; ticket?: Ticket; jobs?: AIJob[] } = {},
+  overrides: { usage?: TicketUsage; ticket?: Ticket; jobs?: AIJob[]; comments?: Comment[] } = {},
 ): MockState {
   const state: MockState = {
     ticket: overrides.ticket ?? { ...ticketFixture },
-    comments: [...commentsFixture],
+    comments: overrides.comments ?? [...commentsFixture],
     patches: [],
     postedComments: [],
     usage: overrides.usage ?? usageFixture,
     jobs: overrides.jobs ?? jobsFixture,
-    runAiCalls: 0,
+    runAiCalls: [],
+    approveCalls: 0,
+    rejectCalls: 0,
   };
 
   mockApi({
@@ -217,8 +223,16 @@ function mockDetailApi(
     },
     [`GET /api/tickets/${TICKET_ID}/jobs`]: () => jsonResponse(200, state.jobs),
     [`GET /api/tickets/${TICKET_ID}/usage`]: () => jsonResponse(200, state.usage),
-    [`POST /api/tickets/${TICKET_ID}/run-ai`]: () => {
-      state.runAiCalls += 1;
+    [`POST /api/tickets/${TICKET_ID}/run-ai`]: (_url, init) => {
+      state.runAiCalls.push(init?.body ? JSON.parse(String(init.body)) : undefined);
+      return jsonResponse(202, { jobId: "j3" });
+    },
+    [`POST /api/tickets/${TICKET_ID}/approve-plan`]: () => {
+      state.approveCalls += 1;
+      return jsonResponse(202, { jobId: "j3" });
+    },
+    [`POST /api/tickets/${TICKET_ID}/reject-plan`]: () => {
+      state.rejectCalls += 1;
       return jsonResponse(202, { jobId: "j3" });
     },
   });
@@ -237,6 +251,19 @@ const heldJobFixture: AIJob = {
   createdAt: "2026-06-04T10:00:00.000Z",
   startedAt: "2026-06-04T10:00:02.000Z",
   finishedAt: "2026-06-04T10:00:05.000Z",
+};
+
+/** Job singolo in stato "awaiting_plan_approval": piano in attesa di decisione. */
+const awaitingPlanJobFixture: AIJob = {
+  id: "jp",
+  ticketId: TICKET_ID,
+  status: "awaiting_plan_approval",
+  log: "[plan] piano proposto, in attesa di approvazione",
+  prUrl: null,
+  error: null,
+  createdAt: "2026-06-05T10:00:00.000Z",
+  startedAt: "2026-06-05T10:00:02.000Z",
+  finishedAt: "2026-06-05T10:00:05.000Z",
 };
 
 function renderDetail() {
@@ -298,7 +325,70 @@ describe("dettaglio ticket", () => {
     const button = screen.getByRole("button", { name: "Avvia fix AI" });
     await userEvent.click(button);
 
-    await waitFor(() => expect(state.runAiCalls).toBe(1));
+    // Senza opzione: il run-ai parte senza body (triage da capo).
+    await waitFor(() => expect(state.runAiCalls).toEqual([undefined]));
+  });
+
+  it("job 'held': 'Rilancia con istruzioni' chiama run-ai con withInstructions", async () => {
+    const state = mockDetailApi({ jobs: [heldJobFixture] });
+    renderDetail();
+
+    const button = await screen.findByRole("button", { name: "Rilancia con istruzioni" });
+    await userEvent.click(button);
+
+    await waitFor(() => expect(state.runAiCalls).toEqual([{ withInstructions: true }]));
+  });
+
+  it("hint 'aggiungi un commento': assente quando l'utente ha già commentato", async () => {
+    // I commenti fixture includono un commento utente → nessun hint.
+    mockDetailApi({ jobs: [heldJobFixture] });
+    renderDetail();
+
+    await screen.findByRole("button", { name: "Rilancia con istruzioni" });
+    expect(screen.queryByText(/Aggiungi prima un commento/i)).not.toBeInTheDocument();
+  });
+
+  it("hint 'aggiungi un commento': presente quando non ci sono commenti utente", async () => {
+    // Solo un commento AI → manca un commento utente con le istruzioni.
+    mockDetailApi({
+      jobs: [heldJobFixture],
+      comments: commentsFixture.filter((comment) => comment.authorType === "ai"),
+    });
+    renderDetail();
+
+    await screen.findByRole("button", { name: "Rilancia con istruzioni" });
+    expect(screen.getByText(/Aggiungi prima un commento/i)).toBeInTheDocument();
+  });
+
+  it("job 'awaiting_plan_approval': Approva chiama approve-plan", async () => {
+    const state = mockDetailApi({ jobs: [awaitingPlanJobFixture] });
+    renderDetail();
+
+    expect(await screen.findByText("Piano da approvare")).toBeInTheDocument();
+    const approve = screen.getByRole("button", { name: "Approva" });
+    await userEvent.click(approve);
+
+    await waitFor(() => expect(state.approveCalls).toBe(1));
+  });
+
+  it("job 'awaiting_plan_approval': Rifiuta chiama reject-plan e porta il focus al commento", async () => {
+    const state = mockDetailApi({ jobs: [awaitingPlanJobFixture] });
+    renderDetail();
+
+    const reject = await screen.findByRole("button", { name: "Rifiuta" });
+    await userEvent.click(reject);
+
+    await waitFor(() => expect(state.rejectCalls).toBe(1));
+    expect(screen.getByLabelText(/aggiungi un commento/i)).toHaveFocus();
+  });
+
+  it("senza job 'awaiting_plan_approval': Approva/Rifiuta non compaiono", async () => {
+    mockDetailApi({ jobs: [heldJobFixture] });
+    renderDetail();
+
+    await screen.findByRole("button", { name: "Avvia fix AI" });
+    expect(screen.queryByRole("button", { name: "Approva" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Rifiuta" })).not.toBeInTheDocument();
   });
 
   it("senza job 'held' in cima: il bottone Avvia fix AI non compare", async () => {

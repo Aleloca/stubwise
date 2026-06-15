@@ -24,7 +24,14 @@ import { LabelsEditor } from "../../components/labels-editor";
 import { Markdown } from "../../components/markdown";
 import { TechnicalPayload } from "../../components/technical-payload";
 import { UsagePanel } from "../../components/usage-panel";
-import { patchTicket, postComment, postRunAi, type TicketPatch } from "../../lib/api";
+import {
+  approvePlan,
+  patchTicket,
+  postComment,
+  postRunAi,
+  rejectPlan,
+  type TicketPatch,
+} from "../../lib/api";
 import { formatDateTime } from "../../lib/format";
 import {
   commentsQueryOptions,
@@ -81,20 +88,50 @@ export function TicketDetailPage() {
       queryClient.invalidateQueries({ queryKey: commentsQueryOptions(id).queryKey }),
   });
 
+  // Rilanciato/ripreso il job: la timeline (e lo stato del ticket, che il triage
+  // riporta in lavorazione) vanno riconciliati col backend.
+  const invalidateJobAndDetail = () => {
+    void queryClient.invalidateQueries({ queryKey: ticketKeys.jobs(id) });
+    void queryClient.invalidateQueries({ queryKey: ticketKeys.detail(id) });
+  };
+
   const runAiMutation = useMutation({
-    mutationFn: () => postRunAi(id),
-    // Rilanciato il job: la timeline (e lo stato del ticket, che il triage
-    // riporta in lavorazione) vanno riconciliati col backend.
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ticketKeys.jobs(id) });
-      void queryClient.invalidateQueries({ queryKey: ticketKeys.detail(id) });
-    },
+    // `withInstructions` riprende sul fix (resume_mode=fix) incorporando i
+    // commenti utente; senza opzione si rifà il triage da capo.
+    mutationFn: (opts?: { withInstructions?: boolean }) => postRunAi(id, opts),
+    onSuccess: invalidateJobAndDetail,
+  });
+
+  const approvePlanMutation = useMutation({
+    mutationFn: () => approvePlan(id),
+    onSuccess: invalidateJobAndDetail,
+  });
+
+  const rejectPlanMutation = useMutation({
+    mutationFn: () => rejectPlan(id),
+    onSuccess: invalidateJobAndDetail,
   });
 
   // Il job più recente è il primo della lista (ordinata desc dal server). Se è
-  // "held", un umano può lanciare il fix manualmente scavalcando il gate.
+  // "held", un umano può lanciare il fix manualmente scavalcando il gate;
+  // se è "awaiting_plan_approval", può approvare o rifiutare il piano.
   const latestJob = jobs[0];
   const isHeld = latestJob?.status === "held";
+  const awaitingPlanApproval = latestJob?.status === "awaiting_plan_approval";
+
+  // Hint per "Rilancia con istruzioni": senza commenti dell'utente il rilancio
+  // non avrebbe nuove indicazioni da incorporare. Non blocca, solo guida.
+  const hasUserComment = comments.some((comment) => comment.authorType === "user");
+
+  // "Rifiuta" porta il focus al box commento: l'utente scrive cosa correggere
+  // e il prossimo run ne tiene conto.
+  const focusCommentBox = () => {
+    const box = document.getElementById("comment-body");
+    if (box instanceof HTMLTextAreaElement) {
+      box.focus();
+      box.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  };
 
   return (
     <div className="p-8">
@@ -153,18 +190,72 @@ export function TicketDetailPage() {
             <h2 className={sectionTitleClass}>Attività AI</h2>
             <AIJobTimeline jobs={jobs} />
             {isHeld && (
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  disabled={runAiMutation.isPending}
-                  onClick={() => runAiMutation.mutate()}
-                  className="rounded-sm bg-signal px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright active:bg-signal-dim disabled:cursor-not-allowed disabled:bg-signal-dim"
-                >
-                  {runAiMutation.isPending ? "Avvio…" : "Avvia fix AI"}
-                </button>
+              <div className="mt-3 space-y-2">
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    disabled={runAiMutation.isPending}
+                    onClick={() => runAiMutation.mutate(undefined)}
+                    className="rounded-sm bg-signal px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright active:bg-signal-dim disabled:cursor-not-allowed disabled:bg-signal-dim disabled:opacity-60"
+                  >
+                    {runAiMutation.isPending ? "Avvio…" : "Avvia fix AI"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={runAiMutation.isPending}
+                    onClick={() => runAiMutation.mutate({ withInstructions: true })}
+                    className="rounded-sm border border-signal-dim px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-signal uppercase transition-colors hover:border-signal hover:bg-signal/10 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Rilancia con istruzioni
+                  </button>
+                </div>
+                {!hasUserComment && (
+                  <p className="font-mono text-[11px] text-fg-muted">
+                    Aggiungi prima un commento con le istruzioni.
+                  </p>
+                )}
                 {runAiMutation.isError && (
                   <span role="alert" className="font-mono text-[12px] text-danger">
                     {runAiMutation.error.message}
+                  </span>
+                )}
+              </div>
+            )}
+            {awaitingPlanApproval && (
+              <div className="mt-3 space-y-2">
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    disabled={approvePlanMutation.isPending || rejectPlanMutation.isPending}
+                    onClick={() => approvePlanMutation.mutate()}
+                    className="rounded-sm bg-signal px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright active:bg-signal-dim disabled:cursor-not-allowed disabled:bg-signal-dim disabled:opacity-60"
+                  >
+                    {approvePlanMutation.isPending ? "Approvazione…" : "Approva"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={approvePlanMutation.isPending || rejectPlanMutation.isPending}
+                    onClick={() => {
+                      focusCommentBox();
+                      rejectPlanMutation.mutate();
+                    }}
+                    className="rounded-sm border border-line-strong px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-danger hover:text-danger disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {rejectPlanMutation.isPending ? "Rifiuto…" : "Rifiuta"}
+                  </button>
+                </div>
+                <p className="font-mono text-[11px] text-fg-muted">
+                  Per rifiutare, scrivi cosa correggere nel commento e poi rifiuta: il prossimo
+                  piano ne terrà conto.
+                </p>
+                {approvePlanMutation.isError && (
+                  <span role="alert" className="font-mono text-[12px] text-danger">
+                    {approvePlanMutation.error.message}
+                  </span>
+                )}
+                {rejectPlanMutation.isError && (
+                  <span role="alert" className="font-mono text-[12px] text-danger">
+                    {rejectPlanMutation.error.message}
                   </span>
                 )}
               </div>
