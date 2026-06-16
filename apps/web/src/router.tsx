@@ -22,6 +22,7 @@ import {
   notificationSettingsQueryOptions,
   projectQueryOptions,
   projectsQueryOptions,
+  ticketAttachmentsQueryOptions,
   ticketJobsQueryOptions,
   ticketLinksQueryOptions,
   ticketQueryOptions,
@@ -146,6 +147,7 @@ const ticketDetailRoute = createRoute({
       context.queryClient.ensureQueryData(ticketJobsQueryOptions(params.id)),
       context.queryClient.ensureQueryData(ticketUsageQueryOptions(params.id)),
       context.queryClient.ensureQueryData(ticketLinksQueryOptions(params.id)),
+      context.queryClient.ensureQueryData(ticketAttachmentsQueryOptions(params.id)),
       context.queryClient.ensureQueryData(usersQueryOptions),
       context.queryClient.ensureQueryData(projectsQueryOptions),
     ]);

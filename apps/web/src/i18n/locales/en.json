@@ -210,6 +210,20 @@
       "submit": "Comment",
       "submitPending": "Submitting…"
     },
+    "attachments": {
+      "title": "Attachments",
+      "empty": "// no attachments",
+      "attach": "Attach a file",
+      "uploading": "Uploading…",
+      "uploadFailed": "Failed to upload the file",
+      "errorType": "Unsupported file type. Allowed: images, PDF, plain text, ZIP.",
+      "errorSize": "File too large: the maximum size is 10 MB.",
+      "remove": "Remove",
+      "confirmRemove": "Confirm?",
+      "removeFile": "Remove {{filename}}",
+      "disabledHint": "Attachments are off. Configure storage in Settings.",
+      "configureStorage": "Configure storage in Settings"
+    },
     "links": {
       "title": "Linked tickets",
       "empty": "// no linked tickets",

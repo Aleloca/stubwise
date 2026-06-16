@@ -4,11 +4,18 @@ import {
   type TicketPriority,
   type TicketStatus,
 } from "@stubwise/shared";
-import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { ActivityFeed } from "../../components/activity-feed";
 import { AIJobTimeline } from "../../components/ai-job-timeline";
+import { AttachmentList } from "../../components/attachment-list";
+import { AttachmentUpload } from "../../components/attachment-upload";
 import {
   PriorityBadge,
   SOURCE_LABEL_KEYS,
@@ -34,9 +41,12 @@ import {
   type TicketPatch,
 } from "../../lib/api";
 import { formatDateTime } from "../../lib/format";
+import { meQueryOptions } from "../../lib/auth";
 import {
   commentsQueryOptions,
+  instanceSettingsQueryOptions,
   projectsQueryOptions,
+  ticketAttachmentsQueryOptions,
   ticketJobsQueryOptions,
   ticketKeys,
   ticketQueryOptions,
@@ -66,6 +76,7 @@ export function TicketDetailPage() {
   const { data: usage } = useSuspenseQuery(ticketUsageQueryOptions(id));
   const { data: users } = useSuspenseQuery(usersQueryOptions);
   const { data: projects } = useSuspenseQuery(projectsQueryOptions);
+  const { data: me } = useSuspenseQuery(meQueryOptions);
 
   const projectName = projects.find((project) => project.id === ticket.projectId)?.name ?? "—";
   const authorEmails = new Map(users.map((user) => [user.id, user.email]));
@@ -293,6 +304,11 @@ export function TicketDetailPage() {
             <TicketLinks ticketId={id} projectId={ticket.projectId} />
           </section>
 
+          <section aria-label={t("tickets:attachments.title")}>
+            <h2 className={sectionTitleClass}>{t("tickets:attachments.title")}</h2>
+            <TicketAttachments ticketId={id} isAdmin={me.user.role === "admin"} />
+          </section>
+
           <section aria-label={t("tickets:activity.title")}>
             <h2 className={sectionTitleClass}>{t("tickets:activity.title")}</h2>
             <ActivityFeed
@@ -378,6 +394,51 @@ export function TicketDetailPage() {
 
 const sectionTitleClass =
   "mb-3 font-mono text-[11px] font-medium tracking-[0.16em] text-fg-muted uppercase";
+
+/**
+ * Sezione allegati del ticket: lista (con anteprime) + caricamento. Per la v1
+ * gli allegati si legano al TICKET (non al singolo commento): semplice e
+ * sufficiente. L'upload compare per l'admin solo quando lo storage è
+ * configurato (`attachmentsEnabled`), con hint + link alle Impostazioni se off;
+ * il flag d'istanza è admin-only, quindi per i member l'upload si mostra
+ * comunque e il server applica l'eventuale errore se lo storage è spento.
+ *
+ * `canDelete`: l'allegato non porta l'uploaderId nella proiezione pubblica, così
+ * la UI non può distinguere "uploader vs altri". Si mostra remove all'admin
+ * (che può sempre cancellare) e all'autore via il fallback del server: per
+ * semplicità qui si abilita remove per l'admin e lo si lascia per i member,
+ * dove il 403 del server degrada con un errore inline nella lista.
+ */
+function TicketAttachments({ ticketId, isAdmin }: { ticketId: string; isAdmin: boolean }) {
+  const { t } = useTranslation();
+  const { data: attachments } = useSuspenseQuery(ticketAttachmentsQueryOptions(ticketId));
+  // Il flag è admin-only: i member non possono leggerlo, quindi la query parte
+  // solo per gli admin. Per i member l'upload si mostra e il server arbitra.
+  const { data: instance } = useQuery({ ...instanceSettingsQueryOptions, enabled: isAdmin });
+
+  const attachmentsEnabled = isAdmin ? (instance?.attachmentsEnabled ?? false) : true;
+  const showStorageHint = isAdmin && instance !== undefined && !instance.attachmentsEnabled;
+
+  return (
+    <div className="space-y-4">
+      {/*
+        canDelete: l'allegato non porta l'uploaderId, quindi la UI non distingue
+        uploader vs altri; si mostra remove a tutti e il server applica il 403
+        (uploader o admin), degradato a errore inline nella lista.
+      */}
+      <AttachmentList ticketId={ticketId} attachments={attachments} canDelete={() => true} />
+      {showStorageHint ? (
+        <p className="font-mono text-[12px] text-fg-faint">
+          <Link to="/settings/storage" className="text-signal transition-colors hover:text-signal-bright">
+            {t("tickets:attachments.configureStorage")}
+          </Link>
+        </p>
+      ) : (
+        <AttachmentUpload ticketId={ticketId} disabled={!attachmentsEnabled} />
+      )}
+    </div>
+  );
+}
 
 function MetaRow({ label, value }: { label: string; value: string }) {
   return (

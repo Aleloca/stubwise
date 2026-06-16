@@ -210,6 +210,20 @@
       "submit": "Commenta",
       "submitPending": "Invio…"
     },
+    "attachments": {
+      "title": "Allegati",
+      "empty": "// nessun allegato",
+      "attach": "Allega un file",
+      "uploading": "Caricamento…",
+      "uploadFailed": "Caricamento del file fallito",
+      "errorType": "Tipo di file non supportato. Ammessi: immagini, PDF, testo, ZIP.",
+      "errorSize": "File troppo grande: la dimensione massima è 10 MB.",
+      "remove": "Rimuovi",
+      "confirmRemove": "Confermi?",
+      "removeFile": "Rimuovi {{filename}}",
+      "disabledHint": "Allegati disattivati. Configura lo storage nelle Impostazioni.",
+      "configureStorage": "Configura lo storage nelle Impostazioni"
+    },
     "links": {
       "title": "Ticket collegati",
       "empty": "// nessun ticket collegato",

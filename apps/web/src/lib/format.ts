@@ -51,6 +51,26 @@ export function formatCostUsd(value: number): string {
   return `$${value.toFixed(4)}`;
 }
 
+const BYTE_UNITS = ["B", "KB", "MB", "GB"] as const;
+
+/**
+ * Dimensione di un file leggibile (base 1024): "512 B", "1.5 MB", "2.3 GB".
+ * Unità intera per i byte, un decimale (senza zeri inutili) da KB in su. Usata
+ * per le etichette degli allegati.
+ */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < BYTE_UNITS.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  // Un decimale, ma "2.0 MB" → "2 MB" (niente zeri di troppo).
+  const rounded = Math.round(value * 10) / 10;
+  return `${rounded} ${BYTE_UNITS[unit]}`;
+}
+
 /**
  * Ricava `owner/repo` da un URL repository (`https://host/owner/repo[.git][/]`):
  * prende gli ultimi due segmenti del path, toglie `.git` e l'eventuale slash
