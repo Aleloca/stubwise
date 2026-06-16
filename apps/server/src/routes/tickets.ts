@@ -4,7 +4,7 @@ import {
   ticketStatusSchema,
   ticketTypeSchema,
 } from "@stubwise/shared";
-import { and, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -279,11 +279,6 @@ function decodeCursor(raw: string): Cursor | null {
   return { createdAt, id };
 }
 
-/** Neutralizza i caratteri jolly di LIKE/ILIKE nel termine di ricerca. */
-function escapeLike(term: string): string {
-  return term.replace(/[\\%_]/g, (match) => `\\${match}`);
-}
-
 /** True se l'id corrisponde a un utente esistente (per validare assigneeId). */
 async function userExists(db: Db, userId: string): Promise<boolean> {
   const [row] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId));
@@ -414,7 +409,22 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       if (type) conditions.push(eq(tickets.type, type));
       if (priority) conditions.push(eq(tickets.priority, priority));
       if (assigneeId) conditions.push(eq(tickets.assigneeId, assigneeId));
-      if (q) conditions.push(ilike(tickets.title, `%${escapeLike(q)}%`));
+      // Ricerca full-text: matcha titolo+body (colonna generata searchTsv) OPPURE
+      // il corpo di un commento del ticket. websearch_to_tsquery tollera input
+      // utente arbitrario (&, :, !, virgolette) senza errori di sintassi → niente
+      // escaping. L'espressione sui commenti è ESATTAMENTE `to_tsvector('english',
+      // body)` per usare l'indice GIN espressivo `comments_body_fts_idx`.
+      if (q) {
+        const tsq = sql`websearch_to_tsquery('english', ${q})`;
+        conditions.push(sql`(
+          ${tickets.searchTsv} @@ ${tsq}
+          OR EXISTS (
+            SELECT 1 FROM ${comments} c
+            WHERE c.ticket_id = ${tickets.id}
+              AND to_tsvector('english', c.body) @@ ${tsq}
+          )
+        )`);
+      }
 
       if (cursor !== undefined) {
         const decoded = decodeCursor(cursor);

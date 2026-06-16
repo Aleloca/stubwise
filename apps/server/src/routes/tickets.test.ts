@@ -397,6 +397,143 @@ describe("GET /api/tickets — paginazione cursor", () => {
   });
 });
 
+describe("GET /api/tickets — ricerca full-text q", () => {
+  let ftsProjectId: string;
+  // Ticket con la parola chiave solo nel BODY (non nel titolo).
+  let bodyMatchId: string;
+  // Ticket con la parola chiave solo in un COMMENTO.
+  let commentMatchId: string;
+  // Ticket con "crashes" nel body, per il test di stemming.
+  let stemmingId: string;
+
+  beforeAll(async () => {
+    ftsProjectId = await createProject("Progetto Ricerca");
+
+    const bodyMatch = await postTicket({
+      projectId: ftsProjectId,
+      title: "Titolo generico senza parole utili",
+      body: "Here we describe a kubernetes deployment problem in detail.",
+      type: "bug",
+    });
+    expect(bodyMatch.statusCode).toBe(201);
+    bodyMatchId = (bodyMatch.json() as TicketBody).id;
+
+    const commentMatch = await postTicket({
+      projectId: ftsProjectId,
+      title: "Un altro titolo qualunque",
+      body: "Body senza la parola speciale.",
+      type: "task",
+    });
+    expect(commentMatch.statusCode).toBe(201);
+    commentMatchId = (commentMatch.json() as TicketBody).id;
+    await testDb.db.insert(comments).values({
+      ticketId: commentMatchId,
+      authorType: "user",
+      authorId: users.memberId,
+      body: "I think this is related to the elasticsearch indexer.",
+    });
+
+    const stemming = await postTicket({
+      projectId: ftsProjectId,
+      title: "Titolo neutro",
+      body: "The application crashes on startup repeatedly.",
+      type: "bug",
+    });
+    expect(stemming.statusCode).toBe(201);
+    stemmingId = (stemming.json() as TicketBody).id;
+  });
+
+  it("matcha una parola presente solo nel body", async () => {
+    const res = await listTickets({ projectId: ftsProjectId, q: "kubernetes" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as ListBody;
+    expect(body.items.map((t) => t.id)).toEqual([bodyMatchId]);
+  });
+
+  it("matcha una parola presente solo in un commento del ticket", async () => {
+    const res = await listTickets({ projectId: ftsProjectId, q: "elasticsearch" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as ListBody;
+    expect(body.items.map((t) => t.id)).toEqual([commentMatchId]);
+  });
+
+  it("stemming: 'crashing' matcha il body che contiene 'crashes'", async () => {
+    const res = await listTickets({ projectId: ftsProjectId, q: "crashing" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as ListBody;
+    expect(body.items.map((t) => t.id)).toEqual([stemmingId]);
+  });
+
+  it("caratteri speciali nel q: 200 (websearch tollerante), nessun crash", async () => {
+    for (const q of ["foo & bar", "a:b", "!x", '"unclosed quote', "and/or & |"]) {
+      const res = await listTickets({ projectId: ftsProjectId, q });
+      expect(res.statusCode).toBe(200);
+      expect(Array.isArray((res.json() as ListBody).items)).toBe(true);
+    }
+  });
+
+  it("caratteri speciali con un token reale: matcha comunque il ticket", async () => {
+    // websearch_to_tsquery ignora gli operatori spuri e tiene il termine vero.
+    const res = await listTickets({ projectId: ftsProjectId, q: "kubernetes & !@#" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as ListBody;
+    expect(body.items.map((t) => t.id)).toEqual([bodyMatchId]);
+  });
+
+  it("nessun match: array vuoto", async () => {
+    const res = await listTickets({ projectId: ftsProjectId, q: "wordthatdoesnotexistanywhere" });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as ListBody).items).toHaveLength(0);
+  });
+
+  it("filtri combinati: projectId + q restringono insieme", async () => {
+    // 'kubernetes' è nel progetto ftsProjectId; con un altro projectId → vuoto.
+    const inProject = await listTickets({ projectId: ftsProjectId, q: "kubernetes" });
+    expect((inProject.json() as ListBody).items.map((t) => t.id)).toEqual([bodyMatchId]);
+
+    const otherProject = await listTickets({ projectId: otherProjectId, q: "kubernetes" });
+    expect((otherProject.json() as ListBody).items).toHaveLength(0);
+  });
+
+  it("paginazione: q che matcha > limit ticket impagina senza sovrapposizioni", async () => {
+    const pagingProjectId = await createProject("Progetto Ricerca Paginata");
+    const ids: string[] = [];
+    for (let i = 1; i <= 5; i++) {
+      const res = await postTicket({
+        projectId: pagingProjectId,
+        title: `Ticket ${i}`,
+        body: "shared searchtoken in every body here",
+        type: "task",
+      });
+      expect(res.statusCode).toBe(201);
+      ids.push((res.json() as TicketBody).id);
+    }
+
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    let pages = 0;
+    do {
+      const query: Record<string, string> = {
+        projectId: pagingProjectId,
+        q: "searchtoken",
+        limit: "2",
+      };
+      if (cursor) query.cursor = cursor;
+      const res = await listTickets(query);
+      expect(res.statusCode).toBe(200);
+      const body = res.json() as ListBody;
+      seen.push(...body.items.map((t) => t.id));
+      cursor = body.nextCursor;
+      pages++;
+    } while (cursor !== null);
+
+    expect(pages).toBe(3);
+    expect(seen).toHaveLength(5);
+    expect(new Set(seen).size).toBe(5);
+    expect(new Set(seen)).toEqual(new Set(ids));
+  });
+});
+
 describe("GET /api/tickets/:id", () => {
   it("restituisce il ticket", async () => {
     const created = await postTicket({ projectId, title: "Da rileggere", type: "task" });
