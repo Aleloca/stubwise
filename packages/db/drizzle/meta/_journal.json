@@ -127,6 +127,13 @@
       "when": 1781616193525,
       "tag": "0017_tidy_wolf_cub",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1781620545414,
+      "tag": "0018_crazy_warstar",
+      "breakpoints": true
     }
   ]
 }
