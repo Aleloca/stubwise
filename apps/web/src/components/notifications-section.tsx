@@ -3,17 +3,19 @@ import {
   sampleEvents,
   type NotificationEvent,
 } from "@stubwise/notifications/format";
+import type { Language } from "@stubwise/shared";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import {
   postTestNotification,
+  putInstanceSettings,
   putNotificationSettings,
   type NotificationFormat,
   type NotificationSettings,
   type TestNotificationResult,
 } from "../lib/api";
-import { notificationSettingsQueryOptions } from "../lib/queries";
+import { instanceSettingsQueryOptions, notificationSettingsQueryOptions } from "../lib/queries";
 import { CollapsibleSection } from "./collapsible-section";
 
 /** Le opzioni di formato del webhook; "slack"/"discord" sono nomi propri,
@@ -175,7 +177,13 @@ function SetupGuide({ format }: { format: NotificationFormat }) {
  * Slack/Discord mostra il testo/markdown che verrà inviato in un box stile chat;
  * per il formato generico fa il pretty-print del JSON che l'endpoint riceverà.
  */
-function LivePreview({ format }: { format: NotificationFormat }) {
+function LivePreview({
+  format,
+  contentLanguage,
+}: {
+  format: NotificationFormat;
+  contentLanguage: Language;
+}) {
   const { t } = useTranslation();
   // I link dell'anteprima puntano all'istanza corrente (origin del browser).
   const origin = typeof window !== "undefined" ? window.location.origin : "https://stubwise.example.com";
@@ -185,7 +193,10 @@ function LivePreview({ format }: { format: NotificationFormat }) {
   const [selectedKind, setSelectedKind] = useState<NotificationEvent["kind"]>("job.pr_opened");
   const event = samples.find((sample) => sample.kind === selectedKind) ?? samples[0]!;
 
-  const formatted = formatNotification(event, format);
+  // Usa la lingua dei contenuti d'istanza: l'anteprima mostra esattamente ciò
+  // che le notifiche reali produrranno (formatNotification è la stessa funzione
+  // del dispatch, che già usa la content language).
+  const formatted = formatNotification(event, format, contentLanguage);
   const messageText =
     format === "slack"
       ? String((formatted.body as { text: string }).text)
@@ -251,6 +262,7 @@ export function NotificationsSection() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { data: settings } = useSuspenseQuery(notificationSettingsQueryOptions);
+  const { data: instance } = useSuspenseQuery(instanceSettingsQueryOptions);
 
   const [form, setForm] = useState<NotificationSettings>(settings);
   useEffect(() => {
@@ -264,6 +276,16 @@ export function NotificationsSection() {
     mutationFn: (next: NotificationSettings) => putNotificationSettings(next),
     onSuccess: (updated) => {
       queryClient.setQueryData(notificationSettingsQueryOptions.queryKey, updated);
+    },
+  });
+
+  // Lingua dei contenuti d'istanza: salva subito al cambio del select (come il
+  // selettore di lingua dell'account) e aggiorna la cache così l'anteprima qui
+  // sotto riflette immediatamente la nuova lingua.
+  const contentLanguageMutation = useMutation({
+    mutationFn: (language: Language) => putInstanceSettings(language),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(instanceSettingsQueryOptions.queryKey, updated);
     },
   });
 
@@ -312,6 +334,27 @@ export function NotificationsSection() {
             aria-label={t("notifications:enabled")}
           />
           {t("notifications:enabled")}
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
+            {t("notifications:contentLanguage")}
+          </span>
+          <select
+            value={instance.contentLanguage}
+            disabled={contentLanguageMutation.isPending}
+            onChange={(event) =>
+              contentLanguageMutation.mutate(event.target.value as Language)
+            }
+            aria-label={t("notifications:contentLanguage")}
+            className="w-fit rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1.5 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <option value="en">{t("notifications:contentLanguageEnglish")}</option>
+            <option value="it">{t("notifications:contentLanguageItalian")}</option>
+          </select>
+          <span className="font-mono text-[11px] text-fg-faint">
+            {t("notifications:contentLanguageHint")}
+          </span>
         </label>
 
         <label className="flex flex-col gap-1">
@@ -377,7 +420,7 @@ export function NotificationsSection() {
           })}
         </fieldset>
 
-        <LivePreview format={form.format} />
+        <LivePreview format={form.format} contentLanguage={instance.contentLanguage} />
       </div>
 
       <footer className="flex flex-wrap items-center gap-3 border-t border-line px-4 py-3">

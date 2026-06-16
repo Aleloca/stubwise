@@ -688,3 +688,25 @@ export function putNotificationSettings(
 export function postTestNotification(): Promise<TestNotificationResult> {
   return api.post("/api/settings/notifications/test");
 }
+
+// --- Settings: lingua dei contenuti d'istanza ---
+
+/**
+ * Impostazioni d'istanza (riga singola). `contentLanguage` è la lingua usata
+ * per i CONTENUTI generati dalla piattaforma — commenti AI, report PR e
+ * messaggi di notifica — distinta dalla lingua dell'interfaccia del singolo
+ * utente (vedi `patchMyLanguage`).
+ */
+export interface InstanceSettings {
+  contentLanguage: Language;
+}
+
+/** Impostazioni d'istanza (solo admin): 403 per i member. */
+export function getInstanceSettings(): Promise<InstanceSettings> {
+  return api.get("/api/settings/instance");
+}
+
+/** Upsert della lingua dei contenuti d'istanza (solo admin). Ritorna lo stato aggiornato. */
+export function putInstanceSettings(contentLanguage: Language): Promise<InstanceSettings> {
+  return api.put("/api/settings/instance", { contentLanguage });
+}

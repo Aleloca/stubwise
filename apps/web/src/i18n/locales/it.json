@@ -295,6 +295,10 @@
     "sending": "Invio…",
     "saved": "Salvato",
     "preview": "Anteprima",
+    "contentLanguage": "Lingua dei contenuti generati",
+    "contentLanguageEnglish": "English",
+    "contentLanguageItalian": "Italiano",
+    "contentLanguageHint": "Lingua usata per commenti AI, report PR e notifiche — diversa dalla lingua della tua interfaccia.",
     "setupTitle": "Come configurare",
     "toggles": {
       "ticketCreated": "Nuovo ticket SDK",

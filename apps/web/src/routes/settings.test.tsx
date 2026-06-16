@@ -65,7 +65,10 @@ function mockApi(handlers: Record<string, Handler>) {
   });
 }
 
-function adminBase(notifications: Record<string, unknown> = DEFAULT_NOTIFICATIONS) {
+function adminBase(
+  notifications: Record<string, unknown> = DEFAULT_NOTIFICATIONS,
+  contentLanguage: "en" | "it" = "en",
+) {
   return {
     "GET /api/auth/me": () =>
       jsonResponse(200, {
@@ -73,6 +76,7 @@ function adminBase(notifications: Record<string, unknown> = DEFAULT_NOTIFICATION
       }),
     "GET /api/settings/automation": () => jsonResponse(200, DEFAULT_AUTOMATION),
     "GET /api/settings/notifications": () => jsonResponse(200, notifications),
+    "GET /api/settings/instance": () => jsonResponse(200, { contentLanguage }),
     "GET /api/git-accounts": () => jsonResponse(200, []),
   } satisfies Record<string, Handler>;
 }
@@ -398,7 +402,7 @@ describe("impostazioni: /settings/notifications (admin)", () => {
     await screen.findByRole("heading", { name: "Notifications" });
     const scope = within(notificationsSection());
 
-    // NOTA: l'anteprima usa la lingua d'istanza; finché il Task 13 non la passa al componente, il default è "en". Quando il Task 13 wira instance content_language alla preview, aggiornare queste asserzioni.
+    // L'anteprima usa la lingua dei contenuti d'istanza (mock: "en").
     const slackPreview = scope.getByTestId("notification-preview");
     expect(slackPreview.textContent).toContain("PR opened");
     expect(slackPreview.textContent).toContain("|View PR>");
@@ -414,6 +418,43 @@ describe("impostazioni: /settings/notifications (admin)", () => {
     await userEvent.click(scope.getByRole("button", { name: "New ticket" }));
     expect(scope.getByTestId("notification-preview").textContent).toContain(
       '"event": "ticket.created"',
+    );
+  });
+
+  it("l'anteprima usa la lingua dei contenuti d'istanza ('it' → testo italiano)", async () => {
+    mockApi(adminBase(DEFAULT_NOTIFICATIONS, "it"));
+    renderAt("/settings/notifications");
+
+    await screen.findByRole("heading", { name: "Notifications" });
+    const scope = within(notificationsSection());
+
+    // Content language = it: l'anteprima Slack è in italiano ("PR aperta", "Vedi PR").
+    const preview = scope.getByTestId("notification-preview");
+    expect(preview.textContent).toContain("PR aperta");
+    expect(preview.textContent).toContain("|Vedi PR>");
+  });
+
+  it("il selettore della lingua dei contenuti salva via PUT /api/settings/instance", async () => {
+    let putBody: unknown = null;
+    mockApi({
+      ...adminBase(),
+      "PUT /api/settings/instance": (_url, init) => {
+        putBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, { contentLanguage: "it" });
+      },
+    });
+    renderAt("/settings/notifications");
+
+    await screen.findByRole("heading", { name: "Notifications" });
+    const scope = within(notificationsSection());
+    const select = scope.getByLabelText("Generated content language") as HTMLSelectElement;
+    expect(select.value).toBe("en");
+    await userEvent.selectOptions(select, "it");
+
+    await waitFor(() => expect(putBody).toEqual({ contentLanguage: "it" }));
+    // L'anteprima riflette subito la nuova lingua (cache aggiornata).
+    await waitFor(() =>
+      expect(scope.getByTestId("notification-preview").textContent).toContain("PR aperta"),
     );
   });
 
