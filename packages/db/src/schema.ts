@@ -52,7 +52,13 @@ export const ticketEventKind = pgEnum("ticket_event_kind", [
   "labels_changed",
   "title_changed",
   "body_changed",
+  "relation_added",
+  "relation_removed",
 ]);
+// Tipi di relazione tra ticket: "blocks" (il source blocca il target),
+// "relates_to" (relazione generica), "parent" (il source è genitore del target).
+// Lista letterale locale al DB (come ticketEventKind).
+export const ticketLinkKind = pgEnum("ticket_link_kind", ["blocks", "relates_to", "parent"]);
 // Dominio del worker AI, ma vive nel DB: definito qui.
 export const aiJobStatus = pgEnum("ai_job_status", [
   "queued",
@@ -271,6 +277,38 @@ export const ticketEvents = pgTable(
   // La timeline si carica sempre per ticket, ordinata cronologicamente.
   (table) => [
     index("ticket_events_ticket_id_created_at_idx").on(table.ticketId, table.createdAt),
+  ],
+);
+
+/**
+ * Relazioni dirette tra ticket: il `source` è in relazione `kind` col `target`
+ * (es. source "blocks" target, source "parent" di target). Cancellazione in
+ * cascata su entrambe le direzioni: rimuovere un ticket elimina i link in cui
+ * è source O target. L'unique su (source, target, kind) impedisce duplicati
+ * della stessa relazione, ma ammette relazioni di tipo diverso tra gli stessi
+ * due ticket.
+ */
+export const ticketLinks = pgTable(
+  "ticket_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sourceTicketId: uuid("source_ticket_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    targetTicketId: uuid("target_ticket_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    kind: ticketLinkKind("kind").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("ticket_links_source_target_kind_unique").on(
+      table.sourceTicketId,
+      table.targetTicketId,
+      table.kind,
+    ),
+    index("ticket_links_source_idx").on(table.sourceTicketId),
+    index("ticket_links_target_idx").on(table.targetTicketId),
   ],
 );
 
