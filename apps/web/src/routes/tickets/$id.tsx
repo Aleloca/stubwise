@@ -49,9 +49,11 @@ const route = getRouteApi("/authed/tickets/$id");
 
 /**
  * Dettaglio di un ticket: descrizione markdown, payload tecnico
- * collassabile, timeline dei job AI, thread commenti e pannello azioni
- * (stato, priorità, assegnatario, label). Il loader della route ha già
- * precaricato tutte le query: le useSuspenseQuery non attendono.
+ * collassabile, pannello "AI activity" (timeline dei job + azioni) e
+ * timeline di attività unificata (commenti, eventi di audit e marker dei
+ * job AI), più il pannello azioni laterale (stato, priorità, assegnatario,
+ * label). Il loader della route ha già precaricato tutte le query: le
+ * useSuspenseQuery non attendono.
  */
 export function TicketDetailPage() {
   const { t } = useTranslation();
