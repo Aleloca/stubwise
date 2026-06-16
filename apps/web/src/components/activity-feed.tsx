@@ -166,6 +166,7 @@ function EventItem({
 }) {
   const { t } = useTranslation();
   const text = describeEvent(event, authorEmails, t);
+  if (!text) return null;
   return (
     <li className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-1 font-mono text-[11px] text-fg-faint">
       <span aria-hidden className="text-line-strong">
@@ -240,6 +241,11 @@ function describeEvent(
       return t("tickets:activity.events.title_changed", { actor });
     case "body_changed":
       return t("tickets:activity.events.body_changed", { actor });
+    // Le relazioni avranno il loro testo i18n nel Task 3 web: per ora restano
+    // senza riga dedicata, ma la switch resta esaustiva.
+    case "relation_added":
+    case "relation_removed":
+      return "";
   }
 }
 
