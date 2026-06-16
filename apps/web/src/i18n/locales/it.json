@@ -41,6 +41,7 @@
     "invite_invalid": "Invito non valido o già usato",
     "invite_expired": "Invito scaduto",
     "email_already_exists": "Esiste già un utente con questa email",
+    "view_exists": "Esiste già una vista salvata con questo nome",
     "network_error": "Impossibile contattare il server",
     "generic": "Qualcosa è andato storto"
   },
@@ -666,5 +667,23 @@
     "progressLabel": "Avanzamento: {{completed}} di {{total}} ticket completati",
     "none": "Nessuna",
     "createFailed": "Creazione della milestone fallita"
+  },
+  "savedViews": {
+    "title": "Viste salvate",
+    "empty": "// ancora nessuna vista salvata",
+    "saveCurrent": "Salva vista corrente",
+    "name": "Nome vista",
+    "namePlaceholder": "Es. I miei bug aperti",
+    "share": "Condividi col team",
+    "save": "Salva",
+    "saving": "Salvataggio…",
+    "cancel": "Annulla",
+    "apply": "Applica",
+    "delete": "Elimina",
+    "confirmDelete": "Confermi?",
+    "shared": "Condivisa",
+    "ownedBy": "Condivisa da {{owner}}",
+    "nameExists": "Esiste già una vista salvata con questo nome",
+    "saveFailed": "Salvataggio della vista fallito"
   }
 }

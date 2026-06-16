@@ -18,6 +18,7 @@ import {
   getTicketUsage,
   getUsers,
   listMilestones,
+  listSavedViews,
   listTickets,
   type TicketFilters,
 } from "./api";
@@ -190,6 +191,17 @@ export function milestonesQueryOptions(projectId: string | undefined) {
     staleTime: 30_000,
   });
 }
+
+/**
+ * Viste salvate dei filtri della lista ticket: le proprie più quelle condivise
+ * dal team. Chiave radice ["saved-views"]: ogni create/update/delete la
+ * invalida così la barra delle viste resta riconciliata col backend.
+ */
+export const savedViewsQueryOptions = queryOptions({
+  queryKey: ["saved-views"],
+  queryFn: listSavedViews,
+  staleTime: 30_000,
+});
 
 /**
  * Regole di automazione AI per tipo (solo admin): la pagina Settings la

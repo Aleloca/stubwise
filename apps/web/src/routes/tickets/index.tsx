@@ -13,10 +13,12 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { NewTicketDialog } from "../../components/new-ticket-dialog";
+import { SavedViews } from "../../components/saved-views";
 import { TicketFilters } from "../../components/ticket-filters";
 import { TicketRow } from "../../components/ticket-row";
 import {
   postTicket,
+  type SavedViewFilters,
   type TicketDraft,
   type TicketFilters as TicketFiltersValue,
 } from "../../lib/api";
@@ -70,6 +72,38 @@ export function TicketsPage() {
     });
   }
 
+  // Filtri correnti per le viste salvate: i soli search param effettivamente
+  // definiti (assenti = chiave omessa, non `undefined`), così la vista salva
+  // esattamente la combinazione attiva. `assigneeId` non è un filtro della
+  // lista: non compare nello schema dei search param, quindi non è incluso.
+  const currentFilters: SavedViewFilters = {
+    ...(search.projectId !== undefined && { projectId: search.projectId }),
+    ...(search.status !== undefined && { status: search.status }),
+    ...(search.type !== undefined && { type: search.type }),
+    ...(search.priority !== undefined && { priority: search.priority }),
+    ...(search.milestoneId !== undefined && { milestoneId: search.milestoneId }),
+    ...(search.q !== undefined && { q: search.q }),
+  };
+
+  // Applica una vista riscrivendo ESATTAMENTE i suoi filtri: ogni search param
+  // di filtro non presente nella vista viene azzerato (sostituzione completa,
+  // non merge), così l'applicazione è "pulita". La lista non ha param
+  // non-filtro da preservare; `assigneeId` della vista non ha un controllo
+  // corrispondente e viene ignorato.
+  function handleApply(filters: SavedViewFilters) {
+    void navigate({
+      search: {
+        projectId: filters.projectId,
+        status: filters.status,
+        type: filters.type,
+        priority: filters.priority,
+        milestoneId: filters.milestoneId,
+        q: filters.q,
+      },
+      replace: true,
+    });
+  }
+
   async function handleCreate(draft: TicketDraft) {
     await postTicket(draft);
     // Liste e board mostrano subito il nuovo ticket; await sulle liste così
@@ -107,6 +141,10 @@ export function TicketsPage() {
 
       <div className="mt-6">
         <TicketFilters value={search} projects={projects} onChange={handleFiltersChange} />
+      </div>
+
+      <div className="mt-4">
+        <SavedViews currentFilters={currentFilters} onApply={handleApply} />
       </div>
 
       {tickets.length === 0 ? (

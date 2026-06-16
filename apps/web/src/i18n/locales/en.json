@@ -41,6 +41,7 @@
     "invite_invalid": "Invite invalid or already used",
     "invite_expired": "Invite expired",
     "email_already_exists": "A user with this email already exists",
+    "view_exists": "A saved view with this name already exists",
     "network_error": "Unable to reach the server",
     "generic": "Something went wrong"
   },
@@ -666,5 +667,23 @@
     "progressLabel": "Progress: {{completed}} of {{total}} tickets done",
     "none": "None",
     "createFailed": "Failed to create the milestone"
+  },
+  "savedViews": {
+    "title": "Saved views",
+    "empty": "// no saved views yet",
+    "saveCurrent": "Save current view",
+    "name": "View name",
+    "namePlaceholder": "E.g. My open bugs",
+    "share": "Share with team",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "apply": "Apply",
+    "delete": "Delete",
+    "confirmDelete": "Confirm?",
+    "shared": "Shared",
+    "ownedBy": "Shared by {{owner}}",
+    "nameExists": "A saved view with this name already exists",
+    "saveFailed": "Failed to save the view"
   }
 }
