@@ -90,6 +90,7 @@ describe("POST /api/projects", () => {
       ingestionKey: expect.stringMatching(/^[0-9a-f]{32}$/),
       gitAccountId: githubAccountId,
       gitAccountName: "Account GitHub",
+      testCommand: null,
       webhookConfiguredAt: null,
       createdAt: expect.any(String),
     });
@@ -173,6 +174,28 @@ describe("POST /api/projects", () => {
       repoUrl: `https://github.com/acme/${"r".repeat(500)}`,
     });
     expect(tooLongRepoUrl.statusCode).toBe(400);
+    const tooLongTestCommand = await createProject({
+      ...basePayload(),
+      name: "Test Command Lungo",
+      testCommand: "x".repeat(501),
+    });
+    expect(tooLongTestCommand.statusCode).toBe(400);
+  });
+
+  it("testCommand valorizzato alla creazione: persistito e restituito", async () => {
+    const res = await createProject({
+      ...basePayload(),
+      name: "Con Test Command",
+      testCommand: "pnpm test",
+    });
+    expect(res.statusCode).toBe(201);
+    expect((res.json() as { testCommand: string | null }).testCommand).toBe("pnpm test");
+  });
+
+  it("testCommand omesso: null di default", async () => {
+    const res = await createProject({ ...basePayload(), name: "Senza Test Command" });
+    expect(res.statusCode).toBe(201);
+    expect((res.json() as { testCommand: string | null }).testCommand).toBeNull();
   });
 });
 
@@ -305,6 +328,37 @@ describe("PATCH /api/projects/:slug", () => {
     });
     expect(res.statusCode).toBe(200);
     expect((res.json() as { name: string }).name).toBe("API Backend v2");
+  });
+
+  it("aggiorna testCommand e poi lo azzera con null; omesso lo lascia invariato", async () => {
+    // Imposta il comando.
+    const set = await app.inject({
+      method: "PATCH",
+      url: "/api/projects/api-backend",
+      headers: { cookie: adminCookie },
+      payload: { testCommand: "pnpm vitest run" },
+    });
+    expect(set.statusCode).toBe(200);
+    expect((set.json() as { testCommand: string | null }).testCommand).toBe("pnpm vitest run");
+
+    // PATCH senza testCommand: invariato.
+    const untouched = await app.inject({
+      method: "PATCH",
+      url: "/api/projects/api-backend",
+      headers: { cookie: adminCookie },
+      payload: { name: "API Backend v3" },
+    });
+    expect((untouched.json() as { testCommand: string | null }).testCommand).toBe("pnpm vitest run");
+
+    // null azzera.
+    const cleared = await app.inject({
+      method: "PATCH",
+      url: "/api/projects/api-backend",
+      headers: { cookie: adminCookie },
+      payload: { testCommand: null },
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect((cleared.json() as { testCommand: string | null }).testCommand).toBeNull();
   });
 
   it("un member non può aggiornare: 403", async () => {
