@@ -35,7 +35,6 @@ import {
 } from "../../lib/api";
 import { formatDateTime } from "../../lib/format";
 import {
-  activityQueryOptions,
   commentsQueryOptions,
   projectsQueryOptions,
   ticketJobsQueryOptions,
