@@ -16,6 +16,7 @@ import {
 } from "./badges";
 import { FormError } from "./field";
 import { Markdown } from "./markdown";
+import { MarkdownEditor } from "./markdown-editor";
 
 interface ActivityFeedProps {
   ticketId: string;
@@ -72,13 +73,20 @@ export function ActivityFeed({ ticketId, authorEmails, onSubmit, pending }: Acti
         >
           {t("tickets:comments.addComment")}
         </label>
-        <textarea
+        {/*
+          Default mode "write": il textarea con id="comment-body" è montato fin
+          dall'apertura del dettaglio, così il flusso "Rifiuta piano → focus
+          commento" (focusCommentBox in $id.tsx fa getElementById("comment-body")
+          .focus()) trova sempre l'elemento. Se l'utente passasse a "preview" il
+          textarea verrebbe smontato e il focus non avrebbe effetto: caso raro,
+          tollerato per ora (vedi Task 2).
+        */}
+        <MarkdownEditor
           id="comment-body"
           value={draft}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={setDraft}
           rows={3}
           placeholder={t("tickets:comments.placeholder")}
-          className="w-full rounded-sm border border-line-strong bg-ink-950/70 px-3 py-2 text-sm text-fg placeholder:text-fg-faint transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
         />
         <FormError message={error} />
         <button

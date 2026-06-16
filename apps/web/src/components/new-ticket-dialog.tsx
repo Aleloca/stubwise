@@ -9,6 +9,7 @@ import { useTranslation } from "react-i18next";
 import type { Project, TicketDraft } from "../lib/api";
 import { PRIORITY_LABEL_KEYS, TYPE_LABEL_KEYS } from "./badges";
 import { FormError, SelectField, TextField } from "./field";
+import { MarkdownEditor } from "./markdown-editor";
 
 interface NewTicketDialogProps {
   projects: Project[];
@@ -135,13 +136,11 @@ export function NewTicketDialog({ projects, onSubmit, onClose }: NewTicketDialog
             >
               {t("tickets:newDialog.description")}
             </label>
-            <textarea
+            <MarkdownEditor
               id="ticket-body"
-              rows={4}
-              placeholder={t("tickets:newDialog.descriptionPlaceholder")}
               value={body}
-              onChange={(event) => setBody(event.target.value)}
-              className="rounded-sm border border-line-strong bg-ink-950/70 px-3 py-2 text-sm text-fg placeholder:text-fg-faint transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
+              onChange={setBody}
+              placeholder={t("tickets:newDialog.descriptionPlaceholder")}
             />
           </div>
 
