@@ -50,7 +50,10 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     // CORS): normalizzato in ApiError così i chiamanti hanno un solo tipo
     // di errore da gestire. Tutto il resto (es. AbortError) riemerge as-is.
     if (error instanceof TypeError) {
-      throw new ApiError(0, "Impossibile contattare il server", undefined, { cause: error });
+      // `network_error` è un code stabile (non c'è un body server da cui
+      // leggerlo): `translateApiError` lo localizza. Il message inglese è il
+      // fallback se la chiave non esistesse.
+      throw new ApiError(0, "Unable to reach the server", "network_error", { cause: error });
     }
     throw error;
   }
@@ -58,8 +61,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   if (!response.ok) {
     // Il server risponde { code, message } sugli errori user-facing (code
     // assente sugli errori di validazione Zod); il fallback copre risposte
-    // non-JSON (proxy, gateway, ecc.).
-    const fallback = `Errore ${response.status}`;
+    // non-JSON (proxy, gateway, ecc.). Caso raro e senza code: message in
+    // inglese (coerente con "API in inglese, UI traduce per code").
+    const fallback = `Error ${response.status}`;
     const { message, code } = await response
       .json()
       .then((data: unknown) => {

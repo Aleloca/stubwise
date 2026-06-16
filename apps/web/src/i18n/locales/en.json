@@ -41,6 +41,7 @@
     "invite_invalid": "Invite invalid or already used",
     "invite_expired": "Invite expired",
     "email_already_exists": "A user with this email already exists",
+    "network_error": "Unable to reach the server",
     "generic": "Something went wrong"
   },
   "auth": {

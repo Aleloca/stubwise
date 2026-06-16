@@ -1,6 +1,5 @@
 import { automationRules, comments, tickets, type Db } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
-import { EFFORT_LABELS } from "@stubwise/shared";
 import { and, desc, eq, ne } from "drizzle-orm";
 import {
   AgentRunError,
@@ -275,7 +274,7 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
       // un commento AI spiega il perché. Il commento sta in transazione con la
       // chiusura del ticket; holdJob è il commit point separato (come gli
       // altri esiti): se la ownership è persa il commento resta, accettabile.
-      const effortLabel = EFFORT_LABELS[decision.effort] ?? String(decision.effort);
+      const effortLabel = t(lang, `effort.${decision.effort}`);
       await db.transaction(async (tx) => {
         await tx.insert(comments).values({
           ticketId: ticket.id,

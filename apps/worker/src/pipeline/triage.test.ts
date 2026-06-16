@@ -492,6 +492,9 @@ describe("runTriage", () => {
     expect(ticketComments[0]?.authorType).toBe("ai");
     expect(ticketComments[0]?.body).toContain("Automation not started");
     expect(ticketComments[0]?.body).toContain("manually");
+    // Etichetta di effort tradotta in inglese (effort 1 → "Trivial"), nessun
+    // leak italiano dalle EFFORT_LABELS di @stubwise/shared.
+    expect(ticketComments[0]?.body).toContain("Trivial");
   });
 
   it("held: con content_language='it' il commento è in italiano", async () => {
@@ -512,6 +515,8 @@ describe("runTriage", () => {
     expect(ticketComments).toHaveLength(1);
     expect(ticketComments[0]?.body).toContain("Automazione non avviata");
     expect(ticketComments[0]?.body).toContain("manualmente");
+    // Etichetta di effort in italiano (effort 1 → "Banale").
+    expect(ticketComments[0]?.body).toContain("Banale");
   });
 
   it("fix + effort sopra la soglia del tipo → held", async () => {

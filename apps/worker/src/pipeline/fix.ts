@@ -223,7 +223,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   const executeModel = deps.executeModel ?? "sonnet";
   const planTimeoutMs = deps.planTimeoutMs ?? DEFAULT_FIX_PLAN_TIMEOUT_MS;
 
-  // Lingua dei contenuti generati (report nel prompt + commenti AB sul ticket),
+  // Lingua dei contenuti generati (report nel prompt + commenti AI sul ticket),
   // risolta UNA VOLTA per job: tutti i prompt e i `t(lang, ...)` di seguito la
   // condividono, così il fix parla una sola lingua anche se l'impostazione
   // d'istanza cambia a metà.

@@ -41,6 +41,7 @@
     "invite_invalid": "Invito non valido o già usato",
     "invite_expired": "Invito scaduto",
     "email_already_exists": "Esiste già un utente con questa email",
+    "network_error": "Impossibile contattare il server",
     "generic": "Qualcosa è andato storto"
   },
   "auth": {

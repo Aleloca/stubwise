@@ -33,6 +33,14 @@ export const en: Catalog = {
   "comment.reportMissing":
     "The agent did not generate a report ({filename} missing). Review the PR diff.",
 
+  // --- effort.* — etichette della scala di sforzo 1–5 (allineate alle label
+  // della web UI, namespace `badges.effort`). Usate nei commenti AI del triage.
+  "effort.1": "Trivial",
+  "effort.2": "Small",
+  "effort.3": "Medium",
+  "effort.4": "Large",
+  "effort.5": "Very large",
+
   // --- notify.* — messaggi di notifica.
   // `{ref}` è il riferimento al ticket (`#42`), reso con il markup del formato
   // (Slack `*#42*`, Discord `**#42**`, generico `#42`); `{link}` è il/i link
@@ -89,6 +97,13 @@ export const it: Catalog = {
     "Generato automaticamente da Stubwise AI per il ticket #{number}.",
   "comment.reportMissing":
     "Il report non è stato generato dall'agente ({filename} mancante). Esaminare il diff della PR.",
+
+  // --- effort.* (etichette italiane della scala di sforzo, = EFFORT_LABELS) ---
+  "effort.1": "Banale",
+  "effort.2": "Piccolo",
+  "effort.3": "Medio",
+  "effort.4": "Grande",
+  "effort.5": "Molto grande",
 
   // --- notify.* (vedi note sui placeholder {ref}/{link}/{cost} in `en`) ---
   "notify.ticketCreated":
