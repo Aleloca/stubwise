@@ -32,11 +32,11 @@ test("primo setup: crea l'admin e atterra sulla lista ticket vuota", async () =>
 
   await page.getByLabel("Email").fill(ADMIN_EMAIL);
   await page.getByLabel("Password", { exact: true }).fill(ADMIN_PASSWORD);
-  await page.getByLabel("Conferma password").fill(ADMIN_PASSWORD);
-  await page.getByRole("button", { name: "Crea account" }).click();
+  await page.getByLabel("Confirm password").fill(ADMIN_PASSWORD);
+  await page.getByRole("button", { name: "Create account" }).click();
 
   await expect(page).toHaveURL(/\/tickets$/);
-  await expect(page.getByText("// nessun ticket trovato")).toBeVisible();
+  await expect(page.getByText("// no tickets found")).toBeVisible();
 });
 
 // Account git riutilizzabile creato INTERAMENTE dalla UI: Settings → Account Git
@@ -47,25 +47,27 @@ test("primo setup: crea l'admin e atterra sulla lista ticket vuota", async () =>
 // questo la creazione del progetto usa il fallback manuale del wizard.
 test("crea un account git dalla UI (Settings → Account Git)", async () => {
   // La sidebar porta a /settings, che reindirizza alla sotto-pagina Account.
-  await page.getByRole("link", { name: /settings/i }).click();
+  // Il nome accessibile del link di sidebar include la sigla ("SET Settings"):
+  // ancorarla evita la collisione con link di pagina che citano "settings".
+  await page.getByRole("link", { name: /SET settings/i }).click();
   await expect(page).toHaveURL(/\/settings\/account$/);
   // "Account Git" è una sotto-pagina: la si raggiunge dalla sotto-navigazione.
-  const settingsNav = page.getByRole("navigation", { name: /impostazioni/i });
-  await settingsNav.getByRole("link", { name: "Account Git" }).click();
-  await expect(page.getByRole("heading", { name: "Account Git" })).toBeVisible();
+  const settingsNav = page.getByRole("navigation", { name: /settings/i });
+  await settingsNav.getByRole("link", { name: "Git accounts" }).click();
+  await expect(page.getByRole("heading", { name: "Git accounts" })).toBeVisible();
 
-  await page.getByRole("button", { name: /nuovo account git/i }).click();
-  await page.getByLabel("Nome").fill("Account Demo");
+  await page.getByRole("button", { name: /new git account/i }).click();
+  await page.getByLabel("Name", { exact: true }).fill("Account Demo");
   await page.getByLabel("Provider").selectOption("github");
   // GitHub: username/email vuoti, solo il token (qui finto per l'ambiente e2e).
-  await page.getByLabel("Token di accesso").fill("ghp_token_di_prova");
-  await page.getByRole("button", { name: "Crea account" }).click();
+  await page.getByLabel("Access token").fill("ghp_token_di_prova");
+  await page.getByRole("button", { name: "Create account" }).click();
 
   // Salvato: il form si chiude e l'account compare nella lista con il badge.
   // Si scopa la sezione "Account Git": altre sezioni della pagina (es.
   // l'anteprima delle notifiche) possono citare "github" nei link d'esempio.
   const gitSection = page
-    .getByRole("heading", { name: "Account Git" })
+    .getByRole("heading", { name: "Git accounts" })
     .locator("xpath=ancestor::section[1]");
   await expect(gitSection.getByText("Account Demo")).toBeVisible();
   await expect(gitSection.getByText("GitHub")).toBeVisible();
@@ -78,41 +80,42 @@ test("crea un account git dalla UI (Settings → Account Git)", async () => {
 // MANUALE (URL repository + branch a mano). Si completa la creazione da lì, così
 // l'intero flusso resta nella UI senza dipendere da un provider git reale.
 test("crea un progetto dal wizard (fallback manuale) e lo vede in lista", async () => {
-  await page.getByRole("link", { name: /projects/i }).click();
-  await expect(page.getByText("// nessun progetto collegato")).toBeVisible();
-  await page.getByRole("link", { name: /nuovo progetto/i }).click();
+  await page.getByRole("link", { name: /PRJ projects/i }).click();
+  await expect(page.getByText("// no linked projects")).toBeVisible();
+  await page.getByRole("link", { name: /new project/i }).click();
 
-  await expect(page.getByRole("heading", { name: "Nuovo progetto" })).toBeVisible();
-  await page.getByLabel("Nome").fill("Demo Shop");
+  await expect(page.getByRole("heading", { name: "New project" })).toBeVisible();
+  await page.getByLabel("Name", { exact: true }).fill("Demo Shop");
   // L'account "Account Demo" è preselezionato (unico). Il wizard tenta l'elenco
   // repo e, fallendo con le credenziali finte, scopre i campi manuali.
-  const repoUrl = page.getByLabel("URL repository");
+  const repoUrl = page.getByLabel("Repository URL");
   await expect(repoUrl).toBeVisible();
   await repoUrl.fill("https://github.com/acme/demo-shop");
-  const branch = page.getByLabel("Branch di default");
+  const branch = page.getByLabel("Default branch");
   await branch.fill("main");
-  await page.getByRole("button", { name: "Crea progetto" }).click();
+  await page.getByRole("button", { name: "Create project" }).click();
 
   // Sul 201 si atterra sul dettaglio del progetto.
   await expect(page).toHaveURL(/\/projects\/demo-shop$/);
   await expect(page.getByRole("heading", { name: "Demo Shop" })).toBeVisible();
 
-  // E nella lista progetti il nuovo progetto è presente.
-  await page.getByRole("link", { name: /projects/i }).click();
+  // E nella lista progetti il nuovo progetto è presente. La sigla "PRJ" del
+  // link di sidebar lo distingue dal back-link di pagina ("← All projects").
+  await page.getByRole("link", { name: /PRJ projects/i }).click();
   await expect(page.getByRole("link", { name: /demo shop/i })).toBeVisible();
 });
 
 test("crea un ticket dal dialog e lo ritrova in lista", async () => {
-  await page.getByRole("link", { name: /tickets/i }).click();
-  await page.getByRole("button", { name: "Nuovo ticket" }).click();
+  await page.getByRole("link", { name: /TKT tickets/i }).click();
+  await page.getByRole("button", { name: "New ticket" }).click();
 
-  const dialog = page.getByRole("dialog", { name: "Nuovo ticket" });
-  await dialog.getByLabel("Titolo").fill("Crash al checkout");
-  await dialog.getByLabel("Progetto").selectOption({ label: "Demo Shop" });
-  await dialog.getByLabel("Tipo").selectOption("bug");
-  await dialog.getByLabel("Priorità").selectOption("high");
-  await dialog.getByLabel("Descrizione (opzionale)").fill("Il pagamento esplode al submit.");
-  await dialog.getByRole("button", { name: "Crea ticket" }).click();
+  const dialog = page.getByRole("dialog", { name: "New ticket" });
+  await dialog.getByLabel("Title").fill("Crash al checkout");
+  await dialog.getByLabel("Project").selectOption({ label: "Demo Shop" });
+  await dialog.getByLabel("Type").selectOption("bug");
+  await dialog.getByLabel("Priority").selectOption("high");
+  await dialog.getByLabel("Description (optional)").fill("Il pagamento esplode al submit.");
+  await dialog.getByRole("button", { name: "Create ticket" }).click();
 
   await expect(dialog).toBeHidden();
   const row = page.getByRole("link", { name: /crash al checkout/i });
@@ -127,11 +130,11 @@ test("dettaglio: cambia stato dal select e aggiunge un commento", async () => {
   const patched = page.waitForResponse(
     (response) => response.url().includes("/api/tickets/") && response.request().method() === "PATCH",
   );
-  await page.getByLabel("Stato").selectOption("in_progress");
+  await page.getByLabel("Status").selectOption("in_progress");
   expect((await patched).status()).toBe(200);
 
-  await page.getByLabel("Aggiungi un commento").fill("Indago io, sembra il gateway.");
-  await page.getByRole("button", { name: "Commenta" }).click();
+  await page.getByLabel("Add a comment").fill("Indago io, sembra il gateway.");
+  await page.getByRole("button", { name: "Comment" }).click();
   // L'autore si verifica DENTRO il commento appena creato, non sulla pagina
   // intera (l'email dell'admin compare anche nel layout).
   const comment = page
@@ -142,10 +145,10 @@ test("dettaglio: cambia stato dal select e aggiunge un commento", async () => {
 });
 
 test("board: trascina la card in un'altra colonna e lo stato persiste", async () => {
-  await page.getByRole("link", { name: /board/i }).click();
+  await page.getByRole("link", { name: /BRD board/i }).click();
 
   const card = page.locator("li", { hasText: "Crash al checkout" }).first();
-  const fromColumn = page.getByRole("region", { name: /In corso/ });
+  const fromColumn = page.getByRole("region", { name: /In progress/ });
   const toColumn = page.getByRole("region", { name: /In review/ });
   await expect(fromColumn.locator("li", { hasText: "Crash al checkout" })).toBeVisible();
 
@@ -183,11 +186,11 @@ test("board: il click semplice sulla card apre il dettaglio (niente drag)", asyn
 
   await expect(page).toHaveURL(/\/tickets\/[0-9a-f-]{36}$/);
   await expect(page.getByRole("heading", { name: "Crash al checkout" })).toBeVisible();
-  await expect(page.getByLabel("Stato")).toHaveValue("in_review");
+  await expect(page.getByLabel("Status")).toHaveValue("in_review");
 });
 
 test("logout e login: la sessione si chiude e si riapre", async () => {
-  await page.getByRole("button", { name: "Esci" }).click();
+  await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/login$/);
 
   // La sessione è davvero chiusa: una pagina protetta riporta al login.
@@ -196,7 +199,7 @@ test("logout e login: la sessione si chiude e si riapre", async () => {
 
   await page.getByLabel("Email").fill(ADMIN_EMAIL);
   await page.getByLabel("Password").fill(ADMIN_PASSWORD);
-  await page.getByRole("button", { name: "Accedi" }).click();
+  await page.getByRole("button", { name: "Sign in" }).click();
 
   await expect(page).toHaveURL(/\/tickets$/);
   await expect(page.getByRole("link", { name: /crash al checkout/i })).toBeVisible();
