@@ -1,4 +1,12 @@
-import { automationRules, comments, decrypt, gitAccounts, projects, tickets, type Db } from "@stubwise/db";
+import {
+  automationRules,
+  comments,
+  decrypt,
+  gitAccounts,
+  projects,
+  tickets,
+  type Db,
+} from "@stubwise/db";
 import { getProvider, type GitProvider } from "@stubwise/git";
 import { t } from "@stubwise/i18n";
 import type { GitProviderKind } from "@stubwise/shared";
@@ -29,9 +37,11 @@ import {
   buildFixExecutePrompt,
   buildFixPlanPrompt,
   buildFixPrompt,
+  buildFixRepairPrompt,
   REPORT_FILENAME,
   toSingleLine,
 } from "./prompts.js";
+import { resolveTestCommand, type TestCommand } from "./test-command.js";
 
 /**
  * Fase 2 della pipeline: il fix. Il job è già in stato `fixing` (markFixing
@@ -79,6 +89,50 @@ export const DEFAULT_FIX_PLAN_TIMEOUT_MS = 600_000;
 /** Turni di default del run di pianificazione: meno del fix (sola analisi). */
 const DEFAULT_PLAN_MAX_TURNS = 40;
 
+/** RE-tentativi di default del loop di self-repair (Task 5): dopo il run di
+ * esecuzione iniziale, fino a N riparazioni con feedback dei test. 0 =
+ * disattivato. Esportato per l'invariante di staleness (vedi index.ts). */
+export const DEFAULT_SELF_REPAIR_MAX_ATTEMPTS = 2;
+
+/** Timeout di default di OGNI esecuzione del comando di test nel self-repair
+ * (5'). Esportato per l'invariante di staleness (vedi index.ts). */
+export const DEFAULT_SELF_REPAIR_TEST_TIMEOUT_MS = 300_000;
+
+/** Output del comando di test eseguito dal worker. */
+export interface TestRunResult {
+  exitCode: number;
+  /** stdout + stderr combinati, troncato. */
+  output: string;
+}
+
+/** Tetto per l'output del comando di test (stdout+stderr) catturato: i runner
+ * possono produrre log enormi; per la riparazione e il log bastano i primi
+ * caratteri. */
+const TEST_RUN_OUTPUT_MAX_CHARS = 16_000;
+
+/**
+ * Esegue il comando di test nel worktree (default iniettabile di FixDeps). Un
+ * exit non-zero NON è un errore: è il segnale che i test sono rossi (reject:
+ * false). stdout+stderr combinati e troncati per non gonfiare prompt/log. */
+async function defaultRunTestCommand(
+  cmd: TestCommand,
+  dir: string,
+  timeoutMs: number,
+): Promise<TestRunResult> {
+  const result = await execa(cmd.cmd, cmd.args, {
+    cwd: dir,
+    timeout: timeoutMs,
+    reject: false,
+    all: true,
+  });
+  const combined = result.all ?? `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  const output =
+    combined.length > TEST_RUN_OUTPUT_MAX_CHARS
+      ? `${combined.slice(0, TEST_RUN_OUTPUT_MAX_CHARS)}\n[output troncato]`
+      : combined;
+  return { exitCode: result.exitCode ?? 1, output };
+}
+
 export interface FixDeps extends NotifyDeps {
   db: Db;
   runner: AgentRunner;
@@ -108,6 +162,21 @@ export interface FixDeps extends NotifyDeps {
   /** Intervallo dell'heartbeat in ms (default HEARTBEAT_INTERVAL_MS).
    * Iniettabile nei test per verificare il bump senza attendere 60s. */
   heartbeatIntervalMs?: number;
+  /** Loop di self-repair: RE-tentativi massimi dopo il run di esecuzione
+   * iniziale (default 2; 0 = disattivato). Vedi DEFAULT_SELF_REPAIR_MAX_ATTEMPTS. */
+  selfRepairMaxAttempts?: number;
+  /** Timeout di ogni esecuzione del comando di test nel self-repair (default
+   * 300000 = 5'). */
+  testTimeoutMs?: number;
+  /** Risolve il comando di test del repo nel worktree (iniettabile nei test).
+   * Default: resolveTestCommand da ./test-command.js. */
+  resolveTestCommandFn?: (
+    project: { testCommand: string | null },
+    dir: string,
+  ) => Promise<TestCommand | null>;
+  /** Esegue il comando di test nel worktree (iniettabile nei test). Default:
+   * spawn con execa (reject:false). */
+  runTestCommand?: (cmd: TestCommand, dir: string, timeoutMs: number) => Promise<TestRunResult>;
 }
 
 export type FixOutcome = "pr_opened" | "failed" | "awaiting_approval";
@@ -193,6 +262,23 @@ class AgentExitError extends Error {
   }
 }
 
+/**
+ * I test del repo, eseguiti dal worker, restano ROSSI dopo tutti i RE-tentativi
+ * del loop di self-repair: fallimento CONSERVATIVO, niente PR. Si preferisce
+ * nessuna PR a una PR che non passa i test del progetto. Porta sia l'output dei
+ * test (per il log) sia l'ultimo output dell'agente.
+ */
+class SelfRepairFailedError extends Error {
+  readonly testOutput: string;
+  readonly agentOutput: string;
+  constructor(testOutput: string, agentOutput: string) {
+    super("i test del repo restano rossi dopo i tentativi di riparazione");
+    this.name = "SelfRepairFailedError";
+    this.testOutput = testOutput;
+    this.agentOutput = agentOutput;
+  }
+}
+
 /** Forma attesa delle credenziali git decifrate (vedi routes/projects.ts). */
 const credentialsSchema = z.object({
   username: z.string().min(1).optional(),
@@ -222,6 +308,10 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   const planModel = deps.planModel ?? "opus";
   const executeModel = deps.executeModel ?? "sonnet";
   const planTimeoutMs = deps.planTimeoutMs ?? DEFAULT_FIX_PLAN_TIMEOUT_MS;
+  const selfRepairMaxAttempts = deps.selfRepairMaxAttempts ?? DEFAULT_SELF_REPAIR_MAX_ATTEMPTS;
+  const testTimeoutMs = deps.testTimeoutMs ?? DEFAULT_SELF_REPAIR_TEST_TIMEOUT_MS;
+  const resolveTestCommandFn = deps.resolveTestCommandFn ?? resolveTestCommand;
+  const runTestCommand = deps.runTestCommand ?? defaultRunTestCommand;
 
   // Lingua dei contenuti generati (report nel prompt + commenti AI sul ticket),
   // risolta UNA VOLTA per job: tutti i prompt e i `t(lang, ...)` di seguito la
@@ -277,7 +367,9 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   // esplicito, MAI il payload.
   let credentials: z.infer<typeof credentialsSchema>;
   try {
-    credentials = credentialsSchema.parse(JSON.parse(decrypt(account.encryptedCredentials, deps.encryptionKey)));
+    credentials = credentialsSchema.parse(
+      JSON.parse(decrypt(account.encryptedCredentials, deps.encryptionKey)),
+    );
   } catch {
     await failJob(db, job.id, {
       log: "[fix] impossibile decifrare le credenziali dell'account git (ENCRYPTION_KEY errata o payload non valido)",
@@ -340,147 +432,236 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     }
   };
   try {
-    worktreeResult = await mirrors.withWorktree(mirrorProject, branch, async (dir): Promise<WorktreeResult> => {
-      // Heartbeat: il fix può durare a lungo (plan + execute) senza scrivere
-      // nel log. Senza questo touchJob periodico, requeueStale crederebbe il
-      // job orfano e ne aprirebbe un duplicato. L'interval avvolge il/i run
-      // (anche il solo plan run in plan-only) ed è cancellato in finally.
-      const heartbeat = setInterval(() => {
-        void touchJob(db, job.id).catch(() => {
-          // Un bump fallito (DB transitorio) non deve uccidere il fix: il
-          // prossimo battito riproverà.
-        });
-      }, deps.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS);
-      // unref: l'heartbeat da solo non deve tenere vivo l'event loop.
-      heartbeat.unref();
-      let output: string;
-      let exitCode: number;
-      try {
-        // PLAN-ONLY: solo il run di pianificazione (Opus, sola lettura). Si
-        // cattura il piano, NON si esegue il fix, NON si committa/pusha. Il
-        // plan run gira QUI perché l'agente deve esplorare il repo reale.
-        if (fixMode === "plan-only") {
-          const planResult = await runner.run({
-            cwd: dir,
-            prompt: buildFixPlanPrompt({ ticket, teamComments }, lang),
-            model: planModel,
-            permissionMode: "plan",
-            maxTurns: DEFAULT_PLAN_MAX_TURNS,
-            timeoutMs: planTimeoutMs,
+    worktreeResult = await mirrors.withWorktree(
+      mirrorProject,
+      branch,
+      async (dir): Promise<WorktreeResult> => {
+        // Heartbeat: il fix può durare a lungo (plan + execute) senza scrivere
+        // nel log. Senza questo touchJob periodico, requeueStale crederebbe il
+        // job orfano e ne aprirebbe un duplicato. L'interval avvolge il/i run
+        // (anche il solo plan run in plan-only) ed è cancellato in finally.
+        const heartbeat = setInterval(() => {
+          void touchJob(db, job.id).catch(() => {
+            // Un bump fallito (DB transitorio) non deve uccidere il fix: il
+            // prossimo battito riproverà.
           });
-          fixUsages.push(planResult.usage);
-          // Un exit non-zero della pianificazione è un fallimento del fix
-          // (gestito nel catch → failJob): niente parcheggio, niente piano.
-          if (planResult.exitCode !== 0) {
-            throw new AgentExitError(planResult.exitCode, planResult.output);
+        }, deps.heartbeatIntervalMs ?? HEARTBEAT_INTERVAL_MS);
+        // unref: l'heartbeat da solo non deve tenere vivo l'event loop.
+        heartbeat.unref();
+        let output: string;
+        let exitCode: number;
+        try {
+          // PLAN-ONLY: solo il run di pianificazione (Opus, sola lettura). Si
+          // cattura il piano, NON si esegue il fix, NON si committa/pusha. Il
+          // plan run gira QUI perché l'agente deve esplorare il repo reale.
+          if (fixMode === "plan-only") {
+            const planResult = await runner.run({
+              cwd: dir,
+              prompt: buildFixPlanPrompt({ ticket, teamComments }, lang),
+              model: planModel,
+              permissionMode: "plan",
+              maxTurns: DEFAULT_PLAN_MAX_TURNS,
+              timeoutMs: planTimeoutMs,
+            });
+            fixUsages.push(planResult.usage);
+            // Un exit non-zero della pianificazione è un fallimento del fix
+            // (gestito nel catch → failJob): niente parcheggio, niente piano.
+            if (planResult.exitCode !== 0) {
+              throw new AgentExitError(planResult.exitCode, planResult.output);
+            }
+            return { kind: "planned", planText: planResult.output };
           }
-          return { kind: "planned", planText: planResult.output };
-        }
 
-        // FASE 1 — pianificazione (full + twoPhase): modello forte in sola
-        // lettura (permission-mode "plan"), nessun allowedTools di test,
-        // turni/timeout ridotti. In execute-only si SALTA: il piano è già
-        // stato approvato (job.planText) e va riusato verbatim.
-        let executePrompt: string;
-        if (fixMode === "execute-only") {
-          // job.planText è garantito non-null/non-vuoto da resolveFixMode.
-          executePrompt = buildFixExecutePrompt({
-            ticket,
-            plan: job.planText!,
-            teamComments,
-          }, lang);
-        } else if (twoPhase) {
-          const planResult = await runner.run({
+          // FASE 1 — pianificazione (full + twoPhase): modello forte in sola
+          // lettura (permission-mode "plan"), nessun allowedTools di test,
+          // turni/timeout ridotti. In execute-only si SALTA: il piano è già
+          // stato approvato (job.planText) e va riusato verbatim.
+          let executePrompt: string;
+          if (fixMode === "execute-only") {
+            // job.planText è garantito non-null/non-vuoto da resolveFixMode.
+            executePrompt = buildFixExecutePrompt(
+              {
+                ticket,
+                plan: job.planText!,
+                teamComments,
+              },
+              lang,
+            );
+          } else if (twoPhase) {
+            const planResult = await runner.run({
+              cwd: dir,
+              prompt: buildFixPlanPrompt({ ticket, teamComments }, lang),
+              model: planModel,
+              permissionMode: "plan",
+              maxTurns: DEFAULT_PLAN_MAX_TURNS,
+              timeoutMs: planTimeoutMs,
+            });
+            fixUsages.push(planResult.usage);
+            // Un exit non-zero della pianificazione è trattato come gli altri
+            // fallimenti del fix: niente esecuzione, niente PR (vedi catch).
+            if (planResult.exitCode !== 0) {
+              throw new AgentExitError(planResult.exitCode, planResult.output);
+            }
+            executePrompt = buildFixExecutePrompt(
+              {
+                ticket,
+                plan: planResult.output,
+                teamComments,
+              },
+              lang,
+            );
+          } else {
+            // Fase singola (FIX_TWO_PHASE=false): un solo run con il prompt
+            // monolitico storico, come prima dell'introduzione delle due fasi.
+            executePrompt = buildFixPrompt({ ticket, teamComments }, lang);
+          }
+
+          // FASE 2 — esecuzione: modello economico, acceptEdits + allowedTools di
+          // test, turni/timeout pieni. Implementa il fix e scrive il report. In
+          // execute-only il piano è già stato approvato: si usa executeModel
+          // (c'è sempre un piano, quindi è di fatto la fase di esecuzione).
+          const result = await runner.run({
             cwd: dir,
-            prompt: buildFixPlanPrompt({ ticket, teamComments }, lang),
-            model: planModel,
-            permissionMode: "plan",
-            maxTurns: DEFAULT_PLAN_MAX_TURNS,
-            timeoutMs: planTimeoutMs,
+            prompt: executePrompt,
+            ...(twoPhase || fixMode === "execute-only"
+              ? { model: executeModel }
+              : deps.model !== undefined
+                ? { model: deps.model }
+                : {}),
+            permissionMode: "acceptEdits",
+            maxTurns,
+            timeoutMs,
+            allowedTools,
           });
-          fixUsages.push(planResult.usage);
-          // Un exit non-zero della pianificazione è trattato come gli altri
-          // fallimenti del fix: niente esecuzione, niente PR (vedi catch).
-          if (planResult.exitCode !== 0) {
-            throw new AgentExitError(planResult.exitCode, planResult.output);
+          output = result.output;
+          exitCode = result.exitCode;
+          // Catturato anche su exit non-zero (il CLI riporta usage comunque):
+          // registrato dopo la chiusura del worktree, qualunque sia l'esito.
+          fixUsages.push(result.usage);
+
+          if (exitCode !== 0) throw new AgentExitError(exitCode, output);
+
+          // Il report è il corpo della PR e NON deve MAI finire nel commit. Letto e
+          // rimosso DOPO che i test sono verdi (l'agente può riscriverlo nei
+          // tentativi di riparazione). Se è stato creato come DIRECTORY (output
+          // malformato), lo trattiamo come report mancante e lo rimuoviamo
+          // ricorsivamente, così non finisce comunque nel commit.
+          const reportPath = join(dir, REPORT_FILENAME);
+          const readAndRemoveReport = async (): Promise<string | null> => {
+            try {
+              const info = await stat(reportPath);
+              if (info.isDirectory()) {
+                await rm(reportPath, { recursive: true, force: true });
+                return null; // Malformato: fallback + esclusione dal commit.
+              }
+              const content = await readFile(reportPath, "utf8");
+              await rm(reportPath);
+              return content;
+            } catch {
+              return null; // Mancante: si decide fuori (fallback, il fix ha valore).
+            }
+          };
+
+          // LOOP di self-repair (Task 5): se il repo ha un comando di test
+          // risolvibile e i RE-tentativi sono abilitati, il WORKER esegue da sé i
+          // test nel worktree e, finché restano rossi, reinvoca l'agente con
+          // l'output del fallimento, fino a selfRepairMaxAttempts riparazioni; solo
+          // con test verdi si procede a report/commit/push. Senza un comando di
+          // test risolvibile (o con maxAttempts 0) NON si entra nel loop e il
+          // flusso resta IDENTICO a prima (git add -A → status → commit).
+          const testCmd = await resolveTestCommandFn({ testCommand: project.testCommand }, dir);
+          if (testCmd && selfRepairMaxAttempts > 0) {
+            for (let attempt = 0; ; attempt++) {
+              // Diff vuoto come oggi (NoChangesError), ma ESCLUDENDO il report: lo
+              // si stage tutto tranne STUBWISE_REPORT.md, così il report non può
+              // mascherare un diff altrimenti vuoto né finire nel commit.
+              await gitIn(dir, ["add", "-A", "--", ".", `:(exclude)${REPORT_FILENAME}`]);
+              const status = await gitIn(dir, [
+                "status",
+                "--porcelain",
+                "--",
+                ".",
+                `:(exclude)${REPORT_FILENAME}`,
+              ]);
+              if (status.trim() === "") throw new NoChangesError(output);
+
+              const test = await runTestCommand(testCmd, dir, testTimeoutMs);
+              await appendLog(
+                db,
+                job.id,
+                `[fix] self-repair tentativo ${attempt}: test ${test.exitCode === 0 ? "verdi" : `rossi (exit ${test.exitCode})`}`,
+              ).catch(() => {
+                // Log best-effort: non deve far fallire il fix.
+              });
+              if (test.exitCode === 0) break; // VERDI → report/commit/push.
+              if (attempt >= selfRepairMaxAttempts) {
+                throw new SelfRepairFailedError(test.output, output);
+              }
+              // (Task 6 inserirà QUI il check del budget-ticket prima di ri-tentare.)
+              const repair = await runner.run({
+                cwd: dir,
+                prompt: buildFixRepairPrompt(
+                  { ticket, teamComments, testOutput: test.output },
+                  lang,
+                ),
+                model: executeModel,
+                permissionMode: "acceptEdits",
+                maxTurns,
+                timeoutMs,
+                allowedTools,
+              });
+              fixUsages.push(repair.usage);
+              if (repair.exitCode !== 0) throw new AgentExitError(repair.exitCode, repair.output);
+              output = repair.output; // Aggiorna l'output dell'agente per report/log.
+            }
+
+            // Test verdi: ora si legge+rimuove il report e si committa il solo fix
+            // (il report è già escluso dallo stage del loop e ora anche da disco).
+            const reportContent = await readAndRemoveReport();
+            await gitIn(dir, ["add", "-A"]);
+            await gitIn(dir, [
+              "-c",
+              "user.name=Stubwise AI",
+              "-c",
+              "user.email=ai@stubwise",
+              "commit",
+              "-m",
+              `${prTitle}\n\nTicket #${ticket.number} — fix automatico di Stubwise AI`,
+            ]);
+            await mirrors.pushBranch(mirrorProject, branch);
+            return { kind: "executed", report: reportContent, agentOutput: output };
           }
-          executePrompt = buildFixExecutePrompt({
-            ticket,
-            plan: planResult.output,
-            teamComments,
-          }, lang);
-        } else {
-          // Fase singola (FIX_TWO_PHASE=false): un solo run con il prompt
-          // monolitico storico, come prima dell'introduzione delle due fasi.
-          executePrompt = buildFixPrompt({ ticket, teamComments }, lang);
+
+          // Nessun comando di test risolvibile (o self-repair disattivato): flusso
+          // IDENTICO a prima — report letto/rimosso PRIMA di `git add -A`.
+          const reportContent = await readAndRemoveReport();
+          await gitIn(dir, ["add", "-A"]);
+          const status = await gitIn(dir, ["status", "--porcelain"]);
+          if (status.trim() === "") throw new NoChangesError(output);
+
+          // Autore esplicito per-invocazione: nessuna config git globale richiesta
+          // nel container del worker, e il commit è attribuito all'AI.
+          await gitIn(dir, [
+            "-c",
+            "user.name=Stubwise AI",
+            "-c",
+            "user.email=ai@stubwise",
+            "commit",
+            "-m",
+            `${prTitle}\n\nTicket #${ticket.number} — fix automatico di Stubwise AI`,
+          ]);
+          // Push DENTRO la callback: il branch ref vive nel mirror e viene
+          // cancellato all'uscita da withWorktree (vedi mirrors.ts).
+          await mirrors.pushBranch(mirrorProject, branch);
+          return { kind: "executed", report: reportContent, agentOutput: output };
+        } finally {
+          // L'heartbeat avvolge TUTTO il lavoro nel worktree: plan, esecuzione,
+          // loop di self-repair (ri-esecuzioni dell'agente + run dei test),
+          // commit e push. Cancellato qui, qualunque sia l'esito (return/throw).
+          clearInterval(heartbeat);
         }
-
-        // FASE 2 — esecuzione: modello economico, acceptEdits + allowedTools di
-        // test, turni/timeout pieni. Implementa il fix e scrive il report. In
-        // execute-only il piano è già stato approvato: si usa executeModel
-        // (c'è sempre un piano, quindi è di fatto la fase di esecuzione).
-        const result = await runner.run({
-          cwd: dir,
-          prompt: executePrompt,
-          ...(twoPhase || fixMode === "execute-only"
-            ? { model: executeModel }
-            : deps.model !== undefined
-              ? { model: deps.model }
-              : {}),
-          permissionMode: "acceptEdits",
-          maxTurns,
-          timeoutMs,
-          allowedTools,
-        });
-        output = result.output;
-        exitCode = result.exitCode;
-        // Catturato anche su exit non-zero (il CLI riporta usage comunque):
-        // registrato dopo la chiusura del worktree, qualunque sia l'esito.
-        fixUsages.push(result.usage);
-      } finally {
-        clearInterval(heartbeat);
-      }
-      if (exitCode !== 0) throw new AgentExitError(exitCode, output);
-
-      // Il report è il corpo della PR e NON deve finire nel commit: letto e
-      // rimosso PRIMA di `git add -A`. Se l'agente ha creato STUBWISE_REPORT.md
-      // come DIRECTORY (output malformato), lo trattiamo come report mancante
-      // e lo rimuoviamo ricorsivamente, così non finisce comunque nel commit.
-      const reportPath = join(dir, REPORT_FILENAME);
-      let reportContent: string | null = null;
-      try {
-        const info = await stat(reportPath);
-        if (info.isDirectory()) {
-          reportContent = null; // Malformato: fallback + esclusione dal commit.
-          await rm(reportPath, { recursive: true, force: true });
-        } else {
-          reportContent = await readFile(reportPath, "utf8");
-          await rm(reportPath);
-        }
-      } catch {
-        reportContent = null; // Mancante: si decide fuori (fallback, il fix ha valore).
-      }
-
-      await gitIn(dir, ["add", "-A"]);
-      const status = await gitIn(dir, ["status", "--porcelain"]);
-      if (status.trim() === "") throw new NoChangesError(output);
-
-      // Autore esplicito per-invocazione: nessuna config git globale richiesta
-      // nel container del worker, e il commit è attribuito all'AI.
-      await gitIn(dir, [
-        "-c",
-        "user.name=Stubwise AI",
-        "-c",
-        "user.email=ai@stubwise",
-        "commit",
-        "-m",
-        `${prTitle}\n\nTicket #${ticket.number} — fix automatico di Stubwise AI`,
-      ]);
-      // Push DENTRO la callback: il branch ref vive nel mirror e viene
-      // cancellato all'uscita da withWorktree (vedi mirrors.ts).
-      await mirrors.pushBranch(mirrorProject, branch);
-      return { kind: "executed", report: reportContent, agentOutput: output };
-    });
+      },
+    );
   } catch (err) {
     // Qualunque sia l'errore, il worktree è già stato rimosso da withWorktree.
     // Consumi dei run di fix (best-effort): se l'agente ha prodotto usage prima
@@ -498,6 +679,20 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     if (err instanceof AgentExitError) {
       await failJob(db, job.id, {
         log: `[fix] output agente (exit ${err.exitCode}):\n${truncateForLog(err.agentOutput)}\n[fix] exit non-zero: per prudenza nessuna PR anche se ci fossero modifiche`,
+        error: err.message,
+      });
+      await notifyFailed(err.message);
+      return "failed";
+    }
+    if (err instanceof SelfRepairFailedError) {
+      // Fallimento conservativo: i test del repo restano rossi dopo i tentativi
+      // di riparazione → niente PR. L'output dei test (troncato) e l'ultimo
+      // output dell'agente finiscono nel log per il debug.
+      await failJob(db, job.id, {
+        log:
+          `[fix] output agente:\n${truncateForLog(err.agentOutput)}\n` +
+          `[fix] test ancora falliti dopo ${selfRepairMaxAttempts} tentativi di riparazione:\n${truncateForLog(err.testOutput)}\n` +
+          `[fix] test rossi: per prudenza nessuna PR`,
         error: err.message,
       });
       await notifyFailed(err.message);
@@ -572,7 +767,9 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     // Documentato: un diff valido senza report ha comunque valore — si apre
     // la PR con un corpo di cortesia e si lascia traccia nel log.
     reportBody = t(lang, "comment.reportMissing", { filename: REPORT_FILENAME });
-    logLines.push(`[fix] attenzione: ${REPORT_FILENAME} non trovato, PR aperta con body di fallback`);
+    logLines.push(
+      `[fix] attenzione: ${REPORT_FILENAME} non trovato, PR aperta con body di fallback`,
+    );
   } else {
     reportBody = report.trim();
   }
