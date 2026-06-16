@@ -102,6 +102,9 @@ export class Client {
   private readonly breadcrumbs = new BreadcrumbBuffer();
   private readonly release?: string;
   private readonly environment?: string;
+  // Catture screenshot in volo (IIFE async lanciate da captureFeedback). Tracciate
+  // così che chi vuole svuotare la coda in modo affidabile possa prima attenderle.
+  private readonly pendingCaptures = new Set<Promise<void>>();
 
   constructor(options: ClientOptions) {
     this.transport = new Transport({
@@ -152,7 +155,11 @@ export class Client {
       if (input.screenshot === true) {
         // async: non possiamo bloccare la firma void, quindi accodiamo
         // l'evento (con o senza screenshot) dentro un'IIFE che non rigetta mai.
-        void this.enqueueFeedbackWithScreenshot(input);
+        // La promise è tracciata in pendingCaptures e rimossa al termine, così
+        // settlePendingCaptures() può attenderla in modo deterministico.
+        const capture = this.enqueueFeedbackWithScreenshot(input);
+        this.pendingCaptures.add(capture);
+        void capture.finally(() => this.pendingCaptures.delete(capture));
         return;
       }
       this.enqueueFeedback(input);
@@ -237,6 +244,16 @@ export class Client {
     } catch {
       // mai propagare nell'app ospite
     }
+  }
+
+  /**
+   * Attende che tutte le catture screenshot in volo (lanciate da
+   * `captureFeedback({ screenshot: true })`) abbiano accodato il loro evento.
+   * Utile prima di un `flush()` finale per non perdere uno screenshot ancora in
+   * cattura. Si risolve sempre, non rigetta mai (le catture sono best-effort).
+   */
+  async settlePendingCaptures(): Promise<void> {
+    await Promise.allSettled([...this.pendingCaptures]);
   }
 
   /** Invia subito tutto ciò che è in coda. Si risolve sempre, non rigetta mai. */

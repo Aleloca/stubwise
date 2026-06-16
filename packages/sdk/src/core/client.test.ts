@@ -155,17 +155,6 @@ describe("Client", () => {
   describe("captureFeedback con screenshot", () => {
     const DATA_URL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==";
 
-    /**
-     * Lascia girare l'IIFE async che cattura lo screenshot: la cattura fa un
-     * dynamic import + due await, quindi servono più tick prima che l'evento
-     * sia accodato. Più macrotask di margine.
-     */
-    const flushPromises = async (): Promise<void> => {
-      for (let i = 0; i < 5; i++) {
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      }
-    };
-
     /** Fake `document.body` con una pila di microtask sufficiente per la cattura. */
     function installDocument(): void {
       vi.stubGlobal("document", {
@@ -191,7 +180,7 @@ describe("Client", () => {
       const client = new FreshClient({ dsn: DSN, fetchImpl: fetchMock });
 
       client.captureFeedback({ message: "bug visivo", screenshot: true });
-      await flushPromises();
+      await client.settlePendingCaptures();
       await client.flush();
 
       const [event] = sentEvents(fetchMock) as FeedbackEvent[];
@@ -210,7 +199,7 @@ describe("Client", () => {
       const client = new FreshClient({ dsn: DSN, fetchImpl: fetchMock });
 
       expect(() => client.captureFeedback({ message: "bug visivo", screenshot: true })).not.toThrow();
-      await flushPromises();
+      await client.settlePendingCaptures();
       await client.flush();
 
       const [event] = sentEvents(fetchMock) as FeedbackEvent[];
