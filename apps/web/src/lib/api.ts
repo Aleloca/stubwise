@@ -320,6 +320,60 @@ export function deleteMilestone(id: string): Promise<void> {
   return request("DELETE", `/api/milestones/${encodeURIComponent(id)}`);
 }
 
+// --- Saved views ---
+
+/** Criteri di filtraggio della lista ticket persistiti in una vista salvata. */
+export interface SavedViewFilters {
+  projectId?: string;
+  status?: TicketStatus;
+  type?: TicketType;
+  priority?: TicketPriority;
+  assigneeId?: string;
+  milestoneId?: string;
+  q?: string;
+}
+
+/** Vista salvata dei filtri; `isOwn` è relativo all'utente corrente. */
+export interface SavedView {
+  id: string;
+  name: string;
+  filters: SavedViewFilters;
+  shared: boolean;
+  ownerId: string;
+  isOwn: boolean;
+  createdAt: string;
+}
+
+/** Dati di creazione di una vista salvata. */
+export interface SavedViewDraft {
+  name: string;
+  filters: SavedViewFilters;
+  shared?: boolean;
+}
+
+/** Campi modificabili di una vista salvata. */
+export interface SavedViewPatch {
+  name?: string;
+  filters?: SavedViewFilters;
+  shared?: boolean;
+}
+
+export function listSavedViews(): Promise<SavedView[]> {
+  return api.get("/api/saved-views");
+}
+
+export function createSavedView(input: SavedViewDraft): Promise<SavedView> {
+  return api.post("/api/saved-views", input);
+}
+
+export function updateSavedView(id: string, patch: SavedViewPatch): Promise<SavedView> {
+  return api.patch(`/api/saved-views/${encodeURIComponent(id)}`, patch);
+}
+
+export function deleteSavedView(id: string): Promise<void> {
+  return request("DELETE", `/api/saved-views/${encodeURIComponent(id)}`);
+}
+
 // --- Comments ---
 
 export interface Comment {
