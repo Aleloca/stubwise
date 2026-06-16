@@ -110,6 +110,16 @@
     "row": {
       "occurrences": "Deduplicated occurrences"
     },
+    "editor": {
+      "bold": "Bold",
+      "italic": "Italic",
+      "code": "Inline code",
+      "link": "Link",
+      "list": "Bulleted list",
+      "write": "Write",
+      "preview": "Preview",
+      "emptyPreview": "Nothing to preview"
+    },
     "newDialog": {
       "title": "New ticket",
       "badge": "manual",

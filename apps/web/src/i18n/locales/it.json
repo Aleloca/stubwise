@@ -110,6 +110,16 @@
     "row": {
       "occurrences": "Occorrenze deduplicate"
     },
+    "editor": {
+      "bold": "Grassetto",
+      "italic": "Corsivo",
+      "code": "Codice inline",
+      "link": "Link",
+      "list": "Elenco puntato",
+      "write": "Scrivi",
+      "preview": "Anteprima",
+      "emptyPreview": "Niente da visualizzare"
+    },
     "newDialog": {
       "title": "Nuovo ticket",
       "badge": "manuale",
