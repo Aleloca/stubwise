@@ -109,9 +109,9 @@ describe("ProjectWizard — senza account", () => {
     });
     renderWizard();
 
-    expect(await screen.findByText(/nessun account git/i)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /account git/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /crea progetto/i })).toBeDisabled();
+    expect(await screen.findByText(/no git accounts/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /git accounts/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /create project/i })).toBeDisabled();
   });
 });
 
@@ -136,17 +136,17 @@ describe("ProjectWizard — flusso completo", () => {
 
     const router = renderWizard();
 
-    await user.type(await screen.findByLabelText("Nome"), "Demo Shop");
+    await user.type(await screen.findByLabelText("Name"), "Demo Shop");
     // L'account è preselezionato (unico): i repository vengono caricati.
     await screen.findByText("acme/demo-shop");
 
     // Scegli backoffice (default develop) per verificare la preselezione branch.
     await user.click(screen.getByRole("button", { name: /acme\/backoffice/ }));
 
-    const branchSelect = await screen.findByLabelText("Branch di default");
+    const branchSelect = await screen.findByLabelText("Default branch");
     await waitFor(() => expect((branchSelect as HTMLSelectElement).value).toBe("develop"));
 
-    await user.click(screen.getByRole("button", { name: /crea progetto/i }));
+    await user.click(screen.getByRole("button", { name: /create project/i }));
 
     await waitFor(() => expect(router.state.location.pathname).toBe("/projects/demo-shop"));
     expect(postBody).toEqual({
@@ -187,7 +187,7 @@ describe("ProjectWizard — flusso completo", () => {
     await user.click(screen.getByRole("button", { name: /acme\/backoffice/ }));
 
     await user.click(
-      await screen.findByRole("button", { name: /verifica accesso al repository/i }),
+      await screen.findByRole("button", { name: /verify repository access/i }),
     );
 
     expect(await screen.findByText(/Accesso git \(push\)/)).toBeInTheDocument();
@@ -210,7 +210,7 @@ describe("ProjectWizard — flusso completo", () => {
     renderWizard();
 
     await screen.findByText("acme/demo-shop");
-    await user.type(screen.getByLabelText(/cerca repository/i), "backoffice");
+    await user.type(screen.getByLabelText(/search repository/i), "backoffice");
 
     expect(screen.queryByRole("button", { name: /acme\/demo-shop/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /acme\/backoffice/ })).toBeInTheDocument();
@@ -237,17 +237,17 @@ describe("ProjectWizard — fallback manuale", () => {
 
     const router = renderWizard();
 
-    await user.type(await screen.findByLabelText("Nome"), "Demo Shop");
+    await user.type(await screen.findByLabelText("Name"), "Demo Shop");
     expect(await screen.findByText(/scope repository mancante/i)).toBeInTheDocument();
 
     await user.type(
-      screen.getByLabelText(/url repository/i),
+      screen.getByLabelText(/repository url/i),
       "https://github.com/acme/demo-shop",
     );
-    const branch = screen.getByLabelText(/branch di default/i);
+    const branch = screen.getByLabelText(/default branch/i);
     await user.clear(branch);
     await user.type(branch, "main");
-    await user.click(screen.getByRole("button", { name: /crea progetto/i }));
+    await user.click(screen.getByRole("button", { name: /create project/i }));
 
     await waitFor(() => expect(router.state.location.pathname).toBe("/projects/demo-shop"));
     expect(postBody).toEqual({

@@ -9,6 +9,7 @@ import { projects } from "@stubwise/db";
 import { processEvents } from "../ingest/processor.js";
 import { errorSchema } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
+import { apiError } from "../errors.js";
 
 export interface IngestRoutesOptions {
   /** Limite di richieste per chiave di ingestion (default 300/min). */
@@ -104,7 +105,7 @@ export async function ingestRoutes(
           !project ||
           !keysMatch(provided, project.ingestionKey)
         ) {
-          return reply.code(401).send({ message: "Chiave di ingestion non valida" });
+          return apiError(reply, 401, "invalid_ingestion_key", "Invalid ingestion key");
         }
         request.ingestProject = { id: project.id, name: project.name };
       },

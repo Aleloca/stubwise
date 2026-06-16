@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
-import { automationRules, notificationSettings } from "@stubwise/db";
+import { automationRules, instanceSettings, notificationSettings } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
@@ -488,5 +488,66 @@ describe("POST /api/settings/notifications/test", () => {
     const res = await testNotification(users.adminCookie);
     expect(res.statusCode).toBe(200);
     expect((res.json() as { ok: boolean }).ok).toBe(false);
+  });
+});
+
+// --- Impostazioni d'istanza: lingua dei contenuti ---
+
+function getInstance(cookie?: string) {
+  return app.inject({
+    method: "GET",
+    url: "/api/settings/instance",
+    headers: cookie ? { cookie } : {},
+  });
+}
+
+function putInstance(payload: Record<string, unknown>, cookie?: string) {
+  return app.inject({
+    method: "PUT",
+    url: "/api/settings/instance",
+    headers: cookie ? { cookie } : {},
+    payload,
+  });
+}
+
+describe("GET /api/settings/instance", () => {
+  it("senza sessione: 401", async () => {
+    expect((await getInstance()).statusCode).toBe(401);
+  });
+
+  it("member: 403", async () => {
+    expect((await getInstance(users.memberCookie)).statusCode).toBe(403);
+  });
+
+  it("admin: restituisce la riga singleton seedata (default 'en')", async () => {
+    const res = await getInstance(users.adminCookie);
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { contentLanguage: string }).contentLanguage).toBe("en");
+  });
+});
+
+describe("PUT /api/settings/instance", () => {
+  it("member: 403", async () => {
+    const res = await putInstance({ contentLanguage: "it" }, users.memberCookie);
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("admin: upsert della riga singleton e persistenza", async () => {
+    const res = await putInstance({ contentLanguage: "it" }, users.adminCookie);
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { contentLanguage: string }).contentLanguage).toBe("it");
+
+    // Persistito: una sola riga (id=1) e la GET la riflette.
+    const rows = await testDb.db.select().from(instanceSettings);
+    expect(rows).toHaveLength(1);
+    expect((await getInstance(users.adminCookie)).json()).toEqual({ contentLanguage: "it" });
+
+    // Ripristina il default per non sporcare gli altri test.
+    await putInstance({ contentLanguage: "en" }, users.adminCookie);
+  });
+
+  it("lingua fuori enum → 400", async () => {
+    const res = await putInstance({ contentLanguage: "fr" }, users.adminCookie);
+    expect(res.statusCode).toBe(400);
   });
 });

@@ -59,7 +59,7 @@ describe("guardia di routing", () => {
 
     const router = renderApp();
 
-    expect(await screen.findByRole("heading", { name: "Accedi" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/login");
   });
 
@@ -72,7 +72,7 @@ describe("guardia di routing", () => {
     const router = renderApp();
 
     expect(
-      await screen.findByRole("heading", { name: /account amministratore/i }),
+      await screen.findByRole("heading", { name: /administrator account/i }),
     ).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/setup");
   });
@@ -92,6 +92,6 @@ describe("guardia di routing", () => {
     expect(router.state.location.pathname).toBe("/tickets");
     expect(screen.getByRole("link", { name: /board/i })).toBeInTheDocument();
     expect(screen.getByText("ada@example.com")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /esci/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /sign out/i })).toBeInTheDocument();
   });
 });

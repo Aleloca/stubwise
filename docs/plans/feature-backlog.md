@@ -38,3 +38,6 @@ Idee di funzionalità valutate dopo la prima fase di sviluppo + deploy in produz
 1. ~~Notifiche~~ → ✅ **FATTA.**
 2. ~~Loop di feedback AI (rifiuto PR + ri-esegui-con-istruzioni + approvazione piano).~~ → ✅ **FATTA.**
 3. SDK PHP/Python (se ci sono progetti non-JS) oppure dashboard analytics. → **prossima candidata.**
+
+**Extra completate fuori dalla lista iniziale:**
+- ~~Internazionalizzazione (i18n): UI per-utente (react-i18next, en default + it), contenuti/LLM/notifiche per-istanza, errori API in inglese con code.~~ → ✅ **FATTA** (giugno 2026; design+piano in docs/plans/2026-06-15-stubwise-i18n-*.md, migrazione 0013, pacchetto @stubwise/i18n). **Follow-up noto:** tradurre le docs (Astro Starlight) in inglese — attualmente ancora italiane (discrepanza app-inglese / docs-italiane).

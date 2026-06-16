@@ -342,8 +342,8 @@ describe("dettaglio ticket", () => {
     ).toBeInTheDocument();
     const header = screen.getByRole("banner");
     expect(within(header).getByText("#7")).toBeInTheDocument();
-    expect(within(header).getByText("Aperto")).toBeInTheDocument();
-    expect(within(header).getByText("Alta")).toBeInTheDocument();
+    expect(within(header).getByText("Open")).toBeInTheDocument();
+    expect(within(header).getByText("High")).toBeInTheDocument();
     expect(within(header).getByText("Bug")).toBeInTheDocument();
     // Il testo del badge origine è "◇ SDK": match parziale.
     expect(within(header).getByText(/SDK/)).toBeInTheDocument();
@@ -356,7 +356,7 @@ describe("dettaglio ticket", () => {
     renderDetail();
 
     const header = await screen.findByRole("banner");
-    expect(within(header).getByText(/Effort: Medio \(3\/5\)/)).toBeInTheDocument();
+    expect(within(header).getByText("Effort: Medium (3/5)")).toBeInTheDocument();
   });
 
   it("NON mostra l'effort quando è null (ticket non ancora triagiato)", async () => {
@@ -367,14 +367,14 @@ describe("dettaglio ticket", () => {
     expect(screen.queryByText(/Effort:/)).not.toBeInTheDocument();
   });
 
-  it("job 'held': mostra lo stato IN ATTESA e il bottone Avvia fix AI che chiama run-ai", async () => {
+  it("job 'held': mostra lo stato ON HOLD e il bottone Start AI fix che chiama run-ai", async () => {
     const state = mockDetailApi({ jobs: [heldJobFixture] });
     renderDetail();
 
     // Stato held reso nella timeline.
-    expect(await screen.findByText("In attesa")).toBeInTheDocument();
+    expect(await screen.findByText("On hold")).toBeInTheDocument();
 
-    const button = screen.getByRole("button", { name: "Avvia fix AI" });
+    const button = screen.getByRole("button", { name: "Start AI fix" });
     await userEvent.click(button);
 
     // Senza opzione: il run-ai parte senza body (triage da capo).
@@ -385,7 +385,7 @@ describe("dettaglio ticket", () => {
     const state = mockDetailApi({ jobs: [heldJobFixture] });
     renderDetail();
 
-    const button = await screen.findByRole("button", { name: "Rilancia con istruzioni" });
+    const button = await screen.findByRole("button", { name: "Relaunch with instructions" });
     await userEvent.click(button);
 
     await waitFor(() => expect(state.runAiCalls).toEqual([{ withInstructions: true }]));
@@ -396,8 +396,8 @@ describe("dettaglio ticket", () => {
     mockDetailApi({ jobs: [heldJobFixture] });
     renderDetail();
 
-    await screen.findByRole("button", { name: "Rilancia con istruzioni" });
-    expect(screen.queryByText(/Aggiungi prima un commento/i)).not.toBeInTheDocument();
+    await screen.findByRole("button", { name: "Relaunch with instructions" });
+    expect(screen.queryByText(/Add a comment with the instructions/i)).not.toBeInTheDocument();
   });
 
   it("hint 'aggiungi un commento': presente quando non ci sono commenti utente", async () => {
@@ -408,16 +408,16 @@ describe("dettaglio ticket", () => {
     });
     renderDetail();
 
-    await screen.findByRole("button", { name: "Rilancia con istruzioni" });
-    expect(screen.getByText(/Aggiungi prima un commento/i)).toBeInTheDocument();
+    await screen.findByRole("button", { name: "Relaunch with instructions" });
+    expect(screen.getByText(/Add a comment with the instructions/i)).toBeInTheDocument();
   });
 
   it("job 'awaiting_plan_approval': Approva chiama approve-plan", async () => {
     const state = mockDetailApi({ jobs: [awaitingPlanJobFixture] });
     renderDetail();
 
-    expect(await screen.findByText("Piano da approvare")).toBeInTheDocument();
-    const approve = screen.getByRole("button", { name: "Approva" });
+    expect(await screen.findByText("Plan to approve")).toBeInTheDocument();
+    const approve = screen.getByRole("button", { name: "Approve" });
     await userEvent.click(approve);
 
     await waitFor(() => expect(state.approveCalls).toBe(1));
@@ -427,28 +427,28 @@ describe("dettaglio ticket", () => {
     const state = mockDetailApi({ jobs: [awaitingPlanJobFixture] });
     renderDetail();
 
-    const reject = await screen.findByRole("button", { name: "Rifiuta" });
+    const reject = await screen.findByRole("button", { name: "Reject" });
     await userEvent.click(reject);
 
     await waitFor(() => expect(state.rejectCalls).toBe(1));
-    expect(screen.getByLabelText(/aggiungi un commento/i)).toHaveFocus();
+    expect(screen.getByLabelText(/add a comment/i)).toHaveFocus();
   });
 
   it("senza job 'awaiting_plan_approval': Approva/Rifiuta non compaiono", async () => {
     mockDetailApi({ jobs: [heldJobFixture] });
     renderDetail();
 
-    await screen.findByRole("button", { name: "Avvia fix AI" });
-    expect(screen.queryByRole("button", { name: "Approva" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Rifiuta" })).not.toBeInTheDocument();
+    await screen.findByRole("button", { name: "Start AI fix" });
+    expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
   });
 
   it("job 'pr_closed': mostra i bottoni di rilancio (PR rifiutata, ticket riaperto)", async () => {
     const state = mockDetailApi({ jobs: [prClosedJobFixture] });
     renderDetail();
 
-    const avvia = await screen.findByRole("button", { name: "Avvia fix AI" });
-    expect(screen.getByRole("button", { name: "Rilancia con istruzioni" })).toBeInTheDocument();
+    const avvia = await screen.findByRole("button", { name: "Start AI fix" });
+    expect(screen.getByRole("button", { name: "Relaunch with instructions" })).toBeInTheDocument();
 
     await userEvent.click(avvia);
     await waitFor(() => expect(state.runAiCalls).toEqual([undefined]));
@@ -458,8 +458,8 @@ describe("dettaglio ticket", () => {
     mockDetailApi({ jobs: [failedJobFixture] });
     renderDetail();
 
-    expect(await screen.findByRole("button", { name: "Avvia fix AI" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Rilancia con istruzioni" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Start AI fix" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Relaunch with instructions" })).toBeInTheDocument();
   });
 
   it("job 'pr_opened' in cima: nessun bottone di rilancio (PR già aperta)", async () => {
@@ -467,9 +467,9 @@ describe("dettaglio ticket", () => {
     renderDetail();
 
     await screen.findByRole("heading", { name: "TypeError al checkout" });
-    expect(screen.queryByRole("button", { name: "Avvia fix AI" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start AI fix" })).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Rilancia con istruzioni" }),
+      screen.queryByRole("button", { name: "Relaunch with instructions" }),
     ).not.toBeInTheDocument();
   });
 
@@ -478,9 +478,9 @@ describe("dettaglio ticket", () => {
     renderDetail();
 
     await screen.findByRole("heading", { name: "TypeError al checkout" });
-    expect(screen.queryByRole("button", { name: "Avvia fix AI" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start AI fix" })).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Rilancia con istruzioni" }),
+      screen.queryByRole("button", { name: "Relaunch with instructions" }),
     ).not.toBeInTheDocument();
   });
 
@@ -489,9 +489,9 @@ describe("dettaglio ticket", () => {
     renderDetail();
 
     await screen.findByRole("heading", { name: "TypeError al checkout" });
-    expect(screen.queryByRole("button", { name: "Avvia fix AI" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start AI fix" })).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Rilancia con istruzioni" }),
+      screen.queryByRole("button", { name: "Relaunch with instructions" }),
     ).not.toBeInTheDocument();
   });
 
@@ -499,11 +499,11 @@ describe("dettaglio ticket", () => {
     mockDetailApi({ jobs: [awaitingPlanJobFixture] });
     renderDetail();
 
-    expect(await screen.findByRole("button", { name: "Approva" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Rifiuta" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Avvia fix AI" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Approve" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start AI fix" })).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Rilancia con istruzioni" }),
+      screen.queryByRole("button", { name: "Relaunch with instructions" }),
     ).not.toBeInTheDocument();
   });
 
@@ -519,7 +519,7 @@ describe("dettaglio ticket", () => {
     mockDetailApi();
     renderDetail();
 
-    const toggle = await screen.findByRole("button", { name: /payload tecnico/i });
+    const toggle = await screen.findByRole("button", { name: /technical payload/i });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText(/checkout\.ts:42/)).not.toBeInTheDocument();
 
@@ -547,9 +547,9 @@ describe("dettaglio ticket", () => {
     mockDetailApi();
     renderDetail();
 
-    expect(await screen.findByText("PR aperta")).toBeInTheDocument();
-    expect(screen.getByText("Fallito")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /vedi pr/i })).toHaveAttribute(
+    expect(await screen.findByText("PR opened")).toBeInTheDocument();
+    expect(screen.getByText("Failed")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /view pr/i })).toHaveAttribute(
       "href",
       "https://github.com/acme/shop/pull/12",
     );
@@ -560,7 +560,7 @@ describe("dettaglio ticket", () => {
     mockDetailApi();
     renderDetail();
 
-    expect(await screen.findByText("Consumi AI")).toBeInTheDocument();
+    expect(await screen.findByText("AI usage")).toBeInTheDocument();
     // 12555 → "12.555" (it-IT raggruppa dalle migliaia).
     expect(screen.getByText("12.555")).toBeInTheDocument();
     expect(screen.getByText("$0.0515")).toBeInTheDocument();
@@ -574,20 +574,20 @@ describe("dettaglio ticket", () => {
 
     // Attende che la pagina sia montata (timeline presente), poi verifica
     // l'assenza del pannello.
-    await screen.findByText("Attività AI");
-    expect(screen.queryByText("Consumi AI")).not.toBeInTheDocument();
+    await screen.findByText("AI activity");
+    expect(screen.queryByText("AI usage")).not.toBeInTheDocument();
   });
 
   it("cambiare stato manda la PATCH e aggiorna la pagina", async () => {
     const state = mockDetailApi();
     renderDetail();
 
-    const select = await screen.findByLabelText("Stato");
+    const select = await screen.findByLabelText("Status");
     await userEvent.selectOptions(select, "in_progress");
 
     await waitFor(() => expect(state.patches).toEqual([{ status: "in_progress" }]));
     const header = screen.getByRole("banner");
-    await waitFor(() => expect(within(header).getByText("In corso")).toBeInTheDocument());
+    await waitFor(() => expect(within(header).getByText("In progress")).toBeInTheDocument());
   });
 
   it("la PATCH cancella i refetch in volo del dettaglio prima di scrivere in cache", async () => {
@@ -595,7 +595,7 @@ describe("dettaglio ticket", () => {
     const { queryClient } = renderDetail();
     const cancelSpy = vi.spyOn(queryClient, "cancelQueries");
 
-    await userEvent.selectOptions(await screen.findByLabelText("Stato"), "in_progress");
+    await userEvent.selectOptions(await screen.findByLabelText("Status"), "in_progress");
     await waitFor(() => expect(state.patches).toEqual([{ status: "in_progress" }]));
 
     // Un refetch partito prima della PATCH non deve poter sovrascrivere il
@@ -615,7 +615,7 @@ describe("dettaglio ticket", () => {
     const { queryClient } = renderDetail();
     const invalidate = vi.spyOn(queryClient, "invalidateQueries");
 
-    await userEvent.selectOptions(await screen.findByLabelText("Stato"), "in_progress");
+    await userEvent.selectOptions(await screen.findByLabelText("Status"), "in_progress");
     await waitFor(() => expect(state.patches).toEqual([{ status: "in_progress" }]));
 
     // La chiave padre `boards()` matcha ogni board, qualunque filtro progetto.
@@ -628,7 +628,7 @@ describe("dettaglio ticket", () => {
     const state = mockDetailApi();
     renderDetail();
 
-    const select = await screen.findByLabelText("Assegnatario");
+    const select = await screen.findByLabelText("Assignee");
     await userEvent.selectOptions(select, MEMBER_ID);
 
     await waitFor(() => expect(state.patches).toEqual([{ assigneeId: MEMBER_ID }]));
@@ -639,7 +639,7 @@ describe("dettaglio ticket", () => {
     renderDetail();
 
     await userEvent.click(
-      await screen.findByRole("button", { name: /rimuovi.*pagamenti/i }),
+      await screen.findByRole("button", { name: /remove label pagamenti/i }),
     );
 
     await waitFor(() => expect(state.patches).toEqual([{ labels: [] }]));
@@ -649,9 +649,9 @@ describe("dettaglio ticket", () => {
     const state = mockDetailApi();
     renderDetail();
 
-    const textarea = await screen.findByLabelText(/aggiungi un commento/i);
+    const textarea = await screen.findByLabelText(/add a comment/i);
     await userEvent.type(textarea, "Sistemo io.");
-    await userEvent.click(screen.getByRole("button", { name: /commenta/i }));
+    await userEvent.click(screen.getByRole("button", { name: /comment/i }));
 
     await waitFor(() => expect(state.postedComments).toEqual(["Sistemo io."]));
     expect(await screen.findByText("Sistemo io.")).toBeInTheDocument();

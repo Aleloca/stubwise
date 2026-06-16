@@ -5,8 +5,9 @@ import {
   type TicketType,
 } from "@stubwise/shared";
 import { useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import type { Project, TicketDraft } from "../lib/api";
-import { PRIORITY_LABELS, TYPE_LABELS } from "./badges";
+import { PRIORITY_LABEL_KEYS, TYPE_LABEL_KEYS } from "./badges";
 import { FormError, SelectField, TextField } from "./field";
 
 interface NewTicketDialogProps {
@@ -23,6 +24,7 @@ interface NewTicketDialogProps {
  * e label si impostano dal dettaglio.
  */
 export function NewTicketDialog({ projects, onSubmit, onClose }: NewTicketDialogProps) {
+  const { t } = useTranslation();
   const [projectId, setProjectId] = useState(projects[0]?.id ?? "");
   const [title, setTitle] = useState("");
   const [type, setType] = useState<TicketType>("task");
@@ -46,7 +48,7 @@ export function NewTicketDialog({ projects, onSubmit, onClose }: NewTicketDialog
         priority,
       });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Errore imprevisto");
+      setError(cause instanceof Error ? cause.message : t("common:unexpectedError"));
     } finally {
       setPending(false);
     }
@@ -71,10 +73,10 @@ export function NewTicketDialog({ projects, onSubmit, onClose }: NewTicketDialog
       >
         <header className="flex items-baseline justify-between border-b border-line px-5 py-4">
           <h2 id="new-ticket-title" className="text-lg font-semibold">
-            Nuovo ticket
+            {t("tickets:newDialog.title")}
           </h2>
           <span className="font-mono text-[10px] tracking-[0.18em] text-fg-faint uppercase">
-            manuale
+            {t("tickets:newDialog.badge")}
           </span>
         </header>
 
@@ -85,18 +87,18 @@ export function NewTicketDialog({ projects, onSubmit, onClose }: NewTicketDialog
         >
           <TextField
             id="ticket-title"
-            label="Titolo"
+            label={t("tickets:newDialog.ticketTitle")}
             required
             // Dialog appena aperto: il focus parte dal primo campo.
             autoFocus
-            placeholder="Es. Crash al checkout"
+            placeholder={t("tickets:newDialog.titlePlaceholder")}
             value={title}
             onChange={(event) => setTitle(event.target.value)}
           />
 
           <SelectField
             id="ticket-project"
-            label="Progetto"
+            label={t("tickets:newDialog.project")}
             required
             value={projectId}
             onChange={(event) => setProjectId(event.target.value)}
@@ -106,22 +108,22 @@ export function NewTicketDialog({ projects, onSubmit, onClose }: NewTicketDialog
           <div className="grid gap-4 sm:grid-cols-2">
             <SelectField
               id="ticket-type"
-              label="Tipo"
+              label={t("tickets:newDialog.type")}
               value={type}
               onChange={(event) => setType(event.target.value as TicketType)}
               options={ticketTypeSchema.options.map((kind) => ({
                 value: kind,
-                label: TYPE_LABELS[kind],
+                label: t(TYPE_LABEL_KEYS[kind]),
               }))}
             />
             <SelectField
               id="ticket-priority"
-              label="Priorità"
+              label={t("tickets:newDialog.priority")}
               value={priority}
               onChange={(event) => setPriority(event.target.value as TicketPriority)}
               options={ticketPrioritySchema.options.map((level) => ({
                 value: level,
-                label: PRIORITY_LABELS[level],
+                label: t(PRIORITY_LABEL_KEYS[level]),
               }))}
             />
           </div>
@@ -131,12 +133,12 @@ export function NewTicketDialog({ projects, onSubmit, onClose }: NewTicketDialog
               htmlFor="ticket-body"
               className="font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase"
             >
-              Descrizione (opzionale)
+              {t("tickets:newDialog.description")}
             </label>
             <textarea
               id="ticket-body"
               rows={4}
-              placeholder="Markdown supportato…"
+              placeholder={t("tickets:newDialog.descriptionPlaceholder")}
               value={body}
               onChange={(event) => setBody(event.target.value)}
               className="rounded-sm border border-line-strong bg-ink-950/70 px-3 py-2 text-sm text-fg placeholder:text-fg-faint transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
@@ -151,14 +153,14 @@ export function NewTicketDialog({ projects, onSubmit, onClose }: NewTicketDialog
               onClick={onClose}
               className="rounded-sm border border-line-strong px-3 py-2 font-mono text-[12px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg"
             >
-              Annulla
+              {t("tickets:newDialog.cancel")}
             </button>
             <button
               type="submit"
               disabled={pending || title.trim() === ""}
               className="rounded-sm bg-signal px-4 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright active:bg-signal-dim disabled:cursor-not-allowed disabled:bg-signal-dim disabled:opacity-60"
             >
-              {pending ? "Creazione…" : "Crea ticket"}
+              {pending ? t("tickets:newDialog.submitPending") : t("tickets:newDialog.submit")}
             </button>
           </div>
         </form>

@@ -31,7 +31,7 @@ describe("UsagePanel", () => {
   it("mostra token totali con separatori e costo totale a 4 decimali", () => {
     render(<UsagePanel usage={makeUsage()} />);
 
-    expect(screen.getByText("Consumi AI")).toBeInTheDocument();
+    expect(screen.getByText("AI usage")).toBeInTheDocument();
     // it-IT raggruppa le migliaia da 10.000 in su: 1665 resta "1665".
     expect(screen.getByText("1665")).toBeInTheDocument();
     expect(screen.getByText("$0.0515")).toBeInTheDocument();
@@ -79,6 +79,6 @@ describe("UsagePanel", () => {
   it("senza modelli non renderizza nulla (degrada a niente pannello)", () => {
     const { container } = render(<UsagePanel usage={makeUsage({ byModel: [] })} />);
     expect(container).toBeEmptyDOMElement();
-    expect(screen.queryByText("Consumi AI")).not.toBeInTheDocument();
+    expect(screen.queryByText("AI usage")).not.toBeInTheDocument();
   });
 });

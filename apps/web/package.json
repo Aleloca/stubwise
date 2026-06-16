@@ -19,9 +19,11 @@
     "@stubwise/shared": "workspace:*",
     "@tanstack/react-query": "^5.80.0",
     "@tanstack/react-router": "^1.121.0",
+    "i18next": "^26.3.1",
     "marked": "^18.0.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-i18next": "^17.0.8",
     "sanitize-html": "^2.17.5",
     "zod": "^4.4.3"
   },

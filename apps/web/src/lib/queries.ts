@@ -4,6 +4,7 @@ import {
   getComments,
   getGitAccount,
   getGitAccounts,
+  getInstanceSettings,
   getInvites,
   getNotificationSettings,
   getProject,
@@ -148,6 +149,17 @@ export const automationSettingsQueryOptions = queryOptions({
 export const notificationSettingsQueryOptions = queryOptions({
   queryKey: ["settings", "notifications"],
   queryFn: getNotificationSettings,
+  staleTime: 30_000,
+});
+
+/**
+ * Impostazioni d'istanza (solo admin): la lingua dei contenuti generati
+ * (commenti AI, report PR, notifiche). Chiave gemella delle altre sotto il
+ * prefisso "settings".
+ */
+export const instanceSettingsQueryOptions = queryOptions({
+  queryKey: ["settings", "instance"],
+  queryFn: getInstanceSettings,
   staleTime: 30_000,
 });
 

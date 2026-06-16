@@ -1,5 +1,6 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 import { ProviderBadge } from "../../components/badges";
 import { meQueryOptions } from "../../lib/auth";
 import { formatRelativeTime } from "../../lib/format";
@@ -11,6 +12,7 @@ import { projectsQueryOptions } from "../../lib/queries";
  * qui si nasconde il bottone per non offrire un vicolo cieco).
  */
 export function ProjectsPage() {
+  const { t } = useTranslation();
   const { data: projects } = useSuspenseQuery(projectsQueryOptions);
   const { data: me } = useSuspenseQuery(meQueryOptions);
   const isAdmin = me.user.role === "admin";
@@ -19,17 +21,15 @@ export function ProjectsPage() {
     <div className="p-8">
       <header className="flex flex-wrap items-end justify-between gap-4 border-b border-line pb-4">
         <div>
-          <h1 className="text-xl font-semibold">Projects</h1>
-          <p className="mt-1 text-sm text-fg-muted">
-            Repository collegati, chiavi di ingestion e credenziali della pipeline.
-          </p>
+          <h1 className="text-xl font-semibold">{t("projects:list.title")}</h1>
+          <p className="mt-1 text-sm text-fg-muted">{t("projects:list.subtitle")}</p>
         </div>
         {isAdmin && (
           <Link
             to="/projects/new"
             className="rounded-sm bg-signal px-4 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright active:bg-signal-dim"
           >
-            Nuovo progetto
+            {t("projects:list.newProject")}
           </Link>
         )}
       </header>
@@ -37,12 +37,10 @@ export function ProjectsPage() {
       {projects.length === 0 ? (
         <div className="mt-6 grid place-items-center rounded-sm border border-dashed border-line-strong py-24">
           <p className="font-mono text-[12px] tracking-[0.18em] text-fg-faint uppercase">
-            // nessun progetto collegato
+            {t("projects:list.empty")}
           </p>
           <p className="mt-2 text-sm text-fg-muted">
-            {isAdmin
-              ? "Crea il primo progetto per ottenere una chiave di ingestion."
-              : "Chiedi a un amministratore di collegare il primo repository."}
+            {isAdmin ? t("projects:list.emptyHintAdmin") : t("projects:list.emptyHintMember")}
           </p>
         </div>
       ) : (
@@ -64,7 +62,7 @@ export function ProjectsPage() {
                   className="font-mono text-[11px] whitespace-nowrap text-fg-faint"
                   title={project.createdAt}
                 >
-                  creato {formatRelativeTime(project.createdAt)}
+                  {t("projects:list.createdAt", { date: formatRelativeTime(project.createdAt) })}
                 </span>
               </Link>
             </li>

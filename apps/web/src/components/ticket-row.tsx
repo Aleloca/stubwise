@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 import type { Ticket } from "../lib/api";
 import { formatRelativeTime } from "../lib/format";
 import { PriorityBadge, SourceBadge, StatusBadge, TypeBadge } from "./badges";
@@ -15,6 +16,8 @@ interface TicketRowProps {
  * a colpo d'occhio.
  */
 export function TicketRow({ ticket, projectName }: TicketRowProps) {
+  const { t } = useTranslation();
+
   return (
     <Link
       to="/tickets/$id"
@@ -31,7 +34,7 @@ export function TicketRow({ ticket, projectName }: TicketRowProps) {
           <span className="text-fg-muted">{projectName}</span>
           <SourceBadge source={ticket.source} />
           {ticket.occurrences > 1 && (
-            <span className="text-signal" title="Occorrenze deduplicate">
+            <span className="text-signal" title={t("tickets:row.occurrences")}>
               ×{ticket.occurrences}
             </span>
           )}

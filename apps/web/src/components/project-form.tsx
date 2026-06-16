@@ -1,5 +1,6 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import type { ProjectPatch } from "../lib/api";
 import { deriveFullName } from "../lib/format";
 import { gitAccountsQueryOptions } from "../lib/queries";
@@ -30,6 +31,7 @@ interface ProjectFormProps {
  * (account → repository → branch), vedi {@link ProjectWizard}.
  */
 export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
+  const { t } = useTranslation();
   const { data: accounts } = useSuspenseQuery(gitAccountsQueryOptions);
 
   const [name, setName] = useState(initial.name);
@@ -53,7 +55,7 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
         ...(gitAccountId !== initial.gitAccountId && { gitAccountId }),
       });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Errore imprevisto");
+      setError(cause instanceof Error ? cause.message : t("common:unexpectedError"));
     } finally {
       setPending(false);
     }
@@ -63,16 +65,16 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
     <form onSubmit={(event) => void handleSubmit(event)} className="flex flex-col gap-4" noValidate>
       <TextField
         id="project-name"
-        label="Nome"
+        label={t("projects:form.name")}
         required
-        placeholder="Es. Demo Shop"
+        placeholder={t("projects:form.namePlaceholder")}
         value={name}
         onChange={(event) => setName(event.target.value)}
       />
 
       <TextField
         id="project-repo-url"
-        label="URL repository"
+        label={t("projects:form.repoUrl")}
         type="url"
         required
         placeholder="https://github.com/acme/demo"
@@ -95,7 +97,7 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
 
       <SelectField
         id="project-git-account"
-        label="Account git"
+        label={t("projects:form.gitAccount")}
         value={gitAccountId}
         onChange={(event) => setGitAccountId(event.target.value)}
         options={accounts.map((account) => ({
@@ -104,12 +106,12 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
         }))}
       />
       <p className="-mt-1 font-mono text-[11px] text-fg-faint">
-        // le credenziali vivono sull&apos;account: gestiscile in Settings → Account Git.
+        {t("projects:form.credentialsHint")}
       </p>
 
       <FormError message={error} />
       <SubmitButton pending={pending}>
-        {pending ? "Salvataggio…" : "Salva modifiche"}
+        {pending ? t("projects:form.saving") : t("projects:form.save")}
       </SubmitButton>
     </form>
   );

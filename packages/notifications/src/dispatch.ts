@@ -1,4 +1,5 @@
-import { notificationSettings, type Db } from "@stubwise/db";
+import { instanceSettings, notificationSettings, type Db } from "@stubwise/db";
+import type { Language } from "@stubwise/i18n";
 import {
   formatNotification,
   type NotificationEvent,
@@ -43,6 +44,13 @@ export interface NotificationSettingsRow {
   notifyPrClosed: boolean;
 }
 
+/**
+ * Lingua dei contenuti dell'istanza (`instance_settings.content_language`),
+ * usata per localizzare i messaggi di notifica. Letta separatamente dalla config
+ * del webhook perché vive in un'altra tabella singleton.
+ */
+export type ContentLanguage = Language;
+
 export interface DispatchOptions {
   /** fetch iniettabile nei test. Default: il fetch globale. */
   fetchImpl?: typeof fetch;
@@ -86,18 +94,33 @@ async function loadSettings(db: Db): Promise<NotificationSettingsRow | null> {
   return rows[0] ?? null;
 }
 
+/**
+ * Legge la lingua dei contenuti dell'istanza (`instance_settings`, id=1 seedata
+ * con `'en'`). Default `"en"` se la riga manca (DB non ancora migrato) o in caso
+ * di lettura vuota: una notifica non deve mai dipendere da questa lettura.
+ */
+async function loadContentLanguage(db: Db): Promise<ContentLanguage> {
+  const rows = await db
+    .select({ contentLanguage: instanceSettings.contentLanguage })
+    .from(instanceSettings)
+    .limit(1);
+  return rows[0]?.contentLanguage ?? "en";
+}
+
 // --- Formattazione ---
 
 /**
- * Compone il body JSON per il formato configurato. Adattatore sottile attorno
- * a {@link formatNotification} (unica fonte di verità in `./format.ts`):
- * restituisce solo il `body`, quel che effettivamente si serializza nel POST.
+ * Compone il body JSON per il formato configurato, nella lingua `lang` (default
+ * `"en"`). Adattatore sottile attorno a {@link formatNotification} (unica fonte
+ * di verità in `./format.ts`): restituisce solo il `body`, quel che
+ * effettivamente si serializza nel POST.
  */
 export function formatEvent(
   format: NotificationFormat,
   event: NotificationEvent,
+  lang: ContentLanguage = "en",
 ): Record<string, unknown> {
-  return formatNotification(event, format).body as Record<string, unknown>;
+  return formatNotification(event, format, lang).body as Record<string, unknown>;
 }
 
 /**
@@ -146,7 +169,8 @@ export async function dispatchNotification(
     if (!settings || !settings.enabled || !settings.webhookUrl) return;
     if (!settings[TOGGLE_FOR_KIND[event.kind]]) return;
 
-    const payload = formatEvent(settings.format, event);
+    const lang = await loadContentLanguage(db);
+    const payload = formatEvent(settings.format, event, lang);
     const response = await postWebhook(settings.webhookUrl, payload, opts);
     // Una risposta non-2xx è un fallimento del webhook ma comunque best-effort:
     // non si propaga, al massimo si potrebbe loggare (qui niente logger).
@@ -204,7 +228,8 @@ export async function sendTest(
     return { ok: false, detail: "Nessun webhook configurato." };
   }
 
-  const payload = formatEvent(settings.format, buildTestEvent(baseUrl));
+  const lang = await loadContentLanguage(db);
+  const payload = formatEvent(settings.format, buildTestEvent(baseUrl), lang);
   try {
     const response = await postWebhook(settings.webhookUrl, payload, opts);
     if (!response.ok) {

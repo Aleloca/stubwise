@@ -6,6 +6,7 @@ import { requireAuth } from "../auth/session.js";
 import type { Db } from "@stubwise/db";
 import { comments, tickets } from "@stubwise/db";
 import { authErrorResponses, errorSchema } from "./shared.js";
+import { apiError } from "../errors.js";
 
 /**
  * Forma pubblica di un commento. `authorId` è nullo per i commenti dell'AI
@@ -67,7 +68,7 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { ticketId } = request.params;
       if (!(await ticketExists(app.db, ticketId))) {
-        return reply.code(404).send({ message: "Ticket non trovato" });
+        return apiError(reply, 404, "ticket_not_found", "Ticket not found");
       }
       const [created] = await app.db
         .insert(comments)
@@ -96,7 +97,7 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const { ticketId } = request.params;
       if (!(await ticketExists(app.db, ticketId))) {
-        return reply.code(404).send({ message: "Ticket non trovato" });
+        return apiError(reply, 404, "ticket_not_found", "Ticket not found");
       }
       const rows = await app.db
         .select()

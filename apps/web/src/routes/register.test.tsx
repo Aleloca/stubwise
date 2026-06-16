@@ -75,13 +75,13 @@ describe("registrazione su invito", () => {
     const router = renderApp("/register?token=tok-segreto-123");
 
     expect(
-      await screen.findByRole("heading", { name: "Crea il tuo account" }),
+      await screen.findByRole("heading", { name: "Create your account" }),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("Token di invito")).toHaveValue("tok-segreto-123");
+    expect(screen.getByLabelText("Invite token")).toHaveValue("tok-segreto-123");
 
     await user.type(screen.getByLabelText("Email"), "bea@example.com");
     await user.type(screen.getByLabelText("Password"), "password-sicura");
-    await user.click(screen.getByRole("button", { name: "Registrati" }));
+    await user.click(screen.getByRole("button", { name: "Sign up" }));
 
     await waitFor(() => expect(router.state.location.pathname).toBe("/tickets"));
     expect(registerBody).toEqual({
@@ -102,10 +102,10 @@ describe("registrazione su invito", () => {
 
     const router = renderApp("/register?token=tok-segreto-123");
 
-    await screen.findByRole("heading", { name: "Crea il tuo account" });
+    await screen.findByRole("heading", { name: "Create your account" });
     await user.type(screen.getByLabelText("Email"), "bea@example.com");
     await user.type(screen.getByLabelText("Password"), "password-sicura");
-    await user.click(screen.getByRole("button", { name: "Registrati" }));
+    await user.click(screen.getByRole("button", { name: "Sign up" }));
 
     await waitFor(() => expect(router.state.location.pathname).toBe("/login"));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
@@ -119,10 +119,10 @@ describe("registrazione su invito", () => {
 
     renderApp("/register?token=tok-vecchio");
 
-    await screen.findByRole("heading", { name: "Crea il tuo account" });
+    await screen.findByRole("heading", { name: "Create your account" });
     await user.type(screen.getByLabelText("Email"), "bea@example.com");
     await user.type(screen.getByLabelText("Password"), "password-sicura");
-    await user.click(screen.getByRole("button", { name: "Registrati" }));
+    await user.click(screen.getByRole("button", { name: "Sign up" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Invito scaduto");
   });

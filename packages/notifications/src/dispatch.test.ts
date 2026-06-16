@@ -29,14 +29,25 @@ const BASE_ROW: NotificationSettingsRow = {
   notifyPrClosed: true,
 };
 
-/** Db fittizio: serve solo `select().from(notificationSettings).limit(1)`. */
-function fakeDb(row: NotificationSettingsRow | null): Db {
+/**
+ * Db fittizio. Il dispatch fa due letture: la config webhook
+ * (`select().from(notificationSettings).limit(1)`) e la lingua d'istanza
+ * (`select({contentLanguage}).from(instanceSettings).limit(1)`). Il fake decide
+ * la riga da restituire in base alle COLONNE selezionate: se la projection ha
+ * `contentLanguage` è la lettura della lingua, altrimenti è la config.
+ */
+function fakeDb(
+  row: NotificationSettingsRow | null,
+  contentLanguage: "en" | "it" = "en",
+): Db {
   return {
-    select() {
+    select(cols?: Record<string, unknown>) {
+      const isLangRead = !!cols && "contentLanguage" in cols;
       return {
         from() {
           return {
             limit() {
+              if (isLangRead) return Promise.resolve([{ contentLanguage }]);
               return Promise.resolve(row ? [row] : []);
             },
           };
@@ -217,7 +228,7 @@ describe("dispatchNotification — gating", () => {
   });
 });
 
-describe("formato Slack", () => {
+describe("formato Slack (lingua d'istanza default en)", () => {
   it("ticket.created → text mrkdwn con numero, titolo, progetto, source e link", async () => {
     const fetchImpl = okFetch();
     await dispatchNotification(fakeDb({ ...BASE_ROW, format: "slack" }), TICKET_CREATED, {
@@ -225,10 +236,11 @@ describe("formato Slack", () => {
     });
     const body = (await bodyOf(fetchImpl)) as { text: string };
     expect(body.text).toContain("*#42*");
+    expect(body.text).toContain("New ticket");
     expect(body.text).toContain("Crash al login");
     expect(body.text).toContain("webapp");
     expect(body.text).toContain("sdk_error");
-    expect(body.text).toContain("<https://app.example.com/tickets/t1|Apri>");
+    expect(body.text).toContain("<https://app.example.com/tickets/t1|Open>");
   });
 
   it("pr_opened → link PR e ticket, con il costo se presente", async () => {
@@ -236,9 +248,9 @@ describe("formato Slack", () => {
     await dispatchNotification(fakeDb({ ...BASE_ROW, format: "slack" }), PR_OPENED, { fetchImpl });
     const body = (await bodyOf(fetchImpl)) as { text: string };
     expect(body.text).toContain("*#42*");
-    expect(body.text).toContain("<https://github.com/o/r/pull/7|Vedi PR>");
+    expect(body.text).toContain("<https://github.com/o/r/pull/7|View PR>");
     expect(body.text).toContain("<https://app.example.com/tickets/t1|Ticket>");
-    expect(body.text).toContain("0.42");
+    expect(body.text).toContain("cost $0.42");
   });
 
   it("pr_opened senza costo → nessun riferimento al costo", async () => {
@@ -248,7 +260,7 @@ describe("formato Slack", () => {
       costUsd: null,
     }, { fetchImpl });
     const body = (await bodyOf(fetchImpl)) as { text: string };
-    expect(body.text.toLowerCase()).not.toContain("costo");
+    expect(body.text.toLowerCase()).not.toContain("cost");
   });
 
   it("job.held → tipo, effort N/5 e link", async () => {
@@ -258,7 +270,7 @@ describe("formato Slack", () => {
     expect(body.text).toContain("*#42*");
     expect(body.text).toContain("bug");
     expect(body.text).toContain("4/5");
-    expect(body.text).toContain("<https://app.example.com/tickets/t1|Apri>");
+    expect(body.text).toContain("<https://app.example.com/tickets/t1|Open>");
   });
 
   it("job.failed → messaggio d'errore e link", async () => {
@@ -267,29 +279,68 @@ describe("formato Slack", () => {
     const body = (await bodyOf(fetchImpl)) as { text: string };
     expect(body.text).toContain("*#42*");
     expect(body.text).toContain("timeout del fix");
+    expect(body.text).toContain("<https://app.example.com/tickets/t1|Open>");
+  });
+});
+
+describe("lingua d'istanza", () => {
+  it("istanza in italiano → messaggio Slack in italiano", async () => {
+    const fetchImpl = okFetch();
+    await dispatchNotification(
+      fakeDb({ ...BASE_ROW, format: "slack" }, "it"),
+      TICKET_CREATED,
+      { fetchImpl },
+    );
+    const body = (await bodyOf(fetchImpl)) as { text: string };
+    expect(body.text).toContain("🐛 Nuovo ticket *#42*");
     expect(body.text).toContain("<https://app.example.com/tickets/t1|Apri>");
+  });
+
+  it("istanza in inglese (default) → messaggio Slack in inglese", async () => {
+    const fetchImpl = okFetch();
+    await dispatchNotification(
+      fakeDb({ ...BASE_ROW, format: "slack" }, "en"),
+      TICKET_CREATED,
+      { fetchImpl },
+    );
+    const body = (await bodyOf(fetchImpl)) as { text: string };
+    expect(body.text).toContain("New ticket *#42*");
+    expect(body.text).toContain("<https://app.example.com/tickets/t1|Open>");
+  });
+
+  it("istanza in italiano → payload generic con message in italiano", async () => {
+    const fetchImpl = okFetch();
+    await dispatchNotification(
+      fakeDb({ ...BASE_ROW, format: "generic" }, "it"),
+      PR_OPENED,
+      { fetchImpl },
+    );
+    const body = (await bodyOf(fetchImpl)) as Record<string, unknown>;
+    expect(body.message as string).toBe(
+      "PR aperta per #42 — Crash al login (costo $0.42).",
+    );
   });
 });
 
 describe("formato Discord", () => {
-  it("usa il campo content con link in stile markdown [label](url)", async () => {
+  it("usa il campo content con link in stile markdown [label](url) (en)", async () => {
     const fetchImpl = okFetch();
     await dispatchNotification(fakeDb({ ...BASE_ROW, format: "discord" }), TICKET_CREATED, {
       fetchImpl,
     });
     const body = (await bodyOf(fetchImpl)) as { content: string };
-    expect(body.content).toContain("#42");
+    expect(body.content).toContain("**#42**");
     expect(body.content).toContain("Crash al login");
-    expect(body.content).toContain("[Apri](https://app.example.com/tickets/t1)");
+    expect(body.content).toContain("[Open](https://app.example.com/tickets/t1)");
   });
 
-  it("pr_opened: link PR e ticket in stile markdown", async () => {
+  it("pr_opened: link PR e ticket in stile markdown (en)", async () => {
     const fetchImpl = okFetch();
     await dispatchNotification(fakeDb({ ...BASE_ROW, format: "discord" }), PR_OPENED, {
       fetchImpl,
     });
     const body = (await bodyOf(fetchImpl)) as { content: string };
-    expect(body.content).toContain("[Vedi PR](https://github.com/o/r/pull/7)");
+    expect(body.content).toContain("[View PR](https://github.com/o/r/pull/7)");
     expect(body.content).toContain("[Ticket](https://app.example.com/tickets/t1)");
   });
 });

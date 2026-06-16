@@ -5,6 +5,7 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import { CopyButton } from "../components/copy-button";
 import { FormError, TextField } from "../components/field";
 import { deleteInvite, postInvite, type Invite, type PendingInvite } from "../lib/api";
@@ -19,14 +20,15 @@ import { invitesQueryOptions, usersQueryOptions } from "../lib/queries";
  * comunque protetti lato server).
  */
 export function TeamPage() {
+  const { t } = useTranslation();
   const { data: me } = useSuspenseQuery(meQueryOptions);
   const isAdmin = me.user.role === "admin";
 
   return (
     <div className="p-8">
       <header className="border-b border-line pb-4">
-        <h1 className="text-xl font-semibold">Team</h1>
-        <p className="mt-1 text-sm text-fg-muted">Chi ha accesso alla piattaforma.</p>
+        <h1 className="text-xl font-semibold">{t("settings:team.title")}</h1>
+        <p className="mt-1 text-sm text-fg-muted">{t("settings:team.subtitle")}</p>
       </header>
 
       <div className="mt-6 flex flex-col gap-8">
@@ -39,6 +41,7 @@ export function TeamPage() {
 
 /** Etichetta di ruolo coerente col badge della pagina impostazioni. */
 function RoleBadge({ role }: { role: "admin" | "member" }) {
+  const { t } = useTranslation();
   const isAdmin = role === "admin";
   return (
     <span
@@ -46,23 +49,24 @@ function RoleBadge({ role }: { role: "admin" | "member" }) {
         isAdmin ? "border-signal-dim/40 text-signal" : "border-line-strong text-fg-muted"
       }`}
     >
-      {isAdmin ? "Admin" : "Membro"}
+      {isAdmin ? t("settings:team.admin") : t("settings:team.member")}
     </span>
   );
 }
 
 /** Tabella dei membri registrati: email, ruolo, "membro dal". Sola lettura. */
 function MembersSection({ currentUserId }: { currentUserId: string }) {
+  const { t } = useTranslation();
   const { data: users } = useSuspenseQuery(usersQueryOptions);
 
   return (
     <section className="rounded-sm border border-line bg-ink-900">
       <header className="flex items-baseline justify-between border-b border-line px-4 py-3">
         <h2 className="font-mono text-[11px] font-medium tracking-[0.16em] text-fg-muted uppercase">
-          Membri
+          {t("settings:team.members")}
         </h2>
         <span className="font-mono text-[10px] tracking-[0.14em] text-fg-faint uppercase">
-          {users.length} {users.length === 1 ? "membro" : "membri"}
+          {t("settings:team.memberCount", { count: users.length })}
         </span>
       </header>
 
@@ -76,13 +80,13 @@ function MembersSection({ currentUserId }: { currentUserId: string }) {
               <span className="truncate font-mono text-[13px] text-fg">{user.email}</span>
               {user.id === currentUserId && (
                 <span className="shrink-0 rounded-sm border border-line-strong px-1.5 py-0.5 font-mono text-[10px] tracking-[0.14em] text-fg-faint uppercase">
-                  tu
+                  {t("settings:team.you")}
                 </span>
               )}
             </div>
             <div className="flex shrink-0 items-center gap-4">
               <span className="hidden font-mono text-[11px] text-fg-faint sm:inline">
-                membro dal {formatDate(user.createdAt)}
+                {t("settings:team.memberSince", { date: formatDate(user.createdAt) })}
               </span>
               <RoleBadge role={user.role} />
             </div>
@@ -99,6 +103,7 @@ function MembersSection({ currentUserId }: { currentUserId: string }) {
  * 403 dei member, anche se la sezione è già montata solo per gli admin.
  */
 function InvitesSection() {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { data: invites } = useQuery(invitesQueryOptions);
   const [email, setEmail] = useState("");
@@ -113,7 +118,7 @@ function InvitesSection() {
       void queryClient.invalidateQueries({ queryKey: invitesQueryOptions.queryKey });
     },
     onError: (cause) => {
-      setError(cause instanceof Error ? cause.message : "Errore imprevisto");
+      setError(cause instanceof Error ? cause.message : t("common:unexpectedError"));
     },
   });
 
@@ -131,10 +136,10 @@ function InvitesSection() {
     <section className="rounded-sm border border-line bg-ink-900">
       <header className="flex items-baseline justify-between border-b border-line px-4 py-3">
         <h2 className="font-mono text-[11px] font-medium tracking-[0.16em] text-fg-muted uppercase">
-          Inviti in sospeso
+          {t("settings:team.invitesTitle")}
         </h2>
         <span className="font-mono text-[10px] tracking-[0.14em] text-fg-faint uppercase">
-          solo admin
+          {t("settings:team.adminOnly")}
         </span>
       </header>
 
@@ -147,10 +152,10 @@ function InvitesSection() {
           <div className="min-w-0 flex-1">
             <TextField
               id="invite-email"
-              label="Invita un utente"
+              label={t("settings:team.inviteUser")}
               type="email"
               required
-              placeholder="collega@example.com"
+              placeholder={t("settings:team.invitePlaceholder")}
               value={email}
               onChange={(event) => setEmail(event.target.value)}
             />
@@ -160,7 +165,7 @@ function InvitesSection() {
             disabled={createMutation.isPending || email.trim() === ""}
             className="shrink-0 rounded-sm bg-signal px-4 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright active:bg-signal-dim disabled:cursor-not-allowed disabled:bg-signal-dim disabled:opacity-60"
           >
-            {createMutation.isPending ? "Creazione…" : "Crea invito"}
+            {createMutation.isPending ? t("settings:team.creatingInvite") : t("settings:team.createInvite")}
           </button>
         </form>
 
@@ -169,7 +174,11 @@ function InvitesSection() {
         {created && createdUrl && (
           <div className="mt-4 rounded-sm border border-signal-dim/40 bg-ink-950/60 p-3">
             <p className="font-mono text-[11px] text-fg-muted">
-              Invito per <span className="text-fg">{created.email}</span> creato.
+              <Trans
+                i18nKey="settings:team.inviteCreated"
+                values={{ email: created.email }}
+                components={{ strong: <span className="text-fg" /> }}
+              />
             </p>
             <div className="mt-2 flex items-center gap-2">
               <code
@@ -178,10 +187,10 @@ function InvitesSection() {
               >
                 {createdUrl}
               </code>
-              <CopyButton text={createdUrl} label="Copia link di invito" />
+              <CopyButton text={createdUrl} label={t("settings:team.copyInviteLink")} />
             </div>
             <p className="mt-2 font-mono text-[11px] text-fg-faint">
-              // consegnalo tu: il server non spedisce nulla
+              {t("settings:team.deliverYourself")}
             </p>
           </div>
         )}
@@ -196,9 +205,10 @@ function InvitesSection() {
 
 /** Lista degli inviti in sospeso con link, copia e revoca. */
 function InvitesList({ invites }: { invites: PendingInvite[] }) {
+  const { t } = useTranslation();
   if (invites.length === 0) {
     return (
-      <p className="font-mono text-[11px] text-fg-faint">// nessun invito in sospeso</p>
+      <p className="font-mono text-[11px] text-fg-faint">{t("settings:team.noPendingInvites")}</p>
     );
   }
 
@@ -212,6 +222,7 @@ function InvitesList({ invites }: { invites: PendingInvite[] }) {
 }
 
 function InviteRow({ invite }: { invite: PendingInvite }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const expired = new Date(invite.expiresAt).getTime() <= Date.now();
   const inviteUrl = `${window.location.origin}/register?token=${encodeURIComponent(invite.token)}`;
@@ -223,7 +234,7 @@ function InviteRow({ invite }: { invite: PendingInvite }) {
   });
 
   function handleRevoke() {
-    if (!window.confirm(`Revocare l'invito per ${invite.email}?`)) return;
+    if (!window.confirm(t("settings:team.confirmRevoke", { email: invite.email }))) return;
     revokeMutation.mutate();
   }
 
@@ -233,11 +244,13 @@ function InviteRow({ invite }: { invite: PendingInvite }) {
         <div className="min-w-0">
           <p className="truncate font-mono text-[13px] text-fg">{invite.email}</p>
           <p className="mt-1 font-mono text-[11px] text-fg-faint">
-            inviato il {formatDate(invite.createdAt)} ·{" "}
+            {t("settings:team.sentOn", { date: formatDate(invite.createdAt) })} ·{" "}
             {expired ? (
-              <span className="text-danger">scaduto il {formatDate(invite.expiresAt)}</span>
+              <span className="text-danger">
+                {t("settings:team.expiredOn", { date: formatDate(invite.expiresAt) })}
+              </span>
             ) : (
-              <span>scade il {formatDate(invite.expiresAt)}</span>
+              <span>{t("settings:team.expiresOn", { date: formatDate(invite.expiresAt) })}</span>
             )}
           </p>
         </div>
@@ -247,14 +260,14 @@ function InviteRow({ invite }: { invite: PendingInvite }) {
           disabled={revokeMutation.isPending}
           className="shrink-0 rounded-sm border border-line-strong px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase transition-colors hover:border-danger/40 hover:text-danger disabled:opacity-50"
         >
-          {revokeMutation.isPending ? "Revoca…" : "Revoca"}
+          {revokeMutation.isPending ? t("settings:team.revoking") : t("settings:team.revoke")}
         </button>
       </div>
       <div className="mt-2 flex items-center gap-2">
         <code className="min-w-0 flex-1 truncate rounded-sm border border-line bg-ink-950/70 px-3 py-1.5 font-mono text-[12px] text-signal">
           {inviteUrl}
         </code>
-        <CopyButton text={inviteUrl} label={`Copia link di invito per ${invite.email}`} />
+        <CopyButton text={inviteUrl} label={t("settings:team.copyInviteLinkFor", { email: invite.email })} />
       </div>
     </li>
   );

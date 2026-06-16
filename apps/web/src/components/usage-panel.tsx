@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { TicketUsage } from "../lib/api";
 import { formatCostUsd, formatTokens } from "../lib/format";
 
@@ -10,16 +11,17 @@ import { formatCostUsd, formatTokens } from "../lib/format";
  * deve degradare a "niente pannello", mai a un riquadro vuoto.
  */
 export function UsagePanel({ usage }: { usage: TicketUsage }) {
+  const { t } = useTranslation();
   if (usage.byModel.length === 0) return null;
 
   return (
     <section>
-      <h2 className={sectionTitleClass}>Consumi AI</h2>
+      <h2 className={sectionTitleClass}>{t("tickets:usage.title")}</h2>
 
       <dl className="mb-4 flex flex-wrap gap-x-8 gap-y-2">
-        <Total label="Token totali" value={formatTokens(usage.totalTokens)} />
+        <Total label={t("tickets:usage.totalTokens")} value={formatTokens(usage.totalTokens)} />
         <Total
-          label="Costo totale"
+          label={t("tickets:usage.totalCost")}
           value={usage.totalCostUsd !== null ? formatCostUsd(usage.totalCostUsd) : "—"}
         />
       </dl>
@@ -28,11 +30,11 @@ export function UsagePanel({ usage }: { usage: TicketUsage }) {
         <table className="w-full border-collapse font-mono text-[12px]">
           <thead>
             <tr className="border-b border-line text-fg-faint">
-              <Th className="text-left">Modello</Th>
-              <Th className="text-right">Token in</Th>
-              <Th className="text-right">Token out</Th>
-              <Th className="text-right">Cache</Th>
-              <Th className="text-right">Costo</Th>
+              <Th className="text-left">{t("tickets:usage.model")}</Th>
+              <Th className="text-right">{t("tickets:usage.tokensIn")}</Th>
+              <Th className="text-right">{t("tickets:usage.tokensOut")}</Th>
+              <Th className="text-right">{t("tickets:usage.cache")}</Th>
+              <Th className="text-right">{t("tickets:usage.cost")}</Th>
             </tr>
           </thead>
           <tbody>

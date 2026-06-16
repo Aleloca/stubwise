@@ -31,7 +31,7 @@ function renderWithClient(ui: ReactElement) {
 async function fillAndSubmit(email: string, password: string) {
   await userEvent.type(screen.getByLabelText(/email/i), email);
   await userEvent.type(screen.getByLabelText(/password/i), password);
-  await userEvent.click(screen.getByRole("button", { name: /accedi/i }));
+  await userEvent.click(screen.getByRole("button", { name: /sign in/i }));
 }
 
 describe("LoginPage", () => {

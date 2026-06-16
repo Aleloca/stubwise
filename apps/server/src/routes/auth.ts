@@ -14,8 +14,10 @@ import {
   sessionIdFromRequest,
 } from "../auth/session.js";
 import { invites, sessions, users } from "@stubwise/db";
+import { languageSchema } from "@stubwise/shared";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
+import { apiError } from "../errors.js";
 
 export interface AuthRoutesOptions {
   /**
@@ -57,6 +59,15 @@ const publicUserSchema = z.object({
   id: z.uuid(),
   email: z.email(),
   role: z.enum(["admin", "member"]),
+});
+
+/**
+ * L'utente di sessione esposto da /me: come publicUserSchema ma con la
+ * preferenza di lingua, che le altre route (setup/login/register) non
+ * restituiscono perché creano l'utente prima di conoscerne la sessione.
+ */
+const sessionUserSchema = publicUserSchema.extend({
+  language: languageSchema,
 });
 
 const credentialsSchema = z.object({
@@ -105,7 +116,7 @@ export async function authRoutes(
       // Fast path: se un utente esiste già si rifiuta senza pagare l'hash.
       const [row] = await app.db.select({ value: count() }).from(users);
       if ((row?.value ?? 0) > 0) {
-        return reply.code(403).send({ message: "Setup già completato" });
+        return apiError(reply, 403, "setup_already_completed", "Setup already completed");
       }
       // Hash prima della transazione: il lock non va tenuto per la durata
       // (deliberatamente alta) di argon2.
@@ -124,7 +135,7 @@ export async function authRoutes(
         return created;
       });
       if (!user) {
-        return reply.code(403).send({ message: "Setup già completato" });
+        return apiError(reply, 403, "setup_already_completed", "Setup already completed");
       }
       return reply
         .code(201)
@@ -152,10 +163,10 @@ export async function authRoutes(
       // degli account né dal messaggio né dal tempo di risposta.
       if (!user) {
         await verifyPassword(await getDummyHash(), request.body.password);
-        return reply.code(401).send({ message: "Credenziali non valide" });
+        return apiError(reply, 401, "invalid_credentials", "Invalid credentials");
       }
       if (!(await verifyPassword(user.passwordHash, request.body.password))) {
-        return reply.code(401).send({ message: "Credenziali non valide" });
+        return apiError(reply, 401, "invalid_credentials", "Invalid credentials");
       }
       // Igiene opportunistica: le sessioni scadute dell'utente vengono
       // eliminate qui, così la tabella non accumula righe morte di chi
@@ -190,10 +201,28 @@ export async function authRoutes(
     {
       preHandler: requireAuth,
       schema: {
-        response: { 200: z.object({ user: publicUserSchema }), ...authErrorResponses },
+        response: { 200: z.object({ user: sessionUserSchema }), ...authErrorResponses },
       },
     },
     async (request) => ({ user: request.user! }),
+  );
+
+  // Ogni utente cambia solo la propria preferenza di lingua: l'id è quello
+  // della sessione, mai dal body, quindi non serve un controllo di ruolo.
+  app.patch(
+    "/me",
+    {
+      preHandler: requireAuth,
+      schema: {
+        body: z.object({ language: languageSchema }),
+        response: { 200: z.object({ language: languageSchema }), ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { language } = request.body;
+      await app.db.update(users).set({ language }).where(eq(users.id, request.user!.id));
+      return reply.code(200).send({ language });
+    },
   );
 
   app.post(
@@ -273,7 +302,7 @@ export async function authRoutes(
         .where(eq(invites.token, request.params.token))
         .returning({ token: invites.token });
       if (!deleted) {
-        return reply.code(404).send({ message: "Invito non trovato" });
+        return apiError(reply, 404, "invite_not_found", "Invite not found");
       }
       return reply.code(204).send(null);
     },
@@ -300,11 +329,11 @@ export async function authRoutes(
       // Token sconosciuto e token già consumato sono indistinguibili (la riga
       // non c'è più): stessa risposta 410.
       if (!invite) {
-        return reply.code(410).send({ message: "Invito non valido o già usato" });
+        return apiError(reply, 410, "invite_invalid", "Invite invalid or already used");
       }
       if (invite.expiresAt.getTime() <= Date.now()) {
         await app.db.delete(invites).where(eq(invites.token, invite.token));
-        return reply.code(410).send({ message: "Invito scaduto" });
+        return apiError(reply, 410, "invite_expired", "Invite expired");
       }
 
       const [existing] = await app.db
@@ -312,7 +341,7 @@ export async function authRoutes(
         .from(users)
         .where(eq(users.email, request.body.email));
       if (existing) {
-        return reply.code(409).send({ message: "Esiste già un utente con questa email" });
+        return apiError(reply, 409, "email_already_exists", "A user with this email already exists");
       }
 
       const passwordHash = await hashPassword(request.body.password);
@@ -340,12 +369,12 @@ export async function authRoutes(
         // perdente arriva al vincolo unique. La transazione fa rollback,
         // quindi il suo invito resta utilizzabile.
         if (isUniqueViolation(error)) {
-          return reply.code(409).send({ message: "Esiste già un utente con questa email" });
+          return apiError(reply, 409, "email_already_exists", "A user with this email already exists");
         }
         throw error;
       }
       if (!user) {
-        return reply.code(410).send({ message: "Invito non valido o già usato" });
+        return apiError(reply, 410, "invite_invalid", "Invite invalid or already used");
       }
       return reply
         .code(201)

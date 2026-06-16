@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { postConfigureWebhook } from "../lib/api";
 import { formatDateTime } from "../lib/format";
 import { CopyButton } from "./copy-button";
@@ -44,6 +45,7 @@ export function IntegrationPanel({
   webhookConfiguredAt,
   onWebhookConfigured,
 }: IntegrationPanelProps) {
+  const { t } = useTranslation();
   const [configure, setConfigure] = useState<ConfigureState>({ kind: "idle" });
   // Quando il webhook risulta già configurato l'azione parte collassata: il
   // bottone "Riconfigura" la riapre. Una (ri)configurazione riuscita la mostra
@@ -56,11 +58,13 @@ export function IntegrationPanel({
     setConfigure({ kind: "pending" });
     try {
       const result = await postConfigureWebhook(slug);
-      const verb = result.updated ? "Webhook aggiornato" : "Webhook configurato";
-      setConfigure({ kind: "ok", message: `${verb} su ${result.url}` });
+      const message = result.updated
+        ? t("integration:webhookUpdated", { url: result.url })
+        : t("integration:webhookConfigured", { url: result.url });
+      setConfigure({ kind: "ok", message });
       onWebhookConfigured?.();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Configurazione del webhook fallita";
+      const message = error instanceof Error ? error.message : t("integration:configureFailed");
       setConfigure({ kind: "error", message });
     }
   }
@@ -80,7 +84,7 @@ export function IntegrationPanel({
     <section className="rounded-sm border border-line bg-ink-900">
       <header className="flex items-baseline justify-between border-b border-line px-4 py-3">
         <h2 className="font-mono text-[11px] font-medium tracking-[0.16em] text-fg-muted uppercase">
-          Integrazione
+          {t("integration:title")}
         </h2>
         <span className="font-mono text-[10px] tracking-[0.14em] text-fg-faint uppercase">
           sdk · ingest
@@ -88,15 +92,19 @@ export function IntegrationPanel({
       </header>
 
       <div className="space-y-4 px-4 py-4">
-        <IntegrationRow label="Chiave di ingestion" copyLabel="Copia chiave di ingestion" text={ingestionKey} />
-        <IntegrationRow label="DSN" copyLabel="Copia DSN" text={dsn} />
+        <IntegrationRow
+          label={t("integration:ingestionKey")}
+          copyLabel={t("integration:copyIngestionKey")}
+          text={ingestionKey}
+        />
+        <IntegrationRow label={t("integration:dsn")} copyLabel={t("integration:copyDsn")} text={dsn} />
 
         <div>
           <div className="mb-1.5 flex items-center justify-between gap-3">
             <span className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
-              Snippet init()
+              {t("integration:snippet")}
             </span>
-            <CopyButton text={snippet} label="Copia snippet" />
+            <CopyButton text={snippet} label={t("integration:copySnippet")} />
           </div>
           <pre
             data-testid="init-snippet"
@@ -105,7 +113,7 @@ export function IntegrationPanel({
             <code>{snippet}</code>
           </pre>
           <p className="mt-2 font-mono text-[11px] text-fg-faint">
-            // variante browser — per Node: import da &quot;@stubwise/sdk/node&quot;
+            {t("integration:snippetHint")}
           </p>
         </div>
 
@@ -113,18 +121,21 @@ export function IntegrationPanel({
           <div className="space-y-4 border-t border-line pt-4" data-testid="webhook-config">
             <div className="flex items-baseline justify-between">
               <span className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
-                Webhook git · merge → done
+                {t("integration:webhookSection")}
               </span>
             </div>
-            <IntegrationRow label="Webhook URL" copyLabel="Copia URL webhook" text={webhookUrl} />
             <IntegrationRow
-              label="Webhook secret"
-              copyLabel="Copia secret webhook"
+              label={t("integration:webhookUrl")}
+              copyLabel={t("integration:copyWebhookUrl")}
+              text={webhookUrl}
+            />
+            <IntegrationRow
+              label={t("integration:webhookSecret")}
+              copyLabel={t("integration:copyWebhookSecret")}
               text={webhook.webhookSecret}
             />
             <p className="font-mono text-[11px] text-fg-faint">
-              // configura questo URL e secret HMAC nel provider git: alla merge
-              della PR il ticket passa a done
+              {t("integration:webhookHint")}
             </p>
             <div className="space-y-2">
               {webhookConfigured && !showConfigureAction && (
@@ -133,7 +144,9 @@ export function IntegrationPanel({
                   className="flex flex-wrap items-center justify-between gap-3 rounded-sm border border-ok/30 bg-ok/10 px-3 py-2.5"
                 >
                   <span className="font-mono text-[12px] tracking-[0.04em] text-ok">
-                    ✓ Webhook configurato il {formatDateTime(webhookConfiguredAt as string)}
+                    {t("integration:webhookConfiguredAt", {
+                      date: formatDateTime(webhookConfiguredAt as string),
+                    })}
                   </span>
                   <button
                     type="button"
@@ -141,7 +154,7 @@ export function IntegrationPanel({
                     data-testid="reconfigure-webhook-button"
                     className="rounded-sm border border-line-strong bg-ink-950/70 px-3 py-1.5 font-mono text-[11px] font-medium tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg"
                   >
-                    Riconfigura
+                    {t("integration:reconfigure")}
                   </button>
                 </div>
               )}
@@ -153,7 +166,9 @@ export function IntegrationPanel({
                 data-testid="configure-webhook-button"
                 className="rounded-sm border border-line bg-ink-950/70 px-3 py-1.5 font-mono text-[11px] tracking-[0.14em] text-fg uppercase transition-colors hover:border-signal hover:text-signal disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {configure.kind === "pending" ? "Configurazione…" : "Configura automaticamente"}
+                {configure.kind === "pending"
+                  ? t("integration:configuring")
+                  : t("integration:configureAuto")}
               </button>
               )}
               {configure.kind === "ok" && (

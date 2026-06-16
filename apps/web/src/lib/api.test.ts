@@ -72,16 +72,17 @@ describe("api", () => {
     const error = await api.get("/api/auth/me").catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ApiError);
     expect((error as ApiError).status).toBe(500);
-    expect((error as ApiError).message).toBe("Errore 500");
+    expect((error as ApiError).message).toBe("Error 500");
   });
 
-  it("errore di rete (TypeError): lancia ApiError con status 0 e messaggio dedicato", async () => {
+  it("errore di rete (TypeError): lancia ApiError con status 0, code e messaggio dedicato", async () => {
     fetchMock.mockRejectedValue(new TypeError("fetch failed"));
 
     const error = await api.get("/api/auth/me").catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ApiError);
     expect((error as ApiError).status).toBe(0);
-    expect((error as ApiError).message).toBe("Impossibile contattare il server");
+    expect((error as ApiError).code).toBe("network_error");
+    expect((error as ApiError).message).toBe("Unable to reach the server");
   });
 
   it("errore non di rete (es. abort): riemerge senza essere incapsulato", async () => {

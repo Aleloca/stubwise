@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { ProviderBadge } from "../../components/badges";
 import { IntegrationPanel } from "../../components/integration-panel";
 import { ProjectForm } from "../../components/project-form";
@@ -18,6 +19,7 @@ const route = getRouteApi("/authed/projects/$slug");
  * per gli admin. I member vedono i campi in sola lettura.
  */
 export function ProjectDetailPage() {
+  const { t } = useTranslation();
   const { slug } = route.useParams();
   const queryClient = useQueryClient();
 
@@ -61,7 +63,7 @@ export function ProjectDetailPage() {
         to="/projects"
         className="font-mono text-[11px] tracking-[0.14em] text-fg-faint uppercase transition-colors hover:text-fg-muted"
       >
-        ← Tutti i progetti
+        {t("projects:detail.back")}
       </Link>
 
       <header className="mt-3 border-b border-line pb-5">
@@ -71,8 +73,8 @@ export function ProjectDetailPage() {
           <ProviderBadge provider={project.provider} />
         </div>
         <p className="mt-2 font-mono text-[12px] text-fg-muted">
-          {project.repoUrl} · branch {project.defaultBranch} · creato{" "}
-          {formatDateTime(project.createdAt)}
+          {project.repoUrl} · {t("projects:detail.branch")} {project.defaultBranch} ·{" "}
+          {t("projects:detail.createdAt")} {formatDateTime(project.createdAt)}
         </p>
       </header>
 
@@ -82,13 +84,13 @@ export function ProjectDetailPage() {
           role="status"
           className="mt-6 rounded-sm border border-ok/30 bg-ok/10 px-4 py-2.5 font-mono text-[12px] tracking-[0.04em] text-ok"
         >
-          ✓ Progetto configurato correttamente
+          {t("projects:detail.configuredBanner")}
         </p>
       )}
 
       <div className="mt-6 grid items-start gap-8 lg:grid-cols-2">
         <div className="min-w-0">
-          <h2 className={sectionTitleClass}>Configurazione</h2>
+          <h2 className={sectionTitleClass}>{t("projects:detail.configuration")}</h2>
           {isAdmin ? (
             <>
               <ProjectForm
@@ -105,30 +107,32 @@ export function ProjectDetailPage() {
               />
               {saved && (
                 <p role="status" className="mt-3 font-mono text-[12px] text-ok">
-                  Modifiche salvate.
+                  {t("projects:detail.saved")}
                 </p>
               )}
             </>
           ) : (
             <dl className="space-y-3 rounded-sm border border-line bg-ink-900 px-4 py-4">
-              <ReadOnlyRow label="Nome" value={project.name} />
-              <ReadOnlyRow label="URL repository" value={project.repoUrl} />
-              <ReadOnlyRow label="Branch di default" value={project.defaultBranch} />
-              <ReadOnlyRow label="Account git" value={project.gitAccountName} />
+              <ReadOnlyRow label={t("projects:detail.name")} value={project.name} />
+              <ReadOnlyRow label={t("projects:detail.repoUrl")} value={project.repoUrl} />
+              <ReadOnlyRow label={t("projects:detail.defaultBranch")} value={project.defaultBranch} />
+              <ReadOnlyRow label={t("projects:detail.gitAccount")} value={project.gitAccountName} />
               <div className="flex flex-col gap-1">
                 <dt className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
-                  Stato
+                  {t("projects:detail.status")}
                 </dt>
                 <dd className="flex flex-col gap-1 font-mono text-[12px]">
                   <span className={project.webhookConfiguredAt ? "text-ok" : "text-fg-faint"}>
                     {project.webhookConfiguredAt
-                      ? `✓ Webhook configurato il ${formatDateTime(project.webhookConfiguredAt)}`
-                      : "— Webhook non configurato"}
+                      ? t("projects:detail.webhookConfiguredAt", {
+                          date: formatDateTime(project.webhookConfiguredAt),
+                        })
+                      : t("projects:detail.webhookNotConfigured")}
                   </span>
                 </dd>
               </div>
               <p className="pt-1 font-mono text-[11px] text-fg-faint">
-                // sola lettura: la configurazione la modificano gli admin
+                {t("projects:detail.readOnlyHint")}
               </p>
             </dl>
           )}

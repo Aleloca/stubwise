@@ -5,9 +5,11 @@ import type { Db } from "./client.js";
 import {
   aiJobs,
   automationRules,
+  instanceSettings,
   notificationSettings,
   projects,
   tickets,
+  users,
 } from "./schema.js";
 import { seedGitAccount, startTestDb, type TestDb } from "./testing.js";
 
@@ -121,5 +123,68 @@ describe("schema: loop di feedback AI", () => {
       .where(eq(notificationSettings.id, 1));
     expect(settings?.notifyPrClosed).toBe(true);
     expect(settings?.notifyPlanReview).toBe(true);
+  });
+});
+
+/**
+ * Verifica lo schema i18n: la colonna users.language (default 'en', valore
+ * 'it') e il singleton instance_settings (riga id=1 seedata con
+ * content_language='en', aggiornabile a 'it').
+ */
+describe("schema: i18n (users.language + instance_settings)", () => {
+  let testDb: TestDb;
+  let db: Db;
+
+  beforeAll(async () => {
+    testDb = await startTestDb();
+    db = testDb.db;
+  });
+
+  afterAll(async () => {
+    await testDb.stop();
+  });
+
+  it("crea un user con language default 'en'", async () => {
+    const [user] = await db
+      .insert(users)
+      .values({
+        email: `default-${randomUUID()}@example.com`,
+        passwordHash: "x",
+        role: "member",
+      })
+      .returning();
+    expect(user?.language).toBe("en");
+  });
+
+  it("crea un user con language 'it'", async () => {
+    const [user] = await db
+      .insert(users)
+      .values({
+        email: `it-${randomUUID()}@example.com`,
+        passwordHash: "x",
+        role: "admin",
+        language: "it",
+      })
+      .returning();
+    expect(user?.language).toBe("it");
+  });
+
+  it("seeda instance_settings id=1 con content_language='en' e lo aggiorna a 'it'", async () => {
+    const [seeded] = await db
+      .select()
+      .from(instanceSettings)
+      .where(eq(instanceSettings.id, 1));
+    expect(seeded?.id).toBe(1);
+    expect(seeded?.contentLanguage).toBe("en");
+
+    await db
+      .update(instanceSettings)
+      .set({ contentLanguage: "it" })
+      .where(eq(instanceSettings.id, 1));
+    const [updated] = await db
+      .select()
+      .from(instanceSettings)
+      .where(eq(instanceSettings.id, 1));
+    expect(updated?.contentLanguage).toBe("it");
   });
 });

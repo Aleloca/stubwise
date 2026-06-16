@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import {
   getAccountBranches,
   getAccountRepositories,
@@ -32,6 +33,7 @@ interface ProjectWizardProps {
  * repoUrl e branch, così l'utente non resta bloccato.
  */
 export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
+  const { t } = useTranslation();
   const { data: accounts } = useSuspenseQuery(gitAccountsQueryOptions);
 
   const [name, setName] = useState("");
@@ -143,7 +145,7 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
         defaultBranch: branch.trim(),
       });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Errore imprevisto");
+      setError(cause instanceof Error ? cause.message : t("common:unexpectedError"));
     } finally {
       setPending(false);
     }
@@ -153,9 +155,9 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
     <form onSubmit={(event) => void handleSubmit(event)} className="flex flex-col gap-6" noValidate>
       <TextField
         id="wizard-name"
-        label="Nome"
+        label={t("projects:wizard.name")}
         required
-        placeholder="Es. Demo Shop"
+        placeholder={t("projects:wizard.namePlaceholder")}
         value={name}
         onChange={(event) => setName(event.target.value)}
       />
@@ -163,21 +165,21 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
       {accounts.length === 0 ? (
         <div className="rounded-sm border border-dashed border-line-strong px-4 py-6">
           <p className="font-mono text-[12px] tracking-[0.14em] text-fg-faint uppercase">
-            // nessun account git
+            {t("projects:wizard.noGitAccount")}
           </p>
           <p className="mt-2 text-sm text-fg-muted">
-            Crea prima un account git in{" "}
+            {t("projects:wizard.createAccountFirstPrefix")}
             <Link to="/settings" className="text-signal underline hover:text-signal-bright">
-              Settings → Account Git
+              {t("projects:wizard.createAccountFirstLink")}
             </Link>
-            , poi torna qui per collegarlo a un repository.
+            {t("projects:wizard.createAccountFirstSuffix")}
           </p>
         </div>
       ) : (
-        <Step label="Account git">
+        <Step label={t("projects:wizard.gitAccount")}>
           <SelectField
             id="wizard-account"
-            label="Account git"
+            label={t("projects:wizard.gitAccount")}
             value={accountId}
             onChange={(event) => setAccountId(event.target.value)}
             options={accounts.map((account) => ({
@@ -196,23 +198,23 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
       )}
 
       {accountId !== "" && !manualMode && (
-        <Step label="Repository">
+        <Step label={t("projects:wizard.repository")}>
           {reposQuery.isLoading ? (
-            <p className="font-mono text-[12px] text-fg-faint">// caricamento repository…</p>
+            <p className="font-mono text-[12px] text-fg-faint">{t("projects:wizard.loadingRepos")}</p>
           ) : (
             <>
               <TextField
                 id="wizard-repo-search"
-                label="Cerca repository"
+                label={t("projects:wizard.searchRepo")}
                 type="text"
-                placeholder="Filtra per nome…"
+                placeholder={t("projects:wizard.searchRepoPlaceholder")}
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
               />
               <ul className="mt-3 max-h-64 overflow-y-auto rounded-sm border border-line bg-ink-950/40">
                 {filteredRepos.length === 0 ? (
                   <li className="px-3 py-3 font-mono text-[12px] text-fg-faint">
-                    // nessun repository corrisponde
+                    {t("projects:wizard.noRepoMatch")}
                   </li>
                 ) : (
                   filteredRepos.map((repo) => {
@@ -231,7 +233,7 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
                           </span>
                           {repo.defaultBranch && (
                             <span className="font-mono text-[11px] text-fg-faint">
-                              default: {repo.defaultBranch}
+                              {t("projects:wizard.default")}: {repo.defaultBranch}
                             </span>
                           )}
                           {active && <span className="ml-auto font-mono text-[12px] text-signal">✓</span>}
@@ -247,21 +249,21 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
       )}
 
       {manualMode && (
-        <Step label="Repository">
+        <Step label={t("projects:wizard.repository")}>
           <p
             role="alert"
             className="mb-3 rounded-sm border border-danger/30 bg-danger/10 px-3 py-2 font-mono text-[12px] text-danger"
           >
             {reposQuery.error instanceof Error
               ? reposQuery.error.message
-              : "Impossibile elencare i repository dell'account"}
+              : t("projects:wizard.listReposFailed")}
           </p>
           <p className="mb-3 font-mono text-[11px] text-fg-faint">
-            // elenco non disponibile: inserisci URL e branch manualmente.
+            {t("projects:wizard.manualHint")}
           </p>
           <TextField
             id="wizard-manual-repo-url"
-            label="URL repository"
+            label={t("projects:wizard.repoUrl")}
             type="url"
             required
             placeholder="https://github.com/acme/demo"
@@ -271,7 +273,7 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
           <div className="mt-4">
             <TextField
               id="wizard-manual-branch"
-              label="Branch di default"
+              label={t("projects:wizard.defaultBranch")}
               required
               placeholder="main"
               value={branch}
@@ -282,7 +284,7 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
       )}
 
       {!manualMode && selectedRepo && (
-        <Step label="Branch di default">
+        <Step label={t("projects:wizard.defaultBranch")}>
           {/*
             Stesso componente del form di modifica: select dei branch via API,
             con fallback a input testuale su errore. Il branch è già
@@ -300,11 +302,11 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
       )}
 
       {repoFullName && (
-        <Step label="Verifica accesso al repository">
+        <Step label={t("projects:wizard.verifyAccess")}>
           <p className="mb-3 font-mono text-[11px] text-fg-faint">
-            // controllo advisory dei permessi sul repo (push git / PR / webhook).
+            {t("projects:wizard.verifyHint1")}
             <br />
-            // non blocca la creazione: la config del webhook è opzionale.
+            {t("projects:wizard.verifyHint2")}
           </p>
           <button
             type="button"
@@ -312,13 +314,13 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
             disabled={repoCheck.isPending}
             className="rounded-sm border border-line-strong bg-ink-950/70 px-3 py-2 font-mono text-[12px] font-medium tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {repoCheck.isPending ? "Verifica…" : "Verifica accesso al repository"}
+            {repoCheck.isPending ? t("projects:wizard.verifying") : t("projects:wizard.verifyAccess")}
           </button>
           {repoCheck.isError && (
             <p role="alert" className="mt-3 font-mono text-[12px] text-danger">
               {repoCheck.error instanceof Error
                 ? repoCheck.error.message
-                : "Errore nella verifica del repository"}
+                : t("projects:wizard.verifyError")}
             </p>
           )}
           {repoCheck.data && (
@@ -331,7 +333,7 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
 
       <FormError message={error} />
       <SubmitButton pending={pending} disabled={!canSubmit}>
-        {pending ? "Creazione…" : "Crea progetto"}
+        {pending ? t("projects:wizard.submitting") : t("projects:wizard.submit")}
       </SubmitButton>
     </form>
   );

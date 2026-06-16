@@ -133,13 +133,13 @@ describe("lista ticket", () => {
     expect(row).toHaveAttribute("href", `/tickets/${crash.id}`);
     expect(within(row).getByText("#42")).toBeInTheDocument();
     expect(within(row).getByText("Progetto Alfa")).toBeInTheDocument();
-    expect(within(row).getByText("Urgente")).toBeInTheDocument();
-    expect(within(row).getByText("Aperto")).toBeInTheDocument();
+    expect(within(row).getByText("Urgent")).toBeInTheDocument();
+    expect(within(row).getByText("Open")).toBeInTheDocument();
     expect(within(row).getByText("×7")).toBeInTheDocument();
     expect(within(row).getByText("pagamenti")).toBeInTheDocument();
 
     const doneRow = screen.getByRole("link", { name: /export csv/i });
-    expect(within(doneRow).getByText("Fatto")).toBeInTheDocument();
+    expect(within(doneRow).getByText("Done")).toBeInTheDocument();
   });
 
   it("senza risultati mostra lo stato vuoto", async () => {
@@ -150,7 +150,7 @@ describe("lista ticket", () => {
 
     renderApp();
 
-    expect(await screen.findByText(/nessun ticket trovato/i)).toBeInTheDocument();
+    expect(await screen.findByText(/no tickets found/i)).toBeInTheDocument();
   });
 
   it("i filtri nell'URL arrivano ai controlli e alla richiesta API", async () => {
@@ -165,8 +165,8 @@ describe("lista ticket", () => {
 
     renderApp("/tickets?status=done&q=export");
 
-    expect(await screen.findByLabelText(/stato/i)).toHaveValue("done");
-    expect(screen.getByRole("searchbox", { name: /cerca/i })).toHaveValue("export");
+    expect(await screen.findByLabelText(/status/i)).toHaveValue("done");
+    expect(screen.getByRole("searchbox", { name: /search/i })).toHaveValue("export");
     expect(seen[0]).toContain("status=done");
     expect(seen[0]).toContain("q=export");
   });
@@ -179,7 +179,7 @@ describe("lista ticket", () => {
 
     const router = renderApp("/tickets?status=inesistente");
 
-    expect(await screen.findByLabelText(/stato/i)).toHaveValue("");
+    expect(await screen.findByLabelText(/status/i)).toHaveValue("");
     expect(router.state.location.search).toEqual({});
   });
 
@@ -201,7 +201,7 @@ describe("lista ticket", () => {
     const router = renderApp();
     expect(await screen.findByText("Tutti i ticket")).toBeInTheDocument();
 
-    await userEvent.selectOptions(screen.getByLabelText(/stato/i), "open");
+    await userEvent.selectOptions(screen.getByLabelText(/status/i), "open");
 
     expect(await screen.findByText("Solo gli aperti")).toBeInTheDocument();
     expect(router.state.location.search).toEqual({ status: "open" });
@@ -230,12 +230,12 @@ describe("lista ticket", () => {
     expect(await screen.findByText("Pagina uno")).toBeInTheDocument();
     expect(screen.queryByText("Pagina due")).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: /carica altri/i }));
+    await userEvent.click(screen.getByRole("button", { name: /load more/i }));
 
     expect(await screen.findByText("Pagina due")).toBeInTheDocument();
     // Le righe della prima pagina restano: append, non replace.
     expect(screen.getByText("Pagina uno")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /carica altri/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /load more/i })).not.toBeInTheDocument();
   });
 
   it("401 dal loader (sessione scaduta ad app montata): si atterra su /login", async () => {
@@ -250,7 +250,7 @@ describe("lista ticket", () => {
 
     const router = renderApp();
 
-    expect(await screen.findByRole("heading", { name: "Accedi" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
     await waitFor(() => expect(router.state.location.pathname).toBe("/login"));
   });
 });
@@ -282,18 +282,18 @@ describe("nuovo ticket dalla lista", () => {
     });
 
     renderApp();
-    expect(await screen.findByText(/nessun ticket trovato/i)).toBeInTheDocument();
+    expect(await screen.findByText(/no tickets found/i)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Nuovo ticket" }));
-    const dialog = screen.getByRole("dialog", { name: "Nuovo ticket" });
-    await user.type(within(dialog).getByLabelText("Titolo"), "Crash al checkout");
-    await user.selectOptions(within(dialog).getByLabelText("Tipo"), "Bug");
-    await user.selectOptions(within(dialog).getByLabelText("Priorità"), "Alta");
-    await user.click(within(dialog).getByRole("button", { name: "Crea ticket" }));
+    await user.click(screen.getByRole("button", { name: "New ticket" }));
+    const dialog = screen.getByRole("dialog", { name: "New ticket" });
+    await user.type(within(dialog).getByLabelText("Title"), "Crash al checkout");
+    await user.selectOptions(within(dialog).getByLabelText("Type"), "Bug");
+    await user.selectOptions(within(dialog).getByLabelText("Priority"), "High");
+    await user.click(within(dialog).getByRole("button", { name: "Create ticket" }));
 
     // Dialog chiuso e riga comparsa dopo l'invalidazione della lista.
     await waitFor(() =>
-      expect(screen.queryByRole("dialog", { name: "Nuovo ticket" })).not.toBeInTheDocument(),
+      expect(screen.queryByRole("dialog", { name: "New ticket" })).not.toBeInTheDocument(),
     );
     expect(await screen.findByText("Crash al checkout")).toBeInTheDocument();
     expect(postBody).toEqual({

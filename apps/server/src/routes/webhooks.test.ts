@@ -3,7 +3,7 @@ import { asc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
-import { aiJobs, comments, notificationSettings, projects, tickets } from "@stubwise/db";
+import { aiJobs, comments, instanceSettings, notificationSettings, projects, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedGitAccount, startTestDb } from "@stubwise/db/testing";
 import { seedUsers } from "../test/fixtures.js";
@@ -43,7 +43,22 @@ afterEach(async () => {
     .update(notificationSettings)
     .set({ webhookUrl: null })
     .where(eq(notificationSettings.id, 1));
+  // Ripristina la lingua d'istanza al default 'en' (riga singleton id=1
+  // condivisa tra i test): un test che la porta a 'it' non deve influenzare i
+  // successivi.
+  await testDb.db
+    .update(instanceSettings)
+    .set({ contentLanguage: "en" })
+    .where(eq(instanceSettings.id, 1));
 });
+
+/** Porta la lingua dei contenuti d'istanza (singleton id=1) a `lang`. */
+async function setContentLanguage(lang: "en" | "it"): Promise<void> {
+  await testDb.db
+    .update(instanceSettings)
+    .set({ contentLanguage: lang })
+    .where(eq(instanceSettings.id, 1));
+}
 
 interface CreatedProject {
   id: string;
@@ -243,6 +258,8 @@ describe("POST /webhooks/git/:projectSlug", () => {
       repoUrl: "https://bitbucket.org/acme/webhook-bb",
       credentials: { username: "acme-bot", token: "tok" },
     });
+    // content_language='it': il commento di sistema deve risultare in italiano.
+    await setContentLanguage("it");
     const ticketId = await insertTicket(project.id, 1, "in_review");
     // La pipeline ha aperto una PR: il job è in pr_opened, va portato a pr_merged.
     const jobId = await insertJob(ticketId, "pr_opened");
@@ -271,6 +288,74 @@ describe("POST /webhooks/git/:projectSlug", () => {
     const job = await jobById(jobId);
     expect(job.status).toBe("pr_merged");
     expect(job.finishedAt).not.toBeNull();
+  });
+
+  it("content_language='en' (default): il commento di sistema del merge è in inglese", async () => {
+    const project = await createProject({
+      name: "Webhook EN Merge",
+      provider: "github",
+      repoUrl: "https://github.com/acme/webhook-en-merge",
+      credentials: { token: "tok" },
+    });
+    // Nessun setContentLanguage: l'afterEach del test precedente ha già
+    // ripristinato il default 'en'.
+    const ticketId = await insertTicket(project.id, 1, "in_review");
+    const body = githubPayload("stubwise/ticket-1");
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/webhooks/git/${project.slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": sign(project.webhookSecret, body),
+      },
+      payload: body,
+    });
+
+    expect(res.statusCode).toBe(204);
+    expect(await ticketStatus(ticketId)).toBe("done");
+    const cmts = await ticketComments(ticketId);
+    expect(cmts).toHaveLength(1);
+    expect(cmts[0]!.authorType).toBe("system");
+    expect(cmts[0]!.body).toContain("https://github.com/acme/repo/pull/7");
+    // Testo inglese del catalogo i18n (comment.prMerged).
+    expect(cmts[0]!.body).toBe(
+      "PR merged: https://github.com/acme/repo/pull/7 — ticket closed automatically",
+    );
+  });
+
+  it("content_language='en': il commento di sistema della PR chiusa senza merge è in inglese", async () => {
+    const project = await createProject({
+      name: "Webhook EN Closed",
+      provider: "github",
+      repoUrl: "https://github.com/acme/webhook-en-closed",
+      credentials: { token: "tok" },
+    });
+    await setContentLanguage("en");
+    const ticketId = await insertTicket(project.id, 1, "in_review");
+    await insertJob(ticketId, "pr_opened");
+    const body = githubClosedUnmergedPayload("stubwise/ticket-1");
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/webhooks/git/${project.slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": sign(project.webhookSecret, body),
+      },
+      payload: body,
+    });
+
+    expect(res.statusCode).toBe(204);
+    expect(await ticketStatus(ticketId)).toBe("triaged");
+    const cmts = await ticketComments(ticketId);
+    expect(cmts).toHaveLength(1);
+    // Testo inglese del catalogo i18n (comment.prClosed).
+    expect(cmts[0]!.body).toBe(
+      "PR closed without merging: https://github.com/acme/repo/pull/7 — ticket reopened, relaunch the fix whenever you want",
+    );
   });
 
   it("GitHub pull_request closed+merged firmato per stubwise/ticket-N → ticket done", async () => {
@@ -595,6 +680,8 @@ describe("POST /webhooks/git/:projectSlug", () => {
       repoUrl: "https://github.com/acme/webhook-gh-riapri",
       credentials: { token: "tok" },
     });
+    // content_language='it': il commento di sistema deve risultare in italiano.
+    await setContentLanguage("it");
     const ticketId = await insertTicket(project.id, 1, "in_review");
     const jobId = await insertJob(ticketId, "pr_opened");
     const body = githubClosedUnmergedPayload("stubwise/ticket-1");
@@ -702,6 +789,8 @@ describe("POST /webhooks/git/:projectSlug", () => {
       repoUrl: "https://bitbucket.org/acme/webhook-bb-rejected",
       credentials: { username: "acme-bot", token: "tok" },
     });
+    // content_language='it': il commento di sistema deve risultare in italiano.
+    await setContentLanguage("it");
     const ticketId = await insertTicket(project.id, 1, "in_review");
     const jobId = await insertJob(ticketId, "pr_opened");
     const body = bitbucketRejectedPayload("stubwise/ticket-1");

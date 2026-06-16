@@ -43,7 +43,7 @@ describe("TicketFilters", () => {
   it("selezionare uno stato chiama onChange con il valore", async () => {
     const onChange = renderFilters();
 
-    await userEvent.selectOptions(screen.getByLabelText(/stato/i), "open");
+    await userEvent.selectOptions(screen.getByLabelText(/status/i), "open");
 
     expect(onChange).toHaveBeenCalledExactlyOnceWith({ status: "open" });
   });
@@ -51,8 +51,8 @@ describe("TicketFilters", () => {
   it("tornare a «Tutti» azzera il filtro (undefined, sparisce dall'URL)", async () => {
     const onChange = renderFilters({ status: "done" });
 
-    expect(screen.getByLabelText(/stato/i)).toHaveValue("done");
-    await userEvent.selectOptions(screen.getByLabelText(/stato/i), "");
+    expect(screen.getByLabelText(/status/i)).toHaveValue("done");
+    await userEvent.selectOptions(screen.getByLabelText(/status/i), "");
 
     expect(onChange).toHaveBeenCalledExactlyOnceWith({ status: undefined });
   });
@@ -60,9 +60,9 @@ describe("TicketFilters", () => {
   it("tipo, priorità e progetto chiamano onChange con la chiave giusta", async () => {
     const onChange = renderFilters();
 
-    await userEvent.selectOptions(screen.getByLabelText(/tipo/i), "bug");
-    await userEvent.selectOptions(screen.getByLabelText(/priorità/i), "urgent");
-    await userEvent.selectOptions(screen.getByLabelText(/progetto/i), "p2");
+    await userEvent.selectOptions(screen.getByLabelText(/type/i), "bug");
+    await userEvent.selectOptions(screen.getByLabelText(/priority/i), "urgent");
+    await userEvent.selectOptions(screen.getByLabelText(/project/i), "p2");
 
     expect(onChange).toHaveBeenNthCalledWith(1, { type: "bug" });
     expect(onChange).toHaveBeenNthCalledWith(2, { priority: "urgent" });
@@ -72,7 +72,7 @@ describe("TicketFilters", () => {
   it("il select progetto elenca i progetti per nome", () => {
     renderFilters();
 
-    const select = screen.getByLabelText(/progetto/i);
+    const select = screen.getByLabelText(/project/i);
     expect(select).toContainHTML("Progetto Alfa");
     expect(select).toContainHTML("Progetto Beta");
   });
@@ -80,7 +80,7 @@ describe("TicketFilters", () => {
   it("la ricerca è debounced: una sola onChange dopo la pausa, non una per tasto", async () => {
     const onChange = renderFilters();
 
-    await userEvent.type(screen.getByRole("searchbox", { name: /cerca/i }), "login");
+    await userEvent.type(screen.getByRole("searchbox", { name: /search/i }), "login");
 
     expect(onChange).not.toHaveBeenCalled();
     await waitFor(() => expect(onChange).toHaveBeenCalledWith({ q: "login" }), {
@@ -92,7 +92,7 @@ describe("TicketFilters", () => {
   it("svuotare la ricerca manda q undefined", async () => {
     const onChange = renderFilters({ q: "login" });
 
-    await userEvent.clear(screen.getByRole("searchbox", { name: /cerca/i }));
+    await userEvent.clear(screen.getByRole("searchbox", { name: /search/i }));
 
     await waitFor(() => expect(onChange).toHaveBeenCalledWith({ q: undefined }), {
       timeout: 1000,

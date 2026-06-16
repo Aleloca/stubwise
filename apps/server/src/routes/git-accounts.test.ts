@@ -259,7 +259,7 @@ describe("DELETE /api/git-accounts/:id", () => {
       headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(409);
-    expect((res.json() as { message: string }).message).toMatch(/uso/i);
+    expect((res.json() as { message: string }).message).toMatch(/in use/i);
   });
 
   it("un member non può eliminare: 403", async () => {

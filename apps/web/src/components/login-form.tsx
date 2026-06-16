@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import type { Credentials } from "../lib/api";
 import { FormError, SubmitButton, TextField } from "./field";
 
@@ -13,6 +14,7 @@ interface LoginFormProps {
  * `onSubmit`, così il componente si testa in isolamento.
  */
 export function LoginForm({ onSubmit }: LoginFormProps) {
+  const { t } = useTranslation();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +27,7 @@ export function LoginForm({ onSubmit }: LoginFormProps) {
     try {
       await onSubmit({ email, password });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Errore imprevisto");
+      setError(cause instanceof Error ? cause.message : t("common:unexpectedError"));
     } finally {
       setPending(false);
     }
@@ -35,7 +37,7 @@ export function LoginForm({ onSubmit }: LoginFormProps) {
     <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
       <TextField
         id="email"
-        label="Email"
+        label={t("auth:fields.email")}
         type="email"
         autoComplete="email"
         required
@@ -44,7 +46,7 @@ export function LoginForm({ onSubmit }: LoginFormProps) {
       />
       <TextField
         id="password"
-        label="Password"
+        label={t("auth:fields.password")}
         type="password"
         autoComplete="current-password"
         required
@@ -52,7 +54,9 @@ export function LoginForm({ onSubmit }: LoginFormProps) {
         onChange={(event) => setPassword(event.target.value)}
       />
       <FormError message={error} />
-      <SubmitButton pending={pending}>{pending ? "Accesso…" : "Accedi"}</SubmitButton>
+      <SubmitButton pending={pending}>
+        {pending ? t("auth:login.submitPending") : t("auth:login.submit")}
+      </SubmitButton>
     </form>
   );
 }

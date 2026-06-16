@@ -4,8 +4,9 @@ import {
   ticketTypeSchema,
 } from "@stubwise/shared";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import type { Project, TicketFilters as TicketFiltersValue } from "../lib/api";
-import { PRIORITY_LABELS, STATUS_LABELS, TYPE_LABELS } from "./badges";
+import { PRIORITY_LABEL_KEYS, STATUS_LABEL_KEYS, TYPE_LABEL_KEYS } from "./badges";
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -22,6 +23,7 @@ interface TicketFiltersProps {
  * La ricerca è debounced per non riscrivere l'URL a ogni tasto.
  */
 export function TicketFilters({ value, projects, onChange }: TicketFiltersProps) {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState(value.q ?? "");
   const timerRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -44,52 +46,52 @@ export function TicketFilters({ value, projects, onChange }: TicketFiltersProps)
     <div className="flex flex-wrap items-end gap-3">
       <div className="flex min-w-56 flex-1 flex-col gap-1">
         <label htmlFor="filter-q" className={labelClass}>
-          Cerca
+          {t("tickets:filters.search")}
         </label>
         <input
           id="filter-q"
           type="search"
           value={draft}
           onChange={(event) => handleSearch(event.target.value)}
-          placeholder="Cerca nel titolo…"
+          placeholder={t("tickets:filters.searchPlaceholder")}
           className="rounded-sm border border-line-strong bg-ink-950/70 px-3 py-1.5 text-sm text-fg placeholder:text-fg-faint transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
         />
       </div>
 
       <FilterSelect
         id="filter-project"
-        label="Progetto"
+        label={t("tickets:filters.project")}
         value={value.projectId}
         options={projects.map((project) => ({ value: project.id, label: project.name }))}
         onChange={(projectId) => onChange({ projectId })}
       />
       <FilterSelect
         id="filter-status"
-        label="Stato"
+        label={t("tickets:filters.status")}
         value={value.status}
         options={ticketStatusSchema.options.map((status) => ({
           value: status,
-          label: STATUS_LABELS[status],
+          label: t(STATUS_LABEL_KEYS[status]),
         }))}
         onChange={(status) => onChange({ status: status as TicketFiltersValue["status"] })}
       />
       <FilterSelect
         id="filter-type"
-        label="Tipo"
+        label={t("tickets:filters.type")}
         value={value.type}
         options={ticketTypeSchema.options.map((type) => ({
           value: type,
-          label: TYPE_LABELS[type],
+          label: t(TYPE_LABEL_KEYS[type]),
         }))}
         onChange={(type) => onChange({ type: type as TicketFiltersValue["type"] })}
       />
       <FilterSelect
         id="filter-priority"
-        label="Priorità"
+        label={t("tickets:filters.priority")}
         value={value.priority}
         options={ticketPrioritySchema.options.map((priority) => ({
           value: priority,
-          label: PRIORITY_LABELS[priority],
+          label: t(PRIORITY_LABEL_KEYS[priority]),
         }))}
         onChange={(priority) =>
           onChange({ priority: priority as TicketFiltersValue["priority"] })
@@ -110,6 +112,8 @@ interface FilterSelectProps {
 }
 
 function FilterSelect({ id, label, value, options, onChange }: FilterSelectProps) {
+  const { t } = useTranslation();
+
   return (
     <div className="flex flex-col gap-1">
       <label htmlFor={id} className={labelClass}>
@@ -121,7 +125,7 @@ function FilterSelect({ id, label, value, options, onChange }: FilterSelectProps
         onChange={(event) => onChange(event.target.value || undefined)}
         className="rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1.5 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
       >
-        <option value="">Tutti</option>
+        <option value="">{t("tickets:filters.all")}</option>
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}

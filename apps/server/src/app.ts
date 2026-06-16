@@ -103,7 +103,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
       return reply.code(statusCode).send(error);
     }
     request.log.error(error);
-    return reply.code(500).send({ message: "Errore interno" });
+    return reply.code(500).send({ message: "Internal error" });
   });
 
   // L'augmentation del modulo tipizza `db` come sempre presente, ma la

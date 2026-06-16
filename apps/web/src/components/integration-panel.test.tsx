@@ -36,22 +36,22 @@ describe("IntegrationPanel", () => {
     const user = userEvent.setup();
     render(<IntegrationPanel {...props} />);
 
-    await user.click(screen.getByRole("button", { name: "Copia chiave di ingestion" }));
+    await user.click(screen.getByRole("button", { name: "Copy ingestion key" }));
 
     expect(await navigator.clipboard.readText()).toBe("abc123def456");
-    expect(await screen.findByText("Copiato")).toBeInTheDocument();
+    expect(await screen.findByText("Copied")).toBeInTheDocument();
   });
 
   it("copia DSN e snippet con i rispettivi bottoni", async () => {
     const user = userEvent.setup();
     render(<IntegrationPanel {...props} />);
 
-    await user.click(screen.getByRole("button", { name: "Copia DSN" }));
+    await user.click(screen.getByRole("button", { name: "Copy DSN" }));
     expect(await navigator.clipboard.readText()).toBe(
       "https://abc123def456@track.example.com/p/demo-shop",
     );
 
-    await user.click(screen.getByRole("button", { name: "Copia snippet" }));
+    await user.click(screen.getByRole("button", { name: "Copy snippet" }));
     const copied = await navigator.clipboard.readText();
     expect(copied).toContain('import { init } from "@stubwise/sdk/browser"');
     expect(copied).toContain("https://abc123def456@track.example.com/p/demo-shop");
@@ -77,7 +77,7 @@ describe("IntegrationPanel", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("s3cr3t-hmac")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Copia secret webhook" }));
+    await user.click(screen.getByRole("button", { name: "Copy webhook secret" }));
     expect(await navigator.clipboard.readText()).toBe("s3cr3t-hmac");
   });
 });
@@ -107,7 +107,7 @@ describe("IntegrationPanel — configura webhook", () => {
 
     expect(spy).toHaveBeenCalledWith("demo-shop");
     const ok = await screen.findByTestId("configure-webhook-ok");
-    expect(ok.textContent).toMatch(/Webhook configurato/);
+    expect(ok.textContent).toMatch(/Webhook configured/);
     expect(ok.textContent).toContain("https://track.example.com/webhooks/git/demo-shop");
   });
 
@@ -125,7 +125,7 @@ describe("IntegrationPanel — configura webhook", () => {
     await user.click(screen.getByTestId("configure-webhook-button"));
 
     expect((await screen.findByTestId("configure-webhook-ok")).textContent).toMatch(
-      /Webhook aggiornato/,
+      /Webhook updated/,
     );
   });
 
@@ -160,7 +160,7 @@ describe("IntegrationPanel — configura webhook", () => {
       <IntegrationPanel {...webhookProps} webhookConfiguredAt="2026-06-05T09:30:00.000Z" />,
     );
 
-    expect(screen.getByTestId("webhook-configured")).toHaveTextContent("Webhook configurato il");
+    expect(screen.getByTestId("webhook-configured")).toHaveTextContent("Webhook configured on");
     expect(screen.queryByTestId("configure-webhook-button")).not.toBeInTheDocument();
 
     await user.click(screen.getByTestId("reconfigure-webhook-button"));

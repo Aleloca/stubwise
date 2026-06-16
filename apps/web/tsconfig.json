@@ -4,6 +4,8 @@
     // Override del base (NodeNext): il codice è bundlato da Vite.
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    // I cataloghi i18n sono JSON importati come moduli tipati.
+    "resolveJsonModule": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx",
     "noEmit": true,

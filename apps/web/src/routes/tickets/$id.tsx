@@ -1,5 +1,4 @@
 import {
-  EFFORT_LABELS,
   ticketPrioritySchema,
   ticketStatusSchema,
   type TicketPriority,
@@ -7,12 +6,13 @@ import {
 } from "@stubwise/shared";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 import { AIJobTimeline } from "../../components/ai-job-timeline";
 import {
   PriorityBadge,
-  SOURCE_LABELS,
-  PRIORITY_LABELS,
-  STATUS_LABELS,
+  SOURCE_LABEL_KEYS,
+  PRIORITY_LABEL_KEYS,
+  STATUS_LABEL_KEYS,
   SourceBadge,
   StatusBadge,
   TypeBadge,
@@ -53,6 +53,7 @@ const route = getRouteApi("/authed/tickets/$id");
  * precaricato tutte le query: le useSuspenseQuery non attendono.
  */
 export function TicketDetailPage() {
+  const { t } = useTranslation();
   const { id } = route.useParams();
   const queryClient = useQueryClient();
 
@@ -146,7 +147,7 @@ export function TicketDetailPage() {
         to="/tickets"
         className="font-mono text-[11px] tracking-[0.14em] text-fg-faint uppercase transition-colors hover:text-fg-muted"
       >
-        ← Tutti i ticket
+        {t("tickets:detail.back")}
       </Link>
 
       <header className="mt-3 border-b border-line pb-5">
@@ -159,17 +160,17 @@ export function TicketDetailPage() {
           <PriorityBadge priority={ticket.priority} />
           <TypeBadge type={ticket.type} />
           {ticket.effort !== null && (
-            <span
-              className="font-mono text-[11px] text-fg-muted"
-              title="Stima di sforzo del triage AI"
-            >
-              Effort: {EFFORT_LABELS[ticket.effort] ?? ticket.effort} ({ticket.effort}/5)
+            <span className="font-mono text-[11px] text-fg-muted" title={t("tickets:detail.effortTitle")}>
+              {t("tickets:detail.effort", {
+                label: t(`badges:effort.${ticket.effort}`, { defaultValue: String(ticket.effort) }),
+                value: ticket.effort,
+              })}
             </span>
           )}
           <SourceBadge source={ticket.source} />
           <span className="font-mono text-[11px] text-fg-muted">{projectName}</span>
           {ticket.occurrences > 1 && (
-            <span className="font-mono text-[11px] text-signal" title="Occorrenze deduplicate">
+            <span className="font-mono text-[11px] text-signal" title={t("tickets:detail.occurrences")}>
               ×{ticket.occurrences}
             </span>
           )}
@@ -179,22 +180,22 @@ export function TicketDetailPage() {
       <div className="mt-6 grid gap-8 lg:grid-cols-[minmax(0,1fr)_17rem]">
         <div className="min-w-0 space-y-6">
           <section>
-            <h2 className={sectionTitleClass}>Descrizione</h2>
+            <h2 className={sectionTitleClass}>{t("tickets:detail.description")}</h2>
             {ticket.body.trim() === "" ? (
-              <p className="font-mono text-[12px] text-fg-faint">// nessuna descrizione</p>
+              <p className="font-mono text-[12px] text-fg-faint">{t("tickets:detail.noDescription")}</p>
             ) : (
               <Markdown source={ticket.body} />
             )}
           </section>
 
           {ticket.technicalPayload !== null && (
-            <CollapsibleSection title="Payload tecnico" meta={SOURCE_LABELS[ticket.source]}>
+            <CollapsibleSection title={t("tickets:detail.technicalPayload")} meta={t(SOURCE_LABEL_KEYS[ticket.source])}>
               <TechnicalPayload payload={ticket.technicalPayload} />
             </CollapsibleSection>
           )}
 
           <section>
-            <h2 className={sectionTitleClass}>Attività AI</h2>
+            <h2 className={sectionTitleClass}>{t("tickets:detail.aiActivity")}</h2>
             <AIJobTimeline jobs={jobs} />
             {canRelaunch && (
               <div className="mt-3 space-y-2">
@@ -205,7 +206,9 @@ export function TicketDetailPage() {
                     onClick={() => runAiMutation.mutate(undefined)}
                     className="rounded-sm bg-signal px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright active:bg-signal-dim disabled:cursor-not-allowed disabled:bg-signal-dim disabled:opacity-60"
                   >
-                    {runAiMutation.isPending ? "Avvio…" : "Avvia fix AI"}
+                    {runAiMutation.isPending
+                      ? t("tickets:detail.startingFix")
+                      : t("tickets:detail.startFix")}
                   </button>
                   <button
                     type="button"
@@ -213,12 +216,12 @@ export function TicketDetailPage() {
                     onClick={() => runAiMutation.mutate({ withInstructions: true })}
                     className="rounded-sm border border-signal-dim px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-signal uppercase transition-colors hover:border-signal hover:bg-signal/10 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    Rilancia con istruzioni
+                    {t("tickets:detail.relaunchWithInstructions")}
                   </button>
                 </div>
                 {!hasUserComment && (
                   <p className="font-mono text-[11px] text-fg-muted">
-                    Aggiungi prima un commento con le istruzioni.
+                    {t("tickets:detail.addCommentHint")}
                   </p>
                 )}
                 {runAiMutation.isError && (
@@ -237,7 +240,9 @@ export function TicketDetailPage() {
                     onClick={() => approvePlanMutation.mutate()}
                     className="rounded-sm bg-signal px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright active:bg-signal-dim disabled:cursor-not-allowed disabled:bg-signal-dim disabled:opacity-60"
                   >
-                    {approvePlanMutation.isPending ? "Approvazione…" : "Approva"}
+                    {approvePlanMutation.isPending
+                      ? t("tickets:detail.approving")
+                      : t("tickets:detail.approve")}
                   </button>
                   <button
                     type="button"
@@ -248,12 +253,13 @@ export function TicketDetailPage() {
                     }}
                     className="rounded-sm border border-line-strong px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-danger hover:text-danger disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {rejectPlanMutation.isPending ? "Rifiuto…" : "Rifiuta"}
+                    {rejectPlanMutation.isPending
+                      ? t("tickets:detail.rejecting")
+                      : t("tickets:detail.reject")}
                   </button>
                 </div>
                 <p className="font-mono text-[11px] text-fg-muted">
-                  Per rifiutare, scrivi cosa correggere nel commento e poi rifiuta: il prossimo
-                  piano ne terrà conto.
+                  {t("tickets:detail.rejectHint")}
                 </p>
                 {approvePlanMutation.isError && (
                   <span role="alert" className="font-mono text-[12px] text-danger">
@@ -273,7 +279,9 @@ export function TicketDetailPage() {
           {usage.byModel.length > 0 && <UsagePanel usage={usage} />}
 
           <section>
-            <h2 className={sectionTitleClass}>Commenti ({comments.length})</h2>
+            <h2 className={sectionTitleClass}>
+              {t("tickets:detail.comments", { count: comments.length })}
+            </h2>
             <CommentThread
               comments={comments}
               authorEmails={authorEmails}
@@ -286,7 +294,7 @@ export function TicketDetailPage() {
         <aside className="space-y-5 lg:border-l lg:border-line lg:pl-6">
           <SelectField
             id="action-status"
-            label="Stato"
+            label={t("tickets:detail.status")}
             value={ticket.status}
             disabled={patchMutation.isPending}
             onChange={(event) =>
@@ -294,13 +302,13 @@ export function TicketDetailPage() {
             }
             options={ticketStatusSchema.options.map((status) => ({
               value: status,
-              label: STATUS_LABELS[status],
+              label: t(STATUS_LABEL_KEYS[status]),
             }))}
           />
 
           <SelectField
             id="action-priority"
-            label="Priorità"
+            label={t("tickets:detail.priority")}
             value={ticket.priority}
             disabled={patchMutation.isPending}
             onChange={(event) =>
@@ -308,27 +316,27 @@ export function TicketDetailPage() {
             }
             options={ticketPrioritySchema.options.map((priority) => ({
               value: priority,
-              label: PRIORITY_LABELS[priority],
+              label: t(PRIORITY_LABEL_KEYS[priority]),
             }))}
           />
 
           <SelectField
             id="action-assignee"
-            label="Assegnatario"
+            label={t("tickets:detail.assignee")}
             value={ticket.assigneeId ?? ""}
             disabled={patchMutation.isPending}
             onChange={(event) =>
               patchMutation.mutate({ assigneeId: event.target.value || null })
             }
             options={[
-              { value: "", label: "Non assegnato" },
+              { value: "", label: t("tickets:detail.unassigned") },
               ...users.map((user) => ({ value: user.id, label: user.email })),
             ]}
           />
 
           <div className="flex flex-col gap-1.5">
             <span className="font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase">
-              Label
+              {t("tickets:detail.labels")}
             </span>
             <LabelsEditor
               labels={ticket.labels}
@@ -344,10 +352,10 @@ export function TicketDetailPage() {
           )}
 
           <dl className="space-y-1.5 border-t border-line pt-4">
-            <MetaRow label="Creato" value={formatDateTime(ticket.createdAt)} />
-            <MetaRow label="Aggiornato" value={formatDateTime(ticket.updatedAt)} />
-            <MetaRow label="Ultimo visto" value={formatDateTime(ticket.lastSeenAt)} />
-            <MetaRow label="Occorrenze" value={String(ticket.occurrences)} />
+            <MetaRow label={t("tickets:detail.createdAt")} value={formatDateTime(ticket.createdAt)} />
+            <MetaRow label={t("tickets:detail.updatedAt")} value={formatDateTime(ticket.updatedAt)} />
+            <MetaRow label={t("tickets:detail.lastSeenAt")} value={formatDateTime(ticket.lastSeenAt)} />
+            <MetaRow label={t("tickets:detail.occurrencesMeta")} value={String(ticket.occurrences)} />
           </dl>
         </aside>
       </div>

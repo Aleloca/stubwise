@@ -78,35 +78,38 @@ describe("formatNotification — contratto", () => {
   });
 });
 
-describe("formatNotification — slack", () => {
+describe("formatNotification — slack (lingua default en)", () => {
   it("ticket.created → text mrkdwn con numero, titolo, progetto, source e link", () => {
     const { body } = formatNotification(TICKET_CREATED, "slack");
     const text = (body as { text: string }).text;
     expect(text).toContain("*#42*");
+    expect(text).toContain("New ticket");
     expect(text).toContain("Crash al login");
     expect(text).toContain("webapp");
     expect(text).toContain("sdk_error");
-    expect(text).toContain("<https://app.example.com/tickets/t1|Apri>");
+    expect(text).toContain("<https://app.example.com/tickets/t1|Open>");
   });
 
   it("pr_opened → link PR e ticket, con il costo se presente", () => {
     const text = (formatNotification(PR_OPENED, "slack").body as { text: string }).text;
-    expect(text).toContain("<https://github.com/o/r/pull/7|Vedi PR>");
+    expect(text).toContain("<https://github.com/o/r/pull/7|View PR>");
     expect(text).toContain("<https://app.example.com/tickets/t1|Ticket>");
     expect(text).toContain("0.42");
+    expect(text).toContain("cost $0.42");
   });
 
   it("pr_opened senza costo → nessun riferimento al costo", () => {
     const text = (
       formatNotification({ ...PR_OPENED, costUsd: null }, "slack").body as { text: string }
     ).text;
-    expect(text.toLowerCase()).not.toContain("costo");
+    expect(text.toLowerCase()).not.toContain("cost");
   });
 
   it("job.held → tipo, effort N/5 e link", () => {
     const text = (formatNotification(JOB_HELD, "slack").body as { text: string }).text;
     expect(text).toContain("bug");
     expect(text).toContain("4/5");
+    expect(text).toContain("<https://app.example.com/tickets/t1|Open>");
   });
 
   it("job.failed → messaggio d'errore", () => {
@@ -114,48 +117,92 @@ describe("formatNotification — slack", () => {
     expect(text).toContain("timeout del fix");
   });
 
-  it("pr_closed → PR chiusa senza merge, link PR e ticket", () => {
+  it("pr_closed → PR closed without merging, link PR e ticket", () => {
     const text = (formatNotification(PR_CLOSED, "slack").body as { text: string }).text;
     expect(text).toContain("*#42*");
-    expect(text).toContain("PR chiusa senza merge");
+    expect(text).toContain("PR closed without merging");
+    expect(text).toContain("<https://github.com/o/r/pull/7|View PR>");
+    expect(text).toContain("<https://app.example.com/tickets/t1|Ticket>");
+  });
+
+  it("job.plan_review → plan awaiting approval, con link al ticket", () => {
+    const text = (formatNotification(JOB_PLAN_REVIEW, "slack").body as { text: string }).text;
+    expect(text).toContain("*#42*");
+    expect(text).toContain("Plan awaiting approval");
+    expect(text).toContain("<https://app.example.com/tickets/42|Review>");
+  });
+});
+
+describe("formatNotification — slack (lingua it)", () => {
+  it("ticket.created → testi italiani, link con label localizzata", () => {
+    const text = (formatNotification(TICKET_CREATED, "slack", "it").body as { text: string }).text;
+    expect(text).toContain("🐛 Nuovo ticket *#42* — Crash al login (webapp, sdk_error). ");
+    expect(text).toContain("<https://app.example.com/tickets/t1|Apri>");
+  });
+
+  it("pr_opened → costo localizzato e label PR/Ticket", () => {
+    const text = (formatNotification(PR_OPENED, "slack", "it").body as { text: string }).text;
+    expect(text).toContain("PR aperta per *#42*");
+    expect(text).toContain("(costo $0.42)");
     expect(text).toContain("<https://github.com/o/r/pull/7|Vedi PR>");
     expect(text).toContain("<https://app.example.com/tickets/t1|Ticket>");
   });
 
-  it("job.plan_review → piano in attesa di approvazione, con link al ticket", () => {
-    const text = (formatNotification(JOB_PLAN_REVIEW, "slack").body as { text: string }).text;
-    expect(text).toContain("*#42*");
-    expect(text).toContain("Piano in attesa di approvazione");
+  it("pr_closed → PR chiusa senza merge", () => {
+    const text = (formatNotification(PR_CLOSED, "slack", "it").body as { text: string }).text;
+    expect(text).toContain("PR chiusa senza merge");
+    expect(text).toContain("<https://github.com/o/r/pull/7|Vedi PR>");
+  });
+
+  it("job.plan_review → piano in attesa di approvazione, link Rivedi", () => {
+    const text = (formatNotification(JOB_PLAN_REVIEW, "slack", "it").body as { text: string }).text;
+    expect(text).toContain("Piano in attesa di approvazione — *#42*");
     expect(text).toContain("<https://app.example.com/tickets/42|Rivedi>");
   });
 });
 
 describe("formatNotification — discord", () => {
-  it("usa content con link in stile markdown [label](url)", () => {
+  it("usa content con link in stile markdown [label](url) (en)", () => {
     const content = (formatNotification(TICKET_CREATED, "discord").body as { content: string })
       .content;
-    expect(content).toContain("#42");
+    expect(content).toContain("**#42**");
+    expect(content).toContain("New ticket");
+    expect(content).toContain("[Open](https://app.example.com/tickets/t1)");
+  });
+
+  it("pr_opened: link PR e ticket in stile markdown (en)", () => {
+    const content = (formatNotification(PR_OPENED, "discord").body as { content: string }).content;
+    expect(content).toContain("[View PR](https://github.com/o/r/pull/7)");
+    expect(content).toContain("[Ticket](https://app.example.com/tickets/t1)");
+  });
+
+  it("pr_closed: PR closed without merging, link in stile markdown (en)", () => {
+    const content = (formatNotification(PR_CLOSED, "discord").body as { content: string }).content;
+    expect(content).toContain("PR closed without merging");
+    expect(content).toContain("[View PR](https://github.com/o/r/pull/7)");
+    expect(content).toContain("[Ticket](https://app.example.com/tickets/t1)");
+  });
+
+  it("job.plan_review: plan awaiting approval, link in stile markdown (en)", () => {
+    const content = (formatNotification(JOB_PLAN_REVIEW, "discord").body as { content: string })
+      .content;
+    expect(content).toContain("Plan awaiting approval");
+    expect(content).toContain("[Review](https://app.example.com/tickets/42)");
+  });
+
+  it("it → testi italiani e label localizzate", () => {
+    const content = (formatNotification(TICKET_CREATED, "discord", "it").body as { content: string })
+      .content;
+    expect(content).toContain("🐛 Nuovo ticket **#42** — Crash al login (webapp, sdk_error). ");
     expect(content).toContain("[Apri](https://app.example.com/tickets/t1)");
   });
 
-  it("pr_opened: link PR e ticket in stile markdown", () => {
-    const content = (formatNotification(PR_OPENED, "discord").body as { content: string }).content;
-    expect(content).toContain("[Vedi PR](https://github.com/o/r/pull/7)");
-    expect(content).toContain("[Ticket](https://app.example.com/tickets/t1)");
-  });
-
-  it("pr_closed: PR chiusa senza merge, link in stile markdown", () => {
-    const content = (formatNotification(PR_CLOSED, "discord").body as { content: string }).content;
-    expect(content).toContain("PR chiusa senza merge");
-    expect(content).toContain("[Vedi PR](https://github.com/o/r/pull/7)");
-    expect(content).toContain("[Ticket](https://app.example.com/tickets/t1)");
-  });
-
-  it("job.plan_review: piano in attesa di approvazione, link in stile markdown", () => {
-    const content = (formatNotification(JOB_PLAN_REVIEW, "discord").body as { content: string })
+  it("it pr_opened → costo e label PR/Ticket in italiano", () => {
+    const content = (formatNotification(PR_OPENED, "discord", "it").body as { content: string })
       .content;
-    expect(content).toContain("Piano in attesa di approvazione");
-    expect(content).toContain("[Rivedi](https://app.example.com/tickets/42)");
+    expect(content).toContain("(costo $0.42)");
+    expect(content).toContain("[Vedi PR](https://github.com/o/r/pull/7)");
+    expect(content).toContain("[Ticket](https://app.example.com/tickets/t1)");
   });
 });
 
@@ -204,17 +251,47 @@ describe("formatNotification — generic", () => {
     expect(body.event).toBe("job.pr_closed");
     expect(body.prUrl).toBe("https://github.com/o/r/pull/7");
     expect(typeof body.message).toBe("string");
-    expect(body.message as string).toContain("PR chiusa senza merge");
+    expect(body.message as string).toContain("PR closed without merging");
   });
 
-  it("job.plan_review → payload piatto con messaggio di piano in attesa", () => {
+  it("job.plan_review → payload piatto con messaggio di piano in attesa (en)", () => {
     const body = formatNotification(JOB_PLAN_REVIEW, "generic").body as Record<string, unknown>;
     expect(body.event).toBe("job.plan_review");
     expect(body.ticketNumber).toBe(42);
     expect(body.title).toBe("Crash al login");
     expect(body.projectName).toBe("webapp");
     expect(body.ticketUrl).toBe("https://app.example.com/tickets/42");
-    expect(body.message as string).toContain("Piano in attesa di approvazione");
+    expect(body.message as string).toContain("Plan awaiting approval");
+  });
+
+  it("message → frase senza markup né link, niente emoji né spazio finale (en)", () => {
+    const body = formatNotification(TICKET_CREATED, "generic").body as Record<string, unknown>;
+    const message = body.message as string;
+    expect(message).toBe(
+      "New ticket #42 — Crash al login (webapp, sdk_error).",
+    );
+    // niente residui di emoji/markup/link
+    expect(message).not.toContain("🐛");
+    expect(message).not.toContain("*");
+    expect(message).not.toContain("<");
+    expect(message).not.toContain("[");
+  });
+
+  it("message → frase italiana quando lang='it'", () => {
+    const body = formatNotification(TICKET_CREATED, "generic", "it").body as Record<
+      string,
+      unknown
+    >;
+    expect(body.message as string).toBe(
+      "Nuovo ticket #42 — Crash al login (webapp, sdk_error).",
+    );
+  });
+
+  it("pr_opened it → message col suffisso costo italiano", () => {
+    const body = formatNotification(PR_OPENED, "generic", "it").body as Record<string, unknown>;
+    expect(body.message as string).toBe(
+      "PR aperta per #42 — Crash al login (costo $0.42).",
+    );
   });
 });
 

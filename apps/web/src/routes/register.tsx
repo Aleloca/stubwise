@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { getRouteApi, useNavigate } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { AuthShell } from "../components/auth-shell";
 import { FormError, SubmitButton, TextField } from "../components/field";
@@ -22,6 +23,7 @@ const route = getRouteApi("/register");
 export function RegisterPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
   const search = route.useSearch();
 
   const [token, setToken] = useState(search.token ?? "");
@@ -37,13 +39,15 @@ export function RegisterPage() {
     try {
       await postRegister({ email, password, token });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Errore imprevisto");
+      setError(cause instanceof Error ? cause.message : t("common:unexpectedError"));
       setPending(false);
       return;
     }
     try {
-      const { user } = await postLogin({ email, password });
-      queryClient.setQueryData(meQueryOptions.queryKey, { user });
+      await postLogin({ email, password });
+      // `/me` è l'unica fonte della lingua: la guardia del layout la rifetcha
+      // prima del render, quindi non primiamo una cache `me` incompleta.
+      queryClient.removeQueries({ queryKey: meQueryOptions.queryKey });
       await navigate({ to: "/tickets" });
     } catch {
       // L'account esiste e l'invito è consumato: ritentare il form sarebbe
@@ -55,14 +59,11 @@ export function RegisterPage() {
   }
 
   return (
-    <AuthShell
-      title="Crea il tuo account"
-      subtitle="Sei stato invitato su questa istanza Stubwise."
-    >
+    <AuthShell title={t("auth:register.title")} subtitle={t("auth:register.subtitle")}>
       <form onSubmit={(event) => void handleSubmit(event)} className="flex flex-col gap-4" noValidate>
         <TextField
           id="register-token"
-          label="Token di invito"
+          label={t("auth:register.tokenLabel")}
           type="text"
           autoComplete="off"
           required
@@ -71,7 +72,7 @@ export function RegisterPage() {
         />
         <TextField
           id="register-email"
-          label="Email"
+          label={t("auth:fields.email")}
           type="email"
           autoComplete="email"
           required
@@ -80,7 +81,7 @@ export function RegisterPage() {
         />
         <TextField
           id="register-password"
-          label="Password"
+          label={t("auth:fields.password")}
           type="password"
           autoComplete="new-password"
           required
@@ -90,7 +91,7 @@ export function RegisterPage() {
         />
         <FormError message={error} />
         <SubmitButton pending={pending}>
-          {pending ? "Registrazione…" : "Registrati"}
+          {pending ? t("auth:register.submitPending") : t("auth:register.submit")}
         </SubmitButton>
       </form>
     </AuthShell>

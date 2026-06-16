@@ -8,8 +8,13 @@
  * gating, POST best-effort) vive in `./dispatch.ts` e riusa `formatNotification`.
  */
 
+import { t, type Language } from "@stubwise/i18n";
+
 /** Formato del messaggio: combacia con l'enum DB `notification_format`. */
 export type NotificationFormat = "slack" | "discord" | "generic";
+
+/** Lingua dei testi della notifica (riusa il type di `@stubwise/i18n`). */
+export type { Language };
 
 /** Nuovo ticket SDK (errore o feedback) appena creato. */
 export interface TicketCreatedEvent {
@@ -104,129 +109,161 @@ export interface FormattedNotification {
 }
 
 // --- Formattazione ---
+//
+// I TESTI delle frasi vivono in `@stubwise/i18n` (chiavi `notify.*`), una sola
+// chiave per evento valida per tutti i formati. Ciò che differisce tra Slack /
+// Discord / generic — l'emoji, il rendering del riferimento al ticket (`#42`) e
+// dei link — è MARKUP, non testo, e resta gestito qui per formato:
+//   - `{ref}`  → `*#42*` (Slack) · `**#42**` (Discord) · `#42` (generic)
+//   - `{link}` → `<url|label>` (Slack) · `[label](url)` (Discord) · "" (generic)
+//   - `{cost}` → suffisso costo localizzato (`notify.costSuffix`) o vuoto
+//   - emoji    → anteposta per Slack/Discord, assente nel payload generico
 
-/** Etichetta del costo in USD, o stringa vuota se assente. */
-function costSuffixSlack(costUsd: number | null | undefined): string {
-  return costUsd != null ? ` (costo $${costUsd})` : "";
+/** Emoji prefisso (Slack/Discord) per ciascun evento. */
+const EMOJI: Record<NotificationKind, string> = {
+  "ticket.created": "🐛",
+  "job.pr_opened": "✅",
+  "job.pr_closed": "🔁",
+  "job.held": "⏸️",
+  "job.plan_review": "📝",
+  "job.failed": "❌",
+};
+
+/** Rende un link nel markup del formato (mai chiamato per `generic`). */
+function renderLink(
+  format: "slack" | "discord",
+  url: string,
+  label: string,
+): string {
+  return format === "slack" ? `<${url}|${label}>` : `[${label}](${url})`;
+}
+
+/** Suffisso costo localizzato, o stringa vuota se assente. */
+function costParam(
+  lang: Language,
+  costUsd: number | null | undefined,
+): string {
+  return costUsd != null ? t(lang, "notify.costSuffix", { cost: costUsd }) : "";
+}
+
+/** Riferimento al ticket (`#42`) nel markup del formato. */
+function refParam(format: NotificationFormat, ticketNumber: number): string {
+  const ref = `#${ticketNumber}`;
+  switch (format) {
+    case "slack":
+      return `*${ref}*`;
+    case "discord":
+      return `**${ref}**`;
+    case "generic":
+      return ref;
+  }
+}
+
+/** I link (già renderizzati) che chiudono la frase, per evento e formato. */
+function linkParam(
+  format: "slack" | "discord",
+  lang: Language,
+  event: NotificationEvent,
+): string {
+  switch (event.kind) {
+    case "ticket.created":
+      return renderLink(format, event.ticketUrl, t(lang, "notify.linkOpen"));
+    case "job.pr_opened":
+    case "job.pr_closed":
+      return (
+        `${renderLink(format, event.prUrl, t(lang, "notify.linkPr"))} · ` +
+        `${renderLink(format, event.ticketUrl, t(lang, "notify.linkTicket"))}`
+      );
+    case "job.held":
+      return renderLink(format, event.ticketUrl, t(lang, "notify.linkOpen"));
+    case "job.plan_review":
+      return renderLink(format, event.ticketUrl, t(lang, "notify.linkReview"));
+    case "job.failed":
+      return renderLink(format, event.ticketUrl, t(lang, "notify.linkOpen"));
+  }
+}
+
+/** Chiave catalogo `notify.*` per ciascun evento. */
+const KEY_FOR_KIND: Record<NotificationKind, string> = {
+  "ticket.created": "notify.ticketCreated",
+  "job.pr_opened": "notify.prOpened",
+  "job.pr_closed": "notify.prClosed",
+  "job.held": "notify.jobHeld",
+  "job.plan_review": "notify.planReview",
+  "job.failed": "notify.jobFailed",
+};
+
+/** Params (oltre a ref/link/cost) specifici per evento, passati a `t()`. */
+function textParams(event: NotificationEvent): Record<string, string | number> {
+  const base: Record<string, string | number> = {
+    ticketTitle: event.ticketTitle,
+    projectName: event.projectName,
+  };
+  switch (event.kind) {
+    case "ticket.created":
+      return { ...base, source: event.source };
+    case "job.held":
+      return { ...base, type: event.type, effort: event.effort };
+    case "job.failed":
+      return { ...base, error: event.error };
+    default:
+      return base;
+  }
+}
+
+/**
+ * Frase localizzata per un formato con markup (Slack/Discord), inclusi emoji,
+ * riferimento `#n` e link. Unica fonte testuale: le chiavi `notify.*`.
+ */
+function renderText(
+  format: "slack" | "discord",
+  lang: Language,
+  event: NotificationEvent,
+): string {
+  const cost = event.kind === "job.pr_opened" ? costParam(lang, event.costUsd) : "";
+  const sentence = t(lang, KEY_FOR_KIND[event.kind], {
+    ...textParams(event),
+    ref: refParam(format, event.ticketNumber),
+    cost,
+    link: linkParam(format, lang, event),
+  });
+  return `${EMOJI[event.kind]} ${sentence}`;
 }
 
 /** Corpo Slack: `{ text }` in mrkdwn, link in stile `<url|label>`. */
-function formatSlack(event: NotificationEvent): Record<string, unknown> {
-  switch (event.kind) {
-    case "ticket.created":
-      return {
-        text:
-          `🐛 Nuovo ticket *#${event.ticketNumber}* — ${event.ticketTitle} ` +
-          `(${event.projectName}, ${event.source}). <${event.ticketUrl}|Apri>`,
-      };
-    case "job.pr_opened":
-      return {
-        text:
-          `✅ PR aperta per *#${event.ticketNumber}* — ${event.ticketTitle}` +
-          `${costSuffixSlack(event.costUsd)}. ` +
-          `<${event.prUrl}|Vedi PR> · <${event.ticketUrl}|Ticket>`,
-      };
-    case "job.pr_closed":
-      return {
-        text:
-          `🔁 PR chiusa senza merge — ticket riaperto: *#${event.ticketNumber}* — ${event.ticketTitle}. ` +
-          `<${event.prUrl}|Vedi PR> · <${event.ticketUrl}|Ticket>`,
-      };
-    case "job.held":
-      return {
-        text:
-          `⏸️ *#${event.ticketNumber}* in attesa di revisione — ${event.ticketTitle} ` +
-          `(${event.type}, effort ${event.effort}/5). <${event.ticketUrl}|Apri>`,
-      };
-    case "job.plan_review":
-      return {
-        text:
-          `📝 Piano in attesa di approvazione — *#${event.ticketNumber}* — ${event.ticketTitle} ` +
-          `(${event.projectName}). <${event.ticketUrl}|Rivedi>`,
-      };
-    case "job.failed":
-      return {
-        text:
-          `❌ Fix AI fallito su *#${event.ticketNumber}* — ${event.ticketTitle}: ` +
-          `${event.error}. <${event.ticketUrl}|Apri>`,
-      };
-  }
-}
-
-/** Etichetta del costo per Discord/markdown. */
-function costSuffixMd(costUsd: number | null | undefined): string {
-  return costUsd != null ? ` (costo $${costUsd})` : "";
+function formatSlack(event: NotificationEvent, lang: Language): Record<string, unknown> {
+  return { text: renderText("slack", lang, event) };
 }
 
 /** Corpo Discord: `{ content }` in markdown, link in stile `[label](url)`. */
-function formatDiscord(event: NotificationEvent): Record<string, unknown> {
-  switch (event.kind) {
-    case "ticket.created":
-      return {
-        content:
-          `🐛 Nuovo ticket **#${event.ticketNumber}** — ${event.ticketTitle} ` +
-          `(${event.projectName}, ${event.source}). [Apri](${event.ticketUrl})`,
-      };
-    case "job.pr_opened":
-      return {
-        content:
-          `✅ PR aperta per **#${event.ticketNumber}** — ${event.ticketTitle}` +
-          `${costSuffixMd(event.costUsd)}. ` +
-          `[Vedi PR](${event.prUrl}) · [Ticket](${event.ticketUrl})`,
-      };
-    case "job.pr_closed":
-      return {
-        content:
-          `🔁 PR chiusa senza merge — ticket riaperto: **#${event.ticketNumber}** — ${event.ticketTitle}. ` +
-          `[Vedi PR](${event.prUrl}) · [Ticket](${event.ticketUrl})`,
-      };
-    case "job.held":
-      return {
-        content:
-          `⏸️ **#${event.ticketNumber}** in attesa di revisione — ${event.ticketTitle} ` +
-          `(${event.type}, effort ${event.effort}/5). [Apri](${event.ticketUrl})`,
-      };
-    case "job.plan_review":
-      return {
-        content:
-          `📝 Piano in attesa di approvazione — **#${event.ticketNumber}** — ${event.ticketTitle} ` +
-          `(${event.projectName}). [Rivedi](${event.ticketUrl})`,
-      };
-    case "job.failed":
-      return {
-        content:
-          `❌ Fix AI fallito su **#${event.ticketNumber}** — ${event.ticketTitle}: ` +
-          `${event.error}. [Apri](${event.ticketUrl})`,
-      };
-  }
+function formatDiscord(event: NotificationEvent, lang: Language): Record<string, unknown> {
+  return { content: renderText("discord", lang, event) };
 }
 
-/** Frase di riepilogo (italiano, senza markup) per il payload generico. */
-function plainMessage(event: NotificationEvent): string {
-  switch (event.kind) {
-    case "ticket.created":
-      return `Nuovo ticket #${event.ticketNumber} — ${event.ticketTitle} (${event.projectName}, ${event.source}).`;
-    case "job.pr_opened":
-      return `PR aperta per #${event.ticketNumber} — ${event.ticketTitle}.`;
-    case "job.pr_closed":
-      return `PR chiusa senza merge — ticket riaperto: #${event.ticketNumber} — ${event.ticketTitle}.`;
-    case "job.held":
-      return `#${event.ticketNumber} in attesa di revisione — ${event.ticketTitle} (${event.type}, effort ${event.effort}/5).`;
-    case "job.plan_review":
-      return `Piano in attesa di approvazione — #${event.ticketNumber} — ${event.ticketTitle} (${event.projectName}).`;
-    case "job.failed":
-      return `Fix AI fallito su #${event.ticketNumber} — ${event.ticketTitle}: ${event.error}.`;
-  }
+/**
+ * Frase di riepilogo localizzata, senza markup né link, per il payload generico.
+ * Riusa la stessa chiave `notify.*`: `{link}` è vuoto (gli URL sono campi a
+ * parte) e `{ref}` è il `#n` nudo; lo spazio finale lasciato da `{link}` vuoto
+ * viene rifilato.
+ */
+function plainMessage(event: NotificationEvent, lang: Language): string {
+  const cost = event.kind === "job.pr_opened" ? costParam(lang, event.costUsd) : "";
+  return t(lang, KEY_FOR_KIND[event.kind], {
+    ...textParams(event),
+    ref: refParam("generic", event.ticketNumber),
+    cost,
+    link: "",
+  }).trim();
 }
 
 /** Payload generico machine-readable: campi piatti, niente markup. */
-function formatGeneric(event: NotificationEvent): Record<string, unknown> {
+function formatGeneric(event: NotificationEvent, lang: Language): Record<string, unknown> {
   const base = {
     event: event.kind,
     ticketNumber: event.ticketNumber,
     title: event.ticketTitle,
     projectName: event.projectName,
-    message: plainMessage(event),
+    message: plainMessage(event, lang),
     ticketUrl: event.ticketUrl,
   };
   switch (event.kind) {
@@ -246,21 +283,24 @@ function formatGeneric(event: NotificationEvent): Record<string, unknown> {
 }
 
 /**
- * Compone il body posto al webhook per il formato dato. Unica fonte di verità
- * condivisa da dispatch reale, anteprima web e documentazione.
+ * Compone il body posto al webhook per il formato dato, nella lingua `lang`
+ * (default `"en"`). Unica fonte di verità condivisa da dispatch reale, anteprima
+ * web e documentazione. I testi vengono da `@stubwise/i18n`; il markup
+ * (emoji/ref/link) è applicato per formato.
  */
 export function formatNotification(
   event: NotificationEvent,
   format: NotificationFormat,
+  lang: Language = "en",
 ): FormattedNotification {
   const contentType = "application/json";
   switch (format) {
     case "slack":
-      return { contentType, body: formatSlack(event) };
+      return { contentType, body: formatSlack(event, lang) };
     case "discord":
-      return { contentType, body: formatDiscord(event) };
+      return { contentType, body: formatDiscord(event, lang) };
     case "generic":
-      return { contentType, body: formatGeneric(event) };
+      return { contentType, body: formatGeneric(event, lang) };
   }
 }
 

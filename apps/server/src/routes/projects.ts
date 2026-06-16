@@ -9,6 +9,7 @@ import { requireAdmin, requireAuth } from "../auth/session.js";
 import { GitProviderError } from "@stubwise/git";
 import { decrypt, gitAccounts, projects } from "@stubwise/db";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
+import { apiError } from "../errors.js";
 
 /**
  * Tentativi massimi di insert prima di arrendersi sulla generazione dello
@@ -141,7 +142,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         .select()
         .from(gitAccounts)
         .where(eq(gitAccounts.id, gitAccountId));
-      if (!account) return reply.code(404).send({ message: "Account git non trovato" });
+      if (!account) return apiError(reply, 404, "git_account_not_found", "Git account not found");
 
       const baseSlug = slugify(name);
       // Unicità dello slug per insert-e-riprova: in caso di collisione si
@@ -211,7 +212,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         .from(projects)
         .innerJoin(gitAccounts, eq(projects.gitAccountId, gitAccounts.id))
         .where(eq(projects.slug, request.params.slug));
-      if (!row) return reply.code(404).send({ message: "Progetto non trovato" });
+      if (!row) return apiError(reply, 404, "project_not_found", "Project not found");
       return toPublicProject(row.project, row.gitAccountName);
     },
   );
@@ -233,7 +234,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         .select({ webhookSecret: projects.webhookSecret })
         .from(projects)
         .where(eq(projects.slug, request.params.slug));
-      if (!row) return reply.code(404).send({ message: "Progetto non trovato" });
+      if (!row) return apiError(reply, 404, "project_not_found", "Project not found");
       return { webhookSecret: row.webhookSecret, webhookPath: `/webhooks/git/${request.params.slug}` };
     },
   );
@@ -265,7 +266,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         .from(projects)
         .innerJoin(gitAccounts, eq(projects.gitAccountId, gitAccounts.id))
         .where(eq(projects.slug, request.params.slug));
-      if (!row) return reply.code(404).send({ message: "Progetto non trovato" });
+      if (!row) return apiError(reply, 404, "project_not_found", "Project not found");
       const { project, account } = row;
 
       // Decifratura delle credenziali dell'ACCOUNT con la chiave dell'app
@@ -277,9 +278,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
           JSON.parse(decrypt(account.encryptedCredentials, app.encryptionKey)),
         );
       } catch {
-        return reply
-          .code(400)
-          .send({ message: "credenziali dell'account git non decifrabili" });
+        return apiError(reply, 400, "credentials_undecryptable", "Git account credentials cannot be decrypted");
       }
 
       const url = `${app.publicUrl}/webhooks/git/${request.params.slug}`;
@@ -306,7 +305,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         if (error instanceof GitProviderError) {
           // 422: la richiesta è valida ma il provider la rifiuta (es. scope
           // webhook mancante). Il messaggio < 500 passa intatto al client.
-          return reply.code(422).send({ message: error.message });
+          return apiError(reply, 422, "git_provider_error", error.message);
         }
         throw error;
       }
@@ -335,7 +334,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
           .select()
           .from(gitAccounts)
           .where(eq(gitAccounts.id, gitAccountId));
-        if (!account) return reply.code(404).send({ message: "Account git non trovato" });
+        if (!account) return apiError(reply, 404, "git_account_not_found", "Git account not found");
         updates.gitAccountId = account.id;
         updates.provider = account.provider;
       }
@@ -347,7 +346,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
           .set(updates)
           .where(eq(projects.slug, request.params.slug))
           .returning();
-        if (!updated) return reply.code(404).send({ message: "Progetto non trovato" });
+        if (!updated) return apiError(reply, 404, "project_not_found", "Project not found");
       }
 
       const [row] = await app.db
@@ -355,7 +354,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         .from(projects)
         .innerJoin(gitAccounts, eq(projects.gitAccountId, gitAccounts.id))
         .where(eq(projects.slug, request.params.slug));
-      if (!row) return reply.code(404).send({ message: "Progetto non trovato" });
+      if (!row) return apiError(reply, 404, "project_not_found", "Project not found");
       return toPublicProject(row.project, row.gitAccountName);
     },
   );

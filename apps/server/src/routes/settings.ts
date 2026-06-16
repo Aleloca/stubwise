@@ -1,10 +1,10 @@
-import { effortSchema, ticketTypeSchema, type TicketType } from "@stubwise/shared";
+import { effortSchema, languageSchema, ticketTypeSchema, type TicketType } from "@stubwise/shared";
 import { sendTest } from "@stubwise/notifications";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { Db } from "@stubwise/db";
-import { automationRules, notificationSettings } from "@stubwise/db";
+import { automationRules, instanceSettings, notificationSettings } from "@stubwise/db";
 import { requireAdmin } from "../auth/session.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -92,6 +92,20 @@ const testNotificationResponseSchema = z.object({
 });
 
 /**
+ * Impostazioni d'istanza (riga singleton id=1). `contentLanguage` è la lingua
+ * usata per i CONTENUTI generati dalla piattaforma (commenti AI, report PR,
+ * messaggi di notifica) — distinta dalla lingua dell'interfaccia del singolo
+ * utente. La migrazione seeda la riga id=1; il PUT fa upsert idempotente.
+ */
+const instanceSettingsResponseSchema = z.object({
+  contentLanguage: languageSchema,
+});
+
+const updateInstanceBodySchema = z.object({
+  contentLanguage: languageSchema,
+});
+
+/**
  * Legge la riga di configurazione delle notifiche. La migrazione seeda la riga
  * id=1, ma per robustezza (DB ripristinato senza seed) si ripiega su default.
  */
@@ -123,6 +137,18 @@ async function loadNotificationSettings(
     notifyPlanReview: row.notifyPlanReview,
     notifyJobFailed: row.notifyJobFailed,
   };
+}
+
+/**
+ * Legge la riga singleton delle impostazioni d'istanza. La migrazione seeda
+ * id=1 con default 'en', ma per robustezza (DB ripristinato senza seed) si
+ * ripiega sul default dell'enum.
+ */
+async function loadInstanceSettings(
+  db: Db,
+): Promise<z.infer<typeof instanceSettingsResponseSchema>> {
+  const [row] = await db.select().from(instanceSettings).limit(1);
+  return { contentLanguage: row?.contentLanguage ?? "en" };
 }
 
 /**
@@ -276,6 +302,46 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
       // l'admin deve sapere se il webhook è corretto. Usa il format salvato e
       // un evento ticket.created fittizio con link a ${publicUrl}/tickets/test.
       return sendTest(app.db, app.publicUrl);
+    },
+  );
+
+  app.get(
+    "/instance",
+    {
+      preHandler: requireAdmin,
+      schema: {
+        response: { 200: instanceSettingsResponseSchema, ...authErrorResponses },
+      },
+    },
+    async () => {
+      return loadInstanceSettings(app.db);
+    },
+  );
+
+  app.put(
+    "/instance",
+    {
+      preHandler: requireAdmin,
+      schema: {
+        body: updateInstanceBodySchema,
+        response: {
+          200: instanceSettingsResponseSchema,
+          400: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request) => {
+      // Upsert sul singleton (id=1): la migrazione seeda la riga, ma onConflict
+      // la rende idempotente anche se mancasse. updatedAt è gestito da $onUpdate.
+      await app.db
+        .insert(instanceSettings)
+        .values({ id: 1, contentLanguage: request.body.contentLanguage })
+        .onConflictDoUpdate({
+          target: instanceSettings.id,
+          set: { contentLanguage: request.body.contentLanguage },
+        });
+      return loadInstanceSettings(app.db);
     },
   );
 }

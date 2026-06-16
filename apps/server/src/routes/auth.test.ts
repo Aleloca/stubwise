@@ -143,6 +143,7 @@ describe("login e sessioni", () => {
       id: expect.any(String),
       email: "admin@example.com",
       role: "admin",
+      language: "en",
     });
     expect(body.user).not.toHaveProperty("passwordHash");
   });
@@ -255,6 +256,65 @@ describe("login e sessioni", () => {
     const cleared = res.cookies.find((c) => c.name === "stubwise_session");
     expect(cleared).toBeDefined();
     expect(cleared?.value).toBe("");
+  });
+});
+
+describe("preferenza lingua utente", () => {
+  it("GET /api/auth/me espone la lingua dell'utente (default 'en')", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/auth/me",
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { user: { language: string } }).user.language).toBe("en");
+  });
+
+  it("PATCH /api/auth/me cambia la lingua e si riflette in /me", async () => {
+    const patch = await app.inject({
+      method: "PATCH",
+      url: "/api/auth/me",
+      headers: { cookie: adminCookie },
+      payload: { language: "it" },
+    });
+    expect(patch.statusCode).toBe(200);
+    expect(patch.json()).toEqual({ language: "it" });
+
+    const me = await app.inject({
+      method: "GET",
+      url: "/api/auth/me",
+      headers: { cookie: adminCookie },
+    });
+    expect(me.statusCode).toBe(200);
+    expect((me.json() as { user: { language: string } }).user.language).toBe("it");
+
+    // Ripristina la lingua di default per non interferire con altri test che
+    // riusano adminCookie e si aspettano 'en'.
+    await app.inject({
+      method: "PATCH",
+      url: "/api/auth/me",
+      headers: { cookie: adminCookie },
+      payload: { language: "en" },
+    });
+  });
+
+  it("PATCH /api/auth/me con lingua non valida risponde 400", async () => {
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/api/auth/me",
+      headers: { cookie: adminCookie },
+      payload: { language: "fr" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("PATCH /api/auth/me senza cookie risponde 401", async () => {
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/api/auth/me",
+      payload: { language: "it" },
+    });
+    expect(res.statusCode).toBe(401);
   });
 });
 

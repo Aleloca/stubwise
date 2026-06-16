@@ -1,5 +1,5 @@
 import { automationRules, comments, tickets, type Db } from "@stubwise/db";
-import { EFFORT_LABELS } from "@stubwise/shared";
+import { t } from "@stubwise/i18n";
 import { and, desc, eq, ne } from "drizzle-orm";
 import {
   AgentRunError,
@@ -16,6 +16,7 @@ import {
   recordAgentRun,
   type AiJob,
 } from "../queue.js";
+import { getContentLanguage } from "../settings.js";
 import { notify, ticketUrl, type NotifyDeps } from "./notify.js";
 import { buildTriagePrompt, parseTriageDecision, type TriageDecision } from "./prompts.js";
 
@@ -84,6 +85,10 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
   const maxTurns = deps.maxTurns ?? 10;
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TRIAGE_TIMEOUT_MS;
 
+  // Lingua dei contenuti generati (prompt che chiede il `reason` nella lingua
+  // d'istanza + commenti AI held/skip/duplicate), risolta UNA VOLTA per job.
+  const lang = await getContentLanguage(db);
+
   const [ticket] = await db.select().from(tickets).where(eq(tickets.id, job.ticketId));
   if (!ticket) {
     // Impossibile finché vale la FK (il job cade in cascata col ticket), ma
@@ -123,7 +128,7 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
 
   await appendLog(db, job.id, `[triage] avviato per il ticket #${ticket.number} (model ${model})`);
 
-  const prompt = buildTriagePrompt({ ticket, recentTickets });
+  const prompt = buildTriagePrompt({ ticket, recentTickets }, lang);
 
   // Un solo retry: se il modello non emette un JSON valido (o indica un
   // duplicato inesistente) si riprova una volta con lo stesso prompt, poi
@@ -269,12 +274,17 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
       // un commento AI spiega il perché. Il commento sta in transazione con la
       // chiusura del ticket; holdJob è il commit point separato (come gli
       // altri esiti): se la ownership è persa il commento resta, accettabile.
-      const effortLabel = EFFORT_LABELS[decision.effort] ?? String(decision.effort);
+      const effortLabel = t(lang, `effort.${decision.effort}`);
       await db.transaction(async (tx) => {
         await tx.insert(comments).values({
           ticketId: ticket.id,
           authorType: "ai",
-          body: `Triage AI: tipo=${decision.type}, effort=${effortLabel} (${decision.effort}/5). Automazione non avviata (auto-fix disattivato per questo tipo, oppure effort sopra la soglia di ${effectiveRule.maxEffort}). Puoi avviare il fix manualmente.`,
+          body: t(lang, "comment.triageHeld", {
+            type: decision.type,
+            effortLabel,
+            effort: decision.effort,
+            threshold: effectiveRule.maxEffort,
+          }),
         });
         await tx.update(tickets).set({ status: "triaged" }).where(eq(tickets.id, ticket.id));
       });
@@ -307,7 +317,7 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
         await tx.insert(comments).values({
           ticketId: ticket.id,
           authorType: "ai",
-          body: `Triage AI: salto questo ticket — ${decision.reason}`,
+          body: t(lang, "comment.triageSkip", { reason: decision.reason }),
         });
       });
       const closed = await completeJob(db, job.id, {
@@ -329,7 +339,7 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
         await tx.insert(comments).values({
           ticketId: ticket.id,
           authorType: "ai",
-          body: `Triage AI: duplicato di #${target.number} — "${target.title}"`,
+          body: t(lang, "comment.triageDuplicate", { number: target.number, title: target.title }),
         });
         await tx.update(tickets).set({ status: "closed" }).where(eq(tickets.id, ticket.id));
       });

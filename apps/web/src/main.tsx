@@ -3,6 +3,9 @@ import { RouterProvider } from "@tanstack/react-router";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { createAppRouter } from "./router";
+// Init i18n PRIMA del render: i18next è pronto (sincrono, risorse inlinate)
+// quando il primo componente monta, quindi nessuna chiave manca al primo paint.
+import "./i18n";
 import "./styles.css";
 
 const queryClient = new QueryClient({

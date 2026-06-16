@@ -91,9 +91,9 @@ async function renderForm(props: { onSubmit: (values: unknown) => Promise<void> 
   );
   // Attende che la suspense risolva (gli account sono caricati) e che il
   // BranchSelect abbia caricato i branch (passa da "caricamento" al select).
-  await screen.findByLabelText("Nome");
+  await screen.findByLabelText("Name");
   await waitFor(() => {
-    const branch = screen.getByLabelText("Branch di default");
+    const branch = screen.getByLabelText("Default branch");
     expect(branch.tagName).toBe("SELECT");
   });
 }
@@ -103,14 +103,14 @@ describe("ProjectForm in modifica", () => {
     mockAccounts([ACCOUNT_A, ACCOUNT_B]);
     await renderForm({ onSubmit: vi.fn() });
 
-    expect(screen.getByLabelText("Nome")).toHaveValue("Demo Shop");
-    expect(screen.getByLabelText("URL repository")).toHaveValue("https://github.com/acme/demo-shop");
-    expect(screen.getByLabelText("Branch di default")).toHaveValue("main");
+    expect(screen.getByLabelText("Name")).toHaveValue("Demo Shop");
+    expect(screen.getByLabelText("Repository URL")).toHaveValue("https://github.com/acme/demo-shop");
+    expect(screen.getByLabelText("Default branch")).toHaveValue("main");
     // L'account collegato è preselezionato.
-    expect(screen.getByLabelText("Account git")).toHaveValue(ACCOUNT_A.id);
+    expect(screen.getByLabelText("Git account")).toHaveValue(ACCOUNT_A.id);
 
     // Nessun campo credenziale né bottone di validazione: vivono sull'account.
-    expect(screen.queryByLabelText("Token di accesso")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Access token")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Username")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /valida/i })).not.toBeInTheDocument();
   });
@@ -121,10 +121,10 @@ describe("ProjectForm in modifica", () => {
     mockAccounts([ACCOUNT_A, ACCOUNT_B]);
     await renderForm({ onSubmit });
 
-    const name = screen.getByLabelText("Nome");
+    const name = screen.getByLabelText("Name");
     await user.clear(name);
     await user.type(name, "Demo Shop EU");
-    await user.click(screen.getByRole("button", { name: "Salva modifiche" }));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     expect(onSubmit).toHaveBeenCalledWith({
       name: "Demo Shop EU",
@@ -142,8 +142,8 @@ describe("ProjectForm in modifica", () => {
     mockAccounts([ACCOUNT_A, ACCOUNT_B]);
     await renderForm({ onSubmit });
 
-    await user.selectOptions(screen.getByLabelText("Account git"), ACCOUNT_B.id);
-    await user.click(screen.getByRole("button", { name: "Salva modifiche" }));
+    await user.selectOptions(screen.getByLabelText("Git account"), ACCOUNT_B.id);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     expect(onSubmit).toHaveBeenCalledWith({
       name: "Demo Shop",
@@ -159,7 +159,7 @@ describe("ProjectForm in modifica", () => {
     mockAccounts([ACCOUNT_A]);
     await renderForm({ onSubmit });
 
-    await user.click(screen.getByRole("button", { name: "Salva modifiche" }));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Vietato");
   });
@@ -172,7 +172,7 @@ describe("ProjectForm in modifica", () => {
     });
     await renderForm({ onSubmit: vi.fn() });
 
-    const branch = screen.getByLabelText("Branch di default");
+    const branch = screen.getByLabelText("Default branch");
     expect(branch.tagName).toBe("SELECT");
     expect(branch).toHaveValue("main");
     // L'elenco arriva dall'API; "release" è una delle opzioni.
@@ -192,7 +192,7 @@ describe("ProjectForm in modifica", () => {
       </QueryClientProvider>,
     );
 
-    const branch = await screen.findByLabelText("Branch di default");
+    const branch = await screen.findByLabelText("Default branch");
     await waitFor(() => expect(branch.tagName).toBe("INPUT"));
     expect(branch).toHaveValue("main");
   });

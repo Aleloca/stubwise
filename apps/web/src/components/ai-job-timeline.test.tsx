@@ -23,7 +23,7 @@ describe("AIJobTimeline", () => {
   it("senza job mostra lo stato vuoto", () => {
     render(<AIJobTimeline jobs={[]} />);
 
-    expect(screen.getByText(/nessuna attività ai/i)).toBeInTheDocument();
+    expect(screen.getByText(/no ai activity/i)).toBeInTheDocument();
   });
 
   it("renderizza un job per stato con l'etichetta giusta", () => {
@@ -39,14 +39,14 @@ describe("AIJobTimeline", () => {
       />,
     );
 
-    expect(screen.getByText("In coda")).toBeInTheDocument();
-    expect(screen.getByText("Fix in corso")).toBeInTheDocument();
-    expect(screen.getByText("PR aperta")).toBeInTheDocument();
-    expect(screen.getByText("Fallito")).toBeInTheDocument();
-    expect(screen.getByText("Saltato")).toBeInTheDocument();
+    expect(screen.getByText("Queued")).toBeInTheDocument();
+    expect(screen.getByText("Fixing")).toBeInTheDocument();
+    expect(screen.getByText("PR opened")).toBeInTheDocument();
+    expect(screen.getByText("Failed")).toBeInTheDocument();
+    expect(screen.getByText("Skipped")).toBeInTheDocument();
   });
 
-  it("job con PR mergiata: etichetta PR mergiata e link alla PR visibile", () => {
+  it("job con PR mergiata: etichetta PR merged e link alla PR visibile", () => {
     render(
       <AIJobTimeline
         jobs={[
@@ -59,8 +59,8 @@ describe("AIJobTimeline", () => {
       />,
     );
 
-    expect(screen.getByText("PR mergiata")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /vedi pr/i })).toHaveAttribute(
+    expect(screen.getByText("PR merged")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /view pr/i })).toHaveAttribute(
       "href",
       "https://github.com/acme/repo/pull/7",
     );
@@ -79,30 +79,30 @@ describe("AIJobTimeline", () => {
       />,
     );
 
-    expect(screen.getByRole("link", { name: /vedi pr/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /view pr/i })).toHaveAttribute(
       "href",
       "https://github.com/acme/repo/pull/7",
     );
   });
 
-  it("job 'held': etichetta In attesa e nota esplicativa", () => {
+  it("job 'held': etichetta On hold e nota esplicativa", () => {
     render(<AIJobTimeline jobs={[makeJob({ id: "j1", status: "held" })]} />);
 
-    expect(screen.getByText("In attesa")).toBeInTheDocument();
-    expect(screen.getByText(/Automazione non avviata/i)).toBeInTheDocument();
+    expect(screen.getByText("On hold")).toBeInTheDocument();
+    expect(screen.getByText(/Automation not started/i)).toBeInTheDocument();
   });
 
-  it("job 'pr_closed': etichetta PR chiusa", () => {
+  it("job 'pr_closed': etichetta PR closed", () => {
     render(<AIJobTimeline jobs={[makeJob({ id: "j1", status: "pr_closed" })]} />);
 
-    expect(screen.getByText("PR chiusa")).toBeInTheDocument();
+    expect(screen.getByText("PR closed")).toBeInTheDocument();
   });
 
-  it("job 'awaiting_plan_approval': etichetta Piano da approvare e nota esplicativa", () => {
+  it("job 'awaiting_plan_approval': etichetta Plan to approve e nota esplicativa", () => {
     render(<AIJobTimeline jobs={[makeJob({ id: "j1", status: "awaiting_plan_approval" })]} />);
 
-    expect(screen.getByText("Piano da approvare")).toBeInTheDocument();
-    expect(screen.getByText(/approvalo o rifiutalo/i)).toBeInTheDocument();
+    expect(screen.getByText("Plan to approve")).toBeInTheDocument();
+    expect(screen.getByText(/approve or reject it/i)).toBeInTheDocument();
   });
 
   it("job fallito: mostra il messaggio d'errore", () => {
@@ -123,14 +123,14 @@ describe("AIJobTimeline", () => {
     );
 
     expect(screen.queryByText(/triage ok/)).not.toBeInTheDocument();
-    const toggle = screen.getByRole("button", { name: /mostra log/i });
+    const toggle = screen.getByRole("button", { name: /show log/i });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
 
     await userEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText(/triage ok/)).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: /nascondi log/i }));
+    await userEvent.click(screen.getByRole("button", { name: /hide log/i }));
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText(/triage ok/)).not.toBeInTheDocument();
   });
@@ -156,7 +156,7 @@ describe("AIJobTimeline", () => {
     );
 
     const entry = screen.getByRole("listitem");
-    expect(within(entry).getByText(/inizio/i)).toBeInTheDocument();
-    expect(within(entry).getByText(/fine/i)).toBeInTheDocument();
+    expect(within(entry).getByText(/started/i)).toBeInTheDocument();
+    expect(within(entry).getByText(/finished/i)).toBeInTheDocument();
   });
 });

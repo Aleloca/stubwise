@@ -1,6 +1,7 @@
 import { gitProviderKindSchema, type GitProviderKind } from "@stubwise/shared";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import {
   ApiError,
   deleteGitAccount,
@@ -28,6 +29,7 @@ import { formatDateTime } from "../lib/format";
  * write-only: non vengono mai mostrate, in modifica si possono solo sostituire.
  */
 export function GitAccountsSection() {
+  const { t } = useTranslation();
   const { data: accounts } = useSuspenseQuery(gitAccountsQueryOptions);
   const [creating, setCreating] = useState(false);
 
@@ -36,10 +38,10 @@ export function GitAccountsSection() {
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
         <div>
           <h2 className="font-mono text-[11px] font-medium tracking-[0.16em] text-fg-muted uppercase">
-            Account Git
+            {t("settings:gitAccounts.title")}
           </h2>
           <p className="mt-1 font-mono text-[11px] text-fg-faint">
-            Credenziali riutilizzabili: un account può essere collegato a più progetti.
+            {t("settings:gitAccounts.subtitle")}
           </p>
         </div>
         {!creating && (
@@ -48,7 +50,7 @@ export function GitAccountsSection() {
             onClick={() => setCreating(true)}
             className="rounded-sm bg-signal px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright active:bg-signal-dim"
           >
-            Nuovo account git
+            {t("settings:gitAccounts.newAccount")}
           </button>
         )}
       </header>
@@ -61,7 +63,7 @@ export function GitAccountsSection() {
 
       {accounts.length === 0 && !creating ? (
         <p className="px-4 py-8 text-center font-mono text-[12px] tracking-[0.14em] text-fg-faint uppercase">
-          // nessun account git
+          {t("settings:gitAccounts.empty")}
         </p>
       ) : (
         <ul className="divide-y divide-line">
@@ -81,6 +83,7 @@ const emptyCredentials: CredentialFieldsValue = { username: "", email: "", token
  * validazione prima di salvare; sul successo invalida la lista e si chiude.
  */
 function NewAccountForm({ onDone }: { onDone: () => void }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [provider, setProvider] = useState<GitProviderKind>("bitbucket");
@@ -101,7 +104,7 @@ function NewAccountForm({ onDone }: { onDone: () => void }) {
     setError(null);
     const creds = buildCredentials(credentials);
     if (!creds) {
-      setError("Il token di accesso è obbligatorio");
+      setError(t("settings:gitAccounts.tokenRequired"));
       return;
     }
     const trimmedWorkspace = workspace.trim();
@@ -117,15 +120,15 @@ function NewAccountForm({ onDone }: { onDone: () => void }) {
     <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
       <TextField
         id="new-account-name"
-        label="Nome"
+        label={t("settings:gitAccounts.name")}
         required
-        placeholder="Es. Bitbucket Produzione"
+        placeholder={t("settings:gitAccounts.namePlaceholder")}
         value={name}
         onChange={(event) => setName(event.target.value)}
       />
       <SelectField
         id="new-account-provider"
-        label="Provider"
+        label={t("settings:gitAccounts.provider")}
         value={provider}
         onChange={(event) => setProvider(event.target.value as GitProviderKind)}
         options={gitProviderKindSchema.options.map((kind) => ({
@@ -138,21 +141,20 @@ function NewAccountForm({ onDone }: { onDone: () => void }) {
         <div className="flex flex-col gap-1.5">
           <TextField
             id="new-account-workspace"
-            label="Workspace"
-            placeholder="es. mio-workspace"
+            label={t("settings:gitAccounts.workspace")}
+            placeholder={t("settings:gitAccounts.workspacePlaceholder")}
             value={workspace}
             onChange={(event) => setWorkspace(event.target.value)}
           />
           <p className="font-mono text-[11px] text-fg-faint">
-            Slug del workspace Bitbucket (es. mio-workspace) — richiesto per gli API token, dato che
-            Bitbucket ha dismesso l&apos;elenco globale dei repo.
+            {t("settings:gitAccounts.workspaceHint")}
           </p>
         </div>
       )}
 
       <fieldset className="rounded-sm border border-line bg-ink-950/40 p-4">
         <legend className="px-1.5 font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase">
-          Credenziali git
+          {t("settings:gitAccounts.gitCredentials")}
         </legend>
         <CredentialFields
           idPrefix="new-account"
@@ -161,22 +163,21 @@ function NewAccountForm({ onDone }: { onDone: () => void }) {
           tokenRequired
         />
         <p className="mt-4 font-mono text-[11px] text-fg-faint">
-          // dopo il salvataggio usa &quot;Valida&quot; sulla riga dell&apos;account per
-          verificare le credenziali.
+          {t("settings:gitAccounts.createHint")}
         </p>
       </fieldset>
 
       <FormError message={error ?? (mutation.error instanceof Error ? mutation.error.message : null)} />
       <div className="flex flex-wrap items-center gap-3">
         <SubmitButton pending={mutation.isPending}>
-          {mutation.isPending ? "Creazione…" : "Crea account"}
+          {mutation.isPending ? t("settings:gitAccounts.creatingAccount") : t("settings:gitAccounts.createAccount")}
         </SubmitButton>
         <button
           type="button"
           onClick={onDone}
           className="rounded-sm px-3 py-2 font-mono text-[12px] font-medium tracking-[0.08em] text-fg-faint uppercase transition-colors hover:text-fg-muted"
         >
-          Annulla
+          {t("common:cancel")}
         </button>
       </div>
     </form>
@@ -185,6 +186,7 @@ function NewAccountForm({ onDone }: { onDone: () => void }) {
 
 /** Riga di un account: badge, data, e azioni Valida / Modifica / Elimina. */
 function AccountRow({ account }: { account: GitAccount }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
 
@@ -202,7 +204,7 @@ function AccountRow({ account }: { account: GitAccount }) {
 
   const deleteMessage =
     deletion.error instanceof ApiError && deletion.error.status === 409
-      ? "Account usato da uno o più progetti: scollegalo prima di eliminarlo"
+      ? t("settings:gitAccounts.inUse")
       : deletion.error instanceof Error
         ? deletion.error.message
         : null;
@@ -213,34 +215,34 @@ function AccountRow({ account }: { account: GitAccount }) {
         <span className="text-[14px] font-medium text-fg">{account.name}</span>
         <ProviderBadge provider={account.provider} />
         <span className="font-mono text-[11px] whitespace-nowrap text-fg-faint">
-          creato {formatDateTime(account.createdAt)}
+          {t("settings:gitAccounts.createdAt", { date: formatDateTime(account.createdAt) })}
         </span>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <RowButton
             onClick={() => validation.mutate()}
             disabled={validation.isPending}
-            label={validation.isPending ? "Verifica…" : "Valida"}
+            label={validation.isPending ? t("settings:gitAccounts.validating") : t("settings:gitAccounts.validate")}
           />
-          <RowButton onClick={() => setEditing((value) => !value)} label="Modifica" />
+          <RowButton onClick={() => setEditing((value) => !value)} label={t("settings:gitAccounts.edit")} />
           {confirmingDelete ? (
             <>
               <RowButton
                 onClick={() => deletion.mutate()}
                 disabled={deletion.isPending}
-                label="Conferma"
+                label={t("settings:gitAccounts.confirm")}
                 danger
               />
-              <RowButton onClick={() => setConfirmingDelete(false)} label="Annulla" />
+              <RowButton onClick={() => setConfirmingDelete(false)} label={t("common:cancel")} />
             </>
           ) : (
-            <RowButton onClick={() => setConfirmingDelete(true)} label="Elimina" danger />
+            <RowButton onClick={() => setConfirmingDelete(true)} label={t("settings:gitAccounts.delete")} danger />
           )}
         </div>
       </div>
 
       {validation.isError && (
         <p role="alert" className="mt-2 font-mono text-[12px] text-danger">
-          {validation.error instanceof Error ? validation.error.message : "Errore di validazione"}
+          {validation.error instanceof Error ? validation.error.message : t("settings:gitAccounts.validationError")}
         </p>
       )}
       {validation.data && (
@@ -266,6 +268,7 @@ function AccountRow({ account }: { account: GitAccount }) {
 
 /** Form di modifica: nome e/o credenziali (vuote = invariate). */
 function EditAccountForm({ account, onDone }: { account: GitAccount; onDone: () => void }) {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [name, setName] = useState(account.name);
   const [credentials, setCredentials] = useState<CredentialFieldsValue>(emptyCredentials);
@@ -300,7 +303,7 @@ function EditAccountForm({ account, onDone }: { account: GitAccount; onDone: () 
     <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
       <TextField
         id={`edit-account-name-${account.id}`}
-        label="Nome"
+        label={t("settings:gitAccounts.name")}
         required
         value={name}
         onChange={(event) => setName(event.target.value)}
@@ -309,20 +312,19 @@ function EditAccountForm({ account, onDone }: { account: GitAccount; onDone: () 
         <div className="flex flex-col gap-1.5">
           <TextField
             id={`edit-account-workspace-${account.id}`}
-            label="Workspace"
-            placeholder="es. mio-workspace"
+            label={t("settings:gitAccounts.workspace")}
+            placeholder={t("settings:gitAccounts.workspacePlaceholder")}
             value={workspace}
             onChange={(event) => setWorkspace(event.target.value)}
           />
           <p className="font-mono text-[11px] text-fg-faint">
-            Slug del workspace Bitbucket (es. mio-workspace) — richiesto per gli API token, dato che
-            Bitbucket ha dismesso l&apos;elenco globale dei repo.
+            {t("settings:gitAccounts.workspaceHint")}
           </p>
         </div>
       )}
       <fieldset className="rounded-sm border border-line bg-ink-950/40 p-4">
         <legend className="px-1.5 font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase">
-          Credenziali git
+          {t("settings:gitAccounts.gitCredentials")}
         </legend>
         <CredentialFields
           idPrefix={`edit-account-${account.id}`}
@@ -331,21 +333,20 @@ function EditAccountForm({ account, onDone }: { account: GitAccount; onDone: () 
           showKeepHint
         />
         <p className="mt-4 font-mono text-[11px] text-fg-faint">
-          // dopo il salvataggio usa &quot;Valida&quot; sulla riga per verificare le
-          credenziali.
+          {t("settings:gitAccounts.editHint")}
         </p>
       </fieldset>
       <FormError message={mutation.error instanceof Error ? mutation.error.message : null} />
       <div className="flex flex-wrap items-center gap-3">
         <SubmitButton pending={mutation.isPending}>
-          {mutation.isPending ? "Salvataggio…" : "Salva account"}
+          {mutation.isPending ? t("settings:gitAccounts.savingAccount") : t("settings:gitAccounts.saveAccount")}
         </SubmitButton>
         <button
           type="button"
           onClick={onDone}
           className="rounded-sm px-3 py-2 font-mono text-[12px] font-medium tracking-[0.08em] text-fg-faint uppercase transition-colors hover:text-fg-muted"
         >
-          Annulla
+          {t("common:cancel")}
         </button>
       </div>
     </form>

@@ -1,5 +1,6 @@
 import type {
   GitProviderKind,
+  Language,
   TicketPriority,
   TicketSource,
   TicketStatus,
@@ -17,15 +18,20 @@ import type {
 
 /**
  * Errore HTTP dell'API: status + messaggio estratto dal body del server.
- * Status 0 = errore di rete (il server non ha mai risposto).
+ * `code` è l'identificatore stabile (snake_case, indipendente dalla lingua)
+ * che il server invia su `{ code, message }`: la UI lo usa per la traduzione
+ * via `translateApiError`. Assente su risposte non-JSON, errori di validazione
+ * Zod ed errori di rete. Status 0 = errore di rete (il server non ha risposto).
  */
 export class ApiError extends Error {
   readonly status: number;
+  readonly code?: string;
 
-  constructor(status: number, message: string, options?: ErrorOptions) {
+  constructor(status: number, message: string, code?: string, options?: ErrorOptions) {
     super(message, options);
     this.name = "ApiError";
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -44,24 +50,31 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     // CORS): normalizzato in ApiError così i chiamanti hanno un solo tipo
     // di errore da gestire. Tutto il resto (es. AbortError) riemerge as-is.
     if (error instanceof TypeError) {
-      throw new ApiError(0, "Impossibile contattare il server", { cause: error });
+      // `network_error` è un code stabile (non c'è un body server da cui
+      // leggerlo): `translateApiError` lo localizza. Il message inglese è il
+      // fallback se la chiave non esistesse.
+      throw new ApiError(0, "Unable to reach the server", "network_error", { cause: error });
     }
     throw error;
   }
 
   if (!response.ok) {
-    // Il server risponde sempre { message } sugli errori; il fallback copre
-    // risposte non-JSON (proxy, gateway, ecc.).
-    const fallback = `Errore ${response.status}`;
-    const message = await response
+    // Il server risponde { code, message } sugli errori user-facing (code
+    // assente sugli errori di validazione Zod); il fallback copre risposte
+    // non-JSON (proxy, gateway, ecc.). Caso raro e senza code: message in
+    // inglese (coerente con "API in inglese, UI traduce per code").
+    const fallback = `Error ${response.status}`;
+    const { message, code } = await response
       .json()
-      .then((data: unknown) =>
-        typeof data === "object" && data !== null && "message" in data
-          ? String((data as { message: unknown }).message)
-          : fallback,
-      )
-      .catch(() => fallback);
-    throw new ApiError(response.status, message);
+      .then((data: unknown) => {
+        const obj = typeof data === "object" && data !== null ? (data as Record<string, unknown>) : {};
+        return {
+          message: "message" in obj ? String(obj.message) : fallback,
+          code: typeof obj.code === "string" ? obj.code : undefined,
+        };
+      })
+      .catch(() => ({ message: fallback, code: undefined }));
+    throw new ApiError(response.status, message, code);
   }
 
   if (response.status === 204) return undefined as T;
@@ -83,12 +96,20 @@ export interface PublicUser {
   role: "admin" | "member";
 }
 
+/**
+ * Utente della sessione corrente esposto da `/me`: l'identità pubblica più la
+ * lingua persistita, che la UI usa per allineare i18n dopo il login.
+ */
+export interface SessionUser extends PublicUser {
+  language: Language;
+}
+
 export interface Credentials {
   email: string;
   password: string;
 }
 
-export function getMe(): Promise<{ user: PublicUser }> {
+export function getMe(): Promise<{ user: SessionUser }> {
   return api.get("/api/auth/me");
 }
 
@@ -106,6 +127,14 @@ export function postLogin(credentials: Credentials): Promise<{ user: PublicUser 
 
 export function postLogout(): Promise<void> {
   return api.post("/api/auth/logout");
+}
+
+/**
+ * Aggiorna la preferenza di lingua dell'utente corrente. Il server ricava
+ * l'id dalla sessione (mai dal body), quindi si invia solo `{ language }`.
+ */
+export function patchMyLanguage(language: Language): Promise<{ language: Language }> {
+  return api.patch("/api/auth/me", { language });
 }
 
 export interface Invite {
@@ -662,4 +691,26 @@ export function putNotificationSettings(
 /** Invia una notifica di test al webhook configurato (solo admin). */
 export function postTestNotification(): Promise<TestNotificationResult> {
   return api.post("/api/settings/notifications/test");
+}
+
+// --- Settings: lingua dei contenuti d'istanza ---
+
+/**
+ * Impostazioni d'istanza (riga singola). `contentLanguage` è la lingua usata
+ * per i CONTENUTI generati dalla piattaforma — commenti AI, report PR e
+ * messaggi di notifica — distinta dalla lingua dell'interfaccia del singolo
+ * utente (vedi `patchMyLanguage`).
+ */
+export interface InstanceSettings {
+  contentLanguage: Language;
+}
+
+/** Impostazioni d'istanza (solo admin): 403 per i member. */
+export function getInstanceSettings(): Promise<InstanceSettings> {
+  return api.get("/api/settings/instance");
+}
+
+/** Upsert della lingua dei contenuti d'istanza (solo admin). Ritorna lo stato aggiornato. */
+export function putInstanceSettings(contentLanguage: Language): Promise<InstanceSettings> {
+  return api.put("/api/settings/instance", { contentLanguage });
 }

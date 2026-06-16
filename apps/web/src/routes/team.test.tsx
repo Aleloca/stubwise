@@ -78,7 +78,7 @@ describe("pagina team", () => {
     ];
 
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
       "GET /api/users": () => jsonResponse(200, USERS),
       "GET /api/auth/invites": () => jsonResponse(200, invites),
       "POST /api/auth/invites": (_url, init) => {
@@ -109,14 +109,14 @@ describe("pagina team", () => {
     expect(await screen.findByRole("heading", { name: "Team" })).toBeInTheDocument();
     // Roster: entrambi i membri compaiono.
     expect(screen.getByText("bea@example.com")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Membri" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Members" })).toBeInTheDocument();
     // Sezione inviti visibile e invito in sospeso elencato.
-    expect(screen.getByRole("heading", { name: "Inviti in sospeso" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Pending invites" })).toBeInTheDocument();
     expect(await screen.findByText("in-sospeso@example.com")).toBeInTheDocument();
 
     // Crea un invito → chiama postInvite e mostra il link.
-    await user.type(screen.getByLabelText("Invita un utente"), "collega@example.com");
-    await user.click(screen.getByRole("button", { name: "Crea invito" }));
+    await user.type(screen.getByLabelText("Invite a user"), "collega@example.com");
+    await user.click(screen.getByRole("button", { name: "Create invite" }));
     expect(postBody).toEqual({ email: "collega@example.com" });
     const link = await screen.findByTestId("invite-url");
     expect(link.textContent).toContain("/register?token=tok-nuovo");
@@ -126,7 +126,7 @@ describe("pagina team", () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     const pendingRow = screen.getByText("in-sospeso@example.com").closest("li");
     expect(pendingRow).not.toBeNull();
-    const revokeButton = within(pendingRow!).getByRole("button", { name: "Revoca" });
+    const revokeButton = within(pendingRow!).getByRole("button", { name: "Revoke" });
     await user.click(revokeButton);
     await waitFor(() => expect(deletedToken).toBe("tok-pending"));
     await waitFor(() =>
@@ -136,16 +136,16 @@ describe("pagina team", () => {
 
   it("member: vede solo il roster, niente gestione inviti", async () => {
     mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: MEMBER }),
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...MEMBER, language: "en" } }),
       "GET /api/users": () => jsonResponse(200, USERS),
     });
 
     renderTeam();
 
-    expect(await screen.findByRole("heading", { name: "Membri" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Members" })).toBeInTheDocument();
     expect(screen.getByText("ada@example.com")).toBeInTheDocument();
     // Niente sezione né form di gestione inviti.
-    expect(screen.queryByRole("heading", { name: "Inviti in sospeso" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Crea invito" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Pending invites" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Create invite" })).not.toBeInTheDocument();
   });
 });

@@ -1,14 +1,10 @@
-import { EFFORT_LABELS, ticketTypeSchema, type TicketType } from "@stubwise/shared";
+import { ticketTypeSchema, type TicketType } from "@stubwise/shared";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { TypeBadge } from "../../components/badges";
 import { putAutomationSettings, type AutomationRule } from "../../lib/api";
 import { automationSettingsQueryOptions } from "../../lib/queries";
-
-/** Etichetta "Medio (3/5)" per un valore di sforzo. */
-function effortOptionLabel(value: number): string {
-  return `${EFFORT_LABELS[value] ?? value} (${value}/5)`;
-}
 
 /**
  * Sotto-pagina Automazione AI (solo admin): una riga per ciascuno dei 4 tipi di
@@ -16,8 +12,17 @@ function effortOptionLabel(value: number): string {
  * tutte le regole via PUT; lo stato locale parte dai dati del server.
  */
 export function SettingsAutomationPage() {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { data: settings } = useSuspenseQuery(automationSettingsQueryOptions);
+
+  // Etichetta "Medio (3/5)" per un valore di sforzo: la label dell'effort è di
+  // dominio (badges, Task 12), il template intorno è del namespace automation.
+  const effortOptionLabel = (value: number): string =>
+    t("automation:effortOption", {
+      label: t(`badges:effort.${value}`, { defaultValue: String(value) }),
+      value,
+    });
 
   // Stato locale modificabile: inizializzato dai dati del server e risincro-
   // nizzato quando questi cambiano (es. dopo un salvataggio o un refetch).
@@ -48,18 +53,16 @@ export function SettingsAutomationPage() {
     <section className="rounded-sm border border-line bg-ink-900">
       <header className="border-b border-line px-4 py-3">
         <h2 className="font-mono text-[11px] font-medium tracking-[0.16em] text-fg-muted uppercase">
-          Automazione AI
+          {t("automation:title")}
         </h2>
-        <p className="mt-1 font-mono text-[11px] text-fg-faint">
-          Il fix automatico parte solo se l'auto-fix è attivo e l'effort stimato è entro la soglia.
-        </p>
+        <p className="mt-1 font-mono text-[11px] text-fg-faint">{t("automation:subtitle")}</p>
         <a
           href="/docs/ai-pipeline/automation/"
           target="_blank"
           rel="noreferrer"
           className="mt-2 inline-block font-mono text-[11px] text-signal underline-offset-2 hover:underline"
         >
-          Vedi documentazione →
+          {t("automation:viewDocs")}
         </a>
       </header>
 
@@ -80,18 +83,18 @@ export function SettingsAutomationPage() {
                   disabled={mutation.isPending}
                   onChange={(event) => updateRule(type, { autoFix: event.target.checked })}
                   className="size-4 accent-signal"
-                  aria-label={`Auto-fix ${type}`}
+                  aria-label={t("automation:autoFixLabel", { type })}
                 />
-                Auto-fix
+                {t("automation:autoFix")}
               </label>
 
               <label className="flex items-center gap-2 font-mono text-[12px] text-fg-muted">
-                <span className="text-fg-faint">Soglia</span>
+                <span className="text-fg-faint">{t("automation:threshold")}</span>
                 <select
                   value={rule.maxEffort}
                   disabled={mutation.isPending}
                   onChange={(event) => updateRule(type, { maxEffort: Number(event.target.value) })}
-                  aria-label={`Soglia effort ${type}`}
+                  aria-label={t("automation:thresholdLabel", { type })}
                   className="rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
                 >
                   {[1, 2, 3, 4, 5].map((value) => (
@@ -103,7 +106,7 @@ export function SettingsAutomationPage() {
               </label>
 
               <label className="flex items-center gap-2 font-mono text-[12px] text-fg-muted">
-                <span className="text-fg-faint">Approvazione piano da effort ≥</span>
+                <span className="text-fg-faint">{t("automation:planApproval")}</span>
                 <select
                   value={rule.planApprovalMinEffort ?? ""}
                   disabled={mutation.isPending}
@@ -113,10 +116,10 @@ export function SettingsAutomationPage() {
                         event.target.value === "" ? null : Number(event.target.value),
                     })
                   }
-                  aria-label={`Approvazione piano ${type}`}
+                  aria-label={t("automation:planApprovalLabel", { type })}
                   className="rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
                 >
-                  <option value="">Mai</option>
+                  <option value="">{t("automation:never")}</option>
                   {[1, 2, 3, 4, 5].map((value) => (
                     <option key={value} value={value}>
                       {effortOptionLabel(value)}
@@ -136,11 +139,11 @@ export function SettingsAutomationPage() {
           onClick={() => mutation.mutate(rules)}
           className="rounded-sm bg-signal px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright active:bg-signal-dim disabled:cursor-not-allowed disabled:bg-signal-dim"
         >
-          {mutation.isPending ? "Salvataggio…" : "Salva"}
+          {mutation.isPending ? t("automation:saving") : t("automation:save")}
         </button>
         {mutation.isSuccess && (
           <span role="status" className="font-mono text-[12px] text-ok">
-            Salvato
+            {t("automation:saved")}
           </span>
         )}
         {mutation.isError && (

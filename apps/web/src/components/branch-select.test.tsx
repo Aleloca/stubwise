@@ -69,7 +69,7 @@ describe("BranchSelect", () => {
 
     renderSelect({ accountId: ACCOUNT_ID, repoFullName: "acme/demo", value: "develop" });
 
-    const select = await screen.findByLabelText("Branch di default");
+    const select = await screen.findByLabelText("Default branch");
     expect(select.tagName).toBe("SELECT");
     await waitFor(() => expect((select as HTMLSelectElement).value).toBe("develop"));
     expect(
@@ -85,7 +85,7 @@ describe("BranchSelect", () => {
 
     renderSelect({ accountId: ACCOUNT_ID, repoFullName: "acme/demo", value: "feature/x" });
 
-    const select = await screen.findByLabelText("Branch di default");
+    const select = await screen.findByLabelText("Default branch");
     await waitFor(() => expect((select as HTMLSelectElement).value).toBe("feature/x"));
     expect(screen.getByRole("option", { name: "feature/x" })).toBeInTheDocument();
   });
@@ -98,10 +98,10 @@ describe("BranchSelect", () => {
 
     renderSelect({ accountId: ACCOUNT_ID, repoFullName: "acme/demo", value: "main" });
 
-    const input = await screen.findByLabelText("Branch di default");
+    const input = await screen.findByLabelText("Default branch");
     await waitFor(() => expect(input.tagName).toBe("INPUT"));
     expect(input).toHaveValue("main");
-    expect(screen.getByText(/impossibile caricare/i)).toBeInTheDocument();
+    expect(screen.getByText(/unable to load branches/i)).toBeInTheDocument();
   });
 
   it("senza account o repo mostra direttamente l'input testuale", () => {
@@ -112,7 +112,7 @@ describe("BranchSelect", () => {
 
     renderSelect({ value: "main" });
 
-    const input = screen.getByLabelText("Branch di default");
+    const input = screen.getByLabelText("Default branch");
     expect(input.tagName).toBe("INPUT");
     expect(input).toHaveValue("main");
     expect(fetchMock).not.toHaveBeenCalled();

@@ -1,0 +1,519 @@
+{
+  "common": {
+    "appName": "Stubwise",
+    "unexpectedError": "Errore imprevisto",
+    "error": "Errore",
+    "copy": "Copia",
+    "copied": "Copiato",
+    "copyFailed": "Errore",
+    "loading": "Caricamento…",
+    "save": "Salva",
+    "cancel": "Annulla",
+    "retry": "Riprova",
+    "logout": "Esci",
+    "loggingOut": "Uscita…",
+    "nav": {
+      "tickets": "Ticket",
+      "board": "Bacheca",
+      "projects": "Progetti",
+      "team": "Team",
+      "settings": "Impostazioni",
+      "docs": "Documentazione"
+    }
+  },
+  "errors": {
+    "unauthorized": "Autenticazione richiesta",
+    "forbidden": "Solo amministratori",
+    "ticket_not_found": "Ticket non trovato",
+    "project_not_found": "Progetto non trovato",
+    "git_account_not_found": "Account git non trovato",
+    "assignee_not_found": "Assegnatario non trovato",
+    "invalid_cursor": "Cursore di paginazione non valido",
+    "plan_not_pending": "Nessun piano in attesa di approvazione",
+    "webhook_unauthorized": "Webhook non autorizzato",
+    "invalid_ingestion_key": "Chiave di ingestione non valida",
+    "credentials_undecryptable": "Impossibile decifrare le credenziali dell'account git",
+    "git_account_in_use": "Account git in uso da uno o più progetti: scollegalo prima di eliminarlo",
+    "git_provider_error": "Errore del provider git",
+    "setup_already_completed": "Setup già completato",
+    "invalid_credentials": "Credenziali non valide",
+    "invite_not_found": "Invito non trovato",
+    "invite_invalid": "Invito non valido o già usato",
+    "invite_expired": "Invito scaduto",
+    "email_already_exists": "Esiste già un utente con questa email",
+    "network_error": "Impossibile contattare il server",
+    "generic": "Qualcosa è andato storto"
+  },
+  "auth": {
+    "shell": {
+      "status": "self-hosted",
+      "tagline": "issue tracking · ai pipeline"
+    },
+    "fields": {
+      "email": "Email",
+      "password": "Password"
+    },
+    "login": {
+      "title": "Accedi",
+      "subtitle": "Entra nella tua istanza Stubwise.",
+      "submit": "Accedi",
+      "submitPending": "Accesso…"
+    },
+    "register": {
+      "title": "Crea il tuo account",
+      "subtitle": "Sei stato invitato su questa istanza Stubwise.",
+      "tokenLabel": "Token di invito",
+      "submit": "Registrati",
+      "submitPending": "Registrazione…"
+    },
+    "setup": {
+      "title": "Crea l'account amministratore",
+      "subtitle": "Questa istanza è nuova: il primo account ha i privilegi di admin.",
+      "confirmLabel": "Conferma password",
+      "passwordMismatch": "Le password non coincidono",
+      "submit": "Crea account",
+      "submitPending": "Creazione…"
+    }
+  },
+  "tickets": {
+    "list": {
+      "title": "Tickets",
+      "subtitle": "Tutti i ticket dei tuoi progetti, dal più recente.",
+      "newTicket": "Nuovo ticket",
+      "createProjectFirst": "Crea prima un progetto",
+      "empty": "// nessun ticket trovato",
+      "emptyHint": "Prova ad allargare i filtri o a cambiare il termine di ricerca.",
+      "loadMore": "Carica altri",
+      "loadingMore": "Carico…"
+    },
+    "board": {
+      "title": "Board",
+      "subtitle": "Trascina le card tra le colonne per cambiare stato. Da tastiera: Spazio prende e posa, frecce per muoversi, Invio apre il dettaglio.",
+      "project": "Progetto",
+      "all": "Tutti",
+      "truncated": "Mostrati i primi {{limit}} ticket — filtra per progetto per vederli tutti.",
+      "moveFailed": "Spostamento non riuscito: {{error}}. La card è tornata al suo posto.",
+      "dismiss": "Chiudi",
+      "columnLabel": "{{status}}: {{count}} ticket",
+      "emptyColumn": "Nessun ticket",
+      "cardRoleDescription": "Card trascinabile"
+    },
+    "filters": {
+      "search": "Cerca",
+      "searchPlaceholder": "Cerca nel titolo…",
+      "project": "Progetto",
+      "status": "Stato",
+      "type": "Tipo",
+      "priority": "Priorità",
+      "all": "Tutti"
+    },
+    "row": {
+      "occurrences": "Occorrenze deduplicate"
+    },
+    "newDialog": {
+      "title": "Nuovo ticket",
+      "badge": "manuale",
+      "ticketTitle": "Titolo",
+      "titlePlaceholder": "Es. Crash al checkout",
+      "project": "Progetto",
+      "type": "Tipo",
+      "priority": "Priorità",
+      "description": "Descrizione (opzionale)",
+      "descriptionPlaceholder": "Markdown supportato…",
+      "cancel": "Annulla",
+      "submit": "Crea ticket",
+      "submitPending": "Creazione…"
+    },
+    "detail": {
+      "back": "← Tutti i ticket",
+      "effortTitle": "Stima di sforzo del triage AI",
+      "effort": "Effort: {{label}} ({{value}}/5)",
+      "occurrences": "Occorrenze deduplicate",
+      "description": "Descrizione",
+      "noDescription": "// nessuna descrizione",
+      "technicalPayload": "Payload tecnico",
+      "aiActivity": "Attività AI",
+      "startFix": "Avvia fix AI",
+      "startingFix": "Avvio…",
+      "relaunchWithInstructions": "Rilancia con istruzioni",
+      "addCommentHint": "Aggiungi prima un commento con le istruzioni.",
+      "approve": "Approva",
+      "approving": "Approvazione…",
+      "reject": "Rifiuta",
+      "rejecting": "Rifiuto…",
+      "rejectHint": "Per rifiutare, scrivi cosa correggere nel commento e poi rifiuta: il prossimo piano ne terrà conto.",
+      "comments": "Commenti ({{count}})",
+      "status": "Stato",
+      "priority": "Priorità",
+      "assignee": "Assegnatario",
+      "unassigned": "Non assegnato",
+      "labels": "Label",
+      "createdAt": "Creato",
+      "updatedAt": "Aggiornato",
+      "lastSeenAt": "Ultimo visto",
+      "occurrencesMeta": "Occorrenze"
+    },
+    "timeline": {
+      "empty": "// nessuna attività AI per questo ticket",
+      "viewPr": "Vedi PR ↗",
+      "startedAt": "Inizio {{date}}",
+      "finishedAt": "Fine {{date}}",
+      "showLog": "▸ Mostra log",
+      "hideLog": "▾ Nascondi log"
+    },
+    "comments": {
+      "empty": "// ancora nessun commento",
+      "system": "SISTEMA",
+      "removedUser": "Utente rimosso",
+      "submitFailed": "Invio del commento fallito",
+      "addComment": "Aggiungi un commento",
+      "placeholder": "Markdown supportato…",
+      "submit": "Commenta",
+      "submitPending": "Invio…"
+    },
+    "labelsEditor": {
+      "addPlaceholder": "Aggiungi label…",
+      "add": "Aggiungi",
+      "newLabel": "Nuova label",
+      "removeLabel": "Rimuovi etichetta {{label}}"
+    },
+    "usage": {
+      "title": "Consumi AI",
+      "totalTokens": "Token totali",
+      "totalCost": "Costo totale",
+      "model": "Modello",
+      "tokensIn": "Token in",
+      "tokensOut": "Token out",
+      "cache": "Cache",
+      "cost": "Costo"
+    }
+  },
+  "settings": {
+    "layout": {
+      "title": "Settings",
+      "subtitle": "Il tuo account e l'automazione AI.",
+      "navAriaLabel": "Impostazioni",
+      "nav": {
+        "account": "Account",
+        "automation": "Automazione AI",
+        "notifications": "Notifiche",
+        "gitAccounts": "Account Git"
+      }
+    },
+    "account": {
+      "title": "Account",
+      "email": "Email",
+      "role": "Ruolo",
+      "admin": "Admin",
+      "member": "Membro",
+      "language": "Lingua",
+      "languageEnglish": "English",
+      "languageItalian": "Italiano"
+    },
+    "team": {
+      "title": "Team",
+      "subtitle": "Chi ha accesso alla piattaforma.",
+      "members": "Membri",
+      "memberCount_one": "{{count}} membro",
+      "memberCount_other": "{{count}} membri",
+      "you": "tu",
+      "memberSince": "membro dal {{date}}",
+      "admin": "Admin",
+      "member": "Membro",
+      "invitesTitle": "Inviti in sospeso",
+      "adminOnly": "solo admin",
+      "inviteUser": "Invita un utente",
+      "invitePlaceholder": "collega@example.com",
+      "createInvite": "Crea invito",
+      "creatingInvite": "Creazione…",
+      "inviteCreated": "Invito per <strong>{{email}}</strong> creato.",
+      "copyInviteLink": "Copia link di invito",
+      "deliverYourself": "// consegnalo tu: il server non spedisce nulla",
+      "noPendingInvites": "// nessun invito in sospeso",
+      "sentOn": "inviato il {{date}}",
+      "expiredOn": "scaduto il {{date}}",
+      "expiresOn": "scade il {{date}}",
+      "revoke": "Revoca",
+      "revoking": "Revoca…",
+      "confirmRevoke": "Revocare l'invito per {{email}}?",
+      "copyInviteLinkFor": "Copia link di invito per {{email}}"
+    },
+    "gitAccounts": {
+      "title": "Account Git",
+      "subtitle": "Credenziali riutilizzabili: un account può essere collegato a più progetti.",
+      "newAccount": "Nuovo account git",
+      "empty": "// nessun account git",
+      "name": "Nome",
+      "namePlaceholder": "Es. Bitbucket Produzione",
+      "provider": "Provider",
+      "workspace": "Workspace",
+      "workspacePlaceholder": "es. mio-workspace",
+      "workspaceHint": "Slug del workspace Bitbucket (es. mio-workspace) — richiesto per gli API token, dato che Bitbucket ha dismesso l'elenco globale dei repo.",
+      "gitCredentials": "Credenziali git",
+      "createHint": "// dopo il salvataggio usa \"Valida\" sulla riga dell'account per verificare le credenziali.",
+      "editHint": "// dopo il salvataggio usa \"Valida\" sulla riga per verificare le credenziali.",
+      "tokenRequired": "Il token di accesso è obbligatorio",
+      "createAccount": "Crea account",
+      "creatingAccount": "Creazione…",
+      "saveAccount": "Salva account",
+      "savingAccount": "Salvataggio…",
+      "createdAt": "creato {{date}}",
+      "validate": "Valida",
+      "validating": "Verifica…",
+      "edit": "Modifica",
+      "delete": "Elimina",
+      "confirm": "Conferma",
+      "validationError": "Errore di validazione",
+      "inUse": "Account usato da uno o più progetti: scollegalo prima di eliminarlo"
+    },
+    "credentials": {
+      "username": "Username",
+      "usernamePlaceholder": "Bitbucket: username · GitHub: vuoto",
+      "email": "Email",
+      "emailPlaceholder": "Bitbucket: email Atlassian (REST API) · GitHub: vuoto",
+      "token": "Token di accesso",
+      "tokenPlaceholder": "API token / PAT",
+      "writeOnlyHint": "// write-only: vengono cifrate e non verranno mai mostrate di nuovo.",
+      "bitbucketHint": "// Bitbucket: Username = username Bitbucket (per git), Email = email Atlassian (per la REST API/PR), Token = API token (scope repository + pullrequest + webhook, read e write).",
+      "githubHint": "// GitHub: lascia Username e Email vuoti, Token = fine-grained PAT (Contents + Pull requests + Webhooks: Read and write).",
+      "keepHint": "// lascia vuoto per mantenere quelle salvate.",
+      "valid": "Credenziali valide",
+      "issues": "Problemi rilevati"
+    }
+  },
+  "notifications": {
+    "title": "Notifiche",
+    "viewDocs": "Vedi documentazione →",
+    "subtitle": "Un webhook in uscita riceve un messaggio sugli eventi chiave (nuovo ticket SDK, PR aperta, PR chiusa, in attesa, piano da approvare, fix fallito).",
+    "formatGeneric": "JSON generico",
+    "enabled": "Abilitate",
+    "format": "Formato",
+    "webhookUrl": "URL webhook",
+    "events": "Eventi",
+    "save": "Salva",
+    "saving": "Salvataggio…",
+    "sendTest": "Invia notifica di test",
+    "sending": "Invio…",
+    "saved": "Salvato",
+    "preview": "Anteprima",
+    "contentLanguage": "Lingua dei contenuti generati",
+    "contentLanguageEnglish": "English",
+    "contentLanguageItalian": "Italiano",
+    "contentLanguageHint": "Lingua usata per commenti AI, report PR e notifiche — diversa dalla lingua della tua interfaccia.",
+    "setupTitle": "Come configurare",
+    "toggles": {
+      "ticketCreated": "Nuovo ticket SDK",
+      "prOpened": "PR aperta",
+      "prClosed": "PR chiusa senza merge (ticket riaperto)",
+      "jobHeld": "In attesa",
+      "planReview": "Piano AI in attesa di approvazione",
+      "jobFailed": "Fix fallito"
+    },
+    "samples": {
+      "ticketCreated": "Nuovo ticket",
+      "prOpened": "PR aperta",
+      "prClosed": "PR chiusa",
+      "jobHeld": "In attesa",
+      "planReview": "Piano in attesa",
+      "jobFailed": "Fix fallito"
+    },
+    "slack": {
+      "step1Prefix": "Vai su",
+      "step1Suffix": ".",
+      "step2": "Premi <create>Create New App</create> → From scratch, scegli nome e workspace.",
+      "step3": "Nel menu laterale apri <webhooks>Incoming Webhooks</webhooks> e attivalo (Activate Incoming Webhooks).",
+      "step4": "Premi <add>Add New Webhook to Workspace</add> e scegli il canale di destinazione.",
+      "step5": "Copia l'URL generato (<url>https://hooks.slack.com/services/…</url>) e incollalo qui sopra."
+    },
+    "discord": {
+      "step1": "Apri le <settings>Impostazioni del canale</settings> (l'icona dell'ingranaggio accanto al nome del canale).",
+      "step2": "Vai su <integrations>Integrazioni</integrations> → <webhook>Webhook</webhook>.",
+      "step3": "Premi <new>Nuovo webhook</new> (puoi rinominarlo, es. \"Stubwise\").",
+      "step4": "Premi <copy>Copia URL del webhook</copy>.",
+      "step5": "Incolla l'URL qui sopra."
+    },
+    "generic": {
+      "intro": "Il tuo endpoint riceverà una richiesta <method>POST</method> con <ct>Content-Type: application/json</ct> e questo schema:",
+      "fields": {
+        "event": "il tipo di evento (ticket.created, job.pr_opened, job.pr_closed, job.held, job.plan_review, job.failed)",
+        "ticketNumber": "numero del ticket",
+        "title": "titolo del ticket",
+        "projectName": "nome del progetto",
+        "message": "riepilogo leggibile dell'evento",
+        "ticketUrl": "link al ticket in Stubwise",
+        "source": "solo ticket.created — sorgente SDK (sdk_error / sdk_feedback)",
+        "prUrl": "su job.pr_opened e job.pr_closed — URL della pull request",
+        "costUsd": "solo job.pr_opened — costo USD del run (o null)",
+        "type": "solo job.held — tipo del ticket riclassificato",
+        "effort": "solo job.held — sforzo stimato 1–5",
+        "error": "solo job.failed — messaggio d'errore"
+      }
+    }
+  },
+  "automation": {
+    "title": "Automazione AI",
+    "subtitle": "Il fix automatico parte solo se l'auto-fix è attivo e l'effort stimato è entro la soglia.",
+    "viewDocs": "Vedi documentazione →",
+    "autoFix": "Auto-fix",
+    "autoFixLabel": "Auto-fix {{type}}",
+    "threshold": "Soglia",
+    "thresholdLabel": "Soglia effort {{type}}",
+    "planApproval": "Approvazione piano da effort ≥",
+    "planApprovalLabel": "Approvazione piano {{type}}",
+    "never": "Mai",
+    "effortOption": "{{label}} ({{value}}/5)",
+    "save": "Salva",
+    "saving": "Salvataggio…",
+    "saved": "Salvato"
+  },
+  "badges": {
+    "status": {
+      "open": "Aperto",
+      "triaged": "Triage",
+      "in_progress": "In corso",
+      "in_review": "In review",
+      "done": "Fatto",
+      "closed": "Chiuso"
+    },
+    "priority": {
+      "low": "Bassa",
+      "medium": "Media",
+      "high": "Alta",
+      "urgent": "Urgente"
+    },
+    "type": {
+      "bug": "Bug",
+      "feature": "Feature",
+      "task": "Task",
+      "feedback": "Feedback"
+    },
+    "source": {
+      "manual": "Manuale",
+      "sdk_error": "SDK",
+      "sdk_feedback": "SDK",
+      "api": "API"
+    },
+    "effort": {
+      "1": "Banale",
+      "2": "Piccolo",
+      "3": "Medio",
+      "4": "Grande",
+      "5": "Molto grande"
+    },
+    "priorityTitle": "Priorità: {{label}}",
+    "sourceTitle": "Origine: {{label}}"
+  },
+  "projects": {
+    "list": {
+      "title": "Progetti",
+      "subtitle": "Repository collegati, chiavi di ingestion e credenziali della pipeline.",
+      "newProject": "Nuovo progetto",
+      "empty": "// nessun progetto collegato",
+      "emptyHintAdmin": "Crea il primo progetto per ottenere una chiave di ingestion.",
+      "emptyHintMember": "Chiedi a un amministratore di collegare il primo repository.",
+      "createdAt": "creato {{date}}"
+    },
+    "detail": {
+      "back": "← Tutti i progetti",
+      "branch": "branch",
+      "createdAt": "creato",
+      "configuredBanner": "✓ Progetto configurato correttamente",
+      "configuration": "Configurazione",
+      "saved": "Modifiche salvate.",
+      "name": "Nome",
+      "repoUrl": "URL repository",
+      "defaultBranch": "Branch di default",
+      "gitAccount": "Account git",
+      "status": "Stato",
+      "webhookConfiguredAt": "✓ Webhook configurato il {{date}}",
+      "webhookNotConfigured": "— Webhook non configurato",
+      "readOnlyHint": "// sola lettura: la configurazione la modificano gli admin"
+    },
+    "form": {
+      "name": "Nome",
+      "namePlaceholder": "Es. Demo Shop",
+      "repoUrl": "URL repository",
+      "gitAccount": "Account git",
+      "credentialsHint": "// le credenziali vivono sull'account: gestiscile in Settings → Account Git.",
+      "save": "Salva modifiche",
+      "saving": "Salvataggio…"
+    },
+    "wizard": {
+      "name": "Nome",
+      "namePlaceholder": "Es. Demo Shop",
+      "noGitAccount": "// nessun account git",
+      "createAccountFirstPrefix": "Crea prima un account git in ",
+      "createAccountFirstLink": "Settings → Account Git",
+      "createAccountFirstSuffix": ", poi torna qui per collegarlo a un repository.",
+      "gitAccount": "Account git",
+      "repository": "Repository",
+      "loadingRepos": "// caricamento repository…",
+      "searchRepo": "Cerca repository",
+      "searchRepoPlaceholder": "Filtra per nome…",
+      "noRepoMatch": "// nessun repository corrisponde",
+      "default": "default",
+      "listReposFailed": "Impossibile elencare i repository dell'account",
+      "manualHint": "// elenco non disponibile: inserisci URL e branch manualmente.",
+      "repoUrl": "URL repository",
+      "defaultBranch": "Branch di default",
+      "verifyAccess": "Verifica accesso al repository",
+      "verifyHint1": "// controllo advisory dei permessi sul repo (push git / PR / webhook).",
+      "verifyHint2": "// non blocca la creazione: la config del webhook è opzionale.",
+      "verifying": "Verifica…",
+      "verifyError": "Errore nella verifica del repository",
+      "submit": "Crea progetto",
+      "submitting": "Creazione…"
+    },
+    "branchSelect": {
+      "label": "Branch di default",
+      "loadFailed": "// impossibile caricare i branch: inseriscilo manualmente.",
+      "loading": "// caricamento branch…"
+    },
+    "new": {
+      "back": "← Tutti i progetti",
+      "title": "Nuovo progetto",
+      "subtitle": "Scegli un account git, il repository e il branch: slug e chiave di ingestion vengono generati alla creazione."
+    }
+  },
+  "integration": {
+    "title": "Integrazione",
+    "ingestionKey": "Chiave di ingestion",
+    "copyIngestionKey": "Copia chiave di ingestion",
+    "dsn": "DSN",
+    "copyDsn": "Copia DSN",
+    "snippet": "Snippet init()",
+    "copySnippet": "Copia snippet",
+    "snippetHint": "// variante browser — per Node: import da \"@stubwise/sdk/node\"",
+    "webhookSection": "Webhook git · merge → done",
+    "webhookUrl": "Webhook URL",
+    "copyWebhookUrl": "Copia URL webhook",
+    "webhookSecret": "Webhook secret",
+    "copyWebhookSecret": "Copia secret webhook",
+    "webhookHint": "// configura questo URL e secret HMAC nel provider git: alla merge della PR il ticket passa a done",
+    "webhookConfiguredAt": "✓ Webhook configurato il {{date}}",
+    "reconfigure": "Riconfigura",
+    "configuring": "Configurazione…",
+    "configureAuto": "Configura automaticamente",
+    "webhookUpdated": "Webhook aggiornato su {{url}}",
+    "webhookConfigured": "Webhook configurato su {{url}}",
+    "configureFailed": "Configurazione del webhook fallita"
+  },
+  "jobStatus": {
+    "labels": {
+      "queued": "In coda",
+      "triaging": "Triage",
+      "fixing": "Fix in corso",
+      "held": "In attesa",
+      "pr_opened": "PR aperta",
+      "pr_merged": "PR mergiata",
+      "failed": "Fallito",
+      "skipped": "Saltato",
+      "pr_closed": "PR chiusa",
+      "awaiting_plan_approval": "Piano da approvare"
+    },
+    "notes": {
+      "held": "Automazione non avviata: serve un avvio manuale del fix.",
+      "awaiting_plan_approval": "Il piano supera la soglia di effort: approvalo o rifiutalo per procedere."
+    }
+  }
+}

@@ -1,0 +1,519 @@
+{
+  "common": {
+    "appName": "Stubwise",
+    "unexpectedError": "Unexpected error",
+    "error": "Error",
+    "copy": "Copy",
+    "copied": "Copied",
+    "copyFailed": "Error",
+    "loading": "Loading…",
+    "save": "Save",
+    "cancel": "Cancel",
+    "retry": "Retry",
+    "logout": "Sign out",
+    "loggingOut": "Signing out…",
+    "nav": {
+      "tickets": "Tickets",
+      "board": "Board",
+      "projects": "Projects",
+      "team": "Team",
+      "settings": "Settings",
+      "docs": "Documentation"
+    }
+  },
+  "errors": {
+    "unauthorized": "Authentication required",
+    "forbidden": "Administrators only",
+    "ticket_not_found": "Ticket not found",
+    "project_not_found": "Project not found",
+    "git_account_not_found": "Git account not found",
+    "assignee_not_found": "Assignee not found",
+    "invalid_cursor": "Invalid pagination cursor",
+    "plan_not_pending": "No plan pending approval",
+    "webhook_unauthorized": "Webhook unauthorized",
+    "invalid_ingestion_key": "Invalid ingestion key",
+    "credentials_undecryptable": "Git account credentials cannot be decrypted",
+    "git_account_in_use": "Git account in use by one or more projects: unlink it before deleting",
+    "git_provider_error": "Git provider error",
+    "setup_already_completed": "Setup already completed",
+    "invalid_credentials": "Invalid credentials",
+    "invite_not_found": "Invite not found",
+    "invite_invalid": "Invite invalid or already used",
+    "invite_expired": "Invite expired",
+    "email_already_exists": "A user with this email already exists",
+    "network_error": "Unable to reach the server",
+    "generic": "Something went wrong"
+  },
+  "auth": {
+    "shell": {
+      "status": "self-hosted",
+      "tagline": "issue tracking · ai pipeline"
+    },
+    "fields": {
+      "email": "Email",
+      "password": "Password"
+    },
+    "login": {
+      "title": "Sign in",
+      "subtitle": "Enter your Stubwise instance.",
+      "submit": "Sign in",
+      "submitPending": "Signing in…"
+    },
+    "register": {
+      "title": "Create your account",
+      "subtitle": "You have been invited to this Stubwise instance.",
+      "tokenLabel": "Invite token",
+      "submit": "Sign up",
+      "submitPending": "Signing up…"
+    },
+    "setup": {
+      "title": "Create the administrator account",
+      "subtitle": "This instance is new: the first account gets admin privileges.",
+      "confirmLabel": "Confirm password",
+      "passwordMismatch": "Passwords do not match",
+      "submit": "Create account",
+      "submitPending": "Creating…"
+    }
+  },
+  "tickets": {
+    "list": {
+      "title": "Tickets",
+      "subtitle": "All the tickets from your projects, most recent first.",
+      "newTicket": "New ticket",
+      "createProjectFirst": "Create a project first",
+      "empty": "// no tickets found",
+      "emptyHint": "Try widening the filters or changing the search term.",
+      "loadMore": "Load more",
+      "loadingMore": "Loading…"
+    },
+    "board": {
+      "title": "Board",
+      "subtitle": "Drag the cards between columns to change status. Keyboard: Space to pick up and drop, arrows to move, Enter to open the detail.",
+      "project": "Project",
+      "all": "All",
+      "truncated": "Showing the first {{limit}} tickets — filter by project to see them all.",
+      "moveFailed": "Move failed: {{error}}. The card returned to its place.",
+      "dismiss": "Dismiss",
+      "columnLabel": "{{status}}: {{count}} tickets",
+      "emptyColumn": "No tickets",
+      "cardRoleDescription": "Draggable card"
+    },
+    "filters": {
+      "search": "Search",
+      "searchPlaceholder": "Search the title…",
+      "project": "Project",
+      "status": "Status",
+      "type": "Type",
+      "priority": "Priority",
+      "all": "All"
+    },
+    "row": {
+      "occurrences": "Deduplicated occurrences"
+    },
+    "newDialog": {
+      "title": "New ticket",
+      "badge": "manual",
+      "ticketTitle": "Title",
+      "titlePlaceholder": "E.g. Crash at checkout",
+      "project": "Project",
+      "type": "Type",
+      "priority": "Priority",
+      "description": "Description (optional)",
+      "descriptionPlaceholder": "Markdown supported…",
+      "cancel": "Cancel",
+      "submit": "Create ticket",
+      "submitPending": "Creating…"
+    },
+    "detail": {
+      "back": "← All tickets",
+      "effortTitle": "AI triage effort estimate",
+      "effort": "Effort: {{label}} ({{value}}/5)",
+      "occurrences": "Deduplicated occurrences",
+      "description": "Description",
+      "noDescription": "// no description",
+      "technicalPayload": "Technical payload",
+      "aiActivity": "AI activity",
+      "startFix": "Start AI fix",
+      "startingFix": "Starting…",
+      "relaunchWithInstructions": "Relaunch with instructions",
+      "addCommentHint": "Add a comment with the instructions first.",
+      "approve": "Approve",
+      "approving": "Approving…",
+      "reject": "Reject",
+      "rejecting": "Rejecting…",
+      "rejectHint": "To reject, write what to fix in the comment and then reject: the next plan will take it into account.",
+      "comments": "Comments ({{count}})",
+      "status": "Status",
+      "priority": "Priority",
+      "assignee": "Assignee",
+      "unassigned": "Unassigned",
+      "labels": "Labels",
+      "createdAt": "Created",
+      "updatedAt": "Updated",
+      "lastSeenAt": "Last seen",
+      "occurrencesMeta": "Occurrences"
+    },
+    "timeline": {
+      "empty": "// no AI activity for this ticket",
+      "viewPr": "View PR ↗",
+      "startedAt": "Started {{date}}",
+      "finishedAt": "Finished {{date}}",
+      "showLog": "▸ Show log",
+      "hideLog": "▾ Hide log"
+    },
+    "comments": {
+      "empty": "// no comments yet",
+      "system": "SYSTEM",
+      "removedUser": "Removed user",
+      "submitFailed": "Failed to submit the comment",
+      "addComment": "Add a comment",
+      "placeholder": "Markdown supported…",
+      "submit": "Comment",
+      "submitPending": "Submitting…"
+    },
+    "labelsEditor": {
+      "addPlaceholder": "Add label…",
+      "add": "Add",
+      "newLabel": "New label",
+      "removeLabel": "Remove label {{label}}"
+    },
+    "usage": {
+      "title": "AI usage",
+      "totalTokens": "Total tokens",
+      "totalCost": "Total cost",
+      "model": "Model",
+      "tokensIn": "Tokens in",
+      "tokensOut": "Tokens out",
+      "cache": "Cache",
+      "cost": "Cost"
+    }
+  },
+  "settings": {
+    "layout": {
+      "title": "Settings",
+      "subtitle": "Your account and AI automation.",
+      "navAriaLabel": "Settings",
+      "nav": {
+        "account": "Account",
+        "automation": "AI automation",
+        "notifications": "Notifications",
+        "gitAccounts": "Git accounts"
+      }
+    },
+    "account": {
+      "title": "Account",
+      "email": "Email",
+      "role": "Role",
+      "admin": "Admin",
+      "member": "Member",
+      "language": "Language",
+      "languageEnglish": "English",
+      "languageItalian": "Italiano"
+    },
+    "team": {
+      "title": "Team",
+      "subtitle": "Who has access to the platform.",
+      "members": "Members",
+      "memberCount_one": "{{count}} member",
+      "memberCount_other": "{{count}} members",
+      "you": "you",
+      "memberSince": "member since {{date}}",
+      "admin": "Admin",
+      "member": "Member",
+      "invitesTitle": "Pending invites",
+      "adminOnly": "admin only",
+      "inviteUser": "Invite a user",
+      "invitePlaceholder": "colleague@example.com",
+      "createInvite": "Create invite",
+      "creatingInvite": "Creating…",
+      "inviteCreated": "Invite for <strong>{{email}}</strong> created.",
+      "copyInviteLink": "Copy invite link",
+      "deliverYourself": "// deliver it yourself: the server sends nothing",
+      "noPendingInvites": "// no pending invites",
+      "sentOn": "sent on {{date}}",
+      "expiredOn": "expired on {{date}}",
+      "expiresOn": "expires on {{date}}",
+      "revoke": "Revoke",
+      "revoking": "Revoking…",
+      "confirmRevoke": "Revoke the invite for {{email}}?",
+      "copyInviteLinkFor": "Copy invite link for {{email}}"
+    },
+    "gitAccounts": {
+      "title": "Git accounts",
+      "subtitle": "Reusable credentials: one account can be linked to several projects.",
+      "newAccount": "New git account",
+      "empty": "// no git accounts",
+      "name": "Name",
+      "namePlaceholder": "E.g. Bitbucket Production",
+      "provider": "Provider",
+      "workspace": "Workspace",
+      "workspacePlaceholder": "e.g. my-workspace",
+      "workspaceHint": "Bitbucket workspace slug (e.g. my-workspace) — required for API tokens, since Bitbucket dropped the global repo listing.",
+      "gitCredentials": "Git credentials",
+      "createHint": "// after saving, use \"Validate\" on the account row to verify the credentials.",
+      "editHint": "// after saving, use \"Validate\" on the row to verify the credentials.",
+      "tokenRequired": "The access token is required",
+      "createAccount": "Create account",
+      "creatingAccount": "Creating…",
+      "saveAccount": "Save account",
+      "savingAccount": "Saving…",
+      "createdAt": "created {{date}}",
+      "validate": "Validate",
+      "validating": "Validating…",
+      "edit": "Edit",
+      "delete": "Delete",
+      "confirm": "Confirm",
+      "validationError": "Validation error",
+      "inUse": "Account used by one or more projects: unlink it before deleting"
+    },
+    "credentials": {
+      "username": "Username",
+      "usernamePlaceholder": "Bitbucket: username · GitHub: empty",
+      "email": "Email",
+      "emailPlaceholder": "Bitbucket: Atlassian email (REST API) · GitHub: empty",
+      "token": "Access token",
+      "tokenPlaceholder": "API token / PAT",
+      "writeOnlyHint": "// write-only: they are encrypted and will never be shown again.",
+      "bitbucketHint": "// Bitbucket: Username = Bitbucket username (for git), Email = Atlassian email (for the REST API/PR), Token = API token (scope repository + pullrequest + webhook, read and write).",
+      "githubHint": "// GitHub: leave Username and Email empty, Token = fine-grained PAT (Contents + Pull requests + Webhooks: Read and write).",
+      "keepHint": "// leave empty to keep the saved ones.",
+      "valid": "Valid credentials",
+      "issues": "Issues detected"
+    }
+  },
+  "notifications": {
+    "title": "Notifications",
+    "viewDocs": "View documentation →",
+    "subtitle": "An outgoing webhook receives a message on key events (new SDK ticket, PR opened, PR closed, on hold, plan to approve, fix failed).",
+    "formatGeneric": "Generic JSON",
+    "enabled": "Enabled",
+    "format": "Format",
+    "webhookUrl": "Webhook URL",
+    "events": "Events",
+    "save": "Save",
+    "saving": "Saving…",
+    "sendTest": "Send test notification",
+    "sending": "Sending…",
+    "saved": "Saved",
+    "preview": "Preview",
+    "contentLanguage": "Generated content language",
+    "contentLanguageEnglish": "English",
+    "contentLanguageItalian": "Italiano",
+    "contentLanguageHint": "Language used for AI comments, PR reports and notifications — distinct from your interface language.",
+    "setupTitle": "How to configure",
+    "toggles": {
+      "ticketCreated": "New SDK ticket",
+      "prOpened": "PR opened",
+      "prClosed": "PR closed without merge (ticket reopened)",
+      "jobHeld": "On hold",
+      "planReview": "AI plan awaiting approval",
+      "jobFailed": "Fix failed"
+    },
+    "samples": {
+      "ticketCreated": "New ticket",
+      "prOpened": "PR opened",
+      "prClosed": "PR closed",
+      "jobHeld": "On hold",
+      "planReview": "Plan pending",
+      "jobFailed": "Fix failed"
+    },
+    "slack": {
+      "step1Prefix": "Go to",
+      "step1Suffix": ".",
+      "step2": "Press <create>Create New App</create> → From scratch, choose a name and workspace.",
+      "step3": "In the side menu open <webhooks>Incoming Webhooks</webhooks> and activate it (Activate Incoming Webhooks).",
+      "step4": "Press <add>Add New Webhook to Workspace</add> and choose the destination channel.",
+      "step5": "Copy the generated URL (<url>https://hooks.slack.com/services/…</url>) and paste it above."
+    },
+    "discord": {
+      "step1": "Open the <settings>Channel settings</settings> (the gear icon next to the channel name).",
+      "step2": "Go to <integrations>Integrations</integrations> → <webhook>Webhooks</webhook>.",
+      "step3": "Press <new>New webhook</new> (you can rename it, e.g. \"Stubwise\").",
+      "step4": "Press <copy>Copy webhook URL</copy>.",
+      "step5": "Paste the URL above."
+    },
+    "generic": {
+      "intro": "Your endpoint will receive a <method>POST</method> request with <ct>Content-Type: application/json</ct> and this schema:",
+      "fields": {
+        "event": "the event type (ticket.created, job.pr_opened, job.pr_closed, job.held, job.plan_review, job.failed)",
+        "ticketNumber": "ticket number",
+        "title": "ticket title",
+        "projectName": "project name",
+        "message": "human-readable summary of the event",
+        "ticketUrl": "link to the ticket in Stubwise",
+        "source": "ticket.created only — SDK source (sdk_error / sdk_feedback)",
+        "prUrl": "on job.pr_opened and job.pr_closed — pull request URL",
+        "costUsd": "job.pr_opened only — USD cost of the run (or null)",
+        "type": "job.held only — type of the reclassified ticket",
+        "effort": "job.held only — estimated effort 1–5",
+        "error": "job.failed only — error message"
+      }
+    }
+  },
+  "automation": {
+    "title": "AI automation",
+    "subtitle": "The automatic fix only runs if auto-fix is on and the estimated effort is within the threshold.",
+    "viewDocs": "View documentation →",
+    "autoFix": "Auto-fix",
+    "autoFixLabel": "Auto-fix {{type}}",
+    "threshold": "Threshold",
+    "thresholdLabel": "Effort threshold {{type}}",
+    "planApproval": "Plan approval from effort ≥",
+    "planApprovalLabel": "Plan approval {{type}}",
+    "never": "Never",
+    "effortOption": "{{label}} ({{value}}/5)",
+    "save": "Save",
+    "saving": "Saving…",
+    "saved": "Saved"
+  },
+  "badges": {
+    "status": {
+      "open": "Open",
+      "triaged": "Triaged",
+      "in_progress": "In progress",
+      "in_review": "In review",
+      "done": "Done",
+      "closed": "Closed"
+    },
+    "priority": {
+      "low": "Low",
+      "medium": "Medium",
+      "high": "High",
+      "urgent": "Urgent"
+    },
+    "type": {
+      "bug": "Bug",
+      "feature": "Feature",
+      "task": "Task",
+      "feedback": "Feedback"
+    },
+    "source": {
+      "manual": "Manual",
+      "sdk_error": "SDK",
+      "sdk_feedback": "SDK",
+      "api": "API"
+    },
+    "effort": {
+      "1": "Trivial",
+      "2": "Small",
+      "3": "Medium",
+      "4": "Large",
+      "5": "Very large"
+    },
+    "priorityTitle": "Priority: {{label}}",
+    "sourceTitle": "Source: {{label}}"
+  },
+  "projects": {
+    "list": {
+      "title": "Projects",
+      "subtitle": "Linked repositories, ingestion keys and pipeline credentials.",
+      "newProject": "New project",
+      "empty": "// no linked projects",
+      "emptyHintAdmin": "Create the first project to get an ingestion key.",
+      "emptyHintMember": "Ask an administrator to link the first repository.",
+      "createdAt": "created {{date}}"
+    },
+    "detail": {
+      "back": "← All projects",
+      "branch": "branch",
+      "createdAt": "created",
+      "configuredBanner": "✓ Project configured correctly",
+      "configuration": "Configuration",
+      "saved": "Changes saved.",
+      "name": "Name",
+      "repoUrl": "Repository URL",
+      "defaultBranch": "Default branch",
+      "gitAccount": "Git account",
+      "status": "Status",
+      "webhookConfiguredAt": "✓ Webhook configured on {{date}}",
+      "webhookNotConfigured": "— Webhook not configured",
+      "readOnlyHint": "// read-only: the configuration is changed by admins"
+    },
+    "form": {
+      "name": "Name",
+      "namePlaceholder": "E.g. Demo Shop",
+      "repoUrl": "Repository URL",
+      "gitAccount": "Git account",
+      "credentialsHint": "// credentials live on the account: manage them in Settings → Git Accounts.",
+      "save": "Save changes",
+      "saving": "Saving…"
+    },
+    "wizard": {
+      "name": "Name",
+      "namePlaceholder": "E.g. Demo Shop",
+      "noGitAccount": "// no git accounts",
+      "createAccountFirstPrefix": "Create a git account first in ",
+      "createAccountFirstLink": "Settings → Git Accounts",
+      "createAccountFirstSuffix": ", then come back here to link it to a repository.",
+      "gitAccount": "Git account",
+      "repository": "Repository",
+      "loadingRepos": "// loading repositories…",
+      "searchRepo": "Search repository",
+      "searchRepoPlaceholder": "Filter by name…",
+      "noRepoMatch": "// no repository matches",
+      "default": "default",
+      "listReposFailed": "Unable to list the account repositories",
+      "manualHint": "// listing unavailable: enter URL and branch manually.",
+      "repoUrl": "Repository URL",
+      "defaultBranch": "Default branch",
+      "verifyAccess": "Verify repository access",
+      "verifyHint1": "// advisory check of repo permissions (git push / PR / webhook).",
+      "verifyHint2": "// does not block creation: webhook config is optional.",
+      "verifying": "Verifying…",
+      "verifyError": "Error while verifying the repository",
+      "submit": "Create project",
+      "submitting": "Creating…"
+    },
+    "branchSelect": {
+      "label": "Default branch",
+      "loadFailed": "// unable to load branches: enter it manually.",
+      "loading": "// loading branches…"
+    },
+    "new": {
+      "back": "← All projects",
+      "title": "New project",
+      "subtitle": "Pick a git account, the repository and the branch: slug and ingestion key are generated on creation."
+    }
+  },
+  "integration": {
+    "title": "Integration",
+    "ingestionKey": "Ingestion key",
+    "copyIngestionKey": "Copy ingestion key",
+    "dsn": "DSN",
+    "copyDsn": "Copy DSN",
+    "snippet": "init() snippet",
+    "copySnippet": "Copy snippet",
+    "snippetHint": "// browser variant — for Node: import from \"@stubwise/sdk/node\"",
+    "webhookSection": "git webhook · merge → done",
+    "webhookUrl": "Webhook URL",
+    "copyWebhookUrl": "Copy webhook URL",
+    "webhookSecret": "Webhook secret",
+    "copyWebhookSecret": "Copy webhook secret",
+    "webhookHint": "// configure this URL and HMAC secret in the git provider: on PR merge the ticket moves to done",
+    "webhookConfiguredAt": "✓ Webhook configured on {{date}}",
+    "reconfigure": "Reconfigure",
+    "configuring": "Configuring…",
+    "configureAuto": "Configure automatically",
+    "webhookUpdated": "Webhook updated on {{url}}",
+    "webhookConfigured": "Webhook configured on {{url}}",
+    "configureFailed": "Webhook configuration failed"
+  },
+  "jobStatus": {
+    "labels": {
+      "queued": "Queued",
+      "triaging": "Triaging",
+      "fixing": "Fixing",
+      "held": "On hold",
+      "pr_opened": "PR opened",
+      "pr_merged": "PR merged",
+      "failed": "Failed",
+      "skipped": "Skipped",
+      "pr_closed": "PR closed",
+      "awaiting_plan_approval": "Plan to approve"
+    },
+    "notes": {
+      "held": "Automation not started: a manual fix start is required.",
+      "awaiting_plan_approval": "The plan exceeds the effort threshold: approve or reject it to proceed."
+    }
+  }
+}

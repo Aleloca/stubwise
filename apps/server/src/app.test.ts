@@ -24,7 +24,7 @@ describe("buildApp", () => {
     const res = await app.inject({ method: "GET", url: "/boom" });
     expect(res.statusCode).toBe(500);
     expect(res.body).not.toContain("postgres secret detail");
-    expect(res.json()).toEqual({ message: "Errore interno" });
+    expect(res.json()).toEqual({ message: "Internal error" });
   });
 
   it("un errore con statusCode < 500 passa intatto", async () => {

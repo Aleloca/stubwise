@@ -88,7 +88,7 @@ describe("GitAccountsSection — lista", () => {
   it("senza account mostra il vuoto", async () => {
     mockApi({ "GET /api/git-accounts": () => jsonResponse(200, []) });
     renderSection();
-    expect(await screen.findByText(/nessun account git/i)).toBeInTheDocument();
+    expect(await screen.findByText(/no git accounts/i)).toBeInTheDocument();
   });
 });
 
@@ -106,15 +106,15 @@ describe("GitAccountsSection — creazione", () => {
 
     renderSection();
 
-    await user.click(await screen.findByRole("button", { name: /nuovo account git/i }));
+    await user.click(await screen.findByRole("button", { name: /new git account/i }));
 
-    await user.type(screen.getByLabelText("Nome"), "Account Demo");
+    await user.type(screen.getByLabelText("Name"), "Account Demo");
     await user.selectOptions(screen.getByLabelText("Provider"), "bitbucket");
     await user.type(screen.getByLabelText("Workspace"), "mio-workspace");
     await user.type(screen.getByLabelText("Username"), "acme-bot");
     await user.type(screen.getByLabelText("Email"), "bot@acme.io");
-    await user.type(screen.getByLabelText("Token di accesso"), "api-token");
-    await user.click(screen.getByRole("button", { name: "Crea account" }));
+    await user.type(screen.getByLabelText("Access token"), "api-token");
+    await user.click(screen.getByRole("button", { name: "Create account" }));
 
     await waitFor(() =>
       expect(postBody).toEqual({
@@ -132,7 +132,7 @@ describe("GitAccountsSection — creazione", () => {
 
     renderSection();
 
-    await user.click(await screen.findByRole("button", { name: /nuovo account git/i }));
+    await user.click(await screen.findByRole("button", { name: /new git account/i }));
 
     // Default provider = Bitbucket: il campo Workspace c'è.
     expect(screen.getByLabelText("Workspace")).toBeInTheDocument();
@@ -161,9 +161,9 @@ describe("GitAccountsSection — validazione", () => {
     renderSection();
 
     const row = (await screen.findByText("Account Demo")).closest("li") as HTMLElement;
-    await user.click(within(row).getByRole("button", { name: "Valida" }));
+    await user.click(within(row).getByRole("button", { name: "Validate" }));
 
-    expect(await screen.findByText("Problemi rilevati")).toBeInTheDocument();
+    expect(await screen.findByText("Issues detected")).toBeInTheDocument();
     expect(screen.getByText(/autenticazione git e push ok/)).toBeInTheDocument();
     expect(screen.getByText(/serve l'email/)).toBeInTheDocument();
   });
@@ -181,10 +181,10 @@ describe("GitAccountsSection — eliminazione", () => {
     renderSection();
 
     const row = (await screen.findByText("Account Demo")).closest("li") as HTMLElement;
-    await user.click(within(row).getByRole("button", { name: "Elimina" }));
-    await user.click(within(row).getByRole("button", { name: "Conferma" }));
+    await user.click(within(row).getByRole("button", { name: "Delete" }));
+    await user.click(within(row).getByRole("button", { name: "Confirm" }));
 
-    expect(await screen.findByText(/usato da uno o più progetti/i)).toBeInTheDocument();
+    expect(await screen.findByText(/used by one or more projects/i)).toBeInTheDocument();
   });
 
   it("elimina con conferma quando non è in uso", async () => {
@@ -201,8 +201,8 @@ describe("GitAccountsSection — eliminazione", () => {
     renderSection();
 
     const row = (await screen.findByText("Account Demo")).closest("li") as HTMLElement;
-    await user.click(within(row).getByRole("button", { name: "Elimina" }));
-    await user.click(within(row).getByRole("button", { name: "Conferma" }));
+    await user.click(within(row).getByRole("button", { name: "Delete" }));
+    await user.click(within(row).getByRole("button", { name: "Confirm" }));
 
     await waitFor(() => expect(screen.queryByText("Account Demo")).not.toBeInTheDocument());
   });

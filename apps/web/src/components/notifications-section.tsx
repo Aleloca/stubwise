@@ -3,74 +3,79 @@ import {
   sampleEvents,
   type NotificationEvent,
 } from "@stubwise/notifications/format";
+import type { Language } from "@stubwise/shared";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
+import { Trans, useTranslation } from "react-i18next";
 import {
   postTestNotification,
+  putInstanceSettings,
   putNotificationSettings,
   type NotificationFormat,
   type NotificationSettings,
   type TestNotificationResult,
 } from "../lib/api";
-import { notificationSettingsQueryOptions } from "../lib/queries";
+import { instanceSettingsQueryOptions, notificationSettingsQueryOptions } from "../lib/queries";
 import { CollapsibleSection } from "./collapsible-section";
 
-/** Le opzioni di formato del webhook, con etichetta leggibile. */
-const FORMAT_OPTIONS: { value: NotificationFormat; label: string }[] = [
-  { value: "slack", label: "Slack" },
-  { value: "discord", label: "Discord" },
-  { value: "generic", label: "JSON generico" },
+/** Le opzioni di formato del webhook; "slack"/"discord" sono nomi propri,
+ * "generic" ha un'etichetta tradotta a render-time (notifications:formatGeneric). */
+const FORMAT_OPTIONS: { value: NotificationFormat; labelKey?: string; literal?: string }[] = [
+  { value: "slack", literal: "Slack" },
+  { value: "discord", literal: "Discord" },
+  { value: "generic", labelKey: "notifications:formatGeneric" },
 ];
 
-/** I toggle per-evento, con etichetta italiana. */
-const EVENT_TOGGLES: { key: keyof NotificationSettings; label: string }[] = [
-  { key: "notifyTicketCreated", label: "Nuovo ticket SDK" },
-  { key: "notifyPrOpened", label: "PR aperta" },
-  { key: "notifyPrClosed", label: "PR chiusa senza merge (ticket riaperto)" },
-  { key: "notifyJobHeld", label: "In attesa" },
-  { key: "notifyPlanReview", label: "Piano AI in attesa di approvazione" },
-  { key: "notifyJobFailed", label: "Fix fallito" },
+/** I toggle per-evento; la `labelKey` punta a `notifications:toggles.*`. */
+const EVENT_TOGGLES: { key: keyof NotificationSettings; labelKey: string }[] = [
+  { key: "notifyTicketCreated", labelKey: "notifications:toggles.ticketCreated" },
+  { key: "notifyPrOpened", labelKey: "notifications:toggles.prOpened" },
+  { key: "notifyPrClosed", labelKey: "notifications:toggles.prClosed" },
+  { key: "notifyJobHeld", labelKey: "notifications:toggles.jobHeld" },
+  { key: "notifyPlanReview", labelKey: "notifications:toggles.planReview" },
+  { key: "notifyJobFailed", labelKey: "notifications:toggles.jobFailed" },
 ];
 
-/** Etichetta leggibile di ciascun evento d'esempio, per il selettore d'anteprima. */
-const SAMPLE_LABELS: { kind: NotificationEvent["kind"]; label: string }[] = [
-  { kind: "ticket.created", label: "Nuovo ticket" },
-  { kind: "job.pr_opened", label: "PR aperta" },
-  { kind: "job.pr_closed", label: "PR chiusa" },
-  { kind: "job.held", label: "In attesa" },
-  { kind: "job.plan_review", label: "Piano in attesa" },
-  { kind: "job.failed", label: "Fix fallito" },
+/** Eventi d'esempio per il selettore d'anteprima; `labelKey` → `notifications:samples.*`. */
+const SAMPLE_LABELS: { kind: NotificationEvent["kind"]; labelKey: string }[] = [
+  { kind: "ticket.created", labelKey: "notifications:samples.ticketCreated" },
+  { kind: "job.pr_opened", labelKey: "notifications:samples.prOpened" },
+  { kind: "job.pr_closed", labelKey: "notifications:samples.prClosed" },
+  { kind: "job.held", labelKey: "notifications:samples.jobHeld" },
+  { kind: "job.plan_review", labelKey: "notifications:samples.planReview" },
+  { kind: "job.failed", labelKey: "notifications:samples.jobFailed" },
 ];
 
-/** Placeholder dell'URL webhook in base al formato selezionato. */
+/** Placeholder dell'URL webhook in base al formato selezionato (URL letterali). */
 const URL_PLACEHOLDER: Record<NotificationFormat, string> = {
   slack: "https://hooks.slack.com/services/…",
   discord: "https://discord.com/api/webhooks/…",
   generic: "https://example.com/webhooks/stubwise",
 };
 
-/** I campi del payload generico, documentati inline. */
-const GENERIC_FIELDS: { name: string; desc: string }[] = [
-  { name: "event", desc: "il tipo di evento (ticket.created, job.pr_opened, job.pr_closed, job.held, job.plan_review, job.failed)" },
-  { name: "ticketNumber", desc: "numero del ticket" },
-  { name: "title", desc: "titolo del ticket" },
-  { name: "projectName", desc: "nome del progetto" },
-  { name: "message", desc: "riepilogo leggibile dell'evento" },
-  { name: "ticketUrl", desc: "link al ticket in Stubwise" },
-  { name: "source", desc: "solo ticket.created — sorgente SDK (sdk_error / sdk_feedback)" },
-  { name: "prUrl", desc: "su job.pr_opened e job.pr_closed — URL della pull request" },
-  { name: "costUsd", desc: "solo job.pr_opened — costo USD del run (o null)" },
-  { name: "type", desc: "solo job.held — tipo del ticket riclassificato" },
-  { name: "effort", desc: "solo job.held — sforzo stimato 1–5" },
-  { name: "error", desc: "solo job.failed — messaggio d'errore" },
+/** Nomi dei campi del payload generico; la descrizione è in `notifications:generic.fields.*`. */
+const GENERIC_FIELDS: { name: string; descKey: string }[] = [
+  { name: "event", descKey: "notifications:generic.fields.event" },
+  { name: "ticketNumber", descKey: "notifications:generic.fields.ticketNumber" },
+  { name: "title", descKey: "notifications:generic.fields.title" },
+  { name: "projectName", descKey: "notifications:generic.fields.projectName" },
+  { name: "message", descKey: "notifications:generic.fields.message" },
+  { name: "ticketUrl", descKey: "notifications:generic.fields.ticketUrl" },
+  { name: "source", descKey: "notifications:generic.fields.source" },
+  { name: "prUrl", descKey: "notifications:generic.fields.prUrl" },
+  { name: "costUsd", descKey: "notifications:generic.fields.costUsd" },
+  { name: "type", descKey: "notifications:generic.fields.type" },
+  { name: "effort", descKey: "notifications:generic.fields.effort" },
+  { name: "error", descKey: "notifications:generic.fields.error" },
 ];
 
 /** Passi numerati per ottenere il webhook Slack. */
 function SlackGuide() {
+  const { t } = useTranslation();
   return (
     <ol className="list-decimal space-y-1.5 pl-5 font-mono text-[12px] text-fg-muted">
       <li>
-        Vai su{" "}
+        {t("notifications:slack.step1Prefix")}{" "}
         <a
           href="https://api.slack.com/apps"
           target="_blank"
@@ -79,23 +84,19 @@ function SlackGuide() {
         >
           api.slack.com/apps
         </a>
-        .
+        {t("notifications:slack.step1Suffix")}
       </li>
       <li>
-        Premi <span className="text-fg">Create New App</span> → From scratch, scegli nome e
-        workspace.
+        <Trans i18nKey="notifications:slack.step2" components={{ create: <span className="text-fg" /> }} />
       </li>
       <li>
-        Nel menu laterale apri <span className="text-fg">Incoming Webhooks</span> e attivalo
-        (Activate Incoming Webhooks).
+        <Trans i18nKey="notifications:slack.step3" components={{ webhooks: <span className="text-fg" /> }} />
       </li>
       <li>
-        Premi <span className="text-fg">Add New Webhook to Workspace</span> e scegli il canale di
-        destinazione.
+        <Trans i18nKey="notifications:slack.step4" components={{ add: <span className="text-fg" /> }} />
       </li>
       <li>
-        Copia l'URL generato (<span className="text-fg">https://hooks.slack.com/services/…</span>) e
-        incollalo qui sopra.
+        <Trans i18nKey="notifications:slack.step5" components={{ url: <span className="text-fg" /> }} />
       </li>
     </ol>
   );
@@ -106,36 +107,43 @@ function DiscordGuide() {
   return (
     <ol className="list-decimal space-y-1.5 pl-5 font-mono text-[12px] text-fg-muted">
       <li>
-        Apri le <span className="text-fg">Impostazioni del canale</span> (l'icona dell'ingranaggio
-        accanto al nome del canale).
+        <Trans i18nKey="notifications:discord.step1" components={{ settings: <span className="text-fg" /> }} />
       </li>
       <li>
-        Vai su <span className="text-fg">Integrazioni</span> → <span className="text-fg">Webhook</span>.
+        <Trans
+          i18nKey="notifications:discord.step2"
+          components={{ integrations: <span className="text-fg" />, webhook: <span className="text-fg" /> }}
+        />
       </li>
       <li>
-        Premi <span className="text-fg">Nuovo webhook</span> (puoi rinominarlo, es. "Stubwise").
+        <Trans i18nKey="notifications:discord.step3" components={{ new: <span className="text-fg" /> }} />
       </li>
       <li>
-        Premi <span className="text-fg">Copia URL del webhook</span>.
+        <Trans i18nKey="notifications:discord.step4" components={{ copy: <span className="text-fg" /> }} />
       </li>
-      <li>Incolla l'URL qui sopra.</li>
+      <li>
+        <Trans i18nKey="notifications:discord.step5" />
+      </li>
     </ol>
   );
 }
 
 /** Contratto del payload generico, con elenco campi e link alla documentazione. */
 function GenericGuide() {
+  const { t } = useTranslation();
   return (
     <div className="space-y-2 font-mono text-[12px] text-fg-muted">
       <p>
-        Il tuo endpoint riceverà una richiesta <span className="text-fg">POST</span> con{" "}
-        <span className="text-fg">Content-Type: application/json</span> e questo schema:
+        <Trans
+          i18nKey="notifications:generic.intro"
+          components={{ method: <span className="text-fg" />, ct: <span className="text-fg" /> }}
+        />
       </p>
       <dl className="space-y-1">
         {GENERIC_FIELDS.map((field) => (
           <div key={field.name} className="flex flex-wrap gap-x-2">
             <dt className="text-signal">{field.name}</dt>
-            <dd className="text-fg-faint">— {field.desc}</dd>
+            <dd className="text-fg-faint">— {t(field.descKey)}</dd>
           </div>
         ))}
       </dl>
@@ -145,8 +153,9 @@ function GenericGuide() {
 
 /** La guida "Come configurare" giusta per il formato selezionato. */
 function SetupGuide({ format }: { format: NotificationFormat }) {
+  const { t } = useTranslation();
   return (
-    <CollapsibleSection title="Come configurare">
+    <CollapsibleSection title={t("notifications:setupTitle")}>
       {format === "slack" && <SlackGuide />}
       {format === "discord" && <DiscordGuide />}
       {format === "generic" && <GenericGuide />}
@@ -156,7 +165,7 @@ function SetupGuide({ format }: { format: NotificationFormat }) {
         rel="noreferrer"
         className="mt-3 inline-block font-mono text-[12px] text-signal underline-offset-2 hover:underline"
       >
-        Vedi documentazione →
+        {t("notifications:viewDocs")}
       </a>
     </CollapsibleSection>
   );
@@ -168,7 +177,14 @@ function SetupGuide({ format }: { format: NotificationFormat }) {
  * Slack/Discord mostra il testo/markdown che verrà inviato in un box stile chat;
  * per il formato generico fa il pretty-print del JSON che l'endpoint riceverà.
  */
-function LivePreview({ format }: { format: NotificationFormat }) {
+function LivePreview({
+  format,
+  contentLanguage,
+}: {
+  format: NotificationFormat;
+  contentLanguage: Language;
+}) {
+  const { t } = useTranslation();
   // I link dell'anteprima puntano all'istanza corrente (origin del browser).
   const origin = typeof window !== "undefined" ? window.location.origin : "https://stubwise.example.com";
   const samples = useMemo(() => sampleEvents(origin), [origin]);
@@ -177,7 +193,10 @@ function LivePreview({ format }: { format: NotificationFormat }) {
   const [selectedKind, setSelectedKind] = useState<NotificationEvent["kind"]>("job.pr_opened");
   const event = samples.find((sample) => sample.kind === selectedKind) ?? samples[0]!;
 
-  const formatted = formatNotification(event, format);
+  // Usa la lingua dei contenuti d'istanza: l'anteprima mostra esattamente ciò
+  // che le notifiche reali produrranno (formatNotification è la stessa funzione
+  // del dispatch, che già usa la content language).
+  const formatted = formatNotification(event, format, contentLanguage);
   const messageText =
     format === "slack"
       ? String((formatted.body as { text: string }).text)
@@ -189,7 +208,7 @@ function LivePreview({ format }: { format: NotificationFormat }) {
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
-          Anteprima
+          {t("notifications:preview")}
         </span>
         <div className="flex flex-wrap gap-1">
           {SAMPLE_LABELS.map((sample) => {
@@ -206,7 +225,7 @@ function LivePreview({ format }: { format: NotificationFormat }) {
                     : "border-line-strong text-fg-faint hover:border-ink-700 hover:text-fg-muted"
                 }`}
               >
-                {sample.label}
+                {t(sample.labelKey)}
               </button>
             );
           })}
@@ -240,8 +259,10 @@ function LivePreview({ format }: { format: NotificationFormat }) {
  * test" verifica il webhook mostrando l'esito inline.
  */
 export function NotificationsSection() {
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { data: settings } = useSuspenseQuery(notificationSettingsQueryOptions);
+  const { data: instance } = useSuspenseQuery(instanceSettingsQueryOptions);
 
   const [form, setForm] = useState<NotificationSettings>(settings);
   useEffect(() => {
@@ -255,6 +276,16 @@ export function NotificationsSection() {
     mutationFn: (next: NotificationSettings) => putNotificationSettings(next),
     onSuccess: (updated) => {
       queryClient.setQueryData(notificationSettingsQueryOptions.queryKey, updated);
+    },
+  });
+
+  // Lingua dei contenuti d'istanza: salva subito al cambio del select (come il
+  // selettore di lingua dell'account) e aggiorna la cache così l'anteprima qui
+  // sotto riflette immediatamente la nuova lingua.
+  const contentLanguageMutation = useMutation({
+    mutationFn: (language: Language) => putInstanceSettings(language),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(instanceSettingsQueryOptions.queryKey, updated);
     },
   });
 
@@ -278,7 +309,7 @@ export function NotificationsSection() {
       <header className="border-b border-line px-4 py-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-mono text-[11px] font-medium tracking-[0.16em] text-fg-muted uppercase">
-            Notifiche
+            {t("notifications:title")}
           </h2>
           <a
             href="/docs/notifications/"
@@ -286,13 +317,10 @@ export function NotificationsSection() {
             rel="noreferrer"
             className="font-mono text-[11px] text-signal underline-offset-2 hover:underline"
           >
-            Vedi documentazione →
+            {t("notifications:viewDocs")}
           </a>
         </div>
-        <p className="mt-1 font-mono text-[11px] text-fg-faint">
-          Un webhook in uscita riceve un messaggio sugli eventi chiave (nuovo ticket SDK, PR
-          aperta, PR chiusa, in attesa, piano da approvare, fix fallito).
-        </p>
+        <p className="mt-1 font-mono text-[11px] text-fg-faint">{t("notifications:subtitle")}</p>
       </header>
 
       <div className="space-y-4 px-4 py-4">
@@ -303,25 +331,46 @@ export function NotificationsSection() {
             disabled={saveMutation.isPending}
             onChange={(event) => update("enabled", event.target.checked)}
             className="size-4 accent-signal"
-            aria-label="Abilitate"
+            aria-label={t("notifications:enabled")}
           />
-          Abilitate
+          {t("notifications:enabled")}
         </label>
 
         <label className="flex flex-col gap-1">
           <span className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
-            Formato
+            {t("notifications:contentLanguage")}
+          </span>
+          <select
+            value={instance.contentLanguage}
+            disabled={contentLanguageMutation.isPending}
+            onChange={(event) =>
+              contentLanguageMutation.mutate(event.target.value as Language)
+            }
+            aria-label={t("notifications:contentLanguage")}
+            className="w-fit rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1.5 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <option value="en">{t("notifications:contentLanguageEnglish")}</option>
+            <option value="it">{t("notifications:contentLanguageItalian")}</option>
+          </select>
+          <span className="font-mono text-[11px] text-fg-faint">
+            {t("notifications:contentLanguageHint")}
+          </span>
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
+            {t("notifications:format")}
           </span>
           <select
             value={form.format}
             disabled={saveMutation.isPending}
             onChange={(event) => update("format", event.target.value as NotificationFormat)}
-            aria-label="Formato"
+            aria-label={t("notifications:format")}
             className="rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1.5 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
           >
             {FORMAT_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
-                {option.label}
+                {option.literal ?? t(option.labelKey!)}
               </option>
             ))}
           </select>
@@ -331,7 +380,7 @@ export function NotificationsSection() {
 
         <label className="flex flex-col gap-1">
           <span className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
-            URL webhook
+            {t("notifications:webhookUrl")}
           </span>
           <input
             type="url"
@@ -341,34 +390,37 @@ export function NotificationsSection() {
               update("webhookUrl", event.target.value === "" ? null : event.target.value)
             }
             placeholder={URL_PLACEHOLDER[form.format]}
-            aria-label="URL webhook"
+            aria-label={t("notifications:webhookUrl")}
             className="rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1.5 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
           />
         </label>
 
         <fieldset className="flex flex-col gap-2">
           <legend className="mb-1 font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
-            Eventi
+            {t("notifications:events")}
           </legend>
-          {EVENT_TOGGLES.map((toggle) => (
-            <label
-              key={toggle.key}
-              className="flex items-center gap-2 font-mono text-[12px] text-fg-muted"
-            >
-              <input
-                type="checkbox"
-                checked={Boolean(form[toggle.key])}
-                disabled={saveMutation.isPending}
-                onChange={(event) => update(toggle.key, event.target.checked)}
-                className="size-4 accent-signal"
-                aria-label={toggle.label}
-              />
-              {toggle.label}
-            </label>
-          ))}
+          {EVENT_TOGGLES.map((toggle) => {
+            const label = t(toggle.labelKey);
+            return (
+              <label
+                key={toggle.key}
+                className="flex items-center gap-2 font-mono text-[12px] text-fg-muted"
+              >
+                <input
+                  type="checkbox"
+                  checked={Boolean(form[toggle.key])}
+                  disabled={saveMutation.isPending}
+                  onChange={(event) => update(toggle.key, event.target.checked)}
+                  className="size-4 accent-signal"
+                  aria-label={label}
+                />
+                {label}
+              </label>
+            );
+          })}
         </fieldset>
 
-        <LivePreview format={form.format} />
+        <LivePreview format={form.format} contentLanguage={instance.contentLanguage} />
       </div>
 
       <footer className="flex flex-wrap items-center gap-3 border-t border-line px-4 py-3">
@@ -378,7 +430,7 @@ export function NotificationsSection() {
           onClick={() => saveMutation.mutate(form)}
           className="rounded-sm bg-signal px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright active:bg-signal-dim disabled:cursor-not-allowed disabled:bg-signal-dim"
         >
-          {saveMutation.isPending ? "Salvataggio…" : "Salva"}
+          {saveMutation.isPending ? t("notifications:saving") : t("notifications:save")}
         </button>
         <button
           type="button"
@@ -386,11 +438,11 @@ export function NotificationsSection() {
           onClick={() => testMutation.mutate()}
           className="rounded-sm border border-line-strong px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {testMutation.isPending ? "Invio…" : "Invia notifica di test"}
+          {testMutation.isPending ? t("notifications:sending") : t("notifications:sendTest")}
         </button>
         {saveMutation.isSuccess && (
           <span role="status" className="font-mono text-[12px] text-ok">
-            Salvato
+            {t("notifications:saved")}
           </span>
         )}
         {saveMutation.isError && (
