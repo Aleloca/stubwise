@@ -38,7 +38,7 @@ the reason. Only on `fix` does the gate come into play.
 ## Per-type rules (Settings → AI Automation)
 
 In **Settings → AI Automation** (admin only) you configure, for each of the four
-ticket types, three parameters:
+ticket types, these parameters:
 
 - **Auto-fix** (on/off): whether the pipeline can start the fix on its own for
   that type.
@@ -47,6 +47,8 @@ ticket types, three parameters:
 - **Plan approval from effort ≥** (`Never`, or 1–5): the threshold beyond which
   the fix stops to have a human approve the plan before writing code. See
   [Plan approval](#plan-approval) below.
+- **Max cost per ticket ($)**: a per-type cap on the real AI cost a single
+  ticket may run up. Empty = no cap. See [Cost budget](#cost-budget) below.
 
 The seeded default values are:
 
@@ -124,6 +126,50 @@ The two thresholds have different purposes: `maxEffort` decides whether the fix
 starts on its own, "Plan approval from effort ≥" decides whether the fix stops
 to have the plan reviewed.
 :::
+
+## Cost budget
+
+Beyond the effort gate, you can cap the pipeline on the **real cost** of the AI
+work (tokens × model, tracked per job). There are two ceilings, and both are
+**checked before the fix starts and again inside the self-repair loop**, before
+spending on another repair attempt:
+
+- **Per ticket, per type** — the **"Max cost per ticket ($)"** field in
+  **Settings → AI Automation**, next to auto-fix / effort / plan approval, one
+  value for each type (`bug`, `feature`, `task`, `feedback`). It caps the total
+  cost summed across all the AI runs of a single ticket. Empty = no cap.
+- **Monthly, instance-wide** — the **"Monthly budget ($)"** field in
+  **Settings** (content / notifications area), a single global value. It caps the
+  cost summed across **all** jobs of the **current calendar month**. Empty = no
+  cap.
+
+When a ceiling would be exceeded, the job does **not** fail: it goes to the
+`held` state with an `ai` comment explaining the overage, and a **"budget
+exceeded (job held)"** notification fires (the
+[`job.budget_held`](/docs/notifications/) event). Nothing already spent is lost
+and the ticket keeps its triage.
+
+:::note[Manual start overrides the budget]
+Starting the fix by hand — **"Start AI fix"** or relaunch — **bypasses both
+ceilings**, exactly as it bypasses the auto-fix gate: a human has decided the
+spend is worth it. The budget only ever holds back **automatic** work.
+:::
+
+## Test command for self-repair
+
+Before opening a PR, the worker runs the repo's tests itself and loops with the
+agent until they pass (see
+[Self-repair](/docs/ai-pipeline/how-it-works/#self-repair-the-worker-verifies-the-tests)).
+Which command it runs is, per project, either:
+
+- the project's optional **"Test command"** field (Settings → Project, and the
+  new-project wizard), or
+- **auto-detected** when that field is empty: the `package.json` `test` script,
+  run with the package manager inferred from the lockfile in the repo.
+
+Leave it empty for a standard JS project; set it for a custom command (for
+example `pnpm run test:ci`). If no command can be resolved (no `test` script, or
+a non-JS repo), self-repair is simply skipped and the PR opens as usual.
 
 ## How it ties to the two-phase fix and to costs
 

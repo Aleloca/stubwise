@@ -17,6 +17,7 @@ the message for.
 | `job.pr_closed`    | A PR opened by the AI was closed without merge: the ticket is reopened.    |
 | `job.held`         | A job is awaiting human review (automation gate / effort threshold).       |
 | `job.plan_review`  | Planning produced a plan awaiting human approval.                          |
+| `job.budget_held`  | A job was held because it would exceed a cost budget (per ticket or monthly). |
 | `job.failed`       | The AI fix failed.                                                         |
 
 Each event has a dedicated toggle: you can enable only the ones you care about.
@@ -96,6 +97,9 @@ With the **generic JSON** format your endpoint receives a `POST` request with
 | `costUsd`      | number \| null   | only `job.pr_opened`    | USD cost of the fix run (`null` if unknown).            |
 | `type`         | string           | only `job.held`         | Ticket type (re)classified by triage.                   |
 | `effort`       | number           | only `job.held`         | Estimated effort, from 1 to 5.                          |
+| `scope`        | string           | only `job.budget_held`  | Which budget was hit: `ticket` or `monthly`.            |
+| `limitUsd`     | number           | only `job.budget_held`  | The budget ceiling in USD.                              |
+| `spentUsd`     | number           | only `job.budget_held`  | The cost already spent in USD.                          |
 | `error`        | string           | only `job.failed`       | Error message of the failed fix.                        |
 
 ### Examples per event
@@ -168,6 +172,22 @@ With the **generic JSON** format your endpoint receives a `POST` request with
   "projectName": "web-shop",
   "message": "Plan awaiting approval — #131 — Add CSV export to the order history (web-shop).",
   "ticketUrl": "https://stubwise.example.com/tickets/131"
+}
+```
+
+`job.budget_held`:
+
+```json
+{
+  "event": "job.budget_held",
+  "ticketNumber": 130,
+  "title": "Refactor the checkout flow",
+  "projectName": "web-shop",
+  "message": "Budget exceeded (ticket) — #130 Refactor the checkout flow (web-shop): spent $2.34 of $2.00 limit. Job on hold; start it manually to override.",
+  "ticketUrl": "https://stubwise.example.com/tickets/130",
+  "scope": "ticket",
+  "limitUsd": 2,
+  "spentUsd": 2.34
 }
 ```
 
