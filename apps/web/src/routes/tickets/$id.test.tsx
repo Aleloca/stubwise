@@ -3,7 +3,7 @@ import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AIJob, Comment, Ticket, TicketUsage } from "../../lib/api";
+import type { ActivityItem, AIJob, Comment, Ticket, TicketUsage } from "../../lib/api";
 import { ticketKeys } from "../../lib/queries";
 import { createAppRouter } from "../../router";
 
@@ -162,6 +162,40 @@ interface MockState {
   approveCalls: number;
   /** Quante volte è stato chiamato POST /reject-plan. */
   rejectCalls: number;
+  /** Eventi di audit accumulati (es. una PATCH di stato ne aggiunge uno). */
+  events: ActivityItem[];
+}
+
+/**
+ * Compone il feed dallo stato corrente: commenti, marker dei job e gli eventi
+ * di audit registrati (es. dalla PATCH), in ordine cronologico crescente —
+ * gemello del feed che il server costruirebbe.
+ */
+function buildActivity(state: MockState): ActivityItem[] {
+  const items: ActivityItem[] = [
+    ...state.comments.map(
+      (comment): ActivityItem => ({
+        kind: "comment",
+        id: comment.id,
+        authorType: comment.authorType,
+        authorId: comment.authorId,
+        body: comment.body,
+        createdAt: comment.createdAt,
+      }),
+    ),
+    ...state.jobs.map(
+      (job): ActivityItem => ({
+        kind: "ai_job",
+        id: job.id,
+        status: job.status,
+        prUrl: job.prUrl,
+        createdAt: job.createdAt,
+        finishedAt: job.finishedAt,
+      }),
+    ),
+    ...state.events,
+  ];
+  return items.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
 function mockDetailApi(
@@ -177,6 +211,7 @@ function mockDetailApi(
     runAiCalls: [],
     approveCalls: 0,
     rejectCalls: 0,
+    events: [],
   };
 
   mockApi({
@@ -203,10 +238,23 @@ function mockDetailApi(
     [`PATCH /api/tickets/${TICKET_ID}`]: (_url, init) => {
       const patch = JSON.parse(String(init?.body)) as Partial<Ticket>;
       state.patches.push(patch);
+      // Una PATCH di stato genera un evento di audit nel feed, come farebbe il
+      // server: così la timeline mostra la transizione.
+      if (typeof patch.status === "string") {
+        state.events.push({
+          kind: "event",
+          id: `ev${state.events.length + 1}`,
+          eventKind: "status_changed",
+          actorId: ADMIN_ID,
+          payload: { from: state.ticket.status, to: patch.status },
+          createdAt: "2026-06-09T11:00:00.000Z",
+        });
+      }
       state.ticket = { ...state.ticket, ...patch };
       return jsonResponse(200, state.ticket);
     },
     [`GET /api/tickets/${TICKET_ID}/comments`]: () => jsonResponse(200, state.comments),
+    [`GET /api/tickets/${TICKET_ID}/activity`]: () => jsonResponse(200, buildActivity(state)),
     [`POST /api/tickets/${TICKET_ID}/comments`]: (_url, init) => {
       const body = (JSON.parse(String(init?.body)) as { body: string }).body;
       state.postedComments.push(body);
@@ -371,8 +419,9 @@ describe("dettaglio ticket", () => {
     const state = mockDetailApi({ jobs: [heldJobFixture] });
     renderDetail();
 
-    // Stato held reso nella timeline.
-    expect(await screen.findByText("On hold")).toBeInTheDocument();
+    // Stato held reso nel pannello "AI activity" (lo stato compare anche nel feed).
+    const panel = await screen.findByRole("region", { name: "AI activity" });
+    expect(within(panel).getByText("On hold")).toBeInTheDocument();
 
     const button = screen.getByRole("button", { name: "Start AI fix" });
     await userEvent.click(button);
@@ -416,7 +465,8 @@ describe("dettaglio ticket", () => {
     const state = mockDetailApi({ jobs: [awaitingPlanJobFixture] });
     renderDetail();
 
-    expect(await screen.findByText("Plan to approve")).toBeInTheDocument();
+    const panel = await screen.findByRole("region", { name: "AI activity" });
+    expect(within(panel).getByText("Plan to approve")).toBeInTheDocument();
     const approve = screen.getByRole("button", { name: "Approve" });
     await userEvent.click(approve);
 
@@ -547,13 +597,16 @@ describe("dettaglio ticket", () => {
     mockDetailApi();
     renderDetail();
 
-    expect(await screen.findByText("PR opened")).toBeInTheDocument();
-    expect(screen.getByText("Failed")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /view pr/i })).toHaveAttribute(
+    // I marker di stato compaiono sia nel feed che nel pannello "AI activity":
+    // si scopa il pannello, che è quello col dettaglio tecnico (errore, log).
+    const panel = await screen.findByRole("region", { name: "AI activity" });
+    expect(within(panel).getByText("PR opened")).toBeInTheDocument();
+    expect(within(panel).getByText("Failed")).toBeInTheDocument();
+    expect(within(panel).getByRole("link", { name: /view pr/i })).toHaveAttribute(
       "href",
       "https://github.com/acme/shop/pull/12",
     );
-    expect(screen.getByText("git clone: timeout")).toBeInTheDocument();
+    expect(within(panel).getByText("git clone: timeout")).toBeInTheDocument();
   });
 
   it("pannello Consumi AI: token totali, costo e righe per modello", async () => {
@@ -645,7 +698,7 @@ describe("dettaglio ticket", () => {
     await waitFor(() => expect(state.patches).toEqual([{ labels: [] }]));
   });
 
-  it("aggiungere un commento: POST, thread aggiornato e campo svuotato", async () => {
+  it("aggiungere un commento: POST, feed aggiornato e campo svuotato", async () => {
     const state = mockDetailApi();
     renderDetail();
 
@@ -654,7 +707,44 @@ describe("dettaglio ticket", () => {
     await userEvent.click(screen.getByRole("button", { name: /comment/i }));
 
     await waitFor(() => expect(state.postedComments).toEqual(["Sistemo io."]));
-    expect(await screen.findByText("Sistemo io.")).toBeInTheDocument();
+    // Il commento compare nel feed (Activity), invalidato dalla mutazione.
+    const feed = screen.getByRole("region", { name: "Activity" });
+    expect(await within(feed).findByText("Sistemo io.")).toBeInTheDocument();
     expect(textarea).toHaveValue("");
+  });
+
+  it("feed Attività: rende commento, evento di audit e marker job AI", async () => {
+    const state = mockDetailApi();
+    state.events.push({
+      kind: "event",
+      id: "ev0",
+      eventKind: "status_changed",
+      actorId: ADMIN_ID,
+      payload: { from: "open", to: "in_progress" },
+      createdAt: "2026-06-02T09:30:00.000Z",
+    });
+    renderDetail();
+
+    const feed = await screen.findByRole("region", { name: "Activity" });
+    // comment kind
+    expect(within(feed).getByText("Riprodotto anche su staging.")).toBeInTheDocument();
+    // event kind: riga di audit con label di stato risolte
+    expect(
+      within(feed).getByText("ada@example.com changed status: Open → In progress"),
+    ).toBeInTheDocument();
+    // ai_job kind: marker di stato del job
+    expect(within(feed).getByText("PR opened")).toBeInTheDocument();
+  });
+
+  it("feed Attività: un cambio stato genera una riga di audit nel feed", async () => {
+    mockDetailApi();
+    renderDetail();
+
+    await userEvent.selectOptions(await screen.findByLabelText("Status"), "in_progress");
+
+    const feed = screen.getByRole("region", { name: "Activity" });
+    expect(
+      await within(feed).findByText("ada@example.com changed status: Open → In progress"),
+    ).toBeInTheDocument();
   });
 });

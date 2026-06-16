@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { aiJobs, comments, tickets } from "@stubwise/db";
+import { aiJobs, comments, ticketEvents, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
@@ -519,6 +519,75 @@ describe("PATCH /api/tickets/:id", () => {
   });
 });
 
+describe("PATCH /api/tickets/:id — ticket_events", () => {
+  // Ogni test usa un ticket fresco: gli eventi vengono confrontati per conteggio
+  // esatto, quindi non devono accumularsi tra i casi.
+  async function freshTicket(): Promise<string> {
+    const res = await postTicket({ projectId, title: "Evento", type: "bug", labels: ["a", "b"] });
+    expect(res.statusCode).toBe(201);
+    return (res.json() as TicketBody).id;
+  }
+
+  function patch(id: string, payload: Record<string, unknown>, cookie = users.memberCookie) {
+    return app.inject({ method: "PATCH", url: `/api/tickets/${id}`, headers: { cookie }, payload });
+  }
+
+  function eventsOf(id: string) {
+    return testDb.db.select().from(ticketEvents).where(eq(ticketEvents.ticketId, id));
+  }
+
+  it("status + assigneeId → 2 eventi con kind/from/to corretti e actorId del loggato", async () => {
+    const id = await freshTicket();
+    const res = await patch(id, { status: "in_progress", assigneeId: users.memberId });
+    expect(res.statusCode).toBe(200);
+
+    const rows = await eventsOf(id);
+    expect(rows).toHaveLength(2);
+    const byKind = new Map(rows.map((r) => [r.kind, r]));
+
+    const statusEvent = byKind.get("status_changed");
+    expect(statusEvent?.payload).toEqual({ from: "open", to: "in_progress" });
+    expect(statusEvent?.actorId).toBe(users.memberId);
+
+    const assigneeEvent = byKind.get("assignee_changed");
+    expect(assigneeEvent?.payload).toEqual({ from: null, to: users.memberId });
+    expect(assigneeEvent?.actorId).toBe(users.memberId);
+  });
+
+  it("stessi valori correnti → 0 eventi", async () => {
+    const id = await freshTicket();
+    // status open è il default alla creazione: ripeterlo non è un cambio.
+    const res = await patch(id, { status: "open", type: "bug", priority: "medium" });
+    expect(res.statusCode).toBe(200);
+    expect(await eventsOf(id)).toHaveLength(0);
+  });
+
+  it("PATCH vuota → 0 eventi e stato corrente", async () => {
+    const id = await freshTicket();
+    const res = await patch(id, {});
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as TicketBody).status).toBe("open");
+    expect(await eventsOf(id)).toHaveLength(0);
+  });
+
+  it("labels cambiate → 1 evento labels_changed con from/to", async () => {
+    const id = await freshTicket();
+    const res = await patch(id, { labels: ["a", "c"] });
+    expect(res.statusCode).toBe(200);
+    const rows = await eventsOf(id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.kind).toBe("labels_changed");
+    expect(rows[0]?.payload).toEqual({ from: ["a", "b"], to: ["a", "c"] });
+  });
+
+  it("labels identiche con ordine diverso → 0 eventi", async () => {
+    const id = await freshTicket();
+    const res = await patch(id, { labels: ["b", "a"] });
+    expect(res.statusCode).toBe(200);
+    expect(await eventsOf(id)).toHaveLength(0);
+  });
+});
+
 describe("commenti — /api/tickets/:ticketId/comments", () => {
   let ticketId: string;
 
@@ -629,6 +698,130 @@ describe("effort nella risposta del ticket", () => {
       headers: { cookie: users.memberCookie },
     });
     expect((after.json() as TicketBody).effort).toBe(4);
+  });
+});
+
+describe("GET /api/tickets/:id/activity", () => {
+  interface ActivityItem {
+    kind: string;
+    id: string;
+    createdAt: string;
+    // comment
+    authorType?: string;
+    authorId?: string | null;
+    body?: string;
+    // event
+    eventKind?: string;
+    actorId?: string | null;
+    payload?: Record<string, unknown> | null;
+    // ai_job
+    status?: string;
+    prUrl?: string | null;
+    finishedAt?: string | null;
+  }
+
+  function getActivity(id: string, cookie = users.memberCookie) {
+    return app.inject({
+      method: "GET",
+      url: `/api/tickets/${id}/activity`,
+      headers: { cookie },
+    });
+  }
+
+  it("fonde commenti, eventi e job in un unico array ordinato per createdAt", async () => {
+    const created = (await postTicket({ projectId, title: "Feed", type: "bug" })).json() as {
+      id: string;
+    };
+    const ticketId = created.id;
+    // Timestamp espliciti e distinti per asserire l'ordine cronologico.
+    const t = (offsetMs: number) => new Date(Date.UTC(2026, 0, 1, 12, 0, 0) + offsetMs);
+
+    // Inserimento volutamente fuori ordine: il merge+sort deve riordinare.
+    const [job] = await testDb.db
+      .insert(aiJobs)
+      .values({
+        ticketId,
+        status: "pr_opened",
+        prUrl: "https://github.com/acme/repo/pull/7",
+        createdAt: t(3000),
+        finishedAt: t(4000),
+      })
+      .returning();
+    const [comment2] = await testDb.db
+      .insert(comments)
+      .values({ ticketId, authorType: "user", authorId: users.memberId, body: "Secondo", createdAt: t(2000) })
+      .returning();
+    const [event] = await testDb.db
+      .insert(ticketEvents)
+      .values({
+        ticketId,
+        actorId: users.adminId,
+        kind: "status_changed",
+        payload: { from: "open", to: "in_progress" },
+        createdAt: t(1000),
+      })
+      .returning();
+    const [comment1] = await testDb.db
+      .insert(comments)
+      .values({ ticketId, authorType: "ai", authorId: null, body: "Primo", createdAt: t(0) })
+      .returning();
+
+    const res = await getActivity(ticketId);
+    expect(res.statusCode).toBe(200);
+    const items = res.json() as ActivityItem[];
+    expect(items).toHaveLength(4);
+
+    // Ordine cronologico: comment1(0) → event(1000) → comment2(2000) → job(3000).
+    expect(items.map((i) => [i.kind, i.id])).toEqual([
+      ["comment", comment1!.id],
+      ["event", event!.id],
+      ["comment", comment2!.id],
+      ["ai_job", job!.id],
+    ]);
+
+    const [c1, ev, c2, j] = items;
+    expect(c1).toMatchObject({ kind: "comment", authorType: "ai", authorId: null, body: "Primo" });
+    expect(ev).toMatchObject({
+      kind: "event",
+      eventKind: "status_changed",
+      actorId: users.adminId,
+      payload: { from: "open", to: "in_progress" },
+    });
+    // Il discriminante `kind` vale "event" e NON è stato sovrascritto dalla colonna
+    // `kind` della tabella ticketEvents (che vale "status_changed", esposta come `eventKind`).
+    expect(ev!.kind).toBe("event");
+    expect(ev).not.toHaveProperty("kind", "status_changed");
+    expect(c2).toMatchObject({ kind: "comment", authorType: "user", authorId: users.memberId, body: "Secondo" });
+    expect(j).toMatchObject({
+      kind: "ai_job",
+      status: "pr_opened",
+      prUrl: "https://github.com/acme/repo/pull/7",
+      finishedAt: expect.any(String),
+    });
+    // Il marker del job non porta i log/consumi.
+    expect(j).not.toHaveProperty("log");
+  });
+
+  it("ticket senza attività: array vuoto", async () => {
+    const created = (await postTicket({ projectId, title: "Feed vuoto", type: "task" })).json() as {
+      id: string;
+    };
+    const res = await getActivity(created.id);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual([]);
+  });
+
+  it("ticket inesistente: 404", async () => {
+    const res = await getActivity(randomUUID());
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("senza sessione: 401", async () => {
+    const created = (await postTicket({ projectId, title: "Feed 401", type: "bug" })).json() as {
+      id: string;
+    };
+    const res = await app.inject({ method: "GET", url: `/api/tickets/${created.id}/activity` });
+    expect(res.statusCode).toBe(401);
   });
 });
 

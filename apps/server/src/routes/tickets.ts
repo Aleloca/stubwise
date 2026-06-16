@@ -10,7 +10,16 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAuth } from "../auth/session.js";
 import type { Db } from "@stubwise/db";
-import { aiJobs, comments, tickets, users } from "@stubwise/db";
+import {
+  aiJobs,
+  aiJobStatus,
+  comments,
+  commentAuthorType,
+  ticketEventKind,
+  ticketEvents,
+  tickets,
+  users,
+} from "@stubwise/db";
 import { createTicket, ProjectNotFoundError, type Ticket } from "../db/tickets.js";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema, isForeignKeyViolation } from "./shared.js";
@@ -82,6 +91,54 @@ const listTicketsResponseSchema = z.object({
 });
 
 const idParamsSchema = z.object({ id: z.uuid() });
+
+/**
+ * Item del feed unificato di un ticket. Tre forme discriminate su `kind`:
+ *  - "comment": un commento (utente/AI/sistema);
+ *  - "event": un evento di audit (la colonna `kind` della tabella diventa
+ *    `eventKind` qui per non collidere col discriminante del feed);
+ *  - "ai_job": un marker del job AI (solo lo stato e l'eventuale PR; log e
+ *    consumi restano negli endpoint dedicati).
+ * I nomi utente NON vengono risolti qui: si espongono authorId/actorId e la
+ * UI li traduce dalla users query che ha già.
+ */
+const activityCommentSchema = z.object({
+  kind: z.literal("comment"),
+  id: z.uuid(),
+  authorType: z.enum(commentAuthorType.enumValues),
+  authorId: z.uuid().nullable(),
+  body: z.string(),
+  createdAt: z.iso.datetime(),
+});
+
+const activityEventSchema = z.object({
+  kind: z.literal("event"),
+  id: z.uuid(),
+  eventKind: z.enum(ticketEventKind.enumValues),
+  actorId: z.uuid().nullable(),
+  // payload jsonb arbitrario: { from, to }, { changed: true }, … o null.
+  payload: z.record(z.string(), z.unknown()).nullable(),
+  createdAt: z.iso.datetime(),
+});
+
+const activityAiJobSchema = z.object({
+  kind: z.literal("ai_job"),
+  id: z.uuid(),
+  status: z.enum(aiJobStatus.enumValues),
+  prUrl: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  finishedAt: z.iso.datetime().nullable(),
+});
+
+const activityResponseSchema = z.array(
+  z.discriminatedUnion("kind", [
+    activityCommentSchema,
+    activityEventSchema,
+    activityAiJobSchema,
+  ]),
+);
+
+type ActivityItem = z.infer<typeof activityResponseSchema>[number];
 
 /** Proiezione pubblica della riga ticket: date serializzate in ISO. */
 function toPublicTicket(row: Ticket): z.infer<typeof ticketSchema> {
@@ -162,6 +219,62 @@ function escapeLike(term: string): string {
 async function userExists(db: Db, userId: string): Promise<boolean> {
   const [row] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId));
   return row !== undefined;
+}
+
+/** Forma minimale dell'evento da inserire, prima di aggiungere ticketId/actorId. */
+type PendingEvent = Pick<typeof ticketEvents.$inferInsert, "kind" | "payload">;
+
+/**
+ * True se due liste di label rappresentano lo stesso insieme: l'ordine non
+ * conta (riordinare le label in un PATCH non è una modifica reale), ma i
+ * duplicati sì — confronto come multiset ordinato.
+ */
+function sameLabels(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sa = [...a].sort();
+  const sb = [...b].sort();
+  return sa.every((value, index) => value === sb[index]);
+}
+
+/**
+ * Diffa i campi richiesti nel PATCH contro la riga corrente e produce un
+ * evento `ticket_events` per OGNI campo effettivamente cambiato. I payload
+ * restano piccoli: per title/body si segna solo che è cambiato (mai il testo
+ * lungo), per gli altri si tiene { from, to }.
+ */
+function diffTicketEvents(current: Ticket, updates: Partial<Ticket>): PendingEvent[] {
+  const events: PendingEvent[] = [];
+  if (updates.title !== undefined && updates.title !== current.title) {
+    events.push({ kind: "title_changed", payload: { changed: true } });
+  }
+  if (updates.body !== undefined && updates.body !== current.body) {
+    events.push({ kind: "body_changed", payload: { changed: true } });
+  }
+  if (updates.type !== undefined && updates.type !== current.type) {
+    events.push({ kind: "type_changed", payload: { from: current.type, to: updates.type } });
+  }
+  if (updates.priority !== undefined && updates.priority !== current.priority) {
+    events.push({
+      kind: "priority_changed",
+      payload: { from: current.priority, to: updates.priority },
+    });
+  }
+  if (updates.status !== undefined && updates.status !== current.status) {
+    events.push({ kind: "status_changed", payload: { from: current.status, to: updates.status } });
+  }
+  if (updates.assigneeId !== undefined && updates.assigneeId !== current.assigneeId) {
+    events.push({
+      kind: "assignee_changed",
+      payload: { from: current.assigneeId, to: updates.assigneeId },
+    });
+  }
+  if (updates.labels !== undefined && !sameLabels(updates.labels, current.labels)) {
+    events.push({
+      kind: "labels_changed",
+      payload: { from: current.labels, to: updates.labels },
+    });
+  }
+  return events;
 }
 
 /**
@@ -286,6 +399,74 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
+  // Feed unificato del ticket: commenti + eventi audit + marker dei job AI,
+  // fusi in un unico array ordinato per createdAt ASC. I volumi per-ticket
+  // sono piccoli, quindi le tre query separate + merge/sort in memoria sono
+  // più semplici (e abbastanza efficienti) di una UNION SQL.
+  app.get(
+    "/:id/activity",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        response: { 200: activityResponseSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const [ticket] = await app.db.select({ id: tickets.id }).from(tickets).where(eq(tickets.id, id));
+      if (!ticket) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
+
+      const [commentRows, eventRows, jobRows] = await Promise.all([
+        app.db.select().from(comments).where(eq(comments.ticketId, id)),
+        app.db.select().from(ticketEvents).where(eq(ticketEvents.ticketId, id)),
+        app.db.select().from(aiJobs).where(eq(aiJobs.ticketId, id)),
+      ]);
+
+      const items: ActivityItem[] = [
+        ...commentRows.map(
+          (row): ActivityItem => ({
+            kind: "comment",
+            id: row.id,
+            authorType: row.authorType,
+            authorId: row.authorId,
+            body: row.body,
+            createdAt: row.createdAt.toISOString(),
+          }),
+        ),
+        ...eventRows.map(
+          (row): ActivityItem => ({
+            kind: "event",
+            id: row.id,
+            eventKind: row.kind,
+            actorId: row.actorId,
+            payload: (row.payload as Record<string, unknown> | null) ?? null,
+            createdAt: row.createdAt.toISOString(),
+          }),
+        ),
+        ...jobRows.map(
+          (row): ActivityItem => ({
+            kind: "ai_job",
+            id: row.id,
+            status: row.status,
+            prUrl: row.prUrl,
+            createdAt: row.createdAt.toISOString(),
+            finishedAt: row.finishedAt?.toISOString() ?? null,
+          }),
+        ),
+      ];
+
+      // Ordine cronologico crescente. A parità di createdAt si spareggia per
+      // id (stabile e deterministico), così i test sull'ordine non dipendono
+      // dall'ordine d'arrivo delle tre query.
+      items.sort((a, b) => {
+        if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+      });
+      return items;
+    },
+  );
+
   app.patch(
     "/:id",
     {
@@ -311,17 +492,34 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       if (assigneeId !== undefined) updates.assigneeId = assigneeId;
       if (labels !== undefined) updates.labels = labels;
 
-      // Drizzle rifiuta un update senza colonne: una PATCH vuota è una
-      // lettura, si risponde con lo stato corrente.
+      const id = request.params.id;
       try {
-        const [row] =
-          Object.keys(updates).length === 0
-            ? await app.db.select().from(tickets).where(eq(tickets.id, request.params.id))
-            : await app.db
-                .update(tickets)
-                .set(updates)
-                .where(eq(tickets.id, request.params.id))
-                .returning();
+        // Tutto in una transazione: SELECT della riga corrente, diff degli
+        // eventi, UPDATE e INSERT degli eventi devono essere atomici e
+        // consistenti. Una PATCH vuota resta una pura lettura (no update, no
+        // eventi); un PATCH che non cambia nulla produce 0 eventi.
+        const row = await app.db.transaction(async (tx) => {
+          const [current] = await tx.select().from(tickets).where(eq(tickets.id, id));
+          if (!current) return null;
+
+          if (Object.keys(updates).length === 0) return current;
+
+          const events = diffTicketEvents(current, updates);
+
+          const [updated] = await tx
+            .update(tickets)
+            .set(updates)
+            .where(eq(tickets.id, id))
+            .returning();
+          // L'id è già stato verificato dalla SELECT in transazione: l'update
+          // tocca sempre la riga.
+          if (events.length > 0) {
+            await tx
+              .insert(ticketEvents)
+              .values(events.map((event) => ({ ...event, ticketId: id, actorId: request.user!.id })));
+          }
+          return updated!;
+        });
         if (!row) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
         return toPublicTicket(row);
       } catch (error) {

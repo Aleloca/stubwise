@@ -1,6 +1,6 @@
 ---
 title: The web app
-description: Admin setup, invites, projects, Kanban board and ticket detail with the AI job timeline.
+description: Admin setup, invites, projects, Kanban board and ticket detail with the unified activity timeline.
 ---
 
 The web app is a React SPA served by Caddy. This guide walks through it from
@@ -74,12 +74,41 @@ The detail page gathers everything about a ticket:
 
 - the **technical payload** of the error (message, stack trace, URL, release,
   breadcrumbs), when the ticket comes from an error captured by the SDK;
-- the **comments**, both human and AI (an `ai` comment annotates the pipeline's
+- the **AI activity** panel, with the job timeline and the actions you can take
+  on the pipeline;
+- the **Activity** timeline, a single chronological stream of comments, AI job
+  markers and the audit of human actions.
+
+### AI activity
+
+The **AI activity** panel holds the technical detail of the pipeline: each job
+shows its status and logs (cost and token usage appear in a separate **AI
+usage** panel when there is any), so you follow triage and fix step by step.
+This is also where you act on the pipeline:
+
+- **Start AI fix** / **Relaunch with instructions** — kick off or re-run the fix
+  from a terminal job state;
+- **Approve** / **Reject** — when a job is waiting for plan approval.
+
+### Activity timeline
+
+The **Activity** section is a single chronological stream that merges three
+kinds of entry:
+
+- **comments**, both human and AI (an `ai` comment annotates the pipeline's
   decisions: skip, duplicate, or the link to the opened PR);
-- the **AI job timeline**: each job shows status and logs, so you follow triage
-  and fix step by step.
+- **AI job markers** — a compact status line for each job, with the **View PR**
+  link when one is open. The full job detail (logs, cost) stays in the AI
+  activity panel above;
+- **audit entries** for human actions, recording who did what and when:
+  status, assignee, priority, type or labels changed, and title or description
+  edited.
+
+The audit is automatic: every human change made to the ticket through the UI is
+recorded and shown in the timeline. You add comments from the composer at the
+bottom of the same section.
 
 When the AI pipeline opens a pull request, the ticket moves to `in_review` and
-an `ai` comment with the link to the PR and the report appears in the detail.
+an `ai` comment with the link to the PR and the report appears in the timeline.
 When the PR is merged — if the git webhook is configured — the ticket
 automatically moves to `done`.

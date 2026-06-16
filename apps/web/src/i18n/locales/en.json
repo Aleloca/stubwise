@@ -161,6 +161,21 @@
       "showLog": "▸ Show log",
       "hideLog": "▾ Hide log"
     },
+    "activity": {
+      "title": "Activity",
+      "empty": "// no activity yet",
+      "systemActor": "System",
+      "events": {
+        "status_changed": "{{actor}} changed status: {{from}} → {{to}}",
+        "assignee_changed": "{{actor}} assigned to {{user}}",
+        "unassigned": "{{actor}} removed the assignee",
+        "priority_changed": "{{actor}} changed priority: {{from}} → {{to}}",
+        "type_changed": "{{actor}} changed type: {{from}} → {{to}}",
+        "labels_changed": "{{actor}} updated labels",
+        "title_changed": "{{actor}} edited the title",
+        "body_changed": "{{actor}} edited the description"
+      }
+    },
     "comments": {
       "empty": "// no comments yet",
       "system": "SYSTEM",

@@ -41,6 +41,18 @@ export const ticketSource = pgEnum("ticket_source", enumValues(ticketSourceSchem
 // "system" copre le notifiche automatiche (es. "PR mergiata → ticket chiuso"):
 // non hanno un autore umano né l'AI dietro, e vanno distinte nella timeline.
 export const commentAuthorType = pgEnum("comment_author_type", ["user", "ai", "system"]);
+// Tipi di evento registrati nell'audit/timeline di un ticket. Lista letterale
+// (non passa da uno schema Zod di shared): per ora resta locale al DB. Valori
+// futuri (milestone_changed, relation_*) li aggiungeranno le feature successive.
+export const ticketEventKind = pgEnum("ticket_event_kind", [
+  "status_changed",
+  "assignee_changed",
+  "priority_changed",
+  "type_changed",
+  "labels_changed",
+  "title_changed",
+  "body_changed",
+]);
 // Dominio del worker AI, ma vive nel DB: definito qui.
 export const aiJobStatus = pgEnum("ai_job_status", [
   "queued",
@@ -235,6 +247,31 @@ export const comments = pgTable(
   },
   // I commenti si caricano sempre per ticket.
   (table) => [index("comments_ticket_id_idx").on(table.ticketId)],
+);
+
+/**
+ * Eventi di audit/timeline di un ticket: traccia chi (o il sistema/AI) ha
+ * cambiato cosa e quando. `actorId` null = evento di sistema o generato
+ * dall'AI (nessun autore umano). `payload` jsonb opzionale porta il dettaglio
+ * della transizione (es. { from, to }). Cancellazione in cascata col ticket.
+ */
+export const ticketEvents = pgTable(
+  "ticket_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    // Null = evento di sistema/AI; nullato se l'autore umano viene eliminato.
+    actorId: uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
+    kind: ticketEventKind("kind").notNull(),
+    payload: jsonb("payload"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  // La timeline si carica sempre per ticket, ordinata cronologicamente.
+  (table) => [
+    index("ticket_events_ticket_id_created_at_idx").on(table.ticketId, table.createdAt),
+  ],
 );
 
 export const aiJobs = pgTable(

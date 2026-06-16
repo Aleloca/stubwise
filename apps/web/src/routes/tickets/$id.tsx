@@ -7,6 +7,7 @@ import {
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
+import { ActivityFeed } from "../../components/activity-feed";
 import { AIJobTimeline } from "../../components/ai-job-timeline";
 import {
   PriorityBadge,
@@ -18,7 +19,6 @@ import {
   TypeBadge,
 } from "../../components/badges";
 import { CollapsibleSection } from "../../components/collapsible-section";
-import { CommentThread } from "../../components/comment-thread";
 import { SelectField } from "../../components/field";
 import { LabelsEditor } from "../../components/labels-editor";
 import { Markdown } from "../../components/markdown";
@@ -34,6 +34,7 @@ import {
 } from "../../lib/api";
 import { formatDateTime } from "../../lib/format";
 import {
+  activityQueryOptions,
   commentsQueryOptions,
   projectsQueryOptions,
   ticketJobsQueryOptions,
@@ -48,9 +49,11 @@ const route = getRouteApi("/authed/tickets/$id");
 
 /**
  * Dettaglio di un ticket: descrizione markdown, payload tecnico
- * collassabile, timeline dei job AI, thread commenti e pannello azioni
- * (stato, priorità, assegnatario, label). Il loader della route ha già
- * precaricato tutte le query: le useSuspenseQuery non attendono.
+ * collassabile, pannello "AI activity" (timeline dei job + azioni) e
+ * timeline di attività unificata (commenti, eventi di audit e marker dei
+ * job AI), più il pannello azioni laterale (stato, priorità, assegnatario,
+ * label). Il loader della route ha già precaricato tutte le query: le
+ * useSuspenseQuery non attendono.
  */
 export function TicketDetailPage() {
   const { t } = useTranslation();
@@ -80,13 +83,18 @@ export function TicketDetailPage() {
       void queryClient.invalidateQueries({ queryKey: ticketKeys.detail(id) });
       void queryClient.invalidateQueries({ queryKey: ticketKeys.lists() });
       void queryClient.invalidateQueries({ queryKey: ticketKeys.boards() });
+      // Una patch (stato/priorità/tipo/assegnatario/label) genera un evento di
+      // audit: il feed va riconciliato col backend.
+      void queryClient.invalidateQueries({ queryKey: ticketKeys.activity(id) });
     },
   });
 
   const commentMutation = useMutation({
     mutationFn: (body: string) => postComment(id, body),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: commentsQueryOptions(id).queryKey }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: commentsQueryOptions(id).queryKey });
+      void queryClient.invalidateQueries({ queryKey: ticketKeys.activity(id) });
+    },
   });
 
   // Rilanciato/ripreso il job: la timeline (e lo stato del ticket, che il triage
@@ -94,6 +102,8 @@ export function TicketDetailPage() {
   const invalidateJobAndDetail = () => {
     void queryClient.invalidateQueries({ queryKey: ticketKeys.jobs(id) });
     void queryClient.invalidateQueries({ queryKey: ticketKeys.detail(id) });
+    // Il marker del job e gli eventuali eventi/commenti AI compaiono nel feed.
+    void queryClient.invalidateQueries({ queryKey: ticketKeys.activity(id) });
   };
 
   const runAiMutation = useMutation({
@@ -194,7 +204,7 @@ export function TicketDetailPage() {
             </CollapsibleSection>
           )}
 
-          <section>
+          <section aria-label={t("tickets:detail.aiActivity")}>
             <h2 className={sectionTitleClass}>{t("tickets:detail.aiActivity")}</h2>
             <AIJobTimeline jobs={jobs} />
             {canRelaunch && (
@@ -278,12 +288,10 @@ export function TicketDetailPage() {
           {/* Solo quando ci sono consumi: un CLI senza usage non mostra nulla. */}
           {usage.byModel.length > 0 && <UsagePanel usage={usage} />}
 
-          <section>
-            <h2 className={sectionTitleClass}>
-              {t("tickets:detail.comments", { count: comments.length })}
-            </h2>
-            <CommentThread
-              comments={comments}
+          <section aria-label={t("tickets:activity.title")}>
+            <h2 className={sectionTitleClass}>{t("tickets:activity.title")}</h2>
+            <ActivityFeed
+              ticketId={id}
               authorEmails={authorEmails}
               onSubmit={(body) => commentMutation.mutateAsync(body)}
               pending={commentMutation.isPending}

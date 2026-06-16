@@ -161,6 +161,21 @@
       "showLog": "▸ Mostra log",
       "hideLog": "▾ Nascondi log"
     },
+    "activity": {
+      "title": "Attività",
+      "empty": "// ancora nessuna attività",
+      "systemActor": "Sistema",
+      "events": {
+        "status_changed": "{{actor}} ha cambiato stato: {{from}} → {{to}}",
+        "assignee_changed": "{{actor}} ha assegnato a {{user}}",
+        "unassigned": "{{actor}} ha rimosso l'assegnatario",
+        "priority_changed": "{{actor}} ha cambiato priorità: {{from}} → {{to}}",
+        "type_changed": "{{actor}} ha cambiato tipo: {{from}} → {{to}}",
+        "labels_changed": "{{actor}} ha aggiornato le label",
+        "title_changed": "{{actor}} ha modificato il titolo",
+        "body_changed": "{{actor}} ha modificato la descrizione"
+      }
+    },
     "comments": {
       "empty": "// ancora nessun commento",
       "system": "SISTEMA",
