@@ -53,6 +53,7 @@ function makeTicket(overrides: Partial<Ticket>): Ticket {
     status: "open",
     source: "manual",
     assigneeId: null,
+    milestoneId: null,
     effort: null,
     labels: [],
     technicalPayload: null,
@@ -69,6 +70,7 @@ const PROJECT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const baseHandlers = {
   "/api/auth/me": () =>
     jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" } }),
+  "/api/saved-views": () => jsonResponse(200, []),
   "/api/projects": () =>
     jsonResponse(200, [
       {

@@ -17,6 +17,8 @@ import {
   getTicketLinks,
   getTicketUsage,
   getUsers,
+  listMilestones,
+  listSavedViews,
   listTickets,
   type TicketFilters,
 } from "./api";
@@ -172,6 +174,33 @@ export const projectsQueryOptions = queryOptions({
   queryKey: ["projects"],
   queryFn: getProjects,
   staleTime: 60_000,
+});
+
+/**
+ * Milestone (con avanzamento) di un progetto. Le milestone sono per-progetto:
+ * la query si abilita solo con un projectId definito (il select filtro nella
+ * lista, ad esempio, la chiama anche quando nessun progetto è selezionato).
+ * Chiave ["milestones", projectId]: una patch/CRUD su una milestone invalida
+ * la sola lista del progetto interessato.
+ */
+export function milestonesQueryOptions(projectId: string | undefined) {
+  return queryOptions({
+    queryKey: ["milestones", projectId ?? null],
+    queryFn: () => listMilestones(projectId!),
+    enabled: projectId !== undefined,
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * Viste salvate dei filtri della lista ticket: le proprie più quelle condivise
+ * dal team. Chiave radice ["saved-views"]: ogni create/update/delete la
+ * invalida così la barra delle viste resta riconciliata col backend.
+ */
+export const savedViewsQueryOptions = queryOptions({
+  queryKey: ["saved-views"],
+  queryFn: listSavedViews,
+  staleTime: 30_000,
 });
 
 /**

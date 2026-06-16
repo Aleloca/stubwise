@@ -24,7 +24,9 @@ import { authRoutes } from "./routes/auth.js";
 import { commentRoutes } from "./routes/comments.js";
 import { gitAccountRoutes } from "./routes/git-accounts.js";
 import { ingestRoutes } from "./routes/ingest.js";
+import { milestoneRoutes } from "./routes/milestones.js";
 import { projectRoutes } from "./routes/projects.js";
+import { savedViewRoutes } from "./routes/saved-views.js";
 import { settingsRoutes } from "./routes/settings.js";
 import type { RateLimitConfig } from "./routes/shared.js";
 import { ticketRoutes } from "./routes/tickets.js";
@@ -218,6 +220,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(gitAccountRoutes, { prefix: "/api/git-accounts" });
   void app.register(projectRoutes, { prefix: "/api/projects" });
   void app.register(ticketRoutes, { prefix: "/api/tickets" });
+  // Milestone di progetto: pianificazione e avanzamento, per ogni utente.
+  void app.register(milestoneRoutes, { prefix: "/api/milestones" });
+  // Viste salvate dei filtri della lista ticket: private o condivise.
+  void app.register(savedViewRoutes, { prefix: "/api/saved-views" });
   // I commenti vivono sotto il singolo ticket: il prefisso porta il
   // parametro :ticketId, disponibile nelle route come request.params.
   void app.register(commentRoutes, { prefix: "/api/tickets/:ticketId/comments" });

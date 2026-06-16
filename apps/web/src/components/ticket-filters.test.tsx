@@ -1,7 +1,8 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
-import type { Project } from "../lib/api";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { MilestoneWithCounts, Project } from "../lib/api";
 import { TicketFilters } from "./ticket-filters";
 
 const projects: Project[] = [
@@ -35,9 +36,52 @@ const projects: Project[] = [
   },
 ];
 
+const milestonesFixture: MilestoneWithCounts[] = [
+  {
+    id: "m1",
+    projectId: "p1",
+    name: "Milestone Uno",
+    dueDate: null,
+    status: "open",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    counts: { total: 0, completed: 0, byStatus: {} },
+  },
+];
+
+function jsonResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+const fetchMock = vi.fn<typeof fetch>();
+
+beforeEach(() => {
+  vi.stubGlobal("fetch", fetchMock);
+  fetchMock.mockImplementation((input) => {
+    const raw = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const url = new URL(raw, "http://test.local");
+    if (url.pathname === "/api/milestones") {
+      return Promise.resolve(jsonResponse(200, milestonesFixture));
+    }
+    throw new Error(`fetch non mockata per ${url.pathname}`);
+  });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  fetchMock.mockReset();
+});
+
 function renderFilters(value: Parameters<typeof TicketFilters>[0]["value"] = {}) {
   const onChange = vi.fn();
-  render(<TicketFilters value={value} projects={projects} onChange={onChange} />);
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(
+    <QueryClientProvider client={queryClient}>
+      <TicketFilters value={value} projects={projects} onChange={onChange} />
+    </QueryClientProvider>,
+  );
   return onChange;
 }
 
@@ -77,6 +121,29 @@ describe("TicketFilters", () => {
     const select = screen.getByLabelText(/project/i);
     expect(select).toContainHTML("Progetto Alfa");
     expect(select).toContainHTML("Progetto Beta");
+  });
+
+  it("il select milestone è disabilitato senza projectId", () => {
+    renderFilters();
+    expect(screen.getByLabelText(/milestone/i)).toBeDisabled();
+  });
+
+  it("con projectId il select milestone è abilitato, elenca le milestone e naviga col param", async () => {
+    const onChange = renderFilters({ projectId: "p1" });
+
+    const select = await screen.findByLabelText(/milestone/i);
+    expect(select).toBeEnabled();
+    await waitFor(() => expect(select).toContainHTML("Milestone Uno"));
+
+    await userEvent.selectOptions(select, "m1");
+    expect(onChange).toHaveBeenCalledExactlyOnceWith({ milestoneId: "m1" });
+  });
+
+  it("cambiare progetto azzera il milestoneId (coerenza per-progetto)", async () => {
+    const onChange = renderFilters({ projectId: "p1", milestoneId: "m1" });
+
+    await userEvent.selectOptions(screen.getByLabelText(/^project/i), "p2");
+    expect(onChange).toHaveBeenCalledExactlyOnceWith({ projectId: "p2", milestoneId: undefined });
   });
 
   it("la ricerca è debounced: una sola onChange dopo la pausa, non una per tasto", async () => {

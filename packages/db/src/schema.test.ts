@@ -8,8 +8,10 @@ import {
   automationRules,
   comments,
   instanceSettings,
+  milestones,
   notificationSettings,
   projects,
+  savedViews,
   ticketEvents,
   ticketLinks,
   tickets,
@@ -896,5 +898,229 @@ describe("schema: ricerca full-text (tsvector + GIN)", () => {
       sql`select id from ${comments} where ${comments.id} = ${comment.id} and to_tsvector('english', body) @@ websearch_to_tsquery('english', 'deploy')`,
     );
     expect(rows.map((r) => r.id)).toContain(comment.id);
+  });
+});
+
+/**
+ * Verifica la tabella milestones e la colonna tickets.milestone_id: insert/read
+ * con dueDate valorizzata e null (status default open); l'unique (project_id,
+ * name) che vieta omonimie nello stesso progetto ma ammette lo stesso nome in
+ * progetti diversi; la cancellazione in cascata dal progetto; e l'ON DELETE set
+ * null su tickets.milestone_id (il ticket sopravvive alla milestone).
+ */
+describe("schema: milestones + tickets.milestoneId", () => {
+  let testDb: TestDb;
+  let db: Db;
+
+  beforeAll(async () => {
+    testDb = await startTestDb();
+    db = testDb.db;
+  });
+
+  afterAll(async () => {
+    await testDb.stop();
+  });
+
+  async function seedProject(): Promise<string> {
+    const gitAccountId = await seedGitAccount(db);
+    const [project] = await db
+      .insert(projects)
+      .values({
+        name: "Progetto di test",
+        slug: `progetto-${randomUUID()}`,
+        provider: "github",
+        gitAccountId,
+        repoUrl: "https://example.com/repo.git",
+        defaultBranch: "main",
+        ingestionKey: randomUUID(),
+      })
+      .returning();
+    if (!project) throw new Error("insert del progetto non ha restituito la riga");
+    return project.id;
+  }
+
+  async function seedTicket(projectId: string, number: number): Promise<string> {
+    const [ticket] = await db
+      .insert(tickets)
+      .values({
+        projectId,
+        number,
+        title: `Ticket ${number}`,
+        type: "bug",
+        priority: "medium",
+        source: "manual",
+      })
+      .returning();
+    if (!ticket) throw new Error("insert del ticket non ha restituito la riga");
+    return ticket.id;
+  }
+
+  it("persiste una milestone con dueDate valorizzata (status default open)", async () => {
+    const projectId = await seedProject();
+    const due = new Date("2026-12-31T00:00:00.000Z");
+    const [inserted] = await db
+      .insert(milestones)
+      .values({ projectId, name: "v1.0", dueDate: due })
+      .returning();
+    if (!inserted) throw new Error("insert della milestone non ha restituito la riga");
+
+    const [read] = await db.select().from(milestones).where(eq(milestones.id, inserted.id));
+    expect(read?.projectId).toBe(projectId);
+    expect(read?.name).toBe("v1.0");
+    expect(read?.status).toBe("open");
+    expect(read?.dueDate).toBeInstanceOf(Date);
+    expect(read?.dueDate?.toISOString()).toBe(due.toISOString());
+    expect(read?.createdAt).toBeInstanceOf(Date);
+  });
+
+  it("ammette dueDate null", async () => {
+    const projectId = await seedProject();
+    const [inserted] = await db
+      .insert(milestones)
+      .values({ projectId, name: "backlog" })
+      .returning();
+    expect(inserted?.dueDate).toBeNull();
+    expect(inserted?.status).toBe("open");
+  });
+
+  it("vieta due milestone omonime nello stesso progetto, ammette omonime in progetti diversi", async () => {
+    const projectA = await seedProject();
+    const projectB = await seedProject();
+    await db.insert(milestones).values({ projectId: projectA, name: "Sprint 1" });
+
+    await expect(
+      db.insert(milestones).values({ projectId: projectA, name: "Sprint 1" }),
+    ).rejects.toThrow();
+
+    const [other] = await db
+      .insert(milestones)
+      .values({ projectId: projectB, name: "Sprint 1" })
+      .returning();
+    expect(other?.projectId).toBe(projectB);
+    expect(other?.name).toBe("Sprint 1");
+  });
+
+  it("cancella in cascata le milestone quando il progetto viene eliminato", async () => {
+    const projectId = await seedProject();
+    await db.insert(milestones).values({ projectId, name: "da-cancellare" });
+
+    const before = await db
+      .select()
+      .from(milestones)
+      .where(eq(milestones.projectId, projectId));
+    expect(before.length).toBe(1);
+
+    await db.delete(projects).where(eq(projects.id, projectId));
+
+    const after = await db
+      .select()
+      .from(milestones)
+      .where(eq(milestones.projectId, projectId));
+    expect(after.length).toBe(0);
+  });
+
+  it("nulla tickets.milestoneId quando la milestone viene eliminata (set null)", async () => {
+    const projectId = await seedProject();
+    const ticketId = await seedTicket(projectId, 1);
+    const [milestone] = await db
+      .insert(milestones)
+      .values({ projectId, name: "rilascio" })
+      .returning();
+    if (!milestone) throw new Error("insert della milestone non ha restituito la riga");
+
+    await db.update(tickets).set({ milestoneId: milestone.id }).where(eq(tickets.id, ticketId));
+    const [assigned] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
+    expect(assigned?.milestoneId).toBe(milestone.id);
+
+    await db.delete(milestones).where(eq(milestones.id, milestone.id));
+
+    const [survived] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
+    expect(survived?.id).toBe(ticketId);
+    expect(survived?.milestoneId).toBeNull();
+  });
+});
+
+/**
+ * Verifica la tabella saved_views: round-trip dell'oggetto jsonb `filters`;
+ * il default false di `shared`; l'unique (owner_id, name); e la cancellazione
+ * in cascata dall'utente proprietario.
+ */
+describe("schema: saved_views", () => {
+  let testDb: TestDb;
+  let db: Db;
+
+  beforeAll(async () => {
+    testDb = await startTestDb();
+    db = testDb.db;
+  });
+
+  afterAll(async () => {
+    await testDb.stop();
+  });
+
+  async function seedUser(): Promise<string> {
+    const [user] = await db
+      .insert(users)
+      .values({
+        email: `owner-${randomUUID()}@example.com`,
+        passwordHash: "x",
+        role: "member",
+      })
+      .returning();
+    if (!user) throw new Error("insert dell'utente non ha restituito la riga");
+    return user.id;
+  }
+
+  it("persiste e rilegge una saved_view con filters jsonb non banale (shared default false)", async () => {
+    const ownerId = await seedUser();
+    const filters = {
+      status: "open",
+      type: "bug",
+      priority: "high",
+      assigneeId: randomUUID(),
+      milestoneId: randomUUID(),
+      q: "checkout crash",
+    };
+    const [inserted] = await db
+      .insert(savedViews)
+      .values({ ownerId, name: "I miei bug aperti", filters })
+      .returning();
+    if (!inserted) throw new Error("insert della saved_view non ha restituito la riga");
+
+    const [read] = await db.select().from(savedViews).where(eq(savedViews.id, inserted.id));
+    expect(read?.ownerId).toBe(ownerId);
+    expect(read?.name).toBe("I miei bug aperti");
+    expect(read?.shared).toBe(false);
+    expect(read?.filters).toEqual(filters);
+    expect(read?.createdAt).toBeInstanceOf(Date);
+  });
+
+  it("vieta due saved_view omonime per lo stesso owner, ammette omonime per owner diversi", async () => {
+    const ownerA = await seedUser();
+    const ownerB = await seedUser();
+    await db.insert(savedViews).values({ ownerId: ownerA, name: "Vista", filters: {} });
+
+    await expect(
+      db.insert(savedViews).values({ ownerId: ownerA, name: "Vista", filters: {} }),
+    ).rejects.toThrow();
+
+    const [other] = await db
+      .insert(savedViews)
+      .values({ ownerId: ownerB, name: "Vista", filters: {} })
+      .returning();
+    expect(other?.ownerId).toBe(ownerB);
+  });
+
+  it("cancella in cascata le saved_view quando l'utente proprietario viene eliminato", async () => {
+    const ownerId = await seedUser();
+    await db.insert(savedViews).values({ ownerId, name: "da-cancellare", filters: {} });
+
+    const before = await db.select().from(savedViews).where(eq(savedViews.ownerId, ownerId));
+    expect(before.length).toBe(1);
+
+    await db.delete(users).where(eq(users.id, ownerId));
+
+    const after = await db.select().from(savedViews).where(eq(savedViews.ownerId, ownerId));
+    expect(after.length).toBe(0);
   });
 });

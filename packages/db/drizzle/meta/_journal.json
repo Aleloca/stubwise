@@ -134,6 +134,13 @@
       "when": 1781620545414,
       "tag": "0018_crazy_warstar",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1781642891629,
+      "tag": "0019_green_sersi",
+      "breakpoints": true
     }
   ]
 }

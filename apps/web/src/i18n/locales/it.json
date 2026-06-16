@@ -41,6 +41,7 @@
     "invite_invalid": "Invito non valido o già usato",
     "invite_expired": "Invito scaduto",
     "email_already_exists": "Esiste già un utente con questa email",
+    "view_exists": "Esiste già una vista salvata con questo nome",
     "network_error": "Impossibile contattare il server",
     "generic": "Qualcosa è andato storto"
   },
@@ -105,6 +106,7 @@
       "status": "Stato",
       "type": "Tipo",
       "priority": "Priorità",
+      "milestone": "Milestone",
       "all": "Tutti"
     },
     "row": {
@@ -157,6 +159,8 @@
       "priority": "Priorità",
       "assignee": "Assegnatario",
       "unassigned": "Non assegnato",
+      "milestone": "Milestone",
+      "noMilestone": "Nessuna",
       "labels": "Label",
       "createdAt": "Creato",
       "updatedAt": "Aggiornato",
@@ -184,6 +188,11 @@
         "labels_changed": "{{actor}} ha aggiornato le label",
         "title_changed": "{{actor}} ha modificato il titolo",
         "body_changed": "{{actor}} ha modificato la descrizione",
+        "milestone_changed": {
+          "set": "{{actor}} ha impostato la milestone {{to}}",
+          "changed": "{{actor}} ha cambiato milestone: {{from}} → {{to}}",
+          "removed": "{{actor}} ha rimosso la milestone {{from}}"
+        },
         "relation_added": {
           "blocks": "{{actor}} ha collegato: blocca #{{number}}",
           "blocked_by": "{{actor}} ha collegato: bloccato da #{{number}}",
@@ -632,5 +641,50 @@
       "held": "Automazione non avviata: serve un avvio manuale del fix.",
       "awaiting_plan_approval": "Il piano supera la soglia di effort: approvalo o rifiutalo per procedere."
     }
+  },
+  "milestones": {
+    "title": "Milestone",
+    "manage": "Gestisci milestone",
+    "empty": "// ancora nessuna milestone",
+    "new": "Nuova milestone",
+    "name": "Nome milestone",
+    "namePlaceholder": "Es. release v1.0",
+    "dueDate": "Scadenza",
+    "noDueDate": "Nessuna scadenza",
+    "create": "Crea",
+    "creating": "Creazione…",
+    "save": "Salva",
+    "saving": "Salvataggio…",
+    "cancel": "Annulla",
+    "rename": "Rinomina",
+    "delete": "Elimina",
+    "confirmDelete": "Confermi?",
+    "close": "Chiudi",
+    "reopen": "Riapri",
+    "statusOpen": "Aperta",
+    "statusClosed": "Chiusa",
+    "progress": "{{completed}}/{{total}} fatti",
+    "progressLabel": "Avanzamento: {{completed}} di {{total}} ticket completati",
+    "none": "Nessuna",
+    "createFailed": "Creazione della milestone fallita"
+  },
+  "savedViews": {
+    "title": "Viste salvate",
+    "empty": "// ancora nessuna vista salvata",
+    "saveCurrent": "Salva vista corrente",
+    "name": "Nome vista",
+    "namePlaceholder": "Es. I miei bug aperti",
+    "share": "Condividi col team",
+    "save": "Salva",
+    "saving": "Salvataggio…",
+    "cancel": "Annulla",
+    "apply": "Applica",
+    "edit": "Modifica",
+    "delete": "Elimina",
+    "confirmDelete": "Confermi?",
+    "shared": "Condivisa",
+    "sharedByTeammate": "Condivisa da un membro del team",
+    "nameExists": "Esiste già una vista salvata con questo nome",
+    "saveFailed": "Salvataggio della vista fallito"
   }
 }

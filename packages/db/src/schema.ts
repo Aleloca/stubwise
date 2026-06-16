@@ -67,11 +67,15 @@ export const ticketEventKind = pgEnum("ticket_event_kind", [
   "body_changed",
   "relation_added",
   "relation_removed",
+  "milestone_changed",
 ]);
 // Tipi di relazione tra ticket: "blocks" (il source blocca il target),
 // "relates_to" (relazione generica), "parent" (il source è genitore del target).
 // Lista letterale locale al DB (come ticketEventKind).
 export const ticketLinkKind = pgEnum("ticket_link_kind", ["blocks", "relates_to", "parent"]);
+// Stato di una milestone: "open" (attiva, raccoglie i ticket pianificati) o
+// "closed" (chiusa/archiviata). Lista letterale locale al DB.
+export const milestoneStatus = pgEnum("milestone_status", ["open", "closed"]);
 // Dominio del worker AI, ma vive nel DB: definito qui.
 export const aiJobStatus = pgEnum("ai_job_status", [
   "queued",
@@ -192,6 +196,34 @@ export const projects = pgTable("projects", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * Milestone di progetto: raggruppa i ticket verso un obiettivo (release,
+ * sprint) con una scadenza opzionale. Cancellata in cascata col progetto.
+ * `dueDate` null = nessuna scadenza. L'unique (project_id, name) impedisce
+ * milestone omonime nello stesso progetto, ma ammette lo stesso nome in
+ * progetti diversi.
+ */
+export const milestones = pgTable(
+  "milestones",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    // Scadenza opzionale della milestone: null = nessuna data.
+    dueDate: timestamp("due_date", { withTimezone: true }),
+    status: milestoneStatus("status").notNull().default("open"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Le milestone si elencano sempre per progetto.
+    index("milestones_project_id_idx").on(table.projectId),
+    // Nome univoco per progetto.
+    uniqueIndex("milestones_project_id_name_unique").on(table.projectId, table.name),
+  ],
+);
+
 export const tickets = pgTable(
   "tickets",
   {
@@ -210,6 +242,9 @@ export const tickets = pgTable(
     // Alimenta il gate di automazione (auto-fix solo se effort <= maxEffort).
     effort: integer("effort"),
     assigneeId: uuid("assignee_id").references(() => users.id, { onDelete: "set null" }),
+    // Milestone a cui il ticket è assegnato; null = nessuna milestone. La
+    // milestone eliminata libera il ticket (set null) senza cancellarlo.
+    milestoneId: uuid("milestone_id").references(() => milestones.id, { onDelete: "set null" }),
     labels: text("labels").array().notNull().default([]),
     // Payload tecnico per i ticket da SDK: stack trace, browser, URL,
     // release, breadcrumbs.
@@ -234,6 +269,8 @@ export const tickets = pgTable(
     uniqueIndex("tickets_project_id_number_unique").on(table.projectId, table.number),
     // Board e liste filtrano sempre per progetto e stato.
     index("tickets_project_id_status_idx").on(table.projectId, table.status),
+    // Lookup dei ticket di una milestone (e set null in cascata).
+    index("tickets_milestone_id_idx").on(table.milestoneId),
     // Ricerca full-text sul vettore generato.
     index("tickets_search_tsv_idx").using("gin", table.searchTsv),
   ],
@@ -533,5 +570,44 @@ export const attachments = pgTable(
     index("attachments_comment_id_idx").on(table.commentId),
     // Una chiave di storage mappa esattamente un oggetto.
     uniqueIndex("attachments_storage_key_unique").on(table.storageKey),
+  ],
+);
+
+/**
+ * Vista salvata di un utente: un set di filtri della lista ticket riusabile
+ * (es. "I miei bug aperti"). `filters` è un oggetto jsonb con i criteri di
+ * filtraggio (tutti opzionali). `shared` true = visibile agli altri utenti
+ * dell'istanza; false (default) = privata del proprietario. Cancellata in
+ * cascata con l'utente. L'unique (owner_id, name) impedisce viste omonime per
+ * lo stesso proprietario.
+ */
+export const savedViews = pgTable(
+  "saved_views",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerId: uuid("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    // Criteri di filtraggio della lista ticket; tutti opzionali.
+    filters: jsonb("filters")
+      .notNull()
+      .$type<{
+        projectId?: string;
+        status?: string;
+        type?: string;
+        priority?: string;
+        assigneeId?: string;
+        milestoneId?: string;
+        q?: string;
+      }>(),
+    shared: boolean("shared").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Le viste si elencano sempre per proprietario.
+    index("saved_views_owner_id_idx").on(table.ownerId),
+    // Nome univoco per proprietario.
+    uniqueIndex("saved_views_owner_id_name_unique").on(table.ownerId, table.name),
   ],
 );

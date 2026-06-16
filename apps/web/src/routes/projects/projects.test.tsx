@@ -162,6 +162,7 @@ describe("creazione progetto", () => {
         return jsonResponse(201, created);
       },
       "GET /api/projects/demo-shop": () => jsonResponse(200, created),
+      "GET /api/milestones": () => jsonResponse(200, []),
     });
 
     const router = renderApp("/projects/new");
@@ -210,6 +211,7 @@ describe("dettaglio progetto", () => {
     mockApi({
       "GET /api/auth/me": meHandler("admin"),
       "GET /api/projects/demo-shop": () => jsonResponse(200, project),
+      "GET /api/milestones": () => jsonResponse(200, []),
       "GET /api/projects": () => jsonResponse(200, [project]),
       "GET /api/git-accounts": () => jsonResponse(200, [ACCOUNT, ACCOUNT_B]),
       "PATCH /api/projects/demo-shop": (_url, init) => {
@@ -247,6 +249,7 @@ describe("dettaglio progetto", () => {
     mockApi({
       "GET /api/auth/me": meHandler("admin"),
       "GET /api/projects/demo-shop": () => jsonResponse(200, project),
+      "GET /api/milestones": () => jsonResponse(200, []),
       "GET /api/projects": () => jsonResponse(200, [project]),
       "GET /api/git-accounts": () => jsonResponse(200, [ACCOUNT, ACCOUNT_B]),
       "PATCH /api/projects/demo-shop": (_url, init) => {
@@ -275,6 +278,7 @@ describe("dettaglio progetto", () => {
     mockApi({
       "GET /api/auth/me": meHandler("admin"),
       "GET /api/projects/demo-shop": () => jsonResponse(200, project),
+      "GET /api/milestones": () => jsonResponse(200, []),
       "GET /api/projects": () => jsonResponse(200, [project]),
       "GET /api/git-accounts": () => jsonResponse(200, [ACCOUNT]),
     });
@@ -296,6 +300,7 @@ describe("dettaglio progetto", () => {
     mockApi({
       "GET /api/auth/me": meHandler("admin"),
       "GET /api/projects/demo-shop": () => jsonResponse(200, project),
+      "GET /api/milestones": () => jsonResponse(200, []),
       "GET /api/projects": () => jsonResponse(200, [project]),
       "GET /api/git-accounts": () => jsonResponse(200, [ACCOUNT]),
       "GET /api/projects/demo-shop/webhook": () =>
@@ -316,6 +321,7 @@ describe("dettaglio progetto", () => {
     mockApi({
       "GET /api/auth/me": meHandler("admin"),
       "GET /api/projects/demo-shop": () => jsonResponse(200, project),
+      "GET /api/milestones": () => jsonResponse(200, []),
       "GET /api/projects": () => jsonResponse(200, [project]),
       "GET /api/git-accounts": () => jsonResponse(200, [ACCOUNT]),
       "GET /api/projects/demo-shop/webhook": () =>
@@ -334,6 +340,7 @@ describe("dettaglio progetto", () => {
     mockApi({
       "GET /api/auth/me": meHandler("member"),
       "GET /api/projects/demo-shop": () => jsonResponse(200, project),
+      "GET /api/milestones": () => jsonResponse(200, []),
     });
 
     renderApp("/projects/demo-shop");

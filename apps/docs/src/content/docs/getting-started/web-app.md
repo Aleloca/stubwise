@@ -63,6 +63,24 @@ the **DSN** and an **`init()` snippet** ready to copy. For admins there's also a
 **Webhook** section with the URL and the HMAC secret to configure on the git
 provider: when the PR is merged the ticket moves to `done`.
 
+## Milestones
+
+Each project can group its tickets into **milestones** — a name, an optional
+**due date** and a status of **open** or **closed**. You manage them from the
+**project page**, in the **Milestones** section: **any authenticated user** can
+create, rename, close/reopen and delete them, because planning towards a
+milestone is everyday work, not an admin-only privilege.
+
+Every milestone shows its **progress**: the number of **completed** tickets over
+the total assigned to it, with a proportional bar. "Completed" here means tickets
+in the **`done`** state — work that is finished (PR merged / fix landed).
+Tickets that are `closed` (an administrative close, e.g. won't-fix) do **not**
+count as completed.
+
+You assign a ticket to a milestone from the **ticket detail** (see
+[Milestone assignment](#milestone-assignment)). Deleting a milestone does not
+delete its tickets: they simply become unassigned.
+
 ## The Kanban board
 
 The board shows a column for each state of a ticket's lifecycle, in order:
@@ -114,6 +132,33 @@ planned future improvement.
 The search tolerates queries with **special characters** (`&`, `:`, `!`, quotes,
 and the like): they are handled safely and never cause an error.
 
+## Filtering the list
+
+The ticket list has a filter bar alongside the search field: **project**,
+**status**, **type**, **priority** and **milestone**. The active filters live in
+the URL parameters, so the view stays shareable.
+
+The **milestone** filter is **per-project**: milestones belong to a project, so
+the filter is enabled only when a **project** is selected, and it lists that
+project's milestones. Switching project resets the milestone filter.
+
+## Saved views
+
+From the ticket list you can save the **current combination of filters** as a
+**saved view**: give it a name and **Save**, then **apply** it later in one
+click to restore exactly those filters. Saved views appear as a row of chips
+above the filters.
+
+A view is **private to its owner** by default. Tick **Share** when saving to
+make it a **team view**: shared views are visible and applicable to everyone,
+but only the **owner** can edit or delete them. On your own views an **Edit**
+action opens an inline editor where you can **rename** the view and toggle
+whether it's **shared with the team**; **Save** applies the change (renaming or
+sharing leaves the saved filters untouched). Your own shared views carry a
+**Shared** badge, while views shared by others are marked **Shared by a
+teammate**. You remove your own views with a two-click confirm; someone else's
+shared view is **apply-only** — you can't edit or delete it.
+
 ## The ticket detail
 
 The detail page gathers everything about a ticket:
@@ -126,6 +171,14 @@ The detail page gathers everything about a ticket:
 - the **Attachments** section, with the files attached to the ticket;
 - the **Activity** timeline, a single chronological stream of comments, AI job
   markers and the audit of human actions.
+
+### Milestone assignment
+
+The detail panel has a **Milestone** select listing the milestones of the
+ticket's project (plus **None** to clear it). Pick one to assign the ticket, or
+**None** to remove it; the current milestone is also shown as a chip near the
+top of the page. Every change is recorded in the **Activity** timeline as a
+`milestone_changed` entry (set, changed or removed).
 
 ### AI activity
 
@@ -183,8 +236,8 @@ kinds of entry:
   link when one is open. The full job detail (logs, cost) stays in the AI
   activity panel above;
 - **audit entries** for human actions, recording who did what and when:
-  status, assignee, priority, type or labels changed, and title or description
-  edited.
+  status, assignee, priority, type, milestone or labels changed, and title or
+  description edited.
 
 The audit is automatic: every human change made to the ticket through the UI is
 recorded and shown in the timeline. You add comments from the composer at the

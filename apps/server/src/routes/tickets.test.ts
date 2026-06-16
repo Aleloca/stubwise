@@ -87,6 +87,7 @@ interface TicketBody {
   status: string;
   source: string;
   assigneeId: string | null;
+  milestoneId: string | null;
   effort: number | null;
   labels: string[];
   technicalPayload: unknown;
@@ -121,6 +122,7 @@ describe("POST /api/tickets", () => {
       status: "open",
       source: "manual",
       assigneeId: null,
+      milestoneId: null,
       effort: null,
       labels: [],
       technicalPayload: null,
@@ -287,6 +289,22 @@ describe("GET /api/tickets — filtri", () => {
 
   it("filtro assigneeId", async () => {
     const res = await listTickets({ projectId: filterProjectId, assigneeId: users.adminId });
+    const body = res.json() as ListBody;
+    expect(body.items.map((t) => t.id)).toEqual([bugId]);
+  });
+
+  it("filtro milestoneId: solo i ticket della milestone", async () => {
+    const ms = await app.inject({
+      method: "POST",
+      url: "/api/milestones",
+      headers: { cookie: users.memberCookie },
+      payload: { projectId: filterProjectId, name: "filtro-milestone" },
+    });
+    expect(ms.statusCode).toBe(201);
+    const milestoneId = (ms.json() as { id: string }).id;
+    await testDb.db.update(tickets).set({ milestoneId }).where(eq(tickets.id, bugId));
+
+    const res = await listTickets({ projectId: filterProjectId, milestoneId });
     const body = res.json() as ListBody;
     expect(body.items.map((t) => t.id)).toEqual([bugId]);
   });
@@ -549,6 +567,35 @@ describe("GET /api/tickets/:id", () => {
     expect(body.title).toBe("Da rileggere");
   });
 
+  it("espone milestoneId: null di default, l'id della milestone dopo l'assegnazione", async () => {
+    const created = await postTicket({ projectId, title: "Con milestone", type: "task" });
+    const id = (created.json() as TicketBody).id;
+
+    const beforeRes = await app.inject({
+      method: "GET",
+      url: `/api/tickets/${id}`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect((beforeRes.json() as TicketBody).milestoneId).toBeNull();
+
+    const ms = await app.inject({
+      method: "POST",
+      url: "/api/milestones",
+      headers: { cookie: users.memberCookie },
+      payload: { projectId, name: "Sprint dettaglio" },
+    });
+    const milestoneId = (ms.json() as { id: string }).id;
+    await testDb.db.update(tickets).set({ milestoneId }).where(eq(tickets.id, id));
+
+    const afterRes = await app.inject({
+      method: "GET",
+      url: `/api/tickets/${id}`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(afterRes.statusCode).toBe(200);
+    expect((afterRes.json() as TicketBody).milestoneId).toBe(milestoneId);
+  });
+
   it("ticket inesistente: 404", async () => {
     const res = await app.inject({
       method: "GET",
@@ -722,6 +769,108 @@ describe("PATCH /api/tickets/:id — ticket_events", () => {
     const res = await patch(id, { labels: ["b", "a"] });
     expect(res.statusCode).toBe(200);
     expect(await eventsOf(id)).toHaveLength(0);
+  });
+});
+
+describe("PATCH /api/tickets/:id — milestone", () => {
+  let msA: string;
+  let msB: string;
+
+  beforeAll(async () => {
+    const a = await app.inject({
+      method: "POST",
+      url: "/api/milestones",
+      headers: { cookie: users.memberCookie },
+      payload: { projectId, name: "patch-ms-a" },
+    });
+    const b = await app.inject({
+      method: "POST",
+      url: "/api/milestones",
+      headers: { cookie: users.memberCookie },
+      payload: { projectId, name: "patch-ms-b" },
+    });
+    msA = (a.json() as { id: string }).id;
+    msB = (b.json() as { id: string }).id;
+  });
+
+  async function freshTicket(): Promise<string> {
+    const res = await postTicket({ projectId, title: "Milestone evento", type: "bug" });
+    expect(res.statusCode).toBe(201);
+    return (res.json() as TicketBody).id;
+  }
+
+  function patch(id: string, payload: Record<string, unknown>) {
+    return app.inject({
+      method: "PATCH",
+      url: `/api/tickets/${id}`,
+      headers: { cookie: users.memberCookie },
+      payload,
+    });
+  }
+
+  function eventsOf(id: string) {
+    return testDb.db.select().from(ticketEvents).where(eq(ticketEvents.ticketId, id));
+  }
+
+  it("assegna milestone (null → id): 1 evento milestone_changed", async () => {
+    const id = await freshTicket();
+    const res = await patch(id, { milestoneId: msA });
+    expect(res.statusCode).toBe(200);
+    const rows = await eventsOf(id);
+    const event = rows.find((r) => r.kind === "milestone_changed");
+    expect(event?.payload).toEqual({ from: null, to: msA });
+  });
+
+  it("cambio milestone (old → new): from old to new", async () => {
+    const id = await freshTicket();
+    expect((await patch(id, { milestoneId: msA })).statusCode).toBe(200);
+    const res = await patch(id, { milestoneId: msB });
+    expect(res.statusCode).toBe(200);
+    const rows = await eventsOf(id);
+    const events = rows.filter((r) => r.kind === "milestone_changed");
+    expect(events.at(-1)?.payload).toEqual({ from: msA, to: msB });
+  });
+
+  it("azzeramento (id → null): from id to null", async () => {
+    const id = await freshTicket();
+    expect((await patch(id, { milestoneId: msA })).statusCode).toBe(200);
+    const res = await patch(id, { milestoneId: null });
+    expect(res.statusCode).toBe(200);
+    const rows = await eventsOf(id);
+    const events = rows.filter((r) => r.kind === "milestone_changed");
+    expect(events.at(-1)?.payload).toEqual({ from: msA, to: null });
+  });
+
+  it("invariato (stessa milestone): nessun evento milestone_changed nuovo", async () => {
+    const id = await freshTicket();
+    expect((await patch(id, { milestoneId: msA })).statusCode).toBe(200);
+    expect((await patch(id, { milestoneId: msA })).statusCode).toBe(200);
+    const events = (await eventsOf(id)).filter((r) => r.kind === "milestone_changed");
+    expect(events).toHaveLength(1);
+  });
+
+  it("milestone di un altro progetto: 400 milestone_cross_project, ticket invariato", async () => {
+    const otherMs = await app.inject({
+      method: "POST",
+      url: "/api/milestones",
+      headers: { cookie: users.memberCookie },
+      payload: { projectId: otherProjectId, name: "cross-ms" },
+    });
+    const crossId = (otherMs.json() as { id: string }).id;
+    const id = await freshTicket();
+    const res = await patch(id, { milestoneId: crossId });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("milestone_cross_project");
+
+    const [row] = await testDb.db.select().from(tickets).where(eq(tickets.id, id));
+    expect(row?.milestoneId).toBeNull();
+  });
+
+  it("milestone inesistente: 400 milestone_cross_project", async () => {
+    const id = await freshTicket();
+    const res = await patch(id, { milestoneId: randomUUID() });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("milestone_cross_project");
   });
 });
 

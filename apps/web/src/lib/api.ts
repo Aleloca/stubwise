@@ -190,6 +190,8 @@ export interface Ticket {
   status: TicketStatus;
   source: TicketSource;
   assigneeId: string | null;
+  /** Milestone a cui il ticket è assegnato; null = nessuna milestone. */
+  milestoneId: string | null;
   /** Stima di sforzo 1–5 del triage AI; null finché non triagiato. */
   effort: number | null;
   labels: string[];
@@ -206,6 +208,7 @@ export interface TicketFilters {
   status?: TicketStatus;
   type?: TicketType;
   priority?: TicketPriority;
+  milestoneId?: string;
   q?: string;
 }
 
@@ -221,6 +224,7 @@ export interface TicketPatch {
   priority?: TicketPriority;
   status?: TicketStatus;
   assigneeId?: string | null;
+  milestoneId?: string | null;
   labels?: string[];
 }
 
@@ -234,6 +238,7 @@ export function listTickets(
   if (filters.status) params.set("status", filters.status);
   if (filters.type) params.set("type", filters.type);
   if (filters.priority) params.set("priority", filters.priority);
+  if (filters.milestoneId) params.set("milestoneId", filters.milestoneId);
   if (filters.q) params.set("q", filters.q);
   if (cursor) params.set("cursor", cursor);
   if (limit !== undefined) params.set("limit", String(limit));
@@ -260,6 +265,113 @@ export interface TicketDraft {
 
 export function postTicket(draft: TicketDraft): Promise<Ticket> {
   return api.post("/api/tickets", draft);
+}
+
+// --- Milestones ---
+
+/** Milestone di progetto: raggruppa i ticket verso un obiettivo con scadenza. */
+export interface Milestone {
+  id: string;
+  projectId: string;
+  name: string;
+  /** Scadenza ISO 8601; null = nessuna scadenza. */
+  dueDate: string | null;
+  status: "open" | "closed";
+  createdAt: string;
+}
+
+/** Milestone con l'avanzamento: total/completed e ripartizione per stato. */
+export interface MilestoneWithCounts extends Milestone {
+  counts: {
+    total: number;
+    completed: number;
+    byStatus: Partial<Record<TicketStatus, number>>;
+  };
+}
+
+/** Dati di creazione di una milestone. */
+export interface MilestoneDraft {
+  projectId: string;
+  name: string;
+  dueDate?: string | null;
+  status?: "open" | "closed";
+}
+
+/** Campi modificabili di una milestone. */
+export interface MilestonePatch {
+  name?: string;
+  dueDate?: string | null;
+  status?: "open" | "closed";
+}
+
+export function listMilestones(projectId: string): Promise<MilestoneWithCounts[]> {
+  return api.get(`/api/milestones?projectId=${encodeURIComponent(projectId)}`);
+}
+
+export function createMilestone(input: MilestoneDraft): Promise<Milestone> {
+  return api.post("/api/milestones", input);
+}
+
+export function updateMilestone(id: string, patch: MilestonePatch): Promise<MilestoneWithCounts> {
+  return api.patch(`/api/milestones/${id}`, patch);
+}
+
+export function deleteMilestone(id: string): Promise<void> {
+  return request("DELETE", `/api/milestones/${encodeURIComponent(id)}`);
+}
+
+// --- Saved views ---
+
+/** Criteri di filtraggio della lista ticket persistiti in una vista salvata. */
+export interface SavedViewFilters {
+  projectId?: string;
+  status?: TicketStatus;
+  type?: TicketType;
+  priority?: TicketPriority;
+  assigneeId?: string;
+  milestoneId?: string;
+  q?: string;
+}
+
+/** Vista salvata dei filtri; `isOwn` è relativo all'utente corrente. */
+export interface SavedView {
+  id: string;
+  name: string;
+  filters: SavedViewFilters;
+  shared: boolean;
+  ownerId: string;
+  isOwn: boolean;
+  createdAt: string;
+}
+
+/** Dati di creazione di una vista salvata. */
+export interface SavedViewDraft {
+  name: string;
+  filters: SavedViewFilters;
+  shared?: boolean;
+}
+
+/** Campi modificabili di una vista salvata. */
+export interface SavedViewPatch {
+  name?: string;
+  filters?: SavedViewFilters;
+  shared?: boolean;
+}
+
+export function listSavedViews(): Promise<SavedView[]> {
+  return api.get("/api/saved-views");
+}
+
+export function createSavedView(input: SavedViewDraft): Promise<SavedView> {
+  return api.post("/api/saved-views", input);
+}
+
+export function updateSavedView(id: string, patch: SavedViewPatch): Promise<SavedView> {
+  return api.patch(`/api/saved-views/${encodeURIComponent(id)}`, patch);
+}
+
+export function deleteSavedView(id: string): Promise<void> {
+  return request("DELETE", `/api/saved-views/${encodeURIComponent(id)}`);
 }
 
 // --- Comments ---
@@ -485,6 +597,7 @@ export type TicketEventKind =
   | "labels_changed"
   | "title_changed"
   | "body_changed"
+  | "milestone_changed"
   | "relation_added"
   | "relation_removed";
 

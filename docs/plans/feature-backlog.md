@@ -17,7 +17,9 @@ Idee di funzionalità valutate dopo la prima fase di sviluppo + deploy in produz
 - ~~**Ricerca full-text** su titolo + body + commenti (oggi solo filtro ILIKE sul titolo).~~ → ✅ **FATTA** (tsvector + GIN su titolo+body, query commenti; `websearch_to_tsquery('english')`; migrazione 0017; ranking ts_rank rimandato a follow-up).
 - ~~**Editor markdown ricco** per body e commenti.~~ → ✅ **FATTA** (componente `MarkdownEditor`: toolbar bold/italic/code/link/list + anteprima live; solo frontend, nessuna migrazione).
 - ~~**Allegati/screenshot** (lo screenshot del feedback SDK non è ancora salvato/mostrato).~~ → ✅ **FATTA** (storage S3-compatible configurabile da Settings con secret cifrata; tabella `attachments`; upload via server con allowlist MIME + 10 MB; download presigned; screenshot automatico del feedback SDK via html2canvas salvato come allegato; migrazione 0018; piano in docs/plans/2026-06-16-stubwise-attachments-implementation.md).
-- **Milestone / viste salvate** (gli sprint erano stati esclusi dal v1; valutare milestone leggere). → **prossima** (feature 6).
+- ~~**Milestone / viste salvate** (gli sprint erano stati esclusi dal v1; valutare milestone leggere).~~ → ✅ **FATTA** (milestone per-progetto con scadenza opz. + stato open/closed + avanzamento ticket; assegnazione ticket con evento `milestone_changed` nel feed; filtro per milestone; viste salvate private/condivisibili con rinomina/toggle-share; migrazione 0019; piano in docs/plans/2026-06-16-stubwise-milestones-saved-views-implementation.md).
+
+**→ Sezione 2 "Vero tracker da team" COMPLETATA (6/6).**
 
 ## 3. Visione "confluire TUTTI i ticket di TUTTI i progetti"
 

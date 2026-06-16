@@ -45,6 +45,7 @@ import { meQueryOptions } from "../../lib/auth";
 import {
   commentsQueryOptions,
   instanceSettingsQueryOptions,
+  milestonesQueryOptions,
   projectsQueryOptions,
   ticketAttachmentsQueryOptions,
   ticketJobsQueryOptions,
@@ -77,9 +78,17 @@ export function TicketDetailPage() {
   const { data: users } = useSuspenseQuery(usersQueryOptions);
   const { data: projects } = useSuspenseQuery(projectsQueryOptions);
   const { data: me } = useSuspenseQuery(meQueryOptions);
+  // Milestone del progetto del ticket: alimentano il select del pannello, il
+  // badge del dettaglio e la risoluzione id→nome del feed. useQuery (non
+  // suspense): un fallimento o un caricamento in corso degrada il select a
+  // "None" + nessuna risoluzione, senza bloccare il dettaglio.
+  const { data: milestones = [] } = useQuery(milestonesQueryOptions(ticket.projectId));
 
   const projectName = projects.find((project) => project.id === ticket.projectId)?.name ?? "—";
   const authorEmails = new Map(users.map((user) => [user.id, user.email]));
+  const milestoneNames = new Map(milestones.map((milestone) => [milestone.id, milestone.name]));
+  const currentMilestoneName =
+    ticket.milestoneId !== null ? milestoneNames.get(ticket.milestoneId) : undefined;
 
   const patchMutation = useMutation({
     mutationFn: (patch: TicketPatch) => patchTicket(id, patch),
@@ -190,6 +199,14 @@ export function TicketDetailPage() {
           )}
           <SourceBadge source={ticket.source} />
           <span className="font-mono text-[11px] text-fg-muted">{projectName}</span>
+          {currentMilestoneName && (
+            <span
+              className="rounded-sm border border-signal-dim/40 px-1.5 py-px font-mono text-[11px] text-signal"
+              title={t("tickets:detail.milestone")}
+            >
+              {currentMilestoneName}
+            </span>
+          )}
           {ticket.occurrences > 1 && (
             <span className="font-mono text-[11px] text-signal" title={t("tickets:detail.occurrences")}>
               ×{ticket.occurrences}
@@ -314,6 +331,7 @@ export function TicketDetailPage() {
             <ActivityFeed
               ticketId={id}
               authorEmails={authorEmails}
+              milestoneNames={milestoneNames}
               onSubmit={(body) => commentMutation.mutateAsync(body)}
               pending={commentMutation.isPending}
             />
@@ -360,6 +378,20 @@ export function TicketDetailPage() {
             options={[
               { value: "", label: t("tickets:detail.unassigned") },
               ...users.map((user) => ({ value: user.id, label: user.email })),
+            ]}
+          />
+
+          <SelectField
+            id="action-milestone"
+            label={t("tickets:detail.milestone")}
+            value={ticket.milestoneId ?? ""}
+            disabled={patchMutation.isPending}
+            onChange={(event) =>
+              patchMutation.mutate({ milestoneId: event.target.value || null })
+            }
+            options={[
+              { value: "", label: t("tickets:detail.noMilestone") },
+              ...milestones.map((milestone) => ({ value: milestone.id, label: milestone.name })),
             ]}
           />
 

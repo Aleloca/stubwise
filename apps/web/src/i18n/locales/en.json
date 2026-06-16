@@ -41,6 +41,7 @@
     "invite_invalid": "Invite invalid or already used",
     "invite_expired": "Invite expired",
     "email_already_exists": "A user with this email already exists",
+    "view_exists": "A saved view with this name already exists",
     "network_error": "Unable to reach the server",
     "generic": "Something went wrong"
   },
@@ -105,6 +106,7 @@
       "status": "Status",
       "type": "Type",
       "priority": "Priority",
+      "milestone": "Milestone",
       "all": "All"
     },
     "row": {
@@ -157,6 +159,8 @@
       "priority": "Priority",
       "assignee": "Assignee",
       "unassigned": "Unassigned",
+      "milestone": "Milestone",
+      "noMilestone": "None",
       "labels": "Labels",
       "createdAt": "Created",
       "updatedAt": "Updated",
@@ -184,6 +188,11 @@
         "labels_changed": "{{actor}} updated labels",
         "title_changed": "{{actor}} edited the title",
         "body_changed": "{{actor}} edited the description",
+        "milestone_changed": {
+          "set": "{{actor}} set milestone {{to}}",
+          "changed": "{{actor}} changed milestone: {{from}} → {{to}}",
+          "removed": "{{actor}} removed milestone {{from}}"
+        },
         "relation_added": {
           "blocks": "{{actor}} linked: blocks #{{number}}",
           "blocked_by": "{{actor}} linked: blocked by #{{number}}",
@@ -632,5 +641,50 @@
       "held": "Automation not started: a manual fix start is required.",
       "awaiting_plan_approval": "The plan exceeds the effort threshold: approve or reject it to proceed."
     }
+  },
+  "milestones": {
+    "title": "Milestones",
+    "manage": "Manage milestones",
+    "empty": "// no milestones yet",
+    "new": "New milestone",
+    "name": "Milestone name",
+    "namePlaceholder": "E.g. v1.0 release",
+    "dueDate": "Due date",
+    "noDueDate": "No due date",
+    "create": "Create",
+    "creating": "Creating…",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "rename": "Rename",
+    "delete": "Delete",
+    "confirmDelete": "Confirm?",
+    "close": "Close",
+    "reopen": "Reopen",
+    "statusOpen": "Open",
+    "statusClosed": "Closed",
+    "progress": "{{completed}}/{{total}} done",
+    "progressLabel": "Progress: {{completed}} of {{total}} tickets done",
+    "none": "None",
+    "createFailed": "Failed to create the milestone"
+  },
+  "savedViews": {
+    "title": "Saved views",
+    "empty": "// no saved views yet",
+    "saveCurrent": "Save current view",
+    "name": "View name",
+    "namePlaceholder": "E.g. My open bugs",
+    "share": "Share with team",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "apply": "Apply",
+    "edit": "Edit",
+    "delete": "Delete",
+    "confirmDelete": "Confirm?",
+    "shared": "Shared",
+    "sharedByTeammate": "Shared by a teammate",
+    "nameExists": "A saved view with this name already exists",
+    "saveFailed": "Failed to save the view"
   }
 }
