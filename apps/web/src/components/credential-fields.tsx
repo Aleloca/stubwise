@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import type { GitCredentials } from "../lib/api";
 import { TextField } from "./field";
 
@@ -50,50 +51,48 @@ export function CredentialFields({
   tokenRequired = false,
   showKeepHint = false,
 }: CredentialFieldsProps) {
+  const { t } = useTranslation();
   return (
     <>
       <p className="mb-4 font-mono text-[11px] leading-relaxed text-fg-faint">
-        // write-only: vengono cifrate e non verranno mai mostrate di nuovo.
+        {t("settings:credentials.writeOnlyHint")}
         <br />
-        // Bitbucket: Username = username Bitbucket (per git), Email = email
-        Atlassian (per la REST API/PR), Token = API token (scope repository +
-        pullrequest + webhook, read e write).
+        {t("settings:credentials.bitbucketHint")}
         <br />
-        // GitHub: lascia Username e Email vuoti, Token = fine-grained PAT
-        (Contents + Pull requests + Webhooks: Read and write).
+        {t("settings:credentials.githubHint")}
         {showKeepHint && (
           <>
             <br />
-            // lascia vuoto per mantenere quelle salvate.
+            {t("settings:credentials.keepHint")}
           </>
         )}
       </p>
       <div className="grid gap-4 sm:grid-cols-2">
         <TextField
           id={`${idPrefix}-username`}
-          label="Username"
+          label={t("settings:credentials.username")}
           type="text"
           autoComplete="off"
-          placeholder="Bitbucket: username · GitHub: vuoto"
+          placeholder={t("settings:credentials.usernamePlaceholder")}
           value={value.username}
           onChange={(event) => onChange({ ...value, username: event.target.value })}
         />
         <TextField
           id={`${idPrefix}-email`}
-          label="Email"
+          label={t("settings:credentials.email")}
           type="text"
           autoComplete="off"
-          placeholder="Bitbucket: email Atlassian (REST API) · GitHub: vuoto"
+          placeholder={t("settings:credentials.emailPlaceholder")}
           value={value.email}
           onChange={(event) => onChange({ ...value, email: event.target.value })}
         />
         <TextField
           id={`${idPrefix}-token`}
-          label="Token di accesso"
+          label={t("settings:credentials.token")}
           type="password"
           autoComplete="new-password"
           required={tokenRequired}
-          placeholder="API token / PAT"
+          placeholder={t("settings:credentials.tokenPlaceholder")}
           value={value.token}
           onChange={(event) => onChange({ ...value, token: event.target.value })}
         />
@@ -111,6 +110,7 @@ export function CredentialChecks({
 }: {
   result: { ok: boolean; checks: { name: string; ok: boolean; detail: string }[] };
 }) {
+  const { t } = useTranslation();
   return (
     <div className="flex flex-col gap-2 rounded-sm border border-line bg-ink-950/40 p-3">
       <p
@@ -118,7 +118,7 @@ export function CredentialChecks({
           result.ok ? "text-ok" : "text-danger"
         }`}
       >
-        {result.ok ? "Credenziali valide" : "Problemi rilevati"}
+        {result.ok ? t("settings:credentials.valid") : t("settings:credentials.issues")}
       </p>
       <ul className="flex flex-col gap-1.5">
         {result.checks.map((check) => (

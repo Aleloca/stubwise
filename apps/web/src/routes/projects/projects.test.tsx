@@ -120,7 +120,7 @@ describe("lista progetti", () => {
     expect(screen.getByText("GitHub")).toBeInTheDocument();
     expect(screen.getByText("Bitbucket")).toBeInTheDocument();
     expect(screen.getByText("https://bitbucket.org/acme/backoffice")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /nuovo progetto/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /new project/i })).toBeInTheDocument();
   });
 
   it("member: niente bottone Nuovo progetto", async () => {
@@ -132,7 +132,7 @@ describe("lista progetti", () => {
     renderApp("/projects");
 
     expect(await screen.findByText("Demo Shop")).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /nuovo progetto/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /new project/i })).not.toBeInTheDocument();
   });
 });
 
@@ -165,15 +165,15 @@ describe("creazione progetto", () => {
 
     const router = renderApp("/projects/new");
 
-    await screen.findByRole("heading", { name: "Nuovo progetto" });
-    await user.type(screen.getByLabelText("Nome"), "Demo Shop");
+    await screen.findByRole("heading", { name: "New project" });
+    await user.type(screen.getByLabelText("Name"), "Demo Shop");
     // Account preselezionato (unico): i repository si caricano.
     await user.click(await screen.findByRole("button", { name: /acme\/demo-shop/ }));
 
-    const branchSelect = await screen.findByLabelText("Branch di default");
+    const branchSelect = await screen.findByLabelText("Default branch");
     await waitFor(() => expect((branchSelect as HTMLSelectElement).value).toBe("main"));
 
-    await user.click(screen.getByRole("button", { name: "Crea progetto" }));
+    await user.click(screen.getByRole("button", { name: "Create project" }));
 
     await waitFor(() => expect(router.state.location.pathname).toBe("/projects/demo-shop"));
     // Nessuna credenziale nel body: vivono sull'account git.
@@ -217,18 +217,18 @@ describe("dettaglio progetto", () => {
 
     renderApp("/projects/demo-shop");
 
-    const name = await screen.findByLabelText("Nome");
+    const name = await screen.findByLabelText("Name");
     expect(name).toHaveValue("Demo Shop");
     // Niente campi credenziali sul progetto: vivono sull'account.
-    expect(screen.queryByLabelText("Token di accesso")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Access token")).not.toBeInTheDocument();
     // L'account collegato è mostrato e preselezionato.
-    expect(screen.getByLabelText("Account git")).toHaveValue(ACCOUNT.id);
+    expect(screen.getByLabelText("Git account")).toHaveValue(ACCOUNT.id);
 
     await user.clear(name);
     await user.type(name, "Demo Shop EU");
-    await user.click(screen.getByRole("button", { name: "Salva modifiche" }));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
 
-    expect(await screen.findByText("Modifiche salvate.")).toBeInTheDocument();
+    expect(await screen.findByText("Changes saved.")).toBeInTheDocument();
     // Account invariato: gitAccountId omesso dal PATCH.
     expect(patchBody).toEqual({
       name: "Demo Shop EU",
@@ -254,11 +254,11 @@ describe("dettaglio progetto", () => {
 
     renderApp("/projects/demo-shop");
 
-    await screen.findByLabelText("Nome");
-    await user.selectOptions(screen.getByLabelText("Account git"), ACCOUNT_B.id);
-    await user.click(screen.getByRole("button", { name: "Salva modifiche" }));
+    await screen.findByLabelText("Name");
+    await user.selectOptions(screen.getByLabelText("Git account"), ACCOUNT_B.id);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
 
-    expect(await screen.findByText("Modifiche salvate.")).toBeInTheDocument();
+    expect(await screen.findByText("Changes saved.")).toBeInTheDocument();
     expect(patchBody).toEqual({
       name: "Demo Shop",
       repoUrl: "https://github.com/acme/demo-shop",
@@ -302,10 +302,10 @@ describe("dettaglio progetto", () => {
     renderApp("/projects/demo-shop");
 
     expect(await screen.findByTestId("project-configured-banner")).toHaveTextContent(
-      "Progetto configurato correttamente",
+      "Project configured correctly",
     );
     // Nessun campo credenziale: vivono sull'account git.
-    expect(screen.queryByLabelText("Token di accesso")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Access token")).not.toBeInTheDocument();
   });
 
   it("admin: se manca il webhook non mostra il banner complessivo", async () => {
@@ -337,12 +337,12 @@ describe("dettaglio progetto", () => {
 
     await screen.findByText(project.ingestionKey);
     // Niente form: nessun campo Nome editabile né bottone di salvataggio.
-    expect(screen.queryByLabelText("Nome")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Salva modifiche" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
     // Ma l'integrazione c'è: serve anche ai member.
     expect(screen.getByTestId("init-snippet")).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Copia chiave di ingestion" }),
+      screen.getByRole("button", { name: "Copy ingestion key" }),
     ).toBeInTheDocument();
   });
 });

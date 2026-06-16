@@ -19,6 +19,9 @@ export const NAMESPACES = [
   "notifications",
   "automation",
   "jobStatus",
+  "badges",
+  "projects",
+  "integration",
 ] as const;
 
 /**

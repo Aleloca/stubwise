@@ -342,8 +342,8 @@ describe("dettaglio ticket", () => {
     ).toBeInTheDocument();
     const header = screen.getByRole("banner");
     expect(within(header).getByText("#7")).toBeInTheDocument();
-    expect(within(header).getByText("Aperto")).toBeInTheDocument();
-    expect(within(header).getByText("Alta")).toBeInTheDocument();
+    expect(within(header).getByText("Open")).toBeInTheDocument();
+    expect(within(header).getByText("High")).toBeInTheDocument();
     expect(within(header).getByText("Bug")).toBeInTheDocument();
     // Il testo del badge origine è "◇ SDK": match parziale.
     expect(within(header).getByText(/SDK/)).toBeInTheDocument();
@@ -356,7 +356,7 @@ describe("dettaglio ticket", () => {
     renderDetail();
 
     const header = await screen.findByRole("banner");
-    expect(within(header).getByText("Effort: Medio (3/5)")).toBeInTheDocument();
+    expect(within(header).getByText("Effort: Medium (3/5)")).toBeInTheDocument();
   });
 
   it("NON mostra l'effort quando è null (ticket non ancora triagiato)", async () => {
@@ -560,7 +560,7 @@ describe("dettaglio ticket", () => {
     mockDetailApi();
     renderDetail();
 
-    expect(await screen.findByText("Consumi AI")).toBeInTheDocument();
+    expect(await screen.findByText("AI usage")).toBeInTheDocument();
     // 12555 → "12.555" (it-IT raggruppa dalle migliaia).
     expect(screen.getByText("12.555")).toBeInTheDocument();
     expect(screen.getByText("$0.0515")).toBeInTheDocument();
@@ -575,7 +575,7 @@ describe("dettaglio ticket", () => {
     // Attende che la pagina sia montata (timeline presente), poi verifica
     // l'assenza del pannello.
     await screen.findByText("AI activity");
-    expect(screen.queryByText("Consumi AI")).not.toBeInTheDocument();
+    expect(screen.queryByText("AI usage")).not.toBeInTheDocument();
   });
 
   it("cambiare stato manda la PATCH e aggiorna la pagina", async () => {
@@ -587,7 +587,7 @@ describe("dettaglio ticket", () => {
 
     await waitFor(() => expect(state.patches).toEqual([{ status: "in_progress" }]));
     const header = screen.getByRole("banner");
-    await waitFor(() => expect(within(header).getByText("In corso")).toBeInTheDocument());
+    await waitFor(() => expect(within(header).getByText("In progress")).toBeInTheDocument());
   });
 
   it("la PATCH cancella i refetch in volo del dettaglio prima di scrivere in cache", async () => {
@@ -639,7 +639,7 @@ describe("dettaglio ticket", () => {
     renderDetail();
 
     await userEvent.click(
-      await screen.findByRole("button", { name: /rimuovi.*pagamenti/i }),
+      await screen.findByRole("button", { name: /remove label pagamenti/i }),
     );
 
     await waitFor(() => expect(state.patches).toEqual([{ labels: [] }]));

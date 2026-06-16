@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { getAccountBranches } from "../lib/api";
 import { SelectField, TextField } from "./field";
 
@@ -36,6 +37,7 @@ export function BranchSelect({
   onChange,
   id = "branch-select",
 }: BranchSelectProps) {
+  const { t } = useTranslation();
   const enabled = !!accountId && !!repoFullName;
 
   const branchesQuery = useQuery({
@@ -68,7 +70,7 @@ export function BranchSelect({
       <div className="flex flex-col gap-1.5">
         <TextField
           id={id}
-          label="Branch di default"
+          label={t("projects:branchSelect.label")}
           required
           placeholder="main"
           value={value}
@@ -76,7 +78,7 @@ export function BranchSelect({
         />
         {branchesQuery.isError && (
           <p className="font-mono text-[11px] text-fg-faint">
-            // impossibile caricare i branch: inseriscilo manualmente.
+            {t("projects:branchSelect.loadFailed")}
           </p>
         )}
       </div>
@@ -84,13 +86,13 @@ export function BranchSelect({
   }
 
   if (branchesQuery.isLoading) {
-    return <p className="font-mono text-[12px] text-fg-faint">// caricamento branch…</p>;
+    return <p className="font-mono text-[12px] text-fg-faint">{t("projects:branchSelect.loading")}</p>;
   }
 
   return (
     <SelectField
       id={id}
-      label="Branch di default"
+      label={t("projects:branchSelect.label")}
       value={value}
       onChange={(event) => onChange(event.target.value)}
       options={options.map((b) => ({ value: b, label: b }))}

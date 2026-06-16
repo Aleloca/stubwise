@@ -1,5 +1,4 @@
 import {
-  EFFORT_LABELS,
   ticketPrioritySchema,
   ticketStatusSchema,
   type TicketPriority,
@@ -11,9 +10,9 @@ import { useTranslation } from "react-i18next";
 import { AIJobTimeline } from "../../components/ai-job-timeline";
 import {
   PriorityBadge,
-  SOURCE_LABELS,
-  PRIORITY_LABELS,
-  STATUS_LABELS,
+  SOURCE_LABEL_KEYS,
+  PRIORITY_LABEL_KEYS,
+  STATUS_LABEL_KEYS,
   SourceBadge,
   StatusBadge,
   TypeBadge,
@@ -163,7 +162,7 @@ export function TicketDetailPage() {
           {ticket.effort !== null && (
             <span className="font-mono text-[11px] text-fg-muted" title={t("tickets:detail.effortTitle")}>
               {t("tickets:detail.effort", {
-                label: EFFORT_LABELS[ticket.effort] ?? ticket.effort,
+                label: t(`badges:effort.${ticket.effort}`, { defaultValue: String(ticket.effort) }),
                 value: ticket.effort,
               })}
             </span>
@@ -190,7 +189,7 @@ export function TicketDetailPage() {
           </section>
 
           {ticket.technicalPayload !== null && (
-            <CollapsibleSection title={t("tickets:detail.technicalPayload")} meta={SOURCE_LABELS[ticket.source]}>
+            <CollapsibleSection title={t("tickets:detail.technicalPayload")} meta={t(SOURCE_LABEL_KEYS[ticket.source])}>
               <TechnicalPayload payload={ticket.technicalPayload} />
             </CollapsibleSection>
           )}
@@ -303,7 +302,7 @@ export function TicketDetailPage() {
             }
             options={ticketStatusSchema.options.map((status) => ({
               value: status,
-              label: STATUS_LABELS[status],
+              label: t(STATUS_LABEL_KEYS[status]),
             }))}
           />
 
@@ -317,7 +316,7 @@ export function TicketDetailPage() {
             }
             options={ticketPrioritySchema.options.map((priority) => ({
               value: priority,
-              label: PRIORITY_LABELS[priority],
+              label: t(PRIORITY_LABEL_KEYS[priority]),
             }))}
           />
 

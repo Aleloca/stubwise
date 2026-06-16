@@ -6,7 +6,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Project, TicketFilters as TicketFiltersValue } from "../lib/api";
-import { PRIORITY_LABELS, STATUS_LABELS, TYPE_LABELS } from "./badges";
+import { PRIORITY_LABEL_KEYS, STATUS_LABEL_KEYS, TYPE_LABEL_KEYS } from "./badges";
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -71,7 +71,7 @@ export function TicketFilters({ value, projects, onChange }: TicketFiltersProps)
         value={value.status}
         options={ticketStatusSchema.options.map((status) => ({
           value: status,
-          label: STATUS_LABELS[status],
+          label: t(STATUS_LABEL_KEYS[status]),
         }))}
         onChange={(status) => onChange({ status: status as TicketFiltersValue["status"] })}
       />
@@ -81,7 +81,7 @@ export function TicketFilters({ value, projects, onChange }: TicketFiltersProps)
         value={value.type}
         options={ticketTypeSchema.options.map((type) => ({
           value: type,
-          label: TYPE_LABELS[type],
+          label: t(TYPE_LABEL_KEYS[type]),
         }))}
         onChange={(type) => onChange({ type: type as TicketFiltersValue["type"] })}
       />
@@ -91,7 +91,7 @@ export function TicketFilters({ value, projects, onChange }: TicketFiltersProps)
         value={value.priority}
         options={ticketPrioritySchema.options.map((priority) => ({
           value: priority,
-          label: PRIORITY_LABELS[priority],
+          label: t(PRIORITY_LABEL_KEYS[priority]),
         }))}
         onChange={(priority) =>
           onChange({ priority: priority as TicketFiltersValue["priority"] })

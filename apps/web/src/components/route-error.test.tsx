@@ -88,7 +88,7 @@ describe("RouteError", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Errore interno");
-    expect(screen.getByRole("button", { name: /riprova/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/");
   });
 });

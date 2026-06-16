@@ -2,6 +2,10 @@
   "common": {
     "appName": "Stubwise",
     "unexpectedError": "Errore imprevisto",
+    "error": "Errore",
+    "copy": "Copia",
+    "copied": "Copiato",
+    "copyFailed": "Errore",
     "loading": "Caricamento…",
     "save": "Salva",
     "cancel": "Annulla",
@@ -165,6 +169,22 @@
       "placeholder": "Markdown supportato…",
       "submit": "Commenta",
       "submitPending": "Invio…"
+    },
+    "labelsEditor": {
+      "addPlaceholder": "Aggiungi label…",
+      "add": "Aggiungi",
+      "newLabel": "Nuova label",
+      "removeLabel": "Rimuovi etichetta {{label}}"
+    },
+    "usage": {
+      "title": "Consumi AI",
+      "totalTokens": "Token totali",
+      "totalCost": "Costo totale",
+      "model": "Modello",
+      "tokensIn": "Token in",
+      "tokensOut": "Token out",
+      "cache": "Cache",
+      "cost": "Costo"
     }
   },
   "settings": {
@@ -184,7 +204,7 @@
       "email": "Email",
       "role": "Ruolo",
       "admin": "Admin",
-      "member": "Member",
+      "member": "Membro",
       "language": "Lingua",
       "languageEnglish": "English",
       "languageItalian": "Italiano"
@@ -244,6 +264,20 @@
       "confirm": "Conferma",
       "validationError": "Errore di validazione",
       "inUse": "Account usato da uno o più progetti: scollegalo prima di eliminarlo"
+    },
+    "credentials": {
+      "username": "Username",
+      "usernamePlaceholder": "Bitbucket: username · GitHub: vuoto",
+      "email": "Email",
+      "emailPlaceholder": "Bitbucket: email Atlassian (REST API) · GitHub: vuoto",
+      "token": "Token di accesso",
+      "tokenPlaceholder": "API token / PAT",
+      "writeOnlyHint": "// write-only: vengono cifrate e non verranno mai mostrate di nuovo.",
+      "bitbucketHint": "// Bitbucket: Username = username Bitbucket (per git), Email = email Atlassian (per la REST API/PR), Token = API token (scope repository + pullrequest + webhook, read e write).",
+      "githubHint": "// GitHub: lascia Username e Email vuoti, Token = fine-grained PAT (Contents + Pull requests + Webhooks: Read and write).",
+      "keepHint": "// lascia vuoto per mantenere quelle salvate.",
+      "valid": "Credenziali valide",
+      "issues": "Problemi rilevati"
     }
   },
   "notifications": {
@@ -326,6 +360,138 @@
     "save": "Salva",
     "saving": "Salvataggio…",
     "saved": "Salvato"
+  },
+  "badges": {
+    "status": {
+      "open": "Aperto",
+      "triaged": "Triage",
+      "in_progress": "In corso",
+      "in_review": "In review",
+      "done": "Fatto",
+      "closed": "Chiuso"
+    },
+    "priority": {
+      "low": "Bassa",
+      "medium": "Media",
+      "high": "Alta",
+      "urgent": "Urgente"
+    },
+    "type": {
+      "bug": "Bug",
+      "feature": "Feature",
+      "task": "Task",
+      "feedback": "Feedback"
+    },
+    "source": {
+      "manual": "Manuale",
+      "sdk_error": "SDK",
+      "sdk_feedback": "SDK",
+      "api": "API"
+    },
+    "effort": {
+      "1": "Banale",
+      "2": "Piccolo",
+      "3": "Medio",
+      "4": "Grande",
+      "5": "Molto grande"
+    },
+    "priorityTitle": "Priorità: {{label}}",
+    "sourceTitle": "Origine: {{label}}"
+  },
+  "projects": {
+    "list": {
+      "title": "Progetti",
+      "subtitle": "Repository collegati, chiavi di ingestion e credenziali della pipeline.",
+      "newProject": "Nuovo progetto",
+      "empty": "// nessun progetto collegato",
+      "emptyHintAdmin": "Crea il primo progetto per ottenere una chiave di ingestion.",
+      "emptyHintMember": "Chiedi a un amministratore di collegare il primo repository.",
+      "createdAt": "creato {{date}}"
+    },
+    "detail": {
+      "back": "← Tutti i progetti",
+      "branch": "branch",
+      "createdAt": "creato",
+      "configuredBanner": "✓ Progetto configurato correttamente",
+      "configuration": "Configurazione",
+      "saved": "Modifiche salvate.",
+      "name": "Nome",
+      "repoUrl": "URL repository",
+      "defaultBranch": "Branch di default",
+      "gitAccount": "Account git",
+      "status": "Stato",
+      "webhookConfiguredAt": "✓ Webhook configurato il {{date}}",
+      "webhookNotConfigured": "— Webhook non configurato",
+      "readOnlyHint": "// sola lettura: la configurazione la modificano gli admin"
+    },
+    "form": {
+      "name": "Nome",
+      "namePlaceholder": "Es. Demo Shop",
+      "repoUrl": "URL repository",
+      "gitAccount": "Account git",
+      "credentialsHint": "// le credenziali vivono sull'account: gestiscile in Settings → Account Git.",
+      "save": "Salva modifiche",
+      "saving": "Salvataggio…"
+    },
+    "wizard": {
+      "name": "Nome",
+      "namePlaceholder": "Es. Demo Shop",
+      "noGitAccount": "// nessun account git",
+      "createAccountFirstPrefix": "Crea prima un account git in ",
+      "createAccountFirstLink": "Settings → Account Git",
+      "createAccountFirstSuffix": ", poi torna qui per collegarlo a un repository.",
+      "gitAccount": "Account git",
+      "repository": "Repository",
+      "loadingRepos": "// caricamento repository…",
+      "searchRepo": "Cerca repository",
+      "searchRepoPlaceholder": "Filtra per nome…",
+      "noRepoMatch": "// nessun repository corrisponde",
+      "default": "default",
+      "listReposFailed": "Impossibile elencare i repository dell'account",
+      "manualHint": "// elenco non disponibile: inserisci URL e branch manualmente.",
+      "repoUrl": "URL repository",
+      "defaultBranch": "Branch di default",
+      "verifyAccess": "Verifica accesso al repository",
+      "verifyHint1": "// controllo advisory dei permessi sul repo (push git / PR / webhook).",
+      "verifyHint2": "// non blocca la creazione: la config del webhook è opzionale.",
+      "verifying": "Verifica…",
+      "verifyError": "Errore nella verifica del repository",
+      "submit": "Crea progetto",
+      "submitting": "Creazione…"
+    },
+    "branchSelect": {
+      "label": "Branch di default",
+      "loadFailed": "// impossibile caricare i branch: inseriscilo manualmente.",
+      "loading": "// caricamento branch…"
+    },
+    "new": {
+      "back": "← Tutti i progetti",
+      "title": "Nuovo progetto",
+      "subtitle": "Scegli un account git, il repository e il branch: slug e chiave di ingestion vengono generati alla creazione."
+    }
+  },
+  "integration": {
+    "title": "Integrazione",
+    "ingestionKey": "Chiave di ingestion",
+    "copyIngestionKey": "Copia chiave di ingestion",
+    "dsn": "DSN",
+    "copyDsn": "Copia DSN",
+    "snippet": "Snippet init()",
+    "copySnippet": "Copia snippet",
+    "snippetHint": "// variante browser — per Node: import da \"@stubwise/sdk/node\"",
+    "webhookSection": "Webhook git · merge → done",
+    "webhookUrl": "Webhook URL",
+    "copyWebhookUrl": "Copia URL webhook",
+    "webhookSecret": "Webhook secret",
+    "copyWebhookSecret": "Copia secret webhook",
+    "webhookHint": "// configura questo URL e secret HMAC nel provider git: alla merge della PR il ticket passa a done",
+    "webhookConfiguredAt": "✓ Webhook configurato il {{date}}",
+    "reconfigure": "Riconfigura",
+    "configuring": "Configurazione…",
+    "configureAuto": "Configura automaticamente",
+    "webhookUpdated": "Webhook aggiornato su {{url}}",
+    "webhookConfigured": "Webhook configurato su {{url}}",
+    "configureFailed": "Configurazione del webhook fallita"
   },
   "jobStatus": {
     "labels": {

@@ -113,7 +113,7 @@ describe("GitAccountsSection — creazione", () => {
     await user.type(screen.getByLabelText("Workspace"), "mio-workspace");
     await user.type(screen.getByLabelText("Username"), "acme-bot");
     await user.type(screen.getByLabelText("Email"), "bot@acme.io");
-    await user.type(screen.getByLabelText("Token di accesso"), "api-token");
+    await user.type(screen.getByLabelText("Access token"), "api-token");
     await user.click(screen.getByRole("button", { name: "Create account" }));
 
     await waitFor(() =>
@@ -163,7 +163,7 @@ describe("GitAccountsSection — validazione", () => {
     const row = (await screen.findByText("Account Demo")).closest("li") as HTMLElement;
     await user.click(within(row).getByRole("button", { name: "Validate" }));
 
-    expect(await screen.findByText("Problemi rilevati")).toBeInTheDocument();
+    expect(await screen.findByText("Issues detected")).toBeInTheDocument();
     expect(screen.getByText(/autenticazione git e push ok/)).toBeInTheDocument();
     expect(screen.getByText(/serve l'email/)).toBeInTheDocument();
   });

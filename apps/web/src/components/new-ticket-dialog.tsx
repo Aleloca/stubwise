@@ -7,7 +7,7 @@ import {
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { Project, TicketDraft } from "../lib/api";
-import { PRIORITY_LABELS, TYPE_LABELS } from "./badges";
+import { PRIORITY_LABEL_KEYS, TYPE_LABEL_KEYS } from "./badges";
 import { FormError, SelectField, TextField } from "./field";
 
 interface NewTicketDialogProps {
@@ -113,7 +113,7 @@ export function NewTicketDialog({ projects, onSubmit, onClose }: NewTicketDialog
               onChange={(event) => setType(event.target.value as TicketType)}
               options={ticketTypeSchema.options.map((kind) => ({
                 value: kind,
-                label: TYPE_LABELS[kind],
+                label: t(TYPE_LABEL_KEYS[kind]),
               }))}
             />
             <SelectField
@@ -123,7 +123,7 @@ export function NewTicketDialog({ projects, onSubmit, onClose }: NewTicketDialog
               onChange={(event) => setPriority(event.target.value as TicketPriority)}
               options={ticketPrioritySchema.options.map((level) => ({
                 value: level,
-                label: PRIORITY_LABELS[level],
+                label: t(PRIORITY_LABEL_KEYS[level]),
               }))}
             />
           </div>

@@ -1,4 +1,4 @@
-import { EFFORT_LABELS, ticketTypeSchema, type TicketType } from "@stubwise/shared";
+import { ticketTypeSchema, type TicketType } from "@stubwise/shared";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -19,7 +19,10 @@ export function SettingsAutomationPage() {
   // Etichetta "Medio (3/5)" per un valore di sforzo: la label dell'effort è di
   // dominio (badges, Task 12), il template intorno è del namespace automation.
   const effortOptionLabel = (value: number): string =>
-    t("automation:effortOption", { label: EFFORT_LABELS[value] ?? value, value });
+    t("automation:effortOption", {
+      label: t(`badges:effort.${value}`, { defaultValue: String(value) }),
+      value,
+    });
 
   // Stato locale modificabile: inizializzato dai dati del server e risincro-
   // nizzato quando questi cambiano (es. dopo un salvataggio o un refetch).

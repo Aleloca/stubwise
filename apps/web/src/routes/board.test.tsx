@@ -167,26 +167,26 @@ describe("board kanban", () => {
     // Sei colonne, una per stato, nell'ordine open → closed.
     const columns = screen.getAllByRole("region");
     expect(columns.map((column) => column.getAttribute("aria-label"))).toEqual([
-      "Aperto: 1 tickets",
-      "Triage: 0 tickets",
-      "In corso: 1 tickets",
+      "Open: 1 tickets",
+      "Triaged: 0 tickets",
+      "In progress: 1 tickets",
       "In review: 0 tickets",
-      "Fatto: 1 tickets",
-      "Chiuso: 0 tickets",
+      "Done: 1 tickets",
+      "Closed: 0 tickets",
     ]);
 
     // Ogni card sta nella colonna del suo stato.
-    const open = screen.getByRole("region", { name: /^aperto/i });
+    const open = screen.getByRole("region", { name: /^open/i });
     const card = within(open).getByRole("button", { name: /crash al checkout/i });
     expect(within(card).getByText("#42")).toBeInTheDocument();
     expect(within(card).getByText("×7")).toBeInTheDocument();
-    expect(within(card).getByText("Urgente")).toBeInTheDocument();
+    expect(within(card).getByText("Urgent")).toBeInTheDocument();
     expect(within(card).getByText("Bug")).toBeInTheDocument();
 
-    const inProgress = screen.getByRole("region", { name: /^in corso/i });
+    const inProgress = screen.getByRole("region", { name: /^in progress/i });
     expect(within(inProgress).getByText("Export CSV degli ordini")).toBeInTheDocument();
 
-    const done = screen.getByRole("region", { name: /^fatto/i });
+    const done = screen.getByRole("region", { name: /^done/i });
     expect(within(done).getByText("Refactoring onboarding")).toBeInTheDocument();
 
     // Le colonne senza ticket mostrano il placeholder.

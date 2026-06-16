@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 interface CopyButtonProps {
   /** Testo da mettere negli appunti. */
@@ -16,6 +17,7 @@ const FEEDBACK_MS = 2000;
  * clipboard (permessi, contesto non sicuro) mostra "Errore" senza lanciare.
  */
 export function CopyButton({ text, label }: CopyButtonProps) {
+  const { t } = useTranslation();
   const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
   const timer = useRef<ReturnType<typeof setTimeout>>();
 
@@ -46,7 +48,11 @@ export function CopyButton({ text, label }: CopyButtonProps) {
             : "border-line-strong text-fg-muted hover:border-signal-dim hover:text-fg"
       }`}
     >
-      {state === "copied" ? "Copiato" : state === "failed" ? "Errore" : "Copia"}
+      {state === "copied"
+        ? t("common:copied")
+        : state === "failed"
+          ? t("common:copyFailed")
+          : t("common:copy")}
     </button>
   );
 }

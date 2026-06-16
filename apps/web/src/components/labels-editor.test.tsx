@@ -19,7 +19,7 @@ describe("LabelsEditor", () => {
 
   it("aggiunge una label con Invio e svuota il campo", async () => {
     const onChange = renderEditor(["pagamenti"]);
-    const input = screen.getByLabelText(/label/i);
+    const input = screen.getByLabelText("New label");
 
     await userEvent.type(input, "checkout{Enter}");
 
@@ -30,15 +30,15 @@ describe("LabelsEditor", () => {
   it("aggiunge una label con il bottone, con trim degli spazi", async () => {
     const onChange = renderEditor();
 
-    await userEvent.type(screen.getByLabelText(/label/i), "  urgente  ");
-    await userEvent.click(screen.getByRole("button", { name: /aggiungi/i }));
+    await userEvent.type(screen.getByLabelText("New label"), "  urgente  ");
+    await userEvent.click(screen.getByRole("button", { name: /add/i }));
 
     expect(onChange).toHaveBeenCalledExactlyOnceWith(["urgente"]);
   });
 
   it("ignora vuoti e duplicati", async () => {
     const onChange = renderEditor(["pagamenti"]);
-    const input = screen.getByLabelText(/label/i);
+    const input = screen.getByLabelText("New label");
 
     await userEvent.type(input, "{Enter}");
     await userEvent.type(input, "pagamenti{Enter}");
@@ -51,7 +51,7 @@ describe("LabelsEditor", () => {
   it("rimuove una label dal chip", async () => {
     const onChange = renderEditor(["pagamenti", "checkout"]);
 
-    await userEvent.click(screen.getByRole("button", { name: /rimuovi.*pagamenti/i }));
+    await userEvent.click(screen.getByRole("button", { name: /remove label pagamenti/i }));
 
     expect(onChange).toHaveBeenCalledExactlyOnceWith(["checkout"]);
   });

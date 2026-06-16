@@ -133,13 +133,13 @@ describe("lista ticket", () => {
     expect(row).toHaveAttribute("href", `/tickets/${crash.id}`);
     expect(within(row).getByText("#42")).toBeInTheDocument();
     expect(within(row).getByText("Progetto Alfa")).toBeInTheDocument();
-    expect(within(row).getByText("Urgente")).toBeInTheDocument();
-    expect(within(row).getByText("Aperto")).toBeInTheDocument();
+    expect(within(row).getByText("Urgent")).toBeInTheDocument();
+    expect(within(row).getByText("Open")).toBeInTheDocument();
     expect(within(row).getByText("×7")).toBeInTheDocument();
     expect(within(row).getByText("pagamenti")).toBeInTheDocument();
 
     const doneRow = screen.getByRole("link", { name: /export csv/i });
-    expect(within(doneRow).getByText("Fatto")).toBeInTheDocument();
+    expect(within(doneRow).getByText("Done")).toBeInTheDocument();
   });
 
   it("senza risultati mostra lo stato vuoto", async () => {
@@ -288,7 +288,7 @@ describe("nuovo ticket dalla lista", () => {
     const dialog = screen.getByRole("dialog", { name: "New ticket" });
     await user.type(within(dialog).getByLabelText("Title"), "Crash al checkout");
     await user.selectOptions(within(dialog).getByLabelText("Type"), "Bug");
-    await user.selectOptions(within(dialog).getByLabelText("Priority"), "Alta");
+    await user.selectOptions(within(dialog).getByLabelText("Priority"), "High");
     await user.click(within(dialog).getByRole("button", { name: "Create ticket" }));
 
     // Dialog chiuso e riga comparsa dopo l'invalidazione della lista.

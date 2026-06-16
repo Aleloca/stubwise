@@ -49,7 +49,7 @@ describe("NewTicketDialog", () => {
     await user.type(screen.getByLabelText("Title"), "Crash al checkout");
     await user.selectOptions(screen.getByLabelText("Project"), "Progetto Beta");
     await user.selectOptions(screen.getByLabelText("Type"), "Bug");
-    await user.selectOptions(screen.getByLabelText("Priority"), "Alta");
+    await user.selectOptions(screen.getByLabelText("Priority"), "High");
     await user.type(screen.getByLabelText("Description (optional)"), "Stacktrace in allegato");
     await user.click(screen.getByRole("button", { name: "Create ticket" }));
 

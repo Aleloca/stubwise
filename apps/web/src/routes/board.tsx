@@ -21,7 +21,7 @@ import { getRouteApi } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
-import { PriorityBadge, STATUS_DOT, STATUS_LABELS, TypeBadge } from "../components/badges";
+import { PriorityBadge, STATUS_DOT, STATUS_LABEL_KEYS, TypeBadge } from "../components/badges";
 import { patchTicket, type Ticket } from "../lib/api";
 import {
   BOARD_TICKETS_LIMIT,
@@ -253,7 +253,7 @@ function BoardColumn({ status, tickets, onOpen }: BoardColumnProps) {
     <section
       ref={setNodeRef}
       aria-label={t("tickets:board.columnLabel", {
-        status: STATUS_LABELS[status],
+        status: t(STATUS_LABEL_KEYS[status]),
         count: tickets.length,
       })}
       className={`flex min-h-0 flex-col rounded-sm border bg-ink-900 transition-colors ${
@@ -263,7 +263,7 @@ function BoardColumn({ status, tickets, onOpen }: BoardColumnProps) {
       <header className="flex items-center gap-2 border-b border-line px-3 py-2.5">
         <span aria-hidden className={`size-1.5 rounded-full ${STATUS_DOT[status]}`} />
         <h2 className="font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase">
-          {STATUS_LABELS[status]}
+          {t(STATUS_LABEL_KEYS[status])}
         </h2>
         <span aria-hidden className="ml-auto font-mono text-[11px] text-fg-faint">
           {tickets.length}

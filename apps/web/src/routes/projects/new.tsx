@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 import { ProjectWizard } from "../../components/project-wizard";
 import { postProject, type ProjectDraft } from "../../lib/api";
 import { projectQueryOptions } from "../../lib/queries";
@@ -11,6 +12,7 @@ import { projectQueryOptions } from "../../lib/queries";
  * dove campeggiano chiave di ingestion e snippet.
  */
 export function NewProjectPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -29,15 +31,12 @@ export function NewProjectPage() {
         to="/projects"
         className="font-mono text-[11px] tracking-[0.14em] text-fg-faint uppercase transition-colors hover:text-fg-muted"
       >
-        ← Tutti i progetti
+        {t("projects:new.back")}
       </Link>
 
       <header className="mt-3 border-b border-line pb-4">
-        <h1 className="text-xl font-semibold">Nuovo progetto</h1>
-        <p className="mt-1 text-sm text-fg-muted">
-          Scegli un account git, il repository e il branch: slug e chiave di ingestion vengono
-          generati alla creazione.
-        </p>
+        <h1 className="text-xl font-semibold">{t("projects:new.title")}</h1>
+        <p className="mt-1 text-sm text-fg-muted">{t("projects:new.subtitle")}</p>
       </header>
 
       <div className="mt-6 max-w-2xl">
