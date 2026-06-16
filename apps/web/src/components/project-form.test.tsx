@@ -54,6 +54,7 @@ const initial = {
   repoUrl: "https://github.com/acme/demo-shop",
   defaultBranch: "main",
   gitAccountId: ACCOUNT_A.id,
+  testCommand: null,
 };
 
 type Handler = (url: URL) => Response;
@@ -151,6 +152,70 @@ describe("ProjectForm in modifica", () => {
       defaultBranch: "main",
       gitAccountId: ACCOUNT_B.id,
     });
+  });
+
+  it("impostando il comando di test, il PATCH lo include", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockAccounts([ACCOUNT_A]);
+    await renderForm({ onSubmit });
+
+    await user.type(screen.getByLabelText("Test command (optional)"), "pnpm test");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.testCommand).toBe("pnpm test");
+  });
+
+  it("svuotando un comando di test esistente, il PATCH invia null", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockAccounts([ACCOUNT_A]);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectForm
+          initial={{ ...initial, testCommand: "npm test" }}
+          onSubmit={onSubmit as never}
+        />
+      </QueryClientProvider>,
+    );
+    await screen.findByLabelText("Name");
+    await waitFor(() => {
+      expect(screen.getByLabelText("Default branch").tagName).toBe("SELECT");
+    });
+
+    const cmd = screen.getByLabelText("Test command (optional)");
+    expect(cmd).toHaveValue("npm test");
+    await user.clear(cmd);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.testCommand).toBeNull();
+  });
+
+  it("un comando di test invariato NON entra nel PATCH", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockAccounts([ACCOUNT_A]);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectForm
+          initial={{ ...initial, testCommand: "npm test" }}
+          onSubmit={onSubmit as never}
+        />
+      </QueryClientProvider>,
+    );
+    await screen.findByLabelText("Name");
+    await waitFor(() => {
+      expect(screen.getByLabelText("Default branch").tagName).toBe("SELECT");
+    });
+
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
+    expect("testCommand" in payload).toBe(false);
   });
 
   it("un rigetto di onSubmit mostra l'errore", async () => {

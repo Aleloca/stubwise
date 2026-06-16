@@ -79,6 +79,7 @@ const CREATED: Project = {
   gitAccountId: ACCOUNT.id,
   gitAccountName: ACCOUNT.name,
   webhookConfiguredAt: null,
+  testCommand: null,
   createdAt: "2026-06-01T10:00:00.000Z",
 };
 
@@ -154,7 +155,42 @@ describe("ProjectWizard — flusso completo", () => {
       gitAccountId: ACCOUNT.id,
       repoUrl: "https://github.com/acme/backoffice.git",
       defaultBranch: "develop",
+      // Nessun comando di test inserito → null (auto-detect).
+      testCommand: null,
     });
+  });
+
+  it("il comando di test inserito entra nel POST", async () => {
+    const user = userEvent.setup();
+    let postBody: unknown;
+    mockApi({
+      "GET /api/auth/me": meHandler(),
+      "GET /api/projects": () => jsonResponse(200, []),
+      "GET /api/git-accounts": () => jsonResponse(200, [ACCOUNT]),
+      "GET /api/git-accounts/11111111-1111-4111-8111-111111111111/repositories": () =>
+        jsonResponse(200, REPOS),
+      "GET /api/git-accounts/11111111-1111-4111-8111-111111111111/branches": () =>
+        jsonResponse(200, { branches: ["main", "develop"], defaultBranch: "main" }),
+      "POST /api/projects": (_url, init) => {
+        postBody = JSON.parse(String(init?.body));
+        return jsonResponse(201, CREATED);
+      },
+      "GET /api/projects/demo-shop": () => jsonResponse(200, CREATED),
+    });
+
+    const router = renderWizard();
+
+    await user.type(await screen.findByLabelText("Name"), "Demo Shop");
+    await screen.findByText("acme/demo-shop");
+    await user.click(screen.getByRole("button", { name: /acme\/demo-shop/ }));
+
+    const testCommand = await screen.findByLabelText("Test command (optional)");
+    await user.type(testCommand, "pnpm test");
+
+    await user.click(screen.getByRole("button", { name: /create project/i }));
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/projects/demo-shop"));
+    expect((postBody as { testCommand: string }).testCommand).toBe("pnpm test");
   });
 
   it("il pulsante di verifica chiama validate-repo e mostra i 3 check", async () => {
@@ -255,6 +291,7 @@ describe("ProjectWizard — fallback manuale", () => {
       gitAccountId: ACCOUNT.id,
       repoUrl: "https://github.com/acme/demo-shop",
       defaultBranch: "main",
+      testCommand: null,
     });
   });
 });

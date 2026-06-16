@@ -15,12 +15,15 @@ describe("loadWorkerConfig", () => {
     expect(config.encryptionKey.toString("base64")).toBe(VALID.ENCRYPTION_KEY);
     expect(config.mirrorsDir).toBe("/var/stubwise/mirrors");
     expect(config.concurrency).toBe(2);
-    expect(config.staleAfterMinutes).toBe(60);
+    expect(config.staleAfterMinutes).toBe(150);
     // Fix in due fasi: default opus/sonnet, attivo, plan timeout 10'.
     expect(config.fixPlanModel).toBe("opus");
     expect(config.fixExecuteModel).toBe("sonnet");
     expect(config.fixTwoPhase).toBe(true);
     expect(config.fixPlanTimeoutMs).toBe(600_000);
+    // Self-repair: default 2 RE-tentativi, timeout test 5'.
+    expect(config.selfRepairMaxAttempts).toBe(2);
+    expect(config.selfRepairTestTimeoutMs).toBe(300_000);
     // PUBLIC_URL non impostato: default stringa vuota (il link al ticket nelle
     // notifiche è il solo path).
     expect(config.publicUrl).toBe("");
@@ -63,6 +66,25 @@ describe("loadWorkerConfig", () => {
     expect(config.fixPlanTimeoutMs).toBe(300_000);
   });
 
+  it("rispetta le variabili del self-repair (max attempts, timeout test); 0 = disattivato", () => {
+    const config = loadWorkerConfig({
+      ...VALID,
+      SELF_REPAIR_MAX_ATTEMPTS: "0",
+      SELF_REPAIR_TEST_TIMEOUT_MS: "120000",
+    });
+    expect(config.selfRepairMaxAttempts).toBe(0);
+    expect(config.selfRepairTestTimeoutMs).toBe(120_000);
+  });
+
+  it("rifiuta SELF_REPAIR_MAX_ATTEMPTS negativa e SELF_REPAIR_TEST_TIMEOUT_MS < 1", () => {
+    expect(() => loadWorkerConfig({ ...VALID, SELF_REPAIR_MAX_ATTEMPTS: "-1" })).toThrow(
+      /SELF_REPAIR_MAX_ATTEMPTS/,
+    );
+    expect(() => loadWorkerConfig({ ...VALID, SELF_REPAIR_TEST_TIMEOUT_MS: "0" })).toThrow(
+      /SELF_REPAIR_TEST_TIMEOUT_MS/,
+    );
+  });
+
   it("variabili vuote (es. copiate da .env.example) usano il default", () => {
     const config = loadWorkerConfig({
       ...VALID,
@@ -76,11 +98,13 @@ describe("loadWorkerConfig", () => {
     });
     expect(config.mirrorsDir).toBe("/var/stubwise/mirrors");
     expect(config.concurrency).toBe(2);
-    expect(config.staleAfterMinutes).toBe(60);
+    expect(config.staleAfterMinutes).toBe(150);
     expect(config.fixPlanModel).toBe("opus");
     expect(config.fixExecuteModel).toBe("sonnet");
     expect(config.fixTwoPhase).toBe(true);
     expect(config.fixPlanTimeoutMs).toBe(600_000);
+    expect(config.selfRepairMaxAttempts).toBe(2);
+    expect(config.selfRepairTestTimeoutMs).toBe(300_000);
   });
 
   it("rifiuta una WORKER_STALE_MINUTES non numerica o < 1", () => {

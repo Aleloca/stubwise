@@ -7,8 +7,8 @@ Idee di funzionalità valutate dopo la prima fase di sviluppo + deploy in produz
 - ~~**Notifiche** (email / Slack / webhook). Oggi l'AI apre una PR e nessuno lo sa finché non guarda la UI. Eventi tipici: ticket assegnato, PR aperta sul ticket, job AI fallito, job in attesa.~~ → ✅ **FATTA** (webhook Slack/Discord/generic, con docs).
 - ~~**Human-in-the-loop sul piano**: per tipi/effort rischiosi, far produrre a Opus il piano e fermarsi in attesa di approvazione umana prima dell'esecuzione (estensione dello stato "held").~~ → ✅ **FATTA** (soglia `plan_approval_min_effort` per tipo → stato `awaiting_plan_approval` + Approva/Rifiuta).
 - ~~**Loop di feedback sulla PR**: gestire la **PR rifiutata/chiusa senza merge** (riapri ticket) e il **"ri-esegui con istruzioni"** (un umano commenta una guida e rilancia il fix incorporandola).~~ → ✅ **FATTA** (webhook `closed_unmerged` → ticket riaperto + stato job `pr_closed`; "Rilancia con istruzioni" via commenti del team nel prompt).
-- **Self-repair**: se il fix produce un diff ma i test falliscono, loop limitato di auto-correzione invece del fallimento conservativo attuale.
-- **Budget/guardrail di costo**: tetti di spesa (per ticket/periodo) con stop/alert, sfruttando il tracking costi già presente.
+- ~~**Self-repair**: se il fix produce un diff ma i test falliscono, loop limitato di auto-correzione invece del fallimento conservativo attuale.~~ → ✅ **FATTA** (giugno 2026; il worker ri-esegue i test e cicla fino a SELF_REPAIR_MAX_ATTEMPTS; design+piano in docs/plans/2026-06-16-stubwise-ai-reliability-*.md).
+- ~~**Budget/guardrail di costo**: tetti di spesa (per ticket/periodo) con stop/alert, sfruttando il tracking costi già presente.~~ → ✅ **FATTA** (tetto per-ticket per tipo + mensile d'istanza; held + notifica job.budget_held al superamento, manualTrigger scavalca; migrazione 0014).
 
 ## 2. Essere un vero tracker da team
 

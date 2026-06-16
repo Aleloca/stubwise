@@ -35,6 +35,9 @@ export const projectSchema = z.object({
   // git è stato configurato, o null se mai.
   gitAccountId: z.uuid(),
   gitAccountName: z.string().min(1),
+  // Comando di test che la pipeline AI esegue per validare il fix (es.
+  // "pnpm test"). null = nessun comando configurato.
+  testCommand: z.string().min(1).nullable(),
   webhookConfiguredAt: z.iso.datetime().nullable(),
   // Il segreto HMAC del webhook git NON fa parte della proiezione pubblica:
   // è un segreto che permetterebbe di forgiare webhook di merge e forzare i

@@ -57,6 +57,7 @@ interface Rule {
   autoFix: boolean;
   maxEffort: number;
   planApprovalMinEffort: number | null;
+  maxCostUsd: number | null;
 }
 
 describe("GET /api/settings/automation", () => {
@@ -80,24 +81,28 @@ describe("GET /api/settings/automation", () => {
       autoFix: true,
       maxEffort: 3,
       planApprovalMinEffort: null,
+      maxCostUsd: null,
     });
     expect(byType.get("task")).toEqual({
       type: "task",
       autoFix: true,
       maxEffort: 2,
       planApprovalMinEffort: null,
+      maxCostUsd: null,
     });
     expect(byType.get("feature")).toEqual({
       type: "feature",
       autoFix: false,
       maxEffort: 3,
       planApprovalMinEffort: null,
+      maxCostUsd: null,
     });
     expect(byType.get("feedback")).toEqual({
       type: "feedback",
       autoFix: false,
       maxEffort: 3,
       planApprovalMinEffort: null,
+      maxCostUsd: null,
     });
   });
 
@@ -114,6 +119,7 @@ describe("GET /api/settings/automation", () => {
       autoFix: true,
       maxEffort: 3,
       planApprovalMinEffort: null,
+      maxCostUsd: null,
     });
   });
 });
@@ -131,7 +137,7 @@ describe("PUT /api/settings/automation", () => {
     const res = await putAutomation(
       {
         rules: [
-          { type: "bug", autoFix: false, maxEffort: 5, planApprovalMinEffort: 4 },
+          { type: "bug", autoFix: false, maxEffort: 5, planApprovalMinEffort: 4, maxCostUsd: 1.5 },
           { type: "feature", autoFix: true, maxEffort: 4, planApprovalMinEffort: null },
         ],
       },
@@ -145,22 +151,63 @@ describe("PUT /api/settings/automation", () => {
       autoFix: false,
       maxEffort: 5,
       planApprovalMinEffort: 4,
+      maxCostUsd: 1.5,
     });
     expect(byType.get("feature")).toEqual({
       type: "feature",
       autoFix: true,
       maxEffort: 4,
       planApprovalMinEffort: null,
+      maxCostUsd: null,
     });
 
-    // Persistito: una GET successiva riflette l'upsert, soglia inclusa.
+    // Persistito: una GET successiva riflette l'upsert, soglia e tetto inclusi.
     const after = (await getAutomation(users.adminCookie)).json() as { rules: Rule[] };
     expect(after.rules.find((r) => r.type === "bug")).toEqual({
       type: "bug",
       autoFix: false,
       maxEffort: 5,
       planApprovalMinEffort: 4,
+      maxCostUsd: 1.5,
     });
+  });
+
+  it("maxCostUsd: round-trip number e null resta null", async () => {
+    // Valore positivo per 'task', null esplicito per 'feature'.
+    const res = await putAutomation(
+      {
+        rules: [
+          { type: "task", autoFix: true, maxEffort: 2, maxCostUsd: 0.5 },
+          { type: "feature", autoFix: true, maxEffort: 3, maxCostUsd: null },
+        ],
+      },
+      users.adminCookie,
+    );
+    expect(res.statusCode).toBe(200);
+    const after = (await getAutomation(users.adminCookie)).json() as { rules: Rule[] };
+    const task = after.rules.find((r) => r.type === "task");
+    const feature = after.rules.find((r) => r.type === "feature");
+    expect(task?.maxCostUsd).toBe(0.5);
+    expect(typeof task?.maxCostUsd).toBe("number");
+    expect(feature?.maxCostUsd).toBeNull();
+  });
+
+  it("maxCostUsd negativo → 400", async () => {
+    const res = await putAutomation(
+      { rules: [{ type: "bug", autoFix: true, maxEffort: 3, maxCostUsd: -1 }] },
+      users.adminCookie,
+    );
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("maxCostUsd omesso → null (compatibilità client legacy)", async () => {
+    const res = await putAutomation(
+      { rules: [{ type: "bug", autoFix: true, maxEffort: 3 }] },
+      users.adminCookie,
+    );
+    expect(res.statusCode).toBe(200);
+    const { rules } = res.json() as { rules: Rule[] };
+    expect(rules.find((r) => r.type === "bug")?.maxCostUsd).toBeNull();
   });
 
   it("planApprovalMinEffort fuori scala 1–5 → 400", async () => {
@@ -256,6 +303,7 @@ interface NotificationSettings {
   notifyPrClosed: boolean;
   notifyJobHeld: boolean;
   notifyPlanReview: boolean;
+  notifyBudgetHeld: boolean;
   notifyJobFailed: boolean;
 }
 
@@ -278,6 +326,7 @@ describe("GET /api/settings/notifications", () => {
     expect(body.notifyTicketCreated).toBe(true);
     expect(body.notifyPrClosed).toBe(true);
     expect(body.notifyPlanReview).toBe(true);
+    expect(body.notifyBudgetHeld).toBe(true);
     expect(body.notifyJobFailed).toBe(true);
   });
 });
@@ -310,6 +359,7 @@ describe("PUT /api/settings/notifications", () => {
         notifyPrClosed: false,
         notifyJobHeld: false,
         notifyPlanReview: false,
+        notifyBudgetHeld: false,
         notifyJobFailed: true,
       },
       users.adminCookie,
@@ -322,6 +372,7 @@ describe("PUT /api/settings/notifications", () => {
     expect(body.notifyTicketCreated).toBe(false);
     expect(body.notifyPrClosed).toBe(false);
     expect(body.notifyPlanReview).toBe(false);
+    expect(body.notifyBudgetHeld).toBe(false);
 
     // Persistito: una sola riga (id=1) e la GET la riflette.
     const rows = await testDb.db.select().from(notificationSettings);
@@ -331,6 +382,7 @@ describe("PUT /api/settings/notifications", () => {
     expect(after.notifyJobHeld).toBe(false);
     expect(after.notifyPrClosed).toBe(false);
     expect(after.notifyPlanReview).toBe(false);
+    expect(after.notifyBudgetHeld).toBe(false);
   });
 
   it("admin: notifyPrClosed omesso → default true (compatibilità client legacy)", async () => {
@@ -368,6 +420,26 @@ describe("PUT /api/settings/notifications", () => {
     );
     expect(res.statusCode).toBe(200);
     expect((res.json() as NotificationSettings).notifyPlanReview).toBe(true);
+  });
+
+  it("admin: notifyBudgetHeld omesso → default true (compatibilità client legacy)", async () => {
+    const res = await putNotifications(
+      {
+        webhookUrl: "https://hooks.example.com/legacy-budget",
+        format: "slack",
+        enabled: true,
+        notifyTicketCreated: true,
+        notifyPrOpened: true,
+        notifyPrClosed: true,
+        notifyJobHeld: true,
+        notifyPlanReview: true,
+        // notifyBudgetHeld volutamente assente: deve defaultare a true.
+        notifyJobFailed: true,
+      },
+      users.adminCookie,
+    );
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as NotificationSettings).notifyBudgetHeld).toBe(true);
   });
 
   it("webhookUrl vuoto è ammesso (disattiva il webhook) e salvato come null", async () => {
@@ -519,10 +591,12 @@ describe("GET /api/settings/instance", () => {
     expect((await getInstance(users.memberCookie)).statusCode).toBe(403);
   });
 
-  it("admin: restituisce la riga singleton seedata (default 'en')", async () => {
+  it("admin: restituisce la riga singleton seedata (default 'en', monthlyBudgetUsd null)", async () => {
     const res = await getInstance(users.adminCookie);
     expect(res.statusCode).toBe(200);
-    expect((res.json() as { contentLanguage: string }).contentLanguage).toBe("en");
+    const body = res.json() as { contentLanguage: string; monthlyBudgetUsd: number | null };
+    expect(body.contentLanguage).toBe("en");
+    expect(body.monthlyBudgetUsd).toBeNull();
   });
 });
 
@@ -533,17 +607,60 @@ describe("PUT /api/settings/instance", () => {
   });
 
   it("admin: upsert della riga singleton e persistenza", async () => {
-    const res = await putInstance({ contentLanguage: "it" }, users.adminCookie);
+    const res = await putInstance(
+      { contentLanguage: "it", monthlyBudgetUsd: 100 },
+      users.adminCookie,
+    );
     expect(res.statusCode).toBe(200);
-    expect((res.json() as { contentLanguage: string }).contentLanguage).toBe("it");
+    const body = res.json() as { contentLanguage: string; monthlyBudgetUsd: number | null };
+    expect(body.contentLanguage).toBe("it");
+    expect(body.monthlyBudgetUsd).toBe(100);
 
     // Persistito: una sola riga (id=1) e la GET la riflette.
     const rows = await testDb.db.select().from(instanceSettings);
     expect(rows).toHaveLength(1);
-    expect((await getInstance(users.adminCookie)).json()).toEqual({ contentLanguage: "it" });
+    expect((await getInstance(users.adminCookie)).json()).toEqual({
+      contentLanguage: "it",
+      monthlyBudgetUsd: 100,
+    });
 
     // Ripristina il default per non sporcare gli altri test.
-    await putInstance({ contentLanguage: "en" }, users.adminCookie);
+    await putInstance({ contentLanguage: "en", monthlyBudgetUsd: null }, users.adminCookie);
+  });
+
+  it("monthlyBudgetUsd: round-trip number (type number) e null lo azzera", async () => {
+    const set = await putInstance(
+      { contentLanguage: "en", monthlyBudgetUsd: 250.75 },
+      users.adminCookie,
+    );
+    expect(set.statusCode).toBe(200);
+    const setBody = (await getInstance(users.adminCookie)).json() as {
+      monthlyBudgetUsd: number | null;
+    };
+    expect(setBody.monthlyBudgetUsd).toBe(250.75);
+    expect(typeof setBody.monthlyBudgetUsd).toBe("number");
+
+    // null azzera il tetto.
+    await putInstance({ contentLanguage: "en", monthlyBudgetUsd: null }, users.adminCookie);
+    expect(
+      (
+        (await getInstance(users.adminCookie)).json() as { monthlyBudgetUsd: number | null }
+      ).monthlyBudgetUsd,
+    ).toBeNull();
+  });
+
+  it("monthlyBudgetUsd omesso → null (compatibilità client legacy)", async () => {
+    const res = await putInstance({ contentLanguage: "en" }, users.adminCookie);
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { monthlyBudgetUsd: number | null }).monthlyBudgetUsd).toBeNull();
+  });
+
+  it("monthlyBudgetUsd negativo → 400", async () => {
+    const res = await putInstance(
+      { contentLanguage: "en", monthlyBudgetUsd: -5 },
+      users.adminCookie,
+    );
+    expect(res.statusCode).toBe(400);
   });
 
   it("lingua fuori enum → 400", async () => {

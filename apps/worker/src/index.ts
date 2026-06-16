@@ -20,20 +20,36 @@ const STALE_MARGIN_MS = 5 * 60_000;
  * mentre è ancora in corso → PR duplicata sullo stesso progetto. Il triage può
  * ritentare una volta (≈ 2× il suo timeout). Con il fix in DUE FASI il fix gira
  * pianificazione + esecuzione back-to-back: il caso peggiore è plan timeout +
- * fix timeout (con la fase singola basta il solo fix). L'heartbeat in runFix è
- * la difesa primaria; questa è la rete di sicurezza contro una config rotta.
+ * fix timeout (con la fase singola basta il solo fix). In più il loop di
+ * self-repair (Task 5) può aggiungere, dopo l'esecuzione iniziale, fino a
+ * SELF_REPAIR_MAX_ATTEMPTS esecuzioni extra dell'agente (ciascuna fino al
+ * timeout di fix) e altrettante esecuzioni del comando di test (ciascuna fino a
+ * SELF_REPAIR_TEST_TIMEOUT_MS). L'heartbeat in runFix è la difesa primaria;
+ * questa è la rete di sicurezza contro una config rotta.
  */
-function assertStaleInvariant(staleAfterMinutes: number, twoPhase: boolean): void {
+function assertStaleInvariant(
+  staleAfterMinutes: number,
+  twoPhase: boolean,
+  selfRepairMaxAttempts: number,
+  selfRepairTestTimeoutMs: number,
+): void {
   const staleMs = staleAfterMinutes * 60_000;
   // Due fasi: plan (10') + execute (30'); fase singola: solo execute (30').
   const fixMaxMs = twoPhase
     ? DEFAULT_FIX_PLAN_TIMEOUT_MS + DEFAULT_FIX_TIMEOUT_MS
     : DEFAULT_FIX_TIMEOUT_MS;
-  const minRequiredMs = fixMaxMs + 2 * DEFAULT_TRIAGE_TIMEOUT_MS + STALE_MARGIN_MS;
+  // Self-repair: ogni RE-tentativo è una ri-esecuzione dell'agente (fino al
+  // timeout di fix) + un'esecuzione del comando di test (fino al suo timeout).
+  // Stima prudente: N × (timeout esecuzione + timeout test).
+  const selfRepairMs =
+    selfRepairMaxAttempts * (DEFAULT_FIX_TIMEOUT_MS + selfRepairTestTimeoutMs);
+  const minRequiredMs =
+    fixMaxMs + selfRepairMs + 2 * DEFAULT_TRIAGE_TIMEOUT_MS + STALE_MARGIN_MS;
   if (staleMs <= minRequiredMs) {
     throw new Error(
       `WORKER_STALE_MINUTES=${staleAfterMinutes} è troppo basso: deve superare ` +
-        `${Math.ceil(minRequiredMs / 60_000)} minuti (timeout fix${twoPhase ? " plan + execute" : ""} + 2× triage + margine), ` +
+        `${Math.ceil(minRequiredMs / 60_000)} minuti (timeout fix${twoPhase ? " plan + execute" : ""}` +
+        `${selfRepairMaxAttempts > 0 ? ` + ${selfRepairMaxAttempts}× self-repair (esecuzione + test)` : ""} + 2× triage + margine), ` +
         `altrimenti un job lungo ma vivo verrebbe riaccodato e si aprirebbe una PR duplicata.`,
     );
   }
@@ -57,7 +73,12 @@ function loadConfigOrExit(): WorkerConfig {
 
 const config = loadConfigOrExit();
 try {
-  assertStaleInvariant(config.staleAfterMinutes, config.fixTwoPhase);
+  assertStaleInvariant(
+    config.staleAfterMinutes,
+    config.fixTwoPhase,
+    config.selfRepairMaxAttempts,
+    config.selfRepairTestTimeoutMs,
+  );
 } catch (err) {
   console.error(err instanceof Error ? err.message : err);
   process.exit(1);
@@ -76,6 +97,8 @@ const handler = createHandler({
     planModel: config.fixPlanModel,
     executeModel: config.fixExecuteModel,
     planTimeoutMs: config.fixPlanTimeoutMs,
+    selfRepairMaxAttempts: config.selfRepairMaxAttempts,
+    testTimeoutMs: config.selfRepairTestTimeoutMs,
   },
 });
 

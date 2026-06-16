@@ -18,7 +18,12 @@ import { authErrorResponses, errorSchema } from "./shared.js";
  */
 
 /** Default difensivo, gemello di quello del worker: se una riga manca. */
-const DEFAULT_RULE = { autoFix: true, maxEffort: 3, planApprovalMinEffort: null } as const;
+const DEFAULT_RULE = {
+  autoFix: true,
+  maxEffort: 3,
+  planApprovalMinEffort: null,
+  maxCostUsd: null,
+} as const;
 
 const automationRuleSchema = z.object({
   type: ticketTypeSchema,
@@ -28,6 +33,11 @@ const automationRuleSchema = z.object({
   // umana del piano. null = mai (nessun gate di approvazione). Default null per
   // i client legacy che non inviano il campo.
   planApprovalMinEffort: effortSchema.nullable().default(null),
+  // Tetto di costo per-ticket (USD) per questo tipo: oltre questa soglia il job
+  // viene messo in hold. null = nessun tetto. Colonna numeric(12,6) → drizzle la
+  // legge/scrive come STRINGA, qui l'API la espone come number. Default null per
+  // i client legacy che non inviano il campo.
+  maxCostUsd: z.number().nonnegative().nullable().default(null),
 });
 
 const automationSettingsSchema = z.object({
@@ -59,6 +69,7 @@ const notificationSettingsResponseSchema = z.object({
   notifyPrClosed: z.boolean(),
   notifyJobHeld: z.boolean(),
   notifyPlanReview: z.boolean(),
+  notifyBudgetHeld: z.boolean(),
   notifyJobFailed: z.boolean(),
 });
 
@@ -83,6 +94,9 @@ const updateNotificationsBodySchema = z.object({
   // Default true: i client esistenti che non inviano il campo conservano il
   // comportamento "notifica i piani in attesa di approvazione" come gli altri toggle.
   notifyPlanReview: z.boolean().default(true),
+  // Default true: i client esistenti che non inviano il campo conservano il
+  // comportamento "notifica i job messi in hold per superamento budget".
+  notifyBudgetHeld: z.boolean().default(true),
   notifyJobFailed: z.boolean(),
 });
 
@@ -99,10 +113,16 @@ const testNotificationResponseSchema = z.object({
  */
 const instanceSettingsResponseSchema = z.object({
   contentLanguage: languageSchema,
+  // Tetto di spesa mensile (USD) dell'istanza: oltre questa soglia i nuovi job
+  // vengono messi in hold. null = nessun tetto. Colonna numeric(12,6) → drizzle
+  // la legge/scrive come STRINGA, qui l'API la espone come number.
+  monthlyBudgetUsd: z.number().nonnegative().nullable(),
 });
 
 const updateInstanceBodySchema = z.object({
   contentLanguage: languageSchema,
+  // Default null per i client legacy che non inviano il campo.
+  monthlyBudgetUsd: z.number().nonnegative().nullable().default(null),
 });
 
 /**
@@ -123,6 +143,7 @@ async function loadNotificationSettings(
       notifyPrClosed: true,
       notifyJobHeld: true,
       notifyPlanReview: true,
+      notifyBudgetHeld: true,
       notifyJobFailed: true,
     };
   }
@@ -135,6 +156,7 @@ async function loadNotificationSettings(
     notifyPrClosed: row.notifyPrClosed,
     notifyJobHeld: row.notifyJobHeld,
     notifyPlanReview: row.notifyPlanReview,
+    notifyBudgetHeld: row.notifyBudgetHeld,
     notifyJobFailed: row.notifyJobFailed,
   };
 }
@@ -148,7 +170,11 @@ async function loadInstanceSettings(
   db: Db,
 ): Promise<z.infer<typeof instanceSettingsResponseSchema>> {
   const [row] = await db.select().from(instanceSettings).limit(1);
-  return { contentLanguage: row?.contentLanguage ?? "en" };
+  return {
+    contentLanguage: row?.contentLanguage ?? "en",
+    // numeric → stringa lato driver: converto a number, null resta null.
+    monthlyBudgetUsd: row?.monthlyBudgetUsd != null ? Number(row.monthlyBudgetUsd) : null,
+  };
 }
 
 /**
@@ -165,6 +191,9 @@ async function loadAllRules(db: Db): Promise<AutomationRule[]> {
       autoFix: row?.autoFix ?? DEFAULT_RULE.autoFix,
       maxEffort: row?.maxEffort ?? DEFAULT_RULE.maxEffort,
       planApprovalMinEffort: row?.planApprovalMinEffort ?? DEFAULT_RULE.planApprovalMinEffort,
+      // numeric → stringa lato driver: converto a number, null resta null.
+      maxCostUsd:
+        row?.maxCostUsd != null ? Number(row.maxCostUsd) : DEFAULT_RULE.maxCostUsd,
     };
   });
 }
@@ -203,6 +232,8 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
       // tutte o nessuna, così la lettura successiva è sempre coerente.
       await app.db.transaction(async (tx) => {
         for (const rule of request.body.rules) {
+          // numeric(12,6): drizzle scrive una STRINGA. number → stringa, null resta null.
+          const maxCostUsd = rule.maxCostUsd != null ? String(rule.maxCostUsd) : null;
           await tx
             .insert(automationRules)
             .values({
@@ -210,6 +241,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
               autoFix: rule.autoFix,
               maxEffort: rule.maxEffort,
               planApprovalMinEffort: rule.planApprovalMinEffort,
+              maxCostUsd,
             })
             .onConflictDoUpdate({
               target: automationRules.type,
@@ -217,6 +249,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
                 autoFix: rule.autoFix,
                 maxEffort: rule.maxEffort,
                 planApprovalMinEffort: rule.planApprovalMinEffort,
+                maxCostUsd,
               },
             });
         }
@@ -269,6 +302,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
           notifyPrClosed: body.notifyPrClosed,
           notifyJobHeld: body.notifyJobHeld,
           notifyPlanReview: body.notifyPlanReview,
+          notifyBudgetHeld: body.notifyBudgetHeld,
           notifyJobFailed: body.notifyJobFailed,
         })
         .onConflictDoUpdate({
@@ -282,6 +316,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
             notifyPrClosed: body.notifyPrClosed,
             notifyJobHeld: body.notifyJobHeld,
             notifyPlanReview: body.notifyPlanReview,
+            notifyBudgetHeld: body.notifyBudgetHeld,
             notifyJobFailed: body.notifyJobFailed,
           },
         });
@@ -334,12 +369,15 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
     async (request) => {
       // Upsert sul singleton (id=1): la migrazione seeda la riga, ma onConflict
       // la rende idempotente anche se mancasse. updatedAt è gestito da $onUpdate.
+      // numeric(12,6): drizzle scrive una STRINGA. number → stringa, null resta null.
+      const monthlyBudgetUsd =
+        request.body.monthlyBudgetUsd != null ? String(request.body.monthlyBudgetUsd) : null;
       await app.db
         .insert(instanceSettings)
-        .values({ id: 1, contentLanguage: request.body.contentLanguage })
+        .values({ id: 1, contentLanguage: request.body.contentLanguage, monthlyBudgetUsd })
         .onConflictDoUpdate({
           target: instanceSettings.id,
-          set: { contentLanguage: request.body.contentLanguage },
+          set: { contentLanguage: request.body.contentLanguage, monthlyBudgetUsd },
         });
       return loadInstanceSettings(app.db);
     },

@@ -50,16 +50,17 @@ const envSchema = z.object({
   // Soglia di staleness per requeueStale: un job in lavorazione senza
   // heartbeat oltre questo limite è orfano di un worker crashato e torna in
   // coda. Deve restare > del tempo massimo di un job: vedi l'invariante
-  // verificata in index.ts. Min 1; il default 60 min supera con margine
-  // l'invariante con il fix in due fasi attivo (plan 10' + fix 30' + 2× triage
-  // 2' + margine 5' = 49').
+  // verificata in index.ts. Min 1; il default 150 min supera con margine
+  // l'invariante col fix in due fasi (plan 10' + fix 30') PIÙ il loop di
+  // self-repair (2 RE-tentativi × (fix 30' + test 5') = 70') + 2× triage 2' +
+  // margine 5' ≈ 119'.
   WORKER_STALE_MINUTES: z.preprocess(
     emptyAsUndefined,
     z.coerce
-      .number({ error: "deve essere un intero ≥ 1 in minuti (es. 60)" })
-      .int("deve essere un intero ≥ 1 in minuti (es. 60)")
-      .min(1, "deve essere un intero ≥ 1 in minuti (es. 60)")
-      .default(60),
+      .number({ error: "deve essere un intero ≥ 1 in minuti (es. 150)" })
+      .int("deve essere un intero ≥ 1 in minuti (es. 150)")
+      .min(1, "deve essere un intero ≥ 1 in minuti (es. 150)")
+      .default(150),
   ),
   // Fix in DUE FASI per ridurre i costi: un modello "forte" (FIX_PLAN_MODEL)
   // analizza il bug in sola lettura e produce un piano; un modello più
@@ -95,6 +96,31 @@ const envSchema = z.object({
       .min(1, "deve essere un intero > 0 in millisecondi (es. 600000)")
       .default(600_000),
   ),
+  // Loop di self-repair (Task 5): dopo il run di esecuzione, il WORKER esegue
+  // da sé il comando di test del repo nel worktree; se i test falliscono
+  // reinvoca l'agente con l'output del fallimento, fino a questo numero di
+  // RE-tentativi (1 esecuzione iniziale + fino a N riparazioni). 0 = loop
+  // disattivato (comportamento storico: si committa senza eseguire i test).
+  // Entra nell'invariante di staleness in index.ts perché può aggiungere fino a
+  // N esecuzioni extra dell'agente + altrettanti run del comando di test.
+  SELF_REPAIR_MAX_ATTEMPTS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 0 (es. 2; 0 = disattivato)" })
+      .int("deve essere un intero ≥ 0 (es. 2; 0 = disattivato)")
+      .min(0, "deve essere un intero ≥ 0 (es. 2; 0 = disattivato)")
+      .default(2),
+  ),
+  // Timeout di OGNI esecuzione del comando di test nel loop di self-repair
+  // (default 5'). Entra nell'invariante di staleness in index.ts.
+  SELF_REPAIR_TEST_TIMEOUT_MS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero > 0 in millisecondi (es. 300000)" })
+      .int("deve essere un intero > 0 in millisecondi (es. 300000)")
+      .min(1, "deve essere un intero > 0 in millisecondi (es. 300000)")
+      .default(300_000),
+  ),
   // URL pubblico dell'istanza, usato SOLO per comporre il link al ticket nelle
   // notifiche webhook in uscita. Opzionale: vuoto (default) = il link è il solo
   // path (/tickets/:id). Gli slash finali vengono rimossi così la concatenazione
@@ -114,7 +140,7 @@ export interface WorkerConfig {
    * progetto vengono comunque serializzati dall'handler). */
   concurrency: number;
   /** Minuti di inattività oltre cui un job in lavorazione è considerato
-   * orfano e riportato in coda (default 60). */
+   * orfano e riportato in coda (default 150). */
   staleAfterMinutes: number;
   /** Modello del run di pianificazione del fix (forte, read-only; default
    * "opus"). */
@@ -126,6 +152,12 @@ export interface WorkerConfig {
   fixTwoPhase: boolean;
   /** Timeout del run di pianificazione in ms (default 600000 = 10'). */
   fixPlanTimeoutMs: number;
+  /** Numero massimo di RE-tentativi del loop di self-repair (default 2; 0 =
+   * disattivato). 1 esecuzione iniziale + fino a N riparazioni. */
+  selfRepairMaxAttempts: number;
+  /** Timeout di ogni esecuzione del comando di test nel self-repair (default
+   * 300000 = 5'). */
+  selfRepairTestTimeoutMs: number;
   /** URL pubblico dell'istanza (senza slash finali) per i link nelle notifiche;
    * vuoto = il link al ticket è il solo path. */
   publicUrl: string;
@@ -161,6 +193,8 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     fixExecuteModel: parsed.FIX_EXECUTE_MODEL,
     fixTwoPhase: parsed.FIX_TWO_PHASE,
     fixPlanTimeoutMs: parsed.FIX_PLAN_TIMEOUT_MS,
+    selfRepairMaxAttempts: parsed.SELF_REPAIR_MAX_ATTEMPTS,
+    selfRepairTestTimeoutMs: parsed.SELF_REPAIR_TEST_TIMEOUT_MS,
     publicUrl: parsed.PUBLIC_URL,
   };
 }

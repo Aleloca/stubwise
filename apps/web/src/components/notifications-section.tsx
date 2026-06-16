@@ -11,6 +11,7 @@ import {
   postTestNotification,
   putInstanceSettings,
   putNotificationSettings,
+  type InstanceSettings,
   type NotificationFormat,
   type NotificationSettings,
   type TestNotificationResult,
@@ -33,6 +34,7 @@ const EVENT_TOGGLES: { key: keyof NotificationSettings; labelKey: string }[] = [
   { key: "notifyPrClosed", labelKey: "notifications:toggles.prClosed" },
   { key: "notifyJobHeld", labelKey: "notifications:toggles.jobHeld" },
   { key: "notifyPlanReview", labelKey: "notifications:toggles.planReview" },
+  { key: "notifyBudgetHeld", labelKey: "notifications:toggles.budgetHeld" },
   { key: "notifyJobFailed", labelKey: "notifications:toggles.jobFailed" },
 ];
 
@@ -269,6 +271,15 @@ export function NotificationsSection() {
     setForm(settings);
   }, [settings]);
 
+  // Budget mensile: stringa controllata (input numerico) inizializzata dallo
+  // stato d'istanza. Stringa vuota = nessun budget (null).
+  const [budgetInput, setBudgetInput] = useState<string>(
+    instance.monthlyBudgetUsd != null ? String(instance.monthlyBudgetUsd) : "",
+  );
+  useEffect(() => {
+    setBudgetInput(instance.monthlyBudgetUsd != null ? String(instance.monthlyBudgetUsd) : "");
+  }, [instance.monthlyBudgetUsd]);
+
   // Esito dell'ultimo test (ok/errore), mostrato inline finché non si rilancia.
   const [testResult, setTestResult] = useState<TestNotificationResult | null>(null);
 
@@ -279,11 +290,11 @@ export function NotificationsSection() {
     },
   });
 
-  // Lingua dei contenuti d'istanza: salva subito al cambio del select (come il
-  // selettore di lingua dell'account) e aggiorna la cache così l'anteprima qui
-  // sotto riflette immediatamente la nuova lingua.
-  const contentLanguageMutation = useMutation({
-    mutationFn: (language: Language) => putInstanceSettings(language),
+  // Impostazioni d'istanza (lingua dei contenuti + budget mensile): il PUT del
+  // server riscrive sempre entrambi i campi, quindi ogni salvataggio invia lo
+  // stato completo (il campo non toccato resta quello correntemente in cache).
+  const instanceMutation = useMutation({
+    mutationFn: (next: InstanceSettings) => putInstanceSettings(next),
     onSuccess: (updated) => {
       queryClient.setQueryData(instanceSettingsQueryOptions.queryKey, updated);
     },
@@ -342,9 +353,12 @@ export function NotificationsSection() {
           </span>
           <select
             value={instance.contentLanguage}
-            disabled={contentLanguageMutation.isPending}
+            disabled={instanceMutation.isPending}
             onChange={(event) =>
-              contentLanguageMutation.mutate(event.target.value as Language)
+              instanceMutation.mutate({
+                contentLanguage: event.target.value as Language,
+                monthlyBudgetUsd: instance.monthlyBudgetUsd,
+              })
             }
             aria-label={t("notifications:contentLanguage")}
             className="w-fit rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1.5 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim disabled:cursor-not-allowed disabled:opacity-60"
@@ -356,6 +370,48 @@ export function NotificationsSection() {
             {t("notifications:contentLanguageHint")}
           </span>
         </label>
+
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="instance-monthly-budget"
+            className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase"
+          >
+            {t("notifications:monthlyBudget")}
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              id="instance-monthly-budget"
+              type="number"
+              inputMode="decimal"
+              step="0.01"
+              min="0"
+              value={budgetInput}
+              disabled={instanceMutation.isPending}
+              onChange={(event) => setBudgetInput(event.target.value)}
+              placeholder={t("notifications:monthlyBudgetPlaceholder")}
+              className="w-32 rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1.5 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim disabled:cursor-not-allowed disabled:opacity-60"
+            />
+            <button
+              type="button"
+              disabled={instanceMutation.isPending}
+              onClick={() => {
+                // Vuoto → null (nessun budget); altrimenti numero parsato con
+                // guardia su NaN → null.
+                const parsed = budgetInput === "" ? null : Number(budgetInput);
+                instanceMutation.mutate({
+                  contentLanguage: instance.contentLanguage,
+                  monthlyBudgetUsd: parsed === null || Number.isNaN(parsed) ? null : parsed,
+                });
+              }}
+              className="rounded-sm border border-line-strong px-3 py-1.5 font-mono text-[12px] font-medium tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {t("notifications:monthlyBudgetSave")}
+            </button>
+          </div>
+          <span className="font-mono text-[11px] text-fg-faint">
+            {t("notifications:monthlyBudgetHint")}
+          </span>
+        </div>
 
         <label className="flex flex-col gap-1">
           <span className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">

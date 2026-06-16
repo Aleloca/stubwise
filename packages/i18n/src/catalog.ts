@@ -32,6 +32,8 @@ export const en: Catalog = {
   "comment.reportFooter": "Generated automatically by Stubwise AI for ticket #{number}.",
   "comment.reportMissing":
     "The agent did not generate a report ({filename} missing). Review the PR diff.",
+  "comment.budgetHeld":
+    "Cost budget exceeded ({scope}): spent ${spent} of ${limit}. The fix is on hold; start it manually to override.",
 
   // --- effort.* — etichette della scala di sforzo 1–5 (allineate alle label
   // della web UI, namespace `badges.effort`). Usate nei commenti AI del triage.
@@ -57,6 +59,11 @@ export const en: Catalog = {
   "notify.planReview":
     "Plan awaiting approval — {ref} — {ticketTitle} ({projectName}). {link}",
   "notify.jobFailed": "AI fix failed on {ref} — {ticketTitle}: {error}. {link}",
+  "notify.budgetHeld":
+    "Budget exceeded ({scope}) — {ref} {ticketTitle} ({projectName}): spent ${spent} of ${limit} limit. Job on hold; start it manually to override. {link}",
+  // Etichette dello scope del budget (interpolate in `notify.budgetHeld`).
+  "notify.scopeTicket": "ticket",
+  "notify.scopeMonthly": "monthly",
   // Suffisso costo (anteposto allo spazio: la frase ha già lo spazio prima).
   "notify.costSuffix": " (cost ${cost})",
   // Etichette dei link (rese nel markup del formato attorno all'URL).
@@ -97,6 +104,8 @@ export const it: Catalog = {
     "Generato automaticamente da Stubwise AI per il ticket #{number}.",
   "comment.reportMissing":
     "Il report non è stato generato dall'agente ({filename} mancante). Esaminare il diff della PR.",
+  "comment.budgetHeld":
+    "Budget di costo superato ({scope}): spesi ${spent} sul limite di ${limit}. Il fix è in pausa; avvialo manualmente per forzare.",
 
   // --- effort.* (etichette italiane della scala di sforzo, = EFFORT_LABELS) ---
   "effort.1": "Banale",
@@ -116,6 +125,10 @@ export const it: Catalog = {
   "notify.planReview":
     "Piano in attesa di approvazione — {ref} — {ticketTitle} ({projectName}). {link}",
   "notify.jobFailed": "Fix AI fallito su {ref} — {ticketTitle}: {error}. {link}",
+  "notify.budgetHeld":
+    "Budget superato ({scope}) — {ref} {ticketTitle} ({projectName}): spesi ${spent} sul limite di ${limit}. Job in pausa; avvialo manualmente per forzare. {link}",
+  "notify.scopeTicket": "ticket",
+  "notify.scopeMonthly": "mensile",
   "notify.costSuffix": " (costo ${cost})",
   "notify.linkOpen": "Apri",
   "notify.linkReview": "Rivedi",

@@ -300,6 +300,10 @@
     "contentLanguageEnglish": "English",
     "contentLanguageItalian": "Italiano",
     "contentLanguageHint": "Lingua usata per commenti AI, report PR e notifiche — diversa dalla lingua della tua interfaccia.",
+    "monthlyBudget": "Budget mensile ($)",
+    "monthlyBudgetPlaceholder": "Nessun budget",
+    "monthlyBudgetSave": "Salva budget",
+    "monthlyBudgetHint": "Superato questo costo AI mensile dell'istanza, i nuovi job vengono tenuti in attesa. Vuoto = nessun budget.",
     "setupTitle": "Come configurare",
     "toggles": {
       "ticketCreated": "Nuovo ticket SDK",
@@ -307,6 +311,7 @@
       "prClosed": "PR chiusa senza merge (ticket riaperto)",
       "jobHeld": "In attesa",
       "planReview": "Piano AI in attesa di approvazione",
+      "budgetHeld": "Budget superato (job in attesa)",
       "jobFailed": "Fix fallito"
     },
     "samples": {
@@ -361,6 +366,10 @@
     "planApproval": "Approvazione piano da effort ≥",
     "planApprovalLabel": "Approvazione piano {{type}}",
     "never": "Mai",
+    "maxCost": "Costo massimo per ticket ($)",
+    "maxCostLabel": "Costo massimo per ticket {{type}}",
+    "maxCostPlaceholder": "Nessun tetto",
+    "maxCostHint": "Tetto per-tipo sul costo AI per ticket. Vuoto = nessun tetto.",
     "effortOption": "{{label}} ({{value}}/5)",
     "save": "Salva",
     "saving": "Salvataggio…",
@@ -435,6 +444,8 @@
       "repoUrl": "URL repository",
       "gitAccount": "Account git",
       "credentialsHint": "// le credenziali vivono sull'account: gestiscile in Settings → Account Git.",
+      "testCommand": "Comando di test (opzionale)",
+      "testCommandHint": "// vuoto = auto-detect (script test del package.json).",
       "save": "Salva modifiche",
       "saving": "Salvataggio…"
     },
@@ -461,6 +472,8 @@
       "verifyHint2": "// non blocca la creazione: la config del webhook è opzionale.",
       "verifying": "Verifica…",
       "verifyError": "Errore nella verifica del repository",
+      "testCommand": "Comando di test (opzionale)",
+      "testCommandHint": "// vuoto = auto-detect (script test del package.json).",
       "submit": "Crea progetto",
       "submitting": "Creazione…"
     },

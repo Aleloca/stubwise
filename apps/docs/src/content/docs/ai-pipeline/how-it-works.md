@@ -55,7 +55,39 @@ to follow:
    sections: *Investigation process*, *Root cause*, *Solution*,
    *Rationale*.
 
-Then the **worker** (not the agent) closes the loop:
+### Self-repair: the worker verifies the tests
+
+Before committing, the **worker itself** (not the agent) runs the repo's tests
+in the worktree and, if they fail, hands the failure back to the agent to fix —
+up to a bounded number of attempts. Only **green tests** get a PR.
+
+1. The worker **resolves the test command**. Either you set it per project (the
+   project's optional **"Test command"** field) or it's **auto-detected**: a
+   `test` script in `package.json` run with the package manager inferred from the
+   lockfile present in the worktree (`pnpm-lock.yaml` → `pnpm test`, `yarn.lock`
+   → `yarn test`, otherwise → `npm test`). If nothing resolves (no `test` script,
+   a non-JS repo, or self-repair disabled) the loop is **skipped** and the PR is
+   opened just as before.
+2. The worker **runs the tests**. If they're **green**, it proceeds to commit and
+   PR. If they're **red**, it **re-invokes the agent** with the test failure
+   output, asking for the **minimal** fix, then runs the tests again.
+3. This repeats up to `SELF_REPAIR_MAX_ATTEMPTS` repair attempts (default `2`;
+   `0` disables the loop entirely).
+4. If the tests still fail after the attempts, the fix ends in a **conservative
+   failure**: **no PR is opened**, the job fails with the test output in the log
+   and a `job.failed` notification fires. A PR that doesn't pass the project's
+   tests is never preferable to no PR.
+
+:::note[Worker knobs]
+Self-repair is governed by worker env vars: `SELF_REPAIR_MAX_ATTEMPTS` (default
+`2`, `0` = disabled) and `SELF_REPAIR_TEST_TIMEOUT_MS` (timeout of each test run,
+default 5 minutes). Because the loop can add up to N extra agent runs plus their
+test runs, `WORKER_STALE_MINUTES` must exceed the resulting invariant (with the
+defaults, roughly 150 minutes). See
+[Configuration](/docs/ai-pipeline/configuration/).
+:::
+
+With green tests, the **worker** closes the loop:
 
 - reads `STUBWISE_REPORT.md` as the PR body and **excludes it from the commit**;
 - **commits** the changes with author `Stubwise AI <ai@stubwise>`;

@@ -27,6 +27,7 @@ const BASE_ROW: NotificationSettingsRow = {
   notifyPlanReview: true,
   notifyJobFailed: true,
   notifyPrClosed: true,
+  notifyBudgetHeld: true,
 };
 
 /**
@@ -112,6 +113,17 @@ const PLAN_REVIEW: NotificationEvent = {
   ticketUrl: "https://app.example.com/tickets/t1",
 };
 
+const BUDGET_HELD: NotificationEvent = {
+  kind: "job.budget_held",
+  ticketNumber: 42,
+  ticketTitle: "Crash al login",
+  projectName: "webapp",
+  scope: "ticket",
+  limitUsd: 2,
+  spentUsd: 2.34,
+  ticketUrl: "https://app.example.com/tickets/t1",
+};
+
 function okFetch() {
   return vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
 }
@@ -187,6 +199,20 @@ describe("dispatchNotification — gating", () => {
   it("notifyPlanReview on posta job.plan_review", async () => {
     const fetchImpl = okFetch();
     await dispatchNotification(fakeDb(BASE_ROW), PLAN_REVIEW, { fetchImpl });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("notifyBudgetHeld off blocca job.budget_held", async () => {
+    const fetchImpl = okFetch();
+    await dispatchNotification(fakeDb({ ...BASE_ROW, notifyBudgetHeld: false }), BUDGET_HELD, {
+      fetchImpl,
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("notifyBudgetHeld on posta job.budget_held", async () => {
+    const fetchImpl = okFetch();
+    await dispatchNotification(fakeDb(BASE_ROW), BUDGET_HELD, { fetchImpl });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 

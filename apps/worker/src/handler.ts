@@ -40,7 +40,8 @@ export interface HandlerDeps {
   dispatch?: DispatchFn;
   /** Override delle opzioni di triage (model/maxTurns/timeoutMs). */
   triage?: { model?: string; maxTurns?: number; timeoutMs?: number };
-  /** Override delle opzioni di fix (modelli, due fasi, timeout, allowedTools). */
+  /** Override delle opzioni di fix (modelli, due fasi, timeout, allowedTools,
+   * self-repair). */
   fix?: {
     model?: string;
     twoPhase?: boolean;
@@ -50,6 +51,8 @@ export interface HandlerDeps {
     maxTurns?: number;
     timeoutMs?: number;
     allowedTools?: string[];
+    selfRepairMaxAttempts?: number;
+    testTimeoutMs?: number;
   };
 }
 

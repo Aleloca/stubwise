@@ -15,10 +15,10 @@ import { createAppRouter } from "../router";
 
 const DEFAULT_AUTOMATION = {
   rules: [
-    { type: "bug", autoFix: true, maxEffort: 3, planApprovalMinEffort: null },
-    { type: "task", autoFix: true, maxEffort: 2, planApprovalMinEffort: 4 },
-    { type: "feature", autoFix: false, maxEffort: 3, planApprovalMinEffort: null },
-    { type: "feedback", autoFix: false, maxEffort: 3, planApprovalMinEffort: null },
+    { type: "bug", autoFix: true, maxEffort: 3, planApprovalMinEffort: null, maxCostUsd: null },
+    { type: "task", autoFix: true, maxEffort: 2, planApprovalMinEffort: 4, maxCostUsd: 1.5 },
+    { type: "feature", autoFix: false, maxEffort: 3, planApprovalMinEffort: null, maxCostUsd: null },
+    { type: "feedback", autoFix: false, maxEffort: 3, planApprovalMinEffort: null, maxCostUsd: null },
   ],
 };
 
@@ -31,6 +31,7 @@ const DEFAULT_NOTIFICATIONS = {
   notifyPrClosed: true,
   notifyJobHeld: true,
   notifyPlanReview: true,
+  notifyBudgetHeld: true,
   notifyJobFailed: true,
 };
 
@@ -68,6 +69,7 @@ function mockApi(handlers: Record<string, Handler>) {
 function adminBase(
   notifications: Record<string, unknown> = DEFAULT_NOTIFICATIONS,
   contentLanguage: "en" | "it" = "en",
+  monthlyBudgetUsd: number | null = null,
 ) {
   return {
     "GET /api/auth/me": () =>
@@ -76,7 +78,7 @@ function adminBase(
       }),
     "GET /api/settings/automation": () => jsonResponse(200, DEFAULT_AUTOMATION),
     "GET /api/settings/notifications": () => jsonResponse(200, notifications),
-    "GET /api/settings/instance": () => jsonResponse(200, { contentLanguage }),
+    "GET /api/settings/instance": () => jsonResponse(200, { contentLanguage, monthlyBudgetUsd }),
     "GET /api/git-accounts": () => jsonResponse(200, []),
   } satisfies Record<string, Handler>;
 }
@@ -256,6 +258,34 @@ describe("impostazioni: /settings/automation (admin)", () => {
     expect(body.rules.find((r) => r.type === "task")?.planApprovalMinEffort).toBeNull();
   });
 
+  it("il tetto di costo per ticket (vuoto↔numero) entra nel payload PUT", async () => {
+    let putBody: unknown = null;
+    mockApi({
+      ...adminBase(),
+      "PUT /api/settings/automation": (_url, init) => {
+        putBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, DEFAULT_AUTOMATION);
+      },
+    });
+
+    renderAt("/settings/automation");
+
+    // bug parte vuoto (null) → impostalo a 2.5.
+    const bugCost = (await screen.findByLabelText("Max cost per ticket bug")) as HTMLInputElement;
+    expect(bugCost.value).toBe("");
+    await userEvent.type(bugCost, "2.5");
+    // task parte da 1.5 → svuotalo (torna a nessun tetto).
+    const taskCost = screen.getByLabelText("Max cost per ticket task") as HTMLInputElement;
+    expect(taskCost.value).toBe("1.5");
+    await userEvent.clear(taskCost);
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(putBody).not.toBeNull());
+    const body = putBody as { rules: { type: string; maxCostUsd: number | null }[] };
+    expect(body.rules.find((r) => r.type === "bug")?.maxCostUsd).toBe(2.5);
+    expect(body.rules.find((r) => r.type === "task")?.maxCostUsd).toBeNull();
+  });
+
   it("member: non raggiunge la rotta admin, viene rimandato ad account", async () => {
     mockApi(memberBase());
     const router = renderAt("/settings/automation");
@@ -305,6 +335,7 @@ describe("impostazioni: /settings/notifications (admin)", () => {
     expect(scope.getByLabelText("PR closed without merge (ticket reopened)")).toBeChecked();
     expect(scope.getByLabelText("On hold")).toBeChecked();
     expect(scope.getByLabelText("AI plan awaiting approval")).toBeChecked();
+    expect(scope.getByLabelText("Budget exceeded (job held)")).toBeChecked();
     expect(scope.getByLabelText("Fix failed")).toBeChecked();
   });
 
@@ -327,9 +358,10 @@ describe("impostazioni: /settings/notifications (admin)", () => {
     const scope = within(notificationsSection());
     await userEvent.type(scope.getByLabelText("Webhook URL"), "https://hooks.example.com/x");
     await userEvent.selectOptions(scope.getByLabelText("Format"), "discord");
-    // Disattiva i due nuovi toggle per verificarli nel payload.
+    // Disattiva alcuni toggle (incluso il budget) per verificarli nel payload.
     await userEvent.click(scope.getByLabelText("PR closed without merge (ticket reopened)"));
     await userEvent.click(scope.getByLabelText("AI plan awaiting approval"));
+    await userEvent.click(scope.getByLabelText("Budget exceeded (job held)"));
     await userEvent.click(scope.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(putBody).not.toBeNull());
@@ -338,11 +370,13 @@ describe("impostazioni: /settings/notifications (admin)", () => {
       format: string;
       notifyPrClosed: boolean;
       notifyPlanReview: boolean;
+      notifyBudgetHeld: boolean;
     };
     expect(body.webhookUrl).toBe("https://hooks.example.com/x");
     expect(body.format).toBe("discord");
     expect(body.notifyPrClosed).toBe(false);
     expect(body.notifyPlanReview).toBe(false);
+    expect(body.notifyBudgetHeld).toBe(false);
     expect(await scope.findByText("Saved")).toBeInTheDocument();
   });
 
@@ -440,7 +474,7 @@ describe("impostazioni: /settings/notifications (admin)", () => {
       ...adminBase(),
       "PUT /api/settings/instance": (_url, init) => {
         putBody = JSON.parse(String(init?.body));
-        return jsonResponse(200, { contentLanguage: "it" });
+        return jsonResponse(200, { contentLanguage: "it", monthlyBudgetUsd: null });
       },
     });
     renderAt("/settings/notifications");
@@ -451,10 +485,108 @@ describe("impostazioni: /settings/notifications (admin)", () => {
     expect(select.value).toBe("en");
     await userEvent.selectOptions(select, "it");
 
-    await waitFor(() => expect(putBody).toEqual({ contentLanguage: "it" }));
+    // Il PUT riscrive sempre entrambi i campi: cambiando lingua si re-invia il
+    // budget corrente (null) per non azzerarlo.
+    await waitFor(() => expect(putBody).toEqual({ contentLanguage: "it", monthlyBudgetUsd: null }));
     // L'anteprima riflette subito la nuova lingua (cache aggiornata).
     await waitFor(() =>
       expect(scope.getByTestId("notification-preview").textContent).toContain("PR aperta"),
+    );
+  });
+
+  it("cambiando SOLO la lingua, il budget non-null corrente viene preservato nel PUT", async () => {
+    // Non-regressione chiave: l'instance ha già un budget (250); cambiando la
+    // lingua dei contenuti il PUT deve re-inviare quel budget, non azzerarlo.
+    let putBody: unknown = null;
+    mockApi({
+      ...adminBase(DEFAULT_NOTIFICATIONS, "en", 250),
+      "PUT /api/settings/instance": (_url, init) => {
+        putBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, { contentLanguage: "it", monthlyBudgetUsd: 250 });
+      },
+    });
+    renderAt("/settings/notifications");
+
+    await screen.findByRole("heading", { name: "Notifications" });
+    const scope = within(notificationsSection());
+    const select = scope.getByLabelText("Generated content language") as HTMLSelectElement;
+    expect(select.value).toBe("en");
+    await userEvent.selectOptions(select, "it");
+
+    // Il budget (250) resta intatto: il PUT riscrive entrambi i campi.
+    await waitFor(() =>
+      expect(putBody).toEqual({ contentLanguage: "it", monthlyBudgetUsd: 250 }),
+    );
+  });
+
+  it("salvando il budget mentre la lingua è già 'it', il PUT mantiene la lingua corrente", async () => {
+    // Speculare: la lingua è già impostata (it); salvando il budget il PUT deve
+    // re-inviare la lingua corrente, non azzerarla a default.
+    let putBody: unknown = null;
+    mockApi({
+      ...adminBase(DEFAULT_NOTIFICATIONS, "it", null),
+      "PUT /api/settings/instance": (_url, init) => {
+        putBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, { contentLanguage: "it", monthlyBudgetUsd: 250 });
+      },
+    });
+    renderAt("/settings/notifications");
+
+    await screen.findByRole("heading", { name: "Notifications" });
+    const scope = within(notificationsSection());
+    const budget = scope.getByLabelText("Monthly budget ($)") as HTMLInputElement;
+    expect(budget.value).toBe("");
+    await userEvent.type(budget, "250");
+    await userEvent.click(scope.getByRole("button", { name: "Save budget" }));
+
+    await waitFor(() =>
+      expect(putBody).toEqual({ contentLanguage: "it", monthlyBudgetUsd: 250 }),
+    );
+  });
+
+  it("il budget mensile salva via PUT con lingua corrente + budget", async () => {
+    let putBody: unknown = null;
+    mockApi({
+      ...adminBase(DEFAULT_NOTIFICATIONS, "en", null),
+      "PUT /api/settings/instance": (_url, init) => {
+        putBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, { contentLanguage: "en", monthlyBudgetUsd: 250 });
+      },
+    });
+    renderAt("/settings/notifications");
+
+    await screen.findByRole("heading", { name: "Notifications" });
+    const scope = within(notificationsSection());
+    const budget = scope.getByLabelText("Monthly budget ($)") as HTMLInputElement;
+    expect(budget.value).toBe("");
+    await userEvent.type(budget, "250");
+    await userEvent.click(scope.getByRole("button", { name: "Save budget" }));
+
+    await waitFor(() =>
+      expect(putBody).toEqual({ contentLanguage: "en", monthlyBudgetUsd: 250 }),
+    );
+  });
+
+  it("svuotando il budget mensile il PUT invia null", async () => {
+    let putBody: unknown = null;
+    mockApi({
+      ...adminBase(DEFAULT_NOTIFICATIONS, "en", 250),
+      "PUT /api/settings/instance": (_url, init) => {
+        putBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, { contentLanguage: "en", monthlyBudgetUsd: null });
+      },
+    });
+    renderAt("/settings/notifications");
+
+    await screen.findByRole("heading", { name: "Notifications" });
+    const scope = within(notificationsSection());
+    const budget = scope.getByLabelText("Monthly budget ($)") as HTMLInputElement;
+    expect(budget.value).toBe("250");
+    await userEvent.clear(budget);
+    await userEvent.click(scope.getByRole("button", { name: "Save budget" }));
+
+    await waitFor(() =>
+      expect(putBody).toEqual({ contentLanguage: "en", monthlyBudgetUsd: null }),
     );
   });
 

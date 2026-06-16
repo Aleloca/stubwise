@@ -300,6 +300,10 @@
     "contentLanguageEnglish": "English",
     "contentLanguageItalian": "Italiano",
     "contentLanguageHint": "Language used for AI comments, PR reports and notifications — distinct from your interface language.",
+    "monthlyBudget": "Monthly budget ($)",
+    "monthlyBudgetPlaceholder": "No budget",
+    "monthlyBudgetSave": "Save budget",
+    "monthlyBudgetHint": "Once the instance's monthly AI cost exceeds this, new jobs are held. Empty = no budget.",
     "setupTitle": "How to configure",
     "toggles": {
       "ticketCreated": "New SDK ticket",
@@ -307,6 +311,7 @@
       "prClosed": "PR closed without merge (ticket reopened)",
       "jobHeld": "On hold",
       "planReview": "AI plan awaiting approval",
+      "budgetHeld": "Budget exceeded (job held)",
       "jobFailed": "Fix failed"
     },
     "samples": {
@@ -361,6 +366,10 @@
     "planApproval": "Plan approval from effort ≥",
     "planApprovalLabel": "Plan approval {{type}}",
     "never": "Never",
+    "maxCost": "Max cost per ticket ($)",
+    "maxCostLabel": "Max cost per ticket {{type}}",
+    "maxCostPlaceholder": "No cap",
+    "maxCostHint": "Per-type cap on AI cost per ticket. Empty = no cap.",
     "effortOption": "{{label}} ({{value}}/5)",
     "save": "Save",
     "saving": "Saving…",
@@ -435,6 +444,8 @@
       "repoUrl": "Repository URL",
       "gitAccount": "Git account",
       "credentialsHint": "// credentials live on the account: manage them in Settings → Git Accounts.",
+      "testCommand": "Test command (optional)",
+      "testCommandHint": "// empty = auto-detect (package.json test script).",
       "save": "Save changes",
       "saving": "Saving…"
     },
@@ -461,6 +472,8 @@
       "verifyHint2": "// does not block creation: webhook config is optional.",
       "verifying": "Verifying…",
       "verifyError": "Error while verifying the repository",
+      "testCommand": "Test command (optional)",
+      "testCommandHint": "// empty = auto-detect (package.json test script).",
       "submit": "Create project",
       "submitting": "Creating…"
     },

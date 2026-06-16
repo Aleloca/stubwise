@@ -405,6 +405,8 @@ export interface Project {
   gitAccountName: string;
   /** ISO dell'ultima configurazione del webhook git, o null se mai configurato. */
   webhookConfiguredAt: string | null;
+  /** Comando di test custom della pipeline AI; null = auto-detect (script test del package.json). */
+  testCommand: string | null;
   createdAt: string;
 }
 
@@ -426,6 +428,8 @@ export interface ProjectDraft {
   gitAccountId: string;
   repoUrl: string;
   defaultBranch?: string;
+  /** Comando di test custom; null/assente = auto-detect (script test del package.json). */
+  testCommand?: string | null;
 }
 
 export interface ProjectPatch {
@@ -434,6 +438,8 @@ export interface ProjectPatch {
   defaultBranch?: string;
   /** Assente = l'account collegato resta invariato. */
   gitAccountId?: string;
+  /** null = svuota (torna all'auto-detect); assente = invariato. */
+  testCommand?: string | null;
 }
 
 export function getProjects(): Promise<Project[]> {
@@ -617,6 +623,11 @@ export interface AutomationRule {
    * l'approvazione umana del piano. null = mai (nessun gate di approvazione).
    */
   planApprovalMinEffort: number | null;
+  /**
+   * Tetto di costo USD per singolo ticket: se la spesa AI lo supera, il job
+   * viene tenuto in attesa (held). null = nessun tetto.
+   */
+  maxCostUsd: number | null;
 }
 
 export interface AutomationSettings {
@@ -655,6 +666,8 @@ export interface NotificationSettings {
   notifyJobHeld: boolean;
   /** Un piano AI è in attesa di approvazione umana. */
   notifyPlanReview: boolean;
+  /** Il budget di costo è stato superato e il job è stato tenuto in attesa. */
+  notifyBudgetHeld: boolean;
   notifyJobFailed: boolean;
 }
 
@@ -684,6 +697,7 @@ export function putNotificationSettings(
     notifyPrClosed: settings.notifyPrClosed,
     notifyJobHeld: settings.notifyJobHeld,
     notifyPlanReview: settings.notifyPlanReview,
+    notifyBudgetHeld: settings.notifyBudgetHeld,
     notifyJobFailed: settings.notifyJobFailed,
   });
 }
@@ -703,6 +717,11 @@ export function postTestNotification(): Promise<TestNotificationResult> {
  */
 export interface InstanceSettings {
   contentLanguage: Language;
+  /**
+   * Budget di costo AI mensile in USD per l'intera istanza; superato il tetto i
+   * nuovi job vengono tenuti in attesa. null = nessun budget.
+   */
+  monthlyBudgetUsd: number | null;
 }
 
 /** Impostazioni d'istanza (solo admin): 403 per i member. */
@@ -710,7 +729,14 @@ export function getInstanceSettings(): Promise<InstanceSettings> {
   return api.get("/api/settings/instance");
 }
 
-/** Upsert della lingua dei contenuti d'istanza (solo admin). Ritorna lo stato aggiornato. */
-export function putInstanceSettings(contentLanguage: Language): Promise<InstanceSettings> {
-  return api.put("/api/settings/instance", { contentLanguage });
+/**
+ * Upsert delle impostazioni d'istanza (solo admin). Il PUT del server riscrive
+ * sempre entrambi i campi (un campo assente azzera il budget), quindi si invia
+ * sempre lo stato completo. Ritorna lo stato aggiornato.
+ */
+export function putInstanceSettings(settings: InstanceSettings): Promise<InstanceSettings> {
+  return api.put("/api/settings/instance", {
+    contentLanguage: settings.contentLanguage,
+    monthlyBudgetUsd: settings.monthlyBudgetUsd,
+  });
 }
