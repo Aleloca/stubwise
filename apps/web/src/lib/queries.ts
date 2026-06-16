@@ -13,6 +13,7 @@ import {
   getTicket,
   getTicketActivity,
   getTicketJobs,
+  getTicketLinks,
   getTicketUsage,
   getUsers,
   listTickets,
@@ -43,6 +44,7 @@ export const ticketKeys = {
   activity: (ticketId: string) => [...ticketKeys.all, "activity", ticketId] as const,
   jobs: (ticketId: string) => [...ticketKeys.all, "jobs", ticketId] as const,
   usage: (ticketId: string) => [...ticketKeys.all, "usage", ticketId] as const,
+  links: (ticketId: string) => [...ticketKeys.all, "links", ticketId] as const,
 };
 
 export function ticketsInfiniteQueryOptions(filters: TicketFilters) {
@@ -119,6 +121,18 @@ export function ticketUsageQueryOptions(ticketId: string) {
   return queryOptions({
     queryKey: ticketKeys.usage(ticketId),
     queryFn: () => getTicketUsage(ticketId),
+  });
+}
+
+/**
+ * Relazioni del ticket (link verso/da altri ticket), risolte col ticket
+ * "altro". Chiave figlia dei ticket: create/delete di un link la invalidano
+ * (assieme al feed, dato che ogni link genera un evento di audit).
+ */
+export function ticketLinksQueryOptions(ticketId: string) {
+  return queryOptions({
+    queryKey: ticketKeys.links(ticketId),
+    queryFn: () => getTicketLinks(ticketId),
   });
 }
 

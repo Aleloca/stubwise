@@ -173,7 +173,21 @@
         "type_changed": "{{actor}} ha cambiato tipo: {{from}} → {{to}}",
         "labels_changed": "{{actor}} ha aggiornato le label",
         "title_changed": "{{actor}} ha modificato il titolo",
-        "body_changed": "{{actor}} ha modificato la descrizione"
+        "body_changed": "{{actor}} ha modificato la descrizione",
+        "relation_added": {
+          "blocks": "{{actor}} ha collegato: blocca #{{number}}",
+          "blocked_by": "{{actor}} ha collegato: bloccato da #{{number}}",
+          "relates_to": "{{actor}} ha collegato: correlato a #{{number}}",
+          "parent": "{{actor}} ha collegato: genitore di #{{number}}",
+          "child": "{{actor}} ha collegato: figlio di #{{number}}"
+        },
+        "relation_removed": {
+          "blocks": "{{actor}} ha rimosso il collegamento: blocca #{{number}}",
+          "blocked_by": "{{actor}} ha rimosso il collegamento: bloccato da #{{number}}",
+          "relates_to": "{{actor}} ha rimosso il collegamento: correlato a #{{number}}",
+          "parent": "{{actor}} ha rimosso il collegamento: genitore di #{{number}}",
+          "child": "{{actor}} ha rimosso il collegamento: figlio di #{{number}}"
+        }
       }
     },
     "comments": {
@@ -185,6 +199,38 @@
       "placeholder": "Markdown supportato…",
       "submit": "Commenta",
       "submitPending": "Invio…"
+    },
+    "links": {
+      "title": "Ticket collegati",
+      "empty": "// nessun ticket collegato",
+      "addLink": "Collega ticket",
+      "remove": "Rimuovi",
+      "confirmRemove": "Confermi?",
+      "removeLink": "Rimuovi il collegamento a #{{number}}",
+      "relations": {
+        "blocks": "Blocca",
+        "blocked_by": "Bloccato da",
+        "relates_to": "Correlato a",
+        "parent": "Genitore di",
+        "child": "Figlio di"
+      },
+      "picker": {
+        "title": "Collega un ticket",
+        "searchLabel": "Cerca ticket",
+        "searchPlaceholder": "Cerca per titolo…",
+        "relationLabel": "Relazione",
+        "kinds": {
+          "blocks": "Blocca",
+          "relates_to": "Correlato a",
+          "parent": "Genitore di"
+        },
+        "noResults": "// nessun ticket corrispondente",
+        "searching": "Ricerca…",
+        "selected": "Collegamento a #{{number}} {{title}}",
+        "confirm": "Crea collegamento",
+        "creating": "Collegamento…",
+        "cancel": "Annulla"
+      }
     },
     "labelsEditor": {
       "addPlaceholder": "Aggiungi label…",

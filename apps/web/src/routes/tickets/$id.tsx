@@ -23,6 +23,7 @@ import { SelectField } from "../../components/field";
 import { LabelsEditor } from "../../components/labels-editor";
 import { Markdown } from "../../components/markdown";
 import { TechnicalPayload } from "../../components/technical-payload";
+import { TicketLinks } from "../../components/ticket-links";
 import { UsagePanel } from "../../components/usage-panel";
 import {
   approvePlan,
@@ -287,6 +288,11 @@ export function TicketDetailPage() {
 
           {/* Solo quando ci sono consumi: un CLI senza usage non mostra nulla. */}
           {usage.byModel.length > 0 && <UsagePanel usage={usage} />}
+
+          <section aria-label={t("tickets:links.title")}>
+            <h2 className={sectionTitleClass}>{t("tickets:links.title")}</h2>
+            <TicketLinks ticketId={id} projectId={ticket.projectId} />
+          </section>
 
           <section aria-label={t("tickets:activity.title")}>
             <h2 className={sectionTitleClass}>{t("tickets:activity.title")}</h2>
