@@ -355,6 +355,26 @@ describe("processEvents — screenshot del feedback come allegato", () => {
     expect(await ticketAttachments(ticket!.id)).toHaveLength(0);
   });
 
+  it("screenshot con MIME immagine non in allowlist (svg+xml): ticket creato, 0 attachments", async () => {
+    const project = await createProject();
+    const storage = fakeStorage();
+    // image/svg+xml supera lo startsWith("data:image/") dello schema shared
+    // ma non è nell'allowlist immagini del processor (png/jpeg/gif/webp).
+    const svg = `data:image/svg+xml;base64,${Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg"/>',
+    ).toString("base64")}`;
+    const result = await processEvents(
+      testDb.db,
+      project,
+      [{ kind: "feedback", message: "anteprima svg", screenshot: svg }],
+      { storage: async () => storage },
+    );
+    expect(result).toEqual({ created: 1, deduped: 0 });
+    const [ticket] = await projectTickets(project.id);
+    expect(await ticketAttachments(ticket!.id)).toHaveLength(0);
+    expect(storage.puts).toHaveLength(0);
+  });
+
   it("feedback senza screenshot: nessun accesso allo storage", async () => {
     const project = await createProject();
     const storage = fakeStorage();
