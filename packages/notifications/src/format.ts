@@ -75,6 +75,25 @@ export interface JobPlanReviewEvent {
   ticketUrl: string;
 }
 
+/**
+ * Il budget di spesa AI è stato superato: il job resta in pausa finché un umano
+ * non lo avvia manualmente per forzare. Lo `scope` indica se il limite sforato è
+ * quello del singolo ticket o quello mensile dell'istanza.
+ */
+export interface JobBudgetHeldEvent {
+  kind: "job.budget_held";
+  ticketNumber: number;
+  ticketTitle: string;
+  projectName: string;
+  /** Ambito del limite sforato: del singolo ticket o mensile. */
+  scope: "ticket" | "monthly";
+  /** Limite di spesa USD configurato. */
+  limitUsd: number;
+  /** Spesa USD effettiva che ha superato il limite. */
+  spentUsd: number;
+  ticketUrl: string;
+}
+
 /** Il fix AI è fallito. */
 export interface JobFailedEvent {
   kind: "job.failed";
@@ -92,6 +111,7 @@ export type NotificationEvent =
   | PrClosedEvent
   | JobHeldEvent
   | JobPlanReviewEvent
+  | JobBudgetHeldEvent
   | JobFailedEvent;
 
 /** Tipo dei `kind` degli eventi, per mappare evento → toggle. */
@@ -126,6 +146,7 @@ const EMOJI: Record<NotificationKind, string> = {
   "job.pr_closed": "🔁",
   "job.held": "⏸️",
   "job.plan_review": "📝",
+  "job.budget_held": "💸",
   "job.failed": "❌",
 };
 
@@ -178,6 +199,8 @@ function linkParam(
       return renderLink(format, event.ticketUrl, t(lang, "notify.linkOpen"));
     case "job.plan_review":
       return renderLink(format, event.ticketUrl, t(lang, "notify.linkReview"));
+    case "job.budget_held":
+      return renderLink(format, event.ticketUrl, t(lang, "notify.linkOpen"));
     case "job.failed":
       return renderLink(format, event.ticketUrl, t(lang, "notify.linkOpen"));
   }
@@ -190,11 +213,15 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   "job.pr_closed": "notify.prClosed",
   "job.held": "notify.jobHeld",
   "job.plan_review": "notify.planReview",
+  "job.budget_held": "notify.budgetHeld",
   "job.failed": "notify.jobFailed",
 };
 
 /** Params (oltre a ref/link/cost) specifici per evento, passati a `t()`. */
-function textParams(event: NotificationEvent): Record<string, string | number> {
+function textParams(
+  event: NotificationEvent,
+  lang: Language,
+): Record<string, string | number> {
   const base: Record<string, string | number> = {
     ticketTitle: event.ticketTitle,
     projectName: event.projectName,
@@ -204,6 +231,16 @@ function textParams(event: NotificationEvent): Record<string, string | number> {
       return { ...base, source: event.source };
     case "job.held":
       return { ...base, type: event.type, effort: event.effort };
+    case "job.budget_held":
+      return {
+        ...base,
+        scope: t(
+          lang,
+          event.scope === "ticket" ? "notify.scopeTicket" : "notify.scopeMonthly",
+        ),
+        limit: event.limitUsd.toFixed(2),
+        spent: event.spentUsd.toFixed(2),
+      };
     case "job.failed":
       return { ...base, error: event.error };
     default:
@@ -222,7 +259,7 @@ function renderText(
 ): string {
   const cost = event.kind === "job.pr_opened" ? costParam(lang, event.costUsd) : "";
   const sentence = t(lang, KEY_FOR_KIND[event.kind], {
-    ...textParams(event),
+    ...textParams(event, lang),
     ref: refParam(format, event.ticketNumber),
     cost,
     link: linkParam(format, lang, event),
@@ -249,7 +286,7 @@ function formatDiscord(event: NotificationEvent, lang: Language): Record<string,
 function plainMessage(event: NotificationEvent, lang: Language): string {
   const cost = event.kind === "job.pr_opened" ? costParam(lang, event.costUsd) : "";
   return t(lang, KEY_FOR_KIND[event.kind], {
-    ...textParams(event),
+    ...textParams(event, lang),
     ref: refParam("generic", event.ticketNumber),
     cost,
     link: "",
@@ -277,6 +314,13 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
       return { ...base, type: event.type, effort: event.effort };
     case "job.plan_review":
       return base;
+    case "job.budget_held":
+      return {
+        ...base,
+        scope: event.scope,
+        limitUsd: event.limitUsd,
+        spentUsd: event.spentUsd,
+      };
     case "job.failed":
       return { ...base, error: event.error };
   }
@@ -351,6 +395,16 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       ticketNumber: 131,
       ticketTitle: "Aggiungere export CSV allo storico ordini",
       projectName: "negozio-web",
+      ticketUrl: `${base}/tickets/131`,
+    },
+    {
+      kind: "job.budget_held",
+      ticketNumber: 131,
+      ticketTitle: "Aggiungere export CSV allo storico ordini",
+      projectName: "negozio-web",
+      scope: "ticket",
+      limitUsd: 2,
+      spentUsd: 2.34,
       ticketUrl: `${base}/tickets/131`,
     },
     {

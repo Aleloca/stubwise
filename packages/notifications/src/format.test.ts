@@ -70,6 +70,28 @@ const JOB_PLAN_REVIEW: NotificationEvent = {
   ticketUrl: "https://app.example.com/tickets/42",
 };
 
+const BUDGET_HELD_TICKET: NotificationEvent = {
+  kind: "job.budget_held",
+  ticketNumber: 42,
+  ticketTitle: "Crash al login",
+  projectName: "webapp",
+  scope: "ticket",
+  limitUsd: 2,
+  spentUsd: 2.34,
+  ticketUrl: "https://app.example.com/tickets/42",
+};
+
+const BUDGET_HELD_MONTHLY: NotificationEvent = {
+  kind: "job.budget_held",
+  ticketNumber: 42,
+  ticketTitle: "Crash al login",
+  projectName: "webapp",
+  scope: "monthly",
+  limitUsd: 50,
+  spentUsd: 51.7,
+  ticketUrl: "https://app.example.com/tickets/42",
+};
+
 describe("formatNotification — contratto", () => {
   it("ogni formato dichiara content-type application/json", () => {
     for (const format of ["slack", "discord", "generic"] as NotificationFormat[]) {
@@ -131,6 +153,21 @@ describe("formatNotification — slack (lingua default en)", () => {
     expect(text).toContain("Plan awaiting approval");
     expect(text).toContain("<https://app.example.com/tickets/42|Review>");
   });
+
+  it("job.budget_held (ticket) → budget exceeded, scope, importi a 2 decimali, link", () => {
+    const text = (formatNotification(BUDGET_HELD_TICKET, "slack").body as { text: string }).text;
+    expect(text).toContain("💸");
+    expect(text).toContain("*#42*");
+    expect(text).toContain("Budget exceeded (ticket)");
+    expect(text).toContain("spent $2.34 of $2.00 limit");
+    expect(text).toContain("<https://app.example.com/tickets/42|Open>");
+  });
+
+  it("job.budget_held (monthly) → scope monthly e importi a 2 decimali", () => {
+    const text = (formatNotification(BUDGET_HELD_MONTHLY, "slack").body as { text: string }).text;
+    expect(text).toContain("Budget exceeded (monthly)");
+    expect(text).toContain("spent $51.70 of $50.00 limit");
+  });
 });
 
 describe("formatNotification — slack (lingua it)", () => {
@@ -158,6 +195,21 @@ describe("formatNotification — slack (lingua it)", () => {
     const text = (formatNotification(JOB_PLAN_REVIEW, "slack", "it").body as { text: string }).text;
     expect(text).toContain("Piano in attesa di approvazione — *#42*");
     expect(text).toContain("<https://app.example.com/tickets/42|Rivedi>");
+  });
+
+  it("job.budget_held (ticket) → testo italiano, scope localizzato, importi a 2 decimali", () => {
+    const text = (formatNotification(BUDGET_HELD_TICKET, "slack", "it").body as { text: string })
+      .text;
+    expect(text).toContain("💸 Budget superato (ticket) — *#42*");
+    expect(text).toContain("spesi $2.34 sul limite di $2.00");
+    expect(text).toContain("<https://app.example.com/tickets/42|Apri>");
+  });
+
+  it("job.budget_held (monthly) → scope 'mensile' in italiano", () => {
+    const text = (formatNotification(BUDGET_HELD_MONTHLY, "slack", "it").body as { text: string })
+      .text;
+    expect(text).toContain("Budget superato (mensile)");
+    expect(text).toContain("spesi $51.70 sul limite di $50.00");
   });
 });
 
@@ -203,6 +255,23 @@ describe("formatNotification — discord", () => {
     expect(content).toContain("(costo $0.42)");
     expect(content).toContain("[Vedi PR](https://github.com/o/r/pull/7)");
     expect(content).toContain("[Ticket](https://app.example.com/tickets/t1)");
+  });
+
+  it("job.budget_held: budget exceeded, link in stile markdown (en)", () => {
+    const content = (formatNotification(BUDGET_HELD_TICKET, "discord").body as { content: string })
+      .content;
+    expect(content).toContain("**#42**");
+    expect(content).toContain("Budget exceeded (ticket)");
+    expect(content).toContain("spent $2.34 of $2.00 limit");
+    expect(content).toContain("[Open](https://app.example.com/tickets/42)");
+  });
+
+  it("job.budget_held it (monthly): scope 'mensile' e link Apri", () => {
+    const content = (
+      formatNotification(BUDGET_HELD_MONTHLY, "discord", "it").body as { content: string }
+    ).content;
+    expect(content).toContain("Budget superato (mensile)");
+    expect(content).toContain("[Apri](https://app.example.com/tickets/42)");
   });
 });
 
@@ -264,6 +333,31 @@ describe("formatNotification — generic", () => {
     expect(body.message as string).toContain("Plan awaiting approval");
   });
 
+  it("job.budget_held → payload piatto con scope e importi numerici (en)", () => {
+    const body = formatNotification(BUDGET_HELD_TICKET, "generic").body as Record<string, unknown>;
+    expect(body.event).toBe("job.budget_held");
+    expect(body.ticketNumber).toBe(42);
+    expect(body.scope).toBe("ticket");
+    expect(body.limitUsd).toBe(2);
+    expect(body.spentUsd).toBe(2.34);
+    expect(body.message as string).toContain("Budget exceeded (ticket)");
+    expect(body.message as string).toContain("spent $2.34 of $2.00 limit");
+  });
+
+  it("job.budget_held (monthly) → scope mensile e message italiano senza markup", () => {
+    const body = formatNotification(BUDGET_HELD_MONTHLY, "generic", "it").body as Record<
+      string,
+      unknown
+    >;
+    expect(body.scope).toBe("monthly");
+    const message = body.message as string;
+    expect(message).toContain("Budget superato (mensile)");
+    expect(message).toContain("spesi $51.70 sul limite di $50.00");
+    expect(message).not.toContain("💸");
+    expect(message).not.toContain("[");
+    expect(message.endsWith(".")).toBe(true);
+  });
+
   it("message → frase senza markup né link, niente emoji né spazio finale (en)", () => {
     const body = formatNotification(TICKET_CREATED, "generic").body as Record<string, unknown>;
     const message = body.message as string;
@@ -305,6 +399,7 @@ describe("sampleEvents", () => {
       "job.pr_closed",
       "job.held",
       "job.plan_review",
+      "job.budget_held",
       "job.failed",
     ]);
     for (const event of events) {
