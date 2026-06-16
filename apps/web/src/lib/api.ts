@@ -374,6 +374,64 @@ export function getTicketUsage(ticketId: string): Promise<TicketUsage> {
   return api.get(`/api/tickets/${ticketId}/usage`);
 }
 
+// --- Activity feed ---
+
+/** Tipo dell'evento di audit di un ticket (gemello dell'enum ticket_event_kind del DB). */
+export type TicketEventKind =
+  | "status_changed"
+  | "assignee_changed"
+  | "priority_changed"
+  | "type_changed"
+  | "labels_changed"
+  | "title_changed"
+  | "body_changed";
+
+/** Commento nel feed unificato. */
+export interface ActivityComment {
+  kind: "comment";
+  id: string;
+  authorType: "user" | "ai" | "system";
+  authorId: string | null;
+  body: string;
+  createdAt: string;
+}
+
+/**
+ * Evento di audit nel feed. `eventKind` è il tipo di transizione (rinominato
+ * lato server da `kind` per non collidere col discriminante del feed);
+ * `payload` è il dettaglio jsonb arbitrario (es. { from, to }), o null.
+ */
+export interface ActivityEvent {
+  kind: "event";
+  id: string;
+  eventKind: TicketEventKind;
+  actorId: string | null;
+  payload: Record<string, unknown> | null;
+  createdAt: string;
+}
+
+/** Marker di un job AI nel feed: solo stato e PR (log/consumi negli endpoint dedicati). */
+export interface ActivityAiJob {
+  kind: "ai_job";
+  id: string;
+  status: AIJobStatus;
+  prUrl: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+}
+
+/** Item del feed: union discriminata su `kind`. */
+export type ActivityItem = ActivityComment | ActivityEvent | ActivityAiJob;
+
+/**
+ * Feed unificato di un ticket: commenti, eventi di audit e marker dei job AI,
+ * ordinati per createdAt crescente. I nomi utente non arrivano dal server
+ * (espone authorId/actorId): la UI li risolve dalla users query.
+ */
+export function getTicketActivity(ticketId: string): Promise<ActivityItem[]> {
+  return api.get(`/api/tickets/${ticketId}/activity`);
+}
+
 // --- Users ---
 
 /**

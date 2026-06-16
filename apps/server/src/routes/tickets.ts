@@ -10,7 +10,16 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAuth } from "../auth/session.js";
 import type { Db } from "@stubwise/db";
-import { aiJobs, comments, ticketEvents, tickets, users } from "@stubwise/db";
+import {
+  aiJobs,
+  aiJobStatus,
+  comments,
+  commentAuthorType,
+  ticketEventKind,
+  ticketEvents,
+  tickets,
+  users,
+} from "@stubwise/db";
 import { createTicket, ProjectNotFoundError, type Ticket } from "../db/tickets.js";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema, isForeignKeyViolation } from "./shared.js";
@@ -82,6 +91,54 @@ const listTicketsResponseSchema = z.object({
 });
 
 const idParamsSchema = z.object({ id: z.uuid() });
+
+/**
+ * Item del feed unificato di un ticket. Tre forme discriminate su `kind`:
+ *  - "comment": un commento (utente/AI/sistema);
+ *  - "event": un evento di audit (la colonna `kind` della tabella diventa
+ *    `eventKind` qui per non collidere col discriminante del feed);
+ *  - "ai_job": un marker del job AI (solo lo stato e l'eventuale PR; log e
+ *    consumi restano negli endpoint dedicati).
+ * I nomi utente NON vengono risolti qui: si espongono authorId/actorId e la
+ * UI li traduce dalla users query che ha già.
+ */
+const activityCommentSchema = z.object({
+  kind: z.literal("comment"),
+  id: z.uuid(),
+  authorType: z.enum(commentAuthorType.enumValues),
+  authorId: z.uuid().nullable(),
+  body: z.string(),
+  createdAt: z.iso.datetime(),
+});
+
+const activityEventSchema = z.object({
+  kind: z.literal("event"),
+  id: z.uuid(),
+  eventKind: z.enum(ticketEventKind.enumValues),
+  actorId: z.uuid().nullable(),
+  // payload jsonb arbitrario: { from, to }, { changed: true }, … o null.
+  payload: z.record(z.string(), z.unknown()).nullable(),
+  createdAt: z.iso.datetime(),
+});
+
+const activityAiJobSchema = z.object({
+  kind: z.literal("ai_job"),
+  id: z.uuid(),
+  status: z.enum(aiJobStatus.enumValues),
+  prUrl: z.string().nullable(),
+  createdAt: z.iso.datetime(),
+  finishedAt: z.iso.datetime().nullable(),
+});
+
+const activityResponseSchema = z.array(
+  z.discriminatedUnion("kind", [
+    activityCommentSchema,
+    activityEventSchema,
+    activityAiJobSchema,
+  ]),
+);
+
+type ActivityItem = z.infer<typeof activityResponseSchema>[number];
 
 /** Proiezione pubblica della riga ticket: date serializzate in ISO. */
 function toPublicTicket(row: Ticket): z.infer<typeof ticketSchema> {
@@ -339,6 +396,74 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         .where(eq(tickets.id, request.params.id));
       if (!row) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
       return toPublicTicket(row);
+    },
+  );
+
+  // Feed unificato del ticket: commenti + eventi audit + marker dei job AI,
+  // fusi in un unico array ordinato per createdAt ASC. I volumi per-ticket
+  // sono piccoli, quindi le tre query separate + merge/sort in memoria sono
+  // più semplici (e abbastanza efficienti) di una UNION SQL.
+  app.get(
+    "/:id/activity",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        response: { 200: activityResponseSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const [ticket] = await app.db.select({ id: tickets.id }).from(tickets).where(eq(tickets.id, id));
+      if (!ticket) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
+
+      const [commentRows, eventRows, jobRows] = await Promise.all([
+        app.db.select().from(comments).where(eq(comments.ticketId, id)),
+        app.db.select().from(ticketEvents).where(eq(ticketEvents.ticketId, id)),
+        app.db.select().from(aiJobs).where(eq(aiJobs.ticketId, id)),
+      ]);
+
+      const items: ActivityItem[] = [
+        ...commentRows.map(
+          (row): ActivityItem => ({
+            kind: "comment",
+            id: row.id,
+            authorType: row.authorType,
+            authorId: row.authorId,
+            body: row.body,
+            createdAt: row.createdAt.toISOString(),
+          }),
+        ),
+        ...eventRows.map(
+          (row): ActivityItem => ({
+            kind: "event",
+            id: row.id,
+            eventKind: row.kind,
+            actorId: row.actorId,
+            payload: (row.payload as Record<string, unknown> | null) ?? null,
+            createdAt: row.createdAt.toISOString(),
+          }),
+        ),
+        ...jobRows.map(
+          (row): ActivityItem => ({
+            kind: "ai_job",
+            id: row.id,
+            status: row.status,
+            prUrl: row.prUrl,
+            createdAt: row.createdAt.toISOString(),
+            finishedAt: row.finishedAt?.toISOString() ?? null,
+          }),
+        ),
+      ];
+
+      // Ordine cronologico crescente. A parità di createdAt si spareggia per
+      // id (stabile e deterministico), così i test sull'ordine non dipendono
+      // dall'ordine d'arrivo delle tre query.
+      items.sort((a, b) => {
+        if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
+        return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+      });
+      return items;
     },
   );
 
