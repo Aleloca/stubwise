@@ -102,6 +102,7 @@ export function ProjectDetailPage() {
                   repoUrl: project.repoUrl,
                   defaultBranch: project.defaultBranch,
                   gitAccountId: project.gitAccountId,
+                  testCommand: project.testCommand,
                 }}
                 onSubmit={handleSubmit}
               />

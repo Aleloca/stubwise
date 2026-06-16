@@ -13,6 +13,8 @@ interface ProjectInitialValues {
   defaultBranch: string;
   /** Account git attualmente collegato (per preselezionare il select). */
   gitAccountId: string;
+  /** Comando di test custom; null = auto-detect (script test del package.json). */
+  testCommand: string | null;
 }
 
 interface ProjectFormProps {
@@ -38,6 +40,8 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
   const [repoUrl, setRepoUrl] = useState(initial.repoUrl);
   const [defaultBranch, setDefaultBranch] = useState(initial.defaultBranch);
   const [gitAccountId, setGitAccountId] = useState(initial.gitAccountId);
+  // Comando di test come stringa controllata: vuoto = nessun comando (auto-detect).
+  const [testCommand, setTestCommand] = useState(initial.testCommand ?? "");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -46,6 +50,10 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
     setError(null);
     setPending(true);
     try {
+      // Stringa vuota → null (svuota = torna all'auto-detect); altrimenti il
+      // comando senza spazi di contorno.
+      const trimmedTestCommand = testCommand.trim();
+      const nextTestCommand = trimmedTestCommand === "" ? null : trimmedTestCommand;
       await onSubmit({
         name,
         repoUrl,
@@ -53,6 +61,10 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
         // Includo gitAccountId solo se cambiato: un PATCH minimo evita di
         // ri-denormalizzare il provider quando non serve.
         ...(gitAccountId !== initial.gitAccountId && { gitAccountId }),
+        // testCommand incluso solo se cambiato (null↔stringa) per un PATCH minimo.
+        ...(nextTestCommand !== (initial.testCommand ?? null) && {
+          testCommand: nextTestCommand,
+        }),
       });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("common:unexpectedError"));
@@ -107,6 +119,18 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
       />
       <p className="-mt-1 font-mono text-[11px] text-fg-faint">
         {t("projects:form.credentialsHint")}
+      </p>
+
+      <TextField
+        id="project-test-command"
+        label={t("projects:form.testCommand")}
+        type="text"
+        placeholder="npm test"
+        value={testCommand}
+        onChange={(event) => setTestCommand(event.target.value)}
+      />
+      <p className="-mt-1 font-mono text-[11px] text-fg-faint">
+        {t("projects:form.testCommandHint")}
       </p>
 
       <FormError message={error} />

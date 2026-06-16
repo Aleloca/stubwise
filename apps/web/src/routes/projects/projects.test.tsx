@@ -72,6 +72,7 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     gitAccountId: ACCOUNT.id,
     gitAccountName: ACCOUNT.name,
     webhookConfiguredAt: null,
+    testCommand: null,
     createdAt: "2026-06-01T10:00:00.000Z",
     ...overrides,
   };
@@ -182,6 +183,8 @@ describe("creazione progetto", () => {
       gitAccountId: ACCOUNT.id,
       repoUrl: "https://github.com/acme/demo-shop",
       defaultBranch: "main",
+      // Nessun comando di test inserito → null (auto-detect).
+      testCommand: null,
     });
     expect(await screen.findByText(created.ingestionKey)).toBeInTheDocument();
   });

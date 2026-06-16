@@ -56,6 +56,7 @@ export function SettingsAutomationPage() {
           {t("automation:title")}
         </h2>
         <p className="mt-1 font-mono text-[11px] text-fg-faint">{t("automation:subtitle")}</p>
+        <p className="mt-1 font-mono text-[11px] text-fg-faint">{t("automation:maxCostHint")}</p>
         <a
           href="/docs/ai-pipeline/automation/"
           target="_blank"
@@ -126,6 +127,30 @@ export function SettingsAutomationPage() {
                     </option>
                   ))}
                 </select>
+              </label>
+
+              <label className="flex items-center gap-2 font-mono text-[12px] text-fg-muted">
+                <span className="text-fg-faint">{t("automation:maxCost")}</span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min="0"
+                  value={rule.maxCostUsd ?? ""}
+                  disabled={mutation.isPending}
+                  onChange={(event) => {
+                    // Vuoto → null (nessun tetto); altrimenti il numero parsato,
+                    // con guardia su NaN (input non numerico) → null.
+                    const raw = event.target.value;
+                    const parsed = raw === "" ? null : Number(raw);
+                    updateRule(type, {
+                      maxCostUsd: parsed === null || Number.isNaN(parsed) ? null : parsed,
+                    });
+                  }}
+                  placeholder={t("automation:maxCostPlaceholder")}
+                  aria-label={t("automation:maxCostLabel", { type })}
+                  className="w-24 rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
+                />
               </label>
             </div>
           );

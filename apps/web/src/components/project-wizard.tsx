@@ -44,6 +44,8 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
   // Fallback manuale: repoUrl/branch a mano quando il picker non è disponibile
   // o l'utente sceglie di inserirli manualmente.
   const [manualRepoUrl, setManualRepoUrl] = useState("");
+  // Comando di test opzionale: vuoto = auto-detect (script test del package.json).
+  const [testCommand, setTestCommand] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -143,6 +145,8 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
         gitAccountId: accountId,
         repoUrl,
         defaultBranch: branch.trim(),
+        // Vuoto → null (auto-detect); altrimenti il comando senza spazi di contorno.
+        testCommand: testCommand.trim() === "" ? null : testCommand.trim(),
       });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("common:unexpectedError"));
@@ -328,6 +332,22 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
               <CredentialChecks result={repoCheck.data} />
             </div>
           )}
+        </Step>
+      )}
+
+      {repoUrl !== "" && (
+        <Step label={t("projects:wizard.testCommand")}>
+          <TextField
+            id="wizard-test-command"
+            label={t("projects:wizard.testCommand")}
+            type="text"
+            placeholder="npm test"
+            value={testCommand}
+            onChange={(event) => setTestCommand(event.target.value)}
+          />
+          <p className="mt-2 font-mono text-[11px] text-fg-faint">
+            {t("projects:wizard.testCommandHint")}
+          </p>
         </Step>
       )}
 

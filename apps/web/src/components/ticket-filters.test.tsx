@@ -16,6 +16,7 @@ const projects: Project[] = [
     gitAccountId: "acc-1",
     gitAccountName: "GitHub Demo",
     webhookConfiguredAt: null,
+    testCommand: null,
     createdAt: "2026-01-01T00:00:00.000Z",
   },
   {
@@ -29,6 +30,7 @@ const projects: Project[] = [
     gitAccountId: "acc-2",
     gitAccountName: "Bitbucket Prod",
     webhookConfiguredAt: null,
+    testCommand: null,
     createdAt: "2026-01-02T00:00:00.000Z",
   },
 ];
