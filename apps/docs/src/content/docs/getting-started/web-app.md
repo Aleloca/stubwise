@@ -65,8 +65,20 @@ The **New ticket** button opens a dialog with:
 - **priority**: `low`, `medium`, `high` or `urgent`;
 - **description** (body, optional).
 
+The **description** is written with a **markdown editor** (see below).
+
 Tickets created by hand have source `manual`. Those arriving from the SDK have
 source `sdk_error` or `sdk_feedback`; those created via API have `api`.
+
+## The markdown editor
+
+The ticket **description** and the **comments** in the activity timeline are
+edited with the same markdown editor. It has a **toolbar** that wraps the
+current selection in markdown syntax — **Bold**, **Italic**, **Inline code**,
+**Link** and **Bulleted list** — and two tabs, **Write** and **Preview**.
+Switch to **Preview** to see the rendered markdown before you save; switch back
+to **Write** to keep editing. The same renderer is used in the timeline, so the
+preview matches the saved result.
 
 ## Searching tickets
 
@@ -141,7 +153,8 @@ kinds of entry:
 
 The audit is automatic: every human change made to the ticket through the UI is
 recorded and shown in the timeline. You add comments from the composer at the
-bottom of the same section.
+bottom of the same section, using the same **markdown editor** as the ticket
+description.
 
 When the AI pipeline opens a pull request, the ticket moves to `in_review` and
 an `ai` comment with the link to the PR and the report appears in the timeline.
