@@ -1,79 +1,81 @@
 ---
-title: Configurazione della pipeline
-description: Concorrenza, soglia di staleness, modelli e comandi di test consentiti all'agente.
+title: Pipeline configuration
+description: Concurrency, staleness threshold, models and test commands allowed to the agent.
 ---
 
-La pipeline AI si regola con poche variabili d'ambiente del worker e con alcuni
-parametri di default codificati nella pipeline. Qui i più importanti; l'elenco
-completo delle variabili è nella
-[reference della configurazione](/docs/reference/configuration/).
+The AI pipeline is tuned with a few worker environment variables and with some
+default parameters hardcoded in the pipeline. Here are the most important ones;
+the complete list of variables is in the
+[configuration reference](/docs/reference/configuration/).
 
 ## `WORKER_CONCURRENCY`
 
-Quanti job AI il worker lavora in parallelo, **su progetti diversi**. Default
-**`2`** (range ammesso 1–16). I job dello stesso progetto restano comunque
-serializzati (vedi [Come funziona](/docs/ai-pipeline/how-it-works/)).
+How many AI jobs the worker processes in parallel, **across different projects**.
+Default **`2`** (allowed range 1–16). Jobs of the same project stay serialized
+all the same (see [How it works](/docs/ai-pipeline/how-it-works/)).
 
-Alza questo valore solo insieme ai limiti di risorse del container: ogni job
-può clonare e buildare un repo e far girare un agente per minuti. Vedi le
-[note operative](/docs/getting-started/self-hosting/) sul deploy.
+Raise this value only together with the container's resource limits: each job
+can clone and build a repo and run an agent for minutes. See the
+[operational notes](/docs/getting-started/self-hosting/) on the deploy.
 
 ## `WORKER_STALE_MINUTES`
 
-Minuti di inattività oltre cui un job in lavorazione è considerato **orfano** di
-un worker crashato e riportato in coda. Default **`60`**.
+Minutes of inactivity beyond which a job in progress is considered **orphaned**
+by a crashed worker and put back in the queue. Default **`60`**.
 
-:::caution[Deve superare ~49 minuti col fix in due fasi, o il worker non parte]
-La soglia di staleness deve superare il tempo massimo che un job legittimo può
-impiegare. Col **fix in due fasi** attivo (default): **timeout pianificazione
-(10') + timeout fix (30') + 2× triage (2' ciascuno, per il retry) + margine
-(5') ≈ 49 minuti**. Con `FIX_TWO_PHASE=false` basta **timeout fix (30') + 2×
-triage + margine ≈ 40 minuti**. Un valore troppo basso riaccoderebbe un job
-lungo ma ancora vivo, generando una **PR duplicata** sullo stesso progetto. Il
-worker **verifica questa invariante all'avvio e si rifiuta di partire (exit 1)**
-se è violata: con `restart: unless-stopped` finirebbe in crash-loop. Lascia il
-default `60` se non hai un motivo preciso per cambiarlo.
+:::caution[Must exceed ~49 minutes with the two-phase fix, or the worker won't start]
+The staleness threshold must exceed the maximum time a legitimate job can take.
+With the **two-phase fix** active (default): **planning timeout (10') + fix
+timeout (30') + 2× triage (2' each, for the retry) + margin (5') ≈ 49 minutes**.
+With `FIX_TWO_PHASE=false`, **fix timeout (30') + 2× triage + margin ≈ 40
+minutes** is enough. A value too low would re-enqueue a long but still alive
+job, generating a **duplicate PR** on the same project. The worker **checks this
+invariant on startup and refuses to start (exit 1)** if it's violated: with
+`restart: unless-stopped` it would end up in a crash loop. Leave the default
+`60` unless you have a precise reason to change it.
 :::
 
-La difesa primaria contro i falsi orfani è comunque l'**heartbeat**: durante il
-fix il worker aggiorna `lastActivityAt` ogni 60 secondi, ben sotto la soglia di
-staleness. L'invariante è la rete di sicurezza contro una configurazione rotta.
+The primary defense against false orphans is anyway the **heartbeat**: during
+the fix the worker updates `lastActivityAt` every 60 seconds, well below the
+staleness threshold. The invariant is the safety net against a broken
+configuration.
 
 ## `MIRRORS_DIR`
 
-Directory dei **mirror git persistenti** del worker. Default
-`/var/stubwise/mirrors`. Nel deploy Docker è un volume montato lì: i mirror sono
-ricostruibili, ma persisterli evita un re-clone completo ad ogni job. I worktree
-del fix sono invece **effimeri** e vengono rimossi a fine job.
+Directory of the worker's **persistent git mirrors**. Default
+`/var/stubwise/mirrors`. In the Docker deploy it's a volume mounted there: the
+mirrors are rebuildable, but persisting them avoids a full re-clone on every job.
+The fix worktrees are instead **ephemeral** and are removed at the end of the
+job.
 
-## Modelli
+## Models
 
-- **Triage**: modello **`haiku`** (la fase economica), con pochi turni
-  (default 10) e timeout 2 minuti.
-- **Fix in due fasi** (default, per ridurre i costi): la fase costosa fa **solo
-  analisi**, quella economica scrive il codice.
-  - **Pianificazione** — modello **`opus`** (`FIX_PLAN_MODEL`), in **sola
-    lettura** (`--permission-mode plan`): analizza il bug e produce un piano
-    concreto (causa radice, file da toccare, modifica, test). Non modifica file.
-    Fino a 40 turni e timeout 10 minuti (`FIX_PLAN_TIMEOUT_MS`).
-  - **Esecuzione** — modello **`sonnet`** (`FIX_EXECUTE_MODEL`): implementa il
-    piano, scrive il test di regressione, esegue i test e scrive il report.
-    Fino a 80 turni e timeout 30 minuti.
-  - I consumi dei due modelli sono **registrati separatamente** (righe
-    `agent_runs` distinte sotto la fase `fix`), così vedi quanto costa ciascuna.
-- Con **`FIX_TWO_PHASE=false`** il fix torna a un **singolo run** con
-  `FIX_EXECUTE_MODEL` (comportamento storico, per confronto/rollback).
+- **Triage**: the **`haiku`** model (the cheap phase), with few turns
+  (default 10) and a 2-minute timeout.
+- **Two-phase fix** (default, to reduce costs): the expensive phase does **only
+  analysis**, the cheap one writes the code.
+  - **Planning** — the **`opus`** model (`FIX_PLAN_MODEL`), **read-only**
+    (`--permission-mode plan`): it analyzes the bug and produces a concrete plan
+    (root cause, files to touch, change, test). It doesn't modify files.
+    Up to 40 turns and a 10-minute timeout (`FIX_PLAN_TIMEOUT_MS`).
+  - **Execution** — the **`sonnet`** model (`FIX_EXECUTE_MODEL`): it implements
+    the plan, writes the regression test, runs the tests and writes the report.
+    Up to 80 turns and a 30-minute timeout.
+  - The usage of the two models is **recorded separately** (distinct
+    `agent_runs` rows under the `fix` phase), so you see how much each one costs.
+- With **`FIX_TWO_PHASE=false`** the fix reverts to a **single run** with
+  `FIX_EXECUTE_MODEL` (historic behavior, for comparison/rollback).
 
-Questi parametri sono configurabili via variabili d'ambiente; il modello
-dell'auth è quello con cui hai autenticato il CLI (API key o login OAuth/MAX,
-vedi [Auth del worker](/docs/getting-started/claude-setup/)).
+These parameters are configurable via environment variables; the auth's model is
+the one you authenticated the CLI with (API key or OAuth/MAX login, see
+[Worker auth](/docs/getting-started/claude-setup/)).
 
-## Comandi consentiti all'agente di fix
+## Commands allowed to the fix agent
 
-In modalità headless l'agente gira con `--permission-mode acceptEdits`: può
-**modificare i file** ma ha **Bash negato** per default. Siccome il prompt gli
-chiede di eseguire i test del repo, il worker gli concede una **allowlist** di
-soli comandi di test:
+In headless mode the agent runs with `--permission-mode acceptEdits`: it can
+**modify files** but has **Bash denied** by default. Since the prompt asks it to
+run the repo's tests, the worker grants it an **allowlist** of test commands
+only:
 
 ```
 Bash(npm test:*)
@@ -84,6 +86,6 @@ Bash(npx vitest:*)
 Bash(npx jest:*)
 ```
 
-Tutto il resto di Bash resta negato: l'agente **non** può fare `git push` né
-eseguire comandi arbitrari. Questa allowlist è il default; vedi
-[Sicurezza](/docs/ai-pipeline/security/) per il razionale completo.
+Everything else in Bash stays denied: the agent **cannot** do `git push` nor run
+arbitrary commands. This allowlist is the default; see
+[Security](/docs/ai-pipeline/security/) for the full rationale.

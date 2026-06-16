@@ -1,38 +1,39 @@
 ---
 title: Feedback
-description: Raccogli feedback dagli utenti con captureFeedback e trasformali in ticket.
+description: Collect feedback from users with captureFeedback and turn it into tickets.
 ---
 
-Oltre agli errori, l'SDK può raccogliere **feedback** espliciti degli utenti —
-un messaggio scritto da una persona, non un crash. I feedback diventano ticket
-con source `sdk_feedback`.
+Beyond errors, the SDK can collect explicit user **feedback** — a message
+written by a person, not a crash. Feedback becomes tickets with source
+`sdk_feedback`.
 
 ## `captureFeedback`
 
-Disponibile sia in browser sia in Node:
+Available both in the browser and in Node:
 
 ```js
 import { captureFeedback } from "@stubwise/sdk/browser";
 
 captureFeedback({
-  message: "Il pulsante di pagamento non risponde su mobile",
-  email: "utente@example.com", // opzionale
-  url: "/checkout",            // opzionale
+  message: "The payment button doesn't respond on mobile",
+  email: "user@example.com", // optional
+  url: "/checkout",          // optional
 });
 ```
 
-| Campo     | Tipo     | Obbligatorio | Note                                                |
-| --------- | -------- | ------------ | --------------------------------------------------- |
-| `message` | `string` | Sì           | Il testo del feedback. Un messaggio vuoto è scartato (con un warning). |
-| `email`   | `string` | No           | Email di chi scrive, validata come email lato server. |
-| `url`     | `string` | No           | La pagina da cui arriva il feedback.                |
+| Field     | Type     | Required | Notes                                               |
+| --------- | -------- | -------- | --------------------------------------------------- |
+| `message` | `string` | Yes      | The feedback text. An empty message is discarded (with a warning). |
+| `email`   | `string` | No       | Email of the writer, validated as an email server-side. |
+| `url`     | `string` | No       | The page the feedback comes from.                   |
 
-Se è impostato un `release` in `init()`, viene allegato automaticamente
-all'evento di feedback.
+If a `release` is set in `init()`, it is automatically attached to the feedback
+event.
 
-## Un widget di feedback minimale
+## A minimal feedback widget
 
-`captureFeedback` è il mattone su cui costruire un widget. Esempio in browser:
+`captureFeedback` is the building block to construct a widget. Example in the
+browser:
 
 ```js
 import { captureFeedback } from "@stubwise/sdk/browser";
@@ -46,18 +47,18 @@ document.querySelector("#feedback-form").addEventListener("submit", (e) => {
     url: location.pathname,
   });
   form.reset();
-  // captureFeedback non lancia mai: nessun try/catch necessario.
+  // captureFeedback never throws: no try/catch necessary.
 });
 ```
 
-Come ogni metodo dell'SDK (a parte `init()` con DSN malformato),
-`captureFeedback` **non propaga mai eccezioni** nell'app ospite: puoi chiamarlo
-senza guardie. L'evento viene accodato e inviato al prossimo flush.
+Like every SDK method (apart from `init()` with a malformed DSN),
+`captureFeedback` **never propagates exceptions** into the host app: you can
+call it without guards. The event is enqueued and sent at the next flush.
 
-## Dove finiscono i feedback
+## Where feedback ends up
 
-Un feedback diventa un ticket nel progetto identificato dal DSN, con tipo
-`feedback` e source `sdk_feedback`. Lo gestisci dalla web app come ogni altro
-ticket: nel triage AI un feedback vago verrà tipicamente classificato come
-`skip`, mentre uno azionabile può entrare nella pipeline. Vedi
-[Come funziona la pipeline](/docs/ai-pipeline/how-it-works/).
+A piece of feedback becomes a ticket in the project identified by the DSN, with
+type `feedback` and source `sdk_feedback`. You manage it from the web app like
+any other ticket: in AI triage a vague piece of feedback will typically be
+classified as `skip`, while an actionable one can enter the pipeline. See
+[How the pipeline works](/docs/ai-pipeline/how-it-works/).

@@ -1,22 +1,22 @@
 ---
-title: Auth del worker (Claude)
-description: Autentica il CLI di Claude nel worker per abilitare la pipeline AI, via API key oppure login OAuth/MAX.
+title: Worker auth (Claude)
+description: Authenticate the Claude CLI in the worker to enable the AI pipeline, via API key or OAuth/MAX login.
 ---
 
-La pipeline AI è gestita dal **worker**, che invoca il CLI `claude` in modalità
-headless per il triage e il fix dei ticket. Perché funzioni, il CLI deve essere
-**autenticato**. Hai due vie: scegline **una**.
+The AI pipeline is run by the **worker**, which invokes the `claude` CLI in
+headless mode to triage and fix tickets. For it to work, the CLI must be
+**authenticated**. You have two ways: choose **one**.
 
-:::note[L'AI è opzionale]
-Senza autenticazione il resto di Stubwise funziona comunque: l'issue tracker
-(progetti, ticket, board, commenti, ingestion degli errori) è pienamente
-operativo. Solo i job AI restano in coda o falliscono — la pipeline è
-disabilitata, in modo silenzioso e senza effetti collaterali sul tracker.
+:::note[The AI is optional]
+Without authentication the rest of Stubwise still works: the issue tracker
+(projects, tickets, board, comments, error ingestion) is fully operational. Only
+the AI jobs stay queued or fail — the pipeline is disabled, silently and with no
+side effects on the tracker.
 :::
 
-## Via a) Chiave API (consigliata in produzione)
+## Way a) API key (recommended in production)
 
-Imposta `ANTHROPIC_API_KEY` nel `.env` e riavvia il worker:
+Set `ANTHROPIC_API_KEY` in `.env` and restart the worker:
 
 ```bash
 # .env
@@ -27,51 +27,50 @@ ANTHROPIC_API_KEY=sk-ant-...
 docker compose up -d worker
 ```
 
-È la via più semplice e robusta per un deploy non presidiato.
+It's the simplest and most robust way for an unattended deploy.
 
-## Via b) Login OAuth/MAX
+## Way b) OAuth/MAX login
 
-Se preferisci usare un abbonamento (es. Claude MAX) via login OAuth, **lascia
-`ANTHROPIC_API_KEY` vuota** ed effettua il login interattivo dentro il
-container:
+If you prefer to use a subscription (e.g. Claude MAX) via OAuth login, **leave
+`ANTHROPIC_API_KEY` empty** and run the interactive login inside the container:
 
 ```bash
 docker compose exec worker claude login
 ```
 
-Il token persiste nel volume Docker `claude-config`, montato su
-`CLAUDE_CONFIG_DIR=/home/worker/.claude`: sopravvive a riavvii e rebuild, quindi
-il login si fa una volta sola.
+The token persists in the `claude-config` Docker volume, mounted at
+`CLAUDE_CONFIG_DIR=/home/worker/.claude`: it survives restarts and rebuilds, so
+the login is done only once.
 
-:::caution[Non lasciare `ANTHROPIC_API_KEY` impostata a vuoto se usi l'OAuth]
-Una `ANTHROPIC_API_KEY=""` che raggiunge il CLI `claude` può sabotare un login
-OAuth valido. Il compose è già scritto per **omettere** la variabile quando non
-è impostata (usa `${ANTHROPIC_API_KEY}` senza default), e il worker scarta a
-valle le stringhe vuote dall'ambiente passato al CLI. Per usare l'OAuth, quindi,
-basta lasciare la riga `ANTHROPIC_API_KEY=` vuota nel `.env`.
+:::caution[Don't leave `ANTHROPIC_API_KEY` set to empty if you use OAuth]
+An `ANTHROPIC_API_KEY=""` that reaches the `claude` CLI can sabotage a valid
+OAuth login. The compose is already written to **omit** the variable when it's
+not set (it uses `${ANTHROPIC_API_KEY}` without a default), and the worker
+discards empty strings downstream from the environment passed to the CLI. To use
+OAuth, then, just leave the `ANTHROPIC_API_KEY=` line empty in `.env`.
 :::
 
-## Cosa vede (e cosa non vede) il sottoprocesso
+## What the subprocess sees (and doesn't see)
 
-Il worker **non** passa l'intero ambiente al CLI `claude`: costruisce una
-**allowlist** esplicita. Al sottoprocesso arrivano solo:
+The worker does **not** pass the entire environment to the `claude` CLI: it
+builds an explicit **allowlist**. Only these reach the subprocess:
 
 - `PATH`, `HOME`, `USER`, `LOGNAME`, `LANG`, `LC_ALL`, `TMPDIR`;
 - `CLAUDE_CONFIG_DIR`, `XDG_CONFIG_HOME`;
-- tutte le variabili che iniziano con `ANTHROPIC_` o `CLAUDE_`.
+- all variables starting with `ANTHROPIC_` or `CLAUDE_`.
 
-In particolare **non** raggiungono mai il CLI i segreti del master:
-`ENCRYPTION_KEY`, `DATABASE_URL` e `SESSION_SECRET` sono in una denylist che ha
-la precedenza assoluta. Questo è una difesa contro la prompt injection: il
-prompt contiene contenuto non fidato del ticket e l'agente può eseguire comandi
-(i test), quindi non deve mai poter esfiltrare le chiavi che cifrano le
-credenziali git di tutti i progetti. Vedi
-[Sicurezza della pipeline](/docs/ai-pipeline/security/).
+In particular, the master secrets **never** reach the CLI:
+`ENCRYPTION_KEY`, `DATABASE_URL` and `SESSION_SECRET` are in a denylist that
+takes absolute precedence. This is a defense against prompt injection: the
+prompt contains untrusted ticket content and the agent can run commands (the
+tests), so it must never be able to exfiltrate the keys that encrypt the git
+credentials of all the projects. See
+[Pipeline security](/docs/ai-pipeline/security/).
 
-## Verifica
+## Verify
 
-Dopo aver configurato l'auth, crea un ticket di prova (manuale, dalla web app o
-via SDK) su un progetto con credenziali git valide e osserva la timeline dei
-job AI nel dettaglio del ticket: dovresti vedere il triage partire. Se il CLI
-non è autenticato, il job fallisce con un errore di autenticazione visibile nel
-log del job.
+After configuring the auth, create a test ticket (manual, from the web app or
+via SDK) on a project with valid git credentials and watch the AI job timeline
+in the ticket detail: you should see the triage start. If the CLI isn't
+authenticated, the job fails with an authentication error visible in the job
+log.

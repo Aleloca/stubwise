@@ -1,70 +1,69 @@
 ---
-title: Installazione dell'SDK
-description: Installa @stubwise/sdk e inizializzalo con il DSN del progetto, in browser o in Node.
+title: SDK installation
+description: Install @stubwise/sdk and initialize it with the project DSN, in the browser or in Node.
 ---
 
-L'SDK di Stubwise cattura errori e feedback dalla tua applicazione e li invia
-all'endpoint di ingestion della tua istanza, dove vengono raggruppati in
-ticket. Ha due entry point: uno per il **browser** e uno per **Node**.
+The Stubwise SDK captures errors and feedback from your application and sends
+them to your instance's ingestion endpoint, where they get grouped into
+tickets. It has two entry points: one for the **browser** and one for **Node**.
 
-:::note[Pubblicazione]
-L'SDK vive nel monorepo come `@stubwise/sdk`. Le istruzioni qui sotto usano il
-nome del pacchetto pubblicato su npm.
+:::note[Publishing]
+The SDK lives in the monorepo as `@stubwise/sdk`. The instructions below use the
+name of the package published on npm.
 :::
 
-## Installazione
+## Installation
 
 ```bash
 npm install @stubwise/sdk
-# oppure: pnpm add @stubwise/sdk / yarn add @stubwise/sdk
+# or: pnpm add @stubwise/sdk / yarn add @stubwise/sdk
 ```
 
-Il pacchetto espone due sotto-percorsi:
+The package exposes two subpaths:
 
-- `@stubwise/sdk/browser` — strumentazione automatica per le app web;
-- `@stubwise/sdk/node` — cattura dei crash di processo e middleware per Express
-  e Fastify.
+- `@stubwise/sdk/browser` — automatic instrumentation for web apps;
+- `@stubwise/sdk/node` — process crash capture and middleware for Express and
+  Fastify.
 
-## Il DSN
+## The DSN
 
-Tutto parte dal **DSN**, che trovi nella sezione **Integrazione** della pagina
-del progetto nella web app. Ha questa forma:
+Everything starts from the **DSN**, which you find in the **Integration**
+section of the project page in the web app. It has this form:
 
 ```
 https://INGESTION_KEY@host/p/slug
 ```
 
-- `INGESTION_KEY` è la chiave di ingestion del progetto;
-- `host` è l'host della tua istanza;
-- `slug` è lo slug del progetto.
+- `INGESTION_KEY` is the project's ingestion key;
+- `host` is your instance's host;
+- `slug` is the project's slug.
 
-L'SDK mappa internamente il path `/p/slug` del DSN sull'endpoint `/ingest/slug`
-sul filo e invia la chiave nell'header `X-Stubwise-Key`.
+The SDK internally maps the DSN's `/p/slug` path onto the `/ingest/slug`
+endpoint on the wire and sends the key in the `X-Stubwise-Key` header.
 
-:::tip[La chiave di ingestion è pubblicabile]
-La chiave di ingestion è pensata per stare in codice **client-side**: consente
-solo di *inviare* eventi, non di leggere i ticket. Le API di lettura richiedono
-autenticazione. Resta comunque buona norma tenere il DSN in una variabile
-d'ambiente o di build.
+:::tip[The ingestion key is publishable]
+The ingestion key is meant to live in **client-side** code: it only allows
+*sending* events, not reading the tickets. The read APIs require authentication.
+It's still good practice to keep the DSN in an environment or build variable.
 :::
 
-## Inizializzazione: browser
+## Initialization: browser
 
 ```js
 import { init } from "@stubwise/sdk/browser";
 
 init({
   dsn: "https://INGESTION_KEY@host/p/slug",
-  release: "1.4.2",        // opzionale: allegato a ogni evento
-  environment: "production", // opzionale
+  release: "1.4.2",        // optional: attached to every event
+  environment: "production", // optional
 });
 ```
 
-Una volta chiamata `init()`, l'SDK installa da solo la cattura automatica degli
-errori globali e raccoglie breadcrumb. Vedi
-[Cattura degli errori](/docs/sdk/error-capture/).
+Once `init()` is called, the SDK installs the automatic capture of global errors
+on its own and collects breadcrumbs. See
+[Error capture](/docs/sdk/error-capture/).
 
-## Inizializzazione: Node
+## Initialization: Node
 
 ```js
 import { init } from "@stubwise/sdk/node";
@@ -77,26 +76,26 @@ init({
 });
 ```
 
-In Node, `init()` registra di default i listener su `uncaughtException` e
-`unhandledRejection`. Per disattivarli (es. dentro una test suite, o se vuoi il
-pieno controllo del ciclo di vita del processo) passa
+In Node, `init()` registers the listeners on `uncaughtException` and
+`unhandledRejection` by default. To disable them (e.g. inside a test suite, or
+if you want full control of the process lifecycle) pass
 `registerProcessHandlers: false`.
 
-## Garanzie di robustezza
+## Robustness guarantees
 
-L'SDK è progettato per **non rompere mai l'app ospite**. Con un'unica eccezione
-voluta: `init()` con un **DSN malformato** lancia subito, perché è un errore di
-configurazione che deve emergere all'avvio. Tutto il resto — cattura, breadcrumb,
-flush, errori di rete verso l'ingestion — è blindato e non propaga mai
-eccezioni nel tuo codice. Una seconda chiamata a `init()` viene ignorata con un
-warning, senza duplicare i listener.
+The SDK is designed to **never break the host app**. With a single intentional
+exception: `init()` with a **malformed DSN** throws immediately, because it's a
+configuration error that must surface at startup. Everything else — capture,
+breadcrumbs, flush, network errors toward the ingestion — is hardened and never
+propagates exceptions into your code. A second call to `init()` is ignored with
+a warning, without duplicating the listeners.
 
-## Opzioni di `init()`
+## `init()` options
 
-| Opzione                   | Tipo      | Default          | Note                                                      |
+| Option                    | Type      | Default          | Notes                                                     |
 | ------------------------- | --------- | ---------------- | --------------------------------------------------------- |
-| `dsn`                     | `string`  | —                | Obbligatorio. `https://KEY@host/p/slug`.                  |
-| `release`                 | `string`  | —                | Allegato a ogni evento.                                   |
-| `environment`             | `string`  | —                | Allegato a ogni evento.                                   |
-| `flushIntervalMs`         | `number`  | `3000`           | Intervallo di flush automatico.                           |
-| `registerProcessHandlers` | `boolean` | `true` (solo Node) | Listener su `uncaughtException`/`unhandledRejection`.   |
+| `dsn`                     | `string`  | —                | Required. `https://KEY@host/p/slug`.                      |
+| `release`                 | `string`  | —                | Attached to every event.                                  |
+| `environment`             | `string`  | —                | Attached to every event.                                  |
+| `flushIntervalMs`         | `number`  | `3000`           | Automatic flush interval.                                 |
+| `registerProcessHandlers` | `boolean` | `true` (Node only) | Listeners on `uncaughtException`/`unhandledRejection`.  |

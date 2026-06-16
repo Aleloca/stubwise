@@ -1,8 +1,8 @@
 /**
- * I link delle azioni della hero (frontmatter di index.mdx) non passano dalla
- * pipeline rehype, quindi il rebase dei link interni /docs/... verso un base
- * diverso (es. /stubwise su GitHub Pages) va fatto qui, sui dati di route.
- * Specchia rehypeRebaseLinks in astro.config.mjs.
+ * The hero action links (index.mdx frontmatter) don't pass through the rehype
+ * pipeline, so rebasing the internal /docs/... links toward a different base
+ * (e.g. /stubwise on GitHub Pages) must be done here, on the route data.
+ * Mirrors rehypeRebaseLinks in astro.config.mjs.
  */
 import { defineRouteMiddleware } from "@astrojs/starlight/route-data";
 

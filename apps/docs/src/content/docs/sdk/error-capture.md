@@ -1,98 +1,97 @@
 ---
-title: Cattura degli errori
-description: Cattura automatica e manuale degli errori, breadcrumb e crash di processo in browser e Node.
+title: Error capture
+description: Automatic and manual error capture, breadcrumbs and process crashes in the browser and Node.
 ---
 
-Una volta chiamata `init()`, l'SDK cattura gli errori. La maggior parte del
-lavoro è automatica; per il resto c'è `captureError`.
+Once `init()` is called, the SDK captures errors. Most of the work is automatic;
+for the rest there's `captureError`.
 
-## Browser: cattura automatica
+## Browser: automatic capture
 
-In browser, `init()` installa da solo:
+In the browser, `init()` installs on its own:
 
-- un listener su `window` per l'evento **`error`** (errori non gestiti);
-- un listener su `window` per **`unhandledrejection`** (promise rifiutate senza
-  catch).
+- a listener on `window` for the **`error`** event (unhandled errors);
+- a listener on `window` for **`unhandledrejection`** (promises rejected without
+  a catch).
 
-Ogni errore catturato viene allegato all'URL e allo user agent correnti, più lo
-snapshot dei **breadcrumb** (vedi sotto). Non devi fare nulla: gli errori
-diventano eventi `error` inviati all'ingestion.
+Each captured error is attached to the current URL and user agent, plus the
+snapshot of the **breadcrumbs** (see below). You don't have to do anything: the
+errors become `error` events sent to the ingestion.
 
-### Breadcrumb automatici
+### Automatic breadcrumbs
 
-L'SDK browser registra automaticamente una scia di breadcrumb che accompagna
-ogni errore:
+The browser SDK automatically records a trail of breadcrumbs that accompanies
+every error:
 
-- **click** sugli elementi (descritti come `tag#id` o `tag.classe`, con throttle
-  sui click ripetuti identici);
-- **navigazioni** (`pushState`/`replaceState`, `popstate`, `hashchange`);
-- **fetch fallite**: solo le risposte `>= 400` o gli errori di rete (le richieste
-  riuscite non sporcano la scia; le POST verso l'endpoint di ingestion stesso
-  sono escluse per evitare loop).
+- **clicks** on elements (described as `tag#id` or `tag.class`, with throttling
+  on identical repeated clicks);
+- **navigations** (`pushState`/`replaceState`, `popstate`, `hashchange`);
+- **failed fetches**: only responses `>= 400` or network errors (successful
+  requests don't pollute the trail; POSTs to the ingestion endpoint itself are
+  excluded to avoid loops).
 
-I breadcrumb vivono in un ring buffer e vengono inclusi nello snapshot allegato a
-ogni errore.
+The breadcrumbs live in a ring buffer and are included in the snapshot attached
+to every error.
 
-### Flush a fine pagina
+### Flush at end of page
 
-Quando la pagina viene nascosta o scaricata (`pagehide`, `visibilitychange`),
-l'SDK fa un flush con `keepalive` per non perdere gli ultimi eventi.
+When the page is hidden or unloaded (`pagehide`, `visibilitychange`), the SDK
+does a flush with `keepalive` so as not to lose the last events.
 
-## Cattura manuale
+## Manual capture
 
-In qualunque punto del codice puoi catturare un errore a mano:
+Anywhere in the code you can capture an error by hand:
 
 ```js
-import { captureError } from "@stubwise/sdk/browser"; // o "@stubwise/sdk/node"
+import { captureError } from "@stubwise/sdk/browser"; // or "@stubwise/sdk/node"
 
 try {
-  rischioso();
+  risky();
 } catch (err) {
   captureError(err);
 }
 ```
 
-`captureError` accetta qualunque valore (un `Error`, una stringa, un oggetto) e
-lo normalizza in modo sicuro. In browser allega URL e user agent correnti; puoi
-sovrascriverli con il secondo argomento:
+`captureError` accepts any value (an `Error`, a string, an object) and
+normalizes it safely. In the browser it attaches the current URL and user agent;
+you can override them with the second argument:
 
 ```js
 captureError(err, { url: "/checkout", userAgent: navigator.userAgent });
 ```
 
-In Node non esistono un URL o uno user agent "correnti": `extra` è interamente
-a carico del chiamante.
+In Node there's no "current" URL or user agent: `extra` is entirely up to the
+caller.
 
-## Node: crash di processo
+## Node: process crashes
 
-In Node, con `registerProcessHandlers: true` (il default), `init()` registra i
-listener su `uncaughtException` e `unhandledRejection`:
+In Node, with `registerProcessHandlers: true` (the default), `init()` registers
+the listeners on `uncaughtException` and `unhandledRejection`:
 
-- **`uncaughtException`**: l'errore viene catturato e flushato (best effort, con
-  un tetto di 2 secondi); poi, **se il listener dell'SDK è l'unico**, viene
-  stampato lo stack e il processo esce con codice 1, esattamente come avrebbe
-  fatto Node. Se la tua app ha già un suo listener, l'esito del processo resta
-  una sua decisione.
-- **`unhandledRejection`**: viene catturato e flushato, senza mai terminare il
-  processo (lo stesso compromesso degli SDK di error tracking più diffusi).
+- **`uncaughtException`**: the error is captured and flushed (best effort, with
+  a 2-second cap); then, **if the SDK's listener is the only one**, the stack is
+  printed and the process exits with code 1, exactly as Node would have done. If
+  your app already has its own listener, the process's outcome stays its
+  decision.
+- **`unhandledRejection`**: it is captured and flushed, without ever terminating
+  the process (the same trade-off as the most common error-tracking SDKs).
 
-## Middleware per Express e Fastify
+## Middleware for Express and Fastify
 
-L'SDK Node espone error handler pronti per i due framework più comuni. Entrambi
-**ripropagano** sempre l'errore originale: la gestione degli errori resta
-quella della tua app.
+The Node SDK exposes error handlers ready for the two most common frameworks.
+Both always **re-propagate** the original error: error handling stays your app's.
 
 ### Express
 
 ```js
 import { expressErrorHandler } from "@stubwise/sdk/node";
 
-// PRIMA dei tuoi error handler:
+// BEFORE your error handlers:
 app.use(expressErrorHandler());
 ```
 
-Cattura l'errore e lo propaga con `next(err)`, così la catena di gestione resta
-intatta.
+It captures the error and propagates it with `next(err)`, so the handling chain
+stays intact.
 
 ### Fastify
 
@@ -102,30 +101,30 @@ import { fastifyErrorHandler } from "@stubwise/sdk/node";
 app.setErrorHandler(fastifyErrorHandler());
 ```
 
-Cattura l'errore e lo **rilancia**, così Fastify ripiega sul proprio default
-error handler e la risposta HTTP resta quella di sempre.
+It captures the error and **rethrows** it, so Fastify falls back on its own
+default error handler and the HTTP response stays as it always was.
 
-## Breadcrumb manuali
+## Manual breadcrumbs
 
-Puoi aggiungere breadcrumb tuoi (in browser e in Node):
+You can add your own breadcrumbs (in the browser and in Node):
 
 ```js
 import { addBreadcrumb } from "@stubwise/sdk/browser";
 
-addBreadcrumb({ type: "log", message: "checkout avviato" });
+addBreadcrumb({ type: "log", message: "checkout started" });
 ```
 
-I tipi ammessi sono `click`, `navigation`, `fetch`, `log`. Il `timestamp` è
-opzionale (default: adesso). Vengono accodati al ring buffer e inclusi nel
-prossimo errore catturato.
+The allowed types are `click`, `navigation`, `fetch`, `log`. The `timestamp` is
+optional (default: now). They are appended to the ring buffer and included in
+the next captured error.
 
-## Flush manuale
+## Manual flush
 
 ```js
 import { flush } from "@stubwise/sdk/browser";
 
-await flush(); // invia subito la coda; si risolve sempre, non rigetta mai
+await flush(); // sends the queue immediately; always resolves, never rejects
 ```
 
-Normalmente non serve: l'SDK flusha da solo a intervalli (`flushIntervalMs`,
-default 3 s) e, in browser, a fine pagina.
+Usually it's not needed: the SDK flushes on its own at intervals
+(`flushIntervalMs`, default 3 s) and, in the browser, at end of page.

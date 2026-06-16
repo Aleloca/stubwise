@@ -1,35 +1,35 @@
 ---
-title: Self-hosting con Docker Compose
-description: Installa Stubwise su un tuo server in pochi minuti con Docker Compose, dai segreti al primo login.
+title: Self-hosting with Docker Compose
+description: Install Stubwise on your own server in a few minutes with Docker Compose, from the secrets to the first login.
 ---
 
-Stubwise si auto-ospita con Docker Compose. Lo stack gira in **quattro
-container**:
+Stubwise self-hosts with Docker Compose. The stack runs in **four
+containers**:
 
-- **`postgres`** — il database (ticket, progetti, utenti, code dei job);
-- **`server`** — l'API Fastify; **applica le migrazioni del database
-  all'avvio**;
-- **`worker`** — la pipeline AI (richiede `git` e il CLI `claude`); parte solo
-  dopo che il server è sano;
-- **`caddy`** — serve la web app statica e la documentazione, e fa da reverse
-  proxy verso il server, con HTTPS automatico.
+- **`postgres`** — the database (tickets, projects, users, job queues);
+- **`server`** — the Fastify API; it **applies the database migrations on
+  startup**;
+- **`worker`** — the AI pipeline (requires `git` and the `claude` CLI); it
+  starts only after the server is healthy;
+- **`caddy`** — serves the static web app and the documentation, and acts as a
+  reverse proxy to the server, with automatic HTTPS.
 
-:::note[L'AI è opzionale]
-Se non autentichi il CLI `claude` nel worker, l'issue tracker funziona lo
-stesso: errori, feedback, ticket, board e commenti restano pienamente
-operativi. I soli job AI restano in coda o falliscono, senza intaccare il
-resto. Vedi [Auth del worker](/docs/getting-started/claude-setup/).
+:::note[The AI is optional]
+If you don't authenticate the `claude` CLI in the worker, the issue tracker
+works all the same: errors, feedback, tickets, board and comments stay fully
+operational. Only the AI jobs stay queued or fail, without affecting the rest.
+See [Worker auth](/docs/getting-started/claude-setup/).
 :::
 
-## Prerequisiti
+## Prerequisites
 
-- **Docker** con **Docker Compose v2** (il comando `docker compose`).
-- Un **dominio** che punta all'host, se vuoi l'HTTPS automatico via Let's
-  Encrypt. Per provare in locale bastano `localhost` o `:80`.
+- **Docker** with **Docker Compose v2** (the `docker compose` command).
+- A **domain** pointing at the host, if you want automatic HTTPS via Let's
+  Encrypt. To try it locally, `localhost` or `:80` are enough.
 
-## 1. Configura l'ambiente
+## 1. Configure the environment
 
-Clona il repository e copia il file di esempio:
+Clone the repository and copy the example file:
 
 ```bash
 git clone https://github.com/Aleloca/stubwise.git
@@ -37,116 +37,115 @@ cd stubwise
 cp .env.example .env
 ```
 
-Genera i segreti una volta sola:
+Generate the secrets once:
 
 ```bash
-openssl rand -hex 32      # -> SESSION_SECRET (min. 32 caratteri)
-openssl rand -base64 32   # -> ENCRYPTION_KEY (32 byte in base64)
-openssl rand -hex 24      # -> POSTGRES_PASSWORD (una password robusta qualsiasi)
+openssl rand -hex 32      # -> SESSION_SECRET (min. 32 characters)
+openssl rand -base64 32   # -> ENCRYPTION_KEY (32 bytes in base64)
+openssl rand -hex 24      # -> POSTGRES_PASSWORD (any strong password)
 ```
 
-Compila nel `.env` almeno questi valori della sezione **DEPLOY**:
+In `.env`, fill in at least these values from the **DEPLOY** section:
 
-| Variabile           | Valore                                                                                                  |
+| Variable            | Value                                                                                                   |
 | ------------------- | ------------------------------------------------------------------------------------------------------- |
-| `POSTGRES_PASSWORD` | La password del database (obbligatoria per il deploy).                                                   |
-| `DATABASE_URL`      | Deve puntare al servizio `postgres` del compose e combaciare con utente/password/db (vedi sotto).       |
-| `SESSION_SECRET`    | Il segreto generato sopra con `openssl rand -hex 32`.                                                    |
-| `ENCRYPTION_KEY`    | La chiave generata sopra con `openssl rand -base64 32`.                                                  |
-| `DOMAIN`            | Il dominio pubblico (es. `stubwise.example.com`), oppure `localhost` / `:80` per provare in locale.     |
-| `PUBLIC_URL`        | L'URL pubblico **coerente con `DOMAIN`**, es. `https://stubwise.example.com`.                            |
+| `POSTGRES_PASSWORD` | The database password (required for the deploy).                                                        |
+| `DATABASE_URL`      | Must point at the compose `postgres` service and match the user/password/db (see below).                |
+| `SESSION_SECRET`    | The secret generated above with `openssl rand -hex 32`.                                                 |
+| `ENCRYPTION_KEY`    | The key generated above with `openssl rand -base64 32`.                                                 |
+| `DOMAIN`            | The public domain (e.g. `stubwise.example.com`), or `localhost` / `:80` to try it locally.              |
+| `PUBLIC_URL`        | The public URL **consistent with `DOMAIN`**, e.g. `https://stubwise.example.com`.                       |
 
-Esempio di `DATABASE_URL` per il deploy (host = `postgres`, **non**
-`localhost`, perché punta al servizio del compose):
+Example `DATABASE_URL` for the deploy (host = `postgres`, **not**
+`localhost`, because it points at the compose service):
 
 ```bash
-DATABASE_URL=postgres://stubwise:LA_TUA_PASSWORD@postgres:5432/stubwise
+DATABASE_URL=postgres://stubwise:YOUR_PASSWORD@postgres:5432/stubwise
 ```
 
-:::caution[`PUBLIC_URL` deve combaciare con `DOMAIN`]
-`PUBLIC_URL` è l'URL con cui Stubwise costruisce i link nei commenti e gli URL
-dei webhook che consegni al provider git. Se non corrisponde a `DOMAIN`, i link
-alle PR e gli endpoint webhook risultano rotti. In produzione usa
+:::caution[`PUBLIC_URL` must match `DOMAIN`]
+`PUBLIC_URL` is the URL Stubwise uses to build the links in comments and the
+webhook URLs it delivers to the git provider. If it doesn't match `DOMAIN`, the
+PR links and the webhook endpoints come out broken. In production use
 `https://<DOMAIN>`.
 :::
 
-L'elenco completo delle variabili, server e worker, è nella
-[reference della configurazione](/docs/reference/configuration/).
+The complete list of variables, server and worker, is in the
+[configuration reference](/docs/reference/configuration/).
 
-## 2. Avvia
+## 2. Start
 
 ```bash
 docker compose up -d --build
 ```
 
-Il server applica le migrazioni del database all'avvio; il worker e Caddy lo
-aspettano sano. Quando è su, apri `https://DOMAIN` nel browser.
+The server applies the database migrations on startup; the worker and Caddy
+wait for it to be healthy. Once it's up, open `https://DOMAIN` in the browser.
 
-## 3. Setup iniziale dalla UI
+## 3. Initial setup from the UI
 
-1. Alla prima apertura crei l'utente **admin**: il primo registrato è admin.
-2. Crei un **progetto**. Dalla pagina del progetto trovi:
-   - il **DSN** per configurare l'SDK nella tua app (vedi
-     [Installazione SDK](/docs/sdk/installation/));
-   - l'URL e il **secret del webhook** git da impostare sul provider
-     (GitHub/Bitbucket) per chiudere i ticket al merge della PR;
-   - le **credenziali git** del repo che il worker userà per clonare e aprire
-     le PR (vengono cifrate a riposo con `ENCRYPTION_KEY`).
+1. On first open you create the **admin** user: the first to register is the admin.
+2. You create a **project**. From the project page you find:
+   - the **DSN** to configure the SDK in your app (see
+     [SDK installation](/docs/sdk/installation/));
+   - the URL and the git **webhook secret** to set on the provider
+     (GitHub/Bitbucket) to close tickets when the PR is merged;
+   - the repo's **git credentials** that the worker will use to clone and open
+     PRs (they are encrypted at rest with `ENCRYPTION_KEY`).
 
-Il giro completo della UI è descritto in [La web app](/docs/getting-started/web-app/).
+The full tour of the UI is described in [The web app](/docs/getting-started/web-app/).
 
-## Note operative
+## Operational notes
 
-Qualche dettaglio utile per chi manda Stubwise in produzione.
+A few useful details for those running Stubwise in production.
 
-### Il server è a singola replica
+### The server is single-replica
 
-Il server applica le migrazioni all'avvio **senza advisory lock**: non
-scalarlo a più repliche, altrimenti due processi proverebbero ad applicare le
-migrazioni in contemporanea. Una sola replica è sufficiente per un deploy
-self-hosted.
+The server applies the migrations on startup **without an advisory lock**: don't
+scale it to multiple replicas, otherwise two processes would try to apply the
+migrations at the same time. A single replica is enough for a self-hosted
+deploy.
 
-### Limiti di risorse del worker
+### Worker resource limits
 
-Un fix dell'agente può durare fino a ~30 minuti e clonare/buildare repository
-grandi. Il compose impone tetti **conservativi e regolabili** al container del
-worker:
+An agent fix can last up to ~30 minutes and clone/build large repositories. The
+compose imposes **conservative and adjustable** caps on the worker container:
 
 ```yaml
 mem_limit: 4g
 cpus: 2
 ```
 
-Senza tetti, un run impazzito affamerebbe `postgres` e `caddy` sullo stesso
-host. Alza o abbassa questi valori in base alla macchina e a
-`WORKER_CONCURRENCY` (vedi [configurazione della pipeline](/docs/ai-pipeline/configuration/)).
+Without caps, a runaway run would starve `postgres` and `caddy` on the same
+host. Raise or lower these values based on the machine and on
+`WORKER_CONCURRENCY` (see [pipeline configuration](/docs/ai-pipeline/configuration/)).
 
-### Rotazione dei log
+### Log rotation
 
-I container usano il driver `json-file` con rotazione già configurata (`max-size:
-10m`, `max-file: 3`, quindi ~30 MB per servizio): senza, i log crescerebbero
-fino a saturare il disco dell'host.
+The containers use the `json-file` driver with rotation already configured (`max-size:
+10m`, `max-file: 3`, so ~30 MB per service): without it, the logs would grow
+until they fill the host's disk.
 
 ## Backup
 
-I dati persistenti vivono in due volumi Docker:
+The persistent data lives in two Docker volumes:
 
-- **`pgdata`** — il database (ticket, progetti, utenti, code dei job): è il dato
-  irrecuperabile, va nel backup.
-- **`mirrors`** — i mirror git dei repository dei progetti: ricostruibili da
-  zero, ma il backup evita un re-clone completo.
+- **`pgdata`** — the database (tickets, projects, users, job queues): it's the
+  unrecoverable data, it goes in the backup.
+- **`mirrors`** — the git mirrors of the project repositories: rebuildable from
+  scratch, but the backup avoids a full re-clone.
 
-Dump del database:
+Database dump:
 
 ```bash
 docker compose exec postgres pg_dump -U stubwise stubwise > backup.sql
 ```
 
-## Aggiornamenti
+## Updates
 
 ```bash
 git pull
 docker compose up -d --build
 ```
 
-Le nuove migrazioni vengono applicate dal server all'avvio.
+New migrations are applied by the server on startup.

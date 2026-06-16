@@ -1,139 +1,141 @@
 ---
-title: Automazione AI
-description: "Triage sempre attivo (tipo + effort + decisione), regole per tipo di ticket, gate auto/in attesa e avvio manuale del fix."
+title: AI automation
+description: "Always-on triage (type + effort + decision), per-ticket-type rules, auto/held gate and manual fix start."
 ---
 
-L'automazione decide **se e quando** la pipeline AI prova a risolvere un ticket
-da sola. Una prima fase di **triage gira sempre**; il **fix** parte in automatico
-solo se le regole che imposti in **Impostazioni → Automazione AI** lo consentono,
-altrimenti il job resta **in attesa** e puoi avviarlo a mano.
+Automation decides **whether and when** the AI pipeline tries to resolve a
+ticket on its own. A first **triage phase always runs**; the **fix** starts
+automatically only if the rules you set in **Settings → AI Automation** allow
+it, otherwise the job stays **held** and you can start it by hand.
 
-## Il triage gira sempre
+## Triage always runs
 
-Per ogni ticket che entra in coda, la pipeline esegue un **triage** con il
-modello economico **haiku** (vedi [Come funziona](/docs/ai-pipeline/how-it-works/)).
-Il triage fa tre cose:
+For every ticket that enters the queue, the pipeline runs a **triage** with the
+cheap **haiku** model (see [How it works](/docs/ai-pipeline/how-it-works/)).
+Triage does three things:
 
-1. **Valida e ri-classifica il tipo.** Non si fida del tipo in arrivo: decide lui
-   se il ticket è `bug`, `feature`, `task` o `feedback`. È il tipo
-   ri-classificato a contare per le regole di automazione qui sotto.
-2. **Stima l'effort**, su una scala da **1 a 5**, salvata sul ticket:
+1. **Validates and re-classifies the type.** It doesn't trust the incoming type:
+   it decides itself whether the ticket is `bug`, `feature`, `task` or
+   `feedback`. It's the re-classified type that counts for the automation rules
+   below.
+2. **Estimates the effort**, on a scale from **1 to 5**, saved on the ticket:
 
-   | Effort | Etichetta    |
+   | Effort | Label        |
    | ------ | ------------ |
-   | 1      | Banale       |
-   | 2      | Piccolo      |
-   | 3      | Medio        |
-   | 4      | Grande       |
-   | 5      | Molto grande |
+   | 1      | Trivial      |
+   | 2      | Small        |
+   | 3      | Medium       |
+   | 4      | Large        |
+   | 5      | Very large   |
 
-3. **Decide** una di tre azioni: **`fix`** (azionabile, vale la pena provare),
-   **`skip`** (vago o da giudizio umano) o **`duplicate`** (stessa causa radice
-   di un ticket recente).
+3. **Decides** one of three actions: **`fix`** (actionable, worth trying),
+   **`skip`** (vague or needing human judgment) or **`duplicate`** (same root
+   cause as a recent ticket).
 
-Su `skip` e `duplicate` il job si chiude lì, con un commento `ai` che spiega il
-motivo. Solo su `fix` entra in gioco il gate.
+On `skip` and `duplicate` the job closes there, with an `ai` comment explaining
+the reason. Only on `fix` does the gate come into play.
 
-## Regole per tipo (Impostazioni → Automazione AI)
+## Per-type rules (Settings → AI Automation)
 
-In **Impostazioni → Automazione AI** (solo admin) configuri, per ciascuno dei
-quattro tipi di ticket, tre parametri:
+In **Settings → AI Automation** (admin only) you configure, for each of the four
+ticket types, three parameters:
 
-- **Auto-fix** (on/off): se la pipeline può avviare il fix da sola per quel tipo.
-- **Soglia effort** (`maxEffort`, 1–5): l'effort massimo per cui il fix parte in
-  automatico.
-- **Approvazione piano da effort ≥** (`Mai`, oppure 1–5): la soglia oltre la
-  quale il fix si ferma a far approvare il piano da un umano prima di scrivere
-  codice. Vedi [Approvazione del piano](#approvazione-del-piano) qui sotto.
+- **Auto-fix** (on/off): whether the pipeline can start the fix on its own for
+  that type.
+- **Effort threshold** (`maxEffort`, 1–5): the maximum effort for which the fix
+  starts automatically.
+- **Plan approval from effort ≥** (`Never`, or 1–5): the threshold beyond which
+  the fix stops to have a human approve the plan before writing code. See
+  [Plan approval](#plan-approval) below.
 
-I valori di default seminati sono:
+The seeded default values are:
 
-| Tipo       | Auto-fix | Soglia effort |
-| ---------- | -------- | ------------- |
-| `bug`      | on       | ≤ 3 (Medio)   |
-| `task`     | on       | ≤ 2 (Piccolo) |
-| `feature`  | off      | —             |
-| `feedback` | off      | —             |
+| Type       | Auto-fix | Effort threshold |
+| ---------- | -------- | ---------------- |
+| `bug`      | on       | ≤ 3 (Medium)     |
+| `task`     | on       | ≤ 2 (Small)      |
+| `feature`  | off      | —                |
+| `feedback` | off      | —                |
 
-L'idea: lascia che l'AI gestisca da sola i bug e i task piccoli, e tieni le
-feature e i feedback alla revisione umana.
+The idea: let the AI handle bugs and small tasks on its own, and keep features
+and feedback for human review.
 
-## Il gate: parte da solo o resta in attesa
+## The gate: starts on its own or stays held
 
-Quando il triage decide **`fix`**, il fix parte **in automatico solo se**:
+When triage decides **`fix`**, the fix starts **automatically only if**:
 
-- il tipo (ri-classificato) ha **auto-fix ON**, **e**
-- l'effort stimato è **≤ la soglia** di quel tipo.
+- the (re-classified) type has **auto-fix ON**, **and**
+- the estimated effort is **≤ the threshold** of that type.
 
-Se entrambe le condizioni valgono, il job avanza a `fixing` e prosegue da solo.
+If both conditions hold, the job advances to `fixing` and proceeds on its own.
 
-Altrimenti il job resta **in attesa (held)**: il ticket va in stato `triaged`,
-con un commento `ai` che spiega perché non è partito (auto-fix off, oppure effort
-sopra soglia). Niente è perso: il triage è già stato fatto e il ticket porta il
-tipo e l'effort stimati. Un job in attesa fa anche scattare l'evento
-[`job.held`](/docs/notifications/) se hai configurato le notifiche.
+Otherwise the job stays **held**: the ticket goes to the `triaged` state, with
+an `ai` comment explaining why it didn't start (auto-fix off, or effort above
+threshold). Nothing is lost: the triage has already been done and the ticket
+carries the estimated type and effort. A held job also fires the
+[`job.held`](/docs/notifications/) event if you have configured notifications.
 
-### Un esempio
+### An example
 
-Con il default per i bug (auto-fix on, soglia 3):
+With the default for bugs (auto-fix on, threshold 3):
 
-- **un bug a effort 3** rientra nella soglia → il fix **parte da solo**;
-- **un bug a effort 4** supera la soglia → il job **resta in attesa**, in stato
-  `triaged`, in attesa di una decisione umana.
+- **a bug at effort 3** falls within the threshold → the fix **starts on its own**;
+- **a bug at effort 4** exceeds the threshold → the job **stays held**, in the
+  `triaged` state, awaiting a human decision.
 
-## Avvio manuale: "Avvia fix AI"
+## Manual start: "Start AI fix"
 
-Sul dettaglio di un ticket rimasto **in attesa** compare il pulsante **"Avvia fix
-AI"**: lo lanci a mano e il fix parte **bypassando il gate** (ignora auto-fix e
-soglia). È il modo per dare il via libera caso per caso, senza allentare le
-regole generali — utile per una feature che hai valutato tu, o per un bug
-grande che vuoi comunque far tentare all'AI.
+On the detail of a ticket that stayed **held**, the **"Start AI fix"** button
+appears: you launch it by hand and the fix starts **bypassing the gate** (it
+ignores auto-fix and threshold). It's the way to give the go-ahead case by case,
+without loosening the general rules — useful for a feature you've assessed
+yourself, or for a large bug you still want the AI to attempt.
 
-## Approvazione del piano
+## Plan approval
 
-Per ogni tipo di ticket puoi pretendere che, **oltre una certa difficoltà**, un
-umano approvi il piano dell'AI prima che questa tocchi il codice. Lo imposti con
-la soglia **"Approvazione piano da effort ≥"**: `Mai` (default: nessun gate),
-oppure un valore da **1 a 5**.
+For each ticket type you can require that, **beyond a certain difficulty**, a
+human approve the AI's plan before it touches the code. You set it with the
+**"Plan approval from effort ≥"** threshold: `Never` (default: no gate), or a
+value from **1 to 5**.
 
-Se per il tipo del ticket la soglia è impostata e **l'effort stimato la
-raggiunge**, il fix esegue **solo la fase di pianificazione** (Opus, sola
-lettura) e poi **si ferma**:
+If the threshold is set for the ticket's type and **the estimated effort reaches
+it**, the fix runs **only the planning phase** (Opus, read-only) and then
+**stops**:
 
-- il **piano** viene salvato e mostrato come commento `ai` sul ticket;
-- il job va in stato **`awaiting_plan_approval`**;
-- il ticket passa a **`in_progress`**;
-- scatta l'evento [`job.plan_review`](/docs/notifications/) (se configurato).
+- the **plan** is saved and shown as an `ai` comment on the ticket;
+- the job goes to the **`awaiting_plan_approval`** state;
+- the ticket moves to **`in_progress`**;
+- the [`job.plan_review`](/docs/notifications/) event fires (if configured).
 
-Sul dettaglio del ticket compaiono i pulsanti **Approva** / **Rifiuta**:
+On the ticket detail the **Approve** / **Reject** buttons appear:
 
-- **Approva** → il job riprende in **modalità esecuzione**, usando
-  **esattamente il piano approvato** (Sonnet esegue, niente ri-pianificazione),
-  poi commit, push e PR come di consueto.
-- **Rifiuta** → il job **torna a pianificare** (il piano salvato viene scartato)
-  incorporando i tuoi commenti come guida, e **si ferma di nuovo** in attesa di
-  approvazione. Per indirizzare la nuova pianificazione, **scrivi un commento**
-  con cosa correggere **prima** di premere Rifiuta.
+- **Approve** → the job resumes in **execution mode**, using **exactly the
+  approved plan** (Sonnet executes, no re-planning), then commit, push and PR as
+  usual.
+- **Reject** → the job **goes back to planning** (the saved plan is discarded)
+  incorporating your comments as guidance, and **stops again** awaiting
+  approval. To steer the new planning, **write a comment** with what to fix
+  **before** pressing Reject.
 
-:::note[Ortogonale all'avvio manuale]
-Il gate di approvazione è **indipendente** da come è partito il fix: un fix
-rischioso richiede l'approvazione del piano **anche se l'hai avviato a mano** con
-"Avvia fix AI". Le due soglie hanno scopi diversi: `maxEffort` decide se il fix
-parte da solo, "Approvazione piano da effort ≥" decide se il fix si ferma a far
-rivedere il piano.
+:::note[Orthogonal to the manual start]
+The approval gate is **independent** of how the fix started: a risky fix
+requires plan approval **even if you started it by hand** with "Start AI fix".
+The two thresholds have different purposes: `maxEffort` decides whether the fix
+starts on its own, "Plan approval from effort ≥" decides whether the fix stops
+to have the plan reviewed.
 :::
 
-## Come si lega al fix in due fasi e ai costi
+## How it ties to the two-phase fix and to costs
 
-Una volta che il fix parte — in automatico o a mano — segue la pipeline normale.
-Per default il fix è **in due fasi** per contenere i costi: **Opus pianifica in
-sola lettura** e **Sonnet esegue** (scrive il codice, i test e il report). Il
-dettaglio della procedura è in [Come funziona](/docs/ai-pipeline/how-it-works/);
-le variabili `FIX_*` che regolano modelli, timeout e il toggle delle due fasi
-sono nella [Configurazione](/docs/ai-pipeline/configuration/).
+Once the fix starts — automatically or by hand — it follows the normal pipeline.
+By default the fix is **two-phase** to contain costs: **Opus plans read-only**
+and **Sonnet executes** (writes the code, the tests and the report). The detail
+of the procedure is in [How it works](/docs/ai-pipeline/how-it-works/);
+the `FIX_*` variables that govern models, timeouts and the two-phase toggle are
+in [Configuration](/docs/ai-pipeline/configuration/).
 
-I **token e il costo** sono tracciati **per ticket** e **per modello** (righe
-`agent_runs` distinte per triage, pianificazione ed esecuzione): sul dettaglio
-del ticket il pannello **"Consumi AI"** mostra quanto è costato ciascuno stadio.
-Così l'effort stimato non è solo un filtro per il gate, ma anche una lente per
-leggere a posteriori la spesa.
+The **tokens and the cost** are tracked **per ticket** and **per model**
+(distinct `agent_runs` rows for triage, planning and execution): on the ticket
+detail the **"AI usage"** panel shows how much each stage cost. So the estimated
+effort isn't just a filter for the gate, but also a lens to read the spend
+after the fact.

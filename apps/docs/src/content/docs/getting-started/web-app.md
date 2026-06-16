@@ -1,86 +1,85 @@
 ---
-title: La web app
-description: Setup admin, inviti, progetti, board Kanban e dettaglio ticket con la timeline dei job AI.
+title: The web app
+description: Admin setup, invites, projects, Kanban board and ticket detail with the AI job timeline.
 ---
 
-La web app è una SPA React servita da Caddy. Questa guida la percorre dal primo
-accesso ai ticket.
+The web app is a React SPA served by Caddy. This guide walks through it from
+the first login to the tickets.
 
-## Primo accesso: l'admin
+## First login: the admin
 
-Alla prima apertura, finché non esiste nessun utente, Stubwise mostra la pagina
-di **setup**: il primo utente che si registra diventa **admin**. Una volta
-creato l'admin, la pagina di setup sparisce e ci si autentica dal **login**.
+On first open, while no user exists yet, Stubwise shows the **setup** page: the
+first user who registers becomes the **admin**. Once the admin is created, the
+setup page disappears and you authenticate from the **login**.
 
-## Invitare altri membri
+## Inviting other members
 
-Solo gli admin possono invitare. Da **Settings → Inviti**:
+Only admins can invite. From **Settings → Invites**:
 
-1. inserisci l'email della persona da invitare e crea l'invito;
-2. Stubwise genera un **link di registrazione** con un token, nella forma
+1. enter the email of the person to invite and create the invite;
+2. Stubwise generates a **registration link** with a token, in the form
    `https://DOMAIN/register?token=...`;
-3. **copia il link e consegnalo tu** (email, chat, fuori banda): il token
-   compare **una sola volta**, qui.
+3. **copy the link and deliver it yourself** (email, chat, out of band): the
+   token appears **only once**, here.
 
-Chi apre il link arriva alla pagina di registrazione già associata
-all'invito e completa l'iscrizione. Gli utenti invitati hanno ruolo **member**
-(non admin): vedono la configurazione dei progetti in sola lettura e non possono
-crearne di nuovi.
+Whoever opens the link lands on the registration page already associated with
+the invite and completes the sign-up. Invited users have the **member** role
+(not admin): they see the project configuration read-only and cannot create new
+ones.
 
-## Creare un progetto
+## Creating a project
 
-Un progetto lega Stubwise a **un repository git**. Dal menu **Progetti → Nuovo**
-(solo admin) imposti:
+A project ties Stubwise to **one git repository**. From the **Projects → New**
+menu (admin only) you set:
 
-- **nome** e **slug** (lo slug entra nel DSN dell'SDK);
-- **provider** git: `github` o `bitbucket`;
-- **URL del repository** e **branch di default**;
-- le **credenziali git** (username/token) che il worker userà per clonare e
-  aprire le PR. Vengono **cifrate a riposo** con `ENCRYPTION_KEY` e non sono mai
-  rimostrate in chiaro.
+- **name** and **slug** (the slug goes into the SDK's DSN);
+- git **provider**: `github` or `bitbucket`;
+- **repository URL** and **default branch**;
+- the **git credentials** (username/token) the worker will use to clone and open
+  PRs. They are **encrypted at rest** with `ENCRYPTION_KEY` and are never shown
+  again in clear text.
 
-Nella pagina del progetto, la sezione **Integrazione** (visibile anche ai
-member, perché integrare l'SDK non richiede privilegi) mostra **chiave di
-ingestion**, **DSN** e uno **snippet `init()`** pronto da copiare. Per gli admin
-compare anche la sezione **Webhook** con URL e secret HMAC da configurare sul
-provider git: alla merge della PR il ticket passa a `done`.
+On the project page, the **Integration** section (visible to members too,
+because integrating the SDK requires no privileges) shows the **ingestion key**,
+the **DSN** and an **`init()` snippet** ready to copy. For admins there's also a
+**Webhook** section with the URL and the HMAC secret to configure on the git
+provider: when the PR is merged the ticket moves to `done`.
 
-## La board Kanban
+## The Kanban board
 
-La board mostra una colonna per ogni stato del ciclo di vita di un ticket, in
-ordine:
+The board shows a column for each state of a ticket's lifecycle, in order:
 
 `open` → `triaged` → `in_progress` → `in_review` → `done` → `closed`
 
-Trascini una card da una colonna all'altra (drag-and-drop) per cambiarne lo
-stato; un click sulla card apre il dettaglio. Un filtro per progetto vive nei
-parametri dell'URL, così la vista è condivisibile.
+You drag a card from one column to another (drag-and-drop) to change its state;
+a click on the card opens the detail. A per-project filter lives in the URL
+parameters, so the view is shareable.
 
-## Creare un ticket a mano
+## Creating a ticket by hand
 
-Il pulsante **Nuovo ticket** apre un dialog con:
+The **New ticket** button opens a dialog with:
 
-- **titolo** (obbligatorio);
-- **progetto** di destinazione;
-- **tipo**: `bug`, `feature`, `task` o `feedback`;
-- **priorità**: `low`, `medium`, `high` o `urgent`;
-- **descrizione** (body, opzionale).
+- **title** (required);
+- target **project**;
+- **type**: `bug`, `feature`, `task` or `feedback`;
+- **priority**: `low`, `medium`, `high` or `urgent`;
+- **description** (body, optional).
 
-I ticket creati a mano hanno source `manual`. Quelli che arrivano dall'SDK
-hanno source `sdk_error` o `sdk_feedback`; quelli creati via API `api`.
+Tickets created by hand have source `manual`. Those arriving from the SDK have
+source `sdk_error` or `sdk_feedback`; those created via API have `api`.
 
-## Il dettaglio del ticket
+## The ticket detail
 
-La pagina di dettaglio raccoglie tutto ciò che riguarda un ticket:
+The detail page gathers everything about a ticket:
 
-- il **payload tecnico** dell'errore (messaggio, stack trace, URL, release,
-  breadcrumb), quando il ticket viene da un errore catturato dall'SDK;
-- i **commenti**, sia umani sia dell'AI (un commento `ai` annota le decisioni
-  della pipeline: skip, duplicato, oppure il link alla PR aperta);
-- la **timeline dei job AI**: ogni job mostra stato e log, così segui triage e
-  fix passo per passo.
+- the **technical payload** of the error (message, stack trace, URL, release,
+  breadcrumbs), when the ticket comes from an error captured by the SDK;
+- the **comments**, both human and AI (an `ai` comment annotates the pipeline's
+  decisions: skip, duplicate, or the link to the opened PR);
+- the **AI job timeline**: each job shows status and logs, so you follow triage
+  and fix step by step.
 
-Quando la pipeline AI apre una pull request, il ticket passa a `in_review` e nel
-dettaglio compare un commento `ai` con il link alla PR e il report. Alla merge
-della PR — se il webhook git è configurato — il ticket passa automaticamente a
-`done`.
+When the AI pipeline opens a pull request, the ticket moves to `in_review` and
+an `ai` comment with the link to the PR and the report appears in the detail.
+When the PR is merged — if the git webhook is configured — the ticket
+automatically moves to `done`.

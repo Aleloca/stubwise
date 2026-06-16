@@ -1,58 +1,58 @@
 ---
-title: Ticket via API
-description: Crea ticket strutturati direttamente con createTicket, dall'SDK browser o Node.
+title: Tickets via API
+description: Create structured tickets directly with createTicket, from the browser or Node SDK.
 ---
 
-A volte non vuoi catturare un errore né un feedback, ma creare un **ticket
-strutturato** direttamente: una segnalazione che la tua app genera in modo
-programmatico. È quello che fa `createTicket`.
+Sometimes you don't want to capture an error or feedback, but to create a
+**structured ticket** directly: a report your app generates programmatically.
+That's what `createTicket` does.
 
 ## `createTicket`
 
-Disponibile in browser e in Node:
+Available in the browser and in Node:
 
 ```js
 import { createTicket } from "@stubwise/sdk/browser";
 
 createTicket({
-  title: "Export PDF fallito per ordini > 1000 righe",
-  body: "Si verifica solo sugli ordini con molte righe. Da indagare il timeout del renderer.",
+  title: "PDF export failed for orders > 1000 rows",
+  body: "Happens only on orders with many rows. Investigate the renderer timeout.",
   type: "bug",        // "bug" | "feature" | "task" | "feedback"
   priority: "high",   // "low" | "medium" | "high" | "urgent" (default: "medium")
 });
 ```
 
-| Campo      | Tipo     | Obbligatorio | Valori                                          |
-| ---------- | -------- | ------------ | ----------------------------------------------- |
-| `title`    | `string` | Sì           | Il titolo del ticket. Un titolo vuoto è scartato (con un warning). |
-| `body`     | `string` | No           | La descrizione.                                 |
-| `type`     | `TicketType` | Sì       | `bug`, `feature`, `task` o `feedback`.          |
-| `priority` | `TicketPriority` | No   | `low`, `medium`, `high`, `urgent`. Default `medium`. |
+| Field      | Type     | Required | Values                                          |
+| ---------- | -------- | -------- | ----------------------------------------------- |
+| `title`    | `string` | Yes      | The ticket title. An empty title is discarded (with a warning). |
+| `body`     | `string` | No       | The description.                                |
+| `type`     | `TicketType` | Yes  | `bug`, `feature`, `task` or `feedback`.         |
+| `priority` | `TicketPriority` | No | `low`, `medium`, `high`, `urgent`. Default `medium`. |
 
-I ticket creati così hanno source `api`.
+Tickets created this way have source `api`.
 
-## Quando usarlo
+## When to use it
 
-- una **segnalazione automatica** dalla tua app o da un job batch (es. "il
-  riconciliatore notturno ha trovato N record incoerenti");
-- un punto di **"segnala un problema"** in cui l'utente sceglie tipo e priorità;
-- l'integrazione con un tuo flusso interno che vuole aprire ticket senza passare
-  dalla web app.
+- an **automatic report** from your app or a batch job (e.g. "the nightly
+  reconciler found N inconsistent records");
+- a **"report a problem"** point where the user chooses type and priority;
+- the integration with an internal flow of yours that wants to open tickets
+  without going through the web app.
 
-Se invece vuoi solo registrare un crash, usa
-[`captureError`](/docs/sdk/error-capture/); per un messaggio libero di un utente,
+If instead you just want to log a crash, use
+[`captureError`](/docs/sdk/error-capture/); for a free-form message from a user,
 [`captureFeedback`](/docs/sdk/feedback/).
 
-## Robustezza
+## Robustness
 
-Come gli altri metodi, `createTicket` **non lancia mai** nell'app ospite e
-accoda l'evento per il prossimo flush. Se l'SDK non è ancora stato inizializzato
-con `init()`, la chiamata è un no-op con un singolo warning.
+Like the other methods, `createTicket` **never throws** in the host app and
+enqueues the event for the next flush. If the SDK hasn't been initialized yet
+with `init()`, the call is a no-op with a single warning.
 
-## E l'API HTTP "vera"?
+## And the "real" HTTP API?
 
-`createTicket` passa per l'**endpoint di ingestion** (`/ingest/:slug`,
-autenticato con la chiave di ingestion): è la via pensata per i client. Esiste
-anche un'API HTTP completa e autenticata a sessione per gestire ticket,
-progetti, commenti e job dalla web app o da script con privilegi: è documentata
-nella [reference dell'API](/docs/reference/api/).
+`createTicket` goes through the **ingestion endpoint** (`/ingest/:slug`,
+authenticated with the ingestion key): it's the path meant for clients. There's
+also a complete, session-authenticated HTTP API to manage tickets, projects,
+comments and jobs from the web app or from privileged scripts: it's documented
+in the [API reference](/docs/reference/api/).

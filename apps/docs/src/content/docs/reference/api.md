@@ -1,47 +1,48 @@
 ---
-title: API HTTP
-description: La superficie HTTP del server, generata dagli schemi Zod delle route.
+title: HTTP API
+description: The server's HTTP surface, generated from the routes' Zod schemas.
 ---
 
-Il server espone un'API HTTP completa, usata dalla web app e disponibile per
-script con privilegi. La spec **OpenAPI 3.1** è **derivata automaticamente dagli
-schemi Zod** delle route: è sempre allineata al codice.
+The server exposes a complete HTTP API, used by the web app and available for
+privileged scripts. The **OpenAPI 3.1** spec is **automatically derived from the
+routes' Zod schemas**: it's always aligned with the code.
 
-## Pagine di riferimento generate
+## Generated reference pages
 
-Le pagine dettagliate degli endpoint, raggruppate per tag, sono generate dalla
-spec OpenAPI e compaiono nella sidebar sotto questo gruppo (**API HTTP**). Lì
-trovi, per ogni endpoint, metodo, path, parametri, schema di richiesta e di
-risposta.
+The detailed endpoint pages, grouped by tag, are generated from the OpenAPI spec
+and appear in the sidebar under this group (**HTTP API**). There you find, for
+each endpoint, the method, path, parameters, request schema and response schema.
 
-## La spec OpenAPI
+## The OpenAPI spec
 
-Il server pubblica la spec come documento JSON puro su:
+The server publishes the spec as a plain JSON document at:
 
 ```
 GET /api/openapi.json
 ```
 
-Questa rotta non richiede un database e risponde anche a server appena avviato.
-La documentazione che stai leggendo genera la spec **a build time**, importando
-`buildApp()` dal server e dumpando `app.swagger()` su file, così le pagine
-dell'API restano sincronizzate con il codice ad ogni build.
+This route doesn't require a database and responds even on a freshly started
+server. The documentation you're reading generates the spec **at build time**,
+importing `buildApp()` from the server and dumping `app.swagger()` to a file, so
+the API pages stay in sync with the code on every build.
 
-## Autenticazione
+## Authentication
 
-L'API sotto `/api/*` è autenticata **a sessione** (cookie firmato), come la web
-app. Le superfici pubbliche per gli SDK e i provider git sono fuori da `/api`:
+The API under `/api/*` is **session**-authenticated (signed cookie), like the
+web app. The public surfaces for the SDKs and the git providers are outside
+`/api`:
 
-- **`/ingest/:slug`** — ingestion degli eventi dagli SDK, autenticata con la
-  **chiave di ingestion** nell'header `X-Stubwise-Key` (vedi
-  [Installazione SDK](/docs/sdk/installation/));
-- **`/webhooks/*`** — webhook git dei provider, autenticati con **firma HMAC**.
+- **`/ingest/:slug`** — event ingestion from the SDKs, authenticated with the
+  **ingestion key** in the `X-Stubwise-Key` header (see
+  [SDK installation](/docs/sdk/installation/));
+- **`/webhooks/*`** — git webhooks from the providers, authenticated with an
+  **HMAC signature**.
 
 ## Rate limiting
 
-Due superfici hanno un rate limit di default (store in-memory, adatto a un
-deploy a singola istanza):
+Two surfaces have a default rate limit (in-memory store, suitable for a
+single-instance deploy):
 
-- **login/register**: 10 richieste al minuto per IP (argon2 è deliberatamente
-  costoso; senza limite sarebbe un vettore di DoS);
-- **ingestion**: 300 richieste al minuto per chiave di ingestion.
+- **login/register**: 10 requests per minute per IP (argon2 is deliberately
+  expensive; without a limit it would be a DoS vector);
+- **ingestion**: 300 requests per minute per ingestion key.

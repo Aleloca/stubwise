@@ -1,9 +1,9 @@
 ---
 /**
- * Override del SiteTitle di Starlight: rende il wordmark di Stubwise al posto
- * del titolo testuale. Replica `apps/web/src/components/wordmark.tsx` —
- * quadrato ambra + "stubwise" minuscolo in IBM Plex Mono semibold + cursore
- * ambra lampeggiante. `siteTitleHref` rispetta già l'Astro `base` (/docs).
+ * Override of Starlight's SiteTitle: renders the Stubwise wordmark instead of
+ * the text title. Replicates `apps/web/src/components/wordmark.tsx` —
+ * amber square + lowercase "stubwise" in IBM Plex Mono semibold + blinking
+ * amber cursor. `siteTitleHref` already respects the Astro `base` (/docs).
  */
 import "@fontsource/ibm-plex-mono/600.css";
 
@@ -56,7 +56,7 @@ const { siteTitleHref, siteTitle } = Astro.locals.starlightRoute;
     }
   }
 
-  /* Rispetta chi preferisce meno animazioni: cursore fisso e visibile. */
+  /* Respects users who prefer less animation: fixed, visible cursor. */
   @media (prefers-reduced-motion: reduce) {
     .cursor {
       animation: none;

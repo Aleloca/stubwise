@@ -3,18 +3,18 @@ import starlight from "@astrojs/starlight";
 import { defineConfig } from "astro/config";
 import starlightOpenAPI, { openAPISidebarGroups } from "starlight-openapi";
 
-// Servito da Caddy sotto /docs (handle_path /docs/* strippa il prefisso e
-// serve la root statica): `base: "/docs"` fa sì che asset e link interni
-// siano già prefissati con /docs, coerenti con il path esterno. Vedi
-// Dockerfile.caddy e Caddyfile.
-// DOCS_BASE/DOCS_SITE permettono deploy sotto un prefisso diverso, es.
-// GitHub Pages serve il sito sotto /stubwise (vedi .github/workflows/docs.yml).
+// Served by Caddy under /docs (handle_path /docs/* strips the prefix and
+// serves the static root): `base: "/docs"` makes assets and internal links
+// already prefixed with /docs, consistent with the external path. See
+// Dockerfile.caddy and Caddyfile.
+// DOCS_BASE/DOCS_SITE allow deploying under a different prefix, e.g.
+// GitHub Pages serves the site under /stubwise (see .github/workflows/docs.yml).
 const base = process.env.DOCS_BASE ?? "/docs";
 
-// I contenuti scrivono i link interni con il prefisso del deploy primario
-// (/docs/...): quando il base è diverso vanno riscritti nell'HTML generato.
-// I link della hero in frontmatter non passano da rehype: li gestisce il
-// routeMiddleware (src/route-data.ts).
+// The content writes internal links with the primary deploy's prefix
+// (/docs/...): when the base is different they must be rewritten in the
+// generated HTML. The hero links in frontmatter don't pass through rehype: the
+// routeMiddleware (src/route-data.ts) handles them.
 /** @typedef {{ properties?: Record<string, unknown>, children?: unknown[] }} RehypeNode */
 function rehypeRebaseLinks() {
   /** @param {RehypeNode} node */
@@ -40,23 +40,23 @@ export default defineConfig({
   markdown: {
     rehypePlugins: base === "/docs" ? [] : [rehypeRebaseLinks],
   },
-  // Necessario per generare link assoluti corretti (es. canonical) ma non
-  // vincola il deploy: i path restano relativi a `base`.
+  // Needed to generate correct absolute links (e.g. canonical) but doesn't
+  // constrain the deploy: the paths stay relative to `base`.
   site: process.env.DOCS_SITE ?? "https://stubwise.example.com",
   integrations: [
     starlight({
       routeMiddleware: "./src/route-data.ts",
-      // Il titolo del sito è reso come wordmark di Stubwise (quadrato ambra +
-      // "stubwise" mono + cursore lampeggiante): vedi SiteTitle.astro. `title`
-      // resta per metadati/SEO (tab del browser, canonical, og:title).
+      // The site title is rendered as the Stubwise wordmark (amber square +
+      // "stubwise" mono + blinking cursor): see SiteTitle.astro. `title`
+      // stays for metadata/SEO (browser tab, canonical, og:title).
       components: {
         SiteTitle: "./src/components/SiteTitle.astro",
       },
       title: "Stubwise",
-      // Favicon condivisa con la web app: la "S_" ambra su quadrato scuro.
-      // Starlight prefissa automaticamente con `base`. Il PNG (fallback per i
-      // browser senza SVG) e l'apple-touch-icon vanno aggiunti a mano in head,
-      // con il prefisso del base esplicito.
+      // Favicon shared with the web app: the amber "S_" on a dark square.
+      // Starlight automatically prefixes with `base`. The PNG (fallback for
+      // browsers without SVG) and the apple-touch-icon must be added by hand in
+      // head, with the explicit base prefix.
       favicon: "/favicon.svg",
       head: [
         {
@@ -69,10 +69,10 @@ export default defineConfig({
         },
       ],
       description:
-        "Issue tracker self-hostabile con pipeline AI: dagli errori degli SDK ai ticket, fino alle pull request automatiche.",
-      defaultLocale: "it",
+        "Self-hostable issue tracker with an AI pipeline: from SDK errors to tickets, all the way to automatic pull requests.",
+      defaultLocale: "en",
       locales: {
-        root: { label: "Italiano", lang: "it" },
+        root: { label: "English", lang: "en" },
       },
       social: [
         {
@@ -82,52 +82,52 @@ export default defineConfig({
         },
       ],
       plugins: [
-        // Pagina di riferimento dell'API generata dalla spec OpenAPI del
-        // server (src/openapi.json, prodotta dal prebuild gen:openapi).
-        // base "reference/api" la annida nel gruppo Reference della sidebar.
+        // API reference page generated from the server's OpenAPI spec
+        // (src/openapi.json, produced by the gen:openapi prebuild).
+        // base "reference/api" nests it in the sidebar's Reference group.
         starlightOpenAPI([
           {
             base: "reference/api",
-            label: "API HTTP",
+            label: "HTTP API",
             schema: "./src/openapi.json",
           },
         ]),
       ],
       sidebar: [
         {
-          label: "Per iniziare",
+          label: "Getting started",
           items: [
             { label: "Self-hosting", slug: "getting-started/self-hosting" },
-            { label: "Auth del worker (Claude)", slug: "getting-started/claude-setup" },
-            { label: "La web app", slug: "getting-started/web-app" },
+            { label: "Worker auth (Claude)", slug: "getting-started/claude-setup" },
+            { label: "The web app", slug: "getting-started/web-app" },
           ],
         },
         {
           label: "SDK",
           items: [
-            { label: "Installazione", slug: "sdk/installation" },
-            { label: "Cattura degli errori", slug: "sdk/error-capture" },
+            { label: "Installation", slug: "sdk/installation" },
+            { label: "Error capture", slug: "sdk/error-capture" },
             { label: "Feedback", slug: "sdk/feedback" },
-            { label: "Ticket via API", slug: "sdk/api-tickets" },
+            { label: "Tickets via API", slug: "sdk/api-tickets" },
           ],
         },
         {
-          label: "Pipeline AI",
+          label: "AI pipeline",
           items: [
-            { label: "Come funziona", slug: "ai-pipeline/how-it-works" },
-            { label: "Automazione", slug: "ai-pipeline/automation" },
-            { label: "Configurazione", slug: "ai-pipeline/configuration" },
-            { label: "Sicurezza", slug: "ai-pipeline/security" },
+            { label: "How it works", slug: "ai-pipeline/how-it-works" },
+            { label: "Automation", slug: "ai-pipeline/automation" },
+            { label: "Configuration", slug: "ai-pipeline/configuration" },
+            { label: "Security", slug: "ai-pipeline/security" },
           ],
         },
         {
-          label: "Notifiche",
-          items: [{ label: "Webhook in uscita", slug: "notifications" }],
+          label: "Notifications",
+          items: [{ label: "Outgoing webhook", slug: "notifications" }],
         },
         {
           label: "Reference",
           items: [
-            { label: "Variabili d'ambiente", slug: "reference/configuration" },
+            { label: "Environment variables", slug: "reference/configuration" },
             ...openAPISidebarGroups,
           ],
         },
