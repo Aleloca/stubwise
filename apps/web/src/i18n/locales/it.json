@@ -679,10 +679,11 @@
     "saving": "Salvataggio…",
     "cancel": "Annulla",
     "apply": "Applica",
+    "edit": "Modifica",
     "delete": "Elimina",
     "confirmDelete": "Confermi?",
     "shared": "Condivisa",
-    "ownedBy": "Condivisa da {{owner}}",
+    "sharedByTeammate": "Condivisa da un membro del team",
     "nameExists": "Esiste già una vista salvata con questo nome",
     "saveFailed": "Salvataggio della vista fallito"
   }

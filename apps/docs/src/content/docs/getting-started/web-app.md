@@ -151,10 +151,13 @@ above the filters.
 
 A view is **private to its owner** by default. Tick **Share** when saving to
 make it a **team view**: shared views are visible and applicable to everyone,
-but only the **owner** can edit or delete them. Your own views are listed first;
-your shared ones carry a **Shared** badge, and views shared by others show who
-owns them. You remove your own views with a two-click confirm; you can't delete
-someone else's shared view, only apply it.
+but only the **owner** can edit or delete them. On your own views an **Edit**
+action opens an inline editor where you can **rename** the view and toggle
+whether it's **shared with the team**; **Save** applies the change (renaming or
+sharing leaves the saved filters untouched). Your own shared views carry a
+**Shared** badge, while views shared by others are marked **Shared by a
+teammate**. You remove your own views with a two-click confirm; someone else's
+shared view is **apply-only** — you can't edit or delete it.
 
 ## The ticket detail
 

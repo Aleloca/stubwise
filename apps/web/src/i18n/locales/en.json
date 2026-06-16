@@ -679,10 +679,11 @@
     "saving": "Saving…",
     "cancel": "Cancel",
     "apply": "Apply",
+    "edit": "Edit",
     "delete": "Delete",
     "confirmDelete": "Confirm?",
     "shared": "Shared",
-    "ownedBy": "Shared by {{owner}}",
+    "sharedByTeammate": "Shared by a teammate",
     "nameExists": "A saved view with this name already exists",
     "saveFailed": "Failed to save the view"
   }

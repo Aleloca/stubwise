@@ -1,7 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { createSavedView, deleteSavedView, type SavedView, type SavedViewFilters } from "../lib/api";
+import {
+  createSavedView,
+  deleteSavedView,
+  updateSavedView,
+  type SavedView,
+  type SavedViewFilters,
+} from "../lib/api";
 import { savedViewsQueryOptions } from "../lib/queries";
 import { translateApiError } from "../lib/translate-api-error";
 import { FormError } from "./field";
@@ -127,6 +133,7 @@ function SavedViewItem({
 }) {
   const { t } = useTranslation();
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const deleteMutation = useMutation({
     mutationFn: () => deleteSavedView(view.id),
@@ -139,6 +146,18 @@ function SavedViewItem({
       return;
     }
     deleteMutation.mutate();
+  }
+
+  // L'edit inline rimpiazza la riga: nome precompilato + toggle condivisione,
+  // così rinomina/condivisione si gestiscono senza lasciare la lista.
+  if (editing) {
+    return (
+      <SavedViewEditor
+        view={view}
+        onChanged={onChanged}
+        onClose={() => setEditing(false)}
+      />
+    );
   }
 
   return (
@@ -161,25 +180,118 @@ function SavedViewItem({
             </span>
           )
         : (
+            // L'API espone solo l'ownerId (UUID); senza accesso alla lista utenti
+            // si mostra un'etichetta neutra invece dell'identificatore grezzo.
             <span className="rounded-sm border border-line-strong px-1 py-px font-mono text-[9px] tracking-[0.1em] text-fg-faint uppercase">
-              {t("savedViews:ownedBy", { owner: view.ownerId })}
+              {t("savedViews:sharedByTeammate")}
             </span>
           )}
 
       {view.isOwn && (
+        <>
+          <button
+            type="button"
+            onClick={() => {
+              setConfirmingDelete(false);
+              setEditing(true);
+            }}
+            className="font-mono text-[10px] tracking-[0.1em] text-fg-faint uppercase transition-colors hover:text-fg"
+          >
+            {t("savedViews:edit")}
+          </button>
+          <button
+            type="button"
+            disabled={deleteMutation.isPending}
+            aria-pressed={confirmingDelete}
+            onClick={handleDelete}
+            onBlur={() => setConfirmingDelete(false)}
+            className={`font-mono text-[10px] tracking-[0.1em] uppercase transition-colors ${
+              confirmingDelete ? "text-danger" : "text-fg-faint hover:text-danger"
+            }`}
+          >
+            {confirmingDelete ? t("savedViews:confirmDelete") : t("savedViews:delete")}
+          </button>
+        </>
+      )}
+    </li>
+  );
+}
+
+/**
+ * Edit inline di una vista propria: rinomina + cambio condivisione. Invia solo
+ * `{ name, shared }` — i filtri salvati NON cambiano qui (si ridefiniscono
+ * risalvando dalla lista). Il 409 `view_exists` resta visibile e l'inline non
+ * si chiude, così si corregge il nome; on success chiude e invalida.
+ */
+function SavedViewEditor({
+  view,
+  onChanged,
+  onClose,
+}: {
+  view: SavedView;
+  onChanged: () => Promise<unknown>;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const [name, setName] = useState(view.name);
+  const [shared, setShared] = useState(view.shared);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const updateMutation = useMutation({
+    mutationFn: () => updateSavedView(view.id, { name: name.trim(), shared }),
+    onSuccess: async () => {
+      setEditError(null);
+      await onChanged();
+      onClose();
+    },
+    onError: (cause) => setEditError(translateApiError(cause, t)),
+  });
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (name.trim() === "" || updateMutation.isPending) return;
+    updateMutation.mutate();
+  }
+
+  return (
+    <li className="rounded-sm border border-signal-dim/50 bg-ink-900 px-2 py-1">
+      <form onSubmit={handleSubmit} className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-col gap-1">
+          <label htmlFor={`edit-view-${view.id}`} className={labelClass}>
+            {t("savedViews:name")}
+          </label>
+          <input
+            id={`edit-view-${view.id}`}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            className="rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1 text-sm text-fg placeholder:text-fg-faint transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
+          />
+        </div>
+        <label className="flex items-center gap-2 font-mono text-[11px] tracking-[0.1em] text-fg-muted uppercase">
+          <input
+            type="checkbox"
+            checked={shared}
+            onChange={(event) => setShared(event.target.checked)}
+            className="size-3.5 accent-signal"
+          />
+          {t("savedViews:share")}
+        </label>
+        <button
+          type="submit"
+          disabled={name.trim() === "" || updateMutation.isPending}
+          className="rounded-sm border border-line-strong px-2 py-1 font-mono text-[10px] font-semibold tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-signal-dim hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {updateMutation.isPending ? t("savedViews:saving") : t("savedViews:save")}
+        </button>
         <button
           type="button"
-          disabled={deleteMutation.isPending}
-          aria-pressed={confirmingDelete}
-          onClick={handleDelete}
-          onBlur={() => setConfirmingDelete(false)}
-          className={`font-mono text-[10px] tracking-[0.1em] uppercase transition-colors ${
-            confirmingDelete ? "text-danger" : "text-fg-faint hover:text-danger"
-          }`}
+          onClick={onClose}
+          className="font-mono text-[10px] tracking-[0.1em] text-fg-faint uppercase transition-colors hover:text-fg"
         >
-          {confirmingDelete ? t("savedViews:confirmDelete") : t("savedViews:delete")}
+          {t("savedViews:cancel")}
         </button>
-      )}
+      </form>
+      <FormError message={editError} />
     </li>
   );
 }

@@ -40,8 +40,10 @@ const fetchMock = vi.fn<typeof fetch>();
 interface MockState {
   views: SavedView[];
   created: { name: string; filters: SavedViewFilters; shared?: boolean }[];
+  updated: { id: string; patch: { name?: string; filters?: SavedViewFilters; shared?: boolean } }[];
   deleted: string[];
   conflictOnCreate: boolean;
+  conflictOnUpdate: boolean;
 }
 
 function installMock(state: MockState) {
@@ -65,9 +67,22 @@ function installMock(state: MockState) {
       state.views = [...state.views, created];
       return Promise.resolve(jsonResponse(201, created));
     }
-    const deleteMatch = url.pathname.match(/^\/api\/saved-views\/([^/]+)$/);
-    if (deleteMatch && method === "DELETE") {
-      const id = deleteMatch[1]!;
+    const idMatch = url.pathname.match(/^\/api\/saved-views\/([^/]+)$/);
+    if (idMatch && method === "PATCH") {
+      const id = idMatch[1]!;
+      const patch = JSON.parse(String(init?.body)) as MockState["updated"][number]["patch"];
+      if (state.conflictOnUpdate) {
+        return Promise.resolve(jsonResponse(409, { code: "view_exists", message: "exists" }));
+      }
+      state.updated.push({ id, patch });
+      state.views = state.views.map((v) =>
+        v.id === id ? { ...v, ...patch } : v,
+      );
+      const view = state.views.find((v) => v.id === id)!;
+      return Promise.resolve(jsonResponse(200, view));
+    }
+    if (idMatch && method === "DELETE") {
+      const id = idMatch[1]!;
       state.deleted.push(id);
       state.views = state.views.filter((v) => v.id !== id);
       return Promise.resolve(new Response(null, { status: 204 }));
@@ -78,13 +93,19 @@ function installMock(state: MockState) {
 
 function renderViews(
   views: SavedView[],
-  opts?: { currentFilters?: SavedViewFilters; conflictOnCreate?: boolean },
+  opts?: {
+    currentFilters?: SavedViewFilters;
+    conflictOnCreate?: boolean;
+    conflictOnUpdate?: boolean;
+  },
 ) {
   const state: MockState = {
     views,
     created: [],
+    updated: [],
     deleted: [],
     conflictOnCreate: opts?.conflictOnCreate ?? false,
+    conflictOnUpdate: opts?.conflictOnUpdate ?? false,
   };
   installMock(state);
   const onApply = vi.fn();
@@ -160,8 +181,8 @@ describe("SavedViews", () => {
 
     expect(await screen.findByText("Mine")).toBeInTheDocument();
     expect(screen.getByText("Team view")).toBeInTheDocument();
-    // La condivisa altrui mostra il badge owner; la propria no.
-    expect(screen.getByText("Shared by bob")).toBeInTheDocument();
+    // La condivisa altrui mostra un'etichetta neutra (mai l'UUID del proprietario).
+    expect(screen.getByText("Shared by a teammate")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: /apply.*team view/i }));
     expect(onApply).toHaveBeenCalledWith({ type: "bug", priority: "urgent" });
@@ -187,5 +208,79 @@ describe("SavedViews", () => {
 
     const row = (await screen.findByText("Team view")).closest("li")!;
     expect(within(row).queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
+  it("le viste condivise altrui non hanno il bottone Modifica", async () => {
+    renderViews([
+      makeView({ id: SHARED, name: "Team view", isOwn: false, shared: true, ownerId: "bob" }),
+    ]);
+
+    const row = (await screen.findByText("Team view")).closest("li")!;
+    expect(within(row).queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+  });
+
+  it("modifica la propria vista: rinomina + toggle shared → PATCH con { name, shared }", async () => {
+    const { state } = renderViews([
+      makeView({ id: OWN, name: "Mine", isOwn: true, shared: false, filters: { status: "open" } }),
+    ]);
+
+    const row = (await screen.findByText("Mine")).closest("li")!;
+    await userEvent.click(within(row).getByRole("button", { name: "Edit" }));
+
+    // L'editor inline rimpiazza la riga: lo si individua dal nome precompilato.
+    const editor = screen.getByDisplayValue("Mine").closest("li")!;
+    const nameInput = within(editor).getByLabelText("View name");
+    await userEvent.clear(nameInput);
+    await userEvent.type(nameInput, "Renamed");
+    await userEvent.click(within(editor).getByLabelText("Share with team"));
+    await userEvent.click(within(editor).getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(state.updated).toEqual([{ id: OWN, patch: { name: "Renamed", shared: true } }]),
+    );
+    // L'inline si chiude dopo il salvataggio: niente più campo precompilato aperto.
+    await waitFor(() =>
+      expect(screen.queryByDisplayValue("Renamed")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("modifica: 409 view_exists mostra il messaggio i18n e non chiude l'inline", async () => {
+    renderViews(
+      [makeView({ id: OWN, name: "Mine", isOwn: true, shared: false })],
+      { conflictOnUpdate: true },
+    );
+
+    const row = (await screen.findByText("Mine")).closest("li")!;
+    await userEvent.click(within(row).getByRole("button", { name: "Edit" }));
+
+    const editor = screen.getByDisplayValue("Mine").closest("li")!;
+    const nameInput = within(editor).getByLabelText("View name");
+    await userEvent.clear(nameInput);
+    await userEvent.type(nameInput, "Dup");
+    await userEvent.click(within(editor).getByRole("button", { name: "Save" }));
+
+    expect(
+      await within(editor).findByText("A saved view with this name already exists"),
+    ).toBeInTheDocument();
+    // L'inline resta aperto perché si possa correggere il nome.
+    expect(within(editor).getByDisplayValue("Dup")).toBeInTheDocument();
+  });
+
+  it("modifica: Cancel chiude l'inline senza chiamare PATCH", async () => {
+    const { state } = renderViews([
+      makeView({ id: OWN, name: "Mine", isOwn: true, shared: false }),
+    ]);
+
+    const row = (await screen.findByText("Mine")).closest("li")!;
+    await userEvent.click(within(row).getByRole("button", { name: "Edit" }));
+
+    const editor = screen.getByDisplayValue("Mine").closest("li")!;
+    const nameInput = within(editor).getByLabelText("View name");
+    await userEvent.clear(nameInput);
+    await userEvent.type(nameInput, "Discarded");
+    await userEvent.click(within(editor).getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByDisplayValue("Discarded")).not.toBeInTheDocument();
+    expect(state.updated).toEqual([]);
   });
 });
