@@ -188,3 +188,96 @@ describe("schema: i18n (users.language + instance_settings)", () => {
     expect(updated?.contentLanguage).toBe("it");
   });
 });
+
+/**
+ * Verifica le colonne aggiunte per self-repair e budget di costo: projects
+ * .test_command, automation_rules.max_cost_usd, instance_settings
+ * .monthly_budget_usd, notification_settings.notify_budget_held. I numeric
+ * sono stringhe lato drizzle.
+ */
+describe("schema: self-repair e budget di costo", () => {
+  let testDb: TestDb;
+  let db: Db;
+
+  beforeAll(async () => {
+    testDb = await startTestDb();
+    db = testDb.db;
+  });
+
+  afterAll(async () => {
+    await testDb.stop();
+  });
+
+  async function insertProject(testCommand: string | null): Promise<string> {
+    const gitAccountId = await seedGitAccount(db);
+    const [project] = await db
+      .insert(projects)
+      .values({
+        name: "Progetto di test",
+        slug: `progetto-${randomUUID()}`,
+        provider: "github",
+        gitAccountId,
+        repoUrl: "https://example.com/repo.git",
+        defaultBranch: "main",
+        ingestionKey: randomUUID(),
+        testCommand,
+      })
+      .returning();
+    if (!project) throw new Error("insert del progetto non ha restituito la riga");
+    return project.id;
+  }
+
+  it("persiste projects.test_command valorizzato e null", async () => {
+    const withCommandId = await insertProject("pnpm test");
+    const withNullId = await insertProject(null);
+
+    const [withCommand] = await db.select().from(projects).where(eq(projects.id, withCommandId));
+    const [withNull] = await db.select().from(projects).where(eq(projects.id, withNullId));
+    expect(withCommand?.testCommand).toBe("pnpm test");
+    expect(withNull?.testCommand).toBeNull();
+  });
+
+  it("automation_rules.max_cost_usd default null e aggiornabile (numeric come stringa)", async () => {
+    const rows = await db.select().from(automationRules);
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.maxCostUsd).toBeNull();
+    }
+
+    await db
+      .update(automationRules)
+      .set({ maxCostUsd: "0.500000" })
+      .where(eq(automationRules.type, "bug"));
+    const [bug] = await db
+      .select()
+      .from(automationRules)
+      .where(eq(automationRules.type, "bug"));
+    expect(bug?.maxCostUsd).toBe("0.500000");
+  });
+
+  it("instance_settings.monthly_budget_usd default null e aggiornabile (numeric come stringa)", async () => {
+    const [seeded] = await db
+      .select()
+      .from(instanceSettings)
+      .where(eq(instanceSettings.id, 1));
+    expect(seeded?.monthlyBudgetUsd).toBeNull();
+
+    await db
+      .update(instanceSettings)
+      .set({ monthlyBudgetUsd: "100.000000" })
+      .where(eq(instanceSettings.id, 1));
+    const [updated] = await db
+      .select()
+      .from(instanceSettings)
+      .where(eq(instanceSettings.id, 1));
+    expect(updated?.monthlyBudgetUsd).toBe("100.000000");
+  });
+
+  it("seeda notification_settings.notify_budget_held a true (id=1)", async () => {
+    const [settings] = await db
+      .select()
+      .from(notificationSettings)
+      .where(eq(notificationSettings.id, 1));
+    expect(settings?.notifyBudgetHeld).toBe(true);
+  });
+});

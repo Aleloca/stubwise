@@ -154,6 +154,10 @@ export const projects = pgTable("projects", {
   // Contatore per i numeri ticket sequenziali per-progetto: l'applicazione
   // lo incrementa in transazione quando crea un ticket.
   nextTicketNumber: integer("next_ticket_number").notNull().default(1),
+  // Comando di test del progetto (es. "pnpm test"), eseguito dall'agente per
+  // verificare il fix prima di aprire la PR (self-repair). Null = nessun
+  // comando configurato: l'agente non esegue la fase di verifica.
+  testCommand: text("test_command"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -321,6 +325,10 @@ export const automationRules = pgTable("automation_rules", {
   // Approvazione umana del piano richiesta quando l'effort stimato è >= a
   // questo valore. null = mai (default): il fix procede senza fermarsi.
   planApprovalMinEffort: integer("plan_approval_min_effort"),
+  // Tetto di costo in USD per un singolo run di questo tipo: se la stima/consumo
+  // supera la soglia il job viene parcheggiato (budget held). Stesso tipo di
+  // agentRuns.costUsd. null = nessun limite (default).
+  maxCostUsd: numeric("max_cost_usd", { precision: 12, scale: 6 }),
 });
 
 // Formato del messaggio del webhook di notifica in uscita: Slack (mrkdwn),
@@ -352,6 +360,9 @@ export const notificationSettings = pgTable("notification_settings", {
   notifyJobFailed: boolean("notify_job_failed").notNull().default(true),
   notifyPrClosed: boolean("notify_pr_closed").notNull().default(true),
   notifyPlanReview: boolean("notify_plan_review").notNull().default(true),
+  // Notifica quando un job viene parcheggiato per superamento del budget di
+  // costo (budget held).
+  notifyBudgetHeld: boolean("notify_budget_held").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
@@ -369,6 +380,9 @@ export const notificationSettings = pgTable("notification_settings", {
 export const instanceSettings = pgTable("instance_settings", {
   id: integer("id").primaryKey().default(1),
   contentLanguage: language("content_language").notNull().default("en"),
+  // Budget di costo mensile complessivo in USD per l'intera istanza. Stesso
+  // tipo di agentRuns.costUsd. null = nessun limite (default).
+  monthlyBudgetUsd: numeric("monthly_budget_usd", { precision: 12, scale: 6 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
