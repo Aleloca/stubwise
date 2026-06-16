@@ -8,6 +8,7 @@ import {
   instanceSettings,
   notificationSettings,
   projects,
+  ticketEvents,
   tickets,
   users,
 } from "./schema.js";
@@ -279,5 +280,124 @@ describe("schema: self-repair e budget di costo", () => {
       .from(notificationSettings)
       .where(eq(notificationSettings.id, 1));
     expect(settings?.notifyBudgetHeld).toBe(true);
+  });
+});
+
+/**
+ * Verifica la tabella di audit ticket_events: persistenza di un evento con
+ * actor, kind e payload jsonb; eventi di sistema con actorId null; e la
+ * cancellazione in cascata col ticket.
+ */
+describe("schema: ticket_events (audit)", () => {
+  let testDb: TestDb;
+  let db: Db;
+
+  beforeAll(async () => {
+    testDb = await startTestDb();
+    db = testDb.db;
+  });
+
+  afterAll(async () => {
+    await testDb.stop();
+  });
+
+  async function seedTicket(): Promise<string> {
+    const gitAccountId = await seedGitAccount(db);
+    const [project] = await db
+      .insert(projects)
+      .values({
+        name: "Progetto di test",
+        slug: `progetto-${randomUUID()}`,
+        provider: "github",
+        gitAccountId,
+        repoUrl: "https://example.com/repo.git",
+        defaultBranch: "main",
+        ingestionKey: randomUUID(),
+      })
+      .returning();
+    if (!project) throw new Error("insert del progetto non ha restituito la riga");
+    const [ticket] = await db
+      .insert(tickets)
+      .values({
+        projectId: project.id,
+        number: 1,
+        title: "Ticket di test",
+        type: "bug",
+        priority: "medium",
+        source: "manual",
+      })
+      .returning();
+    if (!ticket) throw new Error("insert del ticket non ha restituito la riga");
+    return ticket.id;
+  }
+
+  async function seedUser(): Promise<string> {
+    const [user] = await db
+      .insert(users)
+      .values({
+        email: `actor-${randomUUID()}@example.com`,
+        passwordHash: "x",
+        role: "member",
+      })
+      .returning();
+    if (!user) throw new Error("insert dell'utente non ha restituito la riga");
+    return user.id;
+  }
+
+  it("persiste un evento con actor, kind e payload jsonb", async () => {
+    const ticketId = await seedTicket();
+    const actorId = await seedUser();
+    const [inserted] = await db
+      .insert(ticketEvents)
+      .values({
+        ticketId,
+        actorId,
+        kind: "status_changed",
+        payload: { from: "open", to: "in_progress" },
+      })
+      .returning();
+    if (!inserted) throw new Error("insert dell'evento non ha restituito la riga");
+
+    const [read] = await db
+      .select()
+      .from(ticketEvents)
+      .where(eq(ticketEvents.id, inserted.id));
+    expect(read?.ticketId).toBe(ticketId);
+    expect(read?.actorId).toBe(actorId);
+    expect(read?.kind).toBe("status_changed");
+    expect(read?.payload).toEqual({ from: "open", to: "in_progress" });
+    expect(read?.createdAt).toBeInstanceOf(Date);
+  });
+
+  it("ammette eventi di sistema con actorId null e payload null", async () => {
+    const ticketId = await seedTicket();
+    const [inserted] = await db
+      .insert(ticketEvents)
+      .values({ ticketId, kind: "body_changed" })
+      .returning();
+    expect(inserted?.actorId).toBeNull();
+    expect(inserted?.payload).toBeNull();
+    expect(inserted?.kind).toBe("body_changed");
+  });
+
+  it("cancella in cascata gli eventi quando il ticket viene eliminato", async () => {
+    const ticketId = await seedTicket();
+    await db
+      .insert(ticketEvents)
+      .values({ ticketId, kind: "priority_changed", payload: { from: "low", to: "high" } });
+
+    const before = await db
+      .select()
+      .from(ticketEvents)
+      .where(eq(ticketEvents.ticketId, ticketId));
+    expect(before.length).toBe(1);
+
+    await db.delete(tickets).where(eq(tickets.id, ticketId));
+
+    const after = await db
+      .select()
+      .from(ticketEvents)
+      .where(eq(ticketEvents.ticketId, ticketId));
+    expect(after.length).toBe(0);
   });
 });
