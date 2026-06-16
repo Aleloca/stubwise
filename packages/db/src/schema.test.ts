@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "./client.js";
 import {
@@ -9,6 +9,7 @@ import {
   notificationSettings,
   projects,
   ticketEvents,
+  ticketLinks,
   tickets,
   users,
 } from "./schema.js";
@@ -399,5 +400,141 @@ describe("schema: ticket_events (audit)", () => {
       .from(ticketEvents)
       .where(eq(ticketEvents.ticketId, ticketId));
     expect(after.length).toBe(0);
+  });
+});
+
+/**
+ * Verifica la tabella ticket_links: insert/read di una relazione tra due
+ * ticket dello stesso progetto; la cancellazione in cascata su entrambe le
+ * direzioni (source e target); e l'unique su (source, target, kind) che vieta
+ * il duplicato ma ammette relazioni di tipo diverso tra gli stessi ticket.
+ */
+describe("schema: ticket_links (relazioni tra ticket)", () => {
+  let testDb: TestDb;
+  let db: Db;
+
+  beforeAll(async () => {
+    testDb = await startTestDb();
+    db = testDb.db;
+  });
+
+  afterAll(async () => {
+    await testDb.stop();
+  });
+
+  /** Crea un progetto e ne restituisce l'id. */
+  async function seedProject(): Promise<string> {
+    const gitAccountId = await seedGitAccount(db);
+    const [project] = await db
+      .insert(projects)
+      .values({
+        name: "Progetto di test",
+        slug: `progetto-${randomUUID()}`,
+        provider: "github",
+        gitAccountId,
+        repoUrl: "https://example.com/repo.git",
+        defaultBranch: "main",
+        ingestionKey: randomUUID(),
+      })
+      .returning();
+    if (!project) throw new Error("insert del progetto non ha restituito la riga");
+    return project.id;
+  }
+
+  /** Crea un ticket nel progetto col numero indicato e ne restituisce l'id. */
+  async function seedTicket(projectId: string, number: number): Promise<string> {
+    const [ticket] = await db
+      .insert(tickets)
+      .values({
+        projectId,
+        number,
+        title: `Ticket ${number}`,
+        type: "bug",
+        priority: "medium",
+        source: "manual",
+      })
+      .returning();
+    if (!ticket) throw new Error("insert del ticket non ha restituito la riga");
+    return ticket.id;
+  }
+
+  /** Crea un progetto con due ticket (source e target). */
+  async function seedTwoTickets(): Promise<{ projectId: string; source: string; target: string }> {
+    const projectId = await seedProject();
+    const source = await seedTicket(projectId, 1);
+    const target = await seedTicket(projectId, 2);
+    return { projectId, source, target };
+  }
+
+  it("persiste e rilegge un link tra due ticket dello stesso progetto", async () => {
+    const { source, target } = await seedTwoTickets();
+    const [inserted] = await db
+      .insert(ticketLinks)
+      .values({ sourceTicketId: source, targetTicketId: target, kind: "blocks" })
+      .returning();
+    if (!inserted) throw new Error("insert del link non ha restituito la riga");
+
+    const [read] = await db.select().from(ticketLinks).where(eq(ticketLinks.id, inserted.id));
+    expect(read?.sourceTicketId).toBe(source);
+    expect(read?.targetTicketId).toBe(target);
+    expect(read?.kind).toBe("blocks");
+    expect(read?.createdAt).toBeInstanceOf(Date);
+  });
+
+  it("cancella in cascata i link quando viene eliminato il ticket source", async () => {
+    const { source, target } = await seedTwoTickets();
+    const [link] = await db
+      .insert(ticketLinks)
+      .values({ sourceTicketId: source, targetTicketId: target, kind: "relates_to" })
+      .returning();
+    if (!link) throw new Error("insert del link non ha restituito la riga");
+
+    await db.delete(tickets).where(eq(tickets.id, source));
+
+    const remaining = await db.select().from(ticketLinks).where(eq(ticketLinks.id, link.id));
+    expect(remaining.length).toBe(0);
+  });
+
+  it("cancella in cascata i link quando viene eliminato il ticket target", async () => {
+    const { source, target } = await seedTwoTickets();
+    const [link] = await db
+      .insert(ticketLinks)
+      .values({ sourceTicketId: source, targetTicketId: target, kind: "parent" })
+      .returning();
+    if (!link) throw new Error("insert del link non ha restituito la riga");
+
+    await db.delete(tickets).where(eq(tickets.id, target));
+
+    const remaining = await db.select().from(ticketLinks).where(eq(ticketLinks.id, link.id));
+    expect(remaining.length).toBe(0);
+  });
+
+  it("vieta il duplicato (source, target, kind) ma ammette kind diverso", async () => {
+    const { source, target } = await seedTwoTickets();
+    await db
+      .insert(ticketLinks)
+      .values({ sourceTicketId: source, targetTicketId: target, kind: "blocks" });
+
+    // Stessa terna (source, target, kind): deve fallire sull'unique.
+    await expect(
+      db
+        .insert(ticketLinks)
+        .values({ sourceTicketId: source, targetTicketId: target, kind: "blocks" }),
+    ).rejects.toThrow();
+
+    // Stessa coppia (source, target) ma kind diverso: ammesso.
+    const [other] = await db
+      .insert(ticketLinks)
+      .values({ sourceTicketId: source, targetTicketId: target, kind: "relates_to" })
+      .returning();
+    expect(other?.kind).toBe("relates_to");
+
+    const all = await db
+      .select()
+      .from(ticketLinks)
+      .where(
+        and(eq(ticketLinks.sourceTicketId, source), eq(ticketLinks.targetTicketId, target)),
+      );
+    expect(all.length).toBe(2);
   });
 });

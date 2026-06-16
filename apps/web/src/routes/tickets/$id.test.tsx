@@ -3,7 +3,14 @@ import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ActivityItem, AIJob, Comment, Ticket, TicketUsage } from "../../lib/api";
+import type {
+  ActivityItem,
+  AIJob,
+  Comment,
+  Ticket,
+  TicketLinkView,
+  TicketUsage,
+} from "../../lib/api";
 import { ticketKeys } from "../../lib/queries";
 import { createAppRouter } from "../../router";
 
@@ -117,6 +124,34 @@ const usageFixture: TicketUsage = {
 // Riepilogo vuoto: nessun consumo → il pannello "Consumi AI" non compare.
 const emptyUsageFixture: TicketUsage = { totalTokens: 0, totalCostUsd: null, byModel: [] };
 
+/** Link risolti del ticket: uno per direzione (outgoing/incoming). */
+const linksFixture: TicketLinkView[] = [
+  {
+    linkId: "lk1",
+    relation: "blocks",
+    otherTicketId: "22222222-2222-4222-8222-222222222222",
+    otherNumber: 9,
+    otherTitle: "Migra il gateway pagamenti",
+    otherStatus: "in_progress",
+    createdAt: "2026-06-05T10:00:00.000Z",
+  },
+  {
+    linkId: "lk2",
+    relation: "child",
+    otherTicketId: "33333333-3333-4333-8333-333333333333",
+    otherNumber: 4,
+    otherTitle: "Epica checkout",
+    otherStatus: "open",
+    createdAt: "2026-06-05T10:01:00.000Z",
+  },
+];
+
+/** Ticket cercabili dal picker (oltre al ticket corrente, qui escluso). */
+const searchableTicketsFixture: Ticket[] = [
+  { ...ticketFixture, id: "44444444-4444-4444-8444-444444444444", number: 15, title: "Aggiungi retry al gateway" },
+  { ...ticketFixture, id: "55555555-5555-4555-8555-555555555555", number: 16, title: "Logging strutturato" },
+];
+
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -164,6 +199,12 @@ interface MockState {
   rejectCalls: number;
   /** Eventi di audit accumulati (es. una PATCH di stato ne aggiunge uno). */
   events: ActivityItem[];
+  /** Link risolti del ticket (sezione "Linked tickets"). */
+  links: TicketLinkView[];
+  /** Body inviati a POST /links (per verificare la creazione). */
+  createdLinks: unknown[];
+  /** linkId passati a DELETE /links/:linkId. */
+  deletedLinks: string[];
 }
 
 /**
@@ -199,7 +240,13 @@ function buildActivity(state: MockState): ActivityItem[] {
 }
 
 function mockDetailApi(
-  overrides: { usage?: TicketUsage; ticket?: Ticket; jobs?: AIJob[]; comments?: Comment[] } = {},
+  overrides: {
+    usage?: TicketUsage;
+    ticket?: Ticket;
+    jobs?: AIJob[];
+    comments?: Comment[];
+    links?: TicketLinkView[];
+  } = {},
 ): MockState {
   const state: MockState = {
     ticket: overrides.ticket ?? { ...ticketFixture },
@@ -212,6 +259,9 @@ function mockDetailApi(
     approveCalls: 0,
     rejectCalls: 0,
     events: [],
+    links: overrides.links ?? [],
+    createdLinks: [],
+    deletedLinks: [],
   };
 
   mockApi({
@@ -283,6 +333,47 @@ function mockDetailApi(
       state.rejectCalls += 1;
       return jsonResponse(202, { jobId: "j3" });
     },
+    [`GET /api/tickets/${TICKET_ID}/links`]: () => jsonResponse(200, state.links),
+    [`POST /api/tickets/${TICKET_ID}/links`]: (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as {
+        targetTicketId: string;
+        kind: string;
+      };
+      state.createdLinks.push(body);
+      return jsonResponse(201, {
+        id: "newlink",
+        sourceTicketId: TICKET_ID,
+        targetTicketId: body.targetTicketId,
+        kind: body.kind,
+        createdAt: "2026-06-09T12:00:00.000Z",
+      });
+    },
+    // Ricerca dei target nel picker: lista filtrata per projectId + q.
+    "GET /api/tickets": (url) => {
+      const q = (url.searchParams.get("q") ?? "").toLowerCase();
+      const items = searchableTicketsFixture.filter((ticket) =>
+        ticket.title.toLowerCase().includes(q),
+      );
+      return jsonResponse(200, { items, nextCursor: null });
+    },
+  });
+
+  // DELETE /links/:linkId ha un path variabile: gestito a parte registrando
+  // un matcher per prefisso sul fetch mock già installato da mockApi.
+  const baseFetch = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation((input, init) => {
+    const raw =
+      typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    const url = new URL(raw, "http://test.local");
+    const method = init?.method ?? "GET";
+    const match = url.pathname.match(
+      new RegExp(`^/api/tickets/${TICKET_ID}/links/([^/]+)$`),
+    );
+    if (method === "DELETE" && match) {
+      state.deletedLinks.push(match[1]!);
+      return Promise.resolve(new Response(null, { status: 204 }));
+    }
+    return baseFetch(input, init);
   });
 
   return state;
@@ -746,5 +837,107 @@ describe("dettaglio ticket", () => {
     expect(
       await within(feed).findByText("ada@example.com changed status: Open → In progress"),
     ).toBeInTheDocument();
+  });
+
+  it("feed Attività: un evento relazione mostra il testo i18n giusto (kind+direzione)", async () => {
+    const state = mockDetailApi();
+    // outgoing blocks → "linked: blocks #9"; incoming blocks → "blocked by".
+    state.events.push(
+      {
+        kind: "event",
+        id: "evr1",
+        eventKind: "relation_added",
+        actorId: ADMIN_ID,
+        payload: { kind: "blocks", direction: "outgoing", otherTicketId: "x", otherNumber: 9 },
+        createdAt: "2026-06-02T09:31:00.000Z",
+      },
+      {
+        kind: "event",
+        id: "evr2",
+        eventKind: "relation_added",
+        actorId: ADMIN_ID,
+        payload: { kind: "parent", direction: "incoming", otherTicketId: "y", otherNumber: 4 },
+        createdAt: "2026-06-02T09:32:00.000Z",
+      },
+      {
+        kind: "event",
+        id: "evr3",
+        eventKind: "relation_removed",
+        actorId: ADMIN_ID,
+        payload: { kind: "relates_to", direction: "outgoing", otherTicketId: "z", otherNumber: 7 },
+        createdAt: "2026-06-02T09:33:00.000Z",
+      },
+    );
+    renderDetail();
+
+    const feed = await screen.findByRole("region", { name: "Activity" });
+    expect(within(feed).getByText("ada@example.com linked: blocks #9")).toBeInTheDocument();
+    // parent incoming → "child of"
+    expect(within(feed).getByText("ada@example.com linked: child of #4")).toBeInTheDocument();
+    expect(
+      within(feed).getByText("ada@example.com removed link: relates to #7"),
+    ).toBeInTheDocument();
+  });
+
+  it("Linked tickets: elenca i link con la label di relazione, il numero e lo stato", async () => {
+    mockDetailApi({ links: linksFixture });
+    renderDetail();
+
+    const section = await screen.findByRole("region", { name: "Linked tickets" });
+    expect(within(section).getByText("Blocks")).toBeInTheDocument();
+    expect(within(section).getByText("Child of")).toBeInTheDocument();
+    // Link al ticket collegato (#9 + titolo) e badge di stato.
+    expect(within(section).getByRole("link", { name: /#9.*Migra il gateway/ })).toBeInTheDocument();
+    expect(within(section).getByText("In progress")).toBeInTheDocument();
+    expect(within(section).getByText("Open")).toBeInTheDocument();
+  });
+
+  it("Linked tickets: niente link → riga vuota", async () => {
+    mockDetailApi({ links: [] });
+    renderDetail();
+
+    const section = await screen.findByRole("region", { name: "Linked tickets" });
+    expect(within(section).getByText("// no linked tickets")).toBeInTheDocument();
+  });
+
+  it("Linked tickets: il picker cerca un target e crea il link con la kind scelta", async () => {
+    const state = mockDetailApi({ links: [] });
+    renderDetail();
+
+    const section = await screen.findByRole("region", { name: "Linked tickets" });
+    await userEvent.click(within(section).getByRole("button", { name: "Link ticket" }));
+
+    await userEvent.type(within(section).getByLabelText("Search tickets"), "retry");
+    // Risultato filtrato per titolo.
+    const result = await within(section).findByRole("button", { name: /#15.*retry al gateway/i });
+    await userEvent.click(result);
+
+    await userEvent.selectOptions(within(section).getByLabelText("Relation"), "blocks");
+    await userEvent.click(within(section).getByRole("button", { name: "Create link" }));
+
+    await waitFor(() =>
+      expect(state.createdLinks).toEqual([
+        { targetTicketId: "44444444-4444-4444-8444-444444444444", kind: "blocks" },
+      ]),
+    );
+  });
+
+  it("Linked tickets: il bottone remove chiama DELETE solo dopo la conferma a due click", async () => {
+    const state = mockDetailApi({ links: linksFixture });
+    renderDetail();
+
+    const section = await screen.findByRole("region", { name: "Linked tickets" });
+    const removeButton = within(section).getByRole("button", {
+      name: /remove link to #9/i,
+    });
+
+    // Primo click: arma la conferma (label → "Confirm?"), nessuna DELETE.
+    await userEvent.click(removeButton);
+    expect(removeButton).toHaveTextContent("Confirm?");
+    expect(state.deletedLinks).toEqual([]);
+
+    // Secondo click sulla stessa riga: scatena la DELETE.
+    await userEvent.click(removeButton);
+    await waitFor(() => expect(state.deletedLinks).toEqual(["lk1"]));
   });
 });

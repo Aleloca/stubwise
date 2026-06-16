@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { aiJobs, comments, ticketEvents, tickets } from "@stubwise/db";
+import { aiJobs, comments, ticketEvents, ticketLinks, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
@@ -993,6 +993,316 @@ describe("POST /api/tickets/:id/run-ai", () => {
     expect(job?.manualTrigger).toBe(true);
     expect(job?.resumeMode).toBe("fix");
     expect(job?.planText).toBeNull();
+  });
+});
+
+describe("relazioni tra ticket — /api/tickets/:id/links", () => {
+  let linksProjectId: string;
+
+  /** Crea un ticket nel progetto delle relazioni e ne ritorna { id, number }. */
+  async function freshTicket(
+    projectIdForTicket = linksProjectId,
+  ): Promise<{ id: string; number: number }> {
+    const res = await postTicket({ projectId: projectIdForTicket, title: "Relazione", type: "task" });
+    expect(res.statusCode).toBe(201);
+    const body = res.json() as TicketBody;
+    return { id: body.id, number: body.number };
+  }
+
+  function createLink(
+    id: string,
+    payload: Record<string, unknown>,
+    cookie = users.memberCookie,
+  ) {
+    return app.inject({
+      method: "POST",
+      url: `/api/tickets/${id}/links`,
+      headers: { cookie },
+      payload,
+    });
+  }
+
+  function getLinks(id: string, cookie = users.memberCookie) {
+    return app.inject({ method: "GET", url: `/api/tickets/${id}/links`, headers: { cookie } });
+  }
+
+  function eventsOf(id: string) {
+    return testDb.db.select().from(ticketEvents).where(eq(ticketEvents.ticketId, id));
+  }
+
+  beforeAll(async () => {
+    linksProjectId = await createProject("Progetto Relazioni");
+  });
+
+  it("crea un link: 201, link presente, DUE eventi relation_added (outgoing/incoming) con otherNumber e actorId corretti", async () => {
+    const a = await freshTicket();
+    const b = await freshTicket();
+
+    const res = await createLink(a.id, { targetTicketId: b.id, kind: "blocks" });
+    expect(res.statusCode).toBe(201);
+    const link = res.json() as {
+      id: string;
+      sourceTicketId: string;
+      targetTicketId: string;
+      kind: string;
+      createdAt: string;
+    };
+    expect(link).toEqual({
+      id: expect.any(String),
+      sourceTicketId: a.id,
+      targetTicketId: b.id,
+      kind: "blocks",
+      createdAt: expect.any(String),
+    });
+
+    // Link persistito.
+    const rows = await testDb.db.select().from(ticketLinks).where(eq(ticketLinks.id, link.id));
+    expect(rows).toHaveLength(1);
+
+    // Evento outgoing sul source.
+    const aEvents = (await eventsOf(a.id)).filter((e) => e.kind === "relation_added");
+    expect(aEvents).toHaveLength(1);
+    expect(aEvents[0]?.actorId).toBe(users.memberId);
+    expect(aEvents[0]?.payload).toEqual({
+      kind: "blocks",
+      direction: "outgoing",
+      otherTicketId: b.id,
+      otherNumber: b.number,
+    });
+
+    // Evento incoming sul target.
+    const bEvents = (await eventsOf(b.id)).filter((e) => e.kind === "relation_added");
+    expect(bEvents).toHaveLength(1);
+    expect(bEvents[0]?.actorId).toBe(users.memberId);
+    expect(bEvents[0]?.payload).toEqual({
+      kind: "blocks",
+      direction: "incoming",
+      otherTicketId: a.id,
+      otherNumber: a.number,
+    });
+  });
+
+  it("self-link: 400 self_link", async () => {
+    const a = await freshTicket();
+    const res = await createLink(a.id, { targetTicketId: a.id, kind: "relates_to" });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("self_link");
+  });
+
+  it("ticket :id inesistente: 404 ticket_not_found", async () => {
+    const b = await freshTicket();
+    const res = await createLink(randomUUID(), { targetTicketId: b.id, kind: "blocks" });
+    expect(res.statusCode).toBe(404);
+    expect((res.json() as { code: string }).code).toBe("ticket_not_found");
+  });
+
+  it("target inesistente: 404 target_not_found", async () => {
+    const a = await freshTicket();
+    const res = await createLink(a.id, { targetTicketId: randomUUID(), kind: "blocks" });
+    expect(res.statusCode).toBe(404);
+    expect((res.json() as { code: string }).code).toBe("target_not_found");
+  });
+
+  it("cross-project: 400 cross_project_link", async () => {
+    const a = await freshTicket();
+    const other = await freshTicket(otherProjectId);
+    const res = await createLink(a.id, { targetTicketId: other.id, kind: "blocks" });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("cross_project_link");
+  });
+
+  it("duplicato (stessa source/target/kind): 409 link_exists", async () => {
+    const a = await freshTicket();
+    const b = await freshTicket();
+    const first = await createLink(a.id, { targetTicketId: b.id, kind: "relates_to" });
+    expect(first.statusCode).toBe(201);
+    const dup = await createLink(a.id, { targetTicketId: b.id, kind: "relates_to" });
+    expect(dup.statusCode).toBe(409);
+    expect((dup.json() as { code: string }).code).toBe("link_exists");
+  });
+
+  it("kind diverse tra gli stessi ticket sono ammesse (no duplicato)", async () => {
+    const a = await freshTicket();
+    const b = await freshTicket();
+    expect((await createLink(a.id, { targetTicketId: b.id, kind: "blocks" })).statusCode).toBe(201);
+    expect((await createLink(a.id, { targetTicketId: b.id, kind: "parent" })).statusCode).toBe(201);
+  });
+
+  it("kind non valida: 400", async () => {
+    const a = await freshTicket();
+    const b = await freshTicket();
+    const res = await createLink(a.id, { targetTicketId: b.id, kind: "duplicates" });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("senza sessione: 401 (POST, GET, DELETE)", async () => {
+    const a = await freshTicket();
+    const b = await freshTicket();
+    const created = await createLink(a.id, { targetTicketId: b.id, kind: "blocks" });
+    const linkId = (created.json() as { id: string }).id;
+
+    const post = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${a.id}/links`,
+      payload: { targetTicketId: b.id, kind: "relates_to" },
+    });
+    expect(post.statusCode).toBe(401);
+    const get = await app.inject({ method: "GET", url: `/api/tickets/${a.id}/links` });
+    expect(get.statusCode).toBe(401);
+    const del = await app.inject({ method: "DELETE", url: `/api/tickets/${a.id}/links/${linkId}` });
+    expect(del.statusCode).toBe(401);
+  });
+
+  describe("GET /api/tickets/:id/links — mapping della relazione", () => {
+    it("dal lato SOURCE mostra la kind canonica e risolve number/title/status dell'altro", async () => {
+      const a = await freshTicket();
+      const b = await freshTicket();
+      // Stato del target impostato direttamente: il GET deve risolverlo.
+      await testDb.db.update(tickets).set({ status: "triaged" }).where(eq(tickets.id, b.id));
+
+      const created = await createLink(a.id, { targetTicketId: b.id, kind: "blocks" });
+      const linkId = (created.json() as { id: string }).id;
+
+      const res = await getLinks(a.id);
+      expect(res.statusCode).toBe(200);
+      const items = res.json() as {
+        linkId: string;
+        relation: string;
+        otherTicketId: string;
+        otherNumber: number;
+        otherTitle: string;
+        otherStatus: string;
+      }[];
+      expect(items).toHaveLength(1);
+      expect(items[0]).toEqual({
+        linkId,
+        relation: "blocks",
+        otherTicketId: b.id,
+        otherNumber: b.number,
+        otherTitle: "Relazione",
+        otherStatus: "triaged",
+        createdAt: expect.any(String),
+      });
+    });
+
+    it("dal lato TARGET mostra l'inversa: A blocks B → GET su B relation blocked_by, otherNumber = A", async () => {
+      const a = await freshTicket();
+      const b = await freshTicket();
+      await createLink(a.id, { targetTicketId: b.id, kind: "blocks" });
+
+      const res = await getLinks(b.id);
+      const items = res.json() as { relation: string; otherTicketId: string; otherNumber: number }[];
+      expect(items).toHaveLength(1);
+      expect(items[0]?.relation).toBe("blocked_by");
+      expect(items[0]?.otherTicketId).toBe(a.id);
+      expect(items[0]?.otherNumber).toBe(a.number);
+    });
+
+    it("parent: source→parent, target→child; relates_to è simmetrica da entrambi i lati", async () => {
+      const a = await freshTicket();
+      const b = await freshTicket();
+      await createLink(a.id, { targetTicketId: b.id, kind: "parent" });
+
+      const fromSource = (await getLinks(a.id)).json() as { relation: string }[];
+      expect(fromSource[0]?.relation).toBe("parent");
+      const fromTarget = (await getLinks(b.id)).json() as { relation: string }[];
+      expect(fromTarget[0]?.relation).toBe("child");
+
+      const c = await freshTicket();
+      const d = await freshTicket();
+      await createLink(c.id, { targetTicketId: d.id, kind: "relates_to" });
+      expect(((await getLinks(c.id)).json() as { relation: string }[])[0]?.relation).toBe("relates_to");
+      expect(((await getLinks(d.id)).json() as { relation: string }[])[0]?.relation).toBe("relates_to");
+    });
+
+    it("ticket inesistente: 404", async () => {
+      const res = await getLinks(randomUUID());
+      expect(res.statusCode).toBe(404);
+    });
+  });
+
+  describe("DELETE /api/tickets/:id/links/:linkId", () => {
+    it("204, link sparito, DUE eventi relation_removed sui due ticket", async () => {
+      const a = await freshTicket();
+      const b = await freshTicket();
+      const created = await createLink(a.id, { targetTicketId: b.id, kind: "blocks" });
+      const linkId = (created.json() as { id: string }).id;
+
+      const res = await app.inject({
+        method: "DELETE",
+        url: `/api/tickets/${a.id}/links/${linkId}`,
+        headers: { cookie: users.memberCookie },
+      });
+      expect(res.statusCode).toBe(204);
+
+      const rows = await testDb.db.select().from(ticketLinks).where(eq(ticketLinks.id, linkId));
+      expect(rows).toHaveLength(0);
+
+      const aRemoved = (await eventsOf(a.id)).filter((e) => e.kind === "relation_removed");
+      expect(aRemoved).toHaveLength(1);
+      expect(aRemoved[0]?.actorId).toBe(users.memberId);
+      expect(aRemoved[0]?.payload).toMatchObject({
+        kind: "blocks",
+        direction: "outgoing",
+        otherTicketId: b.id,
+        otherNumber: b.number,
+      });
+      const bRemoved = (await eventsOf(b.id)).filter((e) => e.kind === "relation_removed");
+      expect(bRemoved).toHaveLength(1);
+      expect(bRemoved[0]?.payload).toMatchObject({
+        kind: "blocks",
+        direction: "incoming",
+        otherTicketId: a.id,
+        otherNumber: a.number,
+      });
+    });
+
+    it("DELETE dal lato TARGET (il link coinvolge :id come target): 204", async () => {
+      const a = await freshTicket();
+      const b = await freshTicket();
+      const created = await createLink(a.id, { targetTicketId: b.id, kind: "blocks" });
+      const linkId = (created.json() as { id: string }).id;
+
+      const res = await app.inject({
+        method: "DELETE",
+        url: `/api/tickets/${b.id}/links/${linkId}`,
+        headers: { cookie: users.memberCookie },
+      });
+      expect(res.statusCode).toBe(204);
+      expect(
+        await testDb.db.select().from(ticketLinks).where(eq(ticketLinks.id, linkId)),
+      ).toHaveLength(0);
+    });
+
+    it("linkId che non coinvolge :id: 404 link_not_found, link intatto", async () => {
+      const a = await freshTicket();
+      const b = await freshTicket();
+      const c = await freshTicket();
+      const created = await createLink(a.id, { targetTicketId: b.id, kind: "blocks" });
+      const linkId = (created.json() as { id: string }).id;
+
+      // c non è né source né target del link.
+      const res = await app.inject({
+        method: "DELETE",
+        url: `/api/tickets/${c.id}/links/${linkId}`,
+        headers: { cookie: users.memberCookie },
+      });
+      expect(res.statusCode).toBe(404);
+      expect((res.json() as { code: string }).code).toBe("link_not_found");
+      expect(
+        await testDb.db.select().from(ticketLinks).where(eq(ticketLinks.id, linkId)),
+      ).toHaveLength(1);
+    });
+
+    it("linkId inesistente: 404", async () => {
+      const a = await freshTicket();
+      const res = await app.inject({
+        method: "DELETE",
+        url: `/api/tickets/${a.id}/links/${randomUUID()}`,
+        headers: { cookie: users.memberCookie },
+      });
+      expect(res.statusCode).toBe(404);
+    });
   });
 });
 

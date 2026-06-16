@@ -173,7 +173,21 @@
         "type_changed": "{{actor}} changed type: {{from}} → {{to}}",
         "labels_changed": "{{actor}} updated labels",
         "title_changed": "{{actor}} edited the title",
-        "body_changed": "{{actor}} edited the description"
+        "body_changed": "{{actor}} edited the description",
+        "relation_added": {
+          "blocks": "{{actor}} linked: blocks #{{number}}",
+          "blocked_by": "{{actor}} linked: blocked by #{{number}}",
+          "relates_to": "{{actor}} linked: relates to #{{number}}",
+          "parent": "{{actor}} linked: parent of #{{number}}",
+          "child": "{{actor}} linked: child of #{{number}}"
+        },
+        "relation_removed": {
+          "blocks": "{{actor}} removed link: blocks #{{number}}",
+          "blocked_by": "{{actor}} removed link: blocked by #{{number}}",
+          "relates_to": "{{actor}} removed link: relates to #{{number}}",
+          "parent": "{{actor}} removed link: parent of #{{number}}",
+          "child": "{{actor}} removed link: child of #{{number}}"
+        }
       }
     },
     "comments": {
@@ -185,6 +199,38 @@
       "placeholder": "Markdown supported…",
       "submit": "Comment",
       "submitPending": "Submitting…"
+    },
+    "links": {
+      "title": "Linked tickets",
+      "empty": "// no linked tickets",
+      "addLink": "Link ticket",
+      "remove": "Remove",
+      "confirmRemove": "Confirm?",
+      "removeLink": "Remove link to #{{number}}",
+      "relations": {
+        "blocks": "Blocks",
+        "blocked_by": "Blocked by",
+        "relates_to": "Relates to",
+        "parent": "Parent of",
+        "child": "Child of"
+      },
+      "picker": {
+        "title": "Link a ticket",
+        "searchLabel": "Search tickets",
+        "searchPlaceholder": "Search by title…",
+        "relationLabel": "Relation",
+        "kinds": {
+          "blocks": "Blocks",
+          "relates_to": "Relates to",
+          "parent": "Parent of"
+        },
+        "noResults": "// no matching tickets",
+        "searching": "Searching…",
+        "selected": "Linking #{{number}} {{title}}",
+        "confirm": "Create link",
+        "creating": "Linking…",
+        "cancel": "Cancel"
+      }
     },
     "labelsEditor": {
       "addPlaceholder": "Add label…",

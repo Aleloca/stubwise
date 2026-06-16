@@ -384,7 +384,9 @@ export type TicketEventKind =
   | "type_changed"
   | "labels_changed"
   | "title_changed"
-  | "body_changed";
+  | "body_changed"
+  | "relation_added"
+  | "relation_removed";
 
 /** Commento nel feed unificato. */
 export interface ActivityComment {
@@ -430,6 +432,56 @@ export type ActivityItem = ActivityComment | ActivityEvent | ActivityAiJob;
  */
 export function getTicketActivity(ticketId: string): Promise<ActivityItem[]> {
   return api.get(`/api/tickets/${ticketId}/activity`);
+}
+
+// --- Ticket links (relazioni tra ticket) ---
+
+/** Tipo di relazione canonica memorizzato sul link (gemello dell'enum ticket_link_kind del DB). */
+export type TicketLinkKind = "blocks" | "relates_to" | "parent";
+
+/**
+ * Relazione vista dal ticket interrogato. Dal lato SOURCE coincide con la kind
+ * canonica; dal lato TARGET si inverte: blocks→blocked_by, parent→child,
+ * relates_to resta simmetrica.
+ */
+export type TicketRelation = "blocks" | "blocked_by" | "relates_to" | "parent" | "child";
+
+/** Il link appena creato, come restituito dal POST. */
+export interface TicketLink {
+  id: string;
+  sourceTicketId: string;
+  targetTicketId: string;
+  kind: TicketLinkKind;
+  createdAt: string;
+}
+
+/** Un link risolto col ticket "altro", dal punto di vista del ticket interrogato. */
+export interface TicketLinkView {
+  linkId: string;
+  relation: TicketRelation;
+  otherTicketId: string;
+  otherNumber: number;
+  otherTitle: string;
+  otherStatus: TicketStatus;
+  createdAt: string;
+}
+
+/** Le relazioni che coinvolgono il ticket (come source o target). */
+export function getTicketLinks(id: string): Promise<TicketLinkView[]> {
+  return api.get(`/api/tickets/${id}/links`);
+}
+
+/** Crea una relazione source(id) → target con la kind data. */
+export function createTicketLink(
+  id: string,
+  link: { targetTicketId: string; kind: TicketLinkKind },
+): Promise<TicketLink> {
+  return api.post(`/api/tickets/${id}/links`, link);
+}
+
+/** Rimuove un link che coinvolge il ticket (come source o target). */
+export function deleteTicketLink(id: string, linkId: string): Promise<void> {
+  return request("DELETE", `/api/tickets/${id}/links/${linkId}`);
 }
 
 // --- Users ---

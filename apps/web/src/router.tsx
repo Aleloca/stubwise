@@ -22,6 +22,7 @@ import {
   projectQueryOptions,
   projectsQueryOptions,
   ticketJobsQueryOptions,
+  ticketLinksQueryOptions,
   ticketQueryOptions,
   ticketsInfiniteQueryOptions,
   ticketUsageQueryOptions,
@@ -142,6 +143,7 @@ const ticketDetailRoute = createRoute({
       context.queryClient.ensureQueryData(activityQueryOptions(params.id)),
       context.queryClient.ensureQueryData(ticketJobsQueryOptions(params.id)),
       context.queryClient.ensureQueryData(ticketUsageQueryOptions(params.id)),
+      context.queryClient.ensureQueryData(ticketLinksQueryOptions(params.id)),
       context.queryClient.ensureQueryData(usersQueryOptions),
       context.queryClient.ensureQueryData(projectsQueryOptions),
     ]);

@@ -4,7 +4,7 @@ import {
   ticketStatusSchema,
   ticketTypeSchema,
 } from "@stubwise/shared";
-import { and, desc, eq, ilike, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -17,12 +17,19 @@ import {
   commentAuthorType,
   ticketEventKind,
   ticketEvents,
+  ticketLinkKind,
+  ticketLinks,
   tickets,
   users,
 } from "@stubwise/db";
 import { createTicket, ProjectNotFoundError, type Ticket } from "../db/tickets.js";
 import { apiError } from "../errors.js";
-import { authErrorResponses, errorSchema, isForeignKeyViolation } from "./shared.js";
+import {
+  authErrorResponses,
+  errorSchema,
+  isForeignKeyViolation,
+  isUniqueViolation,
+} from "./shared.js";
 
 /**
  * Forma pubblica di un ticket nelle risposte API: la riga del DB con le
@@ -91,6 +98,68 @@ const listTicketsResponseSchema = z.object({
 });
 
 const idParamsSchema = z.object({ id: z.uuid() });
+
+/** Params delle route annidate sui link: il ticket e il link coinvolti. */
+const linkParamsSchema = z.object({ id: z.uuid(), linkId: z.uuid() });
+
+/** Tipo di relazione canonica memorizzato sul link (gemello dell'enum DB). */
+const linkKindSchema = z.enum(ticketLinkKind.enumValues);
+
+const createLinkBodySchema = z.object({
+  targetTicketId: z.uuid(),
+  kind: linkKindSchema,
+});
+
+/** Il link appena creato, come restituito dal POST. */
+const ticketLinkSchema = z.object({
+  id: z.uuid(),
+  sourceTicketId: z.uuid(),
+  targetTicketId: z.uuid(),
+  kind: linkKindSchema,
+  createdAt: z.iso.datetime(),
+});
+
+/**
+ * Relazione vista dal ticket interrogato: 5 valori. Le kind canoniche
+ * (blocks/relates_to/parent) sono il punto di vista del SOURCE; dal lato
+ * TARGET si invertono in blocked_by (per blocks) e child (per parent),
+ * mentre relates_to è simmetrica.
+ */
+const relationSchema = z.enum(["blocks", "blocked_by", "relates_to", "parent", "child"]);
+
+/** Un link risolto col ticket "altro", dal punto di vista del ticket `:id`. */
+const ticketLinkViewSchema = z.object({
+  linkId: z.uuid(),
+  relation: relationSchema,
+  otherTicketId: z.uuid(),
+  otherNumber: z.number().int(),
+  otherTitle: z.string(),
+  otherStatus: ticketStatusSchema,
+  createdAt: z.iso.datetime(),
+});
+
+const ticketLinksResponseSchema = z.array(ticketLinkViewSchema);
+
+/** Relazione vista dal SOURCE: coincide con la kind canonica del link. */
+function relationFromSource(kind: (typeof ticketLinkKind.enumValues)[number]): z.infer<
+  typeof relationSchema
+> {
+  return kind;
+}
+
+/** Relazione vista dal TARGET: inversa di blocks/parent, simmetrica per relates_to. */
+function relationFromTarget(
+  kind: (typeof ticketLinkKind.enumValues)[number],
+): z.infer<typeof relationSchema> {
+  switch (kind) {
+    case "blocks":
+      return "blocked_by";
+    case "parent":
+      return "child";
+    case "relates_to":
+      return "relates_to";
+  }
+}
 
 /**
  * Item del feed unificato di un ticket. Tre forme discriminate su `kind`:
@@ -464,6 +533,259 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
       });
       return items;
+    },
+  );
+
+  // Relazioni tra ticket: i link che coinvolgono :id come source O target,
+  // risolti col ticket "altro" e con la relazione vista da :id (5 valori).
+  app.get(
+    "/:id/links",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        response: { 200: ticketLinksResponseSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const [ticket] = await app.db.select({ id: tickets.id }).from(tickets).where(eq(tickets.id, id));
+      if (!ticket) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
+
+      // Due query speculari (id come source / id come target), ognuna joina la
+      // tabella tickets sul ticket "altro" per number/title/status. Il volume
+      // per-ticket è piccolo, quindi due select + merge in memoria sono più
+      // semplici di una UNION SQL.
+      const [asSource, asTarget] = await Promise.all([
+        app.db
+          .select({
+            linkId: ticketLinks.id,
+            kind: ticketLinks.kind,
+            createdAt: ticketLinks.createdAt,
+            otherTicketId: tickets.id,
+            otherNumber: tickets.number,
+            otherTitle: tickets.title,
+            otherStatus: tickets.status,
+          })
+          .from(ticketLinks)
+          .innerJoin(tickets, eq(tickets.id, ticketLinks.targetTicketId))
+          .where(eq(ticketLinks.sourceTicketId, id)),
+        app.db
+          .select({
+            linkId: ticketLinks.id,
+            kind: ticketLinks.kind,
+            createdAt: ticketLinks.createdAt,
+            otherTicketId: tickets.id,
+            otherNumber: tickets.number,
+            otherTitle: tickets.title,
+            otherStatus: tickets.status,
+          })
+          .from(ticketLinks)
+          .innerJoin(tickets, eq(tickets.id, ticketLinks.sourceTicketId))
+          .where(eq(ticketLinks.targetTicketId, id)),
+      ]);
+
+      const items: z.infer<typeof ticketLinkViewSchema>[] = [
+        ...asSource.map((row) => ({
+          linkId: row.linkId,
+          relation: relationFromSource(row.kind),
+          otherTicketId: row.otherTicketId,
+          otherNumber: row.otherNumber,
+          otherTitle: row.otherTitle,
+          otherStatus: row.otherStatus,
+          createdAt: row.createdAt.toISOString(),
+        })),
+        ...asTarget.map((row) => ({
+          linkId: row.linkId,
+          relation: relationFromTarget(row.kind),
+          otherTicketId: row.otherTicketId,
+          otherNumber: row.otherNumber,
+          otherTitle: row.otherTitle,
+          otherStatus: row.otherStatus,
+          createdAt: row.createdAt.toISOString(),
+        })),
+      ];
+      // Ordine deterministico: cronologico crescente, linkId come spareggio.
+      items.sort((a, b) => {
+        if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? -1 : 1;
+        return a.linkId < b.linkId ? -1 : a.linkId > b.linkId ? 1 : 0;
+      });
+      return items;
+    },
+  );
+
+  // Crea una relazione source(:id) → target. Valida self-link, cross-project e
+  // duplicato; in transazione inserisce il link + DUE eventi (uno per ciascun
+  // ticket, con direzione e numero dell'altro nel payload).
+  app.post(
+    "/:id/links",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        body: createLinkBodySchema,
+        response: {
+          201: ticketLinkSchema,
+          400: errorSchema,
+          404: errorSchema,
+          409: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const { targetTicketId, kind } = request.body;
+
+      if (targetTicketId === id) {
+        return apiError(reply, 400, "self_link", "Cannot link a ticket to itself");
+      }
+
+      const [source] = await app.db
+        .select({ id: tickets.id, number: tickets.number, projectId: tickets.projectId })
+        .from(tickets)
+        .where(eq(tickets.id, id));
+      if (!source) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
+
+      const [target] = await app.db
+        .select({ id: tickets.id, number: tickets.number, projectId: tickets.projectId })
+        .from(tickets)
+        .where(eq(tickets.id, targetTicketId));
+      if (!target) return apiError(reply, 404, "target_not_found", "Target ticket not found");
+
+      if (source.projectId !== target.projectId) {
+        return apiError(reply, 400, "cross_project_link", "Tickets must be in the same project");
+      }
+
+      const [existing] = await app.db
+        .select({ id: ticketLinks.id })
+        .from(ticketLinks)
+        .where(
+          and(
+            eq(ticketLinks.sourceTicketId, id),
+            eq(ticketLinks.targetTicketId, targetTicketId),
+            eq(ticketLinks.kind, kind),
+          ),
+        );
+      if (existing) return apiError(reply, 409, "link_exists", "Link already exists");
+
+      const actorId = request.user!.id;
+      try {
+        const link = await app.db.transaction(async (tx) => {
+          const [created] = await tx
+            .insert(ticketLinks)
+            .values({ sourceTicketId: id, targetTicketId, kind })
+            .returning();
+          await tx.insert(ticketEvents).values([
+            {
+              ticketId: id,
+              actorId,
+              kind: "relation_added",
+              payload: {
+                kind,
+                direction: "outgoing",
+                otherTicketId: targetTicketId,
+                otherNumber: target.number,
+              },
+            },
+            {
+              ticketId: targetTicketId,
+              actorId,
+              kind: "relation_added",
+              payload: {
+                kind,
+                direction: "incoming",
+                otherTicketId: id,
+                otherNumber: source.number,
+              },
+            },
+          ]);
+          return created!;
+        });
+        return await reply.code(201).send({
+          id: link.id,
+          sourceTicketId: link.sourceTicketId,
+          targetTicketId: link.targetTicketId,
+          kind: link.kind,
+          createdAt: link.createdAt.toISOString(),
+        });
+      } catch (error) {
+        // Finestra TOCTOU: il duplicato verificato sopra può essere inserito da
+        // una richiesta concorrente; l'unique (source, target, kind) lo segnala.
+        if (isUniqueViolation(error)) {
+          return apiError(reply, 409, "link_exists", "Link already exists");
+        }
+        throw error;
+      }
+    },
+  );
+
+  // Rimuove un link che coinvolge :id (come source O target). In transazione
+  // cancella il link + DUE eventi relation_removed sui due ticket coinvolti.
+  app.delete(
+    "/:id/links/:linkId",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: linkParamsSchema,
+        response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { id, linkId } = request.params;
+      const actorId = request.user!.id;
+
+      const deleted = await app.db.transaction(async (tx) => {
+        // Il link deve esistere E coinvolgere :id (source o target): altrimenti
+        // 404, così non si possono cancellare link di altri ticket.
+        const [link] = await tx
+          .select()
+          .from(ticketLinks)
+          .where(
+            and(
+              eq(ticketLinks.id, linkId),
+              or(eq(ticketLinks.sourceTicketId, id), eq(ticketLinks.targetTicketId, id)),
+            ),
+          );
+        if (!link) return false;
+
+        // Numeri dei due ticket per i payload simmetrici degli eventi.
+        const numbers = await tx
+          .select({ id: tickets.id, number: tickets.number })
+          .from(tickets)
+          .where(inArray(tickets.id, [link.sourceTicketId, link.targetTicketId]));
+        const numberOf = new Map(numbers.map((r) => [r.id, r.number]));
+
+        await tx.delete(ticketLinks).where(eq(ticketLinks.id, linkId));
+        await tx.insert(ticketEvents).values([
+          {
+            ticketId: link.sourceTicketId,
+            actorId,
+            kind: "relation_removed",
+            payload: {
+              kind: link.kind,
+              direction: "outgoing",
+              otherTicketId: link.targetTicketId,
+              otherNumber: numberOf.get(link.targetTicketId) ?? null,
+            },
+          },
+          {
+            ticketId: link.targetTicketId,
+            actorId,
+            kind: "relation_removed",
+            payload: {
+              kind: link.kind,
+              direction: "incoming",
+              otherTicketId: link.sourceTicketId,
+              otherNumber: numberOf.get(link.sourceTicketId) ?? null,
+            },
+          },
+        ]);
+        return true;
+      });
+
+      if (!deleted) return apiError(reply, 404, "link_not_found", "Link not found");
+      return reply.code(204).send(null);
     },
   );
 

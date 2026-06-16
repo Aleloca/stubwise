@@ -166,6 +166,7 @@ function EventItem({
 }) {
   const { t } = useTranslation();
   const text = describeEvent(event, authorEmails, t);
+  if (!text) return null;
   return (
     <li className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-1 font-mono text-[11px] text-fg-faint">
       <span aria-hidden className="text-line-strong">
@@ -240,7 +241,39 @@ function describeEvent(
       return t("tickets:activity.events.title_changed", { actor });
     case "body_changed":
       return t("tickets:activity.events.body_changed", { actor });
+    // L'evento relazione porta nel payload la kind canonica (blocks/relates_to/
+    // parent) e la direzione (outgoing/incoming) dal punto di vista del ticket
+    // corrente. Si mappa kind+direzione alla relazione MOSTRATA (la stessa scala
+    // a 5 valori di TicketRelation) e si compone il testo col numero dell'altro.
+    case "relation_added":
+    case "relation_removed":
+      return t(`tickets:activity.events.${event.eventKind}.${relationFromPayload(event.payload)}`, {
+        actor,
+        number: relationNumber(event.payload),
+      });
   }
+}
+
+/** Relazioni canoniche (kind) → relazione mostrata, per direzione. */
+const RELATION_BY_DIRECTION: Record<string, Record<string, string>> = {
+  outgoing: { blocks: "blocks", relates_to: "relates_to", parent: "parent" },
+  incoming: { blocks: "blocked_by", relates_to: "relates_to", parent: "child" },
+};
+
+/**
+ * Dal payload dell'evento relazione (`{ kind, direction, otherNumber }`)
+ * ricava la relazione da mostrare: outgoing usa la kind, incoming la inverte
+ * (blocks→blocked_by, parent→child, relates_to resta simmetrica).
+ */
+function relationFromPayload(payload: Record<string, unknown> | null): string {
+  const kind = typeof payload?.kind === "string" ? payload.kind : "relates_to";
+  const direction = payload?.direction === "incoming" ? "incoming" : "outgoing";
+  return RELATION_BY_DIRECTION[direction]?.[kind] ?? "relates_to";
+}
+
+function relationNumber(payload: Record<string, unknown> | null): number | string {
+  const n = payload?.otherNumber;
+  return typeof n === "number" ? n : "?";
 }
 
 function statusLabel(raw: unknown, t: TFunc): string {

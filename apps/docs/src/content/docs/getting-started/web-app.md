@@ -76,6 +76,7 @@ The detail page gathers everything about a ticket:
   breadcrumbs), when the ticket comes from an error captured by the SDK;
 - the **AI activity** panel, with the job timeline and the actions you can take
   on the pipeline;
+- the **Linked tickets** section, to relate this ticket to others;
 - the **Activity** timeline, a single chronological stream of comments, AI job
   markers and the audit of human actions.
 
@@ -89,6 +90,24 @@ This is also where you act on the pipeline:
 - **Start AI fix** / **Relaunch with instructions** — kick off or re-run the fix
   from a terminal job state;
 - **Approve** / **Reject** — when a job is waiting for plan approval.
+
+### Linked tickets
+
+The **Linked tickets** section relates a ticket to others in the same project.
+Each link has a relation, shown from the current ticket's point of view:
+
+- **Blocks** / **Blocked by** — this ticket must be resolved before the other;
+- **Relates to** — a loose, symmetric connection;
+- **Parent of** / **Child of** — a hierarchy between tickets.
+
+You create only the **Blocks**, **Relates to** and **Parent of** directions; the
+inverse — **Blocked by** and **Child of** — appears automatically on the linked
+ticket. To add a link, use **Link ticket**: search the target **by title**
+(within the same project), pick it, choose the relation and confirm. To remove a
+link, click **Remove** on its row and confirm.
+
+Adding or removing a link is recorded in the **Activity** timeline below, as an
+audit entry.
 
 ### Activity timeline
 
