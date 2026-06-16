@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { aiJobs, comments, tickets } from "@stubwise/db";
+import { aiJobs, comments, ticketEvents, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
@@ -516,6 +516,75 @@ describe("PATCH /api/tickets/:id", () => {
       payload: { status: "done" },
     });
     expect(res.statusCode).toBe(401);
+  });
+});
+
+describe("PATCH /api/tickets/:id — ticket_events", () => {
+  // Ogni test usa un ticket fresco: gli eventi vengono confrontati per conteggio
+  // esatto, quindi non devono accumularsi tra i casi.
+  async function freshTicket(): Promise<string> {
+    const res = await postTicket({ projectId, title: "Evento", type: "bug", labels: ["a", "b"] });
+    expect(res.statusCode).toBe(201);
+    return (res.json() as TicketBody).id;
+  }
+
+  function patch(id: string, payload: Record<string, unknown>, cookie = users.memberCookie) {
+    return app.inject({ method: "PATCH", url: `/api/tickets/${id}`, headers: { cookie }, payload });
+  }
+
+  function eventsOf(id: string) {
+    return testDb.db.select().from(ticketEvents).where(eq(ticketEvents.ticketId, id));
+  }
+
+  it("status + assigneeId → 2 eventi con kind/from/to corretti e actorId del loggato", async () => {
+    const id = await freshTicket();
+    const res = await patch(id, { status: "in_progress", assigneeId: users.memberId });
+    expect(res.statusCode).toBe(200);
+
+    const rows = await eventsOf(id);
+    expect(rows).toHaveLength(2);
+    const byKind = new Map(rows.map((r) => [r.kind, r]));
+
+    const statusEvent = byKind.get("status_changed");
+    expect(statusEvent?.payload).toEqual({ from: "open", to: "in_progress" });
+    expect(statusEvent?.actorId).toBe(users.memberId);
+
+    const assigneeEvent = byKind.get("assignee_changed");
+    expect(assigneeEvent?.payload).toEqual({ from: null, to: users.memberId });
+    expect(assigneeEvent?.actorId).toBe(users.memberId);
+  });
+
+  it("stessi valori correnti → 0 eventi", async () => {
+    const id = await freshTicket();
+    // status open è il default alla creazione: ripeterlo non è un cambio.
+    const res = await patch(id, { status: "open", type: "bug", priority: "medium" });
+    expect(res.statusCode).toBe(200);
+    expect(await eventsOf(id)).toHaveLength(0);
+  });
+
+  it("PATCH vuota → 0 eventi e stato corrente", async () => {
+    const id = await freshTicket();
+    const res = await patch(id, {});
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as TicketBody).status).toBe("open");
+    expect(await eventsOf(id)).toHaveLength(0);
+  });
+
+  it("labels cambiate → 1 evento labels_changed con from/to", async () => {
+    const id = await freshTicket();
+    const res = await patch(id, { labels: ["a", "c"] });
+    expect(res.statusCode).toBe(200);
+    const rows = await eventsOf(id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.kind).toBe("labels_changed");
+    expect(rows[0]?.payload).toEqual({ from: ["a", "b"], to: ["a", "c"] });
+  });
+
+  it("labels identiche con ordine diverso → 0 eventi", async () => {
+    const id = await freshTicket();
+    const res = await patch(id, { labels: ["b", "a"] });
+    expect(res.statusCode).toBe(200);
+    expect(await eventsOf(id)).toHaveLength(0);
   });
 });
 

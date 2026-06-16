@@ -10,7 +10,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAuth } from "../auth/session.js";
 import type { Db } from "@stubwise/db";
-import { aiJobs, comments, tickets, users } from "@stubwise/db";
+import { aiJobs, comments, ticketEvents, tickets, users } from "@stubwise/db";
 import { createTicket, ProjectNotFoundError, type Ticket } from "../db/tickets.js";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema, isForeignKeyViolation } from "./shared.js";
@@ -164,6 +164,62 @@ async function userExists(db: Db, userId: string): Promise<boolean> {
   return row !== undefined;
 }
 
+/** Forma minimale dell'evento da inserire, prima di aggiungere ticketId/actorId. */
+type PendingEvent = Pick<typeof ticketEvents.$inferInsert, "kind" | "payload">;
+
+/**
+ * True se due liste di label rappresentano lo stesso insieme: l'ordine non
+ * conta (riordinare le label in un PATCH non è una modifica reale), ma i
+ * duplicati sì — confronto come multiset ordinato.
+ */
+function sameLabels(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sa = [...a].sort();
+  const sb = [...b].sort();
+  return sa.every((value, index) => value === sb[index]);
+}
+
+/**
+ * Diffa i campi richiesti nel PATCH contro la riga corrente e produce un
+ * evento `ticket_events` per OGNI campo effettivamente cambiato. I payload
+ * restano piccoli: per title/body si segna solo che è cambiato (mai il testo
+ * lungo), per gli altri si tiene { from, to }.
+ */
+function diffTicketEvents(current: Ticket, updates: Partial<Ticket>): PendingEvent[] {
+  const events: PendingEvent[] = [];
+  if (updates.title !== undefined && updates.title !== current.title) {
+    events.push({ kind: "title_changed", payload: { changed: true } });
+  }
+  if (updates.body !== undefined && updates.body !== current.body) {
+    events.push({ kind: "body_changed", payload: { changed: true } });
+  }
+  if (updates.type !== undefined && updates.type !== current.type) {
+    events.push({ kind: "type_changed", payload: { from: current.type, to: updates.type } });
+  }
+  if (updates.priority !== undefined && updates.priority !== current.priority) {
+    events.push({
+      kind: "priority_changed",
+      payload: { from: current.priority, to: updates.priority },
+    });
+  }
+  if (updates.status !== undefined && updates.status !== current.status) {
+    events.push({ kind: "status_changed", payload: { from: current.status, to: updates.status } });
+  }
+  if (updates.assigneeId !== undefined && updates.assigneeId !== current.assigneeId) {
+    events.push({
+      kind: "assignee_changed",
+      payload: { from: current.assigneeId, to: updates.assigneeId },
+    });
+  }
+  if (updates.labels !== undefined && !sameLabels(updates.labels, current.labels)) {
+    events.push({
+      kind: "labels_changed",
+      payload: { from: current.labels, to: updates.labels },
+    });
+  }
+  return events;
+}
+
 /**
  * Route dei ticket, registrate sotto /api/tickets. Tutte dietro requireAuth
  * e tutte aperte a qualunque utente autenticato: la gestione dei ticket è
@@ -311,17 +367,34 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       if (assigneeId !== undefined) updates.assigneeId = assigneeId;
       if (labels !== undefined) updates.labels = labels;
 
-      // Drizzle rifiuta un update senza colonne: una PATCH vuota è una
-      // lettura, si risponde con lo stato corrente.
+      const id = request.params.id;
       try {
-        const [row] =
-          Object.keys(updates).length === 0
-            ? await app.db.select().from(tickets).where(eq(tickets.id, request.params.id))
-            : await app.db
-                .update(tickets)
-                .set(updates)
-                .where(eq(tickets.id, request.params.id))
-                .returning();
+        // Tutto in una transazione: SELECT della riga corrente, diff degli
+        // eventi, UPDATE e INSERT degli eventi devono essere atomici e
+        // consistenti. Una PATCH vuota resta una pura lettura (no update, no
+        // eventi); un PATCH che non cambia nulla produce 0 eventi.
+        const row = await app.db.transaction(async (tx) => {
+          const [current] = await tx.select().from(tickets).where(eq(tickets.id, id));
+          if (!current) return null;
+
+          if (Object.keys(updates).length === 0) return current;
+
+          const events = diffTicketEvents(current, updates);
+
+          const [updated] = await tx
+            .update(tickets)
+            .set(updates)
+            .where(eq(tickets.id, id))
+            .returning();
+          // L'id è già stato verificato dalla SELECT in transazione: l'update
+          // tocca sempre la riga.
+          if (events.length > 0) {
+            await tx
+              .insert(ticketEvents)
+              .values(events.map((event) => ({ ...event, ticketId: id, actorId: request.user!.id })));
+          }
+          return updated!;
+        });
         if (!row) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
         return toPublicTicket(row);
       } catch (error) {
