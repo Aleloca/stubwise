@@ -47,6 +47,8 @@ export const ticketSchema = z.object({
   status: ticketStatusSchema,
   source: ticketSourceSchema,
   assigneeId: z.uuid().nullable(),
+  // Milestone a cui il ticket è assegnato; null = nessuna milestone.
+  milestoneId: z.uuid().nullable(),
   // Stima di sforzo 1–5 del triage AI; null finché il ticket non è triagiato.
   effort: z.number().int().min(1).max(5).nullable(),
   labels: z.array(z.string()),
@@ -226,6 +228,7 @@ function toPublicTicket(row: Ticket): z.infer<typeof ticketSchema> {
     status: row.status,
     source: row.source,
     assigneeId: row.assigneeId,
+    milestoneId: row.milestoneId,
     effort: row.effort,
     labels: row.labels,
     technicalPayload: row.technicalPayload ?? null,

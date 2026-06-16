@@ -249,6 +249,8 @@ function describeEvent(
       return t("tickets:activity.events.title_changed", { actor });
     case "body_changed":
       return t("tickets:activity.events.body_changed", { actor });
+    case "milestone_changed":
+      return t("tickets:activity.events.milestone_changed", { actor });
     // L'evento relazione porta nel payload la kind canonica (blocks/relates_to/
     // parent) e la direzione (outgoing/incoming) dal punto di vista del ticket
     // corrente. Si mappa kind+direzione alla relazione MOSTRATA (la stessa scala

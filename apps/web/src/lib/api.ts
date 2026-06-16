@@ -190,6 +190,8 @@ export interface Ticket {
   status: TicketStatus;
   source: TicketSource;
   assigneeId: string | null;
+  /** Milestone a cui il ticket è assegnato; null = nessuna milestone. */
+  milestoneId: string | null;
   /** Stima di sforzo 1–5 del triage AI; null finché non triagiato. */
   effort: number | null;
   labels: string[];
@@ -541,6 +543,7 @@ export type TicketEventKind =
   | "labels_changed"
   | "title_changed"
   | "body_changed"
+  | "milestone_changed"
   | "relation_added"
   | "relation_removed";
 

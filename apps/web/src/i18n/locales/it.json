@@ -184,6 +184,7 @@
         "labels_changed": "{{actor}} ha aggiornato le label",
         "title_changed": "{{actor}} ha modificato il titolo",
         "body_changed": "{{actor}} ha modificato la descrizione",
+        "milestone_changed": "{{actor}} ha cambiato milestone",
         "relation_added": {
           "blocks": "{{actor}} ha collegato: blocca #{{number}}",
           "blocked_by": "{{actor}} ha collegato: bloccato da #{{number}}",

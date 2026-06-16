@@ -87,6 +87,7 @@ interface TicketBody {
   status: string;
   source: string;
   assigneeId: string | null;
+  milestoneId: string | null;
   effort: number | null;
   labels: string[];
   technicalPayload: unknown;
@@ -121,6 +122,7 @@ describe("POST /api/tickets", () => {
       status: "open",
       source: "manual",
       assigneeId: null,
+      milestoneId: null,
       effort: null,
       labels: [],
       technicalPayload: null,
@@ -563,6 +565,35 @@ describe("GET /api/tickets/:id", () => {
     const body = res.json() as TicketBody;
     expect(body.id).toBe(id);
     expect(body.title).toBe("Da rileggere");
+  });
+
+  it("espone milestoneId: null di default, l'id della milestone dopo l'assegnazione", async () => {
+    const created = await postTicket({ projectId, title: "Con milestone", type: "task" });
+    const id = (created.json() as TicketBody).id;
+
+    const beforeRes = await app.inject({
+      method: "GET",
+      url: `/api/tickets/${id}`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect((beforeRes.json() as TicketBody).milestoneId).toBeNull();
+
+    const ms = await app.inject({
+      method: "POST",
+      url: "/api/milestones",
+      headers: { cookie: users.memberCookie },
+      payload: { projectId, name: "Sprint dettaglio" },
+    });
+    const milestoneId = (ms.json() as { id: string }).id;
+    await testDb.db.update(tickets).set({ milestoneId }).where(eq(tickets.id, id));
+
+    const afterRes = await app.inject({
+      method: "GET",
+      url: `/api/tickets/${id}`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(afterRes.statusCode).toBe(200);
+    expect((afterRes.json() as TicketBody).milestoneId).toBe(milestoneId);
   });
 
   it("ticket inesistente: 404", async () => {

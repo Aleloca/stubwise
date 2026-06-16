@@ -184,6 +184,7 @@
         "labels_changed": "{{actor}} updated labels",
         "title_changed": "{{actor}} edited the title",
         "body_changed": "{{actor}} edited the description",
+        "milestone_changed": "{{actor}} changed the milestone",
         "relation_added": {
           "blocks": "{{actor}} linked: blocks #{{number}}",
           "blocked_by": "{{actor}} linked: blocked by #{{number}}",

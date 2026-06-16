@@ -36,6 +36,7 @@ const ticketFixture: Ticket = {
   status: "open",
   source: "sdk_error",
   assigneeId: null,
+  milestoneId: null,
   effort: null,
   labels: ["pagamenti"],
   technicalPayload: {
