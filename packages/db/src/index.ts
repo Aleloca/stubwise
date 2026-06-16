@@ -5,3 +5,6 @@ export { createDb, runMigrations, type Db, type DbHandle } from "./client.js";
 // serve sia al server (encrypt alla creazione/validazione dell'account) sia al
 // worker (decrypt dell'account collegato al progetto nel fix).
 export { decrypt, encrypt } from "./secrets.js";
+// Helper di lettura costo (somma agent_runs.cost_usd per ticket / per mese
+// corrente): importati da worker e server per i gate di budget.
+export { monthlyCostUsd, ticketCostUsd } from "./cost.js";
