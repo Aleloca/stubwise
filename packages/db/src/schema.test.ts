@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "./client.js";
 import {
   aiJobs,
   automationRules,
+  comments,
   instanceSettings,
   notificationSettings,
   projects,
@@ -536,5 +537,145 @@ describe("schema: ticket_links (relazioni tra ticket)", () => {
         and(eq(ticketLinks.sourceTicketId, source), eq(ticketLinks.targetTicketId, target)),
       );
     expect(all.length).toBe(2);
+  });
+});
+
+/**
+ * Verifica la ricerca full-text: la colonna generata `tickets.search_tsv`
+ * (titolo + corpo) matchata via `@@ websearch_to_tsquery`, lo stemming inglese
+ * (forme flesse) e l'indice GIN espressivo sul corpo dei commenti.
+ */
+describe("schema: ricerca full-text (tsvector + GIN)", () => {
+  let testDb: TestDb;
+  let db: Db;
+
+  beforeAll(async () => {
+    testDb = await startTestDb();
+    db = testDb.db;
+  });
+
+  afterAll(async () => {
+    await testDb.stop();
+  });
+
+  async function seedProject(): Promise<string> {
+    const gitAccountId = await seedGitAccount(db);
+    const [project] = await db
+      .insert(projects)
+      .values({
+        name: "Progetto di test",
+        slug: `progetto-${randomUUID()}`,
+        provider: "github",
+        gitAccountId,
+        repoUrl: "https://example.com/repo.git",
+        defaultBranch: "main",
+        ingestionKey: randomUUID(),
+      })
+      .returning();
+    if (!project) throw new Error("insert del progetto non ha restituito la riga");
+    return project.id;
+  }
+
+  it("trova un ticket cercando una parola presente solo nel corpo (non nel titolo)", async () => {
+    const projectId = await seedProject();
+    const [ticket] = await db
+      .insert(tickets)
+      .values({
+        projectId,
+        number: 1,
+        title: "Login",
+        body: "the checkout crashes",
+        type: "bug",
+        priority: "medium",
+        source: "manual",
+      })
+      .returning();
+    if (!ticket) throw new Error("insert del ticket non ha restituito la riga");
+
+    const rows = await db.execute<{ id: string }>(
+      sql`select id from ${tickets} where ${tickets.id} = ${ticket.id} and search_tsv @@ websearch_to_tsquery('english', 'checkout')`,
+    );
+    expect(rows.map((r) => r.id)).toContain(ticket.id);
+
+    // Sanity: una parola assente da titolo+corpo non matcha.
+    const none = await db.execute<{ id: string }>(
+      sql`select id from ${tickets} where ${tickets.id} = ${ticket.id} and search_tsv @@ websearch_to_tsquery('english', 'database')`,
+    );
+    expect(none.length).toBe(0);
+  });
+
+  it("trova un ticket cercando una parola presente solo nel titolo (non nel corpo)", async () => {
+    const projectId = await seedProject();
+    const [ticket] = await db
+      .insert(tickets)
+      .values({
+        projectId,
+        number: 1,
+        title: "Pagination broken",
+        body: "the checkout crashes",
+        type: "bug",
+        priority: "medium",
+        source: "manual",
+      })
+      .returning();
+    if (!ticket) throw new Error("insert del ticket non ha restituito la riga");
+
+    const rows = await db.execute<{ id: string }>(
+      sql`select id from ${tickets} where ${tickets.id} = ${ticket.id} and search_tsv @@ websearch_to_tsquery('english', 'pagination')`,
+    );
+    expect(rows.map((r) => r.id)).toContain(ticket.id);
+  });
+
+  it("matcha una forma flessa grazie allo stemming inglese (crashing → crashes)", async () => {
+    const projectId = await seedProject();
+    const [ticket] = await db
+      .insert(tickets)
+      .values({
+        projectId,
+        number: 1,
+        title: "Login",
+        body: "the checkout crashes",
+        type: "bug",
+        priority: "medium",
+        source: "manual",
+      })
+      .returning();
+    if (!ticket) throw new Error("insert del ticket non ha restituito la riga");
+
+    const rows = await db.execute<{ id: string }>(
+      sql`select id from ${tickets} where ${tickets.id} = ${ticket.id} and search_tsv @@ websearch_to_tsquery('english', 'crashing')`,
+    );
+    expect(rows.map((r) => r.id)).toContain(ticket.id);
+  });
+
+  it("trova un commento per il suo corpo via indice espressivo full-text", async () => {
+    const projectId = await seedProject();
+    const [ticket] = await db
+      .insert(tickets)
+      .values({
+        projectId,
+        number: 1,
+        title: "Ticket di test",
+        type: "bug",
+        priority: "medium",
+        source: "manual",
+      })
+      .returning();
+    if (!ticket) throw new Error("insert del ticket non ha restituito la riga");
+
+    const [comment] = await db
+      .insert(comments)
+      .values({
+        ticketId: ticket.id,
+        authorType: "user",
+        body: "The deployment pipeline is failing intermittently",
+      })
+      .returning();
+    if (!comment) throw new Error("insert del commento non ha restituito la riga");
+
+    const rows = await db.execute<{ id: string }>(
+      sql`select id from ${comments} where ${comments.id} = ${comment.id} and to_tsvector('english', body) @@ websearch_to_tsquery('english', 'deploy')`,
+    );
+    expect(rows.map((r) => r.id)).toContain(comment.id);
   });
 });

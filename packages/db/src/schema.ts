@@ -6,9 +6,10 @@ import {
   ticketStatusSchema,
   ticketTypeSchema,
 } from "@stubwise/shared";
-import { sql } from "drizzle-orm";
+import { type SQL, sql } from "drizzle-orm";
 import {
   boolean,
+  customType,
   index,
   integer,
   jsonb,
@@ -20,6 +21,18 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+
+/**
+ * Tipo `tsvector` di Postgres, non modellato nativamente da drizzle. Usato per
+ * la colonna generata `tickets.search_tsv` (ricerca full-text): drizzle non
+ * deve mai scriverlo (è GENERATED ALWAYS), serve solo a dichiararne il tipo
+ * nello schema così che lo snapshot e l'indice GIN risultino coerenti.
+ */
+const tsvector = customType<{ data: string }>({
+  dataType() {
+    return "tsvector";
+  },
+});
 
 /**
  * Converte le opzioni di uno z.enum nella tupla non vuota richiesta da pgEnum,
@@ -208,11 +221,21 @@ export const tickets = pgTable(
       .notNull()
       .defaultNow()
       .$onUpdate(() => new Date()),
+    // Vettore full-text generato (stored) da titolo + corpo: alimenta la ricerca
+    // testuale via `@@ websearch_to_tsquery`. `to_tsvector('english', …)` a 2
+    // argomenti è IMMUTABLE, requisito per una generated column. La colonna è
+    // sola lettura per l'applicazione (drizzle non la scrive mai).
+    searchTsv: tsvector("search_tsv").generatedAlwaysAs(
+      (): SQL =>
+        sql`to_tsvector('english', coalesce(${tickets.title}, '') || ' ' || coalesce(${tickets.body}, ''))`,
+    ),
   },
   (table) => [
     uniqueIndex("tickets_project_id_number_unique").on(table.projectId, table.number),
     // Board e liste filtrano sempre per progetto e stato.
     index("tickets_project_id_status_idx").on(table.projectId, table.status),
+    // Ricerca full-text sul vettore generato.
+    index("tickets_search_tsv_idx").using("gin", table.searchTsv),
   ],
 );
 

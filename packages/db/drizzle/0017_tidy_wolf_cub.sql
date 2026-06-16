@@ -1,0 +1,3 @@
+ALTER TABLE "tickets" ADD COLUMN "search_tsv" "tsvector" GENERATED ALWAYS AS (to_tsvector('english', coalesce("tickets"."title", '') || ' ' || coalesce("tickets"."body", ''))) STORED;--> statement-breakpoint
+CREATE INDEX "tickets_search_tsv_idx" ON "tickets" USING gin ("search_tsv");--> statement-breakpoint
+CREATE INDEX "comments_body_fts_idx" ON "comments" USING gin (to_tsvector('english', body));
