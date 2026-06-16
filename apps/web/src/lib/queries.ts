@@ -11,6 +11,7 @@ import {
   getProjects,
   getProjectWebhook,
   getTicket,
+  getTicketActivity,
   getTicketJobs,
   getTicketUsage,
   getUsers,
@@ -39,6 +40,7 @@ export const ticketKeys = {
   boards: () => [...ticketKeys.all, "board"] as const,
   board: (projectId?: string) => [...ticketKeys.boards(), projectId ?? null] as const,
   comments: (ticketId: string) => [...ticketKeys.all, "comments", ticketId] as const,
+  activity: (ticketId: string) => [...ticketKeys.all, "activity", ticketId] as const,
   jobs: (ticketId: string) => [...ticketKeys.all, "jobs", ticketId] as const,
   usage: (ticketId: string) => [...ticketKeys.all, "usage", ticketId] as const,
 };
@@ -90,6 +92,19 @@ export function commentsQueryOptions(ticketId: string) {
   return queryOptions({
     queryKey: ticketKeys.comments(ticketId),
     queryFn: () => getComments(ticketId),
+  });
+}
+
+/**
+ * Feed unificato (commenti + eventi di audit + marker job AI) di un ticket,
+ * in ordine cronologico crescente. Chiave figlia dei ticket: ogni mutazione
+ * che tocca il ticket (commento, run-ai, patch stato/assegnatario, …) la
+ * invalida così la timeline resta riconciliata col backend.
+ */
+export function activityQueryOptions(ticketId: string) {
+  return queryOptions({
+    queryKey: ticketKeys.activity(ticketId),
+    queryFn: () => getTicketActivity(ticketId),
   });
 }
 

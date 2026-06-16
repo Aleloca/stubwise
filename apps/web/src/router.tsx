@@ -12,6 +12,7 @@ import { RouteError } from "./components/route-error";
 import { ApiError } from "./lib/api";
 import { meQueryOptions, setupStatusQueryOptions } from "./lib/auth";
 import {
+  activityQueryOptions,
   automationSettingsQueryOptions,
   boardTicketsQueryOptions,
   commentsQueryOptions,
@@ -138,6 +139,7 @@ const ticketDetailRoute = createRoute({
     await Promise.all([
       context.queryClient.ensureQueryData(ticketQueryOptions(params.id)),
       context.queryClient.ensureQueryData(commentsQueryOptions(params.id)),
+      context.queryClient.ensureQueryData(activityQueryOptions(params.id)),
       context.queryClient.ensureQueryData(ticketJobsQueryOptions(params.id)),
       context.queryClient.ensureQueryData(ticketUsageQueryOptions(params.id)),
       context.queryClient.ensureQueryData(usersQueryOptions),
