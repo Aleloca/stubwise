@@ -12,12 +12,12 @@ Idee di funzionalità valutate dopo la prima fase di sviluppo + deploy in produz
 
 ## 2. Essere un vero tracker da team
 
-- **Ricerca full-text** su titolo + body + commenti (oggi solo filtro ILIKE sul titolo).
-- **Cronologia/audit** delle azioni umane (chi ha cambiato cosa), oltre alla timeline AI.
-- **Relazioni tra ticket** (blocca / relativo / sotto-task).
-- **Allegati/screenshot** (lo screenshot del feedback SDK non è ancora salvato/mostrato).
-- **Editor markdown ricco** per body e commenti.
-- **Milestone / viste salvate** (gli sprint erano stati esclusi dal v1; valutare milestone leggere).
+- ~~**Cronologia/audit** delle azioni umane (chi ha cambiato cosa), oltre alla timeline AI.~~ → ✅ **FATTA** (activity feed unico: commenti + eventi job AI + `ticket_events`; migrazione 0015; design in docs/plans/2026-06-16-stubwise-team-tracker-design.md).
+- ~~**Relazioni tra ticket** (blocca / relativo / sotto-task).~~ → ✅ **FATTA** (`ticket_links` blocks/relates_to/parent + inverse derivate + voci nel feed; migrazione 0016).
+- ~~**Ricerca full-text** su titolo + body + commenti (oggi solo filtro ILIKE sul titolo).~~ → ✅ **FATTA** (tsvector + GIN su titolo+body, query commenti; `websearch_to_tsquery('english')`; migrazione 0017; ranking ts_rank rimandato a follow-up).
+- ~~**Editor markdown ricco** per body e commenti.~~ → ✅ **FATTA** (componente `MarkdownEditor`: toolbar bold/italic/code/link/list + anteprima live; solo frontend, nessuna migrazione).
+- **Allegati/screenshot** (lo screenshot del feedback SDK non è ancora salvato/mostrato). → **prossima** (feature 5: S3-compatible configurabile + screenshot SDK).
+- **Milestone / viste salvate** (gli sprint erano stati esclusi dal v1; valutare milestone leggere). → feature 6.
 
 ## 3. Visione "confluire TUTTI i ticket di TUTTI i progetti"
 
