@@ -3,9 +3,11 @@ import {
   ticketStatusSchema,
   ticketTypeSchema,
 } from "@stubwise/shared";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Project, TicketFilters as TicketFiltersValue } from "../lib/api";
+import { milestonesQueryOptions } from "../lib/queries";
 import { PRIORITY_LABEL_KEYS, STATUS_LABEL_KEYS, TYPE_LABEL_KEYS } from "./badges";
 
 const SEARCH_DEBOUNCE_MS = 300;
@@ -33,6 +35,11 @@ export function TicketFilters({ value, projects, onChange }: TicketFiltersProps)
   }, [value.q]);
 
   useEffect(() => () => clearTimeout(timerRef.current), []);
+
+  // Milestone per-progetto: la query si abilita solo con un projectId (le
+  // milestone non esistono fuori da un progetto). Senza progetto il select
+  // resta disabilitato con la sola opzione "All".
+  const { data: milestones = [] } = useQuery(milestonesQueryOptions(value.projectId));
 
   function handleSearch(next: string) {
     setDraft(next);
@@ -63,7 +70,10 @@ export function TicketFilters({ value, projects, onChange }: TicketFiltersProps)
         label={t("tickets:filters.project")}
         value={value.projectId}
         options={projects.map((project) => ({ value: project.id, label: project.name }))}
-        onChange={(projectId) => onChange({ projectId })}
+        // Le milestone sono per-progetto: cambiando progetto un milestoneId di
+        // un altro progetto resterebbe orfano, quindi lo si azzera nello stesso
+        // patch (undefined → sparisce dall'URL).
+        onChange={(projectId) => onChange({ projectId, milestoneId: undefined })}
       />
       <FilterSelect
         id="filter-status"
@@ -97,6 +107,19 @@ export function TicketFilters({ value, projects, onChange }: TicketFiltersProps)
           onChange({ priority: priority as TicketFiltersValue["priority"] })
         }
       />
+      <FilterSelect
+        id="filter-milestone"
+        label={t("tickets:filters.milestone")}
+        value={value.milestoneId}
+        // Abilitato solo con un progetto selezionato: le milestone sono
+        // per-progetto e fuori da un progetto non c'è nulla da elencare.
+        disabled={value.projectId === undefined}
+        options={milestones.map((milestone) => ({
+          value: milestone.id,
+          label: milestone.name,
+        }))}
+        onChange={(milestoneId) => onChange({ milestoneId })}
+      />
     </div>
   );
 }
@@ -109,9 +132,10 @@ interface FilterSelectProps {
   value: string | undefined;
   options: { value: string; label: string }[];
   onChange: (value: string | undefined) => void;
+  disabled?: boolean;
 }
 
-function FilterSelect({ id, label, value, options, onChange }: FilterSelectProps) {
+function FilterSelect({ id, label, value, options, onChange, disabled }: FilterSelectProps) {
   const { t } = useTranslation();
 
   return (
@@ -122,8 +146,9 @@ function FilterSelect({ id, label, value, options, onChange }: FilterSelectProps
       <select
         id={id}
         value={value ?? ""}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.value || undefined)}
-        className="rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1.5 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
+        className="rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1.5 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim disabled:cursor-not-allowed disabled:opacity-50"
       >
         <option value="">{t("tickets:filters.all")}</option>
         {options.map((option) => (

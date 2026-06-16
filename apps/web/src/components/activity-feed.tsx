@@ -22,6 +22,8 @@ interface ActivityFeedProps {
   ticketId: string;
   /** authorId/actorId → email, per firmare commenti utente ed eventi. */
   authorEmails: Map<string, string>;
+  /** milestoneId → nome, per rendere leggibili gli eventi milestone_changed. */
+  milestoneNames: Map<string, string>;
   /** Invio del nuovo commento; il rigetto lascia il testo nel campo. */
   onSubmit: (body: string) => Promise<unknown>;
   pending: boolean;
@@ -35,7 +37,13 @@ interface ActivityFeedProps {
  * solo come riga di stato con link alla PR, per dare la storia cronologica
  * senza duplicare le funzionalità.
  */
-export function ActivityFeed({ ticketId, authorEmails, onSubmit, pending }: ActivityFeedProps) {
+export function ActivityFeed({
+  ticketId,
+  authorEmails,
+  milestoneNames,
+  onSubmit,
+  pending,
+}: ActivityFeedProps) {
   const { t } = useTranslation();
   const { data: items } = useSuspenseQuery(activityQueryOptions(ticketId));
   const [draft, setDraft] = useState("");
@@ -61,7 +69,12 @@ export function ActivityFeed({ ticketId, authorEmails, onSubmit, pending }: Acti
       ) : (
         <ol className="space-y-3">
           {items.map((item) => (
-            <FeedItem key={`${item.kind}-${item.id}`} item={item} authorEmails={authorEmails} />
+            <FeedItem
+              key={`${item.kind}-${item.id}`}
+              item={item}
+              authorEmails={authorEmails}
+              milestoneNames={milestoneNames}
+            />
           ))}
         </ol>
       )}
@@ -101,12 +114,20 @@ export function ActivityFeed({ ticketId, authorEmails, onSubmit, pending }: Acti
   );
 }
 
-function FeedItem({ item, authorEmails }: { item: ActivityItem; authorEmails: Map<string, string> }) {
+function FeedItem({
+  item,
+  authorEmails,
+  milestoneNames,
+}: {
+  item: ActivityItem;
+  authorEmails: Map<string, string>;
+  milestoneNames: Map<string, string>;
+}) {
   switch (item.kind) {
     case "comment":
       return <CommentItem comment={item} authorEmails={authorEmails} />;
     case "event":
-      return <EventItem event={item} authorEmails={authorEmails} />;
+      return <EventItem event={item} authorEmails={authorEmails} milestoneNames={milestoneNames} />;
     case "ai_job":
       return <AiJobItem job={item} />;
   }
@@ -168,12 +189,14 @@ function CommentItem({
 function EventItem({
   event,
   authorEmails,
+  milestoneNames,
 }: {
   event: ActivityEvent;
   authorEmails: Map<string, string>;
+  milestoneNames: Map<string, string>;
 }) {
   const { t } = useTranslation();
-  const text = describeEvent(event, authorEmails, t);
+  const text = describeEvent(event, authorEmails, milestoneNames, t);
   if (!text) return null;
   return (
     <li className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-1 font-mono text-[11px] text-fg-faint">
@@ -212,6 +235,7 @@ function fromTo(payload: Record<string, unknown> | null): {
 function describeEvent(
   event: ActivityEvent,
   authorEmails: Map<string, string>,
+  milestoneNames: Map<string, string>,
   t: TFunc,
 ): string {
   const actor = actorName(event.actorId, authorEmails, t);
@@ -249,8 +273,24 @@ function describeEvent(
       return t("tickets:activity.events.title_changed", { actor });
     case "body_changed":
       return t("tickets:activity.events.body_changed", { actor });
-    case "milestone_changed":
-      return t("tickets:activity.events.milestone_changed", { actor });
+    // milestone_changed: from/to sono id (o null). Si risolve l'id al nome
+    // (fallback "—" se la milestone è stata cancellata) e si sceglie la
+    // variante: set (null→x), removed (x→null), changed (x→y).
+    case "milestone_changed": {
+      const hasFrom = typeof from === "string";
+      const hasTo = typeof to === "string";
+      const fromName = milestoneLabel(from, milestoneNames, t);
+      const toName = milestoneLabel(to, milestoneNames, t);
+      if (!hasFrom && hasTo)
+        return t("tickets:activity.events.milestone_changed.set", { actor, to: toName });
+      if (hasFrom && !hasTo)
+        return t("tickets:activity.events.milestone_changed.removed", { actor, from: fromName });
+      return t("tickets:activity.events.milestone_changed.changed", {
+        actor,
+        from: fromName,
+        to: toName,
+      });
+    }
     // L'evento relazione porta nel payload la kind canonica (blocks/relates_to/
     // parent) e la direzione (outgoing/incoming) dal punto di vista del ticket
     // corrente. Si mappa kind+direzione alla relazione MOSTRATA (la stessa scala
@@ -304,6 +344,12 @@ function typeLabel(raw: unknown, t: TFunc): string {
 function userLabel(raw: unknown, authorEmails: Map<string, string>, t: TFunc): string {
   if (typeof raw !== "string") return String(raw);
   return authorEmails.get(raw) ?? t("tickets:comments.removedUser");
+}
+
+/** Nome di una milestone dall'id; "—" se cancellata (id non risolvibile). */
+function milestoneLabel(raw: unknown, milestoneNames: Map<string, string>, t: TFunc): string {
+  if (typeof raw !== "string") return "—";
+  return milestoneNames.get(raw) ?? t("milestones:none");
 }
 
 /** Marker compatto di un job AI: etichetta di stato + eventuale link PR. */

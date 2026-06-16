@@ -17,6 +17,7 @@ import {
   getTicketLinks,
   getTicketUsage,
   getUsers,
+  listMilestones,
   listTickets,
   type TicketFilters,
 } from "./api";
@@ -173,6 +174,22 @@ export const projectsQueryOptions = queryOptions({
   queryFn: getProjects,
   staleTime: 60_000,
 });
+
+/**
+ * Milestone (con avanzamento) di un progetto. Le milestone sono per-progetto:
+ * la query si abilita solo con un projectId definito (il select filtro nella
+ * lista, ad esempio, la chiama anche quando nessun progetto è selezionato).
+ * Chiave ["milestones", projectId]: una patch/CRUD su una milestone invalida
+ * la sola lista del progetto interessato.
+ */
+export function milestonesQueryOptions(projectId: string | undefined) {
+  return queryOptions({
+    queryKey: ["milestones", projectId ?? null],
+    queryFn: () => listMilestones(projectId!),
+    enabled: projectId !== undefined,
+    staleTime: 30_000,
+  });
+}
 
 /**
  * Regole di automazione AI per tipo (solo admin): la pagina Settings la

@@ -7,6 +7,7 @@ import type {
   ActivityItem,
   AIJob,
   Comment,
+  MilestoneWithCounts,
   Ticket,
   TicketLinkView,
   TicketUsage,
@@ -24,6 +25,29 @@ const TICKET_ID = "11111111-1111-4111-8111-111111111111";
 const PROJECT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const ADMIN_ID = "99999999-9999-4999-8999-999999999999";
 const MEMBER_ID = "88888888-8888-4888-8888-888888888888";
+const MILESTONE_A = "aaaa1111-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const MILESTONE_B = "bbbb2222-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+
+const milestonesFixture: MilestoneWithCounts[] = [
+  {
+    id: MILESTONE_A,
+    projectId: PROJECT_ID,
+    name: "Sprint 1",
+    dueDate: null,
+    status: "open",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    counts: { total: 3, completed: 1, byStatus: {} },
+  },
+  {
+    id: MILESTONE_B,
+    projectId: PROJECT_ID,
+    name: "Sprint 2",
+    dueDate: null,
+    status: "open",
+    createdAt: "2026-01-02T00:00:00.000Z",
+    counts: { total: 0, completed: 0, byStatus: {} },
+  },
+];
 
 const ticketFixture: Ticket = {
   id: TICKET_ID,
@@ -285,6 +309,7 @@ function mockDetailApi(
         { id: ADMIN_ID, email: "ada@example.com", role: "admin" },
         { id: MEMBER_ID, email: "bob@example.com", role: "member" },
       ]),
+    "GET /api/milestones": () => jsonResponse(200, milestonesFixture),
     [`GET /api/tickets/${TICKET_ID}`]: () => jsonResponse(200, state.ticket),
     [`PATCH /api/tickets/${TICKET_ID}`]: (_url, init) => {
       const patch = JSON.parse(String(init?.body)) as Partial<Ticket>;
@@ -299,6 +324,17 @@ function mockDetailApi(
           actorId: ADMIN_ID,
           payload: { from: state.ticket.status, to: patch.status },
           createdAt: "2026-06-09T11:00:00.000Z",
+        });
+      }
+      // Una PATCH di milestone genera un milestone_changed (from/to = id|null).
+      if ("milestoneId" in patch) {
+        state.events.push({
+          kind: "event",
+          id: `ev${state.events.length + 1}`,
+          eventKind: "milestone_changed",
+          actorId: ADMIN_ID,
+          payload: { from: state.ticket.milestoneId, to: patch.milestoneId ?? null },
+          createdAt: "2026-06-09T11:05:00.000Z",
         });
       }
       state.ticket = { ...state.ticket, ...patch };
@@ -789,6 +825,74 @@ describe("dettaglio ticket", () => {
     await userEvent.selectOptions(select, MEMBER_ID);
 
     await waitFor(() => expect(state.patches).toEqual([{ assigneeId: MEMBER_ID }]));
+  });
+
+  it("assegnare una milestone manda la PATCH con il milestoneId", async () => {
+    const state = mockDetailApi();
+    renderDetail();
+
+    const select = await screen.findByLabelText("Milestone");
+    await userEvent.selectOptions(select, MILESTONE_A);
+
+    await waitFor(() => expect(state.patches).toEqual([{ milestoneId: MILESTONE_A }]));
+  });
+
+  it("rimuovere la milestone (None) manda la PATCH con milestoneId null", async () => {
+    const state = mockDetailApi({ ticket: { ...ticketFixture, milestoneId: MILESTONE_A } });
+    renderDetail();
+
+    const select = await screen.findByLabelText("Milestone");
+    await userEvent.selectOptions(select, "");
+
+    await waitFor(() => expect(state.patches).toEqual([{ milestoneId: null }]));
+  });
+
+  it("badge milestone: il dettaglio mostra il nome della milestone corrente", async () => {
+    mockDetailApi({ ticket: { ...ticketFixture, milestoneId: MILESTONE_A } });
+    renderDetail();
+
+    const header = await screen.findByRole("banner");
+    expect(within(header).getByText("Sprint 1")).toBeInTheDocument();
+  });
+
+  it("feed milestone_changed: assegnazione, cambio e rimozione rese leggibili", async () => {
+    const state = mockDetailApi();
+    state.events.push(
+      {
+        kind: "event",
+        id: "evm1",
+        eventKind: "milestone_changed",
+        actorId: ADMIN_ID,
+        payload: { from: null, to: MILESTONE_A },
+        createdAt: "2026-06-02T09:40:00.000Z",
+      },
+      {
+        kind: "event",
+        id: "evm2",
+        eventKind: "milestone_changed",
+        actorId: ADMIN_ID,
+        payload: { from: MILESTONE_A, to: MILESTONE_B },
+        createdAt: "2026-06-02T09:41:00.000Z",
+      },
+      {
+        kind: "event",
+        id: "evm3",
+        eventKind: "milestone_changed",
+        actorId: ADMIN_ID,
+        payload: { from: MILESTONE_B, to: null },
+        createdAt: "2026-06-02T09:42:00.000Z",
+      },
+    );
+    renderDetail();
+
+    const feed = await screen.findByRole("region", { name: "Activity" });
+    expect(within(feed).getByText("ada@example.com set milestone Sprint 1")).toBeInTheDocument();
+    expect(
+      within(feed).getByText("ada@example.com changed milestone: Sprint 1 → Sprint 2"),
+    ).toBeInTheDocument();
+    expect(
+      within(feed).getByText("ada@example.com removed milestone Sprint 2"),
+    ).toBeInTheDocument();
   });
 
   it("rimuovere una label manda la PATCH con la lista nuova", async () => {

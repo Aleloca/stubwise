@@ -19,6 +19,7 @@ import {
   gitAccountsQueryOptions,
   instanceSettingsQueryOptions,
   invitesQueryOptions,
+  milestonesQueryOptions,
   notificationSettingsQueryOptions,
   projectQueryOptions,
   projectsQueryOptions,
@@ -193,8 +194,12 @@ const projectNewRoute = createRoute({
 const projectDetailRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/projects/$slug",
-  loader: ({ context, params }) =>
-    context.queryClient.ensureQueryData(projectQueryOptions(params.slug)),
+  loader: async ({ context, params }) => {
+    // Il progetto prima (serve l'id per le milestone), poi le sue milestone:
+    // il MilestoneManager usa useSuspenseQuery e non deve attendere al render.
+    const project = await context.queryClient.ensureQueryData(projectQueryOptions(params.slug));
+    await context.queryClient.ensureQueryData(milestonesQueryOptions(project.id));
+  },
   component: ProjectDetailPage,
 });
 

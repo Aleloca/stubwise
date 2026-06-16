@@ -105,6 +105,7 @@
       "status": "Status",
       "type": "Type",
       "priority": "Priority",
+      "milestone": "Milestone",
       "all": "All"
     },
     "row": {
@@ -157,6 +158,8 @@
       "priority": "Priority",
       "assignee": "Assignee",
       "unassigned": "Unassigned",
+      "milestone": "Milestone",
+      "noMilestone": "None",
       "labels": "Labels",
       "createdAt": "Created",
       "updatedAt": "Updated",
@@ -184,7 +187,11 @@
         "labels_changed": "{{actor}} updated labels",
         "title_changed": "{{actor}} edited the title",
         "body_changed": "{{actor}} edited the description",
-        "milestone_changed": "{{actor}} changed the milestone",
+        "milestone_changed": {
+          "set": "{{actor}} set milestone {{to}}",
+          "changed": "{{actor}} changed milestone: {{from}} → {{to}}",
+          "removed": "{{actor}} removed milestone {{from}}"
+        },
         "relation_added": {
           "blocks": "{{actor}} linked: blocks #{{number}}",
           "blocked_by": "{{actor}} linked: blocked by #{{number}}",
@@ -633,5 +640,31 @@
       "held": "Automation not started: a manual fix start is required.",
       "awaiting_plan_approval": "The plan exceeds the effort threshold: approve or reject it to proceed."
     }
+  },
+  "milestones": {
+    "title": "Milestones",
+    "manage": "Manage milestones",
+    "empty": "// no milestones yet",
+    "new": "New milestone",
+    "name": "Milestone name",
+    "namePlaceholder": "E.g. v1.0 release",
+    "dueDate": "Due date",
+    "noDueDate": "No due date",
+    "create": "Create",
+    "creating": "Creating…",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "rename": "Rename",
+    "delete": "Delete",
+    "confirmDelete": "Confirm?",
+    "close": "Close",
+    "reopen": "Reopen",
+    "statusOpen": "Open",
+    "statusClosed": "Closed",
+    "progress": "{{completed}}/{{total}} done",
+    "progressLabel": "Progress: {{completed}} of {{total}} tickets done",
+    "none": "None",
+    "createFailed": "Failed to create the milestone"
   }
 }

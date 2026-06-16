@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ProviderBadge } from "../../components/badges";
 import { IntegrationPanel } from "../../components/integration-panel";
+import { MilestoneManager } from "../../components/milestone-manager";
 import { ProjectForm } from "../../components/project-form";
 import { patchProject, type ProjectPatch } from "../../lib/api";
 import { meQueryOptions } from "../../lib/auth";
@@ -149,6 +150,16 @@ export function ProjectDetailPage() {
           />
         </div>
       </div>
+
+      {/*
+        Gestione milestone: vivono per-progetto, quindi il dettaglio progetto è
+        la loro casa naturale. Visibile a tutti gli utenti autenticati (la
+        gestione delle milestone non è admin-only: il server arbitra i permessi).
+      */}
+      <section aria-label={t("milestones:title")} className="mt-8 border-t border-line pt-6">
+        <h2 className={sectionTitleClass}>{t("milestones:title")}</h2>
+        <MilestoneManager projectId={project.id} />
+      </section>
     </div>
   );
 }

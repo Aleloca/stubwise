@@ -32,6 +32,7 @@ export const ticketSearchSchema = z.object({
   status: ticketStatusSchema.optional().catch(undefined),
   type: ticketTypeSchema.optional().catch(undefined),
   priority: ticketPrioritySchema.optional().catch(undefined),
+  milestoneId: z.uuid().optional().catch(undefined),
   q: z.string().min(1).optional().catch(undefined),
 });
 
