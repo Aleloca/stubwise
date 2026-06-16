@@ -206,6 +206,7 @@ export interface TicketFilters {
   status?: TicketStatus;
   type?: TicketType;
   priority?: TicketPriority;
+  milestoneId?: string;
   q?: string;
 }
 
@@ -221,6 +222,7 @@ export interface TicketPatch {
   priority?: TicketPriority;
   status?: TicketStatus;
   assigneeId?: string | null;
+  milestoneId?: string | null;
   labels?: string[];
 }
 
@@ -234,6 +236,7 @@ export function listTickets(
   if (filters.status) params.set("status", filters.status);
   if (filters.type) params.set("type", filters.type);
   if (filters.priority) params.set("priority", filters.priority);
+  if (filters.milestoneId) params.set("milestoneId", filters.milestoneId);
   if (filters.q) params.set("q", filters.q);
   if (cursor) params.set("cursor", cursor);
   if (limit !== undefined) params.set("limit", String(limit));
@@ -260,6 +263,59 @@ export interface TicketDraft {
 
 export function postTicket(draft: TicketDraft): Promise<Ticket> {
   return api.post("/api/tickets", draft);
+}
+
+// --- Milestones ---
+
+/** Milestone di progetto: raggruppa i ticket verso un obiettivo con scadenza. */
+export interface Milestone {
+  id: string;
+  projectId: string;
+  name: string;
+  /** Scadenza ISO 8601; null = nessuna scadenza. */
+  dueDate: string | null;
+  status: "open" | "closed";
+  createdAt: string;
+}
+
+/** Milestone con l'avanzamento: total/completed e ripartizione per stato. */
+export interface MilestoneWithCounts extends Milestone {
+  counts: {
+    total: number;
+    completed: number;
+    byStatus: Partial<Record<TicketStatus, number>>;
+  };
+}
+
+/** Dati di creazione di una milestone. */
+export interface MilestoneDraft {
+  projectId: string;
+  name: string;
+  dueDate?: string | null;
+  status?: "open" | "closed";
+}
+
+/** Campi modificabili di una milestone. */
+export interface MilestonePatch {
+  name?: string;
+  dueDate?: string | null;
+  status?: "open" | "closed";
+}
+
+export function listMilestones(projectId: string): Promise<MilestoneWithCounts[]> {
+  return api.get(`/api/milestones?projectId=${encodeURIComponent(projectId)}`);
+}
+
+export function createMilestone(input: MilestoneDraft): Promise<Milestone> {
+  return api.post("/api/milestones", input);
+}
+
+export function updateMilestone(id: string, patch: MilestonePatch): Promise<MilestoneWithCounts> {
+  return api.patch(`/api/milestones/${id}`, patch);
+}
+
+export function deleteMilestone(id: string): Promise<void> {
+  return request("DELETE", `/api/milestones/${encodeURIComponent(id)}`);
 }
 
 // --- Comments ---

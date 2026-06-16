@@ -15,6 +15,7 @@ import {
   aiJobStatus,
   comments,
   commentAuthorType,
+  milestones,
   ticketEventKind,
   ticketEvents,
   ticketLinkKind,
@@ -78,6 +79,8 @@ const updateTicketBodySchema = z.object({
   // L'enum Zod è l'arbitro delle transizioni: uno stato fuori lista → 400.
   status: ticketStatusSchema.optional(),
   assigneeId: z.uuid().nullable().optional(),
+  // Milestone del ticket; null = nessuna milestone (azzeramento).
+  milestoneId: z.uuid().nullable().optional(),
   labels: labelsSchema.optional(),
 });
 
@@ -87,6 +90,7 @@ const listTicketsQuerySchema = z.object({
   type: ticketTypeSchema.optional(),
   priority: ticketPrioritySchema.optional(),
   assigneeId: z.uuid().optional(),
+  milestoneId: z.uuid().optional(),
   q: z.string().min(1).max(300).optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(25),
@@ -338,6 +342,12 @@ function diffTicketEvents(current: Ticket, updates: Partial<Ticket>): PendingEve
       payload: { from: current.labels, to: updates.labels },
     });
   }
+  if (updates.milestoneId !== undefined && updates.milestoneId !== current.milestoneId) {
+    events.push({
+      kind: "milestone_changed",
+      payload: { from: current.milestoneId, to: updates.milestoneId },
+    });
+  }
   return events;
 }
 
@@ -401,7 +411,8 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { projectId, status, type, priority, assigneeId, q, cursor, limit } = request.query;
+      const { projectId, status, type, priority, assigneeId, milestoneId, q, cursor, limit } =
+        request.query;
 
       const conditions: SQL[] = [];
       if (projectId) conditions.push(eq(tickets.projectId, projectId));
@@ -409,6 +420,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       if (type) conditions.push(eq(tickets.type, type));
       if (priority) conditions.push(eq(tickets.priority, priority));
       if (assigneeId) conditions.push(eq(tickets.assigneeId, assigneeId));
+      if (milestoneId) conditions.push(eq(tickets.milestoneId, milestoneId));
       // Ricerca full-text: matcha titolo+body (colonna generata searchTsv) OPPURE
       // il corpo di un commento del ticket. websearch_to_tsquery tollera input
       // utente arbitrario (&, :, !, virgolette) senza errori di sintassi → niente
@@ -810,7 +822,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { title, body, type, priority, status, assigneeId, labels } = request.body;
+      const { title, body, type, priority, status, assigneeId, milestoneId, labels } = request.body;
       if (typeof assigneeId === "string" && !(await userExists(app.db, assigneeId))) {
         return apiError(reply, 400, "assignee_not_found", "Assignee not found");
       }
@@ -822,17 +834,36 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       if (priority !== undefined) updates.priority = priority;
       if (status !== undefined) updates.status = status;
       if (assigneeId !== undefined) updates.assigneeId = assigneeId;
+      if (milestoneId !== undefined) updates.milestoneId = milestoneId;
       if (labels !== undefined) updates.labels = labels;
 
       const id = request.params.id;
       try {
-        // Tutto in una transazione: SELECT della riga corrente, diff degli
-        // eventi, UPDATE e INSERT degli eventi devono essere atomici e
-        // consistenti. Una PATCH vuota resta una pura lettura (no update, no
-        // eventi); un PATCH che non cambia nulla produce 0 eventi.
+        // Tutto in una transazione: SELECT della riga corrente, validazione
+        // della milestone, diff degli eventi, UPDATE e INSERT degli eventi
+        // devono essere atomici e consistenti. Una PATCH vuota resta una pura
+        // lettura (no update, no eventi); un PATCH che non cambia nulla produce
+        // 0 eventi. crossProject segnala una milestone di un altro progetto:
+        // si traduce in 400 fuori dalla transazione (così la si annulla).
+        let crossProject = false;
         const row = await app.db.transaction(async (tx) => {
           const [current] = await tx.select().from(tickets).where(eq(tickets.id, id));
           if (!current) return null;
+
+          // Una milestone non-null deve esistere ed appartenere allo STESSO
+          // progetto del ticket: assegnare ticket a milestone di altri progetti
+          // romperebbe l'avanzamento (counts per progetto). Azzerare (null) è
+          // sempre lecito.
+          if (milestoneId !== undefined && milestoneId !== null) {
+            const [ms] = await tx
+              .select({ projectId: milestones.projectId })
+              .from(milestones)
+              .where(eq(milestones.id, milestoneId));
+            if (!ms || ms.projectId !== current.projectId) {
+              crossProject = true;
+              return current;
+            }
+          }
 
           if (Object.keys(updates).length === 0) return current;
 
@@ -853,6 +884,14 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
           return updated!;
         });
         if (!row) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
+        if (crossProject) {
+          return apiError(
+            reply,
+            400,
+            "milestone_cross_project",
+            "Milestone belongs to a different project",
+          );
+        }
         return toPublicTicket(row);
       } catch (error) {
         // Finestra TOCTOU: l'utente verificato sopra può sparire prima
