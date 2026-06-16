@@ -26,9 +26,37 @@ captureFeedback({
 | `message` | `string` | Yes      | The feedback text. An empty message is discarded (with a warning). |
 | `email`   | `string` | No       | Email of the writer, validated as an email server-side. |
 | `url`     | `string` | No       | The page the feedback comes from.                   |
+| `screenshot` | `boolean` | No   | Browser only. When `true`, the SDK captures a screenshot of the page and attaches it to the ticket. |
 
 If a `release` is set in `init()`, it is automatically attached to the feedback
 event.
+
+## Attaching a screenshot
+
+In the **browser**, set `screenshot: true` to automatically capture a screenshot
+of the current page and attach it to the feedback ticket:
+
+```js
+import { captureFeedback } from "@stubwise/sdk/browser";
+
+captureFeedback({
+  message: "The layout is broken on this page",
+  screenshot: true,
+});
+```
+
+The capture uses [`html2canvas`](https://html2canvas.hertzen.com/), loaded
+**on-demand** at the moment of capture. It is not bundled by default, so the
+feature has no cost for apps that don't use it: make sure `html2canvas` is
+available at runtime (install it as a dependency of your app) when you enable
+screenshots.
+
+The screenshot is saved as an **attachment** of the feedback ticket, but only if
+the instance has [storage configured](/docs/getting-started/web-app/#storage-s3-compatible).
+The capture is entirely **best-effort**: if `html2canvas` is missing, the capture
+fails, or storage is not configured, the feedback is still sent and the ticket is
+still created — just without the screenshot. As with the rest of the SDK, this
+never throws into your app.
 
 ## A minimal feedback widget
 

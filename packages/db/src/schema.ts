@@ -481,9 +481,57 @@ export const instanceSettings = pgTable("instance_settings", {
   // Budget di costo mensile complessivo in USD per l'intera istanza. Stesso
   // tipo di agentRuns.costUsd. null = nessun limite (default).
   monthlyBudgetUsd: numeric("monthly_budget_usd", { precision: 12, scale: 6 }),
+  // Configurazione dello storage S3-compatibile per gli allegati. Tutte
+  // nullable: lo storage è opzionale; con queste colonne a null la feature
+  // allegati è disattivata. La secret key è cifrata a riposo (AES-256-GCM, vedi
+  // secrets.ts), come le credenziali git: non esce mai in chiaro dall'API.
+  s3Endpoint: text("s3_endpoint"),
+  s3Region: text("s3_region"),
+  s3Bucket: text("s3_bucket"),
+  s3AccessKey: text("s3_access_key"),
+  s3SecretKeyEncrypted: text("s3_secret_key_encrypted"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()
     .$onUpdate(() => new Date()),
 });
+
+/**
+ * Allegati di un ticket (o di uno specifico commento del ticket): file caricati
+ * dagli utenti o screenshot prodotti dall'SDK. Il binario vive nello storage
+ * S3-compatibile (vedi le colonne s3_* di instance_settings); qui si tiene solo
+ * il metadato e la chiave (`storage_key`) per recuperarlo. `commentId` null =
+ * allegato del ticket non legato a un commento; `uploaderId` null = caricato
+ * dall'SDK o uploader eliminato. Cascata dal ticket e dal commento; lo uploader
+ * eliminato lascia l'allegato (set null). `storage_key` è unico: una chiave di
+ * storage mappa esattamente un oggetto.
+ */
+export const attachments = pgTable(
+  "attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    // Allegato legato a un commento specifico; null = allegato del ticket.
+    // Cancellato in cascata col commento.
+    commentId: uuid("comment_id").references(() => comments.id, { onDelete: "cascade" }),
+    // Autore del caricamento; null per gli screenshot SDK o se l'utente viene
+    // eliminato (set null: l'allegato sopravvive).
+    uploaderId: uuid("uploader_id").references(() => users.id, { onDelete: "set null" }),
+    filename: text("filename").notNull(),
+    mimeType: text("mime_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    storageKey: text("storage_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Gli allegati si caricano sempre per ticket, ordinati cronologicamente.
+    index("attachments_ticket_id_created_at_idx").on(table.ticketId, table.createdAt),
+    // Lookup degli allegati di un commento (e delete in cascata).
+    index("attachments_comment_id_idx").on(table.commentId),
+    // Una chiave di storage mappa esattamente un oggetto.
+    uniqueIndex("attachments_storage_key_unique").on(table.storageKey),
+  ],
+);

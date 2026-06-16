@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "./client.js";
 import {
   aiJobs,
+  attachments,
   automationRules,
   comments,
   instanceSettings,
@@ -537,6 +538,224 @@ describe("schema: ticket_links (relazioni tra ticket)", () => {
         and(eq(ticketLinks.sourceTicketId, source), eq(ticketLinks.targetTicketId, target)),
       );
     expect(all.length).toBe(2);
+  });
+});
+
+/**
+ * Verifica la tabella attachments e le colonne S3 del singleton
+ * instance_settings: insert/read di un allegato con tutti i campi; la
+ * cancellazione in cascata dal ticket e dal commento; l'unique su storage_key;
+ * e la scrivibilità/leggibilità delle nuove colonne di configurazione S3.
+ */
+describe("schema: attachments + colonne S3 (instance_settings)", () => {
+  let testDb: TestDb;
+  let db: Db;
+
+  beforeAll(async () => {
+    testDb = await startTestDb();
+    db = testDb.db;
+  });
+
+  afterAll(async () => {
+    await testDb.stop();
+  });
+
+  async function seedTicket(): Promise<string> {
+    const gitAccountId = await seedGitAccount(db);
+    const [project] = await db
+      .insert(projects)
+      .values({
+        name: "Progetto di test",
+        slug: `progetto-${randomUUID()}`,
+        provider: "github",
+        gitAccountId,
+        repoUrl: "https://example.com/repo.git",
+        defaultBranch: "main",
+        ingestionKey: randomUUID(),
+      })
+      .returning();
+    if (!project) throw new Error("insert del progetto non ha restituito la riga");
+    const [ticket] = await db
+      .insert(tickets)
+      .values({
+        projectId: project.id,
+        number: 1,
+        title: "Ticket di test",
+        type: "bug",
+        priority: "medium",
+        source: "manual",
+      })
+      .returning();
+    if (!ticket) throw new Error("insert del ticket non ha restituito la riga");
+    return ticket.id;
+  }
+
+  async function seedUser(): Promise<string> {
+    const [user] = await db
+      .insert(users)
+      .values({
+        email: `uploader-${randomUUID()}@example.com`,
+        passwordHash: "x",
+        role: "member",
+      })
+      .returning();
+    if (!user) throw new Error("insert dell'utente non ha restituito la riga");
+    return user.id;
+  }
+
+  async function seedComment(ticketId: string): Promise<string> {
+    const [comment] = await db
+      .insert(comments)
+      .values({ ticketId, authorType: "user", body: "commento di test" })
+      .returning();
+    if (!comment) throw new Error("insert del commento non ha restituito la riga");
+    return comment.id;
+  }
+
+  it("persiste e rilegge un allegato con tutti i campi valorizzati", async () => {
+    const ticketId = await seedTicket();
+    const commentId = await seedComment(ticketId);
+    const uploaderId = await seedUser();
+
+    const [inserted] = await db
+      .insert(attachments)
+      .values({
+        ticketId,
+        commentId,
+        uploaderId,
+        filename: "screenshot.png",
+        mimeType: "image/png",
+        sizeBytes: 12345,
+        storageKey: `attachments/${randomUUID()}.png`,
+      })
+      .returning();
+    if (!inserted) throw new Error("insert dell'allegato non ha restituito la riga");
+
+    const [read] = await db.select().from(attachments).where(eq(attachments.id, inserted.id));
+    expect(read?.ticketId).toBe(ticketId);
+    expect(read?.commentId).toBe(commentId);
+    expect(read?.uploaderId).toBe(uploaderId);
+    expect(read?.filename).toBe("screenshot.png");
+    expect(read?.mimeType).toBe("image/png");
+    expect(read?.sizeBytes).toBe(12345);
+    expect(read?.storageKey).toBe(inserted.storageKey);
+    expect(read?.createdAt).toBeInstanceOf(Date);
+  });
+
+  it("ammette commentId e uploaderId null", async () => {
+    const ticketId = await seedTicket();
+    const [inserted] = await db
+      .insert(attachments)
+      .values({
+        ticketId,
+        filename: "log.txt",
+        mimeType: "text/plain",
+        sizeBytes: 10,
+        storageKey: `attachments/${randomUUID()}.txt`,
+      })
+      .returning();
+    expect(inserted?.commentId).toBeNull();
+    expect(inserted?.uploaderId).toBeNull();
+  });
+
+  it("cancella in cascata gli allegati quando il ticket viene eliminato", async () => {
+    const ticketId = await seedTicket();
+    await db.insert(attachments).values({
+      ticketId,
+      filename: "a.png",
+      mimeType: "image/png",
+      sizeBytes: 1,
+      storageKey: `attachments/${randomUUID()}.png`,
+    });
+
+    const before = await db.select().from(attachments).where(eq(attachments.ticketId, ticketId));
+    expect(before.length).toBe(1);
+
+    await db.delete(tickets).where(eq(tickets.id, ticketId));
+
+    const after = await db.select().from(attachments).where(eq(attachments.ticketId, ticketId));
+    expect(after.length).toBe(0);
+  });
+
+  it("cancella in cascata l'allegato quando il commento collegato viene eliminato", async () => {
+    const ticketId = await seedTicket();
+    const commentId = await seedComment(ticketId);
+    const [inserted] = await db
+      .insert(attachments)
+      .values({
+        ticketId,
+        commentId,
+        filename: "b.png",
+        mimeType: "image/png",
+        sizeBytes: 1,
+        storageKey: `attachments/${randomUUID()}.png`,
+      })
+      .returning();
+    if (!inserted) throw new Error("insert dell'allegato non ha restituito la riga");
+
+    await db.delete(comments).where(eq(comments.id, commentId));
+
+    const remaining = await db.select().from(attachments).where(eq(attachments.id, inserted.id));
+    expect(remaining.length).toBe(0);
+  });
+
+  it("vieta due allegati con lo stesso storage_key (unique)", async () => {
+    const ticketId = await seedTicket();
+    const storageKey = `attachments/${randomUUID()}.png`;
+    await db.insert(attachments).values({
+      ticketId,
+      filename: "c.png",
+      mimeType: "image/png",
+      sizeBytes: 1,
+      storageKey,
+    });
+
+    await expect(
+      db.insert(attachments).values({
+        ticketId,
+        filename: "d.png",
+        mimeType: "image/png",
+        sizeBytes: 1,
+        storageKey,
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("scrive e rilegge le colonne S3 del singleton instance_settings (id=1)", async () => {
+    await db
+      .update(instanceSettings)
+      .set({
+        s3Endpoint: "https://s3.example.com",
+        s3Region: "eu-central-1",
+        s3Bucket: "stubwise-attachments",
+        s3AccessKey: "AKIAEXAMPLE",
+        s3SecretKeyEncrypted: "blob-cifrato",
+      })
+      .where(eq(instanceSettings.id, 1));
+
+    const [updated] = await db
+      .select()
+      .from(instanceSettings)
+      .where(eq(instanceSettings.id, 1));
+    expect(updated?.s3Endpoint).toBe("https://s3.example.com");
+    expect(updated?.s3Region).toBe("eu-central-1");
+    expect(updated?.s3Bucket).toBe("stubwise-attachments");
+    expect(updated?.s3AccessKey).toBe("AKIAEXAMPLE");
+    expect(updated?.s3SecretKeyEncrypted).toBe("blob-cifrato");
+  });
+
+  it("lascia le colonne S3 null di default sulla riga seedata", async () => {
+    // Riga effimera id=2 per verificare i default null senza dipendere
+    // dallo stato di id=1 (modificato da altri test del file).
+    const [row] = await db
+      .insert(instanceSettings)
+      .values({ id: 2 })
+      .returning();
+    expect(row?.s3Endpoint).toBeNull();
+    expect(row?.s3Region).toBeNull();
+    expect(row?.s3Bucket).toBeNull();
+    expect(row?.s3AccessKey).toBeNull();
+    expect(row?.s3SecretKeyEncrypted).toBeNull();
   });
 });
 

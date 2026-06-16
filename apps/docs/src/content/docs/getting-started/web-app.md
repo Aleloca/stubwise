@@ -27,6 +27,24 @@ the invite and completes the sign-up. Invited users have the **member** role
 (not admin): they see the project configuration read-only and cannot create new
 ones.
 
+## Storage (S3-compatible)
+
+Attachments and SDK feedback screenshots are stored in an external,
+**S3-compatible** object storage. An admin configures it from **Settings →
+Storage**:
+
+- **endpoint** — the S3 API endpoint of your provider;
+- **region**;
+- **bucket** — the bucket files are written to;
+- **access key** and **secret key** — the secret key is **encrypted at rest**
+  and never shown again in clear text.
+
+Until storage is configured, **attachments are disabled** across the app: you
+can't upload files to tickets and SDK feedback screenshots are silently dropped.
+Any bucket exposing an S3-compatible API works — for example
+[Hetzner Object Storage](https://www.hetzner.com/storage/object-storage/) or
+[MinIO](https://min.io/).
+
 ## Creating a project
 
 A project ties Stubwise to **one git repository**. From the **Projects → New**
@@ -105,6 +123,7 @@ The detail page gathers everything about a ticket:
 - the **AI activity** panel, with the job timeline and the actions you can take
   on the pipeline;
 - the **Linked tickets** section, to relate this ticket to others;
+- the **Attachments** section, with the files attached to the ticket;
 - the **Activity** timeline, a single chronological stream of comments, AI job
   markers and the audit of human actions.
 
@@ -136,6 +155,22 @@ link, click **Remove** on its row and confirm.
 
 Adding or removing a link is recorded in the **Activity** timeline below, as an
 audit entry.
+
+### Attachments
+
+The **Attachments** section lets you attach files to a ticket. It requires
+[storage to be configured](#storage-s3-compatible); without it, the section is
+unavailable.
+
+You can upload **images** (`png`, `jpeg`, `gif`, `webp`), **PDFs**, **text and
+log files** and **zip archives**, up to **10 MB** each. Images show a
+**thumbnail preview**; other file types show a **download link**. Downloads go
+through **short-lived signed URLs**, so files are never publicly exposable.
+
+An attachment can be removed by **its author** or by an **admin**.
+
+SDK feedback screenshots (see [Feedback](/docs/sdk/feedback/#attaching-a-screenshot))
+arrive here automatically as attachments of the feedback ticket.
 
 ### Activity timeline
 

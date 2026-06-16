@@ -34,6 +34,39 @@ function warnEmptyInput(what: string): void {
   }
 }
 
+/**
+ * Cattura uno screenshot della pagina come dataURL JPEG (qualità 0.7 per
+ * contenere la dimensione del payload). html2canvas è caricato SOLO via import
+ * dinamico, così non entra nel bundle base di chi non usa lo screenshot. Lancia
+ * se non siamo in un browser (niente `document`), se html2canvas non è
+ * installato o se la cattura fallisce: il chiamante tratta ogni errore come
+ * "nessuno screenshot" e accoda comunque il feedback.
+ */
+type Html2Canvas = (element: HTMLElement) => Promise<HTMLCanvasElement>;
+
+async function captureScreenshot(): Promise<string> {
+  if (typeof document === "undefined" || !document.body) {
+    throw new Error("captureScreenshot richiede un ambiente browser");
+  }
+  // html2canvas è un modulo CJS senza "exports": sotto NodeNext il default
+  // sintetizzato può finire annidato (mod.default) o essere il modulo stesso.
+  // Si risolve in modo difensivo a runtime; il chiamante tratta ogni anomalia
+  // come "nessuno screenshot".
+  const mod = (await import("html2canvas")) as unknown as {
+    default?: Html2Canvas | { default?: Html2Canvas };
+  } & Partial<{ default: Html2Canvas }>;
+  const candidate = mod.default ?? (mod as unknown as Html2Canvas);
+  const html2canvas: Html2Canvas =
+    typeof candidate === "function"
+      ? candidate
+      : ((candidate as { default?: Html2Canvas }).default as Html2Canvas);
+  if (typeof html2canvas !== "function") {
+    throw new Error("html2canvas non disponibile");
+  }
+  const canvas = await html2canvas(document.body);
+  return canvas.toDataURL("image/jpeg", 0.7);
+}
+
 /** Riduce un valore arbitrario (Error, stringa, oggetto, circolare...) a un messaggio sicuro. */
 function normalizeError(value: unknown): NormalizedError {
   if (value instanceof Error) {
@@ -69,6 +102,9 @@ export class Client {
   private readonly breadcrumbs = new BreadcrumbBuffer();
   private readonly release?: string;
   private readonly environment?: string;
+  // Catture screenshot in volo (IIFE async lanciate da captureFeedback). Tracciate
+  // così che chi vuole svuotare la coda in modo affidabile possa prima attenderle.
+  private readonly pendingCaptures = new Set<Promise<void>>();
 
   constructor(options: ClientOptions) {
     this.transport = new Transport({
@@ -101,19 +137,71 @@ export class Client {
     }
   }
 
-  captureFeedback(input: { message: string; email?: string; url?: string }): void {
+  /**
+   * Cattura un feedback utente. Con `screenshot: true` allega uno screenshot
+   * della pagina catturato con html2canvas (import dinamico, lazy: non entra nel
+   * bundle base di chi non lo usa). La cattura è asincrona ma la firma resta
+   * `void` (fire-and-forget): senza screenshot l'enqueue è sincrono e identico a
+   * prima; con screenshot l'enqueue avviene dentro un'IIFE async. Qualunque
+   * fallimento della cattura (html2canvas assente, errore, niente DOM) accoda
+   * comunque il feedback SENZA screenshot e non propaga mai nell'app ospite.
+   */
+  captureFeedback(input: { message: string; email?: string; url?: string; screenshot?: boolean }): void {
     try {
       if (!input.message) {
         warnEmptyInput("message del feedback");
         return;
       }
-      this.transport.enqueue({
-        kind: "feedback",
-        message: input.message,
-        email: input.email,
-        url: input.url,
-        release: this.release,
-      });
+      if (input.screenshot === true) {
+        // async: non possiamo bloccare la firma void, quindi accodiamo
+        // l'evento (con o senza screenshot) dentro un'IIFE che non rigetta mai.
+        // La promise è tracciata in pendingCaptures e rimossa al termine, così
+        // settlePendingCaptures() può attenderla in modo deterministico.
+        const capture = this.enqueueFeedbackWithScreenshot(input);
+        this.pendingCaptures.add(capture);
+        void capture.finally(() => this.pendingCaptures.delete(capture));
+        return;
+      }
+      this.enqueueFeedback(input);
+    } catch {
+      // mai propagare nell'app ospite
+    }
+  }
+
+  private enqueueFeedback(
+    input: { message: string; email?: string; url?: string },
+    screenshot?: string,
+  ): void {
+    this.transport.enqueue({
+      kind: "feedback",
+      message: input.message,
+      email: input.email,
+      url: input.url,
+      release: this.release,
+      ...(screenshot !== undefined ? { screenshot } : {}),
+    });
+  }
+
+  /**
+   * Cattura lo screenshot e accoda il feedback. Tutto best-effort: se la
+   * cattura fallisce per qualsiasi motivo si accoda il feedback senza
+   * screenshot. Non rigetta mai (la chiamano con `void`).
+   */
+  private async enqueueFeedbackWithScreenshot(input: {
+    message: string;
+    email?: string;
+    url?: string;
+  }): Promise<void> {
+    let screenshot: string | undefined;
+    try {
+      screenshot = await captureScreenshot();
+    } catch {
+      // html2canvas assente, errore di rendering o niente DOM: si prosegue
+      // senza screenshot. Mai propagare nell'app ospite.
+      screenshot = undefined;
+    }
+    try {
+      this.enqueueFeedback(input, screenshot);
     } catch {
       // mai propagare nell'app ospite
     }
@@ -156,6 +244,16 @@ export class Client {
     } catch {
       // mai propagare nell'app ospite
     }
+  }
+
+  /**
+   * Attende che tutte le catture screenshot in volo (lanciate da
+   * `captureFeedback({ screenshot: true })`) abbiano accodato il loro evento.
+   * Utile prima di un `flush()` finale per non perdere uno screenshot ancora in
+   * cattura. Si risolve sempre, non rigetta mai (le catture sono best-effort).
+   */
+  async settlePendingCaptures(): Promise<void> {
+    await Promise.allSettled([...this.pendingCaptures]);
   }
 
   /** Invia subito tutto ciò che è in coda. Si risolve sempre, non rigetta mai. */

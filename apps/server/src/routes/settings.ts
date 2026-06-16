@@ -4,8 +4,9 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { Db } from "@stubwise/db";
-import { automationRules, instanceSettings, notificationSettings } from "@stubwise/db";
+import { automationRules, encrypt, instanceSettings, notificationSettings } from "@stubwise/db";
 import { requireAdmin } from "../auth/session.js";
+import { s3ConfigFromSettings } from "../storage/index.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
@@ -117,12 +118,31 @@ const instanceSettingsResponseSchema = z.object({
   // vengono messi in hold. null = nessun tetto. Colonna numeric(12,6) → drizzle
   // la legge/scrive come STRINGA, qui l'API la espone come number.
   monthlyBudgetUsd: z.number().nonnegative().nullable(),
+  // Storage S3-compatibile per gli allegati: i campi non-secret sono esposti in
+  // chiaro (null se non impostati); la secret NON viene MAI restituita, solo il
+  // flag `s3SecretKeySet`. `attachmentsEnabled` riassume se la config è completa
+  // e valida (secret decifrabile).
+  s3Endpoint: z.string().nullable(),
+  s3Region: z.string().nullable(),
+  s3Bucket: z.string().nullable(),
+  s3AccessKey: z.string().nullable(),
+  s3SecretKeySet: z.boolean(),
+  attachmentsEnabled: z.boolean(),
 });
 
 const updateInstanceBodySchema = z.object({
   contentLanguage: languageSchema,
   // Default null per i client legacy che non inviano il campo.
   monthlyBudgetUsd: z.number().nonnegative().nullable().default(null),
+  // Campi S3 opzionali. Semantica: campo non-secret PRESENTE → aggiorna (la
+  // stringa vuota azzera → null); ASSENTE → invariato. Per la secret vedi sotto.
+  s3Endpoint: z.string().optional(),
+  s3Region: z.string().optional(),
+  s3Bucket: z.string().optional(),
+  s3AccessKey: z.string().optional(),
+  // s3SecretKey: ASSENTE (undefined) → non tocca la colonna; stringa NON vuota →
+  // cifra e salva; stringa VUOTA esplicita "" → azzera (disabilita lo storage).
+  s3SecretKey: z.string().optional(),
 });
 
 /**
@@ -168,12 +188,31 @@ async function loadNotificationSettings(
  */
 async function loadInstanceSettings(
   db: Db,
+  encryptionKey: Buffer,
 ): Promise<z.infer<typeof instanceSettingsResponseSchema>> {
   const [row] = await db.select().from(instanceSettings).limit(1);
+  // attachmentsEnabled = config S3 completa E valida. s3ConfigFromSettings può
+  // LANCIARE se la secret cifrata è corrotta o la chiave è errata: il try/catch
+  // tratta l'eccezione come "non configurato/non valido" → false.
+  let attachmentsEnabled = false;
+  if (row) {
+    try {
+      attachmentsEnabled = s3ConfigFromSettings(row, encryptionKey) !== null;
+    } catch {
+      attachmentsEnabled = false;
+    }
+  }
   return {
     contentLanguage: row?.contentLanguage ?? "en",
     // numeric → stringa lato driver: converto a number, null resta null.
     monthlyBudgetUsd: row?.monthlyBudgetUsd != null ? Number(row.monthlyBudgetUsd) : null,
+    s3Endpoint: row?.s3Endpoint ?? null,
+    s3Region: row?.s3Region ?? null,
+    s3Bucket: row?.s3Bucket ?? null,
+    s3AccessKey: row?.s3AccessKey ?? null,
+    // Mai la secret: solo se c'è un blob cifrato salvato.
+    s3SecretKeySet: row?.s3SecretKeyEncrypted != null,
+    attachmentsEnabled,
   };
 }
 
@@ -349,7 +388,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async () => {
-      return loadInstanceSettings(app.db);
+      return loadInstanceSettings(app.db, app.encryptionKey);
     },
   );
 
@@ -367,19 +406,36 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request) => {
+      const body = request.body;
       // Upsert sul singleton (id=1): la migrazione seeda la riga, ma onConflict
       // la rende idempotente anche se mancasse. updatedAt è gestito da $onUpdate.
       // numeric(12,6): drizzle scrive una STRINGA. number → stringa, null resta null.
-      const monthlyBudgetUsd =
-        request.body.monthlyBudgetUsd != null ? String(request.body.monthlyBudgetUsd) : null;
+      const monthlyBudgetUsd = body.monthlyBudgetUsd != null ? String(body.monthlyBudgetUsd) : null;
+
+      // Campi S3 non-secret: presenti → aggiorna ("" azzera a null); assenti →
+      // invariati. Raccolti in `set` solo se nel body, così onConflict non
+      // sovrascrive ciò che il client non ha inviato.
+      const s3Set: Record<string, string | null> = {};
+      if (body.s3Endpoint !== undefined) s3Set.s3Endpoint = body.s3Endpoint === "" ? null : body.s3Endpoint;
+      if (body.s3Region !== undefined) s3Set.s3Region = body.s3Region === "" ? null : body.s3Region;
+      if (body.s3Bucket !== undefined) s3Set.s3Bucket = body.s3Bucket === "" ? null : body.s3Bucket;
+      if (body.s3AccessKey !== undefined)
+        s3Set.s3AccessKey = body.s3AccessKey === "" ? null : body.s3AccessKey;
+      // Secret: assente → non toccare; "" esplicita → azzera (null, disabilita);
+      // non vuota → cifra AES-256-GCM e salva. Mai esposta in lettura.
+      if (body.s3SecretKey !== undefined) {
+        s3Set.s3SecretKeyEncrypted =
+          body.s3SecretKey === "" ? null : encrypt(body.s3SecretKey, app.encryptionKey);
+      }
+
       await app.db
         .insert(instanceSettings)
-        .values({ id: 1, contentLanguage: request.body.contentLanguage, monthlyBudgetUsd })
+        .values({ id: 1, contentLanguage: body.contentLanguage, monthlyBudgetUsd, ...s3Set })
         .onConflictDoUpdate({
           target: instanceSettings.id,
-          set: { contentLanguage: request.body.contentLanguage, monthlyBudgetUsd },
+          set: { contentLanguage: body.contentLanguage, monthlyBudgetUsd, ...s3Set },
         });
-      return loadInstanceSettings(app.db);
+      return loadInstanceSettings(app.db, app.encryptionKey);
     },
   );
 }

@@ -1,4 +1,5 @@
 import fastifyCookie from "@fastify/cookie";
+import fastifyMultipart from "@fastify/multipart";
 import fastifyRateLimit from "@fastify/rate-limit";
 import fastifySwagger from "@fastify/swagger";
 import Fastify, {
@@ -14,6 +15,11 @@ import {
 import { createRequire } from "node:module";
 import type { Db } from "@stubwise/db";
 import { aiJobRoutes, ticketUsageRoutes } from "./routes/ai-jobs.js";
+import {
+  MAX_ATTACHMENT_BYTES,
+  attachmentRoutes,
+  ticketAttachmentRoutes,
+} from "./routes/attachments.js";
 import { authRoutes } from "./routes/auth.js";
 import { commentRoutes } from "./routes/comments.js";
 import { gitAccountRoutes } from "./routes/git-accounts.js";
@@ -24,6 +30,7 @@ import type { RateLimitConfig } from "./routes/shared.js";
 import { ticketRoutes } from "./routes/tickets.js";
 import { userRoutes } from "./routes/users.js";
 import { webhookRoutes } from "./routes/webhooks.js";
+import { getActiveStorage, type ObjectStorage, type StorageFactory } from "./storage/index.js";
 
 // Versione letta dal package.json (accanto a src/ e a dist/, quindi il
 // percorso relativo vale sia in sviluppo che dopo la build).
@@ -40,6 +47,12 @@ declare module "fastify" {
      * da registrare sul provider git.
      */
     publicUrl: string;
+    /**
+     * Risolve l'ObjectStorage attivo a runtime dalle instance settings, o
+     * `null` se lo storage non è configurato/valido. Iniettabile nei test via
+     * BuildAppOptions.storageFactory (fake in-memory).
+     */
+    storage(): Promise<ObjectStorage | null>;
   }
 }
 
@@ -78,6 +91,12 @@ export interface BuildAppOptions {
    * il flag Secure. Default false: in test e in sviluppo diretto non c'è proxy.
    */
   trustProxy?: boolean;
+  /**
+   * Fabbrica dello storage attivo. Default {@link getActiveStorage}, che legge
+   * le instance settings e costruisce il client S3. Override pensato per i
+   * test: inietta un fake in-memory senza toccare la rete.
+   */
+  storageFactory?: StorageFactory;
 }
 
 /**
@@ -148,9 +167,22 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     },
   });
 
+  // Storage attivo risolto a runtime. La factory (reale o fake nei test) riceve
+  // db ed encryptionKey già risolti dai getter, così le route non li ripassano.
+  const storageFactory = opts.storageFactory ?? getActiveStorage;
+  app.decorate("storage", function storage(this: FastifyInstance) {
+    return storageFactory(this.db, this.encryptionKey);
+  });
+
   // Senza secret il plugin si registra comunque (parsing dei cookie), ma
   // firmare il cookie di sessione fallisce: stesso spirito del getter su db.
   void app.register(fastifyCookie, { secret: opts.sessionSecret });
+
+  // Upload allegati: un solo file per richiesta, max 10 MB. Oltre il limite,
+  // @fastify/multipart lancia (FST_REQ_FILE_TOO_LARGE) leggendo il file.
+  void app.register(fastifyMultipart, {
+    limits: { fileSize: MAX_ATTACHMENT_BYTES, files: 1 },
+  });
 
   // Rate limiting opt-in (`global: false`): nessuna route è limitata di
   // default, lo diventano solo quelle che dichiarano `config.rateLimit`
@@ -193,6 +225,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(aiJobRoutes, { prefix: "/api/tickets/:ticketId/jobs" });
   // Riepilogo consumi AI del ticket (token + costo per modello).
   void app.register(ticketUsageRoutes, { prefix: "/api/tickets/:ticketId/usage" });
+  // Allegati di un ticket: upload e lista vivono sotto il singolo ticket.
+  void app.register(ticketAttachmentRoutes, { prefix: "/api/tickets/:ticketId/attachments" });
+  // Download e delete per id di allegato, non vincolati al path del ticket.
+  void app.register(attachmentRoutes, { prefix: "/api/attachments" });
   void app.register(userRoutes, { prefix: "/api/users" });
   // Impostazioni di automazione AI (regole per tipo): solo admin.
   void app.register(settingsRoutes, { prefix: "/api/settings" });

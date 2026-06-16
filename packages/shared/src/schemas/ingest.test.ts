@@ -79,6 +79,26 @@ describe("ingestEventSchema", () => {
     });
     expect(parsed).toMatchObject({ kind: "feedback" });
   });
+  it("accetta un feedback con screenshot dataURL", () => {
+    const parsed = ingestEventSchema.parse({
+      kind: "feedback",
+      message: "Bottone rotto",
+      screenshot: "data:image/jpeg;base64,/9j/4AAQSkZJRg==",
+    });
+    expect(parsed).toMatchObject({
+      kind: "feedback",
+      screenshot: "data:image/jpeg;base64,/9j/4AAQSkZJRg==",
+    });
+  });
+  it("rifiuta uno screenshot che non è un dataURL immagine", () => {
+    expect(() =>
+      ingestEventSchema.parse({
+        kind: "feedback",
+        message: "x",
+        screenshot: "https://evil.example.com/img.png",
+      }),
+    ).toThrow();
+  });
   it("smista per kind: parse di un evento ticket", () => {
     const parsed = ingestEventSchema.parse({
       kind: "ticket",

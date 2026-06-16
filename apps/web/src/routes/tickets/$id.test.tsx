@@ -333,6 +333,18 @@ function mockDetailApi(
       state.rejectCalls += 1;
       return jsonResponse(202, { jobId: "j3" });
     },
+    [`GET /api/tickets/${TICKET_ID}/attachments`]: () => jsonResponse(200, []),
+    "GET /api/settings/instance": () =>
+      jsonResponse(200, {
+        contentLanguage: "en",
+        monthlyBudgetUsd: null,
+        s3Endpoint: null,
+        s3Region: null,
+        s3Bucket: null,
+        s3AccessKey: null,
+        s3SecretKeySet: false,
+        attachmentsEnabled: false,
+      }),
     [`GET /api/tickets/${TICKET_ID}/links`]: () => jsonResponse(200, state.links),
     [`POST /api/tickets/${TICKET_ID}/links`]: (_url, init) => {
       const body = JSON.parse(String(init?.body)) as {

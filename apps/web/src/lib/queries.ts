@@ -12,6 +12,7 @@ import {
   getProjectWebhook,
   getTicket,
   getTicketActivity,
+  getTicketAttachments,
   getTicketJobs,
   getTicketLinks,
   getTicketUsage,
@@ -45,6 +46,7 @@ export const ticketKeys = {
   jobs: (ticketId: string) => [...ticketKeys.all, "jobs", ticketId] as const,
   usage: (ticketId: string) => [...ticketKeys.all, "usage", ticketId] as const,
   links: (ticketId: string) => [...ticketKeys.all, "links", ticketId] as const,
+  attachments: (ticketId: string) => [...ticketKeys.all, "attachments", ticketId] as const,
 };
 
 export function ticketsInfiniteQueryOptions(filters: TicketFilters) {
@@ -133,6 +135,19 @@ export function ticketLinksQueryOptions(ticketId: string) {
   return queryOptions({
     queryKey: ticketKeys.links(ticketId),
     queryFn: () => getTicketLinks(ticketId),
+  });
+}
+
+/**
+ * Allegati di un ticket (inclusi quelli legati ai suoi commenti), con
+ * downloadUrl presigned. Chiave figlia dei ticket: upload e delete la
+ * invalidano. `staleTime` breve: gli URL firmati scadono, meglio rinfrescarli.
+ */
+export function ticketAttachmentsQueryOptions(ticketId: string) {
+  return queryOptions({
+    queryKey: ticketKeys.attachments(ticketId),
+    queryFn: () => getTicketAttachments(ticketId),
+    staleTime: 30_000,
   });
 }
 
