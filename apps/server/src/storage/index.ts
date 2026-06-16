@@ -1,7 +1,44 @@
-import { decrypt } from "@stubwise/db";
+import { decrypt, instanceSettings } from "@stubwise/db";
+import type { Db } from "@stubwise/db";
 import { createS3Storage } from "./s3.js";
 
 export { createS3Storage };
+
+/**
+ * Firma di una funzione che, dati DB e chiave di cifratura, ricava lo storage
+ * attivo a runtime (o `null` se non configurato). È il punto di iniezione per i
+ * test: in produzione si usa {@link getActiveStorage}, nei test un fake
+ * in-memory. Vedi BuildAppOptions.storageFactory in app.ts.
+ */
+export type StorageFactory = (db: Db, encryptionKey: Buffer) => Promise<ObjectStorage | null>;
+
+/**
+ * Ricava l'{@link ObjectStorage} attivo dalle instance settings. Legge la riga
+ * singleton, deriva la config S3 (la decifratura della secret può LANCIARE se
+ * corrotta: il try/catch la tratta come "non configurato") e, se valida,
+ * costruisce il client S3. Ritorna `null` se lo storage non è configurato.
+ *
+ * Scelta v1: il client viene istanziato per-richiesta. Le credenziali possono
+ * cambiare da Settings in qualsiasi momento e l'overhead di costruire un
+ * S3Client (nessuna connessione aperta finché non si invia un comando) è
+ * trascurabile; un eventuale caching va invalidato sui cambi di config, che non
+ * vale la complessità per la v1.
+ */
+export async function getActiveStorage(
+  db: Db,
+  encryptionKey: Buffer,
+): Promise<ObjectStorage | null> {
+  const [row] = await db.select().from(instanceSettings).limit(1);
+  if (!row) return null;
+  let config: S3Config | null;
+  try {
+    config = s3ConfigFromSettings(row, encryptionKey);
+  } catch {
+    // Secret corrotta o chiave errata: trattata come storage non configurato.
+    return null;
+  }
+  return config ? createS3Storage(config) : null;
+}
 
 /**
  * Astrazione minimale sullo storage degli oggetti (allegati). Implementata sopra

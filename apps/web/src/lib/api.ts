@@ -283,6 +283,106 @@ export function postComment(ticketId: string, body: string): Promise<Comment> {
   return api.post(`/api/tickets/${ticketId}/comments`, { body });
 }
 
+// --- Attachments ---
+
+/**
+ * Metadato di un allegato. Il binario non passa mai per l'API JSON: si scarica
+ * via URL presigned. `downloadUrl` è presente solo nella lista (il server lo
+ * firma al volo); la creazione restituisce i soli metadati.
+ */
+export interface Attachment {
+  id: string;
+  ticketId: string;
+  /** Allegato legato a un commento specifico; null = allegato del ticket. */
+  commentId: string | null;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: string;
+}
+
+/** Allegato con URL di download presigned a scadenza breve (dalla lista). */
+export interface AttachmentWithUrl extends Attachment {
+  downloadUrl: string;
+}
+
+/**
+ * Tipi MIME ammessi dal server per gli allegati. Esposto qui per filtrare in UI
+ * (attributo `accept` dell'input file) prima dell'upload: gemello della
+ * allowlist server in routes/attachments.ts.
+ */
+export const ALLOWED_ATTACHMENT_MIME_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "application/pdf",
+  "text/plain",
+  "application/zip",
+] as const;
+
+/**
+ * Carica un allegato su un ticket via multipart/form-data. Non passa dal
+ * wrapper JSON `request`: il browser imposta da sé il Content-Type col boundary
+ * a partire dal FormData. `opts.commentId` lega l'allegato a un commento.
+ */
+export async function uploadAttachment(
+  ticketId: string,
+  file: File,
+  opts?: { commentId?: string },
+): Promise<Attachment> {
+  const form = new FormData();
+  if (opts?.commentId) form.append("commentId", opts.commentId);
+  form.append("file", file);
+
+  let response: Response;
+  try {
+    response = await fetch(`/api/tickets/${ticketId}/attachments`, {
+      method: "POST",
+      credentials: "include",
+      body: form,
+    });
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new ApiError(0, "Unable to reach the server", "network_error", { cause: error });
+    }
+    throw error;
+  }
+  if (!response.ok) {
+    const fallback = `Error ${response.status}`;
+    const { message, code } = await response
+      .json()
+      .then((data: unknown) => {
+        const obj = typeof data === "object" && data !== null ? (data as Record<string, unknown>) : {};
+        return {
+          message: "message" in obj ? String(obj.message) : fallback,
+          code: typeof obj.code === "string" ? obj.code : undefined,
+        };
+      })
+      .catch(() => ({ message: fallback, code: undefined }));
+    throw new ApiError(response.status, message, code);
+  }
+  return (await response.json()) as Attachment;
+}
+
+/** Allegati di un ticket (inclusi quelli legati ai suoi commenti), con downloadUrl. */
+export function getTicketAttachments(ticketId: string): Promise<AttachmentWithUrl[]> {
+  return api.get(`/api/tickets/${ticketId}/attachments`);
+}
+
+/** Rimuove un allegato (uploader o admin): 403 altrimenti. */
+export function deleteAttachment(attachmentId: string): Promise<void> {
+  return request("DELETE", `/api/attachments/${encodeURIComponent(attachmentId)}`);
+}
+
+/**
+ * URL dell'endpoint di download di un allegato. Il server fa 302 verso l'URL
+ * presigned, quindi questo URL funziona direttamente in `<a href>`/`<img src>`.
+ */
+export function attachmentDownloadUrl(attachmentId: string): string {
+  return `/api/attachments/${encodeURIComponent(attachmentId)}/download`;
+}
+
 // --- AI Jobs ---
 
 export type AIJobStatus =
