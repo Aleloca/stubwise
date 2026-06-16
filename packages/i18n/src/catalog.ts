@@ -32,6 +32,8 @@ export const en: Catalog = {
   "comment.reportFooter": "Generated automatically by Stubwise AI for ticket #{number}.",
   "comment.reportMissing":
     "The agent did not generate a report ({filename} missing). Review the PR diff.",
+  "comment.budgetHeld":
+    "Cost budget exceeded ({scope}): spent ${spent} of ${limit}. The fix is on hold; start it manually to override.",
 
   // --- effort.* — etichette della scala di sforzo 1–5 (allineate alle label
   // della web UI, namespace `badges.effort`). Usate nei commenti AI del triage.
@@ -102,6 +104,8 @@ export const it: Catalog = {
     "Generato automaticamente da Stubwise AI per il ticket #{number}.",
   "comment.reportMissing":
     "Il report non è stato generato dall'agente ({filename} mancante). Esaminare il diff della PR.",
+  "comment.budgetHeld":
+    "Budget di costo superato ({scope}): spesi ${spent} sul limite di ${limit}. Il fix è in pausa; avvialo manualmente per forzare.",
 
   // --- effort.* (etichette italiane della scala di sforzo, = EFFORT_LABELS) ---
   "effort.1": "Banale",

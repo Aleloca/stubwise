@@ -3,7 +3,10 @@ import {
   comments,
   decrypt,
   gitAccounts,
+  instanceSettings,
+  monthlyCostUsd,
   projects,
+  ticketCostUsd,
   tickets,
   type Db,
 } from "@stubwise/db";
@@ -26,6 +29,7 @@ import {
   appendLog,
   completeJob,
   failJob,
+  holdJob,
   parkForPlanApproval,
   recordAgentRun,
   touchJob,
@@ -177,9 +181,15 @@ export interface FixDeps extends NotifyDeps {
   /** Esegue il comando di test nel worktree (iniettabile nei test). Default:
    * spawn con execa (reject:false). */
   runTestCommand?: (cmd: TestCommand, dir: string, timeoutMs: number) => Promise<TestRunResult>;
+  /** Costo USD storico già registrato per il ticket (iniettabile nei test;
+   * default ticketCostUsd da @stubwise/db). Usato dai controlli di budget. */
+  ticketCostUsdFn?: (db: Db, ticketId: string) => Promise<number>;
+  /** Costo USD del mese corrente d'istanza (iniettabile nei test; default
+   * monthlyCostUsd da @stubwise/db). Usato dal controllo di budget mensile. */
+  monthlyCostUsdFn?: (db: Db) => Promise<number>;
 }
 
-export type FixOutcome = "pr_opened" | "failed" | "awaiting_approval";
+export type FixOutcome = "pr_opened" | "failed" | "awaiting_approval" | "held";
 
 /** Modalità di esecuzione del fix, risolta PRIMA di toccare il repo. */
 type FixMode = "full" | "plan-only" | "execute-only";
@@ -279,6 +289,27 @@ class SelfRepairFailedError extends Error {
   }
 }
 
+/**
+ * Tetto di costo del ticket sforato DENTRO il loop di self-repair (Task 6):
+ * prima di ri-tentare una riparazione la spesa stimata del ticket ha superato
+ * `automation_rules.max_cost_usd`. NON è un fallimento: esce da withWorktree e
+ * nel catch di runFix porta al percorso budget-held (holdJob + commento +
+ * notifica), MAI a failJob. Lo scope è sempre "ticket" (il tetto mensile è
+ * controllato solo pre-fix, fuori dal loop).
+ */
+class BudgetExceededError extends Error {
+  readonly scope: "ticket" | "monthly";
+  readonly limitUsd: number;
+  readonly spentUsd: number;
+  constructor(scope: "ticket" | "monthly", limitUsd: number, spentUsd: number) {
+    super(`budget di costo superato (${scope}): spesi ${spentUsd} sul limite di ${limitUsd}`);
+    this.name = "BudgetExceededError";
+    this.scope = scope;
+    this.limitUsd = limitUsd;
+    this.spentUsd = spentUsd;
+  }
+}
+
 /** Forma attesa delle credenziali git decifrate (vedi routes/projects.ts). */
 const credentialsSchema = z.object({
   username: z.string().min(1).optional(),
@@ -312,6 +343,8 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   const testTimeoutMs = deps.testTimeoutMs ?? DEFAULT_SELF_REPAIR_TEST_TIMEOUT_MS;
   const resolveTestCommandFn = deps.resolveTestCommandFn ?? resolveTestCommand;
   const runTestCommand = deps.runTestCommand ?? defaultRunTestCommand;
+  const ticketCostUsdFn = deps.ticketCostUsdFn ?? ticketCostUsd;
+  const monthlyCostUsdFn = deps.monthlyCostUsdFn ?? monthlyCostUsd;
 
   // Lingua dei contenuti generati (report nel prompt + commenti AI sul ticket),
   // risolta UNA VOLTA per job: tutti i prompt e i `t(lang, ...)` di seguito la
@@ -360,6 +393,91 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       error,
       ticketUrl: url,
     });
+
+  /**
+   * Percorso budget-held (Task 6): il job ha sforato un tetto di spesa e va
+   * messo in pausa, NON fallito. Riusa la transizione holdJob (status-guarded),
+   * lascia un commento AI che spiega lo sforamento e notifica job.budget_held.
+   * Modellato sul gate auto-fix del triage (commento + holdJob + notify). Le
+   * cifre nel commento sono arrotondate a 4 decimali per leggibilità; lo scope
+   * è tradotto con le chiavi notify.scope* condivise con la notifica. */
+  const fmtUsd = (n: number): string => n.toFixed(4);
+  const budgetHeld = async (
+    scope: "ticket" | "monthly",
+    limitUsd: number,
+    spentUsd: number,
+  ): Promise<FixOutcome> => {
+    const scopeLabel = t(lang, scope === "monthly" ? "notify.scopeMonthly" : "notify.scopeTicket");
+    await db.transaction(async (tx) => {
+      await tx.insert(comments).values({
+        ticketId: ticket.id,
+        authorType: "ai",
+        body: t(lang, "comment.budgetHeld", {
+          scope: scopeLabel,
+          limit: fmtUsd(limitUsd),
+          spent: fmtUsd(spentUsd),
+        }),
+      });
+    });
+    const held = await holdJob(db, job.id, {
+      log: `[fix] budget di costo superato (${scope}): spesi $${fmtUsd(spentUsd)} sul limite di $${fmtUsd(limitUsd)} → job in pausa (held), avvio manuale per forzare`,
+    });
+    if (!held) {
+      await appendLog(db, job.id, "[fix] ownership persa dopo il hold per budget");
+    }
+    await notify(notifyDeps, db, {
+      kind: "job.budget_held",
+      ticketNumber: ticket.number,
+      ticketTitle: ticket.title,
+      projectName: project.name,
+      scope,
+      limitUsd,
+      spentUsd,
+      ticketUrl: url,
+    });
+    return "held";
+  };
+
+  // Configurazione dei tetti di spesa (Task 6), caricata SOLO se il job non è
+  // avviato manualmente: un avvio a mano scavalca entrambi i controlli (un
+  // umano ha già deciso di spendere). `maxCostUsd` serve anche al check
+  // in-loop del self-repair, perciò resta in scope fuori dal pre-fix check.
+  // I valori numeric di Postgres arrivano come stringa: Number() li converte.
+  let maxCostUsd: number | null = null;
+  // Costo storico del ticket (run già registrati), letto una volta per il check
+  // in-loop del self-repair. È la base a cui si aggiunge la stima dei costi del
+  // run corrente (fixUsages, non ancora persistiti) prima di ogni riparazione.
+  let ticketCostBaseline = 0;
+  if (!job.manualTrigger) {
+    const [budgetRule] = await db
+      .select({ maxCostUsd: automationRules.maxCostUsd })
+      .from(automationRules)
+      .where(eq(automationRules.type, ticket.type));
+    maxCostUsd =
+      budgetRule?.maxCostUsd != null && budgetRule.maxCostUsd !== ""
+        ? Number(budgetRule.maxCostUsd)
+        : null;
+    const [settings] = await db
+      .select({ monthlyBudgetUsd: instanceSettings.monthlyBudgetUsd })
+      .from(instanceSettings)
+      .where(eq(instanceSettings.id, 1));
+    const monthlyBudgetUsd =
+      settings?.monthlyBudgetUsd != null && settings.monthlyBudgetUsd !== ""
+        ? Number(settings.monthlyBudgetUsd)
+        : null;
+
+    // PRE-FIX CHECK: prima di toccare il repo. Mensile prima del ticket: un
+    // tetto d'istanza sforato blocca a prescindere dal singolo ticket.
+    const monthlySpent = await monthlyCostUsdFn(db);
+    if (monthlyBudgetUsd != null && monthlySpent >= monthlyBudgetUsd) {
+      return budgetHeld("monthly", monthlyBudgetUsd, monthlySpent);
+    }
+    const ticketSpent = await ticketCostUsdFn(db, ticket.id);
+    ticketCostBaseline = ticketSpent;
+    if (maxCostUsd != null && ticketSpent >= maxCostUsd) {
+      return budgetHeld("ticket", maxCostUsd, ticketSpent);
+    }
+  }
 
   // Credenziali: decifratura + parse PRIMA di toccare il repo, dall'ACCOUNT
   // collegato. Un fallimento qui (chiave sbagliata, payload manomesso, JSON
@@ -597,7 +715,21 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
               if (attempt >= selfRepairMaxAttempts) {
                 throw new SelfRepairFailedError(test.output, output);
               }
-              // (Task 6 inserirà QUI il check del budget-ticket prima di ri-tentare.)
+              // CHECK BUDGET-TICKET in-loop (Task 6): prima di spendere su una
+              // RI-riparazione, se il job non è manuale e c'è un tetto di costo,
+              // stima la spesa del ticket = storico (ticketCostBaseline) + somma
+              // dei costUsd dei run di QUESTO run (fixUsages, non ancora
+              // persistiti). Se la stima ha già raggiunto il tetto NON si
+              // ri-tenta: si lancia BudgetExceededError, che esce da withWorktree
+              // e nel catch porta al percorso budget-held (NON failJob). Stima:
+              // lo storico è preciso, fixUsages è il run corrente in memoria.
+              if (!job.manualTrigger && maxCostUsd != null) {
+                const runCost = fixUsages.reduce((sum, u) => sum + (u?.totalCostUsd ?? 0), 0);
+                const estimated = ticketCostBaseline + runCost;
+                if (estimated >= maxCostUsd) {
+                  throw new BudgetExceededError("ticket", maxCostUsd, estimated);
+                }
+              }
               const repair = await runner.run({
                 cwd: dir,
                 prompt: buildFixRepairPrompt(
@@ -668,6 +800,13 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     // di fallire (es. plan riuscito ma execute in errore, nessuna modifica) li
     // registriamo comunque — il lavoro AI è stato speso anche se il job fallisce.
     await recordAllUsages();
+    if (err instanceof BudgetExceededError) {
+      // Budget-ticket sforato durante il self-repair: NON è un fallimento. Il
+      // worktree è già rimosso; ora (fuori da withWorktree) si applica il
+      // percorso budget-held — holdJob + commento + notifica — invece di
+      // failJob/notifyFailed. I consumi del run sono già stati registrati sopra.
+      return budgetHeld(err.scope, err.limitUsd, err.spentUsd);
+    }
     if (err instanceof NoChangesError) {
       await failJob(db, job.id, {
         log: `[fix] output agente:\n${truncateForLog(err.agentOutput)}\n[fix] nessuna modifica prodotta: niente PR`,

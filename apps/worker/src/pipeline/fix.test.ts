@@ -39,12 +39,15 @@ afterEach(async () => {
   // test: i test plan-only le mutano (planApprovalMinEffort) ma non sono
   // ricreate, quindi ripristiniamo la soglia a null per non sporcare l'ordine.
   await testDb.db.update(automationRules).set({ planApprovalMinEffort: null });
+  // I tetti di costo (Task 6) sono anch'essi mutati da alcuni test su righe
+  // condivise: azzeriamo maxCostUsd per tipo e il budget mensile d'istanza.
+  await testDb.db.update(automationRules).set({ maxCostUsd: null });
   // Ripristina la lingua d'istanza al default 'en' (riga singleton id=1
   // condivisa tra i test): un test che la porta a 'it' non deve influenzare i
   // successivi.
   await testDb.db
     .update(instanceSettings)
-    .set({ contentLanguage: "en" })
+    .set({ contentLanguage: "en", monthlyBudgetUsd: null })
     .where(eq(instanceSettings.id, 1));
 });
 
@@ -1506,5 +1509,218 @@ describe("runFix — notifiche", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]!.kind).toBe("job.plan_review");
     expect(calls[0]!.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
+  });
+});
+
+describe("runFix — budget di costo (Task 6)", () => {
+  // I costi sono iniettati via ticketCostUsdFn/monthlyCostUsdFn (default dagli
+  // helper @stubwise/db): test deterministici senza seedare agent_runs. I tetti
+  // (automation_rules.maxCostUsd per tipo, instance_settings.monthlyBudgetUsd)
+  // sono persistiti a DB perché runFix li legge da lì.
+  interface BudgetDispatched {
+    kind: string;
+    scope?: "ticket" | "monthly";
+    limitUsd?: number;
+    spentUsd?: number;
+    ticketUrl?: string;
+  }
+
+  it("pre-fix oltre il tetto MENSILE → job held, commento budgetHeld, notifica scope monthly, niente run né PR", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    await db
+      .update(instanceSettings)
+      .set({ monthlyBudgetUsd: "10" })
+      .where(eq(instanceSettings.id, 1));
+    const ticket = await createTicket(db, fixture.projectId, { type: "bug" });
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+    });
+    const provider = makeProvider();
+    const calls: BudgetDispatched[] = [];
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, {
+        publicUrl: "https://stubwise.example.com",
+        monthlyCostUsdFn: async () => 12, // >= 10 → sforato
+        ticketCostUsdFn: async () => 0,
+        dispatch: async (_db, event) => {
+          calls.push(event as unknown as BudgetDispatched);
+        },
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("held");
+    // Nessun run dell'agente, nessuna PR, nessun branch pushato.
+    expect(runner.calls).toHaveLength(0);
+    expect(provider.openPullRequest).not.toHaveBeenCalled();
+    const branches = await git(["branch", "--list", `stubwise/ticket-${ticket.number}`], fixture.upstreamDir);
+    expect(branches).toBe("");
+    // Job held.
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("held");
+    expect(jobAfter.finishedAt).not.toBeNull();
+    // Commento AI budgetHeld con scope tradotto (en: "monthly") e cifre.
+    const ticketComments = await db.select().from(comments).where(eq(comments.ticketId, ticket.id));
+    expect(ticketComments).toHaveLength(1);
+    expect(ticketComments[0]?.authorType).toBe("ai");
+    expect(ticketComments[0]?.body).toContain("monthly");
+    expect(ticketComments[0]?.body).toContain("12.0000");
+    expect(ticketComments[0]?.body).toContain("10.0000");
+    // Notifica job.budget_held scope monthly con limit/spent.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.kind).toBe("job.budget_held");
+    expect(calls[0]!.scope).toBe("monthly");
+    expect(calls[0]!.limitUsd).toBe(10);
+    expect(calls[0]!.spentUsd).toBe(12);
+    expect(calls[0]!.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
+  });
+
+  it("pre-fix oltre il tetto-TICKET → job held, notifica scope ticket, niente run né PR", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    await db.update(automationRules).set({ maxCostUsd: "2.5" }).where(eq(automationRules.type, "bug"));
+    const ticket = await createTicket(db, fixture.projectId, { type: "bug" });
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+    });
+    const provider = makeProvider();
+    const calls: BudgetDispatched[] = [];
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, {
+        publicUrl: "https://stubwise.example.com",
+        monthlyCostUsdFn: async () => 0, // mensile non impostato/non sforato
+        ticketCostUsdFn: async () => 3, // >= 2.5 → sforato
+        dispatch: async (_db, event) => {
+          calls.push(event as unknown as BudgetDispatched);
+        },
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("held");
+    expect(runner.calls).toHaveLength(0);
+    expect(provider.openPullRequest).not.toHaveBeenCalled();
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("held");
+    const ticketComments = await db.select().from(comments).where(eq(comments.ticketId, ticket.id));
+    expect(ticketComments[0]?.body).toContain("ticket");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.kind).toBe("job.budget_held");
+    expect(calls[0]!.scope).toBe("ticket");
+    expect(calls[0]!.limitUsd).toBe(2.5);
+    expect(calls[0]!.spentUsd).toBe(3);
+  });
+
+  it("manualTrigger=true con costi oltre ENTRAMBI i tetti → controlli saltati, il fix procede e apre la PR", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    await db
+      .update(instanceSettings)
+      .set({ monthlyBudgetUsd: "1" })
+      .where(eq(instanceSettings.id, 1));
+    await db.update(automationRules).set({ maxCostUsd: "1" }).where(eq(automationRules.type, "bug"));
+    const ticket = await createTicket(db, fixture.projectId, { type: "bug" });
+    // Job avviato manualmente: scavalca entrambi i tetti.
+    const [manualJob] = await db
+      .insert(aiJobs)
+      .values({ ticketId: ticket.id, status: "fixing", startedAt: new Date(), manualTrigger: true })
+      .returning();
+    if (!manualJob) throw new Error("insert del job non ha restituito la riga");
+    const runner = new FakeAgentRunner({
+      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "fatto", exitCode: 0 },
+      ],
+    });
+    const provider = makeProvider("https://github.com/acme/repo/pull/123");
+    const monthlyCostUsdFn = vi.fn(async () => 999);
+    const ticketCostUsdFn = vi.fn(async () => 999);
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, { monthlyCostUsdFn, ticketCostUsdFn }),
+      manualJob,
+    );
+
+    expect(outcome).toBe("pr_opened");
+    // I controlli di budget sono saltati: i cost-fn non sono nemmeno invocati.
+    expect(monthlyCostUsdFn).not.toHaveBeenCalled();
+    expect(ticketCostUsdFn).not.toHaveBeenCalled();
+    expect(provider.openPullRequest).toHaveBeenCalledTimes(1);
+    const jobAfter = await getJob(db, manualJob.id);
+    expect(jobAfter.status).toBe("pr_opened");
+  });
+
+  it("self-repair che supererebbe il tetto-ticket al 2° giro → held (budget), niente 2ª riparazione, NON failed", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    // Tetto ticket = 0.15. Storico 0. Plan costo 0, execute 0.1, 1ª riparazione
+    // 0.1. Prima della 1ª riparazione: stima 0 + 0.1 = 0.1 < 0.15 → si procede.
+    // Prima della 2ª riparazione: stima 0 + 0.1 (execute) + 0.1 (riparazione 1)
+    // = 0.2 >= 0.15 → BudgetExceededError → held (la 2ª riparazione NON parte).
+    await db.update(automationRules).set({ maxCostUsd: "0.15" }).where(eq(automationRules.type, "bug"));
+    const ticket = await createTicket(db, fixture.projectId, { type: "bug" });
+    const job = await createFixingJob(db, ticket.id);
+    const usage = (cost: number) => ({
+      totalCostUsd: cost,
+      models: [{ model: "sonnet", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, costUsd: cost }],
+    });
+    const runner = new FakeAgentRunner({
+      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      results: [
+        { output: "PIANO", exitCode: 0, usage: usage(0) }, // plan (0)
+        { output: "execute", exitCode: 0, usage: usage(0.1) }, // execute (0.1)
+        { output: "riparazione 1", exitCode: 0, usage: usage(0.1) }, // 1ª riparazione (0.1) → totale 0.2
+        { output: "riparazione 2 NON deve partire", exitCode: 0, usage: usage(0.1) },
+      ],
+    });
+    const provider = makeProvider();
+    const calls: BudgetDispatched[] = [];
+    // Test sempre rossi: senza il budget il loop ri-tenterebbe fino a maxAttempts.
+    const runTestCommand = vi.fn(async () => ({ exitCode: 1, output: "FAIL sempre rosso" }));
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, {
+        resolveTestCommandFn: async () => ({ cmd: "pnpm", args: ["test"] }),
+        runTestCommand,
+        selfRepairMaxAttempts: 2,
+        ticketCostUsdFn: async () => 0, // storico vuoto
+        monthlyCostUsdFn: async () => 0,
+        dispatch: async (_db, event) => {
+          calls.push(event as unknown as BudgetDispatched);
+        },
+      }),
+      job,
+    );
+
+    // held (budget), NON failed.
+    expect(outcome).toBe("held");
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("held");
+    // Run agente: plan + execute + SOLO 1 riparazione (la 2ª non parte). = 3.
+    expect(runner.calls).toHaveLength(3);
+    // I consumi dei run eseguiti sono persistiti anche sul percorso held
+    // (recordAllUsages è invocato nel ramo BudgetExceededError): una riga
+    // agent_runs per run con costo (plan 0 + execute 0.1 + riparazione 1 0.1),
+    // un solo modello ('sonnet') per run = 3 righe.
+    expect(await db.select().from(agentRuns).where(eq(agentRuns.jobId, job.id))).toHaveLength(3);
+    // Test eseguiti 2 volte: dopo execute (rosso → 1ª riparazione), dopo la
+    // 1ª riparazione (rosso → ma il budget ferma prima della 2ª riparazione).
+    expect(runTestCommand).toHaveBeenCalledTimes(2);
+    // Nessuna PR, nessun branch.
+    expect(provider.openPullRequest).not.toHaveBeenCalled();
+    const branches = await git(["branch", "--list", `stubwise/ticket-${ticket.number}`], fixture.upstreamDir);
+    expect(branches).toBe("");
+    // Notifica budget_held scope ticket con la spesa STIMATA (0.2) e il tetto (0.15).
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.kind).toBe("job.budget_held");
+    expect(calls[0]!.scope).toBe("ticket");
+    expect(calls[0]!.limitUsd).toBe(0.15);
+    expect(calls[0]!.spentUsd).toBeCloseTo(0.2, 5);
   });
 });
