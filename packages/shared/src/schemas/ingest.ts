@@ -28,6 +28,17 @@ export const feedbackEventSchema = z.object({
   email: z.email().optional(),
   url: z.string().optional(),
   release: z.string().optional(),
+  /**
+   * Screenshot opzionale come dataURL (`data:image/...;base64,...`), catturato
+   * dall'SDK con html2canvas. Niente cap di lunghezza qui: il batch JSON ha già
+   * un cap di eventi e il server valida tipo/dimensione decodificando il dataURL
+   * prima di salvarlo come allegato (best-effort). Retro-compatibile: assente
+   * = feedback senza screenshot, come prima.
+   */
+  screenshot: z
+    .string()
+    .startsWith("data:image/", "lo screenshot deve essere un dataURL data:image/...")
+    .optional(),
 });
 export type FeedbackEvent = z.infer<typeof feedbackEventSchema>;
 

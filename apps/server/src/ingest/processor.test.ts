@@ -1,10 +1,28 @@
 import type { ErrorEvent, FeedbackEvent, TicketCreateEvent } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { aiJobs, errorGroups, projects, tickets } from "@stubwise/db";
+import { aiJobs, attachments, errorGroups, projects, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedGitAccount, startTestDb } from "@stubwise/db/testing";
+import type { ObjectStorage } from "../storage/index.js";
 import { processEvents } from "./processor.js";
+
+/** Storage fake in-memory: registra ogni putObject per le asserzioni. */
+function fakeStorage(): ObjectStorage & { puts: Array<{ key: string; size: number; type: string }> } {
+  const puts: Array<{ key: string; size: number; type: string }> = [];
+  return {
+    puts,
+    putObject: async (key, body, contentType) => {
+      puts.push({ key, size: body.length, type: contentType });
+    },
+    getSignedDownloadUrl: async () => "https://example.com/signed",
+    deleteObject: async () => undefined,
+  };
+}
+
+/** dataURL minimale ma valido (1x1 PNG) per i test dello screenshot. */
+const PNG_DATA_URL =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQAY3Y2wAAAAAElFTkSuQmCC";
 
 let testDb: TestDb;
 
@@ -244,6 +262,106 @@ describe("processEvents — eventi feedback", () => {
     const result = await processEvents(testDb.db, project, [feedback, feedback]);
     expect(result).toEqual({ created: 2, deduped: 0 });
     expect(await projectTickets(project.id)).toHaveLength(2);
+  });
+});
+
+async function ticketAttachments(ticketId: string) {
+  return testDb.db.select().from(attachments).where(eq(attachments.ticketId, ticketId));
+}
+
+describe("processEvents — screenshot del feedback come allegato", () => {
+  it("con screenshot valido e storage attivo: crea ticket + 1 attachment collegato", async () => {
+    const project = await createProject();
+    const storage = fakeStorage();
+    const result = await processEvents(
+      testDb.db,
+      project,
+      [{ kind: "feedback", message: "bug visivo", screenshot: PNG_DATA_URL }],
+      { storage: async () => storage },
+    );
+    expect(result).toEqual({ created: 1, deduped: 0 });
+
+    const [ticket] = await projectTickets(project.id);
+    const rows = await ticketAttachments(ticket!.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.mimeType).toBe("image/png");
+    expect(rows[0]!.commentId).toBeNull();
+    expect(rows[0]!.uploaderId).toBeNull();
+    expect(rows[0]!.filename).toBe("feedback-screenshot.png");
+    expect(rows[0]!.storageKey).toContain(`tickets/${ticket!.id}/`);
+    expect(rows[0]!.sizeBytes).toBeGreaterThan(0);
+    expect(storage.puts).toHaveLength(1);
+    expect(storage.puts[0]!.type).toBe("image/png");
+    expect(storage.puts[0]!.size).toBe(rows[0]!.sizeBytes);
+  });
+
+  it("senza storage attivo: ticket creato, 0 attachments, nessun errore", async () => {
+    const project = await createProject();
+    const result = await processEvents(
+      testDb.db,
+      project,
+      [{ kind: "feedback", message: "bug visivo", screenshot: PNG_DATA_URL }],
+      { storage: async () => null },
+    );
+    expect(result).toEqual({ created: 1, deduped: 0 });
+    const [ticket] = await projectTickets(project.id);
+    expect(await ticketAttachments(ticket!.id)).toHaveLength(0);
+  });
+
+  it("nessuna resolver storage: ticket creato, 0 attachments (retro-compatibile)", async () => {
+    const project = await createProject();
+    const result = await processEvents(testDb.db, project, [
+      { kind: "feedback", message: "bug visivo", screenshot: PNG_DATA_URL },
+    ]);
+    expect(result).toEqual({ created: 1, deduped: 0 });
+    const [ticket] = await projectTickets(project.id);
+    expect(await ticketAttachments(ticket!.id)).toHaveLength(0);
+  });
+
+  it("screenshot oltre il limite di dimensione: ticket creato, 0 attachments", async () => {
+    const project = await createProject();
+    const storage = fakeStorage();
+    // ~11 MB di base64 → oltre MAX_ATTACHMENT_BYTES (10 MB) una volta decodificato.
+    const big = `data:image/png;base64,${"A".repeat(15 * 1024 * 1024)}`;
+    const result = await processEvents(
+      testDb.db,
+      project,
+      [{ kind: "feedback", message: "troppo grande", screenshot: big }],
+      { storage: async () => storage },
+    );
+    expect(result).toEqual({ created: 1, deduped: 0 });
+    const [ticket] = await projectTickets(project.id);
+    expect(await ticketAttachments(ticket!.id)).toHaveLength(0);
+    expect(storage.puts).toHaveLength(0);
+  });
+
+  it("un putObject che lancia non rompe l'ingestion: ticket creato, 0 attachments", async () => {
+    const project = await createProject();
+    const storage: ObjectStorage = {
+      putObject: async () => {
+        throw new Error("S3 down");
+      },
+      getSignedDownloadUrl: async () => "",
+      deleteObject: async () => undefined,
+    };
+    const result = await processEvents(
+      testDb.db,
+      project,
+      [{ kind: "feedback", message: "bug", screenshot: PNG_DATA_URL }],
+      { storage: async () => storage },
+    );
+    expect(result).toEqual({ created: 1, deduped: 0 });
+    const [ticket] = await projectTickets(project.id);
+    expect(await ticketAttachments(ticket!.id)).toHaveLength(0);
+  });
+
+  it("feedback senza screenshot: nessun accesso allo storage", async () => {
+    const project = await createProject();
+    const storage = fakeStorage();
+    await processEvents(testDb.db, project, [{ kind: "feedback", message: "solo testo" }], {
+      storage: async () => storage,
+    });
+    expect(storage.puts).toHaveLength(0);
   });
 });
 

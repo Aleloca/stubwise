@@ -45,7 +45,8 @@
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "@stubwise/shared": "workspace:*"
+    "@stubwise/shared": "workspace:*",
+    "html2canvas": "^1.4.1"
   },
   "devDependencies": {
     "@types/node": "^22.19.20",

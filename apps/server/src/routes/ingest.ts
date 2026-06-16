@@ -141,6 +141,10 @@ export async function ingestRoutes(
         // test): la notifica è opzionale, in quel caso il link è il solo path.
         publicUrl: publicUrlOrUndefined(app),
         projectName: project.name,
+        // Storage attivo per salvare lo screenshot del feedback come allegato
+        // (best-effort). app.storage() incapsula db+encryptionKey e ritorna null
+        // se lo storage non è configurato.
+        storage: () => app.storage(),
       });
       return reply.code(202).send({ accepted: events.length, created, deduped });
     },

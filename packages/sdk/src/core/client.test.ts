@@ -152,6 +152,86 @@ describe("Client", () => {
     });
   });
 
+  describe("captureFeedback con screenshot", () => {
+    const DATA_URL = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==";
+
+    /**
+     * Lascia girare l'IIFE async che cattura lo screenshot: la cattura fa un
+     * dynamic import + due await, quindi servono più tick prima che l'evento
+     * sia accodato. Più macrotask di margine.
+     */
+    const flushPromises = async (): Promise<void> => {
+      for (let i = 0; i < 5; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    };
+
+    /** Fake `document.body` con una pila di microtask sufficiente per la cattura. */
+    function installDocument(): void {
+      vi.stubGlobal("document", {
+        body: { nodeName: "BODY" },
+        documentElement: { nodeName: "HTML" },
+      });
+    }
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    });
+
+    it("con screenshot:true allega il dataURL all'evento (html2canvas mockato)", async () => {
+      installDocument();
+      const toDataURL = vi.fn().mockReturnValue(DATA_URL);
+      vi.doMock("html2canvas", () => ({
+        default: vi.fn().mockResolvedValue({ toDataURL }),
+      }));
+      const { Client: FreshClient } = await import("./client.js");
+
+      const fetchMock = okFetch();
+      const client = new FreshClient({ dsn: DSN, fetchImpl: fetchMock });
+
+      client.captureFeedback({ message: "bug visivo", screenshot: true });
+      await flushPromises();
+      await client.flush();
+
+      const [event] = sentEvents(fetchMock) as FeedbackEvent[];
+      expect(event).toMatchObject({ kind: "feedback", message: "bug visivo", screenshot: DATA_URL });
+      expect(toDataURL).toHaveBeenCalledWith("image/jpeg", 0.7);
+    });
+
+    it("se html2canvas lancia, l'evento viene comunque inviato SENZA screenshot e senza eccezioni", async () => {
+      installDocument();
+      vi.doMock("html2canvas", () => ({
+        default: vi.fn().mockRejectedValue(new Error("canvas tainted")),
+      }));
+      const { Client: FreshClient } = await import("./client.js");
+
+      const fetchMock = okFetch();
+      const client = new FreshClient({ dsn: DSN, fetchImpl: fetchMock });
+
+      expect(() => client.captureFeedback({ message: "bug visivo", screenshot: true })).not.toThrow();
+      await flushPromises();
+      await client.flush();
+
+      const [event] = sentEvents(fetchMock) as FeedbackEvent[];
+      expect(event).toMatchObject({ kind: "feedback", message: "bug visivo" });
+      expect(event!.screenshot).toBeUndefined();
+    });
+
+    it("senza screenshot l'enqueue è sincrono e l'evento non ha screenshot", async () => {
+      const fetchMock = okFetch();
+      const client = new Client({ dsn: DSN, fetchImpl: fetchMock });
+
+      client.captureFeedback({ message: "feedback semplice" });
+      // nessun await del microtask: la coda deve già contenere l'evento
+      await client.flush();
+
+      const [event] = sentEvents(fetchMock) as FeedbackEvent[];
+      expect(event).toMatchObject({ kind: "feedback", message: "feedback semplice" });
+      expect(event!.screenshot).toBeUndefined();
+    });
+  });
+
   it("createTicket produce un TicketCreateEvent con priority di default", async () => {
     const fetchMock = okFetch();
     const client = new Client({ dsn: DSN, fetchImpl: fetchMock });

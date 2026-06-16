@@ -1,9 +1,15 @@
+import { randomUUID } from "node:crypto";
 import type { ErrorEvent, FeedbackEvent, IngestEvent, TicketCreateEvent } from "@stubwise/shared";
 import { dispatchNotification, type NotificationEvent } from "@stubwise/notifications";
 import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "@stubwise/db";
-import { aiJobs, errorGroups, tickets } from "@stubwise/db";
+import { aiJobs, attachments, errorGroups, tickets } from "@stubwise/db";
 import { createTicket, type Ticket } from "../db/tickets.js";
+import {
+  ALLOWED_ATTACHMENT_MIME_TYPES,
+  MAX_ATTACHMENT_BYTES,
+} from "../routes/attachments.js";
+import type { ObjectStorage } from "../storage/index.js";
 import { fingerprint } from "./fingerprint.js";
 
 /** Lunghezza massima del titolo di un ticket (allineata alla validazione API). */
@@ -25,6 +31,96 @@ export interface ProcessResult {
 export type DispatchFn = (db: Db, event: NotificationEvent) => Promise<void>;
 
 /**
+ * Resolver dello storage attivo, iniettato dal chiamante (in produzione
+ * `app.storage()`, che incapsula db+encryptionKey; nei test un fake). Ritorna
+ * `null` se lo storage non è configurato. Assente = lo screenshot non viene mai
+ * salvato (il ticket si crea comunque).
+ */
+export type StorageResolver = () => Promise<ObjectStorage | null>;
+
+/** MIME immagine ammessi per lo screenshot (sottoinsieme dell'allowlist allegati). */
+const ALLOWED_IMAGE_MIME_TYPES = new Set<string>(
+  ALLOWED_ATTACHMENT_MIME_TYPES.filter((m) => m.startsWith("image/")),
+);
+
+/** Estensione di file dal MIME immagine (per filename e storage key). */
+const IMAGE_EXTENSION: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+};
+
+interface DecodedScreenshot {
+  mimeType: string;
+  buffer: Buffer;
+  extension: string;
+}
+
+/**
+ * Decodifica un dataURL screenshot. Ritorna `null` (silenziosamente) se il
+ * formato non è un dataURL immagine valido, se il MIME non è in allowlist o se
+ * i byte superano MAX_ATTACHMENT_BYTES. Best-effort: nessun lancio.
+ */
+function decodeScreenshot(dataUrl: string): DecodedScreenshot | null {
+  const match = /^data:([^;,]+);base64,(.*)$/s.exec(dataUrl);
+  if (!match) return null;
+  const mimeType = match[1]!.toLowerCase();
+  if (!ALLOWED_IMAGE_MIME_TYPES.has(mimeType)) return null;
+  const extension = IMAGE_EXTENSION[mimeType];
+  if (!extension) return null;
+  let buffer: Buffer;
+  try {
+    buffer = Buffer.from(match[2]!, "base64");
+  } catch {
+    return null;
+  }
+  if (buffer.length === 0 || buffer.length > MAX_ATTACHMENT_BYTES) return null;
+  return { mimeType, buffer, extension };
+}
+
+/**
+ * Salva lo screenshot di un feedback come allegato del ticket appena creato.
+ * Best-effort totale: qualunque problema (storage assente, decode, put o
+ * insert) viene loggato e ignorato — il ticket resta creato e l'ingest 202.
+ */
+async function saveScreenshotAttachment(
+  db: Db,
+  ticketId: string,
+  dataUrl: string,
+  resolveStorage: StorageResolver | undefined,
+): Promise<void> {
+  if (!resolveStorage) return;
+  try {
+    const storage = await resolveStorage();
+    if (!storage) {
+      console.warn("[ingest] storage non attivo: screenshot del feedback ignorato");
+      return;
+    }
+    const decoded = decodeScreenshot(dataUrl);
+    if (!decoded) {
+      console.warn("[ingest] screenshot del feedback non valido (tipo/dimensione): ignorato");
+      return;
+    }
+    const filename = `feedback-screenshot.${decoded.extension}`;
+    const storageKey = `tickets/${ticketId}/${randomUUID()}/${filename}`;
+    await storage.putObject(storageKey, decoded.buffer, decoded.mimeType);
+    await db.insert(attachments).values({
+      ticketId,
+      commentId: null,
+      uploaderId: null,
+      filename,
+      mimeType: decoded.mimeType,
+      sizeBytes: decoded.buffer.length,
+      storageKey,
+    });
+  } catch (error) {
+    // Best-effort: lo screenshot non deve mai disfare l'ingestion del ticket.
+    console.warn("[ingest] salvataggio screenshot del feedback fallito (ignorato):", error);
+  }
+}
+
+/**
  * Opzioni di processEvents. Oltre agli hook di test, trasportano il contesto
  * necessario alla notifica `ticket.created`: l'URL pubblico per comporre il
  * link al ticket e il nome del progetto da mostrare nel messaggio. `dispatch`
@@ -42,6 +138,9 @@ export interface ProcessOptions {
   /** Dispatch della notifica (iniettabile nei test). Default:
    * dispatchNotification (best-effort, non lancia mai). */
   dispatch?: DispatchFn;
+  /** Resolver dello storage attivo per salvare lo screenshot del feedback come
+   * allegato (best-effort). Assente = nessuno screenshot salvato. */
+  storage?: StorageResolver;
 }
 
 function truncate(text: string): string {
@@ -270,6 +369,11 @@ export async function processEvents(
       case "feedback": {
         const ticket = await processFeedbackEvent(db, project.id, event);
         result.created += 1;
+        // Screenshot come allegato DOPO il commit del ticket: best-effort, non
+        // disfa mai l'ingestion (vedi saveScreenshotAttachment).
+        if (event.screenshot !== undefined) {
+          await saveScreenshotAttachment(db, ticket.id, event.screenshot, opts?.storage);
+        }
         await notifyTicketCreated(db, ticket, opts);
         break;
       }

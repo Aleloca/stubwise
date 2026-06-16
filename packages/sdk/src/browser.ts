@@ -279,7 +279,12 @@ export function captureError(error: unknown, extra?: { url?: string; userAgent?:
   });
 }
 
-export function captureFeedback(input: { message: string; email?: string; url?: string }): void {
+export function captureFeedback(input: {
+  message: string;
+  email?: string;
+  url?: string;
+  screenshot?: boolean;
+}): void {
   safely(() => activeClient()?.captureFeedback(input));
 }
 
