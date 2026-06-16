@@ -100,7 +100,7 @@
     },
     "filters": {
       "search": "Cerca",
-      "searchPlaceholder": "Cerca nel titolo…",
+      "searchPlaceholder": "Cerca in titolo, descrizione, commenti…",
       "project": "Progetto",
       "status": "Stato",
       "type": "Tipo",

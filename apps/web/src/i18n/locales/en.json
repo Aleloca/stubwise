@@ -100,7 +100,7 @@
     },
     "filters": {
       "search": "Search",
-      "searchPlaceholder": "Search the title…",
+      "searchPlaceholder": "Search title, description, comments…",
       "project": "Project",
       "status": "Status",
       "type": "Type",

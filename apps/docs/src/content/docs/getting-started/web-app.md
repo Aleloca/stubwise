@@ -68,6 +68,22 @@ The **New ticket** button opens a dialog with:
 Tickets created by hand have source `manual`. Those arriving from the SDK have
 source `sdk_error` or `sdk_feedback`; those created via API have `api`.
 
+## Searching tickets
+
+The ticket list has a search field — **Search title, description, comments…** —
+that runs a **full-text** search backed by Postgres. It looks across the
+ticket's **title**, its **description (body)** and the **comments**, not just the
+title.
+
+Search uses **English stemming**, so it matches related word forms: a query for
+`crashing` also finds tickets that say `crashes` or `crashed`. It is
+**match-based**: a ticket either matches the query or it doesn't, and the results
+stay in **chronological order** (newest first). Ranking results by relevance is a
+planned future improvement.
+
+The search tolerates queries with **special characters** (`&`, `:`, `!`, quotes,
+and the like): they are handled safely and never cause an error.
+
 ## The ticket detail
 
 The detail page gathers everything about a ticket:
