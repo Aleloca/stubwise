@@ -268,7 +268,8 @@
         "account": "Account",
         "automation": "AI automation",
         "notifications": "Notifications",
-        "gitAccounts": "Git accounts"
+        "gitAccounts": "Git accounts",
+        "storage": "Storage"
       }
     },
     "account": {
@@ -336,6 +337,24 @@
       "confirm": "Confirm",
       "validationError": "Validation error",
       "inUse": "Account used by one or more projects: unlink it before deleting"
+    },
+    "storage": {
+      "title": "Storage (S3)",
+      "subtitle": "S3-compatible bucket used to store ticket attachments (Hetzner, MinIO, AWS S3, …).",
+      "enabledBadge": "Attachments enabled",
+      "disabledBadge": "Attachments disabled",
+      "endpoint": "Endpoint",
+      "region": "Region",
+      "bucket": "Bucket",
+      "accessKey": "Access key",
+      "secretKey": "Secret key",
+      "secretPlaceholder": "Your S3 secret key",
+      "secretSetPlaceholder": "•••• (set)",
+      "secretHint": "// the secret is encrypted at rest and never shown again. Leave empty to keep the stored one.",
+      "removeSecret": "Remove stored secret",
+      "save": "Save",
+      "saving": "Saving…",
+      "saved": "Saved"
     },
     "credentials": {
       "username": "Username",

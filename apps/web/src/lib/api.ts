@@ -832,6 +832,35 @@ export interface InstanceSettings {
    * nuovi job vengono tenuti in attesa. null = nessun budget.
    */
   monthlyBudgetUsd: number | null;
+  /** Endpoint dello storage S3-compatibile; null = non impostato. */
+  s3Endpoint: string | null;
+  /** Region S3 (gli S3-compatibili usano spesso "auto"); null = non impostato. */
+  s3Region: string | null;
+  s3Bucket: string | null;
+  s3AccessKey: string | null;
+  /**
+   * La secret S3 è write-only: il server NON la restituisce mai. Questo flag dice
+   * solo SE una secret è salvata, così la UI può mostrare il placeholder "set".
+   */
+  s3SecretKeySet: boolean;
+  /** true se la config S3 è completa e valida → gli allegati sono attivi. */
+  attachmentsEnabled: boolean;
+}
+
+/**
+ * Patch delle impostazioni d'istanza. `contentLanguage` è sempre richiesto (il
+ * PUT del server lo riscrive). I campi S3 sono opzionali: presenti → aggiornano
+ * ("" azzera lato server); assenti → invariati. La secret segue la regola
+ * write-only: ASSENTE → non tocca; "" → azzera; valore → cifra e salva.
+ */
+export interface InstanceSettingsPatch {
+  contentLanguage: Language;
+  monthlyBudgetUsd?: number | null;
+  s3Endpoint?: string;
+  s3Region?: string;
+  s3Bucket?: string;
+  s3AccessKey?: string;
+  s3SecretKey?: string;
 }
 
 /** Impostazioni d'istanza (solo admin): 403 per i member. */
@@ -841,12 +870,10 @@ export function getInstanceSettings(): Promise<InstanceSettings> {
 
 /**
  * Upsert delle impostazioni d'istanza (solo admin). Il PUT del server riscrive
- * sempre entrambi i campi (un campo assente azzera il budget), quindi si invia
- * sempre lo stato completo. Ritorna lo stato aggiornato.
+ * sempre contentLanguage e monthlyBudgetUsd, quindi si invia sempre lo stato
+ * completo per quei campi. I campi S3 si inviano solo quando li si vuole
+ * modificare (vedi {@link InstanceSettingsPatch}). Ritorna lo stato aggiornato.
  */
-export function putInstanceSettings(settings: InstanceSettings): Promise<InstanceSettings> {
-  return api.put("/api/settings/instance", {
-    contentLanguage: settings.contentLanguage,
-    monthlyBudgetUsd: settings.monthlyBudgetUsd,
-  });
+export function putInstanceSettings(patch: InstanceSettingsPatch): Promise<InstanceSettings> {
+  return api.put("/api/settings/instance", patch);
 }

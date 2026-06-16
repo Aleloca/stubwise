@@ -268,7 +268,8 @@
         "account": "Account",
         "automation": "Automazione AI",
         "notifications": "Notifiche",
-        "gitAccounts": "Account Git"
+        "gitAccounts": "Account Git",
+        "storage": "Storage"
       }
     },
     "account": {
@@ -336,6 +337,24 @@
       "confirm": "Conferma",
       "validationError": "Errore di validazione",
       "inUse": "Account usato da uno o più progetti: scollegalo prima di eliminarlo"
+    },
+    "storage": {
+      "title": "Storage (S3)",
+      "subtitle": "Bucket S3-compatibile usato per conservare gli allegati dei ticket (Hetzner, MinIO, AWS S3, …).",
+      "enabledBadge": "Allegati attivi",
+      "disabledBadge": "Allegati disattivi",
+      "endpoint": "Endpoint",
+      "region": "Region",
+      "bucket": "Bucket",
+      "accessKey": "Access key",
+      "secretKey": "Secret key",
+      "secretPlaceholder": "La tua secret key S3",
+      "secretSetPlaceholder": "•••• (impostata)",
+      "secretHint": "// la secret è cifrata a riposo e non viene più mostrata. Lascia vuoto per mantenere quella salvata.",
+      "removeSecret": "Rimuovi la secret salvata",
+      "save": "Salva",
+      "saving": "Salvataggio…",
+      "saved": "Salvato"
     },
     "credentials": {
       "username": "Username",

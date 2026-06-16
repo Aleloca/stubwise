@@ -17,6 +17,7 @@ import {
   boardTicketsQueryOptions,
   commentsQueryOptions,
   gitAccountsQueryOptions,
+  instanceSettingsQueryOptions,
   invitesQueryOptions,
   notificationSettingsQueryOptions,
   projectQueryOptions,
@@ -39,6 +40,7 @@ import { SettingsAutomationPage } from "./routes/settings/automation";
 import { SettingsGitAccountsPage } from "./routes/settings/git-accounts";
 import { SettingsLayout } from "./routes/settings/layout";
 import { SettingsNotificationsPage } from "./routes/settings/notifications";
+import { SettingsStoragePage } from "./routes/settings/storage";
 import { SetupPage } from "./routes/setup";
 import { TeamPage } from "./routes/team";
 import { TicketDetailPage } from "./routes/tickets/$id";
@@ -272,6 +274,16 @@ const settingsGitAccountsRoute = createRoute({
   component: SettingsGitAccountsPage,
 });
 
+const settingsStorageRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/storage",
+  beforeLoad: ({ context }) => requireAdmin(context.user.role),
+  loader: async ({ context }) => {
+    await context.queryClient.ensureQueryData(instanceSettingsQueryOptions).catch(() => undefined);
+  },
+  component: SettingsStoragePage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   registerRoute,
@@ -291,6 +303,7 @@ const routeTree = rootRoute.addChildren([
       settingsAutomationRoute,
       settingsNotificationsRoute,
       settingsGitAccountsRoute,
+      settingsStorageRoute,
     ]),
   ]),
 ]);

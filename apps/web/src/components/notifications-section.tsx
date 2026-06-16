@@ -11,7 +11,7 @@ import {
   postTestNotification,
   putInstanceSettings,
   putNotificationSettings,
-  type InstanceSettings,
+  type InstanceSettingsPatch,
   type NotificationFormat,
   type NotificationSettings,
   type TestNotificationResult,
@@ -294,7 +294,7 @@ export function NotificationsSection() {
   // server riscrive sempre entrambi i campi, quindi ogni salvataggio invia lo
   // stato completo (il campo non toccato resta quello correntemente in cache).
   const instanceMutation = useMutation({
-    mutationFn: (next: InstanceSettings) => putInstanceSettings(next),
+    mutationFn: (next: InstanceSettingsPatch) => putInstanceSettings(next),
     onSuccess: (updated) => {
       queryClient.setQueryData(instanceSettingsQueryOptions.queryKey, updated);
     },
