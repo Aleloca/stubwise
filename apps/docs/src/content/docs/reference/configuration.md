@@ -35,11 +35,13 @@ plus:
 | `ENCRYPTION_KEY`        | Yes      | —                        | **The same as the server** (see above). 32 bytes in base64.                                |
 | `MIRRORS_DIR`           | No       | `/var/stubwise/mirrors`  | Directory of the persistent git mirrors.                                                   |
 | `WORKER_CONCURRENCY`    | No       | `2`                      | Jobs in parallel across different projects (1–16).                                         |
-| `WORKER_STALE_MINUTES`  | No       | `60`                     | Minutes of inactivity beyond which a job is orphaned. **Must exceed ~49'** (two-phase fix) or the worker won't start. |
+| `WORKER_STALE_MINUTES`  | No       | `150`                    | Minutes of inactivity beyond which a job is orphaned. With the defaults it **must exceed ~119'** or the worker won't start. |
 | `FIX_TWO_PHASE`         | No       | `true`                   | Two-phase fix: planning (strong model, read-only) + execution (cheap model). `false` = single run. |
 | `FIX_PLAN_MODEL`        | No       | `opus`                   | Model of the planning run (analysis + plan, no changes).                                   |
 | `FIX_EXECUTE_MODEL`     | No       | `sonnet`                 | Model of the execution run (writes the fix, the test and the report).                      |
 | `FIX_PLAN_TIMEOUT_MS`   | No       | `600000`                 | Planning run timeout in ms (10'). Enters into the staleness invariant.                     |
+| `SELF_REPAIR_MAX_ATTEMPTS` | No    | `2`                      | Max self-repair cycles after a fix run whose tests fail (the worker re-runs the agent with the failure output). `0` disables the loop. Enters into the staleness invariant. |
+| `SELF_REPAIR_TEST_TIMEOUT_MS` | No | `300000`                 | Timeout in ms (5') of each test-command re-run during self-repair. Enters into the staleness invariant. |
 | `ANTHROPIC_API_KEY`     | No       | —                        | Auth of the `claude` CLI (via API key). Alternative: OAuth/MAX login. See below.           |
 | `CLAUDE_CONFIG_DIR`     | No       | —                        | Config home of the `claude` CLI. In the compose it's `/home/worker/.claude` (persistent volume). |
 
@@ -49,10 +51,12 @@ subprocess; the master secrets (`ENCRYPTION_KEY`, `DATABASE_URL`,
 and [Security](/docs/ai-pipeline/security/).
 
 :::caution[`WORKER_STALE_MINUTES` has an invariant]
-With the two-phase fix (default) it must exceed **planning timeout (10') +
-fix timeout (30') + 2× triage (2') + margin (5') ≈ 49 minutes**; with
-`FIX_TWO_PHASE=false`, ~40 minutes is enough. The worker checks this condition
-on startup and **exits (exit 1)** if it's violated. Leave the default `60`
+With the defaults it must exceed **fix (planning 10' + execution 30' = 40') +
+self-repair (2 × (execution 30' + test 5') = 70') + 2× triage (2' each = 4') +
+margin (5') ≈ 119 minutes**. With `FIX_TWO_PHASE=false` the fix term drops to
+the 30' execution alone, and with `SELF_REPAIR_MAX_ATTEMPTS=0` the self-repair
+term disappears. The worker checks this condition on startup and **exits (exit
+1)** if it's violated. The default `150` satisfies the invariant; leave it
 unless you have precise reasons. See [Pipeline configuration](/docs/ai-pipeline/configuration/).
 :::
 

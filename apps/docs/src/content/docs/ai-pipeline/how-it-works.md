@@ -83,7 +83,7 @@ Self-repair is governed by worker env vars: `SELF_REPAIR_MAX_ATTEMPTS` (default
 `2`, `0` = disabled) and `SELF_REPAIR_TEST_TIMEOUT_MS` (timeout of each test run,
 default 5 minutes). Because the loop can add up to N extra agent runs plus their
 test runs, `WORKER_STALE_MINUTES` must exceed the resulting invariant (with the
-defaults, roughly 150 minutes). See
+defaults, ~119 minutes; the default threshold of 150 satisfies it). See
 [Configuration](/docs/ai-pipeline/configuration/).
 :::
 

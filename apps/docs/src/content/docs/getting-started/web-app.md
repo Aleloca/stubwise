@@ -27,6 +27,44 @@ the invite and completes the sign-up. Invited users have the **member** role
 (not admin): they see the project configuration read-only and cannot create new
 ones.
 
+## Language & localization
+
+Stubwise distinguishes two independent language settings: the **UI language**,
+chosen per user, and the **content language**, set once per instance.
+
+### UI language (per user)
+
+Each user picks the language of the **interface** from **Settings → Account**.
+English is the default; **Italian** is also available. The choice is persisted
+per user (`users.language`) and applied **immediately** — no reload needed. It
+affects only what that user sees; it does not change anything for other users or
+for the AI.
+
+### Content language (per instance)
+
+The **Content language** setting lives in **Settings** at the **instance** level
+(`instance_settings.content_language`) and is the language the **AI writes in**.
+It governs the AI's comments on tickets and in pull requests across the whole
+pipeline — triage, plan and fix — and the text of the
+[notification](/docs/notifications/) messages. This is the lever a self-hoster
+uses to make the AI "speak Italian" (or any other supported language): change it
+once and every instance-wide, AI-generated text follows. See also
+[Pipeline configuration](/docs/ai-pipeline/configuration/).
+
+:::note[Two different settings]
+The **UI language** is per user and only changes the interface; the **content
+language** is per instance and changes what the **AI** writes (ticket/PR
+comments and notifications). Changing your own UI language to Italian does not
+make the AI write in Italian — that is the content language.
+:::
+
+### API errors stay in English
+
+Errors returned by the REST API stay **in English** regardless of either
+language setting, and carry a stable, language-independent `code` (snake_case)
+alongside the human-readable `message`. The web app translates them to the
+user's UI language on the client using that `code`.
+
 ## Storage (S3-compatible)
 
 Attachments and SDK feedback screenshots are stored in an external,
