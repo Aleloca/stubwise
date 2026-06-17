@@ -21,18 +21,22 @@ can clone and build a repo and run an agent for minutes. See the
 ## `WORKER_STALE_MINUTES`
 
 Minutes of inactivity beyond which a job in progress is considered **orphaned**
-by a crashed worker and put back in the queue. Default **`60`**.
+by a crashed worker and put back in the queue. Default **`150`**.
 
-:::caution[Must exceed ~49 minutes with the two-phase fix, or the worker won't start]
+:::caution[Must exceed ~119 minutes with the defaults, or the worker won't start]
 The staleness threshold must exceed the maximum time a legitimate job can take.
-With the **two-phase fix** active (default): **planning timeout (10') + fix
-timeout (30') + 2× triage (2' each, for the retry) + margin (5') ≈ 49 minutes**.
-With `FIX_TWO_PHASE=false`, **fix timeout (30') + 2× triage + margin ≈ 40
-minutes** is enough. A value too low would re-enqueue a long but still alive
-job, generating a **duplicate PR** on the same project. The worker **checks this
-invariant on startup and refuses to start (exit 1)** if it's violated: with
-`restart: unless-stopped` it would end up in a crash loop. Leave the default
-`60` unless you have a precise reason to change it.
+With the **defaults** (two-phase fix and self-repair both active): **fix
+(planning 10' + execution 30' = 40') + self-repair (`SELF_REPAIR_MAX_ATTEMPTS`,
+2, × (execution 30' + test 5') = 70') + 2× triage (2' each, for the retry) +
+margin (5') ≈ 119 minutes**. The **self-repair loop** is what stretches the
+worst case the most: each cycle re-runs the agent and re-runs the test command.
+With `FIX_TWO_PHASE=false` the fix term drops to the 30' execution alone, and
+with `SELF_REPAIR_MAX_ATTEMPTS=0` the self-repair term disappears. A value too
+low would re-enqueue a long but still alive job, generating a **duplicate PR**
+on the same project. The worker **checks this invariant on startup and refuses
+to start (exit 1)** if it's violated: with `restart: unless-stopped` it would
+end up in a crash loop. The default `150` satisfies the invariant; leave it
+unless you have a precise reason to change it.
 :::
 
 The primary defense against false orphans is anyway the **heartbeat**: during
@@ -69,6 +73,16 @@ job.
 These parameters are configurable via environment variables; the auth's model is
 the one you authenticated the CLI with (API key or OAuth/MAX login, see
 [Worker auth](/docs/getting-started/claude-setup/)).
+
+## Content language
+
+The language the AI **writes in** — its comments on tickets and pull requests
+across triage, plan and fix, and the text of the
+[notification](/docs/notifications/) messages — is the **content language** set
+once per instance in **Settings** (`instance_settings.content_language`).
+English is the default; Italian is also supported. This is an instance-wide
+setting, separate from each user's per-account UI language; see
+[Language & localization](/docs/getting-started/web-app/#language--localization).
 
 ## Commands allowed to the fix agent
 

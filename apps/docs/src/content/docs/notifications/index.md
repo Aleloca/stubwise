@@ -90,7 +90,7 @@ With the **generic JSON** format your endpoint receives a `POST` request with
 | `ticketNumber` | number           | always                  | The ticket number.                                      |
 | `title`        | string           | always                  | The ticket title.                                       |
 | `projectName`  | string           | always                  | The project name.                                       |
-| `message`      | string           | always                  | Human-readable summary of the event (English, no markup). |
+| `message`      | string           | always                  | Human-readable summary of the event, no markup. Rendered in the instance's [content language](/docs/ai-pipeline/configuration/#content-language) (not always English). |
 | `ticketUrl`    | string           | always                  | Link to the ticket in Stubwise.                         |
 | `source`       | string           | only `ticket.created`   | SDK source: `sdk_error` or `sdk_feedback`.              |
 | `prUrl`        | string           | only `job.pr_opened` / `job.pr_closed` | Pull request URL (opened or closed). |
