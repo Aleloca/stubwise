@@ -1,4 +1,3 @@
-import { timingSafeEqual } from "node:crypto";
 import fastifyCors from "@fastify/cors";
 import { ticketPrioritySchema, ticketTypeSchema } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
@@ -8,6 +7,7 @@ import { z } from "zod";
 import { projects } from "@stubwise/db";
 import { createExternalTicket } from "../ingest/processor.js";
 import { resolveReporter } from "../ingest/reporter.js";
+import { keysMatch, publicUrlOrUndefined, ticketUrl } from "../ingest/shared.js";
 import { errorSchema } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
 import { apiError } from "../errors.js";
@@ -15,43 +15,6 @@ import { apiError } from "../errors.js";
 export interface InboundRoutesOptions {
   /** Limite di richieste per chiave di ingestion (default 300/min). */
   rateLimit: RateLimitConfig;
-}
-
-/**
- * publicUrl dell'app, o undefined se non configurato (alcuni unit test
- * costruiscono l'app senza). Il getter esplode in quel caso: lo assorbiamo e
- * componiamo solo il path relativo del ticket.
- */
-function publicUrlOrUndefined(app: FastifyInstance): string | undefined {
-  try {
-    return app.publicUrl;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Confronto a tempo costante tra chiave fornita e attesa. Stessa logica di
- * keysMatch in ingest.ts: lunghezze diverse non sono confrontabili da
- * timingSafeEqual, si paga comunque un confronto della stessa forma.
- */
-function keysMatch(provided: string, expected: string): boolean {
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length) {
-    timingSafeEqual(b, b);
-    return false;
-  }
-  return timingSafeEqual(a, b);
-}
-
-/**
- * Compone l'URL del ticket: assoluto se publicUrl è valorizzato, altrimenti il
- * solo path relativo.
- */
-function ticketUrl(publicUrl: string | undefined, ticketId: string): string {
-  const base = (publicUrl ?? "").replace(/\/+$/, "");
-  return `${base}/tickets/${ticketId}`;
 }
 
 /**
