@@ -31,7 +31,18 @@ let reporterUserId: string;
 const openView = vi.fn<SlackClient["openView"]>(async () => true);
 let emailToReturn: string | null = null;
 const getUserEmail = vi.fn<SlackClient["getUserEmail"]>(async () => emailToReturn);
-const slackClientFactory: SlackClientFactory = () => ({ openView, getUserEmail });
+const getUserProfile = vi.fn<SlackClient["getUserProfile"]>(async () => ({
+  email: emailToReturn,
+  displayName: null,
+  avatarUrl: null,
+}));
+const listWorkspaceUsers = vi.fn<SlackClient["listWorkspaceUsers"]>(async () => []);
+const slackClientFactory: SlackClientFactory = () => ({
+  openView,
+  getUserEmail,
+  getUserProfile,
+  listWorkspaceUsers,
+});
 
 async function createProject(name: string): Promise<string> {
   const accountRes = await app.inject({
