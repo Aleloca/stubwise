@@ -76,6 +76,8 @@ export const SOURCE_LABEL_KEYS: Record<TicketSource, string> = {
   sdk_error: "badges:source.sdk_error",
   sdk_feedback: "badges:source.sdk_feedback",
   api: "badges:source.api",
+  slack: "badges:source.slack",
+  webhook: "badges:source.webhook",
 };
 
 const badgeBase =

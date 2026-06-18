@@ -133,6 +133,109 @@ describe("schema: loop di feedback AI", () => {
 });
 
 /**
+ * Verifica l'ingestion esterna lato schema: i nuovi valori 'slack' e 'webhook'
+ * dell'enum ticket_source sono inseribili/rileggibili e il singleton
+ * instance_settings espone le colonne cifrate slack_signing_secret_encrypted e
+ * slack_bot_token_encrypted (round-trip; default null quando non impostate).
+ */
+describe("schema: ingestion esterna (source slack/webhook + colonne Slack)", () => {
+  let testDb: TestDb;
+  let db: Db;
+
+  beforeAll(async () => {
+    testDb = await startTestDb();
+    db = testDb.db;
+  });
+
+  afterAll(async () => {
+    await testDb.stop();
+  });
+
+  async function seedProject(): Promise<string> {
+    const gitAccountId = await seedGitAccount(db);
+    const [project] = await db
+      .insert(projects)
+      .values({
+        name: "Progetto di test",
+        slug: `progetto-${randomUUID()}`,
+        provider: "github",
+        gitAccountId,
+        repoUrl: "https://example.com/repo.git",
+        defaultBranch: "main",
+        ingestionKey: randomUUID(),
+      })
+      .returning();
+    if (!project) throw new Error("insert del progetto non ha restituito la riga");
+    return project.id;
+  }
+
+  it("inserisce e rilegge un ticket con source 'slack'", async () => {
+    const projectId = await seedProject();
+    const [inserted] = await db
+      .insert(tickets)
+      .values({
+        projectId,
+        number: 1,
+        title: "Ticket da Slack",
+        type: "bug",
+        priority: "medium",
+        source: "slack",
+      })
+      .returning();
+    if (!inserted) throw new Error("insert del ticket non ha restituito la riga");
+
+    const [read] = await db.select().from(tickets).where(eq(tickets.id, inserted.id));
+    expect(read?.source).toBe("slack");
+  });
+
+  it("inserisce e rilegge un ticket con source 'webhook'", async () => {
+    const projectId = await seedProject();
+    const [inserted] = await db
+      .insert(tickets)
+      .values({
+        projectId,
+        number: 1,
+        title: "Ticket da webhook",
+        type: "task",
+        priority: "low",
+        source: "webhook",
+      })
+      .returning();
+    if (!inserted) throw new Error("insert del ticket non ha restituito la riga");
+
+    const [read] = await db.select().from(tickets).where(eq(tickets.id, inserted.id));
+    expect(read?.source).toBe("webhook");
+  });
+
+  it("scrive e rilegge le colonne Slack cifrate del singleton instance_settings (id=1)", async () => {
+    await db
+      .update(instanceSettings)
+      .set({
+        slackSigningSecretEncrypted: "signing-blob-cifrato",
+        slackBotTokenEncrypted: "token-blob-cifrato",
+      })
+      .where(eq(instanceSettings.id, 1));
+
+    const [updated] = await db
+      .select()
+      .from(instanceSettings)
+      .where(eq(instanceSettings.id, 1));
+    expect(updated?.slackSigningSecretEncrypted).toBe("signing-blob-cifrato");
+    expect(updated?.slackBotTokenEncrypted).toBe("token-blob-cifrato");
+  });
+
+  it("lascia le colonne Slack null di default su una riga effimera", async () => {
+    // Riga effimera id=3 per non dipendere dallo stato di id=1.
+    const [row] = await db
+      .insert(instanceSettings)
+      .values({ id: 3 })
+      .returning();
+    expect(row?.slackSigningSecretEncrypted).toBeNull();
+    expect(row?.slackBotTokenEncrypted).toBeNull();
+  });
+});
+
+/**
  * Verifica lo schema i18n: la colonna users.language (default 'en', valore
  * 'it') e il singleton instance_settings (riga id=1 seedata con
  * content_language='en', aggiornabile a 'it').

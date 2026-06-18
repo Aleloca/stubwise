@@ -16,7 +16,14 @@ export type TicketType = z.infer<typeof ticketTypeSchema>;
 export const ticketPrioritySchema = z.enum(["low", "medium", "high", "urgent"]);
 export type TicketPriority = z.infer<typeof ticketPrioritySchema>;
 
-export const ticketSourceSchema = z.enum(["manual", "sdk_error", "sdk_feedback", "api"]);
+export const ticketSourceSchema = z.enum([
+  "manual",
+  "sdk_error",
+  "sdk_feedback",
+  "api",
+  "slack",
+  "webhook",
+]);
 export type TicketSource = z.infer<typeof ticketSourceSchema>;
 
 /**

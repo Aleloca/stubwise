@@ -513,7 +513,9 @@
       "manual": "Manual",
       "sdk_error": "SDK",
       "sdk_feedback": "SDK",
-      "api": "API"
+      "api": "API",
+      "slack": "Slack",
+      "webhook": "Webhook"
     },
     "effort": {
       "1": "Trivial",

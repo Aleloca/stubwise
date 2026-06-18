@@ -527,6 +527,13 @@ export const instanceSettings = pgTable("instance_settings", {
   s3Bucket: text("s3_bucket"),
   s3AccessKey: text("s3_access_key"),
   s3SecretKeyEncrypted: text("s3_secret_key_encrypted"),
+  // Credenziali Slack per l'ingestion (slash command / interazioni) e per la
+  // verifica delle richieste in arrivo. Entrambe nullable: l'integrazione Slack
+  // è opzionale; con queste colonne a null la feature è disattivata. Cifrate a
+  // riposo (AES-256-GCM, vedi secrets.ts) come le altre secret: non escono mai
+  // in chiaro dall'API.
+  slackSigningSecretEncrypted: text("slack_signing_secret_encrypted"),
+  slackBotTokenEncrypted: text("slack_bot_token_encrypted"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
