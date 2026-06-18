@@ -19,6 +19,28 @@ function fakeFetchSeq(jsons: unknown[]): FetchImpl {
   }) as FetchImpl;
 }
 
+/** Estrae l'init di una specifica chiamata al fetch mock. */
+function callInit(fetchImpl: FetchImpl, index: number): RequestInit {
+  return (fetchImpl as ReturnType<typeof vi.fn>).mock.calls[index]![1] as RequestInit;
+}
+
+/** Legge il Content-Type (case-insensitive) dagli header di un init. */
+function contentType(init: RequestInit): string | undefined {
+  const headers = init.headers as Record<string, string> | undefined;
+  if (!headers) return undefined;
+  for (const [k, v] of Object.entries(headers)) {
+    if (k.toLowerCase() === "content-type") return v;
+  }
+  return undefined;
+}
+
+/** Decodifica un body form-urlencoded (URLSearchParams o stringa) in URLSearchParams. */
+function formBody(init: RequestInit): URLSearchParams {
+  const body = init.body;
+  if (body instanceof URLSearchParams) return body;
+  return new URLSearchParams(String(body));
+}
+
 describe("createSlackClient.openView", () => {
   it("posta su views.open col Bearer token e ritorna ok", async () => {
     const fetchImpl = fakeFetch({ ok: true });
@@ -33,6 +55,15 @@ describe("createSlackClient.openView", () => {
       trigger_id: "TRIG",
       view: { type: "modal" },
     });
+  });
+
+  it("invia views.open come application/json (NON form-urlencoded)", async () => {
+    const fetchImpl = fakeFetch({ ok: true });
+    const client = createSlackClient("xoxb-abc", fetchImpl);
+    await client.openView("TRIG", { type: "modal" });
+    const init = callInit(fetchImpl, 0);
+    expect(contentType(init)).toContain("application/json");
+    expect(contentType(init)).not.toContain("x-www-form-urlencoded");
   });
 
   it("ok=false → ritorna false (non lancia)", async () => {
@@ -133,6 +164,22 @@ describe("createSlackClient.getUserProfile", () => {
     const client = createSlackClient("t", fakeFetch({ ok: false, error: "user_not_found" }));
     expect(await client.getUserProfile("U1")).toBeNull();
   });
+
+  it("invia users.info come form-urlencoded col parametro user nel body", async () => {
+    const fetchImpl = fakeFetch({ ok: true, user: { profile: { email: "a@b.com" } } });
+    const client = createSlackClient("xoxb-abc", fetchImpl);
+    await client.getUserProfile("U123");
+
+    const [url, init] = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls[0]!;
+    expect(url).toBe("https://slack.com/api/users.info");
+    const reqInit = init as RequestInit;
+    expect(contentType(reqInit)).toContain("application/x-www-form-urlencoded");
+    expect((reqInit.headers as Record<string, string>)).toMatchObject({
+      Authorization: "Bearer xoxb-abc",
+    });
+    // L'userId passato deve finire DAVVERO nel body form (era ignorato come JSON).
+    expect(formBody(reqInit).get("user")).toBe("U123");
+  });
 });
 
 describe("createSlackClient.listWorkspaceUsers", () => {
@@ -159,9 +206,16 @@ describe("createSlackClient.listWorkspaceUsers", () => {
       { id: "U1", displayName: "Uno", email: "u1@x.com", avatarUrl: "i1" },
       { id: "U2", displayName: "Due", email: "u2@x.com", avatarUrl: "i2" },
     ]);
-    // Seconda chiamata deve passare il cursor.
-    const secondInit = (fetchImpl as ReturnType<typeof vi.fn>).mock.calls[1]![1] as RequestInit;
-    expect(JSON.parse(secondInit.body as string)).toMatchObject({ cursor: "CUR2" });
+    // Prima chiamata: form-urlencoded col limit, senza cursor.
+    const firstInit = callInit(fetchImpl, 0);
+    expect(contentType(firstInit)).toContain("application/x-www-form-urlencoded");
+    expect(formBody(firstInit).get("limit")).toBe("200");
+    expect(formBody(firstInit).get("cursor")).toBeNull();
+    // Seconda chiamata: form-urlencoded col cursor della prima pagina.
+    const secondInit = callInit(fetchImpl, 1);
+    expect(contentType(secondInit)).toContain("application/x-www-form-urlencoded");
+    expect(formBody(secondInit).get("cursor")).toBe("CUR2");
+    expect(formBody(secondInit).get("limit")).toBe("200");
   });
 
   it("esclude bot, deleted e USLACKBOT", async () => {

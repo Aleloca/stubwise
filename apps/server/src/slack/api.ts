@@ -124,25 +124,45 @@ export interface SlackClient {
 const SLACK_API_BASE = "https://slack.com/api";
 
 /**
- * Esegue una chiamata POST a una Web API di Slack con il bot token come Bearer
- * e payload JSON. Ritorna il JSON tipizzato, oppure `{ ok: false }` se la rete
- * o il parse falliscono. Non lancia mai: il chiamante decide come degradare.
- * Eventuali errori `{ ok: false, error }` vengono loggati SENZA il token.
+ * Encoding del body della richiesta verso Slack:
+ * - `"json"`: `application/json`, body `JSON.stringify(payload)` (es. `views.open`);
+ * - `"form"`: `application/x-www-form-urlencoded`, body `URLSearchParams`
+ *   (richiesto da `users.info`/`users.list`, che NON leggono il body JSON).
+ */
+type SlackEncoding = "json" | "form";
+
+/**
+ * Esegue una chiamata POST a una Web API di Slack con il bot token come Bearer.
+ * Il body viene serializzato secondo `encoding` (vedi {@link SlackEncoding}):
+ * `views.open` accetta JSON, mentre `users.info`/`users.list` richiedono
+ * `application/x-www-form-urlencoded` (con `form` il payload deve essere una
+ * mappa di stringhe). Ritorna il JSON tipizzato, oppure `{ ok: false }` se la
+ * rete o il parse falliscono. Non lancia mai: il chiamante decide come
+ * degradare. Eventuali errori `{ ok: false, error }` vengono loggati SENZA il
+ * token.
  */
 async function slackApi<T extends SlackResponse>(
   botToken: string,
   method: string,
   payload: unknown,
   fetchImpl: FetchImpl,
+  encoding: SlackEncoding,
 ): Promise<T> {
+  const isForm = encoding === "form";
+  const contentType = isForm
+    ? "application/x-www-form-urlencoded; charset=utf-8"
+    : "application/json; charset=utf-8";
+  const body = isForm
+    ? new URLSearchParams(payload as Record<string, string>)
+    : JSON.stringify(payload);
   try {
     const res = await fetchImpl(`${SLACK_API_BASE}/${method}`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${botToken}`,
-        "Content-Type": "application/json; charset=utf-8",
+        "Content-Type": contentType,
       },
-      body: JSON.stringify(payload),
+      body,
     });
     const json = (await res.json()) as T;
     if (!json.ok) {
@@ -168,6 +188,7 @@ export function createSlackClient(botToken: string, fetchImpl: FetchImpl = fetch
         "views.open",
         { trigger_id: triggerId, view },
         fetchImpl,
+        "json",
       );
       return res.ok;
     },
@@ -177,6 +198,7 @@ export function createSlackClient(botToken: string, fetchImpl: FetchImpl = fetch
         "users.info",
         { user: userId },
         fetchImpl,
+        "form",
       );
       if (!res.ok) return null;
       return toProfileResult(res.user?.profile);
@@ -191,8 +213,9 @@ export function createSlackClient(botToken: string, fetchImpl: FetchImpl = fetch
         const res = await slackApi<UsersListResponse>(
           botToken,
           "users.list",
-          { limit: USER_LIST_PAGE_LIMIT, ...(cursor ? { cursor } : {}) },
+          { limit: String(USER_LIST_PAGE_LIMIT), ...(cursor ? { cursor } : {}) },
           fetchImpl,
+          "form",
         );
         if (!res.ok) {
           // Prima pagina: propaga l'errore. Pagine successive: tollera e ritorna
