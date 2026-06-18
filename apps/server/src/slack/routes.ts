@@ -203,9 +203,14 @@ export async function slackRoutes(
     if (triggerId) {
       const client = clientFactory(creds.botToken);
       const projectList = await listProjects(instance);
+      // Il testo digitato dopo `/stubwise` (campo `text` dello slash command)
+      // precompila il titolo, troncato al limite del titolo ticket. Vuoto/assente
+      // → modal senza prefill.
+      const text = body.text?.trim();
+      const prefill = text ? { title: text.slice(0, TITLE_MAX) } : undefined;
       // best-effort: se views.open fallisce, l'utente non vede il modal, ma
       // non c'è nulla di utile da dire a Slack oltre al 200 d'ack.
-      await client.openView(triggerId, buildTicketModal({ projects: projectList }));
+      await client.openView(triggerId, buildTicketModal({ projects: projectList, prefill }));
     }
     // Ack immediato (entro 3s): nessuna creazione qui.
     return ack(reply);
