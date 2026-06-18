@@ -93,6 +93,16 @@ function slackPost(
   });
 }
 
+/** Estrae l'initial_value dell'input del titolo dalla view passata a openView. */
+function titleInitialValue(view: unknown): string | undefined {
+  const blocks = (view as { blocks?: unknown[] }).blocks ?? [];
+  for (const block of blocks) {
+    const b = block as { block_id?: string; element?: { initial_value?: string } };
+    if (b.block_id === BLOCK_IDS.title) return b.element?.initial_value;
+  }
+  return undefined;
+}
+
 /** Costruisce il raw body urlencoded di un view_submission con i campi dati. */
 function viewSubmissionBody(opts: {
   projectId?: string;
@@ -193,6 +203,57 @@ describe("POST /api/slack/commands", () => {
     const [triggerId, view] = openView.mock.calls[0]!;
     expect(triggerId).toBe("TRIG123");
     expect((view as { callback_id: string }).callback_id).toBe(CREATE_TICKET_CALLBACK_ID);
+  });
+
+  it("text non vuoto → titolo precompilato con initial_value", async () => {
+    const res = await slackPost(
+      "/api/slack/commands",
+      "command=%2Fstubwise&trigger_id=TRIG123&text=Ticket+di+prova",
+    );
+    expect(res.statusCode).toBe(200);
+    expect(openView).toHaveBeenCalledTimes(1);
+    const [, view] = openView.mock.calls[0]!;
+    expect(titleInitialValue(view)).toBe("Ticket di prova");
+  });
+
+  it("text vuoto → nessun initial_value sul titolo (comportamento attuale)", async () => {
+    const res = await slackPost(
+      "/api/slack/commands",
+      "command=%2Fstubwise&trigger_id=TRIG123&text=",
+    );
+    expect(res.statusCode).toBe(200);
+    expect(openView).toHaveBeenCalledTimes(1);
+    const [, view] = openView.mock.calls[0]!;
+    expect(titleInitialValue(view)).toBeUndefined();
+  });
+
+  it("text assente → nessun initial_value sul titolo", async () => {
+    const res = await slackPost(
+      "/api/slack/commands",
+      "command=%2Fstubwise&trigger_id=TRIG123",
+    );
+    expect(res.statusCode).toBe(200);
+    expect(openView).toHaveBeenCalledTimes(1);
+    const [, view] = openView.mock.calls[0]!;
+    expect(titleInitialValue(view)).toBeUndefined();
+  });
+
+  it("text > 300 caratteri → titolo troncato a 300", async () => {
+    const longText = "a".repeat(400);
+    const res = await slackPost(
+      "/api/slack/commands",
+      `command=%2Fstubwise&trigger_id=TRIG123&text=${longText}`,
+    );
+    expect(res.statusCode).toBe(200);
+    expect(openView).toHaveBeenCalledTimes(1);
+    const [, view] = openView.mock.calls[0]!;
+    // Il prefill è troncato a 300; il modal builder limita ulteriormente
+    // initial_value a 150 (limite di rendering Slack), quindi il prefill
+    // passato a buildTicketModal non deve eccedere i 300 caratteri.
+    const initial = titleInitialValue(view);
+    expect(initial).toBeDefined();
+    expect(initial!.length).toBeLessThanOrEqual(300);
+    expect(initial).toBe("a".repeat(initial!.length));
   });
 });
 
