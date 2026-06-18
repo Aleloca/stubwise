@@ -114,6 +114,13 @@ export const users = pgTable("users", {
   // Lingua preferita dell'utente per la UI. Default "en"; ogni utente la
   // sceglie indipendentemente dalla lingua dei contenuti generati.
   language: language("language").notNull().default("en"),
+  // Identità Slack del membro: lo user id dell'utente nel workspace Slack.
+  // Unique perché un'identità Slack mappa a un solo membro; nullable perché i
+  // membri creati fuori da Slack (es. invito email) non hanno un id Slack. In
+  // Postgres l'unique ignora i NULL, quindi più membri senza Slack convivono.
+  slackUserId: text("slack_user_id").unique(),
+  // URL dell'avatar Slack del membro, mostrato nella UI quando disponibile.
+  slackAvatarUrl: text("slack_avatar_url"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -121,6 +128,12 @@ export const invites = pgTable("invites", {
   token: text("token").primaryKey(),
   email: text("email").notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  // Identità Slack opzionale propagata all'utente quando l'invito viene
+  // accettato (invito originato da Slack). NON unique: più inviti pendenti
+  // possono fare riferimento alla stessa identità Slack.
+  slackUserId: text("slack_user_id"),
+  // URL dell'avatar Slack da copiare sull'utente all'accettazione dell'invito.
+  slackAvatarUrl: text("slack_avatar_url"),
   // Istante di creazione dell'invito: serve alla pagina Team per mostrare
   // "invitato il …" e ordinare la lista degli inviti in sospeso.
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

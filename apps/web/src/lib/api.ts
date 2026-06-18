@@ -94,6 +94,10 @@ export interface PublicUser {
   id: string;
   email: string;
   role: "admin" | "member";
+  /** Avatar Slack (URL) derivato al link, o null se l'utente non è linkato. */
+  avatarUrl: string | null;
+  /** Slack user id linkato, o null se non linkato. */
+  slackUserId: string | null;
 }
 
 /**
@@ -142,9 +146,13 @@ export interface Invite {
   expiresAt: string;
 }
 
-/** Crea un invito (solo admin): il token va consegnato fuori banda. */
-export function postInvite(email: string): Promise<Invite> {
-  return api.post("/api/auth/invites", { email });
+/**
+ * Crea un invito (solo admin): il token va consegnato fuori banda.
+ * Con `slackUserId` l'invito è originato dal workspace Slack e porta con sé
+ * l'identità Slack (email/avatar derivati server-side dal profilo Slack).
+ */
+export function postInvite(email: string, slackUserId?: string): Promise<Invite> {
+  return api.post("/api/auth/invites", { email, ...(slackUserId ? { slackUserId } : {}) });
 }
 
 /**
@@ -157,6 +165,9 @@ export interface PendingInvite {
   email: string;
   expiresAt: string;
   createdAt: string;
+  /** Identità Slack dell'invito (null se invito email classico). */
+  slackUserId: string | null;
+  slackAvatarUrl: string | null;
 }
 
 /** Inviti ancora in sospeso (solo admin): 403 per i member. */
@@ -710,6 +721,37 @@ export interface TeamUser extends PublicUser {
 
 export function getUsers(): Promise<TeamUser[]> {
   return api.get("/api/users");
+}
+
+/**
+ * Membro del workspace Slack per il picker di link (solo admin). Email e
+ * avatar sono derivati server-side da Slack. `linkedUserId` è l'utente
+ * Stubwise già collegato a questo Slack id, o null.
+ */
+export interface SlackWorkspaceUser {
+  id: string;
+  displayName: string | null;
+  email: string | null;
+  avatarUrl: string | null;
+  linkedUserId: string | null;
+}
+
+/** Membri del workspace Slack col link Stubwise (solo admin). */
+export function getSlackWorkspaceUsers(): Promise<SlackWorkspaceUser[]> {
+  return api.get("/api/slack/workspace-users");
+}
+
+/**
+ * Collega un utente a uno Slack user id (solo admin). L'avatar viene derivato
+ * server-side dal profilo Slack. Ritorna l'utente aggiornato.
+ */
+export function linkUserSlack(userId: string, slackUserId: string): Promise<TeamUser> {
+  return api.put(`/api/users/${encodeURIComponent(userId)}/slack`, { slackUserId });
+}
+
+/** Scollega l'identità Slack di un utente (solo admin). */
+export function unlinkUserSlack(userId: string): Promise<void> {
+  return request("DELETE", `/api/users/${encodeURIComponent(userId)}/slack`);
 }
 
 // --- Projects ---

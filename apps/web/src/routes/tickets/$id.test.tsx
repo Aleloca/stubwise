@@ -291,7 +291,15 @@ function mockDetailApi(
 
   mockApi({
     "GET /api/auth/me": () =>
-      jsonResponse(200, { user: { id: ADMIN_ID, email: "ada@example.com", role: "admin" } }),
+      jsonResponse(200, {
+        user: {
+          id: ADMIN_ID,
+          email: "ada@example.com",
+          role: "admin",
+          avatarUrl: null,
+          slackUserId: null,
+        },
+      }),
     "GET /api/projects": () =>
       jsonResponse(200, [
         {
@@ -306,8 +314,15 @@ function mockDetailApi(
       ]),
     "GET /api/users": () =>
       jsonResponse(200, [
-        { id: ADMIN_ID, email: "ada@example.com", role: "admin" },
-        { id: MEMBER_ID, email: "bob@example.com", role: "member" },
+        {
+          id: ADMIN_ID,
+          email: "ada@example.com",
+          role: "admin",
+          // Avatar Slack: alimenta l'<img> dell'avatar nel feed/assegnatario.
+          avatarUrl: "https://avatars.slack-edge.com/ada.png",
+          slackUserId: "U_ADA",
+        },
+        { id: MEMBER_ID, email: "bob@example.com", role: "member", avatarUrl: null, slackUserId: null },
       ]),
     "GET /api/milestones": () => jsonResponse(200, milestonesFixture),
     [`GET /api/tickets/${TICKET_ID}`]: () => jsonResponse(200, state.ticket),
@@ -731,6 +746,29 @@ describe("dettaglio ticket", () => {
     expect(screen.getByText("AI")).toBeInTheDocument();
     // Il corpo del commento AI è markdown: `undefined` diventa <code>.
     expect(screen.getByText("undefined").tagName).toBe("CODE");
+  });
+
+  it("feed: il commento di un utente con avatar Slack mostra l'<img> dell'avatar", async () => {
+    mockDetailApi();
+    renderDetail();
+
+    const feed = await screen.findByRole("region", { name: "Activity" });
+    // Ada ha un avatarUrl: accanto alla sua firma compare l'immagine (alt=email).
+    const avatar = within(feed).getByRole("img", { name: "ada@example.com" });
+    expect(avatar).toHaveAttribute("src", "https://avatars.slack-edge.com/ada.png");
+  });
+
+  it("pannello assegnatario: l'assegnatario con avatar Slack mostra l'<img>", async () => {
+    mockDetailApi({ ticket: { ...ticketFixture, assigneeId: ADMIN_ID } });
+    renderDetail();
+
+    // L'avatar dell'assegnatario sta nel contenitore del select "Assignee".
+    const select = await screen.findByLabelText("Assignee");
+    const panel = select.closest("div")!.parentElement!;
+    expect(within(panel).getByRole("img", { name: "ada@example.com" })).toHaveAttribute(
+      "src",
+      "https://avatars.slack-edge.com/ada.png",
+    );
   });
 
   it("timeline AI: stati, link alla PR ed errore del job fallito", async () => {

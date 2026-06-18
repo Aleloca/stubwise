@@ -1,11 +1,14 @@
 import { unsign } from "@fastify/cookie";
+import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import { buildApp } from "../app.js";
-import { invites, sessions, users } from "@stubwise/db";
+import { encrypt, instanceSettings, invites, sessions, users } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
+import type { SlackClient } from "../slack/api.js";
+import type { SlackClientFactory } from "../slack/creds.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 
@@ -144,6 +147,8 @@ describe("login e sessioni", () => {
       email: "admin@example.com",
       role: "admin",
       language: "en",
+      avatarUrl: null,
+      slackUserId: null,
     });
     expect(body.user).not.toHaveProperty("passwordHash");
   });
@@ -574,5 +579,270 @@ describe("register concorrente", () => {
     // Il pre-check sull'email non è atomico: il perdente deve comunque
     // ricevere 409 dal vincolo unique, non un 500.
     expect([a.statusCode, b.statusCode].sort((x, y) => x - y)).toEqual([201, 409]);
+  });
+});
+
+// Flusso inviti con identità Slack: l'invito originato dal picker del workspace
+// porta con sé slackUserId + avatar, derivati server-side dal profilo Slack
+// (mai dal client). Usa un'app dedicata con i segreti Slack configurati e un
+// client fake (niente rete). DB e admin separati dal resto del file.
+describe("inviti con identità Slack", () => {
+  const SLACK_SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
+  const ENCRYPTION_KEY = randomBytes(32);
+  const SIGNING_SECRET = "slack-signing-secret-di-test-1234567890";
+  const BOT_TOKEN = "xoxb-test-token";
+
+  let slackDb: TestDb;
+  let slackApp: FastifyInstance;
+  let slackAdminCookie: string;
+
+  // Profilo restituito dal client fake; mutabile per pilotare i casi (null =
+  // utente Slack inesistente).
+  let profileToReturn: Awaited<ReturnType<SlackClient["getUserProfile"]>> = {
+    email: "slack@example.com",
+    displayName: "Slack User",
+    avatarUrl: "https://avatars.slack-edge.com/s.png",
+  };
+  const getUserProfile = vi.fn<SlackClient["getUserProfile"]>(async () => profileToReturn);
+  const slackClientFactory: SlackClientFactory = () => ({
+    openView: async () => true,
+    getUserEmail: async () => profileToReturn?.email ?? null,
+    getUserProfile,
+    listWorkspaceUsers: async () => [],
+  });
+
+  /** Imposta (o azzera) i segreti Slack cifrati sul singleton instance settings. */
+  async function setSlackCreds(enabled: boolean): Promise<void> {
+    const values = {
+      slackSigningSecretEncrypted: enabled ? encrypt(SIGNING_SECRET, ENCRYPTION_KEY) : null,
+      slackBotTokenEncrypted: enabled ? encrypt(BOT_TOKEN, ENCRYPTION_KEY) : null,
+    };
+    await slackDb.db
+      .insert(instanceSettings)
+      .values({ id: 1, ...values })
+      .onConflictDoUpdate({ target: instanceSettings.id, set: values });
+  }
+
+  async function slackLogin(email: string, password: string) {
+    return slackApp.inject({ method: "POST", url: "/api/auth/login", payload: { email, password } });
+  }
+
+  beforeAll(async () => {
+    slackDb = await startTestDb();
+    slackApp = buildApp({
+      db: slackDb.db,
+      sessionSecret: SLACK_SESSION_SECRET,
+      encryptionKey: ENCRYPTION_KEY.toString("base64"),
+      slackClientFactory,
+    });
+    // Admin di prima istanza, poi login per il cookie admin.
+    const setup = await slackApp.inject({
+      method: "POST",
+      url: "/api/auth/setup",
+      payload: { email: "slack-admin@example.com", password: "password-sicura" },
+    });
+    expect(setup.statusCode).toBe(201);
+    const login = await slackLogin("slack-admin@example.com", "password-sicura");
+    const cookie = login.cookies.find((c) => c.name === "stubwise_session");
+    if (!cookie) throw new Error("cookie di sessione admin assente");
+    slackAdminCookie = `stubwise_session=${cookie.value}`;
+    await setSlackCreds(true);
+  }, 120_000);
+
+  afterAll(async () => {
+    await slackApp.close();
+    await slackDb.stop();
+  });
+
+  it("POST invito con slackUserId salva slack_user_id + avatar derivati dal profilo", async () => {
+    profileToReturn = {
+      email: "invitato@example.com",
+      displayName: "Invitato",
+      avatarUrl: "https://avatars.slack-edge.com/inv.png",
+    };
+    const res = await slackApp.inject({
+      method: "POST",
+      url: "/api/auth/invites",
+      headers: { cookie: slackAdminCookie },
+      payload: { email: "invitato@example.com", slackUserId: "Uinvited" },
+    });
+    expect(res.statusCode).toBe(201);
+    const { token } = res.json() as { token: string };
+    expect(getUserProfile).toHaveBeenCalledWith("Uinvited");
+
+    const [row] = await slackDb.db
+      .select({ slackUserId: invites.slackUserId, slackAvatarUrl: invites.slackAvatarUrl })
+      .from(invites)
+      .where(eq(invites.token, token));
+    expect(row!.slackUserId).toBe("Uinvited");
+    expect(row!.slackAvatarUrl).toBe("https://avatars.slack-edge.com/inv.png");
+  });
+
+  it("POST invito con slackUserId ma profilo null → 400 slack_user_not_found", async () => {
+    profileToReturn = null;
+    const res = await slackApp.inject({
+      method: "POST",
+      url: "/api/auth/invites",
+      headers: { cookie: slackAdminCookie },
+      payload: { email: "ignoto@example.com", slackUserId: "Uunknown" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("slack_user_not_found");
+    profileToReturn = {
+      email: "slack@example.com",
+      displayName: "Slack User",
+      avatarUrl: "https://avatars.slack-edge.com/s.png",
+    };
+  });
+
+  it("POST invito con slackUserId ma Slack non configurato → 400 slack_not_configured", async () => {
+    await setSlackCreds(false);
+    const res = await slackApp.inject({
+      method: "POST",
+      url: "/api/auth/invites",
+      headers: { cookie: slackAdminCookie },
+      payload: { email: "noslack@example.com", slackUserId: "Ux" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("slack_not_configured");
+    await setSlackCreds(true);
+  });
+
+  it("POST invito senza slackUserId è invariato (nessun campo Slack)", async () => {
+    const res = await slackApp.inject({
+      method: "POST",
+      url: "/api/auth/invites",
+      headers: { cookie: slackAdminCookie },
+      payload: { email: "classico@example.com" },
+    });
+    expect(res.statusCode).toBe(201);
+    const { token } = res.json() as { token: string };
+    const [row] = await slackDb.db
+      .select({ slackUserId: invites.slackUserId, slackAvatarUrl: invites.slackAvatarUrl })
+      .from(invites)
+      .where(eq(invites.token, token));
+    expect(row!.slackUserId).toBeNull();
+    expect(row!.slackAvatarUrl).toBeNull();
+  });
+
+  it("register di un invito Slack copia slackUserId + avatar sull'utente; il login funziona", async () => {
+    profileToReturn = {
+      email: "reg@example.com",
+      displayName: "Reg",
+      avatarUrl: "https://avatars.slack-edge.com/reg.png",
+    };
+    const inv = await slackApp.inject({
+      method: "POST",
+      url: "/api/auth/invites",
+      headers: { cookie: slackAdminCookie },
+      payload: { email: "reg@example.com", slackUserId: "Ureg" },
+    });
+    const { token } = inv.json() as { token: string };
+
+    const reg = await slackApp.inject({
+      method: "POST",
+      url: "/api/auth/register",
+      payload: { token, email: "reg@example.com", password: "password-member" },
+    });
+    expect(reg.statusCode).toBe(201);
+
+    const [row] = await slackDb.db
+      .select({ slackUserId: users.slackUserId, slackAvatarUrl: users.slackAvatarUrl })
+      .from(users)
+      .where(eq(users.email, "reg@example.com"));
+    expect(row!.slackUserId).toBe("Ureg");
+    expect(row!.slackAvatarUrl).toBe("https://avatars.slack-edge.com/reg.png");
+
+    const login = await slackLogin("reg@example.com", "password-member");
+    expect(login.statusCode).toBe(200);
+  });
+
+  it("register di un invito il cui slackUserId è già di un altro utente → 201 senza campi Slack", async () => {
+    // Un utente che già possiede lo Slack id "Utaken".
+    await slackDb.db.insert(users).values({
+      email: "owner@example.com",
+      passwordHash: "x",
+      role: "member",
+      slackUserId: "Utaken",
+      slackAvatarUrl: "https://avatars.slack-edge.com/owner.png",
+    });
+    // Invito che fa riferimento allo stesso Slack id.
+    profileToReturn = {
+      email: "conteso@example.com",
+      displayName: "Conteso",
+      avatarUrl: "https://avatars.slack-edge.com/conteso.png",
+    };
+    const inv = await slackApp.inject({
+      method: "POST",
+      url: "/api/auth/invites",
+      headers: { cookie: slackAdminCookie },
+      payload: { email: "conteso@example.com", slackUserId: "Utaken" },
+    });
+    const { token } = inv.json() as { token: string };
+
+    const reg = await slackApp.inject({
+      method: "POST",
+      url: "/api/auth/register",
+      payload: { token, email: "conteso@example.com", password: "password-member" },
+    });
+    // La registrazione non deve fallire per il conflitto sull'identità Slack.
+    expect(reg.statusCode).toBe(201);
+    const [row] = await slackDb.db
+      .select({ slackUserId: users.slackUserId, slackAvatarUrl: users.slackAvatarUrl })
+      .from(users)
+      .where(eq(users.email, "conteso@example.com"));
+    expect(row!.slackUserId).toBeNull();
+    expect(row!.slackAvatarUrl).toBeNull();
+  });
+
+  it("register classico (invito senza Slack) resta invariato", async () => {
+    const inv = await slackApp.inject({
+      method: "POST",
+      url: "/api/auth/invites",
+      headers: { cookie: slackAdminCookie },
+      payload: { email: "plain@example.com" },
+    });
+    const { token } = inv.json() as { token: string };
+    const reg = await slackApp.inject({
+      method: "POST",
+      url: "/api/auth/register",
+      payload: { token, email: "plain@example.com", password: "password-member" },
+    });
+    expect(reg.statusCode).toBe(201);
+    const [row] = await slackDb.db
+      .select({ slackUserId: users.slackUserId })
+      .from(users)
+      .where(eq(users.email, "plain@example.com"));
+    expect(row!.slackUserId).toBeNull();
+  });
+
+  it("GET /api/auth/invites espone slackUserId e slackAvatarUrl", async () => {
+    profileToReturn = {
+      email: "lista@example.com",
+      displayName: "Lista",
+      avatarUrl: "https://avatars.slack-edge.com/lista.png",
+    };
+    const inv = await slackApp.inject({
+      method: "POST",
+      url: "/api/auth/invites",
+      headers: { cookie: slackAdminCookie },
+      payload: { email: "lista@example.com", slackUserId: "Ulista" },
+    });
+    const { token } = inv.json() as { token: string };
+
+    const res = await slackApp.inject({
+      method: "GET",
+      url: "/api/auth/invites",
+      headers: { cookie: slackAdminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const list = res.json() as {
+      token: string;
+      slackUserId: string | null;
+      slackAvatarUrl: string | null;
+    }[];
+    const entry = list.find((i) => i.token === token);
+    expect(entry?.slackUserId).toBe("Ulista");
+    expect(entry?.slackAvatarUrl).toBe("https://avatars.slack-edge.com/lista.png");
   });
 });

@@ -22,7 +22,14 @@ function renderWithFailingLoader(loader: () => Promise<unknown>) {
   // Identità e dati di dominio in cache, come a sessione attiva: il 401
   // deve buttare via tutto, non solo la query me.
   queryClient.setQueryData(meQueryOptions.queryKey, {
-    user: { id: "u1", email: "ada@example.com", role: "admin" as const, language: "en" as const },
+    user: {
+      id: "u1",
+      email: "ada@example.com",
+      role: "admin" as const,
+      language: "en" as const,
+      avatarUrl: null,
+      slackUserId: null,
+    },
   });
   queryClient.setQueryData(["tickets", "detail", "t1"], { id: "t1" });
 

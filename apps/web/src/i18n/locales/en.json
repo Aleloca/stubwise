@@ -42,6 +42,8 @@
     "invite_expired": "Invite expired",
     "email_already_exists": "A user with this email already exists",
     "view_exists": "A saved view with this name already exists",
+    "slack_not_configured": "Slack integration is not configured",
+    "slack_identity_taken": "This Slack identity is already linked to another member",
     "network_error": "Unable to reach the server",
     "generic": "Something went wrong"
   },
@@ -332,7 +334,23 @@
       "revoke": "Revoke",
       "revoking": "Revoking…",
       "confirmRevoke": "Revoke the invite for {{email}}?",
-      "copyInviteLinkFor": "Copy invite link for {{email}}"
+      "copyInviteLinkFor": "Copy invite link for {{email}}",
+      "slackLinked": "Linked",
+      "slackLinkedTo": "Linked · {{name}}",
+      "slackNotLinked": "Not linked",
+      "linkSlack": "Link Slack",
+      "linking": "Linking…",
+      "unlink": "Unlink",
+      "unlinking": "Unlinking…",
+      "confirmUnlink": "Unlink the Slack identity of {{email}}?",
+      "slackPickerLabel": "Pick a Slack member",
+      "slackPickerPlaceholder": "Select a Slack member…",
+      "slackOptionLinked": "{{name}} · already linked",
+      "slackNotConfiguredHint": "Configure Slack in Settings",
+      "slackSettingsLink": "Settings → Slack",
+      "cancel": "Cancel",
+      "inviteFromSlack": "Invite from Slack",
+      "viaSlack": "via Slack"
     },
     "gitAccounts": {
       "title": "Git accounts",

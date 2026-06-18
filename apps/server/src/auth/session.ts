@@ -17,6 +17,10 @@ export interface SessionUser {
   email: string;
   role: "admin" | "member";
   language: Language;
+  /** Avatar Slack derivato al link (URL), o null se l'utente non è linkato. */
+  avatarUrl: string | null;
+  /** Slack user id linkato a questo utente, o null se non linkato. */
+  slackUserId: string | null;
 }
 
 declare module "fastify" {
@@ -59,6 +63,8 @@ export async function findSessionUser(db: Db, sessionId: string): Promise<Sessio
       email: users.email,
       role: users.role,
       language: users.language,
+      avatarUrl: users.slackAvatarUrl,
+      slackUserId: users.slackUserId,
     })
     .from(sessions)
     .innerJoin(users, eq(sessions.userId, users.id))
@@ -69,7 +75,14 @@ export async function findSessionUser(db: Db, sessionId: string): Promise<Sessio
     await deleteSession(db, sessionId);
     return null;
   }
-  return { id: row.id, email: row.email, role: row.role, language: row.language };
+  return {
+    id: row.id,
+    email: row.email,
+    role: row.role,
+    language: row.language,
+    avatarUrl: row.avatarUrl,
+    slackUserId: row.slackUserId,
+  };
 }
 
 /**

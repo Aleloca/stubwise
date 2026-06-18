@@ -26,12 +26,24 @@ let adminCookie: string;
 let projectId: string;
 let reporterUserId: string;
 
-// Spie del client Slack iniettato (niente rete). emailToReturn pilota
-// getUserEmail per i test di attribuzione.
+// Spie del client Slack iniettato (niente rete). emailToReturn e
+// avatarToReturn pilotano getUserProfile (usato dall'attribuzione/auto-link).
 const openView = vi.fn<SlackClient["openView"]>(async () => true);
 let emailToReturn: string | null = null;
+let avatarToReturn: string | null = null;
+const getUserProfile = vi.fn<SlackClient["getUserProfile"]>(async () => ({
+  email: emailToReturn,
+  displayName: null,
+  avatarUrl: avatarToReturn,
+}));
 const getUserEmail = vi.fn<SlackClient["getUserEmail"]>(async () => emailToReturn);
-const slackClientFactory: SlackClientFactory = () => ({ openView, getUserEmail });
+const listWorkspaceUsers = vi.fn<SlackClient["listWorkspaceUsers"]>(async () => []);
+const slackClientFactory: SlackClientFactory = () => ({
+  openView,
+  getUserEmail,
+  getUserProfile,
+  listWorkspaceUsers,
+});
 
 async function createProject(name: string): Promise<string> {
   const accountRes = await app.inject({
@@ -166,7 +178,15 @@ afterAll(async () => {
 afterEach(async () => {
   openView.mockClear();
   getUserEmail.mockClear();
+  getUserProfile.mockClear();
   emailToReturn = null;
+  avatarToReturn = null;
+  // Ripristina lo stato del reporter: i test di auto-link mutano slack_user_id
+  // / slack_avatar_url, vanno azzerati per non sporcare i test successivi.
+  await testDb.db
+    .update(users)
+    .set({ slackUserId: null, slackAvatarUrl: null })
+    .where(eq(users.id, reporterUserId));
   // Lascia i segreti Slack abilitati come stato di default tra i test.
   await setSlackCreds(true);
 });
@@ -288,7 +308,8 @@ describe("POST /api/slack/interactions — view_submission", () => {
     });
     const res = await slackPost("/api/slack/interactions", body);
     expect(res.statusCode).toBe(200);
-    expect(getUserEmail).toHaveBeenCalledWith("Uxyz");
+    // Lo Slack id non è linkato a nessun utente: si ripiega sul profilo (email).
+    expect(getUserProfile).toHaveBeenCalledWith("Uxyz");
 
     const [created] = await testDb.db
       .select()
@@ -296,6 +317,93 @@ describe("POST /api/slack/interactions — view_submission", () => {
       .where(eq(tickets.title, "Con assegnatario"));
     expect(created!.assigneeId).toBe(reporterUserId);
     expect(created!.body).not.toContain("no Stubwise account");
+  });
+
+  it("attribuzione: match per Slack id linkato → assegnato senza usare l'email", async () => {
+    // Pre-link del reporter a uno Slack id noto.
+    await testDb.db
+      .update(users)
+      .set({ slackUserId: "Ulinked123" })
+      .where(eq(users.id, reporterUserId));
+    // Email "sbagliata": se venisse usata, il match fallirebbe.
+    emailToReturn = "nessuno@example.com";
+    const body = viewSubmissionBody({
+      projectId,
+      title: "Match per slack id",
+      type: "bug",
+      userId: "Ulinked123",
+    });
+    const res = await slackPost("/api/slack/interactions", body);
+    expect(res.statusCode).toBe(200);
+    // Match diretto: nessuna chiamata a Slack per il profilo.
+    expect(getUserProfile).not.toHaveBeenCalled();
+
+    const [created] = await testDb.db
+      .select()
+      .from(tickets)
+      .where(eq(tickets.title, "Match per slack id"));
+    expect(created!.assigneeId).toBe(reporterUserId);
+  });
+
+  it("auto-link: match per email su utente non linkato → slack_user_id valorizzato", async () => {
+    emailToReturn = "slack.reporter@example.com";
+    avatarToReturn = "https://avatars.slack-edge.com/auto.png";
+    const body = viewSubmissionBody({
+      projectId,
+      title: "Auto link",
+      type: "task",
+      userId: "Uauto999",
+    });
+    const res = await slackPost("/api/slack/interactions", body);
+    expect(res.statusCode).toBe(200);
+
+    const [linked] = await testDb.db
+      .select({ slackUserId: users.slackUserId, slackAvatarUrl: users.slackAvatarUrl })
+      .from(users)
+      .where(eq(users.id, reporterUserId));
+    expect(linked!.slackUserId).toBe("Uauto999");
+    expect(linked!.slackAvatarUrl).toBe("https://avatars.slack-edge.com/auto.png");
+  });
+
+  it("slack id già di un altro utente → match diretto su quello, ticket creato, no 500", async () => {
+    // Un secondo utente possiede già lo Slack id. Il match diretto per slack id
+    // ha la precedenza: il ticket va a lui, l'auto-link per email non scatta e
+    // non c'è alcun errore (men che meno una unique violation 500).
+    const [other] = await testDb.db
+      .insert(users)
+      .values({
+        email: `other-${randomUUID()}@example.com`,
+        passwordHash: "x",
+        role: "member",
+        slackUserId: "Ucollision",
+      })
+      .returning({ id: users.id });
+    // Email che matcherebbe il reporter (non linkato): non deve essere usata.
+    emailToReturn = "slack.reporter@example.com";
+    const body = viewSubmissionBody({
+      projectId,
+      title: "Slack id altrui",
+      type: "bug",
+      userId: "Ucollision",
+    });
+    const res = await slackPost("/api/slack/interactions", body);
+    expect(res.statusCode).toBe(200);
+
+    const [created] = await testDb.db
+      .select()
+      .from(tickets)
+      .where(eq(tickets.title, "Slack id altrui"));
+    expect(created!.assigneeId).toBe(other!.id);
+    // Match diretto: nessuna chiamata al profilo, nessun auto-link.
+    expect(getUserProfile).not.toHaveBeenCalled();
+    // Il reporter (candidato per email) resta non linkato.
+    const [reporter] = await testDb.db
+      .select({ slackUserId: users.slackUserId })
+      .from(users)
+      .where(eq(users.id, reporterUserId));
+    expect(reporter!.slackUserId).toBeNull();
+
+    await testDb.db.delete(users).where(eq(users.id, other!.id));
   });
 
   it("email no-match → assigneeId null + nota provenienza", async () => {

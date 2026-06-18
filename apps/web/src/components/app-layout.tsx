@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { postLogout } from "../lib/api";
 import { meQueryOptions } from "../lib/auth";
+import { Avatar } from "./avatar";
 import { Wordmark } from "./wordmark";
 
 const NAV_ITEMS = [
@@ -88,12 +89,10 @@ export function AppLayout() {
         </a>
 
         <div className="border-t border-line p-3">
-          <p
-            className="truncate px-3 pb-2 font-mono text-[11px] text-fg-muted"
-            title={data.user.email}
-          >
-            {data.user.email}
-          </p>
+          <div className="flex items-center gap-2 px-3 pb-2" title={data.user.email}>
+            <Avatar src={data.user.avatarUrl} label={data.user.email} size={22} />
+            <p className="truncate font-mono text-[11px] text-fg-muted">{data.user.email}</p>
+          </div>
           <button
             type="button"
             onClick={handleLogout}

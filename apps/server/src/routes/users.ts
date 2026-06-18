@@ -13,6 +13,11 @@ export const publicUserSchema = z.object({
   role: z.enum(["admin", "member"]),
   // Istante di registrazione: la pagina Team mostra "membro dal …".
   createdAt: z.iso.datetime(),
+  // Avatar Slack (image URL) derivato dal profilo Slack al momento del link;
+  // null se l'utente non è linkato. Sempre lato server, mai dal client.
+  avatarUrl: z.string().nullable(),
+  // Slack user id linkato a questo utente; null se non linkato.
+  slackUserId: z.string().nullable(),
 });
 
 /**
@@ -36,6 +41,8 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
           email: users.email,
           role: users.role,
           createdAt: users.createdAt,
+          avatarUrl: users.slackAvatarUrl,
+          slackUserId: users.slackUserId,
         })
         .from(users)
         .orderBy(asc(users.createdAt));

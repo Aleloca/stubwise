@@ -30,7 +30,9 @@ import { projectRoutes } from "./routes/projects.js";
 import { savedViewRoutes } from "./routes/saved-views.js";
 import { settingsRoutes } from "./routes/settings.js";
 import type { RateLimitConfig } from "./routes/shared.js";
-import { slackRoutes, type SlackClientFactory } from "./slack/routes.js";
+import { slackRoutes } from "./slack/routes.js";
+import { slackIdentityRoutes } from "./slack/identity-routes.js";
+import type { SlackClientFactory } from "./slack/creds.js";
 import { ticketRoutes } from "./routes/tickets.js";
 import { userRoutes } from "./routes/users.js";
 import { webhookRoutes } from "./routes/webhooks.js";
@@ -228,6 +230,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(authRoutes, {
     prefix: "/api/auth",
     rateLimit: opts.authRateLimit ?? { max: 10, timeWindow: "1 minute" },
+    // Necessaria per gli inviti originati dal workspace Slack: deriva
+    // email/avatar dal profilo Slack server-side. Fake nei test.
+    slackClientFactory: opts.slackClientFactory,
   });
   // Account git riutilizzabili (credenziali slegate dal progetto): lettura per
   // ogni utente (scelta in fase di creazione progetto), scrittura solo admin.
@@ -280,6 +285,16 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     prefix: "/api/slack",
     slackClientFactory: opts.slackClientFactory,
     now: opts.slackNow,
+  });
+
+  // Gestione dell'identità Slack degli utenti (link/unlink + picker membri
+  // workspace): solo admin, JSON, sessione. Plugin separato da slackRoutes
+  // (che è signature-authed e usa un parser urlencoded scoped). Montato sotto
+  // /api: i path interni (`/users/:id/slack`, `/slack/workspace-users`)
+  // risultano così completi. Riusa la stessa SlackClientFactory iniettabile.
+  void app.register(slackIdentityRoutes, {
+    prefix: "/api",
+    slackClientFactory: opts.slackClientFactory,
   });
 
   app.get("/health", async () => ({ status: "ok" }));

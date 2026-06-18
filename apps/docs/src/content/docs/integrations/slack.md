@@ -47,6 +47,9 @@ Bot Token), then paste the credentials into Stubwise:
    URL to `{publicUrl}/api/slack/interactions`; under the same page add a
    **message action** (shortcut on messages) named **"Create Stubwise ticket"**.
 5. **Install** (or reinstall) the app to the workspace to apply the scopes.
+   The same `users:read` scope also lets Stubwise list your workspace members
+   (so admins can link them and invite them by name) and import their Slack
+   avatars — no extra scope is required.
 6. Copy the credentials: the **Bot Token** (`xoxb-…`) from **OAuth &
    Permissions**, and the **Signing Secret** from **Basic Information**.
 7. In Stubwise open **Settings → Slack** (admin only) and paste the **Signing
@@ -70,6 +73,34 @@ When a ticket is submitted, Stubwise reads the Slack user's email through
 **assigned** to that user. Otherwise the ticket stays unassigned and the Slack
 author is noted in the body. Either way the ticket carries the **Slack** source
 badge.
+
+## Slack identity for members
+
+In **Team**, an admin can link each Stubwise member to a user from the Slack
+workspace through a picker. Linking does two things:
+
+- It imports the member's **Slack avatar** into Stubwise.
+- It lets Slack-created tickets be attributed to that member automatically
+  **even when the Slack email does not match** their Stubwise account — the link
+  takes precedence over the email lookup described in
+  [Attribution](#attribution).
+
+There is also an **auto-link**: if a Slack ticket is attributed by email to a
+member who is not linked yet, the link is saved automatically so future tickets
+from that Slack user resolve straight away.
+
+### Avatars
+
+Once a member is linked, their Slack avatar is shown across Stubwise — in Team,
+as the author on the ticket feed, and as the assignee. Members who are not
+linked to Slack get an initials avatar instead.
+
+## Inviting from the Slack workspace
+
+In the invites section of **Team**, instead of typing an email an admin can pick
+a member of the Slack workspace. The invite then **reserves** that person's Slack
+identity and avatar, which are applied automatically as soon as the invitee signs
+up. This uses the same `users:read` scope — no additional Slack scope is needed.
 
 ## Security
 
