@@ -245,7 +245,8 @@ function MemberRow({
         {isAdmin && !isLinked && picking && (
           <SlackPicker
             slackUsers={slackUsers}
-            disabled={linkMutation.isPending}
+            pending={linkMutation.isPending}
+            pendingLabel={t("settings:team.linking")}
             onCancel={() => setPicking(false)}
             onPick={(slackUserId) => {
               setError(null);
@@ -277,12 +278,14 @@ function MemberRow({
  */
 function SlackPicker({
   slackUsers,
-  disabled,
+  pending,
+  pendingLabel,
   onPick,
   onCancel,
 }: {
   slackUsers: SlackWorkspaceUser[];
-  disabled: boolean;
+  pending: boolean;
+  pendingLabel: string;
   onPick: (slackUserId: string) => void;
   onCancel: () => void;
 }) {
@@ -291,7 +294,7 @@ function SlackPicker({
     <div className="flex items-center gap-2">
       <select
         aria-label={t("settings:team.slackPickerLabel")}
-        disabled={disabled}
+        disabled={pending}
         defaultValue=""
         onChange={(event) => {
           if (event.target.value) onPick(event.target.value);
@@ -315,14 +318,19 @@ function SlackPicker({
           );
         })}
       </select>
-      <button
-        type="button"
-        onClick={onCancel}
-        disabled={disabled}
-        className="rounded-sm border border-line-strong px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase transition-colors hover:text-fg disabled:opacity-50"
-      >
-        {t("settings:team.cancel")}
-      </button>
+      {pending ? (
+        <span className="font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase">
+          {pendingLabel}
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-sm border border-line-strong px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase transition-colors hover:text-fg"
+        >
+          {t("settings:team.cancel")}
+        </button>
+      )}
     </div>
   );
 }
@@ -420,7 +428,8 @@ function InvitesSection() {
           {pickingSlack ? (
             <SlackPicker
               slackUsers={slackInviteCandidates}
-              disabled={createMutation.isPending}
+              pending={createMutation.isPending}
+              pendingLabel={t("settings:team.creatingInvite")}
               onCancel={() => setPickingSlack(false)}
               onPick={handlePickSlack}
             />
