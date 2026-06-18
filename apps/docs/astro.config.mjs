@@ -100,6 +100,8 @@ export default defineConfig({
             { label: "Self-hosting", slug: "getting-started/self-hosting" },
             { label: "Worker auth (Claude)", slug: "getting-started/claude-setup" },
             { label: "The web app", slug: "getting-started/web-app" },
+            { label: "Milestones", slug: "getting-started/milestones" },
+            { label: "Saved views", slug: "getting-started/saved-views" },
           ],
         },
         {
