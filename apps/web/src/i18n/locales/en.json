@@ -344,7 +344,6 @@
       "unlinking": "Unlinking…",
       "confirmUnlink": "Unlink the Slack identity of {{email}}?",
       "slackPickerLabel": "Pick a Slack member",
-      "slackPickerPlaceholder": "Select a Slack member…",
       "slackSearchPlaceholder": "Search by name or email…",
       "slackNoResults": "No matching members",
       "slackMoreResults": "+{{count}} more — refine your search",

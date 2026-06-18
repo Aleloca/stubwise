@@ -344,7 +344,6 @@
       "unlinking": "Scollegamento…",
       "confirmUnlink": "Scollegare l'identità Slack di {{email}}?",
       "slackPickerLabel": "Scegli un membro Slack",
-      "slackPickerPlaceholder": "Seleziona un membro Slack…",
       "slackSearchPlaceholder": "Cerca per nome o email…",
       "slackNoResults": "Nessun membro corrispondente",
       "slackMoreResults": "+{{count}} altri — affina la ricerca",

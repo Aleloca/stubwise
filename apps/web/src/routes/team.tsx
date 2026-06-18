@@ -273,6 +273,17 @@ function MemberRow({
 /** Numero massimo di voci renderizzate nella lista del picker Slack. */
 const SLACK_PICKER_MAX = 50;
 
+/** Filtro case-insensitive dei membri Slack su displayName + email. */
+function filterSlackUsers(slackUsers: SlackWorkspaceUser[], query: string): SlackWorkspaceUser[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return slackUsers;
+  return slackUsers.filter((su) => {
+    const name = (su.displayName ?? "").toLowerCase();
+    const email = (su.email ?? "").toLowerCase();
+    return name.includes(q) || email.includes(q);
+  });
+}
+
 /**
  * Picker dei membri del workspace Slack: un combobox con ricerca/autocomplete,
  * pensato per workspace grandi (centinaia di persone). L'input filtra le voci
@@ -297,30 +308,40 @@ function SlackPicker({
 }) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
-  const [active, setActive] = useState(0);
+  // Indice attivo iniziale: prima voce selezionabile (le già-collegate sono
+  // saltate dalle frecce e non selezionabili con Invio).
+  const [active, setActive] = useState(() =>
+    slackUsers.findIndex((su) => su.linkedUserId == null),
+  );
   const listboxId = useId();
 
   // Filtro case-insensitive su displayName + email; cap a SLACK_PICKER_MAX voci
   // renderizzate, con conteggio del troncamento per la riga "+N altri".
   const { visible, overflow } = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const matches = q
-      ? slackUsers.filter((su) => {
-          const name = (su.displayName ?? "").toLowerCase();
-          const email = (su.email ?? "").toLowerCase();
-          return name.includes(q) || email.includes(q);
-        })
-      : slackUsers;
+    const matches = filterSlackUsers(slackUsers, query);
     return {
       visible: matches.slice(0, SLACK_PICKER_MAX),
       overflow: Math.max(0, matches.length - SLACK_PICKER_MAX),
     };
   }, [query, slackUsers]);
 
-  // Indice attivo entro i limiti, saltando le voci già collegate (non scelibili).
+  // La listbox è renderizzata quando la mutation non è in corso: aria-expanded
+  // deve riflettere esattamente questa visibilità, non lo stato di pending.
+  const listboxOpen = !pending;
+
   function pick(su: SlackWorkspaceUser) {
     if (su.linkedUserId != null) return;
     onPick(su.id);
+  }
+
+  // Prossimo indice selezionabile (linkedUserId == null) in direzione `step`,
+  // partendo da `from`. Le frecce saltano le voci disabilitate; se non c'è
+  // nessuna voce selezionabile in quella direzione, l'indice resta invariato.
+  function nextSelectable(from: number, step: 1 | -1): number {
+    for (let i = from + step; i >= 0 && i < visible.length; i += step) {
+      if (visible[i]?.linkedUserId == null) return i;
+    }
+    return from;
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -331,12 +352,12 @@ function SlackPicker({
     }
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setActive((i) => Math.min(i + 1, visible.length - 1));
+      setActive((i) => nextSelectable(i, 1));
       return;
     }
     if (event.key === "ArrowUp") {
       event.preventDefault();
-      setActive((i) => Math.max(i - 1, 0));
+      setActive((i) => nextSelectable(i, -1));
       return;
     }
     if (event.key === "Enter") {
@@ -352,7 +373,7 @@ function SlackPicker({
         <input
           type="text"
           role="combobox"
-          aria-expanded={!pending}
+          aria-expanded={listboxOpen}
           aria-controls={listboxId}
           aria-autocomplete="list"
           aria-label={t("settings:team.slackPickerLabel")}
@@ -360,8 +381,13 @@ function SlackPicker({
           disabled={pending}
           value={query}
           onChange={(event) => {
-            setQuery(event.target.value);
-            setActive(0);
+            const value = event.target.value;
+            setQuery(value);
+            // L'indice attivo punta alla prima voce selezionabile dei nuovi
+            // risultati (le voci già collegate non sono scelibili): -1 se non
+            // ce ne sono, così Invio non seleziona mai una voce disabilitata.
+            const matches = filterSlackUsers(slackUsers, value).slice(0, SLACK_PICKER_MAX);
+            setActive(matches.findIndex((su) => su.linkedUserId == null));
           }}
           onKeyDown={handleKeyDown}
           className="w-64 rounded-sm border border-line-strong bg-ink-950 px-2 py-1 font-mono text-[12px] text-fg placeholder:text-fg-faint disabled:opacity-50"
