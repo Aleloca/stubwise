@@ -112,6 +112,13 @@ export default defineConfig({
           ],
         },
         {
+          label: "Integrations",
+          items: [
+            { label: "Inbound webhook", slug: "integrations/inbound-webhook" },
+            { label: "Slack", slug: "integrations/slack" },
+          ],
+        },
+        {
           label: "AI pipeline",
           items: [
             { label: "How it works", slug: "ai-pipeline/how-it-works" },
