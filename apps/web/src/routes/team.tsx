@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useMemo, useState, type FormEvent } from "react";
+import { useId, useMemo, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { Avatar } from "../components/avatar";
 import { CopyButton } from "../components/copy-button";
@@ -270,11 +270,17 @@ function MemberRow({
   );
 }
 
+/** Numero massimo di voci renderizzate nella lista del picker Slack. */
+const SLACK_PICKER_MAX = 50;
+
 /**
- * Picker dei membri del workspace Slack: un `<select>` semplice e coerente col
- * tema control-room. Le voci già collegate ad altri utenti restano elencate ma
- * disabilitate (così l'admin capisce perché non sono scegliibili). `onPick`
- * scatta alla scelta di un'opzione valida.
+ * Picker dei membri del workspace Slack: un combobox con ricerca/autocomplete,
+ * pensato per workspace grandi (centinaia di persone). L'input filtra le voci
+ * per displayName ed email mentre si digita; la lista è scrollabile e cappata a
+ * {@link SLACK_PICKER_MAX} voci, con una riga "+N altri" quando è troncata. Le
+ * voci già collegate ad altri utenti restano elencate ma disabilitate (così
+ * l'admin capisce perché non sono scegliibili). `onPick` scatta alla scelta di
+ * un'opzione valida. Navigazione con ↑/↓/Invio; Esc chiama `onCancel`.
  */
 function SlackPicker({
   slackUsers,
@@ -290,46 +296,143 @@ function SlackPicker({
   onCancel: () => void;
 }) {
   const { t } = useTranslation();
+  const [query, setQuery] = useState("");
+  const [active, setActive] = useState(0);
+  const listboxId = useId();
+
+  // Filtro case-insensitive su displayName + email; cap a SLACK_PICKER_MAX voci
+  // renderizzate, con conteggio del troncamento per la riga "+N altri".
+  const { visible, overflow } = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const matches = q
+      ? slackUsers.filter((su) => {
+          const name = (su.displayName ?? "").toLowerCase();
+          const email = (su.email ?? "").toLowerCase();
+          return name.includes(q) || email.includes(q);
+        })
+      : slackUsers;
+    return {
+      visible: matches.slice(0, SLACK_PICKER_MAX),
+      overflow: Math.max(0, matches.length - SLACK_PICKER_MAX),
+    };
+  }, [query, slackUsers]);
+
+  // Indice attivo entro i limiti, saltando le voci già collegate (non scelibili).
+  function pick(su: SlackWorkspaceUser) {
+    if (su.linkedUserId != null) return;
+    onPick(su.id);
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onCancel();
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActive((i) => Math.min(i + 1, visible.length - 1));
+      return;
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActive((i) => Math.max(i - 1, 0));
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const su = visible[active];
+      if (su) pick(su);
+    }
+  }
+
   return (
-    <div className="flex items-center gap-2">
-      <select
-        aria-label={t("settings:team.slackPickerLabel")}
-        disabled={pending}
-        defaultValue=""
-        onChange={(event) => {
-          if (event.target.value) onPick(event.target.value);
-        }}
-        className="rounded-sm border border-line-strong bg-ink-950 px-2 py-1 font-mono text-[12px] text-fg disabled:opacity-50"
-      >
-        <option value="" disabled>
-          {t("settings:team.slackPickerPlaceholder")}
-        </option>
-        {slackUsers.map((su) => {
-          const name = su.displayName ?? su.email ?? su.id;
-          const taken = su.linkedUserId != null;
-          return (
-            <option key={su.id} value={su.id} disabled={taken}>
-              {taken
-                ? t("settings:team.slackOptionLinked", { name })
-                : su.email
-                  ? `${name} · ${su.email}`
-                  : name}
-            </option>
-          );
-        })}
-      </select>
-      {pending ? (
-        <span className="font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase">
-          {pendingLabel}
-        </span>
-      ) : (
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-sm border border-line-strong px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase transition-colors hover:text-fg"
-        >
-          {t("settings:team.cancel")}
-        </button>
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <input
+          type="text"
+          role="combobox"
+          aria-expanded={!pending}
+          aria-controls={listboxId}
+          aria-autocomplete="list"
+          aria-label={t("settings:team.slackPickerLabel")}
+          placeholder={t("settings:team.slackSearchPlaceholder")}
+          disabled={pending}
+          value={query}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setActive(0);
+          }}
+          onKeyDown={handleKeyDown}
+          className="w-64 rounded-sm border border-line-strong bg-ink-950 px-2 py-1 font-mono text-[12px] text-fg placeholder:text-fg-faint disabled:opacity-50"
+        />
+        {pending ? (
+          <span className="font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase">
+            {pendingLabel}
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-sm border border-line-strong px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase transition-colors hover:text-fg"
+          >
+            {t("settings:team.cancel")}
+          </button>
+        )}
+      </div>
+
+      {!pending && (
+        <>
+          <ul
+            id={listboxId}
+            role="listbox"
+            aria-label={t("settings:team.slackPickerLabel")}
+            className="max-h-56 w-72 overflow-y-auto rounded-sm border border-line bg-ink-950"
+          >
+            {visible.length === 0 ? (
+              <li className="px-2 py-2 font-mono text-[11px] text-fg-faint">
+                {t("settings:team.slackNoResults")}
+              </li>
+            ) : (
+              visible.map((su, index) => {
+                const name = su.displayName ?? su.email ?? su.id;
+                const taken = su.linkedUserId != null;
+                return (
+                  <li
+                    key={su.id}
+                    role="option"
+                    aria-selected={index === active}
+                    aria-disabled={taken}
+                    onMouseEnter={() => setActive(index)}
+                    onClick={() => pick(su)}
+                    className={`flex items-center gap-2 px-2 py-1.5 font-mono text-[12px] ${
+                      taken
+                        ? "cursor-not-allowed text-fg-faint"
+                        : `cursor-pointer text-fg ${index === active ? "bg-signal/10" : ""}`
+                    }`}
+                  >
+                    <Avatar src={su.avatarUrl} label={name} size={20} />
+                    {taken ? (
+                      <span className="truncate">
+                        {t("settings:team.slackOptionLinked", { name })}
+                      </span>
+                    ) : (
+                      <span className="min-w-0 truncate">
+                        <span className="text-fg">{name}</span>
+                        {su.email && <span className="text-fg-faint"> · {su.email}</span>}
+                      </span>
+                    )}
+                  </li>
+                );
+              })
+            )}
+          </ul>
+          {overflow > 0 && (
+            <p className="font-mono text-[10px] tracking-[0.1em] text-fg-faint uppercase">
+              {t("settings:team.slackMoreResults", { count: overflow })}
+            </p>
+          )}
+        </>
       )}
     </div>
   );
