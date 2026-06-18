@@ -23,12 +23,14 @@ import {
 import { authRoutes } from "./routes/auth.js";
 import { commentRoutes } from "./routes/comments.js";
 import { gitAccountRoutes } from "./routes/git-accounts.js";
+import { inboundRoutes } from "./routes/inbound.js";
 import { ingestRoutes } from "./routes/ingest.js";
 import { milestoneRoutes } from "./routes/milestones.js";
 import { projectRoutes } from "./routes/projects.js";
 import { savedViewRoutes } from "./routes/saved-views.js";
 import { settingsRoutes } from "./routes/settings.js";
 import type { RateLimitConfig } from "./routes/shared.js";
+import { slackRoutes, type SlackClientFactory } from "./slack/routes.js";
 import { ticketRoutes } from "./routes/tickets.js";
 import { userRoutes } from "./routes/users.js";
 import { webhookRoutes } from "./routes/webhooks.js";
@@ -99,6 +101,18 @@ export interface BuildAppOptions {
    * test: inietta un fake in-memory senza toccare la rete.
    */
   storageFactory?: StorageFactory;
+  /**
+   * Fabbrica del client Slack (views.open / users.info). Default: client reale
+   * via fetch globale, costruito dal bot token decifrato. Override pensato per
+   * i test: inietta un fake che non tocca la rete Slack.
+   */
+  slackClientFactory?: SlackClientFactory;
+  /**
+   * Sorgente del tempo per la verifica della firma Slack (anti-replay).
+   * Default: Date.now. Override nei test per firmare con un timestamp
+   * deterministico.
+   */
+  slackNow?: () => number;
 }
 
 /**
@@ -244,11 +258,29 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     prefix: "/ingest",
     rateLimit: opts.ingestRateLimit ?? { max: 300, timeWindow: "1 minute" },
   });
+  // Webhook generico per chiamanti esterni: POST /api/inbound/:slug/ticket.
+  // Stessa autenticazione/CORS/rate-limit dell'ingestion SDK, ma crea un
+  // singolo ticket con source "webhook" e attribuzione opzionale per email.
+  void app.register(inboundRoutes, {
+    prefix: "/api/inbound",
+    rateLimit: opts.ingestRateLimit ?? { max: 300, timeWindow: "1 minute" },
+  });
   // Webhook git dei provider (chiusura ticket al merge): fuori da /api, niente
   // sessione, autenticazione via firma HMAC. Il parser raw-body è registrato
   // dentro lo scope del plugin, quindi non tocca il parsing JSON di /api né di
   // /ingest.
   void app.register(webhookRoutes, { prefix: "/webhooks" });
+
+  // Integrazione Slack: slash command + interactivity (modal Block Kit). Sotto
+  // /api/slack ma autenticata SOLO dalla firma Slack (niente sessione). Il
+  // parser raw-body urlencoded è scoped a questo plugin: non tocca /api né
+  // /ingest. La fabbrica del client e la sorgente del tempo sono iniettabili
+  // per i test (fake senza rete, timestamp deterministico).
+  void app.register(slackRoutes, {
+    prefix: "/api/slack",
+    slackClientFactory: opts.slackClientFactory,
+    now: opts.slackNow,
+  });
 
   app.get("/health", async () => ({ status: "ok" }));
 

@@ -1,4 +1,3 @@
-import { timingSafeEqual } from "node:crypto";
 import fastifyCors from "@fastify/cors";
 import { ingestBatchSchema } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
@@ -7,6 +6,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { projects } from "@stubwise/db";
 import { processEvents } from "../ingest/processor.js";
+import { keysMatch, publicUrlOrUndefined } from "../ingest/shared.js";
 import { errorSchema } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
 import { apiError } from "../errors.js";
@@ -14,35 +14,6 @@ import { apiError } from "../errors.js";
 export interface IngestRoutesOptions {
   /** Limite di richieste per chiave di ingestion (default 300/min). */
   rateLimit: RateLimitConfig;
-}
-
-/**
- * publicUrl dell'app, o undefined se non configurato. Il decorator espone un
- * getter che ESPLODE quando l'app è stata costruita senza publicUrl (alcuni
- * unit test): qui la notifica è opzionale, quindi assorbiamo l'errore e
- * lasciamo che il link al ticket sia il solo path.
- */
-function publicUrlOrUndefined(app: FastifyInstance): string | undefined {
-  try {
-    return app.publicUrl;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Confronto a tempo costante tra chiave fornita e attesa. Con lunghezze
- * diverse timingSafeEqual non è applicabile: si paga comunque un confronto
- * della stessa forma per non rendere la lunghezza osservabile dal timing.
- */
-function keysMatch(provided: string, expected: string): boolean {
-  const a = Buffer.from(provided);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length) {
-    timingSafeEqual(b, b);
-    return false;
-  }
-  return timingSafeEqual(a, b);
 }
 
 /**

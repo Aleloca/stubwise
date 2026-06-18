@@ -128,6 +128,12 @@ const instanceSettingsResponseSchema = z.object({
   s3AccessKey: z.string().nullable(),
   s3SecretKeySet: z.boolean(),
   attachmentsEnabled: z.boolean(),
+  // Credenziali Slack write-only: i segreti NON sono MAI restituiti, solo i flag
+  // che dicono SE sono impostati. `slackEnabled` riassume che entrambi i segreti
+  // (signing secret + bot token) sono presenti → l'integrazione è completa.
+  slackSigningSecretSet: z.boolean(),
+  slackBotTokenSet: z.boolean(),
+  slackEnabled: z.boolean(),
 });
 
 const updateInstanceBodySchema = z.object({
@@ -143,6 +149,12 @@ const updateInstanceBodySchema = z.object({
   // s3SecretKey: ASSENTE (undefined) → non tocca la colonna; stringa NON vuota →
   // cifra e salva; stringa VUOTA esplicita "" → azzera (disabilita lo storage).
   s3SecretKey: z.string().optional(),
+  // Segreti Slack: stessa semantica write-only della secret S3. ASSENTE
+  // (undefined) → non tocca la colonna; stringa NON vuota → cifra e salva;
+  // stringa VUOTA esplicita "" → azzera (null). .optional() per distinguere
+  // undefined da "".
+  slackSigningSecret: z.string().optional(),
+  slackBotToken: z.string().optional(),
 });
 
 /**
@@ -213,6 +225,11 @@ async function loadInstanceSettings(
     // Mai la secret: solo se c'è un blob cifrato salvato.
     s3SecretKeySet: row?.s3SecretKeyEncrypted != null,
     attachmentsEnabled,
+    // Mai i segreti Slack: solo se c'è un blob cifrato salvato. slackEnabled =
+    // entrambi presenti (integrazione completa).
+    slackSigningSecretSet: row?.slackSigningSecretEncrypted != null,
+    slackBotTokenSet: row?.slackBotTokenEncrypted != null,
+    slackEnabled: row?.slackSigningSecretEncrypted != null && row?.slackBotTokenEncrypted != null,
   };
 }
 
@@ -426,6 +443,18 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
       if (body.s3SecretKey !== undefined) {
         s3Set.s3SecretKeyEncrypted =
           body.s3SecretKey === "" ? null : encrypt(body.s3SecretKey, app.encryptionKey);
+      }
+      // Segreti Slack: stessa semantica della secret S3. Assente → non toccare;
+      // "" → azzera (null); non vuoto → cifra e salva. Mai esposti in lettura.
+      if (body.slackSigningSecret !== undefined) {
+        s3Set.slackSigningSecretEncrypted =
+          body.slackSigningSecret === ""
+            ? null
+            : encrypt(body.slackSigningSecret, app.encryptionKey);
+      }
+      if (body.slackBotToken !== undefined) {
+        s3Set.slackBotTokenEncrypted =
+          body.slackBotToken === "" ? null : encrypt(body.slackBotToken, app.encryptionKey);
       }
 
       await app.db

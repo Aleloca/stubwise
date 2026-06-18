@@ -629,6 +629,9 @@ describe("PUT /api/settings/instance", () => {
       s3AccessKey: null,
       s3SecretKeySet: false,
       attachmentsEnabled: false,
+      slackSigningSecretSet: false,
+      slackBotTokenSet: false,
+      slackEnabled: false,
     });
 
     // Ripristina il default per non sporcare gli altri test.
@@ -874,3 +877,150 @@ function stripLanguage(full: typeof FULL_S3) {
     s3SecretKey: full.s3SecretKey,
   };
 }
+
+// --- Impostazioni d'istanza: credenziali Slack ---
+
+interface InstanceSlack {
+  slackSigningSecretSet: boolean;
+  slackBotTokenSet: boolean;
+  slackEnabled: boolean;
+}
+
+describe("PUT /api/settings/instance — credenziali Slack", () => {
+  it("member: 403 anche sui campi Slack", async () => {
+    const res = await putInstance(
+      { contentLanguage: "en", slackSigningSecret: "sig", slackBotToken: "tok" },
+      users.memberCookie,
+    );
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("admin: salva entrambi i segreti cifrati, non li espone e abilita Slack", async () => {
+    const res = await putInstance(
+      { contentLanguage: "en", slackSigningSecret: "my-signing-secret", slackBotToken: "xoxb-token" },
+      users.adminCookie,
+    );
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as InstanceSlack;
+    expect(body.slackSigningSecretSet).toBe(true);
+    expect(body.slackBotTokenSet).toBe(true);
+    expect(body.slackEnabled).toBe(true);
+    // I segreti non devono MAI comparire in nessuna forma nel JSON.
+    expect(JSON.stringify(body)).not.toContain("my-signing-secret");
+    expect(JSON.stringify(body)).not.toContain("xoxb-token");
+    expect((body as unknown as Record<string, unknown>).slackSigningSecret).toBeUndefined();
+    expect((body as unknown as Record<string, unknown>).slackBotToken).toBeUndefined();
+
+    // Persistito: le colonne sono cifrate (≠ plaintext) e decifrano al plaintext.
+    const [row] = await testDb.db.select().from(instanceSettings);
+    expect(row?.slackSigningSecretEncrypted).toBeTruthy();
+    expect(row?.slackSigningSecretEncrypted).not.toBe("my-signing-secret");
+    expect(row?.slackBotTokenEncrypted).not.toBe("xoxb-token");
+    expect(
+      decrypt(row!.slackSigningSecretEncrypted!, Buffer.from(ENCRYPTION_KEY, "base64")),
+    ).toBe("my-signing-secret");
+    expect(decrypt(row!.slackBotTokenEncrypted!, Buffer.from(ENCRYPTION_KEY, "base64"))).toBe(
+      "xoxb-token",
+    );
+
+    // Ripristina lo stato pulito per non sporcare gli altri test.
+    await putInstance(
+      { contentLanguage: "en", slackSigningSecret: "", slackBotToken: "" },
+      users.adminCookie,
+    );
+  });
+
+  it("admin: solo uno dei due segreti → slackEnabled false finché manca l'altro", async () => {
+    // Pulisce eventuali residui.
+    await putInstance(
+      { contentLanguage: "en", slackSigningSecret: "", slackBotToken: "" },
+      users.adminCookie,
+    );
+    const res = await putInstance(
+      { contentLanguage: "en", slackSigningSecret: "only-signing" },
+      users.adminCookie,
+    );
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as InstanceSlack;
+    expect(body.slackSigningSecretSet).toBe(true);
+    expect(body.slackBotTokenSet).toBe(false);
+    expect(body.slackEnabled).toBe(false);
+
+    // Aggiunge il bot token → ora abilitato.
+    const full = await putInstance(
+      { contentLanguage: "en", slackBotToken: "now-the-token" },
+      users.adminCookie,
+    );
+    expect((full.json() as InstanceSlack).slackEnabled).toBe(true);
+
+    await putInstance(
+      { contentLanguage: "en", slackSigningSecret: "", slackBotToken: "" },
+      users.adminCookie,
+    );
+  });
+
+  it("admin: PUT senza i campi Slack NON sovrascrive i segreti esistenti", async () => {
+    await putInstance(
+      { contentLanguage: "en", slackSigningSecret: "keep-sig", slackBotToken: "keep-tok" },
+      users.adminCookie,
+    );
+    const [before] = await testDb.db.select().from(instanceSettings);
+    // PUT che tocca solo contentLanguage, omette i campi Slack.
+    const res = await putInstance({ contentLanguage: "it" }, users.adminCookie);
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as InstanceSlack).slackEnabled).toBe(true);
+    const [after] = await testDb.db.select().from(instanceSettings);
+    expect(after?.slackSigningSecretEncrypted).toBe(before?.slackSigningSecretEncrypted);
+    expect(after?.slackBotTokenEncrypted).toBe(before?.slackBotTokenEncrypted);
+
+    await putInstance(
+      { contentLanguage: "en", slackSigningSecret: "", slackBotToken: "" },
+      users.adminCookie,
+    );
+  });
+
+  it("admin: stringa vuota '' azzera il segreto e disabilita Slack", async () => {
+    await putInstance(
+      { contentLanguage: "en", slackSigningSecret: "sig", slackBotToken: "tok" },
+      users.adminCookie,
+    );
+    const res = await putInstance(
+      { contentLanguage: "en", slackSigningSecret: "" },
+      users.adminCookie,
+    );
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as InstanceSlack;
+    expect(body.slackSigningSecretSet).toBe(false);
+    expect(body.slackBotTokenSet).toBe(true);
+    expect(body.slackEnabled).toBe(false);
+    const [row] = await testDb.db.select().from(instanceSettings);
+    expect(row?.slackSigningSecretEncrypted).toBeNull();
+
+    await putInstance(
+      { contentLanguage: "en", slackSigningSecret: "", slackBotToken: "" },
+      users.adminCookie,
+    );
+  });
+});
+
+describe("GET /api/settings/instance — credenziali Slack", () => {
+  it("admin: non espone mai i segreti, solo i flag *Set + slackEnabled", async () => {
+    await putInstance(
+      { contentLanguage: "en", slackSigningSecret: "secret-sig", slackBotToken: "secret-tok" },
+      users.adminCookie,
+    );
+    const res = await getInstance(users.adminCookie);
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as InstanceSlack;
+    expect(body.slackSigningSecretSet).toBe(true);
+    expect(body.slackBotTokenSet).toBe(true);
+    expect(body.slackEnabled).toBe(true);
+    expect(JSON.stringify(body)).not.toContain("secret-sig");
+    expect(JSON.stringify(body)).not.toContain("secret-tok");
+
+    await putInstance(
+      { contentLanguage: "en", slackSigningSecret: "", slackBotToken: "" },
+      users.adminCookie,
+    );
+  });
+});

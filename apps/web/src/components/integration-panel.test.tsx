@@ -62,6 +62,25 @@ describe("IntegrationPanel", () => {
     expect(screen.queryByTestId("webhook-config")).not.toBeInTheDocument();
   });
 
+  it("mostra il webhook generico con URL inbound assoluto e payload d'esempio", () => {
+    render(<IntegrationPanel {...props} />);
+
+    const inbound = screen.getByTestId("inbound-webhook");
+    expect(inbound).toBeInTheDocument();
+    // URL: POST {origin}/api/inbound/{slug}/ticket — derivato dall'origin come il DSN.
+    expect(
+      screen.getByText("https://track.example.com/api/inbound/demo-shop/ticket"),
+    ).toBeInTheDocument();
+    // L'header di auth rimanda alla chiave già mostrata, senza ri-esporla.
+    expect(inbound.textContent).toContain("X-Stubwise-Key");
+    // Esempio di payload JSON con i campi accettati dall'endpoint.
+    const payload = screen.getByTestId("inbound-payload");
+    expect(payload.textContent).toContain('"title"');
+    expect(payload.textContent).toContain('"type": "bug"');
+    expect(payload.textContent).toContain('"priority": "medium"');
+    expect(payload.textContent).toContain('"reporterEmail"');
+  });
+
   it("con webhook mostra URL assoluto e secret, copiabili (vista admin)", async () => {
     const user = userEvent.setup();
     render(

@@ -15,6 +15,7 @@ const SETTINGS_NAV = [
   { to: "/settings/notifications", labelKey: "notifications", adminOnly: true },
   { to: "/settings/git-accounts", labelKey: "gitAccounts", adminOnly: true },
   { to: "/settings/storage", labelKey: "storage", adminOnly: true },
+  { to: "/settings/slack", labelKey: "slack", adminOnly: true },
 ] as const;
 
 /**

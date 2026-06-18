@@ -72,6 +72,19 @@ export function IntegrationPanel({
   const url = new URL(origin ?? window.location.origin);
   const dsn = `${url.protocol}//${ingestionKey}@${url.host}/p/${slug}`;
   const webhookUrl = webhook ? `${url.protocol}//${url.host}${webhook.webhookPath}` : null;
+  // Webhook generico in ingresso: stesso schema URL del DSN (origin corrente),
+  // crea un ticket a ogni chiamata. La chiave non si ri-espone qui: l'header
+  // rimanda alla chiave di ingestion già mostrata sopra.
+  const inboundUrl = `${url.protocol}//${url.host}/api/inbound/${slug}/ticket`;
+  const inboundPayload = [
+    "{",
+    '  "title": "Checkout button unresponsive",',
+    '  "body": "Steps to reproduce…",',
+    '  "type": "bug",',
+    '  "priority": "medium",',
+    '  "reporterEmail": "user@example.com"',
+    "}",
+  ].join("\n");
   const snippet = [
     'import { init } from "@stubwise/sdk/browser";',
     "",
@@ -115,6 +128,42 @@ export function IntegrationPanel({
           <p className="mt-2 font-mono text-[11px] text-fg-faint">
             {t("integration:snippetHint")}
           </p>
+        </div>
+
+        <div className="space-y-4 border-t border-line pt-4" data-testid="inbound-webhook">
+          <div className="flex items-baseline justify-between">
+            <span className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
+              {t("integration:inboundSection")}
+            </span>
+          </div>
+          <IntegrationRow
+            label={t("integration:inboundUrl")}
+            copyLabel={t("integration:copyInboundUrl")}
+            text={inboundUrl}
+          />
+          <div>
+            <span className="mb-1.5 block font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
+              {t("integration:inboundAuthLabel")}
+            </span>
+            <code className="block min-w-0 truncate rounded-sm border border-line bg-ink-950/70 px-3 py-1.5 font-mono text-[12px] text-signal">
+              {t("integration:inboundAuth")}
+            </code>
+          </div>
+          <div>
+            <div className="mb-1.5 flex items-center justify-between gap-3">
+              <span className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
+                {t("integration:inboundPayload")}
+              </span>
+              <CopyButton text={inboundPayload} label={t("integration:copyInboundPayload")} />
+            </div>
+            <pre
+              data-testid="inbound-payload"
+              className="overflow-x-auto rounded-sm border border-line bg-ink-950/70 p-3 font-mono text-[12px] leading-relaxed text-fg"
+            >
+              <code>{inboundPayload}</code>
+            </pre>
+          </div>
+          <p className="font-mono text-[11px] text-fg-faint">{t("integration:inboundHint")}</p>
         </div>
 
         {webhook && webhookUrl && (

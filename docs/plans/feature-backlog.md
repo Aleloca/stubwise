@@ -24,7 +24,7 @@ Idee di funzionalità valutate dopo la prima fase di sviluppo + deploy in produz
 ## 3. Visione "confluire TUTTI i ticket di TUTTI i progetti"
 
 - **SDK per altri linguaggi** (PHP, Python). Oggi solo JS/TS: senza, i progetti non-JS non possono confluire nulla. Probabilmente l'investimento più allineato all'idea iniziale.
-- **Ingestion in entrata da fonti esterne**: email→ticket, GitHub Issues, Slack→ticket.
+- **Ingestion in entrata da fonti esterne**: ~~Slack→ticket~~ ✅ + ~~webhook generico~~ ✅ **FATTI** (giugno 2026: `POST /api/inbound/:slug/ticket` con ingestion key; Slack slash command `/stubwise` + message action con modal, verifica firma HMAC, credenziali cifrate; attribuzione via email; migrazione 0020; design+piano in docs/plans/2026-06-18-stubwise-external-ingestion-*.md). **Rimangono:** email→ticket e GitHub Issues→ticket (rimandati per scelta).
 - **Altri provider git**: GitLab / Gitea (l'interfaccia `GitProvider` è già pronta) — utile per l'adozione open-source.
 
 ## 4. Operativo / analytics

@@ -292,7 +292,8 @@
         "automation": "AI automation",
         "notifications": "Notifications",
         "gitAccounts": "Git accounts",
-        "storage": "Storage"
+        "storage": "Storage",
+        "slack": "Slack"
       }
     },
     "account": {
@@ -375,6 +376,23 @@
       "secretSetPlaceholder": "•••• (set)",
       "secretHint": "// the secret is encrypted at rest and never shown again. Leave empty to keep the stored one.",
       "removeSecret": "Remove stored secret",
+      "save": "Save",
+      "saving": "Saving…",
+      "saved": "Saved"
+    },
+    "slack": {
+      "title": "Slack",
+      "subtitle": "Create tickets from Slack via a slash command and interactive messages.",
+      "enabledBadge": "Slack enabled",
+      "disabledBadge": "Slack disabled",
+      "signingSecret": "Signing secret",
+      "botToken": "Bot token",
+      "secretPlaceholder": "Paste the value here",
+      "secretSetPlaceholder": "•••• (set)",
+      "removeSigningSecret": "Remove stored signing secret",
+      "removeBotToken": "Remove stored bot token",
+      "secretHint": "// the secrets are encrypted at rest and never shown again. Leave empty to keep the stored one.",
+      "setupHint": "Create a Slack app at api.slack.com, paste the Signing Secret and Bot Token here, set the Slash Command request URL to {{commandsUrl}} and the Interactivity request URL to {{interactionsUrl}}, and add the scopes commands, users:read, users:read.email.",
       "save": "Save",
       "saving": "Saving…",
       "saved": "Saved"
@@ -513,7 +531,9 @@
       "manual": "Manual",
       "sdk_error": "SDK",
       "sdk_feedback": "SDK",
-      "api": "API"
+      "api": "API",
+      "slack": "Slack",
+      "webhook": "Webhook"
     },
     "effort": {
       "1": "Trivial",
@@ -610,6 +630,14 @@
     "snippet": "init() snippet",
     "copySnippet": "Copy snippet",
     "snippetHint": "// browser variant — for Node: import from \"@stubwise/sdk/node\"",
+    "inboundSection": "generic webhook · creates ticket",
+    "inboundUrl": "Inbound webhook URL",
+    "copyInboundUrl": "Copy inbound webhook URL",
+    "inboundAuthLabel": "Auth header",
+    "inboundAuth": "X-Stubwise-Key: <ingestion key above>",
+    "inboundPayload": "Example payload",
+    "copyInboundPayload": "Copy example payload",
+    "inboundHint": "// POST this URL with the ingestion key header: each call creates a ticket — wire it from Zapier, n8n or a script.",
     "webhookSection": "git webhook · merge → done",
     "webhookUrl": "Webhook URL",
     "copyWebhookUrl": "Copy webhook URL",

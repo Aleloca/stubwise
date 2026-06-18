@@ -1058,6 +1058,15 @@ export interface InstanceSettings {
   s3SecretKeySet: boolean;
   /** true se la config S3 è completa e valida → gli allegati sono attivi. */
   attachmentsEnabled: boolean;
+  /**
+   * Il signing secret Slack è write-only: il server NON lo restituisce mai.
+   * Questo flag dice solo SE è salvato, così la UI mostra il placeholder "set".
+   */
+  slackSigningSecretSet: boolean;
+  /** Come sopra per il bot token Slack: write-only, mai restituito. */
+  slackBotTokenSet: boolean;
+  /** true se entrambi i segreti Slack sono presenti → l'integrazione è attiva. */
+  slackEnabled: boolean;
 }
 
 /**
@@ -1074,6 +1083,12 @@ export interface InstanceSettingsPatch {
   s3Bucket?: string;
   s3AccessKey?: string;
   s3SecretKey?: string;
+  /**
+   * Segreti Slack write-only, stessa regola della secret S3: ASSENTE → non
+   * tocca; "" → azzera; valore → cifra e salva.
+   */
+  slackSigningSecret?: string;
+  slackBotToken?: string;
 }
 
 /** Impostazioni d'istanza (solo admin): 403 per i member. */
