@@ -35,6 +35,12 @@ It's the same ingestion key the SDK uses, shown in the project settings
 slug or a wrong key all return the same **`401`** — the responses are
 indistinguishable, so the slugs can't be enumerated.
 
+:::note[Rate limit]
+Like the SDK ingest endpoint, this endpoint is rate-limited **per ingestion
+key** — by default **300 requests per minute**. Requests beyond the threshold
+get a **`429`**.
+:::
+
 ## Request body
 
 The body is a JSON object with `Content-Type: application/json`.
