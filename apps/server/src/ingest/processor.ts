@@ -1,5 +1,13 @@
 import { randomUUID } from "node:crypto";
-import type { ErrorEvent, FeedbackEvent, IngestEvent, TicketCreateEvent } from "@stubwise/shared";
+import type {
+  ErrorEvent,
+  FeedbackEvent,
+  IngestEvent,
+  TicketCreateEvent,
+  TicketPriority,
+  TicketSource,
+  TicketType,
+} from "@stubwise/shared";
 import { dispatchNotification, type NotificationEvent } from "@stubwise/notifications";
 import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "@stubwise/db";
@@ -282,24 +290,72 @@ async function processFeedbackEvent(
   });
 }
 
+/**
+ * Input di {@link createExternalTicket}. `assigneeId` esplicito (null = non
+ * assegnato) e `reporterNote` opzionale per tracciare la provenienza esterna.
+ */
+export interface ExternalTicketInput {
+  title: string;
+  body?: string;
+  type: TicketType;
+  priority: TicketPriority;
+  source: TicketSource;
+  /** Utente a cui attribuire il ticket, o `null` se non risolto. */
+  assigneeId: string | null;
+  /** Riga di provenienza da anteporre al body (es. `Reported via webhook`). */
+  reporterNote?: string;
+}
+
+/**
+ * Crea un ticket da una sorgente esterna (SDK ticket, webhook, Slack) e ne
+ * accoda il job di automazione AI nella STESSA transazione, esattamente come
+ * gli altri ticket di ingestion: l'automazione parte da `aiJobs` (status
+ * `queued` di default), non da dentro createTicket.
+ *
+ * Se `reporterNote` è valorizzata, viene anteposta al body come citazione
+ * markdown (`> ...`) per rendere visibile la provenienza/attribuzione.
+ */
+export async function createExternalTicket(
+  db: Db,
+  project: { id: string },
+  input: ExternalTicketInput,
+): Promise<Ticket> {
+  const body = input.reporterNote
+    ? [`> ${input.reporterNote}`, ...(input.body ? ["", input.body] : [])].join("\n")
+    : input.body;
+  return db.transaction(async (tx) => {
+    const ticket = await createTicket(tx, {
+      projectId: project.id,
+      title: truncate(input.title),
+      body,
+      type: input.type,
+      priority: input.priority,
+      source: input.source,
+      assigneeId: input.assigneeId ?? undefined,
+    });
+    await tx.insert(aiJobs).values({ ticketId: ticket.id });
+    return ticket;
+  });
+}
+
 /** Creazione ticket esplicita via SDK/API: type e priority li sceglie il client. */
 async function processTicketEvent(
   db: Db,
   projectId: string,
   event: TicketCreateEvent,
 ): Promise<Ticket> {
-  return db.transaction(async (tx) => {
-    const ticket = await createTicket(tx, {
-      projectId,
-      title: truncate(event.title),
+  return createExternalTicket(
+    db,
+    { id: projectId },
+    {
+      title: event.title,
       body: event.body,
       type: event.type,
       priority: event.priority,
       source: "api",
-    });
-    await tx.insert(aiJobs).values({ ticketId: ticket.id });
-    return ticket;
-  });
+      assigneeId: null,
+    },
+  );
 }
 
 /**

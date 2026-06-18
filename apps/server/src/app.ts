@@ -23,6 +23,7 @@ import {
 import { authRoutes } from "./routes/auth.js";
 import { commentRoutes } from "./routes/comments.js";
 import { gitAccountRoutes } from "./routes/git-accounts.js";
+import { inboundRoutes } from "./routes/inbound.js";
 import { ingestRoutes } from "./routes/ingest.js";
 import { milestoneRoutes } from "./routes/milestones.js";
 import { projectRoutes } from "./routes/projects.js";
@@ -242,6 +243,13 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // (registrato dentro il plugin), autenticazione via X-Stubwise-Key.
   void app.register(ingestRoutes, {
     prefix: "/ingest",
+    rateLimit: opts.ingestRateLimit ?? { max: 300, timeWindow: "1 minute" },
+  });
+  // Webhook generico per chiamanti esterni: POST /api/inbound/:slug/ticket.
+  // Stessa autenticazione/CORS/rate-limit dell'ingestion SDK, ma crea un
+  // singolo ticket con source "webhook" e attribuzione opzionale per email.
+  void app.register(inboundRoutes, {
+    prefix: "/api/inbound",
     rateLimit: opts.ingestRateLimit ?? { max: 300, timeWindow: "1 minute" },
   });
   // Webhook git dei provider (chiusura ticket al merge): fuori da /api, niente
