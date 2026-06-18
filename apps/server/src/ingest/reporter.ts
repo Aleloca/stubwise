@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { Db } from "@stubwise/db";
 import { users } from "@stubwise/db";
 
@@ -17,6 +17,25 @@ export async function resolveReporter(db: Db, email?: string | null): Promise<st
     .select({ id: users.id })
     .from(users)
     .where(sql`lower(${users.email}) = lower(${email})`)
+    .limit(1);
+  return user?.id ?? null;
+}
+
+/**
+ * Risolve l'utente Stubwise a partire dal suo Slack user id (match esatto su
+ * `users.slack_user_id`). Pensato per l'attribuzione dei ticket creati via
+ * Slack quando l'utente è già stato linkato: evita una chiamata a Slack per
+ * l'email. Ritorna lo userId del match, o `null` se l'id è assente/non linkato.
+ */
+export async function resolveReporterBySlackId(
+  db: Db,
+  slackUserId?: string | null,
+): Promise<string | null> {
+  if (!slackUserId) return null;
+  const [user] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.slackUserId, slackUserId))
     .limit(1);
   return user?.id ?? null;
 }

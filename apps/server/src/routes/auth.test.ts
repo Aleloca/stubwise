@@ -144,6 +144,8 @@ describe("login e sessioni", () => {
       email: "admin@example.com",
       role: "admin",
       language: "en",
+      avatarUrl: null,
+      slackUserId: null,
     });
     expect(body.user).not.toHaveProperty("passwordHash");
   });

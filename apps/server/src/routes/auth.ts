@@ -68,6 +68,10 @@ const publicUserSchema = z.object({
  */
 const sessionUserSchema = publicUserSchema.extend({
   language: languageSchema,
+  // Identità Slack del corrente utente: avatar (URL) e Slack user id, entrambi
+  // null finché un admin non linka l'utente (o l'auto-link via attribuzione).
+  avatarUrl: z.string().nullable(),
+  slackUserId: z.string().nullable(),
 });
 
 const credentialsSchema = z.object({

@@ -94,6 +94,10 @@ export interface PublicUser {
   id: string;
   email: string;
   role: "admin" | "member";
+  /** Avatar Slack (URL) derivato al link, o null se l'utente non è linkato. */
+  avatarUrl: string | null;
+  /** Slack user id linkato, o null se non linkato. */
+  slackUserId: string | null;
 }
 
 /**
@@ -710,6 +714,37 @@ export interface TeamUser extends PublicUser {
 
 export function getUsers(): Promise<TeamUser[]> {
   return api.get("/api/users");
+}
+
+/**
+ * Membro del workspace Slack per il picker di link (solo admin). Email e
+ * avatar sono derivati server-side da Slack. `linkedUserId` è l'utente
+ * Stubwise già collegato a questo Slack id, o null.
+ */
+export interface SlackWorkspaceUser {
+  id: string;
+  displayName: string | null;
+  email: string | null;
+  avatarUrl: string | null;
+  linkedUserId: string | null;
+}
+
+/** Membri del workspace Slack col link Stubwise (solo admin). */
+export function getSlackWorkspaceUsers(): Promise<SlackWorkspaceUser[]> {
+  return api.get("/api/slack/workspace-users");
+}
+
+/**
+ * Collega un utente a uno Slack user id (solo admin). L'avatar viene derivato
+ * server-side dal profilo Slack. Ritorna l'utente aggiornato.
+ */
+export function linkUserSlack(userId: string, slackUserId: string): Promise<TeamUser> {
+  return api.put(`/api/users/${encodeURIComponent(userId)}/slack`, { slackUserId });
+}
+
+/** Scollega l'identità Slack di un utente (solo admin). */
+export function unlinkUserSlack(userId: string): Promise<void> {
+  return request("DELETE", `/api/users/${encodeURIComponent(userId)}/slack`);
 }
 
 // --- Projects ---

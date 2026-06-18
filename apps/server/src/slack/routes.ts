@@ -1,14 +1,15 @@
-import { asc } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { ticketTypeSchema, type TicketType } from "@stubwise/shared";
-import { decrypt, instanceSettings, projects } from "@stubwise/db";
+import { projects, users } from "@stubwise/db";
 import { ProjectNotFoundError } from "../db/tickets.js";
 import { createExternalTicket } from "../ingest/processor.js";
-import { resolveReporter } from "../ingest/reporter.js";
+import { resolveReporter, resolveReporterBySlackId } from "../ingest/reporter.js";
 import { publicUrlOrUndefined, ticketUrl } from "../ingest/shared.js";
 import { apiError } from "../errors.js";
-import { createSlackClient, type SlackClient } from "./api.js";
+import { isUniqueViolation } from "../routes/shared.js";
 import { ACTION_IDS, BLOCK_IDS, buildTicketModal } from "./modal.js";
+import { loadSlackCreds, defaultSlackClientFactory, type SlackClientFactory } from "./creds.js";
 import { verifySlackSignature } from "./verify.js";
 
 /**
@@ -20,13 +21,9 @@ const MAX_SLACK_BODY_BYTES = 1024 * 1024;
 /** Lunghezza massima del titolo, allineata alla validazione ticket. */
 const TITLE_MAX = 300;
 
-/**
- * Fabbrica del client Slack iniettabile a livello d'app: in produzione
- * costruisce il client reale dal bot token (con fetch globale); nei test si
- * passa un fake che non tocca la rete. Definita qui e referenziata da
- * BuildAppOptions tramite l'augmentation del modulo fastify.
- */
-export type SlackClientFactory = (botToken: string) => SlackClient;
+// SlackClientFactory è definita in ./creds.js (condivisa con le route admin di
+// gestione identità); re-export per compatibilità con gli import esistenti.
+export type { SlackClientFactory } from "./creds.js";
 
 export interface SlackRoutesOptions {
   /**
@@ -39,38 +36,6 @@ export interface SlackRoutesOptions {
    * Date.now. Iniettabile nei test per firmare con un timestamp deterministico.
    */
   now?: () => number;
-}
-
-/** Credenziali Slack decifrate, o null se l'integrazione non è configurata. */
-interface SlackCreds {
-  signingSecret: string;
-  botToken: string;
-}
-
-/**
- * Carica e decifra signing secret + bot token dalle instance settings
- * (singleton id=1). Ritorna null se uno dei due manca (integrazione non
- * completa) o se la decifratura fallisce (blob corrotto/chiave errata): in
- * entrambi i casi il flusso Slack è trattato come "non abilitato". I segreti
- * non vengono mai loggati.
- */
-async function loadSlackCreds(instance: FastifyInstance): Promise<SlackCreds | null> {
-  const [row] = await instance.db
-    .select({
-      signing: instanceSettings.slackSigningSecretEncrypted,
-      bot: instanceSettings.slackBotTokenEncrypted,
-    })
-    .from(instanceSettings)
-    .limit(1);
-  if (!row?.signing || !row.bot) return null;
-  try {
-    return {
-      signingSecret: decrypt(row.signing, instance.encryptionKey),
-      botToken: decrypt(row.bot, instance.encryptionKey),
-    };
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -173,7 +138,7 @@ export async function slackRoutes(
   opts: SlackRoutesOptions = {},
 ): Promise<void> {
   const now = opts.now ?? Date.now;
-  const clientFactory = opts.slackClientFactory ?? ((token: string) => createSlackClient(token));
+  const clientFactory = opts.slackClientFactory ?? defaultSlackClientFactory;
 
   // Parser urlencoded con cattura del raw body, limitato a questo scope.
   instance.addContentTypeParser(
@@ -273,10 +238,39 @@ export async function slackRoutes(
       }
       const type: TicketType = typeParsed.data;
 
-      // Attribuzione best-effort: email dell'utente Slack → utente Stubwise.
-      const userId = payload.user?.id;
-      const email = userId ? await client.getUserEmail(userId) : null;
-      const assigneeId = await resolveReporter(instance.db, email);
+      // Attribuzione best-effort. Si tenta prima il match diretto sullo Slack
+      // user id (utente già linkato): immediato e senza chiamate a Slack. Se
+      // non c'è match, si ripiega sul profilo Slack (email) → utente Stubwise,
+      // e — se il match avviene per email su un utente non ancora linkato — si
+      // fa un auto-link best-effort dello Slack id/avatar.
+      const slackUserId = payload.user?.id;
+      let assigneeId = await resolveReporterBySlackId(instance.db, slackUserId);
+      if (assigneeId === null && slackUserId) {
+        // Recupera il profilo una sola volta: serve sia per l'email (fallback)
+        // sia per l'avatar dell'auto-link.
+        const profile = await client.getUserProfile(slackUserId);
+        assigneeId = await resolveReporter(instance.db, profile?.email);
+        // Auto-link best-effort: l'utente è stato trovato per email ma non ha
+        // ancora uno Slack id. Lo si valorizza (+ avatar se mancante) in modo
+        // che le prossime attribuzioni passino dal match diretto. Qualsiasi
+        // errore (unique violation per id già di un altro utente, problema
+        // Slack) viene assorbito: NON deve impedire la creazione del ticket.
+        if (assigneeId !== null) {
+          try {
+            await instance.db
+              .update(users)
+              .set({
+                slackUserId,
+                ...(profile?.avatarUrl ? { slackAvatarUrl: profile.avatarUrl } : {}),
+              })
+              .where(and(eq(users.id, assigneeId), isNull(users.slackUserId)));
+          } catch (err) {
+            if (!isUniqueViolation(err)) {
+              request.log.warn({ err }, "[slack] auto-link Slack id fallito (ignorato)");
+            }
+          }
+        }
+      }
 
       const who = payload.user?.username ?? payload.user?.name ?? "unknown";
       const reporterNote =

@@ -307,12 +307,16 @@ describe("GET /api/users", () => {
         email: "admin@example.com",
         role: "admin",
         createdAt: expect.any(String),
+        avatarUrl: null,
+        slackUserId: null,
       },
       {
         id: users.memberId,
         email: "member@example.com",
         role: "member",
         createdAt: expect.any(String),
+        avatarUrl: null,
+        slackUserId: null,
       },
     ]);
     // Nessun campo sensibile trapela.
