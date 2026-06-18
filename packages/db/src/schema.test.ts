@@ -8,6 +8,7 @@ import {
   automationRules,
   comments,
   instanceSettings,
+  invites,
   milestones,
   notificationSettings,
   projects,
@@ -1225,5 +1226,147 @@ describe("schema: saved_views", () => {
 
     const after = await db.select().from(savedViews).where(eq(savedViews.ownerId, ownerId));
     expect(after.length).toBe(0);
+  });
+});
+
+/**
+ * Verifica le colonne di identità Slack: users.slack_user_id (unique, nullable)
+ * + users.slack_avatar_url, e invites.slack_user_id (NON unique) +
+ * invites.slack_avatar_url. In particolare l'unique su users.slack_user_id
+ * vieta due membri con lo stesso id Slack non-null ma ammette più membri con
+ * id Slack null (semantica NULL di Postgres), mentre gli inviti possono
+ * condividere lo stesso id Slack.
+ */
+describe("schema: identità Slack (users + invites)", () => {
+  let testDb: TestDb;
+  let db: Db;
+
+  beforeAll(async () => {
+    testDb = await startTestDb();
+    db = testDb.db;
+  });
+
+  afterAll(async () => {
+    await testDb.stop();
+  });
+
+  it("persiste e rilegge un utente con slackUserId e slackAvatarUrl", async () => {
+    const slackUserId = `U${randomUUID().replace(/-/g, "").slice(0, 10).toUpperCase()}`;
+    const [inserted] = await db
+      .insert(users)
+      .values({
+        email: `slack-${randomUUID()}@example.com`,
+        passwordHash: "x",
+        role: "member",
+        slackUserId,
+        slackAvatarUrl: "https://avatars.slack-edge.com/abc.png",
+      })
+      .returning();
+    if (!inserted) throw new Error("insert dell'utente non ha restituito la riga");
+
+    const [read] = await db.select().from(users).where(eq(users.id, inserted.id));
+    expect(read?.slackUserId).toBe(slackUserId);
+    expect(read?.slackAvatarUrl).toBe("https://avatars.slack-edge.com/abc.png");
+  });
+
+  it("lascia slackUserId e slackAvatarUrl null di default", async () => {
+    const [inserted] = await db
+      .insert(users)
+      .values({
+        email: `noslack-${randomUUID()}@example.com`,
+        passwordHash: "x",
+        role: "member",
+      })
+      .returning();
+    expect(inserted?.slackUserId).toBeNull();
+    expect(inserted?.slackAvatarUrl).toBeNull();
+  });
+
+  it("vieta due utenti con lo stesso slackUserId non-null (unique)", async () => {
+    const slackUserId = `U${randomUUID().replace(/-/g, "").slice(0, 10).toUpperCase()}`;
+    await db.insert(users).values({
+      email: `dup1-${randomUUID()}@example.com`,
+      passwordHash: "x",
+      role: "member",
+      slackUserId,
+    });
+
+    await expect(
+      db.insert(users).values({
+        email: `dup2-${randomUUID()}@example.com`,
+        passwordHash: "x",
+        role: "member",
+        slackUserId,
+      }),
+    ).rejects.toThrow();
+  });
+
+  it("ammette più utenti con slackUserId null (NULL non viola l'unique in Postgres)", async () => {
+    const [a] = await db
+      .insert(users)
+      .values({
+        email: `null1-${randomUUID()}@example.com`,
+        passwordHash: "x",
+        role: "member",
+        slackUserId: null,
+      })
+      .returning();
+    const [b] = await db
+      .insert(users)
+      .values({
+        email: `null2-${randomUUID()}@example.com`,
+        passwordHash: "x",
+        role: "member",
+        slackUserId: null,
+      })
+      .returning();
+    expect(a?.slackUserId).toBeNull();
+    expect(b?.slackUserId).toBeNull();
+    expect(a?.id).not.toBe(b?.id);
+  });
+
+  it("persiste e rilegge un invito con slackUserId e slackAvatarUrl", async () => {
+    const slackUserId = `U${randomUUID().replace(/-/g, "").slice(0, 10).toUpperCase()}`;
+    const token = randomUUID();
+    const [inserted] = await db
+      .insert(invites)
+      .values({
+        token,
+        email: `invite-${randomUUID()}@example.com`,
+        expiresAt: new Date(Date.now() + 86_400_000),
+        slackUserId,
+        slackAvatarUrl: "https://avatars.slack-edge.com/def.png",
+      })
+      .returning();
+    if (!inserted) throw new Error("insert dell'invito non ha restituito la riga");
+
+    const [read] = await db.select().from(invites).where(eq(invites.token, token));
+    expect(read?.slackUserId).toBe(slackUserId);
+    expect(read?.slackAvatarUrl).toBe("https://avatars.slack-edge.com/def.png");
+  });
+
+  it("ammette due inviti con lo stesso slackUserId (invites NON ha unique)", async () => {
+    const slackUserId = `U${randomUUID().replace(/-/g, "").slice(0, 10).toUpperCase()}`;
+    const [a] = await db
+      .insert(invites)
+      .values({
+        token: randomUUID(),
+        email: `inv-a-${randomUUID()}@example.com`,
+        expiresAt: new Date(Date.now() + 86_400_000),
+        slackUserId,
+      })
+      .returning();
+    const [b] = await db
+      .insert(invites)
+      .values({
+        token: randomUUID(),
+        email: `inv-b-${randomUUID()}@example.com`,
+        expiresAt: new Date(Date.now() + 86_400_000),
+        slackUserId,
+      })
+      .returning();
+    expect(a?.slackUserId).toBe(slackUserId);
+    expect(b?.slackUserId).toBe(slackUserId);
+    expect(a?.token).not.toBe(b?.token);
   });
 });
