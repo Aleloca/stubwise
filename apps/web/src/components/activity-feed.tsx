@@ -14,14 +14,21 @@ import {
   STATUS_LABEL_KEYS,
   TYPE_LABEL_KEYS,
 } from "./badges";
+import { Avatar } from "./avatar";
 import { FormError } from "./field";
 import { Markdown } from "./markdown";
 import { MarkdownEditor } from "./markdown-editor";
 
+/** Identità di un autore risolta dalla users query: email + avatar Slack. */
+export interface AuthorInfo {
+  email: string;
+  avatarUrl: string | null;
+}
+
 interface ActivityFeedProps {
   ticketId: string;
-  /** authorId/actorId → email, per firmare commenti utente ed eventi. */
-  authorEmails: Map<string, string>;
+  /** authorId/actorId → identità (email + avatar), per firmare commenti utente ed eventi. */
+  authors: Map<string, AuthorInfo>;
   /** milestoneId → nome, per rendere leggibili gli eventi milestone_changed. */
   milestoneNames: Map<string, string>;
   /** Invio del nuovo commento; il rigetto lascia il testo nel campo. */
@@ -39,7 +46,7 @@ interface ActivityFeedProps {
  */
 export function ActivityFeed({
   ticketId,
-  authorEmails,
+  authors,
   milestoneNames,
   onSubmit,
   pending,
@@ -72,7 +79,7 @@ export function ActivityFeed({
             <FeedItem
               key={`${item.kind}-${item.id}`}
               item={item}
-              authorEmails={authorEmails}
+              authors={authors}
               milestoneNames={milestoneNames}
             />
           ))}
@@ -116,18 +123,18 @@ export function ActivityFeed({
 
 function FeedItem({
   item,
-  authorEmails,
+  authors,
   milestoneNames,
 }: {
   item: ActivityItem;
-  authorEmails: Map<string, string>;
+  authors: Map<string, AuthorInfo>;
   milestoneNames: Map<string, string>;
 }) {
   switch (item.kind) {
     case "comment":
-      return <CommentItem comment={item} authorEmails={authorEmails} />;
+      return <CommentItem comment={item} authors={authors} />;
     case "event":
-      return <EventItem event={item} authorEmails={authorEmails} milestoneNames={milestoneNames} />;
+      return <EventItem event={item} authors={authors} milestoneNames={milestoneNames} />;
     case "ai_job":
       return <AiJobItem job={item} />;
   }
@@ -136,12 +143,15 @@ function FeedItem({
 /** Commento: stessa resa del vecchio comment-thread (utente/AI/sistema). */
 function CommentItem({
   comment,
-  authorEmails,
+  authors,
 }: {
   comment: ActivityComment;
-  authorEmails: Map<string, string>;
+  authors: Map<string, AuthorInfo>;
 }) {
   const { t } = useTranslation();
+  // Identità dell'autore umano (email + avatar): null per AI/sistema o autore
+  // rimosso, che hanno un trattamento dedicato (badge, niente avatar).
+  const author = comment.authorId ? authors.get(comment.authorId) : undefined;
   return (
     <li
       className={`rounded-sm border bg-ink-900 px-4 py-3 ${
@@ -164,10 +174,14 @@ function CommentItem({
           <span className="rounded-sm border border-line-strong px-1.5 py-px font-mono text-[10px] font-semibold tracking-[0.12em] text-fg-muted uppercase">
             {t("tickets:comments.system")}
           </span>
+        ) : author ? (
+          <span className="flex items-center gap-2 font-mono text-[12px] text-fg-muted">
+            <Avatar src={author.avatarUrl} label={author.email} size={20} />
+            {author.email}
+          </span>
         ) : (
           <span className="font-mono text-[12px] text-fg-muted">
-            {(comment.authorId && authorEmails.get(comment.authorId)) ??
-              t("tickets:comments.removedUser")}
+            {t("tickets:comments.removedUser")}
           </span>
         )}
         <time
@@ -188,21 +202,28 @@ function CommentItem({
 /** Riga di audit compatta: testo i18n con interpolazione + timestamp. */
 function EventItem({
   event,
-  authorEmails,
+  authors,
   milestoneNames,
 }: {
   event: ActivityEvent;
-  authorEmails: Map<string, string>;
+  authors: Map<string, AuthorInfo>;
   milestoneNames: Map<string, string>;
 }) {
   const { t } = useTranslation();
-  const text = describeEvent(event, authorEmails, milestoneNames, t);
+  const text = describeEvent(event, authors, milestoneNames, t);
   if (!text) return null;
+  // Avatar dell'attore umano accanto alla riga; assente per attore di sistema
+  // (actorId null) o utente rimosso, coerente col fallback testuale.
+  const actor = event.actorId ? authors.get(event.actorId) : undefined;
   return (
-    <li className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-1 font-mono text-[11px] text-fg-faint">
-      <span aria-hidden className="text-line-strong">
-        ·
-      </span>
+    <li className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-1 font-mono text-[11px] text-fg-faint">
+      {actor ? (
+        <Avatar src={actor.avatarUrl} label={actor.email} size={16} />
+      ) : (
+        <span aria-hidden className="text-line-strong">
+          ·
+        </span>
+      )}
       <span className="text-fg-muted">{text}</span>
       <time
         dateTime={event.createdAt}
@@ -218,9 +239,9 @@ function EventItem({
 type TFunc = ReturnType<typeof useTranslation>["t"];
 
 /** Nome leggibile dell'attore: email risolta, "System" se assente. */
-function actorName(actorId: string | null, authorEmails: Map<string, string>, t: TFunc): string {
+function actorName(actorId: string | null, authors: Map<string, AuthorInfo>, t: TFunc): string {
   if (actorId === null) return t("tickets:activity.systemActor");
-  return authorEmails.get(actorId) ?? t("tickets:comments.removedUser");
+  return authors.get(actorId)?.email ?? t("tickets:comments.removedUser");
 }
 
 /** Estrae from/to grezzi dal payload jsonb (string|null). */
@@ -234,11 +255,11 @@ function fromTo(payload: Record<string, unknown> | null): {
 /** Compone il messaggio di audit di un evento mappando gli enum alle label. */
 function describeEvent(
   event: ActivityEvent,
-  authorEmails: Map<string, string>,
+  authors: Map<string, AuthorInfo>,
   milestoneNames: Map<string, string>,
   t: TFunc,
 ): string {
-  const actor = actorName(event.actorId, authorEmails, t);
+  const actor = actorName(event.actorId, authors, t);
   const { from, to } = fromTo(event.payload);
 
   switch (event.eventKind) {
@@ -265,7 +286,7 @@ function describeEvent(
         ? t("tickets:activity.events.unassigned", { actor })
         : t("tickets:activity.events.assignee_changed", {
             actor,
-            user: userLabel(to, authorEmails, t),
+            user: userLabel(to, authors, t),
           });
     case "labels_changed":
       return t("tickets:activity.events.labels_changed", { actor });
@@ -341,9 +362,9 @@ function typeLabel(raw: unknown, t: TFunc): string {
   return key ? t(key) : String(raw);
 }
 
-function userLabel(raw: unknown, authorEmails: Map<string, string>, t: TFunc): string {
+function userLabel(raw: unknown, authors: Map<string, AuthorInfo>, t: TFunc): string {
   if (typeof raw !== "string") return String(raw);
-  return authorEmails.get(raw) ?? t("tickets:comments.removedUser");
+  return authors.get(raw)?.email ?? t("tickets:comments.removedUser");
 }
 
 /** Nome di una milestone dall'id; "—" se cancellata (id non risolvibile). */

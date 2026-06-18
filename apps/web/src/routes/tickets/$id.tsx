@@ -16,6 +16,7 @@ import { ActivityFeed } from "../../components/activity-feed";
 import { AIJobTimeline } from "../../components/ai-job-timeline";
 import { AttachmentList } from "../../components/attachment-list";
 import { AttachmentUpload } from "../../components/attachment-upload";
+import { Avatar } from "../../components/avatar";
 import {
   PriorityBadge,
   SOURCE_LABEL_KEYS,
@@ -85,7 +86,13 @@ export function TicketDetailPage() {
   const { data: milestones = [] } = useQuery(milestonesQueryOptions(ticket.projectId));
 
   const projectName = projects.find((project) => project.id === ticket.projectId)?.name ?? "—";
-  const authorEmails = new Map(users.map((user) => [user.id, user.email]));
+  // id → identità (email + avatar Slack): firma e avatar di commenti/eventi nel
+  // feed e dell'assegnatario. L'avatar è null per chi non ha l'identità Slack
+  // linkata (l'Avatar degrada a iniziali).
+  const authors = new Map(
+    users.map((user) => [user.id, { email: user.email, avatarUrl: user.avatarUrl }]),
+  );
+  const assignee = ticket.assigneeId ? authors.get(ticket.assigneeId) : undefined;
   const milestoneNames = new Map(milestones.map((milestone) => [milestone.id, milestone.name]));
   const currentMilestoneName =
     ticket.milestoneId !== null ? milestoneNames.get(ticket.milestoneId) : undefined;
@@ -330,7 +337,7 @@ export function TicketDetailPage() {
             <h2 className={sectionTitleClass}>{t("tickets:activity.title")}</h2>
             <ActivityFeed
               ticketId={id}
-              authorEmails={authorEmails}
+              authors={authors}
               milestoneNames={milestoneNames}
               onSubmit={(body) => commentMutation.mutateAsync(body)}
               pending={commentMutation.isPending}
@@ -367,19 +374,27 @@ export function TicketDetailPage() {
             }))}
           />
 
-          <SelectField
-            id="action-assignee"
-            label={t("tickets:detail.assignee")}
-            value={ticket.assigneeId ?? ""}
-            disabled={patchMutation.isPending}
-            onChange={(event) =>
-              patchMutation.mutate({ assigneeId: event.target.value || null })
-            }
-            options={[
-              { value: "", label: t("tickets:detail.unassigned") },
-              ...users.map((user) => ({ value: user.id, label: user.email })),
-            ]}
-          />
+          <div className="flex flex-col gap-1.5">
+            <SelectField
+              id="action-assignee"
+              label={t("tickets:detail.assignee")}
+              value={ticket.assigneeId ?? ""}
+              disabled={patchMutation.isPending}
+              onChange={(event) =>
+                patchMutation.mutate({ assigneeId: event.target.value || null })
+              }
+              options={[
+                { value: "", label: t("tickets:detail.unassigned") },
+                ...users.map((user) => ({ value: user.id, label: user.email })),
+              ]}
+            />
+            {assignee && (
+              <span className="flex items-center gap-2 font-mono text-[11px] text-fg-muted">
+                <Avatar src={assignee.avatarUrl} label={assignee.email} size={18} />
+                <span className="truncate">{assignee.email}</span>
+              </span>
+            )}
+          </div>
 
           <SelectField
             id="action-milestone"
