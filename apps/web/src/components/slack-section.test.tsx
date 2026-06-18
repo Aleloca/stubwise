@@ -3,13 +3,12 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { InstanceSettings } from "../lib/api";
-import { StorageSection } from "./storage-section";
+import { SlackSection } from "./slack-section";
 
 /**
- * Sezione "Storage (S3)" delle impostazioni (solo admin): form endpoint/region/
- * bucket/accessKey/secret + salvataggio (PUT) e badge allegati on/off. La secret
- * è write-only: mai mostrata in lettura. Rete mockata via `fetch` globale come le
- * altre section.
+ * Sezione "Slack" delle impostazioni (solo admin): form signing secret + bot
+ * token + salvataggio (PUT) e badge enabled/disabled. I segreti sono write-only:
+ * mai mostrati in lettura. Rete mockata via `fetch` globale come le altre section.
  */
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -64,56 +63,46 @@ function renderSection() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <StorageSection />
+      <SlackSection />
     </QueryClientProvider>,
   );
 }
 
-describe("StorageSection — render", () => {
+describe("SlackSection — render", () => {
   it("mostra i campi del form e il badge 'disabled' quando non configurato", async () => {
     mockApi({ "GET /api/settings/instance": () => jsonResponse(200, makeInstance()) });
     renderSection();
 
-    expect(await screen.findByLabelText(/endpoint/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/region/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/bucket/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/access key/i)).toBeInTheDocument();
-    expect(screen.getByLabelText("Secret key")).toBeInTheDocument();
-    expect(screen.getByText(/attachments disabled/i)).toBeInTheDocument();
+    expect(await screen.findByLabelText("Signing secret")).toBeInTheDocument();
+    expect(screen.getByLabelText("Bot token")).toBeInTheDocument();
+    expect(screen.getByText(/slack disabled/i)).toBeInTheDocument();
   });
 
-  it("mostra il badge 'enabled' e NON espone la secret salvata", async () => {
+  it("mostra il badge 'enabled' e NON espone i segreti salvati", async () => {
     mockApi({
       "GET /api/settings/instance": () =>
         jsonResponse(
           200,
           makeInstance({
-            s3Endpoint: "https://s3.example.com",
-            s3Region: "eu-central",
-            s3Bucket: "my-bucket",
-            s3AccessKey: "AKIA",
-            s3SecretKeySet: true,
-            attachmentsEnabled: true,
+            slackSigningSecretSet: true,
+            slackBotTokenSet: true,
+            slackEnabled: true,
           }),
         ),
     });
     renderSection();
 
-    expect(await screen.findByText(/attachments enabled/i)).toBeInTheDocument();
-    // I campi non-secret sono prepopolati.
-    expect((screen.getByLabelText(/endpoint/i) as HTMLInputElement).value).toBe(
-      "https://s3.example.com",
-    );
-    // Il campo secret resta vuoto: la secret salvata non è mai inviata al client.
-    const secret = screen.getByLabelText("Secret key") as HTMLInputElement;
-    expect(secret.value).toBe("");
+    expect(await screen.findByText(/slack enabled/i)).toBeInTheDocument();
+    // I campi segreti restano vuoti: i segreti salvati non sono mai inviati al client.
+    expect((screen.getByLabelText("Signing secret") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("Bot token") as HTMLInputElement).value).toBe("");
     // Nessun nodo del DOM contiene un eventuale valore segreto.
     expect(document.body.textContent).not.toContain("super-secret");
   });
 });
 
-describe("StorageSection — salvataggio", () => {
-  it("invia il PUT coi campi non-secret + secret quando inserita", async () => {
+describe("SlackSection — salvataggio", () => {
+  it("invia il PUT coi due segreti quando inseriti", async () => {
     const user = userEvent.setup();
     let putBody: Record<string, unknown> | undefined;
     mockApi({
@@ -122,70 +111,69 @@ describe("StorageSection — salvataggio", () => {
         putBody = JSON.parse(String(init?.body));
         return jsonResponse(
           200,
-          makeInstance({
-            s3Endpoint: "https://s3.example.com",
-            s3Bucket: "my-bucket",
-            s3AccessKey: "AKIA",
-            s3SecretKeySet: true,
-            attachmentsEnabled: true,
-          }),
+          makeInstance({ slackSigningSecretSet: true, slackBotTokenSet: true, slackEnabled: true }),
         );
       },
     });
     renderSection();
 
-    await user.type(await screen.findByLabelText(/endpoint/i), "https://s3.example.com");
-    await user.type(screen.getByLabelText(/bucket/i), "my-bucket");
-    await user.type(screen.getByLabelText(/access key/i), "AKIA");
-    await user.type(screen.getByLabelText("Secret key"), "super-secret");
+    await user.type(await screen.findByLabelText("Signing secret"), "my-sig");
+    await user.type(screen.getByLabelText("Bot token"), "xoxb-tok");
     await user.click(screen.getByRole("button", { name: /save/i }));
 
     await waitFor(() => expect(putBody).toBeDefined());
-    expect(putBody?.s3Endpoint).toBe("https://s3.example.com");
-    expect(putBody?.s3Bucket).toBe("my-bucket");
-    expect(putBody?.s3AccessKey).toBe("AKIA");
-    expect(putBody?.s3SecretKey).toBe("super-secret");
+    expect(putBody?.slackSigningSecret).toBe("my-sig");
+    expect(putBody?.slackBotToken).toBe("xoxb-tok");
   });
 
-  it("secret lasciata vuota → s3SecretKey NON è nel body (non modificare)", async () => {
+  it("campi vuoti → i segreti NON sono nel body (non modificare)", async () => {
     const user = userEvent.setup();
     let putBody: Record<string, unknown> | undefined;
     mockApi({
       "GET /api/settings/instance": () =>
         jsonResponse(
           200,
-          makeInstance({
-            s3Endpoint: "https://s3.example.com",
-            s3Bucket: "my-bucket",
-            s3AccessKey: "AKIA",
-            s3SecretKeySet: true,
-            attachmentsEnabled: true,
-          }),
+          makeInstance({ slackSigningSecretSet: true, slackBotTokenSet: true, slackEnabled: true }),
         ),
       "PUT /api/settings/instance": (_url, init) => {
         putBody = JSON.parse(String(init?.body));
         return jsonResponse(
           200,
-          makeInstance({
-            s3Endpoint: "https://s3.example.com",
-            s3Bucket: "changed",
-            s3AccessKey: "AKIA",
-            s3SecretKeySet: true,
-            attachmentsEnabled: true,
-          }),
+          makeInstance({ slackSigningSecretSet: true, slackBotTokenSet: true, slackEnabled: true }),
         );
       },
     });
     renderSection();
 
-    const bucket = await screen.findByLabelText(/bucket/i);
-    await user.clear(bucket);
-    await user.type(bucket, "changed");
-    // Secret lasciata vuota di proposito.
+    // Segreti lasciati vuoti di proposito.
+    await user.click(await screen.findByRole("button", { name: /save/i }));
+
+    await waitFor(() => expect(putBody).toBeDefined());
+    expect("slackSigningSecret" in (putBody ?? {})).toBe(false);
+    expect("slackBotToken" in (putBody ?? {})).toBe(false);
+  });
+
+  it("checkbox Remove → invia '' per azzerare il segreto", async () => {
+    const user = userEvent.setup();
+    let putBody: Record<string, unknown> | undefined;
+    mockApi({
+      "GET /api/settings/instance": () =>
+        jsonResponse(
+          200,
+          makeInstance({ slackSigningSecretSet: true, slackBotTokenSet: true, slackEnabled: true }),
+        ),
+      "PUT /api/settings/instance": (_url, init) => {
+        putBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, makeInstance({ slackBotTokenSet: true }));
+      },
+    });
+    renderSection();
+
+    await user.click(await screen.findByLabelText(/remove stored signing secret/i));
     await user.click(screen.getByRole("button", { name: /save/i }));
 
     await waitFor(() => expect(putBody).toBeDefined());
-    expect("s3SecretKey" in (putBody ?? {})).toBe(false);
-    expect(putBody?.s3Bucket).toBe("changed");
+    expect(putBody?.slackSigningSecret).toBe("");
+    expect("slackBotToken" in (putBody ?? {})).toBe(false);
   });
 });

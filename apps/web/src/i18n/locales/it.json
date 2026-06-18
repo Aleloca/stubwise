@@ -292,7 +292,8 @@
         "automation": "Automazione AI",
         "notifications": "Notifiche",
         "gitAccounts": "Account Git",
-        "storage": "Storage"
+        "storage": "Storage",
+        "slack": "Slack"
       }
     },
     "account": {
@@ -375,6 +376,23 @@
       "secretSetPlaceholder": "•••• (impostata)",
       "secretHint": "// la secret è cifrata a riposo e non viene più mostrata. Lascia vuoto per mantenere quella salvata.",
       "removeSecret": "Rimuovi la secret salvata",
+      "save": "Salva",
+      "saving": "Salvataggio…",
+      "saved": "Salvato"
+    },
+    "slack": {
+      "title": "Slack",
+      "subtitle": "Crea ticket da Slack con uno slash command e i messaggi interattivi.",
+      "enabledBadge": "Slack attivo",
+      "disabledBadge": "Slack disattivo",
+      "signingSecret": "Signing secret",
+      "botToken": "Bot token",
+      "secretPlaceholder": "Incolla qui il valore",
+      "secretSetPlaceholder": "•••• (impostato)",
+      "removeSigningSecret": "Rimuovi il signing secret salvato",
+      "removeBotToken": "Rimuovi il bot token salvato",
+      "secretHint": "// i segreti sono cifrati a riposo e non vengono più mostrati. Lascia vuoto per mantenere quello salvato.",
+      "setupHint": "Crea una Slack app su api.slack.com, incolla qui il Signing Secret e il Bot Token, imposta la request URL dello Slash Command a {{commandsUrl}} e la request URL della Interactivity a {{interactionsUrl}}, e aggiungi gli scope commands, users:read, users:read.email.",
       "save": "Salva",
       "saving": "Salvataggio…",
       "saved": "Salvato"
