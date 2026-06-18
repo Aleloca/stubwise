@@ -1,17 +1,28 @@
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-  useSuspenseQuery,
-} from "@tanstack/react-query";
-import { useState, type FormEvent } from "react";
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
+import { useMemo, useState, type FormEvent } from "react";
 import { Trans, useTranslation } from "react-i18next";
+import { Avatar } from "../components/avatar";
 import { CopyButton } from "../components/copy-button";
 import { FormError, TextField } from "../components/field";
-import { deleteInvite, postInvite, type Invite, type PendingInvite } from "../lib/api";
+import {
+  deleteInvite,
+  linkUserSlack,
+  postInvite,
+  unlinkUserSlack,
+  type Invite,
+  type PendingInvite,
+  type SlackWorkspaceUser,
+  type TeamUser,
+} from "../lib/api";
 import { meQueryOptions } from "../lib/auth";
 import { formatDate } from "../lib/format";
-import { invitesQueryOptions, usersQueryOptions } from "../lib/queries";
+import {
+  invitesQueryOptions,
+  slackWorkspaceUsersQueryOptions,
+  usersQueryOptions,
+} from "../lib/queries";
+import { translateApiError } from "../lib/translate-api-error";
 
 /**
  * Pagina Team: chi ha accesso alla piattaforma. La sezione "Membri" (utenti
@@ -32,7 +43,7 @@ export function TeamPage() {
       </header>
 
       <div className="mt-6 flex flex-col gap-8">
-        <MembersSection currentUserId={me.user.id} />
+        <MembersSection currentUserId={me.user.id} isAdmin={isAdmin} />
         {isAdmin && <InvitesSection />}
       </div>
     </div>
@@ -54,10 +65,58 @@ function RoleBadge({ role }: { role: "admin" | "member" }) {
   );
 }
 
-/** Tabella dei membri registrati: email, ruolo, "membro dal". Sola lettura. */
-function MembersSection({ currentUserId }: { currentUserId: string }) {
+/**
+ * Stato condiviso dei membri del workspace Slack per i picker di link/invito.
+ * `useQuery` non-suspense abilitata solo per gli admin: l'endpoint risponde 400
+ * `slack_not_configured` quando Slack è spento, e qui lo si traduce in un flag
+ * `notConfigured` che disabilita le azioni con un hint anziché far esplodere la
+ * pagina. La lista è `[]` finché non carica o se in errore.
+ */
+function useSlackWorkspace(enabled: boolean) {
+  const query = useQuery({ ...slackWorkspaceUsersQueryOptions, enabled });
+  const notConfigured =
+    query.error instanceof Error &&
+    "code" in query.error &&
+    (query.error as { code?: string }).code === "slack_not_configured";
+  return {
+    users: query.data ?? [],
+    isLoading: query.isLoading,
+    // Slack non configurato O qualunque altro errore della query → azioni off.
+    unavailable: notConfigured || (!query.isLoading && query.error != null),
+  };
+}
+
+/** Link/hint mostrato quando Slack non è configurato: punta a Settings → Slack. */
+function SlackNotConfiguredHint() {
+  const { t } = useTranslation();
+  return (
+    <Link
+      to="/settings/slack"
+      className="font-mono text-[10px] tracking-[0.12em] text-fg-faint uppercase transition-colors hover:text-signal"
+      title={t("settings:team.slackSettingsLink")}
+    >
+      {t("settings:team.slackNotConfiguredHint")}
+    </Link>
+  );
+}
+
+/**
+ * Tabella dei membri registrati: avatar, email, stato Slack e ruolo. Per gli
+ * admin aggiunge il link/unlink dell'identità Slack tramite un picker `select`.
+ */
+function MembersSection({ currentUserId, isAdmin }: { currentUserId: string; isAdmin: boolean }) {
   const { t } = useTranslation();
   const { data: users } = useSuspenseQuery(usersQueryOptions);
+  const slack = useSlackWorkspace(isAdmin);
+
+  // Display name Slack per slackUserId, per arricchire il badge "Linked".
+  const slackNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const u of slack.users) {
+      if (u.displayName) map.set(u.id, u.displayName);
+    }
+    return map;
+  }, [slack.users]);
 
   return (
     <section className="rounded-sm border border-line bg-ink-900">
@@ -72,28 +131,199 @@ function MembersSection({ currentUserId }: { currentUserId: string }) {
 
       <ul className="divide-y divide-line">
         {users.map((user) => (
-          <li
+          <MemberRow
             key={user.id}
-            className="flex items-center justify-between gap-4 px-4 py-3"
-          >
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="truncate font-mono text-[13px] text-fg">{user.email}</span>
-              {user.id === currentUserId && (
-                <span className="shrink-0 rounded-sm border border-line-strong px-1.5 py-0.5 font-mono text-[10px] tracking-[0.14em] text-fg-faint uppercase">
-                  {t("settings:team.you")}
-                </span>
-              )}
-            </div>
-            <div className="flex shrink-0 items-center gap-4">
-              <span className="hidden font-mono text-[11px] text-fg-faint sm:inline">
-                {t("settings:team.memberSince", { date: formatDate(user.createdAt) })}
-              </span>
-              <RoleBadge role={user.role} />
-            </div>
-          </li>
+            user={user}
+            isCurrentUser={user.id === currentUserId}
+            isAdmin={isAdmin}
+            slackUsers={slack.users}
+            slackUnavailable={slack.unavailable}
+            slackName={user.slackUserId ? (slackNameById.get(user.slackUserId) ?? null) : null}
+          />
         ))}
       </ul>
     </section>
+  );
+}
+
+function MemberRow({
+  user,
+  isCurrentUser,
+  isAdmin,
+  slackUsers,
+  slackUnavailable,
+  slackName,
+}: {
+  user: TeamUser;
+  isCurrentUser: boolean;
+  isAdmin: boolean;
+  slackUsers: SlackWorkspaceUser[];
+  slackUnavailable: boolean;
+  slackName: string | null;
+}) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const [picking, setPicking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const isLinked = user.slackUserId != null;
+
+  function invalidate() {
+    void queryClient.invalidateQueries({ queryKey: usersQueryOptions.queryKey });
+    void queryClient.invalidateQueries({
+      queryKey: slackWorkspaceUsersQueryOptions.queryKey,
+    });
+  }
+
+  const linkMutation = useMutation({
+    mutationFn: (slackUserId: string) => linkUserSlack(user.id, slackUserId),
+    onSuccess: () => {
+      setPicking(false);
+      invalidate();
+    },
+    onError: (cause) => setError(translateApiError(cause, t)),
+  });
+
+  const unlinkMutation = useMutation({
+    mutationFn: () => unlinkUserSlack(user.id),
+    onSuccess: invalidate,
+    onError: (cause) => setError(translateApiError(cause, t)),
+  });
+
+  function handleUnlink() {
+    if (!window.confirm(t("settings:team.confirmUnlink", { email: user.email }))) return;
+    setError(null);
+    unlinkMutation.mutate();
+  }
+
+  return (
+    <li className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex min-w-0 items-center gap-2">
+        <Avatar src={user.avatarUrl} label={user.email} size={24} />
+        <span className="truncate font-mono text-[13px] text-fg">{user.email}</span>
+        {isCurrentUser && (
+          <span className="shrink-0 rounded-sm border border-line-strong px-1.5 py-0.5 font-mono text-[10px] tracking-[0.14em] text-fg-faint uppercase">
+            {t("settings:team.you")}
+          </span>
+        )}
+        <span
+          className={`shrink-0 rounded-sm border px-1.5 py-0.5 font-mono text-[10px] tracking-[0.12em] uppercase ${
+            isLinked ? "border-ok/40 text-ok" : "border-line-strong text-fg-faint"
+          }`}
+        >
+          {isLinked
+            ? slackName
+              ? t("settings:team.slackLinkedTo", { name: slackName })
+              : t("settings:team.slackLinked")
+            : t("settings:team.slackNotLinked")}
+        </span>
+      </div>
+
+      <div className="flex shrink-0 flex-wrap items-center gap-3">
+        {isAdmin && isLinked && (
+          <button
+            type="button"
+            onClick={handleUnlink}
+            disabled={unlinkMutation.isPending}
+            className="rounded-sm border border-line-strong px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase transition-colors hover:border-danger/40 hover:text-danger disabled:opacity-50"
+          >
+            {unlinkMutation.isPending ? t("settings:team.unlinking") : t("settings:team.unlink")}
+          </button>
+        )}
+        {isAdmin && !isLinked && !picking && (
+          <button
+            type="button"
+            onClick={() => {
+              setError(null);
+              setPicking(true);
+            }}
+            disabled={slackUnavailable}
+            className="rounded-sm border border-line-strong px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase transition-colors hover:border-signal-dim/40 hover:text-signal disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {t("settings:team.linkSlack")}
+          </button>
+        )}
+        {isAdmin && !isLinked && picking && (
+          <SlackPicker
+            slackUsers={slackUsers}
+            disabled={linkMutation.isPending}
+            onCancel={() => setPicking(false)}
+            onPick={(slackUserId) => {
+              setError(null);
+              linkMutation.mutate(slackUserId);
+            }}
+          />
+        )}
+        {isAdmin && slackUnavailable && !isLinked && <SlackNotConfiguredHint />}
+        <span className="hidden font-mono text-[11px] text-fg-faint sm:inline">
+          {t("settings:team.memberSince", { date: formatDate(user.createdAt) })}
+        </span>
+        <RoleBadge role={user.role} />
+      </div>
+
+      {error && (
+        <div className="basis-full">
+          <FormError message={error} />
+        </div>
+      )}
+    </li>
+  );
+}
+
+/**
+ * Picker dei membri del workspace Slack: un `<select>` semplice e coerente col
+ * tema control-room. Le voci già collegate ad altri utenti restano elencate ma
+ * disabilitate (così l'admin capisce perché non sono scegliibili). `onPick`
+ * scatta alla scelta di un'opzione valida.
+ */
+function SlackPicker({
+  slackUsers,
+  disabled,
+  onPick,
+  onCancel,
+}: {
+  slackUsers: SlackWorkspaceUser[];
+  disabled: boolean;
+  onPick: (slackUserId: string) => void;
+  onCancel: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex items-center gap-2">
+      <select
+        aria-label={t("settings:team.slackPickerLabel")}
+        disabled={disabled}
+        defaultValue=""
+        onChange={(event) => {
+          if (event.target.value) onPick(event.target.value);
+        }}
+        className="rounded-sm border border-line-strong bg-ink-950 px-2 py-1 font-mono text-[12px] text-fg disabled:opacity-50"
+      >
+        <option value="" disabled>
+          {t("settings:team.slackPickerPlaceholder")}
+        </option>
+        {slackUsers.map((su) => {
+          const name = su.displayName ?? su.email ?? su.id;
+          const taken = su.linkedUserId != null;
+          return (
+            <option key={su.id} value={su.id} disabled={taken}>
+              {taken
+                ? t("settings:team.slackOptionLinked", { name })
+                : su.email
+                  ? `${name} · ${su.email}`
+                  : name}
+            </option>
+          );
+        })}
+      </select>
+      <button
+        type="button"
+        onClick={onCancel}
+        disabled={disabled}
+        className="rounded-sm border border-line-strong px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase transition-colors hover:text-fg disabled:opacity-50"
+      >
+        {t("settings:team.cancel")}
+      </button>
+    </div>
   );
 }
 
@@ -106,26 +336,45 @@ function InvitesSection() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { data: invites } = useQuery(invitesQueryOptions);
+  const slack = useSlackWorkspace(true);
   const [email, setEmail] = useState("");
   const [created, setCreated] = useState<(Invite & { email: string }) | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pickingSlack, setPickingSlack] = useState(false);
 
   const createMutation = useMutation({
-    mutationFn: (value: string) => postInvite(value),
-    onSuccess: (invite, value) => {
+    mutationFn: ({ value, slackUserId }: { value: string; slackUserId?: string }) =>
+      postInvite(value, slackUserId),
+    onSuccess: (invite, { value }) => {
       setCreated({ ...invite, email: value });
       setEmail("");
+      setPickingSlack(false);
       void queryClient.invalidateQueries({ queryKey: invitesQueryOptions.queryKey });
     },
     onError: (cause) => {
-      setError(cause instanceof Error ? cause.message : t("common:unexpectedError"));
+      setError(translateApiError(cause, t));
     },
   });
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setError(null);
-    createMutation.mutate(email);
+    createMutation.mutate({ value: email });
+  }
+
+  // Email già in sospeso: best-effort per non riproporle nel picker Slack.
+  const pendingEmails = new Set((invites ?? []).map((i) => i.email.toLowerCase()));
+  // Solo membri Slack non collegati a Stubwise e non già invitati (con email nota).
+  const slackInviteCandidates = slack.users.filter(
+    (su) =>
+      su.linkedUserId == null && su.email != null && !pendingEmails.has(su.email.toLowerCase()),
+  );
+
+  function handlePickSlack(slackUserId: string) {
+    const picked = slack.users.find((su) => su.id === slackUserId);
+    if (!picked?.email) return;
+    setError(null);
+    createMutation.mutate({ value: picked.email, slackUserId });
   }
 
   const createdUrl = created
@@ -144,11 +393,7 @@ function InvitesSection() {
       </header>
 
       <div className="px-4 py-4">
-        <form
-          onSubmit={handleSubmit}
-          className="flex items-end gap-3"
-          noValidate
-        >
+        <form onSubmit={handleSubmit} className="flex items-end gap-3" noValidate>
           <div className="min-w-0 flex-1">
             <TextField
               id="invite-email"
@@ -165,9 +410,35 @@ function InvitesSection() {
             disabled={createMutation.isPending || email.trim() === ""}
             className="shrink-0 rounded-sm bg-signal px-4 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright active:bg-signal-dim disabled:cursor-not-allowed disabled:bg-signal-dim disabled:opacity-60"
           >
-            {createMutation.isPending ? t("settings:team.creatingInvite") : t("settings:team.createInvite")}
+            {createMutation.isPending
+              ? t("settings:team.creatingInvite")
+              : t("settings:team.createInvite")}
           </button>
         </form>
+
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          {pickingSlack ? (
+            <SlackPicker
+              slackUsers={slackInviteCandidates}
+              disabled={createMutation.isPending}
+              onCancel={() => setPickingSlack(false)}
+              onPick={handlePickSlack}
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                setPickingSlack(true);
+              }}
+              disabled={slack.unavailable}
+              className="rounded-sm border border-line-strong px-3 py-1.5 font-mono text-[11px] tracking-[0.1em] text-fg-muted uppercase transition-colors hover:border-signal-dim/40 hover:text-signal disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {t("settings:team.inviteFromSlack")}
+            </button>
+          )}
+          {slack.unavailable && <SlackNotConfiguredHint />}
+        </div>
 
         <FormError message={error} />
 
@@ -229,8 +500,7 @@ function InviteRow({ invite }: { invite: PendingInvite }) {
 
   const revokeMutation = useMutation({
     mutationFn: () => deleteInvite(invite.token),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: invitesQueryOptions.queryKey }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: invitesQueryOptions.queryKey }),
   });
 
   function handleRevoke() {
@@ -241,18 +511,30 @@ function InviteRow({ invite }: { invite: PendingInvite }) {
   return (
     <li className="rounded-sm border border-line bg-ink-950/40 p-3">
       <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <p className="truncate font-mono text-[13px] text-fg">{invite.email}</p>
-          <p className="mt-1 font-mono text-[11px] text-fg-faint">
-            {t("settings:team.sentOn", { date: formatDate(invite.createdAt) })} ·{" "}
-            {expired ? (
-              <span className="text-danger">
-                {t("settings:team.expiredOn", { date: formatDate(invite.expiresAt) })}
-              </span>
-            ) : (
-              <span>{t("settings:team.expiresOn", { date: formatDate(invite.expiresAt) })}</span>
-            )}
-          </p>
+        <div className="flex min-w-0 items-start gap-2">
+          {invite.slackUserId && (
+            <Avatar src={invite.slackAvatarUrl} label={invite.email} size={20} />
+          )}
+          <div className="min-w-0">
+            <p className="truncate font-mono text-[13px] text-fg">
+              {invite.email}
+              {invite.slackUserId && (
+                <span className="ml-2 rounded-sm border border-ok/40 px-1.5 py-0.5 font-mono text-[10px] tracking-[0.12em] text-ok uppercase">
+                  {t("settings:team.viaSlack")}
+                </span>
+              )}
+            </p>
+            <p className="mt-1 font-mono text-[11px] text-fg-faint">
+              {t("settings:team.sentOn", { date: formatDate(invite.createdAt) })} ·{" "}
+              {expired ? (
+                <span className="text-danger">
+                  {t("settings:team.expiredOn", { date: formatDate(invite.expiresAt) })}
+                </span>
+              ) : (
+                <span>{t("settings:team.expiresOn", { date: formatDate(invite.expiresAt) })}</span>
+              )}
+            </p>
+          </div>
         </div>
         <button
           type="button"
@@ -267,7 +549,10 @@ function InviteRow({ invite }: { invite: PendingInvite }) {
         <code className="min-w-0 flex-1 truncate rounded-sm border border-line bg-ink-950/70 px-3 py-1.5 font-mono text-[12px] text-signal">
           {inviteUrl}
         </code>
-        <CopyButton text={inviteUrl} label={t("settings:team.copyInviteLinkFor", { email: invite.email })} />
+        <CopyButton
+          text={inviteUrl}
+          label={t("settings:team.copyInviteLinkFor", { email: invite.email })}
+        />
       </div>
     </li>
   );

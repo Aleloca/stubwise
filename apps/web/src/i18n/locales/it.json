@@ -42,6 +42,8 @@
     "invite_expired": "Invito scaduto",
     "email_already_exists": "Esiste già un utente con questa email",
     "view_exists": "Esiste già una vista salvata con questo nome",
+    "slack_not_configured": "L'integrazione Slack non è configurata",
+    "slack_identity_taken": "Questa identità Slack è già collegata a un altro membro",
     "network_error": "Impossibile contattare il server",
     "generic": "Qualcosa è andato storto"
   },
@@ -332,7 +334,23 @@
       "revoke": "Revoca",
       "revoking": "Revoca…",
       "confirmRevoke": "Revocare l'invito per {{email}}?",
-      "copyInviteLinkFor": "Copia link di invito per {{email}}"
+      "copyInviteLinkFor": "Copia link di invito per {{email}}",
+      "slackLinked": "Collegato",
+      "slackLinkedTo": "Collegato · {{name}}",
+      "slackNotLinked": "Non collegato",
+      "linkSlack": "Collega Slack",
+      "linking": "Collegamento…",
+      "unlink": "Scollega",
+      "unlinking": "Scollegamento…",
+      "confirmUnlink": "Scollegare l'identità Slack di {{email}}?",
+      "slackPickerLabel": "Scegli un membro Slack",
+      "slackPickerPlaceholder": "Seleziona un membro Slack…",
+      "slackOptionLinked": "{{name}} · già collegato",
+      "slackNotConfiguredHint": "Configura Slack nelle Impostazioni",
+      "slackSettingsLink": "Impostazioni → Slack",
+      "cancel": "Annulla",
+      "inviteFromSlack": "Invita da Slack",
+      "viaSlack": "via Slack"
     },
     "gitAccounts": {
       "title": "Account Git",

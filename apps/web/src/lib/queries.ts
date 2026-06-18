@@ -10,6 +10,7 @@ import {
   getProject,
   getProjects,
   getProjectWebhook,
+  getSlackWorkspaceUsers,
   getTicket,
   getTicketActivity,
   getTicketAttachments,
@@ -168,6 +169,20 @@ export const invitesQueryOptions = queryOptions({
   queryKey: ["team", "invites"],
   queryFn: getInvites,
   staleTime: 30_000,
+});
+
+/**
+ * Membri del workspace Slack per il picker di link/invito (solo admin).
+ * NON suspense: l'endpoint risponde 400 `slack_not_configured` quando Slack
+ * non è attivo, e la pagina Team deve degradare con un hint anziché esplodere.
+ * `retry: false` evita di riprovare un 400 deterministico; il chiamante usa
+ * `useQuery` con `enabled` legato al ruolo admin e legge `error`/`data`.
+ */
+export const slackWorkspaceUsersQueryOptions = queryOptions({
+  queryKey: ["slack", "workspace-users"],
+  queryFn: getSlackWorkspaceUsers,
+  retry: false,
+  staleTime: 60_000,
 });
 
 export const projectsQueryOptions = queryOptions({
