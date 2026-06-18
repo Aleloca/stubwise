@@ -18,6 +18,7 @@ import { languageSchema } from "@stubwise/shared";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
 import { apiError } from "../errors.js";
+import { loadSlackCreds, defaultSlackClientFactory, type SlackClientFactory } from "../slack/creds.js";
 
 export interface AuthRoutesOptions {
   /**
@@ -26,6 +27,13 @@ export interface AuthRoutesOptions {
    * vettore di DoS. Ogni route ha il proprio bucket.
    */
   rateLimit: RateLimitConfig;
+  /**
+   * Fabbrica del client Slack, per gli inviti originati dal workspace Slack
+   * (POST /invites con slackUserId): email/avatar sono derivati server-side dal
+   * profilo Slack, mai dal client. Default: client reale via fetch globale.
+   * Fake nei test.
+   */
+  slackClientFactory?: SlackClientFactory;
 }
 
 /** Validità di un link di invito: 7 giorni. */
@@ -97,6 +105,7 @@ export async function authRoutes(
   opts: AuthRoutesOptions,
 ): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+  const slackClientFactory = opts.slackClientFactory ?? defaultSlackClientFactory;
 
   // La UI usa questo flag per decidere se mostrare la pagina di primo setup.
   app.get(
@@ -234,17 +243,38 @@ export async function authRoutes(
     {
       preHandler: requireAdmin,
       schema: {
-        body: z.object({ email: z.email() }),
+        // slackUserId opzionale: l'invito originato dal picker del workspace
+        // porta con sé l'identità Slack, propagata all'utente alla
+        // registrazione. L'email resta obbligatoria (il picker la precompila).
+        body: z.object({ email: z.email(), slackUserId: z.string().min(1).optional() }),
         response: {
           201: z.object({ token: z.string(), expiresAt: z.iso.datetime() }),
+          400: errorSchema,
           ...authErrorResponses,
         },
       },
     },
     async (request, reply) => {
+      const { email, slackUserId } = request.body;
+      // Avatar derivato server-side dal profilo Slack, mai dal client.
+      let slackAvatarUrl: string | null = null;
+      if (slackUserId) {
+        const creds = await loadSlackCreds(instance);
+        if (!creds) {
+          return apiError(reply, 400, "slack_not_configured", "Slack integration is not configured");
+        }
+        const client = slackClientFactory(creds.botToken);
+        const profile = await client.getUserProfile(slackUserId);
+        if (!profile) {
+          return apiError(reply, 400, "slack_user_not_found", "Slack user not found");
+        }
+        slackAvatarUrl = profile.avatarUrl;
+      }
       const token = randomBytes(32).toString("base64url");
       const expiresAt = new Date(Date.now() + INVITE_TTL_MS);
-      await app.db.insert(invites).values({ token, email: request.body.email, expiresAt });
+      await app.db
+        .insert(invites)
+        .values({ token, email, expiresAt, slackUserId: slackUserId ?? null, slackAvatarUrl });
       return reply.code(201).send({ token, expiresAt: expiresAt.toISOString() });
     },
   );
@@ -265,6 +295,10 @@ export async function authRoutes(
               email: z.email(),
               expiresAt: z.iso.datetime(),
               createdAt: z.iso.datetime(),
+              // Identità Slack dell'invito (null se invito email classico),
+              // per mostrare l'avatar nella lista inviti della pagina Team.
+              slackUserId: z.string().nullable(),
+              slackAvatarUrl: z.string().nullable(),
             }),
           ),
           ...authErrorResponses,
@@ -278,6 +312,8 @@ export async function authRoutes(
           email: invites.email,
           expiresAt: invites.expiresAt,
           createdAt: invites.createdAt,
+          slackUserId: invites.slackUserId,
+          slackAvatarUrl: invites.slackAvatarUrl,
         })
         .from(invites)
         .orderBy(desc(invites.createdAt));
@@ -348,6 +384,26 @@ export async function authRoutes(
         return apiError(reply, 409, "email_already_exists", "A user with this email already exists");
       }
 
+      // Identità Slack dell'invito propagata all'utente. Lo Slack id su `users`
+      // è unique: se è già di un altro utente, NON si fa fallire la
+      // registrazione: un pre-check (non atomico ma sufficiente — l'admin non
+      // emette inviti concorrenti sullo stesso Slack id) omette i campi Slack e
+      // crea comunque l'utente, senza identità Slack. È più semplice e robusto
+      // del distinguere la unique violation su email da quella su slack_user_id
+      // intercettando l'errore.
+      let inviteSlackUserId = invite.slackUserId;
+      let inviteSlackAvatarUrl = invite.slackAvatarUrl;
+      if (inviteSlackUserId) {
+        const [slackOwner] = await app.db
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.slackUserId, inviteSlackUserId));
+        if (slackOwner) {
+          inviteSlackUserId = null;
+          inviteSlackAvatarUrl = null;
+        }
+      }
+
       const passwordHash = await hashPassword(request.body.password);
       // Consumo dell'invito e creazione utente in transazione, con il delete
       // PRIMA dell'insert: in concorrenza solo la richiesta il cui delete
@@ -363,7 +419,13 @@ export async function authRoutes(
           if (!consumed) return null;
           const [created] = await tx
             .insert(users)
-            .values({ email: request.body.email, passwordHash, role: "member" })
+            .values({
+              email: request.body.email,
+              passwordHash,
+              role: "member",
+              slackUserId: inviteSlackUserId,
+              slackAvatarUrl: inviteSlackAvatarUrl,
+            })
             .returning();
           if (!created) throw new Error("insert del member non ha restituito la riga");
           return created;

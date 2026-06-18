@@ -146,9 +146,13 @@ export interface Invite {
   expiresAt: string;
 }
 
-/** Crea un invito (solo admin): il token va consegnato fuori banda. */
-export function postInvite(email: string): Promise<Invite> {
-  return api.post("/api/auth/invites", { email });
+/**
+ * Crea un invito (solo admin): il token va consegnato fuori banda.
+ * Con `slackUserId` l'invito è originato dal workspace Slack e porta con sé
+ * l'identità Slack (email/avatar derivati server-side dal profilo Slack).
+ */
+export function postInvite(email: string, slackUserId?: string): Promise<Invite> {
+  return api.post("/api/auth/invites", { email, ...(slackUserId ? { slackUserId } : {}) });
 }
 
 /**
@@ -161,6 +165,9 @@ export interface PendingInvite {
   email: string;
   expiresAt: string;
   createdAt: string;
+  /** Identità Slack dell'invito (null se invito email classico). */
+  slackUserId: string | null;
+  slackAvatarUrl: string | null;
 }
 
 /** Inviti ancora in sospeso (solo admin): 403 per i member. */

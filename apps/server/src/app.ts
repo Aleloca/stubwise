@@ -230,6 +230,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(authRoutes, {
     prefix: "/api/auth",
     rateLimit: opts.authRateLimit ?? { max: 10, timeWindow: "1 minute" },
+    // Necessaria per gli inviti originati dal workspace Slack: deriva
+    // email/avatar dal profilo Slack server-side. Fake nei test.
+    slackClientFactory: opts.slackClientFactory,
   });
   // Account git riutilizzabili (credenziali slegate dal progetto): lettura per
   // ogni utente (scelta in fase di creazione progetto), scrittura solo admin.
