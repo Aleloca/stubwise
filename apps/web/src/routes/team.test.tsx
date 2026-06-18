@@ -216,13 +216,14 @@ describe("pagina team", () => {
     const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
     expect(within(beaRow).getByText("Not linked")).toBeInTheDocument();
 
-    // Apri il picker e seleziona il membro Slack disponibile.
+    // Apri il picker, filtra per nome e seleziona il membro Slack disponibile.
     await user.click(within(beaRow).getByRole("button", { name: "Link Slack" }));
-    const select = within(beaRow).getByRole("combobox", { name: "Pick a Slack member" });
-    // L'opzione già collegata ad un altro è disabilitata.
-    const takenOption = within(select).getByRole("option", { name: /Carl Jung/ });
-    expect(takenOption).toBeDisabled();
-    await user.selectOptions(select, "W001");
+    const search = within(beaRow).getByRole("combobox", { name: "Pick a Slack member" });
+    await user.type(search, "Bea");
+    const listbox = within(beaRow).getByRole("listbox");
+    // L'opzione già collegata ad un altro è marcata come disabilitata.
+    expect(within(listbox).queryByRole("option", { name: /Carl Jung/ })).not.toBeInTheDocument();
+    await user.click(within(listbox).getByRole("option", { name: /Bea Smith/ }));
 
     await waitFor(() => expect(linkBody).toEqual({ slackUserId: "W001" }));
     // Dopo l'invalidazione il membro risulta collegato.
@@ -279,8 +280,10 @@ describe("pagina team", () => {
 
     const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
     await user.click(within(beaRow).getByRole("button", { name: "Link Slack" }));
-    const select = within(beaRow).getByRole("combobox", { name: "Pick a Slack member" });
-    await user.selectOptions(select, "W001");
+    const search = within(beaRow).getByRole("combobox", { name: "Pick a Slack member" });
+    await user.type(search, "Bea");
+    const listbox = within(beaRow).getByRole("listbox");
+    await user.click(within(listbox).getByRole("option", { name: /Bea Smith/ }));
 
     expect(
       await screen.findByText("This Slack identity is already linked to another member"),
@@ -326,13 +329,203 @@ describe("pagina team", () => {
 
     await user.click(await screen.findByRole("button", { name: "Invite from Slack" }));
     // Il picker mostra solo i membri non ancora collegati (Bea, non Carl).
-    const select = screen.getByRole("combobox", { name: "Pick a Slack member" });
-    expect(within(select).queryByRole("option", { name: /Carl Jung/ })).not.toBeInTheDocument();
-    await user.selectOptions(select, "W001");
+    const search = screen.getByRole("combobox", { name: "Pick a Slack member" });
+    const listbox = screen.getByRole("listbox");
+    expect(within(listbox).queryByRole("option", { name: /Carl Jung/ })).not.toBeInTheDocument();
+    await user.type(search, "bea@example.com");
+    await user.click(within(listbox).getByRole("option", { name: /Bea Smith/ }));
 
     await waitFor(() =>
       expect(postBody).toEqual({ email: "bea@example.com", slackUserId: "W001" }),
     );
+  });
+
+  it("admin: il picker filtra per email e mostra il no-results", async () => {
+    const user = userEvent.setup();
+
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/users": () => jsonResponse(200, USERS),
+      "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
+      "GET /api/auth/invites": () => jsonResponse(200, []),
+    });
+
+    renderTeam();
+
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    await user.click(within(beaRow).getByRole("button", { name: "Link Slack" }));
+    const search = within(beaRow).getByRole("combobox", { name: "Pick a Slack member" });
+    const listbox = within(beaRow).getByRole("listbox");
+
+    // Filtra per email: solo Bea (carl è collegato ad altri e comunque non matcha).
+    await user.type(search, "bea@");
+    expect(within(listbox).getByRole("option", { name: /Bea Smith/ })).toBeInTheDocument();
+    expect(within(listbox).queryByRole("option", { name: /Carl/ })).not.toBeInTheDocument();
+
+    // Query senza match → messaggio no-results, nessuna opzione.
+    await user.clear(search);
+    await user.type(search, "zzzznope");
+    expect(within(listbox).queryAllByRole("option")).toHaveLength(0);
+    expect(within(beaRow).getByText("No matching members")).toBeInTheDocument();
+  });
+
+  it("admin: una voce già collegata non è selezionabile", async () => {
+    const user = userEvent.setup();
+    let putCalled = false;
+
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/users": () => jsonResponse(200, USERS),
+      "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
+      "GET /api/auth/invites": () => jsonResponse(200, []),
+      "PUT /api/users/u2/slack": () => {
+        putCalled = true;
+        return jsonResponse(200, USERS[1]);
+      },
+    });
+
+    renderTeam();
+
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    await user.click(within(beaRow).getByRole("button", { name: "Link Slack" }));
+    const search = within(beaRow).getByRole("combobox", { name: "Pick a Slack member" });
+    await user.type(search, "Carl");
+    const listbox = within(beaRow).getByRole("listbox");
+    const taken = within(listbox).getByRole("option", { name: /Carl Jung/ });
+    expect(taken).toHaveAttribute("aria-disabled", "true");
+    expect(within(taken).getByText(/already linked/)).toBeInTheDocument();
+
+    // Click non scatena la mutation.
+    await user.click(taken);
+    expect(putCalled).toBe(false);
+  });
+
+  it("admin: seleziona da tastiera con ArrowDown + Enter", async () => {
+    const user = userEvent.setup();
+    let linkBody: unknown;
+
+    // Tre membri non collegati così ArrowDown sposta l'indice attivo.
+    const slackUsers = [
+      {
+        id: "W001",
+        displayName: "Bea Smith",
+        email: "bea@example.com",
+        avatarUrl: null,
+        linkedUserId: null,
+      },
+      {
+        id: "W010",
+        displayName: "Bea Jones",
+        email: "bea.jones@example.com",
+        avatarUrl: null,
+        linkedUserId: null,
+      },
+    ];
+
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/users": () => jsonResponse(200, USERS),
+      "GET /api/slack/workspace-users": () => jsonResponse(200, slackUsers),
+      "GET /api/auth/invites": () => jsonResponse(200, []),
+      "PUT /api/users/u2/slack": (_url, init) => {
+        linkBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, { ...USERS[1], slackUserId: "W010" });
+      },
+    });
+
+    renderTeam();
+
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    await user.click(within(beaRow).getByRole("button", { name: "Link Slack" }));
+    const search = within(beaRow).getByRole("combobox", { name: "Pick a Slack member" });
+    await user.type(search, "Bea");
+    // ArrowDown porta dalla prima voce (Bea Smith) alla seconda (Bea Jones),
+    // Enter la seleziona.
+    await user.keyboard("{ArrowDown}{Enter}");
+
+    await waitFor(() => expect(linkBody).toEqual({ slackUserId: "W010" }));
+  });
+
+  it("admin: le frecce saltano la voce già collegata e Enter non la seleziona", async () => {
+    const user = userEvent.setup();
+    let linkBody: unknown;
+
+    // L'ordine mette la voce collegata in mezzo: ArrowDown da Bea Smith deve
+    // saltare Carl (collegato) e atterrare su Dora.
+    const slackUsers = [
+      {
+        id: "W001",
+        displayName: "Bea Smith",
+        email: "bea@example.com",
+        avatarUrl: null,
+        linkedUserId: null,
+      },
+      {
+        id: "W002",
+        displayName: "Bea Carl",
+        email: "carl@example.com",
+        avatarUrl: null,
+        linkedUserId: "u9", // collegato ad altri → disabilitata
+      },
+      {
+        id: "W003",
+        displayName: "Bea Dora",
+        email: "dora@example.com",
+        avatarUrl: null,
+        linkedUserId: null,
+      },
+    ];
+
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/users": () => jsonResponse(200, USERS),
+      "GET /api/slack/workspace-users": () => jsonResponse(200, slackUsers),
+      "GET /api/auth/invites": () => jsonResponse(200, []),
+      "PUT /api/users/u2/slack": (_url, init) => {
+        linkBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, { ...USERS[1], slackUserId: "W003" });
+      },
+    });
+
+    renderTeam();
+
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    await user.click(within(beaRow).getByRole("button", { name: "Link Slack" }));
+    const search = within(beaRow).getByRole("combobox", { name: "Pick a Slack member" });
+    await user.type(search, "Bea");
+    // Un solo ArrowDown deve saltare la voce collegata (Carl) e attivare Dora.
+    await user.keyboard("{ArrowDown}{Enter}");
+
+    await waitFor(() => expect(linkBody).toEqual({ slackUserId: "W003" }));
+  });
+
+  it("admin: il picker limita i risultati renderizzati e mostra '+N altri'", async () => {
+    const user = userEvent.setup();
+    const many = Array.from({ length: 80 }, (_, i) => ({
+      id: `W${i}`,
+      displayName: `User Number ${i}`,
+      email: `user${i}@example.com`,
+      avatarUrl: null,
+      linkedUserId: null,
+    }));
+
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/users": () => jsonResponse(200, USERS),
+      "GET /api/slack/workspace-users": () => jsonResponse(200, many),
+      "GET /api/auth/invites": () => jsonResponse(200, []),
+    });
+
+    renderTeam();
+
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    await user.click(within(beaRow).getByRole("button", { name: "Link Slack" }));
+    const search = within(beaRow).getByRole("combobox", { name: "Pick a Slack member" });
+    // "User" matcha tutti gli 80 → cap a 50, +30 altri.
+    await user.type(search, "User");
+    const listbox = within(beaRow).getByRole("listbox");
+    expect(within(listbox).getAllByRole("option")).toHaveLength(50);
+    expect(within(beaRow).getByText("+30 more — refine your search")).toBeInTheDocument();
   });
 
   it("la lista inviti mostra l'identità Slack quando presente", async () => {
