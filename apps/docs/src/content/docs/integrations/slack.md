@@ -15,6 +15,16 @@ Tickets created this way enter the [AI pipeline](/docs/ai-pipeline/how-it-works/
 and your [automation rules](/docs/ai-pipeline/automation/) like any other, and
 carry the **Slack** source badge.
 
+:::note[This is not the same as Slack notifications]
+Sending **notifications** to Slack (PR opened, job failed, …) uses a one-way
+[Slack incoming webhook](/docs/notifications/) — just a URL Stubwise posts to.
+**Creating tickets** from Slack is a separate, interactive integration: Slack
+must be able to call Stubwise (slash command and modal), so it needs a real
+Slack **app** with a *Signing Secret*, a *Bot Token* and scopes. An incoming
+webhook alone does **not** provide those. You can add this to an existing Slack
+app or create a dedicated one — either works.
+:::
+
 :::note[Not enabled until configured]
 Until an admin pastes the Slack credentials, the endpoints respond that the
 integration is *not configured* — the slash command shows an ephemeral message
@@ -23,23 +33,25 @@ in Slack and nothing else happens.
 
 ## Setup (admin)
 
-1. Create a Slack app at [api.slack.com/apps](https://api.slack.com/apps)
-   (**Create New App** → *From scratch*), then choose a name and the workspace.
-2. From the app's **Basic Information** page, copy the **Signing Secret**; from
-   **OAuth & Permissions**, copy the **Bot Token** (`xoxb-…`).
-3. In Stubwise open **Settings → Slack** (admin only) and paste the **Signing
-   Secret** and **Bot Token**. They are encrypted at rest and never shown again
-   after saving.
-4. In the Slack app, configure the request URLs:
-   - **Slash Commands** → create `/stubwise` with the request URL
-     `{publicUrl}/api/slack/commands`;
-   - **Interactivity & Shortcuts** → turn on *Interactivity* and set the request
-     URL to `{publicUrl}/api/slack/interactions`.
-5. Still under **Interactivity & Shortcuts**, add a **message action** (shortcut
-   on messages) named **"Create Stubwise ticket"**.
-6. Under **OAuth & Permissions** add the bot token scopes `commands`,
-   `users:read` and `users:read.email`, then (re)install the app to the
-   workspace.
+Configure the Slack app first, then install it (installing is what mints the
+Bot Token), then paste the credentials into Stubwise:
+
+1. Use an existing Slack app or create one at
+   [api.slack.com/apps](https://api.slack.com/apps) (**Create New App** →
+   *From scratch*), then choose a name and the workspace.
+2. **OAuth & Permissions** → add the bot token scopes `commands`, `users:read`
+   and `users:read.email`.
+3. **Slash Commands** → create `/stubwise` with the request URL
+   `{publicUrl}/api/slack/commands`.
+4. **Interactivity & Shortcuts** → turn on *Interactivity* and set the request
+   URL to `{publicUrl}/api/slack/interactions`; under the same page add a
+   **message action** (shortcut on messages) named **"Create Stubwise ticket"**.
+5. **Install** (or reinstall) the app to the workspace to apply the scopes.
+6. Copy the credentials: the **Bot Token** (`xoxb-…`) from **OAuth &
+   Permissions**, and the **Signing Secret** from **Basic Information**.
+7. In Stubwise open **Settings → Slack** (admin only) and paste the **Signing
+   Secret** and **Bot Token**, then save. The badge turns to *enabled*. They are
+   encrypted at rest and never shown again after saving.
 
 `{publicUrl}` is your instance's public URL.
 
