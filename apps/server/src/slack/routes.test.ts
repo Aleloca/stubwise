@@ -1,4 +1,4 @@
-import { createHmac, randomBytes } from "node:crypto";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -266,6 +266,24 @@ describe("POST /api/slack/interactions — view_submission", () => {
     expect(json.errors[BLOCK_IDS.title]).toBeTruthy();
 
     const after = await testDb.db.select().from(tickets).where(eq(tickets.projectId, projectId));
+    expect(after.length).toBe(before.length);
+  });
+
+  it("progetto inesistente → response_action errors sul block progetto, nessun ticket creato, no 500", async () => {
+    const before = await testDb.db.select().from(tickets);
+    const missingProjectId = randomUUID();
+    const body = viewSubmissionBody({
+      projectId: missingProjectId,
+      title: "Progetto sparito",
+      type: "bug",
+    });
+    const res = await slackPost("/api/slack/interactions", body);
+    expect(res.statusCode).toBe(200);
+    const json = res.json() as { response_action: string; errors: Record<string, string> };
+    expect(json.response_action).toBe("errors");
+    expect(json.errors[BLOCK_IDS.project]).toBeTruthy();
+
+    const after = await testDb.db.select().from(tickets);
     expect(after.length).toBe(before.length);
   });
 

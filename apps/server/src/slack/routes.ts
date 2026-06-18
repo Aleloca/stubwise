@@ -2,6 +2,7 @@ import { asc } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { ticketTypeSchema, type TicketType } from "@stubwise/shared";
 import { decrypt, instanceSettings, projects } from "@stubwise/db";
+import { ProjectNotFoundError } from "../db/tickets.js";
 import { createExternalTicket } from "../ingest/processor.js";
 import { resolveReporter } from "../ingest/reporter.js";
 import { publicUrlOrUndefined, ticketUrl } from "../ingest/shared.js";
@@ -278,19 +279,32 @@ export async function slackRoutes(
           ? `Reported via Slack by @${who} (no Stubwise account)`
           : `Reported via Slack by @${who}`;
 
-      const ticket = await createExternalTicket(
-        instance.db,
-        { id: projectId! },
-        {
-          title: title!,
-          body: description,
-          type,
-          priority: "medium",
-          source: "slack",
-          assigneeId,
-          reporterNote,
-        },
-      );
+      let ticket;
+      try {
+        ticket = await createExternalTicket(
+          instance.db,
+          { id: projectId! },
+          {
+            title: title!,
+            body: description,
+            type,
+            priority: "medium",
+            source: "slack",
+            assigneeId,
+            reporterNote,
+          },
+        );
+      } catch (err) {
+        // Progetto inesistente (cancellato tra apertura del modal e submit, o id
+        // stantio): niente 500 verso Slack. Errore leggibile sul block progetto.
+        if (err instanceof ProjectNotFoundError) {
+          return reply.code(200).send({
+            response_action: "errors",
+            errors: { [BLOCK_IDS.project]: "This project no longer exists. Please pick another." },
+          });
+        }
+        throw err;
+      }
 
       // Log col link al ticket (best-effort, non blocca l'ack che chiude il modal).
       const url = ticketUrl(publicUrlOrUndefined(instance), ticket.id);
