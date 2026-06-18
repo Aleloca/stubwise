@@ -22,5 +22,9 @@ export default defineConfig({
     // Solo i test unit/component di src: gli spec Playwright in e2e/ hanno
     // il loro runner (`pnpm e2e`) e non devono finire sotto vitest.
     include: ["src/**/*.test.{ts,tsx}"],
+    // I runner CI hanno ~2 vCPU: la digitazione asincrona di userEvent può
+    // diventare lenta sotto carico. Un timeout più alto del default (5s) evita
+    // falsi negativi senza mascherare regressioni reali.
+    testTimeout: 15_000,
   },
 });

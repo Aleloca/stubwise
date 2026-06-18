@@ -46,9 +46,14 @@ jobs:
         run: pnpm -r typecheck
 
       # I runner ubuntu-latest hanno Docker disponibile: i test di server/worker/db
-      # avviano Postgres via testcontainers.
+      # avviano Postgres via testcontainers. I runner hanno ~2 vCPU: eseguire i
+      # package in parallelo (default) faceva competere i test web (jsdom/userEvent,
+      # CPU-bound) con i container Postgres del server → digitazione userEvent
+      # interlacciata/garbled e timeout. `--workspace-concurrency=1` serializza i
+      # package così ciascuno ha le CPU per sé (i fork interni restano limitati
+      # dalle vitest.config dei singoli package).
       - name: Test
-        run: pnpm test
+        run: pnpm -r --workspace-concurrency=1 test
 
   e2e:
     name: E2E (Playwright)
