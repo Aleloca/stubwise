@@ -482,6 +482,18 @@ export const agentRuns = pgTable(
  * semplice senza unique, per non creare attriti durante lo swap. `secretEncrypted`
  * è il blob cifrato AES-256-GCM (vedi secrets.ts): non esce mai in chiaro dall'API.
  */
+// Stato del test di una credenziale: il server registra la richiesta
+// (test_requested_at) e il worker — l'unico che può lanciare `claude` — la
+// raccoglie, esegue un `claude -p` minimale con quella credenziale e scrive
+// l'esito. `idle` = nessun test richiesto/eseguito; `pending` = richiesto, in
+// attesa del worker; `passed`/`failed` = esito dell'ultimo test.
+export const aiProviderTestStatus = pgEnum("ai_provider_test_status", [
+  "idle",
+  "pending",
+  "passed",
+  "failed",
+]);
+
 export const aiProviders = pgTable("ai_providers", {
   id: uuid("id").primaryKey().defaultRandom(),
   // Ordine di failover (intero crescente). Niente unique: il riordino è
@@ -493,6 +505,19 @@ export const aiProviders = pgTable("ai_providers", {
   // Non esce MAI dall'API: si legge solo per decifrare lato worker.
   secretEncrypted: text("secret_encrypted").notNull(),
   enabled: boolean("enabled").notNull().default(true),
+  // --- Test della credenziale (richiesta dal server, eseguita dal worker) ---
+  // Stato dell'ultimo test (vedi aiProviderTestStatus). `pending` = il worker
+  // deve raccoglierlo ed eseguire un `claude -p` di prova con questa credenziale.
+  testStatus: aiProviderTestStatus("test_status").notNull().default("idle"),
+  // Istante in cui l'admin ha richiesto il test (server). Il worker raccoglie i
+  // `pending` ordinati per questo campo. NULL quando non c'è una richiesta.
+  testRequestedAt: timestamp("test_requested_at", { withTimezone: true }),
+  // Istante in cui il worker ha scritto l'esito (passed/failed). NULL finché
+  // non ha ancora processato la richiesta.
+  testCheckedAt: timestamp("test_checked_at", { withTimezone: true }),
+  // Messaggio d'errore dell'ultimo test fallito (mai il segreto). NULL su
+  // successo o quando non c'è ancora un esito.
+  testError: text("test_error"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()

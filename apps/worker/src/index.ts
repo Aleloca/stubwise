@@ -1,5 +1,6 @@
 import { createDb } from "@stubwise/db";
 import { ClaudeCliRunner } from "./agent/claude-cli.js";
+import { startCredentialTester } from "./agent/credential-tester.js";
 import { startUsagePoller } from "./agent/usage-poller.js";
 import { loadWorkerConfig, type WorkerConfig } from "./config.js";
 import { MirrorManager } from "./git/mirrors.js";
@@ -124,9 +125,23 @@ startUsagePoller({
   signal: controller.signal,
 });
 
+// Tester delle credenziali AI (Polish-A): task SEPARATO dal loop dei job, sul
+// proprio intervallo. Raccoglie le richieste di test marcate `pending` dal
+// server ed esegue un `claude -p` di prova con quella credenziale. È
+// BEST-EFFORT (non fa mai crashare il worker) e NON tocca il lock/heartbeat né
+// i timeout dei job (nessun impatto sull'invariante WORKER_STALE_MINUTES). Si
+// ferma sullo stesso AbortSignal.
+startCredentialTester({
+  db,
+  encryptionKey: config.encryptionKey,
+  intervalMs: config.credentialTestPollSeconds * 1000,
+  signal: controller.signal,
+});
+
 console.error(
   `[stubwise-worker] avviato (concurrency ${config.concurrency}, mirrors in ${config.mirrorsDir}` +
-    `, usage-poll ${config.usagePollMinutes > 0 ? `ogni ${config.usagePollMinutes}'` : "disabilitato"})`,
+    `, usage-poll ${config.usagePollMinutes > 0 ? `ogni ${config.usagePollMinutes}'` : "disabilitato"}` +
+    `, credential-test ${config.credentialTestPollSeconds > 0 ? `ogni ${config.credentialTestPollSeconds}"` : "disabilitato"})`,
 );
 await runWorker({
   db,

@@ -59,6 +59,10 @@ function makeProvider(overrides: Partial<AiProvider> = {}): AiProvider {
     enabled: true,
     secretSet: true,
     createdAt: "2026-06-01T10:00:00.000Z",
+    testStatus: "idle",
+    testRequestedAt: null,
+    testCheckedAt: null,
+    testError: null,
     ...overrides,
   };
 }
@@ -68,10 +72,19 @@ function makeSnapshot(overrides: Partial<AiUsageSnapshot> = {}): AiUsageSnapshot
     providerId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
     providerLabel: "Account Max",
     capturedAt: "2026-06-10T14:00:00.000Z",
-    sessionRemaining: { percentUsed: 62, percentRemaining: 38 },
-    weeklyRemaining: { percentUsed: 28, percentRemaining: 72 },
-    sessionResetAt: "2026-06-10T19:00:00.000Z",
-    weeklyResetAt: "2026-06-16T00:00:00.000Z",
+    sessionRemaining: {
+      percentUsed: 62,
+      percentRemaining: 38,
+      resetsLabel: "2:39pm (Europe/Rome)",
+    },
+    weeklyRemaining: {
+      percentUsed: 28,
+      percentRemaining: 72,
+      resetsLabel: "Jun 22 at 9:59am (Europe/Rome)",
+    },
+    // I reset reali sono label non-ISO: i campi ISO restano null.
+    sessionResetAt: null,
+    weeklyResetAt: null,
     source: "deterministic",
     parseOk: true,
     ...overrides,
@@ -227,6 +240,71 @@ describe("AiProvidersSection — eliminazione", () => {
   });
 });
 
+describe("AiProvidersSection — test credenziale", () => {
+  it("il bottone Test invia POST /:id/test", async () => {
+    const user = userEvent.setup();
+    let tested = false;
+    mockApi({
+      "GET /api/ai-providers": () =>
+        jsonResponse(200, [
+          makeProvider({ id: "id-1", label: "Console primaria", testStatus: tested ? "pending" : "idle" }),
+        ]),
+      "POST /api/ai-providers/id-1/test": () => {
+        tested = true;
+        return jsonResponse(200, makeProvider({ id: "id-1", testStatus: "pending" }));
+      },
+    });
+
+    renderSection();
+
+    const row = (await screen.findByText("Console primaria")).closest("li") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: "Test" }));
+
+    await waitFor(() => expect(tested).toBe(true));
+  });
+
+  it("mostra l'esito passato (✓) per una credenziale testStatus=passed", async () => {
+    mockApi({
+      "GET /api/ai-providers": () =>
+        jsonResponse(200, [makeProvider({ id: "id-1", testStatus: "passed", testCheckedAt: "2026-06-10T14:00:00.000Z" })]),
+    });
+    renderSection();
+
+    const row = (await screen.findByText("Console primaria")).closest("li") as HTMLElement;
+    expect(within(row).getByText(/working/i)).toBeInTheDocument();
+  });
+
+  it("mostra l'errore per una credenziale testStatus=failed", async () => {
+    mockApi({
+      "GET /api/ai-providers": () =>
+        jsonResponse(200, [
+          makeProvider({
+            id: "id-1",
+            testStatus: "failed",
+            testError: "Invalid API key",
+            testCheckedAt: "2026-06-10T14:00:00.000Z",
+          }),
+        ]),
+    });
+    renderSection();
+
+    const row = (await screen.findByText("Console primaria")).closest("li") as HTMLElement;
+    expect(within(row).getByText(/Invalid API key/)).toBeInTheDocument();
+  });
+
+  it("una credenziale pending mostra 'Testing…' e disabilita il bottone", async () => {
+    mockApi({
+      "GET /api/ai-providers": () =>
+        jsonResponse(200, [makeProvider({ id: "id-1", testStatus: "pending" })]),
+    });
+    renderSection();
+
+    const row = (await screen.findByText("Console primaria")).closest("li") as HTMLElement;
+    const testBtn = within(row).getByRole("button", { name: /testing/i });
+    expect(testBtn).toBeDisabled();
+  });
+});
+
 describe("AiProvidersSection — avviso ToS", () => {
   it("appare con ≥2 credenziali di tipo account", async () => {
     mockApi({
@@ -279,6 +357,9 @@ describe("AiProvidersSection — usage residuo abbonamento", () => {
     // 38% sessione, 72% settimanale (percentRemaining).
     expect(within(row).getByText(/38%/)).toBeInTheDocument();
     expect(within(row).getByText(/72%/)).toBeInTheDocument();
+    // Il reset è la label testuale della TUI (non-ISO), mostrata tale-e-quale.
+    expect(within(row).getByText(/2:39pm \(Europe\/Rome\)/)).toBeInTheDocument();
+    expect(within(row).getByText(/Jun 22 at 9:59am \(Europe\/Rome\)/)).toBeInTheDocument();
   });
 
   it("etichetta estimated (fallback) quando source=llm_fallback", async () => {

@@ -49,7 +49,8 @@ describe("pollUsageOnce", () => {
     // Una api_key NON è un account → niente snapshot, ma è usabile per il runLlm.
     await seedProvider(db, { position: 3, kind: "api_key", label: "key", secret: "sk-1" });
 
-    const deterministicOutput = "Current session\n42% used\nWeekly limit\n31% used\n";
+    const deterministicOutput =
+      "Current session\n42% used\nCurrent week (all models)\n31% used\n";
 
     await pollUsageOnce({
       db,
@@ -70,7 +71,11 @@ describe("pollUsageOnce", () => {
       expect(s?.parseOk).toBe(true);
       // rawText conservato SOLO quando parseOk=false.
       expect(s?.rawText).toBeNull();
-      expect(s?.sessionRemaining).toEqual({ percentUsed: 42, percentRemaining: 58 });
+      expect(s?.sessionRemaining).toEqual({
+        percentUsed: 42,
+        percentRemaining: 58,
+        resetsLabel: null,
+      });
     }
   });
 
@@ -107,7 +112,7 @@ describe("pollUsageOnce", () => {
       encryptionKey: ENCRYPTION_KEY,
       capture: async (provider: ResolvedProvider) => {
         if (provider.id === bad) throw new Error("PTY si è bloccato");
-        return "Current session\n10% used\nWeekly\n20% used\n";
+        return "Current session\n10% used\nCurrent week (all models)\n20% used\n";
       },
       runLlm: async () => {
         throw new Error("no");
@@ -120,14 +125,36 @@ describe("pollUsageOnce", () => {
     expect(snaps[0]?.providerId).toBe(good);
   });
 
-  it("snapshot con valori non estraibili (parse null) → NON salva nulla per quella credenziale", async () => {
+  it("parse null ma rawText NON vuoto → INSERT con parseOk=false + rawText (diagnosi)", async () => {
+    const { db } = testDb;
+    const acc = await seedProvider(db, { position: 1, kind: "account", label: "max", secret: "o" });
+
+    const unparseable = "schermata illeggibile, niente percentuali estraibili";
+    await pollUsageOnce({
+      db,
+      encryptionKey: ENCRYPTION_KEY,
+      capture: async () => unparseable,
+      runLlm: async () => "{{{ json rotto",
+    });
+
+    const [s] = await db.select().from(aiUsageSnapshots);
+    expect(s?.providerId).toBe(acc);
+    expect(s?.parseOk).toBe(false);
+    expect(s?.source).toBe("llm_fallback");
+    // Usage non estraibile → finestre null, ma il grezzo è conservato.
+    expect(s?.sessionRemaining).toBeNull();
+    expect(s?.weeklyRemaining).toBeNull();
+    expect(s?.rawText).toBe(unparseable);
+  });
+
+  it("cattura PTY vuota (nessun output) → NON salva nulla (niente da diagnosticare)", async () => {
     const { db } = testDb;
     await seedProvider(db, { position: 1, kind: "account", label: "max", secret: "o" });
 
     await pollUsageOnce({
       db,
       encryptionKey: ENCRYPTION_KEY,
-      capture: async () => "illeggibile",
+      capture: async () => "   \n  ", // solo whitespace = nessun output utile
       runLlm: async () => "{{{ json rotto",
     });
 

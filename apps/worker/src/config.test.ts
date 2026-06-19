@@ -29,6 +29,8 @@ describe("loadWorkerConfig", () => {
     expect(config.publicUrl).toBe("");
     // Poller dell'usage residuo: default 5 minuti.
     expect(config.usagePollMinutes).toBe(5);
+    // Tester delle credenziali: default 5 secondi.
+    expect(config.credentialTestPollSeconds).toBe(5);
   });
 
   it("rispetta USAGE_POLL_MINUTES esplicito e 0 = disabilitato", () => {
@@ -36,6 +38,19 @@ describe("loadWorkerConfig", () => {
     expect(loadWorkerConfig({ ...VALID, USAGE_POLL_MINUTES: "0" }).usagePollMinutes).toBe(0);
     // Vuoto (es. da .env.example) usa il default 5.
     expect(loadWorkerConfig({ ...VALID, USAGE_POLL_MINUTES: "" }).usagePollMinutes).toBe(5);
+  });
+
+  it("rispetta CREDENTIAL_TEST_POLL_SECONDS esplicito e 0 = disabilitato", () => {
+    expect(
+      loadWorkerConfig({ ...VALID, CREDENTIAL_TEST_POLL_SECONDS: "10" }).credentialTestPollSeconds,
+    ).toBe(10);
+    expect(
+      loadWorkerConfig({ ...VALID, CREDENTIAL_TEST_POLL_SECONDS: "0" }).credentialTestPollSeconds,
+    ).toBe(0);
+    // Vuoto (es. da .env.example) usa il default 5.
+    expect(
+      loadWorkerConfig({ ...VALID, CREDENTIAL_TEST_POLL_SECONDS: "" }).credentialTestPollSeconds,
+    ).toBe(5);
   });
 
   it("rispetta PUBLIC_URL e ne rimuove gli slash finali", () => {

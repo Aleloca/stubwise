@@ -5,6 +5,7 @@ import {
   createAiProvider,
   deleteAiProvider,
   reorderAiProviders,
+  testAiProvider,
   updateAiProvider,
   type AiProvider,
   type AiProviderKind,
@@ -235,6 +236,20 @@ function ProviderRow({
     },
   });
 
+  // Test della credenziale: il server marca `pending`, il worker esegue il
+  // `claude -p` di prova e scrive l'esito; la lista fa polling (refetchInterval
+  // in aiProvidersQueryOptions) finché lo stato lascia `pending`.
+  const test = useMutation({
+    mutationFn: () => testAiProvider(provider.id),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: aiProvidersQueryOptions.queryKey });
+    },
+  });
+  // `pending` è guidato dal DB (lo scrive il server e lo azzera il worker): la
+  // mutazione in volo è solo il breve istante prima della risposta. Entrambi
+  // mettono il bottone in stato "testing…".
+  const testing = test.isPending || provider.testStatus === "pending";
+
   // Scambia con il vicino e rimanda l'insieme completo nel nuovo ordine.
   function move(direction: -1 | 1) {
     const next = [...orderedIds];
@@ -244,7 +259,9 @@ function ProviderRow({
   }
 
   const busy = reorder.isPending || toggle.isPending || deletion.isPending;
-  const error = [reorder.error, toggle.error, deletion.error].find((e) => e instanceof Error);
+  const error = [reorder.error, toggle.error, deletion.error, test.error].find(
+    (e) => e instanceof Error,
+  );
 
   return (
     <li className="px-4 py-3">
@@ -266,7 +283,15 @@ function ProviderRow({
             {t("settings:aiProviders.secretSet")}
           </span>
         )}
+        <TestBadge status={provider.testStatus} />
         <div className="ml-auto flex flex-wrap items-center gap-2">
+          <RowButton
+            onClick={() => test.mutate()}
+            disabled={busy || testing}
+            label={
+              testing ? t("settings:aiProviders.testing") : t("settings:aiProviders.test")
+            }
+          />
           <RowButton
             onClick={() => move(-1)}
             disabled={busy || isFirst}
@@ -313,6 +338,12 @@ function ProviderRow({
         </p>
       )}
 
+      {provider.testStatus === "failed" && provider.testError && (
+        <p role="alert" className="mt-2 font-mono text-[12px] leading-relaxed text-danger">
+          {t("settings:aiProviders.testFailed")}: {provider.testError}
+        </p>
+      )}
+
       {provider.kind === "account" && <UsagePanel snapshot={snapshot} />}
     </li>
   );
@@ -340,11 +371,18 @@ function UsagePanel({ snapshot }: { snapshot: AiUsageSnapshot | null }) {
     );
   }
 
-  const fmt = (iso: string | null): string | null =>
+  // Il reset preferito è la label testuale della TUI (non-ISO, es.
+  // "2:39pm (Europe/Rome)"); per retrocompatibilità coi vecchi snapshot che
+  // avevano un ISO si formatta quello come fallback.
+  const fmtIso = (iso: string | null): string | null =>
     iso ? new Date(iso).toLocaleString(i18n.language) : null;
+  const resetOf = (
+    label: string | null | undefined,
+    iso: string | null,
+  ): string | null => label ?? fmtIso(iso);
 
-  const sessionReset = fmt(snapshot.sessionResetAt);
-  const weeklyReset = fmt(snapshot.weeklyResetAt);
+  const sessionReset = resetOf(snapshot.sessionRemaining?.resetsLabel, snapshot.sessionResetAt);
+  const weeklyReset = resetOf(snapshot.weeklyRemaining?.resetsLabel, snapshot.weeklyResetAt);
 
   return (
     <div className="mt-2 flex flex-col gap-1.5 border-l-2 border-line pl-3">
@@ -413,6 +451,30 @@ function UsagePanel({ snapshot }: { snapshot: AiUsageSnapshot | null }) {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Badge dell'esito dell'ultimo test della credenziale. `idle` non mostra nulla
+ * (mai testata); `pending` un'attesa neutra; `passed`/`failed` un ✅/❌ colorato.
+ */
+function TestBadge({ status }: { status: AiProvider["testStatus"] }) {
+  const { t } = useTranslation();
+  if (status === "idle") return null;
+
+  const map = {
+    pending: { text: t("settings:aiProviders.testing"), cls: "border-line-strong text-fg-faint" },
+    passed: { text: `✓ ${t("settings:aiProviders.testPassed")}`, cls: "border-ok/40 text-ok" },
+    failed: { text: `✕ ${t("settings:aiProviders.testFailedBadge")}`, cls: "border-danger/40 text-danger" },
+  } as const;
+  const { text, cls } = map[status];
+
+  return (
+    <span
+      className={`rounded-sm border px-2 py-0.5 font-mono text-[11px] tracking-[0.08em] whitespace-nowrap uppercase ${cls}`}
+    >
+      {text}
+    </span>
   );
 }
 

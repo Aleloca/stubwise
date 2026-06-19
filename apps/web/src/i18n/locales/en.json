@@ -446,6 +446,11 @@
       "accountHint": "// Account: run `claude setup-token` on a machine with a browser and paste the token here.",
       "apiKeyHint": "// API key: a key from the Anthropic Console (console.anthropic.com).",
       "secretWriteOnlyHint": "// write-only: encrypted at rest and never shown again. To change a secret, delete the provider and create it again.",
+      "test": "Test",
+      "testing": "Testing…",
+      "testPassed": "Working",
+      "testFailedBadge": "Failed",
+      "testFailed": "Credential test failed",
       "usage": {
         "title": "Subscription usage",
         "session": "Session: {{percent}}% remaining",

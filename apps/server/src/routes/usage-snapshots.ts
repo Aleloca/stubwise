@@ -8,11 +8,17 @@ import { authErrorResponses } from "./shared.js";
 
 /**
  * Finestra di consumo normalizzata (formato del parser del worker): percentuale
- * usata e residua. Nullable perché lo snapshot la conserva come jsonb libero e
- * uno snapshot con parse fallito potrebbe non averla.
+ * usata e residua, più `resetsLabel`, l'orario di reset come label testuale
+ * della TUI (non-ISO, es. "2:39pm (Europe/Rome)") — opzionale. Nullable perché
+ * lo snapshot la conserva come jsonb libero e uno snapshot con parse fallito
+ * potrebbe non averla.
  */
 const usageWindowSchema = z
-  .object({ percentUsed: z.number(), percentRemaining: z.number() })
+  .object({
+    percentUsed: z.number(),
+    percentRemaining: z.number(),
+    resetsLabel: z.string().nullable().optional(),
+  })
   .nullable();
 
 /**
@@ -99,15 +105,20 @@ export async function aiUsageSnapshotsRoutes(instance: FastifyInstance): Promise
 
 /**
  * Normalizza il jsonb libero della finestra di consumo nello shape esposto
- * `{ percentUsed, percentRemaining }`, o null se mancante/non conforme.
+ * `{ percentUsed, percentRemaining, resetsLabel? }`, o null se mancante/non
+ * conforme. `resetsLabel` è una label testuale (non-ISO) passata tale-e-quale.
  */
 function normalizeWindow(
   value: unknown,
-): { percentUsed: number; percentRemaining: number } | null {
+): { percentUsed: number; percentRemaining: number; resetsLabel?: string | null } | null {
   if (value && typeof value === "object") {
     const v = value as Record<string, unknown>;
     if (typeof v.percentUsed === "number" && typeof v.percentRemaining === "number") {
-      return { percentUsed: v.percentUsed, percentRemaining: v.percentRemaining };
+      return {
+        percentUsed: v.percentUsed,
+        percentRemaining: v.percentRemaining,
+        resetsLabel: typeof v.resetsLabel === "string" ? v.resetsLabel : null,
+      };
     }
   }
   return null;

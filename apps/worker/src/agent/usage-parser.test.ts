@@ -7,75 +7,130 @@ import {
 } from "./usage-parser.js";
 
 /**
- * Output `/usage` plausibile e REALISTICO della TUI di claude (già ripulito
- * dai codici ANSI). Mostra due finestre: la sessione 5h e il limite
- * settimanale, ciascuna con "N% used" e una riga "Resets ...".
+ * Output `/usage` REALE della TUI di claude (già ripulito dai codici ANSI dal
+ * PTY). La percentuale è sulla STESSA riga della barra `█... N% used`; i reset
+ * sono LABEL testuali (non ISO). Ci sono DUE "Current week": "all models" e
+ * "Sonnet only" — il parser deve leggere SOLO "all models".
  */
-const REALISTIC_OUTPUT = `
-Usage
+const REAL_OUTPUT = `──────────────────────────────────────────────────────────────────
+  Settings  Status   Config   Usage   Stats
 
-Current session
-████████░░░░░░░░░░░░ 42% used
-Resets 3:00pm (in 2h 15m)
+  Session
 
-Weekly limit (all models)
-██████░░░░░░░░░░░░░░ 31% used
-Resets Thu, Jun 19 at 12:00am
-`;
+  Total cost:            $0.2801
+  Total duration (API):  57s
+  Total duration (wall): 10m 25s
+  Total code changes:    0 lines added, 0 lines removed
+  Usage by model:
+      claude-haiku-4-5:  529 input, 15 output, 0 cache read, 0 cache write ($0.0006)
+       claude-opus-4-8:  3.1k input, 3.8k output, 37.3k cache read, 15.0k cache write ($0.2795)
 
-/** Variante con "left"/"remaining" invece di "used" e percentuali diverse. */
-const REALISTIC_OUTPUT_REMAINING = `
-Current session: 90% remaining
-Resets in 4h
+  Current session
+  █████████████                                      26% used
+  Resets 2:39pm (Europe/Rome)
 
-Weekly (all models): 5% remaining
-Resets in 6 days
+  Current week (all models)
+  █████████████████▌                                 35% used
+  Resets Jun 22 at 9:59am (Europe/Rome)
+
+  Current week (Sonnet only)
+                                                     0% used
+
+  What's contributing to your limits usage
+  Esc to cancel
 `;
 
 describe("parseUsageDeterministic", () => {
-  it("estrae sessione e settimanale da un output 'N% used'", () => {
-    const snap = parseUsageDeterministic(REALISTIC_OUTPUT);
+  it("estrae sessione e settimanale dal formato REALE (barra+percentuale stessa riga, reset label)", () => {
+    const snap = parseUsageDeterministic(REAL_OUTPUT);
     expect(snap).not.toBeNull();
-    expect(snap?.sessionRemaining).toEqual({ percentUsed: 42, percentRemaining: 58 });
-    expect(snap?.weeklyRemaining).toEqual({ percentUsed: 31, percentRemaining: 69 });
+    expect(snap?.sessionRemaining).toEqual({
+      percentUsed: 26,
+      percentRemaining: 74,
+      resetsLabel: "2:39pm (Europe/Rome)",
+    });
+    // "all models", NON "Sonnet only" (che è 0%).
+    expect(snap?.weeklyRemaining).toEqual({
+      percentUsed: 35,
+      percentRemaining: 65,
+      resetsLabel: "Jun 22 at 9:59am (Europe/Rome)",
+    });
+    // I reset sono label non-ISO: i campi ISO restano null.
+    expect(snap?.sessionResetAt ?? null).toBeNull();
+    expect(snap?.weeklyResetAt ?? null).toBeNull();
   });
 
-  it("estrae sessione e settimanale da un output 'N% remaining'", () => {
-    const snap = parseUsageDeterministic(REALISTIC_OUTPUT_REMAINING);
+  it("ritorna snapshot valido anche senza riga Resets (resetsLabel assente)", () => {
+    const noResets = `
+  Current session
+  █████ 26% used
+
+  Current week (all models)
+  █████ 35% used
+`;
+    const snap = parseUsageDeterministic(noResets);
     expect(snap).not.toBeNull();
-    expect(snap?.sessionRemaining).toEqual({ percentUsed: 10, percentRemaining: 90 });
-    expect(snap?.weeklyRemaining).toEqual({ percentUsed: 95, percentRemaining: 5 });
+    expect(snap?.sessionRemaining.percentUsed).toBe(26);
+    expect(snap?.sessionRemaining.resetsLabel ?? null).toBeNull();
+    expect(snap?.weeklyRemaining.percentUsed).toBe(35);
   });
 
   it("ritorna null su un output che non combacia col formato atteso", () => {
     expect(parseUsageDeterministic("Welcome to Claude Code! Type /help.")).toBeNull();
     expect(parseUsageDeterministic("")).toBeNull();
-    // Solo una delle due finestre → non combacia (servono entrambe).
-    expect(parseUsageDeterministic("Current session\n42% used")).toBeNull();
+    // Solo la sessione, niente weekly (all models) → null (servono entrambe).
+    expect(parseUsageDeterministic("Current session\n26% used")).toBeNull();
+  });
+
+  it("non confonde 'Current week (Sonnet only)' con la weekly (all models)", () => {
+    // Se manca "all models" non deve cadere su "Sonnet only".
+    const onlySonnet = `
+  Current session
+  █████ 26% used
+  Resets 2:39pm (Europe/Rome)
+
+  Current week (Sonnet only)
+  0% used
+`;
+    expect(parseUsageDeterministic(onlySonnet)).toBeNull();
   });
 });
 
 describe("parseUsageWithLlm", () => {
   const validJson = JSON.stringify({
-    sessionRemaining: { percentUsed: 20, percentRemaining: 80 },
-    weeklyRemaining: { percentUsed: 60, percentRemaining: 40 },
-    sessionResetAt: "2026-06-19T15:00:00.000Z",
-    weeklyResetAt: "2026-06-24T00:00:00.000Z",
+    sessionRemaining: { percentUsed: 20, resetsLabel: "2:39pm (Europe/Rome)" },
+    weeklyRemaining: { percentUsed: 60, resetsLabel: "Jun 22 at 9:59am (Europe/Rome)" },
   });
 
   it("ritorna lo snapshot quando runLlm restituisce JSON valido e plausibile", async () => {
     const runLlm = async (): Promise<string> => validJson;
     const snap = await parseUsageWithLlm("qualunque testo", runLlm);
     expect(snap).not.toBeNull();
-    expect(snap?.sessionRemaining).toEqual({ percentUsed: 20, percentRemaining: 80 });
-    expect(snap?.sessionResetAt).toBe("2026-06-19T15:00:00.000Z");
+    expect(snap?.sessionRemaining).toEqual({
+      percentUsed: 20,
+      percentRemaining: 80,
+      resetsLabel: "2:39pm (Europe/Rome)",
+    });
+    expect(snap?.weeklyRemaining.percentUsed).toBe(60);
+    expect(snap?.weeklyRemaining.percentRemaining).toBe(40);
+  });
+
+  it("ritorna lo snapshot anche senza resetsLabel (campo opzionale)", async () => {
+    const runLlm = async (): Promise<string> =>
+      JSON.stringify({
+        sessionRemaining: { percentUsed: 20 },
+        weeklyRemaining: { percentUsed: 60 },
+      });
+    const snap = await parseUsageWithLlm("x", runLlm);
+    expect(snap).not.toBeNull();
+    expect(snap?.sessionRemaining.resetsLabel ?? null).toBeNull();
   });
 
   it("ritorna null se i numeri sono implausibili (percentuale fuori 0–100)", async () => {
     const runLlm = async (): Promise<string> =>
       JSON.stringify({
-        sessionRemaining: { percentUsed: 240, percentRemaining: -140 },
-        weeklyRemaining: { percentUsed: 10, percentRemaining: 90 },
+        sessionRemaining: { percentUsed: 240 },
+        weeklyRemaining: { percentUsed: 10 },
       });
     expect(await parseUsageWithLlm("x", runLlm)).toBeNull();
   });
@@ -91,23 +146,13 @@ describe("parseUsageWithLlm", () => {
     };
     expect(await parseUsageWithLlm("x", runLlm)).toBeNull();
   });
-
-  it("ritorna null se i reset non sono date ISO valide", async () => {
-    const runLlm = async (): Promise<string> =>
-      JSON.stringify({
-        sessionRemaining: { percentUsed: 20, percentRemaining: 80 },
-        weeklyRemaining: { percentUsed: 60, percentRemaining: 40 },
-        sessionResetAt: "domani pomeriggio",
-      });
-    expect(await parseUsageWithLlm("x", runLlm)).toBeNull();
-  });
 });
 
 describe("parseUsage (combinatore)", () => {
   const okLlm = async (): Promise<string> =>
     JSON.stringify({
-      sessionRemaining: { percentUsed: 1, percentRemaining: 99 },
-      weeklyRemaining: { percentUsed: 2, percentRemaining: 98 },
+      sessionRemaining: { percentUsed: 1 },
+      weeklyRemaining: { percentUsed: 2 },
     });
 
   it("deterministico ok → source deterministic, parseOk true, niente LLM", async () => {
@@ -116,7 +161,7 @@ describe("parseUsage (combinatore)", () => {
       llmCalled = true;
       return okLlm();
     };
-    const res = await parseUsage(REALISTIC_OUTPUT, spyLlm);
+    const res = await parseUsage(REAL_OUTPUT, spyLlm);
     expect(res.source).toBe("deterministic");
     expect(res.parseOk).toBe(true);
     expect(res.snapshot).not.toBeNull();

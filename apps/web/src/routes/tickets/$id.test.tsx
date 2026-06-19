@@ -648,6 +648,33 @@ describe("dettaglio ticket", () => {
     expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
   });
 
+  it("ticket senza job: mostra 'Start AI fix' (primo avvio) che chiama run-ai senza istruzioni", async () => {
+    const state = mockDetailApi({ jobs: [] });
+    renderDetail();
+
+    const button = await screen.findByRole("button", { name: "Start AI fix" });
+    await userEvent.click(button);
+
+    // Primo avvio: nessun body (il server accoda un nuovo job triage).
+    await waitFor(() => expect(state.runAiCalls).toEqual([undefined]));
+  });
+
+  it("ticket senza job: NON mostra 'Rilancia con istruzioni' né l'hint (solo primo avvio)", async () => {
+    // Nessun commento utente: nel rilancio comparirebbe l'hint, ma al primo
+    // avvio non ha senso → niente hint, niente bottone con istruzioni.
+    mockDetailApi({
+      jobs: [],
+      comments: commentsFixture.filter((comment) => comment.authorType === "ai"),
+    });
+    renderDetail();
+
+    await screen.findByRole("button", { name: "Start AI fix" });
+    expect(
+      screen.queryByRole("button", { name: "Relaunch with instructions" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Add a comment with the instructions/i)).not.toBeInTheDocument();
+  });
+
   it("job 'pr_closed': mostra i bottoni di rilancio (PR rifiutata, ticket riaperto)", async () => {
     const state = mockDetailApi({ jobs: [prClosedJobFixture] });
     renderDetail();

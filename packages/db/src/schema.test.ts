@@ -1452,6 +1452,11 @@ describe("schema: ai_providers + ai_usage_snapshots + ai_jobs.providerId", () =>
     expect(read?.enabled).toBe(true);
     expect(read?.createdAt).toBeInstanceOf(Date);
     expect(read?.updatedAt).toBeInstanceOf(Date);
+    // Stato del test della credenziale: default idle, nessuna richiesta/esito.
+    expect(read?.testStatus).toBe("idle");
+    expect(read?.testRequestedAt).toBeNull();
+    expect(read?.testCheckedAt).toBeNull();
+    expect(read?.testError).toBeNull();
   });
 
   it("accetta enabled=false e kind=api_key", async () => {

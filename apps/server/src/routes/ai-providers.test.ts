@@ -61,6 +61,10 @@ describe("POST /api/ai-providers", () => {
       enabled: true,
       secretSet: true,
       createdAt: expect.any(String),
+      testStatus: "idle",
+      testRequestedAt: null,
+      testCheckedAt: null,
+      testError: null,
     });
     expect(res.body).not.toContain("secret_encrypted");
     expect(res.body).not.toContain("secretEncrypted");
@@ -245,6 +249,108 @@ describe("PATCH /api/ai-providers/:id", () => {
       payload: { label: "Hackerato" },
     });
     expect(res.statusCode).toBe(403);
+  });
+});
+
+describe("POST /api/ai-providers/:id/test", () => {
+  it("marca la richiesta di test: 200, status pending, testRequestedAt valorizzato", async () => {
+    const created = await createProvider({ ...basePayload, label: "Da Testare" });
+    const id = (created.json() as { id: string }).id;
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/ai-providers/${id}/test`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { id: string; testStatus: string; testRequestedAt: string | null };
+    expect(body.id).toBe(id);
+    expect(body.testStatus).toBe("pending");
+    expect(body.testRequestedAt).toEqual(expect.any(String));
+    // La secret non trapela nemmeno qui.
+    expect(res.body).not.toContain(PLAINTEXT_SECRET);
+    expect(res.body).not.toContain("secretEncrypted");
+
+    // Persistito: il worker raccoglierà questa riga.
+    const [row] = await testDb.db.select().from(aiProviders).where(eq(aiProviders.id, id));
+    expect(row!.testStatus).toBe("pending");
+    expect(row!.testRequestedAt).not.toBeNull();
+  });
+
+  it("ripristina lo stato a pending anche se l'ultimo test era failed", async () => {
+    const created = await createProvider({ ...basePayload, label: "Ritesta" });
+    const id = (created.json() as { id: string }).id;
+    // Simula un esito precedente fallito scritto dal worker.
+    await testDb.db
+      .update(aiProviders)
+      .set({ testStatus: "failed", testError: "boom", testCheckedAt: new Date() })
+      .where(eq(aiProviders.id, id));
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/ai-providers/${id}/test`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { testStatus: string }).testStatus).toBe("pending");
+    const [row] = await testDb.db.select().from(aiProviders).where(eq(aiProviders.id, id));
+    expect(row!.testStatus).toBe("pending");
+    // L'errore precedente è azzerato (parte un nuovo test pulito).
+    expect(row!.testError).toBeNull();
+  });
+
+  it("provider inesistente: 404", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/ai-providers/00000000-0000-0000-0000-000000000000/test",
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("un member non può richiedere il test: 403", async () => {
+    const created = await createProvider({ ...basePayload, label: "Protetto Test" });
+    const id = (created.json() as { id: string }).id;
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/ai-providers/${id}/test`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("senza sessione: 401", async () => {
+    const created = await createProvider({ ...basePayload, label: "Anon Test" });
+    const id = (created.json() as { id: string }).id;
+    const res = await app.inject({ method: "POST", url: `/api/ai-providers/${id}/test` });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("GET espone lo stato del test (testStatus/testError/testCheckedAt) senza secret", async () => {
+    const created = await createProvider({ ...basePayload, label: "Stato Test" });
+    const id = (created.json() as { id: string }).id;
+    // Esito scritto dal worker.
+    await testDb.db
+      .update(aiProviders)
+      .set({ testStatus: "failed", testError: "Invalid API key", testCheckedAt: new Date() })
+      .where(eq(aiProviders.id, id));
+
+    const list = await app.inject({
+      method: "GET",
+      url: "/api/ai-providers",
+      headers: { cookie: adminCookie },
+    });
+    const body = list.json() as {
+      id: string;
+      testStatus: string;
+      testError: string | null;
+      testCheckedAt: string | null;
+    }[];
+    const found = body.find((p) => p.id === id);
+    expect(found!.testStatus).toBe("failed");
+    expect(found!.testError).toBe("Invalid API key");
+    expect(found!.testCheckedAt).toEqual(expect.any(String));
+    expect(list.body).not.toContain("secretEncrypted");
   });
 });
 

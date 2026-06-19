@@ -17,20 +17,27 @@ import { z } from "zod";
  * un fallback LLM riuscito segnala comunque che il parser deterministico è da
  * aggiornare (parseOk=false, source="llm_fallback").
  *
- * Forma di UsageSnapshot — SCELTA: il `/usage` di claude mostra ogni finestra
- * come "N% used" (più una barra e un orario di reset). Modelliamo quindi il
- * residuo come percentuale: `{ percentUsed, percentRemaining }` (uno è il
- * complemento dell'altro, ridondante ma comodo lato dashboard). I reset sono
- * ISO 8601 opzionali: la TUI li mostra spesso in forma relativa/locale ("in 2h",
- * "3:00pm") difficile da rendere assoluta in modo affidabile dal solo testo, per
- * cui il deterministico li lascia tipicamente assenti e l'LLM li popola solo se
- * riesce a produrre un ISO valido.
+ * Forma di UsageSnapshot — SCELTA: il `/usage` REALE di claude mostra ogni
+ * finestra come una barra `█...  N% used` (percentuale sulla STESSA riga della
+ * barra) seguita da una riga `Resets <label>`. Modelliamo quindi il residuo
+ * come percentuale: `{ percentUsed, percentRemaining }` (uno è il complemento
+ * dell'altro, ridondante ma comodo lato dashboard) PIÙ `resetsLabel`, l'orario
+ * di reset così come lo mostra la TUI ("2:39pm (Europe/Rome)", "Jun 22 at
+ * 9:59am (Europe/Rome)"): è una LABEL testuale, non una data ISO, e la
+ * conserviamo tale-e-quale senza forzare conversioni inaffidabili. I campi ISO
+ * `sessionResetAt`/`weeklyResetAt` restano per compatibilità ma il
+ * deterministico li lascia null (la TUI non emette ISO).
  */
 
-/** Residuo di una finestra come percentuali (0–100), complementari. */
+/**
+ * Residuo di una finestra come percentuali (0–100), complementari, più la
+ * label testuale del reset così come mostrata dalla TUI (non-ISO, opzionale).
+ */
 export interface UsageWindow {
   percentUsed: number;
   percentRemaining: number;
+  /** Orario di reset come label testuale della TUI (non-ISO), o null/assente. */
+  resetsLabel?: string | null;
 }
 
 export interface UsageSnapshot {
@@ -38,9 +45,9 @@ export interface UsageSnapshot {
   sessionRemaining: UsageWindow;
   /** Residuo della finestra settimanale (tutti i modelli). */
   weeklyRemaining: UsageWindow;
-  /** Istante di reset della sessione, ISO 8601, se noto. */
+  /** Istante di reset della sessione, ISO 8601, se noto (la TUI non lo fornisce). */
   sessionResetAt?: string | null;
-  /** Istante di reset della finestra settimanale, ISO 8601, se noto. */
+  /** Istante di reset settimanale, ISO 8601, se noto (la TUI non lo fornisce). */
   weeklyResetAt?: string | null;
 }
 
@@ -59,78 +66,102 @@ export type RunLlm = (prompt: string) => Promise<string>;
 const clampPercent = (n: number): number => Math.min(100, Math.max(0, Math.round(n)));
 
 /**
- * Dato un valore percentuale e se rappresenta "used" o "remaining", costruisce
- * la finestra con entrambe le facce (complementari, 0–100).
+ * Costruisce una finestra a partire dalla percentuale USATA e (opzionale) dalla
+ * label di reset, derivando il complemento (0–100).
  */
-function windowFrom(percent: number, kind: "used" | "remaining"): UsageWindow {
-  const value = clampPercent(percent);
-  return kind === "used"
-    ? { percentUsed: value, percentRemaining: clampPercent(100 - value) }
-    : { percentUsed: clampPercent(100 - value), percentRemaining: value };
+function windowFrom(percentUsed: number, resetsLabel: string | null): UsageWindow {
+  const used = clampPercent(percentUsed);
+  return { percentUsed: used, percentRemaining: clampPercent(100 - used), resetsLabel };
+}
+
+/** "  █████  26% used" / "26% used" → 26. Ritorna undefined se non matcha. */
+function matchPercentUsed(line: string): number | undefined {
+  const m = line.match(/(\d{1,3})\s*%\s*used/i);
+  return m?.[1] !== undefined ? Number(m[1]) : undefined;
+}
+
+/** "Resets 2:39pm (Europe/Rome)" → "2:39pm (Europe/Rome)". */
+function matchResetsLabel(line: string): string | undefined {
+  const m = line.match(/^\s*Resets\s+(.+?)\s*$/i);
+  return m?.[1] !== undefined && m[1] !== "" ? m[1] : undefined;
 }
 
 /**
- * Cerca, in un blocco di testo, una percentuale seguita o preceduta da "used" /
- * "remaining" / "left". Ritorna la prima trovata, o undefined.
+ * Dato l'indice della riga "etichetta" (es. "Current session"), scandisce le
+ * righe successive per trovare la prima `N% used` e la prima `Resets <label>`.
+ * Si ferma a una nuova etichetta di sezione (riga "Current ...") per non
+ * sconfinare nella finestra successiva. Ritorna la finestra o undefined.
  */
-function matchWindow(block: string): UsageWindow | undefined {
-  // "42% used" / "42 % used"
-  const used = block.match(/(\d{1,3})\s*%\s*used/i);
-  if (used?.[1]) return windowFrom(Number(used[1]), "used");
-  // "90% remaining" / "90% left"
-  const remaining = block.match(/(\d{1,3})\s*%\s*(?:remaining|left)/i);
-  if (remaining?.[1]) return windowFrom(Number(remaining[1]), "remaining");
-  return undefined;
+function readWindowAfter(lines: string[], labelIndex: number): UsageWindow | undefined {
+  let percentUsed: number | undefined;
+  let resetsLabel: string | null = null;
+  for (let i = labelIndex + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (line === undefined) continue;
+    // Nuova sezione → stop (non sconfiniamo nella finestra seguente).
+    if (/^\s*Current\s+/i.test(line)) break;
+    if (percentUsed === undefined) {
+      const pct = matchPercentUsed(line);
+      if (pct !== undefined) {
+        percentUsed = pct;
+        continue;
+      }
+    }
+    if (resetsLabel === null) {
+      const reset = matchResetsLabel(line);
+      if (reset !== undefined) resetsLabel = reset;
+    }
+  }
+  if (percentUsed === undefined) return undefined;
+  return windowFrom(percentUsed, resetsLabel);
 }
 
 /**
- * Parser deterministico. Individua i blocchi di "sessione" e "settimanale" per
- * parola chiave e ne estrae la percentuale. Richiede ENTRAMBE le finestre:
- * trovarne una sola è troppo poco affidabile per fidarsi → null.
+ * Trova l'indice della prima riga che matcha `label`, oppure -1. La ricerca è
+ * sull'intera riga (la TUI indenta le etichette).
+ */
+function findLabelIndex(lines: string[], label: RegExp): number {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line !== undefined && label.test(line)) return i;
+  }
+  return -1;
+}
+
+/**
+ * Parser deterministico per il formato REALE del `/usage`:
+ *  - "Current session"            → percentuale e reset della sessione (5h)
+ *  - "Current week (all models)"  → percentuale e reset della settimanale.
+ * La percentuale è sulla stessa riga della barra (`█...  N% used`); il reset è
+ * la riga "Resets <label>" successiva. NON confonde "Current week (Sonnet
+ * only)" con "all models". Richiede ENTRAMBE le percentuali (session + weekly
+ * all-models): se ne manca una → null. La resetsLabel è opzionale.
  */
 export function parseUsageDeterministic(text: string): UsageSnapshot | null {
   if (typeof text !== "string" || text.trim() === "") return null;
   const lines = text.split(/\r?\n/);
 
-  // Trova l'indice della riga "etichetta" che contiene una keyword, poi cerca
-  // la percentuale nella stessa riga o in quelle immediatamente successive.
-  const findWindow = (keywords: RegExp): UsageWindow | undefined => {
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (line === undefined || !keywords.test(line)) continue;
-      // Stessa riga (es. "Current session: 90% remaining").
-      const here = matchWindow(line);
-      if (here) return here;
-      // Righe successive fino a 3 (etichetta, barra, percentuale).
-      for (let j = i + 1; j < Math.min(lines.length, i + 4); j++) {
-        const next = lines[j];
-        if (next === undefined) continue;
-        const found = matchWindow(next);
-        if (found) return found;
-      }
-    }
-    return undefined;
-  };
+  const sessionIdx = findLabelIndex(lines, /\bCurrent session\b/i);
+  // "all models" esplicito: evita di agganciare "Sonnet only".
+  const weeklyIdx = findLabelIndex(lines, /\bCurrent week\s*\(all models\)/i);
+  if (sessionIdx < 0 || weeklyIdx < 0) return null;
 
-  const session = findWindow(/\bsession\b/i);
-  // "weekly" o "week" (limite settimanale). Evitiamo di confondere con session.
-  const weekly = findWindow(/\bweek(?:ly)?\b/i);
+  const session = readWindowAfter(lines, sessionIdx);
+  const weekly = readWindowAfter(lines, weeklyIdx);
   if (!session || !weekly) return null;
 
   return { sessionRemaining: session, weeklyRemaining: weekly };
 }
 
-// Schema zod dell'output atteso dall'LLM. additionalProperties non vincolato:
-// validiamo solo i campi che ci servono. I reset sono opzionali/nullable.
-const usageWindowSchema = z.object({
+// Schema zod dell'output atteso dall'LLM. Chiediamo solo `percentUsed` (0–100)
+// più una `resetsLabel` testuale opzionale: il complemento lo deriviamo noi.
+const llmWindowSchema = z.object({
   percentUsed: z.number(),
-  percentRemaining: z.number(),
+  resetsLabel: z.string().nullish(),
 });
 const llmSnapshotSchema = z.object({
-  sessionRemaining: usageWindowSchema,
-  weeklyRemaining: usageWindowSchema,
-  sessionResetAt: z.string().nullish(),
-  weeklyResetAt: z.string().nullish(),
+  sessionRemaining: llmWindowSchema,
+  weeklyRemaining: llmWindowSchema,
 });
 
 /** Una percentuale è plausibile se è un numero finito in [0,100]. */
@@ -138,27 +169,12 @@ function plausiblePercent(n: number): boolean {
   return Number.isFinite(n) && n >= 0 && n <= 100;
 }
 
-function plausibleWindow(w: UsageWindow): boolean {
-  return plausiblePercent(w.percentUsed) && plausiblePercent(w.percentRemaining);
-}
-
-/**
- * Valida una stringa ISO: deve essere parsabile come data. Ritorna l'ISO
- * normalizzato (toISOString) o null se non è una data valida.
- */
-function normalizeIso(value: string | null | undefined): string | null {
-  if (value === null || value === undefined) return null;
-  const ms = Date.parse(value);
-  if (Number.isNaN(ms)) return null;
-  return new Date(ms).toISOString();
-}
-
 /**
  * Fallback LLM: chiama `runLlm(prompt)` (iniettabile), parsa il JSON, lo valida
- * con zod e applica un sanity check (percentuali in 0–100; reset, se presenti,
- * date ISO valide → altrimenti l'intero snapshot è scartato perché segnale che
- * il modello ha allucinato). BEST-EFFORT: qualunque errore (runLlm che lancia,
- * JSON malformato, validazione fallita) → null, mai un'eccezione propagata.
+ * con zod e applica un sanity check (percentuali in 0–100 → altrimenti scarta
+ * tutto, segnale di allucinazione). La resetsLabel è una stringa testuale
+ * (non-ISO): la conserviamo tale-e-quale. BEST-EFFORT: qualunque errore (runLlm
+ * che lancia, JSON malformato, validazione fallita) → null, mai propagato.
  */
 export async function parseUsageWithLlm(
   text: string,
@@ -183,35 +199,20 @@ export async function parseUsageWithLlm(
   const data = result.data;
 
   // Sanity check sui numeri: fuori da 0–100 → allucinazione, scarta tutto.
-  if (!plausibleWindow(data.sessionRemaining) || !plausibleWindow(data.weeklyRemaining)) {
-    return null;
-  }
-
-  // Reset: se il modello ne ha prodotto uno NON parsabile come data, lo
-  // trattiamo come allucinazione e scartiamo l'intero snapshot (un reset
-  // inventato è peggio di un reset assente).
-  const sessionResetRaw = data.sessionResetAt;
-  const weeklyResetRaw = data.weeklyResetAt;
-  const sessionResetAt = normalizeIso(sessionResetRaw);
-  const weeklyResetAt = normalizeIso(weeklyResetRaw);
-  if (typeof sessionResetRaw === "string" && sessionResetRaw !== "" && sessionResetAt === null) {
-    return null;
-  }
-  if (typeof weeklyResetRaw === "string" && weeklyResetRaw !== "" && weeklyResetAt === null) {
-    return null;
-  }
+  if (!plausiblePercent(data.sessionRemaining.percentUsed)) return null;
+  if (!plausiblePercent(data.weeklyRemaining.percentUsed)) return null;
 
   return {
-    sessionRemaining: {
-      percentUsed: clampPercent(data.sessionRemaining.percentUsed),
-      percentRemaining: clampPercent(data.sessionRemaining.percentRemaining),
-    },
-    weeklyRemaining: {
-      percentUsed: clampPercent(data.weeklyRemaining.percentUsed),
-      percentRemaining: clampPercent(data.weeklyRemaining.percentRemaining),
-    },
-    sessionResetAt,
-    weeklyResetAt,
+    sessionRemaining: windowFrom(
+      data.sessionRemaining.percentUsed,
+      data.sessionRemaining.resetsLabel ?? null,
+    ),
+    weeklyRemaining: windowFrom(
+      data.weeklyRemaining.percentUsed,
+      data.weeklyRemaining.resetsLabel ?? null,
+    ),
+    sessionResetAt: null,
+    weeklyResetAt: null,
   };
 }
 
@@ -219,17 +220,17 @@ export async function parseUsageWithLlm(
 function buildLlmPrompt(rawUsageText: string): string {
   return [
     "You are given the raw text output of the Claude Code `/usage` command.",
-    "Extract the remaining usage for the SESSION window (rolling 5h) and the",
-    "WEEKLY window (all models). Respond with ONLY a JSON object, no prose, with",
-    "this exact shape:",
+    "Extract the usage for the SESSION window (\"Current session\") and the",
+    "WEEKLY window (\"Current week (all models)\" — NOT \"Sonnet only\").",
+    "For each window read the percentage shown as 'N% used' and the reset time",
+    "shown on the following 'Resets ...' line (a human label, keep it verbatim).",
+    "Respond with ONLY a JSON object, no prose, with this exact shape:",
     "{",
-    '  "sessionRemaining": { "percentUsed": <0-100>, "percentRemaining": <0-100> },',
-    '  "weeklyRemaining": { "percentUsed": <0-100>, "percentRemaining": <0-100> },',
-    '  "sessionResetAt": <ISO 8601 string or null>,',
-    '  "weeklyResetAt": <ISO 8601 string or null>',
+    '  "sessionRemaining": { "percentUsed": <0-100>, "resetsLabel": <string or null> },',
+    '  "weeklyRemaining":  { "percentUsed": <0-100>, "resetsLabel": <string or null> }',
     "}",
-    "Use null for any reset time you cannot express as a valid ISO 8601 string.",
-    "If a percentage is shown as 'used', set percentRemaining = 100 - used.",
+    "Use null for resetsLabel if no reset line is shown for that window.",
+    "Keep resetsLabel exactly as printed (e.g. \"2:39pm (Europe/Rome)\").",
     "",
     "--- /usage output ---",
     rawUsageText,

@@ -73,13 +73,35 @@ export async function pollUsageOnce(deps: PollUsageDeps): Promise<void> {
 
 async function pollOneAccount(deps: PollUsageDeps, provider: ResolvedProvider): Promise<void> {
   const rawText = await deps.capture(provider);
-  const { snapshot, source, parseOk } = await parseUsage(rawText, deps.runLlm);
-  if (snapshot === null) {
-    // Nessun dato estraibile: non salviamo righe vuote. Lo segnaliamo per
-    // diagnosi (senza segreti).
+
+  // Cattura PTY vuota (nessun output): non c'è nulla da estrarre NÉ da
+  // diagnosticare. Logghiamo e basta, senza inquinare la tabella con righe vuote.
+  if (rawText.trim() === "") {
     console.error(
-      `[stubwise-worker] usage-poll: nessun usage estraibile per ${provider.id} (source ${source})`,
+      `[stubwise-worker] usage-poll: cattura /usage vuota per ${provider.id} (niente da salvare)`,
     );
+    return;
+  }
+
+  const { snapshot, source, parseOk } = await parseUsage(rawText, deps.runLlm);
+
+  if (snapshot === null) {
+    // Nessun parser ha estratto dati, MA c'è del testo grezzo: lo salviamo con
+    // parseOk=false così il banner di diagnosi (UI) può mostrarlo e si può
+    // capire perché il parser fallisce e aggiornarlo. Usage null.
+    console.error(
+      `[stubwise-worker] usage-poll: nessun usage estraibile per ${provider.id} (source ${source}); salvo rawText per diagnosi`,
+    );
+    await deps.db.insert(aiUsageSnapshots).values({
+      providerId: provider.id,
+      sessionRemaining: null,
+      weeklyRemaining: null,
+      sessionResetAt: null,
+      weeklyResetAt: null,
+      source,
+      parseOk: false,
+      rawText,
+    });
     return;
   }
 

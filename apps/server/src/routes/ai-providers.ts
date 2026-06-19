@@ -38,6 +38,9 @@ const idParamsSchema = z.object({ id: z.uuid() });
  * della riga), così `secretEncrypted` non può trapelare nemmeno se lo schema
  * cambiasse. La secret è write-only: si espone solo il flag `secretSet`.
  */
+// Stato del test della credenziale, allineato all'enum ai_provider_test_status.
+const aiProviderTestStatusSchema = z.enum(["idle", "pending", "passed", "failed"]);
+
 const publicProviderSchema = z.object({
   id: z.uuid(),
   kind: aiProviderKindSchema,
@@ -46,6 +49,13 @@ const publicProviderSchema = z.object({
   enabled: z.boolean(),
   secretSet: z.literal(true),
   createdAt: z.string(),
+  // Esito dell'ultimo test della credenziale (lo esegue il worker, vedi
+  // POST /:id/test e apps/worker/src/agent/credential-tester.ts). `testError`
+  // è il messaggio dell'ultimo fallimento (mai il segreto); le date sono ISO.
+  testStatus: aiProviderTestStatusSchema,
+  testRequestedAt: z.string().nullable(),
+  testCheckedAt: z.string().nullable(),
+  testError: z.string().nullable(),
 });
 
 type AiProviderRow = typeof aiProviders.$inferSelect;
@@ -59,6 +69,10 @@ function toPublicProvider(row: AiProviderRow): z.infer<typeof publicProviderSche
     enabled: row.enabled,
     secretSet: true,
     createdAt: row.createdAt.toISOString(),
+    testStatus: row.testStatus,
+    testRequestedAt: row.testRequestedAt?.toISOString() ?? null,
+    testCheckedAt: row.testCheckedAt?.toISOString() ?? null,
+    testError: row.testError,
   };
 }
 
@@ -199,6 +213,39 @@ export async function aiProviderRoutes(instance: FastifyInstance): Promise<void>
               .set(updates)
               .where(eq(aiProviders.id, request.params.id))
               .returning();
+      if (!row) return apiError(reply, 404, "ai_provider_not_found", "AI provider not found");
+      return toPublicProvider(row);
+    },
+  );
+
+  // Richiede un test della credenziale (Polish-A): il SERVER non può lanciare
+  // `claude` (non è nella sua immagine), quindi marca la riga `pending` e il
+  // WORKER — l'unico che shella sul CLI — la raccoglie, esegue un `claude -p`
+  // di prova con quella credenziale e scrive l'esito (vedi
+  // apps/worker/src/agent/credential-tester.ts). La UI fa polling sullo stato
+  // via GET. Azzera l'esito precedente (testCheckedAt/testError) così il nuovo
+  // test parte pulito. Status-guard non necessario: ri-richiedere un test è
+  // sempre lecito e idempotente sul lato server.
+  app.post(
+    "/:id/test",
+    {
+      preHandler: requireAdmin,
+      schema: {
+        params: idParamsSchema,
+        response: { 200: publicProviderSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const [row] = await app.db
+        .update(aiProviders)
+        .set({
+          testStatus: "pending",
+          testRequestedAt: sql`now()`,
+          testCheckedAt: null,
+          testError: null,
+        })
+        .where(eq(aiProviders.id, request.params.id))
+        .returning();
       if (!row) return apiError(reply, 404, "ai_provider_not_found", "AI provider not found");
       return toPublicProvider(row);
     },
