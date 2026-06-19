@@ -452,7 +452,6 @@
         "weekly": "Weekly: {{percent}}% remaining",
         "resets": "resets {{when}}",
         "estimated": "estimated (fallback)",
-        "capturedAt": "as of {{when}}",
         "noData": "// no usage data yet",
         "diagnoseTitle": "Deterministic parsing of /usage failed",
         "diagnoseHint": "Update the deterministic parser in `apps/worker/src/agent/usage-parser.ts` — expected the session/weekly windows; received the text below.",

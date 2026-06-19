@@ -14,6 +14,16 @@ ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable
 WORKDIR /repo
 
+# Toolchain di build per gli addon nativi. node-pty (usato per leggere /usage
+# via PTY) NON pubblica prebuild per Linux (solo darwin/win32): su node:22-slim
+# il suo install script ricade su `node-gyp rebuild`, che richiede python3/make/
+# g++. Senza, l'addon nativo non compila e l'usage abbonamento resta disattivo.
+# Resta confinata allo stage `base`: il runtime copia solo /app con il .node già
+# compilato, quindi questi pacchetti NON finiscono nell'immagine finale.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
 COPY apps/server/package.json apps/server/package.json
 COPY apps/worker/package.json apps/worker/package.json
@@ -34,6 +44,13 @@ COPY apps/worker apps/worker
 RUN pnpm --filter @stubwise/worker... build
 
 RUN pnpm --filter @stubwise/worker deploy --prod --legacy /app
+
+# Su Linux node-pty usa forkpty direttamente e NON produce uno spawn-helper
+# (è una via specifica di macOS), quindi su questa immagine il find non matcha
+# nulla. Lo teniamo come safeguard difensivo a costo zero: se una futura versione
+# emettesse build/Release/spawn-helper, unixTerminal.js lo invoca come eseguibile
+# (native.dir + '/spawn-helper') e un file senza +x farebbe fallire lo spawn.
+RUN find /app -path '*/node-pty/build/Release/spawn-helper' -exec chmod +x {} +
 
 FROM node:22-slim AS runtime
 ENV NODE_ENV=production
