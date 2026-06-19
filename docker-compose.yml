@@ -62,38 +62,39 @@ services:
       # che il server e' sano.
       server:
         condition: service_healthy
+    # Forma LISTA (non mapping): permette il pass-through `- NOME` per le
+    # credenziali Claude opzionali, che compose OMETTE dall'env del container se
+    # non sono definite — invece di passarle come stringa vuota (cosa che la
+    # forma mapping `NOME: ${NOME}` fa sempre, e che puo' sabotare un OAuth).
     environment:
-      DATABASE_URL: ${DATABASE_URL}
-      # STESSA chiave del server: decifra le credenziali git dei progetti.
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      - DATABASE_URL=${DATABASE_URL}
+      # STESSA chiave del server: decifra le credenziali git e le credenziali AI.
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
       # URL pubblico dell'istanza: il worker lo usa SOLO per i link al ticket
       # nelle notifiche webhook in uscita. Vuoto = il link e' il solo path.
-      PUBLIC_URL: ${PUBLIC_URL}
-      MIRRORS_DIR: /var/stubwise/mirrors
-      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+      - PUBLIC_URL=${PUBLIC_URL}
+      - MIRRORS_DIR=/var/stubwise/mirrors
+      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-2}
       # Deve superare l'invariante verificato all'avvio del worker. Con fix a
       # due fasi + self-repair: plan(10') + fix(30') + self-repair 2x(fix 30' +
       # test 5') + 2x triage(2') + margine(5') ~= 119'. Default 150. Se abbassi
       # SELF_REPAIR_MAX_ATTEMPTS l'invariante cala e puoi ridurlo.
-      WORKER_STALE_MINUTES: ${WORKER_STALE_MINUTES:-150}
+      - WORKER_STALE_MINUTES=${WORKER_STALE_MINUTES:-150}
       # --- Fix a due fasi: opus pianifica (sola lettura), sonnet esegue ---
-      FIX_TWO_PHASE: ${FIX_TWO_PHASE:-true}
-      FIX_PLAN_MODEL: ${FIX_PLAN_MODEL:-opus}
-      FIX_EXECUTE_MODEL: ${FIX_EXECUTE_MODEL:-sonnet}
-      FIX_PLAN_TIMEOUT_MS: ${FIX_PLAN_TIMEOUT_MS:-600000}
-      # --- Auth del CLI claude (scegli UNA delle due) ---
-      # 1) Chiave API: la via piu semplice in produzione (passa l'allowlist).
-      #    NIENTE default `:-`: con `${ANTHROPIC_API_KEY}` compose OMETTE la var
-      #    dall'env del container se non e' settata. Un `${ANTHROPIC_API_KEY:-}`
-      #    la definirebbe SEMPRE (stringa vuota quando si usa l'OAuth login), e
-      #    `ANTHROPIC_API_KEY=""` che raggiunge il child claude puo' sabotare un
-      #    login OAuth valido. Difesa anche lato worker (buildAgentEnv scarta le
-      #    stringhe vuote).
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      # 2) Login OAuth/MAX: lascia ANTHROPIC_API_KEY vuota ed esegui
-      #    `docker compose exec worker claude login`. Il token persiste nel
-      #    volume claude-config montato su CLAUDE_CONFIG_DIR.
-      CLAUDE_CONFIG_DIR: /home/worker/.claude
+      - FIX_TWO_PHASE=${FIX_TWO_PHASE:-true}
+      - FIX_PLAN_MODEL=${FIX_PLAN_MODEL:-opus}
+      - FIX_EXECUTE_MODEL=${FIX_EXECUTE_MODEL:-sonnet}
+      - FIX_PLAN_TIMEOUT_MS=${FIX_PLAN_TIMEOUT_MS:-600000}
+      # --- Auth del CLI claude ---
+      # Metodo raccomandato: gestisci le credenziali in Settings -> AI providers
+      # (catena cifrata nel DB, con failover). Le due righe pass-through qui sotto
+      # sono solo un FALLBACK retro-compatibile usato quando la catena e' vuota:
+      # `- NOME` (senza `=`) passa la var SOLO se definita nel .env, altrimenti la
+      # OMETTE (niente stringa vuota residua). OAuth/MAX via volume resta valido
+      # (`docker compose exec worker claude login`, token in CLAUDE_CONFIG_DIR).
+      - ANTHROPIC_API_KEY
+      - CLAUDE_CODE_OAUTH_TOKEN
+      - CLAUDE_CONFIG_DIR=/home/worker/.claude
     volumes:
       - mirrors:/var/stubwise/mirrors
       - claude-config:/home/worker/.claude
