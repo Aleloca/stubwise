@@ -23,6 +23,7 @@
     "onlyBuiltDependencies": [
       "argon2",
       "esbuild",
+      "node-pty",
       "sharp"
     ]
   }

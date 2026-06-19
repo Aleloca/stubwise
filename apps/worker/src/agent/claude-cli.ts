@@ -1,4 +1,5 @@
 import { execa } from "execa";
+import type { ResolvedProvider } from "../providers/chain.js";
 import {
   AgentRunError,
   AgentTimeoutError,
@@ -91,18 +92,42 @@ const ENV_ALLOWLIST_PREFIXES = ["ANTHROPIC_", "CLAUDE_"] as const;
  */
 const ENV_DENYLIST = new Set(["ENCRYPTION_KEY", "DATABASE_URL", "SESSION_SECRET"]);
 
+/** Var di auth del CLI claude per chiave API a consumo. */
+const ANTHROPIC_API_KEY = "ANTHROPIC_API_KEY";
+/** Var di auth del CLI claude per login a un account/abbonamento (Claude Max). */
+const CLAUDE_CODE_OAUTH_TOKEN = "CLAUDE_CODE_OAUTH_TOKEN";
+
 /**
  * Costruisce l'env del child a partire da un'allowlist di process.env più gli
  * extraEnv espliciti. La denylist ha la precedenza assoluta: un segreto del
  * master non passa per nessuna via.
+ *
+ * Iniezione della credenziale (`provider`): quando il worker ha selezionato una
+ * credenziale dalla catena (vedi providers/chain.ts), la si inietta secondo il
+ * `kind`, ESCLUDENDO la var di auth concorrente — anche se ereditata dal
+ * container. È un requisito CRITICO: il CLI claude dà la PRECEDENZA a
+ * ANTHROPIC_API_KEY sull'OAuth, quindi una API key ereditata dal container
+ * sabota un account (kind "account"); per simmetria, su una API key da catena
+ * (kind "api_key") togliamo un eventuale CLAUDE_CODE_OAUTH_TOKEN ereditato per
+ * non avere due auth concorrenti. Senza `provider` il comportamento è invariato
+ * (auth dall'env del container o dall'OAuth del volume).
  */
 export function buildAgentEnv(
   parentEnv: NodeJS.ProcessEnv,
   extraEnv?: Record<string, string>,
+  provider?: ResolvedProvider,
 ): Record<string, string> {
+  // Var di auth da ESCLUDERE dall'ereditarietà del container in base al kind
+  // della credenziale iniettata: quella concorrente va rimossa o vincerebbe
+  // (API key > OAuth nel CLI claude). Senza provider non si esclude nulla.
+  const excluded = new Set<string>();
+  if (provider?.kind === "api_key") excluded.add(CLAUDE_CODE_OAUTH_TOKEN);
+  else if (provider?.kind === "account") excluded.add(ANTHROPIC_API_KEY);
+
   const env: Record<string, string> = {};
   const allow = (name: string): boolean =>
     !ENV_DENYLIST.has(name) &&
+    !excluded.has(name) &&
     ((ENV_ALLOWLIST as readonly string[]).includes(name) ||
       ENV_ALLOWLIST_PREFIXES.some((prefix) => name.startsWith(prefix)));
 
@@ -117,6 +142,14 @@ export function buildAgentEnv(
   // extraEnv è esplicito ma resta soggetto alla denylist.
   for (const [name, value] of Object.entries(extraEnv ?? {})) {
     if (!ENV_DENYLIST.has(name)) env[name] = value;
+  }
+  // Credenziale dalla catena: iniettata per ULTIMA così vince su qualunque
+  // valore ereditato dal container/extraEnv per la stessa var. La var
+  // concorrente è già stata esclusa sopra (excluded), quindi non resta auth
+  // doppia.
+  if (provider) {
+    if (provider.kind === "api_key") env[ANTHROPIC_API_KEY] = provider.secret;
+    else env[CLAUDE_CODE_OAUTH_TOKEN] = provider.secret;
   }
   return env;
 }
@@ -245,7 +278,7 @@ export class ClaudeCliRunner implements AgentRunner {
         // extendEnv:false + env allowlist: il child NON eredita l'intero
         // process.env (niente segreti del master). Vedi docblock del modulo.
         extendEnv: false,
-        env: buildAgentEnv(process.env, this.extraEnv),
+        env: buildAgentEnv(process.env, this.extraEnv, opts.provider),
         // stdout+stderr interleaved in `all`: usato come fallback grezzo (per
         // i timeout e gli exit non-zero). Il JSON dei consumi però va parsato
         // dal solo stdout: `all` mescola gli eventuali warning su stderr e ne

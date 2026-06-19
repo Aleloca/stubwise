@@ -96,6 +96,22 @@ export async function touchJob(db: Db, jobId: string): Promise<void> {
   await db.update(aiJobs).set({ lastActivityAt: sql`now()` }).where(eq(aiJobs.id, jobId));
 }
 
+/**
+ * Registra su ai_jobs.provider_id la credenziale del provider effettivamente
+ * usata per il job (la prima della catena, vedi handler.ts). Non status-guarded:
+ * è solo un dato di storico/diagnosi e va scritto appena la credenziale è scelta,
+ * prima che il job possa essere riaccodato. Best-effort: un errore (DB
+ * transitorio, provider eliminato nel frattempo → FK) non deve far fallire il
+ * job, l'auth è comunque già stata iniettata nel run.
+ */
+export async function setJobProvider(db: Db, jobId: string, providerId: string): Promise<void> {
+  try {
+    await db.update(aiJobs).set({ providerId }).where(eq(aiJobs.id, jobId));
+  } catch {
+    // Inghiottito: il provider_id è accessorio, il job no.
+  }
+}
+
 export interface CompleteJobInput {
   status: "pr_opened" | "skipped";
   log: string;

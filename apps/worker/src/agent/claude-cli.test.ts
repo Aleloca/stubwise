@@ -497,6 +497,113 @@ echo "ENCRYPTION_KEY:[\${ENCRYPTION_KEY:-MANCANTE}]"
   });
 });
 
+describe("ClaudeCliRunner provider/credenziale (env per kind)", () => {
+  // Script che riporta le due var di auth claude: serve per verificare quale
+  // viene iniettata e quale esclusa in base al kind della credenziale.
+  const AUTH_ECHO = `#!/bin/sh
+cat > /dev/null
+echo "ANTHROPIC_API_KEY:[\${ANTHROPIC_API_KEY:-MANCANTE}]"
+echo "CLAUDE_CODE_OAUTH_TOKEN:[\${CLAUDE_CODE_OAUTH_TOKEN:-MANCANTE}]"
+`;
+
+  it("provider kind 'api_key': inietta ANTHROPIC_API_KEY=secret ed ESCLUDE CLAUDE_CODE_OAUTH_TOKEN ereditato", async () => {
+    // Token OAuth nel container: con una API key da catena NON deve passare
+    // (niente auth doppia).
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = "oauth-ereditato-dal-container";
+    cleanups.push(async () => {
+      delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    });
+
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(root, AUTH_ECHO);
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    const result = await runner.run({
+      cwd,
+      prompt: "fixa",
+      maxTurns: 1,
+      timeoutMs: 10_000,
+      provider: { id: "p1", kind: "api_key", secret: "sk-ant-da-catena" },
+    });
+
+    expect(result.output).toContain("ANTHROPIC_API_KEY:[sk-ant-da-catena]");
+    expect(result.output).toContain("CLAUDE_CODE_OAUTH_TOKEN:[MANCANTE]");
+  });
+
+  it("provider kind 'account': inietta CLAUDE_CODE_OAUTH_TOKEN=secret ed ESCLUDE ANTHROPIC_API_KEY ereditato (CRITICO)", async () => {
+    // API key nel container: con un account da catena NON deve passare,
+    // altrimenti vincerebbe sull'OAuth e saboterebbe l'account.
+    process.env.ANTHROPIC_API_KEY = "sk-ant-ereditato-dal-container";
+    cleanups.push(async () => {
+      delete process.env.ANTHROPIC_API_KEY;
+    });
+
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(root, AUTH_ECHO);
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    const result = await runner.run({
+      cwd,
+      prompt: "fixa",
+      maxTurns: 1,
+      timeoutMs: 10_000,
+      provider: { id: "p2", kind: "account", secret: "oauth-token-da-catena" },
+    });
+
+    expect(result.output).toContain("CLAUDE_CODE_OAUTH_TOKEN:[oauth-token-da-catena]");
+    // Il punto CRITICO: la API key del container NON raggiunge il child.
+    expect(result.output).toContain("ANTHROPIC_API_KEY:[MANCANTE]");
+  });
+
+  it("senza provider: comportamento storico (ANTHROPIC_API_KEY del container passa se presente)", async () => {
+    process.env.ANTHROPIC_API_KEY = "sk-ant-del-container";
+    cleanups.push(async () => {
+      delete process.env.ANTHROPIC_API_KEY;
+    });
+
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(root, AUTH_ECHO);
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    const result = await runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000 });
+
+    expect(result.output).toContain("ANTHROPIC_API_KEY:[sk-ant-del-container]");
+  });
+
+  it("la denylist resta rispettata anche con un provider iniettato", async () => {
+    process.env.ENCRYPTION_KEY = "SENTINEL-ENCRYPTION-KEY";
+    cleanups.push(async () => {
+      delete process.env.ENCRYPTION_KEY;
+    });
+
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(
+      root,
+      `#!/bin/sh
+cat > /dev/null
+echo "ENCRYPTION_KEY:[\${ENCRYPTION_KEY:-MANCANTE}]"
+echo "ANTHROPIC_API_KEY:[\${ANTHROPIC_API_KEY:-MANCANTE}]"
+`,
+    );
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    const result = await runner.run({
+      cwd,
+      prompt: "ciao",
+      maxTurns: 1,
+      timeoutMs: 10_000,
+      provider: { id: "p3", kind: "api_key", secret: "sk-ant-da-catena" },
+    });
+
+    expect(result.output).toContain("ENCRYPTION_KEY:[MANCANTE]");
+    expect(result.output).toContain("ANTHROPIC_API_KEY:[sk-ant-da-catena]");
+  });
+});
+
 describe("FakeAgentRunner", () => {
   it("restituisce output ed exit code di default e registra le chiamate", async () => {
     const root = await makeRoot();

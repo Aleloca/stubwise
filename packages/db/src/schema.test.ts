@@ -4,6 +4,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "./client.js";
 import {
   aiJobs,
+  aiProviders,
+  aiUsageSnapshots,
   attachments,
   automationRules,
   comments,
@@ -1368,5 +1370,192 @@ describe("schema: identità Slack (users + invites)", () => {
     expect(a?.slackUserId).toBe(slackUserId);
     expect(b?.slackUserId).toBe(slackUserId);
     expect(a?.token).not.toBe(b?.token);
+  });
+});
+
+/**
+ * Verifica le tabelle dei provider AI: ai_providers (credenziale cifrata,
+ * posizione, enabled, kind), ai_usage_snapshots (round-trip jsonb dei residui
+ * di sessione/settimana, source, parseOk, rawText) e la colonna
+ * ai_jobs.provider_id. In particolare le due FK con politiche diverse: ai_jobs
+ * .provider_id ON DELETE SET NULL (il job sopravvive al provider), mentre gli
+ * ai_usage_snapshots cadono in cascata col provider.
+ */
+describe("schema: ai_providers + ai_usage_snapshots + ai_jobs.providerId", () => {
+  let testDb: TestDb;
+  let db: Db;
+
+  beforeAll(async () => {
+    testDb = await startTestDb();
+    db = testDb.db;
+  });
+
+  afterAll(async () => {
+    await testDb.stop();
+  });
+
+  async function seedTicket(): Promise<string> {
+    const gitAccountId = await seedGitAccount(db);
+    const [project] = await db
+      .insert(projects)
+      .values({
+        name: "Progetto di test",
+        slug: `progetto-${randomUUID()}`,
+        provider: "github",
+        gitAccountId,
+        repoUrl: "https://example.com/repo.git",
+        defaultBranch: "main",
+        ingestionKey: randomUUID(),
+      })
+      .returning();
+    if (!project) throw new Error("insert del progetto non ha restituito la riga");
+    const [ticket] = await db
+      .insert(tickets)
+      .values({
+        projectId: project.id,
+        number: 1,
+        title: "Ticket di test",
+        type: "bug",
+        priority: "medium",
+        source: "manual",
+      })
+      .returning();
+    if (!ticket) throw new Error("insert del ticket non ha restituito la riga");
+    return ticket.id;
+  }
+
+  async function seedProvider(
+    overrides: Partial<typeof aiProviders.$inferInsert> = {},
+  ): Promise<string> {
+    const [provider] = await db
+      .insert(aiProviders)
+      .values({
+        position: 0,
+        kind: "api_key",
+        label: `Provider ${randomUUID()}`,
+        secretEncrypted: "blob-cifrato",
+        ...overrides,
+      })
+      .returning();
+    if (!provider) throw new Error("insert del provider non ha restituito la riga");
+    return provider.id;
+  }
+
+  it("persiste e rilegge un provider (secret, position, enabled default true, kind)", async () => {
+    const providerId = await seedProvider({ position: 2, kind: "account", label: "Claude Max" });
+
+    const [read] = await db.select().from(aiProviders).where(eq(aiProviders.id, providerId));
+    expect(read?.position).toBe(2);
+    expect(read?.kind).toBe("account");
+    expect(read?.label).toBe("Claude Max");
+    expect(read?.secretEncrypted).toBe("blob-cifrato");
+    expect(read?.enabled).toBe(true);
+    expect(read?.createdAt).toBeInstanceOf(Date);
+    expect(read?.updatedAt).toBeInstanceOf(Date);
+  });
+
+  it("accetta enabled=false e kind=api_key", async () => {
+    const providerId = await seedProvider({ kind: "api_key", enabled: false });
+    const [read] = await db.select().from(aiProviders).where(eq(aiProviders.id, providerId));
+    expect(read?.kind).toBe("api_key");
+    expect(read?.enabled).toBe(false);
+  });
+
+  it("persiste uno snapshot con round-trip jsonb, source, parseOk, rawText", async () => {
+    const providerId = await seedProvider();
+    const sessionRemaining = { percent: 42, used: 58, window: "5h" };
+    const weeklyRemaining = { percent: 80, resetsIn: "3d" };
+    const sessionResetAt = new Date("2026-07-01T10:00:00.000Z");
+    const weeklyResetAt = new Date("2026-07-05T10:00:00.000Z");
+
+    const [inserted] = await db
+      .insert(aiUsageSnapshots)
+      .values({
+        providerId,
+        sessionRemaining,
+        weeklyRemaining,
+        sessionResetAt,
+        weeklyResetAt,
+        source: "deterministic",
+        parseOk: true,
+        rawText: "Session: 42% remaining",
+      })
+      .returning();
+    if (!inserted) throw new Error("insert dello snapshot non ha restituito la riga");
+
+    const [read] = await db
+      .select()
+      .from(aiUsageSnapshots)
+      .where(eq(aiUsageSnapshots.id, inserted.id));
+    expect(read?.providerId).toBe(providerId);
+    expect(read?.sessionRemaining).toEqual(sessionRemaining);
+    expect(read?.weeklyRemaining).toEqual(weeklyRemaining);
+    expect(read?.sessionResetAt?.toISOString()).toBe(sessionResetAt.toISOString());
+    expect(read?.weeklyResetAt?.toISOString()).toBe(weeklyResetAt.toISOString());
+    expect(read?.source).toBe("deterministic");
+    expect(read?.parseOk).toBe(true);
+    expect(read?.rawText).toBe("Session: 42% remaining");
+    expect(read?.capturedAt).toBeInstanceOf(Date);
+  });
+
+  it("ammette uno snapshot llm_fallback con jsonb/reset null e rawText null (parseOk false)", async () => {
+    const providerId = await seedProvider();
+    const [inserted] = await db
+      .insert(aiUsageSnapshots)
+      .values({ providerId, source: "llm_fallback", parseOk: false })
+      .returning();
+    expect(inserted?.source).toBe("llm_fallback");
+    expect(inserted?.parseOk).toBe(false);
+    expect(inserted?.sessionRemaining).toBeNull();
+    expect(inserted?.weeklyRemaining).toBeNull();
+    expect(inserted?.sessionResetAt).toBeNull();
+    expect(inserted?.weeklyResetAt).toBeNull();
+    expect(inserted?.rawText).toBeNull();
+  });
+
+  it("ai_jobs.provider_id default null e assegnabile a un provider", async () => {
+    const ticketId = await seedTicket();
+    const [job] = await db.insert(aiJobs).values({ ticketId }).returning();
+    expect(job?.providerId).toBeNull();
+
+    const providerId = await seedProvider();
+    await db.update(aiJobs).set({ providerId }).where(eq(aiJobs.id, job!.id));
+    const [updated] = await db.select().from(aiJobs).where(eq(aiJobs.id, job!.id));
+    expect(updated?.providerId).toBe(providerId);
+  });
+
+  it("nulla ai_jobs.provider_id quando il provider viene eliminato (set null)", async () => {
+    const ticketId = await seedTicket();
+    const providerId = await seedProvider();
+    const [job] = await db.insert(aiJobs).values({ ticketId, providerId }).returning();
+    if (!job) throw new Error("insert del job non ha restituito la riga");
+    expect(job.providerId).toBe(providerId);
+
+    await db.delete(aiProviders).where(eq(aiProviders.id, providerId));
+
+    const [survived] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(survived?.id).toBe(job.id);
+    expect(survived?.providerId).toBeNull();
+  });
+
+  it("cancella in cascata gli ai_usage_snapshots quando il provider viene eliminato", async () => {
+    const providerId = await seedProvider();
+    await db
+      .insert(aiUsageSnapshots)
+      .values({ providerId, source: "deterministic", parseOk: true });
+
+    const before = await db
+      .select()
+      .from(aiUsageSnapshots)
+      .where(eq(aiUsageSnapshots.providerId, providerId));
+    expect(before.length).toBe(1);
+
+    await db.delete(aiProviders).where(eq(aiProviders.id, providerId));
+
+    const after = await db
+      .select()
+      .from(aiUsageSnapshots)
+      .where(eq(aiUsageSnapshots.providerId, providerId));
+    expect(after.length).toBe(0);
   });
 });

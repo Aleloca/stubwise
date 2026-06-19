@@ -293,9 +293,11 @@
         "account": "Account",
         "automation": "Automazione AI",
         "notifications": "Notifiche",
+        "usage": "Consumi e costi",
         "gitAccounts": "Account Git",
         "storage": "Storage",
-        "slack": "Slack"
+        "slack": "Slack",
+        "aiProviders": "Provider AI"
       }
     },
     "account": {
@@ -417,6 +419,46 @@
       "saving": "Salvataggio…",
       "saved": "Salvato"
     },
+    "aiProviders": {
+      "title": "Provider AI",
+      "subtitle": "Catena di credenziali per la pipeline AI: provate dall'alto in basso, con failover quando un provider raggiunge il limite.",
+      "newProvider": "Nuovo provider AI",
+      "empty": "// nessun provider AI configurato",
+      "kind": "Tipo",
+      "kindApiKey": "API key",
+      "kindAccount": "Account",
+      "label": "Etichetta",
+      "labelPlaceholder": "Es. Console produzione",
+      "secret": "Secret",
+      "secretPlaceholder": "Incolla qui il valore",
+      "secretSet": "Secret impostata",
+      "createProvider": "Crea provider",
+      "creatingProvider": "Creazione…",
+      "enabledBadge": "Attivo",
+      "disabledBadge": "Disattivo",
+      "enable": "Attiva",
+      "disable": "Disattiva",
+      "moveUp": "Sposta su",
+      "moveDown": "Sposta giù",
+      "delete": "Elimina",
+      "confirm": "Conferma",
+      "tosWarning": "Sono configurate due o più credenziali Account. Usare più abbonamenti Claude per superare i limiti d'uso è contro i Terms of Service di Anthropic e può portare alla sospensione dell'account. Per capacità aggiuntiva preferisci una API key.",
+      "accountHint": "// Account: esegui `claude setup-token` su una macchina con browser e incolla qui il token.",
+      "apiKeyHint": "// API key: una chiave dalla Console Anthropic (console.anthropic.com).",
+      "secretWriteOnlyHint": "// write-only: cifrata a riposo e non più mostrata. Per cambiare una secret, elimina il provider e ricrealo.",
+      "usage": {
+        "title": "Consumo abbonamento",
+        "session": "Sessione: {{percent}}% residuo",
+        "weekly": "Settimanale: {{percent}}% residuo",
+        "resets": "reset {{when}}",
+        "estimated": "estimated (fallback)",
+        "noData": "// nessun dato di consumo ancora",
+        "diagnoseTitle": "Parsing deterministico di /usage fallito",
+        "diagnoseHint": "Aggiorna il parser deterministico in `apps/worker/src/agent/usage-parser.ts` — attese le finestre sessione/settimanale; ricevuto il testo qui sotto.",
+        "showRaw": "Mostra output grezzo",
+        "hideRaw": "Nascondi output grezzo"
+      }
+    },
     "credentials": {
       "username": "Username",
       "usernamePlaceholder": "Bitbucket: username · GitHub: vuoto",
@@ -525,6 +567,30 @@
     "save": "Salva",
     "saving": "Salvataggio…",
     "saved": "Salvato"
+  },
+  "usage": {
+    "title": "Consumi e costi",
+    "subtitle": "Consumo AI aggregato (costo e token) nel periodo selezionato.",
+    "range": "Periodo",
+    "rangeLabel": "Periodo",
+    "rangeDays": "Ultimi {{count}} giorni",
+    "loading": "Caricamento…",
+    "empty": "Nessun consumo AI in questo periodo.",
+    "totalCost": "Costo totale",
+    "totalInput": "Token input",
+    "totalOutput": "Token output",
+    "totalCache": "Cache letta",
+    "totalJobs": "Job",
+    "byDay": "Per giorno",
+    "byModel": "Per modello",
+    "byProject": "Per progetto",
+    "byProvider": "Per provider",
+    "colLabel": "Nome",
+    "tokensIn": "In",
+    "tokensOut": "Out",
+    "cache": "Cache",
+    "cost": "Costo",
+    "defaultProvider": "Default / env"
   },
   "badges": {
     "status": {

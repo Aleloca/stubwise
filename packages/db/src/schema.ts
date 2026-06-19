@@ -106,6 +106,16 @@ export const agentRunPhase = pgEnum("agent_run_phase", ["triage", "fix"]);
 //  "execute"→ salta triage E pianificazione, esegue usando plan_text.
 export const resumeMode = pgEnum("resume_mode", ["fix", "execute"]);
 
+// Tipo di credenziale di un provider AI: "api_key" (chiave API a consumo) o
+// "account" (login a un piano/abbonamento, es. Claude Max). Determina come il
+// worker prepara l'ambiente per il CLI. Lista letterale locale al DB, come gli
+// altri enum del dominio AI (ai_job_status, agent_run_phase, resume_mode).
+export const aiProviderKind = pgEnum("ai_provider_kind", ["api_key", "account"]);
+// Origine di uno snapshot di consumo: "deterministic" (estratto da un output
+// strutturato/parsabile del CLI) o "llm_fallback" (dedotto da un modello quando
+// il parsing deterministico fallisce). Marca l'affidabilità del dato.
+export const aiUsageSource = pgEnum("ai_usage_source", ["deterministic", "llm_fallback"]);
+
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   email: text("email").notNull().unique(),
@@ -415,6 +425,11 @@ export const aiJobs = pgTable(
     // Piano prodotto dalla fase di pianificazione, persistito tra il parcheggio
     // in awaiting_plan_approval e la ripresa in esecuzione (resume_mode="execute").
     planText: text("plan_text"),
+    // Provider AI con cui il job è stato (o sarà) eseguito. Nullable: i job
+    // pre-esistenti alla feature provider non lo hanno, e un job può essere in
+    // coda prima che il worker scelga la credenziale. ON DELETE SET NULL: il job
+    // sopravvive all'eliminazione del provider (lo storico resta consultabile).
+    providerId: uuid("provider_id").references(() => aiProviders.id, { onDelete: "set null" }),
   },
   (table) => [
     // Lookup dei job di un ticket (storico e dettaglio).
@@ -455,6 +470,69 @@ export const agentRuns = pgTable(
   (table) => [
     // Aggregazione dei consumi per job (e, via join, per ticket).
     index("agent_runs_job_id_idx").on(table.jobId),
+  ],
+);
+
+/**
+ * Provider AI configurati dall'admin: una credenziale (chiave API o account)
+ * usata dal worker per eseguire i job. L'ordine di failover è dato da
+ * `position` (intero crescente): il worker prova i provider abilitati in ordine
+ * e passa al successivo al raggiungimento del limite. Il riordino è applicativo
+ * (riscrittura delle position in transazione), quindi `position` resta un intero
+ * semplice senza unique, per non creare attriti durante lo swap. `secretEncrypted`
+ * è il blob cifrato AES-256-GCM (vedi secrets.ts): non esce mai in chiaro dall'API.
+ */
+export const aiProviders = pgTable("ai_providers", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  // Ordine di failover (intero crescente). Niente unique: il riordino è
+  // applicativo e riscrive le position in transazione.
+  position: integer("position").notNull(),
+  kind: aiProviderKind("kind").notNull(),
+  label: text("label").notNull(),
+  // Credenziale cifrata AES-256-GCM (chiave API o blob di login dell'account).
+  // Non esce MAI dall'API: si legge solo per decifrare lato worker.
+  secretEncrypted: text("secret_encrypted").notNull(),
+  enabled: boolean("enabled").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+/**
+ * Istantanea dei consumi/residui di un provider AI a un dato momento: alimenta
+ * la diagnosi del consumo residuo (sessione + finestra settimanale) e i banner
+ * di stato. `sessionRemaining`/`weeklyRemaining` sono jsonb liberi (formato del
+ * provider, normalizzato lato applicazione); i `*ResetAt` sono gli istanti di
+ * reset delle due finestre, nullable. `source` distingue il dato estratto in
+ * modo deterministico dal CLI da quello dedotto via LLM di fallback; `parseOk`
+ * dice se l'estrazione è andata a buon fine; `rawText` conserva l'output grezzo
+ * (nullable) per diagnosi. Cancellati in cascata col provider.
+ */
+export const aiUsageSnapshots = pgTable(
+  "ai_usage_snapshots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    providerId: uuid("provider_id")
+      .notNull()
+      .references(() => aiProviders.id, { onDelete: "cascade" }),
+    capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+    // Residuo della finestra di sessione (formato provider, normalizzato lato app).
+    sessionRemaining: jsonb("session_remaining"),
+    // Residuo della finestra settimanale (formato provider, normalizzato lato app).
+    weeklyRemaining: jsonb("weekly_remaining"),
+    sessionResetAt: timestamp("session_reset_at", { withTimezone: true }),
+    weeklyResetAt: timestamp("weekly_reset_at", { withTimezone: true }),
+    source: aiUsageSource("source").notNull(),
+    parseOk: boolean("parse_ok").notNull(),
+    // Output grezzo da cui è stato estratto lo snapshot; null = non conservato.
+    rawText: text("raw_text"),
+  },
+  (table) => [
+    // Lo storico consumi si legge sempre per provider, in ordine cronologico
+    // (ultimo snapshot, andamento). Copre anche il delete in cascata.
+    index("ai_usage_snapshots_provider_id_captured_at_idx").on(table.providerId, table.capturedAt),
   ],
 );
 

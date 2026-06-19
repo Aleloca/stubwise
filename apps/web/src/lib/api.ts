@@ -930,6 +930,71 @@ export function postValidateGitAccount(id: string): Promise<ValidateCredentialsR
   return api.post(`/api/git-accounts/${id}/validate`);
 }
 
+// --- Provider AI ---
+
+/** Tipo di credenziale di un provider AI: chiave API o account/abbonamento. */
+export type AiProviderKind = "api_key" | "account";
+
+/**
+ * Provider AI configurato dall'admin: proiezione pubblica (mai la secret, che
+ * vive cifrata at-rest e write-only sul server). `position` dà l'ordine di
+ * failover; `secretSet` è sempre true (la secret esiste, non si espone).
+ */
+export interface AiProvider {
+  id: string;
+  kind: AiProviderKind;
+  label: string;
+  position: number;
+  enabled: boolean;
+  secretSet: boolean;
+  createdAt: string;
+}
+
+/** Creazione di un provider AI (solo admin): la secret è write-only. */
+export interface AiProviderDraft {
+  kind: AiProviderKind;
+  label: string;
+  secret: string;
+  position?: number;
+}
+
+/**
+ * Modifica di un provider AI (solo admin). `secret` assente = quella salvata
+ * resta invariata (non si può svuotare: per rimuoverla si elimina il provider).
+ */
+export interface AiProviderPatch {
+  label?: string;
+  secret?: string;
+  enabled?: boolean;
+  position?: number;
+}
+
+/** Provider AI configurati (solo admin), ordinati per position di failover. */
+export function listAiProviders(): Promise<AiProvider[]> {
+  return api.get("/api/ai-providers");
+}
+
+export function createAiProvider(draft: AiProviderDraft): Promise<AiProvider> {
+  return api.post("/api/ai-providers", draft);
+}
+
+export function updateAiProvider(id: string, patch: AiProviderPatch): Promise<AiProvider> {
+  return api.patch(`/api/ai-providers/${id}`, patch);
+}
+
+export function deleteAiProvider(id: string): Promise<void> {
+  return request("DELETE", `/api/ai-providers/${encodeURIComponent(id)}`);
+}
+
+/**
+ * Riordina i provider AI (solo admin): `orderedIds` deve elencare ESATTAMENTE
+ * tutti i provider esistenti nell'ordine di failover desiderato. Il server
+ * riscrive le position 0..n-1 in transazione e restituisce la lista aggiornata.
+ */
+export function reorderAiProviders(orderedIds: string[]): Promise<AiProvider[]> {
+  return api.post("/api/ai-providers/reorder", { orderedIds });
+}
+
 /**
  * Verifica REPO-SPECIFICA delle credenziali dell'account su un repo scelto
  * (solo admin): sonda i tre check che richiedono un repo reale — push git,
@@ -1146,4 +1211,125 @@ export function getInstanceSettings(): Promise<InstanceSettings> {
  */
 export function putInstanceSettings(patch: InstanceSettingsPatch): Promise<InstanceSettings> {
   return api.put("/api/settings/instance", patch);
+}
+
+// --- Dashboard consumi AI (costi/token) ---
+
+/** Totali del periodo: costo USD, token (in/out/cache) e job conteggiati. */
+export interface AiUsageTotals {
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  jobs: number;
+}
+
+/** Una riga della serie temporale: consumi aggregati di un giorno (UTC). */
+export interface AiUsageByDay {
+  /** Giorno YYYY-MM-DD (UTC). */
+  day: string;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  jobs: number;
+}
+
+/** Consumi aggregati per modello. */
+export interface AiUsageByModel {
+  model: string;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+}
+
+/** Consumi aggregati per progetto (con nome). */
+export interface AiUsageByProject {
+  projectId: string;
+  projectName: string;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+}
+
+/**
+ * Consumi aggregati per provider AI. `providerId`/`providerLabel` null = job
+ * eseguiti senza provider configurato (credenziale da env/default).
+ */
+export interface AiUsageByProvider {
+  providerId: string | null;
+  providerLabel: string | null;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+}
+
+/**
+ * Dashboard consumi AI: totali del periodo più le ripartizioni per giorno,
+ * modello, progetto e provider. `range` riporta gli istanti ISO effettivamente
+ * applicati dal server (default: ultimi 30 giorni). I costi NULL contano 0.
+ */
+export interface AiUsageCosts {
+  range: { from: string; to: string };
+  totals: AiUsageTotals;
+  byDay: AiUsageByDay[];
+  byModel: AiUsageByModel[];
+  byProject: AiUsageByProject[];
+  byProvider: AiUsageByProvider[];
+}
+
+/** Filtro del range della dashboard consumi: date ISO YYYY-MM-DD. */
+export interface AiUsageCostsParams {
+  from?: string;
+  to?: string;
+}
+
+/**
+ * Aggregazione dei consumi AI nel range (solo admin). Senza parametri il server
+ * applica gli ultimi 30 giorni; `from`/`to` (YYYY-MM-DD) restringono la finestra.
+ */
+export function getAiUsageCosts(params: AiUsageCostsParams = {}): Promise<AiUsageCosts> {
+  const search = new URLSearchParams();
+  if (params.from) search.set("from", params.from);
+  if (params.to) search.set("to", params.to);
+  const qs = search.toString();
+  return api.get(`/api/ai-usage/costs${qs ? `?${qs}` : ""}`);
+}
+
+// --- Usage residuo abbonamento (ultimo snapshot per credenziale account) ---
+
+/** Finestra di consumo normalizzata: percentuale usata e residua. */
+export interface UsageWindow {
+  percentUsed: number;
+  percentRemaining: number;
+}
+
+/**
+ * Ultimo snapshot di consumo di una credenziale `account` (solo admin).
+ * `rawText` è presente SOLO quando `parseOk=false`: è l'output grezzo di
+ * `/usage` da cui il parser deterministico non ha estratto nulla, mostrato nel
+ * banner di diagnosi. Con `parseOk=true` è assente/null.
+ */
+export interface AiUsageSnapshot {
+  providerId: string;
+  providerLabel: string;
+  capturedAt: string;
+  sessionRemaining: UsageWindow | null;
+  weeklyRemaining: UsageWindow | null;
+  sessionResetAt: string | null;
+  weeklyResetAt: string | null;
+  source: "deterministic" | "llm_fallback";
+  parseOk: boolean;
+  rawText?: string | null;
+}
+
+/**
+ * Ultimo snapshot di consumo per ciascuna credenziale `account` (solo admin).
+ * Un item per account; nessuno per le credenziali senza snapshot ancora.
+ */
+export function getAiUsageSnapshots(): Promise<AiUsageSnapshot[]> {
+  return api.get("/api/ai-usage/snapshots");
 }

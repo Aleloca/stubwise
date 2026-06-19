@@ -16,6 +16,8 @@
  *   tratta il timeout in modo distinto (job fallito con log).
  */
 
+import type { ResolvedProvider } from "../providers/chain.js";
+
 export interface AgentRunOptions {
   /** Working directory dell'agente (il worktree del job). */
   cwd: string;
@@ -45,6 +47,15 @@ export interface AgentRunOptions {
   maxTurns: number;
   /** Timeout complessivo in millisecondi (> 0). */
   timeoutMs: number;
+  /**
+   * Credenziale del provider AI da usare per QUESTO run, risolta dalla catena
+   * (vedi providers/chain.ts). Determina come si autentica il CLI claude:
+   *  - kind "api_key" → ANTHROPIC_API_KEY (e si esclude CLAUDE_CODE_OAUTH_TOKEN);
+   *  - kind "account" → CLAUDE_CODE_OAUTH_TOKEN (e si esclude ANTHROPIC_API_KEY).
+   * Assente (catena vuota) → comportamento storico: auth dall'env del container
+   * (ANTHROPIC_API_KEY se presente) o dall'OAuth del volume ~/.claude.
+   */
+  provider?: ResolvedProvider;
 }
 
 /**

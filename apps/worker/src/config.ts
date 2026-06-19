@@ -129,6 +129,18 @@ const envSchema = z.object({
     (value) => (typeof value === "string" ? value.replace(/\/+$/, "") : value),
     z.string().default(""),
   ),
+  // Intervallo in minuti del poller dell'usage residuo dell'abbonamento (task
+  // separato dal loop dei job, vedi agent/usage-poller.ts): legge `/usage` via
+  // PTY e salva uno snapshot. È BEST-EFFORT e non tocca i timeout dei job.
+  // 0 = disabilitato. Default 5'.
+  USAGE_POLL_MINUTES: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 0 in minuti (es. 5; 0 = disabilitato)" })
+      .int("deve essere un intero ≥ 0 in minuti (es. 5; 0 = disabilitato)")
+      .min(0, "deve essere un intero ≥ 0 in minuti (es. 5; 0 = disabilitato)")
+      .default(5),
+  ),
 });
 
 export interface WorkerConfig {
@@ -161,6 +173,9 @@ export interface WorkerConfig {
   /** URL pubblico dell'istanza (senza slash finali) per i link nelle notifiche;
    * vuoto = il link al ticket è il solo path. */
   publicUrl: string;
+  /** Intervallo in minuti del poller dell'usage residuo (default 5; 0 =
+   * disabilitato). */
+  usagePollMinutes: number;
 }
 
 /**
@@ -196,5 +211,6 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     selfRepairMaxAttempts: parsed.SELF_REPAIR_MAX_ATTEMPTS,
     selfRepairTestTimeoutMs: parsed.SELF_REPAIR_TEST_TIMEOUT_MS,
     publicUrl: parsed.PUBLIC_URL,
+    usagePollMinutes: parsed.USAGE_POLL_MINUTES,
   };
 }

@@ -1,6 +1,8 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import {
   getAutomationSettings,
+  getAiUsageCosts,
+  getAiUsageSnapshots,
   getComments,
   getGitAccount,
   getGitAccounts,
@@ -18,6 +20,7 @@ import {
   getTicketLinks,
   getTicketUsage,
   getUsers,
+  listAiProviders,
   listMilestones,
   listSavedViews,
   listTickets,
@@ -248,6 +251,55 @@ export const notificationSettingsQueryOptions = queryOptions({
 export const instanceSettingsQueryOptions = queryOptions({
   queryKey: ["settings", "instance"],
   queryFn: getInstanceSettings,
+  staleTime: 30_000,
+});
+
+/**
+ * Provider AI configurati (solo admin), ordinati per position di failover. La
+ * pagina Settings la abilita in base al ruolo; chiave radice ["ai-providers"]:
+ * ogni create/update/delete/reorder la invalida così la catena resta
+ * riconciliata col backend.
+ */
+export const aiProvidersQueryOptions = queryOptions({
+  queryKey: ["ai-providers"],
+  queryFn: listAiProviders,
+  staleTime: 30_000,
+});
+
+/**
+ * Range supportati dalla dashboard consumi AI: finestra a 7/30/90 giorni.
+ * Il filtro è espresso in giorni; il `from` (YYYY-MM-DD, UTC) si calcola
+ * client-side, il `to` lo lascia al default del server (ora).
+ */
+export const USAGE_RANGE_DAYS = [7, 30, 90] as const;
+export type UsageRangeDays = (typeof USAGE_RANGE_DAYS)[number];
+
+/** `from` (YYYY-MM-DD, UTC) di N giorni fa rispetto a `now` (iniettabile). */
+export function usageFromDate(days: number, now: number = Date.now()): string {
+  return new Date(now - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/**
+ * Consumi AI aggregati (solo admin) nella finestra a N giorni. Chiave per
+ * numero di giorni: cambiare il filtro 7/30/90 è una query a sé in cache.
+ * `staleTime` breve: i dati cambiano con i job ma non in tempo reale.
+ */
+export function aiUsageCostsQueryOptions(days: UsageRangeDays) {
+  return queryOptions({
+    queryKey: ["ai-usage", "costs", days],
+    queryFn: () => getAiUsageCosts({ from: usageFromDate(days) }),
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * Usage residuo dell'abbonamento (solo admin): ultimo snapshot per credenziale
+ * `account`. Affiancato alla catena in Settings → AI providers. `staleTime`
+ * breve: il worker aggiorna gli snapshot a ogni poll, ma non serve real-time.
+ */
+export const aiUsageSnapshotsQueryOptions = queryOptions({
+  queryKey: ["ai-usage", "snapshots"],
+  queryFn: getAiUsageSnapshots,
   staleTime: 30_000,
 });
 

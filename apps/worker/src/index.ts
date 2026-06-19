@@ -1,5 +1,6 @@
 import { createDb } from "@stubwise/db";
 import { ClaudeCliRunner } from "./agent/claude-cli.js";
+import { startUsagePoller } from "./agent/usage-poller.js";
 import { loadWorkerConfig, type WorkerConfig } from "./config.js";
 import { MirrorManager } from "./git/mirrors.js";
 import { createHandler } from "./handler.js";
@@ -112,8 +113,20 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   });
 }
 
+// Poller dell'usage residuo dell'abbonamento (Task 6): task SEPARATO dal loop
+// dei job, su un proprio intervallo. È BEST-EFFORT (non fa mai crashare il
+// worker) e NON tocca il lock/heartbeat né i timeout dei job (nessun impatto
+// sull'invariante WORKER_STALE_MINUTES). Si ferma sullo stesso AbortSignal.
+startUsagePoller({
+  db,
+  encryptionKey: config.encryptionKey,
+  intervalMinutes: config.usagePollMinutes,
+  signal: controller.signal,
+});
+
 console.error(
-  `[stubwise-worker] avviato (concurrency ${config.concurrency}, mirrors in ${config.mirrorsDir})`,
+  `[stubwise-worker] avviato (concurrency ${config.concurrency}, mirrors in ${config.mirrorsDir}` +
+    `, usage-poll ${config.usagePollMinutes > 0 ? `ogni ${config.usagePollMinutes}'` : "disabilitato"})`,
 );
 await runWorker({
   db,
