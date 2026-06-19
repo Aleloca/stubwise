@@ -13,6 +13,15 @@ FROM node:22-slim AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable
+# `pnpm install` del workspace compila le dipendenze native in onlyBuiltDependencies
+# (root package.json), tra cui node-pty del worker — che non ha prebuild Linux e
+# ricade su `node-gyp rebuild` (richiede python3/make/g++). La toolchain serve quindi
+# anche qui (stage base) perché l'install dell'intero workspace non fallisca; resta
+# fuori dal runtime finale (lo stage `runtime` copia solo /app via `pnpm deploy`, che
+# per il server non include node-pty).
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
 WORKDIR /repo
 
 # Manifest del workspace: copiati prima dei sorgenti così il layer di install

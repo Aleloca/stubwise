@@ -11,6 +11,13 @@ FROM node:22-slim AS web-build
 ENV PNPM_HOME=/pnpm
 ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable
+# `pnpm install` del workspace compila le native in onlyBuiltDependencies (incl.
+# node-pty del worker, senza prebuild Linux → node-gyp). Serve la toolchain anche
+# qui per non far fallire l'install; il runtime è caddy:alpine e copia solo i
+# dist statici, quindi nulla di tutto questo finisce nell'immagine finale.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
 WORKDIR /repo
 
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
