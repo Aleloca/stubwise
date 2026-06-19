@@ -58,22 +58,28 @@ describe("captureUsageOutput", () => {
     let spawnedEnv: Record<string, string> = {};
     const spawner: PtySpawner = (_file, _args, opts) => {
       spawnedEnv = opts.env;
-      // Simula: TUI pronta, poi (dopo /usage) il render dell'usage.
+      // Simula: TUI pronta (prompt principale), poi (dopo /usage) il render.
       queueMicrotask(() => {
-        fake.emit("[2J Welcome to Claude Code [0m\n> ");
-        // Dopo che il chiamante ha inviato /usage, emette il pannello.
-        setTimeout(() => {
-          fake.emit("[1m42% used[0m\r\nWeekly 31% used\r\n");
-          fake.exit(0);
-        }, 5);
+        fake.emit("[2J Welcome to Claude Code [0m\n? for shortcuts · ← for agents\n> ");
       });
+      // Dopo che il chiamante ha inviato /usage, emette il pannello ed esce.
+      const origWrite = fake.pty.write.bind(fake.pty);
+      fake.pty.write = (d: string): void => {
+        origWrite(d);
+        if (d.includes("/usage")) {
+          setTimeout(() => {
+            fake.emit("[1m42% used[0m\r\nWeekly 31% used\r\n");
+            fake.exit(0);
+          }, 5);
+        }
+      };
       return fake.pty;
     };
 
     const out = await captureUsageOutput(account, {
       spawner,
       readyDelayMs: 1,
-      renderDelayMs: 8,
+      renderDelayMs: 50,
       timeoutMs: 1000,
       preConfig: false,
     });
@@ -165,6 +171,134 @@ describe("captureUsageOutput", () => {
     expect(enterIdx).toBeLessThan(usageIdx);
     // L'output catturato contiene il pannello di /usage (il parser a valle ne
     // estrae i dati; il buffer PTY include anche il testo precedente, normale).
+    expect(out).toContain("42% used");
+    expect(out).toContain("Weekly 31% used");
+  });
+
+  it("supera il trust dialog con un Invio, raggiunge il prompt pronto e invia /usage", async () => {
+    const fake = makeFakePty();
+    const spawner: PtySpawner = () => {
+      queueMicrotask(() => {
+        // 1) All'avvio compare il trust dialog di Claude Code.
+        fake.emit(
+          "Accessing workspace: /app\nQuick safety check: Is this a project you created or one you trust?\n  ❯ 1. Yes, I trust this folder\n    2. No, exit\n",
+        );
+      });
+      const origWrite = fake.pty.write.bind(fake.pty);
+      fake.pty.write = (d: string): void => {
+        origWrite(d);
+        if (d === "\r") {
+          // Accettato il trust: ora la TUI è al prompt principale.
+          setTimeout(() => fake.emit("\nWelcome back!\n? for shortcuts · ← for agents\n"), 1);
+        } else if (d.includes("/usage")) {
+          setTimeout(() => {
+            fake.emit("Current session 42% used\r\nWeekly 31% used\r\n");
+            fake.exit(0);
+          }, 1);
+        }
+      };
+      return fake.pty;
+    };
+
+    const out = await captureUsageOutput(account, {
+      spawner,
+      readyDelayMs: 5,
+      renderDelayMs: 20,
+      timeoutMs: 2000,
+      preConfig: false,
+    });
+
+    const enterIdx = fake.pty.writes.indexOf("\r");
+    const usageIdx = fake.pty.writes.findIndex((w) => w.includes("/usage"));
+    expect(enterIdx).toBeGreaterThanOrEqual(0);
+    expect(usageIdx).toBeGreaterThanOrEqual(0);
+    expect(enterIdx).toBeLessThan(usageIdx);
+    expect(out).toContain("42% used");
+    expect(out).toContain("Weekly 31% used");
+  });
+
+  it("prompt pronto immediato: invia /usage senza Invio superflui", async () => {
+    const fake = makeFakePty();
+    const spawner: PtySpawner = () => {
+      queueMicrotask(() => {
+        // La TUI è subito al prompt principale (nessun wizard/trust).
+        fake.emit("Welcome back!\n? for shortcuts · ← for agents\n");
+      });
+      const origWrite = fake.pty.write.bind(fake.pty);
+      fake.pty.write = (d: string): void => {
+        origWrite(d);
+        if (d.includes("/usage")) {
+          setTimeout(() => {
+            fake.emit("Current session 42% used\r\nWeekly 31% used\r\n");
+            fake.exit(0);
+          }, 1);
+        }
+      };
+      return fake.pty;
+    };
+
+    const out = await captureUsageOutput(account, {
+      spawner,
+      readyDelayMs: 5,
+      renderDelayMs: 20,
+      timeoutMs: 2000,
+      preConfig: false,
+    });
+
+    // /usage è stato inviato e l'output catturato; nessun "\r" di navigazione
+    // è stato necessario prima di /usage (prompt già pronto).
+    expect(fake.pty.writes.join("")).toContain("/usage");
+    expect(fake.pty.writes.indexOf("\r")).toBe(-1);
+    expect(out).toContain("42% used");
+    expect(out).toContain("Weekly 31% used");
+  });
+
+  it("trust + tema in sequenza: due Invii prima di /usage, poi cattura il pannello", async () => {
+    const fake = makeFakePty();
+    const spawner: PtySpawner = () => {
+      let enters = 0;
+      queueMicrotask(() => {
+        // 1) Prima il trust dialog.
+        fake.emit(
+          "Quick safety check: Is this a project you created or one you trust?\n  ❯ 1. Yes, I trust this folder\n",
+        );
+      });
+      const origWrite = fake.pty.write.bind(fake.pty);
+      fake.pty.write = (d: string): void => {
+        origWrite(d);
+        if (d === "\r") {
+          enters += 1;
+          if (enters === 1) {
+            // Dopo il primo Invio compare il wizard del tema.
+            setTimeout(() => fake.emit("Choose the text style that looks best...\n❯ 2. Dark mode ✔\n"), 1);
+          } else {
+            // Dopo il secondo Invio la TUI è al prompt principale.
+            setTimeout(() => fake.emit("\n? for shortcuts · ← for agents\n"), 1);
+          }
+        } else if (d.includes("/usage")) {
+          setTimeout(() => {
+            fake.emit("Current session 42% used\r\nWeekly 31% used\r\n");
+            fake.exit(0);
+          }, 1);
+        }
+      };
+      return fake.pty;
+    };
+
+    const out = await captureUsageOutput(account, {
+      spawner,
+      readyDelayMs: 5,
+      renderDelayMs: 20,
+      timeoutMs: 2000,
+      preConfig: false,
+    });
+
+    const usageIdx = fake.pty.writes.findIndex((w) => w.includes("/usage"));
+    const entersBeforeUsage = fake.pty.writes
+      .slice(0, usageIdx)
+      .filter((w) => w === "\r").length;
+    expect(usageIdx).toBeGreaterThanOrEqual(0);
+    expect(entersBeforeUsage).toBeGreaterThanOrEqual(2);
     expect(out).toContain("42% used");
     expect(out).toContain("Weekly 31% used");
   });

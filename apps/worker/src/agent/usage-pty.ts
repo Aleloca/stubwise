@@ -93,10 +93,38 @@ const WIZARD_MARKER_RE = /choose the text style|dark mode|light mode|select them
  */
 const LOGIN_METHOD_RE = /select login method|claude account with subscription/i;
 
-/** Numero massimo di "Invio" inviati per superare i passaggi del wizard. */
-const MAX_WIZARD_STEPS = 3;
-/** Attesa tra un Invio di navigazione del wizard e il successivo. */
-const WIZARD_STEP_DELAY_MS = 400;
+/**
+ * Marcatore del TRUST DIALOG ("Quick safety check: is this a project you
+ * trust?") che Claude Code mostra alla prima apertura di una cartella. Con un
+ * account valido questo è il prompt che bloccava il PTY in produzione: come per
+ * il wizard del tema, il default ("Yes, I trust this folder") si accetta con un
+ * Invio. Lo trattiamo quindi come un passaggio di navigazione da superare.
+ */
+const TRUST_MARKER_RE = /trust this folder|do you trust|safety check|is this a project you/i;
+
+/**
+ * Marcatore di "PROMPT PRONTO": la TUI è arrivata al prompt interattivo
+ * principale (la barra di stato "? for shortcuts"). È il segnale definitivo che
+ * possiamo inviare /usage SUBITO, senza sprecare altri Invii: ha priorità
+ * (short-circuit) su qualsiasi altro marcatore ancora presente nel buffer.
+ */
+const PROMPT_READY_RE = /\? for shortcuts/i;
+
+/**
+ * Numero massimo di "Invio" inviati per superare i passaggi di navigazione
+ * (trust + tema + margine). Il cap garantisce comunque l'invio di /usage anche
+ * se non riconosciamo lo stato della TUI.
+ */
+const MAX_WIZARD_STEPS = 5;
+/**
+ * Attesa tra un passo di navigazione e il successivo. Tenuta breve perché ora
+ * il loop può eseguire fino a MAX_WIZARD_STEPS passi anche solo per ATTENDERE
+ * (TUI in caricamento, nessun marcatore ancora): il totale (passi × delay) deve
+ * restare ben sotto il timeoutMs tipico, così /usage viene comunque inviato in
+ * tempo. 150ms × 5 = 750ms di budget di navigazione: sufficiente per la TUI
+ * reale e abbondantemente sotto il timeout di default (30s).
+ */
+const WIZARD_STEP_DELAY_MS = 150;
 
 const ANSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[@-Z\\-_]/g;
 
@@ -221,7 +249,12 @@ export async function captureUsageOutput(
   const renderDelayMs = opts.renderDelayMs ?? DEFAULT_RENDER_DELAY_MS;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const claudePath = opts.claudePath ?? "claude";
-  const cwd = opts.cwd ?? process.cwd();
+  // cwd NEUTRO STABILE: usare process.cwd() (la dir dell'app) faceva scattare il
+  // trust dialog a ogni poll. Puntiamo invece alla dir di config del worker
+  // (/home/worker/.claude in container, montata su volume): una volta accettato
+  // il trust per quella dir, Claude lo ricorda tra un poll e l'altro e il dialog
+  // non riappare. Lo spawner fake dei test ignora comunque il cwd.
+  const cwd = opts.cwd ?? resolveClaudeConfigPaths(process.env).dir;
 
   // RETE A (best-effort): pre-inizializza la config così che il wizard di
   // onboarding/tema non compaia. Non lancia mai; il PTY ha comunque la rete B.
@@ -301,14 +334,22 @@ export async function captureUsageOutput(
     };
 
     /**
-     * RETE B (difensiva): supera un eventuale wizard di onboarding/tema residuo
-     * prima di inviare /usage. Guarda l'output accumulato:
-     *  - se contiene "select login method" → NON siamo autenticati: premere
-     *    Invio non aiuta, esci subito inviando /usage (il parser fallirà →
-     *    snapshot diagnostico, nessun hang);
-     *  - se contiene un marcatore di wizard e non abbiamo esaurito i tentativi
-     *    → invia un Invio per accettare il default e riprova dopo un attimo;
-     *  - altrimenti il wizard è (probabilmente) superato → invia /usage.
+     * RETE B (difensiva): naviga GENERICAMENTE i prompt che la TUI può mostrare
+     * prima di arrivare al prompt principale (trust dialog, wizard del tema, …)
+     * fino a poter inviare /usage. È un loop a step (cap MAX_WIZARD_STEPS) sul
+     * buffer accumulato. Ordine di valutazione (la priorità conta: il buffer
+     * cresce e i marcatori passati restano "veri", quindi i short-circuit vanno
+     * prima):
+     *  - "select login method" → NON siamo autenticati: premere Invio non aiuta,
+     *    esci subito inviando /usage (il parser fallirà → snapshot diagnostico,
+     *    nessun hang);
+     *  - "? for shortcuts" → la TUI è al prompt principale: invia /usage subito,
+     *    senza sprecare altri Invii;
+     *  - marcatore di wizard/tema O trust dialog (e step disponibili) → accetta
+     *    il default con un Invio e riprova dopo un attimo;
+     *  - nessun marcatore riconosciuto (e step disponibili) → la TUI sta
+     *    probabilmente ancora caricando: attendi e riprova;
+     *  - tetto raggiunto → fallback: invia /usage comunque.
      */
     const navigateWizard = (steps: number): void => {
       if (settled) return;
@@ -319,12 +360,23 @@ export async function captureUsageOutput(
         return;
       }
 
-      if (WIZARD_MARKER_RE.test(buffer) && steps < MAX_WIZARD_STEPS) {
-        try {
-          proc?.write("\r");
-        } catch {
-          // ignora: se la write fallisce, il giro successivo o il timeout chiude.
+      if (PROMPT_READY_RE.test(buffer)) {
+        // Prompt principale pronto: invia /usage senza ulteriori Invii.
+        sendUsage();
+        return;
+      }
+
+      if (steps < MAX_WIZARD_STEPS) {
+        if (WIZARD_MARKER_RE.test(buffer) || TRUST_MARKER_RE.test(buffer)) {
+          // Prompt di scelta (tema/trust): accetta il default con un Invio.
+          try {
+            proc?.write("\r");
+          } catch {
+            // ignora: se la write fallisce, il giro successivo o il timeout chiude.
+          }
         }
+        // Sia che abbiamo inviato Invio sia che non riconosciamo ancora nulla
+        // (TUI in caricamento): attendi e riprova.
         timers.push(
           setTimeout(() => {
             navigateWizard(steps + 1);
@@ -333,7 +385,7 @@ export async function captureUsageOutput(
         return;
       }
 
-      // Nessun marcatore (o tetto raggiunto): procedi con /usage.
+      // Tetto raggiunto: fallback finale, invia /usage comunque.
       sendUsage();
     };
 
