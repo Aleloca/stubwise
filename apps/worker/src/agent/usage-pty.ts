@@ -58,8 +58,26 @@ export interface CaptureUsageOptions {
   cwd?: string;
   /** Attesa prima di inviare /usage (la TUI deve essere pronta). Default 2500ms. */
   readyDelayMs?: number;
-  /** Attesa dopo /usage per far renderizzare il pannello. Default 2500ms. */
+  /**
+   * Attesa AGGIUNTIVA dopo la comparsa del prompt principale, PRIMA di scrivere
+   * /usage: dà tempo alla TUI di diventare davvero interattiva (l'animazione
+   * "Welcome back!" può scartare l'input arrivato troppo presto). Default 800ms.
+   */
+  settleDelayMs?: number;
+  /**
+   * Attesa tra la scrittura di "/usage" e quella dell'invio "\r" (invio diviso):
+   * evita che il submit parta prima che il comando sia digitato/riconosciuto.
+   * Default 300ms.
+   */
+  submitDelayMs?: number;
+  /**
+   * Tetto MASSIMO d'attesa del pannello dell'uso dopo l'invio. Entro questo
+   * limite si fa polling del buffer per il marker di output; appena compare si
+   * finisce subito (early-exit). Default 8000ms.
+   */
   renderDelayMs?: number;
+  /** Intervallo di polling del buffer in attesa del pannello. Default 300ms. */
+  pollMs?: number;
   /** Timeout complessivo: oltre, il processo è ucciso. Default 30000ms. */
   timeoutMs?: number;
   /**
@@ -71,8 +89,45 @@ export interface CaptureUsageOptions {
 }
 
 const DEFAULT_READY_DELAY_MS = 2500;
-const DEFAULT_RENDER_DELAY_MS = 2500;
+/**
+ * Settle PRIMA dell'invio: dopo che il prompt principale è comparso, la TUI può
+ * ancora star renderizzando l'animazione iniziale e scartare l'input. Attendiamo
+ * un attimo perché diventi davvero interattiva. ~800ms è prudente.
+ */
+const DEFAULT_SETTLE_DELAY_MS = 800;
+/**
+ * Invio DIVISO: scriviamo "/usage", attendiamo questo delay, poi scriviamo "\r".
+ * Così il submit non parte prima che il comando sia stato digitato/riconosciuto.
+ */
+const DEFAULT_SUBMIT_DELAY_MS = 300;
+/**
+ * TETTO d'attesa del pannello dopo l'invio. Entro questo limite si fa polling
+ * del buffer per USAGE_OUTPUT_RE e si finisce appena il pannello compare. Alzato
+ * a ~8000ms perché ora è un tetto (early-exit sul marker), non un'attesa fissa.
+ *
+ * Aritmetica del budget totale con i DEFAULT (usati dal poller), ben sotto il
+ * timeoutMs di default (30000ms):
+ *   ready 2500 + settle 800 + submit 300 + render/poll fino a 8000 ≈ 11.6s < 30s.
+ * Anche col retry (riemissione a metà tetto) il tetto d'attesa resta 8000ms.
+ */
+const DEFAULT_RENDER_DELAY_MS = 8000;
+/** Intervallo di polling del buffer in attesa del pannello. */
+const DEFAULT_POLL_MS = 300;
 const DEFAULT_TIMEOUT_MS = 30_000;
+
+/**
+ * Marcatore di pannello /usage COMPLETO: la sezione settimanale "all models" è
+ * l'ULTIMA a renderizzare, quindi una "% used" dopo di essa garantisce che
+ * anche "Current session" sia già presente. Allineato a parseUsageDeterministic
+ * (che pretende entrambe le sezioni): evita l'early-exit su render parziale e i
+ * falsi positivi da banner ("resets"/"% used" sciolti). Quando matcha nel buffer
+ * (ANSI strippato) il pannello è completo e coerente col parser: finiamo subito
+ * (early-exit), senza attendere il tetto renderDelayMs.
+ */
+const USAGE_OUTPUT_RE = /current week\s*\(all models\)[\s\S]*?\d{1,3}\s*%\s*used/i;
+
+/** Comando della TUI che apre il pannello dell'uso. */
+const USAGE_CMD = "/usage";
 
 /**
  * Marcatori (case-insensitive) che indicano la presenza di un passaggio del
@@ -250,7 +305,10 @@ export async function captureUsageOutput(
   opts: CaptureUsageOptions = {},
 ): Promise<string> {
   const readyDelayMs = opts.readyDelayMs ?? DEFAULT_READY_DELAY_MS;
+  const settleDelayMs = opts.settleDelayMs ?? DEFAULT_SETTLE_DELAY_MS;
+  const submitDelayMs = opts.submitDelayMs ?? DEFAULT_SUBMIT_DELAY_MS;
   const renderDelayMs = opts.renderDelayMs ?? DEFAULT_RENDER_DELAY_MS;
+  const pollMs = opts.pollMs ?? DEFAULT_POLL_MS;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const claudePath = opts.claudePath ?? "claude";
   // cwd NEUTRO STABILE: usare process.cwd() (la dir dell'app) faceva scattare il
@@ -320,20 +378,80 @@ export async function captureUsageOutput(
 
     let usageSent = false;
 
-    /** Invia /usage, attende il render e chiude. Idempotente. */
-    const sendUsage = (): void => {
-      if (settled || usageSent) return;
-      usageSent = true;
+    /**
+     * Scrive il comando /usage con INVIO DIVISO (best-effort): prima "/usage",
+     * poi — dopo submitDelayMs — il "\r". Separando il submit dal comando si
+     * evita che l'invio parta prima che la TUI abbia digerito il testo.
+     */
+    const writeUsageCommand = (): void => {
       try {
-        proc?.write("/usage\r");
+        proc?.write(USAGE_CMD);
       } catch {
-        // ignora: se la write fallisce, ci penserà il timeout.
+        // ignora: se la write fallisce, ci penserà il polling/timeout.
       }
       timers.push(
         setTimeout(() => {
-          // Render atteso: chiudi pulito. finish() farà comunque il kill.
-          finish();
-        }, renderDelayMs),
+          if (settled) return;
+          try {
+            proc?.write("\r");
+          } catch {
+            // ignora: best-effort.
+          }
+        }, submitDelayMs),
+      );
+    };
+
+    /**
+     * Invia /usage e ATTENDE IL PANNELLO. Idempotente (guardia usageSent).
+     * Flusso:
+     *  1) SETTLE: attende settleDelayMs perché la TUI sia interattiva, POI scrive
+     *     /usage (invio diviso).
+     *  2) POLLING: ogni pollMs controlla il buffer per USAGE_OUTPUT_RE; appena
+     *     compare → finish() (cattura riuscita, early-exit).
+     *  3) RETRY UNICO: a metà del tetto (renderDelayMs/2), se il pannello non è
+     *     comparso, reinvia /usage UNA volta (il primo invio può essere caduto).
+     *  4) TETTO: raggiunto renderDelayMs senza pannello → finish() col parziale.
+     */
+    const sendUsage = (): void => {
+      if (settled || usageSent) return;
+      usageSent = true;
+
+      timers.push(
+        setTimeout(() => {
+          if (settled) return;
+          writeUsageCommand();
+
+          let retried = false;
+          const deadline = Date.now() + renderDelayMs;
+          const retryAt = Date.now() + renderDelayMs / 2;
+
+          const poll = (): void => {
+            if (settled) return;
+            // Il marker è testato PRIMA del retry: se il pannello completo è già
+            // nel buffer non si reinvia /usage (early-exit, niente doppio invio).
+            if (USAGE_OUTPUT_RE.test(stripAnsi(buffer))) {
+              // Pannello completo comparso: cattura riuscita, esci subito.
+              finish();
+              return;
+            }
+            const now = Date.now();
+            if (!retried && now >= retryAt) {
+              // Un solo retry: il primo invio potrebbe essere caduto. Con tetti
+              // piccoli (test) retry e deadline possono coincidere nello stesso
+              // giro: innocuo (write best-effort).
+              retried = true;
+              writeUsageCommand();
+            }
+            if (now >= deadline) {
+              // Tetto raggiunto senza pannello: chiudi col parziale.
+              finish();
+              return;
+            }
+            timers.push(setTimeout(poll, pollMs));
+          };
+
+          timers.push(setTimeout(poll, pollMs));
+        }, settleDelayMs),
       );
     };
 

@@ -68,7 +68,7 @@ describe("captureUsageOutput", () => {
         origWrite(d);
         if (d.includes("/usage")) {
           setTimeout(() => {
-            fake.emit("[1m42% used[0m\r\nWeekly 31% used\r\n");
+            fake.emit("[1mCurrent session[0m\r\n  ████ 12% used\r\nResets 3:00am\r\nCurrent week (all models)\r\n  ██ 7% used\r\nResets Mon\r\n");
             fake.exit(0);
           }, 5);
         }
@@ -79,7 +79,10 @@ describe("captureUsageOutput", () => {
     const out = await captureUsageOutput(account, {
       spawner,
       readyDelayMs: 1,
-      renderDelayMs: 50,
+      settleDelayMs: 5,
+      submitDelayMs: 5,
+      pollMs: 5,
+      renderDelayMs: 200,
       timeoutMs: 1000,
       preConfig: false,
     });
@@ -89,9 +92,10 @@ describe("captureUsageOutput", () => {
     expect(spawnedEnv["ANTHROPIC_API_KEY"]).toBeUndefined();
     // È stato inviato il comando /usage seguito da invio.
     expect(fake.pty.writes.join("")).toContain("/usage");
-    // L'output catturato è ripulito dagli ANSI.
-    expect(out).toContain("42% used");
-    expect(out).toContain("Weekly 31% used");
+    // L'output catturato è ripulito dagli ANSI e contiene ENTRAMBE le sezioni.
+    expect(out).toContain("12% used");
+    expect(out).toContain("Current week (all models)");
+    expect(out).toContain("7% used");
     expect(out).not.toContain("[");
   });
 
@@ -106,6 +110,9 @@ describe("captureUsageOutput", () => {
     const out = await captureUsageOutput(account, {
       spawner,
       readyDelayMs: 1,
+      settleDelayMs: 1,
+      submitDelayMs: 1,
+      pollMs: 1,
       renderDelayMs: 1,
       timeoutMs: 20,
       preConfig: false,
@@ -146,7 +153,7 @@ describe("captureUsageOutput", () => {
           setTimeout(() => fake.emit("\n> "), 1);
         } else if (d.includes("/usage")) {
           setTimeout(() => {
-            fake.emit("Current session 42% used\r\nWeekly 31% used\r\n");
+            fake.emit("Current session\r\n  ████ 42% used\r\nResets 3:00am\r\nCurrent week (all models)\r\n  ██ 31% used\r\nResets Mon\r\n");
             fake.exit(0);
           }, 1);
         }
@@ -157,7 +164,10 @@ describe("captureUsageOutput", () => {
     const out = await captureUsageOutput(account, {
       spawner,
       readyDelayMs: 5,
-      renderDelayMs: 20,
+      settleDelayMs: 5,
+      submitDelayMs: 5,
+      pollMs: 5,
+      renderDelayMs: 200,
       timeoutMs: 2000,
       preConfig: false,
     });
@@ -172,7 +182,8 @@ describe("captureUsageOutput", () => {
     // L'output catturato contiene il pannello di /usage (il parser a valle ne
     // estrae i dati; il buffer PTY include anche il testo precedente, normale).
     expect(out).toContain("42% used");
-    expect(out).toContain("Weekly 31% used");
+    expect(out).toContain("Current week (all models)");
+    expect(out).toContain("31% used");
   });
 
   it("supera il trust dialog con un Invio, raggiunge il prompt pronto e invia /usage", async () => {
@@ -192,7 +203,7 @@ describe("captureUsageOutput", () => {
           setTimeout(() => fake.emit("\nWelcome back!\n? for shortcuts · ← for agents\n"), 1);
         } else if (d.includes("/usage")) {
           setTimeout(() => {
-            fake.emit("Current session 42% used\r\nWeekly 31% used\r\n");
+            fake.emit("Current session\r\n  ████ 42% used\r\nResets 3:00am\r\nCurrent week (all models)\r\n  ██ 31% used\r\nResets Mon\r\n");
             fake.exit(0);
           }, 1);
         }
@@ -203,7 +214,10 @@ describe("captureUsageOutput", () => {
     const out = await captureUsageOutput(account, {
       spawner,
       readyDelayMs: 5,
-      renderDelayMs: 20,
+      settleDelayMs: 5,
+      submitDelayMs: 5,
+      pollMs: 5,
+      renderDelayMs: 200,
       timeoutMs: 2000,
       preConfig: false,
     });
@@ -214,7 +228,8 @@ describe("captureUsageOutput", () => {
     expect(usageIdx).toBeGreaterThanOrEqual(0);
     expect(enterIdx).toBeLessThan(usageIdx);
     expect(out).toContain("42% used");
-    expect(out).toContain("Weekly 31% used");
+    expect(out).toContain("Current week (all models)");
+    expect(out).toContain("31% used");
   });
 
   it("prompt pronto immediato: invia /usage senza Invio superflui", async () => {
@@ -229,7 +244,7 @@ describe("captureUsageOutput", () => {
         origWrite(d);
         if (d.includes("/usage")) {
           setTimeout(() => {
-            fake.emit("Current session 42% used\r\nWeekly 31% used\r\n");
+            fake.emit("Current session\r\n  ████ 42% used\r\nResets 3:00am\r\nCurrent week (all models)\r\n  ██ 31% used\r\nResets Mon\r\n");
             fake.exit(0);
           }, 1);
         }
@@ -240,17 +255,24 @@ describe("captureUsageOutput", () => {
     const out = await captureUsageOutput(account, {
       spawner,
       readyDelayMs: 5,
-      renderDelayMs: 20,
+      settleDelayMs: 5,
+      submitDelayMs: 5,
+      pollMs: 5,
+      renderDelayMs: 200,
       timeoutMs: 2000,
       preConfig: false,
     });
 
     // /usage è stato inviato e l'output catturato; nessun "\r" di navigazione
-    // è stato necessario prima di /usage (prompt già pronto).
+    // è stato necessario PRIMA di /usage (prompt già pronto). L'unico "\r" è
+    // quello dell'invio diviso, che segue il comando "/usage".
     expect(fake.pty.writes.join("")).toContain("/usage");
-    expect(fake.pty.writes.indexOf("\r")).toBe(-1);
+    const usageIdx = fake.pty.writes.findIndex((w) => w.includes("/usage"));
+    const enterBeforeUsage = fake.pty.writes.slice(0, usageIdx).indexOf("\r");
+    expect(enterBeforeUsage).toBe(-1);
     expect(out).toContain("42% used");
-    expect(out).toContain("Weekly 31% used");
+    expect(out).toContain("Current week (all models)");
+    expect(out).toContain("31% used");
   });
 
   it("trust + tema in sequenza: due Invii prima di /usage, poi cattura il pannello", async () => {
@@ -277,7 +299,7 @@ describe("captureUsageOutput", () => {
           }
         } else if (d.includes("/usage")) {
           setTimeout(() => {
-            fake.emit("Current session 42% used\r\nWeekly 31% used\r\n");
+            fake.emit("Current session\r\n  ████ 42% used\r\nResets 3:00am\r\nCurrent week (all models)\r\n  ██ 31% used\r\nResets Mon\r\n");
             fake.exit(0);
           }, 1);
         }
@@ -288,7 +310,10 @@ describe("captureUsageOutput", () => {
     const out = await captureUsageOutput(account, {
       spawner,
       readyDelayMs: 5,
-      renderDelayMs: 20,
+      settleDelayMs: 5,
+      submitDelayMs: 5,
+      pollMs: 5,
+      renderDelayMs: 200,
       timeoutMs: 2000,
       preConfig: false,
     });
@@ -300,7 +325,8 @@ describe("captureUsageOutput", () => {
     expect(usageIdx).toBeGreaterThanOrEqual(0);
     expect(entersBeforeUsage).toBeGreaterThanOrEqual(2);
     expect(out).toContain("42% used");
-    expect(out).toContain("Weekly 31% used");
+    expect(out).toContain("Current week (all models)");
+    expect(out).toContain("31% used");
   });
 
   it("nessun marcatore riconosciuto: dopo il cap invia /usage comunque (fallback) entro il limite", async () => {
@@ -316,7 +342,7 @@ describe("captureUsageOutput", () => {
         origWrite(d);
         if (d.includes("/usage")) {
           setTimeout(() => {
-            fake.emit("Current session 42% used\r\nWeekly 31% used\r\n");
+            fake.emit("Current session\r\n  ████ 42% used\r\nResets 3:00am\r\nCurrent week (all models)\r\n  ██ 31% used\r\nResets Mon\r\n");
             fake.exit(0);
           }, 1);
         }
@@ -328,7 +354,10 @@ describe("captureUsageOutput", () => {
     const out = await captureUsageOutput(account, {
       spawner,
       readyDelayMs: 5,
-      renderDelayMs: 20,
+      settleDelayMs: 5,
+      submitDelayMs: 5,
+      pollMs: 5,
+      renderDelayMs: 200,
       timeoutMs: 5000,
       preConfig: false,
     });
@@ -338,7 +367,8 @@ describe("captureUsageOutput", () => {
     // timeout: budget di navigazione (~750ms) + render, non 5s.
     expect(fake.pty.writes.join("")).toContain("/usage");
     expect(out).toContain("42% used");
-    expect(out).toContain("Weekly 31% used");
+    expect(out).toContain("Current week (all models)");
+    expect(out).toContain("31% used");
     expect(elapsed).toBeLessThan(2000);
   });
 
@@ -356,7 +386,10 @@ describe("captureUsageOutput", () => {
     const out = await captureUsageOutput(account, {
       spawner,
       readyDelayMs: 5,
-      renderDelayMs: 10,
+      settleDelayMs: 5,
+      submitDelayMs: 5,
+      pollMs: 5,
+      renderDelayMs: 20,
       timeoutMs: 5000,
       preConfig: false,
     });
@@ -367,6 +400,230 @@ describe("captureUsageOutput", () => {
     // Ha catturato l'output (per la diagnosi a valle) e ucciso il processo.
     expect(out).toContain("Select login method");
     expect(fake.pty.killed).toBe(true);
+  });
+
+  it("input pronto solo dopo un attimo: con il settle delay /usage arriva quando la TUI è interattiva e cattura il pannello", async () => {
+    const fake = makeFakePty();
+    const spawner: PtySpawner = () => {
+      let interactive = false;
+      queueMicrotask(() => {
+        // Prompt principale visibile, ma l'input NON è ancora interattivo:
+        // /usage scritto troppo presto viene SCARTATO.
+        fake.emit("Welcome back!\n? for shortcuts · ← for agents\n");
+        // Diventa interattiva solo dopo un attimo (animazione iniziale).
+        setTimeout(() => {
+          interactive = true;
+        }, 30);
+      });
+      const origWrite = fake.pty.write.bind(fake.pty);
+      fake.pty.write = (d: string): void => {
+        origWrite(d);
+        if (d.includes("/usage") && interactive) {
+          setTimeout(() => {
+            fake.emit("Current session\n  ████ 12% used\r\nResets 3:00am\r\nCurrent week (all models)\n  ██ 7% used\r\nResets Mon\r\n");
+            fake.exit(0);
+          }, 1);
+        }
+        // /usage scritto prima dell'interattività: ignorato (nessun pannello).
+      };
+      return fake.pty;
+    };
+
+    const out = await captureUsageOutput(account, {
+      spawner,
+      readyDelayMs: 5,
+      settleDelayMs: 60,
+      submitDelayMs: 5,
+      pollMs: 5,
+      renderDelayMs: 400,
+      timeoutMs: 3000,
+      preConfig: false,
+    });
+
+    // Il pannello è stato catturato → /usage è stato accettato (settle ha
+    // atteso che la TUI fosse interattiva) e il finish è scattato sul marker.
+    expect(out).toContain("Current session");
+    expect(out).toContain("12% used");
+    expect(out).toContain("Current week (all models)");
+    expect(out).toContain("7% used");
+    expect(out).toContain("Resets");
+    expect(fake.pty.writes.join("")).toContain("/usage");
+  });
+
+  it("early-exit: appena compare il pannello finisce, ben prima del tetto renderDelayMs", async () => {
+    const fake = makeFakePty();
+    const spawner: PtySpawner = () => {
+      queueMicrotask(() => {
+        fake.emit("Welcome back!\n? for shortcuts · ← for agents\n");
+      });
+      const origWrite = fake.pty.write.bind(fake.pty);
+      fake.pty.write = (d: string): void => {
+        origWrite(d);
+        if (d.includes("/usage")) {
+          // Il pannello compare quasi subito, ma NON facciamo exit: il finish
+          // deve scattare sul MARKER, non sull'uscita del processo.
+          setTimeout(() => {
+            fake.emit("Current session\n  ████ 12% used\r\nResets 3:00am\r\nCurrent week (all models)\n  ██ 7% used\r\nResets Mon\r\n");
+          }, 1);
+        }
+      };
+      return fake.pty;
+    };
+
+    const start = Date.now();
+    const out = await captureUsageOutput(account, {
+      spawner,
+      readyDelayMs: 5,
+      settleDelayMs: 5,
+      submitDelayMs: 5,
+      pollMs: 5,
+      renderDelayMs: 4000,
+      timeoutMs: 8000,
+      preConfig: false,
+    });
+    const elapsed = Date.now() - start;
+
+    expect(out).toContain("Current session");
+    expect(out).toContain("12% used");
+    expect(out).toContain("Current week (all models)");
+    expect(out).toContain("7% used");
+    // Finito sul marker, MOLTO prima del tetto (4s) e del timeout (8s).
+    expect(elapsed).toBeLessThan(1500);
+  });
+
+  it("retry: ignora il PRIMO /usage, risponde al SECONDO; /usage scritto ≥2 volte e pannello catturato", async () => {
+    const fake = makeFakePty();
+    const spawner: PtySpawner = () => {
+      let usageCount = 0;
+      queueMicrotask(() => {
+        fake.emit("Welcome back!\n? for shortcuts · ← for agents\n");
+      });
+      const origWrite = fake.pty.write.bind(fake.pty);
+      fake.pty.write = (d: string): void => {
+        origWrite(d);
+        if (d.includes("/usage")) {
+          usageCount += 1;
+          if (usageCount >= 2) {
+            setTimeout(() => {
+              fake.emit("Current session\n  ████ 12% used\r\nResets 3:00am\r\nCurrent week (all models)\n  ██ 7% used\r\nResets Mon\r\n");
+              fake.exit(0);
+            }, 1);
+          }
+          // Il primo invio viene ignorato: nessun pannello.
+        }
+      };
+      return fake.pty;
+    };
+
+    const out = await captureUsageOutput(account, {
+      spawner,
+      readyDelayMs: 5,
+      settleDelayMs: 5,
+      submitDelayMs: 5,
+      pollMs: 5,
+      renderDelayMs: 200,
+      timeoutMs: 3000,
+      preConfig: false,
+    });
+
+    const usageWrites = fake.pty.writes.filter((w) => w.includes("/usage")).length;
+    expect(usageWrites).toBeGreaterThanOrEqual(2);
+    expect(out).toContain("Current session");
+    expect(out).toContain("12% used");
+    expect(out).toContain("Current week (all models)");
+    expect(out).toContain("7% used");
+  });
+
+  it("anti-early-exit: NON finisce su render PARZIALE (solo session); finisce solo col pannello COMPLETO", async () => {
+    const fake = makeFakePty();
+    let emittedWeekly = false;
+    const spawner: PtySpawner = () => {
+      queueMicrotask(() => {
+        fake.emit("Welcome back!\n? for shortcuts · ← for agents\n");
+      });
+      const origWrite = fake.pty.write.bind(fake.pty);
+      fake.pty.write = (d: string): void => {
+        origWrite(d);
+        if (d.includes("/usage")) {
+          // 1) Render PARZIALE: solo "Current session ... 12% used", la
+          //    settimanale NON è ancora comparsa. Il marker NON deve matchare:
+          //    il poll deve continuare (nessun finish prematuro).
+          setTimeout(() => {
+            fake.emit("Current session\n  ████ 12% used\r\nResets 3:00am\r\n");
+          }, 1);
+          // 2) Solo PIÙ TARDI compare la sezione settimanale "all models": ora
+          //    il pannello è completo e il marker deve scattare.
+          setTimeout(() => {
+            emittedWeekly = true;
+            fake.emit("Current week (all models)\n  ██ 7% used\r\nResets Mon\r\n");
+          }, 60);
+        }
+      };
+      return fake.pty;
+    };
+
+    const out = await captureUsageOutput(account, {
+      spawner,
+      readyDelayMs: 5,
+      settleDelayMs: 5,
+      submitDelayMs: 5,
+      pollMs: 5,
+      renderDelayMs: 4000,
+      timeoutMs: 8000,
+      preConfig: false,
+    });
+
+    // Il finish è scattato SOLO dopo la sezione settimanale (pannello completo):
+    // se avesse fatto early-exit sul parziale, questa flag sarebbe ancora false
+    // e l'output non conterrebbe la settimanale.
+    expect(emittedWeekly).toBe(true);
+    expect(out).toContain("Current session");
+    expect(out).toContain("12% used");
+    expect(out).toContain("Current week (all models)");
+    expect(out).toContain("7% used");
+  });
+
+  it("invio diviso: scrive '/usage' e, separatamente, '\\r' (il submit non è incollato al comando)", async () => {
+    const fake = makeFakePty();
+    const spawner: PtySpawner = () => {
+      queueMicrotask(() => {
+        fake.emit("Welcome back!\n? for shortcuts · ← for agents\n");
+      });
+      const origWrite = fake.pty.write.bind(fake.pty);
+      fake.pty.write = (d: string): void => {
+        origWrite(d);
+        if (d.includes("/usage")) {
+          // Emette il pannello DOPO che il submit "\r" diviso è stato scritto
+          // (submitDelayMs=5): evita la race in cui l'exit cancella il timer
+          // del "\r" prima che venga inviato.
+          setTimeout(() => {
+            fake.emit("Current session\n  ████ 12% used\r\nResets 3:00am\r\nCurrent week (all models)\n  ██ 7% used\r\nResets Mon\r\n");
+            fake.exit(0);
+          }, 40);
+        }
+      };
+      return fake.pty;
+    };
+
+    await captureUsageOutput(account, {
+      spawner,
+      readyDelayMs: 5,
+      settleDelayMs: 5,
+      submitDelayMs: 5,
+      pollMs: 5,
+      renderDelayMs: 400,
+      timeoutMs: 3000,
+      preConfig: false,
+    });
+
+    // Il comando "/usage" è scritto da solo (senza \r incollato) e l'invio "\r"
+    // è una write separata e SUCCESSIVA.
+    const usageIdx = fake.pty.writes.findIndex((w) => w === "/usage");
+    expect(usageIdx).toBeGreaterThanOrEqual(0);
+    const enterAfter = fake.pty.writes.slice(usageIdx + 1).indexOf("\r");
+    expect(enterAfter).toBeGreaterThanOrEqual(0);
+    // Non deve esistere una write "/usage\r" tutta attaccata.
+    expect(fake.pty.writes).not.toContain("/usage\r");
   });
 
   it("non logga MAI il segreto", async () => {
@@ -382,7 +639,10 @@ describe("captureUsageOutput", () => {
     await captureUsageOutput(account, {
       spawner,
       readyDelayMs: 1,
-      renderDelayMs: 2,
+      settleDelayMs: 2,
+      submitDelayMs: 2,
+      pollMs: 2,
+      renderDelayMs: 5,
       timeoutMs: 500,
       preConfig: false,
     });
