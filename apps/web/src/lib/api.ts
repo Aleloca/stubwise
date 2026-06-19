@@ -1301,10 +1301,15 @@ export function getAiUsageCosts(params: AiUsageCostsParams = {}): Promise<AiUsag
 
 // --- Usage residuo abbonamento (ultimo snapshot per credenziale account) ---
 
-/** Finestra di consumo normalizzata: percentuale usata e residua. */
+/**
+ * Finestra di consumo normalizzata: percentuale usata e residua, più
+ * `resetsLabel`, l'orario di reset come label testuale della TUI di claude
+ * (non-ISO, es. "2:39pm (Europe/Rome)"); null/assente se non disponibile.
+ */
 export interface UsageWindow {
   percentUsed: number;
   percentRemaining: number;
+  resetsLabel?: string | null;
 }
 
 /**

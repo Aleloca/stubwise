@@ -68,10 +68,19 @@ function makeSnapshot(overrides: Partial<AiUsageSnapshot> = {}): AiUsageSnapshot
     providerId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
     providerLabel: "Account Max",
     capturedAt: "2026-06-10T14:00:00.000Z",
-    sessionRemaining: { percentUsed: 62, percentRemaining: 38 },
-    weeklyRemaining: { percentUsed: 28, percentRemaining: 72 },
-    sessionResetAt: "2026-06-10T19:00:00.000Z",
-    weeklyResetAt: "2026-06-16T00:00:00.000Z",
+    sessionRemaining: {
+      percentUsed: 62,
+      percentRemaining: 38,
+      resetsLabel: "2:39pm (Europe/Rome)",
+    },
+    weeklyRemaining: {
+      percentUsed: 28,
+      percentRemaining: 72,
+      resetsLabel: "Jun 22 at 9:59am (Europe/Rome)",
+    },
+    // I reset reali sono label non-ISO: i campi ISO restano null.
+    sessionResetAt: null,
+    weeklyResetAt: null,
     source: "deterministic",
     parseOk: true,
     ...overrides,
@@ -279,6 +288,9 @@ describe("AiProvidersSection — usage residuo abbonamento", () => {
     // 38% sessione, 72% settimanale (percentRemaining).
     expect(within(row).getByText(/38%/)).toBeInTheDocument();
     expect(within(row).getByText(/72%/)).toBeInTheDocument();
+    // Il reset è la label testuale della TUI (non-ISO), mostrata tale-e-quale.
+    expect(within(row).getByText(/2:39pm \(Europe\/Rome\)/)).toBeInTheDocument();
+    expect(within(row).getByText(/Jun 22 at 9:59am \(Europe\/Rome\)/)).toBeInTheDocument();
   });
 
   it("etichetta estimated (fallback) quando source=llm_fallback", async () => {

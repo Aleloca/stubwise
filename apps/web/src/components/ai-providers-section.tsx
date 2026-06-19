@@ -340,11 +340,18 @@ function UsagePanel({ snapshot }: { snapshot: AiUsageSnapshot | null }) {
     );
   }
 
-  const fmt = (iso: string | null): string | null =>
+  // Il reset preferito è la label testuale della TUI (non-ISO, es.
+  // "2:39pm (Europe/Rome)"); per retrocompatibilità coi vecchi snapshot che
+  // avevano un ISO si formatta quello come fallback.
+  const fmtIso = (iso: string | null): string | null =>
     iso ? new Date(iso).toLocaleString(i18n.language) : null;
+  const resetOf = (
+    label: string | null | undefined,
+    iso: string | null,
+  ): string | null => label ?? fmtIso(iso);
 
-  const sessionReset = fmt(snapshot.sessionResetAt);
-  const weeklyReset = fmt(snapshot.weeklyResetAt);
+  const sessionReset = resetOf(snapshot.sessionRemaining?.resetsLabel, snapshot.sessionResetAt);
+  const weeklyReset = resetOf(snapshot.weeklyRemaining?.resetsLabel, snapshot.weeklyResetAt);
 
   return (
     <div className="mt-2 flex flex-col gap-1.5 border-l-2 border-line pl-3">

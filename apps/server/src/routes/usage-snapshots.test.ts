@@ -56,7 +56,11 @@ beforeAll(async () => {
     {
       providerId: accountOkId,
       capturedAt: new Date("2026-06-10T14:00:00Z"),
-      sessionRemaining: { percentUsed: 62, percentRemaining: 38 },
+      sessionRemaining: {
+        percentUsed: 62,
+        percentRemaining: 38,
+        resetsLabel: "2:39pm (Europe/Rome)",
+      },
       weeklyRemaining: { percentUsed: 28, percentRemaining: 72 },
       sessionResetAt: new Date("2026-06-10T19:00:00Z"),
       weeklyResetAt: new Date("2026-06-16T00:00:00Z"),
@@ -108,8 +112,16 @@ interface SnapshotItem {
   providerId: string;
   providerLabel: string;
   capturedAt: string;
-  sessionRemaining: { percentUsed: number; percentRemaining: number } | null;
-  weeklyRemaining: { percentUsed: number; percentRemaining: number } | null;
+  sessionRemaining: {
+    percentUsed: number;
+    percentRemaining: number;
+    resetsLabel?: string | null;
+  } | null;
+  weeklyRemaining: {
+    percentUsed: number;
+    percentRemaining: number;
+    resetsLabel?: string | null;
+  } | null;
   sessionResetAt: string | null;
   weeklyResetAt: string | null;
   source: "deterministic" | "llm_fallback";
@@ -146,8 +158,16 @@ describe("GET /api/ai-usage/snapshots — ultimo per account", () => {
 
     expect(ok.providerLabel).toBe("Account OK");
     expect(ok.capturedAt).toBe("2026-06-10T14:00:00.000Z");
-    expect(ok.sessionRemaining).toEqual({ percentUsed: 62, percentRemaining: 38 });
-    expect(ok.weeklyRemaining).toEqual({ percentUsed: 28, percentRemaining: 72 });
+    expect(ok.sessionRemaining).toEqual({
+      percentUsed: 62,
+      percentRemaining: 38,
+      resetsLabel: "2:39pm (Europe/Rome)",
+    });
+    expect(ok.weeklyRemaining).toEqual({
+      percentUsed: 28,
+      percentRemaining: 72,
+      resetsLabel: null,
+    });
     expect(ok.sessionResetAt).toBe("2026-06-10T19:00:00.000Z");
     expect(ok.weeklyResetAt).toBe("2026-06-16T00:00:00.000Z");
     expect(ok.source).toBe("deterministic");
