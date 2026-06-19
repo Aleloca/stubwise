@@ -1,3 +1,6 @@
+import { readFile, mkdir, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { buildAgentEnv } from "./claude-cli.js";
 
@@ -59,11 +62,41 @@ export interface CaptureUsageOptions {
   renderDelayMs?: number;
   /** Timeout complessivo: oltre, il processo è ucciso. Default 30000ms. */
   timeoutMs?: number;
+  /**
+   * Se false, salta la pre-inizializzazione della config Claude (scrittura di
+   * `.claude.json`). Utile nei test che non vogliono toccare il filesystem.
+   * Default true.
+   */
+  preConfig?: boolean;
 }
 
 const DEFAULT_READY_DELAY_MS = 2500;
 const DEFAULT_RENDER_DELAY_MS = 2500;
 const DEFAULT_TIMEOUT_MS = 30_000;
+
+/**
+ * Marcatori (case-insensitive) che indicano la presenza di un passaggio del
+ * WIZARD DI ONBOARDING della TUI di claude — quello che intercetta il PTY in
+ * una config "fresca". Se l'output ne contiene uno, inviamo un Invio per
+ * accettare il default preselezionato e proseguire. La "login method" è un caso
+ * speciale: significa che NON siamo autenticati e non c'è modo di andare oltre
+ * (vedi LOGIN_METHOD_RE), quindi NON la includiamo qui.
+ */
+const WIZARD_MARKER_RE = /choose the text style|dark mode|light mode|select theme/i;
+
+/**
+ * Marcatore della scelta del metodo di login: appare SOLO quando il token OAuth
+ * non è valido / assente. In quel caso premere Invio non porta a nulla di utile
+ * (apre un flusso di login interattivo), quindi usciamo presto restituendo
+ * l'output catturato: il parser fallirà e produrrà uno snapshot diagnostico
+ * (rawText), già gestito a valle dal poller. NON si resta bloccati.
+ */
+const LOGIN_METHOD_RE = /select login method|claude account with subscription/i;
+
+/** Numero massimo di "Invio" inviati per superare i passaggi del wizard. */
+const MAX_WIZARD_STEPS = 3;
+/** Attesa tra un Invio di navigazione del wizard e il successivo. */
+const WIZARD_STEP_DELAY_MS = 400;
 
 const ANSI_RE = /\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[@-Z\\-_]/g;
 
@@ -93,6 +126,84 @@ async function loadNodePtySpawner(): Promise<PtySpawner> {
 }
 
 /**
+ * Percorso del file di stato a livello utente di Claude Code. In v2.x lo stato
+ * dell'onboarding vive in `.claude.json`: NON dentro CLAUDE_CONFIG_DIR (lì ci
+ * sono cache/sessioni/credenziali), ma alla RADICE della config — cioè
+ * `${CLAUDE_CONFIG_DIR}/.claude.json` se CLAUDE_CONFIG_DIR è impostata
+ * (verificato: i container del worker la impostano a /home/worker/.claude),
+ * altrimenti `${HOME}/.claude.json`. Restituisce sia la dir che il file così il
+ * chiamante può creare la dir prima di scrivere.
+ */
+export function resolveClaudeConfigPaths(env: NodeJS.ProcessEnv = process.env): {
+  dir: string;
+  file: string;
+} {
+  const dir = env["CLAUDE_CONFIG_DIR"] ?? join(env["HOME"] ?? homedir(), ".claude");
+  return { dir, file: join(dir, ".claude.json") };
+}
+
+/**
+ * Chiavi di stato che PLAUSIBILMENTE saltano il wizard di onboarding/tema della
+ * TUI di Claude Code. ATTENZIONE: sono chiavi NON UFFICIALI / non documentate
+ * (interne al CLI, viste in `.claude.json` reali della v2.x). Possono cambiare
+ * tra versioni: per questo sono BEST-EFFORT. La rete di sicurezza vera è la
+ * navigazione difensiva del wizard nel PTY (vedi captureUsageOutput) e, in
+ * ultima istanza, lo snapshot diagnostico del poller. Scriviamo:
+ *  - hasCompletedOnboarding: true  → salta il flusso di onboarding;
+ *  - hasViewedOnboarding: true     → variante difensiva (alcune versioni);
+ *  - theme: "dark"                 → preimposta il tema (salta il menu temi).
+ */
+const ONBOARDING_DEFAULTS: Record<string, unknown> = {
+  hasCompletedOnboarding: true,
+  hasViewedOnboarding: true,
+  theme: "dark",
+};
+
+/**
+ * Pre-inizializza (BEST-EFFORT, MERGE IDEMPOTENTE) il file di stato di Claude
+ * Code così che il wizard di onboarding/tema NON compaia quando il poller lancia
+ * `claude` in PTY su una config "fresca". Legge il JSON esistente se c'è e
+ * aggiunge SOLO le chiavi MANCANTI (non sovrascrive valori già impostati
+ * dall'utente). Qualunque errore (FS, JSON corrotto) viene ignorato: questa è
+ * solo la prima delle due reti — il PTY sa comunque navigare un wizard residuo.
+ *
+ * Non lancia MAI.
+ */
+export async function ensureClaudeOnboardingConfig(
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<void> {
+  try {
+    const { dir, file } = resolveClaudeConfigPaths(env);
+
+    let current: Record<string, unknown> = {};
+    try {
+      const raw = await readFile(file, "utf8");
+      const parsed: unknown = JSON.parse(raw);
+      if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+        current = parsed as Record<string, unknown>;
+      }
+    } catch {
+      // File assente o JSON non valido: si parte da un oggetto vuoto.
+    }
+
+    // Merge idempotente: aggiungi solo le chiavi non ancora presenti.
+    let changed = false;
+    for (const [key, value] of Object.entries(ONBOARDING_DEFAULTS)) {
+      if (!(key in current)) {
+        current[key] = value;
+        changed = true;
+      }
+    }
+    if (!changed) return;
+
+    await mkdir(dir, { recursive: true });
+    await writeFile(file, `${JSON.stringify(current, null, 2)}\n`, "utf8");
+  } catch {
+    // Best-effort totale: mai propagare. Il PTY ha la rete di sicurezza.
+  }
+}
+
+/**
  * Avvia `claude` interattivo in un PTY, attende la TUI, invia `/usage` + invio,
  * attende il render, cattura l'output (ripulito dagli ANSI) e chiude il
  * processo. Inietta la credenziale `account` riusando buildAgentEnv (Task 3):
@@ -111,6 +222,12 @@ export async function captureUsageOutput(
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const claudePath = opts.claudePath ?? "claude";
   const cwd = opts.cwd ?? process.cwd();
+
+  // RETE A (best-effort): pre-inizializza la config così che il wizard di
+  // onboarding/tema non compaia. Non lancia mai; il PTY ha comunque la rete B.
+  if (opts.preConfig !== false) {
+    await ensureClaudeOnboardingConfig();
+  }
 
   let spawner: PtySpawner;
   try {
@@ -164,22 +281,67 @@ export async function captureUsageOutput(
     // Hard timeout: oltre, uccidi e ritorna il parziale.
     timers.push(setTimeout(finish, timeoutMs));
 
-    // Dopo che la TUI è (probabilmente) pronta, invia /usage + invio; poi
-    // attendi il render e chiudi inviando /quit (e comunque kill al cleanup).
-    timers.push(
-      setTimeout(() => {
-        if (settled) return;
+    let usageSent = false;
+
+    /** Invia /usage, attende il render e chiude. Idempotente. */
+    const sendUsage = (): void => {
+      if (settled || usageSent) return;
+      usageSent = true;
+      try {
+        proc?.write("/usage\r");
+      } catch {
+        // ignora: se la write fallisce, ci penserà il timeout.
+      }
+      timers.push(
+        setTimeout(() => {
+          // Render atteso: chiudi pulito. finish() farà comunque il kill.
+          finish();
+        }, renderDelayMs),
+      );
+    };
+
+    /**
+     * RETE B (difensiva): supera un eventuale wizard di onboarding/tema residuo
+     * prima di inviare /usage. Guarda l'output accumulato:
+     *  - se contiene "select login method" → NON siamo autenticati: premere
+     *    Invio non aiuta, esci subito inviando /usage (il parser fallirà →
+     *    snapshot diagnostico, nessun hang);
+     *  - se contiene un marcatore di wizard e non abbiamo esaurito i tentativi
+     *    → invia un Invio per accettare il default e riprova dopo un attimo;
+     *  - altrimenti il wizard è (probabilmente) superato → invia /usage.
+     */
+    const navigateWizard = (steps: number): void => {
+      if (settled) return;
+
+      if (LOGIN_METHOD_RE.test(buffer)) {
+        // Non autenticato: niente da fare se non catturare e uscire presto.
+        sendUsage();
+        return;
+      }
+
+      if (WIZARD_MARKER_RE.test(buffer) && steps < MAX_WIZARD_STEPS) {
         try {
-          proc?.write("/usage\r");
+          proc?.write("\r");
         } catch {
-          // ignora: se la write fallisce, ci penserà il timeout.
+          // ignora: se la write fallisce, il giro successivo o il timeout chiude.
         }
         timers.push(
           setTimeout(() => {
-            // Render atteso: chiudi pulito. finish() farà comunque il kill.
-            finish();
-          }, renderDelayMs),
+            navigateWizard(steps + 1);
+          }, WIZARD_STEP_DELAY_MS),
         );
+        return;
+      }
+
+      // Nessun marcatore (o tetto raggiunto): procedi con /usage.
+      sendUsage();
+    };
+
+    // Dopo che la TUI è (probabilmente) pronta, naviga l'eventuale wizard e
+    // invia /usage; poi attendi il render e chiudi (e comunque kill al cleanup).
+    timers.push(
+      setTimeout(() => {
+        navigateWizard(0);
       }, readyDelayMs),
     );
   });
