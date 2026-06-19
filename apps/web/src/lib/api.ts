@@ -930,6 +930,71 @@ export function postValidateGitAccount(id: string): Promise<ValidateCredentialsR
   return api.post(`/api/git-accounts/${id}/validate`);
 }
 
+// --- Provider AI ---
+
+/** Tipo di credenziale di un provider AI: chiave API o account/abbonamento. */
+export type AiProviderKind = "api_key" | "account";
+
+/**
+ * Provider AI configurato dall'admin: proiezione pubblica (mai la secret, che
+ * vive cifrata at-rest e write-only sul server). `position` dà l'ordine di
+ * failover; `secretSet` è sempre true (la secret esiste, non si espone).
+ */
+export interface AiProvider {
+  id: string;
+  kind: AiProviderKind;
+  label: string;
+  position: number;
+  enabled: boolean;
+  secretSet: boolean;
+  createdAt: string;
+}
+
+/** Creazione di un provider AI (solo admin): la secret è write-only. */
+export interface AiProviderDraft {
+  kind: AiProviderKind;
+  label: string;
+  secret: string;
+  position?: number;
+}
+
+/**
+ * Modifica di un provider AI (solo admin). `secret` assente = quella salvata
+ * resta invariata (non si può svuotare: per rimuoverla si elimina il provider).
+ */
+export interface AiProviderPatch {
+  label?: string;
+  secret?: string;
+  enabled?: boolean;
+  position?: number;
+}
+
+/** Provider AI configurati (solo admin), ordinati per position di failover. */
+export function listAiProviders(): Promise<AiProvider[]> {
+  return api.get("/api/ai-providers");
+}
+
+export function createAiProvider(draft: AiProviderDraft): Promise<AiProvider> {
+  return api.post("/api/ai-providers", draft);
+}
+
+export function updateAiProvider(id: string, patch: AiProviderPatch): Promise<AiProvider> {
+  return api.patch(`/api/ai-providers/${id}`, patch);
+}
+
+export function deleteAiProvider(id: string): Promise<void> {
+  return request("DELETE", `/api/ai-providers/${encodeURIComponent(id)}`);
+}
+
+/**
+ * Riordina i provider AI (solo admin): `orderedIds` deve elencare ESATTAMENTE
+ * tutti i provider esistenti nell'ordine di failover desiderato. Il server
+ * riscrive le position 0..n-1 in transazione e restituisce la lista aggiornata.
+ */
+export function reorderAiProviders(orderedIds: string[]): Promise<AiProvider[]> {
+  return api.post("/api/ai-providers/reorder", { orderedIds });
+}
+
 /**
  * Verifica REPO-SPECIFICA delle credenziali dell'account su un repo scelto
  * (solo admin): sonda i tre check che richiedono un repo reale — push git,
