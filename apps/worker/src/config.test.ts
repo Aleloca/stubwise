@@ -27,6 +27,15 @@ describe("loadWorkerConfig", () => {
     // PUBLIC_URL non impostato: default stringa vuota (il link al ticket nelle
     // notifiche è il solo path).
     expect(config.publicUrl).toBe("");
+    // Poller dell'usage residuo: default 5 minuti.
+    expect(config.usagePollMinutes).toBe(5);
+  });
+
+  it("rispetta USAGE_POLL_MINUTES esplicito e 0 = disabilitato", () => {
+    expect(loadWorkerConfig({ ...VALID, USAGE_POLL_MINUTES: "15" }).usagePollMinutes).toBe(15);
+    expect(loadWorkerConfig({ ...VALID, USAGE_POLL_MINUTES: "0" }).usagePollMinutes).toBe(0);
+    // Vuoto (es. da .env.example) usa il default 5.
+    expect(loadWorkerConfig({ ...VALID, USAGE_POLL_MINUTES: "" }).usagePollMinutes).toBe(5);
   });
 
   it("rispetta PUBLIC_URL e ne rimuove gli slash finali", () => {
