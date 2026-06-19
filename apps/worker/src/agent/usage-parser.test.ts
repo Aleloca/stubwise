@@ -94,6 +94,48 @@ describe("parseUsageDeterministic", () => {
 `;
     expect(parseUsageDeterministic(onlySonnet)).toBeNull();
   });
+
+  // ── Cattura PTY REALE: la TUI usa il posizionamento del cursore (sequenze
+  // ANSI), non '\n'. Dopo lo strip ANSI etichetta + barra + percentuale +
+  // "Resets" finiscono CONCATENATE sulla stessa "riga" (blob). Il parser deve
+  // restare robusto a questo formato oltre che a quello con newline.
+  describe("blob concatenato (cattura PTY reale, niente newline)", () => {
+    const BLOB = `──────── ? for shortcuts · ← for agents/usage ──────── Settings Status Config Usage StatsSessionTotal cost: $0.0000 Total duration (API): 0s Usage: 0 input, 0 output, 0 cache read, 0 cache writeCurrent session██████▌                         13% usedResets 5:40pm (UTC)Current week (all models)███████████████████               38% usedResets Jun 22, 8am (UTC) What's contributing to your limits usage? Esc to cancel`;
+
+    it("estrae session 13% e weekly 38% con le resetsLabel dal blob con rumore", () => {
+      const snap = parseUsageDeterministic(BLOB);
+      expect(snap).not.toBeNull();
+      expect(snap?.sessionRemaining).toEqual({
+        percentUsed: 13,
+        percentRemaining: 87,
+        resetsLabel: "5:40pm (UTC)",
+      });
+      // "all models", NON "Sonnet only".
+      expect(snap?.weeklyRemaining).toEqual({
+        percentUsed: 38,
+        percentRemaining: 62,
+        resetsLabel: "Jun 22, 8am (UTC)",
+      });
+    });
+
+    it("tollera 'N%used' senza spazio prima di used", () => {
+      const blobNoSpace = `Current session██████▌13%usedResets 5:40pm (UTC)Current week (all models)███████████████████38%usedResets Jun 22, 8am (UTC) What's contributing to your limits usage?`;
+      const snap = parseUsageDeterministic(blobNoSpace);
+      expect(snap).not.toBeNull();
+      expect(snap?.sessionRemaining.percentUsed).toBe(13);
+      expect(snap?.weeklyRemaining.percentUsed).toBe(38);
+    });
+
+    it("blob senza 'all models' (solo Sonnet only) → null (servono entrambe)", () => {
+      const blobSonnet = `Current session██████▌13% usedResets 5:40pm (UTC)Current week (Sonnet only)███████████████████0% used What's contributing to your limits usage?`;
+      expect(parseUsageDeterministic(blobSonnet)).toBeNull();
+    });
+
+    it("blob con la sola sessione → null (manca la weekly all models)", () => {
+      const blobSession = `Current session██████▌13% usedResets 5:40pm (UTC) What's contributing to your limits usage?`;
+      expect(parseUsageDeterministic(blobSession)).toBeNull();
+    });
+  });
 });
 
 describe("parseUsageWithLlm", () => {
