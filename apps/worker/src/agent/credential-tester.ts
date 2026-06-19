@@ -136,10 +136,12 @@ async function testOne(
 }
 
 /**
- * Scrive l'esito sul provider. Status-guarded su `pending`: se nel frattempo
- * l'admin ha rilanciato il test (nuovo pending) o eliminato la riga, l'UPDATE
- * non tocca nulla e non sovrascrive una richiesta più recente con un esito
- * stantio. Best-effort: un errore di scrittura non deve propagare.
+ * Scrive l'esito sul provider (UPDATE per-id). Se la riga è stata eliminata nel
+ * frattempo, l'UPDATE non tocca nulla. NON è status-guarded: se l'admin rilancia
+ * il test mentre un giro è in corso, l'esito appena calcolato può sovrascrivere
+ * il nuovo `pending` — race benigna e auto-recuperabile (è la STESSA credenziale,
+ * quindi l'esito è identico; un nuovo click ripristina comunque il pending).
+ * Best-effort: un errore di scrittura non deve propagare.
  */
 async function writeResult(
   db: Db,
