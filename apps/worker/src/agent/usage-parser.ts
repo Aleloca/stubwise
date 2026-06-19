@@ -7,8 +7,11 @@ import { z } from "zod";
  *
  * Strategia a due livelli, tutta BEST-EFFORT (non lancia mai, ritorna null sui
  * casi che non sa interpretare):
- *  1. `parseUsageDeterministic` — regex sul formato noto della TUI. Affidabile e
- *     gratuito, ma fragile a cambi di layout tra versioni del CLI.
+ *  1. `parseUsageDeterministic` — regex a BLOCCHI sul blob intero. Affidabile e
+ *     gratuito, ma fragile a cambi di layout tra versioni del CLI. Lavora sul
+ *     blob (non per righe) perché la TUI usa il cursor positioning, non `\n`:
+ *     dopo lo strip ANSI le righe risultano concatenate; il parser è robusto a
+ *     questo formato isolando il blocco di ogni sezione via lookahead.
  *  2. `parseUsageWithLlm` — fallback che fa estrarre lo snapshot a un modello
  *     economico (haiku), validando l'output con zod + sanity check. Più robusto
  *     ai cambi di layout, ma costa una chiamata.
@@ -74,80 +77,75 @@ function windowFrom(percentUsed: number, resetsLabel: string | null): UsageWindo
   return { percentUsed: used, percentRemaining: clampPercent(100 - used), resetsLabel };
 }
 
-/** "  █████  26% used" / "26% used" → 26. Ritorna undefined se non matcha. */
-function matchPercentUsed(line: string): number | undefined {
-  const m = line.match(/(\d{1,3})\s*%\s*used/i);
+/**
+ * Estrae la percentuale "N% used" da un blocco di testo (la PRIMA occorrenza).
+ * Tollerante a zero spazi: matcha sia "13% used" sia "13%used". → undefined se
+ * assente.
+ */
+function matchPercentUsed(block: string): number | undefined {
+  const m = block.match(/(\d{1,3})\s*%\s*used/i);
   return m?.[1] !== undefined ? Number(m[1]) : undefined;
 }
 
-/** "Resets 2:39pm (Europe/Rome)" → "2:39pm (Europe/Rome)". */
-function matchResetsLabel(line: string): string | undefined {
-  const m = line.match(/^\s*Resets\s+(.+?)\s*$/i);
-  return m?.[1] !== undefined && m[1] !== "" ? m[1] : undefined;
+/**
+ * Estrae la label di reset da un blocco (la PRIMA occorrenza di "Resets ...").
+ * Cattura SOLO fino a fine riga (niente flag `s`): col formato a newline si
+ * ferma a fine riga; nel blob il blocco è già delimitato dai boundary di
+ * sezione, quindi cattura es. "5:40pm (UTC)" senza sconfinare. Trimma; se vuota
+ * → undefined.
+ */
+function matchResetsLabel(block: string): string | undefined {
+  const m = block.match(/Resets\s+(.+)/i);
+  const label = m?.[1]?.trim();
+  return label !== undefined && label !== "" ? label : undefined;
 }
 
 /**
- * Dato l'indice della riga "etichetta" (es. "Current session"), scandisce le
- * righe successive per trovare la prima `N% used` e la prima `Resets <label>`.
- * Si ferma a una nuova etichetta di sezione (riga "Current ...") per non
- * sconfinare nella finestra successiva. Ritorna la finestra o undefined.
+ * Costruisce una UsageWindow da un blocco di testo: estrae percentuale (PRIMA
+ * `N% used`) e resetsLabel (opzionale). Se manca la percentuale → undefined
+ * (finestra invalida).
  */
-function readWindowAfter(lines: string[], labelIndex: number): UsageWindow | undefined {
-  let percentUsed: number | undefined;
-  let resetsLabel: string | null = null;
-  for (let i = labelIndex + 1; i < lines.length; i++) {
-    const line = lines[i];
-    if (line === undefined) continue;
-    // Nuova sezione → stop (non sconfiniamo nella finestra seguente).
-    if (/^\s*Current\s+/i.test(line)) break;
-    if (percentUsed === undefined) {
-      const pct = matchPercentUsed(line);
-      if (pct !== undefined) {
-        percentUsed = pct;
-        continue;
-      }
-    }
-    if (resetsLabel === null) {
-      const reset = matchResetsLabel(line);
-      if (reset !== undefined) resetsLabel = reset;
-    }
-  }
+function readWindowFromBlock(block: string): UsageWindow | undefined {
+  const percentUsed = matchPercentUsed(block);
   if (percentUsed === undefined) return undefined;
-  return windowFrom(percentUsed, resetsLabel);
-}
-
-/**
- * Trova l'indice della prima riga che matcha `label`, oppure -1. La ricerca è
- * sull'intera riga (la TUI indenta le etichette).
- */
-function findLabelIndex(lines: string[], label: RegExp): number {
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (line !== undefined && label.test(line)) return i;
-  }
-  return -1;
+  return windowFrom(percentUsed, matchResetsLabel(block) ?? null);
 }
 
 /**
  * Parser deterministico per il formato REALE del `/usage`:
  *  - "Current session"            → percentuale e reset della sessione (5h)
  *  - "Current week (all models)"  → percentuale e reset della settimanale.
- * La percentuale è sulla stessa riga della barra (`█...  N% used`); il reset è
- * la riga "Resets <label>" successiva. NON confonde "Current week (Sonnet
- * only)" con "all models". Richiede ENTRAMBE le percentuali (session + weekly
- * all-models): se ne manca una → null. La resetsLabel è opzionale.
+ *
+ * Lavora A BLOCCHI SUL BLOB INTERO, non per righe: la cattura PTY di una TUI a
+ * schermo intero dispone il testo col POSIZIONAMENTO DEL CURSORE (sequenze
+ * ANSI), non con `\n`. Dopo lo strip ANSI etichetta + barra + percentuale +
+ * "Resets" risultano CONCATENATE sulla stessa "riga". Isolando il BLOCCO di
+ * ogni sezione via lookahead sul boundary della sezione successiva, il parser è
+ * robusto SIA al formato con newline (test storici) SIA al blob concatenato
+ * (cattura reale).
+ *
+ * L'ancoraggio della weekly su "(all models)" GARANTISCE di non leggere
+ * "Current week (Sonnet only)". Richiede ENTRAMBE le percentuali (session +
+ * weekly all-models): se ne manca una → null. La resetsLabel è opzionale.
+ * BEST-EFFORT: non lancia mai; input non-stringa o vuoto → null.
  */
 export function parseUsageDeterministic(text: string): UsageSnapshot | null {
   if (typeof text !== "string" || text.trim() === "") return null;
-  const lines = text.split(/\r?\n/);
 
-  const sessionIdx = findLabelIndex(lines, /\bCurrent session\b/i);
-  // "all models" esplicito: evita di agganciare "Sonnet only".
-  const weeklyIdx = findLabelIndex(lines, /\bCurrent week\s*\(all models\)/i);
-  if (sessionIdx < 0 || weeklyIdx < 0) return null;
+  // Blocco sessione: da "Current session" fino alla sezione successiva
+  // ("Current week" / "What's contributing") o fine stringa.
+  const sessionBlock = text.match(
+    /Current session\b([\s\S]*?)(?=Current week|What['’]s contributing|$)/i,
+  )?.[1];
+  // Blocco weekly: ancorato a "(all models)" per non agganciare "Sonnet only".
+  const weeklyBlock = text.match(
+    /Current week\s*\(all models\)([\s\S]*?)(?=Current week|What['’]s contributing|$)/i,
+  )?.[1];
+  // Servono ENTRAMBI i blocchi.
+  if (sessionBlock === undefined || weeklyBlock === undefined) return null;
 
-  const session = readWindowAfter(lines, sessionIdx);
-  const weekly = readWindowAfter(lines, weeklyIdx);
+  const session = readWindowFromBlock(sessionBlock);
+  const weekly = readWindowFromBlock(weeklyBlock);
   if (!session || !weekly) return null;
 
   return { sessionRemaining: session, weeklyRemaining: weekly };
