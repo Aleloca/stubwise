@@ -293,6 +293,7 @@
         "account": "Account",
         "automation": "Automazione AI",
         "notifications": "Notifiche",
+        "usage": "Consumi e costi",
         "gitAccounts": "Account Git",
         "storage": "Storage",
         "slack": "Slack"
@@ -525,6 +526,30 @@
     "save": "Salva",
     "saving": "Salvataggio…",
     "saved": "Salvato"
+  },
+  "usage": {
+    "title": "Consumi e costi",
+    "subtitle": "Consumo AI aggregato (costo e token) nel periodo selezionato.",
+    "range": "Periodo",
+    "rangeLabel": "Periodo",
+    "rangeDays": "Ultimi {{count}} giorni",
+    "loading": "Caricamento…",
+    "empty": "Nessun consumo AI in questo periodo.",
+    "totalCost": "Costo totale",
+    "totalInput": "Token input",
+    "totalOutput": "Token output",
+    "totalCache": "Cache letta",
+    "totalJobs": "Job",
+    "byDay": "Per giorno",
+    "byModel": "Per modello",
+    "byProject": "Per progetto",
+    "byProvider": "Per provider",
+    "colLabel": "Nome",
+    "tokensIn": "In",
+    "tokensOut": "Out",
+    "cache": "Cache",
+    "cost": "Costo",
+    "defaultProvider": "Default / env"
   },
   "badges": {
     "status": {

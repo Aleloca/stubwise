@@ -44,6 +44,7 @@ import { SettingsLayout } from "./routes/settings/layout";
 import { SettingsNotificationsPage } from "./routes/settings/notifications";
 import { SettingsSlackPage } from "./routes/settings/slack";
 import { SettingsStoragePage } from "./routes/settings/storage";
+import { SettingsUsagePage } from "./routes/settings/usage";
 import { SetupPage } from "./routes/setup";
 import { TeamPage } from "./routes/team";
 import { TicketDetailPage } from "./routes/tickets/$id";
@@ -272,6 +273,13 @@ const settingsNotificationsRoute = createRoute({
   component: SettingsNotificationsPage,
 });
 
+const settingsUsageRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/usage",
+  beforeLoad: ({ context }) => requireAdmin(context.user.role),
+  component: SettingsUsagePage,
+});
+
 const settingsGitAccountsRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/git-accounts",
@@ -320,6 +328,7 @@ const routeTree = rootRoute.addChildren([
       settingsAccountRoute,
       settingsAutomationRoute,
       settingsNotificationsRoute,
+      settingsUsageRoute,
       settingsGitAccountsRoute,
       settingsStorageRoute,
       settingsSlackRoute,

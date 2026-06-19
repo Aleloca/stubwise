@@ -1,6 +1,7 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import {
   getAutomationSettings,
+  getAiUsageCosts,
   getComments,
   getGitAccount,
   getGitAccounts,
@@ -250,6 +251,32 @@ export const instanceSettingsQueryOptions = queryOptions({
   queryFn: getInstanceSettings,
   staleTime: 30_000,
 });
+
+/**
+ * Range supportati dalla dashboard consumi AI: finestra a 7/30/90 giorni.
+ * Il filtro è espresso in giorni; il `from` (YYYY-MM-DD, UTC) si calcola
+ * client-side, il `to` lo lascia al default del server (ora).
+ */
+export const USAGE_RANGE_DAYS = [7, 30, 90] as const;
+export type UsageRangeDays = (typeof USAGE_RANGE_DAYS)[number];
+
+/** `from` (YYYY-MM-DD, UTC) di N giorni fa rispetto a `now` (iniettabile). */
+export function usageFromDate(days: number, now: number = Date.now()): string {
+  return new Date(now - days * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/**
+ * Consumi AI aggregati (solo admin) nella finestra a N giorni. Chiave per
+ * numero di giorni: cambiare il filtro 7/30/90 è una query a sé in cache.
+ * `staleTime` breve: i dati cambiano con i job ma non in tempo reale.
+ */
+export function aiUsageCostsQueryOptions(days: UsageRangeDays) {
+  return queryOptions({
+    queryKey: ["ai-usage", "costs", days],
+    queryFn: () => getAiUsageCosts({ from: usageFromDate(days) }),
+    staleTime: 30_000,
+  });
+}
 
 /**
  * Dettaglio di un progetto per slug. Chiave figlia di ["projects"]:

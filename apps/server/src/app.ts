@@ -16,6 +16,7 @@ import { createRequire } from "node:module";
 import type { Db } from "@stubwise/db";
 import { aiJobRoutes, ticketUsageRoutes } from "./routes/ai-jobs.js";
 import { aiProviderRoutes } from "./routes/ai-providers.js";
+import { aiUsageCostsRoutes } from "./routes/usage-costs.js";
 import {
   MAX_ATTACHMENT_BYTES,
   attachmentRoutes,
@@ -260,6 +261,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(settingsRoutes, { prefix: "/api/settings" });
   // Provider AI (credenziali del worker, secret cifrata write-only): solo admin.
   void app.register(aiProviderRoutes, { prefix: "/api/ai-providers" });
+  // Dashboard consumi AI (costi/token aggregati): solo admin.
+  void app.register(aiUsageCostsRoutes, { prefix: "/api/ai-usage" });
   // Superficie pubblica per gli SDK: fuori da /api, CORS aperto solo qui
   // (registrato dentro il plugin), autenticazione via X-Stubwise-Key.
   void app.register(ingestRoutes, {

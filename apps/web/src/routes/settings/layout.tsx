@@ -13,6 +13,7 @@ const SETTINGS_NAV = [
   { to: "/settings/account", labelKey: "account", adminOnly: false },
   { to: "/settings/automation", labelKey: "automation", adminOnly: true },
   { to: "/settings/notifications", labelKey: "notifications", adminOnly: true },
+  { to: "/settings/usage", labelKey: "usage", adminOnly: true },
   { to: "/settings/git-accounts", labelKey: "gitAccounts", adminOnly: true },
   { to: "/settings/storage", labelKey: "storage", adminOnly: true },
   { to: "/settings/slack", labelKey: "slack", adminOnly: true },

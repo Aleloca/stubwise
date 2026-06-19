@@ -1212,3 +1212,89 @@ export function getInstanceSettings(): Promise<InstanceSettings> {
 export function putInstanceSettings(patch: InstanceSettingsPatch): Promise<InstanceSettings> {
   return api.put("/api/settings/instance", patch);
 }
+
+// --- Dashboard consumi AI (costi/token) ---
+
+/** Totali del periodo: costo USD, token (in/out/cache) e job conteggiati. */
+export interface AiUsageTotals {
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  jobs: number;
+}
+
+/** Una riga della serie temporale: consumi aggregati di un giorno (UTC). */
+export interface AiUsageByDay {
+  /** Giorno YYYY-MM-DD (UTC). */
+  day: string;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  jobs: number;
+}
+
+/** Consumi aggregati per modello. */
+export interface AiUsageByModel {
+  model: string;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+}
+
+/** Consumi aggregati per progetto (con nome). */
+export interface AiUsageByProject {
+  projectId: string;
+  projectName: string;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+}
+
+/**
+ * Consumi aggregati per provider AI. `providerId`/`providerLabel` null = job
+ * eseguiti senza provider configurato (credenziale da env/default).
+ */
+export interface AiUsageByProvider {
+  providerId: string | null;
+  providerLabel: string | null;
+  costUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+}
+
+/**
+ * Dashboard consumi AI: totali del periodo più le ripartizioni per giorno,
+ * modello, progetto e provider. `range` riporta gli istanti ISO effettivamente
+ * applicati dal server (default: ultimi 30 giorni). I costi NULL contano 0.
+ */
+export interface AiUsageCosts {
+  range: { from: string; to: string };
+  totals: AiUsageTotals;
+  byDay: AiUsageByDay[];
+  byModel: AiUsageByModel[];
+  byProject: AiUsageByProject[];
+  byProvider: AiUsageByProvider[];
+}
+
+/** Filtro del range della dashboard consumi: date ISO YYYY-MM-DD. */
+export interface AiUsageCostsParams {
+  from?: string;
+  to?: string;
+}
+
+/**
+ * Aggregazione dei consumi AI nel range (solo admin). Senza parametri il server
+ * applica gli ultimi 30 giorni; `from`/`to` (YYYY-MM-DD) restringono la finestra.
+ */
+export function getAiUsageCosts(params: AiUsageCostsParams = {}): Promise<AiUsageCosts> {
+  const search = new URLSearchParams();
+  if (params.from) search.set("from", params.from);
+  if (params.to) search.set("to", params.to);
+  const qs = search.toString();
+  return api.get(`/api/ai-usage/costs${qs ? `?${qs}` : ""}`);
+}

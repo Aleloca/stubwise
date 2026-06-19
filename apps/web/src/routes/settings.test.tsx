@@ -599,3 +599,112 @@ describe("impostazioni: /settings/notifications (admin)", () => {
     expect(screen.queryByText("Notifications")).not.toBeInTheDocument();
   });
 });
+
+describe("impostazioni: /settings/usage (admin)", () => {
+  const USAGE_COSTS = {
+    range: { from: "2026-05-10T00:00:00.000Z", to: "2026-06-09T23:59:59.999Z" },
+    totals: {
+      costUsd: 4.05,
+      inputTokens: 3800,
+      outputTokens: 950,
+      cacheReadTokens: 185,
+      jobs: 3,
+    },
+    byDay: [
+      { day: "2026-05-10", costUsd: 1.5, inputTokens: 1300, outputTokens: 300, cacheReadTokens: 60, jobs: 1 },
+      { day: "2026-05-11", costUsd: 2.55, inputTokens: 2500, outputTokens: 650, cacheReadTokens: 125, jobs: 2 },
+    ],
+    byModel: [
+      { model: "claude-haiku", costUsd: 0.3, inputTokens: 800, outputTokens: 250, cacheReadTokens: 35 },
+      { model: "claude-opus", costUsd: 3.75, inputTokens: 3000, outputTokens: 700, cacheReadTokens: 150 },
+    ],
+    byProject: [
+      { projectId: "p-a", projectName: "Project A", costUsd: 3.75, inputTokens: 3000, outputTokens: 700, cacheReadTokens: 150 },
+      { projectId: "p-b", projectName: "Project B", costUsd: 0.3, inputTokens: 500, outputTokens: 150, cacheReadTokens: 25 },
+    ],
+    byProvider: [
+      { providerId: "x", providerLabel: "Provider X", costUsd: 1.5, inputTokens: 1000, outputTokens: 200, cacheReadTokens: 50 },
+      { providerId: null, providerLabel: null, costUsd: 0.3, inputTokens: 500, outputTokens: 150, cacheReadTokens: 25 },
+    ],
+  };
+
+  function adminWithUsage() {
+    return {
+      ...adminBase(),
+      "GET /api/ai-usage/costs": () => jsonResponse(200, USAGE_COSTS),
+    } satisfies Record<string, Handler>;
+  }
+
+  it("rende i totali e le tabelle per modello/progetto/provider", async () => {
+    mockApi(adminWithUsage());
+    renderAt("/settings/usage");
+
+    const heading = await screen.findByRole("heading", { name: "Usage & costs" });
+    const section = heading.closest("section") as HTMLElement;
+    const scope = within(section);
+
+    // Totali del periodo.
+    const totals = scope.getByTestId("usage-totals");
+    expect(within(totals).getByText("$4.0500")).toBeInTheDocument();
+
+    // Ripartizioni: modello, progetto, provider (incluso "Default / env").
+    expect(within(scope.getByTestId("usage-by-model")).getByText("claude-opus")).toBeInTheDocument();
+    expect(within(scope.getByTestId("usage-by-project")).getByText("Project A")).toBeInTheDocument();
+    const byProvider = within(scope.getByTestId("usage-by-provider"));
+    expect(byProvider.getByText("Provider X")).toBeInTheDocument();
+    expect(byProvider.getByText("Default / env")).toBeInTheDocument();
+
+    // Serie per giorno.
+    expect(within(scope.getByTestId("usage-by-day")).getByText("2026-05-10")).toBeInTheDocument();
+  });
+
+  it("il filtro di range cambia il parametro 'from' della query", async () => {
+    const calls: string[] = [];
+    mockApi({
+      ...adminBase(),
+      "GET /api/ai-usage/costs": (url) => {
+        calls.push(url.searchParams.get("from") ?? "");
+        return jsonResponse(200, USAGE_COSTS);
+      },
+    });
+    renderAt("/settings/usage");
+
+    await screen.findByRole("heading", { name: "Usage & costs" });
+    // La prima chiamata usa il default 30 giorni.
+    await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(1));
+    const firstFrom = calls[0];
+
+    // Cambiando a 7 giorni il 'from' si avvicina a oggi (stringa maggiore).
+    await userEvent.selectOptions(screen.getByLabelText("Period"), "7");
+    await waitFor(() => expect(calls.length).toBeGreaterThanOrEqual(2));
+    const lastFrom = calls[calls.length - 1] ?? "";
+    expect(lastFrom > (firstFrom ?? "")).toBe(true);
+  });
+
+  it("nessun consumo: mostra lo stato vuoto", async () => {
+    mockApi({
+      ...adminBase(),
+      "GET /api/ai-usage/costs": () =>
+        jsonResponse(200, {
+          range: USAGE_COSTS.range,
+          totals: { costUsd: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, jobs: 0 },
+          byDay: [],
+          byModel: [],
+          byProject: [],
+          byProvider: [],
+        }),
+    });
+    renderAt("/settings/usage");
+
+    expect(await screen.findByText("No AI consumption in this period.")).toBeInTheDocument();
+  });
+
+  it("member: non raggiunge la rotta admin, viene rimandato ad account", async () => {
+    mockApi(memberBase());
+    const router = renderAt("/settings/usage");
+
+    expect(await screen.findByText("Member")).toBeInTheDocument();
+    await waitFor(() => expect(router.state.location.pathname).toBe("/settings/account"));
+    expect(screen.queryByRole("heading", { name: "Usage & costs" })).not.toBeInTheDocument();
+  });
+});
