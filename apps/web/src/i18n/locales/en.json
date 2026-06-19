@@ -296,7 +296,8 @@
         "usage": "Usage & costs",
         "gitAccounts": "Git accounts",
         "storage": "Storage",
-        "slack": "Slack"
+        "slack": "Slack",
+        "aiProviders": "AI providers"
       }
     },
     "account": {
@@ -417,6 +418,34 @@
       "save": "Save",
       "saving": "Saving…",
       "saved": "Saved"
+    },
+    "aiProviders": {
+      "title": "AI providers",
+      "subtitle": "Credential chain for the AI pipeline: tried top to bottom, with failover when a provider hits its limit.",
+      "newProvider": "New AI provider",
+      "empty": "// no ai providers configured",
+      "kind": "Type",
+      "kindApiKey": "API key",
+      "kindAccount": "Account",
+      "label": "Label",
+      "labelPlaceholder": "E.g. Console production",
+      "secret": "Secret",
+      "secretPlaceholder": "Paste the value here",
+      "secretSet": "Secret set",
+      "createProvider": "Create provider",
+      "creatingProvider": "Creating…",
+      "enabledBadge": "Enabled",
+      "disabledBadge": "Disabled",
+      "enable": "Enable",
+      "disable": "Disable",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
+      "delete": "Delete",
+      "confirm": "Confirm",
+      "tosWarning": "Two or more Account credentials are configured. Using multiple Claude subscriptions to bypass usage limits is against the Anthropic Terms of Service and may lead to account suspension. Prefer an API key for additional capacity.",
+      "accountHint": "// Account: run `claude setup-token` on a machine with a browser and paste the token here.",
+      "apiKeyHint": "// API key: a key from the Anthropic Console (console.anthropic.com).",
+      "secretWriteOnlyHint": "// write-only: encrypted at rest and never shown again. To change a secret, delete the provider and create it again."
     },
     "credentials": {
       "username": "Username",

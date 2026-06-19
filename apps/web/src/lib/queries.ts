@@ -19,6 +19,7 @@ import {
   getTicketLinks,
   getTicketUsage,
   getUsers,
+  listAiProviders,
   listMilestones,
   listSavedViews,
   listTickets,
@@ -249,6 +250,18 @@ export const notificationSettingsQueryOptions = queryOptions({
 export const instanceSettingsQueryOptions = queryOptions({
   queryKey: ["settings", "instance"],
   queryFn: getInstanceSettings,
+  staleTime: 30_000,
+});
+
+/**
+ * Provider AI configurati (solo admin), ordinati per position di failover. La
+ * pagina Settings la abilita in base al ruolo; chiave radice ["ai-providers"]:
+ * ogni create/update/delete/reorder la invalida così la catena resta
+ * riconciliata col backend.
+ */
+export const aiProvidersQueryOptions = queryOptions({
+  queryKey: ["ai-providers"],
+  queryFn: listAiProviders,
   staleTime: 30_000,
 });
 

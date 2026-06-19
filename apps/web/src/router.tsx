@@ -13,6 +13,7 @@ import { ApiError } from "./lib/api";
 import { meQueryOptions, setupStatusQueryOptions } from "./lib/auth";
 import {
   activityQueryOptions,
+  aiProvidersQueryOptions,
   automationSettingsQueryOptions,
   boardTicketsQueryOptions,
   commentsQueryOptions,
@@ -38,6 +39,7 @@ import { ProjectsPage } from "./routes/projects/index";
 import { NewProjectPage } from "./routes/projects/new";
 import { registerSearchSchema, RegisterPage } from "./routes/register";
 import { SettingsAccountPage } from "./routes/settings/account";
+import { SettingsAiProvidersPage } from "./routes/settings/ai-providers";
 import { SettingsAutomationPage } from "./routes/settings/automation";
 import { SettingsGitAccountsPage } from "./routes/settings/git-accounts";
 import { SettingsLayout } from "./routes/settings/layout";
@@ -310,6 +312,16 @@ const settingsSlackRoute = createRoute({
   component: SettingsSlackPage,
 });
 
+const settingsAiProvidersRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/ai-providers",
+  beforeLoad: ({ context }) => requireAdmin(context.user.role),
+  loader: async ({ context }) => {
+    await context.queryClient.ensureQueryData(aiProvidersQueryOptions).catch(() => undefined);
+  },
+  component: SettingsAiProvidersPage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   registerRoute,
@@ -332,6 +344,7 @@ const routeTree = rootRoute.addChildren([
       settingsGitAccountsRoute,
       settingsStorageRoute,
       settingsSlackRoute,
+      settingsAiProvidersRoute,
     ]),
   ]),
 ]);
