@@ -59,6 +59,10 @@ function makeProvider(overrides: Partial<AiProvider> = {}): AiProvider {
     enabled: true,
     secretSet: true,
     createdAt: "2026-06-01T10:00:00.000Z",
+    testStatus: "idle",
+    testRequestedAt: null,
+    testCheckedAt: null,
+    testError: null,
     ...overrides,
   };
 }
@@ -233,6 +237,71 @@ describe("AiProvidersSection — eliminazione", () => {
     await user.click(within(row).getByRole("button", { name: "Confirm" }));
 
     await waitFor(() => expect(screen.queryByText("Console primaria")).not.toBeInTheDocument());
+  });
+});
+
+describe("AiProvidersSection — test credenziale", () => {
+  it("il bottone Test invia POST /:id/test", async () => {
+    const user = userEvent.setup();
+    let tested = false;
+    mockApi({
+      "GET /api/ai-providers": () =>
+        jsonResponse(200, [
+          makeProvider({ id: "id-1", label: "Console primaria", testStatus: tested ? "pending" : "idle" }),
+        ]),
+      "POST /api/ai-providers/id-1/test": () => {
+        tested = true;
+        return jsonResponse(200, makeProvider({ id: "id-1", testStatus: "pending" }));
+      },
+    });
+
+    renderSection();
+
+    const row = (await screen.findByText("Console primaria")).closest("li") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: "Test" }));
+
+    await waitFor(() => expect(tested).toBe(true));
+  });
+
+  it("mostra l'esito passato (✓) per una credenziale testStatus=passed", async () => {
+    mockApi({
+      "GET /api/ai-providers": () =>
+        jsonResponse(200, [makeProvider({ id: "id-1", testStatus: "passed", testCheckedAt: "2026-06-10T14:00:00.000Z" })]),
+    });
+    renderSection();
+
+    const row = (await screen.findByText("Console primaria")).closest("li") as HTMLElement;
+    expect(within(row).getByText(/working/i)).toBeInTheDocument();
+  });
+
+  it("mostra l'errore per una credenziale testStatus=failed", async () => {
+    mockApi({
+      "GET /api/ai-providers": () =>
+        jsonResponse(200, [
+          makeProvider({
+            id: "id-1",
+            testStatus: "failed",
+            testError: "Invalid API key",
+            testCheckedAt: "2026-06-10T14:00:00.000Z",
+          }),
+        ]),
+    });
+    renderSection();
+
+    const row = (await screen.findByText("Console primaria")).closest("li") as HTMLElement;
+    expect(within(row).getByText(/Invalid API key/)).toBeInTheDocument();
+  });
+
+  it("una credenziale pending mostra 'Testing…' e disabilita il bottone", async () => {
+    mockApi({
+      "GET /api/ai-providers": () =>
+        jsonResponse(200, [makeProvider({ id: "id-1", testStatus: "pending" })]),
+    });
+    renderSection();
+
+    const row = (await screen.findByText("Console primaria")).closest("li") as HTMLElement;
+    const testBtn = within(row).getByRole("button", { name: /testing/i });
+    expect(testBtn).toBeDisabled();
   });
 });
 

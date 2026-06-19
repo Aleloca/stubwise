@@ -936,9 +936,18 @@ export function postValidateGitAccount(id: string): Promise<ValidateCredentialsR
 export type AiProviderKind = "api_key" | "account";
 
 /**
+ * Stato dell'ultimo test della credenziale: `idle` (mai testata), `pending`
+ * (richiesta, in attesa del worker che esegue il `claude -p` di prova),
+ * `passed`/`failed` (esito).
+ */
+export type AiProviderTestStatus = "idle" | "pending" | "passed" | "failed";
+
+/**
  * Provider AI configurato dall'admin: proiezione pubblica (mai la secret, che
  * vive cifrata at-rest e write-only sul server). `position` dà l'ordine di
- * failover; `secretSet` è sempre true (la secret esiste, non si espone).
+ * failover; `secretSet` è sempre true (la secret esiste, non si espone). I campi
+ * `test*` riportano l'esito dell'ultimo test della credenziale (lo esegue il
+ * worker; `testError` è il messaggio dell'ultimo fallimento, mai il segreto).
  */
 export interface AiProvider {
   id: string;
@@ -948,6 +957,10 @@ export interface AiProvider {
   enabled: boolean;
   secretSet: boolean;
   createdAt: string;
+  testStatus: AiProviderTestStatus;
+  testRequestedAt: string | null;
+  testCheckedAt: string | null;
+  testError: string | null;
 }
 
 /** Creazione di un provider AI (solo admin): la secret è write-only. */
@@ -993,6 +1006,16 @@ export function deleteAiProvider(id: string): Promise<void> {
  */
 export function reorderAiProviders(orderedIds: string[]): Promise<AiProvider[]> {
   return api.post("/api/ai-providers/reorder", { orderedIds });
+}
+
+/**
+ * Richiede un test della credenziale (solo admin): il server marca la richiesta
+ * `pending` e il worker esegue un `claude -p` di prova con quella credenziale,
+ * poi scrive l'esito (`passed`/`failed`). La UI fa polling sulla lista finché lo
+ * stato non lascia `pending`. Restituisce il provider con `testStatus: pending`.
+ */
+export function testAiProvider(id: string): Promise<AiProvider> {
+  return api.post(`/api/ai-providers/${encodeURIComponent(id)}/test`);
 }
 
 /**

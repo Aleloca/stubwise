@@ -446,6 +446,11 @@
       "accountHint": "// Account: esegui `claude setup-token` su una macchina con browser e incolla qui il token.",
       "apiKeyHint": "// API key: una chiave dalla Console Anthropic (console.anthropic.com).",
       "secretWriteOnlyHint": "// write-only: cifrata a riposo e non più mostrata. Per cambiare una secret, elimina il provider e ricrealo.",
+      "test": "Test",
+      "testing": "Test in corso…",
+      "testPassed": "Funziona",
+      "testFailedBadge": "Fallito",
+      "testFailed": "Test della credenziale fallito",
       "usage": {
         "title": "Consumo abbonamento",
         "session": "Sessione: {{percent}}% residuo",

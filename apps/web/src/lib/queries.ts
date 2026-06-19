@@ -264,6 +264,11 @@ export const aiProvidersQueryOptions = queryOptions({
   queryKey: ["ai-providers"],
   queryFn: listAiProviders,
   staleTime: 30_000,
+  // Polling adattivo dell'esito dei test credenziale: il worker scrive
+  // `passed`/`failed` in modo asincrono, quindi finché c'è almeno una riga
+  // `pending` ricarichiamo ogni 2s; altrimenti niente refetch periodico.
+  refetchInterval: (query) =>
+    (query.state.data ?? []).some((p) => p.testStatus === "pending") ? 2000 : false,
 });
 
 /**
