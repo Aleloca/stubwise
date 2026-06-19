@@ -303,6 +303,45 @@ describe("captureUsageOutput", () => {
     expect(out).toContain("Weekly 31% used");
   });
 
+  it("nessun marcatore riconosciuto: dopo il cap invia /usage comunque (fallback) entro il limite", async () => {
+    const fake = makeFakePty();
+    const spawner: PtySpawner = () => {
+      queueMicrotask(() => {
+        // Solo rumore: né login, né prompt pronto, né trust, né tema. Il loop
+        // deve esaurire i passi di attesa e poi inviare /usage come fallback.
+        fake.emit("…\n[caricamento]\nqualcosa di non riconosciuto\n");
+      });
+      const origWrite = fake.pty.write.bind(fake.pty);
+      fake.pty.write = (d: string): void => {
+        origWrite(d);
+        if (d.includes("/usage")) {
+          setTimeout(() => {
+            fake.emit("Current session 42% used\r\nWeekly 31% used\r\n");
+            fake.exit(0);
+          }, 1);
+        }
+      };
+      return fake.pty;
+    };
+
+    const start = Date.now();
+    const out = await captureUsageOutput(account, {
+      spawner,
+      readyDelayMs: 5,
+      renderDelayMs: 20,
+      timeoutMs: 5000,
+      preConfig: false,
+    });
+    const elapsed = Date.now() - start;
+
+    // /usage è stato inviato comunque (fallback dopo il cap), e ben prima del
+    // timeout: budget di navigazione (~750ms) + render, non 5s.
+    expect(fake.pty.writes.join("")).toContain("/usage");
+    expect(out).toContain("42% used");
+    expect(out).toContain("Weekly 31% used");
+    expect(elapsed).toBeLessThan(2000);
+  });
+
   it("su 'Select login method' (non autenticato) non resta bloccato e ritorna entro il limite", async () => {
     const fake = makeFakePty();
     const spawner: PtySpawner = () => {

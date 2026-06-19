@@ -107,18 +107,22 @@ const TRUST_MARKER_RE = /trust this folder|do you trust|safety check|is this a p
  * principale (la barra di stato "? for shortcuts"). È il segnale definitivo che
  * possiamo inviare /usage SUBITO, senza sprecare altri Invii: ha priorità
  * (short-circuit) su qualsiasi altro marcatore ancora presente nel buffer.
+ *
+ * FRAGILITÀ: dipende dalla stringa EN della status bar di Claude Code
+ * ("? for shortcuts"). Se venisse localizzata o cambiata, ricadremmo sul
+ * fallback per esaurimento del cap — comportamento sicuro, solo più lento.
  */
 const PROMPT_READY_RE = /\? for shortcuts/i;
 
 /**
- * Numero massimo di "Invio" inviati per superare i passaggi di navigazione
- * (trust + tema + margine). Il cap garantisce comunque l'invio di /usage anche
- * se non riconosciamo lo stato della TUI.
+ * Passi massimi di navigazione (Invio o sola ATTESA) prima di forzare /usage. Il
+ * cap copre trust + tema + margine e garantisce comunque l'invio di /usage anche
+ * se non riconosciamo lo stato della TUI (es. TUI ancora in caricamento).
  */
-const MAX_WIZARD_STEPS = 5;
+const MAX_NAV_STEPS = 5;
 /**
  * Attesa tra un passo di navigazione e il successivo. Tenuta breve perché ora
- * il loop può eseguire fino a MAX_WIZARD_STEPS passi anche solo per ATTENDERE
+ * il loop può eseguire fino a MAX_NAV_STEPS passi anche solo per ATTENDERE
  * (TUI in caricamento, nessun marcatore ancora): il totale (passi × delay) deve
  * restare ben sotto il timeoutMs tipico, così /usage viene comunque inviato in
  * tempo. 150ms × 5 = 750ms di budget di navigazione: sufficiente per la TUI
@@ -336,7 +340,7 @@ export async function captureUsageOutput(
     /**
      * RETE B (difensiva): naviga GENERICAMENTE i prompt che la TUI può mostrare
      * prima di arrivare al prompt principale (trust dialog, wizard del tema, …)
-     * fino a poter inviare /usage. È un loop a step (cap MAX_WIZARD_STEPS) sul
+     * fino a poter inviare /usage. È un loop a step (cap MAX_NAV_STEPS) sul
      * buffer accumulato. Ordine di valutazione (la priorità conta: il buffer
      * cresce e i marcatori passati restano "veri", quindi i short-circuit vanno
      * prima):
@@ -366,7 +370,7 @@ export async function captureUsageOutput(
         return;
       }
 
-      if (steps < MAX_WIZARD_STEPS) {
+      if (steps < MAX_NAV_STEPS) {
         if (WIZARD_MARKER_RE.test(buffer) || TRUST_MARKER_RE.test(buffer)) {
           // Prompt di scelta (tema/trust): accetta il default con un Invio.
           try {
