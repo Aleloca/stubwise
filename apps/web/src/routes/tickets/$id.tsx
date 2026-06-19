@@ -163,6 +163,11 @@ export function TicketDetailPage() {
     latestJob !== undefined &&
     (RELAUNCHABLE_STATUSES as readonly string[]).includes(latestJob.status);
   const awaitingPlanApproval = latestJob?.status === "awaiting_plan_approval";
+  // Primo avvio: il ticket non ha ancora alcun job (es. creato a mano dalla
+  // UI). C'è solo "Avvia fix AI" (stesso handler del rilancio, senza
+  // withInstructions): il server accoda un nuovo job e parte il triage. Niente
+  // "Rilancia con istruzioni"/hint, che hanno senso solo dopo un primo esito.
+  const canStartFix = latestJob === undefined;
 
   // Hint per "Rilancia con istruzioni": senza commenti dell'utente il rilancio
   // non avrebbe nuove indicazioni da incorporare. Non blocca, solo guida.
@@ -242,6 +247,29 @@ export function TicketDetailPage() {
           <section aria-label={t("tickets:detail.aiActivity")}>
             <h2 className={sectionTitleClass}>{t("tickets:detail.aiActivity")}</h2>
             <AIJobTimeline jobs={jobs} />
+            {/* Primo avvio (nessun job): solo "Avvia fix AI". */}
+            {canStartFix && (
+              <div className="mt-3 space-y-2">
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    type="button"
+                    disabled={runAiMutation.isPending}
+                    onClick={() => runAiMutation.mutate(undefined)}
+                    className="rounded-sm bg-signal px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright active:bg-signal-dim disabled:cursor-not-allowed disabled:bg-signal-dim disabled:opacity-60"
+                  >
+                    {runAiMutation.isPending
+                      ? t("tickets:detail.startingFix")
+                      : t("tickets:detail.startFix")}
+                  </button>
+                </div>
+                {runAiMutation.isError && (
+                  <span role="alert" className="font-mono text-[12px] text-danger">
+                    {runAiMutation.error.message}
+                  </span>
+                )}
+              </div>
+            )}
+            {/* Rilancio (job in stato terminale): avvio + rilancio con istruzioni. */}
             {canRelaunch && (
               <div className="mt-3 space-y-2">
                 <div className="flex flex-wrap items-center gap-3">
