@@ -26,6 +26,7 @@ import {
 } from "../agent/runner.js";
 import { MirrorManager, type MirrorProject } from "../git/mirrors.js";
 import type { ResolvedProvider } from "../providers/chain.js";
+import { isLimitError, ProviderLimitError } from "../providers/limit.js";
 import {
   appendLog,
   completeJob,
@@ -194,7 +195,16 @@ export interface FixDeps extends NotifyDeps {
   provider?: ResolvedProvider;
 }
 
-export type FixOutcome = "pr_opened" | "failed" | "awaiting_approval" | "held";
+export type FixOutcome =
+  | "pr_opened"
+  | "failed"
+  | "awaiting_approval"
+  | "held"
+  /** Il provider AI ha risposto con un limite di rate/usage PRIMA di qualunque
+   * effetto osservabile (push/PR): il job NON è stato chiuso (niente failJob),
+   * il chiamante (handler.ts) farà failover sulla credenziale successiva o
+   * metterà il job in held se la catena è esaurita. */
+  | "limit";
 
 /** Modalità di esecuzione del fix, risolta PRIMA di toccare il repo. */
 type FixMode = "full" | "plan-only" | "execute-only";
@@ -591,6 +601,9 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
               ...providerOpt,
             });
             fixUsages.push(planResult.usage);
+            // LIMITE di rate/usage (best-effort), PRIMA di qualunque effetto: la
+            // pianificazione è read-only, nessun push/PR ancora. Failover.
+            if (isLimitError(planResult)) throw new ProviderLimitError(planResult.output);
             // Un exit non-zero della pianificazione è un fallimento del fix
             // (gestito nel catch → failJob): niente parcheggio, niente piano.
             if (planResult.exitCode !== 0) {
@@ -625,6 +638,9 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
               ...providerOpt,
             });
             fixUsages.push(planResult.usage);
+            // LIMITE di rate/usage (best-effort): la pianificazione è read-only,
+            // nessun effetto osservabile ancora (push/PR a valle). Failover.
+            if (isLimitError(planResult)) throw new ProviderLimitError(planResult.output);
             // Un exit non-zero della pianificazione è trattato come gli altri
             // fallimenti del fix: niente esecuzione, niente PR (vedi catch).
             if (planResult.exitCode !== 0) {
@@ -667,6 +683,13 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
           // Catturato anche su exit non-zero (il CLI riporta usage comunque):
           // registrato dopo la chiusura del worktree, qualunque sia l'esito.
           fixUsages.push(result.usage);
+
+          // LIMITE di rate/usage (best-effort): qui non è ancora stato fatto né
+          // git add né commit né push — nessun effetto osservabile. Failover
+          // sicuro (niente PR duplicate). Il check è PRIMA dell'AgentExitError
+          // così un exit non-zero "da limite" non viene scambiato per un
+          // normale fallimento del fix.
+          if (isLimitError(result)) throw new ProviderLimitError(output);
 
           if (exitCode !== 0) throw new AgentExitError(exitCode, output);
 
@@ -755,6 +778,12 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
                 ...providerOpt,
               });
               fixUsages.push(repair.usage);
+              // LIMITE di rate/usage (best-effort): siamo ancora nel loop di
+              // self-repair, PRIMA del commit/push finale (avvengono solo dopo
+              // l'uscita dal loop con test verdi). Nessun effetto osservabile →
+              // failover sicuro. Check PRIMA dell'AgentExitError, come per
+              // l'execute.
+              if (isLimitError(repair)) throw new ProviderLimitError(repair.output);
               if (repair.exitCode !== 0) throw new AgentExitError(repair.exitCode, repair.output);
               output = repair.output; // Aggiorna l'output dell'agente per report/log.
             }
@@ -812,6 +841,16 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     // di fallire (es. plan riuscito ma execute in errore, nessuna modifica) li
     // registriamo comunque — il lavoro AI è stato speso anche se il job fallisce.
     await recordAllUsages();
+    if (err instanceof ProviderLimitError) {
+      // LIMITE di rate/usage: NON è un fallimento e NON ci sono effetti
+      // osservabili (il limite scatta sempre PRIMA di push/PR — vedi i check
+      // dopo ogni runner.run). Il job NON viene chiuso: si torna "limit" così
+      // handler.ts fa failover sulla credenziale successiva o, se la catena è
+      // esaurita, mette il job in held. Una riga di log per la diagnosi (mai il
+      // segreto). I consumi del run sono già stati registrati sopra.
+      await appendLog(db, job.id, "[fix] provider AI al limite di rate/usage: failover");
+      return "limit";
+    }
     if (err instanceof BudgetExceededError) {
       // Budget-ticket sforato durante il self-repair: NON è un fallimento. Il
       // worktree è già rimosso; ora (fuori da withWorktree) si applica il

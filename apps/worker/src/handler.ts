@@ -1,15 +1,17 @@
-import { projects, tickets, type Db } from "@stubwise/db";
+import { comments, projects, tickets, type Db } from "@stubwise/db";
+import { t } from "@stubwise/i18n";
 import { eq } from "drizzle-orm";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentRunner } from "./agent/runner.js";
 import type { MirrorManager } from "./git/mirrors.js";
-import { runFix, type FixDeps } from "./pipeline/fix.js";
+import { runFix, type FixDeps, type FixOutcome } from "./pipeline/fix.js";
 import type { DispatchFn } from "./pipeline/notify.js";
-import { runTriage } from "./pipeline/triage.js";
+import { runTriage, type TriageOutcome } from "./pipeline/triage.js";
 import { loadProviderChain, type ResolvedProvider } from "./providers/chain.js";
-import { appendLog, failJob, markFixing, setJobProvider, type AiJob } from "./queue.js";
+import { appendLog, failJob, holdJob, markFixing, setJobProvider, type AiJob } from "./queue.js";
+import { getContentLanguage } from "./settings.js";
 
 /**
  * Wiring della pipeline per runWorker: handler(job) = triage → (se "fixing")
@@ -61,24 +63,26 @@ export interface HandlerDeps {
   };
 }
 
-async function processJob(deps: HandlerDeps, job: AiJob, projectName: string): Promise<void> {
-  // Contesto delle notifiche comune a triage e fix (best-effort): URL pubblico
-  // per il link, nome progetto per il messaggio, dispatch iniettabile nei test.
-  const notifyOpts = {
-    ...(deps.publicUrl !== undefined ? { publicUrl: deps.publicUrl } : {}),
-    projectName,
-    ...(deps.dispatch !== undefined ? { dispatch: deps.dispatch } : {}),
-  };
-
-  // Selezione della credenziale: si carica la catena dei provider AI abilitati
-  // (ordinati per position) e si usa la PRIMA. Il vero failover (provare le
-  // successive al limite) è Task 4: qui basta cablare la prima fino a
-  // buildAgentEnv. Catena vuota → nessun provider, retro-compat (auth dall'env
-  // del container o dall'OAuth del volume). La credenziale usata viene
-  // registrata su ai_jobs.provider_id (best-effort). I segreti non si loggano.
-  const loadChain = deps.loadProviderChainFn ?? loadProviderChain;
-  const chain = await loadChain(deps.db, deps.encryptionKey);
-  const provider = chain[0];
+/**
+ * Esegue il job (triage → fix, o il ramo di ripresa) con UNA credenziale.
+ * Restituisce true se il run ha esaurito QUESTA credenziale per un LIMITE di
+ * rate/usage (esito "limit" da triage/fix): in quel caso il job NON è stato
+ * chiuso e il chiamante può ritentare con la credenziale successiva. Per
+ * qualunque altro esito (success/failed/held/awaiting) restituisce false: il
+ * job è stato gestito come oggi (chiuso o fatto avanzare dalla pipeline) e NON
+ * va ritentato.
+ *
+ * `provider` undefined = catena vuota: un solo tentativo con l'auth storica.
+ */
+async function runJobWithProvider(
+  deps: HandlerDeps,
+  job: AiJob,
+  notifyOpts: { publicUrl?: string; projectName: string; dispatch?: DispatchFn },
+  provider: ResolvedProvider | undefined,
+): Promise<boolean> {
+  // Registra la credenziale TENTATA su ai_jobs.provider_id (best-effort): se il
+  // run fallisce per limite e si fa failover, sarà sovrascritta dal tentativo
+  // successivo, così provider_id riflette sempre l'ultima credenziale usata.
   if (provider) await setJobProvider(deps.db, job.id, provider.id);
   const providerOpt = provider !== undefined ? { provider } : {};
 
@@ -103,10 +107,10 @@ async function processJob(deps: HandlerDeps, job: AiJob, projectName: string): P
     const owned = await markFixing(deps.db, job.id);
     if (!owned) {
       await appendLog(deps.db, job.id, "[resume] ownership persa, mi fermo");
-      return;
+      return false;
     }
-    await runFix(fixDeps, job);
-    return;
+    const fixOutcome: FixOutcome = await runFix(fixDeps, job);
+    return fixOutcome === "limit";
   }
 
   // Percorso STANDARD: triage → (se "fixing") fix.
@@ -114,15 +118,97 @@ async function processJob(deps: HandlerDeps, job: AiJob, projectName: string): P
   // creata per-job e rimossa comunque vada.
   const workDir = await mkdtemp(join(tmpdir(), "stubwise-triage-"));
   try {
-    const outcome = await runTriage(
+    const triageOutcome: TriageOutcome = await runTriage(
       { db: deps.db, runner: deps.runner, workDir, ...providerOpt, ...notifyOpts, ...deps.triage },
       job,
     );
-    if (outcome !== "fixing") return;
-    await runFix(fixDeps, job);
+    // Limite durante il triage: il job non è chiuso, failover.
+    if (triageOutcome === "limit") return true;
+    // Qualunque altro esito che non sia "fixing" è terminale (skip/duplicate/
+    // held/failed): gestito dal triage, niente fix, niente failover.
+    if (triageOutcome !== "fixing") return false;
+    const fixOutcome: FixOutcome = await runFix(fixDeps, job);
+    return fixOutcome === "limit";
   } finally {
     await rm(workDir, { recursive: true, force: true });
   }
+}
+
+/**
+ * Mette il job in held quando TUTTE le credenziali della catena hanno toccato
+ * il limite di rate/usage. Riusa il pattern budget-held del fix: commento AI di
+ * sistema sul ticket + transizione holdJob (status-guarded). NON failed: il job
+ * va ritentato dopo il reset del limite (avvio manuale o re-run). Best-effort
+ * sul commento (transazione) e sul log se la ownership è persa.
+ */
+async function holdAllProvidersLimited(
+  deps: HandlerDeps,
+  job: AiJob,
+  ticketId: string,
+): Promise<void> {
+  const lang = await getContentLanguage(deps.db);
+  await deps.db.transaction(async (tx) => {
+    await tx.insert(comments).values({
+      ticketId,
+      authorType: "ai",
+      body: t(lang, "comment.providersLimitHeld"),
+    });
+  });
+  const held = await holdJob(deps.db, job.id, {
+    log: "[stubwise] tutti i provider AI al limite di rate/usage → job in pausa (held), ritenta dopo il reset",
+  });
+  if (!held) {
+    await appendLog(deps.db, job.id, "[stubwise] ownership persa dopo il hold per limite provider");
+  }
+}
+
+async function processJob(
+  deps: HandlerDeps,
+  job: AiJob,
+  projectName: string,
+  ticketId: string,
+): Promise<void> {
+  // Contesto delle notifiche comune a triage e fix (best-effort): URL pubblico
+  // per il link, nome progetto per il messaggio, dispatch iniettabile nei test.
+  const notifyOpts = {
+    ...(deps.publicUrl !== undefined ? { publicUrl: deps.publicUrl } : {}),
+    projectName,
+    ...(deps.dispatch !== undefined ? { dispatch: deps.dispatch } : {}),
+  };
+
+  // Catena dei provider AI abilitati (ordinati per position). FAILOVER: si prova
+  // la prima credenziale; se il run si esaurisce per LIMITE di rate/usage (esito
+  // "limit", PRIMA di qualunque effetto osservabile — niente PR a metà) si passa
+  // alla successiva e si ritenta lo STESSO job. Un esito NON-limite (success o
+  // failed/self-repair) è terminale: niente failover, l'errore è gestito come
+  // oggi. Esaurite TUTTE le credenziali per limite → held (non failed).
+  // Catena vuota → un solo tentativo con l'auth storica (env del container /
+  // OAuth del volume), nessun failover. I segreti non si loggano.
+  const loadChain = deps.loadProviderChainFn ?? loadProviderChain;
+  const chain = await loadChain(deps.db, deps.encryptionKey);
+
+  // Catena vuota: un solo tentativo, nessun provider, retro-compat.
+  if (chain.length === 0) {
+    await runJobWithProvider(deps, job, notifyOpts, undefined);
+    return;
+  }
+
+  for (let i = 0; i < chain.length; i++) {
+    const provider = chain[i]!;
+    const limited = await runJobWithProvider(deps, job, notifyOpts, provider);
+    if (!limited) return; // Successo o fallimento NON-limite: terminato.
+    // Limite su questa credenziale: prova la successiva, se c'è.
+    if (i < chain.length - 1) {
+      await appendLog(
+        deps.db,
+        job.id,
+        `[stubwise] provider ${i + 1}/${chain.length} al limite: failover alla credenziale successiva`,
+      );
+    }
+  }
+
+  // Tutte le credenziali della catena hanno toccato il limite: held.
+  await holdAllProvidersLimited(deps, job, ticketId);
 }
 
 /** Crea l'handler per runWorker, con la serializzazione per progetto. */
@@ -149,7 +235,7 @@ export function createHandler(deps: HandlerDeps): (job: AiJob) => Promise<void> 
     // Sezione SINCRONA (niente await tra get e set): due handler concorrenti
     // sullo stesso progetto vedono e allungano la stessa catena.
     const prev = chains.get(row.projectId) ?? Promise.resolve();
-    const run = prev.then(() => processJob(deps, job, row.projectName));
+    const run = prev.then(() => processJob(deps, job, row.projectName, job.ticketId));
     // La catena memorizzata non rigetta mai: un job fallito non blocca i
     // successivi dello stesso progetto.
     const tail = run.then(

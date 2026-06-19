@@ -1,4 +1,13 @@
-import { aiJobs, aiProviders, encrypt, gitAccounts, projects, tickets, type Db } from "@stubwise/db";
+import {
+  aiJobs,
+  aiProviders,
+  comments,
+  encrypt,
+  gitAccounts,
+  projects,
+  tickets,
+  type Db,
+} from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { execa } from "execa";
@@ -391,6 +400,190 @@ describe("createHandler", () => {
     // E il provider usato è registrato sul job.
     const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
     expect(jobAfter?.providerId).toBe(first.id);
+  });
+
+  it("failover: provider A al limite → si esegue con B, job completa, provider_id = B", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, upstream.url);
+    const ticketId = await createQueuedJob(db, projectId, "sum sbaglia il segno", 21);
+
+    const [provA] = await db
+      .insert(aiProviders)
+      .values({
+        position: 1,
+        kind: "api_key",
+        label: "A",
+        secretEncrypted: encrypt("sk-A", ENCRYPTION_KEY),
+      })
+      .returning();
+    const [provB] = await db
+      .insert(aiProviders)
+      .values({
+        position: 2,
+        kind: "account",
+        label: "B",
+        secretEncrypted: encrypt("oauth-B", ENCRYPTION_KEY),
+      })
+      .returning();
+    if (!provA || !provB) throw new Error("insert provider non ha restituito la riga");
+
+    const REPORT = "## Processo di indagine\nok\n## Causa radice\nok\n## Soluzione\nok\n## Motivazione\nok\n";
+    const runner = new FakeAgentRunner({
+      script: async (opts: AgentRunOptions) => {
+        // Con la credenziale A (sk-A): ogni run risponde con un limite → fa
+        // fallire l'INTERO tentativo (triage), poi failover su B.
+        if (opts.provider?.secret === "sk-A") {
+          return { output: "Claude usage limit reached. Try again later.", exitCode: 1 };
+        }
+        // Con la credenziale B: triage decide fix, poi il fix scrive il diff.
+        if (opts.model === "haiku") {
+          return { output: `{"decision":"fix","type":"bug","effort":3}`, exitCode: 0 };
+        }
+        await writeFile(join(opts.cwd, "app.js"), "exports.sum = (a, b) => a + b;\n");
+        await writeFile(join(opts.cwd, "STUBWISE_REPORT.md"), REPORT);
+        return { output: "fix applicato", exitCode: 0 };
+      },
+    });
+    const openPullRequest = vi.fn().mockResolvedValue({ url: "https://github.com/acme/repo/pull/21" });
+
+    const handler = createHandler({
+      db,
+      runner,
+      mirrors,
+      encryptionKey: ENCRYPTION_KEY,
+      getProviderFn: () => ({ openPullRequest }) as never,
+    });
+
+    const job = await claim(db);
+    await handler(job);
+
+    // Il primo tentativo (A) ha tentato il triage e ha visto il limite; poi B
+    // ha fatto triage + plan + execute. La prima call è con A, le altre con B.
+    expect(runner.calls[0]?.provider?.secret).toBe("sk-A");
+    expect(runner.calls.slice(1).every((c) => c.provider?.secret === "oauth-B")).toBe(true);
+
+    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter?.status).toBe("pr_opened");
+    // provider_id riflette la credenziale che ha effettivamente eseguito: B.
+    expect(jobAfter?.providerId).toBe(provB.id);
+    const [ticketAfter] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
+    expect(ticketAfter?.status).toBe("in_review");
+    expect(openPullRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("failover: catena [A,B] entrambe al limite → job HELD con commento, nessuna PR", async () => {
+    const { db } = testDb;
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, "https://github.com/acme/mai-clonato");
+    const ticketId = await createQueuedJob(db, projectId, "ticket al limite", 22);
+
+    await db.insert(aiProviders).values({
+      position: 1,
+      kind: "api_key",
+      label: "A",
+      secretEncrypted: encrypt("sk-A", ENCRYPTION_KEY),
+    });
+    await db.insert(aiProviders).values({
+      position: 2,
+      kind: "account",
+      label: "B",
+      secretEncrypted: encrypt("oauth-B", ENCRYPTION_KEY),
+    });
+
+    // Qualunque credenziale → limite.
+    const runner = new FakeAgentRunner({
+      output: '{"type":"error","error":{"type":"rate_limit_error"}}',
+      exitCode: 1,
+    });
+    const openPullRequest = vi.fn();
+    const handler = createHandler({
+      db,
+      runner,
+      mirrors,
+      encryptionKey: ENCRYPTION_KEY,
+      getProviderFn: () => ({ openPullRequest }) as never,
+    });
+
+    const job = await claim(db);
+    await handler(job);
+
+    // Due tentativi, uno per credenziale; nessuna PR aperta.
+    expect(runner.calls.map((c) => c.provider?.secret)).toEqual(["sk-A", "oauth-B"]);
+    expect(openPullRequest).not.toHaveBeenCalled();
+
+    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter?.status).toBe("held");
+    // Commento di sistema sul ticket che spiega il limite di tutti i provider.
+    const ticketComments = await db.select().from(comments).where(eq(comments.ticketId, ticketId));
+    expect(ticketComments.some((c) => /limit/i.test(c.body))).toBe(true);
+  });
+
+  it("failover: credenziale SINGOLA al limite → job HELD (niente failover possibile)", async () => {
+    const { db } = testDb;
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, "https://github.com/acme/mai-clonato");
+    await createQueuedJob(db, projectId, "ticket al limite", 23);
+
+    await db.insert(aiProviders).values({
+      position: 1,
+      kind: "api_key",
+      label: "solo",
+      secretEncrypted: encrypt("sk-solo", ENCRYPTION_KEY),
+    });
+
+    const runner = new FakeAgentRunner({ output: "usage limit reached", exitCode: 1 });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY });
+
+    const job = await claim(db);
+    await handler(job);
+
+    expect(runner.calls).toHaveLength(1);
+    expect(runner.calls[0]?.provider?.secret).toBe("sk-solo");
+    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter?.status).toBe("held");
+  });
+
+  it("errore NON-limite (output triage invalido): NESSUN failover, comportamento attuale", async () => {
+    const { db } = testDb;
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, "https://github.com/acme/mai-clonato");
+    await createQueuedJob(db, projectId, "ticket rotto", 24);
+
+    const [provA] = await db
+      .insert(aiProviders)
+      .values({
+        position: 1,
+        kind: "api_key",
+        label: "A",
+        secretEncrypted: encrypt("sk-A", ENCRYPTION_KEY),
+      })
+      .returning();
+    await db.insert(aiProviders).values({
+      position: 2,
+      kind: "account",
+      label: "B",
+      secretEncrypted: encrypt("oauth-B", ENCRYPTION_KEY),
+    });
+    if (!provA) throw new Error("insert provider non ha restituito la riga");
+
+    // Output NON-limite: il triage non riesce a parsare la decisione (output
+    // invalido) e dopo il retry il job fallisce. NON è un limite → niente
+    // failover su B: la seconda credenziale non viene mai usata.
+    const runner = new FakeAgentRunner({ output: "spazzatura non-json", exitCode: 0 });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY });
+
+    const job = await claim(db);
+    await handler(job);
+
+    // Solo la credenziale A è stata usata (triage + retry = 2 call, tutte A);
+    // nessuna call con B.
+    expect(runner.calls.every((c) => c.provider?.secret === "sk-A")).toBe(true);
+    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter?.status).toBe("failed");
+    // provider_id resta quello tentato (A): nessun failover.
+    expect(jobAfter?.providerId).toBe(provA.id);
   });
 
   it("catena vuota: nessun provider passato al runner (retro-compat)", async () => {

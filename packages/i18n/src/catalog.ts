@@ -34,6 +34,8 @@ export const en: Catalog = {
     "The agent did not generate a report ({filename} missing). Review the PR diff.",
   "comment.budgetHeld":
     "Cost budget exceeded ({scope}): spent ${spent} of ${limit}. The fix is on hold; start it manually to override.",
+  "comment.providersLimitHeld":
+    "All AI providers reached their rate/usage limit. The job will need to be retried after the limit resets.",
 
   // --- effort.* — etichette della scala di sforzo 1–5 (allineate alle label
   // della web UI, namespace `badges.effort`). Usate nei commenti AI del triage.
@@ -106,6 +108,8 @@ export const it: Catalog = {
     "Il report non è stato generato dall'agente ({filename} mancante). Esaminare il diff della PR.",
   "comment.budgetHeld":
     "Budget di costo superato ({scope}): spesi ${spent} sul limite di ${limit}. Il fix è in pausa; avvialo manualmente per forzare.",
+  "comment.providersLimitHeld":
+    "Tutti i provider AI hanno raggiunto il limite di rate/usage. Il job dovrà essere ritentato dopo il reset del limite.",
 
   // --- effort.* (etichette italiane della scala di sforzo, = EFFORT_LABELS) ---
   "effort.1": "Banale",

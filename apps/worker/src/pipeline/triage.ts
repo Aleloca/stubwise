@@ -17,6 +17,7 @@ import {
   type AiJob,
 } from "../queue.js";
 import type { ResolvedProvider } from "../providers/chain.js";
+import { isLimitError, ProviderLimitError } from "../providers/limit.js";
 import { getContentLanguage } from "../settings.js";
 import { notify, ticketUrl, type NotifyDeps } from "./notify.js";
 import { buildTriagePrompt, parseTriageDecision, type TriageDecision } from "./prompts.js";
@@ -61,7 +62,16 @@ export interface TriageDeps extends NotifyDeps {
   provider?: ResolvedProvider;
 }
 
-export type TriageOutcome = "fixing" | "held" | "skipped" | "closed_duplicate" | "failed";
+export type TriageOutcome =
+  | "fixing"
+  | "held"
+  | "skipped"
+  | "closed_duplicate"
+  | "failed"
+  /** Il provider AI ha risposto con un limite di rate/usage: il job NON è stato
+   * chiuso (niente failJob), il chiamante (handler.ts) farà failover sulla
+   * credenziale successiva o metterà il job in held se la catena è esaurita. */
+  | "limit";
 
 /** Quanti ticket recenti del progetto mostrare al modello per i duplicati. */
 const RECENT_TICKETS_LIMIT = 30;
@@ -178,10 +188,25 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
         timeoutMs,
         ...(deps.provider !== undefined ? { provider: deps.provider } : {}),
       });
+      // LIMITE di rate/usage (best-effort): il triage non ha effetti osservabili
+      // (nessun repo, nessuna PR), quindi un limite a qualunque tentativo è
+      // sicuro da gestire come failover. Si lancia ProviderLimitError, catturato
+      // sotto, che torna "limit" SENZA chiudere il job: handler.ts proverà la
+      // credenziale successiva o metterà il job in held.
+      if (isLimitError(result)) {
+        throw new ProviderLimitError(result.output);
+      }
       output = result.output;
       exitCode = result.exitCode;
       lastUsage = result.usage;
     } catch (err) {
+      if (err instanceof ProviderLimitError) {
+        // Best-effort i consumi del run-limite prima di propagare: l'agente può
+        // aver speso qualcosa prima di sbattere sul limite.
+        await recordAgentRun(db, { jobId: job.id, phase: "triage", usage: lastUsage });
+        await appendLog(db, job.id, "[triage] provider AI al limite di rate/usage: failover");
+        return "limit";
+      }
       if (err instanceof AgentTimeoutError) {
         const message = `triage interrotto per timeout dopo ${err.timeoutMs}ms`;
         await failJob(db, job.id, {
