@@ -1298,3 +1298,38 @@ export function getAiUsageCosts(params: AiUsageCostsParams = {}): Promise<AiUsag
   const qs = search.toString();
   return api.get(`/api/ai-usage/costs${qs ? `?${qs}` : ""}`);
 }
+
+// --- Usage residuo abbonamento (ultimo snapshot per credenziale account) ---
+
+/** Finestra di consumo normalizzata: percentuale usata e residua. */
+export interface UsageWindow {
+  percentUsed: number;
+  percentRemaining: number;
+}
+
+/**
+ * Ultimo snapshot di consumo di una credenziale `account` (solo admin).
+ * `rawText` è presente SOLO quando `parseOk=false`: è l'output grezzo di
+ * `/usage` da cui il parser deterministico non ha estratto nulla, mostrato nel
+ * banner di diagnosi. Con `parseOk=true` è assente/null.
+ */
+export interface AiUsageSnapshot {
+  providerId: string;
+  providerLabel: string;
+  capturedAt: string;
+  sessionRemaining: UsageWindow | null;
+  weeklyRemaining: UsageWindow | null;
+  sessionResetAt: string | null;
+  weeklyResetAt: string | null;
+  source: "deterministic" | "llm_fallback";
+  parseOk: boolean;
+  rawText?: string | null;
+}
+
+/**
+ * Ultimo snapshot di consumo per ciascuna credenziale `account` (solo admin).
+ * Un item per account; nessuno per le credenziali senza snapshot ancora.
+ */
+export function getAiUsageSnapshots(): Promise<AiUsageSnapshot[]> {
+  return api.get("/api/ai-usage/snapshots");
+}

@@ -2,6 +2,7 @@ import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import {
   getAutomationSettings,
   getAiUsageCosts,
+  getAiUsageSnapshots,
   getComments,
   getGitAccount,
   getGitAccounts,
@@ -290,6 +291,17 @@ export function aiUsageCostsQueryOptions(days: UsageRangeDays) {
     staleTime: 30_000,
   });
 }
+
+/**
+ * Usage residuo dell'abbonamento (solo admin): ultimo snapshot per credenziale
+ * `account`. Affiancato alla catena in Settings → AI providers. `staleTime`
+ * breve: il worker aggiorna gli snapshot a ogni poll, ma non serve real-time.
+ */
+export const aiUsageSnapshotsQueryOptions = queryOptions({
+  queryKey: ["ai-usage", "snapshots"],
+  queryFn: getAiUsageSnapshots,
+  staleTime: 30_000,
+});
 
 /**
  * Dettaglio di un progetto per slug. Chiave figlia di ["projects"]:

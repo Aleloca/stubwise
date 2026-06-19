@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AiProvider } from "../lib/api";
+import type { AiProvider, AiUsageSnapshot } from "../lib/api";
 import { AiProvidersSection } from "./ai-providers-section";
 
 /**
@@ -34,11 +34,17 @@ afterEach(() => {
 type Handler = (url: URL, init?: RequestInit) => Response;
 
 function mockApi(handlers: Record<string, Handler>) {
+  // Default: nessuno snapshot di consumo. I test che lo verificano lo
+  // sovrascrivono passando il proprio handler per /api/ai-usage/snapshots.
+  const withDefaults: Record<string, Handler> = {
+    "GET /api/ai-usage/snapshots": () => jsonResponse(200, []),
+    ...handlers,
+  };
   fetchMock.mockImplementation((input, init) => {
     const raw = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     const url = new URL(raw, "http://test.local");
     const method = init?.method ?? "GET";
-    const handler = handlers[`${method} ${url.pathname}`];
+    const handler = withDefaults[`${method} ${url.pathname}`];
     if (!handler) throw new Error(`fetch non mockata per ${method} ${raw}`);
     return Promise.resolve(handler(url, init));
   });
@@ -53,6 +59,21 @@ function makeProvider(overrides: Partial<AiProvider> = {}): AiProvider {
     enabled: true,
     secretSet: true,
     createdAt: "2026-06-01T10:00:00.000Z",
+    ...overrides,
+  };
+}
+
+function makeSnapshot(overrides: Partial<AiUsageSnapshot> = {}): AiUsageSnapshot {
+  return {
+    providerId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    providerLabel: "Account Max",
+    capturedAt: "2026-06-10T14:00:00.000Z",
+    sessionRemaining: { percentUsed: 62, percentRemaining: 38 },
+    weeklyRemaining: { percentUsed: 28, percentRemaining: 72 },
+    sessionResetAt: "2026-06-10T19:00:00.000Z",
+    weeklyResetAt: "2026-06-16T00:00:00.000Z",
+    source: "deterministic",
+    parseOk: true,
     ...overrides,
   };
 }
@@ -234,5 +255,98 @@ describe("AiProvidersSection — avviso ToS", () => {
 
     await screen.findByText("Account A");
     expect(screen.queryByText(/terms of service/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("AiProvidersSection — usage residuo abbonamento", () => {
+  const accountId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+
+  function accountOnly(snapshots: AiUsageSnapshot[]) {
+    return {
+      "GET /api/ai-providers": () =>
+        jsonResponse(200, [
+          makeProvider({ id: accountId, kind: "account", label: "Account Max", position: 0 }),
+        ]),
+      "GET /api/ai-usage/snapshots": () => jsonResponse(200, snapshots),
+    };
+  }
+
+  it("mostra residuo sessione e settimanale dell'ultimo snapshot dell'account", async () => {
+    mockApi(accountOnly([makeSnapshot({ providerId: accountId })]));
+    renderSection();
+
+    const row = (await screen.findByText("Account Max")).closest("li") as HTMLElement;
+    // 38% sessione, 72% settimanale (percentRemaining).
+    expect(within(row).getByText(/38%/)).toBeInTheDocument();
+    expect(within(row).getByText(/72%/)).toBeInTheDocument();
+  });
+
+  it("etichetta estimated (fallback) quando source=llm_fallback", async () => {
+    mockApi(
+      accountOnly([makeSnapshot({ providerId: accountId, source: "llm_fallback", parseOk: true })]),
+    );
+    renderSection();
+
+    const row = (await screen.findByText("Account Max")).closest("li") as HTMLElement;
+    expect(within(row).getByText(/estimated \(fallback\)/i)).toBeInTheDocument();
+  });
+
+  it("senza etichetta fallback quando source=deterministic", async () => {
+    mockApi(accountOnly([makeSnapshot({ providerId: accountId, source: "deterministic" })]));
+    renderSection();
+
+    const row = (await screen.findByText("Account Max")).closest("li") as HTMLElement;
+    expect(within(row).queryByText(/estimated \(fallback\)/i)).not.toBeInTheDocument();
+  });
+
+  it("mostra 'no data yet' quando manca lo snapshot per l'account", async () => {
+    mockApi(accountOnly([]));
+    renderSection();
+
+    const row = (await screen.findByText("Account Max")).closest("li") as HTMLElement;
+    expect(within(row).getByText(/no usage data yet/i)).toBeInTheDocument();
+  });
+
+  it("banner di diagnosi con rawText quando parseOk=false", async () => {
+    const rawText = "Unparseable /usage output\nwindows: ???";
+    mockApi(
+      accountOnly([
+        makeSnapshot({
+          providerId: accountId,
+          parseOk: false,
+          source: "llm_fallback",
+          rawText,
+        }),
+      ]),
+    );
+    renderSection();
+
+    const row = (await screen.findByText("Account Max")).closest("li") as HTMLElement;
+    // Avviso di parsing fallito + hint sul parser deterministico.
+    expect(within(row).getByText(/parsing of \/usage failed/i)).toBeInTheDocument();
+    expect(within(row).getByText(/usage-parser\.ts/)).toBeInTheDocument();
+    // Il testo grezzo è mostrato (blocco monospace).
+    expect(within(row).getByText(/windows: \?\?\?/)).toBeInTheDocument();
+  });
+
+  it("nessun banner di diagnosi quando parseOk=true", async () => {
+    mockApi(accountOnly([makeSnapshot({ providerId: accountId, parseOk: true })]));
+    renderSection();
+
+    const row = (await screen.findByText("Account Max")).closest("li") as HTMLElement;
+    expect(within(row).queryByText(/parsing of \/usage failed/i)).not.toBeInTheDocument();
+  });
+
+  it("le credenziali api_key non mostrano usage residuo", async () => {
+    mockApi({
+      "GET /api/ai-providers": () =>
+        jsonResponse(200, [makeProvider({ kind: "api_key", label: "Console primaria" })]),
+      "GET /api/ai-usage/snapshots": () => jsonResponse(200, []),
+    });
+    renderSection();
+
+    const row = (await screen.findByText("Console primaria")).closest("li") as HTMLElement;
+    expect(within(row).queryByText(/no usage data yet/i)).not.toBeInTheDocument();
+    expect(within(row).queryByText(/session/i)).not.toBeInTheDocument();
   });
 });

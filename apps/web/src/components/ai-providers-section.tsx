@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -8,8 +8,9 @@ import {
   updateAiProvider,
   type AiProvider,
   type AiProviderKind,
+  type AiUsageSnapshot,
 } from "../lib/api";
-import { aiProvidersQueryOptions } from "../lib/queries";
+import { aiProvidersQueryOptions, aiUsageSnapshotsQueryOptions } from "../lib/queries";
 import { FormError, SelectField, SubmitButton, TextField } from "./field";
 
 /**
@@ -37,6 +38,14 @@ export function AiProvidersSection() {
   const ordered = [...providers].sort((a, b) => a.position - b.position);
   const orderedIds = ordered.map((p) => p.id);
   const accountCount = ordered.filter((p) => p.kind === "account").length;
+
+  // Ultimo snapshot di consumo per credenziale `account`. Non-suspense: se la
+  // query non è ancora pronta le righe mostrano "no data yet"; quando arriva
+  // si popolano. Indicizzata per providerId per evitare lookup ripetuti.
+  const { data: snapshots } = useQuery(aiUsageSnapshotsQueryOptions);
+  const snapshotByProvider = new Map<string, AiUsageSnapshot>(
+    (snapshots ?? []).map((s) => [s.providerId, s]),
+  );
 
   return (
     <section className="rounded-sm border border-line bg-ink-900 lg:col-span-2">
@@ -85,6 +94,7 @@ export function AiProvidersSection() {
             <ProviderRow
               key={provider.id}
               provider={provider}
+              snapshot={snapshotByProvider.get(provider.id) ?? null}
               orderedIds={orderedIds}
               index={index}
               isFirst={index === 0}
@@ -187,12 +197,14 @@ function NewProviderForm({ onDone }: { onDone: () => void }) {
  */
 function ProviderRow({
   provider,
+  snapshot,
   orderedIds,
   index,
   isFirst,
   isLast,
 }: {
   provider: AiProvider;
+  snapshot: AiUsageSnapshot | null;
   orderedIds: string[];
   index: number;
   isFirst: boolean;
@@ -300,7 +312,107 @@ function ProviderRow({
           {error.message}
         </p>
       )}
+
+      {provider.kind === "account" && <UsagePanel snapshot={snapshot} />}
     </li>
+  );
+}
+
+/**
+ * Pannello del consumo residuo dell'abbonamento sotto una credenziale `account`:
+ * residuo della finestra di sessione (5h) e settimanale dell'ULTIMO snapshot,
+ * con reset se presente ed etichetta "estimated (fallback)" quando il dato è
+ * dedotto via LLM (source=llm_fallback). Se l'ultimo snapshot ha parseOk=false
+ * mostra anche il banner di diagnosi (rawText + hint sul parser). "no data yet"
+ * se non c'è ancora alcuno snapshot per la credenziale.
+ */
+function UsagePanel({ snapshot }: { snapshot: AiUsageSnapshot | null }) {
+  const { t, i18n } = useTranslation();
+  // Il testo grezzo parte mostrato (la diagnosi serve subito); il toggle lo
+  // collassa per non ingombrare quando l'admin l'ha già visto.
+  const [showRaw, setShowRaw] = useState(true);
+
+  if (!snapshot) {
+    return (
+      <p className="mt-2 font-mono text-[11px] text-fg-faint">
+        {t("settings:aiProviders.usage.noData")}
+      </p>
+    );
+  }
+
+  const fmt = (iso: string | null): string | null =>
+    iso ? new Date(iso).toLocaleString(i18n.language) : null;
+
+  const sessionReset = fmt(snapshot.sessionResetAt);
+  const weeklyReset = fmt(snapshot.weeklyResetAt);
+
+  return (
+    <div className="mt-2 flex flex-col gap-1.5 border-l-2 border-line pl-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-fg-muted">
+        <span className="tracking-[0.1em] text-fg-faint uppercase">
+          {t("settings:aiProviders.usage.title")}
+        </span>
+        {snapshot.sessionRemaining && (
+          <span>
+            {t("settings:aiProviders.usage.session", {
+              percent: snapshot.sessionRemaining.percentRemaining,
+            })}
+            {sessionReset && (
+              <span className="text-fg-faint">
+                {" "}
+                ({t("settings:aiProviders.usage.resets", { when: sessionReset })})
+              </span>
+            )}
+          </span>
+        )}
+        {snapshot.weeklyRemaining && (
+          <span>
+            {t("settings:aiProviders.usage.weekly", {
+              percent: snapshot.weeklyRemaining.percentRemaining,
+            })}
+            {weeklyReset && (
+              <span className="text-fg-faint">
+                {" "}
+                ({t("settings:aiProviders.usage.resets", { when: weeklyReset })})
+              </span>
+            )}
+          </span>
+        )}
+        {snapshot.source === "llm_fallback" && (
+          <span className="rounded-sm border border-line-strong px-1.5 py-0.5 text-fg-faint">
+            {t("settings:aiProviders.usage.estimated")}
+          </span>
+        )}
+      </div>
+
+      {!snapshot.parseOk && (
+        <div
+          role="alert"
+          className="mt-1 rounded-sm border border-signal/30 bg-signal/10 px-3 py-2 font-mono text-[11px] leading-relaxed text-signal"
+        >
+          <p className="font-semibold">{t("settings:aiProviders.usage.diagnoseTitle")}</p>
+          <p className="mt-1 text-signal/90">{t("settings:aiProviders.usage.diagnoseHint")}</p>
+          {snapshot.rawText && (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowRaw((v) => !v)}
+                className="mt-2 rounded-sm border border-signal/40 px-2 py-0.5 text-[11px] tracking-[0.08em] uppercase transition-colors hover:bg-signal/20"
+              >
+                {showRaw
+                  ? t("settings:aiProviders.usage.hideRaw")
+                  : t("settings:aiProviders.usage.showRaw")}
+              </button>
+              {showRaw && (
+                <pre className="mt-2 max-h-64 overflow-auto rounded-sm border border-line bg-ink-950/70 p-2 text-[11px] whitespace-pre-wrap text-fg-muted">
+                  {snapshot.rawText}
+                </pre>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

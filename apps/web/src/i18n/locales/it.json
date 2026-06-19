@@ -445,7 +445,20 @@
       "tosWarning": "Sono configurate due o più credenziali Account. Usare più abbonamenti Claude per superare i limiti d'uso è contro i Terms of Service di Anthropic e può portare alla sospensione dell'account. Per capacità aggiuntiva preferisci una API key.",
       "accountHint": "// Account: esegui `claude setup-token` su una macchina con browser e incolla qui il token.",
       "apiKeyHint": "// API key: una chiave dalla Console Anthropic (console.anthropic.com).",
-      "secretWriteOnlyHint": "// write-only: cifrata a riposo e non più mostrata. Per cambiare una secret, elimina il provider e ricrealo."
+      "secretWriteOnlyHint": "// write-only: cifrata a riposo e non più mostrata. Per cambiare una secret, elimina il provider e ricrealo.",
+      "usage": {
+        "title": "Consumo abbonamento",
+        "session": "Sessione: {{percent}}% residuo",
+        "weekly": "Settimanale: {{percent}}% residuo",
+        "resets": "reset {{when}}",
+        "estimated": "estimated (fallback)",
+        "capturedAt": "al {{when}}",
+        "noData": "// nessun dato di consumo ancora",
+        "diagnoseTitle": "Parsing deterministico di /usage fallito",
+        "diagnoseHint": "Aggiorna il parser deterministico in `apps/worker/src/agent/usage-parser.ts` — attese le finestre sessione/settimanale; ricevuto il testo qui sotto.",
+        "showRaw": "Mostra output grezzo",
+        "hideRaw": "Nascondi output grezzo"
+      }
     },
     "credentials": {
       "username": "Username",
