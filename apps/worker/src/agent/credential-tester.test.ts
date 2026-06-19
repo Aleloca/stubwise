@@ -90,8 +90,9 @@ describe("runCredentialTestsOnce", () => {
     const { db } = testDb;
     const id = await seedPending(db, { position: 0, kind: "api_key", label: "key" });
 
+    // L'output dell'agente contiene il segreto: il tester DEVE redigerlo.
     const runner = fakeRunner(async () => ({
-      output: "Invalid API key · Please run /login",
+      output: `Invalid API key (${SECRET}) · Please run /login`,
       exitCode: 1,
     }));
     await runCredentialTestsOnce({ db, encryptionKey: ENCRYPTION_KEY, runner });
@@ -99,7 +100,9 @@ describe("runCredentialTestsOnce", () => {
     const row = await rowOf(db, id);
     expect(row!.testStatus).toBe("failed");
     expect(row!.testError).toBeTruthy();
+    // Il segreto è stato rimpiazzato (prova non tautologica della sanitizzazione).
     expect(row!.testError).not.toContain(SECRET);
+    expect(row!.testError).toContain("***");
   });
 
   it("il runner lancia (spawn fallito) → failed, senza propagare", async () => {
