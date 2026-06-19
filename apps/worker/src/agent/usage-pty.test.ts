@@ -68,7 +68,7 @@ describe("captureUsageOutput", () => {
         origWrite(d);
         if (d.includes("/usage")) {
           setTimeout(() => {
-            fake.emit("[1m42% used[0m\r\nWeekly 31% used\r\n");
+            fake.emit("[1mCurrent session[0m\r\n  ████ 12% used\r\nResets 3:00am\r\nCurrent week (all models)\r\n  ██ 7% used\r\nResets Mon\r\n");
             fake.exit(0);
           }, 5);
         }
@@ -92,9 +92,10 @@ describe("captureUsageOutput", () => {
     expect(spawnedEnv["ANTHROPIC_API_KEY"]).toBeUndefined();
     // È stato inviato il comando /usage seguito da invio.
     expect(fake.pty.writes.join("")).toContain("/usage");
-    // L'output catturato è ripulito dagli ANSI.
-    expect(out).toContain("42% used");
-    expect(out).toContain("Weekly 31% used");
+    // L'output catturato è ripulito dagli ANSI e contiene ENTRAMBE le sezioni.
+    expect(out).toContain("12% used");
+    expect(out).toContain("Current week (all models)");
+    expect(out).toContain("7% used");
     expect(out).not.toContain("[");
   });
 
@@ -152,7 +153,7 @@ describe("captureUsageOutput", () => {
           setTimeout(() => fake.emit("\n> "), 1);
         } else if (d.includes("/usage")) {
           setTimeout(() => {
-            fake.emit("Current session 42% used\r\nWeekly 31% used\r\n");
+            fake.emit("Current session\r\n  ████ 42% used\r\nResets 3:00am\r\nCurrent week (all models)\r\n  ██ 31% used\r\nResets Mon\r\n");
             fake.exit(0);
           }, 1);
         }
@@ -181,7 +182,8 @@ describe("captureUsageOutput", () => {
     // L'output catturato contiene il pannello di /usage (il parser a valle ne
     // estrae i dati; il buffer PTY include anche il testo precedente, normale).
     expect(out).toContain("42% used");
-    expect(out).toContain("Weekly 31% used");
+    expect(out).toContain("Current week (all models)");
+    expect(out).toContain("31% used");
   });
 
   it("supera il trust dialog con un Invio, raggiunge il prompt pronto e invia /usage", async () => {
@@ -201,7 +203,7 @@ describe("captureUsageOutput", () => {
           setTimeout(() => fake.emit("\nWelcome back!\n? for shortcuts · ← for agents\n"), 1);
         } else if (d.includes("/usage")) {
           setTimeout(() => {
-            fake.emit("Current session 42% used\r\nWeekly 31% used\r\n");
+            fake.emit("Current session\r\n  ████ 42% used\r\nResets 3:00am\r\nCurrent week (all models)\r\n  ██ 31% used\r\nResets Mon\r\n");
             fake.exit(0);
           }, 1);
         }
@@ -226,7 +228,8 @@ describe("captureUsageOutput", () => {
     expect(usageIdx).toBeGreaterThanOrEqual(0);
     expect(enterIdx).toBeLessThan(usageIdx);
     expect(out).toContain("42% used");
-    expect(out).toContain("Weekly 31% used");
+    expect(out).toContain("Current week (all models)");
+    expect(out).toContain("31% used");
   });
 
   it("prompt pronto immediato: invia /usage senza Invio superflui", async () => {
@@ -241,7 +244,7 @@ describe("captureUsageOutput", () => {
         origWrite(d);
         if (d.includes("/usage")) {
           setTimeout(() => {
-            fake.emit("Current session 42% used\r\nWeekly 31% used\r\n");
+            fake.emit("Current session\r\n  ████ 42% used\r\nResets 3:00am\r\nCurrent week (all models)\r\n  ██ 31% used\r\nResets Mon\r\n");
             fake.exit(0);
           }, 1);
         }
@@ -268,7 +271,8 @@ describe("captureUsageOutput", () => {
     const enterBeforeUsage = fake.pty.writes.slice(0, usageIdx).indexOf("\r");
     expect(enterBeforeUsage).toBe(-1);
     expect(out).toContain("42% used");
-    expect(out).toContain("Weekly 31% used");
+    expect(out).toContain("Current week (all models)");
+    expect(out).toContain("31% used");
   });
 
   it("trust + tema in sequenza: due Invii prima di /usage, poi cattura il pannello", async () => {
@@ -295,7 +299,7 @@ describe("captureUsageOutput", () => {
           }
         } else if (d.includes("/usage")) {
           setTimeout(() => {
-            fake.emit("Current session 42% used\r\nWeekly 31% used\r\n");
+            fake.emit("Current session\r\n  ████ 42% used\r\nResets 3:00am\r\nCurrent week (all models)\r\n  ██ 31% used\r\nResets Mon\r\n");
             fake.exit(0);
           }, 1);
         }
@@ -321,7 +325,8 @@ describe("captureUsageOutput", () => {
     expect(usageIdx).toBeGreaterThanOrEqual(0);
     expect(entersBeforeUsage).toBeGreaterThanOrEqual(2);
     expect(out).toContain("42% used");
-    expect(out).toContain("Weekly 31% used");
+    expect(out).toContain("Current week (all models)");
+    expect(out).toContain("31% used");
   });
 
   it("nessun marcatore riconosciuto: dopo il cap invia /usage comunque (fallback) entro il limite", async () => {
@@ -337,7 +342,7 @@ describe("captureUsageOutput", () => {
         origWrite(d);
         if (d.includes("/usage")) {
           setTimeout(() => {
-            fake.emit("Current session 42% used\r\nWeekly 31% used\r\n");
+            fake.emit("Current session\r\n  ████ 42% used\r\nResets 3:00am\r\nCurrent week (all models)\r\n  ██ 31% used\r\nResets Mon\r\n");
             fake.exit(0);
           }, 1);
         }
@@ -362,7 +367,8 @@ describe("captureUsageOutput", () => {
     // timeout: budget di navigazione (~750ms) + render, non 5s.
     expect(fake.pty.writes.join("")).toContain("/usage");
     expect(out).toContain("42% used");
-    expect(out).toContain("Weekly 31% used");
+    expect(out).toContain("Current week (all models)");
+    expect(out).toContain("31% used");
     expect(elapsed).toBeLessThan(2000);
   });
 
@@ -414,7 +420,7 @@ describe("captureUsageOutput", () => {
         origWrite(d);
         if (d.includes("/usage") && interactive) {
           setTimeout(() => {
-            fake.emit("Current session\n12% used\r\nResets 3:00am\r\n");
+            fake.emit("Current session\n  ████ 12% used\r\nResets 3:00am\r\nCurrent week (all models)\n  ██ 7% used\r\nResets Mon\r\n");
             fake.exit(0);
           }, 1);
         }
@@ -438,6 +444,8 @@ describe("captureUsageOutput", () => {
     // atteso che la TUI fosse interattiva) e il finish è scattato sul marker.
     expect(out).toContain("Current session");
     expect(out).toContain("12% used");
+    expect(out).toContain("Current week (all models)");
+    expect(out).toContain("7% used");
     expect(out).toContain("Resets");
     expect(fake.pty.writes.join("")).toContain("/usage");
   });
@@ -455,7 +463,7 @@ describe("captureUsageOutput", () => {
           // Il pannello compare quasi subito, ma NON facciamo exit: il finish
           // deve scattare sul MARKER, non sull'uscita del processo.
           setTimeout(() => {
-            fake.emit("Current session\n12% used\r\nResets 3:00am\r\n");
+            fake.emit("Current session\n  ████ 12% used\r\nResets 3:00am\r\nCurrent week (all models)\n  ██ 7% used\r\nResets Mon\r\n");
           }, 1);
         }
       };
@@ -477,6 +485,8 @@ describe("captureUsageOutput", () => {
 
     expect(out).toContain("Current session");
     expect(out).toContain("12% used");
+    expect(out).toContain("Current week (all models)");
+    expect(out).toContain("7% used");
     // Finito sul marker, MOLTO prima del tetto (4s) e del timeout (8s).
     expect(elapsed).toBeLessThan(1500);
   });
@@ -495,7 +505,7 @@ describe("captureUsageOutput", () => {
           usageCount += 1;
           if (usageCount >= 2) {
             setTimeout(() => {
-              fake.emit("Current session\n12% used\r\nResets 3:00am\r\n");
+              fake.emit("Current session\n  ████ 12% used\r\nResets 3:00am\r\nCurrent week (all models)\n  ██ 7% used\r\nResets Mon\r\n");
               fake.exit(0);
             }, 1);
           }
@@ -520,6 +530,57 @@ describe("captureUsageOutput", () => {
     expect(usageWrites).toBeGreaterThanOrEqual(2);
     expect(out).toContain("Current session");
     expect(out).toContain("12% used");
+    expect(out).toContain("Current week (all models)");
+    expect(out).toContain("7% used");
+  });
+
+  it("anti-early-exit: NON finisce su render PARZIALE (solo session); finisce solo col pannello COMPLETO", async () => {
+    const fake = makeFakePty();
+    let emittedWeekly = false;
+    const spawner: PtySpawner = () => {
+      queueMicrotask(() => {
+        fake.emit("Welcome back!\n? for shortcuts · ← for agents\n");
+      });
+      const origWrite = fake.pty.write.bind(fake.pty);
+      fake.pty.write = (d: string): void => {
+        origWrite(d);
+        if (d.includes("/usage")) {
+          // 1) Render PARZIALE: solo "Current session ... 12% used", la
+          //    settimanale NON è ancora comparsa. Il marker NON deve matchare:
+          //    il poll deve continuare (nessun finish prematuro).
+          setTimeout(() => {
+            fake.emit("Current session\n  ████ 12% used\r\nResets 3:00am\r\n");
+          }, 1);
+          // 2) Solo PIÙ TARDI compare la sezione settimanale "all models": ora
+          //    il pannello è completo e il marker deve scattare.
+          setTimeout(() => {
+            emittedWeekly = true;
+            fake.emit("Current week (all models)\n  ██ 7% used\r\nResets Mon\r\n");
+          }, 60);
+        }
+      };
+      return fake.pty;
+    };
+
+    const out = await captureUsageOutput(account, {
+      spawner,
+      readyDelayMs: 5,
+      settleDelayMs: 5,
+      submitDelayMs: 5,
+      pollMs: 5,
+      renderDelayMs: 4000,
+      timeoutMs: 8000,
+      preConfig: false,
+    });
+
+    // Il finish è scattato SOLO dopo la sezione settimanale (pannello completo):
+    // se avesse fatto early-exit sul parziale, questa flag sarebbe ancora false
+    // e l'output non conterrebbe la settimanale.
+    expect(emittedWeekly).toBe(true);
+    expect(out).toContain("Current session");
+    expect(out).toContain("12% used");
+    expect(out).toContain("Current week (all models)");
+    expect(out).toContain("7% used");
   });
 
   it("invio diviso: scrive '/usage' e, separatamente, '\\r' (il submit non è incollato al comando)", async () => {
@@ -536,7 +597,7 @@ describe("captureUsageOutput", () => {
           // (submitDelayMs=5): evita la race in cui l'exit cancella il timer
           // del "\r" prima che venga inviato.
           setTimeout(() => {
-            fake.emit("Current session\n12% used\r\nResets 3:00am\r\n");
+            fake.emit("Current session\n  ████ 12% used\r\nResets 3:00am\r\nCurrent week (all models)\n  ██ 7% used\r\nResets Mon\r\n");
             fake.exit(0);
           }, 40);
         }

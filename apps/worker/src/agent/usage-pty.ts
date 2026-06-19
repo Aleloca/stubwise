@@ -116,12 +116,18 @@ const DEFAULT_POLL_MS = 300;
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 /**
- * Marcatore dell'OUTPUT del comando /usage: appare nel pannello dell'uso
- * ("Current session" / "Current week", "12% used", "Resets …"). È il segnale che
- * la cattura è RIUSCITA: appena matcha nel buffer (ANSI strippato) finiamo subito
+ * Marcatore di pannello /usage COMPLETO: la sezione settimanale "all models" è
+ * l'ULTIMA a renderizzare, quindi una "% used" dopo di essa garantisce che
+ * anche "Current session" sia già presente. Allineato a parseUsageDeterministic
+ * (che pretende entrambe le sezioni): evita l'early-exit su render parziale e i
+ * falsi positivi da banner ("resets"/"% used" sciolti). Quando matcha nel buffer
+ * (ANSI strippato) il pannello è completo e coerente col parser: finiamo subito
  * (early-exit), senza attendere il tetto renderDelayMs.
  */
-const USAGE_OUTPUT_RE = /current (session|week)|% used|resets/i;
+const USAGE_OUTPUT_RE = /current week\s*\(all models\)[\s\S]*?\d{1,3}\s*%\s*used/i;
+
+/** Comando della TUI che apre il pannello dell'uso. */
+const USAGE_CMD = "/usage";
 
 /**
  * Marcatori (case-insensitive) che indicano la presenza di un passaggio del
@@ -379,7 +385,7 @@ export async function captureUsageOutput(
      */
     const writeUsageCommand = (): void => {
       try {
-        proc?.write("/usage");
+        proc?.write(USAGE_CMD);
       } catch {
         // ignora: se la write fallisce, ci penserà il polling/timeout.
       }
@@ -421,14 +427,18 @@ export async function captureUsageOutput(
 
           const poll = (): void => {
             if (settled) return;
+            // Il marker è testato PRIMA del retry: se il pannello completo è già
+            // nel buffer non si reinvia /usage (early-exit, niente doppio invio).
             if (USAGE_OUTPUT_RE.test(stripAnsi(buffer))) {
-              // Pannello comparso: cattura riuscita, esci subito.
+              // Pannello completo comparso: cattura riuscita, esci subito.
               finish();
               return;
             }
             const now = Date.now();
             if (!retried && now >= retryAt) {
-              // Un solo retry: il primo invio potrebbe essere caduto.
+              // Un solo retry: il primo invio potrebbe essere caduto. Con tetti
+              // piccoli (test) retry e deadline possono coincidere nello stesso
+              // giro: innocuo (write best-effort).
               retried = true;
               writeUsageCommand();
             }
