@@ -1,4 +1,4 @@
-import { aiJobs, encrypt, gitAccounts, projects, tickets, type Db } from "@stubwise/db";
+import { aiJobs, aiProviders, encrypt, gitAccounts, projects, tickets, type Db } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { execa } from "execa";
@@ -33,6 +33,7 @@ beforeAll(async () => {
 afterEach(async () => {
   await testDb.db.delete(projects);
   await testDb.db.delete(gitAccounts);
+  await testDb.db.delete(aiProviders);
 });
 
 afterAll(async () => {
@@ -349,5 +350,65 @@ describe("createHandler", () => {
     ];
     // Sovrapposizione: il secondo è partito PRIMA che il primo finisse.
     expect(second.start).toBeLessThan(first.end);
+  });
+
+  it("seleziona la PRIMA credenziale della catena, la passa al runner e registra provider_id", async () => {
+    const { db } = testDb;
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, "https://github.com/acme/mai-clonato");
+    await createQueuedJob(db, projectId, "ticket vago", 11);
+
+    // Due provider abilitati: il primo (position 1) è quello atteso.
+    const [first] = await db
+      .insert(aiProviders)
+      .values({
+        position: 1,
+        kind: "api_key",
+        label: "prima",
+        secretEncrypted: encrypt("sk-ant-1", ENCRYPTION_KEY),
+      })
+      .returning();
+    await db.insert(aiProviders).values({
+      position: 2,
+      kind: "account",
+      label: "seconda",
+      secretEncrypted: encrypt("oauth-2", ENCRYPTION_KEY),
+    });
+    if (!first) throw new Error("insert provider non ha restituito la riga");
+
+    // Triage decide skip → un solo run, basta per verificare il passaggio della
+    // credenziale e la registrazione del provider_id.
+    const runner = new FakeAgentRunner({
+      output: `{"decision":"skip","type":"bug","effort":1,"reason":"troppo vago"}`,
+    });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY });
+
+    const job = await claim(db);
+    await handler(job);
+
+    // La credenziale della PRIMA voce è arrivata al runner.
+    expect(runner.calls[0]?.provider).toEqual({ id: first.id, kind: "api_key", secret: "sk-ant-1" });
+    // E il provider usato è registrato sul job.
+    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter?.providerId).toBe(first.id);
+  });
+
+  it("catena vuota: nessun provider passato al runner (retro-compat)", async () => {
+    const { db } = testDb;
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, "https://github.com/acme/mai-clonato");
+    await createQueuedJob(db, projectId, "ticket vago", 12);
+
+    const runner = new FakeAgentRunner({
+      output: `{"decision":"skip","type":"bug","effort":1,"reason":"troppo vago"}`,
+    });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY });
+
+    const job = await claim(db);
+    await handler(job);
+
+    expect(runner.calls[0]?.provider).toBeUndefined();
+    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter?.providerId).toBeNull();
   });
 });

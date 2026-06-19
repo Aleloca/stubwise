@@ -8,7 +8,8 @@ import type { MirrorManager } from "./git/mirrors.js";
 import { runFix, type FixDeps } from "./pipeline/fix.js";
 import type { DispatchFn } from "./pipeline/notify.js";
 import { runTriage } from "./pipeline/triage.js";
-import { appendLog, failJob, markFixing, type AiJob } from "./queue.js";
+import { loadProviderChain, type ResolvedProvider } from "./providers/chain.js";
+import { appendLog, failJob, markFixing, setJobProvider, type AiJob } from "./queue.js";
 
 /**
  * Wiring della pipeline per runWorker: handler(job) = triage → (se "fixing")
@@ -32,6 +33,10 @@ export interface HandlerDeps {
   encryptionKey: Buffer;
   /** Iniettabile nei test (provider finto, niente HTTP). */
   getProviderFn?: FixDeps["getProviderFn"];
+  /** Caricatore della catena di provider AI (iniettabile nei test). Default:
+   * loadProviderChain da ./providers/chain.js. Restituisce le credenziali
+   * abilitate ordinate per position, già decifrate. */
+  loadProviderChainFn?: (db: Db, encryptionKey: Buffer) => Promise<ResolvedProvider[]>;
   /** URL pubblico dell'istanza (PUBLIC_URL), per i link nelle notifiche. Vuoto
    * = il link al ticket è il solo path. */
   publicUrl?: string;
@@ -58,18 +63,32 @@ export interface HandlerDeps {
 
 async function processJob(deps: HandlerDeps, job: AiJob, projectName: string): Promise<void> {
   // Contesto delle notifiche comune a triage e fix (best-effort): URL pubblico
-  // per i link, nome progetto per il messaggio, dispatch iniettabile nei test.
+  // per il link, nome progetto per il messaggio, dispatch iniettabile nei test.
   const notifyOpts = {
     ...(deps.publicUrl !== undefined ? { publicUrl: deps.publicUrl } : {}),
     projectName,
     ...(deps.dispatch !== undefined ? { dispatch: deps.dispatch } : {}),
   };
+
+  // Selezione della credenziale: si carica la catena dei provider AI abilitati
+  // (ordinati per position) e si usa la PRIMA. Il vero failover (provare le
+  // successive al limite) è Task 4: qui basta cablare la prima fino a
+  // buildAgentEnv. Catena vuota → nessun provider, retro-compat (auth dall'env
+  // del container o dall'OAuth del volume). La credenziale usata viene
+  // registrata su ai_jobs.provider_id (best-effort). I segreti non si loggano.
+  const loadChain = deps.loadProviderChainFn ?? loadProviderChain;
+  const chain = await loadChain(deps.db, deps.encryptionKey);
+  const provider = chain[0];
+  if (provider) await setJobProvider(deps.db, job.id, provider.id);
+  const providerOpt = provider !== undefined ? { provider } : {};
+
   const fixDeps: FixDeps = {
     db: deps.db,
     runner: deps.runner,
     mirrors: deps.mirrors,
     encryptionKey: deps.encryptionKey,
     ...(deps.getProviderFn ? { getProviderFn: deps.getProviderFn } : {}),
+    ...providerOpt,
     ...notifyOpts,
     ...deps.fix,
   };
@@ -96,7 +115,7 @@ async function processJob(deps: HandlerDeps, job: AiJob, projectName: string): P
   const workDir = await mkdtemp(join(tmpdir(), "stubwise-triage-"));
   try {
     const outcome = await runTriage(
-      { db: deps.db, runner: deps.runner, workDir, ...notifyOpts, ...deps.triage },
+      { db: deps.db, runner: deps.runner, workDir, ...providerOpt, ...notifyOpts, ...deps.triage },
       job,
     );
     if (outcome !== "fixing") return;

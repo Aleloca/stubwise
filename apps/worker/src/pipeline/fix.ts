@@ -25,6 +25,7 @@ import {
   type AgentRunUsage,
 } from "../agent/runner.js";
 import { MirrorManager, type MirrorProject } from "../git/mirrors.js";
+import type { ResolvedProvider } from "../providers/chain.js";
 import {
   appendLog,
   completeJob,
@@ -187,6 +188,10 @@ export interface FixDeps extends NotifyDeps {
   /** Costo USD del mese corrente d'istanza (iniettabile nei test; default
    * monthlyCostUsd da @stubwise/db). Usato dal controllo di budget mensile. */
   monthlyCostUsdFn?: (db: Db) => Promise<number>;
+  /** Credenziale del provider AI selezionata per il job (catena, prima voce):
+   * passata a ogni runner.run (plan/execute/repair) per l'iniezione dell'auth.
+   * Assente = auth storica (env del container / OAuth del volume). */
+  provider?: ResolvedProvider;
 }
 
 export type FixOutcome = "pr_opened" | "failed" | "awaiting_approval" | "held";
@@ -345,6 +350,9 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   const runTestCommand = deps.runTestCommand ?? defaultRunTestCommand;
   const ticketCostUsdFn = deps.ticketCostUsdFn ?? ticketCostUsd;
   const monthlyCostUsdFn = deps.monthlyCostUsdFn ?? monthlyCostUsd;
+  // Credenziale del provider per QUESTO job: spread in ogni runner.run così
+  // l'auth è iniettata per kind (vedi buildAgentEnv). Assente = auth storica.
+  const providerOpt = deps.provider !== undefined ? { provider: deps.provider } : {};
 
   // Lingua dei contenuti generati (report nel prompt + commenti AI sul ticket),
   // risolta UNA VOLTA per job: tutti i prompt e i `t(lang, ...)` di seguito la
@@ -580,6 +588,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
               permissionMode: "plan",
               maxTurns: DEFAULT_PLAN_MAX_TURNS,
               timeoutMs: planTimeoutMs,
+              ...providerOpt,
             });
             fixUsages.push(planResult.usage);
             // Un exit non-zero della pianificazione è un fallimento del fix
@@ -613,6 +622,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
               permissionMode: "plan",
               maxTurns: DEFAULT_PLAN_MAX_TURNS,
               timeoutMs: planTimeoutMs,
+              ...providerOpt,
             });
             fixUsages.push(planResult.usage);
             // Un exit non-zero della pianificazione è trattato come gli altri
@@ -650,6 +660,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
             maxTurns,
             timeoutMs,
             allowedTools,
+            ...providerOpt,
           });
           output = result.output;
           exitCode = result.exitCode;
@@ -741,6 +752,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
                 maxTurns,
                 timeoutMs,
                 allowedTools,
+                ...providerOpt,
               });
               fixUsages.push(repair.usage);
               if (repair.exitCode !== 0) throw new AgentExitError(repair.exitCode, repair.output);

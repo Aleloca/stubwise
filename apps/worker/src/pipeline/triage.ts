@@ -16,6 +16,7 @@ import {
   recordAgentRun,
   type AiJob,
 } from "../queue.js";
+import type { ResolvedProvider } from "../providers/chain.js";
 import { getContentLanguage } from "../settings.js";
 import { notify, ticketUrl, type NotifyDeps } from "./notify.js";
 import { buildTriagePrompt, parseTriageDecision, type TriageDecision } from "./prompts.js";
@@ -54,6 +55,10 @@ export interface TriageDeps extends NotifyDeps {
   timeoutMs?: number;
   /** Directory innocua (vuota) usata come cwd dell'agente. */
   workDir: string;
+  /** Credenziale del provider AI selezionata per il job (catena, prima voce):
+   * passata a ogni runner.run per l'iniezione dell'auth. Assente = auth storica
+   * (env del container / OAuth del volume). */
+  provider?: ResolvedProvider;
 }
 
 export type TriageOutcome = "fixing" | "held" | "skipped" | "closed_duplicate" | "failed";
@@ -165,7 +170,14 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
     let output: string;
     let exitCode: number;
     try {
-      const result = await runner.run({ cwd: workDir, prompt, model, maxTurns, timeoutMs });
+      const result = await runner.run({
+        cwd: workDir,
+        prompt,
+        model,
+        maxTurns,
+        timeoutMs,
+        ...(deps.provider !== undefined ? { provider: deps.provider } : {}),
+      });
       output = result.output;
       exitCode = result.exitCode;
       lastUsage = result.usage;
