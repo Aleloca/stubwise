@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { to: "/tickets", labelKey: "common:nav.tickets", code: "TKT" },
   { to: "/board", labelKey: "common:nav.board", code: "BRD" },
   { to: "/projects", labelKey: "common:nav.projects", code: "PRJ" },
+  { to: "/docs", labelKey: "common:nav.docs", code: "DOC" },
   { to: "/team", labelKey: "common:nav.team", code: "TEA" },
   { to: "/settings", labelKey: "common:nav.settings", code: "SET" },
 ] as const;
@@ -77,16 +78,6 @@ export function AppLayout() {
             </Link>
           ))}
         </nav>
-
-        {/* La documentazione è il sito Starlight servito da Caddy su /docs:
-            link reale (anchor), non una route SPA. */}
-        <a
-          href="/docs/"
-          className="group mx-3 mb-3 flex items-baseline gap-3 rounded-sm px-3 py-2 text-sm text-fg-muted transition-colors hover:bg-ink-800 hover:text-fg"
-        >
-          <span className="font-mono text-[10px] tracking-[0.18em] text-fg-faint">DOC</span>
-          {t("common:nav.docs")}
-        </a>
 
         <div className="border-t border-line p-3">
           <div className="flex items-center gap-2 px-3 pb-2" title={data.user.email}>

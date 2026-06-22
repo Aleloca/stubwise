@@ -27,6 +27,7 @@ import {
   listTickets,
   type TicketFilters,
 } from "./api";
+import { getDocPage, getDocSpaces, getDocStatus, getDocTree } from "./docs-api";
 
 /**
  * Query del dominio ticket/progetti, condivise tra loader delle route e
@@ -365,5 +366,69 @@ export function projectWebhookQueryOptions(slug: string) {
     queryKey: ["projects", "detail", slug, "webhook"],
     queryFn: () => getProjectWebhook(slug),
     staleTime: 60_000,
+  });
+}
+
+/**
+ * Key factory del dominio Docs: unica fonte delle chiavi, sia per le
+ * queryOptions qui sotto sia per invalidazioni mirate altrove. Gerarchiche:
+ * `spaces()` matcha l'hub, `space(projectId)` ogni dato di uno spazio, e
+ * `tree`/`page`/`status` ne sono figlie così una rigenerazione invalida tutto
+ * lo spazio in un colpo solo.
+ */
+export const docsKeys = {
+  all: ["docs"] as const,
+  spaces: () => [...docsKeys.all, "spaces"] as const,
+  space: (projectId: string) => [...docsKeys.all, "space", projectId] as const,
+  tree: (projectId: string) => [...docsKeys.space(projectId), "tree"] as const,
+  page: (projectId: string, slug: string) => [...docsKeys.space(projectId), "page", slug] as const,
+  status: (projectId: string) => [...docsKeys.space(projectId), "status"] as const,
+};
+
+/**
+ * Hub degli spazi di documentazione: i progetti con doc (conteggio pagine,
+ * data/commit dell'ultima generazione). Chiave radice del dominio docs: una
+ * generazione o una pagina manuale la invalida così l'hub resta riconciliato.
+ */
+export const docSpacesQueryOptions = queryOptions({
+  queryKey: docsKeys.spaces(),
+  queryFn: getDocSpaces,
+  staleTime: 30_000,
+});
+
+/**
+ * Albero delle pagine di uno spazio (generazione corrente + manuali). Chiave
+ * figlia dello spazio: ogni CRUD manuale o rigenerazione la invalida.
+ */
+export function docTreeQueryOptions(projectId: string) {
+  return queryOptions({
+    queryKey: docsKeys.tree(projectId),
+    queryFn: () => getDocTree(projectId),
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * Pagina singola di uno spazio per slug. Chiave figlia dello spazio: una patch
+ * della pagina (o una rigenerazione) la invalida.
+ */
+export function docPageQueryOptions(projectId: string, slug: string) {
+  return queryOptions({
+    queryKey: docsKeys.page(projectId, slug),
+    queryFn: () => getDocPage(projectId, slug),
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * Stato Docs di un progetto (generazione corrente + ultimo job): alimenta il
+ * pannello trigger/stato. `staleTime` breve: il worker aggiorna lo stato in
+ * modo asincrono mentre la generazione avanza.
+ */
+export function docStatusQueryOptions(projectId: string) {
+  return queryOptions({
+    queryKey: docsKeys.status(projectId),
+    queryFn: () => getDocStatus(projectId),
+    staleTime: 10_000,
   });
 }

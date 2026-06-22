@@ -839,5 +839,19 @@
     "value": "Value",
     "valuePlaceholder": "New value (write-only)",
     "saving": "Saving…"
+  },
+  "docs": {
+    "hub": {
+      "title": "Documentation",
+      "subtitle": "Generated technical and functional docs for each linked project.",
+      "empty": "// no documentation spaces",
+      "emptyHint": "Generate documentation from a project space to populate the hub.",
+      "openSpace": "Open space",
+      "pageCount_one": "{{count}} page",
+      "pageCount_other": "{{count}} pages",
+      "lastGenerated": "generated {{date}}",
+      "atCommit": "at {{commit}}",
+      "neverGenerated": "manual pages only"
+    }
   }
 }

@@ -17,6 +17,7 @@ import {
   automationSettingsQueryOptions,
   boardTicketsQueryOptions,
   commentsQueryOptions,
+  docSpacesQueryOptions,
   gitAccountsQueryOptions,
   instanceSettingsQueryOptions,
   invitesQueryOptions,
@@ -33,6 +34,8 @@ import {
   usersQueryOptions,
 } from "./lib/queries";
 import { boardSearchSchema, BoardPage } from "./routes/board";
+import { DocsSpacePage } from "./routes/docs/$projectId";
+import { DocsPage } from "./routes/docs/index";
 import { LoginPage } from "./routes/login";
 import { ProjectDetailPage } from "./routes/projects/$slug";
 import { ProjectsPage } from "./routes/projects/index";
@@ -207,6 +210,28 @@ const projectDetailRoute = createRoute({
   component: ProjectDetailPage,
 });
 
+/**
+ * Hub della documentazione (sezione di primo livello): elenco degli spazi
+ * (un progetto = uno spazio). Prefetch dell'hub prima del render, così la
+ * useSuspenseQuery del componente non attende.
+ */
+const docsRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/docs",
+  loader: ({ context }) => context.queryClient.ensureQueryData(docSpacesQueryOptions),
+  component: DocsPage,
+});
+
+/**
+ * Spazio di un progetto (placeholder M7.1): l'albero/pagina/ricerca/chat
+ * arrivano in M7.2–M7.5. La rotta esiste già così il link dell'hub è type-safe.
+ */
+const docsSpaceRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/docs/$projectId",
+  component: DocsSpacePage,
+});
+
 const teamRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/team",
@@ -334,6 +359,8 @@ const routeTree = rootRoute.addChildren([
     projectsRoute,
     projectNewRoute,
     projectDetailRoute,
+    docsRoute,
+    docsSpaceRoute,
     teamRoute,
     settingsRoute.addChildren([
       settingsIndexRoute,
