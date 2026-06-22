@@ -93,7 +93,8 @@ ALTER TABLE "doc_pages" ADD CONSTRAINT "doc_pages_created_by_users_id_fk" FOREIG
 CREATE INDEX "doc_chat_messages_session_idx" ON "doc_chat_messages" USING btree ("session_id");--> statement-breakpoint
 CREATE INDEX "doc_chat_sessions_project_idx" ON "doc_chat_sessions" USING btree ("project_id");--> statement-breakpoint
 CREATE INDEX "doc_chunks_project_idx" ON "doc_chunks" USING btree ("project_id");--> statement-breakpoint
-CREATE INDEX "doc_generation_jobs_status_idx" ON "doc_generation_jobs" USING btree ("status");--> statement-breakpoint
+CREATE INDEX "doc_chunks_project_generation_idx" ON "doc_chunks" USING btree ("project_id","generation_id");--> statement-breakpoint
+CREATE INDEX "doc_generation_jobs_queued_created_at_idx" ON "doc_generation_jobs" USING btree ("created_at") WHERE status = 'queued';--> statement-breakpoint
 CREATE INDEX "doc_generation_jobs_project_idx" ON "doc_generation_jobs" USING btree ("project_id");--> statement-breakpoint
 CREATE INDEX "doc_generations_project_idx" ON "doc_generations" USING btree ("project_id");--> statement-breakpoint
 CREATE INDEX "doc_pages_project_idx" ON "doc_pages" USING btree ("project_id");--> statement-breakpoint

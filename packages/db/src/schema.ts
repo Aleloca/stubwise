@@ -53,7 +53,10 @@ const vector = (dimensions: number) =>
       return `[${value.join(",")}]`;
     },
     fromDriver(value: string): number[] {
-      return value.slice(1, -1).split(",").map(Number);
+      // pgvector restituisce "[n,n,...]"; il vettore vuoto è "[]". Senza guard
+      // "".split(",") darebbe [""] → [NaN]: si gestisce esplicitamente il caso.
+      const inner = value.slice(1, -1);
+      return inner === "" ? [] : inner.split(",").map(Number);
     },
   })("embedding");
 
@@ -952,8 +955,14 @@ export const docChunks = pgTable(
     metadata: jsonb("metadata"),
     tokenCount: integer("token_count"),
   },
-  // I chunk si filtrano sempre per progetto nel retrieval (single-project v1).
-  (table) => [index("doc_chunks_project_idx").on(table.projectId)],
+  (table) => [
+    // I chunk si filtrano sempre per progetto nel retrieval (single-project v1).
+    index("doc_chunks_project_idx").on(table.projectId),
+    // Il retrieval filtra per (progetto, generazione corrente) prima
+    // dell'ordinamento <=>: l'HNSW non può portare questa uguaglianza, serve
+    // un btree dedicato.
+    index("doc_chunks_project_generation_idx").on(table.projectId, table.generationId),
+  ],
 );
 
 /**
@@ -984,8 +993,12 @@ export const docGenerationJobs = pgTable(
     lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    // Claim del worker per stato.
-    index("doc_generation_jobs_status_idx").on(table.status),
+    // Claim del worker: il job in coda più vecchio (FOR UPDATE SKIP LOCKED,
+    // ordinato per created_at). Indice parziale come ai_jobs: resta minuscolo
+    // perché copre solo i job ancora in stato "queued".
+    index("doc_generation_jobs_queued_created_at_idx")
+      .on(table.createdAt)
+      .where(sql`status = 'queued'`),
     // Lookup dei job di un progetto (storico, serializzazione per-progetto).
     index("doc_generation_jobs_project_idx").on(table.projectId),
   ],

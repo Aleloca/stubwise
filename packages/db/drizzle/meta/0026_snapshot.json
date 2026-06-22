@@ -1,5 +1,5 @@
 {
-  "id": "0989fafe-0386-4d80-9ffc-74c08d1a2901",
+  "id": "27cac125-e168-4140-b09b-435914d81bac",
   "prevId": "32213037-17c4-4f9f-bf5f-34b85f59589f",
   "version": "7",
   "dialect": "postgresql",
@@ -1009,6 +1009,27 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "doc_chunks_project_generation_idx": {
+          "name": "doc_chunks_project_generation_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "generation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -1138,17 +1159,18 @@
         }
       },
       "indexes": {
-        "doc_generation_jobs_status_idx": {
-          "name": "doc_generation_jobs_status_idx",
+        "doc_generation_jobs_queued_created_at_idx": {
+          "name": "doc_generation_jobs_queued_created_at_idx",
           "columns": [
             {
-              "expression": "status",
+              "expression": "created_at",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             }
           ],
           "isUnique": false,
+          "where": "status = 'queued'",
           "concurrently": false,
           "method": "btree",
           "with": {}

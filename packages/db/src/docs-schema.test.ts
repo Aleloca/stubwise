@@ -86,13 +86,17 @@ describe("schema: dominio Docs", () => {
 
     // Vettore unitario sul primo asse: distanza coseno minima da sé stesso.
     const emb = Array.from({ length: 1024 }, (_, i) => (i === 0 ? 1 : 0));
-    await db.insert(docChunks).values({
-      pageId: page.id,
-      projectId,
-      generationId: gen.id,
-      content: "ciao",
-      embedding: emb,
-    });
+    const [chunk] = await db
+      .insert(docChunks)
+      .values({
+        pageId: page.id,
+        projectId,
+        generationId: gen.id,
+        content: "ciao",
+        embedding: emb,
+      })
+      .returning();
+    if (!chunk) throw new Error("insert del chunk non ha restituito la riga");
 
     const rows = await db.execute<{ content: string }>(sql`
       SELECT content FROM doc_chunks
@@ -100,5 +104,15 @@ describe("schema: dominio Docs", () => {
       LIMIT 1
     `);
     expect(rows[0]?.content).toBe("ciao");
+
+    // Round-trip dell'embedding attraverso Drizzle: copre vector.fromDriver,
+    // che la SELECT raw sopra (solo content) non esercita.
+    const [read] = await db
+      .select({ embedding: docChunks.embedding })
+      .from(docChunks)
+      .where(eq(docChunks.id, chunk.id));
+    expect(Array.isArray(read?.embedding)).toBe(true);
+    expect(read?.embedding).toHaveLength(1024);
+    expect(read?.embedding?.[0]).toBe(1);
   });
 });
