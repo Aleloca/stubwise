@@ -91,6 +91,17 @@ describe("createEmbeddingClient", () => {
     ).rejects.toThrow(/upstream exploded/);
   });
 
+  it("solleva se un embedding non è un array (valore truthy ma malformato)", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse({ data: [{ embedding: "nope" }] }));
+    const client = createEmbeddingClient({
+      baseUrl: "http://ollama:11434/v1",
+      model: "bge-m3",
+      fetch: fetchMock,
+    });
+
+    await expect(client.embed(["x"])).rejects.toThrow();
+  });
+
   it("con input vuoto ritorna [] senza chiamare fetch", async () => {
     const fetchMock = vi.fn(async () => jsonResponse({ data: [] }));
     const client = createEmbeddingClient({

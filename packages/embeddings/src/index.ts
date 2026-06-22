@@ -21,7 +21,11 @@ export type FetchLike = (
 ) => Promise<Response>;
 
 export interface EmbeddingClient {
-  /** Ritorna un vettore per ogni input, nello stesso ordine. */
+  /**
+   * Ritorna un vettore per ogni input, nello stesso ordine.
+   * Tutti gli input sono inviati in un'unica richiesta: è responsabilità del chiamante
+   * mantenere la dimensione del batch entro i limiti del provider (il worker/server batcha a monte).
+   */
   embed(inputs: string[]): Promise<number[][]>;
 }
 
@@ -93,7 +97,7 @@ export function createEmbeddingClient(
 
       return data.map((item, i) => {
         const embedding = item?.embedding;
-        if (!embedding) {
+        if (!Array.isArray(embedding)) {
           throw new Error(
             `Embedding response from ${url} is missing the embedding at index ${i}`,
           );
@@ -145,7 +149,7 @@ export function createFakeEmbeddingClient(
       state ^= state >>> 17;
       state ^= state << 5;
       state >>>= 0;
-      vector[i] = (state / 0xffffffff) * 2 - 1;
+      vector[i] = (state / 0x100000000) * 2 - 1;
     }
     return vector;
   }
