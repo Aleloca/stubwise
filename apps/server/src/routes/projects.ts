@@ -39,6 +39,9 @@ const createProjectSchema = z.object({
   // Comando di test che la pipeline AI esegue per validare il fix. Trim per
   // normalizzare; nullable/optional: omesso o null = nessun comando.
   testCommand: z.string().trim().min(1).max(500).nullable().optional(),
+  // Comando di installazione delle dipendenze nel worktree. Stessa semantica
+  // di testCommand: trim, omesso o null = nessun comando.
+  installCommand: z.string().trim().min(1).max(500).nullable().optional(),
 });
 
 // Lo slug non è aggiornabile: è il path della DSN di ingestion degli SDK
@@ -53,6 +56,8 @@ const updateProjectSchema = z.object({
   gitAccountId: z.uuid().optional(),
   // Comando di test della pipeline AI: null lo azzera, omesso lo lascia invariato.
   testCommand: z.string().trim().min(1).max(500).nullable().optional(),
+  // Comando di installazione delle dipendenze: null lo azzera, omesso lo lascia invariato.
+  installCommand: z.string().trim().min(1).max(500).nullable().optional(),
 });
 
 const slugParamsSchema = z.object({ slug: z.string().min(1) });
@@ -118,6 +123,7 @@ function toPublicProject(
     gitAccountId: row.gitAccountId,
     gitAccountName,
     testCommand: row.testCommand,
+    installCommand: row.installCommand,
     webhookConfiguredAt: row.webhookConfiguredAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
   };
@@ -141,7 +147,8 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { name, gitAccountId, repoUrl, defaultBranch, testCommand } = request.body;
+      const { name, gitAccountId, repoUrl, defaultBranch, testCommand, installCommand } =
+        request.body;
 
       // L'account deve esistere: il provider del progetto è quello dell'account.
       const [account] = await app.db
@@ -169,6 +176,8 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
               defaultBranch,
               // Omesso → null: nessun comando di test configurato alla creazione.
               testCommand: testCommand ?? null,
+              // Omesso → null: nessun comando di installazione alla creazione.
+              installCommand: installCommand ?? null,
               // Chiave di ingestion per gli SDK: 32 caratteri esadecimali.
               ingestionKey: randomBytes(16).toString("hex"),
               // Segreto HMAC del webhook git, generato come l'ingestionKey:
@@ -331,13 +340,16 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { name, repoUrl, defaultBranch, gitAccountId, testCommand } = request.body;
+      const { name, repoUrl, defaultBranch, gitAccountId, testCommand, installCommand } =
+        request.body;
       const updates: Partial<ProjectRow> = {};
       if (name !== undefined) updates.name = name;
       if (repoUrl !== undefined) updates.repoUrl = repoUrl;
       if (defaultBranch !== undefined) updates.defaultBranch = defaultBranch;
       // null azzera il comando, una stringa lo imposta; omesso (undefined) lo lascia.
       if (testCommand !== undefined) updates.testCommand = testCommand;
+      // Stessa semantica di testCommand: null azzera, stringa imposta, omesso lascia.
+      if (installCommand !== undefined) updates.installCommand = installCommand;
       // Cambio di account: valida l'esistenza e ri-denormalizza il provider.
       if (gitAccountId !== undefined) {
         const [account] = await app.db

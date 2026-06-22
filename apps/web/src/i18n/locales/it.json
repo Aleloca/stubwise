@@ -670,6 +670,8 @@
       "credentialsHint": "// le credenziali vivono sull'account: gestiscile in Settings → Account Git.",
       "testCommand": "Comando di test (opzionale)",
       "testCommandHint": "// vuoto = auto-detect (script test del package.json).",
+      "installCommand": "Comando di installazione (opzionale)",
+      "installCommandHint": "// vuoto = auto-rilevato dal lockfile.",
       "save": "Salva modifiche",
       "saving": "Salvataggio…"
     },
@@ -698,6 +700,8 @@
       "verifyError": "Errore nella verifica del repository",
       "testCommand": "Comando di test (opzionale)",
       "testCommandHint": "// vuoto = auto-detect (script test del package.json).",
+      "installCommand": "Comando di installazione (opzionale)",
+      "installCommandHint": "// vuoto = auto-rilevato dal lockfile.",
       "submit": "Crea progetto",
       "submitting": "Creazione…"
     },

@@ -46,6 +46,8 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
   const [manualRepoUrl, setManualRepoUrl] = useState("");
   // Comando di test opzionale: vuoto = auto-detect (script test del package.json).
   const [testCommand, setTestCommand] = useState("");
+  // Comando di installazione opzionale: vuoto = auto-rilevato dal lockfile.
+  const [installCommand, setInstallCommand] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -147,6 +149,8 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
         defaultBranch: branch.trim(),
         // Vuoto → null (auto-detect); altrimenti il comando senza spazi di contorno.
         testCommand: testCommand.trim() === "" ? null : testCommand.trim(),
+        // Vuoto → null (auto-rilevato dal lockfile); altrimenti senza spazi di contorno.
+        installCommand: installCommand.trim() === "" ? null : installCommand.trim(),
       });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("common:unexpectedError"));
@@ -348,6 +352,19 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
           <p className="mt-2 font-mono text-[11px] text-fg-faint">
             {t("projects:wizard.testCommandHint")}
           </p>
+          <div className="mt-4">
+            <TextField
+              id="wizard-install-command"
+              label={t("projects:wizard.installCommand")}
+              type="text"
+              placeholder="pnpm install"
+              value={installCommand}
+              onChange={(event) => setInstallCommand(event.target.value)}
+            />
+            <p className="mt-2 font-mono text-[11px] text-fg-faint">
+              {t("projects:wizard.installCommandHint")}
+            </p>
+          </div>
         </Step>
       )}
 

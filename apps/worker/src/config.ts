@@ -52,8 +52,8 @@ const envSchema = z.object({
   // coda. Deve restare > del tempo massimo di un job: vedi l'invariante
   // verificata in index.ts. Min 1; il default 150 min supera con margine
   // l'invariante col fix in due fasi (plan 10' + fix 30') PIÙ il loop di
-  // self-repair (2 RE-tentativi × (fix 30' + test 5') = 70') + 2× triage 2' +
-  // margine 5' ≈ 119'.
+  // self-repair (2 RE-tentativi × (fix 30' + test 5') = 70') + install (una
+  // volta) 10' + 2× triage 2' + margine 5' ≈ 129'.
   WORKER_STALE_MINUTES: z.preprocess(
     emptyAsUndefined,
     z.coerce
@@ -121,6 +121,18 @@ const envSchema = z.object({
       .min(1, "deve essere un intero > 0 in millisecondi (es. 300000)")
       .default(300_000),
   ),
+  // Timeout dell'install delle dipendenze nel worktree (default 10'). L'install
+  // gira UNA SOLA VOLTA, prima dell'agente, così le sue dipendenze sono già
+  // presenti. Entra nell'invariante di staleness in index.ts come addendo unico
+  // (non per tentativo).
+  INSTALL_TIMEOUT_MS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero > 0 in millisecondi (es. 600000)" })
+      .int("deve essere un intero > 0 in millisecondi (es. 600000)")
+      .min(1, "deve essere un intero > 0 in millisecondi (es. 600000)")
+      .default(600_000),
+  ),
   // URL pubblico dell'istanza, usato SOLO per comporre il link al ticket nelle
   // notifiche webhook in uscita. Opzionale: vuoto (default) = il link è il solo
   // path (/tickets/:id). Gli slash finali vengono rimossi così la concatenazione
@@ -184,6 +196,9 @@ export interface WorkerConfig {
   /** Timeout di ogni esecuzione del comando di test nel self-repair (default
    * 300000 = 5'). */
   selfRepairTestTimeoutMs: number;
+  /** Timeout dell'install delle dipendenze nel worktree, eseguito una sola
+   * volta prima dell'agente (default 600000 = 10'). */
+  installTimeoutMs: number;
   /** URL pubblico dell'istanza (senza slash finali) per i link nelle notifiche;
    * vuoto = il link al ticket è il solo path. */
   publicUrl: string;
@@ -227,6 +242,7 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     fixPlanTimeoutMs: parsed.FIX_PLAN_TIMEOUT_MS,
     selfRepairMaxAttempts: parsed.SELF_REPAIR_MAX_ATTEMPTS,
     selfRepairTestTimeoutMs: parsed.SELF_REPAIR_TEST_TIMEOUT_MS,
+    installTimeoutMs: parsed.INSTALL_TIMEOUT_MS,
     publicUrl: parsed.PUBLIC_URL,
     usagePollMinutes: parsed.USAGE_POLL_MINUTES,
     credentialTestPollSeconds: parsed.CREDENTIAL_TEST_POLL_SECONDS,

@@ -55,6 +55,7 @@ const initial = {
   defaultBranch: "main",
   gitAccountId: ACCOUNT_A.id,
   testCommand: null,
+  installCommand: null,
 };
 
 type Handler = (url: URL) => Response;
@@ -165,6 +166,35 @@ describe("ProjectForm in modifica", () => {
 
     const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
     expect(payload.testCommand).toBe("pnpm test");
+  });
+
+  it("prefilla il comando di installazione dal progetto", async () => {
+    mockAccounts([ACCOUNT_A]);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectForm
+          initial={{ ...initial, installCommand: "pnpm install" }}
+          onSubmit={vi.fn() as never}
+        />
+      </QueryClientProvider>,
+    );
+    await screen.findByLabelText("Name");
+
+    expect(screen.getByLabelText("Install command (optional)")).toHaveValue("pnpm install");
+  });
+
+  it("impostando il comando di installazione, il PATCH lo include", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockAccounts([ACCOUNT_A]);
+    await renderForm({ onSubmit });
+
+    await user.type(screen.getByLabelText("Install command (optional)"), "pnpm install");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.installCommand).toBe("pnpm install");
   });
 
   it("svuotando un comando di test esistente, il PATCH invia null", async () => {

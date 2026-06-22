@@ -54,15 +54,43 @@ RUN find /app -path '*/node-pty/build/Release/spawn-helper' -exec chmod +x {} +
 
 FROM node:22-slim AS runtime
 ENV NODE_ENV=production
+# corepack enable crea solo gli shim: il binario reale di pnpm/yarn viene
+# scaricato al PRIMO uso a runtime e il notice di download finirebbe su stderr,
+# che l'install nel worktree CATTURA (alimenta log e prompt di riparazione
+# dell'agente). Lo silenziamo: niente prompt interattivo né rumore nei log.
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+# Cache corepack CONDIVISA fra utenti: la cache e il default ("lastKnownGood")
+# sono per-HOME, quindi un pre-pull fatto da root non sarebbe visibile a worker
+# (HOME diverso) e il primo `pnpm` ricadrebbe sul default bundled scaricandolo a
+# runtime. Con un COREPACK_HOME unico e world-readable il binario pre-scaricato
+# in build e la versione di default sono condivisi anche con l'utente worker.
+ENV COREPACK_HOME=/opt/corepack
 WORKDIR /app
 
 # git per i mirror; claude CLI installato globalmente. ca-certificates per le
 # connessioni HTTPS (clone su provider git, API Anthropic).
+# corepack enable crea gli shim pnpm/yarn sul PATH: la pipeline di fix
+# auto-rileva il package manager dal lockfile del repo per installare le
+# dipendenze nel worktree; npm è già presente, corepack fornisce pnpm/yarn.
+# Eseguito da root (prima di USER worker) così gli shim, installati in una dir
+# di sistema sul PATH, sono disponibili anche all'utente worker.
+# corepack install -g pre-scarica in build i PM con versioni PINNATE (no @latest,
+# per determinismo) E li imposta come default globale: pnpm@10.9.0 = stesso
+# `packageManager` del package.json root, yarn@1.22.22 = yarn classic. Così il
+# primo install è offline-safe e a latenza prevedibile, senza pagare il download
+# nel percorso critico del job; il notice è comunque silenziato via
+# COREPACK_ENABLE_DOWNLOAD_PROMPT. Il chmod rende la cache leggibile a worker.
+# NB: un repo target con un proprio campo `packageManager` farà comunque
+# scaricare quella versione a runtime (richiede egress) — il pre-pull copre il
+# caso comune (repo senza pin o pinnati alla stessa versione del default).
 RUN apt-get update \
   && apt-get install -y --no-install-recommends git ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
   && npm install -g @anthropic-ai/claude-code \
-  && npm cache clean --force
+  && npm cache clean --force \
+  && corepack enable \
+  && corepack install -g pnpm@10.9.0 yarn@1.22.22 \
+  && chmod -R a+rX /opt/corepack
 
 # Utente non-root con HOME: claude vi scrive le credenziali del login.
 RUN useradd --create-home --uid 10001 worker

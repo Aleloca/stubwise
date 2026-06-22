@@ -91,6 +91,7 @@ describe("POST /api/projects", () => {
       gitAccountId: githubAccountId,
       gitAccountName: "Account GitHub",
       testCommand: null,
+      installCommand: null,
       webhookConfiguredAt: null,
       createdAt: expect.any(String),
     });
@@ -180,6 +181,12 @@ describe("POST /api/projects", () => {
       testCommand: "x".repeat(501),
     });
     expect(tooLongTestCommand.statusCode).toBe(400);
+    const tooLongInstallCommand = await createProject({
+      ...basePayload(),
+      name: "Install Command Lungo",
+      installCommand: "x".repeat(501),
+    });
+    expect(tooLongInstallCommand.statusCode).toBe(400);
   });
 
   it("testCommand valorizzato alla creazione: persistito e restituito", async () => {
@@ -196,6 +203,24 @@ describe("POST /api/projects", () => {
     const res = await createProject({ ...basePayload(), name: "Senza Test Command" });
     expect(res.statusCode).toBe(201);
     expect((res.json() as { testCommand: string | null }).testCommand).toBeNull();
+  });
+
+  it("installCommand valorizzato alla creazione: persistito e restituito", async () => {
+    const res = await createProject({
+      ...basePayload(),
+      name: "Con Install Command",
+      installCommand: "pnpm install --frozen-lockfile",
+    });
+    expect(res.statusCode).toBe(201);
+    expect((res.json() as { installCommand: string | null }).installCommand).toBe(
+      "pnpm install --frozen-lockfile",
+    );
+  });
+
+  it("installCommand omesso: null di default", async () => {
+    const res = await createProject({ ...basePayload(), name: "Senza Install Command" });
+    expect(res.statusCode).toBe(201);
+    expect((res.json() as { installCommand: string | null }).installCommand).toBeNull();
   });
 });
 
@@ -359,6 +384,41 @@ describe("PATCH /api/projects/:slug", () => {
     });
     expect(cleared.statusCode).toBe(200);
     expect((cleared.json() as { testCommand: string | null }).testCommand).toBeNull();
+  });
+
+  it("aggiorna installCommand e poi lo azzera con null; omesso lo lascia invariato", async () => {
+    // Imposta il comando.
+    const set = await app.inject({
+      method: "PATCH",
+      url: "/api/projects/api-backend",
+      headers: { cookie: adminCookie },
+      payload: { installCommand: "pnpm install --frozen-lockfile" },
+    });
+    expect(set.statusCode).toBe(200);
+    expect((set.json() as { installCommand: string | null }).installCommand).toBe(
+      "pnpm install --frozen-lockfile",
+    );
+
+    // PATCH senza installCommand: invariato.
+    const untouched = await app.inject({
+      method: "PATCH",
+      url: "/api/projects/api-backend",
+      headers: { cookie: adminCookie },
+      payload: { name: "API Backend v4" },
+    });
+    expect((untouched.json() as { installCommand: string | null }).installCommand).toBe(
+      "pnpm install --frozen-lockfile",
+    );
+
+    // null azzera.
+    const cleared = await app.inject({
+      method: "PATCH",
+      url: "/api/projects/api-backend",
+      headers: { cookie: adminCookie },
+      payload: { installCommand: null },
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect((cleared.json() as { installCommand: string | null }).installCommand).toBeNull();
   });
 
   it("un member non può aggiornare: 403", async () => {

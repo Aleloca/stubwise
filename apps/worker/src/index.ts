@@ -26,32 +26,37 @@ const STALE_MARGIN_MS = 5 * 60_000;
  * self-repair (Task 5) può aggiungere, dopo l'esecuzione iniziale, fino a
  * SELF_REPAIR_MAX_ATTEMPTS esecuzioni extra dell'agente (ciascuna fino al
  * timeout di fix) e altrettante esecuzioni del comando di test (ciascuna fino a
- * SELF_REPAIR_TEST_TIMEOUT_MS). L'heartbeat in runFix è la difesa primaria;
- * questa è la rete di sicurezza contro una config rotta.
+ * SELF_REPAIR_TEST_TIMEOUT_MS). Inoltre l'install delle dipendenze nel worktree
+ * gira UNA SOLA VOLTA prima dell'agente (fino a installTimeoutMs), quindi entra
+ * come addendo unico (non per tentativo). L'heartbeat in runFix è la difesa
+ * primaria; questa è la rete di sicurezza contro una config rotta.
  */
 function assertStaleInvariant(
   staleAfterMinutes: number,
   twoPhase: boolean,
   selfRepairMaxAttempts: number,
   selfRepairTestTimeoutMs: number,
+  installTimeoutMs: number,
 ): void {
   const staleMs = staleAfterMinutes * 60_000;
   // Due fasi: plan (10') + execute (30'); fase singola: solo execute (30').
   const fixMaxMs = twoPhase
     ? DEFAULT_FIX_PLAN_TIMEOUT_MS + DEFAULT_FIX_TIMEOUT_MS
     : DEFAULT_FIX_TIMEOUT_MS;
+  // Install: gira una volta, prima dell'agente → addendo unico (non per tentativo).
+  const installMs = installTimeoutMs;
   // Self-repair: ogni RE-tentativo è una ri-esecuzione dell'agente (fino al
   // timeout di fix) + un'esecuzione del comando di test (fino al suo timeout).
   // Stima prudente: N × (timeout esecuzione + timeout test).
   const selfRepairMs =
     selfRepairMaxAttempts * (DEFAULT_FIX_TIMEOUT_MS + selfRepairTestTimeoutMs);
   const minRequiredMs =
-    fixMaxMs + selfRepairMs + 2 * DEFAULT_TRIAGE_TIMEOUT_MS + STALE_MARGIN_MS;
+    fixMaxMs + installMs + selfRepairMs + 2 * DEFAULT_TRIAGE_TIMEOUT_MS + STALE_MARGIN_MS;
   if (staleMs <= minRequiredMs) {
     throw new Error(
       `WORKER_STALE_MINUTES=${staleAfterMinutes} è troppo basso: deve superare ` +
         `${Math.ceil(minRequiredMs / 60_000)} minuti (timeout fix${twoPhase ? " plan + execute" : ""}` +
-        `${selfRepairMaxAttempts > 0 ? ` + ${selfRepairMaxAttempts}× self-repair (esecuzione + test)` : ""} + 2× triage + margine), ` +
+        `${selfRepairMaxAttempts > 0 ? ` + ${selfRepairMaxAttempts}× self-repair (esecuzione + test)` : ""} + install + 2× triage + margine), ` +
         `altrimenti un job lungo ma vivo verrebbe riaccodato e si aprirebbe una PR duplicata.`,
     );
   }
@@ -80,6 +85,7 @@ try {
     config.fixTwoPhase,
     config.selfRepairMaxAttempts,
     config.selfRepairTestTimeoutMs,
+    config.installTimeoutMs,
   );
 } catch (err) {
   console.error(err instanceof Error ? err.message : err);
@@ -101,6 +107,7 @@ const handler = createHandler({
     planTimeoutMs: config.fixPlanTimeoutMs,
     selfRepairMaxAttempts: config.selfRepairMaxAttempts,
     testTimeoutMs: config.selfRepairTestTimeoutMs,
+    installTimeoutMs: config.installTimeoutMs,
   },
 });
 

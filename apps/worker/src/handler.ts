@@ -60,6 +60,7 @@ export interface HandlerDeps {
     allowedTools?: string[];
     selfRepairMaxAttempts?: number;
     testTimeoutMs?: number;
+    installTimeoutMs?: number;
   };
 }
 
