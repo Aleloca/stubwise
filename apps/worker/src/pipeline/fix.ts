@@ -49,6 +49,11 @@ import {
 } from "./prompts.js";
 import { resolveInstallCommand } from "./install-command.js";
 import { resolveTestCommand, type TestCommand } from "./test-command.js";
+import {
+  loadProjectEnvFiles,
+  materializeEnvFiles,
+  type LoadedEnvFile,
+} from "./env-files.js";
 
 /**
  * Fase 2 della pipeline: il fix. Il job è già in stato `fixing` (markFixing
@@ -146,13 +151,17 @@ async function runCommandCaptured(
   cmd: TestCommand,
   dir: string,
   timeoutMs: number,
+  extraEnv: Record<string, string> = {},
 ): Promise<TestRunResult> {
   const result = await execa(cmd.cmd, cmd.args, {
     cwd: dir,
     timeout: timeoutMs,
     reject: false,
     all: true,
-    env: { NODE_ENV: undefined },
+    // Le variabili d'ambiente del progetto (extraEnv) sono iniettate per
+    // install/test; NODE_ENV resta PER ULTIMO così la neutralizzazione (vedi
+    // sopra) non è sovrascrivibile dalle var utente.
+    env: { ...extraEnv, NODE_ENV: undefined },
   });
   const combined = result.all ?? `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
   const output =
@@ -170,8 +179,9 @@ async function defaultRunTestCommand(
   cmd: TestCommand,
   dir: string,
   timeoutMs: number,
+  extraEnv: Record<string, string> = {},
 ): Promise<TestRunResult> {
-  return runCommandCaptured(cmd, dir, timeoutMs);
+  return runCommandCaptured(cmd, dir, timeoutMs, extraEnv);
 }
 
 /**
@@ -185,8 +195,9 @@ export async function defaultRunInstallCommand(
   cmd: TestCommand,
   dir: string,
   timeoutMs: number,
+  extraEnv: Record<string, string> = {},
 ): Promise<TestRunResult> {
-  return runCommandCaptured(cmd, dir, timeoutMs);
+  return runCommandCaptured(cmd, dir, timeoutMs, extraEnv);
 }
 
 export interface FixDeps extends NotifyDeps {
@@ -231,8 +242,14 @@ export interface FixDeps extends NotifyDeps {
     dir: string,
   ) => Promise<TestCommand | null>;
   /** Esegue il comando di test nel worktree (iniettabile nei test). Default:
-   * spawn con execa (reject:false). */
-  runTestCommand?: (cmd: TestCommand, dir: string, timeoutMs: number) => Promise<TestRunResult>;
+   * spawn con execa (reject:false). extraEnv = variabili d'ambiente del progetto
+   * iniettate nel sottoprocesso (NODE_ENV resta neutralizzato). */
+  runTestCommand?: (
+    cmd: TestCommand,
+    dir: string,
+    timeoutMs: number,
+    extraEnv?: Record<string, string>,
+  ) => Promise<TestRunResult>;
   /** Risolve il comando di install del repo nel worktree (iniettabile nei
    * test). Default: resolveInstallCommand da ./install-command.js. */
   resolveInstallCommandFn?: (
@@ -240,10 +257,29 @@ export interface FixDeps extends NotifyDeps {
     dir: string,
   ) => Promise<TestCommand | null>;
   /** Esegue l'install delle dipendenze nel worktree (iniettabile nei test).
-   * Default: spawn con execa (reject:false). */
-  runInstallCommand?: (cmd: TestCommand, dir: string, timeoutMs: number) => Promise<TestRunResult>;
+   * Default: spawn con execa (reject:false). extraEnv = variabili d'ambiente del
+   * progetto iniettate nel sottoprocesso (NODE_ENV resta neutralizzato). */
+  runInstallCommand?: (
+    cmd: TestCommand,
+    dir: string,
+    timeoutMs: number,
+    extraEnv?: Record<string, string>,
+  ) => Promise<TestRunResult>;
   /** Timeout dell'install delle dipendenze (default 600000 = 10'). */
   installTimeoutMs?: number;
+  /** Carica i file d'ambiente del progetto decifrati (iniettabile nei test).
+   * Default: loadProjectEnvFiles da ./env-files.js. */
+  loadEnvFilesFn?: (
+    db: Db,
+    projectId: string,
+    encryptionKey: Buffer,
+  ) => Promise<LoadedEnvFile[]>;
+  /** Materializza i file d'ambiente nel worktree e costruisce la mappa env
+   * (iniettabile nei test). Default: materializeEnvFiles da ./env-files.js. */
+  materializeEnvFilesFn?: (
+    dir: string,
+    files: LoadedEnvFile[],
+  ) => Promise<{ writtenPaths: string[]; env: Record<string, string> }>;
   /** Costo USD storico già registrato per il ticket (iniettabile nei test;
    * default ticketCostUsd da @stubwise/db). Usato dai controlli di budget. */
   ticketCostUsdFn?: (db: Db, ticketId: string) => Promise<number>;
@@ -422,6 +458,8 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   const resolveInstallCommandFn = deps.resolveInstallCommandFn ?? resolveInstallCommand;
   const runInstallCommand = deps.runInstallCommand ?? defaultRunInstallCommand;
   const installTimeoutMs = deps.installTimeoutMs ?? DEFAULT_INSTALL_TIMEOUT_MS;
+  const loadEnvFilesFn = deps.loadEnvFilesFn ?? loadProjectEnvFiles;
+  const materializeEnvFilesFn = deps.materializeEnvFilesFn ?? materializeEnvFiles;
   const ticketCostUsdFn = deps.ticketCostUsdFn ?? ticketCostUsd;
   const monthlyCostUsdFn = deps.monthlyCostUsdFn ?? monthlyCostUsd;
   // Credenziale del provider per QUESTO job: spread in ogni runner.run così
@@ -650,7 +688,43 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
         heartbeat.unref();
         let output: string;
         let exitCode: number;
+        // Pathspec di esclusione dei file env materializzati: avvolge OGNI git
+        // add/status del percorso così i segreti NON finiscono mai nel commit/
+        // push (SAFEGUARD anti-leak). Vuoto = nessun env → comandi invariati.
+        let envExcludePathspecs: string[] = [];
+        // Mappa env del progetto da iniettare in install/test (mai loggata).
+        let envProcessEnv: Record<string, string> = {};
         try {
+          // FILE D'AMBIENTE del progetto: materializzati UNA volta, PRIMA
+          // dell'install e dell'agente (install/test possono averne bisogno).
+          // SALTATO in plan-only (read-only). BEST-EFFORT: un errore qui NON fa
+          // fallire il fix — si logga e si prosegue con env vuoto. I valori non
+          // vengono MAI loggati (solo il conteggio dei file). I path scritti
+          // alimentano l'esclusione anti-leak dai commit.
+          if (fixMode !== "plan-only") {
+            try {
+              const files = await loadEnvFilesFn(db, project.id, deps.encryptionKey);
+              const { writtenPaths, env } = await materializeEnvFilesFn(dir, files);
+              envProcessEnv = env;
+              envExcludePathspecs = writtenPaths.map((p) => `:(exclude)${p}`);
+              await appendLog(
+                db,
+                job.id,
+                `[fix] file d'ambiente materializzati (${writtenPaths.length} file)`,
+              ).catch(() => {
+                // Log best-effort.
+              });
+            } catch (envErr) {
+              const message = envErr instanceof Error ? envErr.message : String(envErr);
+              await appendLog(
+                db,
+                job.id,
+                `[fix] file d'ambiente: errore inatteso (proseguo senza): ${message}`,
+              ).catch(() => {
+                // Log best-effort.
+              });
+            }
+          }
           // INSTALL delle dipendenze: UNA volta, PRIMA di qualunque run
           // dell'agente, così node_modules è popolato per i test del repo (loop
           // di self-repair). SALTATO in plan-only (read-only, niente esecuzione).
@@ -672,7 +746,12 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
                 ).catch(() => {
                   // Log best-effort.
                 });
-                const install = await runInstallCommand(installCmd, dir, installTimeoutMs);
+                const install = await runInstallCommand(
+                  installCmd,
+                  dir,
+                  installTimeoutMs,
+                  envProcessEnv,
+                );
                 await appendLog(
                   db,
                   job.id,
@@ -834,17 +913,25 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
               // Diff vuoto come oggi (NoChangesError), ma ESCLUDENDO il report: lo
               // si stage tutto tranne STUBWISE_REPORT.md, così il report non può
               // mascherare un diff altrimenti vuoto né finire nel commit.
-              await gitIn(dir, ["add", "-A", "--", ".", `:(exclude)${REPORT_FILENAME}`]);
+              await gitIn(dir, [
+                "add",
+                "-A",
+                "--",
+                ".",
+                `:(exclude)${REPORT_FILENAME}`,
+                ...envExcludePathspecs,
+              ]);
               const status = await gitIn(dir, [
                 "status",
                 "--porcelain",
                 "--",
                 ".",
                 `:(exclude)${REPORT_FILENAME}`,
+                ...envExcludePathspecs,
               ]);
               if (status.trim() === "") throw new NoChangesError(output);
 
-              const test = await runTestCommand(testCmd, dir, testTimeoutMs);
+              const test = await runTestCommand(testCmd, dir, testTimeoutMs, envProcessEnv);
               await appendLog(
                 db,
                 job.id,
@@ -898,7 +985,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
             // Test verdi: ora si legge+rimuove il report e si committa il solo fix
             // (il report è già escluso dallo stage del loop e ora anche da disco).
             const reportContent = await readAndRemoveReport();
-            await gitIn(dir, ["add", "-A"]);
+            await gitIn(dir, ["add", "-A", "--", ".", ...envExcludePathspecs]);
             await gitIn(dir, [
               "-c",
               "user.name=Stubwise AI",
@@ -915,8 +1002,14 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
           // Nessun comando di test risolvibile (o self-repair disattivato): flusso
           // IDENTICO a prima — report letto/rimosso PRIMA di `git add -A`.
           const reportContent = await readAndRemoveReport();
-          await gitIn(dir, ["add", "-A"]);
-          const status = await gitIn(dir, ["status", "--porcelain"]);
+          await gitIn(dir, ["add", "-A", "--", ".", ...envExcludePathspecs]);
+          const status = await gitIn(dir, [
+            "status",
+            "--porcelain",
+            "--",
+            ".",
+            ...envExcludePathspecs,
+          ]);
           if (status.trim() === "") throw new NoChangesError(output);
 
           // Autore esplicito per-invocazione: nessuna config git globale richiesta
