@@ -1,4 +1,4 @@
-import { docGenerationJobs, projects, type Db } from "@stubwise/db";
+import { docGenerationJobs, docGenerations, projects, type Db } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -127,11 +127,14 @@ describe("claimNextDocJob", () => {
 describe("transizioni di stato", () => {
   it("completeDocJob marca succeeded con generationId, log e finishedAt", async () => {
     const { db } = testDb;
+    const [generation] = await db.insert(docGenerations).values({ projectId }).returning();
+    if (!generation) throw new Error("insert della generazione non ha restituito la riga");
     const job = await enqueueDocJob(db);
     await claimNextDocJob(db);
 
     const updated = await completeDocJob(db, job.id, {
       log: "generazione completata",
+      generationId: generation.id,
     });
 
     expect(updated).toBe(true);
@@ -139,6 +142,8 @@ describe("transizioni di stato", () => {
     expect(persisted.status).toBe("succeeded");
     expect(persisted.log).toContain("generazione completata");
     expect(persisted.finishedAt).not.toBeNull();
+    // Il branch condizionale collega la generazione prodotta al job.
+    expect(persisted.generationId).toBe(generation.id);
   });
 
   it("failDocJob marca failed con errore, log e finishedAt", async () => {
