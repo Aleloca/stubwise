@@ -222,3 +222,134 @@ describe("editing pagine manuali (M7.3)", () => {
     expect(within(article).queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
   });
 });
+
+describe("trigger generazione + stato (M7.4)", () => {
+  it("admin vede il bottone Generate e cliccandolo riflette lo stato queued", async () => {
+    let statusCalls = 0;
+    mockApi({
+      "GET /api/auth/me": meHandler("admin"),
+      [`GET /api/projects/${PROJECT_ID}/docs/tree`]: () => jsonResponse(200, TREE),
+      [`GET /api/projects/${PROJECT_ID}/docs/status`]: () => {
+        statusCalls += 1;
+        // Dopo il trigger lo stato riporta un job queued.
+        const latestJob =
+          statusCalls > 1
+            ? {
+                id: "job1",
+                status: "queued",
+                trigger: "manual",
+                error: null,
+                createdAt: "2026-06-22T10:00:00.000Z",
+                startedAt: null,
+                finishedAt: null,
+              }
+            : null;
+        return jsonResponse(200, { generation: null, latestJob });
+      },
+      [`POST /api/projects/${PROJECT_ID}/docs/generate`]: () =>
+        jsonResponse(202, {
+          id: "job1",
+          status: "queued",
+          trigger: "manual",
+          error: null,
+          createdAt: "2026-06-22T10:00:00.000Z",
+          startedAt: null,
+          finishedAt: null,
+        }),
+    });
+    renderApp(`/docs/${PROJECT_ID}`);
+
+    const generate = await screen.findByRole("button", { name: "Generate documentation" });
+    await userEvent.click(generate);
+
+    // Lo stato riflette il job in corso.
+    expect(await screen.findByText("A generation is in progress…")).toBeInTheDocument();
+  });
+
+  it("member NON vede il bottone Generate", async () => {
+    mockApi(baseHandlers("member"));
+    renderApp(`/docs/${PROJECT_ID}`);
+
+    // Aspetta che la sidebar sia montata.
+    await screen.findByRole("button", { name: /Technical/ });
+    expect(
+      screen.queryByRole("button", { name: "Generate documentation" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("il pannello mostra lo stato dell'ultima generazione", async () => {
+    mockApi({
+      ...baseHandlers("admin"),
+      [`GET /api/projects/${PROJECT_ID}/docs/status`]: () =>
+        jsonResponse(200, {
+          generation: {
+            id: "g1",
+            status: "succeeded",
+            commitSha: "deadbeef1234",
+            model: "opus",
+            cost: "1.230000",
+            stats: null,
+            startedAt: "2026-06-20T09:00:00.000Z",
+            finishedAt: "2026-06-20T10:00:00.000Z",
+            createdAt: "2026-06-20T09:00:00.000Z",
+          },
+          latestJob: {
+            id: "j1",
+            status: "succeeded",
+            trigger: "manual",
+            error: null,
+            createdAt: "2026-06-20T09:00:00.000Z",
+            startedAt: "2026-06-20T09:00:00.000Z",
+            finishedAt: "2026-06-20T10:00:00.000Z",
+          },
+        }),
+    });
+    renderApp(`/docs/${PROJECT_ID}`);
+
+    expect(await screen.findByText("succeeded")).toBeInTheDocument();
+    expect(screen.getByText(/commit deadbee/)).toBeInTheDocument();
+  });
+});
+
+describe("ricerca (M7.4)", () => {
+  it("digitando una query mostra i risultati che linkano alle pagine", async () => {
+    mockApi({
+      ...baseHandlers(),
+      [`GET /api/projects/${PROJECT_ID}/docs/search`]: () =>
+        jsonResponse(200, [
+          {
+            slug: "guide",
+            title: "Guide",
+            kind: "manual",
+            snippet: "A manual onboarding guide.",
+            score: 0.9,
+            source: "hybrid",
+          },
+        ]),
+    });
+    renderApp(`/docs/${PROJECT_ID}`);
+
+    const search = await screen.findByLabelText("Search docs");
+    await userEvent.type(search, "guide");
+
+    // Lo snippet identifica univocamente il risultato di ricerca (il link
+    // omonimo nell'albero non lo ha): da lì risalgo al link che porta alla pagina.
+    const snippet = await screen.findByText("A manual onboarding guide.");
+    expect(snippet).toBeInTheDocument();
+    const result = snippet.closest("a");
+    expect(result).toHaveAttribute("href", `/docs/${PROJECT_ID}/guide`);
+  });
+
+  it("nessun risultato: mostra lo stato vuoto", async () => {
+    mockApi({
+      ...baseHandlers(),
+      [`GET /api/projects/${PROJECT_ID}/docs/search`]: () => jsonResponse(200, []),
+    });
+    renderApp(`/docs/${PROJECT_ID}`);
+
+    const search = await screen.findByLabelText("Search docs");
+    await userEvent.type(search, "zzzz");
+
+    expect(await screen.findByText("No results")).toBeInTheDocument();
+  });
+});

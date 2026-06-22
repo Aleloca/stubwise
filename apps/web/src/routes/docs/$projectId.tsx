@@ -2,7 +2,9 @@ import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tansta
 import { Link, Outlet, useNavigate, useParams } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { DocsGenerationPanel } from "../../components/docs-generation-panel";
 import { DocsManualForm } from "../../components/docs-manual-form";
+import { DocsSearch } from "../../components/docs-search";
 import { DocsTree } from "../../components/docs-tree";
 import { Markdown } from "../../components/markdown";
 import { ApiError } from "../../lib/api";
@@ -34,6 +36,8 @@ export function DocsSpaceLayout() {
         >
           ← {t("docs:space.back")}
         </Link>
+        <DocsGenerationPanel projectId={projectId} />
+        <DocsSearch projectId={projectId} />
         <DocsTree projectId={projectId} nodes={tree} />
         <Link
           to="/docs/$projectId/new"

@@ -889,6 +889,33 @@
       "confirm": "Elimina",
       "slugConflict": "Slug già usato in questo progetto.",
       "error": "Impossibile salvare la pagina manuale."
+    },
+    "generation": {
+      "title": "Generazione",
+      "generate": "Genera documentazione",
+      "generating": "Avvio…",
+      "lastStatus": "Stato",
+      "statusNever": "mai generata",
+      "statusQueued": "in coda",
+      "statusRunning": "in corso",
+      "statusSucceeded": "completata",
+      "statusFailed": "fallita",
+      "statusHeld": "in attesa",
+      "lastGenerated": "generata {{date}}",
+      "atCommit": "commit {{commit}}",
+      "cost": "costo ${{cost}}",
+      "jobRunning": "Generazione in corso…",
+      "jobFailed": "L'ultima generazione è fallita.",
+      "error": "Impossibile avviare la generazione."
+    },
+    "search": {
+      "label": "Cerca nei docs",
+      "placeholder": "Cerca nella documentazione…",
+      "noResults": "Nessun risultato",
+      "noResultsHint": "Prova una query diversa.",
+      "kindTechnical": "tecnico",
+      "kindFunctional": "funzionale",
+      "kindManual": "manuale"
     }
   }
 }
