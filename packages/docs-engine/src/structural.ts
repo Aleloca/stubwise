@@ -76,6 +76,14 @@ const DEFAULT_MODULE_DEPTH = 2;
 /** Estensioni dei file analizzati per superficie pubblica e import (TS/JS, v1). */
 const TS_JS_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
 
+// Pesi dello scoring (documentati). La dimensione è il segnale grezzo dominante;
+// la centralità nel grafo (archi entranti + uscenti) e l'ampiezza della superficie
+// pubblica fanno da modulatori, con un peso volutamente alto per contare quanto
+// molte righe di codice (un arco/un export "vale" come ~centinaia di byte).
+const WEIGHT_SIZE = 1; // per byte di codice del modulo
+const WEIGHT_CENTRALITY = 500; // per arco entrante o uscente nel dep graph
+const WEIGHT_SURFACE = 200; // per simbolo nella superficie pubblica
+
 /**
  * Euristica regex (v1, TS/JS) per i simboli esportati. Cattura il nome dopo
  * `export [default] function|const|let|var|class|interface|type|enum`. Non
@@ -310,6 +318,35 @@ async function enrichTsJsModules(
   }
 }
 
+/**
+ * Calcola lo `score` di ogni modulo: `WEIGHT_SIZE*byte + WEIGHT_CENTRALITY*grado +
+ * WEIGHT_SURFACE*#export`, dove il grado è la somma di archi entranti e uscenti
+ * nel dep graph. Muta i moduli in place.
+ */
+function scoreModules(
+  modules: ModuleNode[],
+  sizeByPath: Map<string, number>,
+): void {
+  // grado entrante: quanti moduli dipendono da ciascun modulo.
+  const inDegree = new Map<string, number>();
+  for (const module of modules) {
+    for (const dep of module.dependsOn) {
+      inDegree.set(dep, (inDegree.get(dep) ?? 0) + 1);
+    }
+  }
+  for (const module of modules) {
+    const size = module.files.reduce(
+      (sum, f) => sum + (sizeByPath.get(f) ?? 0),
+      0,
+    );
+    const centrality = module.dependsOn.length + (inDegree.get(module.path) ?? 0);
+    module.score =
+      WEIGHT_SIZE * size +
+      WEIGHT_CENTRALITY * centrality +
+      WEIGHT_SURFACE * module.publicSurface.length;
+  }
+}
+
 export async function buildRepoMap(
   reader: RepoReader,
   options: BuildRepoMapOptions,
@@ -321,5 +358,17 @@ export async function buildRepoMap(
   const modules = segmentModules(kept, moduleDepth);
   await enrichTsJsModules(modules, reader);
 
-  return { languages, modules, skipped };
+  const sizeByPath = new Map(kept.map((f) => [f.path, f.size]));
+  scoreModules(modules, sizeByPath);
+
+  // Ordina per score decrescente e applica il budget: i moduli oltre `maxModules`
+  // finiscono in `skipped` con reason "module budget".
+  modules.sort((a, b) => b.score - a.score);
+  const cut = modules.slice(options.maxModules);
+  for (const module of cut) {
+    skipped.push({ path: module.path, reason: "module budget" });
+  }
+  const keptModules = modules.slice(0, options.maxModules);
+
+  return { languages, modules: keptModules, skipped };
 }

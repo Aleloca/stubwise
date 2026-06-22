@@ -152,3 +152,52 @@ describe("buildRepoMap — superficie pubblica e dependency graph (M2.4)", () =>
     expect(a.dependsOn).toEqual([]);
   });
 });
+
+describe("buildRepoMap — scoring e cap moduli (M2.5)", () => {
+  it("tiene i maxModules con score più alto e logga gli altri come module budget", async () => {
+    // 5 moduli con dimensioni crescenti → i due più grandi vincono.
+    const files: Record<string, string> = {};
+    for (const name of ["a", "b", "c", "d", "e"]) {
+      files[`packages/${name}/package.json`] = "{}";
+    }
+    files["packages/a/i.ts"] = "x".repeat(10);
+    files["packages/b/i.ts"] = "x".repeat(20);
+    files["packages/c/i.ts"] = "x".repeat(30);
+    files["packages/d/i.ts"] = "x".repeat(40);
+    files["packages/e/i.ts"] = "x".repeat(50);
+
+    const map = await buildRepoMap(reader(files), { maxModules: 2 });
+
+    expect(map.modules).toHaveLength(2);
+    expect(map.modules.map((m) => m.path)).toEqual(["packages/e", "packages/d"]);
+    // ordinati per score decrescente
+    expect(map.modules[0]!.score).toBeGreaterThanOrEqual(map.modules[1]!.score);
+
+    const budget = map.skipped.filter((s) => s.reason === "module budget");
+    expect(budget.map((s) => s.path).sort()).toEqual([
+      "packages/a",
+      "packages/b",
+      "packages/c",
+    ]);
+  });
+
+  it("la centralità nel grafo aumenta lo score a parità di dimensione", async () => {
+    // due moduli identici per dimensione; 'hub' è importato da molti → più centrale.
+    const map = await buildRepoMap(
+      reader({
+        "packages/hub/package.json": "{}",
+        "packages/hub/i.ts": "export const h = 1;",
+        "packages/leaf/package.json": "{}",
+        "packages/leaf/i.ts": "export const l = 1;",
+        "packages/u1/package.json": "{}",
+        "packages/u1/i.ts": `import { h } from "../hub";`,
+        "packages/u2/package.json": "{}",
+        "packages/u2/i.ts": `import { h } from "../hub";`,
+      }),
+      { maxModules: 50 },
+    );
+    const hub = map.modules.find((m) => m.path === "packages/hub")!;
+    const leaf = map.modules.find((m) => m.path === "packages/leaf")!;
+    expect(hub.score).toBeGreaterThan(leaf.score);
+  });
+});
