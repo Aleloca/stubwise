@@ -772,6 +772,8 @@ export interface Project {
   webhookConfiguredAt: string | null;
   /** Comando di test custom della pipeline AI; null = auto-detect (script test del package.json). */
   testCommand: string | null;
+  /** Comando di installazione dipendenze custom; null = auto-detect (dal lockfile). */
+  installCommand: string | null;
   createdAt: string;
 }
 
@@ -795,6 +797,8 @@ export interface ProjectDraft {
   defaultBranch?: string;
   /** Comando di test custom; null/assente = auto-detect (script test del package.json). */
   testCommand?: string | null;
+  /** Comando di installazione custom; null/assente = auto-detect (dal lockfile). */
+  installCommand?: string | null;
 }
 
 export interface ProjectPatch {
@@ -805,6 +809,8 @@ export interface ProjectPatch {
   gitAccountId?: string;
   /** null = svuota (torna all'auto-detect); assente = invariato. */
   testCommand?: string | null;
+  /** null = svuota (torna all'auto-detect dal lockfile); assente = invariato. */
+  installCommand?: string | null;
 }
 
 export function getProjects(): Promise<Project[]> {

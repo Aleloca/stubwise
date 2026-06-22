@@ -670,6 +670,8 @@
       "credentialsHint": "// credentials live on the account: manage them in Settings → Git Accounts.",
       "testCommand": "Test command (optional)",
       "testCommandHint": "// empty = auto-detect (package.json test script).",
+      "installCommand": "Install command (optional)",
+      "installCommandHint": "// empty = auto-detected from the lockfile.",
       "save": "Save changes",
       "saving": "Saving…"
     },
@@ -698,6 +700,8 @@
       "verifyError": "Error while verifying the repository",
       "testCommand": "Test command (optional)",
       "testCommandHint": "// empty = auto-detect (package.json test script).",
+      "installCommand": "Install command (optional)",
+      "installCommandHint": "// empty = auto-detected from the lockfile.",
       "submit": "Create project",
       "submitting": "Creating…"
     },

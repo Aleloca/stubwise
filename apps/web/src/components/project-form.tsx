@@ -15,6 +15,8 @@ interface ProjectInitialValues {
   gitAccountId: string;
   /** Comando di test custom; null = auto-detect (script test del package.json). */
   testCommand: string | null;
+  /** Comando di installazione custom; null = auto-detect (dal lockfile). */
+  installCommand: string | null;
 }
 
 interface ProjectFormProps {
@@ -42,6 +44,8 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
   const [gitAccountId, setGitAccountId] = useState(initial.gitAccountId);
   // Comando di test come stringa controllata: vuoto = nessun comando (auto-detect).
   const [testCommand, setTestCommand] = useState(initial.testCommand ?? "");
+  // Comando di installazione come stringa controllata: vuoto = auto-detect (dal lockfile).
+  const [installCommand, setInstallCommand] = useState(initial.installCommand ?? "");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -54,6 +58,8 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
       // comando senza spazi di contorno.
       const trimmedTestCommand = testCommand.trim();
       const nextTestCommand = trimmedTestCommand === "" ? null : trimmedTestCommand;
+      const trimmedInstallCommand = installCommand.trim();
+      const nextInstallCommand = trimmedInstallCommand === "" ? null : trimmedInstallCommand;
       await onSubmit({
         name,
         repoUrl,
@@ -64,6 +70,10 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
         // testCommand incluso solo se cambiato (null↔stringa) per un PATCH minimo.
         ...(nextTestCommand !== (initial.testCommand ?? null) && {
           testCommand: nextTestCommand,
+        }),
+        // installCommand incluso solo se cambiato (null↔stringa) per un PATCH minimo.
+        ...(nextInstallCommand !== (initial.installCommand ?? null) && {
+          installCommand: nextInstallCommand,
         }),
       });
     } catch (cause) {
@@ -131,6 +141,18 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
       />
       <p className="-mt-1 font-mono text-[11px] text-fg-faint">
         {t("projects:form.testCommandHint")}
+      </p>
+
+      <TextField
+        id="project-install-command"
+        label={t("projects:form.installCommand")}
+        type="text"
+        placeholder="pnpm install"
+        value={installCommand}
+        onChange={(event) => setInstallCommand(event.target.value)}
+      />
+      <p className="-mt-1 font-mono text-[11px] text-fg-faint">
+        {t("projects:form.installCommandHint")}
       </p>
 
       <FormError message={error} />

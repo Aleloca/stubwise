@@ -104,6 +104,7 @@ export function ProjectDetailPage() {
                   defaultBranch: project.defaultBranch,
                   gitAccountId: project.gitAccountId,
                   testCommand: project.testCommand,
+                  installCommand: project.installCommand,
                 }}
                 onSubmit={handleSubmit}
               />
