@@ -4,8 +4,9 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAuth } from "../auth/session.js";
 import type { Db } from "@stubwise/db";
-import { agentRuns, aiJobs, aiJobStatus, tickets } from "@stubwise/db";
+import { agentRuns, aiJobs, aiJobStatus, aiProviders, tickets } from "@stubwise/db";
 import { authErrorResponses, errorSchema } from "./shared.js";
+import { aiProviderKindSchema } from "./ai-providers.js";
 import { apiError } from "../errors.js";
 
 /**
@@ -23,6 +24,11 @@ export const aiJobSchema = z.object({
   createdAt: z.iso.datetime(),
   startedAt: z.iso.datetime().nullable(),
   finishedAt: z.iso.datetime().nullable(),
+  // Provider AI usato dal job: solo etichetta e tipo credenziale (mai il
+  // segreto). Null quando il job non ha provider: job pre-feature, fallback
+  // env, o provider eliminato (FK on delete set null).
+  providerLabel: z.string().nullable(),
+  providerKind: aiProviderKindSchema.nullable(),
 });
 
 const ticketParamsSchema = z.object({ ticketId: z.uuid() });
@@ -52,7 +58,11 @@ export const ticketUsageSchema = z.object({
   byModel: z.array(usageByModelSchema),
 });
 
-type AiJobRow = typeof aiJobs.$inferSelect;
+// La riga del job arricchita col provider risolto via LEFT JOIN: `provider`
+// è null quando il job non ha provider_id o il provider è stato eliminato.
+type AiJobRow = typeof aiJobs.$inferSelect & {
+  provider: { label: string; kind: (typeof aiProviders.$inferSelect)["kind"] } | null;
+};
 
 function toPublicAiJob(row: AiJobRow): z.infer<typeof aiJobSchema> {
   return {
@@ -65,6 +75,8 @@ function toPublicAiJob(row: AiJobRow): z.infer<typeof aiJobSchema> {
     createdAt: row.createdAt.toISOString(),
     startedAt: row.startedAt?.toISOString() ?? null,
     finishedAt: row.finishedAt?.toISOString() ?? null,
+    providerLabel: row.provider?.label ?? null,
+    providerKind: row.provider?.kind ?? null,
   };
 }
 
@@ -139,13 +151,18 @@ export async function aiJobRoutes(instance: FastifyInstance): Promise<void> {
         return apiError(reply, 404, "ticket_not_found", "Ticket not found");
       }
       // Dal più recente al più vecchio: la timeline in UI parte dall'ultimo
-      // tentativo. L'id spareggia i job creati nello stesso istante.
+      // tentativo. L'id spareggia i job creati nello stesso istante. LEFT JOIN
+      // sul provider per esporne etichetta e tipo (null se assente/eliminato).
       const rows = await app.db
-        .select()
+        .select({
+          job: aiJobs,
+          provider: { label: aiProviders.label, kind: aiProviders.kind },
+        })
         .from(aiJobs)
+        .leftJoin(aiProviders, eq(aiProviders.id, aiJobs.providerId))
         .where(eq(aiJobs.ticketId, ticketId))
         .orderBy(desc(aiJobs.createdAt), desc(aiJobs.id));
-      return rows.map(toPublicAiJob);
+      return rows.map((row) => toPublicAiJob({ ...row.job, provider: row.provider }));
     },
   );
 }

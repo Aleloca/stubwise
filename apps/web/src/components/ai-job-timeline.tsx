@@ -102,6 +102,17 @@ function JobEntry({ job, last }: { job: AIJob; last: boolean }) {
             {t("tickets:timeline.viewPr")}
           </a>
         )}
+        {job.providerLabel && (
+          <span className="font-mono text-[11px] text-fg-faint">
+            {t("tickets:timeline.provider")}: {job.providerLabel}
+            {job.providerKind && (
+              <>
+                {" · "}
+                {t(`tickets:timeline.providerKind.${job.providerKind}`)}
+              </>
+            )}
+          </span>
+        )}
       </div>
 
       {(job.startedAt ?? job.finishedAt) && (

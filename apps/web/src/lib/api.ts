@@ -536,6 +536,10 @@ export interface AIJob {
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
+  // Provider AI usato dal job: etichetta e tipo credenziale, null quando il
+  // job non ha provider (pre-feature, fallback env, provider eliminato).
+  providerLabel: string | null;
+  providerKind: "api_key" | "account" | null;
 }
 
 export function getTicketJobs(ticketId: string): Promise<AIJob[]> {

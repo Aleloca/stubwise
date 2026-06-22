@@ -111,6 +111,8 @@ const jobsFixture: AIJob[] = [
     createdAt: "2026-06-03T10:00:00.000Z",
     startedAt: "2026-06-03T10:00:05.000Z",
     finishedAt: "2026-06-03T10:04:00.000Z",
+    providerLabel: null,
+    providerKind: null,
   },
   {
     id: "j1",
@@ -122,6 +124,8 @@ const jobsFixture: AIJob[] = [
     createdAt: "2026-06-02T10:00:00.000Z",
     startedAt: "2026-06-02T10:00:02.000Z",
     finishedAt: "2026-06-02T10:00:40.000Z",
+    providerLabel: null,
+    providerKind: null,
   },
 ];
 
@@ -454,6 +458,8 @@ const heldJobFixture: AIJob = {
   createdAt: "2026-06-04T10:00:00.000Z",
   startedAt: "2026-06-04T10:00:02.000Z",
   finishedAt: "2026-06-04T10:00:05.000Z",
+  providerLabel: null,
+  providerKind: null,
 };
 
 /** Job singolo in stato "pr_closed": PR rifiutata, il ticket è stato riaperto. */
@@ -467,6 +473,8 @@ const prClosedJobFixture: AIJob = {
   createdAt: "2026-06-06T10:00:00.000Z",
   startedAt: "2026-06-06T10:00:02.000Z",
   finishedAt: "2026-06-06T10:04:00.000Z",
+  providerLabel: null,
+  providerKind: null,
 };
 
 /** Job singolo in stato "failed": un re-run manuale ha senso. */
@@ -480,6 +488,8 @@ const failedJobFixture: AIJob = {
   createdAt: "2026-06-06T10:00:00.000Z",
   startedAt: "2026-06-06T10:00:02.000Z",
   finishedAt: "2026-06-06T10:00:40.000Z",
+  providerLabel: null,
+  providerKind: null,
 };
 
 /** Job singolo in stato "pr_merged": PR già mergiata, niente rilancio. */
@@ -493,6 +503,8 @@ const prMergedJobFixture: AIJob = {
   createdAt: "2026-06-06T10:00:00.000Z",
   startedAt: "2026-06-06T10:00:02.000Z",
   finishedAt: "2026-06-06T10:04:00.000Z",
+  providerLabel: null,
+  providerKind: null,
 };
 
 /** Job singolo in volo ("fixing"): nessun bottone di rilancio. */
@@ -506,6 +518,8 @@ const fixingJobFixture: AIJob = {
   createdAt: "2026-06-06T10:00:00.000Z",
   startedAt: "2026-06-06T10:00:02.000Z",
   finishedAt: null,
+  providerLabel: null,
+  providerKind: null,
 };
 
 /** Job singolo in stato "awaiting_plan_approval": piano in attesa di decisione. */
@@ -519,6 +533,8 @@ const awaitingPlanJobFixture: AIJob = {
   createdAt: "2026-06-05T10:00:00.000Z",
   startedAt: "2026-06-05T10:00:02.000Z",
   finishedAt: "2026-06-05T10:00:05.000Z",
+  providerLabel: null,
+  providerKind: null,
 };
 
 function renderDetail() {

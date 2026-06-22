@@ -8,7 +8,7 @@ import { authErrorResponses, errorSchema } from "./shared.js";
 import { apiError } from "../errors.js";
 
 // Tipo di credenziale del provider: allineato all'enum ai_provider_kind del DB.
-const aiProviderKindSchema = z.enum(["api_key", "account"]);
+export const aiProviderKindSchema = z.enum(["api_key", "account"]);
 
 const createProviderSchema = z.object({
   kind: aiProviderKindSchema,
