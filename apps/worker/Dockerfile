@@ -58,11 +58,17 @@ WORKDIR /app
 
 # git per i mirror; claude CLI installato globalmente. ca-certificates per le
 # connessioni HTTPS (clone su provider git, API Anthropic).
+# corepack enable crea gli shim pnpm/yarn sul PATH: la pipeline di fix
+# auto-rileva il package manager dal lockfile del repo per installare le
+# dipendenze nel worktree; npm è già presente, corepack fornisce pnpm/yarn.
+# Eseguito da root (prima di USER worker) così gli shim, installati in una dir
+# di sistema sul PATH, sono disponibili anche all'utente worker.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends git ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
   && npm install -g @anthropic-ai/claude-code \
-  && npm cache clean --force
+  && npm cache clean --force \
+  && corepack enable
 
 # Utente non-root con HOME: claude vi scrive le credenziali del login.
 RUN useradd --create-home --uid 10001 worker
