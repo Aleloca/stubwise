@@ -99,6 +99,15 @@ export function DocsGenerationPanel({ projectId }: { projectId: string }) {
           {t("docs:generation.jobFailed")}
         </p>
       )}
+      {(job?.status === "failed" || job?.status === "held") && job.error && (
+        // Motivo dell'ultimo job non riuscito o trattenuto: per il `held` è il
+        // motivo del blocco (es. tetto di costo superato), per il `failed` il
+        // messaggio d'errore. Senza questo l'utente vedeva solo "fallita/in
+        // attesa" senza capire il perché.
+        <p className="mt-1 text-[11px] text-fg-muted" role="status">
+          {t("docs:generation.jobReason", { reason: job.error })}
+        </p>
+      )}
 
       {isAdmin && (
         <button

@@ -906,6 +906,7 @@
       "cost": "costo ${{cost}}",
       "jobRunning": "Generazione in corso…",
       "jobFailed": "L'ultima generazione è fallita.",
+      "jobReason": "Motivo: {{reason}}",
       "error": "Impossibile avviare la generazione."
     },
     "search": {
@@ -931,6 +932,7 @@
       "emptyHint": "Le risposte si basano sulla documentazione del progetto, con citazioni.",
       "sources": "Fonti",
       "error": "Qualcosa è andato storto nel generare la risposta.",
+      "unavailable": "La chat dei docs richiede un provider AI con API key. Chiedi a un admin di aggiungerne uno nelle impostazioni (i provider account/OAuth non funzionano qui).",
       "newChat": "Nuova chat"
     }
   }

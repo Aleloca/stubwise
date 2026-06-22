@@ -169,9 +169,10 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
         body: chatBodySchema,
         // Nessuno schema di risposta 200: la risposta è uno stream SSE grezzo
         // scritto su reply.raw (reply.hijack), non un body serializzato da Zod.
-        // Restano gli errori PRIMA dello streaming (404/403/401), che usano il
-        // path normale di Fastify.
-        response: { 404: errorSchema, ...authErrorResponses },
+        // Restano gli errori PRIMA dello streaming (404/403/401/503), che usano
+        // il path normale di Fastify. Il 503 è la chat non servibile (nessun
+        // provider api_key): un errore JSON pulito, non un evento SSE opaco.
+        response: { 404: errorSchema, 503: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
@@ -185,6 +186,25 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
         .from(projects)
         .where(eq(projects.id, projectId));
       if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
+
+      // PRE-FLIGHT disponibilità chat: BEFORE l'hijack dello stream. Se l'LLM
+      // espone `isAvailable` e riporta non servibile (tipicamente: nessun
+      // provider AI `api_key` — gli account/oauth servono il worker ma non l'SDK
+      // HTTP), rispondiamo con un 503 JSON pulito che la UI mappa su un messaggio
+      // chiaro ("configura un provider API key"). Senza questo controllo l'errore
+      // emergerebbe solo a metà stream, DOPO hijack/writeHead, come evento SSE
+      // `error` opaco. Il controllo mid-stream resta come fallback runtime.
+      if (app.chatLlm.isAvailable) {
+        const availability = await app.chatLlm.isAvailable();
+        if (!availability.available) {
+          return apiError(
+            reply,
+            503,
+            "chat_unavailable",
+            "Docs chat requires an API-key AI provider",
+          );
+        }
+      }
 
       // Sessione: riusa quella fornita (validandone l'ownership) o ne crea una nuova.
       let resolvedSessionId: string;

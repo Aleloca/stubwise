@@ -2,6 +2,7 @@ import type { DocPageKind } from "@stubwise/shared";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { ApiError } from "../lib/api";
 import { type DocChatCitation, postDocChat } from "../lib/docs-api";
 import { Markdown } from "./markdown";
 
@@ -30,6 +31,12 @@ interface ChatMessage {
   streaming?: boolean;
   /** Solo per l'assistant: true se lo stream è terminato con un evento `error`. */
   errored?: boolean;
+  /**
+   * Solo per l'assistant: true se la chat NON è servibile (503 `chat_unavailable`
+   * dal pre-flight: nessun provider AI `api_key` configurato). Distinto da
+   * `errored` perché ha una causa attuabile dall'admin, con un messaggio dedicato.
+   */
+  unavailable?: boolean;
 }
 
 /** Evento SSE parsato dallo stream della chat (union discriminata su `type`). */
@@ -159,8 +166,15 @@ export function DocsChat({ projectId }: { projectId: string }) {
       // Stream chiuso senza un `done` esplicito (es. troncamento): chiudi lo
       // stato di streaming così l'indicatore sparisce.
       patchAssistant({ streaming: false });
-    } catch {
-      patchAssistant({ streaming: false, errored: true });
+    } catch (error) {
+      // Chat non servibile (503 `chat_unavailable`): pre-flight del server, mai
+      // si è aperto lo stream. Messaggio dedicato e attuabile (configura un
+      // provider API key) invece del generico stato d'errore.
+      if (error instanceof ApiError && error.code === "chat_unavailable") {
+        patchAssistant({ streaming: false, unavailable: true });
+      } else {
+        patchAssistant({ streaming: false, errored: true });
+      }
     } finally {
       setSending(false);
     }
@@ -278,7 +292,11 @@ function ChatBubble({
         </div>
       ) : (
         <div className="rounded-sm border border-line bg-ink-925 px-3 py-2">
-          {message.errored ? (
+          {message.unavailable ? (
+            <p className="text-[13px] text-danger" role="alert">
+              {t("docs:chat.unavailable")}
+            </p>
+          ) : message.errored ? (
             <p className="text-[13px] text-danger" role="alert">
               {t("docs:chat.error")}
             </p>

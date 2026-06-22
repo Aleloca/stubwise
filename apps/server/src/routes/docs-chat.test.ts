@@ -4,7 +4,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
 import { buildApp } from "../app.js";
-import type { ChatLlm, ChatLlmInput } from "./chat-llm.js";
+import type { ChatAvailability, ChatLlm, ChatLlmInput } from "./chat-llm.js";
 import {
   docChatMessages,
   docChatSessions,
@@ -43,10 +43,17 @@ let streamOverride:
   | ((input: ChatLlmInput) => AsyncIterable<string>)
   | null = null;
 
+// Override per-test del pre-flight di disponibilità. Se null, il fake è sempre
+// disponibile (default): esercita il path 503 della route iniettando l'indisponibilità.
+let availabilityOverride: ChatAvailability | null = null;
+
 const fakeChatLlm: ChatLlm = {
   stream(input: ChatLlmInput): AsyncIterable<string> {
     lastChatInput = input;
     return (streamOverride ?? defaultStream)(input);
+  },
+  async isAvailable(): Promise<ChatAvailability> {
+    return availabilityOverride ?? { available: true };
   },
 };
 
@@ -157,6 +164,7 @@ afterAll(async () => {
 beforeEach(() => {
   lastChatInput = null;
   streamOverride = null;
+  availabilityOverride = null;
 });
 
 describe("POST /api/projects/:projectId/docs/chat", () => {
@@ -367,6 +375,34 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
       payload: { message: "ciao" },
     });
     expect(res.statusCode).toBe(404);
+  });
+
+  it("chat non servibile (nessun provider api_key): 503 chat_unavailable, nessun hijack/stream", async () => {
+    const project = await insertProject(testDb.db);
+    await insertCurrentGeneration(testDb.db, project.id);
+    // Pre-flight riporta indisponibile: la route deve rispondere con un 503 JSON
+    // pulito PRIMA di aprire lo stream SSE.
+    availabilityOverride = { available: false, reason: "no_api_key_provider" };
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/docs/chat`,
+      headers: { cookie: memberCookie },
+      payload: { message: "Una domanda con chat indisponibile." },
+    });
+
+    expect(res.statusCode).toBe(503);
+    expect(res.headers["content-type"]).toContain("application/json");
+    expect(res.headers["content-type"]).not.toContain("text/event-stream");
+    expect(res.json()).toMatchObject({ code: "chat_unavailable" });
+
+    // Nessun side-effect: niente sessione né messaggi persistiti (il pre-flight
+    // precede l'insert del messaggio utente e la creazione della sessione).
+    const sessions = await testDb.db
+      .select()
+      .from(docChatSessions)
+      .where(eq(docChatSessions.projectId, project.id));
+    expect(sessions.length).toBe(0);
   });
 
   it("senza sessione: 401", async () => {

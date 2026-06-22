@@ -309,6 +309,31 @@ describe("trigger generazione + stato (M7.4)", () => {
     expect(await screen.findByText("succeeded")).toBeInTheDocument();
     expect(screen.getByText(/commit deadbee/)).toBeInTheDocument();
   });
+
+  it("un job held mostra il motivo (job.error) oltre allo stato", async () => {
+    mockApi({
+      ...baseHandlers("admin"),
+      [`GET /api/projects/${PROJECT_ID}/docs/status`]: () =>
+        jsonResponse(200, {
+          generation: null,
+          latestJob: {
+            id: "j-held",
+            status: "held",
+            trigger: "manual",
+            // Motivo del blocco (es. tetto di costo): deve comparire in chiaro.
+            error: "Cost cap exceeded: estimated $12.00 over the $5.00 limit",
+            createdAt: "2026-06-22T10:00:00.000Z",
+            startedAt: "2026-06-22T10:00:00.000Z",
+            finishedAt: null,
+          },
+        }),
+    });
+    renderApp(`/docs/${PROJECT_ID}`);
+
+    expect(await screen.findByText("held")).toBeInTheDocument();
+    // Il motivo è renderizzato (così l'utente capisce il PERCHÉ del blocco).
+    expect(screen.getByText(/Cost cap exceeded/)).toBeInTheDocument();
+  });
 });
 
 describe("ricerca (M7.4)", () => {

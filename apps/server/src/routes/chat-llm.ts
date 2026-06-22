@@ -34,12 +34,31 @@ export interface ChatLlmInput {
 }
 
 /**
+ * Esito di un controllo di disponibilità della chat (pre-flight): la chat è
+ * servibile solo se esiste un provider AI utilizzabile. `reason` è un codice
+ * stabile per la diagnostica/log; il messaggio user-facing lo decide la route.
+ */
+export interface ChatAvailability {
+  available: boolean;
+  reason?: string;
+}
+
+/**
  * LLM della chat: data una conversazione, emette i delta di testo della
  * risposta come async-iterable (uno yield per frammento). Lo streaming è il
  * contratto: la route li inoltra al client via SSE man mano che arrivano.
  */
 export interface ChatLlm {
   stream(input: ChatLlmInput): AsyncIterable<string>;
+  /**
+   * Controllo PRE-FLIGHT opzionale: riporta se la chat è servibile SENZA aprire
+   * uno stream, così la route può rispondere con un errore JSON pulito (503)
+   * PRIMA di `reply.hijack()` invece di fallire a metà stream con un evento SSE
+   * `error` opaco. L'impl reale verifica che esista un provider `api_key`
+   * abilitato e decifrabile; il fake (test) è sempre disponibile. Quando assente,
+   * la route salta il pre-flight e si affida al solo fallback mid-stream.
+   */
+  isAvailable?(): Promise<ChatAvailability>;
 }
 
 /**
@@ -74,35 +93,52 @@ export interface CreateAnthropicChatLlmOptions {
  *
  * Implementazione volutamente minima: i test esercitano il fake, non questa.
  */
+/**
+ * Risolve la API key Anthropic dal PRIMO provider `api_key` abilitato e
+ * decifrabile (ordine di `position`, stesso failover di `stream`). Gli
+ * account/oauth sono saltati: l'SDK HTTP non li accetta (vedi limitazione sopra).
+ * Restituisce `undefined` se nessun provider utilizzabile esiste — usato sia
+ * dal pre-flight ({@link ChatLlm.isAvailable}) sia dallo streaming, così i due
+ * percorsi condividono ESATTAMENTE la stessa logica di selezione.
+ */
+async function resolveApiKey(db: Db, encryptionKey: Buffer): Promise<string | undefined> {
+  const rows = await db
+    .select({
+      id: aiProviders.id,
+      kind: aiProviders.kind,
+      secretEncrypted: aiProviders.secretEncrypted,
+    })
+    .from(aiProviders)
+    .where(eq(aiProviders.enabled, true))
+    .orderBy(asc(aiProviders.position));
+
+  for (const row of rows) {
+    if (row.kind !== "api_key") continue;
+    try {
+      return decrypt(row.secretEncrypted, encryptionKey);
+    } catch {
+      // Secret non decifrabile: prova il prossimo api_key. Mai loggare il payload.
+    }
+  }
+  return undefined;
+}
+
 export function createAnthropicChatLlm(options: CreateAnthropicChatLlmOptions): ChatLlm {
   const { db, encryptionKey } = options;
   const model = options.model ?? DEFAULT_CHAT_MODEL;
 
   return {
-    async *stream(input: ChatLlmInput): AsyncIterable<string> {
-      // Primo provider api_key abilitato (ordine di failover). Gli account/oauth
-      // sono saltati: l'SDK HTTP non li accetta (vedi limitazione sopra).
-      const rows = await db
-        .select({
-          id: aiProviders.id,
-          kind: aiProviders.kind,
-          secretEncrypted: aiProviders.secretEncrypted,
-        })
-        .from(aiProviders)
-        .where(eq(aiProviders.enabled, true))
-        .orderBy(asc(aiProviders.position));
+    async isAvailable(): Promise<ChatAvailability> {
+      // Pre-flight: la chat è servibile solo se esiste un provider api_key
+      // utilizzabile. Stesso percorso di selezione dello stream (no drift).
+      const apiKey = await resolveApiKey(db, encryptionKey);
+      return apiKey
+        ? { available: true }
+        : { available: false, reason: "no_api_key_provider" };
+    },
 
-      let apiKey: string | undefined;
-      for (const row of rows) {
-        if (row.kind !== "api_key") continue;
-        try {
-          apiKey = decrypt(row.secretEncrypted, encryptionKey);
-          break;
-        } catch {
-          // Secret non decifrabile: prova il prossimo api_key. Mai loggare il payload.
-          continue;
-        }
-      }
+    async *stream(input: ChatLlmInput): AsyncIterable<string> {
+      const apiKey = await resolveApiKey(db, encryptionKey);
       if (!apiKey) {
         throw new Error(
           "chat RAG non disponibile: nessun provider AI 'api_key' abilitato. " +

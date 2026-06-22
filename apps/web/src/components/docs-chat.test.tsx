@@ -8,6 +8,7 @@ import {
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "../lib/api";
 import { DocsChat } from "./docs-chat";
 
 /**
@@ -123,6 +124,27 @@ describe("DocsChat", () => {
     await user.click(screen.getByRole("button", { name: /^send$/i }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/went wrong/i);
+  });
+
+  it("chat non servibile (503 chat_unavailable): mostra il messaggio dedicato, non il generico", async () => {
+    // Il pre-flight del server risponde 503 → postDocChat lancia un ApiError col
+    // codice `chat_unavailable`. La UI deve mostrare il messaggio attuabile
+    // (configura un provider API key), distinto dal generico errore di stream.
+    postDocChat.mockRejectedValueOnce(
+      new ApiError(503, "Docs chat requires an API-key AI provider", "chat_unavailable"),
+    );
+
+    const user = userEvent.setup();
+    renderChat();
+    const input = await openChat(user);
+
+    await user.type(input, "any question");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/api-key ai provider/i);
+    // NON è il messaggio generico d'errore di generazione.
+    expect(alert).not.toHaveTextContent(/went wrong/i);
   });
 
   it("citazioni malformate: scartate senza rompere il render", async () => {

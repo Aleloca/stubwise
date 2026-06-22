@@ -248,14 +248,22 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // solo al primo uso, coerente con storage/embedding (l'app si costruisce anche
   // senza, esplode solo chi tocca la chat senza averli configurati).
   let realChatLlm: ChatLlm | undefined;
+  const getRealChatLlm = (): ChatLlm => {
+    realChatLlm ??= createAnthropicChatLlm({
+      db: app.db,
+      encryptionKey: app.encryptionKey,
+    });
+    return realChatLlm;
+  };
   const chatLlm: ChatLlm =
     opts.chatLlm ?? {
       stream(input) {
-        realChatLlm ??= createAnthropicChatLlm({
-          db: app.db,
-          encryptionKey: app.encryptionKey,
-        });
-        return realChatLlm.stream(input);
+        return getRealChatLlm().stream(input);
+      },
+      // Pre-flight inoltrato all'impl reale (controllo provider api_key), così la
+      // route può rispondere 503 PRIMA dell'hijack dello stream se non servibile.
+      isAvailable() {
+        return getRealChatLlm().isAvailable!();
       },
     };
   app.decorate("chatLlm", chatLlm);
