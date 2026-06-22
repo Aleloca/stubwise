@@ -26,6 +26,8 @@ import {
 } from "./routes/attachments.js";
 import { authRoutes } from "./routes/auth.js";
 import { commentRoutes } from "./routes/comments.js";
+import { createAnthropicChatLlm, type ChatLlm } from "./routes/chat-llm.js";
+import { docsChatRoutes } from "./routes/docs-chat.js";
 import { docsRoutes } from "./routes/docs.js";
 import { gitAccountRoutes } from "./routes/git-accounts.js";
 import { inboundRoutes } from "./routes/inbound.js";
@@ -140,6 +142,14 @@ export interface BuildAppOptions {
   embeddingModel?: string;
   /** API key opzionale per l'endpoint di embedding. */
   embeddingApiKey?: string;
+  /**
+   * LLM della chat RAG sui Docs. Default: implementazione reale
+   * {@link createAnthropicChatLlm} che legge il primo provider AI `api_key`
+   * abilitato (decifrato con encryptionKey) e stremma via SDK Anthropic.
+   * Override pensato per i test: inietta un fake che emette delta canned senza
+   * toccare la rete né richiedere credenziali.
+   */
+  chatLlm?: ChatLlm;
 }
 
 /**
@@ -230,6 +240,26 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     });
   app.decorate("embeddingClient", embeddingClient);
 
+  // LLM della chat RAG sui Docs. Nei test si inietta un fake (delta canned); in
+  // produzione si costruisce l'implementazione reale via SDK Anthropic, che a
+  // runtime legge il primo provider AI `api_key` abilitato (decifrato con
+  // encryptionKey) — gli account/oauth non sono supportati dall'SDK HTTP. La
+  // costruzione è lazy via getter: db/encryptionKey sono risolti dai loro getter
+  // solo al primo uso, coerente con storage/embedding (l'app si costruisce anche
+  // senza, esplode solo chi tocca la chat senza averli configurati).
+  let realChatLlm: ChatLlm | undefined;
+  const chatLlm: ChatLlm =
+    opts.chatLlm ?? {
+      stream(input) {
+        realChatLlm ??= createAnthropicChatLlm({
+          db: app.db,
+          encryptionKey: app.encryptionKey,
+        });
+        return realChatLlm.stream(input);
+      },
+    };
+  app.decorate("chatLlm", chatLlm);
+
   // Senza secret il plugin si registra comunque (parsing dei cookie), ma
   // firmare il cookie di sessione fallisce: stesso spirito del getter su db.
   void app.register(fastifyCookie, { secret: opts.sessionSecret });
@@ -282,6 +312,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // pagina, CRUD pagine manuali. Path interni completi (es.
   // /projects/:projectId/docs/generate, /docs/spaces) sotto /api.
   void app.register(docsRoutes, { prefix: "/api" });
+  // Chat RAG in streaming sui Docs (M6.5): plugin separato perché bypassa lo
+  // schema di risposta Zod (stream SSE grezzo su reply.raw). Path interno
+  // completo `/projects/:projectId/docs/chat` sotto /api.
+  void app.register(docsChatRoutes, { prefix: "/api" });
   // Milestone di progetto: pianificazione e avanzamento, per ogni utente.
   void app.register(milestoneRoutes, { prefix: "/api/milestones" });
   // Viste salvate dei filtri della lista ticket: private o condivise.
