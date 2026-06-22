@@ -175,7 +175,12 @@
       "startedAt": "Inizio {{date}}",
       "finishedAt": "Fine {{date}}",
       "showLog": "▸ Mostra log",
-      "hideLog": "▾ Nascondi log"
+      "hideLog": "▾ Nascondi log",
+      "provider": "Provider",
+      "providerKind": {
+        "account": "account",
+        "api_key": "API key"
+      }
     },
     "activity": {
       "title": "Attività",

@@ -15,6 +15,8 @@ function makeJob(overrides: Partial<AIJob>): AIJob {
     createdAt: "2026-06-01T10:00:00.000Z",
     startedAt: null,
     finishedAt: null,
+    providerLabel: null,
+    providerKind: null,
     ...overrides,
   };
 }
@@ -139,6 +141,36 @@ describe("AIJobTimeline", () => {
     render(<AIJobTimeline jobs={[makeJob({ id: "j1", log: "" })]} />);
 
     expect(screen.queryByRole("button", { name: /log/i })).not.toBeInTheDocument();
+  });
+
+  it("job con provider collegato: mostra label e tipo del provider", () => {
+    render(
+      <AIJobTimeline
+        jobs={[
+          makeJob({
+            id: "j1",
+            status: "pr_opened",
+            providerLabel: "Anthropic Account",
+            providerKind: "account",
+          }),
+        ]}
+      />,
+    );
+
+    const entry = screen.getByRole("listitem");
+    expect(within(entry).getByText(/Anthropic Account/)).toBeInTheDocument();
+    expect(within(entry).getByText(/account/i)).toBeInTheDocument();
+  });
+
+  it("job senza provider: non mostra la riga del provider", () => {
+    render(
+      <AIJobTimeline
+        jobs={[makeJob({ id: "j1", status: "pr_opened", providerLabel: null, providerKind: null })]}
+      />,
+    );
+
+    const entry = screen.getByRole("listitem");
+    expect(within(entry).queryByText(/provider/i)).not.toBeInTheDocument();
   });
 
   it("mostra inizio e fine quando presenti", () => {

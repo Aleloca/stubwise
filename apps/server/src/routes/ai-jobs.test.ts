@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { agentRuns, aiJobs } from "@stubwise/db";
+import { agentRuns, aiJobs, aiProviders } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
@@ -134,6 +134,8 @@ describe("GET /api/tickets/:ticketId/jobs", () => {
       createdAt: "2026-06-03T10:00:00.000Z",
       startedAt: "2026-06-03T10:00:02.000Z",
       finishedAt: "2026-06-03T10:00:40.000Z",
+      providerLabel: null,
+      providerKind: null,
     });
     expect(body[1]).toEqual({
       id: opened!.id,
@@ -145,6 +147,8 @@ describe("GET /api/tickets/:ticketId/jobs", () => {
       createdAt: "2026-06-02T10:00:00.000Z",
       startedAt: "2026-06-02T10:00:05.000Z",
       finishedAt: "2026-06-02T10:03:00.000Z",
+      providerLabel: null,
+      providerKind: null,
     });
     expect(body[2]).toMatchObject({
       id: queued!.id,
@@ -154,7 +158,54 @@ describe("GET /api/tickets/:ticketId/jobs", () => {
       error: null,
       startedAt: null,
       finishedAt: null,
+      providerLabel: null,
+      providerKind: null,
     });
+  });
+
+  it("job con provider collegato: espone providerLabel e providerKind", async () => {
+    const otherTicketRes = await app.inject({
+      method: "GET",
+      url: `/api/tickets/${ticketId}`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(otherTicketRes.statusCode).toBe(200);
+
+    const [provider] = await testDb.db
+      .insert(aiProviders)
+      .values({
+        kind: "account",
+        label: "Anthropic Account",
+        secretEncrypted: "cifrato",
+        position: 0,
+      })
+      .returning();
+    expect(provider).toBeTruthy();
+
+    const [jobWithProvider] = await testDb.db
+      .insert(aiJobs)
+      .values({
+        ticketId,
+        status: "pr_opened",
+        providerId: provider!.id,
+        createdAt: new Date("2026-07-01T10:00:00Z"),
+      })
+      .returning();
+    expect(jobWithProvider).toBeTruthy();
+
+    const res = await listJobs(ticketId, users.memberCookie);
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as Record<string, unknown>[];
+    const entry = body.find((job) => job["id"] === jobWithProvider!.id);
+    expect(entry).toMatchObject({
+      providerLabel: "Anthropic Account",
+      providerKind: "account",
+    });
+
+    // Job senza provider: entrambi i campi restano null.
+    const noProvider = body.find((job) => job["providerLabel"] === null);
+    expect(noProvider).toBeDefined();
+    expect(noProvider).toMatchObject({ providerLabel: null, providerKind: null });
   });
 });
 
