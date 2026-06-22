@@ -13,6 +13,8 @@ import {
   invites,
   milestones,
   notificationSettings,
+  projectEnvFiles,
+  projectEnvVars,
   projects,
   savedViews,
   ticketEvents,
@@ -1576,5 +1578,140 @@ describe("schema: ai_providers + ai_usage_snapshots + ai_jobs.providerId", () =>
       .from(aiUsageSnapshots)
       .where(eq(aiUsageSnapshots.providerId, providerId));
     expect(after.length).toBe(0);
+  });
+});
+
+/**
+ * Verifica le tabelle dei file d'ambiente per progetto: project_env_files
+ * (path, unique per (project_id, path)) e project_env_vars (key +
+ * value_encrypted, unique per (file_id, key)). In particolare la cancellazione
+ * in cascata: eliminando un file spariscono le sue variabili; eliminando il
+ * progetto spariscono file e variabili.
+ */
+describe("schema: project_env_files + project_env_vars", () => {
+  let testDb: TestDb;
+  let db: Db;
+
+  beforeAll(async () => {
+    testDb = await startTestDb();
+    db = testDb.db;
+  });
+
+  afterAll(async () => {
+    await testDb.stop();
+  });
+
+  async function seedProject(): Promise<string> {
+    const gitAccountId = await seedGitAccount(db);
+    const [project] = await db
+      .insert(projects)
+      .values({
+        name: "Progetto di test",
+        slug: `progetto-${randomUUID()}`,
+        provider: "github",
+        gitAccountId,
+        repoUrl: "https://example.com/repo.git",
+        defaultBranch: "main",
+        ingestionKey: randomUUID(),
+      })
+      .returning();
+    if (!project) throw new Error("insert del progetto non ha restituito la riga");
+    return project.id;
+  }
+
+  async function seedEnvFile(projectId: string, path = ".env"): Promise<string> {
+    const [file] = await db
+      .insert(projectEnvFiles)
+      .values({ projectId, path })
+      .returning();
+    if (!file) throw new Error("insert del file env non ha restituito la riga");
+    return file.id;
+  }
+
+  it("persiste un file con due variabili e le rilegge", async () => {
+    const projectId = await seedProject();
+    const fileId = await seedEnvFile(projectId, ".env");
+
+    const [file] = await db.select().from(projectEnvFiles).where(eq(projectEnvFiles.id, fileId));
+    expect(file?.projectId).toBe(projectId);
+    expect(file?.path).toBe(".env");
+    expect(file?.createdAt).toBeInstanceOf(Date);
+    expect(file?.updatedAt).toBeInstanceOf(Date);
+
+    await db.insert(projectEnvVars).values([
+      { fileId, key: "DATABASE_URL", valueEncrypted: "blob-cifrato-1" },
+      { fileId, key: "API_KEY", valueEncrypted: "blob-cifrato-2" },
+    ]);
+
+    const vars = await db.select().from(projectEnvVars).where(eq(projectEnvVars.fileId, fileId));
+    expect(vars.length).toBe(2);
+    const byKey = new Map(vars.map((v) => [v.key, v.valueEncrypted]));
+    expect(byKey.get("DATABASE_URL")).toBe("blob-cifrato-1");
+    expect(byKey.get("API_KEY")).toBe("blob-cifrato-2");
+  });
+
+  it("cancella in cascata le variabili quando il file viene eliminato", async () => {
+    const projectId = await seedProject();
+    const fileId = await seedEnvFile(projectId);
+    await db.insert(projectEnvVars).values({ fileId, key: "FOO", valueEncrypted: "x" });
+
+    const before = await db.select().from(projectEnvVars).where(eq(projectEnvVars.fileId, fileId));
+    expect(before.length).toBe(1);
+
+    await db.delete(projectEnvFiles).where(eq(projectEnvFiles.id, fileId));
+
+    const after = await db.select().from(projectEnvVars).where(eq(projectEnvVars.fileId, fileId));
+    expect(after.length).toBe(0);
+  });
+
+  it("cancella in cascata file e variabili quando il progetto viene eliminato", async () => {
+    const projectId = await seedProject();
+    const fileId = await seedEnvFile(projectId);
+    await db.insert(projectEnvVars).values({ fileId, key: "BAR", valueEncrypted: "y" });
+
+    await db.delete(projects).where(eq(projects.id, projectId));
+
+    const files = await db
+      .select()
+      .from(projectEnvFiles)
+      .where(eq(projectEnvFiles.projectId, projectId));
+    expect(files.length).toBe(0);
+    const vars = await db.select().from(projectEnvVars).where(eq(projectEnvVars.fileId, fileId));
+    expect(vars.length).toBe(0);
+  });
+
+  it("vieta due file con lo stesso (project_id, path), ammette stesso path in progetti diversi", async () => {
+    const projectA = await seedProject();
+    const projectB = await seedProject();
+    await db.insert(projectEnvFiles).values({ projectId: projectA, path: ".env" });
+
+    await expect(
+      db.insert(projectEnvFiles).values({ projectId: projectA, path: ".env" }),
+    ).rejects.toThrow();
+
+    const [other] = await db
+      .insert(projectEnvFiles)
+      .values({ projectId: projectB, path: ".env" })
+      .returning();
+    expect(other?.projectId).toBe(projectB);
+    expect(other?.path).toBe(".env");
+  });
+
+  it("vieta due variabili con la stessa (file_id, key), ammette stessa key in file diversi", async () => {
+    const projectId = await seedProject();
+    const fileA = await seedEnvFile(projectId, ".env");
+    const fileB = await seedEnvFile(projectId, ".env.local");
+    await db.insert(projectEnvVars).values({ fileId: fileA, key: "TOKEN", valueEncrypted: "a" });
+
+    await expect(
+      db.insert(projectEnvVars).values({ fileId: fileA, key: "TOKEN", valueEncrypted: "b" }),
+    ).rejects.toThrow();
+
+    const [other] = await db
+      .insert(projectEnvVars)
+      .values({ fileId: fileB, key: "TOKEN", valueEncrypted: "c" })
+      .returning();
+    expect(other?.fileId).toBe(fileB);
+    expect(other?.key).toBe("TOKEN");
   });
 });

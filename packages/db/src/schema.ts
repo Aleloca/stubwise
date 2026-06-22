@@ -738,3 +738,60 @@ export const savedViews = pgTable(
     uniqueIndex("saved_views_owner_id_name_unique").on(table.ownerId, table.name),
   ],
 );
+
+/**
+ * File d'ambiente configurato per un progetto (es. ".env", ".env.local"): un
+ * percorso relativo nel worktree in cui il worker materializza le variabili
+ * cifrate prima della fase di fix/verifica. `path` è il percorso relativo del
+ * file. Cancellato in cascata col progetto. L'unique (project_id, path) vieta
+ * due file omonimi nello stesso progetto, ma ammette lo stesso path in progetti
+ * diversi.
+ */
+export const projectEnvFiles = pgTable(
+  "project_env_files",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    // Percorso univoco per progetto.
+    uniqueIndex("project_env_files_project_id_path_unique").on(table.projectId, table.path),
+  ],
+);
+
+/**
+ * Variabile d'ambiente di un file di progetto: `key` è il nome della variabile,
+ * `valueEncrypted` è il valore cifrato AES-256-GCM (vedi secrets.ts), che non
+ * esce mai in chiaro dall'API e viene decifrato solo dal worker al momento di
+ * materializzare il file. Cancellata in cascata col file. L'unique (file_id,
+ * key) vieta due variabili omonime nello stesso file, ma ammette la stessa key
+ * in file diversi.
+ */
+export const projectEnvVars = pgTable(
+  "project_env_vars",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    fileId: uuid("file_id")
+      .notNull()
+      .references(() => projectEnvFiles.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    valueEncrypted: text("value_encrypted").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    // Nome variabile univoco per file.
+    uniqueIndex("project_env_vars_file_id_key_unique").on(table.fileId, table.key),
+  ],
+);
