@@ -24,6 +24,8 @@ describe("loadWorkerConfig", () => {
     // Self-repair: default 2 RE-tentativi, timeout test 5'.
     expect(config.selfRepairMaxAttempts).toBe(2);
     expect(config.selfRepairTestTimeoutMs).toBe(300_000);
+    // Install delle dipendenze nel worktree: timeout default 10'.
+    expect(config.installTimeoutMs).toBe(600_000);
     // PUBLIC_URL non impostato: default stringa vuota (il link al ticket nelle
     // notifiche è il solo path).
     expect(config.publicUrl).toBe("");
@@ -98,6 +100,11 @@ describe("loadWorkerConfig", () => {
     });
     expect(config.selfRepairMaxAttempts).toBe(0);
     expect(config.selfRepairTestTimeoutMs).toBe(120_000);
+  });
+
+  it("rispetta INSTALL_TIMEOUT_MS esplicito", () => {
+    const config = loadWorkerConfig({ ...VALID, INSTALL_TIMEOUT_MS: "120000" });
+    expect(config.installTimeoutMs).toBe(120_000);
   });
 
   it("rifiuta SELF_REPAIR_MAX_ATTEMPTS negativa e SELF_REPAIR_TEST_TIMEOUT_MS < 1", () => {
