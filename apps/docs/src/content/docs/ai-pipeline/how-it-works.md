@@ -43,8 +43,18 @@ stays **held** and you start it by hand. See
 
 On a `fix` decision, the **expensive** phase begins. The agent works in an
 **ephemeral worktree** created on a **local git mirror** of the repository, on
-the `stubwise/ticket-<number>` branch. The procedure the prompt asks the agent
-to follow:
+the `stubwise/ticket-<number>` branch.
+
+Before the agent runs, the worker **installs the repo's dependencies** in the
+worktree, once, so the repo's own tests don't fail with "command not found".
+The command is the project's optional **"Install command"** field or, when
+empty, **auto-detected** from the lockfile (`pnpm-lock.yaml` →
+`pnpm install --frozen-lockfile`, `yarn.lock` → `yarn install --frozen-lockfile`,
+`package-lock.json` → `npm ci`, otherwise → `npm install`); with no
+`package.json` and no override it's skipped. See
+[Install command](/docs/ai-pipeline/automation/#install-command).
+
+The procedure the prompt asks the agent to follow:
 
 1. explore the code and **locate the root cause**;
 2. if the repo allows it (a test framework is present), **write a test** that

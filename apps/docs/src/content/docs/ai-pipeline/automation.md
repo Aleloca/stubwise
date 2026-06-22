@@ -155,6 +155,33 @@ ceilings**, exactly as it bypasses the auto-fix gate: a human has decided the
 spend is worth it. The budget only ever holds back **automatic** work.
 :::
 
+## Install command
+
+Before the agent touches the code, and before the self-repair test loop, the
+worker installs the repo's dependencies **once** in the ephemeral worktree.
+Without this, the repo's own tests would fail with "command not found" (exit
+127) because nothing is installed yet. Which command it runs is, per project,
+either:
+
+- the project's optional **"Install command"** field (Settings → Project, and
+  the new-project wizard), or
+- **auto-detected** when that field is empty, from the lockfile present in the
+  repo:
+
+  | Lockfile             | Command                          |
+  | -------------------- | -------------------------------- |
+  | `pnpm-lock.yaml`     | `pnpm install --frozen-lockfile` |
+  | `yarn.lock`          | `yarn install --frozen-lockfile` |
+  | `package-lock.json`  | `npm ci`                         |
+  | none (but a `package.json` exists) | `npm install`      |
+
+Leave it empty for a standard JS project; set it for a custom command (for
+example a monorepo that needs `pnpm install --filter ...`, or a non-JS toolchain
+like `pip install -r requirements.txt`). If there's no `package.json` and no
+override, there's nothing to install and the step is skipped. The install has
+its own timeout, the `INSTALL_TIMEOUT_MS` worker variable (default 10 minutes);
+see [Configuration](/docs/reference/configuration/).
+
 ## Test command for self-repair
 
 Before opening a PR, the worker runs the repo's tests itself and loops with the
