@@ -16,10 +16,11 @@ import {
   projects,
 } from "@stubwise/db";
 import { apiError } from "../errors.js";
-import { authErrorResponses, errorSchema } from "./shared.js";
+import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 
 const projectIdParamsSchema = z.object({ projectId: z.uuid() });
 const slugParamsSchema = z.object({ projectId: z.uuid(), slug: z.string().min(1) });
+const manualIdParamsSchema = z.object({ projectId: z.uuid(), id: z.uuid() });
 
 /** Job di generazione restituito dalle route di trigger/stato. */
 const jobSchema = z.object({
@@ -113,11 +114,43 @@ const spaceSchema = z.object({
   lastCommitSha: z.string().nullable(),
 });
 
+const createManualSchema = z.object({
+  title: z.string().min(1).max(300),
+  // Slug opzionale: assente = derivato dal titolo. Unico per progetto (409).
+  slug: z.string().min(1).max(300).optional(),
+  parentId: z.uuid().nullable().optional(),
+  position: z.int().optional(),
+  body: z.string().default(""),
+});
+
+const updateManualSchema = z.object({
+  title: z.string().min(1).max(300).optional(),
+  parentId: z.uuid().nullable().optional(),
+  position: z.int().optional(),
+  body: z.string().optional(),
+});
+
+/**
+ * Slug URL-safe dal titolo: minuscole, accenti rimossi, resto in trattini.
+ * Stessa logica di routes/projects.ts; fallback fisso se non resta nulla.
+ */
+function slugify(title: string): string {
+  const slug = title
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "pagina";
+}
+
 /**
  * Route della documentazione (non-chat), registrate sotto /api.
  *
  * - Trigger generazione (solo admin) + stato (auth).
  * - Hub spazi, albero pagine, pagina singola (auth, sola lettura).
+ * - CRUD pagine manuali (auth, member ok): solo le pagine `isManual` sono
+ *   modificabili/eliminabili; le autogenerate sono protette.
  *
  * L'albero e la pagina mostrano SOLO la generazione corrente
  * (projects.currentDocGenerationId) più tutte le pagine manuali
@@ -385,6 +418,178 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         commitSha,
         updatedAt: page.updatedAt.toISOString(),
       };
+    },
+  );
+
+  // --- M6.3: CRUD pagine manuali -----------------------------------------
+
+  /**
+   * Crea una pagina manuale (member ok): `isManual` true, `generationId` null,
+   * `kind` "manual", autore = utente corrente. Slug derivato dal titolo se
+   * assente; unico per progetto (409 in conflitto, anche con le autogenerate).
+   */
+  app.post(
+    "/projects/:projectId/docs/manual",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: projectIdParamsSchema,
+        body: createManualSchema,
+        response: {
+          201: pageSchema,
+          404: errorSchema,
+          409: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { projectId } = request.params;
+      const { title, slug, parentId, position, body } = request.body;
+
+      const [project] = await app.db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(eq(projects.id, projectId));
+      if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
+
+      const resolvedSlug = slug ?? slugify(title);
+
+      try {
+        const [created] = await app.db
+          .insert(docPages)
+          .values({
+            projectId,
+            generationId: null,
+            kind: "manual",
+            slug: resolvedSlug,
+            title,
+            parentId: parentId ?? null,
+            position: position ?? 0,
+            body,
+            isManual: true,
+            createdBy: request.user!.id,
+          })
+          .returning();
+        if (!created) throw new Error("insert della pagina manuale non ha restituito la riga");
+        return reply.code(201).send({
+          id: created.id,
+          slug: created.slug,
+          title: created.title,
+          kind: created.kind,
+          parentId: created.parentId,
+          position: created.position,
+          sourcePath: created.sourcePath,
+          body: created.body,
+          isManual: created.isManual,
+          commitSha: null,
+          updatedAt: created.updatedAt.toISOString(),
+        });
+      } catch (error) {
+        if (isUniqueViolation(error)) {
+          return apiError(reply, 409, "doc_page_slug_conflict", "Slug already used in this project");
+        }
+        throw error;
+      }
+    },
+  );
+
+  /**
+   * Aggiorna una pagina manuale (member ok): solo title/body/parentId/position.
+   * Solo le pagine `isManual`: una pagina autogenerata risponde 404 (non è
+   * "manual", quindi non esiste per questo endpoint). 404 anche se inesistente.
+   */
+  app.patch(
+    "/projects/:projectId/docs/manual/:id",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: manualIdParamsSchema,
+        body: updateManualSchema,
+        response: { 200: pageSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { projectId, id } = request.params;
+      const { title, parentId, position, body } = request.body;
+
+      const updates: Partial<typeof docPages.$inferInsert> = {};
+      if (title !== undefined) updates.title = title;
+      if (parentId !== undefined) updates.parentId = parentId;
+      if (position !== undefined) updates.position = position;
+      if (body !== undefined) updates.body = body;
+
+      // Drizzle rifiuta un update senza colonne: un PATCH vuoto è una lettura.
+      const [row] =
+        Object.keys(updates).length === 0
+          ? await app.db
+              .select()
+              .from(docPages)
+              .where(
+                and(
+                  eq(docPages.id, id),
+                  eq(docPages.projectId, projectId),
+                  eq(docPages.isManual, true),
+                ),
+              )
+          : await app.db
+              .update(docPages)
+              .set(updates)
+              .where(
+                and(
+                  eq(docPages.id, id),
+                  eq(docPages.projectId, projectId),
+                  eq(docPages.isManual, true),
+                ),
+              )
+              .returning();
+      if (!row) return apiError(reply, 404, "doc_page_not_found", "Manual page not found");
+
+      return {
+        id: row.id,
+        slug: row.slug,
+        title: row.title,
+        kind: row.kind,
+        parentId: row.parentId,
+        position: row.position,
+        sourcePath: row.sourcePath,
+        body: row.body,
+        isManual: row.isManual,
+        commitSha: null,
+        updatedAt: row.updatedAt.toISOString(),
+      };
+    },
+  );
+
+  /**
+   * Elimina una pagina manuale (member ok). Solo le pagine `isManual`: una
+   * pagina autogenerata non viene toccata (404, non corrisponde al filtro).
+   */
+  app.delete(
+    "/projects/:projectId/docs/manual/:id",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: manualIdParamsSchema,
+        response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { projectId, id } = request.params;
+      const deleted = await app.db
+        .delete(docPages)
+        .where(
+          and(
+            eq(docPages.id, id),
+            eq(docPages.projectId, projectId),
+            eq(docPages.isManual, true),
+          ),
+        )
+        .returning({ id: docPages.id });
+      if (deleted.length === 0) {
+        return apiError(reply, 404, "doc_page_not_found", "Manual page not found");
+      }
+      return reply.code(204).send(null);
     },
   );
 }

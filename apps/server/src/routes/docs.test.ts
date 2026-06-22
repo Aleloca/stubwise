@@ -278,14 +278,11 @@ describe("GET /api/docs/spaces", () => {
 
   it("un progetto con solo pagine manuali compare nell'hub", async () => {
     const project = await insertProject(testDb.db);
-    await testDb.db.insert(docPages).values({
-      projectId: project.id,
-      generationId: null,
-      kind: "manual",
-      slug: "solo-manuale",
-      title: "Solo Manuale",
-      body: "ciao",
-      isManual: true,
+    await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/docs/manual`,
+      headers: { cookie: memberCookie },
+      payload: { title: "Solo Manuale", body: "ciao" },
     });
 
     const res = await app.inject({
@@ -309,14 +306,11 @@ describe("GET /api/projects/:projectId/docs/tree", () => {
   it("ritorna le pagine della generazione corrente + manuali, raggruppate per kind", async () => {
     const project = await insertProject(testDb.db);
     await seedSucceededGeneration(testDb.db, project.id);
-    await testDb.db.insert(docPages).values({
-      projectId: project.id,
-      generationId: null,
-      kind: "manual",
-      slug: "nota-manuale",
-      title: "Nota Manuale",
-      body: "x",
-      isManual: true,
+    await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/docs/manual`,
+      headers: { cookie: memberCookie },
+      payload: { title: "Nota Manuale", slug: "nota-manuale", body: "x" },
     });
 
     const res = await app.inject({
@@ -419,5 +413,137 @@ describe("GET /api/projects/:projectId/docs/pages/:slug", () => {
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("manual pages CRUD", () => {
+  it("crea una pagina manuale: 201, isManual true, kind manual, slug derivato", async () => {
+    const project = await insertProject(testDb.db);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/docs/manual`,
+      headers: { cookie: memberCookie },
+      payload: { title: "Guida Operativa", body: "# Guida" },
+    });
+    expect(res.statusCode).toBe(201);
+    const body = res.json() as {
+      id: string;
+      slug: string;
+      kind: string;
+      isManual: boolean;
+      commitSha: string | null;
+    };
+    expect(body.kind).toBe("manual");
+    expect(body.isManual).toBe(true);
+    expect(body.slug).toBe("guida-operativa");
+    expect(body.commitSha).toBeNull();
+  });
+
+  it("slug duplicato nello stesso progetto: 409", async () => {
+    const project = await insertProject(testDb.db);
+    const payload = { title: "Conflitto", slug: "conflitto", body: "a" };
+    const first = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/docs/manual`,
+      headers: { cookie: memberCookie },
+      payload,
+    });
+    expect(first.statusCode).toBe(201);
+    const second = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/docs/manual`,
+      headers: { cookie: memberCookie },
+      payload,
+    });
+    expect(second.statusCode).toBe(409);
+  });
+
+  it("modifica title/body: 200", async () => {
+    const project = await insertProject(testDb.db);
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/docs/manual`,
+      headers: { cookie: memberCookie },
+      payload: { title: "Da Modificare", slug: "da-modificare", body: "vecchio" },
+    });
+    const id = (created.json() as { id: string }).id;
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${project.id}/docs/manual/${id}`,
+      headers: { cookie: memberCookie },
+      payload: { title: "Modificata", body: "nuovo" },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { title: string; body: string };
+    expect(body.title).toBe("Modificata");
+    expect(body.body).toBe("nuovo");
+  });
+
+  it("elimina una pagina manuale: 204, poi 404", async () => {
+    const project = await insertProject(testDb.db);
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/docs/manual`,
+      headers: { cookie: memberCookie },
+      payload: { title: "Da Eliminare", slug: "da-eliminare", body: "x" },
+    });
+    const id = (created.json() as { id: string }).id;
+
+    const del = await app.inject({
+      method: "DELETE",
+      url: `/api/projects/${project.id}/docs/manual/${id}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(del.statusCode).toBe(204);
+
+    const again = await app.inject({
+      method: "DELETE",
+      url: `/api/projects/${project.id}/docs/manual/${id}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(again.statusCode).toBe(404);
+  });
+
+  it("una pagina AUTOGENERATA non è modificabile via manual: 404", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await seedSucceededGeneration(testDb.db, project.id);
+    const [generated] = await testDb.db
+      .select({ id: docPages.id })
+      .from(docPages)
+      .where(eq(docPages.generationId, genId));
+
+    const patch = await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${project.id}/docs/manual/${generated!.id}`,
+      headers: { cookie: memberCookie },
+      payload: { title: "Hack" },
+    });
+    expect(patch.statusCode).toBe(404);
+
+    const del = await app.inject({
+      method: "DELETE",
+      url: `/api/projects/${project.id}/docs/manual/${generated!.id}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(del.statusCode).toBe(404);
+
+    // La pagina autogenerata è ancora lì, intatta.
+    const [still] = await testDb.db
+      .select()
+      .from(docPages)
+      .where(eq(docPages.id, generated!.id));
+    expect(still).toBeDefined();
+    expect(still!.title).toBe("Technical Overview");
+  });
+
+  it("creazione senza sessione: 401", async () => {
+    const project = await insertProject(testDb.db);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/docs/manual`,
+      payload: { title: "Anon", body: "x" },
+    });
+    expect(res.statusCode).toBe(401);
   });
 });
