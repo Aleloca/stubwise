@@ -164,6 +164,7 @@ describe("creazione progetto", () => {
       },
       "GET /api/projects/demo-shop": () => jsonResponse(200, created),
       "GET /api/milestones": () => jsonResponse(200, []),
+      [`GET /api/projects/${created.id}/env-files`]: () => jsonResponse(200, []),
     });
 
     const router = renderApp("/projects/new");
@@ -217,6 +218,7 @@ describe("dettaglio progetto", () => {
       "GET /api/milestones": () => jsonResponse(200, []),
       "GET /api/projects": () => jsonResponse(200, [project]),
       "GET /api/git-accounts": () => jsonResponse(200, [ACCOUNT, ACCOUNT_B]),
+      [`GET /api/projects/${project.id}/env-files`]: () => jsonResponse(200, []),
       "PATCH /api/projects/demo-shop": (_url, init) => {
         patchBody = JSON.parse(String(init?.body));
         return jsonResponse(200, { ...project, name: "Demo Shop EU" });
@@ -255,6 +257,7 @@ describe("dettaglio progetto", () => {
       "GET /api/milestones": () => jsonResponse(200, []),
       "GET /api/projects": () => jsonResponse(200, [project]),
       "GET /api/git-accounts": () => jsonResponse(200, [ACCOUNT, ACCOUNT_B]),
+      [`GET /api/projects/${project.id}/env-files`]: () => jsonResponse(200, []),
       "PATCH /api/projects/demo-shop": (_url, init) => {
         patchBody = JSON.parse(String(init?.body));
         return jsonResponse(200, { ...project, gitAccountId: ACCOUNT_B.id });
@@ -284,6 +287,7 @@ describe("dettaglio progetto", () => {
       "GET /api/milestones": () => jsonResponse(200, []),
       "GET /api/projects": () => jsonResponse(200, [project]),
       "GET /api/git-accounts": () => jsonResponse(200, [ACCOUNT]),
+      [`GET /api/projects/${project.id}/env-files`]: () => jsonResponse(200, []),
     });
 
     renderApp("/projects/demo-shop");
@@ -306,6 +310,7 @@ describe("dettaglio progetto", () => {
       "GET /api/milestones": () => jsonResponse(200, []),
       "GET /api/projects": () => jsonResponse(200, [project]),
       "GET /api/git-accounts": () => jsonResponse(200, [ACCOUNT]),
+      [`GET /api/projects/${project.id}/env-files`]: () => jsonResponse(200, []),
       "GET /api/projects/demo-shop/webhook": () =>
         jsonResponse(200, { webhookSecret: "s3cr3t", webhookPath: "/webhooks/git/demo-shop" }),
     });
@@ -327,6 +332,7 @@ describe("dettaglio progetto", () => {
       "GET /api/milestones": () => jsonResponse(200, []),
       "GET /api/projects": () => jsonResponse(200, [project]),
       "GET /api/git-accounts": () => jsonResponse(200, [ACCOUNT]),
+      [`GET /api/projects/${project.id}/env-files`]: () => jsonResponse(200, []),
       "GET /api/projects/demo-shop/webhook": () =>
         jsonResponse(200, { webhookSecret: "s3cr3t", webhookPath: "/webhooks/git/demo-shop" }),
     });

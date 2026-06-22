@@ -134,6 +134,8 @@ describe("ProjectWizard — flusso completo", () => {
         return jsonResponse(201, CREATED);
       },
       "GET /api/projects/demo-shop": () => jsonResponse(200, CREATED),
+      "GET /api/milestones": () => jsonResponse(200, []),
+      [`GET /api/projects/${CREATED.id}/env-files`]: () => jsonResponse(200, []),
     });
 
     const router = renderWizard();
@@ -179,6 +181,8 @@ describe("ProjectWizard — flusso completo", () => {
         return jsonResponse(201, CREATED);
       },
       "GET /api/projects/demo-shop": () => jsonResponse(200, CREATED),
+      "GET /api/milestones": () => jsonResponse(200, []),
+      [`GET /api/projects/${CREATED.id}/env-files`]: () => jsonResponse(200, []),
     });
 
     const router = renderWizard();
@@ -212,6 +216,8 @@ describe("ProjectWizard — flusso completo", () => {
         return jsonResponse(201, CREATED);
       },
       "GET /api/projects/demo-shop": () => jsonResponse(200, CREATED),
+      "GET /api/milestones": () => jsonResponse(200, []),
+      [`GET /api/projects/${CREATED.id}/env-files`]: () => jsonResponse(200, []),
     });
 
     const router = renderWizard();
@@ -305,6 +311,8 @@ describe("ProjectWizard — fallback manuale", () => {
         return jsonResponse(201, created);
       },
       "GET /api/projects/demo-shop": () => jsonResponse(200, created),
+      "GET /api/milestones": () => jsonResponse(200, []),
+      [`GET /api/projects/${created.id}/env-files`]: () => jsonResponse(200, []),
     });
 
     const router = renderWizard();
