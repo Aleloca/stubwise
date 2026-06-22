@@ -1440,9 +1440,10 @@ describe("runFix — install delle dipendenze (Task 4)", () => {
     expect(order[0]).toBe("install");
     expect(order).toContain("agent");
     expect(order.indexOf("install")).toBeLessThan(order.indexOf("agent"));
-    // Log dell'esito ok.
+    // Log dell'esito ok: il ramo di successo è loggato esplicitamente
+    // (l'asserzione generica "install dipendenze" matcherebbe anche l'avvio).
     const jobAfter = await getJob(db, job.id);
-    expect(jobAfter.log).toContain("install dipendenze");
+    expect(jobAfter.log).toContain("install dipendenze: ok");
   });
 
   it("install eseguito PRIMA dell'agente anche in execute-only", async () => {

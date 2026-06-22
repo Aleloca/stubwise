@@ -123,10 +123,15 @@ export interface TestRunResult {
 const TEST_RUN_OUTPUT_MAX_CHARS = 16_000;
 
 /**
- * Esegue il comando di test nel worktree (default iniettabile di FixDeps). Un
- * exit non-zero NON è un errore: è il segnale che i test sono rossi (reject:
- * false). stdout+stderr combinati e troncati per non gonfiare prompt/log. */
-async function defaultRunTestCommand(
+ * Esegue un comando nel worktree catturandone l'output (helper condivisa dai
+ * default iniettabili di FixDeps per test e install). Un exit non-zero NON è un
+ * errore (reject:false): per i test è il segnale che sono rossi, per l'install
+ * è un dato che il chiamante logga e con cui prosegue; in entrambi i casi è il
+ * chiamante a decidere. stdout+stderr combinati e troncati a
+ * TEST_RUN_OUTPUT_MAX_CHARS per non gonfiare prompt/log. Eredita l'env del
+ * worker (NON l'env ristretto dell'agente): l'install ha bisogno dell'ambiente
+ * reale del container (PATH, registri, ecc.). */
+async function runCommandCaptured(
   cmd: TestCommand,
   dir: string,
   timeoutMs: number,
@@ -146,29 +151,30 @@ async function defaultRunTestCommand(
 }
 
 /**
+ * Esegue il comando di test nel worktree (default iniettabile di FixDeps). Un
+ * exit non-zero NON è un errore: è il segnale che i test sono rossi (reject:
+ * false). Delega a runCommandCaptured (stdout+stderr combinati e troncati). */
+async function defaultRunTestCommand(
+  cmd: TestCommand,
+  dir: string,
+  timeoutMs: number,
+): Promise<TestRunResult> {
+  return runCommandCaptured(cmd, dir, timeoutMs);
+}
+
+/**
  * Esegue l'install delle dipendenze nel worktree (default iniettabile di
  * FixDeps), speculare a defaultRunTestCommand. Un exit non-zero NON è un errore
  * (reject:false): è un dato che il chiamante logga e con cui prosegue comunque.
- * Eredita l'env del worker (NON l'env ristretto dell'agente): l'install ha
- * bisogno dell'ambiente reale del container (PATH, registri, ecc.). stdout+stderr
- * combinati e troncati per non gonfiare il log. */
+ * Delega a runCommandCaptured, che eredita l'env del worker (NON l'env ristretto
+ * dell'agente: l'install ha bisogno dell'ambiente reale del container) e tronca
+ * l'output per non gonfiare il log. */
 async function defaultRunInstallCommand(
   cmd: TestCommand,
   dir: string,
   timeoutMs: number,
 ): Promise<TestRunResult> {
-  const result = await execa(cmd.cmd, cmd.args, {
-    cwd: dir,
-    timeout: timeoutMs,
-    reject: false,
-    all: true,
-  });
-  const combined = result.all ?? `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
-  const output =
-    combined.length > TEST_RUN_OUTPUT_MAX_CHARS
-      ? `${combined.slice(0, TEST_RUN_OUTPUT_MAX_CHARS)}\n[output troncato]`
-      : combined;
-  return { exitCode: result.exitCode ?? 1, output };
+  return runCommandCaptured(cmd, dir, timeoutMs);
 }
 
 export interface FixDeps extends NotifyDeps {
