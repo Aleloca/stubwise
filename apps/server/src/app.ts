@@ -29,6 +29,7 @@ import { gitAccountRoutes } from "./routes/git-accounts.js";
 import { inboundRoutes } from "./routes/inbound.js";
 import { ingestRoutes } from "./routes/ingest.js";
 import { milestoneRoutes } from "./routes/milestones.js";
+import { projectEnvFileRoutes } from "./routes/project-env-files.js";
 import { projectRoutes } from "./routes/projects.js";
 import { savedViewRoutes } from "./routes/saved-views.js";
 import { settingsRoutes } from "./routes/settings.js";
@@ -241,6 +242,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // ogni utente (scelta in fase di creazione progetto), scrittura solo admin.
   void app.register(gitAccountRoutes, { prefix: "/api/git-accounts" });
   void app.register(projectRoutes, { prefix: "/api/projects" });
+  void app.register(projectEnvFileRoutes, { prefix: "/api/projects" });
   void app.register(ticketRoutes, { prefix: "/api/tickets" });
   // Milestone di progetto: pianificazione e avanzamento, per ogni utente.
   void app.register(milestoneRoutes, { prefix: "/api/milestones" });
