@@ -134,7 +134,7 @@ export function parseDotenv(text: string): EnvVar[] {
 
     // `rest` = tutto dopo il primo `=`, con eventuali spazi iniziali rimossi
     // (gli spazi attorno al `=` non fanno parte del valore).
-    let rest = withoutExport.slice(eq + 1).replace(/^[ \t]+/, "");
+    const rest = withoutExport.slice(eq + 1).replace(/^[ \t]+/, "");
 
     const first = rest[0];
     if (first === '"') {
@@ -235,6 +235,12 @@ export function serializeDotenv(vars: EnvVar[]): string {
  * POSIX `/...` né Windows `C:\...`), senza segmenti `..` o `.`, e che resta
  * dentro l'albero. Logica esplicita su `/` per evitare dipendenze e ambiguità
  * di piattaforma.
+ *
+ * INVARIANTE: assume input NON URL-encoded. Le sequenze percent (es. `%2e%2e`,
+ * `%2f`) sono trattate come nomi di file LETTERALI, non decodificate: chi chiama
+ * NON deve passare path già decodificati da URL prima della validazione,
+ * altrimenti la garanzia anti-traversal va rivalutata (un `%2e%2e` decodificato
+ * a posteriori diventerebbe un `..`).
  */
 export function isSafeRelPath(p: string): boolean {
   if (p === "") return false;
@@ -247,9 +253,11 @@ export function isSafeRelPath(p: string): boolean {
 
   const segments = p.split("/");
   for (const seg of segments) {
-    // Segmento vuoto: doppio slash o slash di coda → sospetto.
-    if (seg === "") return false;
-    // `.` e `..` non sono ammessi (no traversal, no rumore).
+    // Segmento vuoto (doppio slash / slash di coda) o whitespace-only (nomi
+    // file bizzarri, input malformato): rifiutati.
+    if (seg.trim() === "") return false;
+    // `.` e `..` non sono ammessi (no traversal, no rumore). `...`/`....` invece
+    // sono nomi file POSIX validi e restano ammessi.
     if (seg === "." || seg === "..") return false;
   }
   return true;

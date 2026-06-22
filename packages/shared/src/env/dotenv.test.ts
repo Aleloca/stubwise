@@ -87,6 +87,12 @@ describe("parseDotenv", () => {
     expect(parseDotenv(text)).toEqual([{ key: "GOOD", value: "2" }]);
   });
 
+  it("scarta la riga con apice doppio non chiuso senza lanciare", () => {
+    const text = ['KEY="non chiuso', "OK=1"].join("\n");
+    expect(() => parseDotenv(text)).not.toThrow();
+    expect(parseDotenv(text)).toEqual([{ key: "OK", value: "1" }]);
+  });
+
   it("parsa più variabili", () => {
     const text = ["A=1", "B=2", "C=3"].join("\n");
     expect(parseDotenv(text)).toEqual([
@@ -148,6 +154,38 @@ describe("round-trip parse(serialize(vars))", () => {
     ];
     expect(parseDotenv(serializeDotenv(vars))).toEqual(vars);
   });
+
+  it("preserva un valore fatto di soli spazi", () => {
+    const vars = [{ key: "SPACES_ONLY", value: "   " }];
+    expect(parseDotenv(serializeDotenv(vars))).toEqual(vars);
+  });
+
+  it("preserva un valore che inizia e finisce con apice doppio", () => {
+    const vars = [{ key: "WRAPPED", value: '"interno"' }];
+    expect(parseDotenv(serializeDotenv(vars))).toEqual(vars);
+  });
+
+  it("distingue \\n LETTERALE (backslash+n) da un newline reale", () => {
+    const vars = [
+      { key: "LITERAL", value: "riga1\\nriga2" }, // backslash + n, NON newline
+      { key: "REAL", value: "riga1\nriga2" }, // newline reale
+    ];
+    const roundTripped = parseDotenv(serializeDotenv(vars));
+    expect(roundTripped).toEqual(vars);
+    // Blindatura esplicita: il letterale non contiene un newline reale.
+    expect(roundTripped[0]?.value).not.toContain("\n");
+    expect(roundTripped[1]?.value).toContain("\n");
+  });
+
+  it("preserva un valore multiline su 3+ righe fisiche", () => {
+    const vars = [{ key: "MULTI", value: "uno\ndue\ntre\nquattro" }];
+    expect(parseDotenv(serializeDotenv(vars))).toEqual(vars);
+  });
+
+  it("preserva un valore con backslash finale", () => {
+    const vars = [{ key: "TRAILING_BS", value: "path\\" }];
+    expect(parseDotenv(serializeDotenv(vars))).toEqual(vars);
+  });
 });
 
 describe("isValidEnvKey", () => {
@@ -172,6 +210,21 @@ describe("isSafeRelPath", () => {
   it("rifiuta path assoluti, traversal e vuoti", () => {
     for (const p of ["/etc/passwd", "../x", "a/../../b", "", "C:\\Windows", "a/../b", "./x"]) {
       expect(isSafeRelPath(p)).toBe(false);
+    }
+  });
+  it("rifiuta segmenti vuoti o whitespace-only", () => {
+    for (const p of [" ", "  ", "\t", "a/ /b", "a//b", "a/b/"]) {
+      expect(isSafeRelPath(p)).toBe(false);
+    }
+  });
+  it("accetta `...`/`....` come nomi file POSIX validi", () => {
+    for (const p of ["...", "....", "a/.../b"]) {
+      expect(isSafeRelPath(p)).toBe(true);
+    }
+  });
+  it("accetta nomi dotenv comuni", () => {
+    for (const p of [".env.local", "apps/web/.env"]) {
+      expect(isSafeRelPath(p)).toBe(true);
     }
   });
 });
