@@ -15,7 +15,12 @@ x-logging: &default-logging
 
 services:
   postgres:
-    image: postgres:17-alpine
+    # pgvector/pgvector:pg17 = Postgres 17 con l'estensione `vector` disponibile
+    # a runtime. Serve alla documentazione autogenerata (migrazione 0026 fa
+    # `CREATE EXTENSION IF NOT EXISTS vector` e crea un indice HNSW sugli
+    # embedding). Stessa immagine usata dal testcontainer (packages/db/src/
+    # testing.ts) per coerenza dev/prod.
+    image: pgvector/pgvector:pg17
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-stubwise}
@@ -29,6 +34,22 @@ services:
       timeout: 5s
       retries: 10
 
+  # Servizio di embedding self-hosted (API OpenAI-compatibile su /v1) usato dalla
+  # documentazione autogenerata: server e worker chiamano EMBEDDING_BASE_URL
+  # (http://ollama:11434/v1) col modello bge-m3 (1024 dim). Nessuna API key.
+  #
+  # IMPORTANTE: il modello va scaricato UNA volta dopo il primo `up` (il volume
+  # ollama lo persiste tra i riavvii):
+  #   docker compose exec ollama ollama pull bge-m3
+  # Finché il modello non è presente, le chiamate di embedding falliscono e la
+  # generazione doc va in errore (gli altri servizi restano operativi).
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    volumes:
+      - ollama:/root/.ollama
+    logging: *default-logging
+
   server:
     build:
       context: .
@@ -37,6 +58,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      # Embedding self-hosted: avviato col server (la ricerca/chat lo usa). Non
+      # ha healthcheck: `service_started` basta (il modello si scarica a parte).
+      ollama:
+        condition: service_started
     environment:
       DATABASE_URL: ${DATABASE_URL}
       SESSION_SECRET: ${SESSION_SECRET}
@@ -46,6 +71,11 @@ services:
       # Caddy fa da reverse proxy davanti: il server deve fidarsi degli
       # X-Forwarded-* per impostare il flag Secure sul cookie di sessione.
       TRUST_PROXY: "true"
+      # Embedding per la documentazione autogenerata (ricerca semantica + chat
+      # RAG): il server interroga il servizio `ollama` (API OpenAI-compatibile).
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-http://ollama:11434/v1}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
     logging: *default-logging
     # Il server applica le migrazioni all'avvio (runMigrations): worker e Caddy
     # lo aspettano sano. Healthcheck definito nell'immagine (hit /health).
@@ -62,6 +92,9 @@ services:
       # che il server e' sano.
       server:
         condition: service_healthy
+      # Embedding self-hosted: il worker embedda i chunk delle pagine generate.
+      ollama:
+        condition: service_started
     # Forma LISTA (non mapping): permette il pass-through `- NOME` per le
     # credenziali Claude opzionali, che compose OMETTE dall'env del container se
     # non sono definite — invece di passarle come stringa vuota (cosa che la
@@ -89,6 +122,15 @@ services:
       # Timeout dell'install delle dipendenze nel worktree: gira una volta prima
       # del fix/test (e' l'addendo singolo dell'invariante di staleness sopra).
       - INSTALL_TIMEOUT_MS=${INSTALL_TIMEOUT_MS:-600000}
+      # --- Embedding documentazione autogenerata ---
+      # Il worker embedda i chunk delle pagine generate via il servizio `ollama`
+      # (API OpenAI-compatibile /v1). Ricordati `docker compose exec ollama
+      # ollama pull bge-m3` al primo avvio. EMBEDDING_API_KEY in forma
+      # pass-through (`- NOME`): se non è in .env compose la OMETTE (Ollama non
+      # ne vuole; niente Authorization vuoto).
+      - EMBEDDING_BASE_URL=${EMBEDDING_BASE_URL:-http://ollama:11434/v1}
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-bge-m3}
+      - EMBEDDING_API_KEY
       # --- Auth del CLI claude ---
       # Metodo raccomandato: gestisci le credenziali in Settings -> AI providers
       # (catena cifrata nel DB, con failover). Le due righe pass-through qui sotto
@@ -138,3 +180,5 @@ volumes:
   claude-config:
   caddy-data:
   caddy-config:
+  # Modelli scaricati da Ollama (es. bge-m3): persistono tra i riavvii.
+  ollama:

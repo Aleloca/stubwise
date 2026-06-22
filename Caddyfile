@@ -8,8 +8,11 @@
 #
 # Caddy serve:
 #   - /api/*, /ingest/*, /webhooks/*  -> reverse proxy al server Fastify.
-#   - /docs/*                         -> statici della documentazione.
-#   - tutto il resto                  -> SPA (con fallback a index.html per il
+#   - /guide/*                        -> statici della documentazione utente
+#                                        (sito Starlight). NB: NON /docs/*, che è
+#                                        una sezione della SPA (documentazione
+#                                        autogenerata per progetto).
+#   - tutto il resto (incl. /docs/*)  -> SPA (con fallback a index.html per il
 #                                        client-side routing).
 
 {$DOMAIN} {
@@ -34,15 +37,21 @@
 		reverse_proxy {$SERVER_UPSTREAM:server:3000}
 	}
 
-	# Documentazione statica (sito Starlight buildato in /srv/docs).
-	handle_path /docs/* {
+	# Documentazione utente statica (sito Starlight buildato in /srv/docs),
+	# servita sotto /guide/*. Deve restare PRIMA del blocco SPA `handle` qui
+	# sotto (i due `handle` sono mutuamente esclusivi e valutati nell'ordine).
+	# Sta su /guide e NON su /docs proprio per non intercettare i deep link
+	# della sezione "Docs" della SPA (/docs, /docs/:projectId, ...), che ora
+	# ricade nel fallback SPA.
+	handle_path /guide/* {
 		root * /srv/docs
 		try_files {path} {path}/ /index.html
 		file_server
 	}
 
-	# SPA: tutto il resto serve i file statici, con fallback a index.html per
-	# le route gestite dal router lato client.
+	# SPA: tutto il resto (incluso /docs/* della sezione Docs) serve i file
+	# statici, con fallback a index.html per le route gestite dal router lato
+	# client.
 	handle {
 		root * /srv/web
 		try_files {path} /index.html

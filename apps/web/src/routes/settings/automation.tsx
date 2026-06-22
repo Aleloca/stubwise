@@ -58,7 +58,7 @@ export function SettingsAutomationPage() {
         <p className="mt-1 font-mono text-[11px] text-fg-faint">{t("automation:subtitle")}</p>
         <p className="mt-1 font-mono text-[11px] text-fg-faint">{t("automation:maxCostHint")}</p>
         <a
-          href="/docs/ai-pipeline/automation/"
+          href="/guide/ai-pipeline/automation/"
           target="_blank"
           rel="noreferrer"
           className="mt-2 inline-block font-mono text-[11px] text-signal underline-offset-2 hover:underline"

@@ -162,7 +162,7 @@ function SetupGuide({ format }: { format: NotificationFormat }) {
       {format === "discord" && <DiscordGuide />}
       {format === "generic" && <GenericGuide />}
       <a
-        href="/docs/notifications/"
+        href="/guide/notifications/"
         target="_blank"
         rel="noreferrer"
         className="mt-3 inline-block font-mono text-[12px] text-signal underline-offset-2 hover:underline"
@@ -323,7 +323,7 @@ export function NotificationsSection() {
             {t("notifications:title")}
           </h2>
           <a
-            href="/docs/notifications/"
+            href="/guide/notifications/"
             target="_blank"
             rel="noreferrer"
             className="font-mono text-[11px] text-signal underline-offset-2 hover:underline"
