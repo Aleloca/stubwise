@@ -2,8 +2,9 @@ import {
   docGenerationStatusSchema,
   docGenerationTriggerSchema,
   docJobStatusSchema,
+  docPageKindSchema,
 } from "@stubwise/shared";
-import { and, desc, eq, or } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -11,12 +12,14 @@ import { requireAdmin, requireAuth } from "../auth/session.js";
 import {
   docGenerationJobs,
   docGenerations,
+  docPages,
   projects,
 } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 const projectIdParamsSchema = z.object({ projectId: z.uuid() });
+const slugParamsSchema = z.object({ projectId: z.uuid(), slug: z.string().min(1) });
 
 /** Job di generazione restituito dalle route di trigger/stato. */
 const jobSchema = z.object({
@@ -72,9 +75,53 @@ function toGeneration(row: DocGenerationRow): z.infer<typeof generationSchema> {
   };
 }
 
+/** Nodo dell'albero/sidebar: quanto basta per renderizzare la navigazione. */
+const treeNodeSchema = z.object({
+  id: z.uuid(),
+  slug: z.string(),
+  title: z.string(),
+  kind: docPageKindSchema,
+  parentId: z.uuid().nullable(),
+  position: z.number().int(),
+  sourcePath: z.string().nullable(),
+  isManual: z.boolean(),
+});
+
+/** Pagina completa: corpo markdown + metadati. */
+const pageSchema = z.object({
+  id: z.uuid(),
+  slug: z.string(),
+  title: z.string(),
+  kind: docPageKindSchema,
+  parentId: z.uuid().nullable(),
+  position: z.number().int(),
+  sourcePath: z.string().nullable(),
+  body: z.string(),
+  isManual: z.boolean(),
+  // commitSha della generazione di appartenenza; null per le pagine manuali.
+  commitSha: z.string().nullable(),
+  updatedAt: z.string(),
+});
+
+/** Uno "spazio" dell'hub: un progetto che ha documentazione. */
+const spaceSchema = z.object({
+  projectId: z.uuid(),
+  slug: z.string(),
+  name: z.string(),
+  pageCount: z.number().int(),
+  lastGenerationAt: z.string().nullable(),
+  lastCommitSha: z.string().nullable(),
+});
+
 /**
  * Route della documentazione (non-chat), registrate sotto /api.
- * Trigger della generazione (solo admin) e stato corrente (auth).
+ *
+ * - Trigger generazione (solo admin) + stato (auth).
+ * - Hub spazi, albero pagine, pagina singola (auth, sola lettura).
+ *
+ * L'albero e la pagina mostrano SOLO la generazione corrente
+ * (projects.currentDocGenerationId) più tutte le pagine manuali
+ * (generationId null), che sopravvivono alle rigenerazioni.
  */
 export async function docsRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -174,6 +221,170 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         .limit(1);
 
       return { generation, latestJob: job ? toJob(job) : null };
+    },
+  );
+
+  // --- M6.2: hub spazi + albero + pagina ---------------------------------
+
+  /**
+   * Hub degli spazi: i progetti che hanno documentazione, cioè almeno una
+   * pagina (autogenerata o manuale). Per ognuno: conteggio pagine e data/commit
+   * dell'ultima generazione (terminata con successo).
+   */
+  app.get(
+    "/docs/spaces",
+    {
+      preHandler: requireAuth,
+      schema: { response: { 200: z.array(spaceSchema), ...authErrorResponses } },
+    },
+    async () => {
+      // Aggregazione per progetto su doc_pages: solo i progetti con almeno una
+      // pagina compaiono (inner join). Conteggio pagine e, via join sul commit
+      // della generazione corrente, l'ultimo commit documentato.
+      const rows = await app.db
+        .select({
+          projectId: projects.id,
+          slug: projects.slug,
+          name: projects.name,
+          pageCount: sql<number>`count(${docPages.id})::int`,
+          lastGenerationAt: sql<string | null>`max(${docGenerations.finishedAt})`,
+          lastCommitSha: sql<string | null>`max(${docGenerations.commitSha})`,
+        })
+        .from(projects)
+        .innerJoin(docPages, eq(docPages.projectId, projects.id))
+        .leftJoin(
+          docGenerations,
+          and(
+            eq(docGenerations.id, projects.currentDocGenerationId),
+            eq(docGenerations.status, "succeeded"),
+          ),
+        )
+        .groupBy(projects.id, projects.slug, projects.name)
+        .orderBy(asc(projects.name));
+
+      return rows.map((r) => ({
+        projectId: r.projectId,
+        slug: r.slug,
+        name: r.name,
+        pageCount: r.pageCount,
+        lastGenerationAt: r.lastGenerationAt
+          ? new Date(r.lastGenerationAt).toISOString()
+          : null,
+        lastCommitSha: r.lastCommitSha,
+      }));
+    },
+  );
+
+  /**
+   * Albero delle pagine per la sidebar: le pagine della generazione corrente
+   * più tutte le pagine manuali (generationId null). Ordinato per kind, poi
+   * position/titolo. Le pagine di generazioni NON correnti sono escluse.
+   */
+  app.get(
+    "/projects/:projectId/docs/tree",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: projectIdParamsSchema,
+        response: { 200: z.array(treeNodeSchema), 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { projectId } = request.params;
+
+      const [project] = await app.db
+        .select({ id: projects.id, currentDocGenerationId: projects.currentDocGenerationId })
+        .from(projects)
+        .where(eq(projects.id, projectId));
+      if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
+
+      // Generazione corrente OR manuale (generationId null). Senza generazione
+      // corrente restano solo le manuali.
+      const currentGen = project.currentDocGenerationId;
+      const genFilter = currentGen
+        ? or(eq(docPages.generationId, currentGen), isNull(docPages.generationId))
+        : isNull(docPages.generationId);
+
+      const rows = await app.db
+        .select({
+          id: docPages.id,
+          slug: docPages.slug,
+          title: docPages.title,
+          kind: docPages.kind,
+          parentId: docPages.parentId,
+          position: docPages.position,
+          sourcePath: docPages.sourcePath,
+          isManual: docPages.isManual,
+        })
+        .from(docPages)
+        .where(and(eq(docPages.projectId, projectId), genFilter))
+        .orderBy(asc(docPages.kind), asc(docPages.position), asc(docPages.title));
+
+      return rows;
+    },
+  );
+
+  /**
+   * Pagina singola per slug (univoco per progetto): solo se appartiene alla
+   * generazione corrente o è manuale. 404 altrimenti (anche per pagine di
+   * generazioni vecchie). Include il commitSha della generazione per le pagine
+   * autogenerate.
+   */
+  app.get(
+    "/projects/:projectId/docs/pages/:slug",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: slugParamsSchema,
+        response: { 200: pageSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { projectId, slug } = request.params;
+
+      const [project] = await app.db
+        .select({ id: projects.id, currentDocGenerationId: projects.currentDocGenerationId })
+        .from(projects)
+        .where(eq(projects.id, projectId));
+      if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
+
+      const [page] = await app.db
+        .select()
+        .from(docPages)
+        .where(and(eq(docPages.projectId, projectId), eq(docPages.slug, slug)));
+      if (!page) return apiError(reply, 404, "doc_page_not_found", "Documentation page not found");
+
+      // Visibile solo se manuale o appartiene alla generazione corrente.
+      const visible =
+        page.generationId === null ||
+        (project.currentDocGenerationId !== null &&
+          page.generationId === project.currentDocGenerationId);
+      if (!visible) {
+        return apiError(reply, 404, "doc_page_not_found", "Documentation page not found");
+      }
+
+      let commitSha: string | null = null;
+      if (page.generationId) {
+        const [gen] = await app.db
+          .select({ commitSha: docGenerations.commitSha })
+          .from(docGenerations)
+          .where(eq(docGenerations.id, page.generationId));
+        commitSha = gen?.commitSha ?? null;
+      }
+
+      return {
+        id: page.id,
+        slug: page.slug,
+        title: page.title,
+        kind: page.kind,
+        parentId: page.parentId,
+        position: page.position,
+        sourcePath: page.sourcePath,
+        body: page.body,
+        isManual: page.isManual,
+        commitSha,
+        updatedAt: page.updatedAt.toISOString(),
+      };
     },
   );
 }

@@ -250,3 +250,174 @@ describe("GET /api/projects/:projectId/docs/status", () => {
     expect(res.statusCode).toBe(401);
   });
 });
+
+describe("GET /api/docs/spaces", () => {
+  it("elenca solo i progetti con documentazione (con conteggio pagine)", async () => {
+    const withDocs = await insertProject(testDb.db);
+    await seedSucceededGeneration(testDb.db, withDocs.id, { commitSha: "space01" });
+    const withoutDocs = await insertProject(testDb.db);
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/docs/spaces",
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      projectId: string;
+      pageCount: number;
+      lastCommitSha: string | null;
+    }[];
+    const ids = body.map((s) => s.projectId);
+    expect(ids).toContain(withDocs.id);
+    expect(ids).not.toContain(withoutDocs.id);
+    const space = body.find((s) => s.projectId === withDocs.id)!;
+    expect(space.pageCount).toBe(2);
+    expect(space.lastCommitSha).toBe("space01");
+  });
+
+  it("un progetto con solo pagine manuali compare nell'hub", async () => {
+    const project = await insertProject(testDb.db);
+    await testDb.db.insert(docPages).values({
+      projectId: project.id,
+      generationId: null,
+      kind: "manual",
+      slug: "solo-manuale",
+      title: "Solo Manuale",
+      body: "ciao",
+      isManual: true,
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/docs/spaces",
+      headers: { cookie: memberCookie },
+    });
+    const body = res.json() as { projectId: string; pageCount: number }[];
+    const space = body.find((s) => s.projectId === project.id);
+    expect(space).toBeDefined();
+    expect(space!.pageCount).toBe(1);
+  });
+
+  it("senza sessione: 401", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/docs/spaces" });
+    expect(res.statusCode).toBe(401);
+  });
+});
+
+describe("GET /api/projects/:projectId/docs/tree", () => {
+  it("ritorna le pagine della generazione corrente + manuali, raggruppate per kind", async () => {
+    const project = await insertProject(testDb.db);
+    await seedSucceededGeneration(testDb.db, project.id);
+    await testDb.db.insert(docPages).values({
+      projectId: project.id,
+      generationId: null,
+      kind: "manual",
+      slug: "nota-manuale",
+      title: "Nota Manuale",
+      body: "x",
+      isManual: true,
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${project.id}/docs/tree`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { kind: string; isManual: boolean; slug: string }[];
+    const kinds = body.map((n) => n.kind);
+    expect(kinds).toContain("technical");
+    expect(kinds).toContain("functional");
+    expect(kinds).toContain("manual");
+    // Raggruppate per kind: ogni kind compare in un blocco contiguo (l'ordine
+    // segue l'enum doc_page_kind, non l'alfabeto).
+    const blocks = kinds.filter((k, i) => i === 0 || k !== kinds[i - 1]);
+    expect(new Set(blocks).size).toBe(blocks.length);
+    expect(body.find((n) => n.slug === "nota-manuale")!.isManual).toBe(true);
+  });
+
+  it("esclude le pagine di generazioni NON correnti, include sempre le manuali", async () => {
+    const project = await insertProject(testDb.db);
+    // Vecchia generazione (non corrente).
+    const oldGenId = await seedSucceededGeneration(testDb.db, project.id, {
+      commitSha: "old111",
+      current: false,
+    });
+    // Nuova generazione corrente.
+    await seedSucceededGeneration(testDb.db, project.id, { commitSha: "new222" });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${project.id}/docs/tree`,
+      headers: { cookie: memberCookie },
+    });
+    const body = res.json() as { id: string }[];
+    // Nessuna pagina della generazione vecchia.
+    const oldPages = await testDb.db
+      .select({ id: docPages.id })
+      .from(docPages)
+      .where(eq(docPages.generationId, oldGenId));
+    const oldIds = new Set(oldPages.map((p) => p.id));
+    expect(body.some((n) => oldIds.has(n.id))).toBe(false);
+    // Le due pagine della generazione corrente sono presenti.
+    expect(body).toHaveLength(2);
+  });
+
+  it("progetto inesistente: 404", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/projects/00000000-0000-0000-0000-000000000000/docs/tree",
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("GET /api/projects/:projectId/docs/pages/:slug", () => {
+  it("ritorna la pagina autogenerata con commitSha della generazione", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await seedSucceededGeneration(testDb.db, project.id, { commitSha: "page999" });
+    const slug = `tech-overview-${genId.slice(0, 8)}`;
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${project.id}/docs/pages/${slug}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { title: string; body: string; commitSha: string; kind: string };
+    expect(body.title).toBe("Technical Overview");
+    expect(body.body).toContain("Dettagli tecnici");
+    expect(body.commitSha).toBe("page999");
+    expect(body.kind).toBe("technical");
+  });
+
+  it("slug inesistente: 404", async () => {
+    const project = await insertProject(testDb.db);
+    await seedSucceededGeneration(testDb.db, project.id);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${project.id}/docs/pages/non-esiste`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("pagina di una generazione non corrente: 404", async () => {
+    const project = await insertProject(testDb.db);
+    const oldGenId = await seedSucceededGeneration(testDb.db, project.id, {
+      commitSha: "stale01",
+      current: false,
+    });
+    await seedSucceededGeneration(testDb.db, project.id, { commitSha: "fresh02" });
+    const staleSlug = `tech-overview-${oldGenId.slice(0, 8)}`;
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${project.id}/docs/pages/${staleSlug}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
