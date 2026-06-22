@@ -81,6 +81,9 @@ importers:
       '@stubwise/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@stubwise/embeddings':
+        specifier: workspace:*
+        version: link:../../packages/embeddings
       '@stubwise/git':
         specifier: workspace:*
         version: link:../../packages/git

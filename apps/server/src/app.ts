@@ -14,6 +14,7 @@ import {
 } from "fastify-type-provider-zod";
 import { createRequire } from "node:module";
 import type { Db } from "@stubwise/db";
+import { createEmbeddingClient, type EmbeddingClient } from "@stubwise/embeddings";
 import { aiJobRoutes, ticketUsageRoutes } from "./routes/ai-jobs.js";
 import { aiProviderRoutes } from "./routes/ai-providers.js";
 import { aiUsageCostsRoutes } from "./routes/usage-costs.js";
@@ -64,6 +65,12 @@ declare module "fastify" {
      * BuildAppOptions.storageFactory (fake in-memory).
      */
     storage(): Promise<ObjectStorage | null>;
+    /**
+     * Client di embedding (OpenAI-compatibile) per la ricerca semantica e la
+     * chat RAG sui Docs. Iniettabile nei test via BuildAppOptions.embeddingClient
+     * (fake deterministico, senza rete); altrimenti costruito dalla config.
+     */
+    embeddingClient: EmbeddingClient;
   }
 }
 
@@ -120,6 +127,19 @@ export interface BuildAppOptions {
    * deterministico.
    */
   slackNow?: () => number;
+  /**
+   * Client di embedding per la ricerca semantica / chat RAG sui Docs. Default:
+   * client reale {@link createEmbeddingClient} costruito da embeddingBaseUrl /
+   * embeddingModel / embeddingApiKey. Override pensato per i test: inietta un
+   * fake deterministico (createFakeEmbeddingClient) senza toccare la rete.
+   */
+  embeddingClient?: EmbeddingClient;
+  /** Base URL OpenAI-compatibile per l'embedding (default {@link createEmbeddingClient}). */
+  embeddingBaseUrl?: string;
+  /** Modello di embedding (es. bge-m3). */
+  embeddingModel?: string;
+  /** API key opzionale per l'endpoint di embedding. */
+  embeddingApiKey?: string;
 }
 
 /**
@@ -196,6 +216,19 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   app.decorate("storage", function storage(this: FastifyInstance) {
     return storageFactory(this.db, this.encryptionKey);
   });
+
+  // Client di embedding per la ricerca semantica / chat RAG sui Docs. Nei test
+  // si inietta un fake deterministico; in produzione si costruisce dalla config
+  // (default Ollama in-rete). Costruito una volta e decorato sull'app: le route
+  // Docs lo leggono da `app.embeddingClient`.
+  const embeddingClient =
+    opts.embeddingClient ??
+    createEmbeddingClient({
+      baseUrl: opts.embeddingBaseUrl ?? "http://ollama:11434/v1",
+      model: opts.embeddingModel ?? "bge-m3",
+      ...(opts.embeddingApiKey !== undefined ? { apiKey: opts.embeddingApiKey } : {}),
+    });
+  app.decorate("embeddingClient", embeddingClient);
 
   // Senza secret il plugin si registra comunque (parsing dei cookie), ma
   // firmare il cookie di sessione fallisce: stesso spirito del getter su db.

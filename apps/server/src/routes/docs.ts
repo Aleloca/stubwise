@@ -17,6 +17,7 @@ import {
 } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import { apiError } from "../errors.js";
+import { retrieveChunks } from "./docs-retrieval.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 
 const projectIdParamsSchema = z.object({ projectId: z.uuid() });
@@ -135,6 +136,28 @@ const spaceSchema = z.object({
   pageCount: z.number().int(),
   lastGenerationAt: z.string().nullable(),
   lastCommitSha: z.string().nullable(),
+});
+
+/**
+ * Query di ricerca: `q` non vuota, cappata a 300 char (come la ricerca ticket).
+ * `q` di soli spazi viene trattata come vuota a runtime (400).
+ */
+const searchQuerySchema = z.object({
+  q: z.string().min(1).max(300),
+});
+
+/**
+ * Un risultato di ricerca: la pagina (slug/title/kind) più l'estratto rilevante
+ * e il punteggio. Nessuna colonna interna (embedding, ids di chunk, distanze
+ * grezze) esce: solo ciò che serve a linkare la pagina e mostrare un'anteprima.
+ */
+const searchResultSchema = z.object({
+  slug: z.string(),
+  title: z.string(),
+  kind: docPageKindSchema,
+  snippet: z.string(),
+  score: z.number(),
+  source: z.enum(["semantic", "fulltext", "hybrid"]),
 });
 
 const createManualSchema = z.object({
@@ -466,6 +489,56 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       }
 
       return toPage(page, commitSha);
+    },
+  );
+
+  // --- M6.4: ricerca (semantica + full-text) -----------------------------
+
+  /**
+   * Ricerca ibrida nei Docs del progetto: embedding della query → retrieval
+   * semantico sui chunk (pgvector) UNITO al full-text su doc_pages.search_tsv.
+   * Scope: generazione corrente + pagine manuali; le generazioni stale non
+   * compaiono. `q` vuota/di soli spazi → 400. Vedi retrieveChunks per la regola
+   * di merge/ranking (semantici prima, full-text-only dopo). Riusata dalla chat.
+   */
+  app.get(
+    "/projects/:projectId/docs/search",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: projectIdParamsSchema,
+        querystring: searchQuerySchema,
+        response: {
+          200: z.array(searchResultSchema),
+          400: errorSchema,
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { projectId } = request.params;
+      const query = request.query.q.trim();
+      // `q` di soli spazi passa il min(1) di Zod ma è semanticamente vuota.
+      if (query.length === 0) {
+        return apiError(reply, 400, "empty_query", "Search query must not be empty");
+      }
+
+      const [project] = await app.db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(eq(projects.id, projectId));
+      if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
+
+      const results = await retrieveChunks(app.db, app.embeddingClient, projectId, query);
+      return results.map((r) => ({
+        slug: r.slug,
+        title: r.title,
+        kind: r.kind,
+        snippet: r.snippet,
+        score: r.score,
+        source: r.source,
+      }));
     },
   );
 
