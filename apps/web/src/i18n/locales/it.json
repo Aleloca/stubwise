@@ -814,5 +814,30 @@
     "sharedByTeammate": "Condivisa da un membro del team",
     "nameExists": "Esiste già una vista salvata con questo nome",
     "saveFailed": "Salvataggio della vista fallito"
+  },
+  "envFiles": {
+    "title": "File d'ambiente",
+    "subtitle": "// variabili d'ambiente del progetto — i valori sono cifrati e mai mostrati",
+    "empty": "// ancora nessun file d'ambiente",
+    "addFile": "Aggiungi file",
+    "path": "Percorso",
+    "pathPlaceholder": "Es. .env.local",
+    "createFile": "Crea file",
+    "creatingFile": "Creazione…",
+    "deleteFile": "Elimina file",
+    "confirm": "Conferma",
+    "pasteLabel": "Incolla variabili",
+    "pastePlaceholder": "CHIAVE=valore\nALTRA_CHIAVE=valore",
+    "importHint": "// incolla qui le variabili oppure carica un file .env",
+    "import": "Importa",
+    "importing": "Importazione…",
+    "upload": "Carica file",
+    "noVars": "// ancora nessuna variabile in questo file",
+    "valueSet": "Valore impostato",
+    "replace": "Sostituisci",
+    "remove": "Rimuovi",
+    "value": "Valore",
+    "valuePlaceholder": "Nuovo valore (scrittura sola)",
+    "saving": "Salvataggio…"
   }
 }

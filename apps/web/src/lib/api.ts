@@ -848,6 +848,89 @@ export function patchProject(slug: string, patch: ProjectPatch): Promise<Project
   return api.patch(`/api/projects/${slug}`, patch);
 }
 
+// --- Project env files ---
+
+/**
+ * Variabile di un file d'ambiente nella proiezione pubblica: solo la CHIAVE e
+ * il flag `valueSet` (sempre true: la riga esiste perché un valore è salvato).
+ * Il valore è write-only e cifrato at-rest: l'API non lo restituisce MAI.
+ */
+export interface ProjectEnvVar {
+  key: string;
+  valueSet: true;
+}
+
+/**
+ * File d'ambiente di un progetto (solo admin): un percorso (es. `.env.local`)
+ * con l'elenco delle sue variabili. I valori non transitano mai in lettura.
+ */
+export interface ProjectEnvFile {
+  id: string;
+  path: string;
+  vars: ProjectEnvVar[];
+}
+
+/** Esito di un import: quante chiavi sono state importate e quali. Mai i valori. */
+export interface EnvImportResult {
+  count: number;
+  imported: string[];
+}
+
+/** File d'ambiente di un progetto (solo admin): 403 per i member. */
+export function listEnvFiles(projectId: string): Promise<ProjectEnvFile[]> {
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/env-files`);
+}
+
+/** Crea un file d'ambiente (solo admin): 400 path non valido, 409 duplicato. */
+export function createEnvFile(projectId: string, path: string): Promise<ProjectEnvFile> {
+  return api.post(`/api/projects/${encodeURIComponent(projectId)}/env-files`, { path });
+}
+
+/**
+ * Importa variabili da un blob `.env` in un file (solo admin): il server fa il
+ * parse di `content`, cifra e salva i valori, e restituisce le sole chiavi
+ * importate (mai i valori).
+ */
+export function importEnvFile(
+  projectId: string,
+  fileId: string,
+  content: string,
+): Promise<EnvImportResult> {
+  return api.post(
+    `/api/projects/${encodeURIComponent(projectId)}/env-files/${encodeURIComponent(fileId)}/import`,
+    { content },
+  );
+}
+
+/** Imposta/sostituisce il valore (write-only) di una variabile (solo admin). */
+export function setEnvVar(
+  projectId: string,
+  fileId: string,
+  key: string,
+  value: string,
+): Promise<ProjectEnvVar> {
+  return api.put(
+    `/api/projects/${encodeURIComponent(projectId)}/env-files/${encodeURIComponent(fileId)}/vars/${encodeURIComponent(key)}`,
+    { value },
+  );
+}
+
+/** Elimina una variabile da un file d'ambiente (solo admin). */
+export function deleteEnvVar(projectId: string, fileId: string, key: string): Promise<void> {
+  return request(
+    "DELETE",
+    `/api/projects/${encodeURIComponent(projectId)}/env-files/${encodeURIComponent(fileId)}/vars/${encodeURIComponent(key)}`,
+  );
+}
+
+/** Elimina un file d'ambiente con tutte le sue variabili (solo admin). */
+export function deleteEnvFile(projectId: string, fileId: string): Promise<void> {
+  return request(
+    "DELETE",
+    `/api/projects/${encodeURIComponent(projectId)}/env-files/${encodeURIComponent(fileId)}`,
+  );
+}
+
 // --- Git accounts ---
 
 /** Esito di un singolo controllo di validazione credenziali (gemello del tipo server). */

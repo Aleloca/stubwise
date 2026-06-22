@@ -12,6 +12,7 @@ import {
   getProject,
   getProjects,
   getProjectWebhook,
+  listEnvFiles,
   getSlackWorkspaceUsers,
   getTicket,
   getTicketActivity,
@@ -317,6 +318,20 @@ export function projectQueryOptions(slug: string) {
     queryKey: ["projects", "detail", slug],
     queryFn: () => getProject(slug),
     staleTime: 60_000,
+  });
+}
+
+/**
+ * File d'ambiente di un progetto (solo admin): la pagina di dettaglio la
+ * abilita in base al ruolo. Chiave figlia del progetto: ogni create/import/
+ * delete sulle variabili o sui file la invalida così la lista resta
+ * riconciliata col backend.
+ */
+export function projectEnvFilesQueryOptions(projectId: string) {
+  return queryOptions({
+    queryKey: ["projects", "env-files", projectId],
+    queryFn: () => listEnvFiles(projectId),
+    staleTime: 30_000,
   });
 }
 
