@@ -33,7 +33,7 @@ export type {
   RunGenerationResult,
 } from "./generate.js";
 
-export { chunkMarkdown } from "./chunk.js";
+export { chunkMarkdown, estimateTokens, TOKENS_PER_WORD } from "./chunk.js";
 export type { MarkdownChunk, ChunkOptions } from "./chunk.js";
 
 export type { RepoFile, RepoReader } from "./fs.js";

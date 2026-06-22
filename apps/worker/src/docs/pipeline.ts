@@ -11,6 +11,7 @@ import {
 import {
   buildRepoMap,
   chunkMarkdown,
+  estimateTokens,
   runGeneration,
   type GeneratedPage,
 } from "@stubwise/docs-engine";
@@ -58,12 +59,27 @@ import { createWorktreeReader } from "./reader.js";
  * branch è solo un'etichetta effimera (cancellata all'uscita).
  */
 
+/**
+ * Drizzle DB o una sua transazione: i due espongono la stessa interfaccia di
+ * query, così gli helper di persistenza funzionano sia con `db` sia con il `tx`
+ * passato dentro `db.transaction(...)`.
+ */
+type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
+
 /** Branch effimero (read-only) del worktree di doc-generation. */
 const DOC_BRANCH = "stubwise/docs-generation";
 
 /** Target/overlap del chunking markdown per l'embedding (token stimati). */
 const CHUNK_TARGET_TOKENS = 400;
 const CHUNK_OVERLAP_WORDS = 40;
+
+/**
+ * Tetto al numero di input per singola chiamata `embed()`. Una pagina grande può
+ * produrre più chunk di quanti il provider accetti in un solo batch: i contenuti
+ * vengono spezzati in batch di al più questa dimensione (più chiamate, risultati
+ * concatenati in ordine). Override possibile via `deps.embedBatchSize` (test).
+ */
+const EMBED_BATCH_SIZE = 64;
 
 /** Forma attesa delle credenziali git decifrate (vedi pipeline/fix.ts). */
 const credentialsSchema = z.object({
@@ -95,6 +111,12 @@ export interface RunDocGenerationDeps {
   costCapUsd?: number;
   /** Credenziale AI risolta dalla catena (prima voce); undefined = auth storica. */
   provider?: ResolvedProvider;
+  /**
+   * Override del tetto di input per chiamata `embed()` (default `EMBED_BATCH_SIZE`).
+   * Pensato per i test (batch piccoli senza fixture giganti); in produzione non
+   * va impostato.
+   */
+  embedBatchSize?: number;
 }
 
 export type DocGenerationOutcome = "succeeded" | "failed" | "held";
@@ -105,13 +127,18 @@ interface DocGenerationStats {
   moduleFailures: string[];
   pages: number;
   chunks: number;
+  /** true se lo step di reduce è fallito (overview/capability-map vuote). */
+  reduceFailed: boolean;
 }
 
 /** git locale nel worktree (HEAD del commit documentato), niente auth. */
+/** Timeout (ms) del `git rev-parse HEAD` nel worktree (repo patologico → no appeso). */
+const GIT_REV_PARSE_TIMEOUT_MS = 60_000;
+
 async function resolveHeadSha(dir: string): Promise<string> {
   const { stdout } = await execa("git", ["rev-parse", "HEAD"], {
     cwd: dir,
-    timeout: 60_000,
+    timeout: GIT_REV_PARSE_TIMEOUT_MS,
   });
   return stdout.trim();
 }
@@ -191,13 +218,22 @@ export async function runDocGenerationJob(
     .where(eq(docGenerationJobs.id, job.id));
 
   let costUsd = 0;
-  let stats: DocGenerationStats = { modules: 0, moduleFailures: [], pages: 0, chunks: 0 };
+  let stats: DocGenerationStats = {
+    modules: 0,
+    moduleFailures: [],
+    pages: 0,
+    chunks: 0,
+    reduceFailed: false,
+  };
   let commitSha = "";
 
   try {
     await mirrors.ensureMirror(mirrorProject);
+    // `withWorktree` ritorna commitSha + stats: niente assegnazione a un `let`
+    // esterno, così un `succeeded` non può finire con uno sha vuoto dopo un
+    // refactor (il valore è strutturalmente legato all'esito del callback).
     const built = await mirrors.withWorktree(mirrorProject, DOC_BRANCH, async (dir) => {
-      commitSha = await resolveHeadSha(dir);
+      const sha = await resolveHeadSha(dir);
       await touchDocJob(db, job.id);
 
       const reader = createWorktreeReader(dir);
@@ -226,29 +262,44 @@ export async function runDocGenerationJob(
         onProgress: () => {
           // Heartbeat: una generazione lunga continua a battere così
           // requeueStaleDocJobs non la riporta in coda (doppia generazione).
-          void touchDocJob(db, job.id);
+          // `.catch` per non trasformare un blip del DB in unhandled rejection.
+          void touchDocJob(db, job.id).catch(() => {});
         },
       });
 
-      const pages = await persistPages(db, {
-        projectId: project.id,
-        generationId: generation.id,
-        pages: result.pages,
-      });
-      const chunks = await embedAndStoreChunks(db, embeddingClient, {
-        projectId: project.id,
-        generationId: generation.id,
-        pages,
+      // Reduce fallito = sia overview che capability-map hanno corpo vuoto. Le
+      // chiamate di embedding sono già calcolate qui; gli insert vengono fatti
+      // ATOMICAMENTE in transazione, così un throw a metà persistenza fa rollback
+      // a ZERO righe (niente doc_pages/doc_chunks orfani sotto un `failed`).
+      const reduceFailed = isReduceFailed(result.pages);
+      const { pages, chunks } = await db.transaction(async (tx) => {
+        const persisted = await persistPages(tx, {
+          projectId: project.id,
+          generationId: generation.id,
+          pages: result.pages,
+        });
+        const chunkCount = await embedAndStoreChunks(tx, embeddingClient, {
+          projectId: project.id,
+          generationId: generation.id,
+          pages: persisted,
+          batchSize: deps.embedBatchSize ?? EMBED_BATCH_SIZE,
+        });
+        return { pages: persisted.length, chunks: chunkCount };
       });
 
       return {
-        modules: repoMap.modules.length,
-        moduleFailures: result.moduleFailures,
-        pages: pages.length,
-        chunks,
+        commitSha: sha,
+        stats: {
+          modules: repoMap.modules.length,
+          moduleFailures: result.moduleFailures,
+          pages,
+          chunks,
+          reduceFailed,
+        },
       };
     });
-    stats = built;
+    commitSha = built.commitSha;
+    stats = built.stats;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await db
@@ -337,7 +388,7 @@ interface PersistedPage {
  * accadere).
  */
 async function persistPages(
-  db: Db,
+  db: DbOrTx,
   input: PersistPagesInput,
 ): Promise<PersistedPage[]> {
   const slugToId = new Map<string, string>();
@@ -377,60 +428,107 @@ interface EmbedAndStoreInput {
   projectId: string;
   generationId: string;
   pages: PersistedPage[];
+  /** Tetto di input per chiamata `embed()` (vedi `EMBED_BATCH_SIZE`). */
+  batchSize: number;
+}
+
+/** Chunk con il riferimento alla pagina di provenienza (per l'insert). */
+interface PageChunk {
+  page: PersistedPage;
+  content: string;
+  heading: string | null;
+}
+
+/** Spezza un array in sotto-array di al più `size` elementi. */
+function batched<T>(items: T[], size: number): T[][] {
+  const batches: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    batches.push(items.slice(i, i + size));
+  }
+  return batches;
 }
 
 /**
- * Per ogni pagina: chunk markdown-aware → embedding (una richiesta per pagina) →
- * insert dei `doc_chunks` con embedding (1024 dim) e metadata (heading, sourcePath,
- * layer=kind). Una pagina con corpo vuoto non produce chunk. Ritorna il numero
- * totale di chunk inseriti.
+ * Chunk markdown-aware di ogni pagina → embedding → insert dei `doc_chunks` con
+ * embedding (1024 dim) e metadata (heading, sourcePath, layer=kind). Una pagina con
+ * corpo vuoto non produce chunk.
+ *
+ * BATCH: i contenuti di TUTTE le pagine sono raccolti in un'unica lista e mandati a
+ * `embed()` in batch di al più `batchSize` input (default `EMBED_BATCH_SIZE`),
+ * indipendentemente dai confini di pagina: nessuna chiamata supera il limite del
+ * provider anche se una pagina genera molti chunk. I risultati sono concatenati in
+ * ordine e riallineati ai chunk. Ritorna il numero totale di chunk inseriti.
  */
 async function embedAndStoreChunks(
-  db: Db,
+  db: DbOrTx,
   embeddingClient: EmbeddingClient,
   input: EmbedAndStoreInput,
 ): Promise<number> {
-  let total = 0;
+  // 1) Chunk di tutte le pagine, in ordine stabile (pagine → chunk della pagina).
+  const all: PageChunk[] = [];
   for (const page of input.pages) {
     const chunks = chunkMarkdown(page.body, {
       targetTokens: CHUNK_TARGET_TOKENS,
       overlap: CHUNK_OVERLAP_WORDS,
     });
-    if (chunks.length === 0) continue;
-    const embeddings = await embeddingClient.embed(chunks.map((c) => c.content));
-    await db.insert(docChunks).values(
-      chunks.map((chunk, i) => ({
-        pageId: page.id,
-        projectId: input.projectId,
-        generationId: input.generationId,
-        content: chunk.content,
-        embedding: embeddings[i],
-        metadata: {
-          heading: chunk.heading,
-          sourcePath: page.sourcePath,
-          layer: page.kind,
-        },
-        tokenCount: estimateTokens(chunk.content),
-      })),
-    );
-    total += chunks.length;
+    for (const chunk of chunks) {
+      all.push({ page, content: chunk.content, heading: chunk.heading });
+    }
   }
-  return total;
-}
+  if (all.length === 0) return 0;
 
-/** Stima grossolana dei token di un chunk (parole × 1.33), per `token_count`. */
-function estimateTokens(text: string): number {
-  const words = text.split(/\s+/).filter(Boolean).length;
-  return Math.round(words * 1.33);
+  // 2) Embedding in batch di al più `batchSize` input, risultati concatenati in ordine.
+  const embeddings: number[][] = [];
+  for (const batch of batched(all, Math.max(1, input.batchSize))) {
+    const vectors = await embeddingClient.embed(batch.map((c) => c.content));
+    embeddings.push(...vectors);
+  }
+
+  // 3) Insert dei chunk allineati 1:1 agli embedding (stesso ordine).
+  await db.insert(docChunks).values(
+    all.map((c, i) => ({
+      pageId: c.page.id,
+      projectId: input.projectId,
+      generationId: input.generationId,
+      content: c.content,
+      embedding: embeddings[i],
+      metadata: {
+        heading: c.heading,
+        sourcePath: c.page.sourcePath,
+        layer: c.page.kind,
+      },
+      tokenCount: estimateTokens(c.content),
+    })),
+  );
+  return all.length;
 }
 
 /**
- * Pruna le generazioni vecchie del progetto: si conservano la corrente e la
- * IMMEDIATAMENTE precedente (le due più recenti per createdAt), tutto il resto è
- * eliminato. La cascade FK (onDelete: cascade su doc_pages/doc_chunks) porta via
- * pagine e chunk delle generazioni rimosse.
+ * Reduce fallito = le due pagine root sintetizzate (overview tecnica + mappa
+ * capability) hanno entrambe corpo vuoto. Le pagine di modulo restano comunque
+ * disponibili (best-effort), ma lo segnaliamo nelle stats.
  */
-async function pruneOldGenerations(
+function isReduceFailed(pages: GeneratedPage[]): boolean {
+  const roots = pages.filter((p) => p.parentSlug === null);
+  if (roots.length === 0) return true;
+  return roots.every((p) => p.body.trim() === "");
+}
+
+/**
+ * Pruna le generazioni vecchie del progetto. Regola (semplice e corretta):
+ *  - si tiene SEMPRE la corrente (`projects.currentDocGenerationId`), qualunque sia
+ *    la sua posizione temporale: MAI prunata, anche se più vecchia di run `failed`
+ *    o `held` più recenti (non c'è FK a proteggerla);
+ *  - si tiene inoltre la singola generazione più recente DIVERSA dalla corrente,
+ *    ordinando per (createdAt DESC, id DESC) — il tiebreaker su `id` rende l'ordine
+ *    stabile quando due run condividono lo stesso `createdAt`;
+ *  - tutto il resto è eliminato. Non si scende mai sotto "corrente + 1".
+ *
+ * La cascade FK (onDelete: cascade su doc_pages/doc_chunks) porta via pagine e chunk
+ * delle generazioni rimosse. La delete porta comunque un guard `ne(currentId)` come
+ * difesa in profondità: la corrente non può finire nel set da eliminare.
+ */
+export async function pruneOldGenerations(
   db: Db,
   projectId: string,
   currentGenerationId: string,
@@ -439,12 +537,13 @@ async function pruneOldGenerations(
     .select({ id: docGenerations.id })
     .from(docGenerations)
     .where(eq(docGenerations.projectId, projectId))
-    .orderBy(sql`${docGenerations.createdAt} DESC`);
-  // Si tiene la corrente (sempre) + la più recente diversa dalla corrente.
+    .orderBy(sql`${docGenerations.createdAt} DESC`, sql`${docGenerations.id} DESC`);
+  // Si tiene la corrente (sempre, autoritativo) + la più recente diversa dalla corrente.
   const keep = new Set<string>([currentGenerationId]);
   for (const r of rows) {
-    if (keep.size >= 2) break;
+    if (r.id === currentGenerationId) continue;
     keep.add(r.id);
+    break; // una sola "altra" generazione, la più recente per (createdAt, id) DESC.
   }
   const toDelete = rows.filter((r) => !keep.has(r.id)).map((r) => r.id);
   for (const id of toDelete) {

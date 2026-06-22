@@ -31,7 +31,17 @@
  */
 
 /** Token stimati per parola (~0.75 parole/token). Vedi doc-header per il razionale. */
-const TOKENS_PER_WORD = 1.33;
+export const TOKENS_PER_WORD = 1.33;
+
+/**
+ * Stima grossolana dei token di un testo dal numero di PAROLE (× `TOKENS_PER_WORD`).
+ * Stessa euristica usata per dimensionare i chunk: è l'UNICA fonte di verità per la
+ * stima dei token, riusata a valle (es. `token_count` dei `doc_chunks`).
+ */
+export function estimateTokens(text: string): number {
+  const words = text.split(/\s+/).filter(Boolean).length;
+  return Math.round(words * TOKENS_PER_WORD);
+}
 
 /** Un chunk di markdown con l'heading di provenienza (o `null` se pre-heading). */
 export interface MarkdownChunk {

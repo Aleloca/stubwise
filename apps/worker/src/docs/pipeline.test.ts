@@ -9,7 +9,11 @@ import {
   type Db,
 } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
-import { createFakeEmbeddingClient, FAKE_EMBEDDING_DIMENSION } from "@stubwise/embeddings";
+import {
+  createFakeEmbeddingClient,
+  FAKE_EMBEDDING_DIMENSION,
+  type EmbeddingClient,
+} from "@stubwise/embeddings";
 import { eq } from "drizzle-orm";
 import { execa } from "execa";
 import { randomBytes } from "node:crypto";
@@ -21,7 +25,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { FakeAgentRunner } from "../agent/fake.js";
 import type { AgentRunOptions, AgentRunUsage } from "../agent/runner.js";
 import { MirrorManager } from "../git/mirrors.js";
-import { runDocGenerationJob, type RunDocGenerationDeps } from "./pipeline.js";
+import { pruneOldGenerations, runDocGenerationJob, type RunDocGenerationDeps } from "./pipeline.js";
 import { type DocJob } from "./queue.js";
 
 // Test end-to-end della pipeline di doc-generation: un mirror bare locale come
@@ -315,6 +319,128 @@ describe("runDocGenerationJob", () => {
 
     const [jobAfter] = await db.select().from(docGenerationJobs).where(eq(docGenerationJobs.id, job!.id));
     expect(jobAfter!.lastActivityAt.getTime()).toBeGreaterThan(past.getTime());
+  });
+
+  it("persistenza atomica: se l'embedding fa throw a metà, rollback a ZERO pagine/chunk e job failed", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, upstream.url);
+    const job = await enqueueDocJob(db, projectId);
+
+    // Embedding client che fa throw alla 2ª chiamata embed(): la persistenza è già
+    // partita (1ª pagina/embedding ok) → la transazione deve fare rollback a ZERO.
+    const inner = createFakeEmbeddingClient();
+    let embedCalls = 0;
+    const throwingClient: EmbeddingClient = {
+      async embed(inputs) {
+        embedCalls += 1;
+        if (embedCalls === 2) throw new Error("embed boom sulla 2ª chiamata");
+        return inner.embed(inputs);
+      },
+    };
+
+    const runner = new FakeAgentRunner({
+      script: () => ({ output: agentOutput("x"), exitCode: 0, usage: USAGE }),
+    });
+    // batchSize 1 = una chiamata embed() per chunk → si arriva di certo alla 2ª.
+    const outcome = await runDocGenerationJob(
+      { ...baseDeps(db, mirrors, runner), embeddingClient: throwingClient, embedBatchSize: 1 },
+      job,
+    );
+    expect(outcome).toBe("failed");
+    expect(embedCalls).toBeGreaterThanOrEqual(2);
+
+    const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.projectId, projectId));
+    expect(gen?.status).toBe("failed");
+    // Rollback: NESSUNA pagina/chunk per questa generazione (atomicità verificata).
+    const pages = await db.select().from(docPages).where(eq(docPages.generationId, gen!.id));
+    const chunks = await db.select().from(docChunks).where(eq(docChunks.generationId, gen!.id));
+    expect(pages.length).toBe(0);
+    expect(chunks.length).toBe(0);
+    // NESSUNO swap + job failed.
+    const [projAfter] = await db.select().from(projects).where(eq(projects.id, projectId));
+    expect(projAfter?.currentDocGenerationId).toBeNull();
+    const [jobAfter] = await db.select().from(docGenerationJobs).where(eq(docGenerationJobs.id, job.id));
+    expect(jobAfter?.status).toBe("failed");
+  });
+
+  it("batch embed: con batchSize piccolo embed() è chiamato più volte e tutti i chunk sono persistiti", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, upstream.url);
+    const job = await enqueueDocJob(db, projectId);
+
+    // Conta le chiamate e la massima dimensione di batch vista.
+    const inner = createFakeEmbeddingClient();
+    let embedCalls = 0;
+    let maxBatch = 0;
+    const countingClient: EmbeddingClient = {
+      async embed(inputs) {
+        embedCalls += 1;
+        maxBatch = Math.max(maxBatch, inputs.length);
+        return inner.embed(inputs);
+      },
+    };
+
+    const runner = new FakeAgentRunner({
+      script: () => ({ output: agentOutput("batchy"), exitCode: 0, usage: USAGE }),
+    });
+    await runDocGenerationJob(
+      { ...baseDeps(db, mirrors, runner), embeddingClient: countingClient, embedBatchSize: 2 },
+      job,
+    );
+
+    const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.projectId, projectId));
+    expect(gen?.status).toBe("succeeded");
+    const stats = gen?.stats as { chunks: number };
+    // Più chunk del batch (2) → più di una chiamata embed(), nessuna oltre il tetto.
+    expect(stats.chunks).toBeGreaterThan(2);
+    expect(embedCalls).toBeGreaterThan(1);
+    expect(maxBatch).toBeLessThanOrEqual(2);
+    // Tutti i chunk persistiti (count = stats.chunks) con embedding valido.
+    const chunks = await db.select().from(docChunks).where(eq(docChunks.generationId, gen!.id));
+    expect(chunks.length).toBe(stats.chunks);
+    expect(chunks.every((c) => c.embedding?.length === FAKE_EMBEDDING_DIMENSION)).toBe(true);
+  });
+
+  it("prune non evince MAI la corrente succeeded anche se esistono due generazioni più recenti failed", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const projectId = await createProject(db, upstream.url);
+
+    // Corrente: succeeded, ma più VECCHIA delle due failed (il caso che la vecchia
+    // logica per createdAt DESC + top-2 evinceva erroneamente).
+    const [current] = await db
+      .insert(docGenerations)
+      .values({ projectId, status: "succeeded", createdAt: new Date(Date.now() - 30_000) })
+      .returning();
+    await db
+      .update(projects)
+      .set({ currentDocGenerationId: current!.id })
+      .where(eq(projects.id, projectId));
+    // Due generazioni NEWER e failed.
+    const [failedOld] = await db
+      .insert(docGenerations)
+      .values({ projectId, status: "failed", createdAt: new Date(Date.now() - 20_000) })
+      .returning();
+    const [failedNew] = await db
+      .insert(docGenerations)
+      .values({ projectId, status: "failed", createdAt: new Date(Date.now() - 10_000) })
+      .returning();
+
+    await pruneOldGenerations(db, projectId, current!.id);
+
+    const remaining = await db.select().from(docGenerations).where(eq(docGenerations.projectId, projectId));
+    const ids = new Set(remaining.map((g) => g.id));
+    // La corrente succeeded NON è prunata (guard autoritativo su currentGenerationId).
+    expect(ids.has(current!.id)).toBe(true);
+    // Si tiene anche la singola altra più recente (la failed più nuova); la failed
+    // più vecchia è prunata → resta "corrente + 1".
+    expect(ids.has(failedNew!.id)).toBe(true);
+    expect(ids.has(failedOld!.id)).toBe(false);
+    expect(remaining.length).toBe(2);
   });
 
   it("errore (credenziali non decifrabili): generazione non avviata, job failed, no swap", async () => {
