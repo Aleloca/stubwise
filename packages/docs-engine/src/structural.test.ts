@@ -54,7 +54,57 @@ describe("buildRepoMap — linguaggi ed esclusioni (M2.2)", () => {
       { maxModules: 50 },
     );
     expect(map.languages).toEqual({});
-    expect(map.modules).toEqual([]);
+    // un file senza estensione forma comunque un modulo (root), ma senza linguaggio
+    expect(map.modules.map((m) => m.path)).toEqual([""]);
+    expect(map.modules[0]!.language).toBeNull();
     expect(map.skipped).toEqual([]);
+  });
+});
+
+describe("buildRepoMap — moduli e manifest (M2.3)", () => {
+  it("usa i manifest come confine di modulo con files e linguaggio dominante", async () => {
+    const map = await buildRepoMap(
+      reader({
+        "packages/a/package.json": "{}",
+        "packages/a/src/index.ts": "export const a = 1;",
+        "packages/a/src/util.ts": "export const u = 2;",
+        "packages/b/package.json": "{}",
+        "packages/b/main.py": "x = 1",
+      }),
+      { maxModules: 50 },
+    );
+    const byPath = Object.fromEntries(map.modules.map((m) => [m.path, m]));
+    expect(Object.keys(byPath).sort()).toEqual(["packages/a", "packages/b"]);
+
+    expect(byPath["packages/a"]!.manifest).toBe("packages/a/package.json");
+    expect(byPath["packages/a"]!.language).toBe(".ts");
+    expect(byPath["packages/a"]!.files.sort()).toEqual([
+      "packages/a/package.json",
+      "packages/a/src/index.ts",
+      "packages/a/src/util.ts",
+    ]);
+
+    expect(byPath["packages/b"]!.manifest).toBe("packages/b/package.json");
+    expect(byPath["packages/b"]!.language).toBe(".py");
+  });
+
+  it("in assenza di manifest segmenta per directory a moduleDepth", async () => {
+    const map = await buildRepoMap(
+      reader({
+        "src/foo/a.ts": "x",
+        "src/foo/b.ts": "x",
+        "src/bar/c.ts": "x",
+        "top.ts": "x", // file in root → modulo root
+      }),
+      { maxModules: 50, moduleDepth: 2 },
+    );
+    expect(map.modules.map((m) => m.path).sort()).toEqual([
+      "",
+      "src/bar",
+      "src/foo",
+    ]);
+    const foo = map.modules.find((m) => m.path === "src/foo")!;
+    expect(foo.manifest).toBeNull();
+    expect(foo.files.sort()).toEqual(["src/foo/a.ts", "src/foo/b.ts"]);
   });
 });
