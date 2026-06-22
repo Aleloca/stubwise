@@ -47,6 +47,7 @@ import {
   REPORT_FILENAME,
   toSingleLine,
 } from "./prompts.js";
+import { resolveInstallCommand } from "./install-command.js";
 import { resolveTestCommand, type TestCommand } from "./test-command.js";
 
 /**
@@ -104,6 +105,11 @@ export const DEFAULT_SELF_REPAIR_MAX_ATTEMPTS = 2;
  * (5'). Esportato per l'invariante di staleness (vedi index.ts). */
 export const DEFAULT_SELF_REPAIR_TEST_TIMEOUT_MS = 300_000;
 
+/** Timeout di default dell'install delle dipendenze nel worktree (10'):
+ * l'install di un repo grande può essere lento. Tenuto in sync con
+ * `installTimeoutMs` del WorkerConfig (vedi invariante di staleness). */
+export const DEFAULT_INSTALL_TIMEOUT_MS = 600_000;
+
 /** Output del comando di test eseguito dal worker. */
 export interface TestRunResult {
   exitCode: number;
@@ -121,6 +127,32 @@ const TEST_RUN_OUTPUT_MAX_CHARS = 16_000;
  * exit non-zero NON è un errore: è il segnale che i test sono rossi (reject:
  * false). stdout+stderr combinati e troncati per non gonfiare prompt/log. */
 async function defaultRunTestCommand(
+  cmd: TestCommand,
+  dir: string,
+  timeoutMs: number,
+): Promise<TestRunResult> {
+  const result = await execa(cmd.cmd, cmd.args, {
+    cwd: dir,
+    timeout: timeoutMs,
+    reject: false,
+    all: true,
+  });
+  const combined = result.all ?? `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  const output =
+    combined.length > TEST_RUN_OUTPUT_MAX_CHARS
+      ? `${combined.slice(0, TEST_RUN_OUTPUT_MAX_CHARS)}\n[output troncato]`
+      : combined;
+  return { exitCode: result.exitCode ?? 1, output };
+}
+
+/**
+ * Esegue l'install delle dipendenze nel worktree (default iniettabile di
+ * FixDeps), speculare a defaultRunTestCommand. Un exit non-zero NON è un errore
+ * (reject:false): è un dato che il chiamante logga e con cui prosegue comunque.
+ * Eredita l'env del worker (NON l'env ristretto dell'agente): l'install ha
+ * bisogno dell'ambiente reale del container (PATH, registri, ecc.). stdout+stderr
+ * combinati e troncati per non gonfiare il log. */
+async function defaultRunInstallCommand(
   cmd: TestCommand,
   dir: string,
   timeoutMs: number,
@@ -183,6 +215,17 @@ export interface FixDeps extends NotifyDeps {
   /** Esegue il comando di test nel worktree (iniettabile nei test). Default:
    * spawn con execa (reject:false). */
   runTestCommand?: (cmd: TestCommand, dir: string, timeoutMs: number) => Promise<TestRunResult>;
+  /** Risolve il comando di install del repo nel worktree (iniettabile nei
+   * test). Default: resolveInstallCommand da ./install-command.js. */
+  resolveInstallCommandFn?: (
+    project: { installCommand: string | null },
+    dir: string,
+  ) => Promise<TestCommand | null>;
+  /** Esegue l'install delle dipendenze nel worktree (iniettabile nei test).
+   * Default: spawn con execa (reject:false). */
+  runInstallCommand?: (cmd: TestCommand, dir: string, timeoutMs: number) => Promise<TestRunResult>;
+  /** Timeout dell'install delle dipendenze (default 600000 = 10'). */
+  installTimeoutMs?: number;
   /** Costo USD storico già registrato per il ticket (iniettabile nei test;
    * default ticketCostUsd da @stubwise/db). Usato dai controlli di budget. */
   ticketCostUsdFn?: (db: Db, ticketId: string) => Promise<number>;
@@ -358,6 +401,9 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   const testTimeoutMs = deps.testTimeoutMs ?? DEFAULT_SELF_REPAIR_TEST_TIMEOUT_MS;
   const resolveTestCommandFn = deps.resolveTestCommandFn ?? resolveTestCommand;
   const runTestCommand = deps.runTestCommand ?? defaultRunTestCommand;
+  const resolveInstallCommandFn = deps.resolveInstallCommandFn ?? resolveInstallCommand;
+  const runInstallCommand = deps.runInstallCommand ?? defaultRunInstallCommand;
+  const installTimeoutMs = deps.installTimeoutMs ?? DEFAULT_INSTALL_TIMEOUT_MS;
   const ticketCostUsdFn = deps.ticketCostUsdFn ?? ticketCostUsd;
   const monthlyCostUsdFn = deps.monthlyCostUsdFn ?? monthlyCostUsd;
   // Credenziale del provider per QUESTO job: spread in ogni runner.run così
@@ -587,6 +633,49 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
         let output: string;
         let exitCode: number;
         try {
+          // INSTALL delle dipendenze: UNA volta, PRIMA di qualunque run
+          // dell'agente, così node_modules è popolato per i test del repo (loop
+          // di self-repair). SALTATO in plan-only (read-only, niente esecuzione).
+          // Un install fallito (exit non-zero) è un DATO, non un throw: si logga
+          // in modo prominente e si prosegue. Anche un errore inatteso del
+          // resolver è catturato e loggato, MAI fatale. L'install eredita l'env
+          // del worker (NON l'env ristretto dell'agente).
+          if (fixMode !== "plan-only") {
+            try {
+              const installCmd = await resolveInstallCommandFn(
+                { installCommand: project.installCommand },
+                dir,
+              );
+              if (installCmd) {
+                await appendLog(
+                  db,
+                  job.id,
+                  `[fix] install dipendenze (${installCmd.cmd} ${installCmd.args.join(" ")})…`,
+                ).catch(() => {
+                  // Log best-effort.
+                });
+                const install = await runInstallCommand(installCmd, dir, installTimeoutMs);
+                await appendLog(
+                  db,
+                  job.id,
+                  install.exitCode === 0
+                    ? "[fix] install dipendenze: ok"
+                    : `[fix] install dipendenze: fallito (exit ${install.exitCode})\n${install.output}`,
+                ).catch(() => {
+                  // Log best-effort.
+                });
+              }
+            } catch (installErr) {
+              // Errore INATTESO del resolver/esecuzione: non deve uccidere il
+              // fix. Una riga di log e si prosegue (l'install è best-effort).
+              const message = installErr instanceof Error ? installErr.message : String(installErr);
+              await appendLog(db, job.id, `[fix] install dipendenze: errore inatteso: ${message}`).catch(
+                () => {
+                  // Log best-effort.
+                },
+              );
+            }
+          }
           // PLAN-ONLY: solo il run di pianificazione (Opus, sola lettura). Si
           // cattura il piano, NON si esegue il fix, NON si committa/pusha. Il
           // plan run gira QUI perché l'agente deve esplorare il repo reale.

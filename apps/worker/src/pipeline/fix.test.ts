@@ -1395,6 +1395,181 @@ describe("runFix — self-repair (Task 5)", () => {
   });
 });
 
+describe("runFix — install delle dipendenze (Task 4)", () => {
+  // Comando di install FINTO sempre risolto; l'esecuzione è iniettata via
+  // runInstallCommand (niente spawn reale). L'install gira UNA volta, PRIMA
+  // dell'agente, ed è saltato in plan-only.
+  const INSTALL_CMD = { cmd: "pnpm", args: ["install", "--frozen-lockfile"] };
+
+  it("install eseguito PRIMA del primo run dell'agente (modalità full)", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    const order: string[] = [];
+    const runner = new FakeAgentRunner({
+      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      script: async () => {
+        order.push("agent");
+        return { output: "fatto", exitCode: 0 };
+      },
+    });
+    const provider = makeProvider();
+    const runInstallCommand = vi.fn(async () => {
+      order.push("install");
+      return { exitCode: 0, output: "deps installate" };
+    });
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, {
+        resolveInstallCommandFn: async () => INSTALL_CMD,
+        runInstallCommand,
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("pr_opened");
+    expect(runInstallCommand).toHaveBeenCalledTimes(1);
+    // L'install è chiamato col comando risolto e la dir del worktree.
+    const installCall = runInstallCommand.mock.calls[0] as [typeof INSTALL_CMD, string] | undefined;
+    expect(installCall).toBeDefined();
+    const [cmd, dir] = installCall!;
+    expect(cmd).toEqual(INSTALL_CMD);
+    expect(dir).not.toBe("");
+    // L'install precede il PRIMO run dell'agente (qui il plan in modalità full).
+    expect(order[0]).toBe("install");
+    expect(order).toContain("agent");
+    expect(order.indexOf("install")).toBeLessThan(order.indexOf("agent"));
+    // Log dell'esito ok.
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.log).toContain("install dipendenze");
+  });
+
+  it("install eseguito PRIMA dell'agente anche in execute-only", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture.projectId);
+    const PLAN = "PIANO APPROVATO: cambia - in +";
+    const [job] = await db
+      .insert(aiJobs)
+      .values({ ticketId: ticket.id, status: "fixing", startedAt: new Date(), resumeMode: "execute", planText: PLAN })
+      .returning();
+    if (!job) throw new Error("insert del job non ha restituito la riga");
+    const order: string[] = [];
+    const runner = new FakeAgentRunner({
+      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      script: async () => {
+        order.push("agent");
+        return { output: "fatto", exitCode: 0 };
+      },
+    });
+    const provider = makeProvider();
+    const runInstallCommand = vi.fn(async () => {
+      order.push("install");
+      return { exitCode: 0, output: "ok" };
+    });
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, {
+        resolveInstallCommandFn: async () => INSTALL_CMD,
+        runInstallCommand,
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("pr_opened");
+    expect(runInstallCommand).toHaveBeenCalledTimes(1);
+    expect(order[0]).toBe("install");
+    expect(order.indexOf("install")).toBeLessThan(order.indexOf("agent"));
+  });
+
+  it("plan-only: install SALTATO (né risoluzione né esecuzione)", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    await db.update(automationRules).set({ planApprovalMinEffort: 3 }).where(eq(automationRules.type, "bug"));
+    const ticket = await createTicket(db, fixture.projectId, { type: "bug", effort: 4 });
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({ results: [{ output: "PIANO", exitCode: 0 }] });
+    const provider = makeProvider();
+    const resolveInstallCommandFn = vi.fn(async () => INSTALL_CMD);
+    const runInstallCommand = vi.fn(async () => ({ exitCode: 0, output: "ok" }));
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, { resolveInstallCommandFn, runInstallCommand }),
+      job,
+    );
+
+    expect(outcome).toBe("awaiting_approval");
+    // In plan-only non si installa nulla.
+    expect(runInstallCommand).not.toHaveBeenCalled();
+    expect(resolveInstallCommandFn).not.toHaveBeenCalled();
+  });
+
+  it("install fallito (exit non-zero) → log prominente, la run prosegue, l'agente è comunque invocato", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "fatto", exitCode: 0 },
+      ],
+    });
+    const provider = makeProvider();
+    const runInstallCommand = vi.fn(async () => ({
+      exitCode: 1,
+      output: "npm ERR! impossibile installare le dipendenze",
+    }));
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, {
+        resolveInstallCommandFn: async () => INSTALL_CMD,
+        runInstallCommand,
+      }),
+      job,
+    );
+
+    // Un install fallito NON aborta la run: il flusso prosegue normalmente.
+    expect(outcome).toBe("pr_opened");
+    expect(runInstallCommand).toHaveBeenCalledTimes(1);
+    // L'agente è stato comunque invocato (plan + execute).
+    expect(runner.calls.length).toBeGreaterThan(0);
+    // Nel log compare una riga di fallimento install con l'output troncato.
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.log).toContain("install dipendenze: fallito");
+    expect(jobAfter.log).toContain("npm ERR!");
+  });
+
+  it("resolveInstallCommandFn → null (nessun package.json): install NON eseguito, run normale", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "fatto", exitCode: 0 },
+      ],
+    });
+    const provider = makeProvider();
+    const runInstallCommand = vi.fn();
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, {
+        resolveInstallCommandFn: async () => null,
+        runInstallCommand,
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("pr_opened");
+    expect(runInstallCommand).not.toHaveBeenCalled();
+  });
+});
+
 describe("runFix — notifiche", () => {
   interface Dispatched {
     kind: string;
