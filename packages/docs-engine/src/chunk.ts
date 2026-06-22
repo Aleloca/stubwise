@@ -20,6 +20,14 @@
  * un chunk finché `parole * TOKENS_PER_WORD <= targetTokens`, ovvero finché
  * `parole <= targetTokens / TOKENS_PER_WORD`. È volutamente approssimata: serve a
  * dimensionare i chunk, non a contare token esatti.
+ *
+ * AVVERTENZE.
+ *  - Lo split avviene su confine di PAROLA: una singola parola più lunga del target
+ *    non viene spezzata, quindi un token oversize (codice, base64, URL lunghi) può
+ *    far superare il target a quel chunk.
+ *  - La stima 1.33 token/parola è grossolana e SOTTOSTIMA i token per contenuti
+ *    densi di codice o accentati (più subword per parola): chi chiama a valle per
+ *    l'embedding dovrebbe dimensionare `targetTokens` in modo conservativo.
  */
 
 /** Token stimati per parola (~0.75 parole/token). Vedi doc-header per il razionale. */
@@ -61,11 +69,10 @@ function splitSections(md: string): Section[] {
     } else if (current) {
       current.lines.push(line);
     } else {
-      // testo prima del primo heading: accumula in una sezione `heading: null`
+      // testo prima del primo heading: apre una sezione `heading: null`; le righe
+      // pre-heading successive vi si accumulano tramite il ramo `current` qui sopra.
       current = { heading: null, lines: [line] };
       sections.push(current);
-      // svuota `current` per accumulare le righe successive pre-heading qui
-      current = sections[sections.length - 1]!;
     }
   }
   return sections;

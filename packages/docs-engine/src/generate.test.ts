@@ -217,14 +217,100 @@ describe("runGeneration (M3.2)", () => {
     expect(techSources).toEqual(["packages/a"]);
   });
 
-  it("derives stable, unique slugs even on colliding module basenames", async () => {
-    const a = moduleNode({ path: "packages/a/core", files: ["packages/a/core/i.ts"] });
-    const b = moduleNode({ path: "packages/b/core", files: ["packages/b/core/i.ts"] });
+  it("derives distinct slugs when two module base slugs genuinely collide", async () => {
+    // `a/core` and `a-core` both slugify to the same base `a-core`, so the second
+    // page must get the `-2` suffix branch of makeUniqueSlug.
+    const a = moduleNode({ path: "a/core", files: ["a/core/i.ts"], dependsOn: [] });
+    const b = moduleNode({ path: "a-core", files: ["a-core/i.ts"], dependsOn: [] });
     const { pages } = await runGeneration({
       repoMap: repoMap([a, b]),
       agent: cannedAgent(),
     });
-    const slugs = pages.map((p) => p.slug);
-    expect(new Set(slugs).size).toBe(slugs.length);
+    const moduleSlugs = pages
+      .filter((p) => p.kind === "technical" && p.parentSlug !== null)
+      .map((p) => p.slug);
+    expect(moduleSlugs).toHaveLength(2);
+    expect(new Set(moduleSlugs).size).toBe(2);
+    expect(moduleSlugs).toContain("a-core");
+    expect(moduleSlugs).toContain("a-core-2");
+  });
+
+  it("suffixes a module slug that collides with a reserved root slug", async () => {
+    // A module whose base slug equals the reserved `overview` root must be suffixed,
+    // confirming the reserved-slug seeding of the `used` set works.
+    const m = moduleNode({ path: "overview", files: ["overview/i.ts"], dependsOn: [] });
+    const { pages } = await runGeneration({
+      repoMap: repoMap([m]),
+      agent: cannedAgent(),
+    });
+    const root = pages.find((p) => p.kind === "technical" && p.parentSlug === null);
+    const moduleTech = pages.find(
+      (p) => p.kind === "technical" && p.parentSlug !== null,
+    );
+    expect(root!.slug).toBe("overview");
+    expect(moduleTech!.slug).toBe("overview-2");
+  });
+});
+
+describe("parseSections via runGeneration (M3, marker per-riga)", () => {
+  /** Runs a single module whose map output is fully controlled. */
+  async function mapOutput(out: string) {
+    const m = moduleNode({ path: "packages/a", files: ["packages/a/i.ts"], dependsOn: [] });
+    const agent: AgentFn = vi.fn(async ({ prompt }) => {
+      if (prompt.includes("REDUCE")) {
+        return `${TECHNICAL_MARKER}\noverview\n${FUNCTIONAL_MARKER}\n## Capability: X\nbody`;
+      }
+      return out;
+    });
+    return runGeneration({ repoMap: repoMap([m]), agent });
+  }
+
+  it("ignores a marker that is not alone on its line and parses the real sections", async () => {
+    // The literal TECHNICAL_MARKER appears inside a fenced code block but NOT alone
+    // on its line (e.g. quoted as documentation source, like generate.ts itself does)
+    // BEFORE the real marker line. Only the full-line marker is a delimiter, so the
+    // parser must use the real one, not the fenced occurrence.
+    const out = [
+      "```ts",
+      `const TECHNICAL_MARKER = "${TECHNICAL_MARKER}"; // not a delimiter`,
+      "```",
+      TECHNICAL_MARKER, // the REAL technical marker line (alone on its own line)
+      "REAL technical body",
+      FUNCTIONAL_MARKER,
+      "REAL functional body",
+    ].join("\n");
+    const { pages, moduleFailures } = await mapOutput(out);
+    expect(moduleFailures).toEqual([]);
+    const tech = pages.find(
+      (p) => p.kind === "technical" && p.sourcePath === "packages/a",
+    );
+    expect(tech).toBeDefined();
+    // technical section is exactly the text between the REAL full-line markers.
+    expect(tech!.body).toBe("REAL technical body");
+    expect(tech!.body).not.toContain("not a delimiter");
+  });
+
+  it("does not treat a marker embedded mid-line as a delimiter", async () => {
+    // `prefix===TECHNICAL===` is not a marker line → no valid technical marker →
+    // the whole output is unparseable → module recorded as a failure.
+    const out = [
+      `prefix${TECHNICAL_MARKER}`,
+      "body that is not a real technical section",
+      FUNCTIONAL_MARKER,
+      "functional body",
+    ].join("\n");
+    const { moduleFailures } = await mapOutput(out);
+    expect(moduleFailures).toEqual(["packages/a"]);
+  });
+
+  it("treats out-of-order markers (functional before technical) as unparseable", async () => {
+    const out = [
+      FUNCTIONAL_MARKER,
+      "functional first",
+      TECHNICAL_MARKER,
+      "technical second",
+    ].join("\n");
+    const { moduleFailures } = await mapOutput(out);
+    expect(moduleFailures).toEqual(["packages/a"]);
   });
 });

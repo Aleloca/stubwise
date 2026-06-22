@@ -26,12 +26,15 @@
  *     ===FUNCTIONAL===
  *     <markdown funzionale>
  *
- * Il parser (`parseSections`) è deterministico: trova `TECHNICAL_MARKER`, poi
- * `FUNCTIONAL_MARKER`; il testo tra i due è la sezione tecnica, quello dopo il
- * secondo marker è la sezione funzionale. Se manca uno dei marker o una delle due
- * sezioni risulta vuota, il parse FALLISCE (→ `moduleFailures` nel map; nel reduce
- * si fa fallback a sezioni vuote, vedi `runGeneration`). I marker sono volutamente
- * improbabili nel markdown normale per ridurre i falsi delimitatori.
+ * Il parser (`parseSections`) è deterministico: i marker sono riconosciuti SOLO
+ * come riga intera (la riga, trimmata, è esattamente il marker), così un marker a
+ * metà riga o dentro un fenced code block non è un delimitatore; trova la prima
+ * riga `TECHNICAL_MARKER`, poi la prima `FUNCTIONAL_MARKER`; il testo tra i due è la
+ * sezione tecnica, quello dopo il secondo marker è la sezione funzionale. Se manca
+ * uno dei marker, sono fuori ordine, o una delle due sezioni risulta vuota, il parse
+ * FALLISCE (→ `moduleFailures` nel map; nel reduce si fa fallback a sezioni vuote,
+ * vedi `runGeneration`). I marker sono volutamente improbabili nel markdown normale
+ * per ridurre i falsi delimitatori.
  */
 import type { ModuleNode, RepoMap } from "./types.js";
 
@@ -182,19 +185,22 @@ export function buildReducePrompt(moduleDocs: ModuleDoc[]): string {
 }
 
 /**
- * Parsa l'output dell'agent secondo il contratto a due marker. Ritorna `null` se
- * uno dei marker manca o una delle due sezioni è vuota (output non parsabile).
+ * Parsa l'output dell'agent secondo il contratto a due marker. I marker sono
+ * riconosciuti solo come RIGA INTERA (la riga, una volta trimmata, è ESATTAMENTE
+ * il marker), come dice il contratto ("marker ALONE on its own line"): un marker
+ * che compare a metà riga o dentro un fenced code block NON è un delimitatore.
+ * Si usa la PRIMA riga-marker di ciascun tipo. Ritorna `null` se uno dei marker
+ * manca, sono fuori ordine, o una delle due sezioni è vuota (output non parsabile).
  */
 function parseSections(
   output: string,
 ): { technical: string; functional: string } | null {
-  const techIdx = output.indexOf(TECHNICAL_MARKER);
-  const funcIdx = output.indexOf(FUNCTIONAL_MARKER);
-  if (techIdx === -1 || funcIdx === -1 || funcIdx <= techIdx) return null;
-  const technical = output
-    .slice(techIdx + TECHNICAL_MARKER.length, funcIdx)
-    .trim();
-  const functional = output.slice(funcIdx + FUNCTIONAL_MARKER.length).trim();
+  const lines = output.split("\n");
+  const techLine = lines.findIndex((l) => l.trim() === TECHNICAL_MARKER);
+  const funcLine = lines.findIndex((l) => l.trim() === FUNCTIONAL_MARKER);
+  if (techLine === -1 || funcLine === -1 || funcLine <= techLine) return null;
+  const technical = lines.slice(techLine + 1, funcLine).join("\n").trim();
+  const functional = lines.slice(funcLine + 1).join("\n").trim();
   if (technical === "" || functional === "") return null;
   return { technical, functional };
 }
