@@ -320,7 +320,10 @@ describe("schema: self-repair e budget di costo", () => {
     await testDb.stop();
   });
 
-  async function insertProject(testCommand: string | null): Promise<string> {
+  async function insertProject(
+    testCommand: string | null,
+    installCommand: string | null = null,
+  ): Promise<string> {
     const gitAccountId = await seedGitAccount(db);
     const [project] = await db
       .insert(projects)
@@ -333,6 +336,7 @@ describe("schema: self-repair e budget di costo", () => {
         defaultBranch: "main",
         ingestionKey: randomUUID(),
         testCommand,
+        installCommand,
       })
       .returning();
     if (!project) throw new Error("insert del progetto non ha restituito la riga");
@@ -347,6 +351,16 @@ describe("schema: self-repair e budget di costo", () => {
     const [withNull] = await db.select().from(projects).where(eq(projects.id, withNullId));
     expect(withCommand?.testCommand).toBe("pnpm test");
     expect(withNull?.testCommand).toBeNull();
+  });
+
+  it("persiste projects.install_command valorizzato e null", async () => {
+    const withCommandId = await insertProject(null, "pnpm install");
+    const withNullId = await insertProject(null, null);
+
+    const [withCommand] = await db.select().from(projects).where(eq(projects.id, withCommandId));
+    const [withNull] = await db.select().from(projects).where(eq(projects.id, withNullId));
+    expect(withCommand?.installCommand).toBe("pnpm install");
+    expect(withNull?.installCommand).toBeNull();
   });
 
   it("automation_rules.max_cost_usd default null e aggiornabile (numeric come stringa)", async () => {

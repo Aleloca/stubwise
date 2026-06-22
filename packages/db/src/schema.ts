@@ -216,6 +216,10 @@ export const projects = pgTable("projects", {
   // verificare il fix prima di aprire la PR (self-repair). Null = nessun
   // comando configurato: l'agente non esegue la fase di verifica.
   testCommand: text("test_command"),
+  // Comando di install del progetto (es. "pnpm install"), eseguito dall'agente
+  // nel worktree effimero prima della fase di fix/verifica. Override opzionale:
+  // null = nessun comando configurato, l'agente usa il default/euristica.
+  installCommand: text("install_command"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

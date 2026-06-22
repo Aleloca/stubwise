@@ -169,6 +169,13 @@
       "when": 1781869805862,
       "tag": "0023_exotic_serpent_society",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1782115079751,
+      "tag": "0024_lovely_nicolaos",
+      "breakpoints": true
     }
   ]
 }
