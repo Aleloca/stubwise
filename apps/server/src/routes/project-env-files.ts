@@ -61,8 +61,10 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
   // Verifica che il file esista E appartenga al progetto dell'URL: evita di
   // operare su file di altri progetti tramite fileId indovinati.
   async function findFile(projectId: string, fileId: string) {
+    // Solo guard di esistenza/ownership: ai chiamanti basta sapere se la riga
+    // esiste, quindi proiettiamo solo l'id (niente select dell'intera riga).
     const [row] = await app.db
-      .select()
+      .select({ id: projectEnvFiles.id })
       .from(projectEnvFiles)
       .where(and(eq(projectEnvFiles.id, fileId), eq(projectEnvFiles.projectId, projectId)));
     return row;
@@ -160,16 +162,20 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
       if (!file) return apiError(reply, 404, "env_file_not_found", "Env file not found");
 
       const valid = parseDotenv(request.body.content).filter((v) => isValidEnvKey(v.key));
-      for (const { key, value } of valid) {
-        const valueEncrypted = encrypt(value, app.encryptionKey);
-        await app.db
-          .insert(projectEnvVars)
-          .values({ fileId, key, valueEncrypted })
-          .onConflictDoUpdate({
-            target: [projectEnvVars.fileId, projectEnvVars.key],
-            set: { valueEncrypted, updatedAt: sql`now()` },
-          });
-      }
+      // In transazione: o passano tutti gli upsert o nessuno, così un errore a
+      // metà non lascia un import parziale.
+      await app.db.transaction(async (tx) => {
+        for (const { key, value } of valid) {
+          const valueEncrypted = encrypt(value, app.encryptionKey);
+          await tx
+            .insert(projectEnvVars)
+            .values({ fileId, key, valueEncrypted })
+            .onConflictDoUpdate({
+              target: [projectEnvVars.fileId, projectEnvVars.key],
+              set: { valueEncrypted, updatedAt: sql`now()` },
+            });
+        }
+      });
       const imported = valid.map((v) => v.key);
       return { count: imported.length, imported };
     },
