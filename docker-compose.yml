@@ -76,15 +76,19 @@ services:
       - MIRRORS_DIR=/var/stubwise/mirrors
       - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-2}
       # Deve superare l'invariante verificato all'avvio del worker. Con fix a
-      # due fasi + self-repair: plan(10') + fix(30') + self-repair 2x(fix 30' +
-      # test 5') + 2x triage(2') + margine(5') ~= 119'. Default 150. Se abbassi
-      # SELF_REPAIR_MAX_ATTEMPTS l'invariante cala e puoi ridurlo.
+      # due fasi + self-repair: install(10', una volta) + plan(10') + fix(30') +
+      # self-repair 2x(fix 30' + test 5') + 2x triage(2') + margine(5') ~= 129'.
+      # Default 150. Se abbassi SELF_REPAIR_MAX_ATTEMPTS l'invariante cala e puoi
+      # ridurlo.
       - WORKER_STALE_MINUTES=${WORKER_STALE_MINUTES:-150}
       # --- Fix a due fasi: opus pianifica (sola lettura), sonnet esegue ---
       - FIX_TWO_PHASE=${FIX_TWO_PHASE:-true}
       - FIX_PLAN_MODEL=${FIX_PLAN_MODEL:-opus}
       - FIX_EXECUTE_MODEL=${FIX_EXECUTE_MODEL:-sonnet}
       - FIX_PLAN_TIMEOUT_MS=${FIX_PLAN_TIMEOUT_MS:-600000}
+      # Timeout dell'install delle dipendenze nel worktree: gira una volta prima
+      # del fix/test (e' l'addendo singolo dell'invariante di staleness sopra).
+      - INSTALL_TIMEOUT_MS=${INSTALL_TIMEOUT_MS:-600000}
       # --- Auth del CLI claude ---
       # Metodo raccomandato: gestisci le credenziali in Settings -> AI providers
       # (catena cifrata nel DB, con failover). Le due righe pass-through qui sotto
