@@ -108,3 +108,47 @@ describe("buildRepoMap — moduli e manifest (M2.3)", () => {
     expect(foo.files.sort()).toEqual(["src/foo/a.ts", "src/foo/b.ts"]);
   });
 });
+
+describe("buildRepoMap — superficie pubblica e dependency graph (M2.4)", () => {
+  it("estrae export TS/JS in publicSurface e risolve import relativi in dependsOn", async () => {
+    const map = await buildRepoMap(
+      reader({
+        "packages/a/package.json": "{}",
+        "packages/a/index.ts": [
+          `import { x } from "../b";`,
+          `export function foo() { return x; }`,
+          `export const bar = 1;`,
+          `export class Baz {}`,
+        ].join("\n"),
+        "packages/b/package.json": "{}",
+        "packages/b/index.ts": `export const x = 1;`,
+      }),
+      { maxModules: 50 },
+    );
+    const a = map.modules.find((m) => m.path === "packages/a")!;
+    expect(a.publicSurface.sort()).toEqual(["Baz", "bar", "foo"]);
+    expect(a.dependsOn).toEqual(["packages/b"]);
+
+    const b = map.modules.find((m) => m.path === "packages/b")!;
+    expect(b.publicSurface).toEqual(["x"]);
+    expect(b.dependsOn).toEqual([]);
+  });
+
+  it("un modulo senza export ha publicSurface vuota e non auto-dipende", async () => {
+    const map = await buildRepoMap(
+      reader({
+        "packages/a/package.json": "{}",
+        "packages/a/index.ts": [
+          `import { helper } from "./util";`,
+          `const internal = helper();`,
+        ].join("\n"),
+        "packages/a/util.ts": `export function helper() { return 1; }`,
+      }),
+      { maxModules: 50 },
+    );
+    const a = map.modules.find((m) => m.path === "packages/a")!;
+    expect(a.publicSurface).toEqual(["helper"]);
+    // import "./util" resta interno al modulo a → nessuna dipendenza esterna
+    expect(a.dependsOn).toEqual([]);
+  });
+});

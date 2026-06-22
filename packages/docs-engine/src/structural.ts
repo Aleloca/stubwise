@@ -73,6 +73,24 @@ const MANIFEST_FILES = [
 /** Profondità di directory usata come confine di modulo in assenza di manifest. */
 const DEFAULT_MODULE_DEPTH = 2;
 
+/** Estensioni dei file analizzati per superficie pubblica e import (TS/JS, v1). */
+const TS_JS_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"]);
+
+/**
+ * Euristica regex (v1, TS/JS) per i simboli esportati. Cattura il nome dopo
+ * `export [default] function|const|let|var|class|interface|type|enum`. Non
+ * gestisce re-export (`export { … } from`) né destructuring: estendibile.
+ */
+const EXPORT_RE =
+  /^\s*export\s+(?:default\s+)?(?:async\s+)?(?:function|const|let|var|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/gm;
+
+/**
+ * Euristica regex (v1, TS/JS) per gli import/require con specifier relativo.
+ * Cattura il path tra apici di `import … from "…"`, `import "…"` e `require("…")`.
+ */
+const IMPORT_RE =
+  /(?:import\s+(?:[^"'`]*?\s+from\s+)?|require\(\s*)["'`](\.[^"'`]+)["'`]/g;
+
 /** Estensione di un path (con il punto, in lowercase) o `null` se assente. */
 function extname(path: string): string | null {
   const base = path.slice(path.lastIndexOf("/") + 1);
@@ -212,6 +230,86 @@ function dominantLanguage(files: RepoFile[]): string | null {
   return best;
 }
 
+/** Nomi dei simboli esportati da un sorgente TS/JS (euristica regex v1). */
+function extractPublicSurface(source: string): string[] {
+  const names = new Set<string>();
+  for (const match of source.matchAll(EXPORT_RE)) {
+    if (match[1]) names.add(match[1]);
+  }
+  return [...names];
+}
+
+/** Specifier di import/require relativi presenti in un sorgente TS/JS. */
+function extractRelativeImports(source: string): string[] {
+  const specs: string[] = [];
+  for (const match of source.matchAll(IMPORT_RE)) {
+    if (match[1]) specs.push(match[1]);
+  }
+  return specs;
+}
+
+/** Normalizza un path risolvendo i segmenti `.` e `..`. */
+function normalizePath(path: string): string {
+  const out: string[] = [];
+  for (const segment of path.split("/")) {
+    if (segment === "" || segment === ".") continue;
+    if (segment === "..") out.pop();
+    else out.push(segment);
+  }
+  return out.join("/");
+}
+
+/**
+ * Risolve uno specifier relativo (importato da `fromFile`) nel path del modulo
+ * proprietario, o `null` se cade fuori dai moduli noti. `moduleDirs` è ordinato
+ * per profondità decrescente così da preferire il modulo più specifico.
+ */
+function resolveImportToModule(
+  spec: string,
+  fromFile: string,
+  moduleDirs: string[],
+): string | null {
+  const resolved = normalizePath(`${dirname(fromFile)}/${spec}`);
+  for (const dir of moduleDirs) {
+    if (isUnder(resolved, dir)) return dir;
+  }
+  return null;
+}
+
+/**
+ * Arricchisce i moduli TS/JS con `publicSurface` (export) e `dependsOn` (import
+ * relativi risolti ad altri moduli). Euristiche regex v1: si limitano a TS/JS e
+ * non interpretano la semantica completa del linguaggio.
+ */
+async function enrichTsJsModules(
+  modules: ModuleNode[],
+  reader: RepoReader,
+): Promise<void> {
+  // moduli ordinati per profondità (numero di segmenti) decrescente: l'import
+  // viene attribuito al modulo più specifico che lo contiene.
+  const moduleDirs = modules
+    .map((m) => m.path)
+    .sort((a, b) => b.split("/").length - a.split("/").length);
+
+  for (const module of modules) {
+    const surface = new Set<string>();
+    const deps = new Set<string>();
+    for (const file of module.files) {
+      const ext = extname(file);
+      if (!ext || !TS_JS_EXTENSIONS.has(ext)) continue;
+      const source = await reader.read(file);
+      for (const name of extractPublicSurface(source)) surface.add(name);
+      for (const spec of extractRelativeImports(source)) {
+        const target = resolveImportToModule(spec, file, moduleDirs);
+        // ignora gli import che restano nel modulo stesso (no auto-dipendenza)
+        if (target !== null && target !== module.path) deps.add(target);
+      }
+    }
+    module.publicSurface = [...surface];
+    module.dependsOn = [...deps];
+  }
+}
+
 export async function buildRepoMap(
   reader: RepoReader,
   options: BuildRepoMapOptions,
@@ -221,6 +319,7 @@ export async function buildRepoMap(
   const { kept, languages, skipped } = filterFiles(files);
 
   const modules = segmentModules(kept, moduleDepth);
+  await enrichTsJsModules(modules, reader);
 
   return { languages, modules, skipped };
 }
