@@ -107,6 +107,7 @@ const handler = createHandler({
     planTimeoutMs: config.fixPlanTimeoutMs,
     selfRepairMaxAttempts: config.selfRepairMaxAttempts,
     testTimeoutMs: config.selfRepairTestTimeoutMs,
+    installTimeoutMs: config.installTimeoutMs,
   },
 });
 
