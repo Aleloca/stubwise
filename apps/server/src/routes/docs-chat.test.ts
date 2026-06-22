@@ -195,6 +195,9 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
       .from(docChatSessions)
       .where(eq(docChatSessions.projectId, project.id));
     expect(sessions.length).toBe(1);
+    // Il `done` echeggia il sessionId creato: il client lo persiste per il
+    // multi-turn (riusa la stessa sessione nei turni successivi).
+    expect(done!.sessionId).toBe(sessions[0]!.id);
 
     const messages = await testDb.db
       .select()
@@ -508,10 +511,12 @@ describe("GET /api/projects/:projectId/docs/chat/sessions[/:id/messages]", () =>
       headers: { cookie: memberCookie },
     });
     expect(messagesRes.statusCode).toBe(200);
-    const messages = messagesRes.json() as { role: string; content: string }[];
+    const messages = messagesRes.json() as { id: string; role: string; content: string }[];
     expect(messages.length).toBe(2);
     expect(messages[0]!.role).toBe("user");
     expect(messages[1]!.role).toBe("assistant");
+    // Ogni messaggio espone l'`id` (chiave React lato client).
+    expect(messages.every((m) => typeof m.id === "string" && m.id.length > 0)).toBe(true);
   });
 
   it("messaggi di una sessione altrui: 404", async () => {

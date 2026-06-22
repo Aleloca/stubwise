@@ -286,8 +286,10 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
         // del client la connessione è già chiusa, quindi non scriviamo/chiudiamo.
         if (!clientGone) {
           if (completed) {
-            // Risposta completa: evento finale con le citazioni.
-            writeSseEvent(reply, { type: "done", citations });
+            // Risposta completa: evento finale con le citazioni e il sessionId,
+            // così il client può persistere la sessione (nuova al primo turno) e
+            // riusarla nei turni successivi (multi-turn).
+            writeSseEvent(reply, { type: "done", sessionId: resolvedSessionId, citations });
           }
           reply.raw.end();
         }
@@ -367,6 +369,7 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
         response: {
           200: z.array(
             z.object({
+              id: z.uuid(),
               role: z.string(),
               content: z.string(),
               citations: z.unknown().nullable(),
@@ -397,6 +400,7 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
 
       const rows = await app.db
         .select({
+          id: docChatMessages.id,
           role: docChatMessages.role,
           content: docChatMessages.content,
           citations: docChatMessages.citations,
@@ -407,6 +411,7 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
         .orderBy(asc(docChatMessages.createdAt));
 
       return rows.map((r) => ({
+        id: r.id,
         role: r.role,
         content: r.content,
         citations: r.citations ?? null,
