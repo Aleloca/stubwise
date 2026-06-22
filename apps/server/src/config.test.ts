@@ -19,7 +19,23 @@ describe("loadConfig", () => {
       port: 8080,
       publicUrl: validEnv.PUBLIC_URL,
       trustProxy: false,
+      // Default degli embedding (Ollama in-rete, bge-m3, niente API key).
+      embeddingBaseUrl: "http://ollama:11434/v1",
+      embeddingModel: "bge-m3",
+      embeddingApiKey: undefined,
     });
+  });
+
+  it("legge EMBEDDING_* dall'env quando presenti", () => {
+    const config = loadConfig({
+      ...validEnv,
+      EMBEDDING_BASE_URL: "https://api.openai.com/v1",
+      EMBEDDING_MODEL: "text-embedding-3-small",
+      EMBEDDING_API_KEY: "sk-test",
+    });
+    expect(config.embeddingBaseUrl).toBe("https://api.openai.com/v1");
+    expect(config.embeddingModel).toBe("text-embedding-3-small");
+    expect(config.embeddingApiKey).toBe("sk-test");
   });
 
   it("usa 3000 come PORT di default", () => {

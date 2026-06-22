@@ -45,7 +45,7 @@ jobs:
       - name: Build della documentazione
         run: pnpm --filter "@stubwise/docs..." build
         env:
-          # Su GitHub Pages il sito vive sotto /<repo>, non sotto /docs come
+          # Su GitHub Pages il sito vive sotto /<repo>, non sotto /guide come
           # dietro Caddy (vedi apps/docs/astro.config.mjs).
           DOCS_BASE: /stubwise
           DOCS_SITE: https://aleloca.github.io

@@ -1,4 +1,8 @@
 import {
+  docGenerationStatusSchema,
+  docGenerationTriggerSchema,
+  docJobStatusSchema,
+  docPageKindSchema,
   gitProviderKindSchema,
   languageSchema,
   ticketPrioritySchema,
@@ -33,6 +37,28 @@ const tsvector = customType<{ data: string }>({
     return "tsvector";
   },
 });
+
+/**
+ * Tipo `vector` di pgvector, non modellato nativamente da drizzle. La dimensione
+ * è parametrica (fissata a 1024 per bge-m3 nelle colonne che lo usano). In TS è
+ * un `number[]`; sul driver è la rappresentazione testuale `[n,n,...]` che
+ * pgvector accetta/restituisce. `toDriver`/`fromDriver` fanno la conversione.
+ */
+const vector = (dimensions: number) =>
+  customType<{ data: number[]; driverData: string }>({
+    dataType() {
+      return `vector(${dimensions})`;
+    },
+    toDriver(value: number[]): string {
+      return `[${value.join(",")}]`;
+    },
+    fromDriver(value: string): number[] {
+      // pgvector restituisce "[n,n,...]"; il vettore vuoto è "[]". Senza guard
+      // "".split(",") darebbe [""] → [NaN]: si gestisce esplicitamente il caso.
+      const inner = value.slice(1, -1);
+      return inner === "" ? [] : inner.split(",").map(Number);
+    },
+  })("embedding");
 
 /**
  * Converte le opzioni di uno z.enum nella tupla non vuota richiesta da pgEnum,
@@ -115,6 +141,20 @@ export const aiProviderKind = pgEnum("ai_provider_kind", ["api_key", "account"])
 // strutturato/parsabile del CLI) o "llm_fallback" (dedotto da un modello quando
 // il parsing deterministico fallisce). Marca l'affidabilità del dato.
 export const aiUsageSource = pgEnum("ai_usage_source", ["deterministic", "llm_fallback"]);
+
+// Enum del dominio Docs (documentazione autogenerata). I valori derivano dagli
+// schema Zod condivisi in @stubwise/shared: enum Postgres e validazione non
+// possono divergere.
+export const docPageKind = pgEnum("doc_page_kind", enumValues(docPageKindSchema));
+export const docGenerationStatus = pgEnum(
+  "doc_generation_status",
+  enumValues(docGenerationStatusSchema),
+);
+export const docGenerationTrigger = pgEnum(
+  "doc_generation_trigger",
+  enumValues(docGenerationTriggerSchema),
+);
+export const docJobStatus = pgEnum("doc_job_status", enumValues(docJobStatusSchema));
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -220,6 +260,11 @@ export const projects = pgTable("projects", {
   // nel worktree effimero prima della fase di fix/verifica. Override opzionale:
   // null = nessun comando configurato, l'agente usa il default/euristica.
   installCommand: text("install_command"),
+  // Generazione di documentazione "corrente" del progetto: puntatore soft alla
+  // doc_generations attiva (si imposta dopo lo swap). Niente reference circolare
+  // hard (projects↔doc_generations) per evitare problemi d'ordine in migrazione:
+  // l'integrità è validata a livello applicativo. Null = nessuna doc generata.
+  currentDocGenerationId: uuid("current_doc_generation_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -794,4 +839,225 @@ export const projectEnvVars = pgTable(
     // Nome variabile univoco per file.
     uniqueIndex("project_env_vars_file_id_key_unique").on(table.fileId, table.key),
   ],
+);
+
+/**
+ * Una generazione di documentazione di un progetto: l'esecuzione (map-reduce
+ * agentico) che produce l'insieme di pagine/chunk a partire da un commit. Lo
+ * stato segue il ciclo pending→running→succeeded/failed. `commitSha` registra
+ * il commit documentato (fase incrementale futura); `cost`/`stats` tracciano il
+ * consumo aggregato. La generazione "corrente" del progetto è puntata da
+ * projects.current_doc_generation_id (swap applicativo). Cascata col progetto.
+ */
+export const docGenerations = pgTable(
+  "doc_generations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    status: docGenerationStatus("status").notNull().default("pending"),
+    // Commit documentato da questa generazione; null finché il job non lo fissa.
+    commitSha: text("commit_sha"),
+    trigger: docGenerationTrigger("trigger").notNull().default("manual"),
+    // Modello AI usato per la generazione; null finché non avviata.
+    model: text("model"),
+    // Costo aggregato in USD della generazione. Nullable (stesso tipo di
+    // agentRuns.costUsd): null finché non calcolato.
+    cost: numeric("cost", { precision: 12, scale: 6 }),
+    // Breakdown libero (per-modulo, token, durate) in jsonb.
+    stats: jsonb("stats"),
+    error: text("error"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  // Le generazioni si elencano sempre per progetto (storico, prune).
+  (table) => [index("doc_generations_project_idx").on(table.projectId)],
+);
+
+/**
+ * Una pagina di documentazione: nodo dell'albero (technical/functional/manual).
+ * Le pagine autogenerate appartengono a una `generationId` e vengono sostituite
+ * a ogni rigenerazione; le pagine `isManual` hanno `generationId` null e
+ * sopravvivono alle rigenerazioni (curate a mano). `parentId` modella la
+ * gerarchia (soft, niente FK self per ordine in migrazione); `searchTsv` è il
+ * vettore full-text generato da titolo+corpo.
+ *
+ * UNICITÀ slug: gli slug autogenerati sono DETERMINISTICI (`overview`,
+ * `capabilities`, baseSlug del modulo) e si ripetono identici a ogni
+ * rigenerazione. Un'unicità (project_id, slug) collidereberbe alla 2ª
+ * generazione (le pagine della precedente coesistono fino al prune). Quindi:
+ *  - pagine AUTOGENERATE: unique (generation_id, slug) — ogni generazione porta
+ *    i suoi slug, generazioni diverse possono condividerli;
+ *  - pagine MANUALI (generation_id null): unique parziale (project_id, slug)
+ *    WHERE generation_id IS NULL — restano uniche per progetto.
+ */
+export const docPages = pgTable(
+  "doc_pages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    // Generazione di appartenenza; null per le pagine manuali (non rigenerate).
+    // Cascata: una generazione rimossa porta via le sue pagine autogenerate.
+    generationId: uuid("generation_id").references(() => docGenerations.id, {
+      onDelete: "cascade",
+    }),
+    kind: docPageKind("kind").notNull(),
+    slug: text("slug").notNull(),
+    title: text("title").notNull(),
+    // Genitore nell'albero; soft (niente FK self) per evitare ordini in migrazione.
+    parentId: uuid("parent_id"),
+    position: integer("position").notNull().default(0),
+    // Path del sorgente documentato (modulo/file); null per overview/manuali.
+    sourcePath: text("source_path"),
+    body: text("body").notNull().default(""),
+    isManual: boolean("is_manual").notNull().default(false),
+    // Autore della pagina manuale; null per le autogenerate o autore eliminato.
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // Vettore full-text generato (stored) da titolo + corpo: alimenta la ricerca
+    // testuale via `@@ websearch_to_tsquery`. Sola lettura per l'applicazione.
+    searchTsv: tsvector("search_tsv").generatedAlwaysAs(
+      (): SQL =>
+        sql`to_tsvector('english', coalesce(${docPages.title}, '') || ' ' || coalesce(${docPages.body}, ''))`,
+    ),
+  },
+  (table) => [
+    index("doc_pages_project_idx").on(table.projectId),
+    index("doc_pages_generation_idx").on(table.generationId),
+    // Slug univoco per generazione (pagine autogenerate): generazioni diverse
+    // condividono gli stessi slug deterministici, ma una generazione non può
+    // avere due pagine con lo stesso slug.
+    uniqueIndex("doc_pages_generation_slug_unique").on(table.generationId, table.slug),
+    // Slug univoco per progetto SOLO tra le pagine manuali (generation_id null):
+    // indice parziale, non collide con gli slug autogenerati.
+    uniqueIndex("doc_pages_manual_slug_unique")
+      .on(table.projectId, table.slug)
+      .where(sql`generation_id IS NULL`),
+    // Ricerca full-text sul vettore generato.
+    index("doc_pages_search_tsv_idx").using("gin", table.searchTsv),
+  ],
+);
+
+/**
+ * Chunk di una pagina di documentazione con il suo embedding (pgvector, 1024
+ * dim / bge-m3): alimenta la ricerca semantica e il retrieval della chat RAG.
+ * `metadata` jsonb porta heading di provenienza e simili. L'indice HNSW
+ * sull'embedding NON è generabile da drizzle: vive a mano nella migrazione.
+ */
+export const docChunks = pgTable(
+  "doc_chunks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => docPages.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    // Generazione di appartenenza; null per chunk di pagine manuali. Cascata.
+    generationId: uuid("generation_id").references(() => docGenerations.id, {
+      onDelete: "cascade",
+    }),
+    content: text("content").notNull(),
+    embedding: vector(1024),
+    metadata: jsonb("metadata"),
+    tokenCount: integer("token_count"),
+  },
+  (table) => [
+    // I chunk si filtrano sempre per progetto nel retrieval (single-project v1).
+    index("doc_chunks_project_idx").on(table.projectId),
+    // Il retrieval filtra per (progetto, generazione corrente) prima
+    // dell'ordinamento <=>: l'HNSW non può portare questa uguaglianza, serve
+    // un btree dedicato.
+    index("doc_chunks_project_generation_idx").on(table.projectId, table.generationId),
+  ],
+);
+
+/**
+ * Job di doc-generation (project-scoped): coda dedicata con claim/loop propri
+ * (riusa i pattern di ai_jobs ma non li tocca, per preservare l'invariante
+ * staleness). `lastActivityAt` è l'heartbeat per il recupero dei job orfani.
+ * `generationId` collega il job alla generazione che produce (set null: il job
+ * sopravvive alla rimozione della generazione).
+ */
+export const docGenerationJobs = pgTable(
+  "doc_generation_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    generationId: uuid("generation_id").references(() => docGenerations.id, {
+      onDelete: "set null",
+    }),
+    status: docJobStatus("status").notNull().default("queued"),
+    trigger: docGenerationTrigger("trigger").notNull().default("manual"),
+    log: text("log").notNull().default(""),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    // Heartbeat del worker: base del recupero dei job orfani (requeueStale).
+    lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Claim del worker: il job in coda più vecchio (FOR UPDATE SKIP LOCKED,
+    // ordinato per created_at). Indice parziale come ai_jobs: resta minuscolo
+    // perché copre solo i job ancora in stato "queued".
+    index("doc_generation_jobs_queued_created_at_idx")
+      .on(table.createdAt)
+      .where(sql`status = 'queued'`),
+    // Lookup dei job di un progetto (storico, serializzazione per-progetto).
+    index("doc_generation_jobs_project_idx").on(table.projectId),
+  ],
+);
+
+/**
+ * Sessione di chat RAG sulla documentazione di un progetto, di un utente.
+ * Raggruppa i messaggi. Cascata col progetto e con l'utente.
+ */
+export const docChatSessions = pgTable(
+  "doc_chat_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  // Le sessioni si elencano per progetto.
+  (table) => [index("doc_chat_sessions_project_idx").on(table.projectId)],
+);
+
+/**
+ * Messaggio di una sessione di chat RAG: `role` "user" | "assistant",
+ * `citations` jsonb porta i riferimenti ai chunk/pagine usati nella risposta.
+ * Cascata con la sessione.
+ */
+export const docChatMessages = pgTable(
+  "doc_chat_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => docChatSessions.id, { onDelete: "cascade" }),
+    // "user" | "assistant": registro libero (non enum) per estensibilità futura.
+    role: text("role").notNull(),
+    content: text("content").notNull(),
+    citations: jsonb("citations"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  // I messaggi si caricano sempre per sessione, in ordine cronologico.
+  (table) => [index("doc_chat_messages_session_idx").on(table.sessionId)],
 );

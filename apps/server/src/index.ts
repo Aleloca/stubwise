@@ -28,6 +28,9 @@ const app = buildApp({
   encryptionKey: config.encryptionKey,
   publicUrl: config.publicUrl,
   trustProxy: config.trustProxy,
+  embeddingBaseUrl: config.embeddingBaseUrl,
+  embeddingModel: config.embeddingModel,
+  ...(config.embeddingApiKey !== undefined ? { embeddingApiKey: config.embeddingApiKey } : {}),
 });
 
 try {

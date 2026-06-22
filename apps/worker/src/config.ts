@@ -167,6 +167,72 @@ const envSchema = z.object({
       .min(0, "deve essere un intero ≥ 0 in secondi (es. 5; 0 = disabilitato)")
       .default(5),
   ),
+  // Modello usato dalla pipeline di generazione della documentazione (Docs):
+  // un run per modulo che scrive la pagina tecnica/funzionale. Forte per
+  // default (qualità della prosa e comprensione del codice), come FIX_PLAN_MODEL.
+  DOC_GENERATION_MODEL: z.preprocess(
+    emptyAsUndefined,
+    z
+      .string({ error: "deve essere il nome di un modello (es. opus)" })
+      .min(1)
+      .default("opus"),
+  ),
+  // Tetto al numero di moduli documentati in una singola generazione: protegge
+  // da repo enormi (un run dell'agente per modulo → costo/tempo lineari). Lo
+  // scoring di docs-engine ordina i moduli e taglia oltre questa soglia.
+  DOC_MAX_MODULES: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 (es. 80)" })
+      .int("deve essere un intero ≥ 1 (es. 80)")
+      .min(1, "deve essere un intero ≥ 1 (es. 80)")
+      .default(80),
+  ),
+  // Numero massimo di turni dell'agente per la pagina di un singolo modulo:
+  // limita esplorazione/iterazioni del run (costo e durata per modulo).
+  DOC_MODULE_MAX_TURNS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 (es. 30)" })
+      .int("deve essere un intero ≥ 1 (es. 30)")
+      .min(1, "deve essere un intero ≥ 1 (es. 30)")
+      .default(30),
+  ),
+  // Cap di costo (USD) per SINGOLA generazione di documentazione: se il costo
+  // aggregato dei run dell'agente lo supera, la generazione è marcata `failed`
+  // e il job messo in `held` con ragione loggata (mai un cap silenzioso); NON
+  // si fa lo swap del puntatore. Opzionale: NON impostata (default) = nessun
+  // cap, costo ILLIMITATO — i deploy esistenti non cambiano comportamento. Va
+  // impostata a un valore > 0 per attivare il guardrail (es. 5 = $5/generazione).
+  DOC_COST_CAP_USD: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un numero > 0 in USD (es. 5)" })
+      .positive("deve essere un numero > 0 in USD (es. 5)")
+      .optional(),
+  ),
+  // Endpoint OpenAI-compatibile per gli embedding della ricerca semantica sui
+  // Docs (/v1/embeddings). Di default Ollama in-rete (servizio "ollama" del
+  // compose); puntabile a un provider esterno cambiando la sola variabile.
+  EMBEDDING_BASE_URL: z.preprocess(
+    emptyAsUndefined,
+    z
+      .string({ error: "deve essere l'URL base di un endpoint /v1 OpenAI-compatibile" })
+      .min(1)
+      .default("http://ollama:11434/v1"),
+  ),
+  // Modello di embedding richiesto all'endpoint sopra. Default bge-m3
+  // (multilingue, 1024 dim — vedi la colonna vector dello schema).
+  EMBEDDING_MODEL: z.preprocess(
+    emptyAsUndefined,
+    z
+      .string({ error: "deve essere il nome di un modello di embedding (es. bge-m3)" })
+      .min(1)
+      .default("bge-m3"),
+  ),
+  // Chiave API per l'endpoint di embedding. Opzionale: Ollama in-rete non la
+  // richiede (vuoto/non impostata); un provider esterno sì.
+  EMBEDDING_API_KEY: z.preprocess(emptyAsUndefined, z.string().min(1).optional()),
 });
 
 export interface WorkerConfig {
@@ -208,6 +274,22 @@ export interface WorkerConfig {
   /** Intervallo in secondi del tester delle credenziali AI (default 5; 0 =
    * disabilitato). */
   credentialTestPollSeconds: number;
+  /** Modello della pipeline di generazione dei Docs (default "opus"). */
+  docGenerationModel: string;
+  /** Tetto al numero di moduli documentati per generazione (default 80). */
+  docMaxModules: number;
+  /** Turni massimi dell'agente per la pagina di un modulo (default 30). */
+  docModuleMaxTurns: number;
+  /** Cap di costo (USD) per generazione di documentazione; undefined = nessun
+   * cap (costo illimitato, default). Se sforato la generazione è `held`. */
+  docCostCapUsd: number | undefined;
+  /** Endpoint /v1 OpenAI-compatibile per gli embedding dei Docs
+   * (default "http://ollama:11434/v1"). */
+  embeddingBaseUrl: string;
+  /** Modello di embedding (default "bge-m3"). */
+  embeddingModel: string;
+  /** Chiave API dell'endpoint di embedding; undefined se non richiesta. */
+  embeddingApiKey: string | undefined;
 }
 
 /**
@@ -246,5 +328,12 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     publicUrl: parsed.PUBLIC_URL,
     usagePollMinutes: parsed.USAGE_POLL_MINUTES,
     credentialTestPollSeconds: parsed.CREDENTIAL_TEST_POLL_SECONDS,
+    docGenerationModel: parsed.DOC_GENERATION_MODEL,
+    docMaxModules: parsed.DOC_MAX_MODULES,
+    docModuleMaxTurns: parsed.DOC_MODULE_MAX_TURNS,
+    docCostCapUsd: parsed.DOC_COST_CAP_USD,
+    embeddingBaseUrl: parsed.EMBEDDING_BASE_URL,
+    embeddingModel: parsed.EMBEDDING_MODEL,
+    embeddingApiKey: parsed.EMBEDDING_API_KEY,
   };
 }

@@ -1,6 +1,11 @@
 import { agentRuns, aiJobs, type Db } from "@stubwise/db";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { AgentRunUsage } from "./agent/runner.js";
+import {
+  claimNextDocJob as claimNextDocJobImpl,
+  requeueStaleDocJobs as requeueStaleDocJobsImpl,
+  type DocJob,
+} from "./docs/queue.js";
 
 export type AiJob = typeof aiJobs.$inferSelect;
 
@@ -285,6 +290,10 @@ export async function requeueStale(db: Db, options: RequeueStaleOptions): Promis
 export interface RunWorkerInternals {
   claimNextJob?: typeof claimNextJob;
   requeueStale?: typeof requeueStale;
+  /** Override del claim dei doc-job (default claimNextDocJob). */
+  claimNextDocJob?: typeof claimNextDocJobImpl;
+  /** Override del requeue dei doc-job orfani (default requeueStaleDocJobs). */
+  requeueStaleDocJobs?: typeof requeueStaleDocJobsImpl;
   /** Primo intervallo di backoff dopo un errore DB (default 1s). */
   backoffBaseMs?: number;
   /** Tetto del backoff esponenziale (default 30s). */
@@ -299,6 +308,18 @@ export interface RunWorkerOptions {
    * completeJob/failJob. Se lancia, il job viene marcato `failed`.
    */
   handler: (job: AiJob) => Promise<void>;
+  /**
+   * Handler dei job di doc-generation (Task 5.4). Se assente, il loop NON
+   * reclama doc-job (retro-compat: la sola pipeline fix). Riceve il doc-job
+   * già reclamato (`running`); è sua responsabilità chiuderlo
+   * (runDocGenerationJob lo fa su ogni percorso). Se lancia, il job è marcato
+   * `failed` via docHandlerOnError. DEVE condividere la catena per-progetto
+   * con `handler` (vedi createProjectSerializer in handler.ts) perché un
+   * doc-job e un fix-job dello stesso progetto non si sovrappongano.
+   */
+  docHandler?: (job: DocJob) => Promise<void>;
+  /** Marca il doc-job `failed` se docHandler lancia (vedi failDocJobOnError). */
+  docHandlerOnError?: (db: Db, job: DocJob, err: unknown) => Promise<void>;
   /** Job in lavorazione contemporanea (default 2). */
   concurrency?: number;
   /** Intervallo di poll della coda quando non c'è niente da fare (default 3s). */
@@ -349,6 +370,23 @@ async function runJob(db: Db, job: AiJob, handler: (job: AiJob) => Promise<void>
 }
 
 /**
+ * Esegue il docHandler su un doc-job reclamato; se lancia, marca il job
+ * `failed` via onError (mirror di runJob per la coda fix).
+ */
+async function runDocJob(
+  db: Db,
+  job: DocJob,
+  handler: (job: DocJob) => Promise<void>,
+  onError: (db: Db, job: DocJob, err: unknown) => Promise<void>,
+): Promise<void> {
+  try {
+    await handler(job);
+  } catch (err) {
+    await onError(db, job, err);
+  }
+}
+
+/**
  * Loop principale del worker: reclama job fino a saturare `concurrency`
  * (tracciandoli come promise in volo, niente thread), poi attende `pollMs`
  * e riprova. Periodicamente riporta in coda i job orfani di worker crashati
@@ -362,6 +400,8 @@ export async function runWorker(options: RunWorkerOptions): Promise<void> {
   const {
     db,
     handler,
+    docHandler,
+    docHandlerOnError,
     concurrency = 2,
     pollMs = 3000,
     signal,
@@ -371,6 +411,8 @@ export async function runWorker(options: RunWorkerOptions): Promise<void> {
   } = options;
   const claim = _internals?.claimNextJob ?? claimNextJob;
   const requeue = _internals?.requeueStale ?? requeueStale;
+  const claimDoc = _internals?.claimNextDocJob ?? claimNextDocJobImpl;
+  const requeueDoc = _internals?.requeueStaleDocJobs ?? requeueStaleDocJobsImpl;
   const backoffBaseMs = _internals?.backoffBaseMs ?? 1000;
   const backoffMaxMs = _internals?.backoffMaxMs ?? 30_000;
 
@@ -383,18 +425,48 @@ export async function runWorker(options: RunWorkerOptions): Promise<void> {
       try {
         if (Date.now() >= nextRequeueAt) {
           await requeue(db, { olderThanMinutes: staleAfterMinutes });
+          // requeue dei doc-job orfani sullo STESSO cadence dei fix: un doc-job
+          // running senza heartbeat oltre soglia torna in coda (Task 5.4).
+          if (docHandler) await requeueDoc(db, { olderThanMinutes: staleAfterMinutes });
           // Avanzato solo dopo il successo: se la requeue fallisce si
           // ritenta alla prossima iterazione, non tra requeueEveryMs.
           nextRequeueAt = Date.now() + requeueEveryMs;
         }
 
+        // PRIORITÀ: i fix prima dei doc-job. Si satura `concurrency` con i fix
+        // disponibili; SOLO se resta capacità (nessun fix in coda) si reclama
+        // UN doc-job per tick. Così le generazioni di documentazione (lunghe e
+        // costose) non affamano i fix dei bug, che restano la priorità del
+        // worker. Single-process: niente slot dedicato, si condivide il budget
+        // di concorrenza. Politica loggata all'avvio in index.ts.
+        let claimedFix = false;
         while (inFlight.size < concurrency && !signal?.aborted) {
           const job = await claim(db);
           if (!job) break;
+          claimedFix = true;
           const task = runJob(db, job, handler).finally(() => {
             inFlight.delete(task);
           });
           inFlight.add(task);
+        }
+
+        // Doc-job solo a fix esauriti (nessun fix reclamato questo tick) e con
+        // capacità libera. Uno per tick: il prossimo arriva al giro successivo,
+        // dopo aver ridato priorità ai fix.
+        if (
+          docHandler &&
+          docHandlerOnError &&
+          !claimedFix &&
+          inFlight.size < concurrency &&
+          !signal?.aborted
+        ) {
+          const docJob = await claimDoc(db);
+          if (docJob) {
+            const task = runDocJob(db, docJob, docHandler, docHandlerOnError).finally(() => {
+              inFlight.delete(task);
+            });
+            inFlight.add(task);
+          }
         }
 
         backoffMs = 0;

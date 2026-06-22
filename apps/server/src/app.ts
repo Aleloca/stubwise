@@ -14,6 +14,7 @@ import {
 } from "fastify-type-provider-zod";
 import { createRequire } from "node:module";
 import type { Db } from "@stubwise/db";
+import { createEmbeddingClient, type EmbeddingClient } from "@stubwise/embeddings";
 import { aiJobRoutes, ticketUsageRoutes } from "./routes/ai-jobs.js";
 import { aiProviderRoutes } from "./routes/ai-providers.js";
 import { aiUsageCostsRoutes } from "./routes/usage-costs.js";
@@ -25,6 +26,9 @@ import {
 } from "./routes/attachments.js";
 import { authRoutes } from "./routes/auth.js";
 import { commentRoutes } from "./routes/comments.js";
+import { createAnthropicChatLlm, type ChatLlm } from "./routes/chat-llm.js";
+import { docsChatRoutes } from "./routes/docs-chat.js";
+import { docsRoutes } from "./routes/docs.js";
 import { gitAccountRoutes } from "./routes/git-accounts.js";
 import { inboundRoutes } from "./routes/inbound.js";
 import { ingestRoutes } from "./routes/ingest.js";
@@ -63,6 +67,12 @@ declare module "fastify" {
      * BuildAppOptions.storageFactory (fake in-memory).
      */
     storage(): Promise<ObjectStorage | null>;
+    /**
+     * Client di embedding (OpenAI-compatibile) per la ricerca semantica e la
+     * chat RAG sui Docs. Iniettabile nei test via BuildAppOptions.embeddingClient
+     * (fake deterministico, senza rete); altrimenti costruito dalla config.
+     */
+    embeddingClient: EmbeddingClient;
   }
 }
 
@@ -119,6 +129,27 @@ export interface BuildAppOptions {
    * deterministico.
    */
   slackNow?: () => number;
+  /**
+   * Client di embedding per la ricerca semantica / chat RAG sui Docs. Default:
+   * client reale {@link createEmbeddingClient} costruito da embeddingBaseUrl /
+   * embeddingModel / embeddingApiKey. Override pensato per i test: inietta un
+   * fake deterministico (createFakeEmbeddingClient) senza toccare la rete.
+   */
+  embeddingClient?: EmbeddingClient;
+  /** Base URL OpenAI-compatibile per l'embedding (default {@link createEmbeddingClient}). */
+  embeddingBaseUrl?: string;
+  /** Modello di embedding (es. bge-m3). */
+  embeddingModel?: string;
+  /** API key opzionale per l'endpoint di embedding. */
+  embeddingApiKey?: string;
+  /**
+   * LLM della chat RAG sui Docs. Default: implementazione reale
+   * {@link createAnthropicChatLlm} che legge il primo provider AI `api_key`
+   * abilitato (decifrato con encryptionKey) e stremma via SDK Anthropic.
+   * Override pensato per i test: inietta un fake che emette delta canned senza
+   * toccare la rete né richiedere credenziali.
+   */
+  chatLlm?: ChatLlm;
 }
 
 /**
@@ -196,6 +227,47 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     return storageFactory(this.db, this.encryptionKey);
   });
 
+  // Client di embedding per la ricerca semantica / chat RAG sui Docs. Nei test
+  // si inietta un fake deterministico; in produzione si costruisce dalla config
+  // (default Ollama in-rete). Costruito una volta e decorato sull'app: le route
+  // Docs lo leggono da `app.embeddingClient`.
+  const embeddingClient =
+    opts.embeddingClient ??
+    createEmbeddingClient({
+      baseUrl: opts.embeddingBaseUrl ?? "http://ollama:11434/v1",
+      model: opts.embeddingModel ?? "bge-m3",
+      ...(opts.embeddingApiKey !== undefined ? { apiKey: opts.embeddingApiKey } : {}),
+    });
+  app.decorate("embeddingClient", embeddingClient);
+
+  // LLM della chat RAG sui Docs. Nei test si inietta un fake (delta canned); in
+  // produzione si costruisce l'implementazione reale via SDK Anthropic, che a
+  // runtime legge il primo provider AI `api_key` abilitato (decifrato con
+  // encryptionKey) — gli account/oauth non sono supportati dall'SDK HTTP. La
+  // costruzione è lazy via getter: db/encryptionKey sono risolti dai loro getter
+  // solo al primo uso, coerente con storage/embedding (l'app si costruisce anche
+  // senza, esplode solo chi tocca la chat senza averli configurati).
+  let realChatLlm: ChatLlm | undefined;
+  const getRealChatLlm = (): ChatLlm => {
+    realChatLlm ??= createAnthropicChatLlm({
+      db: app.db,
+      encryptionKey: app.encryptionKey,
+    });
+    return realChatLlm;
+  };
+  const chatLlm: ChatLlm =
+    opts.chatLlm ?? {
+      stream(input) {
+        return getRealChatLlm().stream(input);
+      },
+      // Pre-flight inoltrato all'impl reale (controllo provider api_key), così la
+      // route può rispondere 503 PRIMA dell'hijack dello stream se non servibile.
+      isAvailable() {
+        return getRealChatLlm().isAvailable!();
+      },
+    };
+  app.decorate("chatLlm", chatLlm);
+
   // Senza secret il plugin si registra comunque (parsing dei cookie), ma
   // firmare il cookie di sessione fallisce: stesso spirito del getter su db.
   void app.register(fastifyCookie, { secret: opts.sessionSecret });
@@ -244,6 +316,14 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(projectRoutes, { prefix: "/api/projects" });
   void app.register(projectEnvFileRoutes, { prefix: "/api/projects" });
   void app.register(ticketRoutes, { prefix: "/api/tickets" });
+  // Documentazione (non-chat): trigger/stato generazione, hub spazi, albero,
+  // pagina, CRUD pagine manuali. Path interni completi (es.
+  // /projects/:projectId/docs/generate, /docs/spaces) sotto /api.
+  void app.register(docsRoutes, { prefix: "/api" });
+  // Chat RAG in streaming sui Docs (M6.5): plugin separato perché bypassa lo
+  // schema di risposta Zod (stream SSE grezzo su reply.raw). Path interno
+  // completo `/projects/:projectId/docs/chat` sotto /api.
+  void app.register(docsChatRoutes, { prefix: "/api" });
   // Milestone di progetto: pianificazione e avanzamento, per ogni utente.
   void app.register(milestoneRoutes, { prefix: "/api/milestones" });
   // Viste salvate dei filtri della lista ticket: private o condivise.

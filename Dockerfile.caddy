@@ -42,8 +42,8 @@ RUN pnpm --filter @stubwise/web... build
 
 # La documentazione: il prebuild di @stubwise/docs genera la spec OpenAPI
 # importando buildApp() dai sorgenti del server (nessun db, nessuna istanza in
-# esecuzione), poi `astro build` produce dist/ con base path /docs. Serve quindi
-# anche il sorgente del server (apps/server) nel context di build.
+# esecuzione), poi `astro build` produce dist/ con base path /guide. Serve
+# quindi anche il sorgente del server (apps/server) nel context di build.
 COPY apps/server apps/server
 COPY apps/docs apps/docs
 # buildApp importa @stubwise/db/git/shared dai loro dist/ (esclusi dal context
@@ -56,9 +56,10 @@ RUN pnpm --filter @stubwise/docs build
 FROM caddy:2-alpine AS runtime
 # Statici della SPA serviti da /srv/web (root nel Caddyfile).
 COPY --from=web-build /repo/apps/web/dist /srv/web
-# Documentazione Starlight servita da /srv/docs. Il sito è buildato con base
-# path /docs (vedi astro.config.mjs): nel Caddyfile `handle_path /docs/*`
-# strippa il prefisso /docs prima di servire da /srv/docs, e gli asset/link
-# interni — già prefissati /docs — ripassano per lo stesso handle. Coerente.
+# Documentazione utente Starlight servita da /srv/docs. Il sito è buildato con
+# base path /guide (vedi astro.config.mjs): nel Caddyfile `handle_path /guide/*`
+# strippa il prefisso /guide prima di servire da /srv/docs, e gli asset/link
+# interni — già prefissati /guide — ripassano per lo stesso handle. Coerente.
+# NB: /docs (non /guide) è la sezione "Docs" della SPA: sta sul fallback web.
 COPY --from=web-build /repo/apps/docs/dist /srv/docs
 COPY Caddyfile /etc/caddy/Caddyfile

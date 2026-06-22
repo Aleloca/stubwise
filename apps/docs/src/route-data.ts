@@ -1,13 +1,14 @@
 /**
  * The hero action links (index.mdx frontmatter) don't pass through the rehype
- * pipeline, so rebasing the internal /docs/... links toward a different base
- * (e.g. /stubwise on GitHub Pages) must be done here, on the route data.
- * Mirrors rehypeRebaseLinks in astro.config.mjs.
+ * pipeline, so rebasing the internal /docs/... links toward the actual base
+ * (/guide behind Caddy, /stubwise on GitHub Pages) must be done here, on the
+ * route data. Mirrors rehypeRebaseLinks in astro.config.mjs: the content
+ * convention is `/docs/...` (PRIMARY_BASE), the default deploy base is /guide.
  */
 import { defineRouteMiddleware } from "@astrojs/starlight/route-data";
 
 const PRIMARY_BASE = "/docs";
-const base = process.env.DOCS_BASE ?? PRIMARY_BASE;
+const base = process.env.DOCS_BASE ?? "/guide";
 
 export const onRequest = defineRouteMiddleware(({ locals }) => {
   if (base === PRIMARY_BASE) return;

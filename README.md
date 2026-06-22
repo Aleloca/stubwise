@@ -228,7 +228,8 @@ in locale:
 pnpm --filter @stubwise/docs dev
 ```
 
-Nello stack deployato è servito da Caddy sotto `/docs`.
+Nello stack deployato è servito da Caddy sotto `/guide` (il path `/docs` è la
+sezione "Docs" della SPA — documentazione autogenerata per progetto).
 
 Documenti di progetto: [design e piano di implementazione](docs/plans/).
 

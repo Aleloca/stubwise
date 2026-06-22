@@ -17,6 +17,9 @@ import {
   automationSettingsQueryOptions,
   boardTicketsQueryOptions,
   commentsQueryOptions,
+  docPageQueryOptions,
+  docSpacesQueryOptions,
+  docTreeQueryOptions,
   gitAccountsQueryOptions,
   instanceSettingsQueryOptions,
   invitesQueryOptions,
@@ -33,6 +36,13 @@ import {
   usersQueryOptions,
 } from "./lib/queries";
 import { boardSearchSchema, BoardPage } from "./routes/board";
+import {
+  DocsManualNew,
+  DocsPageView,
+  DocsSpaceIndex,
+  DocsSpaceLayout,
+} from "./routes/docs/$projectId";
+import { DocsPage } from "./routes/docs/index";
 import { LoginPage } from "./routes/login";
 import { ProjectDetailPage } from "./routes/projects/$slug";
 import { ProjectsPage } from "./routes/projects/index";
@@ -207,6 +217,64 @@ const projectDetailRoute = createRoute({
   component: ProjectDetailPage,
 });
 
+/**
+ * Hub della documentazione (sezione di primo livello): elenco degli spazi
+ * (un progetto = uno spazio). Prefetch dell'hub prima del render, così la
+ * useSuspenseQuery del componente non attende.
+ */
+const docsRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/docs",
+  loader: ({ context }) => context.queryClient.ensureQueryData(docSpacesQueryOptions),
+  component: DocsPage,
+});
+
+/**
+ * Spazio di un progetto: layout a tre zone (albero a sinistra, Outlet al
+ * centro, zona chat riservata a destra). Prefetch dell'albero prima del
+ * render; ricerca/trigger (M7.4) e chat (M7.5) arrivano dopo.
+ */
+const docsSpaceRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/docs/$projectId",
+  loader: ({ context, params }) =>
+    context.queryClient.ensureQueryData(docTreeQueryOptions(params.projectId)),
+  component: DocsSpaceLayout,
+});
+
+/** Indice dello spazio (nessuno slug): stato "seleziona una pagina". */
+const docsSpaceIndexRoute = createRoute({
+  getParentRoute: () => docsSpaceRoute,
+  path: "/",
+  component: DocsSpaceIndex,
+});
+
+/**
+ * Creazione di una pagina manuale (`/docs/$projectId/new`): rotta statica, ha
+ * priorità sul segmento dinamico `$slug` (nessuna pagina può avere slug "new").
+ */
+const docsManualNewRoute = createRoute({
+  getParentRoute: () => docsSpaceRoute,
+  path: "/new",
+  component: DocsManualNew,
+});
+
+/**
+ * Pagina singola dello spazio: render markdown + badge sorgente/commit.
+ * Prefetch best-effort della pagina (un 404 — pagina rimossa da una
+ * rigenerazione — lo gestisce il componente inline, non il pannello d'errore).
+ */
+const docsPageRoute = createRoute({
+  getParentRoute: () => docsSpaceRoute,
+  path: "/$slug",
+  loader: async ({ context, params }) => {
+    await context.queryClient
+      .ensureQueryData(docPageQueryOptions(params.projectId, params.slug))
+      .catch(() => undefined);
+  },
+  component: DocsPageView,
+});
+
 const teamRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/team",
@@ -334,6 +402,8 @@ const routeTree = rootRoute.addChildren([
     projectsRoute,
     projectNewRoute,
     projectDetailRoute,
+    docsRoute,
+    docsSpaceRoute.addChildren([docsSpaceIndexRoute, docsManualNewRoute, docsPageRoute]),
     teamRoute,
     settingsRoute.addChildren([
       settingsIndexRoute,

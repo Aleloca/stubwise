@@ -50,6 +50,32 @@ const envSchema = z.object({
       .transform((value) => value === true || value === "true" || value === "1")
       .default(false),
   ),
+  // Endpoint OpenAI-compatibile per gli embedding della ricerca semantica e
+  // della chat RAG sui Docs (/v1/embeddings). Di default Ollama in-rete
+  // (servizio "ollama" del compose); puntabile a un provider esterno cambiando
+  // la sola variabile. Stessa famiglia di variabili del worker.
+  EMBEDDING_BASE_URL: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .string({ error: "deve essere l'URL base di un endpoint /v1 OpenAI-compatibile" })
+      .min(1)
+      .default("http://ollama:11434/v1"),
+  ),
+  // Modello di embedding richiesto all'endpoint sopra. Default bge-m3
+  // (multilingue, 1024 dim — vedi la colonna vector dello schema).
+  EMBEDDING_MODEL: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .string({ error: "deve essere il nome di un modello di embedding (es. bge-m3)" })
+      .min(1)
+      .default("bge-m3"),
+  ),
+  // Chiave API per l'endpoint di embedding. Opzionale: Ollama in-rete non la
+  // richiede (vuoto/non impostata); un provider esterno sì.
+  EMBEDDING_API_KEY: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.string().min(1).optional(),
+  ),
 });
 
 export interface Config {
@@ -60,6 +86,12 @@ export interface Config {
   publicUrl: string;
   /** Fidarsi degli header X-Forwarded-* (dietro reverse proxy). */
   trustProxy: boolean;
+  /** Base URL OpenAI-compatibile per gli embedding (ricerca/chat Docs). */
+  embeddingBaseUrl: string;
+  /** Modello di embedding (es. bge-m3, 1024 dim). */
+  embeddingModel: string;
+  /** API key opzionale per l'endpoint di embedding. */
+  embeddingApiKey?: string;
 }
 
 /**
@@ -89,5 +121,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     port: parsed.PORT,
     publicUrl: parsed.PUBLIC_URL,
     trustProxy: parsed.TRUST_PROXY,
+    embeddingBaseUrl: parsed.EMBEDDING_BASE_URL,
+    embeddingModel: parsed.EMBEDDING_MODEL,
+    embeddingApiKey: parsed.EMBEDDING_API_KEY,
   };
 }
