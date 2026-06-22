@@ -24,7 +24,14 @@ export interface TestDb {
  * container costa secondi, condividerlo tra i test del file lo ammortizza.
  */
 export async function startTestDb(): Promise<TestDb> {
-  const container = await new PostgreSqlContainer("pgvector/pgvector:pg17").start();
+  // `--locale=C` forza una collation deterministica byte-per-byte all'initdb:
+  // l'immagine pgvector (Debian) di default userebbe una collation locale-aware
+  // che ordina le stringhe diversamente dalla precedente immagine alpine (musl/C),
+  // rompendo i test che fanno ORDER BY su colonne testo (es. env-files per `path`).
+  // Fissare C mantiene l'ordinamento storico e stabile tra ambienti.
+  const container = await new PostgreSqlContainer("pgvector/pgvector:pg17")
+    .withEnvironment({ POSTGRES_INITDB_ARGS: "--locale=C" })
+    .start();
   const { db, client } = createDb(container.getConnectionUri());
   await runMigrations(db);
   return {
