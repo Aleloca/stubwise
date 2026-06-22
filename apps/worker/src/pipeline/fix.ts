@@ -130,7 +130,18 @@ const TEST_RUN_OUTPUT_MAX_CHARS = 16_000;
  * chiamante a decidere. stdout+stderr combinati e troncati a
  * TEST_RUN_OUTPUT_MAX_CHARS per non gonfiare prompt/log. Eredita l'env del
  * worker (NON l'env ristretto dell'agente): l'install ha bisogno dell'ambiente
- * reale del container (PATH, registri, ecc.). */
+ * reale del container (PATH, registri, ecc.).
+ *
+ * UNICA eccezione: NODE_ENV viene NEUTRALIZZATO per il sottoprocesso. L'immagine
+ * runtime del worker ha NODE_ENV=production (apps/worker/Dockerfile), giusto per
+ * il worker stesso; ma install e test del repo TARGET devono girare come un
+ * normale checkout di CI. Sotto NODE_ENV=production tutti i package manager
+ * OMETTONO le devDependencies (npm ci/install, pnpm == --prod, yarn): i runner di
+ * test (vitest/jest) SONO devDependencies, quindi l'install riuscirebbe ma il
+ * binario di test mancherebbe (exit 127 "vitest: not found"). execa ha
+ * extendEnv:true di default (eredita process.env); passare NODE_ENV: undefined
+ * RIMUOVE la chiave per il figlio (verificato dal test: il figlio vede UNSET),
+ * lasciando intatto il resto dell'env reale del container. */
 async function runCommandCaptured(
   cmd: TestCommand,
   dir: string,
@@ -141,6 +152,7 @@ async function runCommandCaptured(
     timeout: timeoutMs,
     reject: false,
     all: true,
+    env: { NODE_ENV: undefined },
   });
   const combined = result.all ?? `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
   const output =
@@ -169,7 +181,7 @@ async function defaultRunTestCommand(
  * Delega a runCommandCaptured, che eredita l'env del worker (NON l'env ristretto
  * dell'agente: l'install ha bisogno dell'ambiente reale del container) e tronca
  * l'output per non gonfiare il log. */
-async function defaultRunInstallCommand(
+export async function defaultRunInstallCommand(
   cmd: TestCommand,
   dir: string,
   timeoutMs: number,
