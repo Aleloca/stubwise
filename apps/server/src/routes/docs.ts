@@ -530,7 +530,9 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         .where(eq(projects.id, projectId));
       if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
 
-      const results = await retrieveChunks(app.db, app.embeddingClient, projectId, query);
+      const results = await retrieveChunks(app.db, app.embeddingClient, projectId, query, {
+        logger: request.log,
+      });
       return results.map((r) => ({
         slug: r.slug,
         title: r.title,

@@ -3,7 +3,9 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
+import type { EmbeddingClient } from "@stubwise/embeddings";
 import { buildApp } from "../app.js";
+import { retrieveChunks } from "./docs-retrieval.js";
 import { docChunks, docGenerations, docPages, projects } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
@@ -111,6 +113,46 @@ async function insertPageWithChunk(
     content: page.chunkContent,
     embedding: vector,
   });
+  return row.slug;
+}
+
+/**
+ * Inserisce una pagina con PIÙ chunk; gli embedding sono calcolati col client
+ * passato (per i test sul dedup serve determinismo controllato). Restituisce lo
+ * slug della pagina.
+ */
+async function insertPageWithChunks(
+  db: Db,
+  client: EmbeddingClient,
+  projectId: string,
+  generationId: string | null,
+  page: { title: string; body: string; chunkContents: string[] },
+): Promise<string> {
+  pageSeq++;
+  const [row] = await db
+    .insert(docPages)
+    .values({
+      projectId,
+      generationId,
+      kind: generationId === null ? "manual" : "technical",
+      slug: `page-${pageSeq}`,
+      title: page.title,
+      body: page.body,
+      isManual: generationId === null,
+    })
+    .returning();
+  if (!row) throw new Error("insert della pagina non ha restituito la riga");
+
+  const vectors = await client.embed(page.chunkContents);
+  await db.insert(docChunks).values(
+    page.chunkContents.map((content, i) => ({
+      pageId: row.id,
+      projectId,
+      generationId,
+      content,
+      embedding: vectors[i],
+    })),
+  );
   return row.slug;
 }
 
@@ -291,5 +333,136 @@ describe("GET /api/projects/:projectId/docs/search", () => {
       url: `/api/projects/${project.id}/docs/search?q=ciao`,
     });
     expect(res.statusCode).toBe(401);
+  });
+
+  it("embedding KO: fallback full-text, niente 500 (token esatto trovato)", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await insertGeneration(testDb.db, project.id);
+
+    // Token distintivo nel titolo/body → lo trova SOLO il full-text. Il chunk
+    // c'è ma il suo embedding è irrilevante: il client di embedding fallirà.
+    const slug = await insertPageWithChunk(testDb.db, project.id, genId, {
+      title: "Qzxvplumber Service Manual",
+      body: "Manuale del servizio Qzxvplumber con dettagli operativi.",
+      chunkContent: "Contenuto del chunk senza il token distintivo.",
+    });
+
+    // Client che RIFIUTA embed: simula Ollama down/timeout/non-200.
+    const failingClient: EmbeddingClient = {
+      async embed() {
+        throw new Error("embedding service unavailable (boom)");
+      },
+    };
+
+    // Via funzione diretta: deve restituire i match full-text, non lanciare.
+    const results = await retrieveChunks(
+      testDb.db,
+      failingClient,
+      project.id,
+      "Qzxvplumber",
+    );
+    const hit = results.find((r) => r.slug === slug);
+    expect(hit).toBeDefined();
+    expect(hit!.source).toBe("fulltext");
+    // Fascia full-text-only: sempre sotto 0.5.
+    expect(hit!.score).toBeLessThan(0.5);
+
+    // Via endpoint: con un'app costruita sul client che fallisce, niente 500.
+    const failApp = buildApp({
+      db: testDb.db,
+      sessionSecret: SESSION_SECRET,
+      encryptionKey: ENCRYPTION_KEY.toString("base64"),
+      publicUrl: "https://stubwise.example.com",
+      embeddingClient: failingClient,
+    });
+    try {
+      // Niente re-seed: il cookie member è firmato con lo STESSO SESSION_SECRET,
+      // quindi è valido anche su questa app (stesso DB, stesso secret).
+      const res = await failApp.inject({
+        method: "GET",
+        url: `/api/projects/${project.id}/docs/search?q=Qzxvplumber`,
+        headers: { cookie: memberCookie },
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json() as SearchHit[];
+      expect(body.some((h) => h.slug === slug)).toBe(true);
+    } finally {
+      await failApp.close();
+    }
+  });
+
+  it("over-fetch dedup: una pagina multi-chunk non scaccia le pagine a singolo chunk", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await insertGeneration(testDb.db, project.id);
+
+    // Embedding client deterministico a vettori 1024-dim controllati: i valori
+    // non-nulli vivono solo nelle prime 2 componenti (il resto è 0), così la
+    // distanza coseno è pilotabile dall'angolo nel piano e0-e1. La query "q"
+    // coincide col vettore dei chunk multi-chunk (distanza 0); le pagine a
+    // singolo chunk sono leggermente più lontane ma comunque rilevanti.
+    const DIM = 1024;
+    function planeVec(angle: number): number[] {
+      const v = new Array<number>(DIM).fill(0);
+      v[0] = Math.cos(angle);
+      v[1] = Math.sin(angle);
+      return v;
+    }
+    const vectors: Record<string, number[]> = {
+      q: planeVec(0),
+      // Pagina multi-chunk: 4 chunk tutti a distanza 0 dalla query.
+      "multi-0": planeVec(0),
+      "multi-1": planeVec(0),
+      "multi-2": planeVec(0),
+      "multi-3": planeVec(0),
+    };
+    // 4 pagine a singolo chunk: angolo crescente → distanza coseno crescente,
+    // piccola (resta nel cono dei top, ma fuori dai chunk multi-chunk).
+    const singleContents = ["single-0", "single-1", "single-2", "single-3"];
+    singleContents.forEach((c, i) => {
+      vectors[c] = planeVec(0.1 * (i + 1));
+    });
+    const controlledClient: EmbeddingClient = {
+      async embed(inputs: string[]) {
+        return inputs.map((s) => {
+          const v = vectors[s];
+          if (!v) throw new Error(`vettore non definito per: ${s}`);
+          return v;
+        });
+      },
+    };
+
+    // Pagina con 4 chunk: senza over-fetch, con LIMIT 4 chunk riempirebbe la
+    // finestra e scaccerebbe le pagine a singolo chunk.
+    const multiSlug = await insertPageWithChunks(testDb.db, controlledClient, project.id, genId, {
+      title: "Multi Chunk Page",
+      body: "Pagina con più chunk in cima.",
+      chunkContents: ["multi-0", "multi-1", "multi-2", "multi-3"],
+    });
+    const singleSlugs: string[] = [];
+    for (const c of singleContents) {
+      singleSlugs.push(
+        await insertPageWithChunks(testDb.db, controlledClient, project.id, genId, {
+          title: `Single ${c}`,
+          body: `Pagina a singolo chunk ${c}.`,
+          chunkContents: [c],
+        }),
+      );
+    }
+
+    // k = 4: ci aspettiamo la pagina multi-chunk + 3 pagine a singolo chunk
+    // (4 pagine DISTINTE), non 1 pagina + chunk duplicati.
+    const results = await retrieveChunks(testDb.db, controlledClient, project.id, "q", { k: 4 });
+    const slugs = results.map((r) => r.slug);
+    // 4 pagine distinte.
+    expect(new Set(slugs).size).toBe(4);
+    // La multi-chunk c'è una sola volta.
+    expect(slugs.filter((s) => s === multiSlug).length).toBe(1);
+    // Almeno 3 pagine a singolo chunk sono presenti (non scacciate).
+    const singlesPresent = singleSlugs.filter((s) => slugs.includes(s)).length;
+    expect(singlesPresent).toBe(3);
+    // Tutti i match sono semantici e nella fascia alta [0.5, 1].
+    for (const r of results) {
+      expect(r.score).toBeGreaterThanOrEqual(0.5);
+    }
   });
 });
