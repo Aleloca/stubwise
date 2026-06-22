@@ -13,7 +13,11 @@
  *
  * Le euristiche di superficie/dipendenze sono v1 e focalizzate su TS/JS; sono
  * volutamente semplici e isolate (`extractPublicSurface`, `extractRelativeImports`)
- * per essere estese ad altri linguaggi senza toccare l'orchestrazione.
+ * per essere estese ad altri linguaggi senza toccare l'orchestrazione. I commenti
+ * `//` e `/* … *\/` sono rimossi prima delle regex (`stripComments`) per evitare
+ * archi/export fantasma; la superficie copre anche i re-export di barrel
+ * (`export { … } from`, `export *`). LIMITE v1 NOTO: un import/export letterale
+ * dentro una STRINGA può ancora generare un falso positivo (stringhe non gestite).
  */
 import type { RepoReader } from "./fs.js";
 import type { ModuleNode, RepoFile, RepoMap } from "./types.js";
@@ -85,12 +89,28 @@ const WEIGHT_CENTRALITY = 500; // per arco entrante o uscente nel dep graph
 const WEIGHT_SURFACE = 200; // per simbolo nella superficie pubblica
 
 /**
- * Euristica regex (v1, TS/JS) per i simboli esportati. Cattura il nome dopo
- * `export [default] function|const|let|var|class|interface|type|enum`. Non
- * gestisce re-export (`export { … } from`) né destructuring: estendibile.
+ * Euristica regex (v1, TS/JS) per i simboli esportati con dichiarazione diretta.
+ * Cattura il nome dopo `export [default] function|const|let|var|class|interface|
+ * type|enum`. I re-export (`export { … } from`, `export *`) sono gestiti a parte
+ * (vedi `REEXPORT_NAMED_RE` / `REEXPORT_STAR_RE`).
  */
 const EXPORT_RE =
   /^\s*export\s+(?:default\s+)?(?:async\s+)?(?:function|const|let|var|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/gm;
+
+/**
+ * Euristica regex (v1, TS/JS) per i re-export nominali da barrel/index:
+ * `export { a, b as c } from "./mod"`. Cattura la lista di nomi tra graffe; i
+ * singoli identificatori (e l'eventuale alias dopo `as`) sono estratti a valle.
+ */
+const REEXPORT_NAMED_RE = /^\s*export\s+\{([^}]*)\}\s*from\s*["'`][^"'`]+["'`]/gm;
+
+/**
+ * Euristica regex (v1, TS/JS) per i re-export wildcard: `export * from "./mod"`
+ * o `export * as ns from "./mod"`. Marca la superficie con `"*"` (re-export
+ * opaco) o con il namespace quando presente (`export * as ns`).
+ */
+const REEXPORT_STAR_RE =
+  /^\s*export\s+\*\s*(?:as\s+([A-Za-z_$][\w$]*)\s+)?from\s*["'`][^"'`]+["'`]/gm;
 
 /**
  * Euristica regex (v1, TS/JS) per gli import/require con specifier relativo.
@@ -98,6 +118,24 @@ const EXPORT_RE =
  */
 const IMPORT_RE =
   /(?:import\s+(?:[^"'`]*?\s+from\s+)?|require\(\s*)["'`](\.[^"'`]+)["'`]/g;
+
+/**
+ * Rimuove i commenti `//` di riga e `/* … *\/` a blocco da un sorgente TS/JS,
+ * sostituendoli con spazi equivalenti (preserva offset/righe). Evita falsi
+ * positivi delle regex di import/export su testo dentro i commenti
+ * (es. `// import "../x"`).
+ *
+ * LIMITE v1: NON gestisce le stringhe — un `import`/`export` letterale dentro una
+ * stringa (es. `const s = '// import "../x"'`) può ancora generare falsi
+ * positivi. È il residuo noto, raro nei sorgenti reali.
+ */
+function stripComments(source: string): string {
+  // sostituisce ogni carattere non-newline con uno spazio (mantiene gli offset)
+  const blank = (s: string) => s.replace(/[^\n]/g, " ");
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, blank) // blocco /* ... */
+    .replace(/\/\/[^\n]*/g, blank); // riga // ...
+}
 
 /** Estensione di un path (con il punto, in lowercase) o `null` se assente. */
 function extname(path: string): string | null {
@@ -129,20 +167,33 @@ interface FilterResult {
   skipped: { path: string; reason: string }[];
 }
 
+/**
+ * Normalizza un path listato dal reader rimuovendo un eventuale prefisso `./`
+ * (ripetuto), così `./src/a.ts` è trattato come `src/a.ts`. Path già normalizzati
+ * restano invariati.
+ */
+function normalizeListedPath(path: string): string {
+  let p = path;
+  while (p.startsWith("./")) p = p.slice(2);
+  return p;
+}
+
 /** Applica esclusioni dir/binari e conta i linguaggi sui file rimanenti. */
 function filterFiles(files: RepoFile[]): FilterResult {
   const kept: RepoFile[] = [];
   const languages: Record<string, number> = {};
   const skipped: { path: string; reason: string }[] = [];
 
-  for (const file of files) {
+  for (const raw of files) {
+    // normalizza un eventuale `./` iniziale prima di ogni decisione sul path
+    const file: RepoFile = { ...raw, path: normalizeListedPath(raw.path) };
     if (isExcludedPath(file.path)) {
       skipped.push({ path: file.path, reason: "excluded directory" });
       continue;
     }
     const ext = extname(file.path);
     if (ext && BINARY_EXTENSIONS.has(ext)) {
-      skipped.push({ path: file.path, reason: "binary file" });
+      skipped.push({ path: file.path, reason: "non-source file" });
       continue;
     }
     kept.push(file);
@@ -167,9 +218,43 @@ function dirAtDepth(filePath: string, depth: number): string {
 }
 
 /**
+ * Sotto-modulo di un file POSSEDUTO da un manifest in `manifestDir`:
+ *  - il modulo manifest stesso (`manifestDir`) se il file sta direttamente nella
+ *    sua directory (nessun segmento intermedio);
+ *  - `manifestDir + primi `depth` segmenti di sottodirectory` altrimenti.
+ *
+ * Questa è la chiave per cui un manifest di root (`""`) non assorbe l'intero
+ * repo: `src/a/x.ts` e `src/b/y.ts` mappano a `src/a` e `src/b`. La decisione se
+ * APPLICARE davvero il sotto-segmento è presa in `segmentModules` (vedi sotto).
+ */
+function manifestSubModule(
+  filePath: string,
+  manifestDir: string,
+  depth: number,
+): string {
+  const fileDir = dirname(filePath);
+  if (fileDir === manifestDir) return manifestDir; // file diretto → modulo manifest
+  const rel =
+    manifestDir === "" ? fileDir : fileDir.slice(manifestDir.length + 1);
+  const sub = rel.split("/").slice(0, depth).join("/");
+  return manifestDir === "" ? sub : `${manifestDir}/${sub}`;
+}
+
+/**
  * Assegna ogni file a un modulo. Confine = directory di un manifest (ha priorità
  * il manifest più profondo che contiene il file); fallback = directory a `depth`.
+ *
+ * REGOLA DI SOTTO-SEGMENTAZIONE DEL MANIFEST: i file di un manifest vengono prima
+ * bucketizzati per sotto-directory (vedi `manifestSubModule`). Se il manifest
+ * produce PIÙ di un bucket distinto, ogni bucket diventa un modulo a sé (così un
+ * `package.json` di root con `src/a/*` e `src/b/*` rende `src/a` e `src/b`, non un
+ * unico modulo gigante). Se invece il manifest è "piatto" e produce un solo
+ * bucket, tutto resta accorpato nel modulo manifest (così `packages/a` con
+ * `src/index.ts` + `src/util.ts` resta un solo modulo). Il manifest più profondo
+ * vince sempre (comportamento monorepo invariato).
+ *
  * Ritorna i moduli con `files`, `manifest` e `language` dominante valorizzati.
+ * Solo il modulo che coincide con la dir del manifest porta il `manifest`.
  */
 function segmentModules(kept: RepoFile[], depth: number): ModuleNode[] {
   // Directory che contengono un manifest → confine di modulo.
@@ -183,9 +268,10 @@ function segmentModules(kept: RepoFile[], depth: number): ModuleNode[] {
   }
   const manifestDirs = [...manifestByDir.keys()];
 
-  // Per ogni file, scegli il modulo: il manifest-dir più profondo che lo contiene,
-  // altrimenti la sua directory troncata a `depth`.
-  const filesByModule = new Map<string, RepoFile[]>();
+  // Per ogni file determina il manifest proprietario (il più profondo) o null.
+  const ownerByFile = new Map<string, string | null>();
+  // Bucket candidati per manifest, per decidere se sotto-segmentare.
+  const bucketsByManifest = new Map<string, Set<string>>();
   for (const file of kept) {
     const fileDir = dirname(file.path);
     let owner: string | null = null;
@@ -194,7 +280,34 @@ function segmentModules(kept: RepoFile[], depth: number): ModuleNode[] {
         owner = md;
       }
     }
-    const modulePath = owner ?? dirAtDepth(file.path, depth);
+    ownerByFile.set(file.path, owner);
+    // Conta i bucket SOLO dai file non-manifest: il manifest siede sempre nella
+    // sua dir e formerebbe un bucket spurio, falsando la decisione di split.
+    if (owner !== null && !MANIFEST_FILES.includes(basename(file.path))) {
+      const sub = manifestSubModule(file.path, owner, depth);
+      const set = bucketsByManifest.get(owner) ?? new Set<string>();
+      set.add(sub);
+      bucketsByManifest.set(owner, set);
+    }
+  }
+
+  // Un manifest sotto-segmenta solo se i suoi file ricadono in più bucket distinti.
+  const splitManifests = new Set<string>();
+  for (const [md, buckets] of bucketsByManifest) {
+    if (buckets.size > 1) splitManifests.add(md);
+  }
+
+  const filesByModule = new Map<string, RepoFile[]>();
+  for (const file of kept) {
+    const owner = ownerByFile.get(file.path) ?? null;
+    let modulePath: string;
+    if (owner === null) {
+      modulePath = dirAtDepth(file.path, depth);
+    } else if (splitManifests.has(owner)) {
+      modulePath = manifestSubModule(file.path, owner, depth);
+    } else {
+      modulePath = owner; // manifest piatto: tutto nel modulo manifest
+    }
     const bucket = filesByModule.get(modulePath);
     if (bucket) bucket.push(file);
     else filesByModule.set(modulePath, [file]);
@@ -238,19 +351,51 @@ function dominantLanguage(files: RepoFile[]): string | null {
   return best;
 }
 
-/** Nomi dei simboli esportati da un sorgente TS/JS (euristica regex v1). */
+/**
+ * Nomi dei simboli esportati da un sorgente TS/JS (euristica regex v1). Cattura:
+ *  - dichiarazioni dirette (`export const foo`, `export function bar`, …);
+ *  - re-export nominali da barrel (`export { a, b as c } from "…"` → `a`, `c`);
+ *  - re-export wildcard (`export * from "…"` → marcatore `"*"`;
+ *    `export * as ns from "…"` → `ns`).
+ *
+ * I commenti vengono rimossi a monte (`stripComments`). LIMITE v1: stringhe non
+ * gestite (vedi `stripComments`).
+ */
 function extractPublicSurface(source: string): string[] {
+  const clean = stripComments(source);
   const names = new Set<string>();
-  for (const match of source.matchAll(EXPORT_RE)) {
+  for (const match of clean.matchAll(EXPORT_RE)) {
     if (match[1]) names.add(match[1]);
+  }
+  for (const match of clean.matchAll(REEXPORT_NAMED_RE)) {
+    const list = match[1];
+    if (!list) continue;
+    for (const part of list.split(",")) {
+      const token = part.trim();
+      if (!token) continue;
+      // `a as b` esporta `b`; altrimenti il nome stesso. Ignora `type` modifier.
+      const segs = token.split(/\s+as\s+/);
+      const exported = (segs.length > 1 ? segs[1] : segs[0])!
+        .replace(/^type\s+/, "")
+        .trim();
+      if (exported && exported !== "default") names.add(exported);
+    }
+  }
+  for (const match of clean.matchAll(REEXPORT_STAR_RE)) {
+    names.add(match[1] ?? "*");
   }
   return [...names];
 }
 
-/** Specifier di import/require relativi presenti in un sorgente TS/JS. */
+/**
+ * Specifier di import/require relativi presenti in un sorgente TS/JS. I commenti
+ * sono rimossi a monte (`stripComments`) per evitare archi fantasma da import
+ * commentati. LIMITE v1: stringhe non gestite (vedi `stripComments`).
+ */
 function extractRelativeImports(source: string): string[] {
+  const clean = stripComments(source);
   const specs: string[] = [];
-  for (const match of source.matchAll(IMPORT_RE)) {
+  for (const match of clean.matchAll(IMPORT_RE)) {
     if (match[1]) specs.push(match[1]);
   }
   return specs;
@@ -351,7 +496,9 @@ export async function buildRepoMap(
   reader: RepoReader,
   options: BuildRepoMapOptions,
 ): Promise<RepoMap> {
-  const moduleDepth = options.moduleDepth ?? DEFAULT_MODULE_DEPTH;
+  // moduleDepth ha senso solo >= 1: a 0 il fallback per directory collasserebbe
+  // tutto nella root. Clampiamo difensivamente al minimo 1.
+  const moduleDepth = Math.max(1, options.moduleDepth ?? DEFAULT_MODULE_DEPTH);
   const files = await reader.list();
   const { kept, languages, skipped } = filterFiles(files);
 
