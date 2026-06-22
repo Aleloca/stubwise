@@ -1,10 +1,12 @@
 import { createDb } from "@stubwise/db";
+import { createEmbeddingClient } from "@stubwise/embeddings";
 import { ClaudeCliRunner } from "./agent/claude-cli.js";
 import { startCredentialTester } from "./agent/credential-tester.js";
 import { startUsagePoller } from "./agent/usage-poller.js";
 import { loadWorkerConfig, type WorkerConfig } from "./config.js";
+import { createDocHandler, failDocJobOnError } from "./docs/handler.js";
 import { MirrorManager } from "./git/mirrors.js";
-import { createHandler } from "./handler.js";
+import { createHandler, createProjectSerializer } from "./handler.js";
 import { DEFAULT_FIX_PLAN_TIMEOUT_MS, DEFAULT_FIX_TIMEOUT_MS } from "./pipeline/fix.js";
 import { DEFAULT_TRIAGE_TIMEOUT_MS } from "./pipeline/triage.js";
 import { runWorker } from "./queue.js";
@@ -93,23 +95,66 @@ try {
 }
 const { db, client } = createDb(config.databaseUrl);
 
-const handler = createHandler({
-  db,
-  runner: new ClaudeCliRunner(),
-  mirrors: new MirrorManager({ mirrorsDir: config.mirrorsDir }),
-  encryptionKey: config.encryptionKey,
-  // URL pubblico per i link nelle notifiche webhook (vuoto = solo path).
-  publicUrl: config.publicUrl,
-  fix: {
-    twoPhase: config.fixTwoPhase,
-    planModel: config.fixPlanModel,
-    executeModel: config.fixExecuteModel,
-    planTimeoutMs: config.fixPlanTimeoutMs,
-    selfRepairMaxAttempts: config.selfRepairMaxAttempts,
-    testTimeoutMs: config.selfRepairTestTimeoutMs,
-    installTimeoutMs: config.installTimeoutMs,
+// Dipendenze costruite UNA VOLTA all'avvio e condivise da entrambi gli handler
+// (fix e doc-generation): stesso runner CLI e stesso MirrorManager (il mirror è
+// condiviso per progetto), così la serializzazione per-progetto vale anche fra
+// i due tipi di job (vedi più sotto).
+const runner = new ClaudeCliRunner();
+const mirrors = new MirrorManager({ mirrorsDir: config.mirrorsDir });
+
+// Serializzatore per-progetto CONDIVISO fra fix e doc-generation: un doc-job e
+// un fix-job dello stesso progetto si accodano alla STESSA catena e non si
+// sovrappongono mai (il fetch --prune di MirrorManager cancellerebbe il branch
+// stubwise/* non ancora pushato dell'altro). Vedi handler.ts.
+const serializer = createProjectSerializer();
+
+const handler = createHandler(
+  {
+    db,
+    runner,
+    mirrors,
+    encryptionKey: config.encryptionKey,
+    // URL pubblico per i link nelle notifiche webhook (vuoto = solo path).
+    publicUrl: config.publicUrl,
+    fix: {
+      twoPhase: config.fixTwoPhase,
+      planModel: config.fixPlanModel,
+      executeModel: config.fixExecuteModel,
+      planTimeoutMs: config.fixPlanTimeoutMs,
+      selfRepairMaxAttempts: config.selfRepairMaxAttempts,
+      testTimeoutMs: config.selfRepairTestTimeoutMs,
+      installTimeoutMs: config.installTimeoutMs,
+    },
   },
+  serializer,
+);
+
+// Client di embedding (OpenAI-compatibile) costruito una volta: la pipeline di
+// doc-generation chunk+embed le pagine generate. Config via env (vedi config.ts).
+const embeddingClient = createEmbeddingClient({
+  baseUrl: config.embeddingBaseUrl,
+  model: config.embeddingModel,
+  ...(config.embeddingApiKey !== undefined ? { apiKey: config.embeddingApiKey } : {}),
 });
+
+// Handler doc-generation: stessa serializzazione per-progetto del fix
+// (serializer condiviso). Il timeout di OGNI run dell'agent per modulo/reduce
+// riusa il timeout del fix; l'heartbeat (onProgress→touchDocJob nella pipeline)
+// tiene il job vivo durante map/reduce lunghi (invariante staleness).
+const docHandler = createDocHandler(
+  {
+    db,
+    runner,
+    mirrors,
+    embeddingClient,
+    encryptionKey: config.encryptionKey,
+    model: config.docGenerationModel,
+    maxModules: config.docMaxModules,
+    moduleMaxTurns: config.docModuleMaxTurns,
+    agentTimeoutMs: DEFAULT_FIX_TIMEOUT_MS,
+  },
+  serializer,
+);
 
 // Shutdown pulito: al primo segnale il loop smette di reclamare job e
 // attende quelli in volo (runWorker si risolve solo a job conclusi).
@@ -150,9 +195,19 @@ console.error(
     `, usage-poll ${config.usagePollMinutes > 0 ? `ogni ${config.usagePollMinutes}'` : "disabilitato"}` +
     `, credential-test ${config.credentialTestPollSeconds > 0 ? `ogni ${config.credentialTestPollSeconds}"` : "disabilitato"})`,
 );
+// POLITICA DI PRIORITÀ doc vs fix (Task 5.4): i fix hanno la precedenza. Il
+// loop satura la concorrenza con i fix in coda; reclama UN doc-job per tick solo
+// quando NON c'è alcun fix da fare e resta capacità. Le generazioni di
+// documentazione (lunghe/costose) non affamano mai i fix dei bug. Single-process:
+// nessuno slot dedicato, si condivide il budget di concorrenza.
+console.error(
+  "[stubwise-worker] doc-generation ATTIVA: priorità ai fix, un doc-job per tick solo con capacità libera e nessun fix in coda",
+);
 await runWorker({
   db,
   handler,
+  docHandler,
+  docHandlerOnError: failDocJobOnError,
   concurrency: config.concurrency,
   staleAfterMinutes: config.staleAfterMinutes,
   signal: controller.signal,

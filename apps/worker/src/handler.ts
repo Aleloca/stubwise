@@ -212,11 +212,64 @@ async function processJob(
   await holdAllProvidersLimited(deps, job, ticketId);
 }
 
-/** Crea l'handler per runWorker, con la serializzazione per progetto. */
-export function createHandler(deps: HandlerDeps): (job: AiJob) => Promise<void> {
-  /** Catena di promise per projectId: stessa meccanica di withRepoLock. */
-  const chains = new Map<string, Promise<void>>();
+/**
+ * Serializzatore per progetto CONDIVISO fra tipi di job diversi (fix e
+ * doc-generation): mantiene una catena di promise per projectId e accoda ogni
+ * esecuzione alla coda del proprio progetto. È la stessa meccanica di
+ * withRepoLock e dell'handler fix, estratta perché DEVE essere condivisa: un
+ * doc-job e un fix-job dello STESSO progetto non devono mai sovrapporsi —
+ * l'ensureMirror del secondo farebbe `fetch --prune` nel mirror condiviso e
+ * cancellerebbe il branch stubwise/* non ancora pushato del primo (limite
+ * documentato in mirrors.ts). Routando entrambi gli handler attraverso lo
+ * STESSO serializer (stessa Map), job dello stesso progetto serializzano anche
+ * fra tipi diversi; progetti diversi restano paralleli (catene indipendenti).
+ *
+ * Assunzione di deployment: un singolo processo worker (come i lock di
+ * MirrorManager). La concorrenza fra processi è esclusa a monte dal claim
+ * atomico (`FOR UPDATE SKIP LOCKED`).
+ */
+export interface ProjectSerializer {
+  /**
+   * Accoda `task` alla catena di `projectId` e restituisce la promise della sua
+   * esecuzione. La sezione get→set è SINCRONA (niente await in mezzo): due
+   * chiamate concorrenti sullo stesso progetto vedono e allungano la stessa
+   * catena.
+   */
+  run<T>(projectId: string, task: () => Promise<T>): Promise<T>;
+}
 
+/** Crea un ProjectSerializer con la sua Map interna di catene per progetto. */
+export function createProjectSerializer(): ProjectSerializer {
+  const chains = new Map<string, Promise<void>>();
+  return {
+    run<T>(projectId: string, task: () => Promise<T>): Promise<T> {
+      const prev = chains.get(projectId) ?? Promise.resolve();
+      const run = prev.then(task);
+      // La catena memorizzata non rigetta mai: un job fallito non blocca i
+      // successivi dello stesso progetto.
+      const tail = run.then(
+        () => undefined,
+        () => undefined,
+      );
+      chains.set(projectId, tail);
+      void tail.then(() => {
+        if (chains.get(projectId) === tail) chains.delete(projectId);
+      });
+      return run;
+    },
+  };
+}
+
+/**
+ * Crea l'handler fix per runWorker, con la serializzazione per progetto. Se
+ * `serializer` è passato (da index.ts), la catena per-progetto è CONDIVISA con
+ * l'handler doc-generation (vedi createProjectSerializer); altrimenti ne crea
+ * uno proprio (retro-compat dei test che istanziano solo il fix).
+ */
+export function createHandler(
+  deps: HandlerDeps,
+  serializer: ProjectSerializer = createProjectSerializer(),
+): (job: AiJob) => Promise<void> {
   return async function handler(job: AiJob): Promise<void> {
     // projectId per la serializzazione + nome del progetto per le notifiche,
     // in un'unica join.
@@ -233,20 +286,8 @@ export function createHandler(deps: HandlerDeps): (job: AiJob) => Promise<void> 
       return;
     }
 
-    // Sezione SINCRONA (niente await tra get e set): due handler concorrenti
-    // sullo stesso progetto vedono e allungano la stessa catena.
-    const prev = chains.get(row.projectId) ?? Promise.resolve();
-    const run = prev.then(() => processJob(deps, job, row.projectName, job.ticketId));
-    // La catena memorizzata non rigetta mai: un job fallito non blocca i
-    // successivi dello stesso progetto.
-    const tail = run.then(
-      () => undefined,
-      () => undefined,
+    return serializer.run(row.projectId, () =>
+      processJob(deps, job, row.projectName, job.ticketId),
     );
-    chains.set(row.projectId, tail);
-    void tail.then(() => {
-      if (chains.get(row.projectId) === tail) chains.delete(row.projectId);
-    });
-    return run;
   };
 }
