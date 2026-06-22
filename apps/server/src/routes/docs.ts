@@ -15,6 +15,7 @@ import {
   docPages,
   projects,
 } from "@stubwise/db";
+import type { Db } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 
@@ -104,6 +105,28 @@ const pageSchema = z.object({
   updatedAt: z.string(),
 });
 
+type DocPageRow = typeof docPages.$inferSelect;
+
+/**
+ * Serializza una pagina (DTO completo). `commitSha` è quello della generazione
+ * di appartenenza; null per le pagine manuali (passare null o ometterlo).
+ */
+function toPage(row: DocPageRow, commitSha: string | null = null): z.infer<typeof pageSchema> {
+  return {
+    id: row.id,
+    slug: row.slug,
+    title: row.title,
+    kind: row.kind,
+    parentId: row.parentId,
+    position: row.position,
+    sourcePath: row.sourcePath,
+    body: row.body,
+    isManual: row.isManual,
+    commitSha,
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
 /** Uno "spazio" dell'hub: un progetto che ha documentazione. */
 const spaceSchema = z.object({
   projectId: z.uuid(),
@@ -119,14 +142,14 @@ const createManualSchema = z.object({
   // Slug opzionale: assente = derivato dal titolo. Unico per progetto (409).
   slug: z.string().min(1).max(300).optional(),
   parentId: z.uuid().nullable().optional(),
-  position: z.int().optional(),
+  position: z.int().min(0).optional(),
   body: z.string().default(""),
 });
 
 const updateManualSchema = z.object({
   title: z.string().min(1).max(300).optional(),
   parentId: z.uuid().nullable().optional(),
-  position: z.int().optional(),
+  position: z.int().min(0).optional(),
   body: z.string().optional(),
 });
 
@@ -142,6 +165,24 @@ function slugify(title: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return slug || "pagina";
+}
+
+/**
+ * Verifica che `parentId` esista come pagina dello stesso progetto: la
+ * colonna parentId è una soft-FK senza vincolo cross-project, quindi va
+ * validata a mano per evitare di puntare a pagine di altri progetti o
+ * inesistenti.
+ */
+async function isParentInProject(
+  db: Db,
+  projectId: string,
+  parentId: string,
+): Promise<boolean> {
+  const [parent] = await db
+    .select({ id: docPages.id })
+    .from(docPages)
+    .where(and(eq(docPages.id, parentId), eq(docPages.projectId, projectId)));
+  return parent !== undefined;
 }
 
 /**
@@ -272,19 +313,32 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
     },
     async () => {
       // Aggregazione per progetto su doc_pages: solo i progetti con almeno una
-      // pagina compaiono (inner join). Conteggio pagine e, via join sul commit
-      // della generazione corrente, l'ultimo commit documentato.
+      // pagina VISIBILE compaiono (inner join scopato come l'albero/sidebar).
+      // Il join sulle pagine conta solo quelle della generazione corrente o
+      // manuali (generationId null): le pagine di generazioni stale NON
+      // gonfiano il conteggio. Il join su docGenerations è ristretto alla
+      // singola generazione corrente+succeeded, quindi commitSha/finishedAt
+      // sono selezionabili direttamente (niente max() lessicografico).
       const rows = await app.db
         .select({
           projectId: projects.id,
           slug: projects.slug,
           name: projects.name,
           pageCount: sql<number>`count(${docPages.id})::int`,
-          lastGenerationAt: sql<string | null>`max(${docGenerations.finishedAt})`,
-          lastCommitSha: sql<string | null>`max(${docGenerations.commitSha})`,
+          lastGenerationAt: docGenerations.finishedAt,
+          lastCommitSha: docGenerations.commitSha,
         })
         .from(projects)
-        .innerJoin(docPages, eq(docPages.projectId, projects.id))
+        .innerJoin(
+          docPages,
+          and(
+            eq(docPages.projectId, projects.id),
+            or(
+              eq(docPages.generationId, projects.currentDocGenerationId),
+              isNull(docPages.generationId),
+            ),
+          ),
+        )
         .leftJoin(
           docGenerations,
           and(
@@ -292,7 +346,13 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
             eq(docGenerations.status, "succeeded"),
           ),
         )
-        .groupBy(projects.id, projects.slug, projects.name)
+        .groupBy(
+          projects.id,
+          projects.slug,
+          projects.name,
+          docGenerations.finishedAt,
+          docGenerations.commitSha,
+        )
         .orderBy(asc(projects.name));
 
       return rows.map((r) => ({
@@ -301,7 +361,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         name: r.name,
         pageCount: r.pageCount,
         lastGenerationAt: r.lastGenerationAt
-          ? new Date(r.lastGenerationAt).toISOString()
+          ? r.lastGenerationAt.toISOString()
           : null,
         lastCommitSha: r.lastCommitSha,
       }));
@@ -405,19 +465,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         commitSha = gen?.commitSha ?? null;
       }
 
-      return {
-        id: page.id,
-        slug: page.slug,
-        title: page.title,
-        kind: page.kind,
-        parentId: page.parentId,
-        position: page.position,
-        sourcePath: page.sourcePath,
-        body: page.body,
-        isManual: page.isManual,
-        commitSha,
-        updatedAt: page.updatedAt.toISOString(),
-      };
+      return toPage(page, commitSha);
     },
   );
 
@@ -453,7 +501,13 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         .where(eq(projects.id, projectId));
       if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
 
-      const resolvedSlug = slug ?? slugify(title);
+      // parentId è una soft-FK: deve risolvere a una pagina dello STESSO progetto.
+      if (parentId != null && !(await isParentInProject(app.db, projectId, parentId))) {
+        return apiError(reply, 400, "invalid_parent", "Parent page not found in this project");
+      }
+
+      // Slug derivato cappato come quello fornito (max 300 char), per coerenza.
+      const resolvedSlug = slug ?? slugify(title).slice(0, 300);
 
       try {
         const [created] = await app.db
@@ -472,19 +526,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
           })
           .returning();
         if (!created) throw new Error("insert della pagina manuale non ha restituito la riga");
-        return reply.code(201).send({
-          id: created.id,
-          slug: created.slug,
-          title: created.title,
-          kind: created.kind,
-          parentId: created.parentId,
-          position: created.position,
-          sourcePath: created.sourcePath,
-          body: created.body,
-          isManual: created.isManual,
-          commitSha: null,
-          updatedAt: created.updatedAt.toISOString(),
-        });
+        return reply.code(201).send(toPage(created));
       } catch (error) {
         if (isUniqueViolation(error)) {
           return apiError(reply, 409, "doc_page_slug_conflict", "Slug already used in this project");
@@ -506,12 +548,22 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       schema: {
         params: manualIdParamsSchema,
         body: updateManualSchema,
-        response: { 200: pageSchema, 404: errorSchema, ...authErrorResponses },
+        response: { 200: pageSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
       const { projectId, id } = request.params;
       const { title, parentId, position, body } = request.body;
+
+      // parentId soft-FG: self-parent vietato e deve essere dello stesso progetto.
+      if (parentId != null) {
+        if (parentId === id) {
+          return apiError(reply, 400, "invalid_parent", "A page cannot be its own parent");
+        }
+        if (!(await isParentInProject(app.db, projectId, parentId))) {
+          return apiError(reply, 400, "invalid_parent", "Parent page not found in this project");
+        }
+      }
 
       const updates: Partial<typeof docPages.$inferInsert> = {};
       if (title !== undefined) updates.title = title;
@@ -545,19 +597,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
               .returning();
       if (!row) return apiError(reply, 404, "doc_page_not_found", "Manual page not found");
 
-      return {
-        id: row.id,
-        slug: row.slug,
-        title: row.title,
-        kind: row.kind,
-        parentId: row.parentId,
-        position: row.position,
-        sourcePath: row.sourcePath,
-        body: row.body,
-        isManual: row.isManual,
-        commitSha: null,
-        updatedAt: row.updatedAt.toISOString(),
-      };
+      return toPage(row);
     },
   );
 

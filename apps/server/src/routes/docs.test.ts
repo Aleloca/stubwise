@@ -276,6 +276,41 @@ describe("GET /api/docs/spaces", () => {
     expect(space.lastCommitSha).toBe("space01");
   });
 
+  it("pageCount conta solo la generazione corrente + manuali, non quelle stale", async () => {
+    const project = await insertProject(testDb.db);
+    // Generazione stale (non corrente): 2 pagine che NON devono essere contate.
+    await seedSucceededGeneration(testDb.db, project.id, {
+      commitSha: "stalecnt",
+      current: false,
+    });
+    // Generazione corrente: altre 2 pagine.
+    await seedSucceededGeneration(testDb.db, project.id, { commitSha: "currcnt" });
+    // Una pagina manuale (generationId null): va contata.
+    await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/docs/manual`,
+      headers: { cookie: memberCookie },
+      payload: { title: "Manuale Conteggio", slug: "manuale-conteggio", body: "x" },
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/docs/spaces",
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      projectId: string;
+      pageCount: number;
+      lastCommitSha: string | null;
+    }[];
+    const space = body.find((s) => s.projectId === project.id)!;
+    // 2 (corrente) + 1 (manuale) = 3; le 2 stale sono escluse.
+    expect(space.pageCount).toBe(3);
+    // Commit/date sono quelli della generazione CORRENTE, non della stale.
+    expect(space.lastCommitSha).toBe("currcnt");
+  });
+
   it("un progetto con solo pagine manuali compare nell'hub", async () => {
     const project = await insertProject(testDb.db);
     await app.inject({
@@ -535,6 +570,78 @@ describe("manual pages CRUD", () => {
       .where(eq(docPages.id, generated!.id));
     expect(still).toBeDefined();
     expect(still!.title).toBe("Technical Overview");
+  });
+
+  it("parentId valido nello stesso progetto: 201", async () => {
+    const project = await insertProject(testDb.db);
+    const parent = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/docs/manual`,
+      headers: { cookie: memberCookie },
+      payload: { title: "Padre", slug: "padre", body: "x" },
+    });
+    const parentId = (parent.json() as { id: string }).id;
+
+    const child = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/docs/manual`,
+      headers: { cookie: memberCookie },
+      payload: { title: "Figlio", slug: "figlio", parentId, body: "y" },
+    });
+    expect(child.statusCode).toBe(201);
+    expect((child.json() as { parentId: string }).parentId).toBe(parentId);
+  });
+
+  it("parentId di un altro progetto: 400 invalid_parent", async () => {
+    const projectA = await insertProject(testDb.db);
+    const projectB = await insertProject(testDb.db);
+    const foreign = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectB.id}/docs/manual`,
+      headers: { cookie: memberCookie },
+      payload: { title: "Estraneo", slug: "estraneo", body: "x" },
+    });
+    const foreignId = (foreign.json() as { id: string }).id;
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectA.id}/docs/manual`,
+      headers: { cookie: memberCookie },
+      payload: { title: "Orfano", slug: "orfano", parentId: foreignId, body: "y" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("invalid_parent");
+  });
+
+  it("self-parent in patch: 400 invalid_parent", async () => {
+    const project = await insertProject(testDb.db);
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/docs/manual`,
+      headers: { cookie: memberCookie },
+      payload: { title: "Auto", slug: "auto", body: "x" },
+    });
+    const id = (created.json() as { id: string }).id;
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${project.id}/docs/manual/${id}`,
+      headers: { cookie: memberCookie },
+      payload: { parentId: id },
+    });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("invalid_parent");
+  });
+
+  it("position negativa: 400", async () => {
+    const project = await insertProject(testDb.db);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/docs/manual`,
+      headers: { cookie: memberCookie },
+      payload: { title: "Negativa", slug: "negativa", position: -1, body: "x" },
+    });
+    expect(res.statusCode).toBe(400);
   });
 
   it("creazione senza sessione: 401", async () => {
