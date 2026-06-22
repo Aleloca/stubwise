@@ -11,7 +11,11 @@
  *  5. stremma la risposta dell'LLM ({@link ChatLlm}, iniettabile) al client via
  *     SSE (`reply.raw`), un evento `delta` per frammento, poi un evento `done`
  *     con le citazioni;
- *  6. persiste il messaggio assistant (contenuto completo + citazioni).
+ *  6. persiste il messaggio assistant: se lo stream è completato, contenuto
+ *     completo + citazioni; se è stato interrotto (errore/disconnessione a metà)
+ *     ed era stato accumulato del testo, lo salva SENZA citazioni e con un
+ *     marcatore di troncamento, così storico e UI lo distinguono da una risposta
+ *     completa e non abortisce inutilmente il consumo di token (AbortSignal).
  *
  * NOTA SSE: questa è l'UNICA route che bypassa lo schema di risposta Zod —
  * scrive uno stream grezzo su `reply.raw`, quindi `reply.hijack()` dice a
@@ -117,8 +121,16 @@ function toCitations(chunks: RetrievedChunk[]): Citation[] {
 
 /** Scrive un evento SSE (`data: {json}\n\n`) sullo stream grezzo. */
 function writeSseEvent(reply: FastifyReply, event: unknown): void {
+  // Niente gestione di backpressure (drain) qui: gli eventi della chat sono
+  // limitati in dimensione (un delta per frammento, risposta complessiva tetto
+  // CHAT_MAX_TOKENS), quindi il buffer di scrittura non cresce illimitatamente.
+  // Se in futuro le risposte diventassero molto grandi, andrebbe onorato il
+  // valore di ritorno di write() (await dell'evento 'drain' su false).
   reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
 }
+
+/** Marcatore appeso a una risposta troncata (errore/disconnessione a metà stream). */
+const TRUNCATION_MARKER = "\n\n_[risposta interrotta]_";
 
 /**
  * Carica lo storico della sessione (cronologico) come messaggi per l'LLM.
@@ -233,48 +245,75 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
         "X-Accel-Buffering": "no",
       });
 
-      // Disconnessione del client: smettiamo di scrivere/consumare lo stream LLM.
+      // Disconnessione del client: oltre a smettere di scrivere/consumare lo
+      // stream, ABORTIAMO la generazione LLM sottostante per fermare il consumo
+      // di token (altrimenti l'SDK continuerebbe a generare fino a max_tokens).
+      const controller = new AbortController();
       let clientGone = false;
       request.raw.on("close", () => {
         clientGone = true;
+        controller.abort();
       });
 
       let full = "";
+      // `completed` = lo stream è terminato normalmente (nessun errore, nessuna
+      // disconnessione a metà). Solo in quel caso la risposta è "completa" e
+      // tiene le citazioni; altrimenti è parziale e va marcata come interrotta.
+      let completed = false;
       try {
-        for await (const delta of app.chatLlm.stream({ system, messages: history })) {
+        for await (const delta of app.chatLlm.stream({
+          system,
+          messages: history,
+          signal: controller.signal,
+        })) {
           if (clientGone) break;
           full += delta;
           writeSseEvent(reply, { type: "delta", text: delta });
         }
+        completed = !clientGone;
       } catch (error) {
         // Errore dell'LLM a metà stream: lo segnaliamo al client con un evento
-        // `error` e chiudiamo. Logghiamo per intero lato server (mai nel body).
+        // `error` e abortiamo la generazione sottostante (no token sprecati).
+        // Logghiamo per intero lato server (mai nel body).
+        controller.abort();
         request.log.error({ err: error, projectId, sessionId: resolvedSessionId }, "chat LLM error");
         if (!clientGone) {
           writeSseEvent(reply, { type: "error", message: "Chat generation failed" });
+        }
+      } finally {
+        // Lo stream HTTP grezzo va SEMPRE chiuso, anche su throw inatteso dopo
+        // hijack(): senza questo il socket resterebbe appeso. Su disconnessione
+        // del client la connessione è già chiusa, quindi non scriviamo/chiudiamo.
+        if (!clientGone) {
+          if (completed) {
+            // Risposta completa: evento finale con le citazioni.
+            writeSseEvent(reply, { type: "done", citations });
+          }
           reply.raw.end();
         }
-        // NON persistiamo un messaggio assistant parziale/vuoto su errore puro.
-        // Se invece avevamo già accumulato del testo prima dell'errore, lo
-        // salviamo sotto (full non vuoto) per non perdere la risposta parziale.
-        if (full.length === 0) return;
       }
 
-      if (!clientGone) {
-        // Evento finale con le citazioni, poi chiusura dello stream.
-        writeSseEvent(reply, { type: "done", citations });
-        reply.raw.end();
-      }
-
-      // Persiste il messaggio assistant (testo completo + citazioni) anche se il
-      // client si è disconnesso: la risposta è stata comunque generata e va
-      // conservata nello storico della sessione.
-      if (full.length > 0) {
+      // Persistenza del messaggio assistant.
+      //  - Risposta COMPLETA: testo + citazioni (storico/UI la trattano come tale).
+      //  - Risposta PARZIALE (errore o disconnessione a metà con testo accumulato):
+      //    la salviamo SENZA citazioni e con un marcatore di troncamento, così
+      //    history loader e UI distinguono una risposta interrotta da una completa
+      //    e non la reimmettono in storico come se fosse una risposta valida.
+      if (completed) {
         await app.db.insert(docChatMessages).values({
           sessionId: resolvedSessionId,
           role: "assistant",
           content: full,
           citations,
+        });
+      } else if (full.length > 0) {
+        await app.db.insert(docChatMessages).values({
+          sessionId: resolvedSessionId,
+          role: "assistant",
+          content: full + TRUNCATION_MARKER,
+          // Niente citazioni su risposta interrotta: non sono "giustificate" da
+          // un ragionamento completato.
+          citations: null,
         });
       }
     },

@@ -29,12 +29,24 @@ const embeddingClient = createFakeEmbeddingClient();
 // emette dei delta canned. I delta concatenati = "Hello from the docs assistant.".
 const FAKE_DELTAS = ["Hello ", "from ", "the ", "docs ", "assistant."];
 let lastChatInput: ChatLlmInput | null = null;
+
+// Implementazione di default: delta canned, stream completo. I test error-path
+// la sostituiscono via `streamOverride` (un app singolo, deterministico).
+async function* defaultStream(): AsyncIterable<string> {
+  for (const d of FAKE_DELTAS) {
+    yield d;
+  }
+}
+
+// Override per-test dello stream del fake. Se null, si usa `defaultStream`.
+let streamOverride:
+  | ((input: ChatLlmInput) => AsyncIterable<string>)
+  | null = null;
+
 const fakeChatLlm: ChatLlm = {
-  async *stream(input: ChatLlmInput): AsyncIterable<string> {
+  stream(input: ChatLlmInput): AsyncIterable<string> {
     lastChatInput = input;
-    for (const d of FAKE_DELTAS) {
-      yield d;
-    }
+    return (streamOverride ?? defaultStream)(input);
   },
 };
 
@@ -144,6 +156,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   lastChatInput = null;
+  streamOverride = null;
 });
 
 describe("POST /api/projects/:projectId/docs/chat", () => {
@@ -372,6 +385,99 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
       payload: { message: "" },
     });
     expect(res.statusCode).toBe(400);
+  });
+
+  it("errore LLM a metà stream: evento `error`, parziale persistito con marcatore e SENZA citazioni, signal abortito", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await insertCurrentGeneration(testDb.db, project.id);
+    const question = "Domanda che produrrà un errore a metà stream.";
+    const page = await insertPageWithChunk(testDb.db, project.id, genId, {
+      title: "Pagina recuperata",
+      body: "Contenuto.",
+      chunkContent: question,
+    });
+
+    // Fake che emette UN delta poi lancia. Osserva il signal DOPO il throw, così
+    // possiamo asserire che la route abbia abortito la generazione sottostante.
+    let observedSignal: AbortSignal | undefined;
+    const partial = "Risposta parz";
+    streamOverride = async function* (input: ChatLlmInput): AsyncIterable<string> {
+      observedSignal = input.signal;
+      yield partial;
+      throw new Error("LLM esploso a metà stream");
+    };
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/docs/chat`,
+      headers: { cookie: memberCookie },
+      payload: { message: question },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const events = parseSse(res.payload);
+    // Il delta parziale è stato inoltrato...
+    const deltas = events.filter((e) => e.type === "delta");
+    expect(deltas.map((e) => e.text).join("")).toBe(partial);
+    // ...poi un evento `error` (e NESSUN `done`).
+    expect(events.some((e) => e.type === "error")).toBe(true);
+    expect(events.some((e) => e.type === "done")).toBe(false);
+
+    // La route ha abortito il signal passato all'LLM (stop al consumo di token).
+    expect(observedSignal).toBeDefined();
+    expect(observedSignal!.aborted).toBe(true);
+
+    // Persistenza: il messaggio assistant è il parziale + marcatore, citations null.
+    const [session] = await testDb.db
+      .select()
+      .from(docChatSessions)
+      .where(eq(docChatSessions.projectId, project.id));
+    const messages = await testDb.db
+      .select()
+      .from(docChatMessages)
+      .where(eq(docChatMessages.sessionId, session!.id));
+    const assistant = messages.find((m) => m.role === "assistant");
+    expect(assistant).toBeDefined();
+    expect(assistant!.content.startsWith(partial)).toBe(true);
+    expect(assistant!.content).toContain("[risposta interrotta]");
+    expect(assistant!.citations).toBeNull();
+    // La pagina era recuperabile (citazioni esistono), ma NON sono attaccate al parziale.
+    expect(page.slug).toBeTruthy();
+  });
+
+  it("errore LLM al PRIMO delta (nessun testo accumulato): evento `error`, nessun messaggio assistant persistito", async () => {
+    const project = await insertProject(testDb.db);
+    await insertCurrentGeneration(testDb.db, project.id);
+
+    streamOverride = async function* (): AsyncIterable<string> {
+      // Generatore che lancia prima di qualsiasi yield: nessun delta emesso.
+      if (Date.now() >= 0) throw new Error("LLM esploso subito");
+      yield "mai";
+    };
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/docs/chat`,
+      headers: { cookie: memberCookie },
+      payload: { message: "Domanda che fallisce subito." },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const events = parseSse(res.payload);
+    expect(events.some((e) => e.type === "error")).toBe(true);
+    expect(events.some((e) => e.type === "delta")).toBe(false);
+
+    // Nessun parziale → nessun messaggio assistant (solo il messaggio utente).
+    const [session] = await testDb.db
+      .select()
+      .from(docChatSessions)
+      .where(eq(docChatSessions.projectId, project.id));
+    const messages = await testDb.db
+      .select()
+      .from(docChatMessages)
+      .where(eq(docChatMessages.sessionId, session!.id));
+    expect(messages.some((m) => m.role === "assistant")).toBe(false);
+    expect(messages.filter((m) => m.role === "user").length).toBe(1);
   });
 });
 

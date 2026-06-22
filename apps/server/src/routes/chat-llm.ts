@@ -24,6 +24,13 @@ export interface ChatMessage {
 export interface ChatLlmInput {
   system: string;
   messages: ChatMessage[];
+  /**
+   * Segnale di abort opzionale: quando viene abortito (es. disconnessione del
+   * client) l'implementazione DEVE interrompere la generazione sottostante per
+   * fermare il consumo di token. L'implementazione Anthropic lo inoltra alla
+   * richiesta HTTP dell'SDK; il fake nei test lo ignora (o lo osserva).
+   */
+  signal?: AbortSignal;
 }
 
 /**
@@ -104,12 +111,19 @@ export function createAnthropicChatLlm(options: CreateAnthropicChatLlmOptions): 
       }
 
       const client = new Anthropic({ apiKey });
-      const messageStream = client.messages.stream({
-        model,
-        max_tokens: CHAT_MAX_TOKENS,
-        system: input.system,
-        messages: input.messages.map((m) => ({ role: m.role, content: m.content })),
-      });
+      // Il signal è inoltrato come request option dell'SDK (secondo argomento):
+      // quando viene abortito, l'SDK chiude la richiesta HTTP sottostante e la
+      // generazione si ferma davvero (stop al consumo di token), non solo il
+      // consumo dell'iterabile lato nostro.
+      const messageStream = client.messages.stream(
+        {
+          model,
+          max_tokens: CHAT_MAX_TOKENS,
+          system: input.system,
+          messages: input.messages.map((m) => ({ role: m.role, content: m.content })),
+        },
+        { signal: input.signal },
+      );
 
       for await (const event of messageStream) {
         if (
