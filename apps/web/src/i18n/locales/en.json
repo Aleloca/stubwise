@@ -852,6 +852,20 @@
       "lastGenerated": "generated {{date}}",
       "atCommit": "at {{commit}}",
       "neverGenerated": "manual pages only"
+    },
+    "space": {
+      "back": "Documentation",
+      "groupTechnical": "Technical",
+      "groupFunctional": "Functional",
+      "groupManual": "Manual",
+      "groupEmpty": "// empty",
+      "selectPage": "Select a page",
+      "selectPageHint": "Pick a page from the tree to read its documentation.",
+      "documents": "documents {{path}}",
+      "generatedAtCommit": "generated at commit {{commit}}",
+      "manualBadge": "manual page",
+      "pageNotFound": "Page not found",
+      "pageNotFoundHint": "This page may have been removed by a regeneration."
     }
   }
 }

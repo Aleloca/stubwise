@@ -17,7 +17,9 @@ import {
   automationSettingsQueryOptions,
   boardTicketsQueryOptions,
   commentsQueryOptions,
+  docPageQueryOptions,
   docSpacesQueryOptions,
+  docTreeQueryOptions,
   gitAccountsQueryOptions,
   instanceSettingsQueryOptions,
   invitesQueryOptions,
@@ -34,7 +36,11 @@ import {
   usersQueryOptions,
 } from "./lib/queries";
 import { boardSearchSchema, BoardPage } from "./routes/board";
-import { DocsSpacePage } from "./routes/docs/$projectId";
+import {
+  DocsPageView,
+  DocsSpaceIndex,
+  DocsSpaceLayout,
+} from "./routes/docs/$projectId";
 import { DocsPage } from "./routes/docs/index";
 import { LoginPage } from "./routes/login";
 import { ProjectDetailPage } from "./routes/projects/$slug";
@@ -223,13 +229,39 @@ const docsRoute = createRoute({
 });
 
 /**
- * Spazio di un progetto (placeholder M7.1): l'albero/pagina/ricerca/chat
- * arrivano in M7.2–M7.5. La rotta esiste già così il link dell'hub è type-safe.
+ * Spazio di un progetto: layout a tre zone (albero a sinistra, Outlet al
+ * centro, zona chat riservata a destra). Prefetch dell'albero prima del
+ * render; ricerca/trigger (M7.4) e chat (M7.5) arrivano dopo.
  */
 const docsSpaceRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/docs/$projectId",
-  component: DocsSpacePage,
+  loader: ({ context, params }) =>
+    context.queryClient.ensureQueryData(docTreeQueryOptions(params.projectId)),
+  component: DocsSpaceLayout,
+});
+
+/** Indice dello spazio (nessuno slug): stato "seleziona una pagina". */
+const docsSpaceIndexRoute = createRoute({
+  getParentRoute: () => docsSpaceRoute,
+  path: "/",
+  component: DocsSpaceIndex,
+});
+
+/**
+ * Pagina singola dello spazio: render markdown + badge sorgente/commit.
+ * Prefetch best-effort della pagina (un 404 — pagina rimossa da una
+ * rigenerazione — lo gestisce il componente inline, non il pannello d'errore).
+ */
+const docsPageRoute = createRoute({
+  getParentRoute: () => docsSpaceRoute,
+  path: "/$slug",
+  loader: async ({ context, params }) => {
+    await context.queryClient
+      .ensureQueryData(docPageQueryOptions(params.projectId, params.slug))
+      .catch(() => undefined);
+  },
+  component: DocsPageView,
 });
 
 const teamRoute = createRoute({
@@ -360,7 +392,7 @@ const routeTree = rootRoute.addChildren([
     projectNewRoute,
     projectDetailRoute,
     docsRoute,
-    docsSpaceRoute,
+    docsSpaceRoute.addChildren([docsSpaceIndexRoute, docsPageRoute]),
     teamRoute,
     settingsRoute.addChildren([
       settingsIndexRoute,
