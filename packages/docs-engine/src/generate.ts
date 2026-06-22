@@ -242,16 +242,15 @@ function splitCapabilities(
   const lines = functionalMarkdown.split("\n");
   const re = /^##\s+Capability:\s*(.+?)\s*$/i;
   const sections: { title: string; body: string[] }[] = [];
-  let preamble: string[] = [];
   for (const line of lines) {
     const m = re.exec(line);
     if (m) {
       sections.push({ title: m[1]!.trim(), body: [line] });
     } else if (sections.length > 0) {
       sections[sections.length - 1]!.body.push(line);
-    } else {
-      preamble.push(line);
     }
+    // righe prima della prima capability (preambolo) sono ignorate: la pagina
+    // funzionale root porta comunque l'intera mappa.
   }
   if (sections.length === 0) {
     return [{ title: "Capabilities", body: functionalMarkdown.trim() }];
