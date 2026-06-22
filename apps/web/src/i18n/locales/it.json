@@ -866,6 +866,29 @@
       "manualBadge": "pagina manuale",
       "pageNotFound": "Pagina non trovata",
       "pageNotFoundHint": "Questa pagina potrebbe essere stata rimossa da una rigenerazione."
+    },
+    "manual": {
+      "newPage": "Nuova pagina manuale",
+      "newPageTitle": "Nuova pagina manuale",
+      "editPageTitle": "Modifica pagina manuale",
+      "title": "Titolo",
+      "titlePlaceholder": "Per iniziare",
+      "slug": "Slug",
+      "slugPlaceholder": "auto dal titolo",
+      "slugHint": "Facoltativo. Lascia vuoto per derivarlo dal titolo.",
+      "body": "Contenuto",
+      "bodyPlaceholder": "Scrivi la pagina in markdown…",
+      "create": "Crea pagina",
+      "save": "Salva modifiche",
+      "saving": "Salvataggio…",
+      "cancel": "Annulla",
+      "edit": "Modifica",
+      "delete": "Elimina",
+      "deleting": "Eliminazione…",
+      "confirmDelete": "Eliminare questa pagina manuale?",
+      "confirm": "Elimina",
+      "slugConflict": "Slug già usato in questo progetto.",
+      "error": "Impossibile salvare la pagina manuale."
     }
   }
 }

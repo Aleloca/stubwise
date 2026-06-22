@@ -866,6 +866,29 @@
       "manualBadge": "manual page",
       "pageNotFound": "Page not found",
       "pageNotFoundHint": "This page may have been removed by a regeneration."
+    },
+    "manual": {
+      "newPage": "New manual page",
+      "newPageTitle": "New manual page",
+      "editPageTitle": "Edit manual page",
+      "title": "Title",
+      "titlePlaceholder": "Getting started",
+      "slug": "Slug",
+      "slugPlaceholder": "auto from title",
+      "slugHint": "Optional. Leave blank to derive it from the title.",
+      "body": "Content",
+      "bodyPlaceholder": "Write the page in markdown…",
+      "create": "Create page",
+      "save": "Save changes",
+      "saving": "Saving…",
+      "cancel": "Cancel",
+      "edit": "Edit",
+      "delete": "Delete",
+      "deleting": "Deleting…",
+      "confirmDelete": "Delete this manual page?",
+      "confirm": "Delete",
+      "slugConflict": "Slug already used in this project.",
+      "error": "Could not save the manual page."
     }
   }
 }

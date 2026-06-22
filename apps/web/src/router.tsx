@@ -37,6 +37,7 @@ import {
 } from "./lib/queries";
 import { boardSearchSchema, BoardPage } from "./routes/board";
 import {
+  DocsManualNew,
   DocsPageView,
   DocsSpaceIndex,
   DocsSpaceLayout,
@@ -249,6 +250,16 @@ const docsSpaceIndexRoute = createRoute({
 });
 
 /**
+ * Creazione di una pagina manuale (`/docs/$projectId/new`): rotta statica, ha
+ * priorità sul segmento dinamico `$slug` (nessuna pagina può avere slug "new").
+ */
+const docsManualNewRoute = createRoute({
+  getParentRoute: () => docsSpaceRoute,
+  path: "/new",
+  component: DocsManualNew,
+});
+
+/**
  * Pagina singola dello spazio: render markdown + badge sorgente/commit.
  * Prefetch best-effort della pagina (un 404 — pagina rimossa da una
  * rigenerazione — lo gestisce il componente inline, non il pannello d'errore).
@@ -392,7 +403,7 @@ const routeTree = rootRoute.addChildren([
     projectNewRoute,
     projectDetailRoute,
     docsRoute,
-    docsSpaceRoute.addChildren([docsSpaceIndexRoute, docsPageRoute]),
+    docsSpaceRoute.addChildren([docsSpaceIndexRoute, docsManualNewRoute, docsPageRoute]),
     teamRoute,
     settingsRoute.addChildren([
       settingsIndexRoute,
