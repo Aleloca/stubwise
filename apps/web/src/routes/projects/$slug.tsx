@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { ProviderBadge } from "../../components/badges";
 import { IntegrationPanel } from "../../components/integration-panel";
 import { MilestoneManager } from "../../components/milestone-manager";
+import { ProjectEnvFilesSection } from "../../components/project-env-files-section";
 import { ProjectForm } from "../../components/project-form";
 import { patchProject, type ProjectPatch } from "../../lib/api";
 import { meQueryOptions } from "../../lib/auth";
@@ -161,6 +162,21 @@ export function ProjectDetailPage() {
         <h2 className={sectionTitleClass}>{t("milestones:title")}</h2>
         <MilestoneManager projectId={project.id} />
       </section>
+
+      {/*
+        File d'ambiente del progetto: solo admin (l'endpoint è admin-only e i
+        valori, ancorché write-only, non devono nemmeno comparire nella UI dei
+        member). I valori non sono MAI mostrati: si scrivono soltanto.
+      */}
+      {isAdmin && (
+        <section
+          aria-label={t("envFiles:title")}
+          className="mt-8 border-t border-line pt-6"
+        >
+          <h2 className={sectionTitleClass}>{t("envFiles:title")}</h2>
+          <ProjectEnvFilesSection projectId={project.id} />
+        </section>
+      )}
     </div>
   );
 }

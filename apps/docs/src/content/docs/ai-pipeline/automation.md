@@ -198,6 +198,40 @@ Leave it empty for a standard JS project; set it for a custom command (for
 example `pnpm run test:ci`). If no command can be resolved (no `test` script, or
 a non-JS repo), self-repair is simply skipped and the PR opens as usual.
 
+## Environment files
+
+Most repos need configuration to install and test: a `.env` at the root, an
+`apps/web/.env.local`, an API token expected by the test suite. You declare
+these **per project** in **Settings → Project** as one or more **environment
+files**, each identified by its path in the repo (for example `.env` or
+`apps/web/.env.local`) and made of **key/value** variables.
+
+- **Smart import** — rather than retyping variables one by one, you **upload a
+  `.env` file** or **paste its contents** and Stubwise parses it, extracting the
+  variables (it understands the usual `KEY=value` lines, comments and quoting),
+  encrypting them and saving them under the file you chose. It's the fastest way
+  to seed a file from an existing local `.env`.
+- **Encrypted at rest, masked in the UI** — values are encrypted with the same
+  **AES-256-GCM** scheme used for the projects' git credentials (see
+  [Security](/docs/ai-pipeline/security/#credentials-encrypted-at-rest)) and are
+  **never returned to the client** in clear text. After saving, the web app
+  shows them **masked**: you can replace a value, but you can't read it back.
+- **Materialized in the worktree** — right before the [Install
+  command](#install-command) and the [Test command](#test-command-for-self-repair)
+  run, the worker **recreates each file** at its path in the ephemeral worktree
+  and **injects the variables into the process environment** of install and
+  test. So the repo's own tooling and tests see exactly the configuration they
+  expect, both as files on disk and as `process.env` entries.
+- **Never committed to the PR** — the materialized files are **excluded from
+  staging**: they exist only for the duration of install and test in the
+  worktree and **never end up in the pull request**. The secrets don't leak into
+  the diff, the branch or the git history.
+
+Environment files are **admin-only**: only administrators can view the list,
+add or remove files, import variables or edit values. They sit alongside the
+install and test commands as the third piece of per-project setup the
+self-repair loop depends on.
+
 ## How it ties to the two-phase fix and to costs
 
 Once the fix starts — automatically or by hand — it follows the normal pipeline.

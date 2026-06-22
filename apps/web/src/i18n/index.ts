@@ -25,6 +25,7 @@ export const NAMESPACES = [
   "integration",
   "milestones",
   "savedViews",
+  "envFiles",
 ] as const;
 
 /**

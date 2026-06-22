@@ -14,6 +14,7 @@ import { AgentTimeoutError } from "../agent/runner.js";
 import { MirrorManager } from "../git/mirrors.js";
 import { requeueStale, type AiJob } from "../queue.js";
 import { DEFAULT_FIX_ALLOWED_TOOLS, runFix, type FixDeps } from "./fix.js";
+import type { LoadedEnvFile } from "./env-files.js";
 import { buildFixExecutePrompt, buildFixPlanPrompt, buildFixPrompt, buildFixRepairPrompt } from "./prompts.js";
 
 // Un container Postgres per file; per ogni test un upstream git locale REALE
@@ -1898,5 +1899,335 @@ describe("runFix — budget di costo (Task 6)", () => {
     expect(calls[0]!.scope).toBe("ticket");
     expect(calls[0]!.limitUsd).toBe(0.15);
     expect(calls[0]!.spentUsd).toBeCloseTo(0.2, 5);
+  });
+});
+
+describe("runFix — file d'ambiente per progetto (Task 5 wiring)", () => {
+  const INSTALL_CMD = { cmd: "pnpm", args: ["install", "--frozen-lockfile"] };
+  const TEST_CMD = { cmd: "pnpm", args: ["test"] };
+
+  it("materializza le env PRIMA dell'install e dell'agente (ordine env → install → agente)", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    const order: string[] = [];
+    const runner = new FakeAgentRunner({
+      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      script: async () => {
+        order.push("agent");
+        return { output: "fatto", exitCode: 0 };
+      },
+    });
+    const provider = makeProvider();
+    const materializeEnvFilesFn = vi.fn(async () => {
+      order.push("env");
+      return { writtenPaths: [], env: {} };
+    });
+    const runInstallCommand = vi.fn(async () => {
+      order.push("install");
+      return { exitCode: 0, output: "ok" };
+    });
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, {
+        loadEnvFilesFn: async () => [],
+        materializeEnvFilesFn,
+        resolveInstallCommandFn: async () => INSTALL_CMD,
+        runInstallCommand,
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("pr_opened");
+    expect(materializeEnvFilesFn).toHaveBeenCalledTimes(1);
+    expect(order[0]).toBe("env");
+    expect(order.indexOf("env")).toBeLessThan(order.indexOf("install"));
+    expect(order.indexOf("install")).toBeLessThan(order.indexOf("agent"));
+  });
+
+  it("plan-only: materializzazione delle env SALTATA", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    await db.update(automationRules).set({ planApprovalMinEffort: 3 }).where(eq(automationRules.type, "bug"));
+    const ticket = await createTicket(db, fixture.projectId, { type: "bug", effort: 4 });
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({ results: [{ output: "PIANO", exitCode: 0 }] });
+    const provider = makeProvider();
+    const loadEnvFilesFn = vi.fn(async () => []);
+    const materializeEnvFilesFn = vi.fn(async () => ({ writtenPaths: [], env: {} }));
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, { loadEnvFilesFn, materializeEnvFilesFn }),
+      job,
+    );
+
+    expect(outcome).toBe("awaiting_approval");
+    expect(loadEnvFilesFn).not.toHaveBeenCalled();
+    expect(materializeEnvFilesFn).not.toHaveBeenCalled();
+  });
+
+  it("inietta la process env materializzata in install e test (extraEnv come 4° argomento)", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "fix", exitCode: 0 },
+      ],
+    });
+    const provider = makeProvider();
+    const ENV = { API_TOKEN: "segreto-123", DB_URL: "postgres://x" };
+    const runInstallCommand = vi.fn(async () => ({ exitCode: 0, output: "ok" }));
+    const runTestCommand = vi.fn(async () => ({ exitCode: 0, output: "verde" }));
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, {
+        loadEnvFilesFn: async () => [],
+        materializeEnvFilesFn: async () => ({ writtenPaths: [], env: ENV }),
+        resolveInstallCommandFn: async () => INSTALL_CMD,
+        runInstallCommand,
+        resolveTestCommandFn: async () => TEST_CMD,
+        runTestCommand,
+        selfRepairMaxAttempts: 2,
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("pr_opened");
+    expect(runInstallCommand).toHaveBeenCalledTimes(1);
+    expect(runTestCommand).toHaveBeenCalledTimes(1);
+    // Il 4° argomento (extraEnv) porta le variabili materializzate.
+    const installArgs = runInstallCommand.mock.calls[0] as unknown as [
+      unknown,
+      string,
+      number,
+      Record<string, string>,
+    ];
+    const testArgs = runTestCommand.mock.calls[0] as unknown as [
+      unknown,
+      string,
+      number,
+      Record<string, string>,
+    ];
+    expect(installArgs[3]).toMatchObject(ENV);
+    expect(testArgs[3]).toMatchObject(ENV);
+  });
+
+  it("SAFEGUARD anti-leak: i file env materializzati NON finiscono nel commit/push", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "fix", exitCode: 0 },
+        { output: "riparazione", exitCode: 0 },
+      ],
+    });
+    const provider = makeProvider();
+    // Il fake scrive DAVVERO i file env nel worktree e ne restituisce i path,
+    // così il safeguard (esclusione via pathspec) è verificato sul git reale.
+    const envFiles: LoadedEnvFile[] = [
+      { path: ".env", vars: [{ key: "SECRET", value: "shh" }] },
+      { path: "apps/web/.env.local", vars: [{ key: "TOKEN", value: "tok" }] },
+    ];
+    const materializeEnvFilesFn = vi.fn(async (dir: string) => {
+      await writeFile(join(dir, ".env"), "SECRET=shh\n");
+      await mkdir(join(dir, "apps/web"), { recursive: true });
+      await writeFile(join(dir, "apps/web/.env.local"), "TOKEN=tok\n");
+      return {
+        writtenPaths: [".env", "apps/web/.env.local"],
+        env: { SECRET: "shh", TOKEN: "tok" },
+      };
+    });
+    let n = 0;
+    const runTestCommand = vi.fn(async () => {
+      n++;
+      return n === 1 ? { exitCode: 1, output: "rosso" } : { exitCode: 0, output: "verde" };
+    });
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, {
+        loadEnvFilesFn: async () => envFiles,
+        materializeEnvFilesFn,
+        resolveTestCommandFn: async () => TEST_CMD,
+        runTestCommand,
+        selfRepairMaxAttempts: 2,
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("pr_opened");
+    // Loop di self-repair attraversato (rosso → riparazione → verde): copre lo
+    // staging del loop E il commit finale del ramo self-repair.
+    expect(runTestCommand).toHaveBeenCalledTimes(2);
+    const branch = `stubwise/ticket-${ticket.number}`;
+    const files = await git(["ls-tree", "-r", "--name-only", branch], fixture.upstreamDir);
+    expect(files).toContain("app.js");
+    // I file env NON sono nell'albero committato/pushato.
+    expect(files).not.toContain(".env");
+    expect(files).not.toContain("apps/web/.env.local");
+  });
+
+  it("SAFEGUARD anti-leak: esclusione anche nel ramo SENZA self-repair", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "fix", exitCode: 0 },
+      ],
+    });
+    const provider = makeProvider();
+    const materializeEnvFilesFn = vi.fn(async (dir: string) => {
+      await writeFile(join(dir, ".env"), "SECRET=shh\n");
+      return { writtenPaths: [".env"], env: { SECRET: "shh" } };
+    });
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, {
+        loadEnvFilesFn: async () => [{ path: ".env", vars: [{ key: "SECRET", value: "shh" }] }],
+        materializeEnvFilesFn,
+        // Nessun comando di test → ramo senza self-repair (git add -A → status → commit).
+        resolveTestCommandFn: async () => null,
+        selfRepairMaxAttempts: 2,
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("pr_opened");
+    const branch = `stubwise/ticket-${ticket.number}`;
+    const files = await git(["ls-tree", "-r", "--name-only", branch], fixture.upstreamDir);
+    expect(files).toContain("app.js");
+    expect(files).not.toContain(".env");
+  });
+
+  it("best-effort: materializeEnvFilesFn che lancia → il fix prosegue (PR aperta), install/agente eseguiti, env esclusi vuoti", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "fix", exitCode: 0 },
+      ],
+    });
+    const provider = makeProvider();
+    // La materializzazione esplode: il ramo catch best-effort (fix.ts:717-726)
+    // deve loggare e proseguire SENZA far fallire il fix.
+    const materializeEnvFilesFn = vi.fn(async () => {
+      throw new Error("boom");
+    });
+    const runInstallCommand = vi.fn(async () => ({ exitCode: 0, output: "ok" }));
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, {
+        loadEnvFilesFn: async () => [{ path: ".env", vars: [{ key: "SECRET", value: "shh" }] }],
+        materializeEnvFilesFn,
+        resolveInstallCommandFn: async () => INSTALL_CMD,
+        runInstallCommand,
+        // Nessun comando di test → ramo senza self-repair.
+        resolveTestCommandFn: async () => null,
+      }),
+      job,
+    );
+
+    // Il fix NON fallisce per colpa della materializzazione.
+    expect(outcome).toBe("pr_opened");
+    expect(materializeEnvFilesFn).toHaveBeenCalledTimes(1);
+    // Install e agente vengono comunque eseguiti.
+    expect(runInstallCommand).toHaveBeenCalledTimes(1);
+    expect(runner.calls).toHaveLength(2);
+    // Nessun pathspec di esclusione env → commit normale del solo fix.
+    const branch = `stubwise/ticket-${ticket.number}`;
+    const files = await git(["ls-tree", "-r", "--name-only", branch], fixture.upstreamDir);
+    expect(files).toContain("app.js");
+    expect(files).not.toContain("STUBWISE_REPORT.md");
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("pr_opened");
+    expect(jobAfter.log).toContain("proseguo senza");
+  });
+
+  it("solo env scritti, nessun diff reale → NoChangesError (gli env esclusi NON mascherano un diff vuoto)", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    // L'agente NON produce modifiche al codice: scrive solo il report (escluso).
+    const runner = new FakeAgentRunner({
+      fileChanges: { "STUBWISE_REPORT.md": REPORT },
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "niente da cambiare", exitCode: 0 },
+      ],
+    });
+    const provider = makeProvider();
+    // La materializzazione scrive DAVVERO un .env nel worktree (poi escluso dallo
+    // stage): è l'UNICA scrittura non-report, quindi il diff reale è vuoto.
+    const materializeEnvFilesFn = vi.fn(async (dir: string) => {
+      await writeFile(join(dir, ".env"), "SECRET=shh\n");
+      return { writtenPaths: [".env"], env: { SECRET: "shh" } };
+    });
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, {
+        loadEnvFilesFn: async () => [{ path: ".env", vars: [{ key: "SECRET", value: "shh" }] }],
+        materializeEnvFilesFn,
+        // Ramo senza self-repair: git add -A (env esclusi) → status → NoChangesError.
+        resolveTestCommandFn: async () => null,
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("failed");
+    expect(materializeEnvFilesFn).toHaveBeenCalledTimes(1);
+    expect(provider.openPullRequest).not.toHaveBeenCalled();
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("failed");
+    expect(jobAfter.error).toContain("nessuna modifica");
+    // Nessun branch sull'upstream (il .env escluso non ha prodotto un commit).
+    const branches = await git(["branch", "--list", `stubwise/ticket-${ticket.number}`], fixture.upstreamDir);
+    expect(branches).toBe("");
+  });
+
+  it("nessun env file: comportamento invariato (commit normale, NoChangesError non scattato dal solo env)", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "fix", exitCode: 0 },
+      ],
+    });
+    const provider = makeProvider();
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, {
+        loadEnvFilesFn: async () => [],
+        materializeEnvFilesFn: async () => ({ writtenPaths: [], env: {} }),
+        resolveTestCommandFn: async () => null,
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("pr_opened");
+    const branch = `stubwise/ticket-${ticket.number}`;
+    const files = await git(["ls-tree", "-r", "--name-only", branch], fixture.upstreamDir);
+    expect(files).toContain("app.js");
+    expect(files).not.toContain("STUBWISE_REPORT.md");
   });
 });

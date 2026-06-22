@@ -814,5 +814,30 @@
     "sharedByTeammate": "Shared by a teammate",
     "nameExists": "A saved view with this name already exists",
     "saveFailed": "Failed to save the view"
+  },
+  "envFiles": {
+    "title": "Environment files",
+    "subtitle": "// project environment variables — values are encrypted and never shown",
+    "empty": "// no environment files yet",
+    "addFile": "Add file",
+    "path": "Path",
+    "pathPlaceholder": "E.g. .env.local",
+    "createFile": "Create file",
+    "creatingFile": "Creating…",
+    "deleteFile": "Delete file",
+    "confirm": "Confirm",
+    "pasteLabel": "Paste variables",
+    "pastePlaceholder": "KEY=value\nOTHER_KEY=value",
+    "importHint": "// paste variables here or upload a .env file",
+    "import": "Import",
+    "importing": "Importing…",
+    "upload": "Upload file",
+    "noVars": "// no variables in this file yet",
+    "valueSet": "Value set",
+    "replace": "Replace",
+    "remove": "Remove",
+    "value": "Value",
+    "valuePlaceholder": "New value (write-only)",
+    "saving": "Saving…"
   }
 }
