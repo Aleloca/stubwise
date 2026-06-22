@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tansta
 import { Link, Outlet, useNavigate, useParams } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { DocsChat } from "../../components/docs-chat";
 import { DocsGenerationPanel } from "../../components/docs-generation-panel";
 import { DocsManualForm } from "../../components/docs-manual-form";
 import { DocsSearch } from "../../components/docs-search";
@@ -17,10 +18,12 @@ import { docPageQueryOptions, docsKeys, docTreeQueryOptions } from "../../lib/qu
  *   manuali);
  * - centro: `<Outlet />` — la pagina selezionata (`$slug`) o un placeholder
  *   "seleziona una pagina" sull'indice dello spazio;
- * - destra: spazio riservato al drawer chat (M7.5), non ancora montato.
+ * - destra: il drawer chat RAG (`DocsChat`, M7.5), apribile dal pulsante in
+ *   basso a destra.
  *
- * Ricerca (M7.4), trigger generazione (M7.4) ed editing manuale (M7.3) sono
- * fuori scope: qui solo navigazione + render in sola lettura.
+ * Tutte le sotto-feature dello spazio sono ora montate: trigger generazione +
+ * stato (`DocsGenerationPanel`, M7.4), ricerca (`DocsSearch`, M7.4), editing
+ * pagine manuali (`DocsManualForm`, M7.3) e chat in streaming (`DocsChat`, M7.5).
  */
 export function DocsSpaceLayout() {
   const { t } = useTranslation();
@@ -28,7 +31,7 @@ export function DocsSpaceLayout() {
   const { data: tree } = useSuspenseQuery(docTreeQueryOptions(projectId));
 
   return (
-    <div className="flex h-full min-h-0">
+    <div className="relative flex h-full min-h-0">
       <aside className="w-72 shrink-0 overflow-y-auto border-r border-line bg-ink-950 p-4">
         <Link
           to="/docs"
@@ -52,7 +55,8 @@ export function DocsSpaceLayout() {
         <Outlet />
       </section>
 
-      {/* Zona destra riservata al drawer chat (M7.5). */}
+      {/* Zona destra: drawer chat RAG (apribile dal pulsante in basso a destra). */}
+      <DocsChat projectId={projectId} />
     </div>
   );
 }

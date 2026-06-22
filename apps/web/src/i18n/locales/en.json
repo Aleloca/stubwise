@@ -916,6 +916,22 @@
       "kindTechnical": "technical",
       "kindFunctional": "functional",
       "kindManual": "manual"
+    },
+    "chat": {
+      "title": "Ask the docs",
+      "subtitle": "RAG over this project's documentation.",
+      "open": "Open chat",
+      "close": "Close chat",
+      "placeholder": "Ask about this project…",
+      "send": "Send",
+      "thinking": "Thinking…",
+      "you": "You",
+      "assistant": "Assistant",
+      "emptyTitle": "Ask anything about the docs",
+      "emptyHint": "Answers are grounded in this project's documentation, with citations.",
+      "sources": "Sources",
+      "error": "Something went wrong generating the answer.",
+      "newChat": "New chat"
     }
   }
 }
