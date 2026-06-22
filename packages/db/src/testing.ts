@@ -24,7 +24,7 @@ export interface TestDb {
  * container costa secondi, condividerlo tra i test del file lo ammortizza.
  */
 export async function startTestDb(): Promise<TestDb> {
-  const container = await new PostgreSqlContainer("postgres:17-alpine").start();
+  const container = await new PostgreSqlContainer("pgvector/pgvector:pg17").start();
   const { db, client } = createDb(container.getConnectionUri());
   await runMigrations(db);
   return {

@@ -183,6 +183,13 @@
       "when": 1782124488271,
       "tag": "0025_pale_pete_wisdom",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1782138055491,
+      "tag": "0026_curly_thena",
+      "breakpoints": true
     }
   ]
 }
