@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
@@ -449,6 +449,44 @@ describe("GET /api/projects/:projectId/docs/pages/:slug", () => {
     });
     expect(res.statusCode).toBe(404);
   });
+
+  it("slug condiviso tra una pagina manuale e una della generazione corrente: ritorna deterministicamente quella autogenerata", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await seedSucceededGeneration(testDb.db, project.id, { commitSha: "shared99" });
+    // Pagina autogenerata con uno slug e una manuale con LO STESSO slug: con la
+    // nuova unicità per-generazione coesistono. La route deve restituire una sola
+    // riga, deterministicamente quella della generazione corrente (autogenerata).
+    const sharedSlug = "guida-condivisa";
+    await testDb.db.insert(docPages).values({
+      projectId: project.id,
+      generationId: genId,
+      kind: "technical",
+      slug: sharedSlug,
+      title: "Auto Condivisa",
+      body: "# Auto\n\nContenuto autogenerato.",
+    });
+    await testDb.db.insert(docPages).values({
+      projectId: project.id,
+      generationId: null,
+      kind: "manual",
+      slug: sharedSlug,
+      title: "Manuale Condivisa",
+      isManual: true,
+      body: "# Manuale\n\nContenuto manuale.",
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${project.id}/docs/pages/${sharedSlug}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { title: string; kind: string; isManual: boolean; commitSha: string };
+    // Preferita la pagina della generazione corrente (generationId NOT NULL).
+    expect(body.title).toBe("Auto Condivisa");
+    expect(body.isManual).toBe(false);
+    expect(body.commitSha).toBe("shared99");
+  });
 });
 
 describe("manual pages CRUD", () => {
@@ -543,10 +581,13 @@ describe("manual pages CRUD", () => {
   it("una pagina AUTOGENERATA non è modificabile via manual: 404", async () => {
     const project = await insertProject(testDb.db);
     const genId = await seedSucceededGeneration(testDb.db, project.id);
+    // La generazione ha due pagine (technical + functional): si prende quella
+    // technical in modo DETERMINISTICO (il SELECT senza ORDER BY non garantisce
+    // l'ordine; l'asserzione finale verifica il titolo "Technical Overview").
     const [generated] = await testDb.db
       .select({ id: docPages.id })
       .from(docPages)
-      .where(eq(docPages.generationId, genId));
+      .where(and(eq(docPages.generationId, genId), eq(docPages.kind, "technical")));
 
     const patch = await app.inject({
       method: "PATCH",

@@ -152,6 +152,9 @@ const docHandler = createDocHandler(
     maxModules: config.docMaxModules,
     moduleMaxTurns: config.docModuleMaxTurns,
     agentTimeoutMs: DEFAULT_FIX_TIMEOUT_MS,
+    // Cap di costo per generazione: undefined (default) = nessun cap; il
+    // createDocHandler omette costCapUsd quando undefined (exactOptionalProperty).
+    ...(config.docCostCapUsd !== undefined ? { costCapUsd: config.docCostCapUsd } : {}),
   },
   serializer,
 );

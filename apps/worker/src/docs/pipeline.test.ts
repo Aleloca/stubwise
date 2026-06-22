@@ -205,6 +205,77 @@ describe("runDocGenerationJob", () => {
     expect(jobAfter?.generationId).toBe(gen!.id);
   });
 
+  it("rigenerazione: una seconda generazione sullo stesso progetto riesce (slug deterministici condivisi), swap e coesistenza fino al prune; le pagine manuali sopravvivono", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, upstream.url);
+
+    // Pagina MANUALE preesistente (generationId null): deve sopravvivere alle
+    // rigenerazioni e NON collidere con gli slug autogenerati.
+    const [manual] = await db
+      .insert(docPages)
+      .values({
+        projectId,
+        generationId: null,
+        kind: "manual",
+        slug: "manuale-curata",
+        title: "Curata a mano",
+        isManual: true,
+      })
+      .returning();
+
+    const runner = new FakeAgentRunner({
+      // Stessa struttura deterministica a ogni run (slug uguali tra le generazioni).
+      script: () => ({ output: agentOutput("stabile"), exitCode: 0, usage: USAGE }),
+    });
+
+    // 1ª generazione.
+    const job1 = await enqueueDocJob(db, projectId);
+    const outcome1 = await runDocGenerationJob(baseDeps(db, mirrors, runner), job1);
+    expect(outcome1).toBe("succeeded");
+    const [proj1] = await db.select().from(projects).where(eq(projects.id, projectId));
+    const gen1Id = proj1!.currentDocGenerationId!;
+    expect(gen1Id).toBeTruthy();
+
+    // 2ª generazione sullo STESSO progetto: la collisione di slug deterministici
+    // (overview/capabilities/moduli) NON deve far fallire la generazione.
+    const job2 = await enqueueDocJob(db, projectId);
+    const outcome2 = await runDocGenerationJob(baseDeps(db, mirrors, runner), job2);
+    expect(outcome2).toBe("succeeded");
+
+    // Lo swap punta alla 2ª generazione, diversa dalla 1ª.
+    const [proj2] = await db.select().from(projects).where(eq(projects.id, projectId));
+    const gen2Id = proj2!.currentDocGenerationId!;
+    expect(gen2Id).toBeTruthy();
+    expect(gen2Id).not.toBe(gen1Id);
+
+    // Job 2 succeeded.
+    const [job2After] = await db.select().from(docGenerationJobs).where(eq(docGenerationJobs.id, job2.id));
+    expect(job2After?.status).toBe("succeeded");
+
+    // Coesistenza fino al prune: con solo due generazioni il prune tiene corrente
+    // + precedente, quindi ENTRAMBE restano presenti con i propri slug.
+    const gens = await db.select().from(docGenerations).where(eq(docGenerations.projectId, projectId));
+    const genIds = new Set(gens.map((g) => g.id));
+    expect(genIds.has(gen1Id)).toBe(true);
+    expect(genIds.has(gen2Id)).toBe(true);
+
+    // Lo stesso slug deterministico "overview" esiste in entrambe le generazioni.
+    const overviewPages = await db
+      .select()
+      .from(docPages)
+      .where(eq(docPages.slug, "overview"));
+    const overviewGenIds = new Set(overviewPages.map((p) => p.generationId));
+    expect(overviewGenIds.has(gen1Id)).toBe(true);
+    expect(overviewGenIds.has(gen2Id)).toBe(true);
+
+    // La pagina manuale è SOPRAVVISSUTA a entrambe le rigenerazioni (generationId null).
+    const [manualAfter] = await db.select().from(docPages).where(eq(docPages.id, manual!.id));
+    expect(manualAfter?.generationId).toBeNull();
+    expect(manualAfter?.slug).toBe("manuale-curata");
+  });
+
   it("pruna le generazioni oltre corrente + precedente (cascade su pagine/chunk)", async () => {
     const { db } = testDb;
     const upstream = await makeUpstream();

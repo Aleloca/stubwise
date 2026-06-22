@@ -198,6 +198,19 @@ const envSchema = z.object({
       .min(1, "deve essere un intero ≥ 1 (es. 30)")
       .default(30),
   ),
+  // Cap di costo (USD) per SINGOLA generazione di documentazione: se il costo
+  // aggregato dei run dell'agente lo supera, la generazione è marcata `failed`
+  // e il job messo in `held` con ragione loggata (mai un cap silenzioso); NON
+  // si fa lo swap del puntatore. Opzionale: NON impostata (default) = nessun
+  // cap, costo ILLIMITATO — i deploy esistenti non cambiano comportamento. Va
+  // impostata a un valore > 0 per attivare il guardrail (es. 5 = $5/generazione).
+  DOC_COST_CAP_USD: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un numero > 0 in USD (es. 5)" })
+      .positive("deve essere un numero > 0 in USD (es. 5)")
+      .optional(),
+  ),
   // Endpoint OpenAI-compatibile per gli embedding della ricerca semantica sui
   // Docs (/v1/embeddings). Di default Ollama in-rete (servizio "ollama" del
   // compose); puntabile a un provider esterno cambiando la sola variabile.
@@ -267,6 +280,9 @@ export interface WorkerConfig {
   docMaxModules: number;
   /** Turni massimi dell'agente per la pagina di un modulo (default 30). */
   docModuleMaxTurns: number;
+  /** Cap di costo (USD) per generazione di documentazione; undefined = nessun
+   * cap (costo illimitato, default). Se sforato la generazione è `held`. */
+  docCostCapUsd: number | undefined;
   /** Endpoint /v1 OpenAI-compatibile per gli embedding dei Docs
    * (default "http://ollama:11434/v1"). */
   embeddingBaseUrl: string;
@@ -315,6 +331,7 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     docGenerationModel: parsed.DOC_GENERATION_MODEL,
     docMaxModules: parsed.DOC_MAX_MODULES,
     docModuleMaxTurns: parsed.DOC_MODULE_MAX_TURNS,
+    docCostCapUsd: parsed.DOC_COST_CAP_USD,
     embeddingBaseUrl: parsed.EMBEDDING_BASE_URL,
     embeddingModel: parsed.EMBEDDING_MODEL,
     embeddingApiKey: parsed.EMBEDDING_API_KEY,

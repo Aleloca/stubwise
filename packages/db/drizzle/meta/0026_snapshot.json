@@ -1,5 +1,5 @@
 {
-  "id": "27cac125-e168-4140-b09b-435914d81bac",
+  "id": "3183e0ea-b369-4de2-9446-fed69f9ac0f4",
   "prevId": "32213037-17c4-4f9f-bf5f-34b85f59589f",
   "version": "7",
   "dialect": "postgresql",
@@ -1483,8 +1483,29 @@
           "method": "btree",
           "with": {}
         },
-        "doc_pages_project_slug_unique": {
-          "name": "doc_pages_project_slug_unique",
+        "doc_pages_generation_slug_unique": {
+          "name": "doc_pages_generation_slug_unique",
+          "columns": [
+            {
+              "expression": "generation_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "slug",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "doc_pages_manual_slug_unique": {
+          "name": "doc_pages_manual_slug_unique",
           "columns": [
             {
               "expression": "project_id",
@@ -1500,6 +1521,7 @@
             }
           ],
           "isUnique": true,
+          "where": "generation_id IS NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}

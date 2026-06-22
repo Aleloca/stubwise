@@ -67,6 +67,50 @@ describe("schema: dominio Docs", () => {
     expect(gen.status).toBe("pending");
   });
 
+  it("permette lo stesso slug a generazioni diverse ma lo vieta dentro una generazione", async () => {
+    const projectId = await seedProject();
+    const [gen1] = await db.insert(docGenerations).values({ projectId }).returning();
+    const [gen2] = await db.insert(docGenerations).values({ projectId }).returning();
+    if (!gen1 || !gen2) throw new Error("insert delle generazioni non ha restituito la riga");
+
+    // Stesso slug deterministico ("overview") in due generazioni diverse: OK.
+    await db
+      .insert(docPages)
+      .values({ projectId, generationId: gen1.id, kind: "technical", slug: "overview", title: "G1" });
+    await db
+      .insert(docPages)
+      .values({ projectId, generationId: gen2.id, kind: "technical", slug: "overview", title: "G2" });
+
+    // Stesso slug DENTRO la stessa generazione: vietato (unique generation_id+slug).
+    await expect(
+      db
+        .insert(docPages)
+        .values({ projectId, generationId: gen1.id, kind: "technical", slug: "overview", title: "dup" }),
+    ).rejects.toThrow();
+  });
+
+  it("mantiene unico lo slug tra le pagine manuali ma non collide con quelle autogenerate", async () => {
+    const projectId = await seedProject();
+    const [gen] = await db.insert(docGenerations).values({ projectId }).returning();
+    if (!gen) throw new Error("insert della generazione non ha restituito la riga");
+
+    // Una pagina autogenerata con slug "overview"...
+    await db
+      .insert(docPages)
+      .values({ projectId, generationId: gen.id, kind: "technical", slug: "overview", title: "auto" });
+    // ...non collide con una pagina manuale dello stesso slug (indice parziale).
+    await db
+      .insert(docPages)
+      .values({ projectId, generationId: null, kind: "manual", slug: "overview", title: "manuale", isManual: true });
+
+    // Ma due pagine manuali con lo stesso slug nello stesso progetto: vietato.
+    await expect(
+      db
+        .insert(docPages)
+        .values({ projectId, generationId: null, kind: "manual", slug: "overview", title: "dup", isManual: true }),
+    ).rejects.toThrow();
+  });
+
   it("inserisce un chunk con embedding a 1024 dim e fa ricerca per distanza coseno", async () => {
     const projectId = await seedProject();
     const [gen] = await db.insert(docGenerations).values({ projectId }).returning();

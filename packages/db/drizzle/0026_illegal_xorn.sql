@@ -99,6 +99,7 @@ CREATE INDEX "doc_generation_jobs_project_idx" ON "doc_generation_jobs" USING bt
 CREATE INDEX "doc_generations_project_idx" ON "doc_generations" USING btree ("project_id");--> statement-breakpoint
 CREATE INDEX "doc_pages_project_idx" ON "doc_pages" USING btree ("project_id");--> statement-breakpoint
 CREATE INDEX "doc_pages_generation_idx" ON "doc_pages" USING btree ("generation_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "doc_pages_project_slug_unique" ON "doc_pages" USING btree ("project_id","slug");--> statement-breakpoint
+CREATE UNIQUE INDEX "doc_pages_generation_slug_unique" ON "doc_pages" USING btree ("generation_id","slug");--> statement-breakpoint
+CREATE UNIQUE INDEX "doc_pages_manual_slug_unique" ON "doc_pages" USING btree ("project_id","slug") WHERE generation_id IS NULL;--> statement-breakpoint
 CREATE INDEX "doc_pages_search_tsv_idx" ON "doc_pages" USING gin ("search_tsv");--> statement-breakpoint
 CREATE INDEX doc_chunks_embedding_idx ON doc_chunks USING hnsw (embedding vector_cosine_ops);

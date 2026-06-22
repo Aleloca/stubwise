@@ -882,7 +882,16 @@ export const docGenerations = pgTable(
  * a ogni rigenerazione; le pagine `isManual` hanno `generationId` null e
  * sopravvivono alle rigenerazioni (curate a mano). `parentId` modella la
  * gerarchia (soft, niente FK self per ordine in migrazione); `searchTsv` è il
- * vettore full-text generato da titolo+corpo. Unique (project_id, slug).
+ * vettore full-text generato da titolo+corpo.
+ *
+ * UNICITÀ slug: gli slug autogenerati sono DETERMINISTICI (`overview`,
+ * `capabilities`, baseSlug del modulo) e si ripetono identici a ogni
+ * rigenerazione. Un'unicità (project_id, slug) collidereberbe alla 2ª
+ * generazione (le pagine della precedente coesistono fino al prune). Quindi:
+ *  - pagine AUTOGENERATE: unique (generation_id, slug) — ogni generazione porta
+ *    i suoi slug, generazioni diverse possono condividerli;
+ *  - pagine MANUALI (generation_id null): unique parziale (project_id, slug)
+ *    WHERE generation_id IS NULL — restano uniche per progetto.
  */
 export const docPages = pgTable(
   "doc_pages",
@@ -923,8 +932,15 @@ export const docPages = pgTable(
   (table) => [
     index("doc_pages_project_idx").on(table.projectId),
     index("doc_pages_generation_idx").on(table.generationId),
-    // Slug univoco per progetto.
-    uniqueIndex("doc_pages_project_slug_unique").on(table.projectId, table.slug),
+    // Slug univoco per generazione (pagine autogenerate): generazioni diverse
+    // condividono gli stessi slug deterministici, ma una generazione non può
+    // avere due pagine con lo stesso slug.
+    uniqueIndex("doc_pages_generation_slug_unique").on(table.generationId, table.slug),
+    // Slug univoco per progetto SOLO tra le pagine manuali (generation_id null):
+    // indice parziale, non collide con gli slug autogenerati.
+    uniqueIndex("doc_pages_manual_slug_unique")
+      .on(table.projectId, table.slug)
+      .where(sql`generation_id IS NULL`),
     // Ricerca full-text sul vettore generato.
     index("doc_pages_search_tsv_idx").using("gin", table.searchTsv),
   ],

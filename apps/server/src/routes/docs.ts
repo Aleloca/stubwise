@@ -464,20 +464,23 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         .where(eq(projects.id, projectId));
       if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
 
+      // Con l'unicità slug per-generazione una pagina manuale e una della
+      // generazione corrente possono condividere lo stesso slug: la query è
+      // ristretta alle pagine VISIBILI (manuale OR generazione corrente) e
+      // ordinata in modo deterministico, preferendo la pagina della generazione
+      // corrente (autogenerata) alla manuale. `.limit(1)` rende l'esito stabile.
+      const currentGen = project.currentDocGenerationId;
+      const visibleScope = currentGen
+        ? or(eq(docPages.generationId, currentGen), isNull(docPages.generationId))
+        : isNull(docPages.generationId);
       const [page] = await app.db
         .select()
         .from(docPages)
-        .where(and(eq(docPages.projectId, projectId), eq(docPages.slug, slug)));
+        .where(and(eq(docPages.projectId, projectId), eq(docPages.slug, slug), visibleScope))
+        // generationId NOT NULL (corrente) prima della manuale (null): nulls last.
+        .orderBy(sql`${docPages.generationId} DESC NULLS LAST`)
+        .limit(1);
       if (!page) return apiError(reply, 404, "doc_page_not_found", "Documentation page not found");
-
-      // Visibile solo se manuale o appartiene alla generazione corrente.
-      const visible =
-        page.generationId === null ||
-        (project.currentDocGenerationId !== null &&
-          page.generationId === project.currentDocGenerationId);
-      if (!visible) {
-        return apiError(reply, 404, "doc_page_not_found", "Documentation page not found");
-      }
 
       let commitSha: string | null = null;
       if (page.generationId) {
