@@ -2111,6 +2111,96 @@ describe("runFix — file d'ambiente per progetto (Task 5 wiring)", () => {
     expect(files).not.toContain(".env");
   });
 
+  it("best-effort: materializeEnvFilesFn che lancia → il fix prosegue (PR aperta), install/agente eseguiti, env esclusi vuoti", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({
+      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "fix", exitCode: 0 },
+      ],
+    });
+    const provider = makeProvider();
+    // La materializzazione esplode: il ramo catch best-effort (fix.ts:717-726)
+    // deve loggare e proseguire SENZA far fallire il fix.
+    const materializeEnvFilesFn = vi.fn(async () => {
+      throw new Error("boom");
+    });
+    const runInstallCommand = vi.fn(async () => ({ exitCode: 0, output: "ok" }));
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, {
+        loadEnvFilesFn: async () => [{ path: ".env", vars: [{ key: "SECRET", value: "shh" }] }],
+        materializeEnvFilesFn,
+        resolveInstallCommandFn: async () => INSTALL_CMD,
+        runInstallCommand,
+        // Nessun comando di test → ramo senza self-repair.
+        resolveTestCommandFn: async () => null,
+      }),
+      job,
+    );
+
+    // Il fix NON fallisce per colpa della materializzazione.
+    expect(outcome).toBe("pr_opened");
+    expect(materializeEnvFilesFn).toHaveBeenCalledTimes(1);
+    // Install e agente vengono comunque eseguiti.
+    expect(runInstallCommand).toHaveBeenCalledTimes(1);
+    expect(runner.calls).toHaveLength(2);
+    // Nessun pathspec di esclusione env → commit normale del solo fix.
+    const branch = `stubwise/ticket-${ticket.number}`;
+    const files = await git(["ls-tree", "-r", "--name-only", branch], fixture.upstreamDir);
+    expect(files).toContain("app.js");
+    expect(files).not.toContain("STUBWISE_REPORT.md");
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("pr_opened");
+    expect(jobAfter.log).toContain("proseguo senza");
+  });
+
+  it("solo env scritti, nessun diff reale → NoChangesError (gli env esclusi NON mascherano un diff vuoto)", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    // L'agente NON produce modifiche al codice: scrive solo il report (escluso).
+    const runner = new FakeAgentRunner({
+      fileChanges: { "STUBWISE_REPORT.md": REPORT },
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "niente da cambiare", exitCode: 0 },
+      ],
+    });
+    const provider = makeProvider();
+    // La materializzazione scrive DAVVERO un .env nel worktree (poi escluso dallo
+    // stage): è l'UNICA scrittura non-report, quindi il diff reale è vuoto.
+    const materializeEnvFilesFn = vi.fn(async (dir: string) => {
+      await writeFile(join(dir, ".env"), "SECRET=shh\n");
+      return { writtenPaths: [".env"], env: { SECRET: "shh" } };
+    });
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, provider, {
+        loadEnvFilesFn: async () => [{ path: ".env", vars: [{ key: "SECRET", value: "shh" }] }],
+        materializeEnvFilesFn,
+        // Ramo senza self-repair: git add -A (env esclusi) → status → NoChangesError.
+        resolveTestCommandFn: async () => null,
+      }),
+      job,
+    );
+
+    expect(outcome).toBe("failed");
+    expect(materializeEnvFilesFn).toHaveBeenCalledTimes(1);
+    expect(provider.openPullRequest).not.toHaveBeenCalled();
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("failed");
+    expect(jobAfter.error).toContain("nessuna modifica");
+    // Nessun branch sull'upstream (il .env escluso non ha prodotto un commit).
+    const branches = await git(["branch", "--list", `stubwise/ticket-${ticket.number}`], fixture.upstreamDir);
+    expect(branches).toBe("");
+  });
+
   it("nessun env file: comportamento invariato (commit normale, NoChangesError non scattato dal solo env)", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();

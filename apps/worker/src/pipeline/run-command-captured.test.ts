@@ -45,4 +45,26 @@ describe("runCommandCaptured: neutralizza NODE_ENV per il sottoprocesso", () => 
     expect(result.output).not.toContain("NODE_ENV=production");
     expect(result.output).toContain("NODE_ENV=UNSET");
   });
+
+  it("NODE_ENV nelle var utente NON ripristina production; le altre var utente passano", async () => {
+    // extraEnv del progetto può contenere NODE_ENV=production: la neutralizzazione
+    // (fix.ts:164, NODE_ENV per ultimo) deve VINCERE comunque, mentre le altre var
+    // utente (FOO) raggiungono il sottoprocesso.
+    const result = await defaultRunInstallCommand(
+      {
+        cmd: process.execPath,
+        args: [
+          "-e",
+          "console.log('NODE_ENV=' + (process.env.NODE_ENV ?? 'UNSET') + ' FOO=' + (process.env.FOO ?? 'UNSET'))",
+        ],
+      },
+      dir,
+      30_000,
+      { NODE_ENV: "production", FOO: "bar" },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain("NODE_ENV=UNSET");
+    expect(result.output).toContain("FOO=bar");
+  });
 });
