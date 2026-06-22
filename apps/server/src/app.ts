@@ -25,6 +25,7 @@ import {
 } from "./routes/attachments.js";
 import { authRoutes } from "./routes/auth.js";
 import { commentRoutes } from "./routes/comments.js";
+import { docsRoutes } from "./routes/docs.js";
 import { gitAccountRoutes } from "./routes/git-accounts.js";
 import { inboundRoutes } from "./routes/inbound.js";
 import { ingestRoutes } from "./routes/ingest.js";
@@ -244,6 +245,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(projectRoutes, { prefix: "/api/projects" });
   void app.register(projectEnvFileRoutes, { prefix: "/api/projects" });
   void app.register(ticketRoutes, { prefix: "/api/tickets" });
+  // Documentazione (non-chat): trigger/stato generazione, hub spazi, albero,
+  // pagina, CRUD pagine manuali. Path interni completi (es.
+  // /projects/:projectId/docs/generate, /docs/spaces) sotto /api.
+  void app.register(docsRoutes, { prefix: "/api" });
   // Milestone di progetto: pianificazione e avanzamento, per ogni utente.
   void app.register(milestoneRoutes, { prefix: "/api/milestones" });
   // Viste salvate dei filtri della lista ticket: private o condivise.
