@@ -1,52 +1,61 @@
 import type { Db } from "@stubwise/db";
-import type { EmbeddingClient } from "@stubwise/embeddings";
 import type { AgentRunner } from "../agent/runner.js";
 import type { MirrorManager } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
 import { loadProviderChain, type ResolvedProvider } from "../providers/chain.js";
-import { failDocJob, type DocJob } from "./queue.js";
-import { runDocGenerationJob } from "./pipeline.js";
+import { runOrientation } from "./recursive/orient-handler.js";
+import type { GenerationWorktreeRegistry } from "./recursive/registry.js";
+import { appendDocJobLog, failDocJob, type DocJob } from "./queue.js";
 
 /**
- * Wiring del job di doc-generation per runWorker: handler(job) =
- * runDocGenerationJob, accodato alla catena per-progetto CONDIVISA con
- * l'handler fix. Un doc-job e un fix-job dello STESSO progetto non possono
- * sovrapporsi (vedi createProjectSerializer / il limite fetch --prune di
- * MirrorManager); progetti diversi restano paralleli.
+ * Wiring del TRIGGER di doc-generation per runWorker (M7): handler(job) =
+ * runOrientation, accodato alla catena per-progetto CONDIVISA con l'handler fix.
  *
- * runDocGenerationJob chiude SEMPRE il job da sé (completeDocJob/failDocJob/
- * holdDocJob) su ogni percorso, quindi l'handler non gestisce la chiusura:
- * intercetta solo un throw inatteso (fuori dai percorsi gestiti) per marcare
- * il job `failed` invece di lasciarlo orfano fino a requeueStaleDocJobs.
+ * Il trigger di documentazione avvia l'ORIENTAMENTO (M5a): apre il worktree di
+ * generazione, lo registra nel registro in-processo (i job-nodo lo riusano), semina le
+ * radici del DAG e lascia il trigger `running`. La generazione prosegue poi via i
+ * job-nodo (dispatchNode nel loop) fino alla finalizzazione, che chiude il trigger.
+ *
+ * SERIALIZZAZIONE: l'orientamento gira nella catena per-progetto (serializer condiviso)
+ * — fa `ensureMirror` + apre il worktree, e NON deve sovrapporsi a un fix dello stesso
+ * progetto (il fetch --prune del fix cancellerebbe il ref). Una volta seminato il DAG e
+ * REGISTRATO il worktree, la catena si libera: da quel momento la mutua esclusione
+ * col fix è retta dal registro (activeProjectIds → il loop non reclama fix di quel
+ * progetto finché il worktree è aperto, vedi node-dispatch/queue.ts).
+ *
+ * GUARDIA NUOVA-GENERAZIONE: se il progetto ha GIÀ una generazione attiva (worktree nel
+ * registro), NON se ne avvia una seconda — aprirebbe un secondo worktree concorrente
+ * sullo stesso mirror. Il trigger è fallito con un messaggio chiaro (caso raro: il
+ * claim del trigger e l'esclusione fix sono disgiunti; questa è la difesa esplicita).
+ *
+ * runOrientation chiude da sé il trigger SOLO su fallimento dell'orientamento; su
+ * successo lo lascia `running` (lo chiude la finalizzazione). L'handler intercetta un
+ * throw inatteso (fuori dai percorsi gestiti) per marcare il job `failed`.
  */
 export interface DocHandlerDeps {
   db: Db;
   runner: AgentRunner;
   mirrors: MirrorManager;
-  embeddingClient: EmbeddingClient;
+  /** Registro in-processo dei worktree di generazione (M7): l'orientamento vi registra
+   * il worktree aperto; il dispatch dei nodi e la guardia nuova-generazione lo leggono. */
+  registry: GenerationWorktreeRegistry;
   /** Chiave AES-256 per decifrare le credenziali dell'account git. */
   encryptionKey: Buffer;
   /** Modello AI della generazione (config.docGenerationModel). */
   model: string;
-  /** Tetto al numero di moduli mappati (config.docMaxModules). */
-  maxModules: number;
-  /** Tetto al numero di capability documentate in profondità (config.docMaxCapabilities). */
-  maxCapabilities: number;
-  /** Turni massimi dell'agent per la pagina di un modulo (config.docModuleMaxTurns). */
-  moduleMaxTurns: number;
-  /** Timeout (ms) di OGNI run dell'agent per modulo/reduce. */
+  /** Timeout (ms) del run dell'agente di orientamento (config.docAgentTimeoutMs). */
   agentTimeoutMs: number;
-  /** Cap di costo per generazione in USD; undefined = nessun cap. */
-  costCapUsd?: number;
+  /** Turni massimi del run dell'agente di orientamento (config.docModuleMaxTurns). */
+  maxTurns: number;
   /** Caricatore della catena di provider AI (iniettabile nei test). Default:
    * loadProviderChain. La PRIMA voce della catena è la credenziale usata. */
   loadProviderChainFn?: (db: Db, encryptionKey: Buffer) => Promise<ResolvedProvider[]>;
 }
 
 /**
- * Crea l'handler doc-generation per runWorker. `serializer` è la catena
+ * Crea l'handler del trigger doc-generation per runWorker. `serializer` è la catena
  * per-progetto, la STESSA dell'handler fix (passata da index.ts): è ciò che
- * garantisce la serializzazione doc↔fix sullo stesso progetto.
+ * garantisce la serializzazione orientamento↔fix sullo stesso progetto.
  */
 export function createDocHandler(
   deps: DocHandlerDeps,
@@ -56,29 +65,38 @@ export function createDocHandler(
     // Il doc-job porta già il projectId: niente join, si accoda direttamente
     // alla catena del progetto.
     return serializer.run(job.projectId, async () => {
+      // Guardia: niente seconda generazione concorrente sullo stesso progetto.
+      if (deps.registry.activeProjectIds().has(job.projectId)) {
+        await failDocJob(deps.db, job.id, {
+          log: "[docs] una generazione è già attiva per questo progetto (worktree aperto): trigger ignorato",
+          error: "generazione già attiva per il progetto",
+        });
+        return;
+      }
+
       // La prima credenziale della catena, come la pipeline fix. Catena vuota
       // → undefined = auth storica del container (nessun provider iniettato).
       const loadChain = deps.loadProviderChainFn ?? loadProviderChain;
       const chain = await loadChain(deps.db, deps.encryptionKey);
       const provider = chain[0];
 
-      await runDocGenerationJob(
+      const outcome = await runOrientation(
         {
           db: deps.db,
           mirrors: deps.mirrors,
           runner: deps.runner,
-          embeddingClient: deps.embeddingClient,
+          registry: deps.registry,
           encryptionKey: deps.encryptionKey,
           model: deps.model,
-          maxModules: deps.maxModules,
-          maxCapabilities: deps.maxCapabilities,
-          moduleMaxTurns: deps.moduleMaxTurns,
           agentTimeoutMs: deps.agentTimeoutMs,
-          ...(deps.costCapUsd !== undefined ? { costCapUsd: deps.costCapUsd } : {}),
+          maxTurns: deps.maxTurns,
           ...(provider !== undefined ? { provider } : {}),
         },
         job,
       );
+      if (outcome === "seeded") {
+        await appendDocJobLog(deps.db, job.id, "[docs] orientamento completato: DAG seminato, generazione in corso");
+      }
     });
   };
 }

@@ -9,6 +9,7 @@ import {
 import {
   resolveImplementsLinks,
   selectRelatedLinks,
+  slugForNode,
   type LinkableNode,
   type NodeLink,
 } from "@stubwise/docs-engine";
@@ -67,6 +68,29 @@ const RELATED_K = 3;
 /** I `sourcePaths` di un nodo (colonna jsonb, tipata `unknown` da drizzle). */
 function nodeSourcePaths(node: DocNode): string[] {
   return (node.sourcePaths as string[] | null) ?? [];
+}
+
+/**
+ * Ritorna i nodi con gli slug RESI univoci nell'insieme (necessario per
+ * `(generation_id, slug)` UNIQUE di doc_pages). Ordina deterministicamente per
+ * (depth, position, id) e, per ogni slug già visto, ricava un suffisso via
+ * `slugForNode` (che dedup su un set condiviso). Uno slug già unico resta invariato.
+ * Lavora su una COPIA degli oggetti nodo (non muta gli originali del DB).
+ */
+function dedupeNodeSlugs(nodes: DocNode[]): DocNode[] {
+  const ordered = [...nodes].sort(
+    (a, b) => a.depth - b.depth || a.position - b.position || a.id.localeCompare(b.id),
+  );
+  const used = new Set<string>();
+  return ordered.map((n) => {
+    if (n.slug.length > 0 && !used.has(n.slug)) {
+      used.add(n.slug);
+      return n;
+    }
+    // Slug vuoto o già preso: ne ricavo uno univoco dal titolo (o dallo slug stesso).
+    const base = n.title.length > 0 ? n.title : n.slug || n.id;
+    return { ...n, slug: slugForNode(base, used) };
+  });
 }
 
 export interface FinalizeGenerationDeps {
@@ -217,8 +241,17 @@ export async function finalizeGeneration(
 
   // Tutti i nodi della generazione (per stats, cross-link, proiezione).
   const allNodes = await db.select().from(docNodes).where(eq(docNodes.generationId, generationId));
-  const doneNodes = allNodes.filter((n) => n.status === "done");
   const failedNodes = allNodes.filter((n) => n.status === "failed");
+
+  // SLUG UNIVOCI per la proiezione: doc_pages ha `(generation_id, slug)` UNIQUE. Gli
+  // slug dei nodi sono già pensati per essere univoci (orientamento + createChildren),
+  // ma due explore CONCORRENTI di nodi-fratelli con lo stesso titolo possono produrre
+  // lo stesso slug (le loro transazioni non condividono un lock). Qui — punto unico che
+  // possiede l'invariante doc_pages — RI-UNIFICO gli slug in ordine deterministico
+  // (position, id) prima di costruire i cross-link e la proiezione, così links e pagine
+  // restano coerenti (stesso slug ovunque). I nodi `done` arrivano con lo slug
+  // finale già risolto.
+  const doneNodes = dedupeNodeSlugs(allNodes.filter((n) => n.status === "done"));
 
   // Costo aggregato: somma dei costi dei nodi + il costo dell'orientamento già scritto in
   // generation.cost (la M5a vi mette il costo dell'orient). I nodi portano il loro costo.

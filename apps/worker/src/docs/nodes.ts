@@ -1,4 +1,5 @@
 import { docNodes, type Db } from "@stubwise/db";
+import { slugForNode } from "@stubwise/docs-engine";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
 export type DocNode = typeof docNodes.$inferSelect;
@@ -150,6 +151,19 @@ export async function createChildren(
       .for("update");
     if (!parent) throw new Error(`nodo padre ${parentId} non trovato`);
 
+    // SLUG univoci NELLA generazione: la finalizzazione proietta ogni nodo in una
+    // doc_page con `(generation_id, slug)` UNIQUE, quindi due nodi della stessa
+    // generazione non possono condividere lo slug. Lo spec può portarne uno (le radici
+    // dall'orientamento); altrimenti lo genero qui da `title` con `slugForNode` su un
+    // set che parte dagli slug GIÀ presenti nella generazione (letti sotto il row-lock
+    // del padre) + quelli appena assegnati ai fratelli. Un title vuoto degrada a uno
+    // slug stabile e univoco (slugForNode garantisce non-vuoto e dedup).
+    const existing = await tx
+      .select({ slug: docNodes.slug })
+      .from(docNodes)
+      .where(eq(docNodes.generationId, parent.generationId));
+    const usedSlugs = new Set(existing.map((r) => r.slug).filter((s) => s.length > 0));
+
     await tx.insert(docNodes).values(
       specs.map((spec, index) => ({
         generationId: parent.generationId,
@@ -161,7 +175,10 @@ export async function createChildren(
         position: index,
         unitRef: spec.unitRef ?? null,
         title: spec.title ?? "",
-        slug: spec.slug ?? "",
+        slug:
+          spec.slug && spec.slug.length > 0
+            ? spec.slug
+            : slugForNode(spec.title ?? "", usedSlugs),
         sourcePaths: spec.sourcePaths ?? [],
       })),
     );

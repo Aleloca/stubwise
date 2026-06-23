@@ -22,6 +22,7 @@ import type { ResolvedProvider } from "../../providers/chain.js";
 import { openGenerationWorktree, type GenerationWorktree } from "../generation-worktree.js";
 import { failDocJob, touchDocJob, type DocJob } from "../queue.js";
 import { createWorktreeReader } from "../reader.js";
+import type { GenerationWorktreeRegistry } from "./registry.js";
 
 /**
  * ORIENTAMENTO — primo handler del motore documentazione ricorsivo (M5.2).
@@ -67,6 +68,15 @@ export interface RunOrientationDeps {
   maxTurns: number;
   /** Credenziale AI risolta dalla catena (prima voce); undefined = auth storica. */
   provider?: ResolvedProvider;
+  /**
+   * Registro IN-PROCESSO dei worktree di generazione (M7): su successo
+   * (`seeded`) l'orientamento vi REGISTRA l'handle del worktree appena aperto,
+   * così i job-nodo successivi del DAG ne ottengono la `dir` (il worktree resta
+   * vivo per tutta la generazione). Su fallimento NON registra (il worktree è
+   * chiuso qui). Iniettabile: i test di solo-orientamento possono ometterlo
+   * (un registro fittizio è comunque accettato).
+   */
+  registry?: GenerationWorktreeRegistry;
 }
 
 export type OrientationOutcome = "seeded" | "failed";
@@ -401,9 +411,12 @@ export async function runOrientation(
 
     await seedDag(db, ctx, orient.plan);
 
-    // Il worktree resta APERTO: i job-nodo del DAG lo riusano (read-only). La
-    // generazione resta `running`; il trigger resta `running` (NON succeeded): sarà
+    // Il worktree resta APERTO: i job-nodo del DAG lo riusano (read-only). Lo
+    // REGISTRO nel registro in-processo (M7) così il dispatch ne ricava la `dir` per
+    // explore/synthesize e ne traccia la mutua esclusione col fix (activeProjectIds).
+    // La generazione resta `running`; il trigger resta `running` (NON succeeded): sarà
     // finalizzato dalla M6 quando la radice raggiunge `done`. Heartbeat finale.
+    deps.registry?.register(ctx.generationId, ctx.projectId, worktree);
     await touchDocJob(db, job.id);
     return "seeded";
   } catch (error) {
