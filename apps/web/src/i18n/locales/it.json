@@ -18,7 +18,9 @@
       "projects": "Progetti",
       "team": "Team",
       "settings": "Impostazioni",
-      "docs": "Documentazione"
+      "docs": "Documentazione",
+      "label": "Navigazione",
+      "open": "Apri navigazione"
     }
   },
   "errors": {
