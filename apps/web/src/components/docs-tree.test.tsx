@@ -85,6 +85,34 @@ describe("DocsTree", () => {
     ]);
   });
 
+  it("annida tre livelli (root → child → grandchild) via parentId", async () => {
+    renderTree([
+      node({ id: "l0", slug: "root", title: "Root", kind: "technical" }),
+      node({ id: "l1", slug: "child", title: "Child", kind: "technical", parentId: "l0" }),
+      node({
+        id: "l2",
+        slug: "grandchild",
+        title: "Grandchild",
+        kind: "technical",
+        parentId: "l1",
+      }),
+    ]);
+
+    // Tutti e tre i livelli sono renderizzati come link.
+    const root = await screen.findByRole("link", { name: "Root" });
+    const child = screen.getByRole("link", { name: "Child" });
+    const grandchild = screen.getByRole("link", { name: "Grandchild" });
+
+    // Annidamento DOM effettivo: grandchild dentro child dentro root.
+    const rootItem = root.closest("li")!;
+    expect(within(rootItem).getByRole("link", { name: "Child" })).toBe(child);
+    const childItem = child.closest("li")!;
+    expect(within(childItem).getByRole("link", { name: "Grandchild" })).toBe(grandchild);
+    // Indentazione crescente con la profondità (padding-left per livello).
+    expect(grandchild.style.paddingLeft).not.toBe(child.style.paddingLeft);
+    expect(child.style.paddingLeft).not.toBe(root.style.paddingLeft);
+  });
+
   it("gruppo vuoto: mostra il placeholder vuoto", async () => {
     renderTree([node({ id: "t1", slug: "t", title: "Tech", kind: "technical" })]);
 

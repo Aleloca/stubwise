@@ -111,6 +111,18 @@ const PAGES: Record<string, DocPage> = {
     kind: "manual",
     body: "# Getting started\n\nManual onboarding.",
   }),
+  // Pagina funzionale con cross-link di tutti e tre i type.
+  "func-overview": makePage({
+    slug: "func-overview",
+    title: "Functional overview",
+    kind: "functional",
+    body: "# Functional overview\n\nFunctional body.",
+    links: [
+      { type: "implements", slug: "module-auth", title: "Auth module" },
+      { type: "implemented_by", slug: "tech-overview", title: "Technical overview" },
+      { type: "related", slug: "getting-started", title: "Getting started" },
+    ],
+  }),
 };
 
 function treeHandlers(): Record<string, Handler> {
@@ -121,6 +133,8 @@ function treeHandlers(): Record<string, Handler> {
       jsonResponse(200, PAGES["module-auth"]),
     [`GET /api/projects/${PROJECT_ID}/docs/pages/getting-started`]: () =>
       jsonResponse(200, PAGES["getting-started"]),
+    [`GET /api/projects/${PROJECT_ID}/docs/pages/func-overview`]: () =>
+      jsonResponse(200, PAGES["func-overview"]),
   };
 }
 
@@ -213,6 +227,36 @@ describe("spazio documentazione", () => {
     expect(screen.queryByText(/^generated at commit /)).not.toBeInTheDocument();
     // Ma il badge "manual page" è presente.
     expect(within(article).getByText("manual page")).toBeInTheDocument();
+  });
+
+  it("pagina con cross-link: sezione Related raggruppata con gli href corretti", async () => {
+    mockApi(treeHandlers());
+    renderApp(`/docs/${PROJECT_ID}/func-overview`);
+
+    const article = await screen.findByRole("article");
+    // La sezione cross-link (aria-label = heading) raggruppa i tre type.
+    const section = within(article).getByRole("region", { name: "Related" });
+    expect(within(section).getByText("Implemented by")).toBeInTheDocument();
+    expect(within(section).getByText("Implements")).toBeInTheDocument();
+    // "Related" compare sia come heading sia come label di gruppo.
+    expect(within(section).getAllByText("Related").length).toBeGreaterThanOrEqual(2);
+
+    // Ogni link punta allo slug del target.
+    const implementsLink = within(section).getByRole("link", { name: "Auth module" });
+    expect(implementsLink).toHaveAttribute("href", `/docs/${PROJECT_ID}/module-auth`);
+    const implementedByLink = within(section).getByRole("link", { name: "Technical overview" });
+    expect(implementedByLink).toHaveAttribute("href", `/docs/${PROJECT_ID}/tech-overview`);
+    const relatedLink = within(section).getByRole("link", { name: "Getting started" });
+    expect(relatedLink).toHaveAttribute("href", `/docs/${PROJECT_ID}/getting-started`);
+  });
+
+  it("pagina senza cross-link: nessuna sezione Related", async () => {
+    mockApi(treeHandlers());
+    renderApp(`/docs/${PROJECT_ID}/getting-started`);
+
+    const article = await screen.findByRole("article");
+    // La pagina manuale non ha links (null) → niente sezione.
+    expect(within(article).queryByRole("region", { name: "Related" })).not.toBeInTheDocument();
   });
 
   it("404: messaggio amichevole di pagina non trovata", async () => {
