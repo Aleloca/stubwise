@@ -203,12 +203,15 @@ describe("runDocGenerationJob", () => {
       modules: number;
       capabilities: number;
       capabilityFailures: string[];
+      cappedCapabilities: string[];
     };
     expect(stats.pages).toBeGreaterThan(0);
     expect(stats.chunks).toBeGreaterThan(0);
     // Deep pass: almeno una capability documentata in profondità, nessun fallimento.
     expect(stats.capabilities).toBeGreaterThanOrEqual(1);
     expect(stats.capabilityFailures).toEqual([]);
+    // Cap delle capability presente nelle stats (entro budget = nessuna tagliata).
+    expect(stats.cappedCapabilities).toEqual([]);
 
     const pages = await db.select().from(docPages).where(eq(docPages.generationId, gen!.id));
     // Almeno overview tecnica + un modulo + mappa funzionale + una capability.
@@ -377,6 +380,32 @@ describe("runDocGenerationJob", () => {
     expect(gen?.status).toBe("succeeded");
     const stats = gen?.stats as { moduleFailures: string[] };
     expect(stats.moduleFailures.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("cap delle capability: con maxCapabilities basso le eccedenti finiscono in stats.cappedCapabilities (loggate, non droppate)", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, upstream.url);
+    const job = await enqueueDocJob(db, projectId);
+
+    const runner = new FakeAgentRunner({
+      script: (opts: AgentRunOptions) => ({ output: agentOutput("x", opts.prompt), exitCode: 0, usage: USAGE }),
+    });
+    // maxCapabilities 0: la (unica) capability "Greeting" della mappa è oltre budget →
+    // nessun deep pass per essa, ma il titolo deve comparire in cappedCapabilities.
+    const outcome = await runDocGenerationJob(
+      { ...baseDeps(db, mirrors, runner), maxCapabilities: 0 },
+      job,
+    );
+    expect(outcome).toBe("succeeded");
+
+    const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.projectId, projectId));
+    const stats = gen?.stats as { capabilities: number; cappedCapabilities: string[] };
+    // Nessuna capability documentata in profondità (budget 0)...
+    expect(stats.capabilities).toBe(0);
+    // ...ma la eccedente è LOGGATA nelle stats, non scartata in silenzio.
+    expect(stats.cappedCapabilities).toContain("Greeting");
   });
 
   it("cap di costo superato: generazione failed, job held (no swap), nessun cap silenzioso", async () => {

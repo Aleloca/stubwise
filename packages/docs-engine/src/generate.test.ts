@@ -38,11 +38,14 @@ function repoMap(modules: ModuleNode[]): RepoMap {
 /** Marker substring unique to the capability deep-pass prompt. */
 const CAPABILITY_PROMPT_HINT = "DEEP page of FUNCTIONAL documentation";
 
-/** A deep functional body long enough to pass the min-length acceptance gate. */
-function deepCapabilityBody(title: string): string {
+/**
+ * A deep functional body long enough to pass the min-length acceptance gate. Per the
+ * deep-pass contract it does NOT start with a `# <title>`/`## <title>` page heading
+ * (the page title is rendered separately by the UI): it starts directly with `###`
+ * sub-sections, independent of the capability title.
+ */
+function deepCapabilityBody(): string {
   return [
-    `# ${title}`,
-    "",
     "### What you can do here",
     "This is a thorough, plain-language description of everything possible in this",
     "block, with enough words to be a real deep page rather than a one-line summary.",
@@ -56,8 +59,7 @@ function deepCapabilityBody(title: string): string {
 function cannedAgent(): AgentFn {
   return vi.fn(async ({ prompt }) => {
     if (prompt.includes(CAPABILITY_PROMPT_HINT)) {
-      const m = /Capability title:\s*(.+)/.exec(prompt);
-      return deepCapabilityBody((m?.[1] ?? "Capability").trim());
+      return deepCapabilityBody();
     }
     if (prompt.includes("REDUCE")) {
       return [
@@ -145,9 +147,15 @@ describe("buildCapabilityPrompt (deep pass)", () => {
     // code grounding (read-only inspection) but translate
     expect(lower).toContain("read-only");
     expect(lower).toContain("translate");
-    // leading heading + module hints for orientation
-    expect(prompt).toContain("# Authentication");
-    expect(prompt).toContain("packages/a");
+    // the page title is rendered separately by the UI: the body must NOT start with a
+    // `# <title>`/`## <title>` page heading (it would duplicate the title). The prompt
+    // explicitly tells the model not to, and never instructs a leading `# Authentication`.
+    expect(prompt).not.toContain("# Authentication");
+    expect(lower).toMatch(/do not start the page with a top-level page title/);
+    // module hints use a friendly LAST-SEGMENT label, not the full identifier-shaped
+    // path, for orientation.
+    expect(prompt).toContain("- a:");
+    expect(prompt).not.toContain("packages/a");
   });
 
   it("truncates and caps module hints to keep the prompt bounded", () => {
@@ -157,9 +165,9 @@ describe("buildCapabilityPrompt (deep pass)", () => {
       functionalMarkdown: "x".repeat(2000),
     }));
     const prompt = buildCapabilityPrompt({ title: "C", summary: "s" }, docs);
-    // first module surfaces, far-past-cap module does not
-    expect(prompt).toContain("packages/m0");
-    expect(prompt).not.toContain("packages/m99");
+    // first module surfaces (friendly last-segment label), far-past-cap module does not
+    expect(prompt).toContain("- m0:");
+    expect(prompt).not.toContain("m99");
     // the 2000-char functional summary is truncated (no 700-long run of 'x')
     expect(prompt).not.toMatch(/x{700}/);
   });
@@ -367,6 +375,11 @@ describe("runGeneration capability deep pass", () => {
       expect(p.sourcePath).toBeNull();
       expect(p.body).toContain("### What you can do here");
       expect(p.body).not.toContain("Short summary");
+      // The page title is rendered separately by the UI: the deep body must NOT begin
+      // with a markdown H1/H2 equal to the title (no double heading).
+      const firstLine = p.body.split("\n")[0]!.trim();
+      expect(firstLine).not.toBe(`# ${p.title}`);
+      expect(firstLine).not.toBe(`## ${p.title}`);
     }
 
     // heartbeat fired for capabilities
@@ -382,7 +395,7 @@ describe("runGeneration capability deep pass", () => {
         if (/Capability title:\s*Reporting/.test(prompt)) {
           throw new Error("deep pass boom on Reporting");
         }
-        return deepCapabilityBody("Authentication");
+        return deepCapabilityBody();
       }
       if (prompt.includes("REDUCE")) return reduceWithTwoCaps();
       return `${TECHNICAL_MARKER}\ntech\n${FUNCTIONAL_MARKER}\nfunc`;
@@ -396,10 +409,13 @@ describe("runGeneration capability deep pass", () => {
     expect(capabilityFailures).toEqual(["Reporting"]);
     const reporting = pages.find((p) => p.title === "Reporting");
     expect(reporting).toBeDefined();
-    // fallback body = index content (heading + short summary), not the deep body.
-    expect(reporting!.body).toContain("Reporting");
+    // fallback body = index SUMMARY (the short description, WITHOUT the
+    // `## Capability: Reporting` heading line — the title is rendered separately and an
+    // included heading would duplicate it), not the deep body.
     expect(reporting!.body).toContain("generates reports");
     expect(reporting!.body).not.toContain("### What you can do here");
+    // no duplicated page-title heading in the fallback body either.
+    expect(reporting!.body).not.toMatch(/^#{1,2}\s+Reporting/);
     // the other capability still got its deep body; generation succeeded overall.
     const auth = pages.find((p) => p.title === "Authentication");
     expect(auth!.body).toContain("### What you can do here");
@@ -410,7 +426,7 @@ describe("runGeneration capability deep pass", () => {
     const agent: AgentFn = vi.fn(async ({ prompt }) => {
       if (prompt.includes(CAPABILITY_PROMPT_HINT)) {
         if (/Capability title:\s*Reporting/.test(prompt)) return "   "; // too short
-        return deepCapabilityBody("Authentication");
+        return deepCapabilityBody();
       }
       if (prompt.includes("REDUCE")) return reduceWithTwoCaps();
       return `${TECHNICAL_MARKER}\ntech\n${FUNCTIONAL_MARKER}\nfunc`;
@@ -425,14 +441,15 @@ describe("runGeneration capability deep pass", () => {
     const reporting = pages.find((p) => p.title === "Reporting");
     expect(reporting!.body).toContain("generates reports");
     expect(reporting!.body).not.toContain("### What you can do here");
+    // fallback summary carries no duplicated page-title heading.
+    expect(reporting!.body).not.toMatch(/^#{1,2}\s+Reporting/);
   });
 
   it("logs capabilities beyond maxCapabilities instead of dropping them silently", async () => {
     const a = moduleNode({ path: "packages/a", files: ["packages/a/i.ts"], dependsOn: [] });
     const agent: AgentFn = vi.fn(async ({ prompt }) => {
       if (prompt.includes(CAPABILITY_PROMPT_HINT)) {
-        const m = /Capability title:\s*(.+)/.exec(prompt);
-        return deepCapabilityBody((m?.[1] ?? "C").trim());
+        return deepCapabilityBody();
       }
       if (prompt.includes("REDUCE")) {
         return [

@@ -136,9 +136,10 @@ const MAX_FILES_IN_PROMPT = 60;
 const DEFAULT_MAX_CAPABILITIES = 40;
 
 /**
- * Lunghezza minima (caratteri) dell'output del deep pass per essere accettato. Sotto
- * questa soglia si fa fallback al testo breve dell'indice (best-effort): un corpo
- * vuoto o quasi non vale la pena di sostituire la descrizione della mappa.
+ * Guardia anti-output-VUOTO del deep pass: un output che, una volta trimmato, è più
+ * corto di questa soglia è trattato come vuoto/degenere (whitespace o quasi) e si fa
+ * fallback al testo breve dell'indice. NON è un gate di qualità/profondità: non giudica
+ * il contenuto, serve solo a non sostituire la descrizione della mappa con il nulla.
  */
 const MIN_CAPABILITY_BODY_CHARS = 80;
 
@@ -253,8 +254,10 @@ export interface CapabilitySummary {
  * codice rilevante per essere accurato ed esaustivo, ma TRADUCE sempre in linguaggio
  * semplice, senza MAI esporre dettaglio tecnico.
  *
- * L'output è UN solo corpo markdown (nessun marker macchina): la pagina inizia con un
- * heading `# <titolo>` e usa sezioni `###` per la profondità, come le altre pagine.
+ * L'output è UN solo corpo markdown (nessun marker macchina). NON deve iniziare con un
+ * titolo di pagina (`#`/`##`): il titolo della pagina è reso a parte dalla UI, un heading
+ * `# <titolo>` qui lo duplicherebbe. Il corpo inizia direttamente con il contenuto / le
+ * sezioni `###`, che danno la profondità come nelle altre pagine.
  */
 export function buildCapabilityPrompt(
   capability: CapabilitySummary,
@@ -264,7 +267,10 @@ export function buildCapabilityPrompt(
     .slice(0, MAX_MODULE_HINTS_IN_CAPABILITY_PROMPT)
     .map((d) => {
       const text = d.functionalMarkdown.trim().slice(0, MAX_MODULE_HINT_CHARS);
-      return `- ${d.modulePath}: ${text}`;
+      // Etichetta amichevole = ultimo segmento del path (vedi moduleTitle), NON il
+      // path completo: l'orientamento resta, ma non si passa al modello una stringa
+      // a forma di identificatore/path (riduce il leak di dettaglio tecnico).
+      return `- ${moduleTitle(d.modulePath)}: ${text}`;
     });
 
   return [
@@ -300,7 +306,9 @@ export function buildCapabilityPrompt(
     "use MULTIPLE `###` sub-sections (e.g. one per group of actions / per option area),",
     "not a single paragraph. Be thorough and concrete.",
     "",
-    `Start the page with a single top-level heading: \`# ${capability.title}\`.`,
+    "Do NOT start the page with a top-level page title (`#` or `##` heading repeating the",
+    "capability name): the page title is rendered separately by the UI and would be",
+    "duplicated. Start DIRECTLY with the content, using `###` sub-sections for structure.",
     "Output ONLY the markdown body of the page (no preamble, no markers, no code fences",
     "around the whole document).",
     "",
@@ -365,23 +373,24 @@ function moduleTitle(modulePath: string): string {
   return segs[segs.length - 1] ?? modulePath;
 }
 
-/** Una capability estratta dall'indice: titolo, descrizione breve e corpo completo. */
+/** Una capability estratta dall'indice: titolo e descrizione breve (senza heading). */
 interface ParsedCapability {
   /** Titolo del blocco `## Capability: <nome>`. */
   title: string;
-  /** Corpo SOTTO l'heading (la descrizione breve dell'indice), senza l'heading. */
+  /**
+   * Testo SOTTO l'heading `## Capability: <title>`, SENZA la riga di heading: la
+   * descrizione breve dell'indice. Usato come grounding del deep pass e come corpo di
+   * FALLBACK della pagina funzionale (l'heading è escluso apposta: il titolo della
+   * pagina è reso a parte dalla UI e un heading qui lo duplicherebbe).
+   */
   summary: string;
-  /** Corpo completo INCLUSO l'heading (usato come fallback della pagina funzionale). */
-  body: string;
 }
 
 /**
  * Spezza il markdown della mappa funzionale in una capability per ogni heading
  * `## Capability: <nome>`. Se non ne trova nessuna, ritorna una singola capability con
- * l'intero corpo. Restituisce `{ title, summary, body }` (in ordine d'apparizione)
- * senza slug (assegnato dal chiamante). `summary` è il testo sotto l'heading (la
- * descrizione breve dell'indice, usata come grounding del deep pass e come fallback);
- * `body` include l'heading (corpo completo della pagina di fallback).
+ * l'intero corpo come `summary`. Restituisce `{ title, summary }` (in ordine
+ * d'apparizione) senza slug (assegnato dal chiamante).
  */
 function splitCapabilities(functionalMarkdown: string): ParsedCapability[] {
   const lines = functionalMarkdown.split("\n");
@@ -398,18 +407,13 @@ function splitCapabilities(functionalMarkdown: string): ParsedCapability[] {
     // funzionale root porta comunque l'intera mappa.
   }
   if (sections.length === 0) {
-    const body = functionalMarkdown.trim();
-    return [{ title: "Capabilities", summary: body, body }];
+    return [{ title: "Capabilities", summary: functionalMarkdown.trim() }];
   }
-  return sections.map((s) => {
-    // summary = corpo senza la riga di heading (la prima); body = tutto, heading incluso.
-    const summary = s.body.slice(1).join("\n").trim();
-    return {
-      title: s.title || "Capability",
-      summary,
-      body: s.body.join("\n").trim(),
-    };
-  });
+  return sections.map((s) => ({
+    title: s.title || "Capability",
+    // summary = corpo senza la riga di heading (la prima).
+    summary: s.body.slice(1).join("\n").trim(),
+  }));
 }
 
 /**
@@ -521,9 +525,11 @@ export async function runGeneration(
     for (let i = 0; i < caps.length; i += 1) {
       const cap = caps[i]!;
       const slug = makeUniqueSlug(baseSlug(cap.title), used);
-      // fallback = corpo dell'indice (heading + descrizione breve), così la pagina
-      // esiste sempre anche se il deep pass non produce un corpo valido.
-      let body = cap.body;
+      // fallback = SOLO la descrizione breve dell'indice (senza la riga di heading
+      // `## Capability: <title>`): il titolo della pagina è reso a parte dalla UI, e
+      // includere l'heading qui lo duplicherebbe. Garantisce comunque un corpo sempre
+      // presente anche se il deep pass non produce output valido.
+      let body = cap.summary;
       onProgress?.(`capability ${i + 1}/${caps.length}: ${cap.title}`);
       try {
         const out = await agent({

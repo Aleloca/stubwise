@@ -132,6 +132,11 @@ interface DocGenerationStats {
   capabilities: number;
   /** Titoli delle capability il cui deep pass è fallito (fallback all'indice). */
   capabilityFailures: string[];
+  /**
+   * Titoli delle capability tagliate dal budget `maxCapabilities` (non documentate in
+   * profondità). Persistite qui: il cap è LOGGATO, mai un drop silenzioso.
+   */
+  cappedCapabilities: string[];
   pages: number;
   chunks: number;
   /** true se lo step di reduce è fallito (overview/capability-map vuote). */
@@ -230,6 +235,7 @@ export async function runDocGenerationJob(
     moduleFailures: [],
     capabilities: 0,
     capabilityFailures: [],
+    cappedCapabilities: [],
     pages: 0,
     chunks: 0,
     reduceFailed: false,
@@ -303,6 +309,7 @@ export async function runDocGenerationJob(
           moduleFailures: result.moduleFailures,
           capabilities: countCapabilityPages(result.pages),
           capabilityFailures: result.capabilityFailures,
+          cappedCapabilities: result.cappedCapabilities,
           pages,
           chunks,
           reduceFailed,
@@ -368,8 +375,14 @@ export async function runDocGenerationJob(
   // rimosse (cascade su doc_pages/doc_chunks via FK onDelete: cascade).
   await pruneOldGenerations(db, project.id, generation.id);
 
+  // Cap/failures delle capability: se non vuoti vanno LOGGATI (mai un drop silenzioso),
+  // così la riga di completamento li rende visibili oltre alle stats persistite.
+  const capCounts =
+    stats.capabilityFailures.length > 0 || stats.cappedCapabilities.length > 0
+      ? ` (failures=${stats.capabilityFailures.length}, capped=${stats.cappedCapabilities.length})`
+      : "";
   await completeDocJob(db, job.id, {
-    log: `[docs] generazione completata: ${stats.pages} pagine (${stats.capabilities} capability), ${stats.chunks} chunk, costo $${costString}`,
+    log: `[docs] generazione completata: ${stats.pages} pagine, ${stats.capabilities} capability${capCounts}, ${stats.chunks} chunk, costo $${costString}`,
     generationId: generation.id,
   });
   return "succeeded";
