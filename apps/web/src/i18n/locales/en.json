@@ -844,14 +844,15 @@
     "hub": {
       "title": "Documentation",
       "subtitle": "Generated technical and functional docs for each linked project.",
-      "empty": "// no documentation spaces",
-      "emptyHint": "Generate documentation from a project space to populate the hub.",
+      "empty": "// no projects yet",
+      "emptyHint": "Create a project first — each linked project gets a documentation space here.",
       "openSpace": "Open space",
       "pageCount_one": "{{count}} page",
       "pageCount_other": "{{count}} pages",
       "lastGenerated": "generated {{date}}",
       "atCommit": "at {{commit}}",
-      "neverGenerated": "manual pages only"
+      "neverGenerated": "manual pages only",
+      "notGenerated": "not generated yet"
     },
     "space": {
       "back": "Documentation",

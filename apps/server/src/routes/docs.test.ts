@@ -252,7 +252,7 @@ describe("GET /api/projects/:projectId/docs/status", () => {
 });
 
 describe("GET /api/docs/spaces", () => {
-  it("elenca solo i progetti con documentazione (con conteggio pagine)", async () => {
+  it("elenca tutti i progetti come spazi, anche quelli senza documentazione", async () => {
     const withDocs = await insertProject(testDb.db);
     await seedSucceededGeneration(testDb.db, withDocs.id, { commitSha: "space01" });
     const withoutDocs = await insertProject(testDb.db);
@@ -267,13 +267,19 @@ describe("GET /api/docs/spaces", () => {
       projectId: string;
       pageCount: number;
       lastCommitSha: string | null;
+      lastGenerationAt: string | null;
     }[];
-    const ids = body.map((s) => s.projectId);
-    expect(ids).toContain(withDocs.id);
-    expect(ids).not.toContain(withoutDocs.id);
-    const space = body.find((s) => s.projectId === withDocs.id)!;
-    expect(space.pageCount).toBe(2);
-    expect(space.lastCommitSha).toBe("space01");
+    // Il progetto con doc: conteggio + commit della generazione corrente.
+    const docs = body.find((s) => s.projectId === withDocs.id)!;
+    expect(docs.pageCount).toBe(2);
+    expect(docs.lastCommitSha).toBe("space01");
+    // Il progetto SENZA doc compare comunque (è l'entry point per generare):
+    // pageCount 0, nessuna generazione.
+    const none = body.find((s) => s.projectId === withoutDocs.id);
+    expect(none).toBeDefined();
+    expect(none!.pageCount).toBe(0);
+    expect(none!.lastCommitSha).toBeNull();
+    expect(none!.lastGenerationAt).toBeNull();
   });
 
   it("pageCount conta solo la generazione corrente + manuali, non quelle stale", async () => {

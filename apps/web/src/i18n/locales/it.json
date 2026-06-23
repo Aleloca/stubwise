@@ -844,14 +844,15 @@
     "hub": {
       "title": "Documentazione",
       "subtitle": "Documentazione tecnica e funzionale generata per ogni progetto collegato.",
-      "empty": "// nessuno spazio di documentazione",
-      "emptyHint": "Genera la documentazione dallo spazio di un progetto per popolare l'hub.",
+      "empty": "// ancora nessun progetto",
+      "emptyHint": "Crea prima un progetto: ogni progetto collegato avrà qui il suo spazio di documentazione.",
       "openSpace": "Apri spazio",
       "pageCount_one": "{{count}} pagina",
       "pageCount_other": "{{count}} pagine",
       "lastGenerated": "generata {{date}}",
       "atCommit": "al commit {{commit}}",
-      "neverGenerated": "solo pagine manuali"
+      "neverGenerated": "solo pagine manuali",
+      "notGenerated": "non ancora generata"
     },
     "space": {
       "back": "Documentazione",

@@ -88,6 +88,16 @@ describe("hub documentazione", () => {
             lastGenerationAt: null,
             lastCommitSha: null,
           }),
+          // Progetto senza alcuna documentazione: compare comunque (entry point
+          // per generare), con stato "not generated yet".
+          makeSpace({
+            projectId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            slug: "fresh-app",
+            name: "Fresh App",
+            pageCount: 0,
+            lastGenerationAt: null,
+            lastCommitSha: null,
+          }),
         ]),
     });
 
@@ -105,6 +115,13 @@ describe("hub documentazione", () => {
     expect(screen.getByText("Backoffice")).toBeInTheDocument();
     expect(screen.getByText("1 page")).toBeInTheDocument();
     expect(screen.getByText("manual pages only")).toBeInTheDocument();
+    // Terzo spazio: nessuna doc → "not generated yet", ma comunque linkabile.
+    expect(screen.getByText("Fresh App")).toBeInTheDocument();
+    expect(screen.getByText("not generated yet")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Fresh App/ })).toHaveAttribute(
+      "href",
+      "/docs/cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    );
 
     // Il link punta allo spazio del progetto.
     const spaceLink = screen.getByRole("link", { name: /Demo Shop/ });
@@ -114,7 +131,7 @@ describe("hub documentazione", () => {
     );
   });
 
-  it("stato vuoto quando non ci sono spazi", async () => {
+  it("stato vuoto quando non c'è nessun progetto", async () => {
     mockApi({
       "GET /api/auth/me": meHandler("member"),
       "GET /api/docs/spaces": () => jsonResponse(200, []),
@@ -122,9 +139,11 @@ describe("hub documentazione", () => {
 
     renderApp("/docs");
 
-    expect(await screen.findByText("// no documentation spaces")).toBeInTheDocument();
+    expect(await screen.findByText("// no projects yet")).toBeInTheDocument();
     expect(
-      screen.getByText("Generate documentation from a project space to populate the hub."),
+      screen.getByText(
+        "Create a project first — each linked project gets a documentation space here.",
+      ),
     ).toBeInTheDocument();
   });
 });

@@ -335,10 +335,11 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       schema: { response: { 200: z.array(spaceSchema), ...authErrorResponses } },
     },
     async () => {
-      // Aggregazione per progetto su doc_pages: solo i progetti con almeno una
-      // pagina VISIBILE compaiono (inner join scopato come l'albero/sidebar).
-      // Il join sulle pagine conta solo quelle della generazione corrente o
-      // manuali (generationId null): le pagine di generazioni stale NON
+      // L'hub elenca TUTTI i progetti, ognuno come "spazio" doc: è anche l'entry
+      // point per generare la prima volta. Left join su doc_pages, quindi un
+      // progetto senza documentazione compare con pageCount 0 e lastGenerationAt
+      // null. Il join sulle pagine conta solo quelle della generazione corrente
+      // o manuali (generationId null): le pagine di generazioni stale NON
       // gonfiano il conteggio. Il join su docGenerations è ristretto alla
       // singola generazione corrente+succeeded, quindi commitSha/finishedAt
       // sono selezionabili direttamente (niente max() lessicografico).
@@ -352,7 +353,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
           lastCommitSha: docGenerations.commitSha,
         })
         .from(projects)
-        .innerJoin(
+        .leftJoin(
           docPages,
           and(
             eq(docPages.projectId, projects.id),

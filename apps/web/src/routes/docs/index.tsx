@@ -52,8 +52,10 @@ export function DocsPage() {
                         ? ` · ${t("docs:hub.atCommit", { commit: space.lastCommitSha.slice(0, 7) })}`
                         : ""}
                     </>
-                  ) : (
+                  ) : space.pageCount > 0 ? (
                     t("docs:hub.neverGenerated")
+                  ) : (
+                    t("docs:hub.notGenerated")
                   )}
                 </span>
               </Link>
