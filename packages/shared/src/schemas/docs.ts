@@ -40,3 +40,29 @@ export const docJobStatusSchema = z.enum([
   "held",
 ]);
 export type DocJobStatus = z.infer<typeof docJobStatusSchema>;
+
+/**
+ * Stato di un nodo del DAG di documentazione ricorsivo: "pending" (creato,
+ * claimabile per esplorazione), "exploring" (in esplorazione), "awaiting_children"
+ * (ramo che attende i figli), "ready_to_synthesize" (figli completati, claimabile
+ * per sintesi), "synthesizing" (in sintesi), "done" / "failed" (terminali). Fonte
+ * di verità condivisa tra db (enum `doc_node_status`) e worker.
+ */
+export const docNodeStatusSchema = z.enum([
+  "pending",
+  "exploring",
+  "awaiting_children",
+  "ready_to_synthesize",
+  "synthesizing",
+  "done",
+  "failed",
+]);
+export type DocNodeStatus = z.infer<typeof docNodeStatusSchema>;
+
+/**
+ * Albero di appartenenza di un nodo di documentazione: "technical" (registro
+ * tecnico/dev) o "functional" (registro funzionale/business). Fonte di verità
+ * condivisa tra db (enum `doc_tree`) e worker.
+ */
+export const docTreeSchema = z.enum(["technical", "functional"]);
+export type DocTree = z.infer<typeof docTreeSchema>;
