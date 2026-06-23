@@ -57,7 +57,7 @@ export function NewTicketDialog({ projects, onSubmit, onClose }: NewTicketDialog
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-ink-950/80 p-6 backdrop-blur-[2px]"
+      className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-ink-950/80 p-3 backdrop-blur-[2px] sm:p-6"
       onKeyDown={(event) => {
         if (event.key === "Escape") onClose();
       }}
