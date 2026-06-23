@@ -167,9 +167,9 @@ export function BoardPage() {
 
   return (
     <div className="page flex h-screen flex-col">
-      <header className="flex flex-wrap items-end justify-between gap-4 border-b border-line pb-4">
+      <header className="flex flex-wrap items-end justify-between gap-3 border-b border-line pb-3 sm:gap-4 sm:pb-4">
         <div>
-          <h1 className="text-xl font-semibold">{t("tickets:board.title")}</h1>
+          <h1 className="text-lg font-semibold sm:text-xl">{t("tickets:board.title")}</h1>
           <p className="mt-1 text-sm text-fg-muted">{t("tickets:board.subtitle")}</p>
         </div>
 
@@ -224,7 +224,7 @@ export function BoardPage() {
       )}
 
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
-        <div className="mt-6 grid min-h-0 flex-1 auto-cols-[minmax(15rem,1fr)] grid-flow-col gap-3 overflow-x-auto pb-2">
+        <div className="mt-4 grid min-h-0 flex-1 snap-x snap-mandatory auto-cols-[minmax(15rem,1fr)] grid-flow-col gap-3 overflow-x-auto pb-2 sm:mt-6">
           {BOARD_STATUSES.map((status) => (
             <BoardColumn
               key={status}
@@ -256,7 +256,7 @@ function BoardColumn({ status, tickets, onOpen }: BoardColumnProps) {
         status: t(STATUS_LABEL_KEYS[status]),
         count: tickets.length,
       })}
-      className={`flex min-h-0 flex-col rounded-sm border bg-ink-900 transition-colors ${
+      className={`flex min-h-0 snap-start flex-col rounded-sm border bg-ink-900 transition-colors ${
         isOver ? "border-signal-dim bg-ink-850" : "border-line"
       }`}
     >
