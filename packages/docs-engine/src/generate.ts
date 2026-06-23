@@ -12,11 +12,22 @@
  *     pagina viene saltata e la generazione prosegue.
  *  2. REDUCE — una sola chiamata `agent(buildReducePrompt(moduleDocs))` che sintetizza
  *     (a) una panoramica tecnica dell'architettura e (b) una mappa funzionale delle
- *     capability.
- *  3. COMPOSE — si compongono le `GeneratedPage`: una pagina tecnica di overview
+ *     capability (l'INDICE: una voce `## Capability:` per capability con descrizione
+ *     breve).
+ *  3. CAPABILITY DEEP PASS — per ogni capability dell'indice (entro budget
+ *     `maxCapabilities`) una chiamata dedicata `agent(buildCapabilityPrompt(...))` che
+ *     scrive una pagina funzionale PROFONDA in linguaggio NON tecnico (come la pagina
+ *     tecnica di modulo è profonda, ma tradotta in termini di prodotto). È così che le
+ *     pagine funzionali smettono di essere un solo paragrafo derivato dall'indice e
+ *     diventano esaustive. BEST-EFFORT: se l'agent fa throw o ritorna output
+ *     vuoto/troppo corto, si fa FALLBACK alla descrizione breve dell'indice e la
+ *     capability finisce in `capabilityFailures`. Le capability oltre il budget NON
+ *     vengono silenziosamente scartate: sono LOGGATE in `cappedCapabilities`.
+ *  4. COMPOSE — si compongono le `GeneratedPage`: una pagina tecnica di overview
  *     (root, `parentSlug: null`), una pagina tecnica per modulo riuscito
- *     (`parentSlug` = slug overview, `sourcePath` = path modulo) e una o più pagine
- *     funzionali derivate dalla mappa delle capability.
+ *     (`parentSlug` = slug overview, `sourcePath` = path modulo), la mappa funzionale
+ *     root (l'indice del reduce, `parentSlug: null`) e una pagina funzionale per
+ *     capability con il CORPO PROFONDO del deep pass (o il fallback dell'indice).
  *
  * CONTRATTO DI PARSING (map e reduce). L'output dell'agent DEVE contenere due
  * sezioni delimitate da marker testuali stabili su riga propria:
@@ -75,6 +86,12 @@ export type AgentFn = (input: {
 export interface GenerationLimits {
   /** Numero massimo di moduli da mappare (default: tutti quelli nel `RepoMap`). */
   maxModules?: number;
+  /**
+   * Numero massimo di capability documentate in profondità nel deep pass (default
+   * `DEFAULT_MAX_CAPABILITIES`). Le capability oltre il budget non sono scartate in
+   * silenzio: i loro titoli finiscono in `cappedCapabilities`.
+   */
+  maxCapabilities?: number;
 }
 
 export interface RunGenerationInput {
@@ -91,6 +108,16 @@ export interface RunGenerationResult {
   pages: GeneratedPage[];
   /** Path dei moduli falliti (agent in errore o output non parsabile). */
   moduleFailures: string[];
+  /**
+   * Titoli delle capability il cui deep pass è fallito (agent in errore o output
+   * vuoto/troppo corto): la pagina esiste comunque, ma col solo testo dell'indice.
+   */
+  capabilityFailures: string[];
+  /**
+   * Titoli delle capability tagliate dal budget `maxCapabilities` (non documentate
+   * in profondità). Loggate qui, mai scartate in silenzio.
+   */
+  cappedCapabilities: string[];
 }
 
 /** Slug della pagina root con la panoramica tecnica dell'architettura. */
@@ -100,6 +127,28 @@ const CAPABILITIES_SLUG = "capabilities";
 
 /** Numero massimo di file elencati nel prompt per modulo (evita prompt enormi). */
 const MAX_FILES_IN_PROMPT = 60;
+
+/**
+ * Budget di default delle capability documentate in profondità nel deep pass
+ * (override via `limits.maxCapabilities`). Mirroring del cap dei moduli: protegge
+ * da repo con moltissime capability (un run dell'agente per capability).
+ */
+const DEFAULT_MAX_CAPABILITIES = 40;
+
+/**
+ * Lunghezza minima (caratteri) dell'output del deep pass per essere accettato. Sotto
+ * questa soglia si fa fallback al testo breve dell'indice (best-effort): un corpo
+ * vuoto o quasi non vale la pena di sostituire la descrizione della mappa.
+ */
+const MIN_CAPABILITY_BODY_CHARS = 80;
+
+/**
+ * Numero massimo di sintesi funzionali di modulo incluse (e loro lunghezza) nel
+ * prompt di una capability, per dare all'agent il contesto di "dove vive nel
+ * prodotto" senza far esplodere il prompt.
+ */
+const MAX_MODULE_HINTS_IN_CAPABILITY_PROMPT = 40;
+const MAX_MODULE_HINT_CHARS = 600;
 
 /**
  * Costruisce il prompt di MAP per un modulo. Include path, manifest, file,
@@ -184,6 +233,85 @@ export function buildReducePrompt(moduleDocs: ModuleDoc[]): string {
   ].join("\n");
 }
 
+/** Una capability dell'indice funzionale: titolo + descrizione breve dal reduce. */
+export interface CapabilitySummary {
+  title: string;
+  summary: string;
+}
+
+/**
+ * Costruisce il prompt del DEEP PASS per una singola capability. A differenza del map
+ * (che produce una sezione funzionale breve per modulo) qui si chiede UNA INTERA
+ * PAGINA funzionale PROFONDA su questa capability/blocco, in LINGUAGGIO NON TECNICO.
+ *
+ * Il prompt è VOLUTAMENTE forte sui tre requisiti centrali: (1) linguaggio semplice e
+ * orientato al prodotto/utente, ZERO gergo tecnico (niente nomi di file, funzioni,
+ * classi, framework, identificatori di codice); (2) enumerazione ESAUSTIVA di tutto
+ * ciò che l'utente può fare nel blocco (azioni, opzioni, varianti, configurazioni, ciò
+ * che è possibile E ciò che non lo è, passi, input/scelte, vincoli/limiti);
+ * (3) GROUNDING nel codice — l'agent gira read-only nel worktree e DEVE esplorare il
+ * codice rilevante per essere accurato ed esaustivo, ma TRADUCE sempre in linguaggio
+ * semplice, senza MAI esporre dettaglio tecnico.
+ *
+ * L'output è UN solo corpo markdown (nessun marker macchina): la pagina inizia con un
+ * heading `# <titolo>` e usa sezioni `###` per la profondità, come le altre pagine.
+ */
+export function buildCapabilityPrompt(
+  capability: CapabilitySummary,
+  moduleDocs: ModuleDoc[],
+): string {
+  const hints = moduleDocs
+    .slice(0, MAX_MODULE_HINTS_IN_CAPABILITY_PROMPT)
+    .map((d) => {
+      const text = d.functionalMarkdown.trim().slice(0, MAX_MODULE_HINT_CHARS);
+      return `- ${d.modulePath}: ${text}`;
+    });
+
+  return [
+    "You are writing ONE complete, DEEP page of FUNCTIONAL documentation about a",
+    "single product capability (a single feature area / block of the product).",
+    "",
+    `Capability title: ${capability.title}`,
+    `Brief description (from the capability map): ${capability.summary.trim() || "(none)"}`,
+    "",
+    "ABSOLUTE LANGUAGE RULE — this is the most important instruction, do not violate it:",
+    "Write in PLAIN, NON-TECHNICAL language, for a business/product reader who does NOT",
+    "read code. NEVER mention or expose any technical detail: no file paths, no function,",
+    "class, variable, table, endpoint or module NAMES, no code identifiers, no framework",
+    "or library names, no programming jargon. If you discover such things in the code,",
+    "TRANSLATE them into what they MEAN for the user in business/product terms. A reader",
+    "must be able to understand everything without knowing a single line of code.",
+    "",
+    "BE EXHAUSTIVE — enumerate EVERYTHING a user can do in this block:",
+    "- every action, operation and task available here;",
+    "- every option, variant, mode and configuration, and the choices/inputs each needs;",
+    "- what is POSSIBLE here AND, explicitly, what is NOT possible (limits, things you",
+    "  cannot do, edge cases that are blocked);",
+    "- for each thing, describe the STEPS in words (how a user would actually do it),",
+    "  the inputs/choices involved, and the constraints, rules and limits that apply.",
+    "",
+    "GROUND IT IN THE REAL BEHAVIOUR — you are running read-only in the repository",
+    "working directory. INSPECT the relevant code to be accurate and exhaustive about",
+    "what the product ACTUALLY does (do not invent features, do not omit real ones), but",
+    "TRANSLATE every finding into plain product language as required above. Never leak the",
+    "technical detail you read; only its meaning for the user.",
+    "",
+    "DEPTH — aim for coverage comparable to a thorough technical reference, but functional:",
+    "use MULTIPLE `###` sub-sections (e.g. one per group of actions / per option area),",
+    "not a single paragraph. Be thorough and concrete.",
+    "",
+    `Start the page with a single top-level heading: \`# ${capability.title}\`.`,
+    "Output ONLY the markdown body of the page (no preamble, no markers, no code fences",
+    "around the whole document).",
+    "",
+    "For orientation, here are brief functional summaries of the product's areas (use them",
+    "only to locate where this capability lives — do NOT copy their wording, and still",
+    "obey the plain-language rule):",
+    "",
+    ...(hints.length > 0 ? hints : ["- (no module summaries available)"]),
+  ].join("\n");
+}
+
 /**
  * Parsa l'output dell'agent secondo il contratto a due marker. I marker sono
  * riconosciuti solo come RIGA INTERA (la riga, una volta trimmata, è ESATTAMENTE
@@ -237,14 +365,25 @@ function moduleTitle(modulePath: string): string {
   return segs[segs.length - 1] ?? modulePath;
 }
 
+/** Una capability estratta dall'indice: titolo, descrizione breve e corpo completo. */
+interface ParsedCapability {
+  /** Titolo del blocco `## Capability: <nome>`. */
+  title: string;
+  /** Corpo SOTTO l'heading (la descrizione breve dell'indice), senza l'heading. */
+  summary: string;
+  /** Corpo completo INCLUSO l'heading (usato come fallback della pagina funzionale). */
+  body: string;
+}
+
 /**
- * Spezza il markdown della mappa funzionale in una pagina per ogni heading
- * `## Capability: <nome>`. Se non ne trova nessuna, ritorna una singola pagina con
- * l'intero corpo. Restituisce `{ title, body }` senza slug (assegnato dal chiamante).
+ * Spezza il markdown della mappa funzionale in una capability per ogni heading
+ * `## Capability: <nome>`. Se non ne trova nessuna, ritorna una singola capability con
+ * l'intero corpo. Restituisce `{ title, summary, body }` (in ordine d'apparizione)
+ * senza slug (assegnato dal chiamante). `summary` è il testo sotto l'heading (la
+ * descrizione breve dell'indice, usata come grounding del deep pass e come fallback);
+ * `body` include l'heading (corpo completo della pagina di fallback).
  */
-function splitCapabilities(
-  functionalMarkdown: string,
-): { title: string; body: string }[] {
+function splitCapabilities(functionalMarkdown: string): ParsedCapability[] {
   const lines = functionalMarkdown.split("\n");
   const re = /^##\s+Capability:\s*(.+?)\s*$/i;
   const sections: { title: string; body: string[] }[] = [];
@@ -259,12 +398,18 @@ function splitCapabilities(
     // funzionale root porta comunque l'intera mappa.
   }
   if (sections.length === 0) {
-    return [{ title: "Capabilities", body: functionalMarkdown.trim() }];
+    const body = functionalMarkdown.trim();
+    return [{ title: "Capabilities", summary: body, body }];
   }
-  return sections.map((s) => ({
-    title: s.title || "Capability",
-    body: s.body.join("\n").trim(),
-  }));
+  return sections.map((s) => {
+    // summary = corpo senza la riga di heading (la prima); body = tutto, heading incluso.
+    const summary = s.body.slice(1).join("\n").trim();
+    return {
+      title: s.title || "Capability",
+      summary,
+      body: s.body.join("\n").trim(),
+    };
+  });
 }
 
 /**
@@ -350,7 +495,7 @@ export async function runGeneration(
     });
   }
 
-  // Pagina funzionale root (mappa capability) + figlie per capability
+  // Pagina funzionale root (mappa capability = INDICE, invariata)
   used.add(CAPABILITIES_SLUG);
   pages.push({
     kind: "functional",
@@ -361,19 +506,54 @@ export async function runGeneration(
     body: capabilitiesMarkdown,
   });
 
+  // CAPABILITY DEEP PASS: una pagina funzionale PROFONDA per capability (entro budget).
+  const capabilityFailures: string[] = [];
+  const cappedCapabilities: string[] = [];
+
   if (capabilitiesMarkdown.trim() !== "") {
-    for (const cap of splitCapabilities(capabilitiesMarkdown)) {
+    const allCaps = splitCapabilities(capabilitiesMarkdown);
+    const maxCapabilities = limits?.maxCapabilities ?? DEFAULT_MAX_CAPABILITIES;
+    const caps = allCaps.slice(0, Math.max(0, maxCapabilities));
+    // Capability oltre il budget: LOGGATE (mai scartate in silenzio), pattern del
+    // cap dei moduli. Restano comunque nella mappa root (l'indice le elenca tutte).
+    for (const over of allCaps.slice(caps.length)) cappedCapabilities.push(over.title);
+
+    for (let i = 0; i < caps.length; i += 1) {
+      const cap = caps[i]!;
       const slug = makeUniqueSlug(baseSlug(cap.title), used);
+      // fallback = corpo dell'indice (heading + descrizione breve), così la pagina
+      // esiste sempre anche se il deep pass non produce un corpo valido.
+      let body = cap.body;
+      onProgress?.(`capability ${i + 1}/${caps.length}: ${cap.title}`);
+      try {
+        const out = await agent({
+          prompt: buildCapabilityPrompt(
+            { title: cap.title, summary: cap.summary },
+            moduleDocs,
+          ),
+          cwd,
+        });
+        const deep = out.trim();
+        if (deep.length >= MIN_CAPABILITY_BODY_CHARS) {
+          body = deep;
+        } else {
+          capabilityFailures.push(cap.title);
+        }
+      } catch {
+        // best-effort: deep pass fallito → si tiene il fallback dell'indice.
+        capabilityFailures.push(cap.title);
+      }
+      onProgress?.(`capability ${i + 1}/${caps.length}: ${cap.title} done`);
       pages.push({
         kind: "functional",
         slug,
         title: cap.title,
         parentSlug: CAPABILITIES_SLUG,
         sourcePath: null,
-        body: cap.body,
+        body,
       });
     }
   }
 
-  return { pages, moduleFailures };
+  return { pages, moduleFailures, capabilityFailures, cappedCapabilities };
 }

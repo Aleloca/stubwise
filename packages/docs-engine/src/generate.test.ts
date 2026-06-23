@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildModulePrompt,
   buildReducePrompt,
+  buildCapabilityPrompt,
   runGeneration,
   TECHNICAL_MARKER,
   FUNCTIONAL_MARKER,
@@ -34,9 +35,30 @@ function repoMap(modules: ModuleNode[]): RepoMap {
   return { languages, modules, skipped: [] };
 }
 
+/** Marker substring unique to the capability deep-pass prompt. */
+const CAPABILITY_PROMPT_HINT = "DEEP page of FUNCTIONAL documentation";
+
+/** A deep functional body long enough to pass the min-length acceptance gate. */
+function deepCapabilityBody(title: string): string {
+  return [
+    `# ${title}`,
+    "",
+    "### What you can do here",
+    "This is a thorough, plain-language description of everything possible in this",
+    "block, with enough words to be a real deep page rather than a one-line summary.",
+    "",
+    "### Limits and constraints",
+    "It also explains, in plain terms, what cannot be done and which rules apply.",
+  ].join("\n");
+}
+
 /** Fake agent: returns canned, parseable structured text keyed by module path. */
 function cannedAgent(): AgentFn {
   return vi.fn(async ({ prompt }) => {
+    if (prompt.includes(CAPABILITY_PROMPT_HINT)) {
+      const m = /Capability title:\s*(.+)/.exec(prompt);
+      return deepCapabilityBody((m?.[1] ?? "Capability").trim());
+    }
     if (prompt.includes("REDUCE")) {
       return [
         `${TECHNICAL_MARKER}`,
@@ -96,6 +118,53 @@ describe("buildReducePrompt (M3.1)", () => {
   });
 });
 
+describe("buildCapabilityPrompt (deep pass)", () => {
+  it("forcefully demands plain language, exhaustive enumeration and code-grounding", () => {
+    const docs: ModuleDoc[] = [
+      {
+        modulePath: "packages/a",
+        technicalMarkdown: "tech a",
+        functionalMarkdown: "func summary for a",
+      },
+    ];
+    const prompt = buildCapabilityPrompt(
+      { title: "Authentication", summary: "Lets users log in." },
+      docs,
+    );
+    expect(prompt).toContain("Authentication");
+    expect(prompt).toContain("Lets users log in.");
+    // plain-language rule, forcefully stated
+    const lower = prompt.toLowerCase();
+    expect(lower).toContain("plain");
+    expect(lower).toContain("non-technical");
+    expect(lower).toMatch(/no file paths|file paths/);
+    // exhaustive enumeration
+    expect(lower).toContain("exhaustive");
+    expect(lower).toMatch(/everything a user can do/);
+    expect(lower).toContain("not possible");
+    // code grounding (read-only inspection) but translate
+    expect(lower).toContain("read-only");
+    expect(lower).toContain("translate");
+    // leading heading + module hints for orientation
+    expect(prompt).toContain("# Authentication");
+    expect(prompt).toContain("packages/a");
+  });
+
+  it("truncates and caps module hints to keep the prompt bounded", () => {
+    const docs: ModuleDoc[] = Array.from({ length: 100 }, (_, i) => ({
+      modulePath: `packages/m${i}`,
+      technicalMarkdown: "t",
+      functionalMarkdown: "x".repeat(2000),
+    }));
+    const prompt = buildCapabilityPrompt({ title: "C", summary: "s" }, docs);
+    // first module surfaces, far-past-cap module does not
+    expect(prompt).toContain("packages/m0");
+    expect(prompt).not.toContain("packages/m99");
+    // the 2000-char functional summary is truncated (no 700-long run of 'x')
+    expect(prompt).not.toMatch(/x{700}/);
+  });
+});
+
 describe("runGeneration (M3.2)", () => {
   it("maps each module + reduces once, wiring parentSlug and sourcePath", async () => {
     const a = moduleNode({ path: "packages/a", files: ["packages/a/i.ts"] });
@@ -107,15 +176,19 @@ describe("runGeneration (M3.2)", () => {
     });
     const agent = cannedAgent();
     const onProgress = vi.fn();
-    const { pages, moduleFailures } = await runGeneration({
-      repoMap: repoMap([a, b]),
-      agent,
-      onProgress,
-    });
+    const { pages, moduleFailures, capabilityFailures, cappedCapabilities } =
+      await runGeneration({
+        repoMap: repoMap([a, b]),
+        agent,
+        onProgress,
+      });
 
-    // 2 map calls + 1 reduce call
-    expect((agent as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(3);
+    // 2 map calls + 1 reduce call + 2 capability deep-pass calls (the reduce map
+    // declares two `## Capability:` blocks).
+    expect((agent as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(5);
     expect(moduleFailures).toEqual([]);
+    expect(capabilityFailures).toEqual([]);
+    expect(cappedCapabilities).toEqual([]);
 
     const technical = pages.filter((p) => p.kind === "technical");
     const functional = pages.filter((p) => p.kind === "functional");
@@ -249,6 +322,150 @@ describe("runGeneration (M3.2)", () => {
     );
     expect(root!.slug).toBe("overview");
     expect(moduleTech!.slug).toBe("overview-2");
+  });
+});
+
+describe("runGeneration capability deep pass", () => {
+  /** Reduce with exactly two `## Capability:` blocks. */
+  function reduceWithTwoCaps(): string {
+    return [
+      TECHNICAL_MARKER,
+      "overview",
+      FUNCTIONAL_MARKER,
+      "## Capability: Authentication",
+      "Short summary: lets users log in.",
+      "## Capability: Reporting",
+      "Short summary: generates reports.",
+    ].join("\n");
+  }
+
+  it("calls the agent once per module + once for reduce + once per capability, and the functional pages carry the DEEP bodies", async () => {
+    const a = moduleNode({ path: "packages/a", files: ["packages/a/i.ts"], dependsOn: [] });
+    const b = moduleNode({ path: "packages/b", files: ["packages/b/i.ts"], dependsOn: [] });
+    const agent = cannedAgent();
+    const onProgress = vi.fn();
+    const { pages, capabilityFailures, cappedCapabilities } = await runGeneration({
+      repoMap: repoMap([a, b]),
+      agent,
+      onProgress,
+    });
+
+    // 2 map + 1 reduce + 2 capabilities
+    expect((agent as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(5);
+    expect(capabilityFailures).toEqual([]);
+    expect(cappedCapabilities).toEqual([]);
+
+    // capability pages (children of the capability map root) carry the DEEP output,
+    // NOT the short index summary.
+    const capRoot = pages.find((p) => p.kind === "functional" && p.parentSlug === null);
+    expect(capRoot).toBeDefined();
+    const capPages = pages.filter(
+      (p) => p.kind === "functional" && p.parentSlug === capRoot!.slug,
+    );
+    expect(capPages.map((p) => p.title).sort()).toEqual(["Authentication", "Reporting"]);
+    for (const p of capPages) {
+      expect(p.sourcePath).toBeNull();
+      expect(p.body).toContain("### What you can do here");
+      expect(p.body).not.toContain("Short summary");
+    }
+
+    // heartbeat fired for capabilities
+    const progressMsgs = onProgress.mock.calls.map((c) => String(c[0]));
+    expect(progressMsgs.some((m) => m.startsWith("capability 1/2"))).toBe(true);
+    expect(progressMsgs.some((m) => m.includes("done"))).toBe(true);
+  });
+
+  it("is best-effort: a throwing capability falls back to the index summary and is recorded", async () => {
+    const a = moduleNode({ path: "packages/a", files: ["packages/a/i.ts"], dependsOn: [] });
+    const agent: AgentFn = vi.fn(async ({ prompt }) => {
+      if (prompt.includes(CAPABILITY_PROMPT_HINT)) {
+        if (/Capability title:\s*Reporting/.test(prompt)) {
+          throw new Error("deep pass boom on Reporting");
+        }
+        return deepCapabilityBody("Authentication");
+      }
+      if (prompt.includes("REDUCE")) return reduceWithTwoCaps();
+      return `${TECHNICAL_MARKER}\ntech\n${FUNCTIONAL_MARKER}\nfunc`;
+    });
+
+    const { pages, capabilityFailures } = await runGeneration({
+      repoMap: repoMap([a]),
+      agent,
+    });
+
+    expect(capabilityFailures).toEqual(["Reporting"]);
+    const reporting = pages.find((p) => p.title === "Reporting");
+    expect(reporting).toBeDefined();
+    // fallback body = index content (heading + short summary), not the deep body.
+    expect(reporting!.body).toContain("Reporting");
+    expect(reporting!.body).toContain("generates reports");
+    expect(reporting!.body).not.toContain("### What you can do here");
+    // the other capability still got its deep body; generation succeeded overall.
+    const auth = pages.find((p) => p.title === "Authentication");
+    expect(auth!.body).toContain("### What you can do here");
+  });
+
+  it("is best-effort: an empty/too-short capability output falls back and is recorded", async () => {
+    const a = moduleNode({ path: "packages/a", files: ["packages/a/i.ts"], dependsOn: [] });
+    const agent: AgentFn = vi.fn(async ({ prompt }) => {
+      if (prompt.includes(CAPABILITY_PROMPT_HINT)) {
+        if (/Capability title:\s*Reporting/.test(prompt)) return "   "; // too short
+        return deepCapabilityBody("Authentication");
+      }
+      if (prompt.includes("REDUCE")) return reduceWithTwoCaps();
+      return `${TECHNICAL_MARKER}\ntech\n${FUNCTIONAL_MARKER}\nfunc`;
+    });
+
+    const { pages, capabilityFailures } = await runGeneration({
+      repoMap: repoMap([a]),
+      agent,
+    });
+
+    expect(capabilityFailures).toEqual(["Reporting"]);
+    const reporting = pages.find((p) => p.title === "Reporting");
+    expect(reporting!.body).toContain("generates reports");
+    expect(reporting!.body).not.toContain("### What you can do here");
+  });
+
+  it("logs capabilities beyond maxCapabilities instead of dropping them silently", async () => {
+    const a = moduleNode({ path: "packages/a", files: ["packages/a/i.ts"], dependsOn: [] });
+    const agent: AgentFn = vi.fn(async ({ prompt }) => {
+      if (prompt.includes(CAPABILITY_PROMPT_HINT)) {
+        const m = /Capability title:\s*(.+)/.exec(prompt);
+        return deepCapabilityBody((m?.[1] ?? "C").trim());
+      }
+      if (prompt.includes("REDUCE")) {
+        return [
+          TECHNICAL_MARKER,
+          "overview",
+          FUNCTIONAL_MARKER,
+          "## Capability: One",
+          "first",
+          "## Capability: Two",
+          "second",
+          "## Capability: Three",
+          "third",
+        ].join("\n");
+      }
+      return `${TECHNICAL_MARKER}\ntech\n${FUNCTIONAL_MARKER}\nfunc`;
+    });
+
+    const { pages, cappedCapabilities } = await runGeneration({
+      repoMap: repoMap([a]),
+      agent,
+      limits: { maxCapabilities: 1 },
+    });
+
+    // 1 map + 1 reduce + 1 capability deep call (only the first, within budget).
+    expect((agent as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(3);
+    // exactly one deep capability page produced...
+    const capRoot = pages.find((p) => p.kind === "functional" && p.parentSlug === null);
+    const capPages = pages.filter(
+      (p) => p.kind === "functional" && p.parentSlug === capRoot!.slug,
+    );
+    expect(capPages.map((p) => p.title)).toEqual(["One"]);
+    // ...and the other two are surfaced (logged), not silently dropped.
+    expect(cappedCapabilities).toEqual(["Two", "Three"]);
   });
 });
 

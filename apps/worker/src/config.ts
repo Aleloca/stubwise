@@ -188,6 +188,19 @@ const envSchema = z.object({
       .min(1, "deve essere un intero ≥ 1 (es. 80)")
       .default(80),
   ),
+  // Tetto al numero di capability documentate in PROFONDITÀ in una singola
+  // generazione (deep pass funzionale): un run dell'agente per capability →
+  // costo/tempo lineari. Le capability oltre la soglia non sono scartate in
+  // silenzio: docs-engine le LOGGA (cappedCapabilities) e restano comunque
+  // nell'indice della mappa funzionale.
+  DOC_MAX_CAPABILITIES: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 (es. 40)" })
+      .int("deve essere un intero ≥ 1 (es. 40)")
+      .min(1, "deve essere un intero ≥ 1 (es. 40)")
+      .default(40),
+  ),
   // Numero massimo di turni dell'agente per la pagina di un singolo modulo:
   // limita esplorazione/iterazioni del run (costo e durata per modulo).
   DOC_MODULE_MAX_TURNS: z.preprocess(
@@ -278,6 +291,9 @@ export interface WorkerConfig {
   docGenerationModel: string;
   /** Tetto al numero di moduli documentati per generazione (default 80). */
   docMaxModules: number;
+  /** Tetto al numero di capability documentate in profondità per generazione
+   * (deep pass funzionale; default 40). */
+  docMaxCapabilities: number;
   /** Turni massimi dell'agente per la pagina di un modulo (default 30). */
   docModuleMaxTurns: number;
   /** Cap di costo (USD) per generazione di documentazione; undefined = nessun
@@ -330,6 +346,7 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     credentialTestPollSeconds: parsed.CREDENTIAL_TEST_POLL_SECONDS,
     docGenerationModel: parsed.DOC_GENERATION_MODEL,
     docMaxModules: parsed.DOC_MAX_MODULES,
+    docMaxCapabilities: parsed.DOC_MAX_CAPABILITIES,
     docModuleMaxTurns: parsed.DOC_MODULE_MAX_TURNS,
     docCostCapUsd: parsed.DOC_COST_CAP_USD,
     embeddingBaseUrl: parsed.EMBEDDING_BASE_URL,

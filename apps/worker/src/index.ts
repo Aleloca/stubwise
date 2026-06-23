@@ -150,6 +150,7 @@ const docHandler = createDocHandler(
     encryptionKey: config.encryptionKey,
     model: config.docGenerationModel,
     maxModules: config.docMaxModules,
+    maxCapabilities: config.docMaxCapabilities,
     moduleMaxTurns: config.docModuleMaxTurns,
     agentTimeoutMs: DEFAULT_FIX_TIMEOUT_MS,
     // Cap di costo per generazione: undefined (default) = nessun cap; il

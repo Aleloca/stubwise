@@ -128,6 +128,7 @@ function docDeps(db: Db, mirrors: MirrorManager, runner: FakeAgentRunner) {
     encryptionKey: ENCRYPTION_KEY,
     model: "opus",
     maxModules: 80,
+    maxCapabilities: 40,
     moduleMaxTurns: 30,
     agentTimeoutMs: 600_000,
   };

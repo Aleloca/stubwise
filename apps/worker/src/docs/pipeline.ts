@@ -99,6 +99,9 @@ export interface RunDocGenerationDeps {
   model: string;
   /** Tetto al numero di moduli mappati (docs-engine taglia oltre). */
   maxModules: number;
+  /** Tetto al numero di capability documentate in profondità (deep pass; docs-engine
+   * logga le eccedenti in `cappedCapabilities`). */
+  maxCapabilities: number;
   /** Turni massimi dell'agent per la pagina di un modulo. */
   moduleMaxTurns: number;
   /** Timeout (ms) di OGNI run dell'agent per modulo/reduce. */
@@ -125,6 +128,10 @@ export type DocGenerationOutcome = "succeeded" | "failed" | "held";
 interface DocGenerationStats {
   modules: number;
   moduleFailures: string[];
+  /** Numero di pagine funzionali profonde prodotte dal deep pass per-capability. */
+  capabilities: number;
+  /** Titoli delle capability il cui deep pass è fallito (fallback all'indice). */
+  capabilityFailures: string[];
   pages: number;
   chunks: number;
   /** true se lo step di reduce è fallito (overview/capability-map vuote). */
@@ -221,6 +228,8 @@ export async function runDocGenerationJob(
   let stats: DocGenerationStats = {
     modules: 0,
     moduleFailures: [],
+    capabilities: 0,
+    capabilityFailures: [],
     pages: 0,
     chunks: 0,
     reduceFailed: false,
@@ -258,7 +267,7 @@ export async function runDocGenerationJob(
         repoMap,
         agent,
         cwd: dir,
-        limits: { maxModules: deps.maxModules },
+        limits: { maxModules: deps.maxModules, maxCapabilities: deps.maxCapabilities },
         onProgress: () => {
           // Heartbeat: una generazione lunga continua a battere così
           // requeueStaleDocJobs non la riporta in coda (doppia generazione).
@@ -292,6 +301,8 @@ export async function runDocGenerationJob(
         stats: {
           modules: repoMap.modules.length,
           moduleFailures: result.moduleFailures,
+          capabilities: countCapabilityPages(result.pages),
+          capabilityFailures: result.capabilityFailures,
           pages,
           chunks,
           reduceFailed,
@@ -358,7 +369,7 @@ export async function runDocGenerationJob(
   await pruneOldGenerations(db, project.id, generation.id);
 
   await completeDocJob(db, job.id, {
-    log: `[docs] generazione completata: ${stats.pages} pagine, ${stats.chunks} chunk, costo $${costString}`,
+    log: `[docs] generazione completata: ${stats.pages} pagine (${stats.capabilities} capability), ${stats.chunks} chunk, costo $${costString}`,
     generationId: generation.id,
   });
   return "succeeded";
@@ -512,6 +523,18 @@ function isReduceFailed(pages: GeneratedPage[]): boolean {
   const roots = pages.filter((p) => p.parentSlug === null);
   if (roots.length === 0) return true;
   return roots.every((p) => p.body.trim() === "");
+}
+
+/**
+ * Conta le pagine funzionali profonde prodotte dal deep pass per-capability: le
+ * pagine `functional` figlie della mappa funzionale root (l'unica root funzionale).
+ * Per le stats: quante capability sono state documentate in profondità in questo run.
+ */
+function countCapabilityPages(pages: GeneratedPage[]): number {
+  const root = pages.find((p) => p.kind === "functional" && p.parentSlug === null);
+  if (!root) return 0;
+  return pages.filter((p) => p.kind === "functional" && p.parentSlug === root.slug)
+    .length;
 }
 
 /**

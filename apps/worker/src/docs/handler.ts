@@ -30,6 +30,8 @@ export interface DocHandlerDeps {
   model: string;
   /** Tetto al numero di moduli mappati (config.docMaxModules). */
   maxModules: number;
+  /** Tetto al numero di capability documentate in profondità (config.docMaxCapabilities). */
+  maxCapabilities: number;
   /** Turni massimi dell'agent per la pagina di un modulo (config.docModuleMaxTurns). */
   moduleMaxTurns: number;
   /** Timeout (ms) di OGNI run dell'agent per modulo/reduce. */
@@ -69,6 +71,7 @@ export function createDocHandler(
           encryptionKey: deps.encryptionKey,
           model: deps.model,
           maxModules: deps.maxModules,
+          maxCapabilities: deps.maxCapabilities,
           moduleMaxTurns: deps.moduleMaxTurns,
           agentTimeoutMs: deps.agentTimeoutMs,
           ...(deps.costCapUsd !== undefined ? { costCapUsd: deps.costCapUsd } : {}),

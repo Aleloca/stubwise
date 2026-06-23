@@ -122,8 +122,27 @@ async function enqueueDocJob(db: Db, projectId: string): Promise<DocJob> {
   return job;
 }
 
-/** Output map/reduce valido: due sezioni delimitate dai marker. */
-function agentOutput(label: string): string {
+/** Substring univoca del prompt del deep pass per-capability. */
+const CAPABILITY_PROMPT_HINT = "DEEP page of FUNCTIONAL documentation";
+
+/**
+ * Output dell'agent. Per il prompt di una capability (deep pass) ritorna una pagina
+ * funzionale profonda in puro markdown (nessun marker); per map/reduce ritorna le due
+ * sezioni delimitate dai marker.
+ */
+function agentOutput(label: string, prompt?: string): string {
+  if (prompt?.includes(CAPABILITY_PROMPT_HINT)) {
+    return [
+      "# Greeting",
+      "",
+      "### What you can do here",
+      "A thorough plain-language description of everything possible in this block,",
+      "with enough words to chunk meaningfully and to pass the deep-pass length gate.",
+      "",
+      "### Limits",
+      "What is not possible, in plain terms.",
+    ].join("\n");
+  }
   return [
     "===TECHNICAL===",
     `## Technical ${label}`,
@@ -149,6 +168,7 @@ function baseDeps(
     encryptionKey: ENCRYPTION_KEY,
     model: "opus",
     maxModules: 80,
+    maxCapabilities: 40,
     moduleMaxTurns: 30,
     agentTimeoutMs: 600_000,
   };
@@ -163,7 +183,7 @@ describe("runDocGenerationJob", () => {
     const job = await enqueueDocJob(db, projectId);
 
     const runner = new FakeAgentRunner({
-      script: (opts: AgentRunOptions) => ({ output: agentOutput(opts.prompt.slice(0, 8)), exitCode: 0, usage: USAGE }),
+      script: (opts: AgentRunOptions) => ({ output: agentOutput(opts.prompt.slice(0, 8), opts.prompt), exitCode: 0, usage: USAGE }),
     });
     // permissionMode "plan" (read-only) deve essere passato a ogni run.
     const outcome = await runDocGenerationJob(baseDeps(db, mirrors, runner), job);
@@ -177,15 +197,27 @@ describe("runDocGenerationJob", () => {
     expect(gen?.model).toBe("opus");
     // Costo aggregato = somma dei totalCostUsd di ogni run (≥ 2 run: map + reduce).
     expect(Number(gen?.cost)).toBeCloseTo(runner.calls.length * 0.01, 6);
-    const stats = gen?.stats as { pages: number; chunks: number; modules: number };
+    const stats = gen?.stats as {
+      pages: number;
+      chunks: number;
+      modules: number;
+      capabilities: number;
+      capabilityFailures: string[];
+    };
     expect(stats.pages).toBeGreaterThan(0);
     expect(stats.chunks).toBeGreaterThan(0);
+    // Deep pass: almeno una capability documentata in profondità, nessun fallimento.
+    expect(stats.capabilities).toBeGreaterThanOrEqual(1);
+    expect(stats.capabilityFailures).toEqual([]);
 
     const pages = await db.select().from(docPages).where(eq(docPages.generationId, gen!.id));
     // Almeno overview tecnica + un modulo + mappa funzionale + una capability.
     expect(pages.length).toBeGreaterThanOrEqual(3);
     expect(pages.some((p) => p.kind === "technical" && p.parentId === null)).toBe(true);
     expect(pages.some((p) => p.kind === "functional")).toBe(true);
+    // La pagina funzionale di capability porta il corpo PROFONDO (no marker tecnici).
+    const capPage = pages.find((p) => p.kind === "functional" && p.parentId !== null);
+    expect(capPage?.body).toContain("### What you can do here");
     // parentId risolto (nessun orfano fra le figlie): ogni pagina con parent ha un id valido.
     const ids = new Set(pages.map((p) => p.id));
     expect(pages.filter((p) => p.parentId !== null).every((p) => ids.has(p.parentId!))).toBe(true);
@@ -227,7 +259,7 @@ describe("runDocGenerationJob", () => {
 
     const runner = new FakeAgentRunner({
       // Stessa struttura deterministica a ogni run (slug uguali tra le generazioni).
-      script: () => ({ output: agentOutput("stabile"), exitCode: 0, usage: USAGE }),
+      script: (opts: AgentRunOptions) => ({ output: agentOutput("stabile", opts.prompt), exitCode: 0, usage: USAGE }),
     });
 
     // 1ª generazione.
@@ -302,7 +334,7 @@ describe("runDocGenerationJob", () => {
 
     const job = await enqueueDocJob(db, projectId);
     const runner = new FakeAgentRunner({
-      script: () => ({ output: agentOutput("x"), exitCode: 0, usage: USAGE }),
+      script: (opts: AgentRunOptions) => ({ output: agentOutput("x", opts.prompt), exitCode: 0, usage: USAGE }),
     });
     await runDocGenerationJob(baseDeps(db, mirrors, runner), job);
 
@@ -327,13 +359,15 @@ describe("runDocGenerationJob", () => {
     let mapCall = 0;
     const runner = new FakeAgentRunner({
       script: (opts: AgentRunOptions) => {
-        // Il reduce contiene "REDUCE step"; i map sono i prompt di modulo.
+        // Il reduce contiene "REDUCE step"; il deep pass è marcato da
+        // CAPABILITY_PROMPT_HINT; il resto sono i prompt di modulo (map).
         const isReduce = opts.prompt.includes("REDUCE step");
-        if (!isReduce) {
+        const isCapability = opts.prompt.includes(CAPABILITY_PROMPT_HINT);
+        if (!isReduce && !isCapability) {
           mapCall += 1;
           if (mapCall === 1) throw new Error("agent boom sul primo modulo");
         }
-        return { output: agentOutput("ok"), exitCode: 0, usage: USAGE };
+        return { output: agentOutput("ok", opts.prompt), exitCode: 0, usage: USAGE };
       },
     });
     const outcome = await runDocGenerationJob(baseDeps(db, mirrors, runner), job);
@@ -353,7 +387,7 @@ describe("runDocGenerationJob", () => {
     const job = await enqueueDocJob(db, projectId);
 
     const runner = new FakeAgentRunner({
-      script: () => ({ output: agentOutput("x"), exitCode: 0, usage: { totalCostUsd: 5, models: [] } }),
+      script: (opts: AgentRunOptions) => ({ output: agentOutput("x", opts.prompt), exitCode: 0, usage: { totalCostUsd: 5, models: [] } }),
     });
     const outcome = await runDocGenerationJob(
       { ...baseDeps(db, mirrors, runner), costCapUsd: 0.5 },
@@ -384,7 +418,7 @@ describe("runDocGenerationJob", () => {
       .returning();
 
     const runner = new FakeAgentRunner({
-      script: () => ({ output: agentOutput("x"), exitCode: 0, usage: USAGE }),
+      script: (opts: AgentRunOptions) => ({ output: agentOutput("x", opts.prompt), exitCode: 0, usage: USAGE }),
     });
     await runDocGenerationJob(baseDeps(db, mirrors, runner), job!);
 
@@ -412,7 +446,7 @@ describe("runDocGenerationJob", () => {
     };
 
     const runner = new FakeAgentRunner({
-      script: () => ({ output: agentOutput("x"), exitCode: 0, usage: USAGE }),
+      script: (opts: AgentRunOptions) => ({ output: agentOutput("x", opts.prompt), exitCode: 0, usage: USAGE }),
     });
     // batchSize 1 = una chiamata embed() per chunk → si arriva di certo alla 2ª.
     const outcome = await runDocGenerationJob(
@@ -456,7 +490,7 @@ describe("runDocGenerationJob", () => {
     };
 
     const runner = new FakeAgentRunner({
-      script: () => ({ output: agentOutput("batchy"), exitCode: 0, usage: USAGE }),
+      script: (opts: AgentRunOptions) => ({ output: agentOutput("batchy", opts.prompt), exitCode: 0, usage: USAGE }),
     });
     await runDocGenerationJob(
       { ...baseDeps(db, mirrors, runner), embeddingClient: countingClient, embedBatchSize: 2 },

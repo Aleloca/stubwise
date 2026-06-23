@@ -8,9 +8,11 @@
  * Tre passi pubblici:
  *  - `buildRepoMap(reader, opts)` — pass strutturale: linguaggi, moduli (manifest,
  *    superficie pubblica, dipendenze) e cose escluse/tagliate → `RepoMap`;
- *  - `runGeneration({ repoMap, agent, … })` — orchestrazione map-reduce: una pagina
- *    tecnica per modulo + overview, più una mappa funzionale delle capability,
- *    best-effort sui fallimenti per-modulo → `GeneratedPage[]` + `moduleFailures`;
+ *  - `runGeneration({ repoMap, agent, … })` — orchestrazione map-reduce + deep pass:
+ *    una pagina tecnica per modulo + overview, la mappa funzionale (indice), e una
+ *    pagina funzionale PROFONDA per capability (deep pass per-capability, linguaggio
+ *    non tecnico), best-effort sui fallimenti per-modulo e per-capability →
+ *    `GeneratedPage[]` + `moduleFailures` + `capabilityFailures` + `cappedCapabilities`;
  *  - `chunkMarkdown(md, opts)` — chunking markdown-aware (split per heading, target
  *    in token stimati, overlap) per l'embedding.
  */
@@ -21,11 +23,13 @@ export {
   runGeneration,
   buildModulePrompt,
   buildReducePrompt,
+  buildCapabilityPrompt,
   TECHNICAL_MARKER,
   FUNCTIONAL_MARKER,
 } from "./generate.js";
 export type {
   ModuleDoc,
+  CapabilitySummary,
   GeneratedPage,
   AgentFn,
   GenerationLimits,
