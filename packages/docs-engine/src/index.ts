@@ -2,43 +2,22 @@
  * `@stubwise/docs-engine` — motore puro per la documentazione autogenerata.
  *
  * Logica deterministica e senza side-effect (niente fs/rete/db: il filesystem è un
- * `RepoReader` iniettato e l'agent AI è una `AgentFn` iniettata) per generare, da un
- * repository, una documentazione tecnica + funzionale tramite map-reduce.
+ * `RepoReader` iniettato e l'agent AI è una `AgentFn` iniettata) per il motore a DAG
+ * ricorsivo: orientamento → esplorazione → sintesi, con cross-link e proiezione in
+ * pagine annidate. Tutta la logica AI usa un CONTRATTO A MARCATORI + validazione (mai
+ * formato libero), parser per-riga robusti, e helper DAG puri (dedup, slug, link).
  *
- * Tre passi pubblici:
- *  - `buildRepoMap(reader, opts)` — pass strutturale: linguaggi, moduli (manifest,
- *    superficie pubblica, dipendenze) e cose escluse/tagliate → `RepoMap`;
- *  - `runGeneration({ repoMap, agent, … })` — orchestrazione map-reduce + deep pass:
- *    una pagina tecnica per modulo + overview, la mappa funzionale (indice), e una
- *    pagina funzionale PROFONDA per capability (deep pass per-capability, linguaggio
- *    non tecnico), best-effort sui fallimenti per-modulo e per-capability →
- *    `GeneratedPage[]` + `moduleFailures` + `capabilityFailures` + `cappedCapabilities`;
+ * Pubblici principali:
+ *  - `recursive/*` — prompt + parser di orientamento/explore/synthesize (output
+ *    machine-parsed) e gli helper DAG (`dedupeChildren`, `slugForNode`,
+ *    `resolveImplementsLinks`, `selectRelatedLinks`);
  *  - `chunkMarkdown(md, opts)` — chunking markdown-aware (split per heading, target
  *    in token stimati, overlap) per l'embedding.
+ *
+ * La vecchia pipeline PIATTA (map-reduce + capability-pass: `buildRepoMap`,
+ * `runGeneration`, i suoi prompt e i marcatori `===TECHNICAL===`/`===FUNCTIONAL===`/
+ * `===CAPABILITY PAGE===`) è stata RIMOSSA, sostituita dal motore a DAG.
  */
-export { buildRepoMap } from "./structural.js";
-export type { BuildRepoMapOptions } from "./structural.js";
-
-export {
-  runGeneration,
-  buildModulePrompt,
-  buildReducePrompt,
-  buildCapabilityPrompt,
-  TECHNICAL_MARKER,
-  FUNCTIONAL_MARKER,
-  CAPABILITY_START_MARKER,
-  CAPABILITY_END_MARKER,
-} from "./generate.js";
-export type {
-  ModuleDoc,
-  CapabilitySummary,
-  GeneratedPage,
-  AgentFn,
-  GenerationLimits,
-  RunGenerationInput,
-  RunGenerationResult,
-} from "./generate.js";
-
 export { chunkMarkdown, estimateTokens, TOKENS_PER_WORD } from "./chunk.js";
 export type { MarkdownChunk, ChunkOptions } from "./chunk.js";
 
@@ -112,4 +91,3 @@ export type {
 } from "./recursive/dag.js";
 
 export type { RepoFile, RepoReader } from "./fs.js";
-export type { RepoMap, ModuleNode } from "./types.js";
