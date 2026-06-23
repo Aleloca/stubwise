@@ -490,7 +490,9 @@ describe("runGeneration capability deep pass", () => {
       agent,
     });
 
-    expect(capabilityFailures).toEqual(["Reporting"]);
+    // recorded WITH the rejection reason (a thrown call counts as `no-markers`).
+    expect(capabilityFailures).toEqual(["Reporting: no-markers"]);
+    expect(capabilityFailures[0]).toMatch(/: (no-markers|too-short|meta-summary)$/);
     const reporting = pages.find((p) => p.title === "Reporting");
     expect(reporting).toBeDefined();
     // fallback body = index SUMMARY (the short description, WITHOUT the
@@ -521,12 +523,87 @@ describe("runGeneration capability deep pass", () => {
       agent,
     });
 
-    expect(capabilityFailures).toEqual(["Reporting"]);
+    // "   " has no markers at all → rejected as `no-markers` (parse fails before the
+    // length check), recorded with the reason suffix.
+    expect(capabilityFailures).toEqual(["Reporting: no-markers"]);
+    expect(capabilityFailures[0]).toMatch(/: (no-markers|too-short|meta-summary)$/);
     const reporting = pages.find((p) => p.title === "Reporting");
     expect(reporting!.body).toContain("generates reports");
     expect(reporting!.body).not.toContain("### What you can do here");
     // fallback summary carries no duplicated page-title heading.
     expect(reporting!.body).not.toMatch(/^#{1,2}\s+Reporting/);
+  });
+
+  it("records `too-short` when a markered body is below the min length", async () => {
+    const a = moduleNode({ path: "packages/a", files: ["packages/a/i.ts"], dependsOn: [] });
+    const agent: AgentFn = vi.fn(async ({ prompt }) => {
+      if (prompt.includes(CAPABILITY_PROMPT_HINT)) {
+        // Markered but the body between the markers is far below MIN_CAPABILITY_BODY_CHARS.
+        if (/Capability title:\s*Reporting/.test(prompt)) {
+          return markeredCapability("### Tiny\nshort");
+        }
+        return markeredCapability(deepCapabilityBody());
+      }
+      if (prompt.includes("REDUCE")) return reduceWithTwoCaps();
+      return `${TECHNICAL_MARKER}\ntech\n${FUNCTIONAL_MARKER}\nfunc`;
+    });
+
+    const { pages, capabilityFailures } = await runGeneration({
+      repoMap: repoMap([a]),
+      agent,
+    });
+
+    expect(capabilityFailures).toEqual(["Reporting: too-short"]);
+    expect(capabilityFailures[0]).toMatch(/: (no-markers|too-short|meta-summary)$/);
+    const reporting = pages.find((p) => p.title === "Reporting");
+    expect(reporting!.body).toContain("generates reports");
+  });
+
+  it("does NOT reject a long legitimate page whose body merely CONTAINS meta-ish phrases mid-text", async () => {
+    // Regression: the meta-summary check is anchored to the OPENING of the body, so a
+    // real markered page that starts with a `###` heading must PASS even if it contains
+    // "is complete and", "let me know if your build fails" and "the documentation page
+    // for each module" mid-body. It must be used as-is and NOT recorded as a failure.
+    const a = moduleNode({ path: "packages/a", files: ["packages/a/i.ts"], dependsOn: [] });
+    const legitBody = [
+      "### What you can do here",
+      "This block lets you manage reports and exports across the whole workspace, with",
+      "a thorough plain-language walkthrough of every action available to you here.",
+      "",
+      "### Saving and finishing",
+      "Once your configuration is complete and saved, the workspace becomes active.",
+      "If something breaks, let me know if your build fails so you can retry the run.",
+      "",
+      "### Per-module documentation",
+      "The product can render the documentation page for each module independently,",
+      "with plenty of additional plain-language detail to make this a real deep page.",
+    ].join("\n");
+    const agent: AgentFn = vi.fn(async ({ prompt }) => {
+      if (prompt.includes(CAPABILITY_PROMPT_HINT)) {
+        if (/Capability title:\s*Reporting/.test(prompt)) {
+          return markeredCapability(legitBody);
+        }
+        return markeredCapability(deepCapabilityBody());
+      }
+      if (prompt.includes("REDUCE")) return reduceWithTwoCaps();
+      return `${TECHNICAL_MARKER}\ntech\n${FUNCTIONAL_MARKER}\nfunc`;
+    });
+
+    const { pages, capabilityFailures } = await runGeneration({
+      repoMap: repoMap([a]),
+      agent,
+    });
+
+    // The legit page passed validation: NOT recorded, body used verbatim.
+    expect(capabilityFailures).toEqual([]);
+    const reporting = pages.find((p) => p.title === "Reporting");
+    expect(reporting!.body).toBe(legitBody);
+    // mid-text meta-ish phrases survive because they are not at the opening.
+    expect(reporting!.body).toContain("is complete and");
+    expect(reporting!.body).toContain("let me know if your build fails");
+    expect(reporting!.body).toContain("the documentation page for each module");
+    // it is NOT the fallback index summary.
+    expect(reporting!.body).not.toContain("generates reports");
   });
 
   it("logs capabilities beyond maxCapabilities instead of dropping them silently", async () => {
@@ -626,8 +703,10 @@ describe("runGeneration capability deep pass", () => {
       onProgress,
     });
 
-    // Reporting was retried (one extra call) and still bad → fallback + recorded.
-    expect(capabilityFailures).toEqual(["Reporting"]);
+    // Reporting was retried (one extra call) and still bad → fallback + recorded WITH
+    // the reason. Both attempts open with a genuine meta-summary → `meta-summary`.
+    expect(capabilityFailures).toEqual(["Reporting: meta-summary"]);
+    expect(capabilityFailures[0]).toMatch(/: (no-markers|too-short|meta-summary)$/);
     const reporting = pages.find((p) => p.title === "Reporting");
     expect(reporting!.body).toContain("generates reports");
     expect(reporting!.body).not.toContain("saved to the plan file");
@@ -637,6 +716,10 @@ describe("runGeneration capability deep pass", () => {
     // heartbeat fired for the retry too.
     const msgs = onProgress.mock.calls.map((c) => String(c[0]));
     expect(msgs.some((m) => m.includes("Reporting") && m.includes("retry"))).toBe(true);
+    // the rejection reason is logged for auditability (per attempt).
+    expect(
+      msgs.some((m) => m.includes('"Reporting" rejected: meta-summary')),
+    ).toBe(true);
   });
 
   it("uses the retry's content when the first attempt is invalid but the second is valid (not recorded as failure)", async () => {

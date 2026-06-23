@@ -139,8 +139,10 @@ export interface RunGenerationResult {
   /** Path dei moduli falliti (agent in errore o output non parsabile). */
   moduleFailures: string[];
   /**
-   * Titoli delle capability il cui deep pass è fallito (agent in errore o output
-   * vuoto/troppo corto): la pagina esiste comunque, ma col solo testo dell'indice.
+   * Capability il cui deep pass è fallito, ciascuna come `"<title>: <reason>"` dove
+   * `reason` ∈ {`no-markers`, `too-short`, `meta-summary`} (vedi `CapabilityRejection`):
+   * la pagina esiste comunque, ma col solo testo dell'indice. Il motivo rende auditabile
+   * PERCHÉ ogni capability è caduta in fallback (es. via `doc_generations.stats`).
    */
   capabilityFailures: string[];
   /**
@@ -179,15 +181,36 @@ const MIN_CAPABILITY_BODY_CHARS = 80;
  * file…", "I now have a thorough understanding… here is the complete markdown body.")
  * invece del contenuto. Il contratto a marcatori riduce molto il problema (estraendo
  * SOLO tra i marker si scartano preamboli/chiusure fuori da essi), ma se l'agent mette
- * la meta-summary DENTRO i marker dobbiamo comunque scartarla. Un corpo (case-insensitive)
- * che matcha una di queste frasi è trattato come INVALIDO ⇒ retry, poi fallback all'indice.
+ * la meta-summary DENTRO i marker dobbiamo comunque scartarla.
+ *
+ * IMPORTANTE: questa euristica è applicata SOLO all'APERTURA del corpo (vedi
+ * `isMetaSummary`), non a tutto il corpo. Una meta-summary genuina SOSTITUISCE l'intera
+ * pagina e INIZIA con frasi-meta; una pagina vera (per contratto) inizia con un heading
+ * `###` o contenuto reale. Applicarla a tutto il corpo darebbe falsi positivi: una
+ * pagina vera di 3 KB può contenere "is complete and" o "let me know if" a metà testo
+ * senza essere una meta-summary. Le frasi qui sono perciò segnali SPECIFICI di meta
+ * (NON il generico connettore inglese "is ready/written/complete in/and", rimosso):
+ * sull'apertura, dove una pagina vera avrebbe un `###`, sono affidabili.
  */
 const META_SUMMARY_RE =
-  /saved to the plan file|in the plan file|the documentation page (is|for)|let me know if|here is the (complete )?markdown|I now have a thorough|is (ready|written|complete) (in|and)/i;
+  /saved to the plan file|in the plan file|the documentation page (is|for)|let me know if|here is the (complete )?markdown|I now have a thorough/i;
 
-/** true se il corpo (trimmato) sembra una meta-summary dell'agent invece del contenuto. */
+/**
+ * Numero di caratteri iniziali del corpo su cui valutare l'euristica anti-meta-summary.
+ * Si guarda solo l'APERTURA: una meta-summary genuina sostituisce l'intera pagina e
+ * inizia con frasi-meta, mentre una pagina vera inizia con un heading `###`.
+ */
+const META_SUMMARY_HEAD_CHARS = 200;
+
+/**
+ * true se l'APERTURA del corpo (i primi ~`META_SUMMARY_HEAD_CHARS` caratteri, non tutto
+ * il corpo) sembra una meta-summary dell'agent invece del contenuto. Ancorare l'euristica
+ * all'apertura evita i falsi positivi: una pagina legittima che cita "is complete and" o
+ * "let me know if" a metà testo NON viene scartata; solo una pagina che SI APRE con
+ * frasi-meta lo è.
+ */
 function isMetaSummary(body: string): boolean {
-  return META_SUMMARY_RE.test(body);
+  return META_SUMMARY_RE.test(body.slice(0, META_SUMMARY_HEAD_CHARS));
 }
 
 /**
@@ -432,22 +455,34 @@ function parseDelimitedBody(
 }
 
 /**
- * Estrae e VALIDA il corpo del deep pass funzionale dall'output dell'agent. Ritorna il
- * corpo (tra i marker, preamboli/chiusure già scartati) se valido, altrimenti `null`.
- * INVALIDO se: marker mancanti/corpo vuoto tra essi; più corto di
- * `MIN_CAPABILITY_BODY_CHARS`; o il corpo matcha l'euristica anti-meta-summary
- * (`isMetaSummary`). `null` ⇒ il chiamante riprova o fa fallback all'indice.
+ * Motivo per cui un corpo del deep pass è stato RIFIUTATO (per auditabilità via log/heartbeat
+ * e nelle stats di `doc_generations`):
+ * - `no-markers`  — marker mancanti/fuori ordine o corpo vuoto tra essi (parse fallito);
+ * - `too-short`   — più corto di `MIN_CAPABILITY_BODY_CHARS` (output vuoto/degenere);
+ * - `meta-summary`— l'APERTURA del corpo matcha l'euristica anti-meta-summary.
  */
-function validCapabilityBody(output: string): string | null {
+export type CapabilityRejection = "no-markers" | "too-short" | "meta-summary";
+
+/**
+ * Estrae e VALIDA il corpo del deep pass funzionale dall'output dell'agent. Ritorna
+ * `{ body }` se valido, oppure `{ reason }` (uno di `CapabilityRejection`) se rifiutato,
+ * così il chiamante può LOGGARE il motivo e registrarlo nelle stats. Cause di rifiuto:
+ * marker mancanti/corpo vuoto (`no-markers`); più corto di `MIN_CAPABILITY_BODY_CHARS`
+ * (`too-short`); l'apertura matcha l'euristica anti-meta-summary (`meta-summary`).
+ * Rifiutato ⇒ il chiamante riprova o fa fallback all'indice.
+ */
+function validCapabilityBody(
+  output: string,
+): { body: string; reason?: never } | { body?: never; reason: CapabilityRejection } {
   const body = parseDelimitedBody(
     output,
     CAPABILITY_START_MARKER,
     CAPABILITY_END_MARKER,
   );
-  if (body === null) return null;
-  if (body.length < MIN_CAPABILITY_BODY_CHARS) return null;
-  if (isMetaSummary(body)) return null;
-  return body;
+  if (body === null) return { reason: "no-markers" };
+  if (body.length < MIN_CAPABILITY_BODY_CHARS) return { reason: "too-short" };
+  if (isMetaSummary(body)) return { reason: "meta-summary" };
+  return { body };
 }
 
 /** Trasforma un path di modulo in uno slug base (kebab, ascii-safe). */
@@ -681,8 +716,11 @@ export async function runGeneration(
       // 1° tentativo + 1 retry: l'agent deve tornare il corpo TRA i marker, e il corpo
       // estratto deve essere valido (non vuoto, ≥ MIN_CAPABILITY_BODY_CHARS, niente
       // meta-summary). Se entrambi i tentativi sono invalidi → fallback all'indice e si
-      // registra il fallimento. `onProgress` batte attorno a OGNI tentativo (heartbeat).
+      // registra il fallimento CON IL MOTIVO. `onProgress` batte attorno a OGNI tentativo
+      // (heartbeat) e LOGGA il motivo del rifiuto, così un run è auditabile dai log.
       let valid: string | null = null;
+      // best-effort: una chiamata in errore conta come tentativo invalido (no-markers).
+      let lastReason: CapabilityRejection = "no-markers";
       for (let attempt = 1; attempt <= 2 && valid === null; attempt += 1) {
         onProgress?.(
           `capability ${i + 1}/${caps.length}: ${cap.title}` +
@@ -690,16 +728,25 @@ export async function runGeneration(
         );
         try {
           const out = await agent({ prompt: prompt(cap), cwd });
-          valid = validCapabilityBody(out);
+          const res = validCapabilityBody(out);
+          if (res.body !== undefined) {
+            valid = res.body;
+          } else {
+            lastReason = res.reason;
+            onProgress?.(
+              `capability "${cap.title}" rejected: ${res.reason} (attempt ${attempt})`,
+            );
+          }
         } catch {
-          // best-effort: una chiamata in errore conta come tentativo invalido.
-          valid = null;
+          lastReason = "no-markers";
         }
       }
       if (valid !== null) {
         body = valid;
       } else {
-        capabilityFailures.push(cap.title);
+        // Registra il MOTIVO dell'ultimo tentativo, così `stats.capabilityFailures`
+        // mostra PERCHÉ ogni capability è caduta in fallback.
+        capabilityFailures.push(`${cap.title}: ${lastReason}`);
       }
       onProgress?.(`capability ${i + 1}/${caps.length}: ${cap.title} done`);
       pages.push({
