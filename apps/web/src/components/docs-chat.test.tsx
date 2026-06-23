@@ -9,7 +9,11 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../lib/api";
+import { setMatchMedia } from "../test/setup";
 import { DocsChat } from "./docs-chat";
+
+/** Breakpoint `lg`: sopra → colonna affiancata; sotto → drawer da destra. */
+const DESKTOP_QUERY = "(min-width: 1024px)";
 
 /**
  * Test del widget chat (M7.5). Mocka `postDocChat` per restituire una `Response`
@@ -223,6 +227,43 @@ describe("DocsChat", () => {
     renderChat();
     await openChat(user);
     expect(screen.getByText(/ask anything about the docs/i)).toBeInTheDocument();
+  });
+
+  it("mobile (< lg): la chat aperta è un drawer da destra, chiuso da backdrop ed Escape", async () => {
+    // Default matchMedia = mobile (tutte le query false): la chat vive nel drawer.
+    const user = userEvent.setup();
+    renderChat();
+
+    await user.click(await screen.findByRole("button", { name: /open chat/i }));
+
+    // Pannello = dialog (role del Drawer), interattivo, con la textarea.
+    const dialog = await screen.findByRole("dialog", { name: /ask the docs/i });
+    expect(within(dialog).getByLabelText(/ask about this project/i)).toBeInTheDocument();
+    // Il wrapper del Drawer NON è aria-hidden mentre è aperto.
+    expect(dialog.closest("[aria-hidden]")).toHaveAttribute("aria-hidden", "false");
+
+    // Escape chiude: il dialog non è più nell'albero accessibile (wrapper aria-hidden).
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    // Riapri e chiudi cliccando il backdrop.
+    await user.click(screen.getByRole("button", { name: /open chat/i }));
+    await screen.findByRole("dialog", { name: /ask the docs/i });
+    const backdrop = document.querySelector("[data-drawer-backdrop]") as HTMLElement;
+    await user.click(backdrop);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("desktop (lg+): la chat aperta è una colonna affiancata, non un drawer", async () => {
+    setMatchMedia(DESKTOP_QUERY, true);
+    const user = userEvent.setup();
+    renderChat();
+
+    await user.click(await screen.findByRole("button", { name: /open chat/i }));
+
+    // Niente dialog/drawer: la chat è un aside con la textarea.
+    expect(await screen.findByLabelText(/ask about this project/i)).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
   it("più citazioni: tutte renderizzate come link distinti", async () => {

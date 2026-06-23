@@ -4,6 +4,8 @@ interface DrawerProps {
   open: boolean;
   onClose: () => void;
   side?: "left" | "right";
+  /** Larghezza del pannello (classe Tailwind). Default: `w-[min(86vw,20rem)]`. */
+  widthClassName?: string;
   "aria-label": string;
   children: React.ReactNode;
 }
@@ -14,7 +16,14 @@ interface DrawerProps {
  * e porta il focus sul pannello (focus-trap di base). Resta montato anche da
  * chiuso per animare il translate, ma diventa non interattivo (`aria-hidden`).
  */
-export function Drawer({ open, onClose, side = "left", children, ...rest }: DrawerProps) {
+export function Drawer({
+  open,
+  onClose,
+  side = "left",
+  widthClassName = "w-[min(86vw,20rem)]",
+  children,
+  ...rest
+}: DrawerProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
@@ -50,7 +59,7 @@ export function Drawer({ open, onClose, side = "left", children, ...rest }: Draw
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        className={`fixed inset-y-0 ${edge} z-50 w-[min(86vw,20rem)] border-line bg-ink-900 transition-transform duration-200 ${translate} ${side === "left" ? "border-r" : "border-l"}`}
+        className={`fixed inset-y-0 ${edge} z-50 ${widthClassName} border-line bg-ink-900 transition-transform duration-200 ${translate} ${side === "left" ? "border-r" : "border-l"}`}
         {...rest}
       >
         {children}
