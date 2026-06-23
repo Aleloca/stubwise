@@ -83,5 +83,14 @@ export type {
   ExploreRejection,
 } from "./recursive/explore.js";
 
+export {
+  buildSynthesizePrompt,
+  parseSynthesisOutput,
+} from "./recursive/synthesize.js";
+export type {
+  ChildSummary,
+  SynthesizeInput,
+} from "./recursive/synthesize.js";
+
 export type { RepoFile, RepoReader } from "./fs.js";
 export type { RepoMap, ModuleNode } from "./types.js";

@@ -35,11 +35,7 @@
  * la si salta soltanto.
  */
 
-import {
-  isMetaSummary,
-  parseDelimitedBody,
-  META_SUMMARY_RE,
-} from "../markers.js";
+import { isMetaSummary, parseDelimitedBody } from "../markers.js";
 
 export {
   isMetaSummary,
