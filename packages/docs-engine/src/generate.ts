@@ -68,6 +68,12 @@
  * `runGeneration`): marker mancanti/corpo vuoto, troppo corto, o che matcha
  * `META_SUMMARY_RE` ⇒ INVALIDO ⇒ retry una volta, poi fallback all'indice.
  */
+import {
+  baseSlug,
+  isMetaSummary,
+  makeUniqueSlug,
+  parseDelimitedBody,
+} from "./markers.js";
 import type { ModuleNode, RepoMap } from "./types.js";
 
 export type { RepoMap, ModuleNode } from "./types.js";
@@ -176,42 +182,9 @@ const DEFAULT_MAX_CAPABILITIES = 40;
 const MIN_CAPABILITY_BODY_CHARS = 80;
 
 /**
- * Euristica anti-META-SUMMARY del deep pass. In produzione molte pagine tornavano come
- * la META-SUMMARY dell'agent ("The documentation page is written and saved to the plan
- * file…", "I now have a thorough understanding… here is the complete markdown body.")
- * invece del contenuto. Il contratto a marcatori riduce molto il problema (estraendo
- * SOLO tra i marker si scartano preamboli/chiusure fuori da essi), ma se l'agent mette
- * la meta-summary DENTRO i marker dobbiamo comunque scartarla.
- *
- * IMPORTANTE: questa euristica è applicata SOLO all'APERTURA del corpo (vedi
- * `isMetaSummary`), non a tutto il corpo. Una meta-summary genuina SOSTITUISCE l'intera
- * pagina e INIZIA con frasi-meta; una pagina vera (per contratto) inizia con un heading
- * `###` o contenuto reale. Applicarla a tutto il corpo darebbe falsi positivi: una
- * pagina vera di 3 KB può contenere "is complete and" o "let me know if" a metà testo
- * senza essere una meta-summary. Le frasi qui sono perciò segnali SPECIFICI di meta
- * (NON il generico connettore inglese "is ready/written/complete in/and", rimosso):
- * sull'apertura, dove una pagina vera avrebbe un `###`, sono affidabili.
+ * L'euristica anti-meta-summary (`META_SUMMARY_RE` + `isMetaSummary`, ancorata
+ * all'APERTURA del corpo) è estratta in `markers.js` e CONDIVISA col motore ricorsivo.
  */
-const META_SUMMARY_RE =
-  /saved to the plan file|in the plan file|the documentation page (is|for)|let me know if|here is the (complete )?markdown|I now have a thorough/i;
-
-/**
- * Numero di caratteri iniziali del corpo su cui valutare l'euristica anti-meta-summary.
- * Si guarda solo l'APERTURA: una meta-summary genuina sostituisce l'intera pagina e
- * inizia con frasi-meta, mentre una pagina vera inizia con un heading `###`.
- */
-const META_SUMMARY_HEAD_CHARS = 200;
-
-/**
- * true se l'APERTURA del corpo (i primi ~`META_SUMMARY_HEAD_CHARS` caratteri, non tutto
- * il corpo) sembra una meta-summary dell'agent invece del contenuto. Ancorare l'euristica
- * all'apertura evita i falsi positivi: una pagina legittima che cita "is complete and" o
- * "let me know if" a metà testo NON viene scartata; solo una pagina che SI APRE con
- * frasi-meta lo è.
- */
-function isMetaSummary(body: string): boolean {
-  return META_SUMMARY_RE.test(body.slice(0, META_SUMMARY_HEAD_CHARS));
-}
 
 /**
  * Numero massimo di sintesi funzionali di modulo incluse (e loro lunghezza) nel
@@ -430,29 +403,9 @@ function parseSections(
 }
 
 /**
- * Estrae il testo racchiuso tra una coppia di marker start/end, riconosciuti SOLO come
- * RIGA INTERA (la riga, trimmata, è ESATTAMENTE il marker) — stessa filosofia di
- * `parseSections`, MAI substring/indexOf, così un marker a metà riga o dentro un fenced
- * code block non è un delimitatore. Usa la PRIMA riga-`start`, poi la PRIMA riga-`end`
- * successiva. Estrarre tra i marker scarta naturalmente preamboli prima dello start e
- * chiusure dopo l'end. Ritorna `null` (corpo non estraibile) se un marker manca, sono
- * fuori ordine, o il testo tra i due è vuoto una volta trimmato.
+ * `parseDelimitedBody` (estrazione per-riga del corpo tra una coppia di marker) è estratta
+ * in `markers.js` e CONDIVISA col motore ricorsivo.
  */
-function parseDelimitedBody(
-  output: string,
-  start: string,
-  end: string,
-): string | null {
-  const lines = output.split("\n");
-  const startLine = lines.findIndex((l) => l.trim() === start);
-  if (startLine === -1) return null;
-  const endLine = lines.findIndex(
-    (l, i) => i > startLine && l.trim() === end,
-  );
-  if (endLine === -1) return null;
-  const body = lines.slice(startLine + 1, endLine).join("\n").trim();
-  return body === "" ? null : body;
-}
 
 /**
  * Motivo per cui un corpo del deep pass è stato RIFIUTATO (per auditabilità via log/heartbeat
@@ -485,31 +438,10 @@ function validCapabilityBody(
   return { body };
 }
 
-/** Trasforma un path di modulo in uno slug base (kebab, ascii-safe). */
-function baseSlug(modulePath: string): string {
-  const slug = modulePath
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return slug || "module";
-}
-
 /**
- * Genera slug stabili e univoci. Lo slug base deriva deterministicamente dal path;
- * in caso di collisione si appende un suffisso numerico crescente (`-2`, `-3`, …),
- * sempre deterministico a parità di ordine d'ingresso.
+ * `baseSlug`/`makeUniqueSlug` (slug stabili e univoci) sono estratti in `markers.js` e
+ * CONDIVISI col motore ricorsivo.
  */
-function makeUniqueSlug(base: string, used: Set<string>): string {
-  if (!used.has(base)) {
-    used.add(base);
-    return base;
-  }
-  let n = 2;
-  while (used.has(`${base}-${n}`)) n += 1;
-  const slug = `${base}-${n}`;
-  used.add(slug);
-  return slug;
-}
 
 /** Titolo leggibile per la pagina di un modulo (ultimo segmento del path). */
 function moduleTitle(modulePath: string): string {
