@@ -18,7 +18,7 @@ export function ProjectsPage() {
   const isAdmin = me.user.role === "admin";
 
   return (
-    <div className="p-8">
+    <div className="page">
       <header className="flex flex-wrap items-end justify-between gap-4 border-b border-line pb-4">
         <div>
           <h1 className="text-xl font-semibold">{t("projects:list.title")}</h1>

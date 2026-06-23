@@ -36,7 +36,7 @@ export function TeamPage() {
   const isAdmin = me.user.role === "admin";
 
   return (
-    <div className="p-8">
+    <div className="page">
       <header className="border-b border-line pb-4">
         <h1 className="text-xl font-semibold">{t("settings:team.title")}</h1>
         <p className="mt-1 text-sm text-fg-muted">{t("settings:team.subtitle")}</p>
@@ -390,7 +390,7 @@ function SlackPicker({
             setActive(matches.findIndex((su) => su.linkedUserId == null));
           }}
           onKeyDown={handleKeyDown}
-          className="w-64 rounded-sm border border-line-strong bg-ink-950 px-2 py-1 font-mono text-[12px] text-fg placeholder:text-fg-faint disabled:opacity-50"
+          className="w-full rounded-sm border border-line-strong bg-ink-950 px-2 py-1 font-mono text-[12px] text-fg placeholder:text-fg-faint disabled:opacity-50 sm:w-64"
         />
         {pending ? (
           <span className="font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase">
@@ -413,7 +413,7 @@ function SlackPicker({
             id={listboxId}
             role="listbox"
             aria-label={t("settings:team.slackPickerLabel")}
-            className="max-h-56 w-72 overflow-y-auto rounded-sm border border-line bg-ink-950"
+            className="max-h-56 w-full overflow-y-auto rounded-sm border border-line bg-ink-950 sm:w-72"
           >
             {visible.length === 0 ? (
               <li className="px-2 py-2 font-mono text-[11px] text-fg-faint">

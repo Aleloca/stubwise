@@ -6,7 +6,7 @@ interface PagePlaceholderProps {
 /** Segnaposto per le pagine in arrivo nei task successivi (16–18). */
 export function PagePlaceholder({ title, description }: PagePlaceholderProps) {
   return (
-    <div className="p-8">
+    <div className="page">
       <header className="border-b border-line pb-4">
         <h1 className="text-xl font-semibold">{title}</h1>
         <p className="mt-1 text-sm text-fg-muted">{description}</p>

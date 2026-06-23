@@ -166,7 +166,7 @@ export function BoardPage() {
   }
 
   return (
-    <div className="flex h-screen flex-col p-8">
+    <div className="page flex h-screen flex-col">
       <header className="flex flex-wrap items-end justify-between gap-4 border-b border-line pb-4">
         <div>
           <h1 className="text-xl font-semibold">{t("tickets:board.title")}</h1>

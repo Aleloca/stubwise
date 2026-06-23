@@ -149,6 +149,12 @@
   }
 }
 
+@utility page {
+  /* Padding standard del contenitore di pagina: compatto su mobile, ripristina
+   * il valore desktop (`p-8`) da `lg`. */
+  @apply px-4 py-6 sm:p-6 lg:p-8;
+}
+
 @utility bg-grid {
   /* Griglia blueprint appena percettibile, per dare profondità al fondo. */
   background-image:
