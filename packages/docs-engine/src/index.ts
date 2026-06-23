@@ -75,5 +75,13 @@ export type {
 export { buildOrientPrompt, parseOrientPlan } from "./recursive/orient.js";
 export type { OrientPlan } from "./recursive/orient.js";
 
+export { buildExplorePrompt, parseExploreOutput } from "./recursive/explore.js";
+export type {
+  DocTree,
+  ExploreInput,
+  ExploreOutput,
+  ExploreRejection,
+} from "./recursive/explore.js";
+
 export type { RepoFile, RepoReader } from "./fs.js";
 export type { RepoMap, ModuleNode } from "./types.js";
