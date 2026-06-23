@@ -92,5 +92,24 @@ export type {
   SynthesizeInput,
 } from "./recursive/synthesize.js";
 
+export {
+  pathCovers,
+  dedupeChildren,
+  slugForNode,
+  resolveImplementsLinks,
+  selectRelatedLinks,
+  cosineSimilarity,
+} from "./recursive/dag.js";
+export type {
+  DedupeResult,
+  NodeTree,
+  LinkableNode,
+  LinkType,
+  NodeLink,
+  RelatedTarget,
+  RelatedCandidate,
+  SelectRelatedOptions,
+} from "./recursive/dag.js";
+
 export type { RepoFile, RepoReader } from "./fs.js";
 export type { RepoMap, ModuleNode } from "./types.js";
