@@ -190,6 +190,13 @@ describe("board kanban", () => {
     const done = screen.getByRole("region", { name: /^done/i });
     expect(within(done).getByText("Refactoring onboarding")).toBeInTheDocument();
 
+    // Scroll-snap mobile: il contenitore aggancia le colonne, ognuna allineata
+    // a inizio scroll (le classi sono additive, il desktop resta scroll libero).
+    const columnsContainer = columns[0]?.parentElement;
+    expect(columnsContainer?.className).toContain("snap-x");
+    expect(columnsContainer?.className).toContain("snap-mandatory");
+    expect(columns[0]?.className).toContain("snap-start");
+
     // Le colonne senza ticket mostrano il placeholder.
     expect(screen.getAllByText(/no tickets/i)).toHaveLength(3);
 

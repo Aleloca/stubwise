@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DocPage, DocTreeNode } from "../lib/docs-api";
 import { createAppRouter } from "../router";
+import { setMatchMedia } from "../test/setup";
 
 /**
  * Spazio Docs — editing pagine manuali (M7.3) + trigger/stato generazione e
@@ -111,6 +112,10 @@ function baseHandlers(role: "admin" | "member" = "member"): Record<string, Handl
 }
 
 function renderApp(initialPath: string) {
+  // Viewport desktop: la sidebar Docs (albero + pannello generazione) è un aside
+  // fisso sempre montato, non un drawer chiuso. Sotto `lg` quei controlli vivono
+  // nel drawer "Indice" (testato in docs-space.test.tsx).
+  setMatchMedia("(min-width: 1024px)", true);
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const router = createAppRouter(
     queryClient,

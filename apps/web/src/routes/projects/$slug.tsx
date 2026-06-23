@@ -60,7 +60,7 @@ export function ProjectDetailPage() {
   const fullyConfigured = project.webhookConfiguredAt !== null;
 
   return (
-    <div className="p-8">
+    <div className="page">
       <Link
         to="/projects"
         className="font-mono text-[11px] tracking-[0.14em] text-fg-faint uppercase transition-colors hover:text-fg-muted"

@@ -22,7 +22,13 @@ const KIND_LABEL_KEY: Record<DocPageKind, string> = {
 /** Soglia minima di caratteri per interrogare (evita ricerche su 1 lettera). */
 const MIN_QUERY_LENGTH = 2;
 
-export function DocsSearch({ projectId }: { projectId: string }) {
+export function DocsSearch({
+  projectId,
+  onNavigate,
+}: {
+  projectId: string;
+  onNavigate?: () => void;
+}) {
   const { t } = useTranslation();
   const [input, setInput] = useState("");
   const [debounced, setDebounced] = useState("");
@@ -73,7 +79,12 @@ export function DocsSearch({ projectId }: { projectId: string }) {
         ) : (
           <ul className="mt-2 flex flex-col gap-0.5" aria-label={t("docs:search.label")}>
             {results.map((result) => (
-              <SearchResultRow key={result.slug} projectId={projectId} result={result} />
+              <SearchResultRow
+                key={result.slug}
+                projectId={projectId}
+                result={result}
+                onNavigate={onNavigate}
+              />
             ))}
           </ul>
         ))}
@@ -84,9 +95,11 @@ export function DocsSearch({ projectId }: { projectId: string }) {
 function SearchResultRow({
   projectId,
   result,
+  onNavigate,
 }: {
   projectId: string;
   result: DocSearchResult;
+  onNavigate?: () => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -94,6 +107,7 @@ function SearchResultRow({
       <Link
         to="/docs/$projectId/$slug"
         params={{ projectId, slug: result.slug }}
+        onClick={onNavigate}
         className="block rounded-sm px-2 py-1.5 transition-colors hover:bg-ink-850"
       >
         <span className="flex items-baseline gap-2">

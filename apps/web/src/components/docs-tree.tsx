@@ -53,7 +53,17 @@ function buildForest(nodes: DocTreeNode[]): TreeItem[] {
   return sort(roots);
 }
 
-function TreeNodes({ projectId, items, depth }: { projectId: string; items: TreeItem[]; depth: number }) {
+function TreeNodes({
+  projectId,
+  items,
+  depth,
+  onNavigate,
+}: {
+  projectId: string;
+  items: TreeItem[];
+  depth: number;
+  onNavigate?: () => void;
+}) {
   return (
     <ul className="flex flex-col gap-0.5">
       {items.map((item) => (
@@ -61,6 +71,7 @@ function TreeNodes({ projectId, items, depth }: { projectId: string; items: Tree
           <Link
             to="/docs/$projectId/$slug"
             params={{ projectId, slug: item.slug }}
+            onClick={onNavigate}
             className="block truncate rounded-sm px-2 py-1 text-[13px] text-fg-muted transition-colors hover:bg-ink-850 hover:text-fg"
             style={{ paddingLeft: `${depth * 12 + 8}px` }}
             activeProps={{
@@ -70,7 +81,12 @@ function TreeNodes({ projectId, items, depth }: { projectId: string; items: Tree
             {item.title}
           </Link>
           {item.children.length > 0 && (
-            <TreeNodes projectId={projectId} items={item.children} depth={depth + 1} />
+            <TreeNodes
+              projectId={projectId}
+              items={item.children}
+              depth={depth + 1}
+              onNavigate={onNavigate}
+            />
           )}
         </li>
       ))}
@@ -78,7 +94,15 @@ function TreeNodes({ projectId, items, depth }: { projectId: string; items: Tree
   );
 }
 
-export function DocsTree({ projectId, nodes }: { projectId: string; nodes: DocTreeNode[] }) {
+export function DocsTree({
+  projectId,
+  nodes,
+  onNavigate,
+}: {
+  projectId: string;
+  nodes: DocTreeNode[];
+  onNavigate?: () => void;
+}) {
   const { t } = useTranslation();
 
   return (
@@ -98,7 +122,12 @@ export function DocsTree({ projectId, nodes }: { projectId: string; nodes: DocTr
                 {t("docs:space.groupEmpty")}
               </p>
             ) : (
-              <TreeNodes projectId={projectId} items={forest} depth={0} />
+              <TreeNodes
+                projectId={projectId}
+                items={forest}
+                depth={0}
+                onNavigate={onNavigate}
+              />
             )}
           </CollapsibleSection>
         );

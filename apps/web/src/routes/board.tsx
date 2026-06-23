@@ -2,6 +2,7 @@ import {
   DndContext,
   KeyboardSensor,
   PointerSensor,
+  TouchSensor,
   closestCorners,
   useDroppable,
   useSensor,
@@ -132,14 +133,24 @@ export function BoardPage() {
   const { data: tickets } = useSuspenseQuery(boardTicketsQueryOptions(search.projectId));
   const { moveTicket, isError, error, reset } = useMoveTicket(search.projectId);
 
-  // Distanza di attivazione 8px: sotto è un click (apre il dettaglio), sopra
-  // è un drag. Superata la soglia dnd-kit sopprime il click successivo, i due
-  // gesti non si pestano i piedi. Da tastiera: Space prende e posa la card
-  // (con le coordinate sortable per muoversi tra colonne); Enter posa la card
-  // durante un drag (è in keyboardCodes.end), fuori dal drag apre il
-  // dettaglio (vedi onKeyDown della card).
+  // PointerSensor (mouse) — distanza di attivazione 8px: sotto è un click (apre
+  // il dettaglio), sopra è un drag. Superata la soglia dnd-kit sopprime il click
+  // successivo, i due gesti non si pestano i piedi.
+  //
+  // TouchSensor (touch) — attivazione a tempo (delay 200ms, tolerance 8px): un
+  // tap rapido o uno swipe NON avviano un drag e restano allo scroll nativo (le
+  // colonne scrollano in verticale via `<ul>` e in orizzontale con snap), mentre
+  // un breve press-and-hold lo avvia. Senza questo, su touch una panoramica che
+  // parte da una card corre contro l'attivazione a distanza e litiga con lo
+  // scroll nativo. dnd-kit sceglie il sensore giusto in base all'input.
+  // NB: la validazione su device reale resta raccomandata.
+  //
+  // Da tastiera: Space prende e posa la card (con le coordinate sortable per
+  // muoversi tra colonne); Enter posa la card durante un drag (è in
+  // keyboardCodes.end), fuori dal drag apre il dettaglio (vedi onKeyDown).
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
     useSensor(KeyboardSensor, {
       coordinateGetter: sortableKeyboardCoordinates,
       keyboardCodes: { start: ["Space"], cancel: ["Escape"], end: ["Space", "Enter"] },
@@ -166,10 +177,10 @@ export function BoardPage() {
   }
 
   return (
-    <div className="flex h-screen flex-col p-8">
-      <header className="flex flex-wrap items-end justify-between gap-4 border-b border-line pb-4">
+    <div className="page flex h-full flex-col">
+      <header className="flex flex-wrap items-end justify-between gap-3 border-b border-line pb-3 sm:gap-4 sm:pb-4">
         <div>
-          <h1 className="text-xl font-semibold">{t("tickets:board.title")}</h1>
+          <h1 className="text-lg font-semibold sm:text-xl">{t("tickets:board.title")}</h1>
           <p className="mt-1 text-sm text-fg-muted">{t("tickets:board.subtitle")}</p>
         </div>
 
@@ -224,7 +235,7 @@ export function BoardPage() {
       )}
 
       <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
-        <div className="mt-6 grid min-h-0 flex-1 auto-cols-[minmax(15rem,1fr)] grid-flow-col gap-3 overflow-x-auto pb-2">
+        <div className="mt-4 grid min-h-0 flex-1 snap-x snap-mandatory auto-cols-[minmax(15rem,1fr)] grid-flow-col gap-3 overflow-x-auto pb-2 sm:mt-6">
           {BOARD_STATUSES.map((status) => (
             <BoardColumn
               key={status}
@@ -256,7 +267,7 @@ function BoardColumn({ status, tickets, onOpen }: BoardColumnProps) {
         status: t(STATUS_LABEL_KEYS[status]),
         count: tickets.length,
       })}
-      className={`flex min-h-0 flex-col rounded-sm border bg-ink-900 transition-colors ${
+      className={`flex min-h-0 snap-start flex-col rounded-sm border bg-ink-900 transition-colors ${
         isOver ? "border-signal-dim bg-ink-850" : "border-line"
       }`}
     >
@@ -321,7 +332,10 @@ function BoardCard({ ticket, onOpen }: BoardCardProps) {
         listeners?.onKeyDown?.(event);
         if (event.key === "Enter" && !isDragging && !event.defaultPrevented) onOpen();
       }}
-      className={`cursor-grab rounded-sm border bg-ink-850 p-3 transition-colors ${
+      // touch-none SOLO sulla card (è l'handle che spreda {...listeners}): una
+      // volta che il drag è inteso il browser non rivendica il gesto. Lo scroll
+      // verticale della colonna resta sul `<ul>` contenitore, non sulla card.
+      className={`cursor-grab touch-none rounded-sm border bg-ink-850 p-3 transition-colors ${
         isDragging
           ? "z-10 cursor-grabbing border-signal-dim opacity-90 shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
           : "border-line hover:border-line-strong hover:bg-ink-800"

@@ -18,7 +18,9 @@
       "projects": "Projects",
       "team": "Team",
       "settings": "Settings",
-      "docs": "Documentation"
+      "docs": "Documentation",
+      "label": "Navigation",
+      "open": "Open navigation"
     }
   },
   "errors": {
@@ -866,7 +868,11 @@
       "generatedAtCommit": "generated at commit {{commit}}",
       "manualBadge": "manual page",
       "pageNotFound": "Page not found",
-      "pageNotFoundHint": "This page may have been removed by a regeneration."
+      "pageNotFoundHint": "This page may have been removed by a regeneration.",
+      "index": "Index",
+      "indexLabel": "Documentation index",
+      "chat": "Chat",
+      "subbarLabel": "Documentation toolbar"
     },
     "manual": {
       "newPage": "New manual page",

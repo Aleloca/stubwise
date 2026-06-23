@@ -32,19 +32,25 @@ export function SettingsLayout() {
   const items = SETTINGS_NAV.filter((item) => isAdmin || !item.adminOnly);
 
   return (
-    <div className="p-8">
+    <div className="page">
       <header className="border-b border-line pb-4">
         <h1 className="text-xl font-semibold">{t("settings:layout.title")}</h1>
         <p className="mt-1 text-sm text-fg-muted">{t("settings:layout.subtitle")}</p>
       </header>
 
-      <div className="mt-6 grid gap-8 lg:grid-cols-[12rem_minmax(0,1fr)]">
-        <nav aria-label={t("settings:layout.navAriaLabel")} className="flex flex-col gap-0.5">
+      <div className="mt-6 grid gap-6 lg:grid-cols-[12rem_minmax(0,1fr)] lg:gap-8">
+        {/* Sotto `lg` la sotto-nav è una tab bar orizzontale scrollabile (più
+            ergonomica della lista verticale mono su mobile); da `lg` torna alla
+            colonna laterale verticale, identica al desktop attuale. */}
+        <nav
+          aria-label={t("settings:layout.navAriaLabel")}
+          className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1 lg:mx-0 lg:flex-col lg:gap-0.5 lg:overflow-x-visible lg:px-0 lg:pb-0"
+        >
           {items.map((item) => (
             <Link
               key={item.to}
               to={item.to}
-              className="group rounded-sm px-3 py-2 font-mono text-[12px] tracking-[0.04em] text-fg-muted transition-colors hover:bg-ink-800 hover:text-fg"
+              className="group shrink-0 rounded-sm px-3 py-2 font-mono text-[12px] whitespace-nowrap tracking-[0.04em] text-fg-muted transition-colors hover:bg-ink-800 hover:text-fg"
               activeProps={{
                 className: "bg-ink-800 text-fg shadow-[inset_2px_0_0_0_var(--color-signal)]",
               }}

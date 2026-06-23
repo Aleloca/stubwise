@@ -129,7 +129,9 @@
   }
 
   .markdown table {
-    @apply my-3 w-full border-collapse text-sm;
+    /* `display:block` + overflow-x permette lo scroll orizzontale delle tabelle
+     * larghe su mobile invece di sforare la pagina (trick standard responsive). */
+    @apply my-3 block w-full max-w-full overflow-x-auto border-collapse text-sm;
   }
 
   .markdown :is(th, td) {
@@ -147,6 +149,20 @@
   .markdown img {
     @apply max-w-full rounded-sm border border-line;
   }
+}
+
+@utility page {
+  /* Padding standard del contenitore di pagina: compatto su mobile, ripristina
+   * il valore desktop (`p-8`) da `lg`. */
+  @apply px-4 py-6 sm:p-6 lg:p-8;
+}
+
+@utility tap {
+  /* Target touch comodo su mobile: garantisce un'altezza minima ~36px ai
+   * controlli secondari senza alterare il padding (e quindi l'aspetto)
+   * desktop. `inline-flex`/`items-center` evitano che il min-height distorca
+   * il layout interno. Per i controlli primari/nav usare `min-h-11` (~44px). */
+  @apply inline-flex min-h-9 items-center;
 }
 
 @utility bg-grid {

@@ -1,9 +1,11 @@
 import type { DocPageKind } from "@stubwise/shared";
 import { Link } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ApiError } from "../lib/api";
 import { type DocChatCitation, postDocChat } from "../lib/docs-api";
+import { useMediaQuery } from "../lib/use-media-query";
+import { Drawer } from "./drawer";
 import { Markdown } from "./markdown";
 
 /**
@@ -64,9 +66,36 @@ function nextLocalId(): string {
   return `local-${localIdSeq}`;
 }
 
-export function DocsChat({ projectId }: { projectId: string }) {
+export function DocsChat({
+  projectId,
+  open: openProp,
+  onOpenChange,
+}: {
+  projectId: string;
+  /** Stato aperto controllato (sub-barra Docs); se assente, è gestito internamente. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
+  // Su `lg+` la chat è una colonna affiancata; sotto, un drawer da destra. Si
+  // pilota in JS (non solo via classi CSS) per montare UN SOLO corpo chat alla
+  // volta: due istanze condividerebbero `id`/label e romperebbero le query.
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
+  // Aperto controllato dal parent (sub-barra) o gestito internamente (FAB
+  // standalone). In modalità controllata `openProp`/`onOpenChange` vincono.
+  const [openState, setOpenState] = useState(false);
+  const open = openProp ?? openState;
+  // Setter stabile: il `Drawer` ha `onClose` nelle deps del suo effect; un
+  // closure inline (nuova identità a ogni render → a ogni keystroke) gli farebbe
+  // ri-rubare il focus dal textarea mentre si scrive. `useCallback` lo evita.
+  const setOpen = useCallback(
+    (value: boolean) => {
+      setOpenState(value);
+      onOpenChange?.(value);
+    },
+    [onOpenChange],
+  );
+  const closeChat = useCallback(() => setOpen(false), [setOpen]);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sending, setSending] = useState(false);
@@ -180,20 +209,10 @@ export function DocsChat({ projectId }: { projectId: string }) {
     }
   }
 
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="absolute right-4 bottom-4 rounded-sm border border-line-strong bg-ink-900 px-3 py-2 font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg"
-      >
-        {t("docs:chat.open")}
-      </button>
-    );
-  }
-
-  return (
-    <aside className="flex w-96 shrink-0 flex-col border-l border-line bg-ink-950">
+  // Corpo della chat (header + messaggi + form): identico nelle due varianti
+  // di contenitore (colonna desktop / drawer mobile), nessuna duplicazione.
+  const body = (
+    <div className="flex h-full min-h-0 flex-col">
       <header className="flex items-center justify-between border-b border-line px-4 py-3">
         <div>
           <h2 className="font-mono text-[11px] tracking-[0.12em] text-fg uppercase">
@@ -266,7 +285,43 @@ export function DocsChat({ projectId }: { projectId: string }) {
           </button>
         </div>
       </form>
-    </aside>
+    </div>
+  );
+
+  return (
+    <>
+      {/* FAB: apre la chat. Visibile (sia su desktop sia su mobile) quando chiusa. */}
+      {!open && (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="absolute right-4 bottom-4 z-20 rounded-sm border border-line-strong bg-ink-900 px-3 py-2 font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg"
+        >
+          {t("docs:chat.open")}
+        </button>
+      )}
+
+      {/* Desktop (`lg+`): colonna affiancata. Mobile: drawer da destra a piena
+          altezza. Si monta una sola variante per non duplicare il corpo chat. */}
+      {isDesktop ? (
+        open && (
+          <aside className="flex w-96 shrink-0 flex-col border-l border-line bg-ink-950">
+            {body}
+          </aside>
+        )
+      ) : (
+        <Drawer
+          open={open}
+          onClose={closeChat}
+          side="right"
+          widthClassName="w-[min(92vw,28rem)]"
+          aria-label={t("docs:chat.title")}
+          id="docs-chat-drawer"
+        >
+          <div className="h-full bg-ink-950">{body}</div>
+        </Drawer>
+      )}
+    </>
   );
 }
 

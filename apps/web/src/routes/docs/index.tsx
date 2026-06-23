@@ -15,7 +15,7 @@ export function DocsPage() {
   const { data: spaces } = useSuspenseQuery(docSpacesQueryOptions);
 
   return (
-    <div className="p-8">
+    <div className="page">
       <header className="border-b border-line pb-4">
         <h1 className="text-xl font-semibold">{t("docs:hub.title")}</h1>
         <p className="mt-1 text-sm text-fg-muted">{t("docs:hub.subtitle")}</p>
