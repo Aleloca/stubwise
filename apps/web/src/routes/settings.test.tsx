@@ -122,6 +122,11 @@ describe("impostazioni: routing e sotto-navigazione", () => {
     expect(scope.getByRole("link", { name: "AI automation" })).toBeInTheDocument();
     expect(scope.getByRole("link", { name: "Notifications" })).toBeInTheDocument();
     expect(scope.getByRole("link", { name: "Git accounts" })).toBeInTheDocument();
+
+    // Su mobile la sotto-nav è una tab bar orizzontale scrollabile; da `lg`
+    // torna alla colonna laterale verticale (desktop invariato).
+    expect(nav.className).toContain("overflow-x-auto");
+    expect(nav.className).toContain("lg:flex-col");
   });
 
   it("member: la sotto-nav mostra solo Account", async () => {
