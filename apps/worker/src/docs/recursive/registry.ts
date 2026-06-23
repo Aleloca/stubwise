@@ -1,8 +1,4 @@
-import { decrypt, docGenerations, gitAccounts, projects, type Db } from "@stubwise/db";
-import { eq } from "drizzle-orm";
-import { z } from "zod";
-import type { MirrorManager, MirrorProject } from "../../git/mirrors.js";
-import { openGenerationWorktree, type GenerationWorktree } from "../generation-worktree.js";
+import { type GenerationWorktree } from "../generation-worktree.js";
 
 /**
  * REGISTRO IN-PROCESSO dei worktree di generazione del DAG (M7).
@@ -24,25 +20,17 @@ import { openGenerationWorktree, type GenerationWorktree } from "../generation-w
  * NON apre una nuova generazione per un progetto che ne ha già una attiva. La politica
  * è documentata e LOGGATA nel dispatch.
  *
- * RIAPERTURA SU RIAVVIO (reopen-on-demand): il registro è in-memoria, quindi al riavvio
- * del worker tutti gli handle sono persi anche se il DAG ha nodi pendenti (li ripristina
- * `requeueStaleNodes`). Quando il dispatch reclama un nodo la cui generazione NON è
- * registrata, `ensureWorktreeDir` RI-APRE il worktree dal mirror al volo. TRADEOFF: si
- * riapre su `HEAD` del default branch, non sul `commitSha` esatto documentato dalla
- * generazione — riaprire a uno sha arbitrario richiederebbe un detached checkout fuori
- * dalle primitive di MirrorManager. In pratica è innocuo: il worktree serve all'agente
- * read-only come `cwd` per leggere il codice; al massimo legge una revisione più nuova
- * di quella seminata, mai un fallimento. Lo sha documentato resta quello scritto in
- * `doc_generations.commitSha` dalla M5a. La riapertura ri-registra l'handle, così i
- * job-nodo successivi della stessa generazione lo riusano.
+ * RIAVVIO DEL WORKER (fail-on-restart, issue M2): il registro è in-memoria, quindi al
+ * riavvio del worker TUTTI gli handle sono persi. I nodi pendenti sopravvivono nel DB
+ * (`requeueStaleNodes` li rende di nuovo claimabili), ma il worktree CONDIVISO aperto
+ * dall'orientamento su un commit preciso non c'è più. NON lo riapriamo on-demand: farlo
+ * a HEAD rischierebbe documentazione a commit MISTI (parte dei nodi sul vecchio sha,
+ * parte sul nuovo). Il dispatch (vedi node-dispatch.ts), quando reclama un nodo la cui
+ * generazione NON è registrata (`getWorktreeDir` → null), FALLISCE la generazione
+ * (`failGenerationOnRestart`): generazione + nodi non-done + trigger → `failed`. L'utente
+ * ri-triggera. Per questo il registro espone solo un getter SINCRONO (`getWorktreeDir`),
+ * senza alcuna riapertura dal mirror.
  */
-
-/** Credenziali git decifrate (mirror di orient-handler.ts). */
-const credentialsSchema = z.object({
-  username: z.string().min(1).optional(),
-  email: z.string().min(1).optional(),
-  token: z.string().min(1),
-});
 
 /** Voce del registro: l'handle del worktree + il progetto a cui appartiene. */
 interface RegistryEntry {
@@ -58,11 +46,12 @@ export interface GenerationWorktreeRegistry {
    */
   register(generationId: string, projectId: string, worktree: GenerationWorktree): void;
   /**
-   * Ritorna la `dir` del worktree della generazione, riaprendolo dal mirror se non
-   * registrato (reopen-on-demand dopo un riavvio del worker). Lancia se la
-   * generazione/progetto non esistono più o se l'apertura fallisce.
+   * Ritorna la `dir` del worktree REGISTRATO della generazione, oppure `null` se non
+   * c'è (riavvio del worker → handle perso). NON riapre nulla: il chiamante (dispatch)
+   * tratta `null` come "worktree perso al riavvio" e fa fallire la generazione (vedi
+   * failGenerationOnRestart). Sincrono: nessun I/O.
    */
-  ensureWorktreeDir(db: Db, generationId: string): Promise<string>;
+  getWorktreeDir(generationId: string): string | null;
   /** true se per `generationId` esiste un handle registrato (worktree vivo in-process). */
   has(generationId: string): boolean;
   /**
@@ -85,14 +74,11 @@ export interface GenerationWorktreeRegistry {
 }
 
 /**
- * Crea il registro in-processo dei worktree di generazione. `mirrors` è il
- * MirrorManager condiviso (lo stesso del fix), usato per la riapertura on-demand;
- * `encryptionKey` decifra le credenziali git nella riapertura.
+ * Crea il registro in-processo dei worktree di generazione. Dopo l'eliminazione della
+ * riapertura on-demand (fail-on-restart, issue M2) il registro è un puro contenitore
+ * in-memoria senza I/O: non richiede più MirrorManager né la chiave di cifratura.
  */
-export function createGenerationWorktreeRegistry(
-  mirrors: MirrorManager,
-  encryptionKey: Buffer,
-): GenerationWorktreeRegistry {
+export function createGenerationWorktreeRegistry(): GenerationWorktreeRegistry {
   const entries = new Map<string, RegistryEntry>();
 
   return {
@@ -100,29 +86,8 @@ export function createGenerationWorktreeRegistry(
       entries.set(generationId, { projectId, worktree });
     },
 
-    async ensureWorktreeDir(db, generationId): Promise<string> {
-      const existing = entries.get(generationId);
-      if (existing) return existing.worktree.dir;
-
-      // Reopen-on-demand: la generazione non ha un worktree registrato (riavvio del
-      // worker). Carica progetto + credenziali e RI-APRE il worktree dal mirror.
-      const { projectId, mirrorProject } = await loadMirrorProjectForGeneration(
-        db,
-        generationId,
-        encryptionKey,
-      );
-      const worktree = await openGenerationWorktree(mirrors, mirrorProject);
-      // Doppio-check: un'altra dispatch concorrente potrebbe aver riaperto nel frattempo.
-      const raced = entries.get(generationId);
-      if (raced) {
-        await worktree.close().catch(() => {});
-        return raced.worktree.dir;
-      }
-      entries.set(generationId, { projectId, worktree });
-      console.error(
-        `[stubwise-worker] worktree della generazione ${generationId} ri-aperto on-demand (riavvio worker)`,
-      );
-      return worktree.dir;
+    getWorktreeDir(generationId): string | null {
+      return entries.get(generationId)?.worktree.dir ?? null;
     },
 
     has(generationId): boolean {
@@ -140,41 +105,6 @@ export function createGenerationWorktreeRegistry(
       const ids = new Set<string>();
       for (const entry of entries.values()) ids.add(entry.projectId);
       return ids;
-    },
-  };
-}
-
-/**
- * Carica progetto + account git collegato di una generazione e costruisce il
- * MirrorProject (credenziali decifrate). Usato dalla riapertura on-demand. Lancia
- * con un messaggio chiaro se la generazione/progetto non esistono o se le credenziali
- * non sono decifrabili (il chiamante lo propaga: il nodo verrà ripreso dallo stale).
- */
-async function loadMirrorProjectForGeneration(
-  db: Db,
-  generationId: string,
-  encryptionKey: Buffer,
-): Promise<{ projectId: string; mirrorProject: MirrorProject }> {
-  const [row] = await db
-    .select({ project: projects, account: gitAccounts })
-    .from(docGenerations)
-    .innerJoin(projects, eq(projects.id, docGenerations.projectId))
-    .innerJoin(gitAccounts, eq(gitAccounts.id, projects.gitAccountId))
-    .where(eq(docGenerations.id, generationId));
-  if (!row) {
-    throw new Error(`generazione ${generationId} o progetto/account collegato non trovato`);
-  }
-  const { project, account } = row;
-  const credentials = credentialsSchema.parse(
-    JSON.parse(decrypt(account.encryptedCredentials, encryptionKey)),
-  );
-  return {
-    projectId: project.id,
-    mirrorProject: {
-      provider: project.provider,
-      repoUrl: project.repoUrl,
-      defaultBranch: project.defaultBranch,
-      credentials,
     },
   };
 }

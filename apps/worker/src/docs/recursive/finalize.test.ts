@@ -12,7 +12,12 @@ import { createFakeEmbeddingClient, FAKE_EMBEDDING_DIMENSION } from "@stubwise/e
 import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { DocNode } from "../nodes.js";
-import { allRootsDone, finalizeGeneration, type FinalizeGenerationDeps } from "./finalize.js";
+import {
+  allRootsDone,
+  failGenerationOnRestart,
+  finalizeGeneration,
+  type FinalizeGenerationDeps,
+} from "./finalize.js";
 
 // Test della finalizzazione del DAG (M6): si costruisce un mini-DAG COMPLETO
 // direttamente nel DB (una generazione + 2 radici done + figli/nipoti done su
@@ -119,11 +124,21 @@ async function insertNode(
   return node;
 }
 
-/** Trigger doc-job `running` collegato alla generazione (lasciato dalla M5a). */
+/**
+ * Trigger doc-job collegato alla generazione. Dopo il decoupling (C2) il trigger è già
+ * `succeeded` quando la finalizzazione gira (l'orientamento lo chiude al seed del DAG):
+ * la finalizzazione NON lo tocca più. Lo seminiamo `succeeded` per riflettere la realtà.
+ */
 async function insertTrigger(db: Db, projectId: string, generationId: string): Promise<string> {
   const [job] = await db
     .insert(docGenerationJobs)
-    .values({ projectId, generationId, status: "running", startedAt: new Date() })
+    .values({
+      projectId,
+      generationId,
+      status: "succeeded",
+      startedAt: new Date(),
+      finishedAt: new Date(),
+    })
     .returning();
   if (!job) throw new Error("insert del trigger non ha restituito la riga");
   return job.id;
@@ -275,7 +290,8 @@ describe("finalizeGeneration", () => {
     // 0.20 (base/orient) + 0.10+0.05+0.02+0.08+0.03 = 0.48.
     expect(Number(gen?.cost)).toBeCloseTo(0.48, 6);
 
-    // Trigger succeeded + collegato.
+    // Trigger NON toccato dalla finalizzazione (decoupling C2): resta `succeeded` come
+    // chiuso dall'orientamento al seed, collegato alla generazione.
     const [job] = await db.select().from(docGenerationJobs).where(eq(docGenerationJobs.id, triggerId));
     expect(job?.status).toBe("succeeded");
     expect(job?.generationId).toBe(generationId);
@@ -357,6 +373,70 @@ describe("finalizeGeneration", () => {
 
     const [job] = await db.select().from(docGenerationJobs).where(eq(docGenerationJobs.id, triggerId));
     expect(job?.status).toBe("succeeded");
+  });
+
+  it("failGenerationOnRestart: generazione running + nodi non-done + trigger → failed (C3)", async () => {
+    const { db } = testDb;
+    const projectId = await createProject(db);
+    const generationId = await newGeneration(db, projectId);
+
+    // Un DAG a metà: una radice awaiting_children, un figlio exploring (in volo), un
+    // figlio già done. Il trigger è ancora running (caso reale: l'orientamento aveva
+    // chiuso il trigger succeeded, ma testiamo che un trigger residuo running venga
+    // chiuso comunque).
+    const root = await insertNode(db, generationId, projectId, {
+      tree: "technical",
+      status: "awaiting_children",
+      title: "Root",
+      slug: "root",
+    });
+    const exploring = await insertNode(db, generationId, projectId, {
+      tree: "technical",
+      parentId: root.id,
+      depth: 1,
+      status: "exploring",
+      title: "In volo",
+      slug: "in-volo",
+    });
+    const doneChild = await insertNode(db, generationId, projectId, {
+      tree: "technical",
+      parentId: root.id,
+      depth: 1,
+      status: "done",
+      title: "Fatto",
+      slug: "fatto",
+    });
+    const [trigger] = await db
+      .insert(docGenerationJobs)
+      .values({ projectId, generationId, status: "running", startedAt: new Date() })
+      .returning();
+
+    const reason = "riavvio worker";
+    const result = await failGenerationOnRestart(db, generationId, reason);
+    expect(result).toBe(true);
+
+    // Generazione failed con la ragione.
+    const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.id, generationId));
+    expect(gen?.status).toBe("failed");
+    expect(gen?.error).toBe(reason);
+    expect(gen?.finishedAt).not.toBeNull();
+
+    // I nodi non-done → failed; il done resta done.
+    const nodes = await db.select().from(docNodes).where(eq(docNodes.generationId, generationId));
+    const byId = new Map(nodes.map((n) => [n.id, n]));
+    expect(byId.get(root.id)?.status).toBe("failed");
+    expect(byId.get(exploring.id)?.status).toBe("failed");
+    expect(byId.get(doneChild.id)?.status).toBe("done");
+
+    // Trigger running → failed.
+    const [jobAfter] = await db
+      .select()
+      .from(docGenerationJobs)
+      .where(eq(docGenerationJobs.id, trigger!.id));
+    expect(jobAfter?.status).toBe("failed");
+
+    // Idempotente: una seconda chiamata non fa nulla (generazione già terminale).
+    expect(await failGenerationOnRestart(db, generationId, reason)).toBe(false);
   });
 
   it("prune: tiene corrente + precedente, evince le più vecchie (cascade)", async () => {

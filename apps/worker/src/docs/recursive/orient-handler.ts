@@ -14,13 +14,13 @@ import {
   type ChildSpec as EngineChildSpec,
   type OrientPlan,
 } from "@stubwise/docs-engine";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AgentRunner } from "../../agent/runner.js";
 import { MirrorManager, type MirrorProject } from "../../git/mirrors.js";
 import type { ResolvedProvider } from "../../providers/chain.js";
 import { openGenerationWorktree, type GenerationWorktree } from "../generation-worktree.js";
-import { failDocJob, touchDocJob, type DocJob } from "../queue.js";
+import { completeDocJob, failDocJob, touchDocJob, type DocJob } from "../queue.js";
 import { createWorktreeReader } from "../reader.js";
 import type { GenerationWorktreeRegistry } from "./registry.js";
 
@@ -37,14 +37,16 @@ import type { GenerationWorktreeRegistry } from "./registry.js";
  * `functional` "Capability Map", `awaiting_children`, depth 0) e i loro figli di 1°
  * livello (`pending`, depth 1) dalle due child-list del piano.
  *
- * IL TRIGGER NON VIENE CHIUSO QUI. L'orientamento lascia il trigger in stato
- * `running` (lo stato attivo del doc-job): la generazione è in corso e il trigger
- * verrà finalizzato (completeDocJob/failDocJob) dalla FINALIZZAZIONE (M6), quando la
- * radice raggiunge `done`. Qui colleghiamo solo `generationId` al trigger e battiamo
- * l'heartbeat (touchDocJob) durante l'orientamento. Su fallimento dell'orientamento
- * (output invalido dopo retry, errore di setup) la generazione è `failed` E il
- * trigger è `failed` subito: non c'è un DAG da far avanzare, quindi non ha senso
- * lasciarlo `running`.
+ * IL TRIGGER VIENE CHIUSO QUI (decoupling, C2). Il compito del trigger è SOLO avviare
+ * la generazione: appena il DAG è seminato lo marchiamo `succeeded` (con `generationId`
+ * collegato). NON lo teniamo `running` per tutto il DAG — lo stato "generazione in corso"
+ * vive su `doc_generations` (running → succeeded/failed alla finalizzazione M6), unica
+ * fonte di verità. Tenerlo `running` a lungo lo esporrebbe a `requeueStaleDocJobs`, che
+ * su una generazione lunga lo riaccoderebbe → seconda generazione/fallimento post-riavvio.
+ * Durante l'orientamento battiamo comunque l'heartbeat (touchDocJob). Su fallimento
+ * (output invalido dopo retry, piano vuoto, errore di setup) la generazione è `failed` E
+ * il trigger è `failed`. Se il progetto ha già una generazione `running` (guard DB), il
+ * trigger è `succeeded`-skip senza avviarne una seconda.
  */
 
 /** Forma attesa delle credenziali git decifrate (mirror di pipeline.ts). */
@@ -79,7 +81,26 @@ export interface RunOrientationDeps {
   registry?: GenerationWorktreeRegistry;
 }
 
-export type OrientationOutcome = "seeded" | "failed";
+export type OrientationOutcome = "seeded" | "failed" | "skipped";
+
+/**
+ * GUARDIA DB nuova-generazione (sopravvive al riavvio del worker): true se il progetto
+ * ha GIÀ una generazione `running` nel DB. È la difesa AUTORITATIVA contro l'avvio di
+ * una SECONDA generazione concorrente sullo stesso progetto (due worktree concorrenti
+ * sullo stesso mirror → corruzione del ref checked-out). A differenza del guard
+ * in-processo del registro (`activeProjectIds`, che si azzera al riavvio), questa lettura
+ * del DB persiste tra i riavvii: se un riavvio ha perso il worktree ma `doc_generations`
+ * ha ancora una riga `running`, un nuovo trigger NON parte (la vecchia generazione sarà
+ * fatta fallire dal fail-on-restart del dispatch quando i suoi nodi vengono reclamati).
+ */
+async function hasRunningGeneration(db: Db, projectId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: docGenerations.id })
+    .from(docGenerations)
+    .where(and(eq(docGenerations.projectId, projectId), eq(docGenerations.status, "running")))
+    .limit(1);
+  return row !== undefined;
+}
 
 /** Contesto di generazione: progetto + MirrorProject pronti, riga generation creata. */
 interface GenerationContext {
@@ -363,16 +384,37 @@ async function failOrientation(
 
 /**
  * Esegue l'orientamento per il trigger `job`: semina le radici del DAG (vedi
- * docblock del modulo). Ritorna "seeded" (DAG seminato, generazione `running`,
- * trigger `running` lasciato per la finalizzazione M6) o "failed" (generazione +
- * trigger `failed`). Il worktree di generazione viene CHIUSO qui SOLO su fallimento;
- * su successo resta APERTO per i job-nodo del DAG e sarà chiuso dalla finalizzazione.
+ * docblock del modulo). Ritorna:
+ *  - "seeded": DAG seminato, generazione `running`, TRIGGER `succeeded` (il suo compito
+ *    — avviare la generazione — è concluso; la vita della generazione vive su
+ *    `doc_generations`, non sul trigger);
+ *  - "failed": generazione + trigger `failed` (orientamento invalido, piano vuoto, errore);
+ *  - "skipped": il progetto ha già una generazione `running` (guard DB) → trigger
+ *    `succeeded`-skip, nessuna seconda generazione avviata.
+ * Il worktree di generazione viene CHIUSO qui SOLO su fallimento; su successo resta
+ * APERTO per i job-nodo del DAG e sarà chiuso dalla finalizzazione.
  */
 export async function runOrientation(
   deps: RunOrientationDeps,
   job: DocJob,
 ): Promise<OrientationOutcome> {
   const { db, mirrors } = deps;
+
+  // GUARDIA DB (autoritativa, sopravvive al riavvio): se il progetto ha già una
+  // generazione `running`, NON ne avvio una seconda (eviterebbe due worktree concorrenti
+  // sullo stesso mirror). Chiudo il trigger `succeeded` con un log chiaro (skip pulito):
+  // il trigger ha fatto il suo dovere — non c'è nulla da fare perché una generazione è
+  // già in corso. NB: il guard in-processo del registro (handler.ts) resta come difesa
+  // in profondità; questo è il check autoritativo.
+  if (await hasRunningGeneration(db, job.projectId)) {
+    await completeDocJob(db, job.id, {
+      log: "[docs] una generazione è già in corso (doc_generations running) per questo progetto: trigger ignorato senza avviarne una seconda",
+    });
+    console.error(
+      `[stubwise-worker] trigger doc-generation per il progetto ${job.projectId} ignorato: generazione già running (guard DB)`,
+    );
+    return "skipped";
+  }
 
   const ctx = await loadGenerationContext(db, deps.encryptionKey, deps.model, job);
   if (!ctx) return "failed";
@@ -402,6 +444,25 @@ export async function runOrientation(
       return "failed";
     }
 
+    // PIANO VUOTO (C1): se ENTRAMBI gli alberi non hanno figli, il DAG non avrebbe
+    // alcun nodo claimabile — entrambe le radici partirebbero `done` con zero figli e la
+    // finalizzazione (innescata dal dispatch di un nodo) non scatterebbe MAI → generazione
+    // bloccata `running` + worktree leaked. Lo trattiamo come FALLIMENTO dell'orientamento
+    // (l'agente non ha trovato NULLA da documentare): generazione + trigger `failed`,
+    // worktree chiuso. Se almeno un albero ha figli si procede normalmente (l'altro
+    // albero vuoto → radice `done` è il caso degenere già gestito da seedRoot, e la
+    // finalizzazione scatta quando l'albero non-vuoto si chiude).
+    if (orient.plan.technical.length === 0 && orient.plan.functional.length === 0) {
+      await worktree.close();
+      await failOrientation(
+        db,
+        ctx.generationId,
+        job.id,
+        "piano di orientamento vuoto: nessuna unità tecnica né capability funzionale da documentare",
+      );
+      return "failed";
+    }
+
     // Costo dell'orientamento aggregato nella generazione (gli explore/synthesize
     // lo sommeranno alla finalizzazione, M6).
     await db
@@ -414,10 +475,17 @@ export async function runOrientation(
     // Il worktree resta APERTO: i job-nodo del DAG lo riusano (read-only). Lo
     // REGISTRO nel registro in-processo (M7) così il dispatch ne ricava la `dir` per
     // explore/synthesize e ne traccia la mutua esclusione col fix (activeProjectIds).
-    // La generazione resta `running`; il trigger resta `running` (NON succeeded): sarà
-    // finalizzato dalla M6 quando la radice raggiunge `done`. Heartbeat finale.
     deps.registry?.register(ctx.generationId, ctx.projectId, worktree);
-    await touchDocJob(db, job.id);
+
+    // TRIGGER `succeeded` ORA (C2): seminato il DAG, il compito del trigger è finito.
+    // La vita della generazione (running → succeeded/failed) vive su `doc_generations`,
+    // unica fonte di verità: NON teniamo il trigger `running` per tutto il DAG, altrimenti
+    // su una generazione lunga `requeueStaleDocJobs` lo riaccoderebbe → seconda
+    // generazione/fallimento post-riavvio. La finalizzazione (M6) NON tocca più il trigger.
+    await completeDocJob(db, job.id, {
+      log: "[docs] orientamento completato: DAG seminato, generazione in corso (trigger concluso; lo stato vive su doc_generations)",
+      generationId: ctx.generationId,
+    });
     return "seeded";
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

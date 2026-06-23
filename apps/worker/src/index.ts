@@ -142,9 +142,10 @@ const embeddingClient = createEmbeddingClient({
 // Registro IN-PROCESSO dei worktree di generazione del DAG (M7): l'orientamento vi
 // registra il worktree aperto, i job-nodo ne ricavano la `dir`, la finalizzazione lo
 // chiude. Espone activeProjectIds per la mutua esclusione col fix (un fix farebbe
-// fetch --prune cancellando il ref checked-out del worktree). Riusa il MirrorManager
-// condiviso per la riapertura on-demand dopo un riavvio del worker.
-const generationRegistry = createGenerationWorktreeRegistry(mirrors, config.encryptionKey);
+// fetch --prune cancellando il ref checked-out del worktree). È un contenitore
+// in-memoria: a un riavvio del worker gli handle sono persi e il dispatch fa fallire
+// pulitamente le generazioni interrotte (fail-on-restart, vedi node-dispatch.ts).
+const generationRegistry = createGenerationWorktreeRegistry();
 
 // Handler del TRIGGER doc-generation (M7): avvia l'ORIENTAMENTO (apre+registra il
 // worktree, semina il DAG), serializzato per-progetto col fix (serializer condiviso)

@@ -1,10 +1,15 @@
 import { type Db } from "@stubwise/db";
 import type { AgentRunner } from "../../agent/runner.js";
 import { loadProviderChain, type ResolvedProvider } from "../../providers/chain.js";
-import { claimNextNode, type ClaimedNode } from "../nodes.js";
+import { claimNextNode, recordNodeCost, type ClaimedNode } from "../nodes.js";
 import { runExplore, type RunExploreDeps } from "./explore-handler.js";
 import { runSynthesize, type RunSynthesizeDeps } from "./synthesize-handler.js";
-import { allRootsDone, finalizeGeneration, type FinalizeGenerationDeps } from "./finalize.js";
+import {
+  allRootsDone,
+  failGenerationOnRestart,
+  finalizeGeneration,
+  type FinalizeGenerationDeps,
+} from "./finalize.js";
 import type { GenerationWorktreeRegistry } from "./registry.js";
 
 /**
@@ -12,12 +17,17 @@ import type { GenerationWorktreeRegistry } from "./registry.js";
  *
  * `dispatchNode` è il pezzo che fa girare il DAG end-to-end dentro `runWorker`:
  * reclama UN nodo claimabile (`claimNextNode`), risolve la `dir` del worktree
- * CONDIVISO della sua generazione (dal registro in-processo, o lo riapre on-demand
- * dopo un riavvio), e lo dispatcha alla fase giusta — `runExplore` (explore) o
- * `runSynthesize` (synthesize) — iniettando `worktreeDir`. Poi rileva se la
- * generazione è ora INTERAMENTE chiusa (tutte le radici `done`) e, in quel caso,
- * chiama `finalizeGeneration` (M6) ESATTAMENTE UNA VOLTA e chiude/deregistra il
- * worktree.
+ * CONDIVISO della sua generazione dal registro in-processo, e lo dispatcha alla fase
+ * giusta — `runExplore` (explore) o `runSynthesize` (synthesize) — iniettando
+ * `worktreeDir`. Persiste il costo del nodo (per la M6) e poi rileva se la generazione
+ * è ora INTERAMENTE chiusa (tutte le radici `done`) e, in quel caso, chiama
+ * `finalizeGeneration` (M6) ESATTAMENTE UNA VOLTA e chiude/deregistra il worktree.
+ *
+ * FAIL-ON-RESTART (issue M2): se il worktree della generazione NON è nel registro
+ * quando si reclama un suo nodo, un riavvio del worker ha perso l'handle in-memoria.
+ * NON si riapre a HEAD (rischio di doc a commit misti): si fa FALLIRE la generazione
+ * (`failGenerationOnRestart`) — generazione + nodi non-done + trigger → `failed` — e
+ * l'utente ri-triggera. Una generazione interrotta da un riavvio fallisce pulitamente.
  *
  * PARALLELISMO: i job-nodo della STESSA generazione girano CONCORRENTEMENTE (il DAG
  * parallelizza), fino al budget di concorrenza del worker — NON passano dal
@@ -104,17 +114,29 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
   const { db, registry } = deps;
   const { node, phase } = claimed;
 
-  // Risolve la `dir` del worktree della generazione (registrato dall'orientamento, o
-  // riaperto on-demand dopo un riavvio del worker).
-  let worktreeDir: string;
-  try {
-    worktreeDir = await registry.ensureWorktreeDir(db, node.generationId);
-  } catch (error) {
-    // Il worktree non è (ri)apribile: lascio il nodo `exploring`/`synthesizing` allo
-    // stale-requeue invece di fallirlo (potrebbe essere un blip del mirror/credenziali).
-    console.error(
-      `[stubwise-worker] worktree della generazione ${node.generationId} non risolvibile per il nodo ${node.id} (${phase}): ${describe(error)} — il nodo tornerà claimabile via requeueStaleNodes`,
-    );
+  // Risolve la `dir` del worktree CONDIVISO della generazione dal registro in-processo.
+  // Il worktree esiste SOLO se l'orientamento di QUESTA generazione gira ancora in questo
+  // processo: il nodo esiste, quindi l'orientamento AVEVA aperto un worktree.
+  const worktreeDir = registry.getWorktreeDir(node.generationId);
+  if (worktreeDir === null) {
+    // FAIL-ON-RESTART (issue M2): il worktree non è registrato → un riavvio del worker
+    // ha perso l'handle in-memoria. NON riapro a HEAD (rischio di documentazione a
+    // commit misti): faccio FALLIRE la generazione + i suoi nodi non-done + il trigger,
+    // e LASCIO questo nodo (verrà marcato failed dal fail). L'utente ri-triggera.
+    const reason = "generazione interrotta da un riavvio del worker: ri-triggerare la generazione";
+    try {
+      const failed = await failGenerationOnRestart(db, node.generationId, reason);
+      console.error(
+        `[stubwise-worker] worktree della generazione ${node.generationId} perso al riavvio (nodo ${node.id}, ${phase}): ` +
+          (failed
+            ? "generazione e nodi pendenti marcati failed — ri-triggerare"
+            : "generazione già terminale, nessuna azione"),
+      );
+    } catch (error) {
+      console.error(
+        `[stubwise-worker] fail-on-restart della generazione ${node.generationId} fallito: ${describe(error)} — i nodi tornano allo stale-requeue`,
+      );
+    }
     return;
   }
 
@@ -122,6 +144,7 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
   // undefined = auth storica.
   const provider = await resolveProvider(deps);
 
+  let costUsd = 0;
   try {
     if (phase === "explore") {
       const exploreDeps: RunExploreDeps = {
@@ -135,7 +158,7 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
         maxNodes: deps.maxNodes,
         ...(provider !== undefined ? { provider } : {}),
       };
-      await runExplore(exploreDeps, node);
+      costUsd = (await runExplore(exploreDeps, node)).costUsd;
     } else {
       const synthDeps: RunSynthesizeDeps = {
         db,
@@ -146,7 +169,7 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
         maxTurns: deps.maxTurns,
         ...(provider !== undefined ? { provider } : {}),
       };
-      await runSynthesize(synthDeps, node);
+      costUsd = (await runSynthesize(synthDeps, node)).costUsd;
     }
   } catch (error) {
     // Un throw inatteso dell'handler (oltre i suoi percorsi best-effort): loggato. Il
@@ -155,6 +178,17 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
       `[stubwise-worker] handler del nodo ${node.id} (${phase}) fallito: ${describe(error)}`,
     );
     return;
+  }
+
+  // Persiste il costo del nodo (Σ dei run dell'agente di questo nodo) così la
+  // finalizzazione (M6) lo somma in doc_generations.cost. Best-effort: un fallimento
+  // qui non deve impedire la finalizzazione (al più il costo aggregato è sottostimato).
+  try {
+    await recordNodeCost(db, node.id, costUsd);
+  } catch (error) {
+    console.error(
+      `[stubwise-worker] persistenza del costo del nodo ${node.id} fallita: ${describe(error)}`,
+    );
   }
 
   // Il nodo è ora `done`/`failed` (l'handler ha già fatto il join sul padre). Se

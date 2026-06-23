@@ -236,7 +236,7 @@ describe("dispatch del DAG (M7.1)", () => {
 
     const runner = scriptedRunner();
     const embeddingClient = createFakeEmbeddingClient();
-    const registry = createGenerationWorktreeRegistry(mirrors, ENCRYPTION_KEY);
+    const registry = createGenerationWorktreeRegistry();
     const serializer = createProjectSerializer();
 
     const docHandler = createDocHandler(
@@ -288,22 +288,31 @@ describe("dispatch del DAG (M7.1)", () => {
       signal: controller.signal,
     });
 
-    // Attende che il trigger sia chiuso (succeeded/failed).
+    // Attende che la GENERAZIONE sia chiusa (succeeded/failed). NB: dopo il decoupling
+    // (C2) il trigger va `succeeded` GIÀ al seed del DAG, non a fine generazione: lo
+    // stato "generazione in corso/conclusa" vive su doc_generations, non sul trigger.
     const deadline = Date.now() + 60_000;
-    let triggerStatus = "queued";
+    let genStatus: string | undefined;
     while (Date.now() < deadline) {
-      const [job] = await db
-        .select({ status: docGenerationJobs.status })
-        .from(docGenerationJobs)
-        .where(eq(docGenerationJobs.id, triggerId));
-      triggerStatus = job?.status ?? "queued";
-      if (triggerStatus === "succeeded" || triggerStatus === "failed") break;
+      const [g] = await db
+        .select({ status: docGenerations.status })
+        .from(docGenerations)
+        .where(eq(docGenerations.projectId, projectId));
+      genStatus = g?.status;
+      if (genStatus === "succeeded" || genStatus === "failed") break;
       await new Promise((r) => setTimeout(r, 100));
     }
     controller.abort();
     await workerPromise;
 
-    expect(triggerStatus).toBe("succeeded");
+    expect(genStatus).toBe("succeeded");
+
+    // Il trigger è stato chiuso `succeeded` al seed del DAG (decoupling C2).
+    const [trigger] = await db
+      .select({ status: docGenerationJobs.status })
+      .from(docGenerationJobs)
+      .where(eq(docGenerationJobs.id, triggerId));
+    expect(trigger?.status).toBe("succeeded");
 
     // Generazione succeeded.
     const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.projectId, projectId));
@@ -313,6 +322,15 @@ describe("dispatch del DAG (M7.1)", () => {
     const nodes = await db.select().from(docNodes).where(eq(docNodes.generationId, gen!.id));
     expect(nodes.length).toBe(6);
     expect(nodes.every((n) => n.status === "done")).toBe(true);
+
+    // COSTO PER-NODO PERSISTITO (C4): ogni run dell'agente costa 0.01 (scripted). Almeno
+    // un nodo che ha eseguito explore/synthesize ha un costo > 0 scritto su doc_nodes.cost,
+    // e il costo aggregato della generazione (orient + Σ nodi) supera il solo orientamento.
+    const nodeCosts = nodes.reduce((sum, n) => sum + Number(n.cost ?? 0), 0);
+    expect(nodeCosts).toBeGreaterThan(0);
+    // 1 run di orientamento (0.01) + i run dei nodi → costo totale > del solo orientamento.
+    expect(Number(gen?.cost)).toBeGreaterThan(0.01);
+    expect(Number(gen?.cost)).toBeCloseTo(0.01 + nodeCosts, 6);
 
     // doc_pages annidate (≥3 livelli): root → child → grandchild.
     const pages = await db.select().from(docPages).where(eq(docPages.generationId, gen!.id));
@@ -337,6 +355,71 @@ describe("dispatch del DAG (M7.1)", () => {
 
     // Worktree chiuso e deregistrato: registro vuoto, nessun progetto attivo.
     expect(registry.has(gen!.id)).toBe(false);
+    expect(registry.activeProjectIds().size).toBe(0);
+  });
+
+  it("worktree perso al riavvio (registro vuoto) → generazione + nodi pendenti failed, nessun reopen-at-HEAD (C3)", async () => {
+    const { db } = testDb;
+    const projectId = await createProject(db, "https://github.com/acme/x");
+
+    // Generazione `running` con un nodo claimabile, SENZA worktree nel registro: è
+    // l'esatta situazione post-riavvio (i nodi sopravvivono nel DB, l'handle in-memoria no).
+    const [gen] = await db
+      .insert(docGenerations)
+      .values({ projectId, status: "running", model: "opus" })
+      .returning();
+    const [root] = await db
+      .insert(docNodes)
+      .values({
+        generationId: gen!.id,
+        projectId,
+        tree: "technical",
+        status: "pending",
+        depth: 0,
+        position: 0,
+        title: "Root",
+        slug: "root-restart",
+        sourcePaths: [],
+      })
+      .returning();
+
+    const runner = scriptedRunner();
+    const embeddingClient = createFakeEmbeddingClient();
+    // Registro VUOTO: il worktree della generazione non è registrato (perso al riavvio).
+    const registry = createGenerationWorktreeRegistry();
+
+    const dispatched: Promise<void>[] = [];
+    const claimed = await dispatchNode(
+      {
+        db,
+        runner,
+        registry,
+        finalize: { embeddingClient },
+        model: "opus",
+        agentTimeoutMs: 600_000,
+        maxTurns: 30,
+        maxDepth: 6,
+        maxNodes: 400,
+        encryptionKey: ENCRYPTION_KEY,
+        loadProviderChainFn: async () => [],
+      },
+      (work) => dispatched.push(work),
+    );
+    // Un nodo è stato reclamato (claim riuscito) e il lavoro in background è schedulato.
+    expect(claimed).toBe(true);
+    await Promise.all(dispatched);
+
+    // L'agente NON è stato invocato: nessun reopen-at-HEAD, si è fallita la generazione.
+    expect(runner.calls).toHaveLength(0);
+
+    // Generazione failed (riavvio) + nodo pendente failed.
+    const [genAfter] = await db.select().from(docGenerations).where(eq(docGenerations.id, gen!.id));
+    expect(genAfter?.status).toBe("failed");
+    expect(genAfter?.error).toMatch(/riavvio/i);
+    const [nodeAfter] = await db.select().from(docNodes).where(eq(docNodes.id, root!.id));
+    expect(nodeAfter?.status).toBe("failed");
+
+    // Il progetto NON resta escluso dal claim (il worktree non è registrato).
     expect(registry.activeProjectIds().size).toBe(0);
   });
 });

@@ -5,7 +5,7 @@ import type { ProjectSerializer } from "../handler.js";
 import { loadProviderChain, type ResolvedProvider } from "../providers/chain.js";
 import { runOrientation } from "./recursive/orient-handler.js";
 import type { GenerationWorktreeRegistry } from "./recursive/registry.js";
-import { appendDocJobLog, failDocJob, type DocJob } from "./queue.js";
+import { completeDocJob, failDocJob, type DocJob } from "./queue.js";
 
 /**
  * Wiring del TRIGGER di doc-generation per runWorker (M7): handler(job) =
@@ -13,8 +13,10 @@ import { appendDocJobLog, failDocJob, type DocJob } from "./queue.js";
  *
  * Il trigger di documentazione avvia l'ORIENTAMENTO (M5a): apre il worktree di
  * generazione, lo registra nel registro in-processo (i job-nodo lo riusano), semina le
- * radici del DAG e lascia il trigger `running`. La generazione prosegue poi via i
- * job-nodo (dispatchNode nel loop) fino alla finalizzazione, che chiude il trigger.
+ * radici del DAG e — appena seminato — chiude il TRIGGER `succeeded` (decoupling C2). La
+ * generazione prosegue poi via i job-nodo (dispatchNode nel loop) fino alla
+ * finalizzazione; lo stato "generazione in corso" vive su `doc_generations`, NON sul
+ * trigger (che è già concluso).
  *
  * SERIALIZZAZIONE: l'orientamento gira nella catena per-progetto (serializer condiviso)
  * — fa `ensureMirror` + apre il worktree, e NON deve sovrapporsi a un fix dello stesso
@@ -23,13 +25,15 @@ import { appendDocJobLog, failDocJob, type DocJob } from "./queue.js";
  * col fix è retta dal registro (activeProjectIds → il loop non reclama fix di quel
  * progetto finché il worktree è aperto, vedi node-dispatch/queue.ts).
  *
- * GUARDIA NUOVA-GENERAZIONE: se il progetto ha GIÀ una generazione attiva (worktree nel
- * registro), NON se ne avvia una seconda — aprirebbe un secondo worktree concorrente
- * sullo stesso mirror. Il trigger è fallito con un messaggio chiaro (caso raro: il
- * claim del trigger e l'esclusione fix sono disgiunti; questa è la difesa esplicita).
+ * GUARDIA NUOVA-GENERAZIONE: se il progetto ha GIÀ una generazione attiva NON se ne avvia
+ * una seconda — aprirebbe un secondo worktree concorrente sullo stesso mirror. Due
+ * livelli: (1) qui il guard IN-PROCESSO del registro (`activeProjectIds`) come fast-path
+ * — difesa in profondità che si azzera al riavvio; (2) dentro runOrientation il guard DB
+ * AUTORITATIVO (`hasRunningGeneration`), che persiste tra i riavvii. In entrambi i casi
+ * il trigger è `succeeded`-skip (nessun errore: una generazione è già in corso).
  *
- * runOrientation chiude da sé il trigger SOLO su fallimento dell'orientamento; su
- * successo lo lascia `running` (lo chiude la finalizzazione). L'handler intercetta un
+ * runOrientation chiude da sé il trigger in OGNI esito (`succeeded` per seeded/skipped,
+ * `failed` per orientamento invalido/piano vuoto/errore). L'handler intercetta solo un
  * throw inatteso (fuori dai percorsi gestiti) per marcare il job `failed`.
  */
 export interface DocHandlerDeps {
@@ -65,11 +69,15 @@ export function createDocHandler(
     // Il doc-job porta già il projectId: niente join, si accoda direttamente
     // alla catena del progetto.
     return serializer.run(job.projectId, async () => {
-      // Guardia: niente seconda generazione concorrente sullo stesso progetto.
+      // GUARDIA IN-PROCESSO (difesa in profondità): niente seconda generazione
+      // concorrente sullo stesso progetto se il registro ha già un worktree aperto. È un
+      // fast-path che evita perfino di aprire il mirror; il check AUTORITATIVO (che
+      // sopravvive al riavvio del worker) è la guardia DB dentro runOrientation
+      // (hasRunningGeneration). Qui marco il trigger `succeeded`-skip senza errore: una
+      // generazione è già in corso, il trigger ha fatto il suo dovere.
       if (deps.registry.activeProjectIds().has(job.projectId)) {
-        await failDocJob(deps.db, job.id, {
-          log: "[docs] una generazione è già attiva per questo progetto (worktree aperto): trigger ignorato",
-          error: "generazione già attiva per il progetto",
+        await completeDocJob(deps.db, job.id, {
+          log: "[docs] una generazione è già attiva per questo progetto (worktree aperto, guard in-processo): trigger ignorato",
         });
         return;
       }
@@ -80,7 +88,9 @@ export function createDocHandler(
       const chain = await loadChain(deps.db, deps.encryptionKey);
       const provider = chain[0];
 
-      const outcome = await runOrientation(
+      // runOrientation chiude da sé il trigger in OGNI esito: `succeeded` (seeded o
+      // skipped per guard DB) o `failed`. Niente da fare qui dopo il ritorno.
+      await runOrientation(
         {
           db: deps.db,
           mirrors: deps.mirrors,
@@ -94,9 +104,6 @@ export function createDocHandler(
         },
         job,
       );
-      if (outcome === "seeded") {
-        await appendDocJobLog(deps.db, job.id, "[docs] orientamento completato: DAG seminato, generazione in corso");
-      }
     });
   };
 }

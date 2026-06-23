@@ -14,10 +14,9 @@ import {
   type NodeLink,
 } from "@stubwise/docs-engine";
 import type { EmbeddingClient } from "@stubwise/embeddings";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, ne, sql } from "drizzle-orm";
 import { EMBED_BATCH_SIZE, embedAndStoreChunks } from "../embed.js";
 import { pruneOldGenerations } from "../pipeline.js";
-import { completeDocJob, failDocJob } from "../queue.js";
 import type { DocNode } from "../nodes.js";
 
 /**
@@ -43,9 +42,10 @@ import type { DocNode } from "../nodes.js";
  *  4. RELATED (semantico, IN-MEMORY): per ogni pagina, `selectRelatedLinks` sui vettori
  *     di pagina già calcolati (cosine), escludendo self/padre/figli/già-linkate; i link
  *     `related` sono APPESI a doc_pages.links.
- *  5. SWAP + PRUNE + CLOSE: `projects.currentDocGenerationId = generationId`,
- *     generazione `succeeded` con stats + costo aggregato dai nodi, prune (corrente +
- *     precedente), trigger doc-job `succeeded`. Su QUALSIASI errore mid-finalize:
+ *  5. SWAP + PRUNE: `projects.currentDocGenerationId = generationId`, generazione
+ *     `succeeded` con stats + costo aggregato dai nodi, prune (corrente + precedente). Il
+ *     TRIGGER doc-job NON viene toccato qui: è già `succeeded` (decoupling C2 — chiuso
+ *     dall'orientamento appena seminato il DAG). Su QUALSIASI errore mid-finalize:
  *     generazione `failed`, NESSUNO swap.
  *
  * Step 1–4 (links + proiezione + embed + related) girano in UNA transazione: un throw a
@@ -135,6 +135,65 @@ export async function allRootsDone(db: DbOrTx, generationId: string): Promise<bo
   return roots.every((r) => r.status === "done");
 }
 
+/**
+ * FAIL-ON-RESTART (issue M2): fa fallire PULITAMENTE una generazione il cui
+ * worktree è andato perso a un riavvio del worker. Un riavvio azzera il registro
+ * in-processo (gli handle dei worktree sono solo in memoria); i nodi pendenti
+ * sopravvivono nel DB e `requeueStaleNodes` li rende di nuovo claimabili. Ma il
+ * worktree CONDIVISO della generazione (aperto dall'orientamento su un commit
+ * preciso) non c'è più: riaprirlo a HEAD rischierebbe documentazione a commit
+ * MISTI (parte dei nodi sul vecchio sha, parte sul nuovo). Invece di quello,
+ * falliamo la generazione e i suoi nodi non-`done`, in UNA transazione:
+ *  - `doc_generations` → `failed` (reason: riavvio worker), SOLO se ancora `running`;
+ *  - tutti i nodi non `done` → `failed` (così nessun ramo resta claimabile/in volo);
+ *  - il trigger ancora `running` collegato → `failed`.
+ * L'utente ri-triggera (la generazione è ripartibile da zero, deterministica). Il
+ * progetto NON resta escluso dal claim: il worktree non è registrato, quindi
+ * `activeProjectIds` non lo elenca. Ritorna true se ha fatto fallire la generazione
+ * (era `running`), false se era già terminale (un altro path l'ha già chiusa).
+ */
+export async function failGenerationOnRestart(
+  db: Db,
+  generationId: string,
+  reason: string,
+): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const [gen] = await tx
+      .update(docGenerations)
+      .set({ status: "failed", error: reason, finishedAt: sql`now()` })
+      .where(and(eq(docGenerations.id, generationId), eq(docGenerations.status, "running")))
+      .returning({ id: docGenerations.id });
+    // Già terminale (succeeded/failed): un altro path ha chiuso la generazione,
+    // niente da fare (idempotente).
+    if (!gen) return false;
+
+    // Tutti i nodi non-done → failed: nessun nodo resta claimabile o "in volo".
+    await tx
+      .update(docNodes)
+      .set({ status: "failed", error: reason, finishedAt: sql`now()`, lastActivityAt: sql`now()` })
+      .where(and(eq(docNodes.generationId, generationId), ne(docNodes.status, "done")));
+
+    // Il trigger ancora running collegato a questa generazione → failed.
+    await tx
+      .update(docGenerationJobs)
+      .set({
+        status: "failed",
+        error: reason,
+        log: sql`${docGenerationJobs.log} || ${`[docs] ${reason}\n`}`,
+        finishedAt: sql`now()`,
+        lastActivityAt: sql`now()`,
+      })
+      .where(
+        and(
+          eq(docGenerationJobs.generationId, generationId),
+          eq(docGenerationJobs.status, "running"),
+        ),
+      );
+
+    return true;
+  });
+}
+
 /** Una pagina proiettata con il suo id e i campi necessari all'embedding/related. */
 interface ProjectedPage {
   id: string;
@@ -210,9 +269,11 @@ async function projectPages(
 /**
  * Finalizza la generazione `generationId`: proietta i nodi `done` in pagine annidate,
  * embedda i chunk, risolve i cross-link (implements + related), fa lo swap del puntatore
- * corrente, prune e chiude il trigger. Chiude SEMPRE il trigger qui (success/fail). NON
- * chiude il worktree (lo possiede la M7). Best-effort: su errore mid-finalize la
- * generazione è `failed` e NON si fa lo swap. Ritorna l'esito.
+ * corrente e prune. NON tocca il TRIGGER: dopo il decoupling (C2) il trigger è già
+ * `succeeded` (chiuso dall'orientamento appena seminato il DAG); lo stato "generazione"
+ * vive interamente su `doc_generations` (running → succeeded/failed QUI). NON chiude il
+ * worktree (lo possiede la M7). Best-effort: su errore mid-finalize la generazione è
+ * `failed` e NON si fa lo swap. Ritorna l'esito.
  */
 export async function finalizeGeneration(
   deps: FinalizeGenerationDeps,
@@ -220,24 +281,13 @@ export async function finalizeGeneration(
 ): Promise<FinalizeOutcome> {
   const { db, embeddingClient } = deps;
 
-  // La generazione + il progetto (per projectId e per chiudere il trigger).
+  // La generazione + il progetto (per projectId e per lo swap).
   const [generation] = await db
     .select()
     .from(docGenerations)
     .where(eq(docGenerations.id, generationId));
   if (!generation) return "failed";
   const projectId = generation.projectId;
-
-  // Il trigger doc-job ancora `running` collegato a questa generazione (lasciato dalla M5a).
-  const [trigger] = await db
-    .select({ id: docGenerationJobs.id })
-    .from(docGenerationJobs)
-    .where(
-      and(
-        eq(docGenerationJobs.generationId, generationId),
-        eq(docGenerationJobs.status, "running"),
-      ),
-    );
 
   // Tutti i nodi della generazione (per stats, cross-link, proiezione).
   const allNodes = await db.select().from(docNodes).where(eq(docNodes.generationId, generationId));
@@ -329,18 +379,16 @@ export async function finalizeGeneration(
       .update(docGenerations)
       .set({ status: "failed", error: message, finishedAt: sql`now()` })
       .where(eq(docGenerations.id, generationId));
-    if (trigger) {
-      await failDocJob(db, trigger.id, {
-        log: `[docs] finalizzazione fallita: ${message}`,
-        error: message,
-      });
-    }
+    // Il trigger NON viene toccato: è già `succeeded` (decoupling C2). L'esito della
+    // generazione è leggibile da `doc_generations.status`.
     return "failed";
   }
 
   const costString = costUsd.toFixed(6);
 
-  // 5) Chiusura: generazione `succeeded` con stats + costo, SWAP, prune, trigger succeeded.
+  // 5) Chiusura: generazione `succeeded` con stats + costo, SWAP, prune. Il trigger NON
+  // viene toccato (è già `succeeded`, decoupling C2): doc_generations è l'unica fonte di
+  // verità sull'esito.
   if (failedNodes.length > 0) {
     console.error(
       `[stubwise-worker] doc-generation ${generationId} finalizzata con ${failedNodes.length} nodo/i falliti (saltati dalle pagine)`,
@@ -361,12 +409,10 @@ export async function finalizeGeneration(
   // PRUNE: corrente + precedente (cascade su doc_pages/doc_chunks).
   await pruneOldGenerations(db, projectId, generationId);
 
-  if (trigger) {
-    await completeDocJob(db, trigger.id, {
-      log: `[docs] generazione completata: ${stats.pages} pagine (${stats.doneNodes} nodi, profondità ${stats.maxDepth}), ${stats.chunks} chunk, costo $${costString}`,
-      generationId,
-    });
-  }
+  console.error(
+    `[stubwise-worker] doc-generation ${generationId} completata: ${stats.pages} pagine ` +
+      `(${stats.doneNodes} nodi, profondità ${stats.maxDepth}), ${stats.chunks} chunk, costo $${costString}`,
+  );
 
   return "succeeded";
 }

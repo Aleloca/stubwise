@@ -29,6 +29,7 @@ import type { AgentRunUsage } from "../../agent/runner.js";
 import { MirrorManager } from "../../git/mirrors.js";
 import { type DocJob } from "../queue.js";
 import { runOrientation, type RunOrientationDeps } from "./orient-handler.js";
+import { createGenerationWorktreeRegistry } from "./registry.js";
 
 // Test del handler di orientamento (M5.2): mirror bare locale come "upstream", un
 // FakeAgentRunner scriptato a produrre un piano marcato (===ORIENTATION PLAN=== con
@@ -217,9 +218,10 @@ describe("runOrientation", () => {
     const slugs = nodes.map((n) => n.slug);
     expect(new Set(slugs).size).toBe(slugs.length);
 
-    // Il trigger NON è chiuso: resta running (lo finalizza la M6), generationId collegato.
+    // Il trigger è CHIUSO `succeeded` al seed del DAG (decoupling C2), con generationId
+    // collegato: lo stato "generazione in corso" vive ora su doc_generations.
     const [jobAfter] = await db.select().from(docGenerationJobs).where(eq(docGenerationJobs.id, job.id));
-    expect(jobAfter?.status).toBe("running");
+    expect(jobAfter?.status).toBe("succeeded");
     expect(jobAfter?.generationId).toBe(gen!.id);
   });
 
@@ -292,5 +294,91 @@ describe("runOrientation", () => {
     const techRoot = nodes.find((n) => n.parentId === null && n.tree === "technical");
     expect(techRoot?.status).toBe("awaiting_children");
     expect(techRoot?.pendingChildren).toBe(1);
+  });
+
+  it("piano VUOTO (entrambe le child-list vuote) → orientamento fallito: generazione failed, trigger failed, nessun nodo (C1)", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, upstream.url);
+    const job = await enqueueTrigger(db, projectId);
+
+    // Piano coi marcatori presenti (parse valido) ma ENTRAMBE le child-list vuote:
+    // l'agente non ha trovato nulla da documentare. Senza il fix la generazione
+    // resterebbe `running` per sempre (nessun nodo → finalizzazione mai innescata).
+    const emptyPlan = [
+      ORIENT_START_MARKER,
+      "Nessuna unità tecnica né capability funzionale rilevata.",
+      ORIENT_TECHNICAL_START_MARKER,
+      ORIENT_TECHNICAL_END_MARKER,
+      ORIENT_FUNCTIONAL_START_MARKER,
+      ORIENT_FUNCTIONAL_END_MARKER,
+      ORIENT_END_MARKER,
+    ].join("\n");
+
+    const runner = new FakeAgentRunner({
+      script: () => ({ output: emptyPlan, exitCode: 0, usage: USAGE }),
+    });
+    const registry = createGenerationWorktreeRegistry();
+    const outcome = await runOrientation(
+      { ...baseDeps(db, mirrors, runner), registry },
+      job,
+    );
+    expect(outcome).toBe("failed");
+
+    // Generazione failed (NON stuck running) con ragione "piano vuoto"; nessun nodo seminato.
+    const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.projectId, projectId));
+    expect(gen?.status).toBe("failed");
+    expect(gen?.error).toMatch(/vuoto|nessuna unità/i);
+    expect(gen?.finishedAt).not.toBeNull();
+    const nodes = await db.select().from(docNodes).where(eq(docNodes.generationId, gen!.id));
+    expect(nodes).toHaveLength(0);
+
+    // Trigger failed.
+    const [jobAfter] = await db.select().from(docGenerationJobs).where(eq(docGenerationJobs.id, job.id));
+    expect(jobAfter?.status).toBe("failed");
+
+    // Worktree CHIUSO: il registro non ha l'handle (nessun leak), nessun progetto attivo.
+    expect(registry.has(gen!.id)).toBe(false);
+    expect(registry.activeProjectIds().size).toBe(0);
+  });
+
+  it("guard DB: un secondo trigger con una generazione già `running` per il progetto NON ne avvia una seconda (C2)", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, upstream.url);
+
+    // Simula una generazione GIÀ in corso per il progetto (es. avviata da un trigger
+    // precedente o sopravvissuta a un riavvio): una riga doc_generations `running`.
+    await db
+      .insert(docGenerations)
+      .values({ projectId, status: "running", model: "opus" });
+
+    const job = await enqueueTrigger(db, projectId);
+    const runner = new FakeAgentRunner({
+      script: () => ({ output: VALID_PLAN, exitCode: 0, usage: USAGE }),
+    });
+    const outcome = await runOrientation(baseDeps(db, mirrors, runner), job);
+    expect(outcome).toBe("skipped");
+
+    // L'agente NON è stato invocato (nessun orientamento avviato).
+    expect(runner.calls).toHaveLength(0);
+
+    // NESSUNA seconda generazione creata: resta solo la riga running preesistente.
+    const gens = await db.select().from(docGenerations).where(eq(docGenerations.projectId, projectId));
+    expect(gens).toHaveLength(1);
+    expect(gens[0]?.status).toBe("running");
+
+    // Nessun nodo seminato.
+    const nodes = await db
+      .select()
+      .from(docNodes)
+      .where(eq(docNodes.projectId, projectId));
+    expect(nodes).toHaveLength(0);
+
+    // Il trigger è chiuso `succeeded`-skip (nessun errore: una generazione è già in corso).
+    const [jobAfter] = await db.select().from(docGenerationJobs).where(eq(docGenerationJobs.id, job.id));
+    expect(jobAfter?.status).toBe("succeeded");
   });
 });

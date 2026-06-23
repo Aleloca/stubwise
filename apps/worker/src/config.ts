@@ -177,30 +177,6 @@ const envSchema = z.object({
       .min(1)
       .default("opus"),
   ),
-  // Tetto al numero di moduli documentati in una singola generazione: protegge
-  // da repo enormi (un run dell'agente per modulo → costo/tempo lineari). Lo
-  // scoring di docs-engine ordina i moduli e taglia oltre questa soglia.
-  DOC_MAX_MODULES: z.preprocess(
-    emptyAsUndefined,
-    z.coerce
-      .number({ error: "deve essere un intero ≥ 1 (es. 80)" })
-      .int("deve essere un intero ≥ 1 (es. 80)")
-      .min(1, "deve essere un intero ≥ 1 (es. 80)")
-      .default(80),
-  ),
-  // Tetto al numero di capability documentate in PROFONDITÀ in una singola
-  // generazione (deep pass funzionale): un run dell'agente per capability →
-  // costo/tempo lineari. Le capability oltre la soglia non sono scartate in
-  // silenzio: docs-engine le LOGGA (cappedCapabilities) e restano comunque
-  // nell'indice della mappa funzionale.
-  DOC_MAX_CAPABILITIES: z.preprocess(
-    emptyAsUndefined,
-    z.coerce
-      .number({ error: "deve essere un intero ≥ 1 (es. 40)" })
-      .int("deve essere un intero ≥ 1 (es. 40)")
-      .min(1, "deve essere un intero ≥ 1 (es. 40)")
-      .default(40),
-  ),
   // Timeout (ms) di OGNI singola chiamata dell'agente nella generazione dei Docs
   // (map per modulo, reduce, deep pass per capability). Più corto del timeout del
   // fix (30'): una chiamata appesa fallisce in ~8' (default) e va in best-effort
@@ -247,19 +223,6 @@ const envSchema = z.object({
       .int("deve essere un intero ≥ 1 (es. 400)")
       .min(1, "deve essere un intero ≥ 1 (es. 400)")
       .default(400),
-  ),
-  // Cap di costo (USD) per SINGOLA generazione di documentazione: se il costo
-  // aggregato dei run dell'agente lo supera, la generazione è marcata `failed`
-  // e il job messo in `held` con ragione loggata (mai un cap silenzioso); NON
-  // si fa lo swap del puntatore. Opzionale: NON impostata (default) = nessun
-  // cap, costo ILLIMITATO — i deploy esistenti non cambiano comportamento. Va
-  // impostata a un valore > 0 per attivare il guardrail (es. 5 = $5/generazione).
-  DOC_COST_CAP_USD: z.preprocess(
-    emptyAsUndefined,
-    z.coerce
-      .number({ error: "deve essere un numero > 0 in USD (es. 5)" })
-      .positive("deve essere un numero > 0 in USD (es. 5)")
-      .optional(),
   ),
   // Endpoint OpenAI-compatibile per gli embedding della ricerca semantica sui
   // Docs (/v1/embeddings). Di default Ollama in-rete (servizio "ollama" del
@@ -326,11 +289,6 @@ export interface WorkerConfig {
   credentialTestPollSeconds: number;
   /** Modello della pipeline di generazione dei Docs (default "opus"). */
   docGenerationModel: string;
-  /** Tetto al numero di moduli documentati per generazione (default 80). */
-  docMaxModules: number;
-  /** Tetto al numero di capability documentate in profondità per generazione
-   * (deep pass funzionale; default 40). */
-  docMaxCapabilities: number;
   /** Timeout (ms) di ogni singola chiamata dell'agente nella generazione dei Docs
    * (map/reduce/deep pass); default 480000 = 8'. */
   docAgentTimeoutMs: number;
@@ -342,9 +300,6 @@ export interface WorkerConfig {
   /** Tetto al numero totale di nodi del DAG per generazione: la creazione dei
    * figli che lo supererebbe viene tagliata e loggata (default 400). */
   docMaxNodes: number;
-  /** Cap di costo (USD) per generazione di documentazione; undefined = nessun
-   * cap (costo illimitato, default). Se sforato la generazione è `held`. */
-  docCostCapUsd: number | undefined;
   /** Endpoint /v1 OpenAI-compatibile per gli embedding dei Docs
    * (default "http://ollama:11434/v1"). */
   embeddingBaseUrl: string;
@@ -391,13 +346,10 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     usagePollMinutes: parsed.USAGE_POLL_MINUTES,
     credentialTestPollSeconds: parsed.CREDENTIAL_TEST_POLL_SECONDS,
     docGenerationModel: parsed.DOC_GENERATION_MODEL,
-    docMaxModules: parsed.DOC_MAX_MODULES,
-    docMaxCapabilities: parsed.DOC_MAX_CAPABILITIES,
     docAgentTimeoutMs: parsed.DOC_AGENT_TIMEOUT_MS,
     docModuleMaxTurns: parsed.DOC_MODULE_MAX_TURNS,
     docMaxDepth: parsed.DOC_MAX_DEPTH,
     docMaxNodes: parsed.DOC_MAX_NODES,
-    docCostCapUsd: parsed.DOC_COST_CAP_USD,
     embeddingBaseUrl: parsed.EMBEDDING_BASE_URL,
     embeddingModel: parsed.EMBEDDING_MODEL,
     embeddingApiKey: parsed.EMBEDDING_API_KEY,
