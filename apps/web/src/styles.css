@@ -129,7 +129,9 @@
   }
 
   .markdown table {
-    @apply my-3 w-full border-collapse text-sm;
+    /* `display:block` + overflow-x permette lo scroll orizzontale delle tabelle
+     * larghe su mobile invece di sforare la pagina (trick standard responsive). */
+    @apply my-3 block w-full max-w-full overflow-x-auto border-collapse text-sm;
   }
 
   .markdown :is(th, td) {
