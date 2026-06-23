@@ -201,6 +201,18 @@ const envSchema = z.object({
       .min(1, "deve essere un intero ≥ 1 (es. 40)")
       .default(40),
   ),
+  // Timeout (ms) di OGNI singola chiamata dell'agente nella generazione dei Docs
+  // (map per modulo, reduce, deep pass per capability). Più corto del timeout del
+  // fix (30'): una chiamata appesa fallisce in ~8' (default) e va in best-effort
+  // (skip/retry della pagina) invece di tenere il job bloccato per mezz'ora.
+  DOC_AGENT_TIMEOUT_MS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero > 0 in millisecondi (es. 480000)" })
+      .int("deve essere un intero > 0 in millisecondi (es. 480000)")
+      .min(1, "deve essere un intero > 0 in millisecondi (es. 480000)")
+      .default(480_000),
+  ),
   // Numero massimo di turni dell'agente per la pagina di un singolo modulo:
   // limita esplorazione/iterazioni del run (costo e durata per modulo).
   DOC_MODULE_MAX_TURNS: z.preprocess(
@@ -294,6 +306,9 @@ export interface WorkerConfig {
   /** Tetto al numero di capability documentate in profondità per generazione
    * (deep pass funzionale; default 40). */
   docMaxCapabilities: number;
+  /** Timeout (ms) di ogni singola chiamata dell'agente nella generazione dei Docs
+   * (map/reduce/deep pass); default 480000 = 8'. */
+  docAgentTimeoutMs: number;
   /** Turni massimi dell'agente per la pagina di un modulo (default 30). */
   docModuleMaxTurns: number;
   /** Cap di costo (USD) per generazione di documentazione; undefined = nessun
@@ -347,6 +362,7 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     docGenerationModel: parsed.DOC_GENERATION_MODEL,
     docMaxModules: parsed.DOC_MAX_MODULES,
     docMaxCapabilities: parsed.DOC_MAX_CAPABILITIES,
+    docAgentTimeoutMs: parsed.DOC_AGENT_TIMEOUT_MS,
     docModuleMaxTurns: parsed.DOC_MODULE_MAX_TURNS,
     docCostCapUsd: parsed.DOC_COST_CAP_USD,
     embeddingBaseUrl: parsed.EMBEDDING_BASE_URL,

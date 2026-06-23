@@ -26,6 +26,8 @@ export {
   buildCapabilityPrompt,
   TECHNICAL_MARKER,
   FUNCTIONAL_MARKER,
+  CAPABILITY_START_MARKER,
+  CAPABILITY_END_MARKER,
 } from "./generate.js";
 export type {
   ModuleDoc,

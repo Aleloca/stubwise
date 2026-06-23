@@ -138,9 +138,10 @@ const embeddingClient = createEmbeddingClient({
 });
 
 // Handler doc-generation: stessa serializzazione per-progetto del fix
-// (serializer condiviso). Il timeout di OGNI run dell'agent per modulo/reduce
-// riusa il timeout del fix; l'heartbeat (onProgress→touchDocJob nella pipeline)
-// tiene il job vivo durante map/reduce lunghi (invariante staleness).
+// (serializer condiviso). Il timeout di OGNI run dell'agent (map/reduce/deep pass)
+// è il proprio DOC_AGENT_TIMEOUT_MS (default 8', più corto del fix): una chiamata
+// appesa fallisce prima e va in best-effort. L'heartbeat (onProgress→touchDocJob
+// nella pipeline) tiene il job vivo durante map/reduce lunghi (invariante staleness).
 const docHandler = createDocHandler(
   {
     db,
@@ -152,7 +153,7 @@ const docHandler = createDocHandler(
     maxModules: config.docMaxModules,
     maxCapabilities: config.docMaxCapabilities,
     moduleMaxTurns: config.docModuleMaxTurns,
-    agentTimeoutMs: DEFAULT_FIX_TIMEOUT_MS,
+    agentTimeoutMs: config.docAgentTimeoutMs,
     // Cap di costo per generazione: undefined (default) = nessun cap; il
     // createDocHandler omette costCapUsd quando undefined (exactOptionalProperty).
     ...(config.docCostCapUsd !== undefined ? { costCapUsd: config.docCostCapUsd } : {}),

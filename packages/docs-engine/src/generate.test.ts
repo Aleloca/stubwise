@@ -6,6 +6,8 @@ import {
   runGeneration,
   TECHNICAL_MARKER,
   FUNCTIONAL_MARKER,
+  CAPABILITY_START_MARKER,
+  CAPABILITY_END_MARKER,
   type AgentFn,
   type ModuleDoc,
 } from "./generate.js";
@@ -55,11 +57,29 @@ function deepCapabilityBody(): string {
   ].join("\n");
 }
 
+/**
+ * Wraps a deep capability body in the start/end markers of the deep-pass output
+ * contract, the way a well-behaved agent must respond. Optional `preamble`/`closing`
+ * simulate meta text the agent emits OUTSIDE the markers (which the parser must strip).
+ */
+function markeredCapability(
+  body: string,
+  opts: { preamble?: string; closing?: string } = {},
+): string {
+  return [
+    ...(opts.preamble ? [opts.preamble] : []),
+    CAPABILITY_START_MARKER,
+    body,
+    CAPABILITY_END_MARKER,
+    ...(opts.closing ? [opts.closing] : []),
+  ].join("\n");
+}
+
 /** Fake agent: returns canned, parseable structured text keyed by module path. */
 function cannedAgent(): AgentFn {
   return vi.fn(async ({ prompt }) => {
     if (prompt.includes(CAPABILITY_PROMPT_HINT)) {
-      return deepCapabilityBody();
+      return markeredCapability(deepCapabilityBody());
     }
     if (prompt.includes("REDUCE")) {
       return [
@@ -152,6 +172,16 @@ describe("buildCapabilityPrompt (deep pass)", () => {
     // explicitly tells the model not to, and never instructs a leading `# Authentication`.
     expect(prompt).not.toContain("# Authentication");
     expect(lower).toMatch(/do not start the page with a top-level page title/);
+    // OUTPUT CONTRACT: the prompt must instruct the marker pair, forbid meta-summary
+    // phrasing, files/plans and saving — exactly the failure modes seen in production.
+    expect(prompt).toContain(CAPABILITY_START_MARKER);
+    expect(prompt).toContain(CAPABILITY_END_MARKER);
+    expect(lower).toContain("the plan file");
+    expect(lower).toMatch(/the documentation page is/);
+    expect(lower).toMatch(/let me know if/);
+    expect(lower).toMatch(/i now have|here is the markdown/);
+    expect(lower).toMatch(/outside the markers is ignored/);
+    expect(lower).toMatch(/no preamble/);
     // module hints use a friendly LAST-SEGMENT label, not the full identifier-shaped
     // path, for orientation.
     expect(prompt).toContain("- a:");
@@ -331,6 +361,53 @@ describe("runGeneration (M3.2)", () => {
     expect(root!.slug).toBe("overview");
     expect(moduleTech!.slug).toBe("overview-2");
   });
+
+  it("derives the root module title from the first heading and removes it from the body", async () => {
+    // The repo-root module has path "" → moduleTitle is empty (blank tree label). The
+    // title must be taken from the body's first markdown heading and that heading line
+    // removed from the body so it is not rendered twice.
+    const root = moduleNode({ path: "", files: ["i.ts"], dependsOn: [] });
+    const agent: AgentFn = vi.fn(async ({ prompt }) => {
+      if (prompt.includes("REDUCE")) {
+        return `${TECHNICAL_MARKER}\noverview\n${FUNCTIONAL_MARKER}\n## Capability: X\nbody`;
+      }
+      // map response for the root module: technical body starts with a top-level H1.
+      return [
+        TECHNICAL_MARKER,
+        "# Root Configuration",
+        "Root-level wiring and entry points of the repository.",
+        FUNCTIONAL_MARKER,
+        "func",
+      ].join("\n");
+    });
+
+    const { pages } = await runGeneration({ repoMap: repoMap([root]), agent });
+    const moduleTech = pages.find(
+      (p) => p.kind === "technical" && p.parentSlug !== null,
+    );
+    expect(moduleTech).toBeDefined();
+    expect(moduleTech!.sourcePath).toBe("");
+    expect(moduleTech!.title).toBe("Root Configuration");
+    // the consumed heading no longer leads the body (no double heading).
+    expect(moduleTech!.body.startsWith("# Root Configuration")).toBe(false);
+    expect(moduleTech!.body).toContain("Root-level wiring and entry points");
+  });
+
+  it("falls back to 'Root' when the root module body has no leading heading", async () => {
+    const root = moduleNode({ path: "", files: ["i.ts"], dependsOn: [] });
+    const agent: AgentFn = vi.fn(async ({ prompt }) => {
+      if (prompt.includes("REDUCE")) {
+        return `${TECHNICAL_MARKER}\noverview\n${FUNCTIONAL_MARKER}\n## Capability: X\nbody`;
+      }
+      return `${TECHNICAL_MARKER}\nNo heading here, just prose.\n${FUNCTIONAL_MARKER}\nfunc`;
+    });
+    const { pages } = await runGeneration({ repoMap: repoMap([root]), agent });
+    const moduleTech = pages.find(
+      (p) => p.kind === "technical" && p.parentSlug !== null,
+    );
+    expect(moduleTech!.title).toBe("Root");
+    expect(moduleTech!.body).toBe("No heading here, just prose.");
+  });
 });
 
 describe("runGeneration capability deep pass", () => {
@@ -375,6 +452,13 @@ describe("runGeneration capability deep pass", () => {
       expect(p.sourcePath).toBeNull();
       expect(p.body).toContain("### What you can do here");
       expect(p.body).not.toContain("Short summary");
+      // The body is the content BETWEEN the markers: the markers themselves must NOT
+      // leak into the published page.
+      expect(p.body).not.toContain(CAPABILITY_START_MARKER);
+      expect(p.body).not.toContain(CAPABILITY_END_MARKER);
+      // ...nor any meta-summary phrasing.
+      expect(p.body.toLowerCase()).not.toContain("the documentation page is");
+      expect(p.body.toLowerCase()).not.toContain("let me know if");
       // The page title is rendered separately by the UI: the deep body must NOT begin
       // with a markdown H1/H2 equal to the title (no double heading).
       const firstLine = p.body.split("\n")[0]!.trim();
@@ -395,7 +479,7 @@ describe("runGeneration capability deep pass", () => {
         if (/Capability title:\s*Reporting/.test(prompt)) {
           throw new Error("deep pass boom on Reporting");
         }
-        return deepCapabilityBody();
+        return markeredCapability(deepCapabilityBody());
       }
       if (prompt.includes("REDUCE")) return reduceWithTwoCaps();
       return `${TECHNICAL_MARKER}\ntech\n${FUNCTIONAL_MARKER}\nfunc`;
@@ -426,7 +510,7 @@ describe("runGeneration capability deep pass", () => {
     const agent: AgentFn = vi.fn(async ({ prompt }) => {
       if (prompt.includes(CAPABILITY_PROMPT_HINT)) {
         if (/Capability title:\s*Reporting/.test(prompt)) return "   "; // too short
-        return deepCapabilityBody();
+        return markeredCapability(deepCapabilityBody());
       }
       if (prompt.includes("REDUCE")) return reduceWithTwoCaps();
       return `${TECHNICAL_MARKER}\ntech\n${FUNCTIONAL_MARKER}\nfunc`;
@@ -449,7 +533,7 @@ describe("runGeneration capability deep pass", () => {
     const a = moduleNode({ path: "packages/a", files: ["packages/a/i.ts"], dependsOn: [] });
     const agent: AgentFn = vi.fn(async ({ prompt }) => {
       if (prompt.includes(CAPABILITY_PROMPT_HINT)) {
-        return deepCapabilityBody();
+        return markeredCapability(deepCapabilityBody());
       }
       if (prompt.includes("REDUCE")) {
         return [
@@ -483,6 +567,105 @@ describe("runGeneration capability deep pass", () => {
     expect(capPages.map((p) => p.title)).toEqual(["One"]);
     // ...and the other two are surfaced (logged), not silently dropped.
     expect(cappedCapabilities).toEqual(["Two", "Three"]);
+  });
+
+  it("strips a preamble before the start marker: body is only the content between the markers", async () => {
+    const a = moduleNode({ path: "packages/a", files: ["packages/a/i.ts"], dependsOn: [] });
+    const agent: AgentFn = vi.fn(async ({ prompt }) => {
+      if (prompt.includes(CAPABILITY_PROMPT_HINT)) {
+        // The agent emits a meta preamble BEFORE the start marker (and a closing AFTER
+        // the end marker). Both are outside the markers and must be stripped: only the
+        // delimited content is published.
+        return markeredCapability(deepCapabilityBody(), {
+          preamble:
+            "I now have a thorough understanding of the code. Here is the complete markdown body. ---",
+          closing: "Let me know if you'd like adjustments.",
+        });
+      }
+      if (prompt.includes("REDUCE")) return reduceWithTwoCaps();
+      return `${TECHNICAL_MARKER}\ntech\n${FUNCTIONAL_MARKER}\nfunc`;
+    });
+
+    const { pages, capabilityFailures } = await runGeneration({
+      repoMap: repoMap([a]),
+      agent,
+    });
+
+    expect(capabilityFailures).toEqual([]);
+    const auth = pages.find((p) => p.title === "Authentication");
+    expect(auth!.body).toBe(deepCapabilityBody());
+    // preamble/closing meta text stripped; markers stripped.
+    expect(auth!.body).not.toContain("I now have a thorough");
+    expect(auth!.body).not.toContain("Let me know if");
+    expect(auth!.body).not.toContain(CAPABILITY_START_MARKER);
+    expect(auth!.body).not.toContain(CAPABILITY_END_MARKER);
+  });
+
+  it("retries once, then falls back to the index summary when both attempts are meta-summaries", async () => {
+    const a = moduleNode({ path: "packages/a", files: ["packages/a/i.ts"], dependsOn: [] });
+    const onProgress = vi.fn();
+    const agent: AgentFn = vi.fn(async ({ prompt }) => {
+      if (prompt.includes(CAPABILITY_PROMPT_HINT)) {
+        if (/Capability title:\s*Reporting/.test(prompt)) {
+          // First a markered body whose content is itself a meta-summary (must be
+          // rejected despite being inside the markers); on the retry, raw meta with no
+          // markers at all. Both invalid → fallback.
+          return markeredCapability(
+            "The documentation page is written and saved to the plan file. It covers everything.",
+          );
+        }
+        return markeredCapability(deepCapabilityBody());
+      }
+      if (prompt.includes("REDUCE")) return reduceWithTwoCaps();
+      return `${TECHNICAL_MARKER}\ntech\n${FUNCTIONAL_MARKER}\nfunc`;
+    });
+
+    const { pages, capabilityFailures } = await runGeneration({
+      repoMap: repoMap([a]),
+      agent,
+      onProgress,
+    });
+
+    // Reporting was retried (one extra call) and still bad → fallback + recorded.
+    expect(capabilityFailures).toEqual(["Reporting"]);
+    const reporting = pages.find((p) => p.title === "Reporting");
+    expect(reporting!.body).toContain("generates reports");
+    expect(reporting!.body).not.toContain("saved to the plan file");
+    expect(reporting!.body).not.toContain(CAPABILITY_START_MARKER);
+    // calls: 1 map + 1 reduce + Authentication(1) + Reporting(2 = attempt + retry) = 5
+    expect((agent as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(5);
+    // heartbeat fired for the retry too.
+    const msgs = onProgress.mock.calls.map((c) => String(c[0]));
+    expect(msgs.some((m) => m.includes("Reporting") && m.includes("retry"))).toBe(true);
+  });
+
+  it("uses the retry's content when the first attempt is invalid but the second is valid (not recorded as failure)", async () => {
+    const a = moduleNode({ path: "packages/a", files: ["packages/a/i.ts"], dependsOn: [] });
+    const reportingCalls = { n: 0 };
+    const agent: AgentFn = vi.fn(async ({ prompt }) => {
+      if (prompt.includes(CAPABILITY_PROMPT_HINT)) {
+        if (/Capability title:\s*Reporting/.test(prompt)) {
+          reportingCalls.n += 1;
+          // First attempt: invalid (no markers). Second attempt: valid markered body.
+          if (reportingCalls.n === 1) return "no markers here, just a stray line";
+          return markeredCapability(deepCapabilityBody());
+        }
+        return markeredCapability(deepCapabilityBody());
+      }
+      if (prompt.includes("REDUCE")) return reduceWithTwoCaps();
+      return `${TECHNICAL_MARKER}\ntech\n${FUNCTIONAL_MARKER}\nfunc`;
+    });
+
+    const { pages, capabilityFailures } = await runGeneration({
+      repoMap: repoMap([a]),
+      agent,
+    });
+
+    expect(reportingCalls.n).toBe(2); // first invalid, second valid
+    expect(capabilityFailures).toEqual([]); // retry succeeded → not a failure
+    const reporting = pages.find((p) => p.title === "Reporting");
+    expect(reporting!.body).toContain("### What you can do here");
+    expect(reporting!.body).not.toContain("generates reports"); // not the fallback summary
   });
 });
 

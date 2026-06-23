@@ -19,10 +19,17 @@
  *     scrive una pagina funzionale PROFONDA in linguaggio NON tecnico (come la pagina
  *     tecnica di modulo è profonda, ma tradotta in termini di prodotto). È così che le
  *     pagine funzionali smettono di essere un solo paragrafo derivato dall'indice e
- *     diventano esaustive. BEST-EFFORT: se l'agent fa throw o ritorna output
- *     vuoto/troppo corto, si fa FALLBACK alla descrizione breve dell'indice e la
- *     capability finisce in `capabilityFailures`. Le capability oltre il budget NON
- *     vengono silenziosamente scartate: sono LOGGATE in `cappedCapabilities`.
+ *     diventano esaustive. L'output OBBEDISCE A UN CONTRATTO A MARCATORI come il map/reduce
+ *     (vedi sotto): il corpo va RACCHIUSO tra `CAPABILITY_START_MARKER` e
+ *     `CAPABILITY_END_MARKER`, ciascuno solo sulla propria riga. Il corpo estratto è poi
+ *     VALIDATO (marker presenti e non vuoti, lunghezza ≥ `MIN_CAPABILITY_BODY_CHARS`,
+ *     nessuna meta-summary che matcha `META_SUMMARY_RE`). Se la prima chiamata è INVALIDA
+ *     si RIPROVA UNA volta; se anche il retry è invalido si fa FALLBACK alla descrizione
+ *     breve dell'indice e la capability finisce in `capabilityFailures`. Estrarre tra i
+ *     marker scarta naturalmente preamboli/chiusure che l'agent emette FUORI dai marker,
+ *     così le meta-summary ("the documentation page is saved…", "I now have…") non
+ *     finiscono mai pubblicate. Le capability oltre il budget NON vengono silenziosamente
+ *     scartate: sono LOGGATE in `cappedCapabilities`.
  *  4. COMPOSE — si compongono le `GeneratedPage`: una pagina tecnica di overview
  *     (root, `parentSlug: null`), una pagina tecnica per modulo riuscito
  *     (`parentSlug` = slug overview, `sourcePath` = path modulo), la mappa funzionale
@@ -46,6 +53,20 @@
  * FALLISCE (→ `moduleFailures` nel map; nel reduce si fa fallback a sezioni vuote,
  * vedi `runGeneration`). I marker sono volutamente improbabili nel markdown normale
  * per ridurre i falsi delimitatori.
+ *
+ * CONTRATTO DI PARSING (deep pass funzionale). Stessa filosofia a marcatori, ma con
+ * UN solo blocco delimitato da una coppia start/end, ciascuno su riga propria:
+ *
+ *     ===CAPABILITY PAGE===
+ *     <markdown del corpo pagina>
+ *     ===END CAPABILITY PAGE===
+ *
+ * `parseDelimitedBody` (line-based, MAI substring/indexOf) estrae il testo tra la prima
+ * riga-`CAPABILITY_START_MARKER` e la prima riga-`CAPABILITY_END_MARKER` successiva.
+ * Estrarre tra i marker scarta naturalmente qualunque preambolo prima dello start o
+ * chiusura dopo l'end. Il corpo estratto è poi VALIDATO (`isMetaSummary`/lunghezza in
+ * `runGeneration`): marker mancanti/corpo vuoto, troppo corto, o che matcha
+ * `META_SUMMARY_RE` ⇒ INVALIDO ⇒ retry una volta, poi fallback all'indice.
  */
 import type { ModuleNode, RepoMap } from "./types.js";
 
@@ -55,6 +76,15 @@ export type { RepoMap, ModuleNode } from "./types.js";
 export const TECHNICAL_MARKER = "===TECHNICAL===";
 /** Marker che delimita l'inizio della sezione funzionale nell'output dell'agent. */
 export const FUNCTIONAL_MARKER = "===FUNCTIONAL===";
+
+/**
+ * Marker che apre il corpo della pagina nel deep pass funzionale. L'INTERA risposta
+ * dell'agent deve contenere il corpo TRA questo marker e `CAPABILITY_END_MARKER`,
+ * ciascuno solo sulla propria riga; tutto ciò che è fuori dai marker viene ignorato.
+ */
+export const CAPABILITY_START_MARKER = "===CAPABILITY PAGE===";
+/** Marker che chiude il corpo della pagina nel deep pass funzionale. */
+export const CAPABILITY_END_MARKER = "===END CAPABILITY PAGE===";
 
 /** Documentazione (tecnica + funzionale) prodotta dal map per un singolo modulo. */
 export interface ModuleDoc {
@@ -142,6 +172,23 @@ const DEFAULT_MAX_CAPABILITIES = 40;
  * il contenuto, serve solo a non sostituire la descrizione della mappa con il nulla.
  */
 const MIN_CAPABILITY_BODY_CHARS = 80;
+
+/**
+ * Euristica anti-META-SUMMARY del deep pass. In produzione molte pagine tornavano come
+ * la META-SUMMARY dell'agent ("The documentation page is written and saved to the plan
+ * file…", "I now have a thorough understanding… here is the complete markdown body.")
+ * invece del contenuto. Il contratto a marcatori riduce molto il problema (estraendo
+ * SOLO tra i marker si scartano preamboli/chiusure fuori da essi), ma se l'agent mette
+ * la meta-summary DENTRO i marker dobbiamo comunque scartarla. Un corpo (case-insensitive)
+ * che matcha una di queste frasi è trattato come INVALIDO ⇒ retry, poi fallback all'indice.
+ */
+const META_SUMMARY_RE =
+  /saved to the plan file|in the plan file|the documentation page (is|for)|let me know if|here is the (complete )?markdown|I now have a thorough|is (ready|written|complete) (in|and)/i;
+
+/** true se il corpo (trimmato) sembra una meta-summary dell'agent invece del contenuto. */
+function isMetaSummary(body: string): boolean {
+  return META_SUMMARY_RE.test(body);
+}
 
 /**
  * Numero massimo di sintesi funzionali di modulo incluse (e loro lunghezza) nel
@@ -254,10 +301,15 @@ export interface CapabilitySummary {
  * codice rilevante per essere accurato ed esaustivo, ma TRADUCE sempre in linguaggio
  * semplice, senza MAI esporre dettaglio tecnico.
  *
- * L'output è UN solo corpo markdown (nessun marker macchina). NON deve iniziare con un
- * titolo di pagina (`#`/`##`): il titolo della pagina è reso a parte dalla UI, un heading
- * `# <titolo>` qui lo duplicherebbe. Il corpo inizia direttamente con il contenuto / le
- * sezioni `###`, che danno la profondità come nelle altre pagine.
+ * L'output OBBEDISCE A UN CONTRATTO A MARCATORI: l'INTERA risposta deve contenere il
+ * corpo della pagina TRA `CAPABILITY_START_MARKER` e `CAPABILITY_END_MARKER`, ciascuno
+ * solo sulla propria riga; tutto ciò che è fuori dai marker viene ignorato dal parser
+ * (così preamboli e chiusure non vengono pubblicati). Il corpo TRA i marker NON deve
+ * iniziare con un titolo di pagina (`#`/`##`): il titolo è reso a parte dalla UI, un
+ * heading `# <titolo>` qui lo duplicherebbe; inizia direttamente dalle sezioni `###`.
+ * Il prompt VIETA esplicitamente meta-commenti, preamboli, chiusure e ogni frase di
+ * meta-summary (vedi `META_SUMMARY_RE`), e il salvataggio su file/menzione di "plan file":
+ * sono proprio gli output che in produzione venivano pubblicati al posto del contenuto.
  */
 export function buildCapabilityPrompt(
   capability: CapabilitySummary,
@@ -309,8 +361,21 @@ export function buildCapabilityPrompt(
     "Do NOT start the page with a top-level page title (`#` or `##` heading repeating the",
     "capability name): the page title is rendered separately by the UI and would be",
     "duplicated. Start DIRECTLY with the content, using `###` sub-sections for structure.",
-    "Output ONLY the markdown body of the page (no preamble, no markers, no code fences",
-    "around the whole document).",
+    "",
+    "OUTPUT CONTRACT — obey this EXACTLY:",
+    "Your ENTIRE response must contain the page body BETWEEN these two markers, each",
+    "ALONE on its own line, nothing else on those lines:",
+    `${CAPABILITY_START_MARKER}`,
+    "<the full markdown body of the page goes here>",
+    `${CAPABILITY_END_MARKER}`,
+    "Any text OUTSIDE the markers is IGNORED, so put the COMPLETE page between them.",
+    "The content between the markers must BE the documentation itself: start directly at a",
+    "`###` sub-section, with NO top-level `#`/`##` title.",
+    "It must contain NO meta-commentary, NO preamble and NO closing remarks. Specifically",
+    "you MUST NOT: save anything to any file; mention \"the plan file\", files or plans; say",
+    "things like \"the documentation page is…\", \"I now have…\", \"here is the markdown\", or",
+    "\"let me know if…\". Do not wrap the whole document in a code fence. Write ONLY the",
+    "documentation, between the two markers.",
     "",
     "For orientation, here are brief functional summaries of the product's areas (use them",
     "only to locate where this capability lives — do NOT copy their wording, and still",
@@ -339,6 +404,50 @@ function parseSections(
   const functional = lines.slice(funcLine + 1).join("\n").trim();
   if (technical === "" || functional === "") return null;
   return { technical, functional };
+}
+
+/**
+ * Estrae il testo racchiuso tra una coppia di marker start/end, riconosciuti SOLO come
+ * RIGA INTERA (la riga, trimmata, è ESATTAMENTE il marker) — stessa filosofia di
+ * `parseSections`, MAI substring/indexOf, così un marker a metà riga o dentro un fenced
+ * code block non è un delimitatore. Usa la PRIMA riga-`start`, poi la PRIMA riga-`end`
+ * successiva. Estrarre tra i marker scarta naturalmente preamboli prima dello start e
+ * chiusure dopo l'end. Ritorna `null` (corpo non estraibile) se un marker manca, sono
+ * fuori ordine, o il testo tra i due è vuoto una volta trimmato.
+ */
+function parseDelimitedBody(
+  output: string,
+  start: string,
+  end: string,
+): string | null {
+  const lines = output.split("\n");
+  const startLine = lines.findIndex((l) => l.trim() === start);
+  if (startLine === -1) return null;
+  const endLine = lines.findIndex(
+    (l, i) => i > startLine && l.trim() === end,
+  );
+  if (endLine === -1) return null;
+  const body = lines.slice(startLine + 1, endLine).join("\n").trim();
+  return body === "" ? null : body;
+}
+
+/**
+ * Estrae e VALIDA il corpo del deep pass funzionale dall'output dell'agent. Ritorna il
+ * corpo (tra i marker, preamboli/chiusure già scartati) se valido, altrimenti `null`.
+ * INVALIDO se: marker mancanti/corpo vuoto tra essi; più corto di
+ * `MIN_CAPABILITY_BODY_CHARS`; o il corpo matcha l'euristica anti-meta-summary
+ * (`isMetaSummary`). `null` ⇒ il chiamante riprova o fa fallback all'indice.
+ */
+function validCapabilityBody(output: string): string | null {
+  const body = parseDelimitedBody(
+    output,
+    CAPABILITY_START_MARKER,
+    CAPABILITY_END_MARKER,
+  );
+  if (body === null) return null;
+  if (body.length < MIN_CAPABILITY_BODY_CHARS) return null;
+  if (isMetaSummary(body)) return null;
+  return body;
 }
 
 /** Trasforma un path di modulo in uno slug base (kebab, ascii-safe). */
@@ -371,6 +480,37 @@ function makeUniqueSlug(base: string, used: Set<string>): string {
 function moduleTitle(modulePath: string): string {
   const segs = modulePath.split("/").filter(Boolean);
   return segs[segs.length - 1] ?? modulePath;
+}
+
+/** Riga di heading markdown di livello 1/2 (`# Titolo` / `## Titolo`), titolo catturato. */
+const LEADING_HEADING_RE = /^#{1,2}\s+(.+?)\s*$/;
+
+/**
+ * Risolve titolo + corpo della pagina tecnica di un modulo. Per la gran parte dei moduli
+ * il titolo è l'ultimo segmento del path (`moduleTitle`) e il corpo resta invariato. Per
+ * il modulo RADICE del repo (path `""`) `moduleTitle` è vuoto (produrrebbe un'etichetta in
+ * bianco nell'albero): si deriva il titolo dal PRIMO heading markdown del corpo (`#`/`##`,
+ * spogliato dei `#`) e, se usato, quella riga di heading viene RIMOSSA dal corpo per non
+ * avere un doppio titolo; se il corpo non ha alcun heading iniziale si ripiega su "Root".
+ */
+function titleForModule(
+  modulePath: string,
+  body: string,
+): { title: string; body: string } {
+  const fromPath = moduleTitle(modulePath);
+  if (fromPath !== "") return { title: fromPath, body };
+
+  const lines = body.split("\n");
+  const idx = lines.findIndex((l) => l.trim() !== "");
+  if (idx !== -1) {
+    const m = LEADING_HEADING_RE.exec(lines[idx]!.trim());
+    if (m) {
+      // Heading consumato come titolo: lo si toglie dal corpo (evita il doppio heading).
+      lines.splice(idx, 1);
+      return { title: m[1]!.trim(), body: lines.join("\n").trim() };
+    }
+  }
+  return { title: "Root", body };
 }
 
 /** Una capability estratta dall'indice: titolo e descrizione breve (senza heading). */
@@ -489,13 +629,17 @@ export async function runGeneration(
   // Pagine tecniche per modulo (figlie dell'overview)
   for (const doc of moduleDocs) {
     const slug = makeUniqueSlug(baseSlug(doc.modulePath), used);
+    // Il modulo radice del repo ha path "" → moduleTitle è vuoto (etichetta dell'albero
+    // in bianco): si deriva il titolo dal PRIMO heading del corpo tecnico (rimosso poi
+    // dal corpo per non duplicarlo), o "Root" se non c'è alcun heading.
+    const { title, body } = titleForModule(doc.modulePath, doc.technicalMarkdown);
     pages.push({
       kind: "technical",
       slug,
-      title: moduleTitle(doc.modulePath),
+      title,
       parentSlug: OVERVIEW_SLUG,
       sourcePath: doc.modulePath,
-      body: doc.technicalMarkdown,
+      body,
     });
   }
 
@@ -522,6 +666,9 @@ export async function runGeneration(
     // cap dei moduli. Restano comunque nella mappa root (l'indice le elenca tutte).
     for (const over of allCaps.slice(caps.length)) cappedCapabilities.push(over.title);
 
+    const prompt = (cap: ParsedCapability) =>
+      buildCapabilityPrompt({ title: cap.title, summary: cap.summary }, moduleDocs);
+
     for (let i = 0; i < caps.length; i += 1) {
       const cap = caps[i]!;
       const slug = makeUniqueSlug(baseSlug(cap.title), used);
@@ -530,23 +677,28 @@ export async function runGeneration(
       // includere l'heading qui lo duplicherebbe. Garantisce comunque un corpo sempre
       // presente anche se il deep pass non produce output valido.
       let body = cap.summary;
-      onProgress?.(`capability ${i + 1}/${caps.length}: ${cap.title}`);
-      try {
-        const out = await agent({
-          prompt: buildCapabilityPrompt(
-            { title: cap.title, summary: cap.summary },
-            moduleDocs,
-          ),
-          cwd,
-        });
-        const deep = out.trim();
-        if (deep.length >= MIN_CAPABILITY_BODY_CHARS) {
-          body = deep;
-        } else {
-          capabilityFailures.push(cap.title);
+
+      // 1° tentativo + 1 retry: l'agent deve tornare il corpo TRA i marker, e il corpo
+      // estratto deve essere valido (non vuoto, ≥ MIN_CAPABILITY_BODY_CHARS, niente
+      // meta-summary). Se entrambi i tentativi sono invalidi → fallback all'indice e si
+      // registra il fallimento. `onProgress` batte attorno a OGNI tentativo (heartbeat).
+      let valid: string | null = null;
+      for (let attempt = 1; attempt <= 2 && valid === null; attempt += 1) {
+        onProgress?.(
+          `capability ${i + 1}/${caps.length}: ${cap.title}` +
+            (attempt > 1 ? ` (retry ${attempt - 1})` : ""),
+        );
+        try {
+          const out = await agent({ prompt: prompt(cap), cwd });
+          valid = validCapabilityBody(out);
+        } catch {
+          // best-effort: una chiamata in errore conta come tentativo invalido.
+          valid = null;
         }
-      } catch {
-        // best-effort: deep pass fallito → si tiene il fallback dell'indice.
+      }
+      if (valid !== null) {
+        body = valid;
+      } else {
         capabilityFailures.push(cap.title);
       }
       onProgress?.(`capability ${i + 1}/${caps.length}: ${cap.title} done`);

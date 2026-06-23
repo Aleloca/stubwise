@@ -35,6 +35,22 @@ describe("loadWorkerConfig", () => {
     expect(config.credentialTestPollSeconds).toBe(5);
     // Cost cap dei Docs: non impostato di default = nessun cap (illimitato).
     expect(config.docCostCapUsd).toBeUndefined();
+    // Timeout per-chiamata della generazione Docs: default 8'.
+    expect(config.docAgentTimeoutMs).toBe(480_000);
+  });
+
+  it("rispetta DOC_AGENT_TIMEOUT_MS esplicito e rifiuta valori non positivi", () => {
+    expect(loadWorkerConfig({ ...VALID, DOC_AGENT_TIMEOUT_MS: "120000" }).docAgentTimeoutMs).toBe(
+      120_000,
+    );
+    // Vuoto (es. da .env.example) usa il default 8'.
+    expect(loadWorkerConfig({ ...VALID, DOC_AGENT_TIMEOUT_MS: "" }).docAgentTimeoutMs).toBe(480_000);
+    expect(() => loadWorkerConfig({ ...VALID, DOC_AGENT_TIMEOUT_MS: "0" })).toThrow(
+      /DOC_AGENT_TIMEOUT_MS/,
+    );
+    expect(() => loadWorkerConfig({ ...VALID, DOC_AGENT_TIMEOUT_MS: "-1" })).toThrow(
+      /DOC_AGENT_TIMEOUT_MS/,
+    );
   });
 
   it("rispetta DOC_COST_CAP_USD esplicito; vuoto = nessun cap; rifiuta <= 0", () => {

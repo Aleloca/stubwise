@@ -20,6 +20,7 @@ import { randomBytes } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { CAPABILITY_END_MARKER, CAPABILITY_START_MARKER } from "@stubwise/docs-engine";
 import { pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeAgentRunner } from "../agent/fake.js";
@@ -127,20 +128,21 @@ const CAPABILITY_PROMPT_HINT = "DEEP page of FUNCTIONAL documentation";
 
 /**
  * Output dell'agent. Per il prompt di una capability (deep pass) ritorna una pagina
- * funzionale profonda in puro markdown (nessun marker); per map/reduce ritorna le due
- * sezioni delimitate dai marker.
+ * funzionale profonda RACCHIUSA tra i marker del contratto (CAPABILITY_START/END_MARKER),
+ * come deve fare un agent ben educato; per map/reduce ritorna le due sezioni delimitate
+ * dai marker tecnico/funzionale.
  */
 function agentOutput(label: string, prompt?: string): string {
   if (prompt?.includes(CAPABILITY_PROMPT_HINT)) {
     return [
-      "# Greeting",
-      "",
+      CAPABILITY_START_MARKER,
       "### What you can do here",
       "A thorough plain-language description of everything possible in this block,",
       "with enough words to chunk meaningfully and to pass the deep-pass length gate.",
       "",
       "### Limits",
       "What is not possible, in plain terms.",
+      CAPABILITY_END_MARKER,
     ].join("\n");
   }
   return [
