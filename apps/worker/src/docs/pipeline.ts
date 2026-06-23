@@ -1,6 +1,5 @@
 import {
   decrypt,
-  docChunks,
   docGenerationJobs,
   docGenerations,
   docPages,
@@ -10,8 +9,6 @@ import {
 } from "@stubwise/db";
 import {
   buildRepoMap,
-  chunkMarkdown,
-  estimateTokens,
   runGeneration,
   type GeneratedPage,
 } from "@stubwise/docs-engine";
@@ -22,6 +19,7 @@ import { z } from "zod";
 import type { AgentRunner } from "../agent/runner.js";
 import { MirrorManager, type MirrorProject } from "../git/mirrors.js";
 import type { ResolvedProvider } from "../providers/chain.js";
+import { EMBED_BATCH_SIZE, embedAndStoreChunks } from "./embed.js";
 import {
   completeDocJob,
   failDocJob,
@@ -68,18 +66,6 @@ type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 /** Branch effimero (read-only) del worktree di doc-generation. */
 const DOC_BRANCH = "stubwise/docs-generation";
-
-/** Target/overlap del chunking markdown per l'embedding (token stimati). */
-const CHUNK_TARGET_TOKENS = 400;
-const CHUNK_OVERLAP_WORDS = 40;
-
-/**
- * Tetto al numero di input per singola chiamata `embed()`. Una pagina grande può
- * produrre più chunk di quanti il provider accetti in un solo batch: i contenuti
- * vengono spezzati in batch di al più questa dimensione (più chiamate, risultati
- * concatenati in ordine). Override possibile via `deps.embedBatchSize` (test).
- */
-const EMBED_BATCH_SIZE = 64;
 
 /** Forma attesa delle credenziali git decifrate (vedi pipeline/fix.ts). */
 const credentialsSchema = z.object({
@@ -293,13 +279,13 @@ export async function runDocGenerationJob(
           generationId: generation.id,
           pages: result.pages,
         });
-        const chunkCount = await embedAndStoreChunks(tx, embeddingClient, {
+        const embedded = await embedAndStoreChunks(tx, embeddingClient, {
           projectId: project.id,
           generationId: generation.id,
           pages: persisted,
           batchSize: deps.embedBatchSize ?? EMBED_BATCH_SIZE,
         });
-        return { pages: persisted.length, chunks: chunkCount };
+        return { pages: persisted.length, chunks: embedded.chunkCount };
       });
 
       return {
@@ -446,85 +432,6 @@ async function persistPages(
     position += 1;
   }
   return persisted;
-}
-
-interface EmbedAndStoreInput {
-  projectId: string;
-  generationId: string;
-  pages: PersistedPage[];
-  /** Tetto di input per chiamata `embed()` (vedi `EMBED_BATCH_SIZE`). */
-  batchSize: number;
-}
-
-/** Chunk con il riferimento alla pagina di provenienza (per l'insert). */
-interface PageChunk {
-  page: PersistedPage;
-  content: string;
-  heading: string | null;
-}
-
-/** Spezza un array in sotto-array di al più `size` elementi. */
-function batched<T>(items: T[], size: number): T[][] {
-  const batches: T[][] = [];
-  for (let i = 0; i < items.length; i += size) {
-    batches.push(items.slice(i, i + size));
-  }
-  return batches;
-}
-
-/**
- * Chunk markdown-aware di ogni pagina → embedding → insert dei `doc_chunks` con
- * embedding (1024 dim) e metadata (heading, sourcePath, layer=kind). Una pagina con
- * corpo vuoto non produce chunk.
- *
- * BATCH: i contenuti di TUTTE le pagine sono raccolti in un'unica lista e mandati a
- * `embed()` in batch di al più `batchSize` input (default `EMBED_BATCH_SIZE`),
- * indipendentemente dai confini di pagina: nessuna chiamata supera il limite del
- * provider anche se una pagina genera molti chunk. I risultati sono concatenati in
- * ordine e riallineati ai chunk. Ritorna il numero totale di chunk inseriti.
- */
-async function embedAndStoreChunks(
-  db: DbOrTx,
-  embeddingClient: EmbeddingClient,
-  input: EmbedAndStoreInput,
-): Promise<number> {
-  // 1) Chunk di tutte le pagine, in ordine stabile (pagine → chunk della pagina).
-  const all: PageChunk[] = [];
-  for (const page of input.pages) {
-    const chunks = chunkMarkdown(page.body, {
-      targetTokens: CHUNK_TARGET_TOKENS,
-      overlap: CHUNK_OVERLAP_WORDS,
-    });
-    for (const chunk of chunks) {
-      all.push({ page, content: chunk.content, heading: chunk.heading });
-    }
-  }
-  if (all.length === 0) return 0;
-
-  // 2) Embedding in batch di al più `batchSize` input, risultati concatenati in ordine.
-  const embeddings: number[][] = [];
-  for (const batch of batched(all, Math.max(1, input.batchSize))) {
-    const vectors = await embeddingClient.embed(batch.map((c) => c.content));
-    embeddings.push(...vectors);
-  }
-
-  // 3) Insert dei chunk allineati 1:1 agli embedding (stesso ordine).
-  await db.insert(docChunks).values(
-    all.map((c, i) => ({
-      pageId: c.page.id,
-      projectId: input.projectId,
-      generationId: input.generationId,
-      content: c.content,
-      embedding: embeddings[i],
-      metadata: {
-        heading: c.heading,
-        sourcePath: c.page.sourcePath,
-        layer: c.page.kind,
-      },
-      tokenCount: estimateTokens(c.content),
-    })),
-  );
-  return all.length;
 }
 
 /**
