@@ -238,6 +238,11 @@ describe("spazio documentazione — mobile (drawer)", () => {
     expect(indexBtn).toBeInTheDocument();
     expect(chatBtn).toBeInTheDocument();
 
+    // A11y: i bottoni della sotto-barra puntano al pannello che controllano
+    // (parità Index/Chat), target degli `id` sui rispettivi drawer.
+    expect(indexBtn).toHaveAttribute("aria-controls", "docs-tree-drawer");
+    expect(chatBtn).toHaveAttribute("aria-controls", "docs-chat-drawer");
+
     // La sotto-barra è `lg:hidden` (sparisce su desktop).
     const subbar = screen.getByLabelText("Documentation toolbar");
     expect(subbar.className).toContain("lg:hidden");
@@ -293,6 +298,8 @@ describe("spazio documentazione — mobile (drawer)", () => {
     // La chat è in un drawer (aria-label = titolo chat) ed è interattiva.
     const dialog = await screen.findByRole("dialog", { name: "Ask the docs" });
     expect(dialog).not.toHaveAttribute("aria-hidden", "true");
+    // Il pannello porta l'id target dell'aria-controls del bottone "Chat".
+    expect(dialog).toHaveAttribute("id", "docs-chat-drawer");
     expect(within(dialog).getByLabelText(/ask about this project/i)).toBeInTheDocument();
   });
 

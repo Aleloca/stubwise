@@ -7,6 +7,8 @@ interface DrawerProps {
   /** Larghezza del pannello (classe Tailwind). Default: `w-[min(86vw,20rem)]`. */
   widthClassName?: string;
   "aria-label": string;
+  /** Inoltrato al pannello (`role="dialog"`): es. target di un `aria-controls`. */
+  id?: string;
   children: React.ReactNode;
 }
 

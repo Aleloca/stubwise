@@ -80,6 +80,7 @@ export function DocsSpaceLayout() {
           type="button"
           onClick={() => setChatOpen(true)}
           aria-expanded={chatOpen}
+          aria-controls="docs-chat-drawer"
           className="inline-flex items-center rounded-sm px-2 py-1.5 font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:bg-ink-800 hover:text-fg"
         >
           {t("docs:space.chat")}

@@ -316,6 +316,7 @@ export function DocsChat({
           side="right"
           widthClassName="w-[min(92vw,28rem)]"
           aria-label={t("docs:chat.title")}
+          id="docs-chat-drawer"
         >
           <div className="h-full bg-ink-950">{body}</div>
         </Drawer>
