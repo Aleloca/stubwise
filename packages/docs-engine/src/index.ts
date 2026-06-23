@@ -72,5 +72,8 @@ export type {
   BodyRejection,
 } from "./recursive/contract.js";
 
+export { buildOrientPrompt, parseOrientPlan } from "./recursive/orient.js";
+export type { OrientPlan } from "./recursive/orient.js";
+
 export type { RepoFile, RepoReader } from "./fs.js";
 export type { RepoMap, ModuleNode } from "./types.js";
