@@ -32,7 +32,11 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
           key={item.to}
           to={item.to}
           onClick={onNavigate}
-          className="group flex items-baseline gap-3 rounded-sm px-3 py-2 text-sm text-fg-muted transition-colors hover:bg-ink-800 hover:text-fg"
+          className={`group flex items-baseline gap-3 rounded-sm px-3 py-2 text-sm text-fg-muted transition-colors hover:bg-ink-800 hover:text-fg ${
+            // Solo nel drawer mobile (onNavigate presente) alziamo il target
+            // touch a ~44px; la sidebar desktop resta invariata.
+            onNavigate ? "min-h-11" : ""
+          }`}
           activeProps={{
             className: "bg-ink-800 text-fg shadow-[inset_2px_0_0_0_var(--color-signal)]",
           }}

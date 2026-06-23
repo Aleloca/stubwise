@@ -224,7 +224,7 @@ function MemberRow({
             type="button"
             onClick={handleUnlink}
             disabled={unlinkMutation.isPending}
-            className="rounded-sm border border-line-strong px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase transition-colors hover:border-danger/40 hover:text-danger disabled:opacity-50"
+            className="tap rounded-sm border border-line-strong px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase transition-colors hover:border-danger/40 hover:text-danger disabled:opacity-50"
           >
             {unlinkMutation.isPending ? t("settings:team.unlinking") : t("settings:team.unlink")}
           </button>
@@ -237,7 +237,7 @@ function MemberRow({
               setPicking(true);
             }}
             disabled={slackUnavailable}
-            className="rounded-sm border border-line-strong px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase transition-colors hover:border-signal-dim/40 hover:text-signal disabled:cursor-not-allowed disabled:opacity-50"
+            className="tap rounded-sm border border-line-strong px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase transition-colors hover:border-signal-dim/40 hover:text-signal disabled:cursor-not-allowed disabled:opacity-50"
           >
             {t("settings:team.linkSlack")}
           </button>
@@ -400,7 +400,7 @@ function SlackPicker({
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-sm border border-line-strong px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase transition-colors hover:text-fg"
+            className="tap rounded-sm border border-line-strong px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase transition-colors hover:text-fg"
           >
             {t("settings:team.cancel")}
           </button>
@@ -570,7 +570,7 @@ function InvitesSection() {
                 setPickingSlack(true);
               }}
               disabled={slack.unavailable}
-              className="rounded-sm border border-line-strong px-3 py-1.5 font-mono text-[11px] tracking-[0.1em] text-fg-muted uppercase transition-colors hover:border-signal-dim/40 hover:text-signal disabled:cursor-not-allowed disabled:opacity-50"
+              className="tap rounded-sm border border-line-strong px-3 py-1.5 font-mono text-[11px] tracking-[0.1em] text-fg-muted uppercase transition-colors hover:border-signal-dim/40 hover:text-signal disabled:cursor-not-allowed disabled:opacity-50"
             >
               {t("settings:team.inviteFromSlack")}
             </button>
@@ -678,7 +678,7 @@ function InviteRow({ invite }: { invite: PendingInvite }) {
           type="button"
           onClick={handleRevoke}
           disabled={revokeMutation.isPending}
-          className="shrink-0 rounded-sm border border-line-strong px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase transition-colors hover:border-danger/40 hover:text-danger disabled:opacity-50"
+          className="tap shrink-0 rounded-sm border border-line-strong px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase transition-colors hover:border-danger/40 hover:text-danger disabled:opacity-50"
         >
           {revokeMutation.isPending ? t("settings:team.revoking") : t("settings:team.revoke")}
         </button>

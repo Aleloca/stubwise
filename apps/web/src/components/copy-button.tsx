@@ -40,7 +40,7 @@ export function CopyButton({ text, label }: CopyButtonProps) {
       aria-label={label}
       title={label}
       onClick={() => void handleCopy()}
-      className={`shrink-0 rounded-sm border px-2 py-1 font-mono text-[10px] tracking-[0.14em] uppercase transition-colors ${
+      className={`tap shrink-0 rounded-sm border px-2 py-1 font-mono text-[10px] tracking-[0.14em] uppercase transition-colors ${
         state === "copied"
           ? "border-ok/40 text-ok"
           : state === "failed"

@@ -157,6 +157,14 @@
   @apply px-4 py-6 sm:p-6 lg:p-8;
 }
 
+@utility tap {
+  /* Target touch comodo su mobile: garantisce un'altezza minima ~36px ai
+   * controlli secondari senza alterare il padding (e quindi l'aspetto)
+   * desktop. `inline-flex`/`items-center` evitano che il min-height distorca
+   * il layout interno. Per i controlli primari/nav usare `min-h-11` (~44px). */
+  @apply inline-flex min-h-9 items-center;
+}
+
 @utility bg-grid {
   /* Griglia blueprint appena percettibile, per dare profondità al fondo. */
   background-image:
