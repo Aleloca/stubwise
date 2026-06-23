@@ -2,7 +2,9 @@ import {
   docGenerationStatusSchema,
   docGenerationTriggerSchema,
   docJobStatusSchema,
+  docNodeStatusSchema,
   docPageKindSchema,
+  docTreeSchema,
   gitProviderKindSchema,
   languageSchema,
   ticketPrioritySchema,
@@ -155,6 +157,8 @@ export const docGenerationTrigger = pgEnum(
   enumValues(docGenerationTriggerSchema),
 );
 export const docJobStatus = pgEnum("doc_job_status", enumValues(docJobStatusSchema));
+export const docNodeStatus = pgEnum("doc_node_status", enumValues(docNodeStatusSchema));
+export const docTree = pgEnum("doc_tree", enumValues(docTreeSchema));
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -914,6 +918,9 @@ export const docPages = pgTable(
     // Path del sorgente documentato (modulo/file); null per overview/manuali.
     sourcePath: text("source_path"),
     body: text("body").notNull().default(""),
+    // Cross-link risolti a fine generazione: [{type,slug,title}] raggruppabili
+    // per type (implements/implemented_by/related). Null finché non calcolati.
+    links: jsonb("links"),
     isManual: boolean("is_manual").notNull().default(false),
     // Autore della pagina manuale; null per le autogenerate o autore eliminato.
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
@@ -1017,6 +1024,59 @@ export const docGenerationJobs = pgTable(
       .where(sql`status = 'queued'`),
     // Lookup dei job di un progetto (storico, serializzazione per-progetto).
     index("doc_generation_jobs_project_idx").on(table.projectId),
+  ],
+);
+
+/**
+ * Nodo del DAG di documentazione ricorsivo. Modella sia i rami (radici
+ * technical/functional e nodi intermedi) sia le foglie del grafo durabile usato
+ * dal motore: explore e synthesize sono job claimabili distinti che fanno
+ * progredire lo `status`. `parentId` è una self-ref soft (radici = null, niente
+ * FK per evitare ordini in migrazione); `pendingChildren` è il contatore del
+ * join atomico (decrementato dai figli completati). `links` porta i cross-link
+ * (implements/implemented_by/related) risolti a fine generazione.
+ */
+export const docNodes = pgTable(
+  "doc_nodes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    generationId: uuid("generation_id")
+      .notNull()
+      .references(() => docGenerations.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    // Genitore nel DAG; soft self-ref (radici = null), niente FK per ordine.
+    parentId: uuid("parent_id"),
+    tree: docTree("tree").notNull(),
+    status: docNodeStatus("status").notNull().default("pending"),
+    // Contatore del join atomico: figli ancora non completati.
+    pendingChildren: integer("pending_children").notNull().default(0),
+    depth: integer("depth").notNull().default(0),
+    position: integer("position").notNull().default(0),
+    // Riferimento all'unità documentata: path (tecnico) o nome capability.
+    unitRef: text("unit_ref"),
+    title: text("title").notNull().default(""),
+    slug: text("slug").notNull().default(""),
+    sourcePaths: jsonb("source_paths").notNull().default([]),
+    body: text("body").notNull().default(""),
+    // Cross-link risolti a fine generazione: [{type,slug,title}]. Null finché non calcolati.
+    links: jsonb("links"),
+    error: text("error"),
+    cost: numeric("cost", { precision: 12, scale: 6 }),
+    // Heartbeat del nodo: base del recupero dei nodi orfani (requeueStaleNodes).
+    lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    // I nodi si elencano e finalizzano sempre per generazione.
+    index("doc_nodes_generation_idx").on(table.generationId),
+    // Join atomico: lookup dei figli di un padre.
+    index("doc_nodes_parent_idx").on(table.parentId),
+    // Claim del worker: nodi processabili (pending/ready_to_synthesize),
+    // oldest-first (FOR UPDATE SKIP LOCKED su status, ordinato per created_at).
+    index("doc_nodes_claimable_idx").on(table.status, table.createdAt),
   ],
 );
 

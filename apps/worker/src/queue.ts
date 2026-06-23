@@ -6,6 +6,7 @@ import {
   requeueStaleDocJobs as requeueStaleDocJobsImpl,
   type DocJob,
 } from "./docs/queue.js";
+import { requeueStaleNodes as requeueStaleNodesImpl } from "./docs/nodes.js";
 
 export type AiJob = typeof aiJobs.$inferSelect;
 
@@ -61,17 +62,43 @@ const ACTIVE_STATUSES = ["triaging", "fixing"] as const;
  * Il claim è un singolo UPDATE con subquery `FOR UPDATE SKIP LOCKED`: due
  * worker concorrenti non possono mai prendere lo stesso job, chi trova la
  * riga già lockata passa alla successiva (o riceve null se la coda è vuota).
+ *
+ * MUTUA ESCLUSIONE FIX↔GENERAZIONE (M7): `excludeProjectIds` esclude dal claim i
+ * fix-job dei progetti con una GENERAZIONE di documentazione attiva (worktree
+ * aperto). Un fix farebbe `ensureMirror → fetch --prune` nel mirror condiviso,
+ * cancellando il ref `stubwise/*` checked-out del worktree di generazione (limite
+ * documentato in mirrors.ts). La subquery joina ai_jobs→tickets per il projectId e
+ * salta i job di quei progetti; gli ALTRI fix (progetti senza generazione attiva)
+ * restano reclamabili nel loro ordine. Insieme vuoto (default) = nessuna esclusione,
+ * comportamento storico. La generazione resta comunque la priorità BASSA (fix-first):
+ * questa esclusione tocca solo i progetti con un worktree aperto.
  */
-export async function claimNextJob(db: Db): Promise<AiJob | null> {
+export async function claimNextJob(
+  db: Db,
+  excludeProjectIds: string[] = [],
+): Promise<AiJob | null> {
+  // Subquery del claim: il job queued più vecchio, opzionalmente escludendo i progetti
+  // con una generazione attiva (join a tickets per il projectId). La lista di
+  // esclusione è interpolata come tupla `(v1, v2, …)` per il NOT IN (drizzle param-binda
+  // ciascun valore, niente SQL injection).
+  const excludeTuple = sql.join(
+    excludeProjectIds.map((id) => sql`${id}`),
+    sql`, `,
+  );
+  const subquery =
+    excludeProjectIds.length === 0
+      ? sql`(SELECT id FROM ai_jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED)`
+      : sql`(
+          SELECT j.id FROM ai_jobs j
+          JOIN tickets t ON t.id = j.ticket_id
+          WHERE j.status = 'queued'
+            AND t.project_id NOT IN (${excludeTuple})
+          ORDER BY j.created_at LIMIT 1 FOR UPDATE OF j SKIP LOCKED
+        )`;
   const [job] = await db
     .update(aiJobs)
     .set({ status: "triaging", startedAt: sql`now()`, lastActivityAt: sql`now()` })
-    .where(
-      eq(
-        aiJobs.id,
-        sql`(SELECT id FROM ai_jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED)`,
-      ),
-    )
+    .where(eq(aiJobs.id, subquery))
     .returning();
   return job ?? null;
 }
@@ -294,6 +321,8 @@ export interface RunWorkerInternals {
   claimNextDocJob?: typeof claimNextDocJobImpl;
   /** Override del requeue dei doc-job orfani (default requeueStaleDocJobs). */
   requeueStaleDocJobs?: typeof requeueStaleDocJobsImpl;
+  /** Override del requeue dei nodi orfani del DAG (default requeueStaleNodes). */
+  requeueStaleNodes?: typeof requeueStaleNodesImpl;
   /** Primo intervallo di backoff dopo un errore DB (default 1s). */
   backoffBaseMs?: number;
   /** Tetto del backoff esponenziale (default 30s). */
@@ -309,17 +338,35 @@ export interface RunWorkerOptions {
    */
   handler: (job: AiJob) => Promise<void>;
   /**
-   * Handler dei job di doc-generation (Task 5.4). Se assente, il loop NON
-   * reclama doc-job (retro-compat: la sola pipeline fix). Riceve il doc-job
-   * già reclamato (`running`); è sua responsabilità chiuderlo
-   * (runDocGenerationJob lo fa su ogni percorso). Se lancia, il job è marcato
-   * `failed` via docHandlerOnError. DEVE condividere la catena per-progetto
-   * con `handler` (vedi createProjectSerializer in handler.ts) perché un
-   * doc-job e un fix-job dello stesso progetto non si sovrappongano.
+   * Handler del TRIGGER di doc-generation (M7: avvia l'ORIENTAMENTO del DAG). Se
+   * assente, il loop NON reclama doc-job (retro-compat: la sola pipeline fix).
+   * Riceve il doc-job già reclamato (`running`); l'orientamento semina il DAG e
+   * lascia il trigger `running` (lo chiude la finalizzazione), oppure lo fallisce.
+   * Se lancia, il job è marcato `failed` via docHandlerOnError. DEVE condividere la
+   * catena per-progetto con `handler` (vedi createProjectSerializer in handler.ts)
+   * perché orientamento e fix dello stesso progetto non si sovrappongano sul mirror.
    */
   docHandler?: (job: DocJob) => Promise<void>;
   /** Marca il doc-job `failed` se docHandler lancia (vedi failDocJobOnError). */
   docHandlerOnError?: (db: Db, job: DocJob, err: unknown) => Promise<void>;
+  /**
+   * Dispatch di UN job-nodo del DAG (M7): RECLAMA un nodo claimabile e, se c'è,
+   * registra l'esecuzione (explore/synthesize + join + eventuale finalizzazione) via
+   * `track(work)` e ritorna `true` APPENA fatto il claim — l'esecuzione prosegue in
+   * background, tracciata in volo dal loop. Ritorna `false` (senza chiamare `track`)
+   * se la coda nodi è vuota. Così il loop sa subito se continuare a reclamare nodi
+   * (parallelizzano fino alla concorrenza) senza bloccarsi sull'esecuzione di un
+   * agente. Se assente, il loop NON reclama job-nodo (retro-compat: niente DAG). I
+   * job-nodo NON passano dal serializzatore per-progetto. Vedi node-dispatch.ts.
+   */
+  dispatchNode?: (track: (work: Promise<void>) => void) => Promise<boolean>;
+  /**
+   * Insieme dei projectId con una GENERAZIONE attiva (worktree aperto). Il loop NON
+   * reclama fix-job di quei progetti (mutua esclusione col mirror, M7): un fix farebbe
+   * `fetch --prune` cancellando il ref checked-out del worktree di generazione. Di
+   * default vuoto (nessuna esclusione). Vedi registry.activeProjectIds.
+   */
+  activeGenerationProjectIds?: () => Set<string>;
   /** Job in lavorazione contemporanea (default 2). */
   concurrency?: number;
   /** Intervallo di poll della coda quando non c'è niente da fare (default 3s). */
@@ -402,6 +449,8 @@ export async function runWorker(options: RunWorkerOptions): Promise<void> {
     handler,
     docHandler,
     docHandlerOnError,
+    dispatchNode,
+    activeGenerationProjectIds,
     concurrency = 2,
     pollMs = 3000,
     signal,
@@ -413,6 +462,7 @@ export async function runWorker(options: RunWorkerOptions): Promise<void> {
   const requeue = _internals?.requeueStale ?? requeueStale;
   const claimDoc = _internals?.claimNextDocJob ?? claimNextDocJobImpl;
   const requeueDoc = _internals?.requeueStaleDocJobs ?? requeueStaleDocJobsImpl;
+  const requeueNodes = _internals?.requeueStaleNodes ?? requeueStaleNodesImpl;
   const backoffBaseMs = _internals?.backoffBaseMs ?? 1000;
   const backoffMaxMs = _internals?.backoffMaxMs ?? 30_000;
 
@@ -428,20 +478,30 @@ export async function runWorker(options: RunWorkerOptions): Promise<void> {
           // requeue dei doc-job orfani sullo STESSO cadence dei fix: un doc-job
           // running senza heartbeat oltre soglia torna in coda (Task 5.4).
           if (docHandler) await requeueDoc(db, { olderThanMinutes: staleAfterMinutes });
+          // requeue dei NODI orfani del DAG sullo STESSO cadence (M7): un nodo
+          // exploring/synthesizing senza heartbeat oltre soglia torna claimabile
+          // (la sua generazione verrà ri-aperta on-demand dal dispatch se necessario).
+          if (dispatchNode) await requeueNodes(db, staleAfterMinutes);
           // Avanzato solo dopo il successo: se la requeue fallisce si
           // ritenta alla prossima iterazione, non tra requeueEveryMs.
           nextRequeueAt = Date.now() + requeueEveryMs;
         }
 
-        // PRIORITÀ: i fix prima dei doc-job. Si satura `concurrency` con i fix
-        // disponibili; SOLO se resta capacità (nessun fix in coda) si reclama
-        // UN doc-job per tick. Così le generazioni di documentazione (lunghe e
-        // costose) non affamano i fix dei bug, che restano la priorità del
-        // worker. Single-process: niente slot dedicato, si condivide il budget
-        // di concorrenza. Politica loggata all'avvio in index.ts.
+        // PRIORITÀ: i fix prima di tutto. Si satura `concurrency` con i fix
+        // disponibili; SOLO se resta capacità (nessun fix in coda) si reclamano i
+        // job-nodo del DAG, poi UN trigger di generazione per tick. Così le
+        // generazioni di documentazione (lunghe e costose) non affamano i fix dei
+        // bug, che restano la priorità del worker. Single-process: niente slot
+        // dedicato, si condivide il budget di concorrenza. Politica loggata in index.ts.
+        //
+        // MUTUA ESCLUSIONE FIX↔GENERAZIONE (M7): i fix dei progetti con una
+        // generazione attiva (worktree aperto) sono ESCLUSI dal claim — un fix farebbe
+        // `fetch --prune` cancellando il ref checked-out del worktree (vedi claimNextJob
+        // e registry.activeProjectIds). Gli altri fix restano reclamabili.
+        const excluded = activeGenerationProjectIds ? [...activeGenerationProjectIds()] : [];
         let claimedFix = false;
         while (inFlight.size < concurrency && !signal?.aborted) {
-          const job = await claim(db);
+          const job = await claim(db, excluded);
           if (!job) break;
           claimedFix = true;
           const task = runJob(db, job, handler).finally(() => {
@@ -450,9 +510,29 @@ export async function runWorker(options: RunWorkerOptions): Promise<void> {
           inFlight.add(task);
         }
 
-        // Doc-job solo a fix esauriti (nessun fix reclamato questo tick) e con
-        // capacità libera. Uno per tick: il prossimo arriva al giro successivo,
-        // dopo aver ridato priorità ai fix.
+        // JOB-NODO del DAG: solo a fix esauriti e con capacità libera. PARALLELIZZANO
+        // fino a `concurrency` (il DAG si espande in larghezza). Si SONDA con un
+        // dispatch ATTESO sul solo CLAIM (non sull'esecuzione): `dispatchNode` ritorna
+        // appena saputo se un nodo è stato reclamato, mentre l'esecuzione (agente +
+        // join + eventuale finalizzazione) prosegue in background, tracciata in volo
+        // via `track`. Se il claim trova un nodo si continua a riempire la capacità;
+        // se la coda nodi è vuota il dispatch ritorna false e ci si ferma (niente
+        // busy-spin di no-op). Vedi node-dispatch.ts.
+        if (dispatchNode) {
+          while (!claimedFix && inFlight.size < concurrency && !signal?.aborted) {
+            const claimedNode = await dispatchNode((work) => {
+              const task = work.finally(() => {
+                inFlight.delete(task);
+              });
+              inFlight.add(task);
+            });
+            if (!claimedNode) break;
+          }
+        }
+
+        // Trigger di generazione (orientamento): solo a fix esauriti e con capacità
+        // libera. Uno per tick: il prossimo arriva al giro successivo, dopo aver
+        // ridato priorità ai fix e ai nodi del DAG in corso.
         if (
           docHandler &&
           docHandlerOnError &&

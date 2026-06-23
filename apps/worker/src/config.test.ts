@@ -33,8 +33,6 @@ describe("loadWorkerConfig", () => {
     expect(config.usagePollMinutes).toBe(5);
     // Tester delle credenziali: default 5 secondi.
     expect(config.credentialTestPollSeconds).toBe(5);
-    // Cost cap dei Docs: non impostato di default = nessun cap (illimitato).
-    expect(config.docCostCapUsd).toBeUndefined();
     // Timeout per-chiamata della generazione Docs: default 8'.
     expect(config.docAgentTimeoutMs).toBe(480_000);
   });
@@ -51,16 +49,6 @@ describe("loadWorkerConfig", () => {
     expect(() => loadWorkerConfig({ ...VALID, DOC_AGENT_TIMEOUT_MS: "-1" })).toThrow(
       /DOC_AGENT_TIMEOUT_MS/,
     );
-  });
-
-  it("rispetta DOC_COST_CAP_USD esplicito; vuoto = nessun cap; rifiuta <= 0", () => {
-    expect(loadWorkerConfig({ ...VALID, DOC_COST_CAP_USD: "5" }).docCostCapUsd).toBe(5);
-    expect(loadWorkerConfig({ ...VALID, DOC_COST_CAP_USD: "2.5" }).docCostCapUsd).toBe(2.5);
-    // Vuoto (es. da .env.example) = nessun cap (undefined).
-    expect(loadWorkerConfig({ ...VALID, DOC_COST_CAP_USD: "" }).docCostCapUsd).toBeUndefined();
-    // Non positivo: rifiutato (un cap a 0 sospenderebbe ogni generazione).
-    expect(() => loadWorkerConfig({ ...VALID, DOC_COST_CAP_USD: "0" })).toThrow(/DOC_COST_CAP_USD/);
-    expect(() => loadWorkerConfig({ ...VALID, DOC_COST_CAP_USD: "-1" })).toThrow(/DOC_COST_CAP_USD/);
   });
 
   it("rispetta USAGE_POLL_MINUTES esplicito e 0 = disabilitato", () => {

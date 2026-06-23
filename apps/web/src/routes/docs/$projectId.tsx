@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { Outlet, useNavigate, useParams } from "@tanstack/react-router";
+import { Link, Outlet, useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { DocsChat } from "../../components/docs-chat";
@@ -8,7 +8,7 @@ import { DocsSidebar } from "../../components/docs-sidebar";
 import { Drawer } from "../../components/drawer";
 import { Markdown } from "../../components/markdown";
 import { ApiError } from "../../lib/api";
-import { type DocPage, deleteManualPage } from "../../lib/docs-api";
+import { type DocPage, type DocPageLink, deleteManualPage } from "../../lib/docs-api";
 import { docPageQueryOptions, docsKeys, docTreeQueryOptions } from "../../lib/queries";
 import { useCloseOnRouteChange } from "../../lib/use-close-on-route-change";
 import { useMediaQuery } from "../../lib/use-media-query";
@@ -169,6 +169,60 @@ function PageBadges({ page }: { page: DocPage }) {
   );
 }
 
+/** Ordine dei gruppi di cross-link + la chiave i18n della loro intestazione. */
+const LINK_GROUP_ORDER: DocPageLink["type"][] = ["implemented_by", "implements", "related"];
+
+const LINK_GROUP_LABEL_KEY: Record<DocPageLink["type"], string> = {
+  implemented_by: "docs:space.linksImplementedBy",
+  implements: "docs:space.linksImplements",
+  related: "docs:space.linksRelated",
+};
+
+/**
+ * Sezione "Related" in fondo alla pagina: raggruppa i cross-link per type
+ * (Implemented by / Implements / Related), ognuno una lista di Link allo slug.
+ * Restituisce null se non ci sono link (la sezione sparisce). Eredita il layout
+ * della pagina: su mobile i gruppi semplicemente si impilano.
+ */
+function PageLinks({ projectId, links }: { projectId: string; links: DocPageLink[] }) {
+  const { t } = useTranslation();
+  if (links.length === 0) return null;
+
+  return (
+    <section className="mt-10 border-t border-line pt-6" aria-label={t("docs:space.linksHeading")}>
+      <h2 className="font-mono text-[11px] tracking-[0.18em] text-fg-faint uppercase">
+        {t("docs:space.linksHeading")}
+      </h2>
+      <div className="mt-4 flex flex-col gap-5">
+        {LINK_GROUP_ORDER.map((type) => {
+          const group = links.filter((link) => link.type === type);
+          if (group.length === 0) return null;
+          return (
+            <div key={type}>
+              <p className="font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase">
+                {t(LINK_GROUP_LABEL_KEY[type])}
+              </p>
+              <ul className="mt-2 flex flex-col gap-1">
+                {group.map((link) => (
+                  <li key={`${type}:${link.slug}`}>
+                    <Link
+                      to="/docs/$projectId/$slug"
+                      params={{ projectId, slug: link.slug }}
+                      className="text-[13px] text-signal transition-colors hover:underline"
+                    >
+                      {link.title}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 /**
  * Render di una pagina (`/docs/$projectId/$slug`): titolo, riga badge e corpo
  * markdown (riuso `Markdown`, sanitizzato). 404 → messaggio amichevole.
@@ -233,6 +287,7 @@ export function DocsPageView() {
       <div className="mt-6">
         <Markdown source={page.body} />
       </div>
+      {page.links && <PageLinks projectId={projectId} links={page.links} />}
     </article>
   );
 }

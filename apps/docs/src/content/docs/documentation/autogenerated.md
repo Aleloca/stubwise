@@ -10,8 +10,8 @@ you browse, search and **ask questions to** through a retrieval-augmented chat.
 
 It serves two audiences from the same generated material:
 
-- **Developers** read the **technical** pages (modules, public surface, how
-  things fit together) and ask the chat precise questions about the code.
+- **Developers** read the **technical** pages (architecture, modules, how things
+  fit together) and ask the chat precise questions about the code.
 - **Business / product** people ask **capability** questions ("can the product
   do X?") and get a functional answer — the steps if it's feasible, or an
   explanation of why it isn't — grounded in the actual codebase.
@@ -21,14 +21,32 @@ an ephemeral worktree, they never write, commit or push.
 
 ## What it produces
 
-For each project, a generation produces a tree of pages grouped into three
-spaces:
+Documentation is generated as a **nested tree** of pages, not a flat list. An
+agent first **orients itself** in the repository — detecting the framework(s) in
+use and telling apart the architecturally meaningful folders from noise (build
+output, generated code, vendored dependencies, fixtures), which are excluded —
+and then **explores recursively**: each area is broken into sub-areas, and each
+sub-area into finer ones, going **as deep as the area's importance warrants**.
+The depth is decided **automatically**, area by area: a central, complex part of
+the codebase grows a deep sub-tree, a thin one stays shallow.
 
-- **Technical** — a root overview plus one page per module, with the module's
-  public surface and dependencies.
-- **Functional** — capability-oriented pages describing what the product does,
-  derived from the same analysis.
-- **Manual** — pages humans write by hand (see [Manual pages](#manual-pages)).
+Each project gets **two parallel trees** built this way:
+
+- **Technical** — organized by **code structure** (architecture → areas →
+  modules), describing how the system is built and how the pieces fit together.
+- **Functional** — organized by **capability**, in non-technical language,
+  describing what the product can do.
+
+A **Manual** space sits alongside them for pages humans write by hand (see
+[Manual pages](#manual-pages)).
+
+The two generated trees are **cross-linked**. Each page can carry links to
+related pages, so you can jump between *how it's built* and *what it does*:
+
+- **Implements / implemented by** — connects a functional capability to the
+  technical pages whose source code implements it (and back).
+- **Related** — points to other pages that are semantically close, found through
+  the same embeddings used for search.
 
 Each **generated** page carries badges showing the **source path** it documents
 and the **commit** it was generated at, so you can always trace a statement back
@@ -94,12 +112,18 @@ costs under control:
 1. Open the first-level **Docs** section in the web app and pick the project's
    space.
 2. An **admin** clicks **Generate documentation**.
-3. The worker clones the repo into an ephemeral worktree, builds a structural map
-   of the modules, runs the read-only analysis (map per module, then a synthesis
-   pass), and chunks + embeds the result into pgvector.
+3. The worker clones the repo into an ephemeral worktree, orients itself in the
+   codebase, explores it recursively to build the technical and functional trees,
+   resolves the cross-links between pages, and chunks + embeds the result into
+   pgvector.
+
+The **workflow is unchanged** — it's still a single click. Because the engine now
+explores the codebase **recursively and in depth**, a generation can take
+**noticeably longer** than a flat pass; how deep it goes is **decided
+automatically** per area, so there is nothing to configure for it.
 
 The space shows the status of the last generation — commit, date, cost, stats and
-any modules that were skipped. **Regenerating** from here replaces the generated
+anything that was skipped. **Regenerating** from here replaces the generated
 pages with a fresh set; manual pages are left untouched.
 
 :::note[Incremental updates are future work]
@@ -112,9 +136,10 @@ the schema already records the `commit` and `source path` to support it.
 
 Inside a project's space:
 
-- **Tree** — navigate the **Technical / Functional / Manual** groups; the center
-  pane renders the selected page's Markdown with its source-path and commit
-  badges.
+- **Tree** — navigate the **Technical / Functional / Manual** groups; each group
+  is a **nested tree** you can expand to any depth. The center pane renders the
+  selected page's Markdown with its source-path and commit badges, plus its
+  **Implements / Related** cross-links to jump to connected pages.
 - **Search** — a dedicated bar (separate from the chat) combines **semantic**
   search over the chunks with **full-text** search over the pages; results link
   straight to the page.
@@ -135,7 +160,10 @@ technical and functional pages it produces, never the manual ones.
 The cost of a generation is **dominated by the LLM** doing the analysis, not by
 the embeddings. Embeddings are cheap, and with the default **self-hosted** Ollama
 setup they cost **nothing in API fees** — only the local CPU/RAM to run the
-container. Per-generation budgets and structural caps (max modules/tokens) apply,
-and any truncation is logged; see
+container. Recursive exploration runs one agent call per area, so the tree's size
+drives the cost. An optional **per-generation budget** caps it, and **anti-runaway
+limits** bound the tree's **depth** and **total number of pages** on very large or
+deeply nested repositories — these are safeguards, not quality dials, and any
+truncation is logged. See
 [Pipeline configuration](/docs/ai-pipeline/configuration/) for the related
 guardrails.

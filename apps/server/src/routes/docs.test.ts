@@ -428,6 +428,55 @@ describe("GET /api/projects/:projectId/docs/pages/:slug", () => {
     expect(body.kind).toBe("technical");
   });
 
+  it("ritorna i cross-link (links) della pagina raggruppabili per type", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await seedSucceededGeneration(testDb.db, project.id, { commitSha: "links001" });
+    const slug = `linked-page-${genId.slice(0, 8)}`;
+    await testDb.db.insert(docPages).values({
+      projectId: project.id,
+      generationId: genId,
+      kind: "functional",
+      slug,
+      title: "Linked Page",
+      body: "# Linked\n\nCon cross-link.",
+      links: [
+        { type: "implements", slug: "tech-a", title: "Tech A" },
+        { type: "implemented_by", slug: "func-b", title: "Func B" },
+        { type: "related", slug: "rel-c", title: "Rel C" },
+      ],
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${project.id}/docs/pages/${slug}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      links: { type: string; slug: string; title: string }[] | null;
+    };
+    expect(body.links).toEqual([
+      { type: "implements", slug: "tech-a", title: "Tech A" },
+      { type: "implemented_by", slug: "func-b", title: "Func B" },
+      { type: "related", slug: "rel-c", title: "Rel C" },
+    ]);
+  });
+
+  it("pagina senza cross-link: links è null", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await seedSucceededGeneration(testDb.db, project.id, { commitSha: "nolink01" });
+    // Le pagine seedate non hanno la colonna links → null.
+    const slug = `tech-overview-${genId.slice(0, 8)}`;
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${project.id}/docs/pages/${slug}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { links: unknown }).links).toBeNull();
+  });
+
   it("slug inesistente: 404", async () => {
     const project = await insertProject(testDb.db);
     await seedSucceededGeneration(testDb.db, project.id);

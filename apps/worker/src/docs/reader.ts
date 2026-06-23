@@ -6,8 +6,8 @@ import { join } from "node:path";
 /**
  * Implementazione reale di `RepoReader` (l'interfaccia pura di docs-engine) su
  * una directory di worktree git. È l'UNICO punto della pipeline Docs dove sono
- * ammessi fs ed exec: il motore (`buildRepoMap`/`runGeneration`) resta puro e
- * riceve questo reader iniettato.
+ * ammessi fs ed exec: il motore (i prompt/parser puri del DAG in docs-engine) resta
+ * puro e riceve questo reader iniettato (il survey dell'orientamento lo usa).
  *
  * - `list()` shella su `git ls-files` nel worktree: elenca SOLO i file tracciati,
  *   quindi rispetta automaticamente il `.gitignore` (niente node_modules/dist

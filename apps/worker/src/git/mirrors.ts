@@ -282,18 +282,48 @@ export class MirrorManager {
    * vive nei ref del mirror, condivisi). Il worktree viene SEMPRE rimosso
    * (anche se `fn` lancia) e il branch effimero cancellato dal mirror: il
    * push verso l'upstream deve avvenire dentro `fn` (vedi pushBranch).
+   *
+   * Implementato sopra `openWorktree`/`removeWorktree`, gli stessi primitivi
+   * usati dal worktree di generazione (apps/worker/src/docs/generation-worktree.ts):
+   * la differenza è solo il ciclo di vita — qui scoped alla callback, là vivo
+   * per l'intera generazione del DAG.
    */
   async withWorktree<T>(
     project: MirrorProject,
     branchName: string,
     fn: (dir: string) => Promise<T>
   ): Promise<T> {
+    const handle = await this.openWorktree(project, branchName);
+    try {
+      return await fn(handle.dir);
+    } finally {
+      await handle.remove();
+    }
+  }
+
+  /**
+   * Apre un worktree e lo lascia VIVO: mirror aggiornato, worktree detached sul
+   * default branch, poi `git switch -C <branchName>`. Ritorna la directory del
+   * worktree + una `remove()` idempotente che lo smonta (worktree + branch
+   * effimero + directory temporanea). A differenza di `withWorktree` il ciclo di
+   * vita è in mano al chiamante: serve al worktree di generazione del DAG, che
+   * deve restare aperto (read-only) per molti job-nodo, fino alla finalizzazione.
+   *
+   * INVARIANTE (come per withWorktree): finché un worktree su un branch
+   * stubwise/* è aperto NON va fatto `fetch --prune` del mirror (cancellerebbe il
+   * ref checked-out). La serializzazione verso i fix-job è garantita a monte
+   * dalla catena per-progetto (M7): nessun ensureMirror concorrente mentre il
+   * worktree di generazione è aperto.
+   */
+  async openWorktree(
+    project: MirrorProject,
+    branchName: string
+  ): Promise<{ dir: string; remove: () => Promise<void> }> {
     assertBranchName(branchName);
     assertDefaultBranch(project.defaultBranch);
     const mirrorDir = await this.ensureMirror(project);
     const parent = await mkdtemp(join(tmpdir(), "stubwise-wt-"));
     const worktreeDir = join(parent, "wt");
-    let worktreeAdded = false;
     try {
       // refs/heads/<branch>: forma non ambigua, mai interpretabile come
       // opzione da git (oltre alla validazione di assertDefaultBranch).
@@ -301,25 +331,47 @@ export class MirrorManager {
         ["worktree", "add", "--force", "--detach", worktreeDir, `refs/heads/${project.defaultBranch}`],
         { cwd: mirrorDir }
       );
-      worktreeAdded = true;
       // -C (force): un branch residuo di un run precedente viene riallineato.
       await this.git(["switch", "-C", branchName], { cwd: worktreeDir });
-      return await fn(worktreeDir);
-    } finally {
-      if (worktreeAdded) {
-        try {
-          await this.git(["worktree", "remove", "--force", worktreeDir], { cwd: mirrorDir });
-        } catch {
-          // Fallback: rimozione manuale + prune dei metadati orfani.
-          await rm(worktreeDir, { recursive: true, force: true });
-          await this.git(["worktree", "prune"], { cwd: mirrorDir }).catch(() => undefined);
-        }
-        // Branch effimero: best effort, un eventuale residuo viene comunque
-        // riallineato da switch -C o ripulito dal fetch --prune successivo.
-        await this.git(["branch", "-D", branchName], { cwd: mirrorDir }).catch(() => undefined);
-      }
-      await rm(parent, { recursive: true, force: true });
+    } catch (error) {
+      // Setup fallito a metà: smonta quel che è stato creato e rilancia.
+      await this.removeWorktree(mirrorDir, worktreeDir, parent, branchName);
+      throw error;
     }
+    let removed = false;
+    return {
+      dir: worktreeDir,
+      remove: async () => {
+        if (removed) return; // idempotente: una doppia close non fa danni.
+        removed = true;
+        await this.removeWorktree(mirrorDir, worktreeDir, parent, branchName);
+      },
+    };
+  }
+
+  /**
+   * Smonta un worktree: rimozione del worktree dal mirror (con fallback manuale
+   * + prune dei metadati orfani), cancellazione del branch effimero e della
+   * directory temporanea che lo conteneva. Tutto best-effort: un residuo viene
+   * comunque riallineato dal prossimo `switch -C` o ripulito dal `fetch --prune`.
+   */
+  private async removeWorktree(
+    mirrorDir: string,
+    worktreeDir: string,
+    parent: string,
+    branchName: string
+  ): Promise<void> {
+    try {
+      await this.git(["worktree", "remove", "--force", worktreeDir], { cwd: mirrorDir });
+    } catch {
+      // Fallback: rimozione manuale + prune dei metadati orfani.
+      await rm(worktreeDir, { recursive: true, force: true });
+      await this.git(["worktree", "prune"], { cwd: mirrorDir }).catch(() => undefined);
+    }
+    // Branch effimero: best effort, un eventuale residuo viene comunque
+    // riallineato da switch -C o ripulito dal fetch --prune successivo.
+    await this.git(["branch", "-D", branchName], { cwd: mirrorDir }).catch(() => undefined);
+    await rm(parent, { recursive: true, force: true });
   }
 
   /**

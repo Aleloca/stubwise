@@ -90,6 +90,16 @@ const treeNodeSchema = z.object({
   isManual: z.boolean(),
 });
 
+/**
+ * Un cross-link risolto di una pagina: il `type` raggruppa la relazione
+ * (implements/implemented_by/related), `slug`+`title` linkano la pagina target.
+ */
+const docPageLinkSchema = z.object({
+  type: z.enum(["implements", "implemented_by", "related"]),
+  slug: z.string(),
+  title: z.string(),
+});
+
 /** Pagina completa: corpo markdown + metadati. */
 const pageSchema = z.object({
   id: z.uuid(),
@@ -103,6 +113,9 @@ const pageSchema = z.object({
   isManual: z.boolean(),
   // commitSha della generazione di appartenenza; null per le pagine manuali.
   commitSha: z.string().nullable(),
+  // Cross-link risolti a fine generazione; null se non calcolati (es. manuali
+  // o generazioni del vecchio motore senza cross-link).
+  links: z.array(docPageLinkSchema).nullable(),
   updatedAt: z.string(),
 });
 
@@ -113,6 +126,9 @@ type DocPageRow = typeof docPages.$inferSelect;
  * di appartenenza; null per le pagine manuali (passare null o ometterlo).
  */
 function toPage(row: DocPageRow, commitSha: string | null = null): z.infer<typeof pageSchema> {
+  // `links` è jsonb (unknown a runtime): valida col contratto e scarta voci
+  // malformate. Una colonna null o non-array → null (nessun cross-link).
+  const parsedLinks = z.array(docPageLinkSchema).safeParse(row.links);
   return {
     id: row.id,
     slug: row.slug,
@@ -124,6 +140,7 @@ function toPage(row: DocPageRow, commitSha: string | null = null): z.infer<typeo
     body: row.body,
     isManual: row.isManual,
     commitSha,
+    links: parsedLinks.success ? parsedLinks.data : null,
     updatedAt: row.updatedAt.toISOString(),
   };
 }

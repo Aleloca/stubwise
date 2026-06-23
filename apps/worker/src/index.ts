@@ -5,6 +5,8 @@ import { startCredentialTester } from "./agent/credential-tester.js";
 import { startUsagePoller } from "./agent/usage-poller.js";
 import { loadWorkerConfig, type WorkerConfig } from "./config.js";
 import { createDocHandler, failDocJobOnError } from "./docs/handler.js";
+import { dispatchNode } from "./docs/recursive/node-dispatch.js";
+import { createGenerationWorktreeRegistry } from "./docs/recursive/registry.js";
 import { MirrorManager } from "./git/mirrors.js";
 import { createHandler, createProjectSerializer } from "./handler.js";
 import { DEFAULT_FIX_PLAN_TIMEOUT_MS, DEFAULT_FIX_TIMEOUT_MS } from "./pipeline/fix.js";
@@ -137,29 +139,53 @@ const embeddingClient = createEmbeddingClient({
   ...(config.embeddingApiKey !== undefined ? { apiKey: config.embeddingApiKey } : {}),
 });
 
-// Handler doc-generation: stessa serializzazione per-progetto del fix
-// (serializer condiviso). Il timeout di OGNI run dell'agent (map/reduce/deep pass)
-// è il proprio DOC_AGENT_TIMEOUT_MS (default 8', più corto del fix): una chiamata
-// appesa fallisce prima e va in best-effort. L'heartbeat (onProgress→touchDocJob
-// nella pipeline) tiene il job vivo durante map/reduce lunghi (invariante staleness).
+// Registro IN-PROCESSO dei worktree di generazione del DAG (M7): l'orientamento vi
+// registra il worktree aperto, i job-nodo ne ricavano la `dir`, la finalizzazione lo
+// chiude. Espone activeProjectIds per la mutua esclusione col fix (un fix farebbe
+// fetch --prune cancellando il ref checked-out del worktree). È un contenitore
+// in-memoria: a un riavvio del worker gli handle sono persi e il dispatch fa fallire
+// pulitamente le generazioni interrotte (fail-on-restart, vedi node-dispatch.ts).
+const generationRegistry = createGenerationWorktreeRegistry();
+
+// Handler del TRIGGER doc-generation (M7): avvia l'ORIENTAMENTO (apre+registra il
+// worktree, semina il DAG), serializzato per-progetto col fix (serializer condiviso)
+// SOLO per la durata dell'orientamento; il resto della generazione è retto dal
+// registro (activeProjectIds) e dal dispatch dei nodi. Il timeout di ogni run
+// dell'agente è DOC_AGENT_TIMEOUT_MS (default 8', più corto del fix).
 const docHandler = createDocHandler(
   {
     db,
     runner,
     mirrors,
-    embeddingClient,
+    registry: generationRegistry,
     encryptionKey: config.encryptionKey,
     model: config.docGenerationModel,
-    maxModules: config.docMaxModules,
-    maxCapabilities: config.docMaxCapabilities,
-    moduleMaxTurns: config.docModuleMaxTurns,
     agentTimeoutMs: config.docAgentTimeoutMs,
-    // Cap di costo per generazione: undefined (default) = nessun cap; il
-    // createDocHandler omette costCapUsd quando undefined (exactOptionalProperty).
-    ...(config.docCostCapUsd !== undefined ? { costCapUsd: config.docCostCapUsd } : {}),
+    maxTurns: config.docModuleMaxTurns,
   },
   serializer,
 );
+
+// Dispatch dei JOB-NODO del DAG (M7): il loop lo chiama quando non ci sono fix da
+// fare e c'è capacità; reclama un nodo (explore/synthesize), risolve il worktree dal
+// registro (o lo riapre on-demand), esegue la fase e — a DAG completo — finalizza la
+// generazione. I job-nodo parallelizzano fino alla concorrenza del worker.
+const dispatchNodeFn = (track: (work: Promise<void>) => void): Promise<boolean> =>
+  dispatchNode(
+    {
+      db,
+      runner,
+      registry: generationRegistry,
+      finalize: { embeddingClient },
+      model: config.docGenerationModel,
+      agentTimeoutMs: config.docAgentTimeoutMs,
+      maxTurns: config.docModuleMaxTurns,
+      maxDepth: config.docMaxDepth,
+      maxNodes: config.docMaxNodes,
+      encryptionKey: config.encryptionKey,
+    },
+    track,
+  );
 
 // Shutdown pulito: al primo segnale il loop smette di reclamare job e
 // attende quelli in volo (runWorker si risolve solo a job conclusi).
@@ -206,13 +232,16 @@ console.error(
 // documentazione (lunghe/costose) non affamano mai i fix dei bug. Single-process:
 // nessuno slot dedicato, si condivide il budget di concorrenza.
 console.error(
-  "[stubwise-worker] doc-generation ATTIVA: priorità ai fix, un doc-job per tick solo con capacità libera e nessun fix in coda",
+  "[stubwise-worker] doc-generation a DAG ATTIVA: priorità ai fix; job-nodo e trigger di generazione solo con capacità libera e nessun fix in coda. " +
+    "Mutua esclusione fix↔generazione: i fix dei progetti con un worktree di generazione aperto sono esclusi dal claim (invariante del mirror).",
 );
 await runWorker({
   db,
   handler,
   docHandler,
   docHandlerOnError: failDocJobOnError,
+  dispatchNode: dispatchNodeFn,
+  activeGenerationProjectIds: () => generationRegistry.activeProjectIds(),
   concurrency: config.concurrency,
   staleAfterMinutes: config.staleAfterMinutes,
   signal: controller.signal,

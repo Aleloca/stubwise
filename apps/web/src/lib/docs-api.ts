@@ -61,8 +61,20 @@ export function getDocTree(projectId: string): Promise<DocTreeNode[]> {
 // --- Pagina singola (GET /api/projects/:id/docs/pages/:slug) ---
 
 /**
+ * Un cross-link risolto di una pagina: `type` raggruppa la relazione
+ * (implements/implemented_by/related); `slug`+`title` linkano la pagina target.
+ */
+export interface DocPageLink {
+  type: "implements" | "implemented_by" | "related";
+  slug: string;
+  title: string;
+}
+
+/**
  * Pagina completa: corpo markdown + metadati. `commitSha` è quello della
  * generazione di appartenenza (badge "generato al commit"); null per le manuali.
+ * `links` porta i cross-link risolti a fine generazione; null se non calcolati
+ * (pagine manuali o generazioni senza cross-link).
  */
 export interface DocPage {
   id: string;
@@ -75,6 +87,7 @@ export interface DocPage {
   body: string;
   isManual: boolean;
   commitSha: string | null;
+  links?: DocPageLink[] | null;
   updatedAt: string;
 }
 
