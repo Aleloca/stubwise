@@ -223,6 +223,31 @@ const envSchema = z.object({
       .min(1, "deve essere un intero ≥ 1 (es. 30)")
       .default(30),
   ),
+  // Profondità massima del DAG di documentazione ricorsivo: un nodo a questa
+  // profondità è trattato come FOGLIA anche se l'esplorazione proporrebbe figli
+  // (i figli vengono ignorati e loggati, mai un cap silenzioso). Protegge da una
+  // ricorsione patologica su repo molto annidati. Default 6 (≈ radice + 5 livelli).
+  DOC_MAX_DEPTH: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 (es. 6)" })
+      .int("deve essere un intero ≥ 1 (es. 6)")
+      .min(1, "deve essere un intero ≥ 1 (es. 6)")
+      .default(6),
+  ),
+  // Tetto al numero TOTALE di nodi del DAG in una singola generazione: ogni nodo
+  // è un run dell'agente (explore/synthesize), quindi costo/tempo crescono col
+  // numero di nodi. Quando creare i figli proposti supererebbe questo tetto, la
+  // child-list viene TAGLIATA per restare nel budget (i figli scartati sono
+  // loggati, mai un cap silenzioso). Default 400.
+  DOC_MAX_NODES: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 (es. 400)" })
+      .int("deve essere un intero ≥ 1 (es. 400)")
+      .min(1, "deve essere un intero ≥ 1 (es. 400)")
+      .default(400),
+  ),
   // Cap di costo (USD) per SINGOLA generazione di documentazione: se il costo
   // aggregato dei run dell'agente lo supera, la generazione è marcata `failed`
   // e il job messo in `held` con ragione loggata (mai un cap silenzioso); NON
@@ -311,6 +336,12 @@ export interface WorkerConfig {
   docAgentTimeoutMs: number;
   /** Turni massimi dell'agente per la pagina di un modulo (default 30). */
   docModuleMaxTurns: number;
+  /** Profondità massima del DAG ricorsivo: a questa profondità un nodo è
+   * trattato come foglia (figli proposti ignorati e loggati; default 6). */
+  docMaxDepth: number;
+  /** Tetto al numero totale di nodi del DAG per generazione: la creazione dei
+   * figli che lo supererebbe viene tagliata e loggata (default 400). */
+  docMaxNodes: number;
   /** Cap di costo (USD) per generazione di documentazione; undefined = nessun
    * cap (costo illimitato, default). Se sforato la generazione è `held`. */
   docCostCapUsd: number | undefined;
@@ -364,6 +395,8 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     docMaxCapabilities: parsed.DOC_MAX_CAPABILITIES,
     docAgentTimeoutMs: parsed.DOC_AGENT_TIMEOUT_MS,
     docModuleMaxTurns: parsed.DOC_MODULE_MAX_TURNS,
+    docMaxDepth: parsed.DOC_MAX_DEPTH,
+    docMaxNodes: parsed.DOC_MAX_NODES,
     docCostCapUsd: parsed.DOC_COST_CAP_USD,
     embeddingBaseUrl: parsed.EMBEDDING_BASE_URL,
     embeddingModel: parsed.EMBEDDING_MODEL,
