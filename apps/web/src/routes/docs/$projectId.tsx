@@ -1,16 +1,17 @@
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { Link, Outlet, useNavigate, useParams } from "@tanstack/react-router";
-import { useState } from "react";
+import { Outlet, useNavigate, useParams } from "@tanstack/react-router";
+import { useCallback, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { DocsChat } from "../../components/docs-chat";
-import { DocsGenerationPanel } from "../../components/docs-generation-panel";
 import { DocsManualForm } from "../../components/docs-manual-form";
-import { DocsSearch } from "../../components/docs-search";
-import { DocsTree } from "../../components/docs-tree";
+import { DocsSidebar } from "../../components/docs-sidebar";
+import { Drawer } from "../../components/drawer";
 import { Markdown } from "../../components/markdown";
 import { ApiError } from "../../lib/api";
 import { type DocPage, deleteManualPage } from "../../lib/docs-api";
 import { docPageQueryOptions, docsKeys, docTreeQueryOptions } from "../../lib/queries";
+import { useCloseOnRouteChange } from "../../lib/use-close-on-route-change";
+import { useMediaQuery } from "../../lib/use-media-query";
 
 /**
  * Spazio di documentazione di un progetto: layout a tre zone (M7.2).
@@ -30,33 +31,88 @@ export function DocsSpaceLayout() {
   const { projectId } = useParams({ from: "/authed/docs/$projectId" });
   const { data: tree } = useSuspenseQuery(docTreeQueryOptions(projectId));
 
+  // Su `lg+` la sidebar è un aside fisso; sotto, vive in un drawer. Pilotata in
+  // JS per montare UNA SOLA `DocsSidebar` alla volta (evita id/link duplicati).
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
+
+  // Drawer albero (solo mobile): si chiude su selezione (`onNavigate`) e su
+  // navigazione a una pagina doc (`useCloseOnRouteChange`).
+  const [treeOpen, setTreeOpen] = useState(false);
+  const closeTree = useCallback(() => setTreeOpen(false), []);
+  useCloseOnRouteChange(closeTree);
+
+  // Chat: stato unico condiviso dal FAB e dal bottone "Chat" della sotto-barra.
+  const [chatOpen, setChatOpen] = useState(false);
+
   return (
-    <div className="relative flex h-full min-h-0">
-      <aside className="w-72 shrink-0 overflow-y-auto border-r border-line bg-ink-950 p-4">
-        <Link
-          to="/docs"
-          className="mb-4 inline-block font-mono text-[11px] tracking-[0.12em] text-fg-muted uppercase hover:text-fg"
+    <div className="relative flex h-full min-h-0 flex-col lg:flex-row">
+      {/* Sotto-barra Docs (solo mobile): apre l'albero a drawer e la chat. */}
+      <div
+        className="sticky top-0 z-30 flex h-12 shrink-0 items-center gap-3 border-b border-line bg-ink-900 px-4 lg:hidden"
+        aria-label={t("docs:space.subbarLabel")}
+      >
+        <button
+          type="button"
+          onClick={() => setTreeOpen(true)}
+          aria-expanded={treeOpen}
+          aria-controls="docs-tree-drawer"
+          className="-ml-1 inline-flex items-center gap-2 rounded-sm px-2 py-1.5 font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:bg-ink-800 hover:text-fg"
         >
-          ← {t("docs:space.back")}
-        </Link>
-        <DocsGenerationPanel projectId={projectId} />
-        <DocsSearch projectId={projectId} />
-        <DocsTree projectId={projectId} nodes={tree} />
-        <Link
-          to="/docs/$projectId/new"
-          params={{ projectId }}
-          className="mt-3 block rounded-sm border border-dashed border-line-strong px-2 py-1.5 text-center font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg"
+          <svg
+            aria-hidden="true"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            className="size-4"
+          >
+            <line x1="4" y1="7" x2="20" y2="7" />
+            <line x1="4" y1="12" x2="20" y2="12" />
+            <line x1="4" y1="17" x2="20" y2="17" />
+          </svg>
+          {t("docs:space.index")}
+        </button>
+        <span className="min-w-0 flex-1 truncate text-center font-mono text-[11px] tracking-[0.12em] text-fg-muted uppercase">
+          {t("docs:space.back")}
+        </span>
+        <button
+          type="button"
+          onClick={() => setChatOpen(true)}
+          aria-expanded={chatOpen}
+          className="inline-flex items-center rounded-sm px-2 py-1.5 font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:bg-ink-800 hover:text-fg"
         >
-          + {t("docs:manual.newPage")}
-        </Link>
-      </aside>
+          {t("docs:space.chat")}
+        </button>
+      </div>
 
-      <section className="min-w-0 flex-1 overflow-y-auto">
-        <Outlet />
-      </section>
+      <div className="relative flex min-h-0 flex-1 lg:min-h-full">
+        {/* Desktop (`lg+`): sidebar come aside fisso. Mobile: stessa DocsSidebar
+            dentro un drawer. Una sola variante montata per non duplicare gli id. */}
+        {isDesktop ? (
+          <aside className="flex w-72 shrink-0 flex-col border-r border-line bg-ink-950">
+            <DocsSidebar projectId={projectId} tree={tree} />
+          </aside>
+        ) : (
+          <Drawer
+            open={treeOpen}
+            onClose={closeTree}
+            side="left"
+            aria-label={t("docs:space.indexLabel")}
+          >
+            <div id="docs-tree-drawer" className="h-full bg-ink-950">
+              <DocsSidebar projectId={projectId} tree={tree} onNavigate={closeTree} />
+            </div>
+          </Drawer>
+        )}
 
-      {/* Zona destra: drawer chat RAG (apribile dal pulsante in basso a destra). */}
-      <DocsChat projectId={projectId} />
+        <section className="min-w-0 flex-1 overflow-y-auto">
+          <Outlet />
+        </section>
+
+        {/* Zona destra: chat RAG (colonna su desktop, drawer su mobile). */}
+        <DocsChat projectId={projectId} open={chatOpen} onOpenChange={setChatOpen} />
+      </div>
     </div>
   );
 }

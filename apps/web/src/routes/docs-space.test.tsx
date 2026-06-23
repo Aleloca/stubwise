@@ -5,6 +5,10 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DocPage, DocTreeNode } from "../lib/docs-api";
 import { createAppRouter } from "../router";
+import { setMatchMedia } from "../test/setup";
+
+/** Breakpoint `lg`: sopra → sidebar/chat come colonne; sotto → drawer. */
+const DESKTOP_QUERY = "(min-width: 1024px)";
 
 /**
  * Spazio Docs con il router vero (memory history) e fetch mockata a livello di
@@ -120,7 +124,10 @@ function treeHandlers(): Record<string, Handler> {
   };
 }
 
-function renderApp(initialPath: string) {
+function renderApp(initialPath: string, { desktop = true }: { desktop?: boolean } = {}) {
+  // Default desktop: la sidebar è un aside fisso (albero/ricerca sempre montati).
+  // I test mobile passano `desktop: false` per esercitare i drawer.
+  setMatchMedia(DESKTOP_QUERY, desktop);
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const router = createAppRouter(
     queryClient,
@@ -217,5 +224,85 @@ describe("spazio documentazione", () => {
     renderApp(`/docs/${PROJECT_ID}/ghost`);
 
     expect(await screen.findByText("Page not found")).toBeInTheDocument();
+  });
+});
+
+describe("spazio documentazione — mobile (drawer)", () => {
+  it("la sotto-barra Docs (lg:hidden) ha i bottoni Indice e Chat; su desktop la sidebar è un aside, non un drawer", async () => {
+    mockApi(treeHandlers());
+    renderApp(`/docs/${PROJECT_ID}`, { desktop: true });
+
+    // Sotto-barra sempre nel DOM (nascosta via CSS su desktop): Indice + Chat.
+    const indexBtn = await screen.findByRole("button", { name: "Index" });
+    const chatBtn = screen.getByRole("button", { name: "Chat" });
+    expect(indexBtn).toBeInTheDocument();
+    expect(chatBtn).toBeInTheDocument();
+
+    // La sotto-barra è `lg:hidden` (sparisce su desktop).
+    const subbar = screen.getByLabelText("Documentation toolbar");
+    expect(subbar.className).toContain("lg:hidden");
+
+    // Su desktop la sidebar è un aside fisso (l'albero NON è dentro un drawer):
+    // l'albero è montato e non esiste alcun dialog (drawer) nel DOM.
+    expect(screen.getByRole("link", { name: "Auth module" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("cliccare 'Index' apre il drawer albero; selezionare una pagina lo chiude", async () => {
+    mockApi(treeHandlers());
+    const router = renderApp(`/docs/${PROJECT_ID}`, { desktop: false });
+    const user = userEvent.setup();
+
+    // Il bottone 'Index' apre il drawer (role=dialog) con l'albero.
+    await user.click(await screen.findByRole("button", { name: "Index" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog).toHaveAttribute("aria-label", "Documentation index");
+
+    // L'albero vive dentro il drawer.
+    const authModule = within(dialog).getByRole("link", { name: "Auth module" });
+    await user.click(authModule);
+
+    // Selezione → naviga alla pagina e il drawer si chiude (route change + onNavigate).
+    await waitFor(() =>
+      expect(router.state.location.pathname).toBe(`/docs/${PROJECT_ID}/module-auth`),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("Escape chiude il drawer albero", async () => {
+    mockApi(treeHandlers());
+    renderApp(`/docs/${PROJECT_ID}`, { desktop: false });
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Index" }));
+    expect(
+      await screen.findByRole("dialog", { name: "Documentation index" }),
+    ).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("cliccare 'Chat' nella sotto-barra apre la chat in un drawer da destra", async () => {
+    mockApi(treeHandlers());
+    renderApp(`/docs/${PROJECT_ID}`, { desktop: false });
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: "Chat" }));
+
+    // La chat è in un drawer (aria-label = titolo chat) ed è interattiva.
+    const dialog = await screen.findByRole("dialog", { name: "Ask the docs" });
+    expect(dialog).not.toHaveAttribute("aria-hidden", "true");
+    expect(within(dialog).getByLabelText(/ask about this project/i)).toBeInTheDocument();
+  });
+
+  it("il FAB apre la stessa chat-drawer (stato unico)", async () => {
+    mockApi(treeHandlers());
+    renderApp(`/docs/${PROJECT_ID}`, { desktop: false });
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /open chat/i }));
+    const dialog = await screen.findByRole("dialog", { name: "Ask the docs" });
+    expect(within(dialog).getByLabelText(/ask about this project/i)).toBeInTheDocument();
   });
 });

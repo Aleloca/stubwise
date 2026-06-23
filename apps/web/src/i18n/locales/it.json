@@ -868,7 +868,11 @@
       "generatedAtCommit": "generato al commit {{commit}}",
       "manualBadge": "pagina manuale",
       "pageNotFound": "Pagina non trovata",
-      "pageNotFoundHint": "Questa pagina potrebbe essere stata rimossa da una rigenerazione."
+      "pageNotFoundHint": "Questa pagina potrebbe essere stata rimossa da una rigenerazione.",
+      "index": "Indice",
+      "indexLabel": "Indice documentazione",
+      "chat": "Chat",
+      "subbarLabel": "Barra strumenti documentazione"
     },
     "manual": {
       "newPage": "Nuova pagina manuale",
