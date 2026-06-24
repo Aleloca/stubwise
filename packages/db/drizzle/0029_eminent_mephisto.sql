@@ -1,0 +1,1 @@
+ALTER TABLE "doc_search_history" ADD COLUMN "snippet" text;

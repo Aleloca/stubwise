@@ -41,8 +41,20 @@ vi.mock("../lib/docs-api", async (importOriginal) => ({
 }));
 
 const HISTORY: DocHistoryEntry[] = [
-  { slug: "getting-started", title: "Getting started", kind: "manual", clickedAt: "2026-06-24T10:00:00.000Z" },
-  { slug: "tech-overview", title: "Technical overview", kind: "technical", clickedAt: "2026-06-24T09:00:00.000Z" },
+  {
+    slug: "getting-started",
+    title: "Getting started",
+    kind: "manual",
+    snippet: "## Onboarding\n\nFollow these **steps** to get going with `stubwise`.",
+    clickedAt: "2026-06-24T10:00:00.000Z",
+  },
+  {
+    slug: "tech-overview",
+    title: "Technical overview",
+    kind: "technical",
+    snippet: null,
+    clickedAt: "2026-06-24T09:00:00.000Z",
+  },
 ];
 
 const RESULTS: DocSearchResult[] = [
@@ -129,6 +141,17 @@ describe("DocsCommandPalette", () => {
     expect(searchDocs).not.toHaveBeenCalled();
   });
 
+  it("recenti: mostra l'anteprima con il markdown ridotto a testo", async () => {
+    renderPalette();
+    // Lo snippet markdown della voce "Getting started" è ripulito: niente ## /
+    // ** / backtick, solo testo leggibile.
+    const preview = await screen.findByText(
+      "Onboarding Follow these steps to get going with stubwise.",
+    );
+    expect(preview).toBeInTheDocument();
+    expect(preview.textContent).not.toMatch(/[#*`]/);
+  });
+
   it('digitando "auth" compaiono i risultati (titolo + snippet)', async () => {
     const user = userEvent.setup();
     renderPalette();
@@ -153,6 +176,7 @@ describe("DocsCommandPalette", () => {
       slug: "module-auth",
       title: "Auth module",
       kind: "technical",
+      snippet: "Handles authentication and sessions.",
     });
     await waitFor(() =>
       expect(router.state.location.pathname).toBe(`/docs/${PROJECT_ID}/module-auth`),
@@ -201,6 +225,7 @@ describe("DocsCommandPalette", () => {
       slug: "auth-flow",
       title: "Auth flow",
       kind: "functional",
+      snippet: "The login flow end to end.",
     });
     await waitFor(() =>
       expect(router.state.location.pathname).toBe(`/docs/${PROJECT_ID}/auth-flow`),

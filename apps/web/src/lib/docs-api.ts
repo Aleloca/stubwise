@@ -176,6 +176,8 @@ export interface DocHistoryEntry {
   slug: string;
   title: string;
   kind: DocPageKind;
+  /** Anteprima testuale vista al click; null per i click senza snippet. */
+  snippet: string | null;
   clickedAt: string;
 }
 
@@ -187,7 +189,7 @@ export function getDocsHistory(projectId: string): Promise<DocHistoryEntry[]> {
 /** Registra (upsert) un click su una pagina nella cronologia: ritorna 204. */
 export function recordDocsHistoryClick(
   projectId: string,
-  entry: { slug: string; title: string; kind: DocPageKind },
+  entry: { slug: string; title: string; kind: DocPageKind; snippet?: string },
 ): Promise<void> {
   return api.post(`/api/projects/${encodeURIComponent(projectId)}/docs/history`, entry);
 }

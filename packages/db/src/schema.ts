@@ -1142,6 +1142,10 @@ export const docSearchHistory = pgTable(
     slug: text("slug").notNull(),
     title: text("title").notNull(),
     kind: docPageKind("kind").notNull(),
+    // Anteprima testuale della pagina al momento del click (lo snippet visto
+    // nella palette): mostrata nei recenti senza join. Null per i click
+    // registrati prima di questa feature o senza snippet disponibile.
+    snippet: text("snippet"),
     clickedAt: timestamp("clicked_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

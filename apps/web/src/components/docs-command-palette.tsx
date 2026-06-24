@@ -31,6 +31,29 @@ const KIND_LABEL_KEY: Record<DocPageKind, string> = {
 /** Soglia minima di caratteri per interrogare la ricerca (come `DocsSearch`). */
 const MIN_QUERY_LENGTH = 2;
 
+/**
+ * Riduce uno snippet markdown a testo leggibile per l'anteprima: rimuove la
+ * sintassi (heading, enfasi, codice, link, liste, citazioni) che renderizzata
+ * grezza nel preview confonde, e collassa gli spazi. Non è un parser completo:
+ * basta a ripulire i frammenti dei chunk/pagine.
+ */
+function plainTextPreview(markdown: string): string {
+  return markdown
+    .replace(/```[\s\S]*?```/g, " ") // blocchi di codice
+    .replace(/`([^`]+)`/g, "$1") // codice inline
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ") // immagini
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1") // link → testo
+    .replace(/^#{1,6}\s+/gm, "") // heading
+    .replace(/^\s{0,3}>\s?/gm, "") // citazioni
+    .replace(/^\s*[-*+]\s+/gm, "") // elenchi puntati
+    .replace(/^\s*\d+\.\s+/gm, "") // elenchi numerati
+    .replace(/(\*\*|__)(.*?)\1/g, "$2") // grassetto
+    .replace(/(\*|_)(.*?)\1/g, "$2") // corsivo
+    .replace(/~~(.*?)~~/g, "$2") // barrato
+    .replace(/\s+/g, " ") // collassa spazi/newline
+    .trim();
+}
+
 /** Voce normalizzata della lista unificata (recente o risultato di ricerca). */
 interface PaletteItem {
   slug: string;
@@ -114,6 +137,7 @@ export function DocsCommandPalette({
         slug: entry.slug,
         title: entry.title,
         kind: entry.kind,
+        snippet: entry.snippet ?? undefined,
       }));
     }
     return (results ?? []).map((result) => ({
@@ -173,6 +197,7 @@ export function DocsCommandPalette({
       slug: item.slug,
       title: item.title,
       kind: item.kind,
+      snippet: item.snippet,
     })
       .then(() => queryClient.invalidateQueries({ queryKey: docsKeys.history(projectId) }))
       .catch(() => {});
@@ -363,8 +388,11 @@ function PaletteRow({
             </span>
           </span>
           {item.snippet && (
-            <span className="mt-0.5 line-clamp-2 block text-[12px] text-fg-muted">
-              {item.snippet}
+            // Anteprima: markdown ridotto a testo (evita la sintassi grezza) e
+            // altezza fissa a 2 righe, così tutte le righe hanno la stessa
+            // altezza a prescindere dalla lunghezza dello snippet.
+            <span className="mt-0.5 line-clamp-2 block min-h-10 text-[12px] leading-5 text-fg-muted">
+              {plainTextPreview(item.snippet)}
             </span>
           )}
         </button>

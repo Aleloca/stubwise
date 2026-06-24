@@ -187,6 +187,7 @@ const historyEntrySchema = z.object({
   slug: z.string(),
   title: z.string(),
   kind: docPageKindSchema,
+  snippet: z.string().nullable(),
   clickedAt: z.string(),
 });
 
@@ -195,6 +196,9 @@ const recordHistoryBodySchema = z.object({
   slug: z.string().min(1).max(300),
   title: z.string().min(1).max(300),
   kind: docPageKindSchema,
+  // Anteprima vista nella palette al momento del click (facoltativa): la
+  // tronchiamo per non gonfiare la riga di cronologia.
+  snippet: z.string().max(2000).optional(),
 });
 
 /** Params per la cancellazione di una singola voce di cronologia. */
@@ -624,6 +628,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
           slug: docSearchHistory.slug,
           title: docSearchHistory.title,
           kind: docSearchHistory.kind,
+          snippet: docSearchHistory.snippet,
           clickedAt: docSearchHistory.clickedAt,
         })
         .from(docSearchHistory)
@@ -640,6 +645,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         slug: r.slug,
         title: r.title,
         kind: r.kind,
+        snippet: r.snippet,
         clickedAt: r.clickedAt.toISOString(),
       }));
     },
@@ -663,8 +669,10 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const { projectId } = request.params;
-      const { slug, title, kind } = request.body;
+      const { slug, title, kind, snippet } = request.body;
       const userId = request.user!.id;
+      // Stringa vuota → null: non salviamo anteprime vuote.
+      const snippetValue = snippet && snippet.trim().length > 0 ? snippet : null;
 
       const [project] = await app.db
         .select({ id: projects.id })
@@ -674,10 +682,10 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
 
       await app.db
         .insert(docSearchHistory)
-        .values({ projectId, userId, slug, title, kind })
+        .values({ projectId, userId, slug, title, kind, snippet: snippetValue })
         .onConflictDoUpdate({
           target: [docSearchHistory.userId, docSearchHistory.projectId, docSearchHistory.slug],
-          set: { clickedAt: new Date(), title, kind },
+          set: { clickedAt: new Date(), title, kind, snippet: snippetValue },
         });
 
       // Poda: tieni solo le 20 voci più recenti per (utente, progetto).

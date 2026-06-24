@@ -47,13 +47,14 @@ interface HistoryEntry {
   slug: string;
   title: string;
   kind: string;
+  snippet: string | null;
   clickedAt: string;
 }
 
 async function record(
   projectId: string,
   cookie: string,
-  body: { slug: string; title: string; kind?: string },
+  body: { slug: string; title: string; kind?: string; snippet?: string },
 ) {
   return app.inject({
     method: "POST",
@@ -100,6 +101,34 @@ describe("POST /api/projects/:projectId/docs/history", () => {
     expect(history.map((h) => h.slug)).toEqual(["auth"]);
     expect(history[0]!.title).toBe("Auth");
     expect(history[0]!.kind).toBe("technical");
+    // Senza snippet nel body → null.
+    expect(history[0]!.snippet).toBeNull();
+  });
+
+  it("salva lo snippet e lo aggiorna al re-click; vuoto → null", async () => {
+    const projectId = await insertProject(testDb.db);
+    await record(projectId, memberCookie, {
+      slug: "with-snippet",
+      title: "With snippet",
+      snippet: "Prima anteprima",
+    });
+    expect((await getHistory(projectId, memberCookie))[0]!.snippet).toBe("Prima anteprima");
+
+    // Re-click con un nuovo snippet: aggiornato.
+    await record(projectId, memberCookie, {
+      slug: "with-snippet",
+      title: "With snippet",
+      snippet: "Seconda anteprima",
+    });
+    expect((await getHistory(projectId, memberCookie))[0]!.snippet).toBe("Seconda anteprima");
+
+    // Re-click con snippet vuoto: normalizzato a null.
+    await record(projectId, memberCookie, {
+      slug: "with-snippet",
+      title: "With snippet",
+      snippet: "   ",
+    });
+    expect((await getHistory(projectId, memberCookie))[0]!.snippet).toBeNull();
   });
 
   it("ri-POST dello stesso slug non duplica, aggiorna clickedAt e title/kind", async () => {
