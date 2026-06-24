@@ -933,6 +933,18 @@
       "kindFunctional": "functional",
       "kindManual": "manual"
     },
+    "palette": {
+      "trigger": "Search documentation…",
+      "label": "Search documentation",
+      "placeholder": "Search documentation…",
+      "recents": "Recent",
+      "clearAll": "Clear all",
+      "removeOne": "Remove {{title}} from recents",
+      "noResults": "No results",
+      "hintNav": "navigate",
+      "hintOpen": "open",
+      "hintClose": "close"
+    },
     "chat": {
       "title": "Ask the docs",
       "subtitle": "RAG over this project's documentation.",

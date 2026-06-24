@@ -933,6 +933,18 @@
       "kindFunctional": "funzionale",
       "kindManual": "manuale"
     },
+    "palette": {
+      "trigger": "Cerca nella documentazione…",
+      "label": "Cerca nella documentazione",
+      "placeholder": "Cerca nella documentazione…",
+      "recents": "Recenti",
+      "clearAll": "Cancella tutto",
+      "removeOne": "Rimuovi {{title}} dai recenti",
+      "noResults": "Nessun risultato",
+      "hintNav": "naviga",
+      "hintOpen": "apri",
+      "hintClose": "chiudi"
+    },
     "chat": {
       "title": "Chiedi ai docs",
       "subtitle": "RAG sulla documentazione di questo progetto.",
