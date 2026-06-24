@@ -11,6 +11,7 @@ import {
   recordDocsHistoryClick,
   searchDocs,
 } from "../lib/docs-api";
+import { formatRelativeTimeVerbose } from "../lib/format";
 import { docsKeys } from "../lib/queries";
 
 /**
@@ -60,6 +61,8 @@ interface PaletteItem {
   title: string;
   kind: DocPageKind;
   snippet?: string;
+  /** Istante dell'ultimo click (solo per i recenti): tempo relativo. */
+  clickedAt?: string;
 }
 
 export function DocsCommandPalette({
@@ -138,6 +141,7 @@ export function DocsCommandPalette({
         title: entry.title,
         kind: entry.kind,
         snippet: entry.snippet ?? undefined,
+        clickedAt: entry.clickedAt,
       }));
     }
     return (results ?? []).map((result) => ({
@@ -326,6 +330,7 @@ export function DocsCommandPalette({
                   active={index === activeIndex}
                   removable={showingRecents}
                   kindLabel={t(KIND_LABEL_KEY[item.kind])}
+                  recency={item.clickedAt ? formatRelativeTimeVerbose(item.clickedAt) : undefined}
                   removeLabel={t("docs:palette.removeOne", { title: item.title })}
                   onActivate={() => openItem(item)}
                   onHover={() => setActiveIndex(index)}
@@ -353,6 +358,7 @@ function PaletteRow({
   active,
   removable,
   kindLabel,
+  recency,
   removeLabel,
   onActivate,
   onHover,
@@ -363,6 +369,7 @@ function PaletteRow({
   active: boolean;
   removable: boolean;
   kindLabel: string;
+  recency?: string;
   removeLabel: string;
   onActivate: () => void;
   onHover: () => void;
@@ -382,10 +389,15 @@ function PaletteRow({
           className="min-w-0 flex-1 text-left"
         >
           <span className="flex items-baseline gap-2">
-            <span className="truncate text-[13px] text-fg">{item.title}</span>
+            <span className="min-w-0 truncate text-[13px] text-fg">{item.title}</span>
             <span className="shrink-0 font-mono text-[10px] tracking-[0.1em] text-fg-faint uppercase">
               {kindLabel}
             </span>
+            {recency && (
+              <span className="ml-auto shrink-0 pl-2 font-mono text-[10px] text-fg-faint">
+                {recency}
+              </span>
+            )}
           </span>
           {item.snippet && (
             // Anteprima: markdown ridotto a testo (evita la sintassi grezza) e

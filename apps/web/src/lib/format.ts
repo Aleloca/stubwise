@@ -29,6 +29,36 @@ export function formatRelativeTime(iso: string, now: number = Date.now()): strin
   return dateFormat.format(new Date(iso));
 }
 
+/**
+ * Tempo relativo "verboso" per la cronologia: "adesso" (<60s), "N minuti fa",
+ * "N ore fa", "ieri" (giorno di calendario precedente), poi la data assoluta.
+ * Forma estesa e con singolare/plurale, distinta dal `formatRelativeTime`
+ * compatto usato altrove. `now` iniettabile per i test.
+ */
+export function formatRelativeTimeVerbose(iso: string, now: number = Date.now()): string {
+  const then = new Date(iso);
+  const elapsed = now - then.getTime();
+  if (elapsed < MINUTE) return "adesso";
+  if (elapsed < HOUR) {
+    const minutes = Math.floor(elapsed / MINUTE);
+    return `${minutes} ${minutes === 1 ? "minuto" : "minuti"} fa`;
+  }
+  if (elapsed < DAY) {
+    const hours = Math.floor(elapsed / HOUR);
+    return `${hours} ${hours === 1 ? "ora" : "ore"} fa`;
+  }
+  // Oltre le 24h: "ieri" se cade nel giorno di calendario precedente a quello
+  // di `now`, altrimenti la data assoluta.
+  const nowDate = new Date(now);
+  const startOfToday = new Date(
+    nowDate.getFullYear(),
+    nowDate.getMonth(),
+    nowDate.getDate(),
+  ).getTime();
+  if (then.getTime() >= startOfToday - DAY && then.getTime() < startOfToday) return "ieri";
+  return dateFormat.format(then);
+}
+
 /** Data e ora assolute (formato italiano), per i metadati del dettaglio. */
 export function formatDateTime(iso: string): string {
   return dateTimeFormat.format(new Date(iso));
