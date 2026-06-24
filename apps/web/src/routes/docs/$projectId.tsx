@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, Outlet, useNavigate, useParams } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { DocsChat } from "../../components/docs-chat";
+import { DocsCommandPalette } from "../../components/docs-command-palette";
 import { DocsManualForm } from "../../components/docs-manual-form";
 import { DocsSidebar } from "../../components/docs-sidebar";
 import { Drawer } from "../../components/drawer";
@@ -23,8 +24,9 @@ import { useMediaQuery } from "../../lib/use-media-query";
  *   basso a destra.
  *
  * Tutte le sotto-feature dello spazio sono ora montate: trigger generazione +
- * stato (`DocsGenerationPanel`, M7.4), ricerca (`DocsSearch`, M7.4), editing
- * pagine manuali (`DocsManualForm`, M7.3) e chat in streaming (`DocsChat`, M7.5).
+ * stato (`DocsGenerationPanel`, M7.4), ricerca via command palette Cmd/K
+ * (`DocsCommandPalette`), editing pagine manuali (`DocsManualForm`, M7.3) e chat
+ * in streaming (`DocsChat`, M7.5).
  */
 export function DocsSpaceLayout() {
   const { t } = useTranslation();
@@ -43,6 +45,30 @@ export function DocsSpaceLayout() {
 
   // Chat: stato unico condiviso dal FAB e dal bottone "Chat" della sotto-barra.
   const [chatOpen, setChatOpen] = useState(false);
+
+  // Command palette di ricerca (Cmd/K): stato condiviso dal trigger nella
+  // sidebar (desktop e drawer mobile) e dalla scorciatoia globale da tastiera.
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  // Scorciatoia globale Cmd/Ctrl+K: apre la palette. `setSearchOpen(true)` è
+  // idempotente, quindi non serve gestire il caso "già aperta".
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setSearchOpen(true);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  // Dal drawer mobile: apri la palette E chiudi il drawer albero (come fa
+  // `onNavigate`); su desktop il drawer non c'è e `closeTree` è un no-op innocuo.
+  const openSearchFromDrawer = useCallback(() => {
+    closeTree();
+    setSearchOpen(true);
+  }, [closeTree]);
 
   return (
     <div className="relative flex h-full min-h-0 flex-col lg:flex-row">
@@ -92,7 +118,11 @@ export function DocsSpaceLayout() {
             dentro un drawer. Una sola variante montata per non duplicare gli id. */}
         {isDesktop ? (
           <aside className="flex w-72 shrink-0 flex-col border-r border-line bg-ink-950">
-            <DocsSidebar projectId={projectId} tree={tree} />
+            <DocsSidebar
+              projectId={projectId}
+              tree={tree}
+              onOpenSearch={() => setSearchOpen(true)}
+            />
           </aside>
         ) : (
           <Drawer
@@ -102,7 +132,12 @@ export function DocsSpaceLayout() {
             aria-label={t("docs:space.indexLabel")}
           >
             <div id="docs-tree-drawer" className="h-full bg-ink-950">
-              <DocsSidebar projectId={projectId} tree={tree} onNavigate={closeTree} />
+              <DocsSidebar
+                projectId={projectId}
+                tree={tree}
+                onNavigate={closeTree}
+                onOpenSearch={openSearchFromDrawer}
+              />
             </div>
           </Drawer>
         )}
@@ -114,6 +149,13 @@ export function DocsSpaceLayout() {
         {/* Zona destra: chat RAG (colonna su desktop, drawer su mobile). */}
         <DocsChat projectId={projectId} open={chatOpen} onOpenChange={setChatOpen} />
       </div>
+
+      {/* Command palette di ricerca (Cmd/K): modale a livello di layout. */}
+      <DocsCommandPalette
+        projectId={projectId}
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+      />
     </div>
   );
 }

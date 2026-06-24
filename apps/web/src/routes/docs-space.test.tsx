@@ -358,3 +358,36 @@ describe("spazio documentazione — mobile (drawer)", () => {
     expect(within(dialog).getByLabelText(/ask about this project/i)).toBeInTheDocument();
   });
 });
+
+describe("spazio documentazione — command palette (Cmd/K)", () => {
+  it("il trigger nella sidebar apre la palette", async () => {
+    mockApi({
+      ...treeHandlers(),
+      [`GET /api/projects/${PROJECT_ID}/docs/history`]: () => jsonResponse(200, []),
+    });
+    renderApp(`/docs/${PROJECT_ID}`);
+    const user = userEvent.setup();
+
+    // Prima del click la palette è chiusa; il trigger (button con aria-label) la apre.
+    const trigger = await screen.findByRole("button", { name: "Search documentation" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await user.click(trigger);
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("la scorciatoia Cmd/K apre la palette", async () => {
+    mockApi({
+      ...treeHandlers(),
+      [`GET /api/projects/${PROJECT_ID}/docs/history`]: () => jsonResponse(200, []),
+    });
+    renderApp(`/docs/${PROJECT_ID}`);
+    const user = userEvent.setup();
+
+    await screen.findByRole("button", { name: "Search documentation" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await user.keyboard("{Meta>}k{/Meta}");
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+  });
+});

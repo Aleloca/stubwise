@@ -2,27 +2,32 @@ import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import type { DocTreeNode } from "../lib/docs-api";
 import { DocsGenerationPanel } from "./docs-generation-panel";
-import { DocsSearch } from "./docs-search";
+import { DocsSearchTrigger } from "./docs-search-trigger";
 import { DocsTree } from "./docs-tree";
 
 /**
  * Contenuto della sidebar dello spazio Docs (back link + pannello generazione +
- * ricerca + albero + "nuova pagina"). Estratto in un componente condiviso così
- * l'aside desktop (`hidden lg:flex`) e il drawer mobile rendono esattamente le
- * stesse cose senza duplicazione.
+ * trigger ricerca + albero + "nuova pagina"). Estratto in un componente
+ * condiviso così l'aside desktop (`hidden lg:flex`) e il drawer mobile rendono
+ * esattamente le stesse cose senza duplicazione.
  *
  * `onNavigate` permette al drawer mobile di chiudersi quando si tocca un link
  * (back, una pagina dell'albero o "nuova pagina"); la chiusura su navigazione a
  * una pagina doc è comunque garantita da `useCloseOnRouteChange` lato chiamante.
+ *
+ * `onOpenSearch` apre la command palette (Cmd/K). Dal drawer mobile il layout
+ * passa una `onOpenSearch` che chiude prima il drawer (vedi `$projectId.tsx`).
  */
 export function DocsSidebar({
   projectId,
   tree,
   onNavigate,
+  onOpenSearch,
 }: {
   projectId: string;
   tree: DocTreeNode[];
   onNavigate?: () => void;
+  onOpenSearch: () => void;
 }) {
   const { t } = useTranslation();
   return (
@@ -35,7 +40,7 @@ export function DocsSidebar({
         ← {t("docs:space.back")}
       </Link>
       <DocsGenerationPanel projectId={projectId} />
-      <DocsSearch projectId={projectId} onNavigate={onNavigate} />
+      <DocsSearchTrigger onOpen={onOpenSearch} />
       <DocsTree projectId={projectId} nodes={tree} onNavigate={onNavigate} />
       <Link
         to="/docs/$projectId/new"

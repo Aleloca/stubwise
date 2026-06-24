@@ -341,10 +341,11 @@ describe("trigger generazione + stato (M7.4)", () => {
   });
 });
 
-describe("ricerca (M7.4)", () => {
-  it("digitando una query mostra i risultati che linkano alle pagine", async () => {
+describe("ricerca via command palette (Cmd/K)", () => {
+  it("il trigger nella sidebar apre la palette; digitando una query mostra i risultati", async () => {
     mockApi({
       ...baseHandlers(),
+      [`GET /api/projects/${PROJECT_ID}/docs/history`]: () => jsonResponse(200, []),
       [`GET /api/projects/${PROJECT_ID}/docs/search`]: () =>
         jsonResponse(200, [
           {
@@ -359,27 +360,43 @@ describe("ricerca (M7.4)", () => {
     });
     renderApp(`/docs/${PROJECT_ID}`);
 
-    const search = await screen.findByLabelText("Search docs");
-    await userEvent.type(search, "guide");
+    // Il trigger (button con aria-label = label della palette) apre il dialog.
+    const trigger = await screen.findByRole("button", { name: "Search documentation" });
+    await userEvent.click(trigger);
+    const dialog = await screen.findByRole("dialog");
 
-    // Lo snippet identifica univocamente il risultato di ricerca (il link
-    // omonimo nell'albero non lo ha): da lì risalgo al link che porta alla pagina.
-    const snippet = await screen.findByText("A manual onboarding guide.");
-    expect(snippet).toBeInTheDocument();
-    const result = snippet.closest("a");
-    expect(result).toHaveAttribute("href", `/docs/${PROJECT_ID}/guide`);
+    // Digito nella palette: lo snippet identifica univocamente il risultato.
+    await userEvent.type(within(dialog).getByRole("textbox"), "guide");
+    expect(await within(dialog).findByText("A manual onboarding guide.")).toBeInTheDocument();
   });
 
-  it("nessun risultato: mostra lo stato vuoto", async () => {
+  it("la scorciatoia Cmd/K apre la palette", async () => {
     mockApi({
       ...baseHandlers(),
+      [`GET /api/projects/${PROJECT_ID}/docs/history`]: () => jsonResponse(200, []),
+    });
+    renderApp(`/docs/${PROJECT_ID}`);
+
+    // Finché non si preme Cmd/K la palette è chiusa.
+    await screen.findByRole("button", { name: "Search documentation" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    await userEvent.keyboard("{Meta>}k{/Meta}");
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("nessun risultato: mostra lo stato vuoto nella palette", async () => {
+    mockApi({
+      ...baseHandlers(),
+      [`GET /api/projects/${PROJECT_ID}/docs/history`]: () => jsonResponse(200, []),
       [`GET /api/projects/${PROJECT_ID}/docs/search`]: () => jsonResponse(200, []),
     });
     renderApp(`/docs/${PROJECT_ID}`);
 
-    const search = await screen.findByLabelText("Search docs");
-    await userEvent.type(search, "zzzz");
+    await userEvent.click(await screen.findByRole("button", { name: "Search documentation" }));
+    const dialog = await screen.findByRole("dialog");
+    await userEvent.type(within(dialog).getByRole("textbox"), "zzzz");
 
-    expect(await screen.findByText("No results")).toBeInTheDocument();
+    expect(await within(dialog).findByText("No results")).toBeInTheDocument();
   });
 });
