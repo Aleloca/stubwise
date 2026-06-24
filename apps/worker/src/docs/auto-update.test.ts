@@ -497,6 +497,9 @@ describe("runAutoUpdate — rigenerazione mirata (Fase 2)", () => {
     const chunks = await db.select().from(docChunks).where(eq(docChunks.pageId, pageId));
     expect(chunks.length).toBeGreaterThan(0);
     expect(chunks.every((c) => c.content !== "vecchio chunk")).toBe(true);
+    // Invariante "nessuna fuga di generationId": TUTTI i nuovi chunk appartengono alla
+    // generazione corrente (non a una vecchia/altra).
+    expect(chunks.every((c) => c.generationId === generationId)).toBe(true);
 
     // La entry release esiste e i link related includono lo slug aggiornato.
     const [release] = await db

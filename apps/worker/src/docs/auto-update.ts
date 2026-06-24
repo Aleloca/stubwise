@@ -380,8 +380,11 @@ interface RefreshResult {
 /**
  * RIGENERAZIONE MIRATA (Fase 2). Mappa i file `material` alle pagine esistenti
  * (`mapAffectedPages`), apre UN worktree effimero al default branch (toSha del mirror) e
- * per ogni pagina impattata fa girare l'agente di refresh, aggiornando in-place body +
- * commitSha e RI-EMBEDDANDO i chunk (delete + embedAndStoreChunks). Tutto BEST-EFFORT per
+ * per ogni pagina impattata fa girare l'agente di refresh, aggiornando in-place il body e
+ * RI-EMBEDDANDO i chunk (update + delete + embedAndStoreChunks). I tre statement della
+ * SINGOLA pagina girano in UNA transazione: nessun percorso lascia il DB in stato
+ * incoerente — un embed fallito dopo il delete rollbacka anche update+delete, lasciando la
+ * pagina nello stato VECCHIO coerente (body vecchio + chunk vecchi). Tutto BEST-EFFORT per
  * pagina: un refresh fallito (agente o embed) logga e prosegue, non aborta il resto.
  *
  * Non lancia: ritorna sempre un RefreshResult (in caso di problema, updatedSlugs vuoto ma
@@ -410,6 +413,12 @@ async function refreshAffectedPages(
   }
 
   try {
+    // withWorktree fa checkout dell'HEAD CORRENTE del default branch (dopo ensureMirror/
+    // fetch), NON di job.toSha: doc_pages non tiene uno sha per-pagina e il refresh legge
+    // codice reale dal worktree. Nel caso comune l'HEAD coincide con toSha; se un push più
+    // recente è atterrato durante il debounce, l'HEAD è un po' avanti rispetto a toSha.
+    // Accettato: l'agente legge comunque codice reale e il push successivo (che ricreerà un
+    // pending col proprio range) riconcilia la documentazione. Non è un bug.
     await deps.mirrors.withWorktree(ctx.mirrorProject, REFRESH_BRANCH, async (dir) => {
       // Sequenziale: l'agente è read-only nello stesso worktree, un solo run alla volta.
       for (const page of affected) {
@@ -443,25 +452,34 @@ async function refreshAffectedPages(
           // per-pagina (la staleness è tracciata a livello di GENERAZIONE, e
           // doc_generations.commitSha viene avanzato a toSha in coda a runAutoUpdate).
           // Vedi nota nel doc-header: niente commitSha per-pagina da aggiornare qui.
-          await deps.db
-            .update(docPages)
-            .set({ body: newBody })
-            .where(eq(docPages.id, page.id));
-          // RE-EMBED: i chunk vecchi della pagina vanno rimossi e ricalcolati dal nuovo
-          // body, così la ricerca semantica resta allineata.
-          await deps.db.delete(docChunks).where(eq(docChunks.pageId, page.id));
-          await embedAndStoreChunks(deps.db, deps.embeddingClient, {
-            projectId,
-            generationId,
-            pages: [
-              {
-                id: page.id,
-                body: newBody,
-                kind: pageBody.kind,
-                sourcePath: pageBody.sourcePath,
-              },
-            ],
-            batchSize: EMBED_BATCH_SIZE,
+          //
+          // TRANSAZIONE per-pagina: update body + delete chunk vecchi + re-embed dei
+          // chunk nuovi sono atomici. Se l'embed lancia DOPO il delete, il rollback
+          // ripristina anche update+delete: la pagina resta nello stato VECCHIO coerente
+          // (body vecchio + chunk vecchi), mai col body nuovo e zero chunk (sparita dalla
+          // ricerca vettoriale). L'errore risale al try/catch best-effort esterno, che
+          // logga e prosegue con le altre pagine.
+          await deps.db.transaction(async (tx) => {
+            await tx
+              .update(docPages)
+              .set({ body: newBody })
+              .where(eq(docPages.id, page.id));
+            // RE-EMBED: i chunk vecchi della pagina vanno rimossi e ricalcolati dal nuovo
+            // body, così la ricerca semantica resta allineata.
+            await tx.delete(docChunks).where(eq(docChunks.pageId, page.id));
+            await embedAndStoreChunks(tx, deps.embeddingClient, {
+              projectId,
+              generationId,
+              pages: [
+                {
+                  id: page.id,
+                  body: newBody,
+                  kind: pageBody.kind,
+                  sourcePath: pageBody.sourcePath,
+                },
+              ],
+              batchSize: EMBED_BATCH_SIZE,
+            });
           });
           updatedSlugs.push(page.slug);
           refreshedPages.push({ slug: page.slug, title: page.title });
