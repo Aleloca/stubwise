@@ -143,7 +143,7 @@ function TreeNodes({
                   hasChildren ? "text-fg" : "text-fg-muted"
                 }`}
                 activeProps={{
-                  className: "bg-ink-800 text-fg shadow-[inset_2px_0_0_0_var(--color-signal)]",
+                  className: "bg-ink-800 text-fg",
                 }}
               >
                 {item.title}
