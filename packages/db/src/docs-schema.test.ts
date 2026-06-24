@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "./client.js";
-import { docChunks, docGenerations, docPages, projects } from "./schema.js";
+import { docChunks, docGenerations, docPages, docSearchHistory, projects, users } from "./schema.js";
 import { seedGitAccount, startTestDb, type TestDb } from "./testing.js";
 
 /**
@@ -40,6 +40,19 @@ describe("schema: dominio Docs", () => {
       .returning();
     if (!project) throw new Error("insert del progetto non ha restituito la riga");
     return project.id;
+  }
+
+  async function seedUser(): Promise<string> {
+    const [user] = await db
+      .insert(users)
+      .values({
+        email: `utente-${randomUUID()}@example.com`,
+        passwordHash: "x",
+        role: "member",
+      })
+      .returning();
+    if (!user) throw new Error("insert dell'utente non ha restituito la riga");
+    return user.id;
   }
 
   it("persiste una generazione (status default pending) e una pagina manuale (generationId null)", async () => {
@@ -158,5 +171,24 @@ describe("schema: dominio Docs", () => {
     expect(Array.isArray(read?.embedding)).toBe(true);
     expect(read?.embedding).toHaveLength(1024);
     expect(read?.embedding?.[0]).toBe(1);
+  });
+
+  it("cronologia di ricerca: una sola voce per (utente, progetto, slug)", async () => {
+    const projectId = await seedProject();
+    const userId = await seedUser();
+
+    const [entry] = await db
+      .insert(docSearchHistory)
+      .values({ projectId, userId, slug: "panoramica", title: "Panoramica", kind: "technical" })
+      .returning();
+    if (!entry) throw new Error("insert della cronologia non ha restituito la riga");
+    expect(entry.title).toBe("Panoramica");
+
+    // Stesso (utente, progetto, slug): vietato un secondo INSERT (unique).
+    await expect(
+      db
+        .insert(docSearchHistory)
+        .values({ projectId, userId, slug: "panoramica", title: "Dup", kind: "technical" }),
+    ).rejects.toThrow();
   });
 });

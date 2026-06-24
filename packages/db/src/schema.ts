@@ -1121,3 +1121,41 @@ export const docChatMessages = pgTable(
   // I messaggi si caricano sempre per sessione, in ordine cronologico.
   (table) => [index("doc_chat_messages_session_idx").on(table.sessionId)],
 );
+
+/**
+ * Cronologia di ricerca dei Docs (command palette): l'ultima pagina cliccata da
+ * un utente in un progetto, denormalizzata (slug/title/kind) per il render
+ * diretto senza join sulle pagine. Una riga per (utente, progetto, slug):
+ * l'upsert aggiorna `clickedAt` e i campi denormalizzati a ogni click. Cascata
+ * con progetto e utente.
+ */
+export const docSearchHistory = pgTable(
+  "doc_search_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    slug: text("slug").notNull(),
+    title: text("title").notNull(),
+    kind: docPageKind("kind").notNull(),
+    clickedAt: timestamp("clicked_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Una sola voce per (utente, progetto, slug): target dell'upsert.
+    uniqueIndex("doc_search_history_user_project_slug_unique").on(
+      table.userId,
+      table.projectId,
+      table.slug,
+    ),
+    // Cronologia recente di un utente in un progetto: i click più nuovi prima.
+    index("doc_search_history_recent_idx").on(
+      table.userId,
+      table.projectId,
+      table.clickedAt.desc(),
+    ),
+  ],
+);
