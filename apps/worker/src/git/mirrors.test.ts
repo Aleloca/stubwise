@@ -302,6 +302,89 @@ describe("MirrorManager.withWorktree", () => {
   });
 });
 
+describe("MirrorManager.getChangedFiles", () => {
+  it("ritorna i file cambiati tra due commit (mirror aggiornato via ensureMirror)", async () => {
+    const { manager, upstream } = await makeFixture();
+    const project = projectFor(upstream);
+
+    // README.md è già nel seed (primo commit di makeUpstream).
+    const fromSha = await upstream.addCommit("a.txt", "alpha\n");
+    await upstream.addCommit("b.txt", "beta\n");
+    const toSha = await upstream.addCommit("c.txt", "gamma\n");
+
+    const changed = await manager.getChangedFiles(project, fromSha, toSha);
+
+    // ensureMirror ha fatto fetch: i nuovi commit upstream sono visibili.
+    expect(changed.sort()).toEqual(["b.txt", "c.txt"]);
+    // Nessuna riga vuota nel risultato.
+    expect(changed.every((f) => f.length > 0)).toBe(true);
+  });
+
+  it("propaga l'errore se uno degli sha non è raggiungibile nel mirror", async () => {
+    const { manager, upstream } = await makeFixture();
+    const project = projectFor(upstream);
+    const realSha = await git(["rev-parse", "main"], await manager.ensureMirror(project));
+
+    const error = await manager.getChangedFiles(project, "0".repeat(40), realSha).then(
+      () => null,
+      (e: unknown) => e
+    );
+
+    expect(error).toBeInstanceOf(GitCommandError);
+  });
+});
+
+describe("MirrorManager.getCommitMessages", () => {
+  it("ritorna sha+subject dei commit nel range, dal più recente", async () => {
+    const { manager, upstream } = await makeFixture();
+    const project = projectFor(upstream);
+
+    const fromSha = await upstream.addCommit("a.txt", "alpha\n");
+    const midSha = await upstream.addCommit("b.txt", "beta\n");
+    const toSha = await upstream.addCommit("c.txt", "gamma\n");
+
+    const commits = await manager.getCommitMessages(project, fromSha, toSha);
+
+    // Range esclusivo su fromSha: solo i due commit successivi, recente prima.
+    expect(commits).toEqual([
+      { sha: toSha, subject: "add c.txt" },
+      { sha: midSha, subject: "add b.txt" },
+    ]);
+  });
+
+  it("ritorna lista vuota quando from==to (nessun commit nel range)", async () => {
+    const { manager, upstream } = await makeFixture();
+    const project = projectFor(upstream);
+    const sha = await upstream.addCommit("a.txt", "alpha\n");
+
+    expect(await manager.getCommitMessages(project, sha, sha)).toEqual([]);
+  });
+
+  it("preserva subject con spazi (split solo sul primo TAB)", async () => {
+    const { manager, upstream } = await makeFixture();
+    const project = projectFor(upstream);
+    const fromSha = await git(["rev-parse", "main"], await manager.ensureMirror(project));
+    // Commit con un subject che contiene spazi multipli.
+    const toSha = await upstream.addCommit("multi word.txt", "x\n");
+
+    const commits = await manager.getCommitMessages(project, fromSha, toSha);
+    expect(commits).toEqual([{ sha: toSha, subject: "add multi word.txt" }]);
+  });
+
+  it("propaga l'errore se uno degli sha non è raggiungibile nel mirror", async () => {
+    const { manager, upstream } = await makeFixture();
+    const project = projectFor(upstream);
+    const realSha = await git(["rev-parse", "main"], await manager.ensureMirror(project));
+
+    const error = await manager.getCommitMessages(project, "0".repeat(40), realSha).then(
+      () => null,
+      (e: unknown) => e
+    );
+
+    expect(error).toBeInstanceOf(GitCommandError);
+  });
+});
+
 describe("MirrorManager.pushBranch", () => {
   it("pubblica il branch sull'upstream (push eseguito nel mirror, object store condiviso col worktree)", async () => {
     const { manager, upstream } = await makeFixture();

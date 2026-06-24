@@ -393,6 +393,51 @@ export class MirrorManager {
     );
   }
 
+  /**
+   * File cambiati tra due commit nel mirror (`git diff --name-only
+   * <fromSha> <toSha>`), dal mirror aggiornato. Il path è relativo alla root
+   * del repo. Righe vuote filtrate.
+   *
+   * Robustezza: se `fromSha`/`toSha` non sono raggiungibili nel mirror (es.
+   * history non disponibile o sha sconosciuto) `runGit` fallisce con
+   * GitCommandError — l'errore viene propagato, NON inghiottito: il chiamante
+   * (worker) decide come gestirlo (es. fallback a generazione completa).
+   */
+  async getChangedFiles(project: MirrorProject, fromSha: string, toSha: string): Promise<string[]> {
+    const mirrorDir = await this.ensureMirror(project);
+    // `--` separa esplicitamente revisioni da pathspec: i due sha non possono
+    // essere reinterpretati come opzioni o path. Passati come argv (no shell).
+    const out = await this.git(["diff", "--name-only", fromSha, toSha, "--"], { cwd: mirrorDir });
+    return out.split("\n").filter((line) => line.length > 0);
+  }
+
+  /**
+   * Commit nel range `<fromSha>..<toSha>` nel mirror aggiornato, dal più
+   * recente (default di `git log`). Output `git log --format=%H%x09%s`
+   * (sha TAB subject, una riga per commit): parsato in `{ sha, subject }`.
+   * Righe vuote filtrate.
+   *
+   * Robustezza: come getChangedFiles, errori git propagati (non inghiottiti).
+   */
+  async getCommitMessages(
+    project: MirrorProject,
+    fromSha: string,
+    toSha: string
+  ): Promise<{ sha: string; subject: string }[]> {
+    const mirrorDir = await this.ensureMirror(project);
+    // %H = sha completo, %x09 = TAB (separatore impossibile in uno sha),
+    // %s = subject. Il subject può contenere spazi ma mai un TAB né newline,
+    // quindi split sul primo TAB è sempre corretto.
+    const out = await this.git(["log", "--format=%H%x09%s", `${fromSha}..${toSha}`], { cwd: mirrorDir });
+    return out
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map((line) => {
+        const tab = line.indexOf("\t");
+        return { sha: line.slice(0, tab), subject: line.slice(tab + 1) };
+      });
+  }
+
   private git(
     args: string[],
     opts: Omit<RunGitOptions, "timeoutMs"> & { timeoutMs?: number }
