@@ -140,9 +140,14 @@ Inside a project's space:
   is a **nested tree** you can expand to any depth. The center pane renders the
   selected page's Markdown with its source-path and commit badges, plus its
   **Implements / Related** cross-links to jump to connected pages.
-- **Search** — a dedicated bar (separate from the chat) combines **semantic**
-  search over the chunks with **full-text** search over the pages; results link
-  straight to the page.
+- **Search** — a **command palette** (separate from the chat) you open with
+  **⌘K / Ctrl+K**, or by clicking the search box in the sidebar. As you type it
+  shows **autocomplete** suggestions — page title, group tag and a **text
+  preview** — combining **semantic** search over the chunks with **full-text**
+  search over the pages; use **↑/↓** to move, **↵** to open and **Esc** to close,
+  and a result links straight to the page. With the field empty the palette shows
+  your **recents**: the pages you last opened from search, kept **per user and per
+  project**, each removable individually or all at once.
 - **Chat** — a drawer where you ask questions in natural language. The chat
   retrieves the most relevant chunks for the project, answers **only from that
   retrieved context** (it says so when the context isn't enough), and returns
