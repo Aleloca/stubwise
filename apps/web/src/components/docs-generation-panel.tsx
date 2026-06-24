@@ -1,10 +1,11 @@
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { meQueryOptions } from "../lib/auth";
 import { generateDocs } from "../lib/docs-api";
 import type { DocJobStatus } from "@stubwise/shared";
 import { formatRelativeTime } from "../lib/format";
-import { docsKeys, docStatusQueryOptions } from "../lib/queries";
+import { aiProvidersQueryOptions, docsKeys, docStatusQueryOptions } from "../lib/queries";
 
 /**
  * Pannello stato/trigger generazione (M7.4), montato nell'header dell'aside
@@ -45,8 +46,18 @@ export function DocsGenerationPanel({ projectId }: { projectId: string }) {
         : false,
   });
 
+  // Provider AI configurati (solo admin): alimentano il dropdown di selezione
+  // del provider bloccato. Mostriamo solo gli abilitati, in ordine di failover.
+  const { data: providers } = useQuery({ ...aiProvidersQueryOptions, enabled: isAdmin });
+  const enabledProviders = (providers ?? [])
+    .filter((p) => p.enabled)
+    .sort((a, b) => a.position - b.position);
+
+  // Provider scelto per la prossima generazione: "" = automatico (primo abilitato).
+  const [selectedProviderId, setSelectedProviderId] = useState("");
+
   const generation = useMutation({
-    mutationFn: () => generateDocs(projectId),
+    mutationFn: () => generateDocs(projectId, selectedProviderId || undefined),
     onSuccess: async () => {
       // Riflette subito lo stato "queued/running" del job appena (ri)avviato.
       await queryClient.invalidateQueries({ queryKey: docsKeys.status(projectId) });
@@ -55,6 +66,7 @@ export function DocsGenerationPanel({ projectId }: { projectId: string }) {
 
   const job = status?.latestJob ?? null;
   const gen = status?.generation ?? null;
+  const pinnedProvider = status?.pinnedProvider ?? null;
   const jobActive = job !== null && ACTIVE_JOB_STATUSES.includes(job.status);
 
   return (
@@ -87,6 +99,13 @@ export function DocsGenerationPanel({ projectId }: { projectId: string }) {
             {t("docs:generation.cost", { cost: gen.cost })}
           </div>
         )}
+        {pinnedProvider && (
+          // Provider bloccato della generazione corrente: in automatico (primo
+          // abilitato) `pinnedProvider` è null e questa riga non compare.
+          <div className="text-right font-mono text-[11px] text-fg-faint">
+            {t("docs:generation.providerPinned", { label: pinnedProvider.label })}
+          </div>
+        )}
       </dl>
 
       {jobActive && (
@@ -110,16 +129,42 @@ export function DocsGenerationPanel({ projectId }: { projectId: string }) {
       )}
 
       {isAdmin && (
-        <button
-          type="button"
-          onClick={() => generation.mutate()}
-          disabled={generation.isPending || jobActive}
-          className="mt-3 w-full rounded-sm bg-signal px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.06em] text-ink-950 uppercase transition-colors hover:bg-signal-bright disabled:cursor-not-allowed disabled:bg-signal-dim"
-        >
-          {generation.isPending
-            ? t("docs:generation.generating")
-            : t("docs:generation.generate")}
-        </button>
+        <>
+          {enabledProviders.length > 0 && (
+            <label className="mt-3 flex flex-col gap-1">
+              <span className="font-mono text-[11px] tracking-[0.08em] text-fg-faint uppercase">
+                {t("docs:generation.provider")}
+              </span>
+              <select
+                value={selectedProviderId}
+                onChange={(event) => setSelectedProviderId(event.target.value)}
+                disabled={generation.isPending || jobActive}
+                className="w-full rounded-sm border border-line bg-ink-950 px-2 py-1.5 font-mono text-[12px] text-fg-muted disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <option value="">{t("docs:generation.providerAuto")}</option>
+                {enabledProviders.map((provider) => (
+                  <option key={provider.id} value={provider.id}>
+                    {`${provider.label} (${
+                      provider.kind === "account"
+                        ? t("docs:generation.providerKindAccount")
+                        : t("docs:generation.providerKindApiKey")
+                    })`}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <button
+            type="button"
+            onClick={() => generation.mutate()}
+            disabled={generation.isPending || jobActive}
+            className="mt-3 w-full rounded-sm bg-signal px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.06em] text-ink-950 uppercase transition-colors hover:bg-signal-bright disabled:cursor-not-allowed disabled:bg-signal-dim"
+          >
+            {generation.isPending
+              ? t("docs:generation.generating")
+              : t("docs:generation.generate")}
+          </button>
+        </>
       )}
       {generation.error && (
         <p className="mt-2 font-mono text-[11px] text-danger" role="alert">

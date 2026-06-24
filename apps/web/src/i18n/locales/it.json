@@ -922,6 +922,11 @@
       "jobRunning": "Generazione in corso…",
       "jobFailed": "L'ultima generazione è fallita.",
       "jobReason": "Motivo: {{reason}}",
+      "provider": "Provider",
+      "providerAuto": "Automatico (primo abilitato)",
+      "providerPinned": "Provider: {{label}}",
+      "providerKindAccount": "ACCOUNT",
+      "providerKindApiKey": "API KEY",
       "error": "Impossibile avviare la generazione."
     },
     "search": {

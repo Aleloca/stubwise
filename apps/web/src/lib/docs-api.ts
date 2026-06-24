@@ -124,10 +124,22 @@ export interface DocGeneration {
   createdAt: string;
 }
 
+/**
+ * Provider bloccato della generazione corrente (puntato da
+ * generation.pinnedProviderId): proiezione minima per mostrarlo nello stato del
+ * pannello. `null` quando la generazione è in automatico (primo abilitato).
+ */
+export interface DocPinnedProvider {
+  id: string;
+  label: string;
+  kind: "account" | "api_key";
+}
+
 /** Stato Docs di un progetto: generazione corrente + ultimo job. */
 export interface DocStatus {
   generation: DocGeneration | null;
   latestJob: DocGenerationJob | null;
+  pinnedProvider: DocPinnedProvider | null;
 }
 
 /** Stato della documentazione di un progetto (generazione corrente + ultimo job). */
@@ -138,9 +150,15 @@ export function getDocStatus(projectId: string): Promise<DocStatus> {
 /**
  * Avvia (o restituisce quello già attivo) un job di generazione documentazione
  * per il progetto. Solo admin/maintainer lato server. Ritorna il job in coda.
+ * `providerId` (opzionale) blocca la generazione su un provider abilitato; se
+ * assente il server usa il primo abilitato (failover automatico): il body è
+ * mandato solo quando il provider è scelto, così il default resta inalterato.
  */
-export function generateDocs(projectId: string): Promise<DocGenerationJob> {
-  return api.post(`/api/projects/${encodeURIComponent(projectId)}/docs/generate`);
+export function generateDocs(projectId: string, providerId?: string): Promise<DocGenerationJob> {
+  return api.post(
+    `/api/projects/${encodeURIComponent(projectId)}/docs/generate`,
+    providerId ? { providerId } : undefined,
+  );
 }
 
 // --- Ricerca (GET /api/projects/:id/docs/search?q=) ---

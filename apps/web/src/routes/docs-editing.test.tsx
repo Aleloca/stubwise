@@ -3,6 +3,7 @@ import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AiProvider } from "../lib/api";
 import type { DocPage, DocTreeNode } from "../lib/docs-api";
 import { createAppRouter } from "../router";
 import { setMatchMedia } from "../test/setup";
@@ -104,7 +105,8 @@ function baseHandlers(role: "admin" | "member" = "member"): Record<string, Handl
     "GET /api/auth/me": meHandler(role),
     [`GET /api/projects/${PROJECT_ID}/docs/tree`]: () => jsonResponse(200, TREE),
     [`GET /api/projects/${PROJECT_ID}/docs/status`]: () =>
-      jsonResponse(200, { generation: null, latestJob: null }),
+      jsonResponse(200, { generation: null, latestJob: null, pinnedProvider: null }),
+    [`GET /api/ai-providers`]: () => jsonResponse(200, []),
     [`GET /api/projects/${PROJECT_ID}/docs/pages/guide`]: () => jsonResponse(200, MANUAL_PAGE),
     [`GET /api/projects/${PROJECT_ID}/docs/pages/tech-overview`]: () =>
       jsonResponse(200, TECH_PAGE),
@@ -249,8 +251,9 @@ describe("trigger generazione + stato (M7.4)", () => {
                 finishedAt: null,
               }
             : null;
-        return jsonResponse(200, { generation: null, latestJob });
+        return jsonResponse(200, { generation: null, latestJob, pinnedProvider: null });
       },
+      [`GET /api/ai-providers`]: () => jsonResponse(200, []),
       [`POST /api/projects/${PROJECT_ID}/docs/generate`]: () =>
         jsonResponse(202, {
           id: "job1",
@@ -307,6 +310,7 @@ describe("trigger generazione + stato (M7.4)", () => {
             startedAt: "2026-06-20T09:00:00.000Z",
             finishedAt: "2026-06-20T10:00:00.000Z",
           },
+          pinnedProvider: null,
         }),
     });
     renderApp(`/docs/${PROJECT_ID}`);
@@ -331,6 +335,7 @@ describe("trigger generazione + stato (M7.4)", () => {
             startedAt: "2026-06-22T10:00:00.000Z",
             finishedAt: null,
           },
+          pinnedProvider: null,
         }),
     });
     renderApp(`/docs/${PROJECT_ID}`);
@@ -338,6 +343,118 @@ describe("trigger generazione + stato (M7.4)", () => {
     expect(await screen.findByText("held")).toBeInTheDocument();
     // Il motivo è renderizzato (così l'utente capisce il PERCHÉ del blocco).
     expect(screen.getByText(/Cost cap exceeded/)).toBeInTheDocument();
+  });
+
+  // --- Provider bloccato (M7.4 — pinned provider) ---
+
+  function provider(
+    overrides: Partial<AiProvider> & Pick<AiProvider, "id" | "label" | "kind">,
+  ): AiProvider {
+    return {
+      position: 0,
+      enabled: true,
+      secretSet: true,
+      createdAt: "2026-06-20T10:00:00.000Z",
+      testStatus: "idle",
+      testRequestedAt: null,
+      testCheckedAt: null,
+      testError: null,
+      ...overrides,
+    };
+  }
+
+  const PROVIDERS: AiProvider[] = [
+    provider({ id: "p1", label: "Claude account", kind: "account", position: 0 }),
+    provider({ id: "p2", label: "OpenAI key", kind: "api_key", position: 1 }),
+    // Disabilitato: non deve comparire nel dropdown.
+    provider({ id: "p3", label: "Spenta", kind: "api_key", position: 2, enabled: false }),
+  ];
+
+  it("admin: il dropdown è popolato dai provider abilitati con l'opzione Automatico di default", async () => {
+    mockApi({
+      ...baseHandlers("admin"),
+      [`GET /api/ai-providers`]: () => jsonResponse(200, PROVIDERS),
+    });
+    renderApp(`/docs/${PROJECT_ID}`);
+
+    const select = (await screen.findByLabelText("Provider")) as HTMLSelectElement;
+    // Default: opzione "Automatico (primo abilitato)" con value vuoto.
+    expect(select.value).toBe("");
+    expect(screen.getByRole("option", { name: "Automatic (first enabled)" })).toBeInTheDocument();
+    // Solo i due provider abilitati, con la label del tipo credenziale.
+    expect(screen.getByRole("option", { name: "Claude account (ACCOUNT)" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "OpenAI key (API KEY)" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Spenta/ })).not.toBeInTheDocument();
+  });
+
+  it("admin: selezionando un provider, la POST generate riceve { providerId }", async () => {
+    let posted: unknown = "no-body";
+    mockApi({
+      ...baseHandlers("admin"),
+      [`GET /api/ai-providers`]: () => jsonResponse(200, PROVIDERS),
+      [`POST /api/projects/${PROJECT_ID}/docs/generate`]: (_url, init) => {
+        posted = init?.body ? JSON.parse(String(init.body)) : null;
+        return jsonResponse(202, {
+          id: "job1",
+          status: "queued",
+          trigger: "manual",
+          error: null,
+          createdAt: "2026-06-22T10:00:00.000Z",
+          startedAt: null,
+          finishedAt: null,
+        });
+      },
+    });
+    renderApp(`/docs/${PROJECT_ID}`);
+
+    await userEvent.selectOptions(
+      await screen.findByLabelText("Provider"),
+      "p2",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Generate documentation" }));
+
+    await waitFor(() => expect(posted).toEqual({ providerId: "p2" }));
+  });
+
+  it("admin: in automatico (nessun provider scelto) la POST generate non manda providerId", async () => {
+    let posted: unknown = "no-body";
+    mockApi({
+      ...baseHandlers("admin"),
+      [`GET /api/ai-providers`]: () => jsonResponse(200, PROVIDERS),
+      [`POST /api/projects/${PROJECT_ID}/docs/generate`]: (_url, init) => {
+        posted = init?.body ? JSON.parse(String(init.body)) : null;
+        return jsonResponse(202, {
+          id: "job1",
+          status: "queued",
+          trigger: "manual",
+          error: null,
+          createdAt: "2026-06-22T10:00:00.000Z",
+          startedAt: null,
+          finishedAt: null,
+        });
+      },
+    });
+    renderApp(`/docs/${PROJECT_ID}`);
+
+    await screen.findByLabelText("Provider");
+    await userEvent.click(screen.getByRole("button", { name: "Generate documentation" }));
+
+    await waitFor(() => expect(posted).toBeNull());
+  });
+
+  it("mostra il provider bloccato della generazione corrente", async () => {
+    mockApi({
+      ...baseHandlers("admin"),
+      [`GET /api/projects/${PROJECT_ID}/docs/status`]: () =>
+        jsonResponse(200, {
+          generation: null,
+          latestJob: null,
+          pinnedProvider: { id: "p1", label: "Claude account", kind: "account" },
+        }),
+    });
+    renderApp(`/docs/${PROJECT_ID}`);
+
+    expect(await screen.findByText("Provider: Claude account")).toBeInTheDocument();
   });
 });
 
