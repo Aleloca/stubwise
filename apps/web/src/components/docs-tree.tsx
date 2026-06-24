@@ -126,14 +126,14 @@ function TreeNodes({
                   aria-label={t(isCollapsed ? "docs:space.expand" : "docs:space.collapse", {
                     title: item.title,
                   })}
-                  className="flex h-6 w-4 shrink-0 items-center justify-center rounded-sm text-fg-faint transition-colors hover:bg-ink-850 hover:text-fg"
+                  className="flex h-6 w-5 shrink-0 items-center justify-center rounded-sm text-fg-muted transition-colors hover:bg-ink-800 hover:text-fg"
                 >
-                  <span aria-hidden className="text-[9px] leading-none">
-                    {isCollapsed ? "▸" : "▾"}
+                  <span aria-hidden className="text-[11px] leading-none">
+                    {isCollapsed ? "▶" : "▼"}
                   </span>
                 </button>
               ) : (
-                <span aria-hidden className="w-4 shrink-0" />
+                <span aria-hidden className="w-5 shrink-0" />
               )}
               <Link
                 to="/docs/$projectId/$slug"
