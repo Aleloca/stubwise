@@ -108,3 +108,13 @@ export type { ReleaseInput, ReleaseNotes, ExistingPage } from "./releases.js";
 // ── Auto-aggiornamento Docs (Fase 2): file cambiati → pagine impattate ────────────────
 export { mapAffectedPages } from "./affected-pages.js";
 export type { PageRef, AffectedPagesResult } from "./affected-pages.js";
+
+// ── Auto-aggiornamento Docs (Fase 2): refresh mirato di una pagina ────────────────────
+export {
+  buildRefreshPagePrompt,
+  parseRefreshedPage,
+  REFRESH_NO_CHANGE_MARKER,
+  REFRESH_UPDATED_START_MARKER,
+  REFRESH_UPDATED_END_MARKER,
+} from "./refresh-page.js";
+export type { RefreshPageInput, RefreshedPage } from "./refresh-page.js";
