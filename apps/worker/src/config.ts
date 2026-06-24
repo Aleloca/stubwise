@@ -268,6 +268,20 @@ const envSchema = z.object({
       .min(0, "deve essere un intero ≥ 0 in secondi (es. 60; 0 = disabilitato)")
       .default(60),
   ),
+  // Tetto al numero di pagine di documentazione rigenerate in-place ad ogni push
+  // dell'auto-aggiornamento Docs (Fase 2, vedi docs/auto-update.ts): l'agente di
+  // refresh-pagina riscrive solo le pagine il cui sourcePath è toccato dal diff, fino
+  // a questo cap (le altre impattate sono segnalate come "troncate" nella entry). 0 =
+  // disabilita la rigenerazione mirata lasciando SOLO la entry release (comportamento
+  // Fase 1). Default 10.
+  DOCS_AUTOUPDATE_MAX_PAGES: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 0 (es. 10; 0 = disabilita la rigenerazione)" })
+      .int("deve essere un intero ≥ 0 (es. 10; 0 = disabilita la rigenerazione)")
+      .min(0, "deve essere un intero ≥ 0 (es. 10; 0 = disabilita la rigenerazione)")
+      .default(10),
+  ),
 });
 
 export interface WorkerConfig {
@@ -335,6 +349,9 @@ export interface WorkerConfig {
   /** Intervallo in secondi del poller di auto-aggiornamento Docs (default 60; 0 =
    * disabilitato). */
   docsAutoUpdatePollSeconds: number;
+  /** Tetto alle pagine rigenerate in-place per push dall'auto-update (Fase 2; default
+   * 10; 0 = solo la entry release, niente rigenerazione mirata). */
+  docsAutoUpdateMaxPages: number;
 }
 
 /**
@@ -383,5 +400,6 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     embeddingModel: parsed.EMBEDDING_MODEL,
     embeddingApiKey: parsed.EMBEDDING_API_KEY,
     docsAutoUpdatePollSeconds: parsed.DOCS_AUTOUPDATE_POLL_SECONDS,
+    docsAutoUpdateMaxPages: parsed.DOCS_AUTOUPDATE_MAX_PAGES,
   };
 }

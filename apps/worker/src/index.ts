@@ -236,6 +236,10 @@ startAutoUpdatePoller({
   model: config.docGenerationModel,
   agentTimeoutMs: config.docAgentTimeoutMs,
   maxTurns: config.docModuleMaxTurns,
+  // Fase 2: rigenerazione mirata delle pagine toccate + re-embed (riusa lo stesso
+  // embeddingClient della finalize; il cap limita costo/tempo per push, 0 = solo entry).
+  embeddingClient,
+  maxRefreshPages: config.docsAutoUpdateMaxPages,
   serializer,
   intervalSeconds: config.docsAutoUpdatePollSeconds,
   signal: controller.signal,

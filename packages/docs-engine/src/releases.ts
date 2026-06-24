@@ -63,6 +63,17 @@ export interface ReleaseInput {
   commitSubjects: string[];
   /** Pagine di documentazione esistenti, per citare quelle impattate via slug. */
   existingPages: ExistingPage[];
+  /**
+   * (Fase 2, opzionale) Pagine di documentazione GIÀ rigenerate in-place per questo
+   * push: l'agente le menziona nelle note ("doc aggiornata") per coerenza. Additivo:
+   * assente/vuoto → il prompt non cambia rispetto alla Fase 1.
+   */
+  refreshedPages?: { slug: string; title: string }[];
+  /**
+   * (Fase 2, opzionale) Aree (path) cambiate ma NON coperte da alcuna pagina esistente:
+   * l'agente può segnalarle come non documentate. Additivo: assente/vuoto → invariato.
+   */
+  newAreas?: string[];
 }
 
 /** Le note di rilascio parsate dall'output dell'agente. */
@@ -105,6 +116,29 @@ export function buildReleasePrompt(input: ReleaseInput): string {
           .join("\n")
       : "(nessuna pagina di documentazione esistente)";
 
+  // (Fase 2) Sezioni OPZIONALI: pagine già rigenerate per questo push e aree nuove non
+  // documentate. Assenti/vuote → niente blocco (additivo, prompt Fase 1 invariato).
+  const refreshed = input.refreshedPages ?? [];
+  const refreshedBlock =
+    refreshed.length > 0
+      ? [
+          "",
+          "DOCUMENTATION PAGES ALREADY REGENERATED for these changes (slug :: title) — the",
+          "docs have been kept in sync; you may mention this in the notes:",
+          ...refreshed.slice(0, MAX_PAGES).map((p) => `- ${p.slug} :: ${p.title}`),
+        ]
+      : [];
+  const newAreas = input.newAreas ?? [];
+  const newAreasBlock =
+    newAreas.length > 0
+      ? [
+          "",
+          "CHANGED AREAS NOT COVERED by any existing documentation page (no page documents",
+          "these paths) — flag them as not yet documented:",
+          ...newAreas.slice(0, MAX_FILES).map((p) => `- ${p}`),
+        ]
+      : [];
+
   return [
     "You are writing RELEASE NOTES (a changelog entry) for a software project, based on",
     "the changes pushed since the documentation was last in sync. Work ONLY from the",
@@ -119,6 +153,8 @@ export function buildReleasePrompt(input: ReleaseInput): string {
     "",
     "EXISTING DOCUMENTATION PAGES (slug :: title :: source path):",
     pages,
+    ...refreshedBlock,
+    ...newAreasBlock,
     "",
     "DO THREE THINGS:",
     "",

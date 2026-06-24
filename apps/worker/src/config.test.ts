@@ -39,6 +39,8 @@ describe("loadWorkerConfig", () => {
     expect(config.docAgentTimeoutMs).toBe(480_000);
     // Poller di auto-aggiornamento Docs: default 60 secondi.
     expect(config.docsAutoUpdatePollSeconds).toBe(60);
+    // Rigenerazione mirata: default 10 pagine per push.
+    expect(config.docsAutoUpdateMaxPages).toBe(10);
   });
 
   it("rispetta DOCS_AUTOUPDATE_POLL_SECONDS esplicito e 0 = disabilitato", () => {
@@ -52,6 +54,19 @@ describe("loadWorkerConfig", () => {
     expect(
       loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_POLL_SECONDS: "" }).docsAutoUpdatePollSeconds,
     ).toBe(60);
+  });
+
+  it("rispetta DOCS_AUTOUPDATE_MAX_PAGES esplicito e 0 = disabilita la rigenerazione", () => {
+    expect(
+      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_MAX_PAGES: "5" }).docsAutoUpdateMaxPages,
+    ).toBe(5);
+    expect(
+      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_MAX_PAGES: "0" }).docsAutoUpdateMaxPages,
+    ).toBe(0);
+    // Vuoto (es. da .env.example) usa il default 10.
+    expect(
+      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_MAX_PAGES: "" }).docsAutoUpdateMaxPages,
+    ).toBe(10);
   });
 
   it("rispetta DOC_AGENT_TIMEOUT_MS esplicito e rifiuta valori non positivi", () => {

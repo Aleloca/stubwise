@@ -1,6 +1,7 @@
 import {
   aiProviders,
   docAutoUpdateJobs,
+  docChunks,
   docGenerations,
   docPages,
   encrypt,
@@ -10,6 +11,9 @@ import {
 } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import {
+  REFRESH_NO_CHANGE_MARKER,
+  REFRESH_UPDATED_END_MARKER,
+  REFRESH_UPDATED_START_MARKER,
   RELEASE_BODY_END_MARKER,
   RELEASE_BODY_START_MARKER,
   RELEASE_END_MARKER,
@@ -17,12 +21,13 @@ import {
   RELEASE_SLUGS_START_MARKER,
   RELEASE_START_MARKER,
 } from "@stubwise/docs-engine";
+import { createFakeEmbeddingClient } from "@stubwise/embeddings";
 import { and, eq } from "drizzle-orm";
 import { execa } from "execa";
 import { randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeAgentRunner } from "../agent/fake.js";
@@ -45,7 +50,9 @@ beforeAll(async () => {
 
 afterEach(async () => {
   await testDb.db.delete(docAutoUpdateJobs);
+  await testDb.db.delete(docChunks);
   await testDb.db.delete(docPages);
+  await testDb.db.delete(docGenerations);
   await testDb.db.delete(projects);
   await testDb.db.delete(gitAccounts);
   await testDb.db.delete(aiProviders);
@@ -65,7 +72,9 @@ async function git(args: string[], cwd: string): Promise<string> {
  * Crea un upstream bare con DUE commit e ritorna l'url + i due sha. Tra i due commit
  * cambia `src/app.ts` (sostanziale) e, se `noiseOnly`, SOLO `pnpm-lock.yaml` (rumore).
  */
-async function makeUpstream(opts: { noiseOnly?: boolean } = {}): Promise<{
+async function makeUpstream(
+  opts: { noiseOnly?: boolean; extraFiles?: Record<string, string> } = {},
+): Promise<{
   url: string;
   fromSha: string;
   toSha: string;
@@ -90,6 +99,10 @@ async function makeUpstream(opts: { noiseOnly?: boolean } = {}): Promise<{
   } else {
     await mkdir(join(work, "src"), { recursive: true });
     await writeFile(join(work, "src", "app.ts"), "export const v = 2;\n");
+    for (const [rel, content] of Object.entries(opts.extraFiles ?? {})) {
+      await mkdir(join(work, dirname(rel)), { recursive: true });
+      await writeFile(join(work, rel), content);
+    }
   }
   await execa("git", ["-C", work, "add", "-A"]);
   await execa("git", [
@@ -164,6 +177,51 @@ async function seedCurrentGeneration(
   return { generationId, pageSlug: "app-module" };
 }
 
+interface SeedPage {
+  slug: string;
+  title: string;
+  sourcePath: string | null;
+  body: string;
+}
+
+/**
+ * Crea una generazione corrente con un insieme ARBITRARIO di pagine (Fase 2) e la collega
+ * come currentDocGenerationId. Ritorna la generationId e gli id delle pagine per slug.
+ */
+async function seedGenerationWithPages(
+  db: Db,
+  projectId: string,
+  commitSha: string,
+  pages: SeedPage[],
+): Promise<{ generationId: string; pageIds: Record<string, string> }> {
+  const [gen] = await db
+    .insert(docGenerations)
+    .values({ projectId, status: "succeeded", model: "opus", commitSha })
+    .returning();
+  const generationId = gen!.id;
+  const pageIds: Record<string, string> = {};
+  for (const p of pages) {
+    const [row] = await db
+      .insert(docPages)
+      .values({
+        projectId,
+        generationId,
+        kind: "technical",
+        slug: p.slug,
+        title: p.title,
+        sourcePath: p.sourcePath,
+        body: p.body,
+      })
+      .returning({ id: docPages.id });
+    pageIds[p.slug] = row!.id;
+  }
+  await db
+    .update(projects)
+    .set({ currentDocGenerationId: generationId })
+    .where(eq(projects.id, projectId));
+  return { generationId, pageIds };
+}
+
 const SIGNIFICANT_OUTPUT = [
   RELEASE_START_MARKER,
   "SIGNIFICANT: true",
@@ -190,7 +248,38 @@ const MINOR_OUTPUT = [
   RELEASE_END_MARKER,
 ].join("\n");
 
-function baseDeps(db: Db, mirrors: MirrorManager, runner: FakeAgentRunner): RunAutoUpdateDeps {
+/** Output dell'agente di refresh che riscrive il corpo della pagina. */
+const REFRESHED_BODY = "Corpo AGGIORNATO della pagina dopo il diff.";
+const REFRESH_UPDATED_OUTPUT = [
+  REFRESH_UPDATED_START_MARKER,
+  REFRESHED_BODY,
+  REFRESH_UPDATED_END_MARKER,
+].join("\n");
+const REFRESH_NO_CHANGE_OUTPUT = REFRESH_NO_CHANGE_MARKER;
+
+/** true se il prompt è quello dell'agente di refresh-pagina (non la entry release). */
+function isRefreshPrompt(prompt: string): boolean {
+  return prompt.includes(REFRESH_UPDATED_START_MARKER);
+}
+
+/**
+ * Script che instrada per tipo di prompt: l'agente di refresh ritorna `refresh`, l'agente
+ * release ritorna `release`. Così un singolo runner serve sia la rigenerazione mirata sia
+ * la entry, e i test possono asserire su entrambe le fasi.
+ */
+function routeScript(refresh: string, release: string) {
+  return (opts: { prompt: string }) => ({
+    output: isRefreshPrompt(opts.prompt) ? refresh : release,
+    exitCode: 0,
+  });
+}
+
+function baseDeps(
+  db: Db,
+  mirrors: MirrorManager,
+  runner: FakeAgentRunner,
+  opts: { maxRefreshPages?: number } = {},
+): RunAutoUpdateDeps {
   return {
     db,
     mirrors,
@@ -199,6 +288,10 @@ function baseDeps(db: Db, mirrors: MirrorManager, runner: FakeAgentRunner): RunA
     model: "opus",
     agentTimeoutMs: 600_000,
     maxTurns: 30,
+    embeddingClient: createFakeEmbeddingClient(),
+    // Default 0 = rigenerazione mirata disattivata (comportamento Fase 1): i test Fase 1
+    // restano invariati. I test Fase 2 passano esplicitamente un maxRefreshPages > 0.
+    maxRefreshPages: opts.maxRefreshPages ?? 0,
     // Catena vuota di default: provider undefined (auth storica). I test che vogliono
     // un provider bloccato passano docAutoUpdateProviderId + un loadProviderByIdFn fake.
     loadProviderChainFn: async () => [],
@@ -350,6 +443,244 @@ describe("runAutoUpdate", () => {
     expect(runner.calls).toHaveLength(0);
     const pages = await db.select().from(docPages).where(eq(docPages.projectId, projectId));
     expect(pages).toHaveLength(0);
+  });
+});
+
+describe("runAutoUpdate — rigenerazione mirata (Fase 2)", () => {
+  it("diff su una pagina esistente + agente UPDATED → body aggiornato e chunk ri-embeddati", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream(); // cambia src/app.ts
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, upstream.url);
+    const { generationId, pageIds } = await seedGenerationWithPages(
+      db,
+      projectId,
+      upstream.fromSha,
+      [{ slug: "app-module", title: "App Module", sourcePath: "src", body: "Vecchio corpo." }],
+    );
+    const pageId = pageIds["app-module"]!;
+
+    // Pre-seed di un chunk vecchio per la pagina, così possiamo verificare il DELETE.
+    await db.insert(docChunks).values({
+      pageId,
+      projectId,
+      generationId,
+      content: "vecchio chunk",
+      embedding: new Array(1024).fill(0),
+      metadata: { heading: null, sourcePath: "src", layer: "technical" },
+      tokenCount: 2,
+    });
+
+    const runner = new FakeAgentRunner({
+      script: routeScript(REFRESH_UPDATED_OUTPUT, SIGNIFICANT_OUTPUT),
+    });
+    await runAutoUpdate(baseDeps(db, mirrors, runner, { maxRefreshPages: 10 }), {
+      id: "job-r1",
+      projectId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    // Sia il refresh sia la entry sono stati invocati (un run di refresh + uno di release).
+    expect(runner.calls.some((c) => c.prompt.includes(REFRESH_UPDATED_START_MARKER))).toBe(true);
+    // Il refresh gira nel worktree (cwd != process.cwd()).
+    const refreshCall = runner.calls.find((c) => c.prompt.includes(REFRESH_UPDATED_START_MARKER));
+    expect(refreshCall?.permissionMode).toBe("plan");
+    expect(refreshCall?.cwd).not.toBe(process.cwd());
+
+    // La pagina ha il body aggiornato.
+    const [page] = await db.select().from(docPages).where(eq(docPages.id, pageId));
+    expect(page?.body).toBe(REFRESHED_BODY);
+
+    // I chunk sono stati RI-EMBEDDATI: il vecchio chunk (content "vecchio chunk") è sparito
+    // e ce n'è almeno uno nuovo dal nuovo body.
+    const chunks = await db.select().from(docChunks).where(eq(docChunks.pageId, pageId));
+    expect(chunks.length).toBeGreaterThan(0);
+    expect(chunks.every((c) => c.content !== "vecchio chunk")).toBe(true);
+
+    // La entry release esiste e i link related includono lo slug aggiornato.
+    const [release] = await db
+      .select()
+      .from(docPages)
+      .where(and(eq(docPages.projectId, projectId), eq(docPages.kind, "releases")));
+    expect(release).toBeDefined();
+    expect(release?.links).toEqual([
+      { type: "related", slug: "app-module", title: "App Module" },
+    ]);
+  });
+
+  it("agente NO CHANGE → pagina non toccata, nessun re-embed", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, upstream.url);
+    const { generationId, pageIds } = await seedGenerationWithPages(
+      db,
+      projectId,
+      upstream.fromSha,
+      [{ slug: "app-module", title: "App Module", sourcePath: "src", body: "Corpo originale." }],
+    );
+    const pageId = pageIds["app-module"]!;
+    await db.insert(docChunks).values({
+      pageId,
+      projectId,
+      generationId,
+      content: "chunk originale",
+      embedding: new Array(1024).fill(0),
+      metadata: { heading: null, sourcePath: "src", layer: "technical" },
+      tokenCount: 2,
+    });
+
+    const runner = new FakeAgentRunner({
+      script: routeScript(REFRESH_NO_CHANGE_OUTPUT, SIGNIFICANT_OUTPUT),
+    });
+    await runAutoUpdate(baseDeps(db, mirrors, runner, { maxRefreshPages: 10 }), {
+      id: "job-r2",
+      projectId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    // Body invariato, chunk originale ancora presente (nessun delete+reinsert).
+    const [page] = await db.select().from(docPages).where(eq(docPages.id, pageId));
+    expect(page?.body).toBe("Corpo originale.");
+    const chunks = await db.select().from(docChunks).where(eq(docChunks.pageId, pageId));
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]?.content).toBe("chunk originale");
+    // I cross-link NON includono la pagina (non aggiornata, e non negli affectedSlugs lato
+    // release per questo scenario? sì lo è: app-module è in SIGNIFICANT_OUTPUT). Quindi il
+    // link c'è comunque dall'agente release, ma NON per il refresh.
+  });
+
+  it("pagine non impattate dal diff → invariate (nessun refresh)", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream(); // cambia solo src/app.ts
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, upstream.url);
+    const { pageIds } = await seedGenerationWithPages(db, projectId, upstream.fromSha, [
+      { slug: "app-module", title: "App Module", sourcePath: "src", body: "Vecchio app." },
+      { slug: "other-module", title: "Other", sourcePath: "lib", body: "Corpo other." },
+    ]);
+
+    const runner = new FakeAgentRunner({
+      script: routeScript(REFRESH_UPDATED_OUTPUT, SIGNIFICANT_OUTPUT),
+    });
+    await runAutoUpdate(baseDeps(db, mirrors, runner, { maxRefreshPages: 10 }), {
+      id: "job-r3",
+      projectId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    // app-module (sourcePath src) aggiornata, other-module (sourcePath lib) intatta.
+    const [app] = await db.select().from(docPages).where(eq(docPages.id, pageIds["app-module"]!));
+    const [other] = await db.select().from(docPages).where(eq(docPages.id, pageIds["other-module"]!));
+    expect(app?.body).toBe(REFRESHED_BODY);
+    expect(other?.body).toBe("Corpo other.");
+  });
+
+  it("file non mappato → in newAreas e segnalato nella entry release", async () => {
+    const { db } = testDb;
+    // Cambia src/app.ts (coperto da src) E un file non coperto da alcuna pagina.
+    const upstream = await makeUpstream({ extraFiles: { "uncovered/thing.ts": "export const u = 1;\n" } });
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, upstream.url);
+    await seedGenerationWithPages(db, projectId, upstream.fromSha, [
+      { slug: "app-module", title: "App Module", sourcePath: "src", body: "Vecchio app." },
+    ]);
+
+    const runner = new FakeAgentRunner({
+      script: routeScript(REFRESH_UPDATED_OUTPUT, SIGNIFICANT_OUTPUT),
+    });
+    await runAutoUpdate(baseDeps(db, mirrors, runner, { maxRefreshPages: 10 }), {
+      id: "job-r4",
+      projectId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    const [release] = await db
+      .select()
+      .from(docPages)
+      .where(and(eq(docPages.projectId, projectId), eq(docPages.kind, "releases")));
+    expect(release?.body).toContain("Aree nuove non documentate");
+    expect(release?.body).toContain("uncovered/thing.ts");
+  });
+
+  it("maxRefreshPages=0 → nessuna rigenerazione, solo la entry (Fase 1 invariata)", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, upstream.url);
+    const { pageIds } = await seedGenerationWithPages(db, projectId, upstream.fromSha, [
+      { slug: "app-module", title: "App Module", sourcePath: "src", body: "Corpo intatto." },
+    ]);
+
+    const runner = new FakeAgentRunner({
+      script: routeScript(REFRESH_UPDATED_OUTPUT, SIGNIFICANT_OUTPUT),
+    });
+    await runAutoUpdate(baseDeps(db, mirrors, runner, { maxRefreshPages: 0 }), {
+      id: "job-r5",
+      projectId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    // Nessun run di refresh (solo l'agente release).
+    expect(runner.calls.some((c) => c.prompt.includes(REFRESH_UPDATED_START_MARKER))).toBe(false);
+    expect(runner.calls).toHaveLength(1);
+    // Pagina intatta.
+    const [page] = await db.select().from(docPages).where(eq(docPages.id, pageIds["app-module"]!));
+    expect(page?.body).toBe("Corpo intatto.");
+    // Entry comunque creata.
+    const releases = await db
+      .select()
+      .from(docPages)
+      .where(and(eq(docPages.projectId, projectId), eq(docPages.kind, "releases")));
+    expect(releases).toHaveLength(1);
+  });
+
+  it("un refresh che fallisce su una pagina → le altre procedono e la entry è creata", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream({ extraFiles: { "lib/util.ts": "export const x = 9;\n" } });
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, upstream.url);
+    const { pageIds } = await seedGenerationWithPages(db, projectId, upstream.fromSha, [
+      { slug: "app-module", title: "App Module", sourcePath: "src", body: "Vecchio app." },
+      { slug: "lib-module", title: "Lib Module", sourcePath: "lib", body: "Vecchio lib." },
+    ]);
+
+    // Il refresh della pagina con sourcePath "lib" lancia; quello della pagina "src" ok.
+    const runner = new FakeAgentRunner({
+      script: (opts) => {
+        if (opts.prompt.includes(REFRESH_UPDATED_START_MARKER)) {
+          // È un prompt di refresh: distinguo per il sourcePath citato nel prompt.
+          if (opts.prompt.includes("Source path documented by this page: lib")) {
+            throw new Error("boom: refresh lib fallito");
+          }
+          return { output: REFRESH_UPDATED_OUTPUT, exitCode: 0 };
+        }
+        return { output: SIGNIFICANT_OUTPUT, exitCode: 0 };
+      },
+    });
+    await runAutoUpdate(baseDeps(db, mirrors, runner, { maxRefreshPages: 10 }), {
+      id: "job-r6",
+      projectId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    // app-module aggiornata nonostante il fallimento di lib-module.
+    const [app] = await db.select().from(docPages).where(eq(docPages.id, pageIds["app-module"]!));
+    const [lib] = await db.select().from(docPages).where(eq(docPages.id, pageIds["lib-module"]!));
+    expect(app?.body).toBe(REFRESHED_BODY);
+    expect(lib?.body).toBe("Vecchio lib."); // non aggiornata (refresh fallito)
+    // La entry release è comunque creata.
+    const releases = await db
+      .select()
+      .from(docPages)
+      .where(and(eq(docPages.projectId, projectId), eq(docPages.kind, "releases")));
+    expect(releases).toHaveLength(1);
   });
 });
 
