@@ -1,4 +1,5 @@
 import {
+  aiProviders,
   docChunks,
   docGenerationJobs,
   docGenerations,
@@ -43,6 +44,7 @@ import { createProjectSerializer } from "../../handler.js";
 import { runWorker } from "../../queue.js";
 import { dispatchNode } from "./node-dispatch.js";
 import { createGenerationWorktreeRegistry } from "./registry.js";
+import type { ResolvedProvider } from "../../providers/chain.js";
 
 // Test d'integrazione del DISPATCH del DAG (M7.1): un trigger doc-generation +
 // un repo bare locale + progetto; un FakeAgentRunner scriptato a produrre un piano
@@ -65,6 +67,7 @@ beforeAll(async () => {
 afterEach(async () => {
   await testDb.db.delete(projects);
   await testDb.db.delete(gitAccounts);
+  await testDb.db.delete(aiProviders);
 });
 
 afterAll(async () => {
@@ -127,13 +130,34 @@ async function createProject(db: Db, repoUrl: string): Promise<string> {
   return project.id;
 }
 
-async function enqueueTrigger(db: Db, projectId: string): Promise<string> {
+async function enqueueTrigger(
+  db: Db,
+  projectId: string,
+  extra: Partial<typeof docGenerationJobs.$inferInsert> = {},
+): Promise<string> {
   const [job] = await db
     .insert(docGenerationJobs)
-    .values({ projectId, status: "queued" })
+    .values({ projectId, status: "queued", ...extra })
     .returning();
   if (!job) throw new Error("insert del trigger non ha restituito la riga");
   return job.id;
+}
+
+/** Crea un provider AI abilitato (da bloccare su una generazione). Ritorna il suo id. */
+async function createProvider(db: Db): Promise<string> {
+  uniq++;
+  const [provider] = await db
+    .insert(aiProviders)
+    .values({
+      label: `Pinned ${uniq}`,
+      kind: "api_key",
+      secretEncrypted: encrypt(`sk-pinned-${uniq}`, ENCRYPTION_KEY),
+      enabled: true,
+      position: 0,
+    })
+    .returning();
+  if (!provider) throw new Error("insert del provider non ha restituito la riga");
+  return provider.id;
 }
 
 /** Piano di orientamento: 1 unità tecnica + 1 capability funzionale. */
@@ -421,5 +445,359 @@ describe("dispatch del DAG (M7.1)", () => {
 
     // Il progetto NON resta escluso dal claim (il worktree non è registrato).
     expect(registry.activeProjectIds().size).toBe(0);
+  });
+});
+
+// Provider BLOCCATO (pin): l'intera generazione usa SOLO quel provider, niente fallback.
+describe("provider bloccato (pinned)", () => {
+  const PINNED: ResolvedProvider = {
+    id: "00000000-0000-0000-0000-000000000001",
+    kind: "api_key",
+    secret: "sk-pinned",
+  };
+
+  it("trigger con pin valido → orientamento usa il provider bloccato (mock loadProviderByIdFn)", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, upstream);
+    const providerId = await createProvider(db);
+    // Chiamando l'handler direttamente saltiamo claimNextDocJob: il trigger va messo
+    // `running` a mano (è lo stato in cui l'handler reale lo riceve).
+    const triggerId = await enqueueTrigger(db, projectId, {
+      pinnedProviderId: providerId,
+      status: "running",
+      startedAt: new Date(),
+    });
+
+    const runner = scriptedRunner();
+    const registry = createGenerationWorktreeRegistry();
+    const serializer = createProjectSerializer();
+    const pinnedForId: ResolvedProvider = { ...PINNED, id: providerId };
+
+    let byIdArgs: { id: string } | null = null;
+    const docHandler = createDocHandler(
+      {
+        db,
+        runner,
+        mirrors,
+        registry,
+        encryptionKey: ENCRYPTION_KEY,
+        model: "opus",
+        agentTimeoutMs: 600_000,
+        maxTurns: 30,
+        // chain MAI usata col pin: se venisse chiamata il provider sarebbe sbagliato.
+        loadProviderChainFn: async () => [],
+        loadProviderByIdFn: async (_db, _key, id) => {
+          byIdArgs = { id };
+          return pinnedForId;
+        },
+      },
+      serializer,
+    );
+
+    await docHandler({
+      id: triggerId,
+      projectId,
+      pinnedProviderId: providerId,
+    } as never);
+
+    // Il pin è stato risolto per id (non via chain) e l'orientamento ha usato QUEL provider.
+    expect(byIdArgs).toEqual({ id: providerId });
+    expect(runner.calls.length).toBeGreaterThan(0);
+    expect(runner.calls[0]?.provider).toEqual(pinnedForId);
+
+    // La generazione è stata seminata col pin (i job-nodo lo rileggeranno).
+    const [gen] = await db
+      .select()
+      .from(docGenerations)
+      .where(eq(docGenerations.projectId, projectId));
+    expect(gen?.pinnedProviderId).toBe(providerId);
+
+    // Pulizia del worktree aperto dall'orientamento.
+    const wt = registry.claimForFinalize(gen!.id);
+    if (wt) await wt.close().catch(() => {});
+  });
+
+  it("trigger con pin NON risolvibile → trigger failed, runOrientation MAI chiamata, niente fallback", async () => {
+    const { db } = testDb;
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, "https://github.com/acme/x");
+    const providerId = await createProvider(db);
+    const triggerId = await enqueueTrigger(db, projectId, {
+      pinnedProviderId: providerId,
+      status: "running",
+      startedAt: new Date(),
+    });
+
+    const runner = scriptedRunner();
+    const registry = createGenerationWorktreeRegistry();
+    const serializer = createProjectSerializer();
+
+    let chainCalled = false;
+    const docHandler = createDocHandler(
+      {
+        db,
+        runner,
+        mirrors,
+        registry,
+        encryptionKey: ENCRYPTION_KEY,
+        model: "opus",
+        agentTimeoutMs: 600_000,
+        maxTurns: 30,
+        loadProviderChainFn: async () => {
+          chainCalled = true;
+          return [];
+        },
+        // Pin non risolvibile (disabilitato/cancellato/segreto corrotto).
+        loadProviderByIdFn: async () => null,
+      },
+      serializer,
+    );
+
+    await docHandler({
+      id: triggerId,
+      projectId,
+      pinnedProviderId: providerId,
+    } as never);
+
+    // NESSUN fallback: la catena non è stata interrogata, l'agente non è stato invocato
+    // (runOrientation mai chiamata: niente mirror aperto, niente generazione creata).
+    expect(chainCalled).toBe(false);
+    expect(runner.calls).toHaveLength(0);
+    const gens = await db
+      .select()
+      .from(docGenerations)
+      .where(eq(docGenerations.projectId, projectId));
+    expect(gens).toHaveLength(0);
+
+    // Trigger failed con l'errore del pin.
+    const [trigger] = await db
+      .select()
+      .from(docGenerationJobs)
+      .where(eq(docGenerationJobs.id, triggerId));
+    expect(trigger?.status).toBe("failed");
+    expect(trigger?.error).toBe("pinned_provider_unavailable");
+  });
+
+  it("nodo di una generazione pinnata → usa il provider bloccato, NON chain[0]", async () => {
+    const { db } = testDb;
+    const projectId = await createProject(db, "https://github.com/acme/x");
+    const providerId = await createProvider(db);
+
+    // Generazione `running` pinnata + un nodo explore claimabile, worktree registrato.
+    const [gen] = await db
+      .insert(docGenerations)
+      .values({ projectId, status: "running", model: "opus", pinnedProviderId: providerId })
+      .returning();
+    await db
+      .insert(docNodes)
+      .values({
+        generationId: gen!.id,
+        projectId,
+        tree: "technical",
+        status: "pending",
+        depth: 1,
+        position: 0,
+        title: "Leaf",
+        slug: "leaf-pinned",
+        sourcePaths: ["src/core"],
+      });
+
+    const runner = scriptedRunner();
+    const embeddingClient = createFakeEmbeddingClient();
+    const registry = createGenerationWorktreeRegistry();
+    // Worktree fittizio registrato (il nodo legge solo, una dir basta).
+    const fakeDir = await mkdtemp(join(tmpdir(), "stubwise-pin-wt-"));
+    cleanups.push(() => rm(fakeDir, { recursive: true, force: true }));
+    registry.register(gen!.id, projectId, {
+      dir: fakeDir,
+      commitSha: "0".repeat(40),
+      close: async () => {},
+    } as never);
+
+    const pinnedForId: ResolvedProvider = { ...PINNED, id: providerId };
+    let chainCalled = false;
+    let byIdId: string | null = null;
+
+    const dispatched: Promise<void>[] = [];
+    const claimed = await dispatchNode(
+      {
+        db,
+        runner,
+        registry,
+        finalize: { embeddingClient },
+        model: "opus",
+        agentTimeoutMs: 600_000,
+        maxTurns: 30,
+        maxDepth: 6,
+        maxNodes: 400,
+        encryptionKey: ENCRYPTION_KEY,
+        loadProviderChainFn: async () => {
+          chainCalled = true;
+          return [];
+        },
+        loadProviderByIdFn: async (_db, _key, id) => {
+          byIdId = id;
+          return pinnedForId;
+        },
+      },
+      (work) => dispatched.push(work),
+    );
+    expect(claimed).toBe(true);
+    await Promise.all(dispatched);
+
+    // Il provider è stato risolto per id (il pin), non via chain.
+    expect(byIdId).toBe(providerId);
+    expect(chainCalled).toBe(false);
+    // L'agente del nodo ha usato il provider bloccato.
+    expect(runner.calls.length).toBeGreaterThan(0);
+    expect(runner.calls[0]?.provider).toEqual(pinnedForId);
+  });
+
+  it("nodo con pin NON risolvibile → generazione failed, chain[0] MAI usata per il nodo", async () => {
+    const { db } = testDb;
+    const projectId = await createProject(db, "https://github.com/acme/x");
+    const providerId = await createProvider(db);
+
+    const [gen] = await db
+      .insert(docGenerations)
+      .values({ projectId, status: "running", model: "opus", pinnedProviderId: providerId })
+      .returning();
+    const [node] = await db
+      .insert(docNodes)
+      .values({
+        generationId: gen!.id,
+        projectId,
+        tree: "technical",
+        status: "pending",
+        depth: 0,
+        position: 0,
+        title: "Root",
+        slug: "root-pin-fail",
+        sourcePaths: [],
+      })
+      .returning();
+
+    const runner = scriptedRunner();
+    const embeddingClient = createFakeEmbeddingClient();
+    const registry = createGenerationWorktreeRegistry();
+    const fakeDir = await mkdtemp(join(tmpdir(), "stubwise-pin-wt-"));
+    cleanups.push(() => rm(fakeDir, { recursive: true, force: true }));
+    registry.register(gen!.id, projectId, {
+      dir: fakeDir,
+      commitSha: "0".repeat(40),
+      close: async () => {},
+    } as never);
+
+    let chainCalled = false;
+    const dispatched: Promise<void>[] = [];
+    const claimed = await dispatchNode(
+      {
+        db,
+        runner,
+        registry,
+        finalize: { embeddingClient },
+        model: "opus",
+        agentTimeoutMs: 600_000,
+        maxTurns: 30,
+        maxDepth: 6,
+        maxNodes: 400,
+        encryptionKey: ENCRYPTION_KEY,
+        loadProviderChainFn: async () => {
+          chainCalled = true;
+          return [];
+        },
+        // Pin diventato indisponibile a metà generazione.
+        loadProviderByIdFn: async () => null,
+      },
+      (work) => dispatched.push(work),
+    );
+    expect(claimed).toBe(true);
+    await Promise.all(dispatched);
+
+    // NIENTE fallback: la catena non è stata interrogata, l'agente non è stato invocato.
+    expect(chainCalled).toBe(false);
+    expect(runner.calls).toHaveLength(0);
+
+    // La generazione è failed (con i suoi nodi non-done) — riusa il fail della generazione.
+    const [genAfter] = await db
+      .select()
+      .from(docGenerations)
+      .where(eq(docGenerations.id, gen!.id));
+    expect(genAfter?.status).toBe("failed");
+    expect(genAfter?.error).toMatch(/provider bloccato/i);
+    const [nodeAfter] = await db.select().from(docNodes).where(eq(docNodes.id, node!.id));
+    expect(nodeAfter?.status).toBe("failed");
+  });
+
+  it("nodo SENZA pin → chain[0] (regressione del comportamento attuale)", async () => {
+    const { db } = testDb;
+    const projectId = await createProject(db, "https://github.com/acme/x");
+
+    const [gen] = await db
+      .insert(docGenerations)
+      .values({ projectId, status: "running", model: "opus" })
+      .returning();
+    await db
+      .insert(docNodes)
+      .values({
+        generationId: gen!.id,
+        projectId,
+        tree: "technical",
+        status: "pending",
+        depth: 1,
+        position: 0,
+        title: "Leaf",
+        slug: "leaf-nopin",
+        sourcePaths: ["src/core"],
+      })
+      .returning();
+
+    const runner = scriptedRunner();
+    const embeddingClient = createFakeEmbeddingClient();
+    const registry = createGenerationWorktreeRegistry();
+    const fakeDir = await mkdtemp(join(tmpdir(), "stubwise-nopin-wt-"));
+    cleanups.push(() => rm(fakeDir, { recursive: true, force: true }));
+    registry.register(gen!.id, projectId, {
+      dir: fakeDir,
+      commitSha: "0".repeat(40),
+      close: async () => {},
+    } as never);
+
+    const chainProvider: ResolvedProvider = {
+      id: "11111111-1111-1111-1111-111111111111",
+      kind: "api_key",
+      secret: "sk-chain",
+    };
+    let byIdCalled = false;
+
+    const dispatched: Promise<void>[] = [];
+    await dispatchNode(
+      {
+        db,
+        runner,
+        registry,
+        finalize: { embeddingClient },
+        model: "opus",
+        agentTimeoutMs: 600_000,
+        maxTurns: 30,
+        maxDepth: 6,
+        maxNodes: 400,
+        encryptionKey: ENCRYPTION_KEY,
+        loadProviderChainFn: async () => [chainProvider],
+        loadProviderByIdFn: async () => {
+          byIdCalled = true;
+          return null;
+        },
+      },
+      (work) => dispatched.push(work),
+    );
+    await Promise.all(dispatched);
+
+    // Senza pin: si usa chain[0], loadProviderById MAI chiamata.
+    expect(byIdCalled).toBe(false);
+    expect(runner.calls.length).toBeGreaterThan(0);
+    expect(runner.calls[0]?.provider).toEqual(chainProvider);
   });
 });

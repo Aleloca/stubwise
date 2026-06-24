@@ -2,7 +2,11 @@ import type { Db } from "@stubwise/db";
 import type { AgentRunner } from "../agent/runner.js";
 import type { MirrorManager } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
-import { loadProviderChain, type ResolvedProvider } from "../providers/chain.js";
+import {
+  loadProviderById,
+  loadProviderChain,
+  type ResolvedProvider,
+} from "../providers/chain.js";
 import { runOrientation } from "./recursive/orient-handler.js";
 import type { GenerationWorktreeRegistry } from "./recursive/registry.js";
 import { completeDocJob, failDocJob, type DocJob } from "./queue.js";
@@ -54,6 +58,14 @@ export interface DocHandlerDeps {
   /** Caricatore della catena di provider AI (iniettabile nei test). Default:
    * loadProviderChain. La PRIMA voce della catena è la credenziale usata. */
   loadProviderChainFn?: (db: Db, encryptionKey: Buffer) => Promise<ResolvedProvider[]>;
+  /** Risolutore di UN provider per id (iniettabile nei test). Default:
+   * loadProviderById. Usato quando il trigger ha un provider bloccato
+   * (`pinnedProviderId`): se ritorna null la generazione è annullata, MAI fallback. */
+  loadProviderByIdFn?: (
+    db: Db,
+    encryptionKey: Buffer,
+    id: string,
+  ) => Promise<ResolvedProvider | null>;
 }
 
 /**
@@ -82,11 +94,31 @@ export function createDocHandler(
         return;
       }
 
-      // La prima credenziale della catena, come la pipeline fix. Catena vuota
-      // → undefined = auth storica del container (nessun provider iniettato).
-      const loadChain = deps.loadProviderChainFn ?? loadProviderChain;
-      const chain = await loadChain(deps.db, deps.encryptionKey);
-      const provider = chain[0];
+      // Scelta della credenziale AI dell'INTERA generazione.
+      //  - Con `pinnedProviderId` (provider BLOCCATO dall'utente): risolviamo SOLO
+      //    quel provider. Se non è risolvibile al run (disabilitato/cancellato/segreto
+      //    non decifrabile → loadProviderById = null) la generazione è ANNULLATA: trigger
+      //    `failed`, NIENTE fallback su chain[0] (il pin è una scelta esplicita, non un
+      //    suggerimento). L'utente ri-triggererà con un provider valido.
+      //  - Senza pin: comportamento ATTUALE — la prima credenziale della catena (come la
+      //    pipeline fix). Catena vuota → undefined = auth storica del container.
+      let provider: ResolvedProvider | undefined;
+      if (job.pinnedProviderId) {
+        const loadById = deps.loadProviderByIdFn ?? loadProviderById;
+        const pinned = await loadById(deps.db, deps.encryptionKey, job.pinnedProviderId);
+        if (!pinned) {
+          await failDocJob(deps.db, job.id, {
+            log: "[docs] provider bloccato non disponibile (disabilitato o cancellato): generazione annullata",
+            error: "pinned_provider_unavailable",
+          });
+          return;
+        }
+        provider = pinned;
+      } else {
+        const loadChain = deps.loadProviderChainFn ?? loadProviderChain;
+        const chain = await loadChain(deps.db, deps.encryptionKey);
+        provider = chain[0];
+      }
 
       // runOrientation chiude da sé il trigger in OGNI esito: `succeeded` (seeded o
       // skipped per guard DB) o `failed`. Niente da fare qui dopo il ritorno.
@@ -101,6 +133,9 @@ export function createDocHandler(
           agentTimeoutMs: deps.agentTimeoutMs,
           maxTurns: deps.maxTurns,
           ...(provider !== undefined ? { provider } : {}),
+          // Il pin è propagato alla generazione: l'orientamento lo semina su
+          // doc_generations, i job-nodo lo rileggono per blindarsi sullo stesso provider.
+          ...(job.pinnedProviderId ? { pinnedProviderId: job.pinnedProviderId } : {}),
         },
         job,
       );

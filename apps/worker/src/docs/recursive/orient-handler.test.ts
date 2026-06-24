@@ -1,4 +1,5 @@
 import {
+  aiProviders,
   docGenerationJobs,
   docGenerations,
   docNodes,
@@ -52,6 +53,7 @@ beforeAll(async () => {
 afterEach(async () => {
   await testDb.db.delete(projects);
   await testDb.db.delete(gitAccounts);
+  await testDb.db.delete(aiProviders);
 });
 
 afterAll(async () => {
@@ -223,6 +225,62 @@ describe("runOrientation", () => {
     const [jobAfter] = await db.select().from(docGenerationJobs).where(eq(docGenerationJobs.id, job.id));
     expect(jobAfter?.status).toBe("succeeded");
     expect(jobAfter?.generationId).toBe(gen!.id);
+  });
+
+  it("con pinnedProviderId: la riga doc_generations seminata ha pinned_provider_id valorizzato", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, upstream.url);
+    const job = await enqueueTrigger(db, projectId);
+
+    // Un provider AI abilitato da bloccare sulla generazione.
+    const [provider] = await db
+      .insert(aiProviders)
+      .values({
+        label: "Pinned",
+        kind: "api_key",
+        secretEncrypted: encrypt("sk-pinned", ENCRYPTION_KEY),
+        enabled: true,
+        position: 0,
+      })
+      .returning();
+
+    const runner = new FakeAgentRunner({
+      script: () => ({ output: VALID_PLAN, exitCode: 0, usage: USAGE }),
+    });
+    const outcome = await runOrientation(
+      { ...baseDeps(db, mirrors, runner), pinnedProviderId: provider!.id },
+      job,
+    );
+    expect(outcome).toBe("seeded");
+
+    // Il pin è seminato su doc_generations: i job-nodo lo rileggeranno.
+    const [gen] = await db
+      .select()
+      .from(docGenerations)
+      .where(eq(docGenerations.projectId, projectId));
+    expect(gen?.pinnedProviderId).toBe(provider!.id);
+  });
+
+  it("senza pin: doc_generations.pinned_provider_id resta null (regressione)", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, upstream.url);
+    const job = await enqueueTrigger(db, projectId);
+
+    const runner = new FakeAgentRunner({
+      script: () => ({ output: VALID_PLAN, exitCode: 0, usage: USAGE }),
+    });
+    const outcome = await runOrientation(baseDeps(db, mirrors, runner), job);
+    expect(outcome).toBe("seeded");
+
+    const [gen] = await db
+      .select()
+      .from(docGenerations)
+      .where(eq(docGenerations.projectId, projectId));
+    expect(gen?.pinnedProviderId).toBeNull();
   });
 
   it("output invalido (niente marcatori) → retry → fallback: generazione failed, trigger failed", async () => {

@@ -1,6 +1,11 @@
-import { type Db } from "@stubwise/db";
+import { docGenerations, type Db } from "@stubwise/db";
+import { eq } from "drizzle-orm";
 import type { AgentRunner } from "../../agent/runner.js";
-import { loadProviderChain, type ResolvedProvider } from "../../providers/chain.js";
+import {
+  loadProviderById,
+  loadProviderChain,
+  type ResolvedProvider,
+} from "../../providers/chain.js";
 import { claimNextNode, recordNodeCost, type ClaimedNode } from "../nodes.js";
 import { runExplore, type RunExploreDeps } from "./explore-handler.js";
 import { runSynthesize, type RunSynthesizeDeps } from "./synthesize-handler.js";
@@ -47,6 +52,19 @@ import type { GenerationWorktreeRegistry } from "./registry.js";
  * una sola finalizzazione effettiva per generazione.
  */
 
+/**
+ * Il provider BLOCCATO della generazione non è più risolvibile al run di un nodo
+ * (disabilitato/cancellato/segreto non decifrabile dopo il seed). Lanciata da
+ * `resolveProvider` per far FALLIRE la generazione invece di ripiegare su chain[0]:
+ * il pin è una scelta esplicita dell'utente, non un suggerimento.
+ */
+class PinnedProviderUnavailableError extends Error {
+  constructor(public providerId: string) {
+    super("pinned_provider_unavailable");
+    this.name = "PinnedProviderUnavailableError";
+  }
+}
+
 export interface DispatchNodeDeps {
   db: Db;
   runner: AgentRunner;
@@ -67,6 +85,14 @@ export interface DispatchNodeDeps {
   /** Caricatore della catena di provider AI (iniettabile nei test). Default:
    * loadProviderChain. La PRIMA voce è la credenziale usata dagli agenti del nodo. */
   loadProviderChainFn?: (db: Db, encryptionKey: Buffer) => Promise<ResolvedProvider[]>;
+  /** Risolutore di UN provider per id (iniettabile nei test). Default:
+   * loadProviderById. Usato quando la generazione ha un provider BLOCCATO
+   * (`pinned_provider_id`): se ritorna null il nodo NON ripiega su chain[0]. */
+  loadProviderByIdFn?: (
+    db: Db,
+    encryptionKey: Buffer,
+    id: string,
+  ) => Promise<ResolvedProvider | null>;
   /** Chiave AES-256 per la catena di provider (stessa del fix/orientamento). */
   encryptionKey: Buffer;
 }
@@ -140,9 +166,40 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
     return;
   }
 
-  // Credenziale AI: la prima della catena (come orientamento/fix). Catena vuota →
-  // undefined = auth storica.
-  const provider = await resolveProvider(deps);
+  // Credenziale AI del nodo: senza pin la prima della catena (come orientamento/fix,
+  // catena vuota → undefined = auth storica); con pin il provider BLOCCATO della
+  // generazione. Se il pin non è più risolvibile (PinnedProviderUnavailableError) NON
+  // ripieghiamo su chain[0]: facciamo FALLIRE la generazione (come il fail-on-restart) e
+  // LASCIAMO il nodo (verrà marcato failed dal fail). L'utente ri-triggera.
+  let provider: ResolvedProvider | undefined;
+  try {
+    provider = await resolveProvider(deps, node.generationId);
+  } catch (error) {
+    if (error instanceof PinnedProviderUnavailableError) {
+      const reason =
+        "provider bloccato non disponibile (disabilitato o cancellato): generazione annullata";
+      try {
+        const failed = await failGenerationOnRestart(db, node.generationId, reason);
+        console.error(
+          `[stubwise-worker] provider bloccato ${error.providerId} non risolvibile per la generazione ${node.generationId} (nodo ${node.id}, ${phase}): ` +
+            (failed
+              ? "generazione e nodi pendenti marcati failed — ri-triggerare con un provider valido"
+              : "generazione già terminale, nessuna azione"),
+        );
+      } catch (failError) {
+        console.error(
+          `[stubwise-worker] fail della generazione ${node.generationId} per provider bloccato indisponibile fallito: ${describe(failError)} — i nodi tornano allo stale-requeue`,
+        );
+      }
+      return;
+    }
+    // Errore inatteso nella risoluzione del provider (non il pin): loggato, il nodo
+    // resta in lavorazione e verrà ripreso da requeueStaleNodes.
+    console.error(
+      `[stubwise-worker] risoluzione del provider per il nodo ${node.id} (${phase}) fallita: ${describe(error)}`,
+    );
+    return;
+  }
 
   let costUsd = 0;
   try {
@@ -243,8 +300,32 @@ async function maybeFinalize(deps: DispatchNodeDeps, generationId: string): Prom
   );
 }
 
-/** Risolve la prima credenziale della catena AI (best-effort): undefined = auth storica. */
-async function resolveProvider(deps: DispatchNodeDeps): Promise<ResolvedProvider | undefined> {
+/**
+ * Risolve la credenziale AI per i nodi della generazione `generationId`.
+ *  - Generazione con `pinned_provider_id` (provider BLOCCATO): risolve SOLO quel
+ *    provider. Se non è risolvibile (disabilitato/cancellato/segreto non decifrabile →
+ *    loadProviderById = null) lancia `PinnedProviderUnavailableError`: il chiamante fa
+ *    fallire la generazione, MAI fallback su chain[0] (il pin è esplicito).
+ *  - Generazione senza pin: comportamento ATTUALE — la prima credenziale della catena
+ *    (best-effort: un errore di caricamento → undefined = auth storica).
+ */
+async function resolveProvider(
+  deps: DispatchNodeDeps,
+  generationId: string,
+): Promise<ResolvedProvider | undefined> {
+  const [gen] = await deps.db
+    .select({ pinnedProviderId: docGenerations.pinnedProviderId })
+    .from(docGenerations)
+    .where(eq(docGenerations.id, generationId));
+
+  if (gen?.pinnedProviderId) {
+    const loadById = deps.loadProviderByIdFn ?? loadProviderById;
+    const pinned = await loadById(deps.db, deps.encryptionKey, gen.pinnedProviderId);
+    // Pin non più risolvibile: NIENTE chain[0]. Lancia → il chiamante fa fallire la generazione.
+    if (!pinned) throw new PinnedProviderUnavailableError(gen.pinnedProviderId);
+    return pinned;
+  }
+
   const loadChain = deps.loadProviderChainFn ?? loadProviderChain;
   try {
     const chain = await loadChain(deps.db, deps.encryptionKey);

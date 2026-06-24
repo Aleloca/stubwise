@@ -71,6 +71,13 @@ export interface RunOrientationDeps {
   /** Credenziale AI risolta dalla catena (prima voce); undefined = auth storica. */
   provider?: ResolvedProvider;
   /**
+   * Provider BLOCCATO della generazione (se l'utente ne ha scelto uno): viene
+   * SEMINATO su `doc_generations.pinned_provider_id`, così i job-nodo del DAG lo
+   * rileggono e si blindano sullo stesso provider (niente fallback su chain[0]).
+   * undefined = nessun pin (comportamento attuale: catena di failover).
+   */
+  pinnedProviderId?: string;
+  /**
    * Registro IN-PROCESSO dei worktree di generazione (M7): su successo
    * (`seeded`) l'orientamento vi REGISTRA l'handle del worktree appena aperto,
    * così i job-nodo successivi del DAG ne ottengono la `dir` (il worktree resta
@@ -124,6 +131,7 @@ async function loadGenerationContext(
   encryptionKey: Buffer,
   model: string,
   job: DocJob,
+  pinnedProviderId: string | null,
 ): Promise<GenerationContext | null> {
   const [row] = await db
     .select({ project: projects, account: gitAccounts })
@@ -166,6 +174,9 @@ async function loadGenerationContext(
       status: "running",
       trigger: job.trigger,
       model,
+      // Provider bloccato della generazione: i job-nodo lo rileggono da qui per
+      // blindarsi sullo stesso provider (null = nessun pin, catena di failover).
+      pinnedProviderId,
       startedAt: sql`now()`,
     })
     .returning();
@@ -416,7 +427,13 @@ export async function runOrientation(
     return "skipped";
   }
 
-  const ctx = await loadGenerationContext(db, deps.encryptionKey, deps.model, job);
+  const ctx = await loadGenerationContext(
+    db,
+    deps.encryptionKey,
+    deps.model,
+    job,
+    deps.pinnedProviderId ?? null,
+  );
   if (!ctx) return "failed";
 
   let worktree: GenerationWorktree | null = null;
