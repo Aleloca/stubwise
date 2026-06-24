@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
-import { gitAccounts, projects } from "@stubwise/db";
+import { aiProviders, gitAccounts, projects } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { seedUsers } from "../test/fixtures.js";
@@ -93,6 +93,8 @@ describe("POST /api/projects", () => {
       testCommand: null,
       installCommand: null,
       webhookConfiguredAt: null,
+      docAutoUpdate: false,
+      docAutoUpdateProviderId: null,
       createdAt: expect.any(String),
     });
     expect(res.body).not.toContain("webhookSecret");
@@ -419,6 +421,72 @@ describe("PATCH /api/projects/:slug", () => {
     });
     expect(cleared.statusCode).toBe(200);
     expect((cleared.json() as { installCommand: string | null }).installCommand).toBeNull();
+  });
+
+  it("docAutoUpdate=true persiste e torna nella proiezione del progetto", async () => {
+    const created = await createProject({ ...basePayload(), name: "Auto Update Toggle" });
+    const slug = (created.json() as { slug: string }).slug;
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${slug}`,
+      headers: { cookie: adminCookie },
+      payload: { docAutoUpdate: true },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { docAutoUpdate: boolean }).docAutoUpdate).toBe(true);
+
+    // Rilettura: il valore è persistito.
+    const reread = await app.inject({
+      method: "GET",
+      url: `/api/projects/${slug}`,
+      headers: { cookie: adminCookie },
+    });
+    expect((reread.json() as { docAutoUpdate: boolean }).docAutoUpdate).toBe(true);
+  });
+
+  it("docAutoUpdateProviderId con provider esistente lo imposta, null lo azzera", async () => {
+    const created = await createProject({ ...basePayload(), name: "Auto Update Provider" });
+    const slug = (created.json() as { slug: string }).slug;
+    // Seed di un provider AI direttamente in DB (l'API di creazione non è qui).
+    const [aiProvider] = await testDb.db
+      .insert(aiProviders)
+      .values({ position: 1, kind: "api_key", label: "Provider di test", secretEncrypted: "x" })
+      .returning({ id: aiProviders.id });
+
+    const set = await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${slug}`,
+      headers: { cookie: adminCookie },
+      payload: { docAutoUpdateProviderId: aiProvider!.id },
+    });
+    expect(set.statusCode).toBe(200);
+    expect((set.json() as { docAutoUpdateProviderId: string | null }).docAutoUpdateProviderId).toBe(
+      aiProvider!.id,
+    );
+
+    // null lo azzera (ricade sull'automatico).
+    const cleared = await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${slug}`,
+      headers: { cookie: adminCookie },
+      payload: { docAutoUpdateProviderId: null },
+    });
+    expect(cleared.statusCode).toBe(200);
+    expect(
+      (cleared.json() as { docAutoUpdateProviderId: string | null }).docAutoUpdateProviderId,
+    ).toBeNull();
+  });
+
+  it("docAutoUpdateProviderId con provider inesistente: 400", async () => {
+    const created = await createProject({ ...basePayload(), name: "Auto Update Provider KO" });
+    const slug = (created.json() as { slug: string }).slug;
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${slug}`,
+      headers: { cookie: adminCookie },
+      payload: { docAutoUpdateProviderId: "00000000-0000-0000-0000-000000000000" },
+    });
+    expect(res.statusCode).toBe(400);
   });
 
   it("un member non può aggiornare: 403", async () => {

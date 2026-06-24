@@ -3,7 +3,16 @@ import { asc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
-import { aiJobs, comments, instanceSettings, notificationSettings, projects, tickets } from "@stubwise/db";
+import {
+  aiJobs,
+  comments,
+  docAutoUpdateJobs,
+  docGenerations,
+  instanceSettings,
+  notificationSettings,
+  projects,
+  tickets,
+} from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedGitAccount, startTestDb } from "@stubwise/db/testing";
 import { seedUsers } from "../test/fixtures.js";
@@ -210,6 +219,20 @@ function githubPayload(branch: string, prUrl = "https://github.com/acme/repo/pul
   return JSON.stringify({
     action: "closed",
     pull_request: { merged: true, head: { ref: branch }, html_url: prUrl },
+  });
+}
+
+/**
+ * Payload di push GitHub (X-GitHub-Event: push). `ref` è refs/heads/<branch>,
+ * `before`/`after` le head pre/post push. parsePushEvent del provider lo
+ * riconosce come push (e ritorna null per le PR), distinto dal flusso PR.
+ */
+function githubPushPayload(branch: string, before: string, after: string) {
+  return JSON.stringify({
+    ref: `refs/heads/${branch}`,
+    before,
+    after,
+    commits: [{ id: after, message: "commit di push" }],
   });
 }
 
@@ -870,5 +893,219 @@ describe("POST /webhooks/git/:projectSlug", () => {
     expect(res.statusCode).toBe(204);
     expect(await ticketStatus(ticketId)).toBe("done");
     expect(await ticketComments(ticketId)).toHaveLength(0);
+  });
+});
+
+describe("POST /webhooks/git/:projectSlug — push (auto-aggiornamento Docs)", () => {
+  const SHA = (c: string) => c.repeat(40);
+
+  /** Porta a true (o false) il toggle docAutoUpdate del progetto. */
+  async function setDocAutoUpdate(projectId: string, value: boolean): Promise<void> {
+    await testDb.db
+      .update(projects)
+      .set({ docAutoUpdate: value })
+      .where(eq(projects.id, projectId));
+  }
+
+  /**
+   * Crea una generazione Docs con `commitSha`, la imposta come corrente del
+   * progetto e ne restituisce il commitSha (base attesa del diff all'insert).
+   */
+  async function seedCurrentGeneration(projectId: string, commitSha: string): Promise<string> {
+    const [gen] = await testDb.db
+      .insert(docGenerations)
+      .values({ projectId, status: "succeeded", commitSha })
+      .returning({ id: docGenerations.id });
+    await testDb.db
+      .update(projects)
+      .set({ currentDocGenerationId: gen!.id })
+      .where(eq(projects.id, projectId));
+    return commitSha;
+  }
+
+  /** Legge l'unico job pending di auto-update del progetto (o undefined). */
+  async function pendingJob(projectId: string) {
+    const [row] = await testDb.db
+      .select()
+      .from(docAutoUpdateJobs)
+      .where(eq(docAutoUpdateJobs.projectId, projectId));
+    return row;
+  }
+
+  function postPush(slug: string, secret: string, body: string) {
+    return app.inject({
+      method: "POST",
+      url: `/webhooks/git/${slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "push",
+        "x-hub-signature-256": sign(secret, body),
+      },
+      payload: body,
+    });
+  }
+
+  it("push sul defaultBranch con docAutoUpdate=true → crea il pending (from=commit generazione corrente)", async () => {
+    const project = await createProject({
+      name: "Push Crea",
+      provider: "github",
+      repoUrl: "https://github.com/acme/push-crea",
+      defaultBranch: "main",
+      credentials: { token: "tok" },
+    });
+    await setDocAutoUpdate(project.id, true);
+    const genSha = await seedCurrentGeneration(project.id, SHA("9"));
+    const body = githubPushPayload("main", SHA("a"), SHA("b"));
+
+    const before = Date.now();
+    const res = await postPush(project.slug, project.webhookSecret, body);
+    expect(res.statusCode).toBe(204);
+
+    const job = await pendingJob(project.id);
+    expect(job).toBeDefined();
+    // from = commitSha della generazione corrente (NON il before del push).
+    expect(job!.fromSha).toBe(genSha);
+    expect(job!.toSha).toBe(SHA("b"));
+    // not_before futuro (finestra di debounce).
+    expect(job!.notBefore.getTime()).toBeGreaterThan(before);
+  });
+
+  it("senza generazione corrente: from = beforeSha del push", async () => {
+    const project = await createProject({
+      name: "Push No Gen",
+      provider: "github",
+      repoUrl: "https://github.com/acme/push-no-gen",
+      defaultBranch: "main",
+      credentials: { token: "tok" },
+    });
+    await setDocAutoUpdate(project.id, true);
+    const body = githubPushPayload("main", SHA("a"), SHA("b"));
+
+    const res = await postPush(project.slug, project.webhookSecret, body);
+    expect(res.statusCode).toBe(204);
+    const job = await pendingJob(project.id);
+    expect(job!.fromSha).toBe(SHA("a"));
+    expect(job!.toSha).toBe(SHA("b"));
+  });
+
+  it("secondo push → stesso pending aggiornato (from invariato, to/not_before aggiornati, nessun duplicato)", async () => {
+    const project = await createProject({
+      name: "Push Debounce",
+      provider: "github",
+      repoUrl: "https://github.com/acme/push-debounce",
+      defaultBranch: "main",
+      credentials: { token: "tok" },
+    });
+    await setDocAutoUpdate(project.id, true);
+    const body1 = githubPushPayload("main", SHA("a"), SHA("b"));
+    const r1 = await postPush(project.slug, project.webhookSecret, body1);
+    expect(r1.statusCode).toBe(204);
+    const first = await pendingJob(project.id);
+    const firstNotBefore = first!.notBefore.getTime();
+
+    // Secondo push: nuova head, before diverso (non deve cambiare from).
+    const body2 = githubPushPayload("main", SHA("b"), SHA("c"));
+    const r2 = await postPush(project.slug, project.webhookSecret, body2);
+    expect(r2.statusCode).toBe(204);
+
+    // Un solo job per progetto (unique).
+    const all = await testDb.db
+      .select()
+      .from(docAutoUpdateJobs)
+      .where(eq(docAutoUpdateJobs.projectId, project.id));
+    expect(all).toHaveLength(1);
+    const second = all[0]!;
+    // from accumula dal primo push: invariato.
+    expect(second.fromSha).toBe(SHA("a"));
+    // to e not_before avanzano.
+    expect(second.toSha).toBe(SHA("c"));
+    expect(second.notBefore.getTime()).toBeGreaterThanOrEqual(firstNotBefore);
+  });
+
+  it("push su branch != defaultBranch → nessun pending (204)", async () => {
+    const project = await createProject({
+      name: "Push Altro Branch",
+      provider: "github",
+      repoUrl: "https://github.com/acme/push-altro-branch",
+      defaultBranch: "main",
+      credentials: { token: "tok" },
+    });
+    await setDocAutoUpdate(project.id, true);
+    const body = githubPushPayload("feature/x", SHA("a"), SHA("b"));
+
+    const res = await postPush(project.slug, project.webhookSecret, body);
+    expect(res.statusCode).toBe(204);
+    expect(await pendingJob(project.id)).toBeUndefined();
+  });
+
+  it("docAutoUpdate=false → nessun pending (204)", async () => {
+    const project = await createProject({
+      name: "Push Toggle Off",
+      provider: "github",
+      repoUrl: "https://github.com/acme/push-toggle-off",
+      defaultBranch: "main",
+      credentials: { token: "tok" },
+    });
+    // toggle lasciato a false (default).
+    const body = githubPushPayload("main", SHA("a"), SHA("b"));
+
+    const res = await postPush(project.slug, project.webhookSecret, body);
+    expect(res.statusCode).toBe(204);
+    expect(await pendingJob(project.id)).toBeUndefined();
+  });
+
+  it("HMAC errato su un push → 401, nessun pending", async () => {
+    const project = await createProject({
+      name: "Push Firma KO",
+      provider: "github",
+      repoUrl: "https://github.com/acme/push-firma-ko",
+      defaultBranch: "main",
+      credentials: { token: "tok" },
+    });
+    await setDocAutoUpdate(project.id, true);
+    const body = githubPushPayload("main", SHA("a"), SHA("b"));
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/webhooks/git/${project.slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "push",
+        "x-hub-signature-256": sign("segreto-sbagliato", body),
+      },
+      payload: body,
+    });
+    expect(res.statusCode).toBe(401);
+    expect(await pendingJob(project.id)).toBeUndefined();
+  });
+
+  it("evento PR (non push) → comportamento PR invariato, nessun pending creato", async () => {
+    const project = await createProject({
+      name: "Push Non PR",
+      provider: "github",
+      repoUrl: "https://github.com/acme/push-non-pr",
+      defaultBranch: "main",
+      credentials: { token: "tok" },
+    });
+    await setDocAutoUpdate(project.id, true);
+    const ticketId = await insertTicket(project.id, 1, "in_review");
+    // Un vero evento PR (merge) col suo header: NON deve creare un pending.
+    const body = githubPayload("stubwise/ticket-1");
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/webhooks/git/${project.slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": sign(project.webhookSecret, body),
+      },
+      payload: body,
+    });
+    expect(res.statusCode).toBe(204);
+    // Flusso PR invariato: il ticket è stato chiuso.
+    expect(await ticketStatus(ticketId)).toBe("done");
+    // E nessun job di auto-update è stato creato.
+    expect(await pendingJob(project.id)).toBeUndefined();
   });
 });

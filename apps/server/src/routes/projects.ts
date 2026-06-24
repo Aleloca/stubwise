@@ -7,7 +7,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAdmin, requireAuth } from "../auth/session.js";
 import { GitProviderError } from "@stubwise/git";
-import { decrypt, gitAccounts, projects } from "@stubwise/db";
+import { aiProviders, decrypt, gitAccounts, projects } from "@stubwise/db";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import { apiError } from "../errors.js";
 
@@ -58,6 +58,11 @@ const updateProjectSchema = z.object({
   testCommand: z.string().trim().min(1).max(500).nullable().optional(),
   // Comando di installazione delle dipendenze: null lo azzera, omesso lo lascia invariato.
   installCommand: z.string().trim().min(1).max(500).nullable().optional(),
+  // Toggle auto-aggiornamento Docs ai push: omesso lo lascia invariato.
+  docAutoUpdate: z.boolean().optional(),
+  // Provider AI per l'auto-aggiornamento Docs: un uuid esistente lo imposta,
+  // null lo azzera (ricade sull'automatico), omesso lo lascia invariato.
+  docAutoUpdateProviderId: z.uuid().nullable().optional(),
 });
 
 const slugParamsSchema = z.object({ slug: z.string().min(1) });
@@ -125,6 +130,8 @@ function toPublicProject(
     testCommand: row.testCommand,
     installCommand: row.installCommand,
     webhookConfiguredAt: row.webhookConfiguredAt?.toISOString() ?? null,
+    docAutoUpdate: row.docAutoUpdate,
+    docAutoUpdateProviderId: row.docAutoUpdateProviderId,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -340,8 +347,16 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { name, repoUrl, defaultBranch, gitAccountId, testCommand, installCommand } =
-        request.body;
+      const {
+        name,
+        repoUrl,
+        defaultBranch,
+        gitAccountId,
+        testCommand,
+        installCommand,
+        docAutoUpdate,
+        docAutoUpdateProviderId,
+      } = request.body;
       const updates: Partial<ProjectRow> = {};
       if (name !== undefined) updates.name = name;
       if (repoUrl !== undefined) updates.repoUrl = repoUrl;
@@ -350,6 +365,23 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       if (testCommand !== undefined) updates.testCommand = testCommand;
       // Stessa semantica di testCommand: null azzera, stringa imposta, omesso lascia.
       if (installCommand !== undefined) updates.installCommand = installCommand;
+      // Toggle auto-aggiornamento Docs: omesso lo lascia invariato.
+      if (docAutoUpdate !== undefined) updates.docAutoUpdate = docAutoUpdate;
+      // Provider AI per l'auto-update Docs. null lo azzera (automatico); un uuid
+      // deve riferire una riga ai_providers esistente — non serve enabled, è
+      // configurazione e l'enabled si valuta all'esecuzione. omesso lo lascia.
+      if (docAutoUpdateProviderId !== undefined) {
+        if (docAutoUpdateProviderId !== null) {
+          const [aiProvider] = await app.db
+            .select({ id: aiProviders.id })
+            .from(aiProviders)
+            .where(eq(aiProviders.id, docAutoUpdateProviderId));
+          if (!aiProvider) {
+            return apiError(reply, 400, "ai_provider_not_found", "AI provider not found");
+          }
+        }
+        updates.docAutoUpdateProviderId = docAutoUpdateProviderId;
+      }
       // Cambio di account: valida l'esistenza e ri-denormalizza il provider.
       if (gitAccountId !== undefined) {
         const [account] = await app.db

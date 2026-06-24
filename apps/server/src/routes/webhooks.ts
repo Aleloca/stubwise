@@ -3,7 +3,7 @@ import { t } from "@stubwise/i18n";
 import { dispatchNotification } from "@stubwise/notifications";
 import { and, eq, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { aiJobs, comments, projects, tickets } from "@stubwise/db";
+import { aiJobs, comments, docAutoUpdateJobs, docGenerations, projects, tickets } from "@stubwise/db";
 import { getContentLanguage } from "../settings.js";
 import { apiError } from "../errors.js";
 
@@ -16,6 +16,16 @@ const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024;
 
 /** I rami stubwise sono `stubwise/ticket-<N>`: da lì si estrae il numero del ticket. */
 const STUBWISE_BRANCH_RE = /^stubwise\/ticket-(\d+)$/;
+
+/**
+ * Finestra di debounce dell'auto-aggiornamento Docs ai push: ogni push sul
+ * branch di default sposta `not_before` di questo intervallo nel futuro, così
+ * il poller del worker reclama il job solo quando i push si fermano per almeno
+ * questo tempo (raffica di commit/merge → una sola rigenerazione). 5 minuti è
+ * un compromesso tra reattività e accorpamento; costante hardcoded di proposito
+ * (non vale una variabile d'ambiente in più da propagare in buildApp/compose).
+ */
+const DEBOUNCE_MS = 5 * 60 * 1000;
 
 /**
  * Normalizza gli header Fastify (string | string[] | undefined) nella
@@ -115,6 +125,58 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
       const context = request.webhookContext!;
       const provider = getProvider(context.provider);
       const headers = normalizeHeaders(request.headers);
+
+      // Ramo push (auto-aggiornamento Docs), valutato PRIMA del flusso PR. I due
+      // non si calpestano: parsePushEvent ritorna null per gli eventi PR e
+      // parseWebhook null per i push, quindi al più uno dei due rami è attivo.
+      const push = provider.parsePushEvent(headers, request.body);
+      if (push) {
+        const [project] = await instance.db
+          .select({
+            defaultBranch: projects.defaultBranch,
+            docAutoUpdate: projects.docAutoUpdate,
+            currentDocGenerationId: projects.currentDocGenerationId,
+          })
+          .from(projects)
+          .where(eq(projects.id, context.projectId));
+
+        // Gate: si agisce solo sui push al branch di default di un progetto col
+        // toggle attivo. Tutto il resto è no-op (un push su un branch di feature
+        // o con auto-update spento non innesca nulla).
+        if (!project || push.branch !== project.defaultBranch || project.docAutoUpdate !== true) {
+          return reply.code(204).send();
+        }
+
+        // Base del diff all'INSERIMENTO del job: il commit della generazione Docs
+        // corrente, se presente e registrato; altrimenti il `before` del push.
+        // Su conflitto NON si tocca `fromSha`, così accumula dal primo push.
+        let fromShaOnInsert = push.beforeSha;
+        if (project.currentDocGenerationId) {
+          const [generation] = await instance.db
+            .select({ commitSha: docGenerations.commitSha })
+            .from(docGenerations)
+            .where(eq(docGenerations.id, project.currentDocGenerationId));
+          if (generation?.commitSha) fromShaOnInsert = generation.commitSha;
+        }
+
+        // Upsert sul vincolo unique (project_id): un solo job pending per
+        // progetto. Push ravvicinati aggiornano solo head e finestra di debounce.
+        const notBefore = new Date(Date.now() + DEBOUNCE_MS);
+        await instance.db
+          .insert(docAutoUpdateJobs)
+          .values({
+            projectId: context.projectId,
+            fromSha: fromShaOnInsert,
+            toSha: push.afterSha,
+            notBefore,
+          })
+          .onConflictDoUpdate({
+            target: docAutoUpdateJobs.projectId,
+            set: { toSha: push.afterSha, notBefore },
+          });
+
+        return reply.code(204).send();
+      }
 
       const event = provider.parseWebhook(headers, request.body);
       // Non è un merge di PR che ci interessa: ignorato (204), niente da fare.
