@@ -47,6 +47,15 @@ const envSchema = z.object({
       .max(16, "deve essere un intero tra 1 e 16 (es. 2)")
       .default(2),
   ),
+  DATABASE_POOL_MAX: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero tra 1 e 100 (es. 10)" })
+      .int("deve essere un intero tra 1 e 100 (es. 10)")
+      .min(1, "deve essere un intero tra 1 e 100 (es. 10)")
+      .max(100, "deve essere un intero tra 1 e 100 (es. 10)")
+      .default(10),
+  ),
   // Soglia di staleness per requeueStale: un job in lavorazione senza
   // heartbeat oltre questo limite è orfano di un worker crashato e torna in
   // coda. Deve restare > del tempo massimo di un job: vedi l'invariante
@@ -256,6 +265,9 @@ export interface WorkerConfig {
   /** Job in volo contemporanei (su progetti DIVERSI: quelli dello stesso
    * progetto vengono comunque serializzati dall'handler). */
   concurrency: number;
+  /** Dimensione del pool di connessioni Postgres (default 10). Va alzato in
+   * proporzione a concurrency: i job concorrenti si contendono le connessioni. */
+  databasePoolMax: number;
   /** Minuti di inattività oltre cui un job in lavorazione è considerato
    * orfano e riportato in coda (default 150). */
   staleAfterMinutes: number;
@@ -334,6 +346,7 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     encryptionKey: Buffer.from(parsed.ENCRYPTION_KEY, "base64"),
     mirrorsDir: parsed.MIRRORS_DIR,
     concurrency: parsed.WORKER_CONCURRENCY,
+    databasePoolMax: parsed.DATABASE_POOL_MAX,
     staleAfterMinutes: parsed.WORKER_STALE_MINUTES,
     fixPlanModel: parsed.FIX_PLAN_MODEL,
     fixExecuteModel: parsed.FIX_EXECUTE_MODEL,

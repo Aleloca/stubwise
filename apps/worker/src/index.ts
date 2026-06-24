@@ -95,7 +95,7 @@ try {
   console.error(err instanceof Error ? err.message : err);
   process.exit(1);
 }
-const { db, client } = createDb(config.databaseUrl);
+const { db, client } = createDb(config.databaseUrl, { poolMax: config.databasePoolMax });
 
 // Dipendenze costruite UNA VOLTA all'avvio e condivise da entrambi gli handler
 // (fix e doc-generation): stesso runner CLI e stesso MirrorManager (il mirror è
@@ -222,7 +222,7 @@ startCredentialTester({
 });
 
 console.error(
-  `[stubwise-worker] avviato (concurrency ${config.concurrency}, mirrors in ${config.mirrorsDir}` +
+  `[stubwise-worker] avviato (concurrency ${config.concurrency}, db-pool ${config.databasePoolMax}, mirrors in ${config.mirrorsDir}` +
     `, usage-poll ${config.usagePollMinutes > 0 ? `ogni ${config.usagePollMinutes}'` : "disabilitato"}` +
     `, credential-test ${config.credentialTestPollSeconds > 0 ? `ogni ${config.credentialTestPollSeconds}"` : "disabilitato"})`,
 );

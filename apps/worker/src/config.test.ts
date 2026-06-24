@@ -15,6 +15,8 @@ describe("loadWorkerConfig", () => {
     expect(config.encryptionKey.toString("base64")).toBe(VALID.ENCRYPTION_KEY);
     expect(config.mirrorsDir).toBe("/var/stubwise/mirrors");
     expect(config.concurrency).toBe(2);
+    // Pool di connessioni Postgres: default 10.
+    expect(config.databasePoolMax).toBe(10);
     expect(config.staleAfterMinutes).toBe(150);
     // Fix in due fasi: default opus/sonnet, attivo, plan timeout 10'.
     expect(config.fixPlanModel).toBe("opus");
@@ -92,6 +94,16 @@ describe("loadWorkerConfig", () => {
     expect(config.mirrorsDir).toBe("/data/mirrors");
     expect(config.concurrency).toBe(4);
     expect(config.staleAfterMinutes).toBe(75);
+  });
+
+  it("rispetta DATABASE_POOL_MAX esplicito e rifiuta valori fuori range", () => {
+    expect(loadWorkerConfig({ ...VALID, DATABASE_POOL_MAX: "20" }).databasePoolMax).toBe(20);
+    // Vuoto (es. da .env.example) usa il default 10.
+    expect(loadWorkerConfig({ ...VALID, DATABASE_POOL_MAX: "" }).databasePoolMax).toBe(10);
+    expect(() => loadWorkerConfig({ ...VALID, DATABASE_POOL_MAX: "0" })).toThrow(/DATABASE_POOL_MAX/);
+    expect(() => loadWorkerConfig({ ...VALID, DATABASE_POOL_MAX: "101" })).toThrow(
+      /DATABASE_POOL_MAX/,
+    );
   });
 
   it("rispetta le variabili del fix in due fasi (modelli, flag, timeout)", () => {

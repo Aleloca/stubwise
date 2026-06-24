@@ -20,11 +20,13 @@ export interface DbHandle {
  * perché i chiamanti (test su testcontainers in primis) devono poter
  * chiudere la connessione, altrimenti il processo resta appeso.
  */
-export function createDb(databaseUrl: string): DbHandle {
+export function createDb(databaseUrl: string, opts?: { poolMax?: number }): DbHandle {
   const client = postgres(databaseUrl, {
-    // Dimensione del pool scelta deliberatamente: 10 connessioni bastano per
-    // un'istanza self-hosted e non esauriscono il max_connections di Postgres.
-    max: 10,
+    // Dimensione del pool: il default di 10 connessioni basta per un'istanza
+    // self-hosted a bassa concorrenza. Va alzato (via DATABASE_POOL_MAX) quando
+    // si aumenta WORKER_CONCURRENCY, altrimenti i worker concorrenti si
+    // contendono le connessioni. Non superare il max_connections di Postgres.
+    max: opts?.poolMax ?? 10,
     // Silenzia i NOTICE di Postgres (es. "relation already exists" durante
     // le migrazioni) che altrimenti finirebbero su stderr.
     onnotice: () => {},
