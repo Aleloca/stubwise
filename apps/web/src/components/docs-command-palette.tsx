@@ -85,6 +85,11 @@ export function DocsCommandPalette({
   const searchQuery = debounced;
   const searchEnabled = open && searchQuery.length >= MIN_QUERY_LENGTH;
   const historyEnabled = open && searchQuery.length < MIN_QUERY_LENGTH;
+  // L'utente "vuole cercare" appena l'INPUT (non il debounced) raggiunge la
+  // soglia: così mostriamo subito lo stato di caricamento già durante il
+  // debounce, senza un lampo dei recenti tra una battitura e i risultati.
+  const trimmedInput = input.trim();
+  const wantsSearch = open && trimmedInput.length >= MIN_QUERY_LENGTH;
 
   const { data: history } = useQuery({
     queryKey: docsKeys.history(projectId),
@@ -100,7 +105,7 @@ export function DocsCommandPalette({
     staleTime: 30_000,
   });
 
-  const showingRecents = !searchEnabled;
+  const showingRecents = !wantsSearch;
 
   // Lista unificata: recenti OPPURE risultati di ricerca.
   const items: PaletteItem[] = useMemo(() => {
@@ -205,11 +210,16 @@ export function DocsCommandPalette({
 
   if (!open) return null;
 
-  const noResults = searchEnabled && !isSearching && (results?.length ?? 0) === 0;
+  // In caricamento finché l'utente vuole cercare ma non abbiamo ancora i
+  // risultati del termine CORRENTE: debounce in corso (input ≠ debounced) o
+  // fetch in volo. Pilota skeleton e spinner.
+  const isLoadingResults =
+    wantsSearch && (isSearching || trimmedInput !== debounced || results === undefined);
+  const noResults = wantsSearch && !isLoadingResults && (results?.length ?? 0) === 0;
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-start justify-center overflow-y-auto bg-ink-950/80 p-4 pt-[12vh] backdrop-blur-[2px]"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink-950/80 p-4 pt-[12vh] backdrop-blur-[2px]"
       onMouseDown={(event) => {
         // Click sul backdrop (non sul pannello) = chiusura.
         if (event.target === event.currentTarget) onClose();
@@ -220,10 +230,10 @@ export function DocsCommandPalette({
         aria-modal="true"
         aria-label={t("docs:palette.label")}
         onKeyDown={handleKeyDown}
-        className="flex w-full max-w-xl flex-col overflow-hidden rounded-md border border-line-strong bg-ink-900 shadow-[0_24px_60px_-24px_rgba(0,0,0,0.9)]"
+        className="flex w-full max-w-2xl flex-col overflow-hidden rounded-md border border-line-strong bg-ink-900 shadow-[0_24px_60px_-24px_rgba(0,0,0,0.9)]"
       >
         {/* Input con icona di ricerca */}
-        <div className="flex items-center gap-2 border-b border-line px-4 py-3">
+        <div className="flex items-center gap-2 border-b border-line px-4 py-3.5">
           <SearchIcon />
           <input
             ref={inputRef}
@@ -236,12 +246,13 @@ export function DocsCommandPalette({
             aria-activedescendant={
               items[activeIndex] ? `docs-palette-item-${activeIndex}` : undefined
             }
-            className="w-full bg-transparent text-[14px] text-fg placeholder:text-fg-faint focus:outline-none"
+            className="w-full bg-transparent text-[15px] text-fg placeholder:text-fg-faint focus:outline-none"
           />
+          {isLoadingResults && <Spinner />}
         </div>
 
         {/* Corpo: recenti oppure risultati */}
-        <div className="max-h-[50vh] overflow-y-auto p-2">
+        <div className="max-h-[60vh] min-h-[180px] overflow-y-auto p-2">
           {showingRecents && (
             <div className="flex items-center justify-between px-2 pt-1 pb-2">
               <span className="font-mono text-[10px] tracking-[0.12em] text-fg-faint uppercase">
@@ -259,7 +270,20 @@ export function DocsCommandPalette({
             </div>
           )}
 
-          {noResults ? (
+          {isLoadingResults ? (
+            <ul
+              role="status"
+              aria-label={t("docs:palette.searching")}
+              className="flex flex-col gap-0.5"
+            >
+              {[0, 1, 2, 3].map((row) => (
+                <li key={row} className="flex flex-col gap-1.5 rounded-sm px-2 py-2">
+                  <div className="h-3 w-1/3 animate-pulse rounded-sm bg-ink-700" />
+                  <div className="h-2.5 w-3/4 animate-pulse rounded-sm bg-ink-800" />
+                </li>
+              ))}
+            </ul>
+          ) : noResults ? (
             <p className="px-2 py-6 text-center font-mono text-[11px] tracking-[0.12em] text-fg-faint uppercase">
               {t("docs:palette.noResults")}
             </p>
@@ -356,6 +380,22 @@ function PaletteRow({
         )}
       </div>
     </li>
+  );
+}
+
+function Spinner() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      className="size-4 shrink-0 animate-spin text-fg-muted"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+    >
+      <circle cx="8" cy="8" r="6" className="opacity-25" />
+      <path d="M8 2a6 6 0 0 1 6 6" strokeLinecap="round" />
+    </svg>
   );
 }
 

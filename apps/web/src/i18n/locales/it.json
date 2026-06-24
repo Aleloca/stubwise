@@ -937,6 +937,7 @@
       "clearAll": "Cancella tutto",
       "removeOne": "Rimuovi {{title}} dai recenti",
       "noResults": "Nessun risultato",
+      "searching": "Ricerca in corso…",
       "hintNav": "naviga",
       "hintOpen": "apri",
       "hintClose": "chiudi"

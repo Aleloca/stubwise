@@ -937,6 +937,7 @@
       "clearAll": "Clear all",
       "removeOne": "Remove {{title}} from recents",
       "noResults": "No results",
+      "searching": "Searching…",
       "hintNav": "navigate",
       "hintOpen": "open",
       "hintClose": "close"

@@ -277,6 +277,36 @@ describe("DocsCommandPalette", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it("mentre cerca mostra lo skeleton di caricamento, poi i risultati", async () => {
+    // Promise controllata: la ricerca resta in volo finché non la risolviamo,
+    // così possiamo asserire lo stato di caricamento.
+    let resolveSearch: (value: DocSearchResult[]) => void = () => {};
+    searchDocs.mockImplementation(
+      () =>
+        new Promise<DocSearchResult[]>((resolve) => {
+          resolveSearch = resolve;
+        }),
+    );
+    const user = userEvent.setup();
+    renderPalette();
+    const input = await screen.findByRole("textbox");
+    await user.type(input, "auth");
+
+    // In volo: compare lo skeleton (role=status con label "Searching…").
+    expect(await screen.findByRole("status", { name: /Searching|Ricerca/ })).toBeInTheDocument();
+    expect(screen.queryByText("Auth module")).not.toBeInTheDocument();
+
+    // Attendi che la ricerca sia effettivamente partita (lo skeleton compare già
+    // durante il debounce, prima della chiamata): solo allora `resolveSearch`
+    // punta alla promise reale che React Query sta attendendo.
+    await waitFor(() => expect(searchDocs).toHaveBeenCalledWith(PROJECT_ID, "auth"));
+
+    // Risolta: lo skeleton sparisce e compaiono i risultati.
+    resolveSearch(structuredClone(RESULTS));
+    expect(await screen.findByText("Auth module")).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: /Searching|Ricerca/ })).not.toBeInTheDocument();
+  });
+
   it("nessun risultato: mostra il messaggio no-results", async () => {
     searchDocs.mockResolvedValue([]);
     const user = userEvent.setup();
