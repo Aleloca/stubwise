@@ -104,3 +104,7 @@ export {
   RELEASE_BODY_END_MARKER,
 } from "./releases.js";
 export type { ReleaseInput, ReleaseNotes, ExistingPage } from "./releases.js";
+
+// ── Auto-aggiornamento Docs (Fase 2): file cambiati → pagine impattate ────────────────
+export { mapAffectedPages } from "./affected-pages.js";
+export type { PageRef, AffectedPagesResult } from "./affected-pages.js";
