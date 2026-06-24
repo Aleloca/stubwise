@@ -390,8 +390,10 @@ function PaletteRow({
           {item.snippet && (
             // Anteprima: markdown ridotto a testo (evita la sintassi grezza) e
             // altezza fissa a 2 righe, così tutte le righe hanno la stessa
-            // altezza a prescindere dalla lunghezza dello snippet.
-            <span className="mt-0.5 line-clamp-2 block min-h-10 text-[12px] leading-5 text-fg-muted">
+            // altezza a prescindere dalla lunghezza dello snippet. NB: niente
+            // `block`, altrimenti sovrascriverebbe il display flex/-webkit-box
+            // necessario a `line-clamp` (che così non taglierebbe più).
+            <span className="mt-0.5 line-clamp-2 min-h-10 text-[12px] leading-5 text-fg-muted">
               {plainTextPreview(item.snippet)}
             </span>
           )}
