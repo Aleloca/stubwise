@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-router";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DocHistoryEntry, DocSearchResult } from "../lib/docs-api";
 import { DocsCommandPalette } from "./docs-command-palette";
@@ -215,5 +216,92 @@ describe("DocsCommandPalette", () => {
 
     await user.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("alla chiusura ripristina il focus all'elemento che ce l'aveva", async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    // Wrapper controllato: un trigger <button> + la palette. Aprendo da un
+    // trigger a fuoco e poi chiudendo (Esc), il focus deve tornare al trigger.
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Apri palette
+          </button>
+          <DocsCommandPalette projectId={PROJECT_ID} open={open} onClose={() => setOpen(false)} />
+        </>
+      );
+    }
+
+    const rootRoute = createRootRoute({ component: Harness });
+    const spaceRoute = createRoute({ getParentRoute: () => rootRoute, path: "/docs/$projectId" });
+    const pageRoute = createRoute({ getParentRoute: () => spaceRoute, path: "/$slug" });
+    const router = createRouter({
+      routeTree: rootRoute.addChildren([spaceRoute.addChildren([pageRoute])]),
+      history: createMemoryHistory({ initialEntries: ["/"] }),
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
+
+    const trigger = await screen.findByRole("button", { name: "Apri palette" });
+    trigger.focus();
+    expect(trigger).toHaveFocus();
+
+    await user.click(trigger);
+    const input = await screen.findByRole("textbox");
+    await waitFor(() => expect(input).toHaveFocus());
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it("mousedown sul backdrop chiama onClose, dentro il pannello no", async () => {
+    const user = userEvent.setup();
+    const { onClose } = renderPalette();
+    const dialog = await screen.findByRole("dialog");
+
+    // Mousedown dentro il pannello: NON chiude.
+    await user.pointer({ keys: "[MouseLeft>]", target: dialog });
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Mousedown sul backdrop (il genitore del dialog): chiude.
+    const backdrop = dialog.parentElement as HTMLElement;
+    await user.pointer({ keys: "[MouseLeft>]", target: backdrop });
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("nessun risultato: mostra il messaggio no-results", async () => {
+    searchDocs.mockResolvedValue([]);
+    const user = userEvent.setup();
+    renderPalette();
+    const input = await screen.findByRole("textbox");
+    await user.type(input, "zzz");
+
+    // Dopo il debounce: searchDocs ritorna [] → messaggio no-results.
+    expect(await screen.findByText(/No results|Nessun risultato/)).toBeInTheDocument();
+  });
+
+  it("✕ con delete che fallisce: rollback ottimistico (la riga ricompare)", async () => {
+    deleteDocsHistoryEntry.mockRejectedValue(new Error("boom"));
+    const user = userEvent.setup();
+    renderPalette();
+    expect(await screen.findByText("Getting started")).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: /Remove Getting started|Rimuovi Getting started/ }),
+    );
+
+    expect(deleteDocsHistoryEntry).toHaveBeenCalledWith(PROJECT_ID, "getting-started");
+    // Dopo il settle (onError ripristina + invalidate refetcha lo stato intero):
+    // la voce torna presente.
+    await waitFor(() => expect(screen.getByText("Getting started")).toBeInTheDocument());
+    expect(screen.getByText("Technical overview")).toBeInTheDocument();
   });
 });

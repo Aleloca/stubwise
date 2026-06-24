@@ -232,6 +232,7 @@ export function DocsCommandPalette({
             onChange={(event) => setInput(event.target.value)}
             placeholder={t("docs:palette.placeholder")}
             aria-label={t("docs:palette.label")}
+            aria-controls="docs-palette-listbox"
             aria-activedescendant={
               items[activeIndex] ? `docs-palette-item-${activeIndex}` : undefined
             }
@@ -263,7 +264,11 @@ export function DocsCommandPalette({
               {t("docs:palette.noResults")}
             </p>
           ) : (
-            <ul className="flex flex-col gap-0.5">
+            <ul
+              id="docs-palette-listbox"
+              role="listbox"
+              className="flex flex-col gap-0.5"
+            >
               {items.map((item, index) => (
                 <PaletteRow
                   key={item.slug}
