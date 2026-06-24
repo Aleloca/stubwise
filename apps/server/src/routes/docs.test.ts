@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import {
+  aiProviders,
   docGenerationJobs,
   docGenerations,
   docPages,
@@ -102,6 +103,30 @@ async function seedSucceededGeneration(
   return gen.id;
 }
 
+let providerSeq = 0;
+
+/** Inserisce un provider AI (enabled di default), label/secret fittizia. */
+async function insertProvider(
+  db: Db,
+  opts: { enabled?: boolean; kind?: "api_key" | "account"; label?: string } = {},
+): Promise<{ id: string; label: string; kind: "api_key" | "account" }> {
+  providerSeq++;
+  const kind = opts.kind ?? "api_key";
+  const label = opts.label ?? `Provider ${providerSeq}`;
+  const [provider] = await db
+    .insert(aiProviders)
+    .values({
+      kind,
+      label,
+      secretEncrypted: "enc-secret",
+      position: providerSeq,
+      enabled: opts.enabled ?? true,
+    })
+    .returning();
+  if (!provider) throw new Error("insert del provider non ha restituito la riga");
+  return { id: provider.id, label: provider.label, kind: provider.kind };
+}
+
 beforeAll(async () => {
   testDb = await startTestDb();
   app = buildApp({
@@ -192,6 +217,73 @@ describe("POST /api/projects/:projectId/docs/generate", () => {
     });
     expect(res.statusCode).toBe(404);
   });
+
+  it("con providerId di un provider abilitato: 202 e job con pinned_provider_id", async () => {
+    const project = await insertProject(testDb.db);
+    const provider = await insertProvider(testDb.db, { enabled: true });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/docs/generate`,
+      headers: { cookie: adminCookie },
+      payload: { providerId: provider.id },
+    });
+    expect(res.statusCode).toBe(202);
+
+    const rows = await testDb.db
+      .select()
+      .from(docGenerationJobs)
+      .where(eq(docGenerationJobs.projectId, project.id));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.pinnedProviderId).toBe(provider.id);
+  });
+
+  it("con providerId di un provider disabilitato: 400 provider_not_available", async () => {
+    const project = await insertProject(testDb.db);
+    const provider = await insertProvider(testDb.db, { enabled: false });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/docs/generate`,
+      headers: { cookie: adminCookie },
+      payload: { providerId: provider.id },
+    });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("provider_not_available");
+
+    const rows = await testDb.db
+      .select()
+      .from(docGenerationJobs)
+      .where(eq(docGenerationJobs.projectId, project.id));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("con providerId inesistente: 400 provider_not_available", async () => {
+    const project = await insertProject(testDb.db);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/docs/generate`,
+      headers: { cookie: adminCookie },
+      payload: { providerId: "00000000-0000-0000-0000-000000000000" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("provider_not_available");
+  });
+
+  it("senza body: job creato con pin null (comportamento invariato)", async () => {
+    const project = await insertProject(testDb.db);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/docs/generate`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(202);
+
+    const rows = await testDb.db
+      .select()
+      .from(docGenerationJobs)
+      .where(eq(docGenerationJobs.projectId, project.id));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.pinnedProviderId).toBeNull();
+  });
 });
 
 describe("GET /api/projects/:projectId/docs/status", () => {
@@ -203,7 +295,7 @@ describe("GET /api/projects/:projectId/docs/status", () => {
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ generation: null, latestJob: null });
+    expect(res.json()).toEqual({ generation: null, latestJob: null, pinnedProvider: null });
   });
 
   it("con generazione corrente e job: li restituisce entrambi", async () => {
@@ -224,12 +316,41 @@ describe("GET /api/projects/:projectId/docs/status", () => {
     const body = res.json() as {
       generation: { id: string; status: string; commitSha: string; cost: string } | null;
       latestJob: { status: string } | null;
+      pinnedProvider: unknown;
     };
     expect(body.generation!.id).toBe(genId);
     expect(body.generation!.status).toBe("succeeded");
     expect(body.generation!.commitSha).toBe("deadbeef");
     expect(body.generation!.cost).toBe("1.250000");
     expect(body.latestJob!.status).toBe("queued");
+    // Nessun pin né sulla generazione né sul job → null.
+    expect(body.pinnedProvider).toBeNull();
+  });
+
+  it("con job pinnato: espone pinnedProvider {id,label,kind}", async () => {
+    const project = await insertProject(testDb.db);
+    const provider = await insertProvider(testDb.db, { kind: "account", label: "Pinned Co" });
+    await app.inject({
+      method: "POST",
+      url: `/api/projects/${project.id}/docs/generate`,
+      headers: { cookie: adminCookie },
+      payload: { providerId: provider.id },
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${project.id}/docs/status`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      pinnedProvider: { id: string; label: string; kind: string } | null;
+    };
+    expect(body.pinnedProvider).toEqual({
+      id: provider.id,
+      label: "Pinned Co",
+      kind: "account",
+    });
   });
 
   it("progetto inesistente: 404", async () => {

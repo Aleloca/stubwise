@@ -10,6 +10,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAdmin, requireAuth } from "../auth/session.js";
 import {
+  aiProviders,
   docGenerationJobs,
   docGenerations,
   docPages,
@@ -18,6 +19,7 @@ import {
 } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import { apiError } from "../errors.js";
+import { aiProviderKindSchema } from "./ai-providers.js";
 import { retrieveChunks } from "./docs-retrieval.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 
@@ -49,6 +51,24 @@ function toJob(row: DocGenerationJobRow): z.infer<typeof jobSchema> {
     finishedAt: row.finishedAt?.toISOString() ?? null,
   };
 }
+
+/**
+ * Body opzionale del trigger di generazione: un provider AI bloccato per questa
+ * generazione (vedi pinned_provider_id su doc_generation_jobs). Assente = nessun
+ * pin, il worker usa la catena di failover di default.
+ */
+const generateBodySchema = z.object({ providerId: z.uuid().optional() });
+
+/**
+ * Provider bloccato esposto dallo stato: l'identità minima per mostrarlo in UI.
+ * `kind` riusa l'enum dei provider (account|api_key). null = nessun pin (o il
+ * provider è stato eliminato nel frattempo).
+ */
+const pinnedProviderSchema = z.object({
+  id: z.uuid(),
+  label: z.string(),
+  kind: aiProviderKindSchema,
+});
 
 /** Generazione corrente (puntata da projects.currentDocGenerationId). */
 const generationSchema = z.object({
@@ -284,11 +304,19 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       preHandler: requireAdmin,
       schema: {
         params: projectIdParamsSchema,
-        response: { 200: jobSchema, 202: jobSchema, 404: errorSchema, ...authErrorResponses },
+        body: generateBodySchema.nullish(),
+        response: {
+          200: jobSchema,
+          202: jobSchema,
+          400: errorSchema,
+          404: errorSchema,
+          ...authErrorResponses,
+        },
       },
     },
     async (request, reply) => {
       const { projectId } = request.params;
+      const providerId = request.body?.providerId;
 
       const [project] = await app.db
         .select({ id: projects.id })
@@ -296,7 +324,25 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         .where(eq(projects.id, projectId));
       if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
 
-      // Job attivo già in coda/in esecuzione: lo riusiamo (idempotente).
+      // Provider bloccato (opzionale): deve esistere ED essere abilitato. Un
+      // provider disabilitato o inesistente è un pin non valido → 400.
+      if (providerId !== undefined) {
+        const [provider] = await app.db
+          .select({ id: aiProviders.id })
+          .from(aiProviders)
+          .where(and(eq(aiProviders.id, providerId), eq(aiProviders.enabled, true)));
+        if (!provider) {
+          return apiError(
+            reply,
+            400,
+            "provider_not_available",
+            "Selected provider is not available",
+          );
+        }
+      }
+
+      // Job attivo già in coda/in esecuzione: lo riusiamo (idempotente). NON ne
+      // tocchiamo il pin: il provider bloccato è quello del job originario.
       const [active] = await app.db
         .select()
         .from(docGenerationJobs)
@@ -312,7 +358,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
 
       const [created] = await app.db
         .insert(docGenerationJobs)
-        .values({ projectId, status: "queued", trigger: "manual" })
+        .values({ projectId, status: "queued", trigger: "manual", pinnedProviderId: providerId ?? null })
         .returning();
       if (!created) throw new Error("insert del job non ha restituito la riga");
       return reply.code(202).send(toJob(created));
@@ -333,6 +379,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
           200: z.object({
             generation: generationSchema.nullable(),
             latestJob: jobSchema.nullable(),
+            pinnedProvider: pinnedProviderSchema.nullable(),
           }),
           404: errorSchema,
           ...authErrorResponses,
@@ -349,12 +396,15 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
 
       let generation: z.infer<typeof generationSchema> | null = null;
+      // Pin preso dalla generazione corrente se c'è, altrimenti dal latestJob.
+      let pinnedProviderId: string | null = null;
       if (project.currentDocGenerationId) {
         const [gen] = await app.db
           .select()
           .from(docGenerations)
           .where(eq(docGenerations.id, project.currentDocGenerationId));
         generation = gen ? toGeneration(gen) : null;
+        pinnedProviderId = gen?.pinnedProviderId ?? null;
       }
 
       const [job] = await app.db
@@ -363,8 +413,20 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         .where(eq(docGenerationJobs.projectId, projectId))
         .orderBy(desc(docGenerationJobs.createdAt))
         .limit(1);
+      if (pinnedProviderId === null) pinnedProviderId = job?.pinnedProviderId ?? null;
 
-      return { generation, latestJob: job ? toJob(job) : null };
+      // Risolvi il provider bloccato: se l'id non esiste più (provider eliminato)
+      // o non c'è alcun pin, esponi null.
+      let pinnedProvider: z.infer<typeof pinnedProviderSchema> | null = null;
+      if (pinnedProviderId) {
+        const [provider] = await app.db
+          .select({ id: aiProviders.id, label: aiProviders.label, kind: aiProviders.kind })
+          .from(aiProviders)
+          .where(eq(aiProviders.id, pinnedProviderId));
+        pinnedProvider = provider ?? null;
+      }
+
+      return { generation, latestJob: job ? toJob(job) : null, pinnedProvider };
     },
   );
 
