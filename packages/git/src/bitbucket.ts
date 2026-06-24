@@ -392,7 +392,7 @@ export class BitbucketProvider implements GitProvider {
       description: "Stubwise",
       url: hook.url,
       active: true,
-      events: ["pullrequest:fulfilled", "pullrequest:rejected"],
+      events: ["pullrequest:fulfilled", "pullrequest:rejected", "repo:push"],
       secret: hook.secret,
     };
 

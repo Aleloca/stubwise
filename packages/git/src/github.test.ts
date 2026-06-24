@@ -447,7 +447,7 @@ describe("GitHubProvider.ensureWebhook", () => {
   const expectedBody = {
     name: "web",
     active: true,
-    events: ["pull_request"],
+    events: ["pull_request", "push"],
     config: { url: hook.url, content_type: "json", secret: hook.secret, insecure_ssl: "0" },
   };
 
@@ -500,7 +500,7 @@ describe("GitHubProvider.ensureWebhook", () => {
     expect(patch[0]).toBe(`${LIST_URL}/7`);
     expect(JSON.parse(patch[1].body as string)).toEqual({
       active: true,
-      events: ["pull_request"],
+      events: ["pull_request", "push"],
       config: { url: hook.url, content_type: "json", secret: hook.secret, insecure_ssl: "0" },
     });
   });

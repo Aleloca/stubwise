@@ -295,7 +295,7 @@ export class GitHubProvider implements GitProvider {
         const updateResponse = await fetchImpl(`${base}/${existing.id}`, {
           method: "PATCH",
           headers,
-          body: JSON.stringify({ active: true, events: ["pull_request"], config }),
+          body: JSON.stringify({ active: true, events: ["pull_request", "push"], config }),
         });
         this.guardWebhookResponse(updateResponse);
         return { created: false, updated: true, id: String(existing.id), detail: "Webhook aggiornato" };
@@ -304,7 +304,7 @@ export class GitHubProvider implements GitProvider {
       const createResponse = await fetchImpl(base, {
         method: "POST",
         headers,
-        body: JSON.stringify({ name: "web", active: true, events: ["pull_request"], config }),
+        body: JSON.stringify({ name: "web", active: true, events: ["pull_request", "push"], config }),
       });
       this.guardWebhookResponse(createResponse);
       const created = (await readJsonResponse(createResponse, "GitHub")) as { id?: unknown };
