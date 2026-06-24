@@ -165,6 +165,45 @@ export function searchDocs(projectId: string, q: string): Promise<DocSearchResul
   );
 }
 
+// --- Cronologia ricerca (GET/POST/DELETE /api/projects/:id/docs/history) ---
+
+/**
+ * Una voce della cronologia server-side: la pagina visitata dalla command
+ * palette (slug/title/kind) più il momento del click. Ordinata per `clickedAt`
+ * decrescente lato server; usata per il "Recenti" della palette.
+ */
+export interface DocHistoryEntry {
+  slug: string;
+  title: string;
+  kind: DocPageKind;
+  clickedAt: string;
+}
+
+/** Cronologia delle pagine recenti dell'utente corrente nello spazio. */
+export function getDocsHistory(projectId: string): Promise<DocHistoryEntry[]> {
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/docs/history`);
+}
+
+/** Registra (upsert) un click su una pagina nella cronologia: ritorna 204. */
+export function recordDocsHistoryClick(
+  projectId: string,
+  entry: { slug: string; title: string; kind: DocPageKind },
+): Promise<void> {
+  return api.post(`/api/projects/${encodeURIComponent(projectId)}/docs/history`, entry);
+}
+
+/** Rimuove una singola voce della cronologia per slug: ritorna 204. */
+export function deleteDocsHistoryEntry(projectId: string, slug: string): Promise<void> {
+  return api.delete(
+    `/api/projects/${encodeURIComponent(projectId)}/docs/history/${encodeURIComponent(slug)}`,
+  );
+}
+
+/** Svuota tutta la cronologia dell'utente corrente nello spazio: ritorna 204. */
+export function clearDocsHistory(projectId: string): Promise<void> {
+  return api.delete(`/api/projects/${encodeURIComponent(projectId)}/docs/history`);
+}
+
 // --- Pagine manuali (CRUD) ---
 
 /** Dati di creazione di una pagina manuale: slug opzionale (derivato dal titolo). */

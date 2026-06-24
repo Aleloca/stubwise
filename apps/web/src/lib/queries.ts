@@ -383,6 +383,7 @@ export const docsKeys = {
   tree: (projectId: string) => [...docsKeys.space(projectId), "tree"] as const,
   page: (projectId: string, slug: string) => [...docsKeys.space(projectId), "page", slug] as const,
   status: (projectId: string) => [...docsKeys.space(projectId), "status"] as const,
+  history: (projectId: string) => [...docsKeys.space(projectId), "history"] as const,
 };
 
 /**
