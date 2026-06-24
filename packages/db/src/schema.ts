@@ -864,6 +864,10 @@ export const docGenerations = pgTable(
     // Commit documentato da questa generazione; null finché il job non lo fissa.
     commitSha: text("commit_sha"),
     trigger: docGenerationTrigger("trigger").notNull().default("manual"),
+    // Provider AI scelto per blindare la generazione; null = automatico (primo abilitato).
+    pinnedProviderId: uuid("pinned_provider_id").references(() => aiProviders.id, {
+      onDelete: "set null",
+    }),
     // Modello AI usato per la generazione; null finché non avviata.
     model: text("model"),
     // Costo aggregato in USD della generazione. Nullable (stesso tipo di
@@ -1007,6 +1011,10 @@ export const docGenerationJobs = pgTable(
     }),
     status: docJobStatus("status").notNull().default("queued"),
     trigger: docGenerationTrigger("trigger").notNull().default("manual"),
+    // Provider AI scelto per blindare la generazione; null = automatico (primo abilitato).
+    pinnedProviderId: uuid("pinned_provider_id").references(() => aiProviders.id, {
+      onDelete: "set null",
+    }),
     log: text("log").notNull().default(""),
     error: text("error"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

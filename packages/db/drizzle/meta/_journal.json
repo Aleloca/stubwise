@@ -211,6 +211,13 @@
       "when": 1782296264593,
       "tag": "0029_eminent_mephisto",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1782299540512,
+      "tag": "0030_chunky_korath",
+      "breakpoints": true
     }
   ]
 }

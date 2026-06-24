@@ -1,0 +1,4 @@
+ALTER TABLE "doc_generation_jobs" ADD COLUMN "pinned_provider_id" uuid;--> statement-breakpoint
+ALTER TABLE "doc_generations" ADD COLUMN "pinned_provider_id" uuid;--> statement-breakpoint
+ALTER TABLE "doc_generation_jobs" ADD CONSTRAINT "doc_generation_jobs_pinned_provider_id_ai_providers_id_fk" FOREIGN KEY ("pinned_provider_id") REFERENCES "public"."ai_providers"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "doc_generations" ADD CONSTRAINT "doc_generations_pinned_provider_id_ai_providers_id_fk" FOREIGN KEY ("pinned_provider_id") REFERENCES "public"."ai_providers"("id") ON DELETE set null ON UPDATE no action;
