@@ -4,6 +4,7 @@ import { ClaudeCliRunner } from "./agent/claude-cli.js";
 import { startCredentialTester } from "./agent/credential-tester.js";
 import { startUsagePoller } from "./agent/usage-poller.js";
 import { loadWorkerConfig, type WorkerConfig } from "./config.js";
+import { startAutoUpdatePoller } from "./docs/auto-update-poller.js";
 import { createDocHandler, failDocJobOnError } from "./docs/handler.js";
 import { dispatchNode } from "./docs/recursive/node-dispatch.js";
 import { createGenerationWorktreeRegistry } from "./docs/recursive/registry.js";
@@ -221,10 +222,30 @@ startCredentialTester({
   signal: controller.signal,
 });
 
+// Poller di auto-aggiornamento Docs (Fase 1): task SEPARATO dal loop dei job, sul
+// proprio intervallo. Reclama i pending di doc_auto_update_jobs scaduti (debounce) ed
+// esegue l'agente che produce la entry release, nella CATENA PER-PROGETTO (serializer
+// condiviso col fix e la doc-generation: niente sovrapposizione col fetch --prune dello
+// stesso progetto). È BEST-EFFORT (non fa mai crashare il worker) e NON tocca il
+// lock/heartbeat né i timeout dei job. Si ferma sullo stesso AbortSignal.
+startAutoUpdatePoller({
+  db,
+  mirrors,
+  runner,
+  encryptionKey: config.encryptionKey,
+  model: config.docGenerationModel,
+  agentTimeoutMs: config.docAgentTimeoutMs,
+  maxTurns: config.docModuleMaxTurns,
+  serializer,
+  intervalSeconds: config.docsAutoUpdatePollSeconds,
+  signal: controller.signal,
+});
+
 console.error(
   `[stubwise-worker] avviato (concurrency ${config.concurrency}, db-pool ${config.databasePoolMax}, mirrors in ${config.mirrorsDir}` +
     `, usage-poll ${config.usagePollMinutes > 0 ? `ogni ${config.usagePollMinutes}'` : "disabilitato"}` +
-    `, credential-test ${config.credentialTestPollSeconds > 0 ? `ogni ${config.credentialTestPollSeconds}"` : "disabilitato"})`,
+    `, credential-test ${config.credentialTestPollSeconds > 0 ? `ogni ${config.credentialTestPollSeconds}"` : "disabilitato"}` +
+    `, docs-auto-update ${config.docsAutoUpdatePollSeconds > 0 ? `ogni ${config.docsAutoUpdatePollSeconds}"` : "disabilitato"})`,
 );
 // POLITICA DI PRIORITÀ doc vs fix (Task 5.4): i fix hanno la precedenza. Il
 // loop satura la concorrenza con i fix in coda; reclama UN doc-job per tick solo

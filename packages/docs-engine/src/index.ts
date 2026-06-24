@@ -91,3 +91,16 @@ export type {
 } from "./recursive/dag.js";
 
 export type { RepoFile, RepoReader } from "./fs.js";
+
+// ── Auto-aggiornamento Docs (Fase 1): note di rilascio (changelog) ────────────────────
+export {
+  buildReleasePrompt,
+  parseReleaseNotes,
+  RELEASE_START_MARKER,
+  RELEASE_END_MARKER,
+  RELEASE_SLUGS_START_MARKER,
+  RELEASE_SLUGS_END_MARKER,
+  RELEASE_BODY_START_MARKER,
+  RELEASE_BODY_END_MARKER,
+} from "./releases.js";
+export type { ReleaseInput, ReleaseNotes, ExistingPage } from "./releases.js";

@@ -255,6 +255,19 @@ const envSchema = z.object({
   // Chiave API per l'endpoint di embedding. Opzionale: Ollama in-rete non la
   // richiede (vuoto/non impostata); un provider esterno sì.
   EMBEDDING_API_KEY: z.preprocess(emptyAsUndefined, z.string().min(1).optional()),
+  // Intervallo di poll (secondi) del poller di auto-aggiornamento Docs (task
+  // separato dal loop dei job, vedi docs/auto-update-poller.ts): reclama i pending
+  // di doc_auto_update_jobs scaduti (debounce) ed esegue l'agente che produce la
+  // entry release. È BEST-EFFORT e non tocca i timeout dei job. 0 = disabilitato.
+  // Default 60".
+  DOCS_AUTOUPDATE_POLL_SECONDS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 0 in secondi (es. 60; 0 = disabilitato)" })
+      .int("deve essere un intero ≥ 0 in secondi (es. 60; 0 = disabilitato)")
+      .min(0, "deve essere un intero ≥ 0 in secondi (es. 60; 0 = disabilitato)")
+      .default(60),
+  ),
 });
 
 export interface WorkerConfig {
@@ -319,6 +332,9 @@ export interface WorkerConfig {
   embeddingModel: string;
   /** Chiave API dell'endpoint di embedding; undefined se non richiesta. */
   embeddingApiKey: string | undefined;
+  /** Intervallo in secondi del poller di auto-aggiornamento Docs (default 60; 0 =
+   * disabilitato). */
+  docsAutoUpdatePollSeconds: number;
 }
 
 /**
@@ -366,5 +382,6 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     embeddingBaseUrl: parsed.EMBEDDING_BASE_URL,
     embeddingModel: parsed.EMBEDDING_MODEL,
     embeddingApiKey: parsed.EMBEDDING_API_KEY,
+    docsAutoUpdatePollSeconds: parsed.DOCS_AUTOUPDATE_POLL_SECONDS,
   };
 }

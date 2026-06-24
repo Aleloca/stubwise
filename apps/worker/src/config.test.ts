@@ -37,6 +37,21 @@ describe("loadWorkerConfig", () => {
     expect(config.credentialTestPollSeconds).toBe(5);
     // Timeout per-chiamata della generazione Docs: default 8'.
     expect(config.docAgentTimeoutMs).toBe(480_000);
+    // Poller di auto-aggiornamento Docs: default 60 secondi.
+    expect(config.docsAutoUpdatePollSeconds).toBe(60);
+  });
+
+  it("rispetta DOCS_AUTOUPDATE_POLL_SECONDS esplicito e 0 = disabilitato", () => {
+    expect(
+      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_POLL_SECONDS: "30" }).docsAutoUpdatePollSeconds,
+    ).toBe(30);
+    expect(
+      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_POLL_SECONDS: "0" }).docsAutoUpdatePollSeconds,
+    ).toBe(0);
+    // Vuoto (es. da .env.example) usa il default 60.
+    expect(
+      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_POLL_SECONDS: "" }).docsAutoUpdatePollSeconds,
+    ).toBe(60);
   });
 
   it("rispetta DOC_AGENT_TIMEOUT_MS esplicito e rifiuta valori non positivi", () => {

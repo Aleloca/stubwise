@@ -1,0 +1,416 @@
+import {
+  aiProviders,
+  docAutoUpdateJobs,
+  docGenerations,
+  docPages,
+  encrypt,
+  gitAccounts,
+  projects,
+  type Db,
+} from "@stubwise/db";
+import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
+import {
+  RELEASE_BODY_END_MARKER,
+  RELEASE_BODY_START_MARKER,
+  RELEASE_END_MARKER,
+  RELEASE_SLUGS_END_MARKER,
+  RELEASE_SLUGS_START_MARKER,
+  RELEASE_START_MARKER,
+} from "@stubwise/docs-engine";
+import { and, eq } from "drizzle-orm";
+import { execa } from "execa";
+import { randomBytes } from "node:crypto";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { FakeAgentRunner } from "../agent/fake.js";
+import { createProjectSerializer } from "../handler.js";
+import { MirrorManager } from "../git/mirrors.js";
+import { isNoise, runAutoUpdate, type RunAutoUpdateDeps } from "./auto-update.js";
+import { pollAutoUpdateOnce } from "./auto-update-poller.js";
+
+vi.setConfig({ testTimeout: 60_000 });
+
+const ENCRYPTION_KEY = randomBytes(32);
+
+let testDb: TestDb;
+let uniq = 0;
+const cleanups: Array<() => Promise<void>> = [];
+
+beforeAll(async () => {
+  testDb = await startTestDb();
+}, 120_000);
+
+afterEach(async () => {
+  await testDb.db.delete(docAutoUpdateJobs);
+  await testDb.db.delete(docPages);
+  await testDb.db.delete(projects);
+  await testDb.db.delete(gitAccounts);
+  await testDb.db.delete(aiProviders);
+  while (cleanups.length > 0) await cleanups.pop()?.();
+});
+
+afterAll(async () => {
+  await testDb.stop();
+});
+
+async function git(args: string[], cwd: string): Promise<string> {
+  const { stdout } = await execa("git", args, { cwd });
+  return stdout;
+}
+
+/**
+ * Crea un upstream bare con DUE commit e ritorna l'url + i due sha. Tra i due commit
+ * cambia `src/app.ts` (sostanziale) e, se `noiseOnly`, SOLO `pnpm-lock.yaml` (rumore).
+ */
+async function makeUpstream(opts: { noiseOnly?: boolean } = {}): Promise<{
+  url: string;
+  fromSha: string;
+  toSha: string;
+}> {
+  const root = await mkdtemp(join(tmpdir(), "stubwise-autoupdate-test-"));
+  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  const bare = join(root, "upstream.git");
+  await execa("git", ["init", "--bare", "-b", "main", bare]);
+  const work = join(root, "seed-work");
+  await execa("git", ["init", "-b", "main", work]);
+  await git(["remote", "add", "origin", pathToFileURL(bare).href], work);
+  const author = ["-c", "user.name=Seed", "-c", "user.email=seed@example.com"];
+
+  await writeFile(join(work, "package.json"), JSON.stringify({ name: "demo" }) + "\n");
+  await writeFile(join(work, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+  await execa("git", ["-C", work, "add", "."]);
+  await execa("git", ["-C", work, ...author, "commit", "-m", "seed"]);
+  const fromSha = (await git(["rev-parse", "HEAD"], work)).trim();
+
+  if (opts.noiseOnly) {
+    await writeFile(join(work, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n# bumped\n");
+  } else {
+    await mkdir(join(work, "src"), { recursive: true });
+    await writeFile(join(work, "src", "app.ts"), "export const v = 2;\n");
+  }
+  await execa("git", ["-C", work, "add", "-A"]);
+  await execa("git", [
+    "-C",
+    work,
+    ...author,
+    "commit",
+    "-m",
+    opts.noiseOnly ? "chore: bump lockfile" : "feat: nuova capability app",
+  ]);
+  const toSha = (await git(["rev-parse", "HEAD"], work)).trim();
+
+  await git(["push", "origin", "main"], work);
+  return { url: pathToFileURL(bare).href, fromSha, toSha };
+}
+
+async function makeMirrors(): Promise<MirrorManager> {
+  const root = await mkdtemp(join(tmpdir(), "stubwise-autoupdate-mirrors-"));
+  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  return new MirrorManager({ mirrorsDir: join(root, "mirrors") });
+}
+
+async function createProject(
+  db: Db,
+  repoUrl: string,
+  opts: { providerId?: string | null } = {},
+): Promise<string> {
+  uniq++;
+  const gitAccountId = await seedGitAccount(db, {
+    provider: "github",
+    encryptedCredentials: encrypt(JSON.stringify({ token: "tok" }), ENCRYPTION_KEY),
+  });
+  const [project] = await db
+    .insert(projects)
+    .values({
+      name: `Docs ${uniq}`,
+      slug: `docs-${uniq}`,
+      provider: "github",
+      gitAccountId,
+      repoUrl,
+      defaultBranch: "main",
+      ingestionKey: `ingestion-au-${uniq}`,
+      docAutoUpdate: true,
+      ...(opts.providerId !== undefined ? { docAutoUpdateProviderId: opts.providerId } : {}),
+    })
+    .returning();
+  if (!project) throw new Error("insert del progetto non ha restituito la riga");
+  return project.id;
+}
+
+/** Crea una generazione corrente + una pagina, e la collega come currentDocGenerationId. */
+async function seedCurrentGeneration(
+  db: Db,
+  projectId: string,
+  commitSha: string,
+): Promise<{ generationId: string; pageSlug: string }> {
+  const [gen] = await db
+    .insert(docGenerations)
+    .values({ projectId, status: "succeeded", model: "opus", commitSha })
+    .returning();
+  const generationId = gen!.id;
+  await db.insert(docPages).values({
+    projectId,
+    generationId,
+    kind: "technical",
+    slug: "app-module",
+    title: "App Module",
+    sourcePath: "src",
+    body: "La pagina del modulo app.",
+  });
+  await db.update(projects).set({ currentDocGenerationId: generationId }).where(eq(projects.id, projectId));
+  return { generationId, pageSlug: "app-module" };
+}
+
+const SIGNIFICANT_OUTPUT = [
+  RELEASE_START_MARKER,
+  "SIGNIFICANT: true",
+  "TITLE: Nuova capability app",
+  RELEASE_SLUGS_START_MARKER,
+  "- app-module",
+  "- inesistente-slug",
+  RELEASE_SLUGS_END_MARKER,
+  RELEASE_BODY_START_MARKER,
+  "## Aggiunto\n- nuova capability nell'app",
+  RELEASE_BODY_END_MARKER,
+  RELEASE_END_MARKER,
+].join("\n");
+
+const MINOR_OUTPUT = [
+  RELEASE_START_MARKER,
+  "SIGNIFICANT: false",
+  "TITLE: Refactor interno",
+  RELEASE_SLUGS_START_MARKER,
+  RELEASE_SLUGS_END_MARKER,
+  RELEASE_BODY_START_MARKER,
+  "Refactor senza impatto utente.",
+  RELEASE_BODY_END_MARKER,
+  RELEASE_END_MARKER,
+].join("\n");
+
+function baseDeps(db: Db, mirrors: MirrorManager, runner: FakeAgentRunner): RunAutoUpdateDeps {
+  return {
+    db,
+    mirrors,
+    runner,
+    encryptionKey: ENCRYPTION_KEY,
+    model: "opus",
+    agentTimeoutMs: 600_000,
+    maxTurns: 30,
+    // Catena vuota di default: provider undefined (auth storica). I test che vogliono
+    // un provider bloccato passano docAutoUpdateProviderId + un loadProviderByIdFn fake.
+    loadProviderChainFn: async () => [],
+  };
+}
+
+describe("isNoise", () => {
+  it("riconosce lockfile e cartelle di processo, non i file di prodotto", () => {
+    expect(isNoise("pnpm-lock.yaml")).toBe(true);
+    expect(isNoise("apps/web/package-lock.json")).toBe(true);
+    expect(isNoise("plans/2026-x.md")).toBe(true);
+    expect(isNoise("docs/foo.md")).toBe(true);
+    expect(isNoise(".github/workflows/ci.yml")).toBe(true);
+    expect(isNoise("src/app.ts")).toBe(false);
+    expect(isNoise("apps/server/src/routes/x.ts")).toBe(false);
+  });
+});
+
+describe("runAutoUpdate", () => {
+  it("diff di solo rumore → nessuna entry release, agente NON invocato", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream({ noiseOnly: true });
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, upstream.url);
+
+    const runner = new FakeAgentRunner({ script: () => ({ output: SIGNIFICANT_OUTPUT, exitCode: 0 }) });
+    await runAutoUpdate(baseDeps(db, mirrors, runner), {
+      id: "job-1",
+      projectId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    expect(runner.calls).toHaveLength(0);
+    const pages = await db.select().from(docPages).where(eq(docPages.projectId, projectId));
+    expect(pages).toHaveLength(0);
+  });
+
+  it("diff sostanziale → crea UNA pagina releases persistente, aggiorna commitSha", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, upstream.url);
+    const { generationId } = await seedCurrentGeneration(db, projectId, upstream.fromSha);
+
+    const runner = new FakeAgentRunner({ script: () => ({ output: SIGNIFICANT_OUTPUT, exitCode: 0 }) });
+    await runAutoUpdate(baseDeps(db, mirrors, runner), {
+      id: "job-2",
+      projectId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    // Agente invocato read-only.
+    expect(runner.calls).toHaveLength(1);
+    expect(runner.calls[0]?.permissionMode).toBe("plan");
+    expect(runner.calls[0]?.model).toBe("opus");
+    // Il prompt ha ricevuto il file sostanziale e la pagina esistente.
+    expect(runner.calls[0]?.prompt).toContain("src/app.ts");
+    expect(runner.calls[0]?.prompt).toContain("app-module");
+
+    // UNA pagina releases persistente (generationId null).
+    const releases = await db
+      .select()
+      .from(docPages)
+      .where(and(eq(docPages.projectId, projectId), eq(docPages.kind, "releases")));
+    expect(releases).toHaveLength(1);
+    const page = releases[0]!;
+    expect(page.generationId).toBeNull();
+    expect(page.isManual).toBe(false);
+    expect(page.title).toBe("Nuova capability app");
+    expect(page.body).toContain("nuova capability");
+    expect(page.slug).toMatch(/^release-\d{8}-\d{4}-[0-9a-f]+$/);
+    expect(page.position).toBeLessThan(0);
+    // Cross-link: solo lo slug ESISTENTE, scartato quello inventato.
+    expect(page.links).toEqual([{ type: "related", slug: "app-module", title: "App Module" }]);
+
+    // commitSha della generazione corrente avanzato a toSha.
+    const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.id, generationId));
+    expect(gen?.commitSha).toBe(upstream.toSha);
+  });
+
+  it("agente significant=false → titolo con prefisso [minore]", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, upstream.url);
+
+    const runner = new FakeAgentRunner({ script: () => ({ output: MINOR_OUTPUT, exitCode: 0 }) });
+    await runAutoUpdate(baseDeps(db, mirrors, runner), {
+      id: "job-3",
+      projectId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    const [page] = await db
+      .select()
+      .from(docPages)
+      .where(and(eq(docPages.projectId, projectId), eq(docPages.kind, "releases")));
+    expect(page?.title).toBe("[minore] Refactor interno");
+    expect(page?.links).toBeNull();
+  });
+
+  it("provider auto impostato ma non risolvibile → nessuna entry, nessun crash", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    // Un provider reale (FK valida) impostato sul progetto, ma reso "non risolvibile" al
+    // run (es. disabilitato/cancellato) iniettando un loadProviderById che ritorna null.
+    const [provider] = await db
+      .insert(aiProviders)
+      .values({
+        label: "Auto",
+        kind: "api_key",
+        secretEncrypted: encrypt("sk-auto", ENCRYPTION_KEY),
+        enabled: true,
+        position: 0,
+      })
+      .returning();
+    const projectId = await createProject(db, upstream.url, { providerId: provider!.id });
+
+    const runner = new FakeAgentRunner({ script: () => ({ output: SIGNIFICANT_OUTPUT, exitCode: 0 }) });
+    await runAutoUpdate(
+      { ...baseDeps(db, mirrors, runner), loadProviderByIdFn: async () => null },
+      { id: "job-4", projectId, fromSha: upstream.fromSha, toSha: upstream.toSha },
+    );
+
+    // Agente NON invocato, nessuna entry.
+    expect(runner.calls).toHaveLength(0);
+    const pages = await db.select().from(docPages).where(eq(docPages.projectId, projectId));
+    expect(pages).toHaveLength(0);
+  });
+
+  it("sha non raggiungibile → log e termina (best-effort), nessuna entry", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, upstream.url);
+
+    const runner = new FakeAgentRunner({ script: () => ({ output: SIGNIFICANT_OUTPUT, exitCode: 0 }) });
+    await runAutoUpdate(baseDeps(db, mirrors, runner), {
+      id: "job-5",
+      projectId,
+      fromSha: "0".repeat(40),
+      toSha: upstream.toSha,
+    });
+
+    expect(runner.calls).toHaveLength(0);
+    const pages = await db.select().from(docPages).where(eq(docPages.projectId, projectId));
+    expect(pages).toHaveLength(0);
+  });
+});
+
+describe("pollAutoUpdateOnce", () => {
+  it("reclama solo i pending scaduti (not_before <= now), non quelli futuri, e li rimuove", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, upstream.url);
+
+    // Un pending scaduto (not_before nel passato).
+    await db.insert(docAutoUpdateJobs).values({
+      projectId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+      notBefore: new Date(Date.now() - 60_000),
+    });
+
+    const runner = new FakeAgentRunner({ script: () => ({ output: SIGNIFICANT_OUTPUT, exitCode: 0 }) });
+    const serializer = createProjectSerializer();
+    const claimed = await pollAutoUpdateOnce({
+      ...baseDeps(db, mirrors, runner),
+      serializer,
+    });
+    expect(claimed).toBe(1);
+
+    // Pending rimosso (reclamato), entry creata.
+    const remaining = await db.select().from(docAutoUpdateJobs);
+    expect(remaining).toHaveLength(0);
+    const releases = await db
+      .select()
+      .from(docPages)
+      .where(and(eq(docPages.projectId, projectId), eq(docPages.kind, "releases")));
+    expect(releases).toHaveLength(1);
+  });
+
+  it("NON reclama un pending con not_before futuro", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, upstream.url);
+
+    await db.insert(docAutoUpdateJobs).values({
+      projectId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+      notBefore: new Date(Date.now() + 5 * 60_000),
+    });
+
+    const runner = new FakeAgentRunner({ script: () => ({ output: SIGNIFICANT_OUTPUT, exitCode: 0 }) });
+    const claimed = await pollAutoUpdateOnce({
+      ...baseDeps(db, mirrors, runner),
+      serializer: createProjectSerializer(),
+    });
+    expect(claimed).toBe(0);
+    expect(runner.calls).toHaveLength(0);
+    // Pending ancora presente (non reclamato).
+    const remaining = await db
+      .select()
+      .from(docAutoUpdateJobs)
+      .where(eq(docAutoUpdateJobs.projectId, projectId));
+    expect(remaining).toHaveLength(1);
+  });
+});
