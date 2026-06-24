@@ -191,6 +191,102 @@ describe("GitHubProvider.parseWebhook", () => {
   });
 });
 
+describe("GitHubProvider.parsePushEvent", () => {
+  const provider = new GitHubProvider();
+  const pushBody = {
+    ref: "refs/heads/main",
+    before: "a".repeat(40),
+    after: "b".repeat(40),
+    commits: [
+      { id: "c".repeat(40), message: "first commit" },
+      { id: "d".repeat(40), message: "second commit" },
+    ],
+  };
+
+  it("recognizes a branch push and maps branch, before/after and commits", () => {
+    const event = provider.parsePushEvent({ "X-GitHub-Event": "push" }, pushBody);
+    expect(event).toEqual({
+      branch: "main",
+      beforeSha: "a".repeat(40),
+      afterSha: "b".repeat(40),
+      commits: [
+        { sha: "c".repeat(40), message: "first commit" },
+        { sha: "d".repeat(40), message: "second commit" },
+      ],
+    });
+  });
+
+  it("matches the event header case-insensitively and strips refs/heads/ on nested branches", () => {
+    const event = provider.parsePushEvent(
+      { "x-github-event": "push" },
+      { ...pushBody, ref: "refs/heads/feature/x" }
+    );
+    expect(event?.branch).toBe("feature/x");
+  });
+
+  it("treats a new branch (before = 0*40) correctly", () => {
+    const event = provider.parsePushEvent(
+      { "x-github-event": "push" },
+      { ...pushBody, before: "0".repeat(40) }
+    );
+    expect(event?.beforeSha).toBe("0".repeat(40));
+  });
+
+  it("defaults commits to [] when absent or malformed", () => {
+    expect(
+      provider.parsePushEvent({ "x-github-event": "push" }, { ref: "refs/heads/main", before: "a", after: "b" })
+        ?.commits
+    ).toEqual([]);
+    expect(
+      provider.parsePushEvent(
+        { "x-github-event": "push" },
+        { ref: "refs/heads/main", before: "a", after: "b", commits: [{ id: 1 }, { message: "no id" }, "x"] }
+      )?.commits
+    ).toEqual([]);
+  });
+
+  it("returns null for tag pushes (refs/tags/...)", () => {
+    expect(
+      provider.parsePushEvent({ "x-github-event": "push" }, { ...pushBody, ref: "refs/tags/v1.0.0" })
+    ).toBeNull();
+  });
+
+  it("returns null when the event header is not push (a PR is not a push)", () => {
+    const prBody = {
+      action: "closed",
+      pull_request: {
+        merged: true,
+        head: { ref: "stubwise/fix-1" },
+        html_url: "https://github.com/octo/repo/pull/42",
+      },
+    };
+    expect(provider.parsePushEvent({ "x-github-event": "pull_request" }, prBody)).toBeNull();
+    expect(provider.parsePushEvent({}, pushBody)).toBeNull();
+  });
+
+  it("returns null (does not throw) on malformed bodies", () => {
+    const headers = { "x-github-event": "push" };
+    expect(provider.parsePushEvent(headers, null)).toBeNull();
+    expect(provider.parsePushEvent(headers, 42)).toBeNull();
+    expect(provider.parsePushEvent(headers, { before: "a", after: "b" })).toBeNull();
+    expect(provider.parsePushEvent(headers, { ref: "refs/heads/main", before: "a" })).toBeNull();
+    expect(provider.parsePushEvent(headers, { ref: 7, before: "a", after: "b" })).toBeNull();
+  });
+
+  it("cross-check: a PR webhook stays a PR — parseWebhook parses it, parsePushEvent does not", () => {
+    const prBody = {
+      action: "closed",
+      pull_request: {
+        merged: true,
+        head: { ref: "stubwise/fix-1" },
+        html_url: "https://github.com/octo/repo/pull/42",
+      },
+    };
+    expect(provider.parseWebhook({ "x-github-event": "pull_request" }, prBody)).not.toBeNull();
+    expect(provider.parsePushEvent({ "x-github-event": "pull_request" }, prBody)).toBeNull();
+  });
+});
+
 describe("GitHubProvider.validateCredentials", () => {
   const GIT_URL = "https://github.com/octo/repo.git/info/refs?service=git-receive-pack";
   const REST_URL = "https://api.github.com/repos/octo/repo";

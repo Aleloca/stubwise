@@ -15,6 +15,7 @@ import {
   type GitProvider,
   type GitProviderOptions,
   type ProjectGitConfig,
+  type PushWebhookEvent,
   type RepoSummary,
   type WebhookEvent,
   type WebhookResult,
@@ -118,6 +119,38 @@ export class BitbucketProvider implements GitProvider {
     const prUrl = pr.links?.html?.href;
     if (typeof branch !== "string" || typeof prUrl !== "string") return null;
     return { kind, provider: "bitbucket", branch, prUrl };
+  }
+
+  parsePushEvent(headers: Record<string, string>, body: unknown): PushWebhookEvent | null {
+    if (getHeader(headers, "x-event-key") !== "repo:push") return null;
+    if (typeof body !== "object" || body === null) return null;
+    const changes = (body as { push?: { changes?: unknown } }).push?.changes;
+    if (!Array.isArray(changes)) return null;
+    // Solo i change che riguardano un branch (new.type === "branch"): i tag e i
+    // delete (new === null) non interessano.
+    for (const raw of changes) {
+      if (typeof raw !== "object" || raw === null) continue;
+      const change = raw as {
+        old?: { target?: { hash?: unknown } };
+        new?: { type?: unknown; name?: unknown; target?: { hash?: unknown } };
+        commits?: unknown;
+      };
+      const next = change.new;
+      if (!next || next.type !== "branch") continue;
+      if (typeof next.name !== "string" || typeof next.target?.hash !== "string") continue;
+      const beforeSha =
+        typeof change.old?.target?.hash === "string" ? change.old.target.hash : "0".repeat(40);
+      const commits = Array.isArray(change.commits)
+        ? change.commits.flatMap((c) => {
+            if (typeof c !== "object" || c === null) return [];
+            const commit = c as { hash?: unknown; message?: unknown };
+            if (typeof commit.hash !== "string" || typeof commit.message !== "string") return [];
+            return [{ sha: commit.hash, message: commit.message }];
+          })
+        : [];
+      return { branch: next.name, beforeSha, afterSha: next.target.hash, commits };
+    }
+    return null;
   }
 
   verifyWebhook(headers: Record<string, string>, rawBody: string | Buffer, secret: string): boolean {

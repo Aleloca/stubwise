@@ -78,6 +78,22 @@ export interface WebhookEvent {
 }
 
 /**
+ * Evento di PUSH su un branch estratto da un webhook git. A differenza di
+ * {@link WebhookEvent} (PR chiuse), descrive un push diretto su un branch:
+ * serve all'auto-aggiornamento Docs quando il branch di default avanza.
+ */
+export interface PushWebhookEvent {
+  /** Nome del branch (es. "main"), senza il prefisso "refs/heads/". */
+  branch: string;
+  /** Commit precedente; "0".repeat(40) se il branch è appena stato creato. */
+  beforeSha: string;
+  /** Nuovo HEAD del branch dopo il push. */
+  afterSha: string;
+  /** Commit inclusi nel push, dal più vecchio al più recente come li espone il provider. */
+  commits: { sha: string; message: string }[];
+}
+
+/**
  * Esito di una singola sonda di validazione delle credenziali. `name` è
  * l'etichetta umana del controllo (es. "Accesso git (push)"), `ok` dice se è
  * passato, `detail` è un messaggio in italiano comprensibile all'utente.
@@ -145,6 +161,13 @@ export interface GitProvider {
    * input. Does NOT verify the signature — call verifyWebhook first.
    */
   parseWebhook(headers: Record<string, string>, body: unknown): WebhookEvent | null;
+  /**
+   * Returns a PushWebhookEvent if the webhook payload represents a push to a
+   * branch, otherwise null (PR events, tag pushes, branch deletes, malformed
+   * bodies). Never throws on malformed input. Does NOT verify the signature —
+   * call verifyWebhook first.
+   */
+  parsePushEvent(headers: Record<string, string>, body: unknown): PushWebhookEvent | null;
   /**
    * Verifies the webhook HMAC-SHA256 signature against the RAW body.
    * Returns false if the signature header is missing or invalid.

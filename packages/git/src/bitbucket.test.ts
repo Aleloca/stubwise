@@ -239,6 +239,121 @@ describe("BitbucketProvider.parseWebhook", () => {
   });
 });
 
+describe("BitbucketProvider.parsePushEvent", () => {
+  const provider = new BitbucketProvider();
+  const pushBody = {
+    push: {
+      changes: [
+        {
+          old: { target: { hash: "a".repeat(40) } },
+          new: { type: "branch", name: "main", target: { hash: "b".repeat(40) } },
+          commits: [
+            { hash: "c".repeat(40), message: "first commit" },
+            { hash: "d".repeat(40), message: "second commit" },
+          ],
+        },
+      ],
+    },
+  };
+
+  it("recognizes repo:push on a branch and maps branch, before/after and commits", () => {
+    const event = provider.parsePushEvent({ "X-Event-Key": "repo:push" }, pushBody);
+    expect(event).toEqual({
+      branch: "main",
+      beforeSha: "a".repeat(40),
+      afterSha: "b".repeat(40),
+      commits: [
+        { sha: "c".repeat(40), message: "first commit" },
+        { sha: "d".repeat(40), message: "second commit" },
+      ],
+    });
+  });
+
+  it("matches the event header case-insensitively", () => {
+    expect(provider.parsePushEvent({ "x-event-key": "repo:push" }, pushBody)).not.toBeNull();
+  });
+
+  it("uses 0*40 as beforeSha when old is absent (new branch)", () => {
+    const body = {
+      push: {
+        changes: [
+          { new: { type: "branch", name: "feature/x", target: { hash: "b".repeat(40) } }, commits: [] },
+        ],
+      },
+    };
+    const event = provider.parsePushEvent({ "x-event-key": "repo:push" }, body);
+    expect(event).toEqual({
+      branch: "feature/x",
+      beforeSha: "0".repeat(40),
+      afterSha: "b".repeat(40),
+      commits: [],
+    });
+  });
+
+  it("picks the first branch change, skipping non-branch (tag) changes", () => {
+    const body = {
+      push: {
+        changes: [
+          { new: { type: "tag", name: "v1.0.0", target: { hash: "f".repeat(40) } } },
+          {
+            old: { target: { hash: "a".repeat(40) } },
+            new: { type: "branch", name: "main", target: { hash: "b".repeat(40) } },
+          },
+        ],
+      },
+    };
+    const event = provider.parsePushEvent({ "x-event-key": "repo:push" }, body);
+    expect(event?.branch).toBe("main");
+    expect(event?.commits).toEqual([]);
+  });
+
+  it("returns null for a tag-only push (no branch change)", () => {
+    const body = {
+      push: { changes: [{ new: { type: "tag", name: "v1.0.0", target: { hash: "f".repeat(40) } } }] },
+    };
+    expect(provider.parsePushEvent({ "x-event-key": "repo:push" }, body)).toBeNull();
+  });
+
+  it("returns null for a branch delete (new === null)", () => {
+    const body = { push: { changes: [{ old: { target: { hash: "a".repeat(40) } }, new: null }] } };
+    expect(provider.parsePushEvent({ "x-event-key": "repo:push" }, body)).toBeNull();
+  });
+
+  it("returns null when the event key is not repo:push (a PR is not a push)", () => {
+    const prBody = {
+      pullrequest: {
+        source: { branch: { name: "stubwise/fix-1" } },
+        links: { html: { href: "https://bitbucket.org/myws/myrepo/pull-requests/7" } },
+      },
+    };
+    expect(provider.parsePushEvent({ "x-event-key": "pullrequest:fulfilled" }, prBody)).toBeNull();
+    expect(provider.parsePushEvent({}, pushBody)).toBeNull();
+  });
+
+  it("returns null (does not throw) on malformed bodies", () => {
+    const headers = { "x-event-key": "repo:push" };
+    expect(provider.parsePushEvent(headers, null)).toBeNull();
+    expect(provider.parsePushEvent(headers, "garbage")).toBeNull();
+    expect(provider.parsePushEvent(headers, {})).toBeNull();
+    expect(provider.parsePushEvent(headers, { push: {} })).toBeNull();
+    expect(provider.parsePushEvent(headers, { push: { changes: [] } })).toBeNull();
+    expect(
+      provider.parsePushEvent(headers, { push: { changes: [{ new: { type: "branch", name: "main" } }] } })
+    ).toBeNull();
+  });
+
+  it("cross-check: a PR webhook stays a PR — parseWebhook parses it, parsePushEvent does not", () => {
+    const prBody = {
+      pullrequest: {
+        source: { branch: { name: "stubwise/fix-1" } },
+        links: { html: { href: "https://bitbucket.org/myws/myrepo/pull-requests/7" } },
+      },
+    };
+    expect(provider.parseWebhook({ "x-event-key": "pullrequest:fulfilled" }, prBody)).not.toBeNull();
+    expect(provider.parsePushEvent({ "x-event-key": "pullrequest:fulfilled" }, prBody)).toBeNull();
+  });
+});
+
 describe("BitbucketProvider.validateCredentials", () => {
   const apiConfig: ProjectGitConfig = {
     repoUrl: "https://bitbucket.org/myws/myrepo",

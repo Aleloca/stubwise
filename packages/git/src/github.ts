@@ -16,6 +16,7 @@ import {
   type GitProvider,
   type GitProviderOptions,
   type ProjectGitConfig,
+  type PushWebhookEvent,
   type RepoSummary,
   type WebhookEvent,
   type WebhookResult,
@@ -92,6 +93,28 @@ export class GitHubProvider implements GitProvider {
     if (typeof branch !== "string" || typeof prUrl !== "string") return null;
     const kind = pr.merged === true ? "merged" : "closed_unmerged";
     return { kind, provider: "github", branch, prUrl };
+  }
+
+  parsePushEvent(headers: Record<string, string>, body: unknown): PushWebhookEvent | null {
+    if (getHeader(headers, "x-github-event") !== "push") return null;
+    if (typeof body !== "object" || body === null) return null;
+    const payload = body as { ref?: unknown; before?: unknown; after?: unknown; commits?: unknown };
+    if (typeof payload.ref !== "string") return null;
+    const prefix = "refs/heads/";
+    // Solo i push di branch: i tag (refs/tags/...) e altri ref non interessano.
+    if (!payload.ref.startsWith(prefix)) return null;
+    const branch = payload.ref.slice(prefix.length);
+    if (branch.length === 0) return null;
+    if (typeof payload.before !== "string" || typeof payload.after !== "string") return null;
+    const commits = Array.isArray(payload.commits)
+      ? payload.commits.flatMap((c) => {
+          if (typeof c !== "object" || c === null) return [];
+          const commit = c as { id?: unknown; message?: unknown };
+          if (typeof commit.id !== "string" || typeof commit.message !== "string") return [];
+          return [{ sha: commit.id, message: commit.message }];
+        })
+      : [];
+    return { branch, beforeSha: payload.before, afterSha: payload.after, commits };
   }
 
   verifyWebhook(headers: Record<string, string>, rawBody: string | Buffer, secret: string): boolean {
