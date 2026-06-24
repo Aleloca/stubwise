@@ -925,10 +925,6 @@
       "error": "Could not start generation."
     },
     "search": {
-      "label": "Search docs",
-      "placeholder": "Search documentation…",
-      "noResults": "No results",
-      "noResultsHint": "Try a different query.",
       "kindTechnical": "technical",
       "kindFunctional": "functional",
       "kindManual": "manual"

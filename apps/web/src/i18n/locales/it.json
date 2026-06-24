@@ -925,10 +925,6 @@
       "error": "Impossibile avviare la generazione."
     },
     "search": {
-      "label": "Cerca nei docs",
-      "placeholder": "Cerca nella documentazione…",
-      "noResults": "Nessun risultato",
-      "noResultsHint": "Prova una query diversa.",
       "kindTechnical": "tecnico",
       "kindFunctional": "funzionale",
       "kindManual": "manuale"
