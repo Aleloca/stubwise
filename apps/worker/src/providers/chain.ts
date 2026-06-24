@@ -1,5 +1,5 @@
 import { aiProviders, decrypt, type Db } from "@stubwise/db";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 
 /**
  * Credenziale di un provider AI risolta (decifrata) e pronta per l'iniezione
@@ -58,4 +58,34 @@ export async function loadProviderChain(
     chain.push({ id: row.id, kind: row.kind, secret });
   }
   return chain;
+}
+
+/**
+ * Risolve UN provider specifico per id, solo se `enabled`. Ritorna null se non
+ * esiste, è disabilitato o il segreto non si decifra. Usato dal "provider
+ * bloccato": niente fallback, se torna null il chiamante fallisce.
+ */
+export async function loadProviderById(
+  db: Db,
+  encryptionKey: Buffer,
+  id: string,
+): Promise<ResolvedProvider | null> {
+  const [row] = await db
+    .select({
+      id: aiProviders.id,
+      kind: aiProviders.kind,
+      label: aiProviders.label,
+      secretEncrypted: aiProviders.secretEncrypted,
+    })
+    .from(aiProviders)
+    .where(and(eq(aiProviders.id, id), eq(aiProviders.enabled, true)));
+  if (!row) return null;
+  try {
+    return { id: row.id, kind: row.kind, secret: decrypt(row.secretEncrypted, encryptionKey) };
+  } catch {
+    console.error(
+      `[stubwise-worker] provider AI '${row.label}' (${row.id}) scartato: segreto non decifrabile`,
+    );
+    return null;
+  }
 }

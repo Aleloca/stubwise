@@ -1,8 +1,8 @@
 import { aiProviders, encrypt, type Db } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { loadProviderChain } from "./chain.js";
+import { loadProviderById, loadProviderChain } from "./chain.js";
 
 // loadProviderChain legge ai_providers ABILITATI, ordinati per position, e
 // decifra il segreto di ciascuno. Una voce non decifrabile viene scartata
@@ -102,5 +102,61 @@ describe("loadProviderChain", () => {
     const { db } = testDb;
     const chain = await loadProviderChain(db, ENCRYPTION_KEY);
     expect(chain).toEqual([]);
+  });
+});
+
+describe("loadProviderById", () => {
+  it("risolve un provider abilitato col segreto decifrato", async () => {
+    const { db } = testDb;
+    const id = await seedProvider(db, {
+      position: 1,
+      kind: "api_key",
+      label: "bloccato",
+      secret: "sk-ant-pinned",
+    });
+
+    const provider = await loadProviderById(db, ENCRYPTION_KEY, id);
+
+    expect(provider).toEqual({ id, kind: "api_key", secret: "sk-ant-pinned" });
+  });
+
+  it("ritorna null per un provider disabilitato", async () => {
+    const { db } = testDb;
+    const id = await seedProvider(db, {
+      position: 1,
+      kind: "api_key",
+      label: "off",
+      secret: "x",
+      enabled: false,
+    });
+
+    const provider = await loadProviderById(db, ENCRYPTION_KEY, id);
+
+    expect(provider).toBeNull();
+  });
+
+  it("ritorna null per un id inesistente", async () => {
+    const { db } = testDb;
+    const provider = await loadProviderById(
+      db,
+      ENCRYPTION_KEY,
+      randomUUID(),
+    );
+    expect(provider).toBeNull();
+  });
+
+  it("ritorna null se il segreto non si decifra", async () => {
+    const { db } = testDb;
+    // Cifrato con un'ALTRA chiave → non decifrabile con ENCRYPTION_KEY.
+    const id = await seedProvider(db, {
+      position: 1,
+      kind: "account",
+      label: "corrotta",
+      secretEncrypted: encrypt("oauth-altrove", randomBytes(32)),
+    });
+
+    const provider = await loadProviderById(db, ENCRYPTION_KEY, id);
+
+    expect(provider).toBeNull();
   });
 });
