@@ -2,11 +2,18 @@ import { z } from "zod";
 
 /**
  * Tipo di pagina di documentazione: "technical" (registro tecnico/dev),
- * "functional" (registro funzionale/business) — entrambi autogenerati — o
- * "manual" (pagina curata a mano, non toccata dalla rigenerazione). Fonte di
- * verità condivisa tra db (enum `doc_page_kind`), server (validazione) e web.
+ * "functional" (registro funzionale/business) — entrambi autogenerati —,
+ * "manual" (pagina curata a mano, non toccata dalla rigenerazione) o
+ * "releases" (changelog/note di rilascio aggiornate in automatico ai push).
+ * Fonte di verità condivisa tra db (enum `doc_page_kind`), server
+ * (validazione) e web.
  */
-export const docPageKindSchema = z.enum(["technical", "functional", "manual"]);
+export const docPageKindSchema = z.enum([
+  "technical",
+  "functional",
+  "manual",
+  "releases",
+]);
 export type DocPageKind = z.infer<typeof docPageKindSchema>;
 
 /**

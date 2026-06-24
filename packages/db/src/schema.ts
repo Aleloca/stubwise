@@ -269,6 +269,16 @@ export const projects = pgTable("projects", {
   // hard (projects↔doc_generations) per evitare problemi d'ordine in migrazione:
   // l'integrità è validata a livello applicativo. Null = nessuna doc generata.
   currentDocGenerationId: uuid("current_doc_generation_id"),
+  // Aggiornamento automatico della documentazione ai push (changelog/release):
+  // false = disattivo (i push non innescano nulla). Toggle per-progetto.
+  docAutoUpdate: boolean("doc_auto_update").notNull().default(false),
+  // Provider AI da usare per l'auto-aggiornamento docs; null = automatico (primo
+  // abilitato al momento dell'esecuzione). ON DELETE SET NULL: rimuovere il
+  // provider non blocca il progetto, ricade sull'automatico.
+  docAutoUpdateProviderId: uuid("doc_auto_update_provider_id").references(
+    () => aiProviders.id,
+    { onDelete: "set null" },
+  ),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -882,6 +892,39 @@ export const docGenerations = pgTable(
   },
   // Le generazioni si elencano sempre per progetto (storico, prune).
   (table) => [index("doc_generations_project_idx").on(table.projectId)],
+);
+
+/**
+ * Coda di debounce per l'auto-aggiornamento docs ai push. Un solo job pending
+ * per progetto (unique su `project_id`): il webhook fa upsert accumulando i
+ * push ravvicinati invece di accodarne uno per ciascuno. `fromSha` è il commit
+ * fino a cui la documentazione è ferma (base del diff), `toSha` la head
+ * dell'ultimo push accumulato; un nuovo push aggiorna solo `toSha`/`notBefore`
+ * lasciando `fromSha` invariato. `notBefore` è l'istante prima del quale il
+ * poller del worker non reclama il job (finestra di debounce): ogni push lo
+ * sposta in avanti, così il lavoro parte solo quando i push si fermano.
+ */
+export const docAutoUpdateJobs = pgTable(
+  "doc_auto_update_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    // Commit da cui calcolare il diff: la documentazione è ferma qui.
+    fromSha: text("from_sha").notNull(),
+    // Head dell'ultimo push accumulato: la documentazione va portata fin qui.
+    toSha: text("to_sha").notNull(),
+    // Il poller del worker reclama il job solo quando questo istante è scaduto.
+    notBefore: timestamp("not_before", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  // Un solo job pending per progetto: il webhook fa upsert su questo vincolo.
+  (table) => [uniqueIndex("doc_auto_update_jobs_project_unique").on(table.projectId)],
 );
 
 /**
