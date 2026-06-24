@@ -106,6 +106,8 @@ export function ProjectDetailPage() {
                   gitAccountId: project.gitAccountId,
                   testCommand: project.testCommand,
                   installCommand: project.installCommand,
+                  docAutoUpdate: project.docAutoUpdate,
+                  docAutoUpdateProviderId: project.docAutoUpdateProviderId,
                 }}
                 onSubmit={handleSubmit}
               />

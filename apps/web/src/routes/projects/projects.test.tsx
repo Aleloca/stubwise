@@ -34,11 +34,18 @@ afterEach(() => {
 type Handler = (url: URL, init?: RequestInit) => Response;
 
 function mockApi(handlers: Record<string, Handler>) {
+  // Il form di modifica progetto (admin) legge i provider AI via useSuspenseQuery:
+  // default a lista vuota così i test che non li dichiarano non falliscono; i
+  // singoli test possono sovrascrivere "GET /api/ai-providers".
+  const withDefaults: Record<string, Handler> = {
+    "GET /api/ai-providers": () => jsonResponse(200, []),
+    ...handlers,
+  };
   fetchMock.mockImplementation((input, init) => {
     const raw = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     const url = new URL(raw, "http://test.local");
     const method = init?.method ?? "GET";
-    const handler = handlers[`${method} ${url.pathname}`];
+    const handler = withDefaults[`${method} ${url.pathname}`];
     if (!handler) throw new Error(`fetch non mockata per ${method} ${raw}`);
     return Promise.resolve(handler(url, init));
   });
@@ -74,6 +81,8 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     webhookConfiguredAt: null,
     testCommand: null,
     installCommand: null,
+    docAutoUpdate: false,
+    docAutoUpdateProviderId: null,
     createdAt: "2026-06-01T10:00:00.000Z",
     ...overrides,
   };

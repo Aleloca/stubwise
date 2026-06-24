@@ -779,6 +779,13 @@ export interface Project {
   testCommand: string | null;
   /** Comando di installazione dipendenze custom; null = auto-detect (dal lockfile). */
   installCommand: string | null;
+  /** Se true, ogni push sul branch di default rigenera la documentazione (Docs). */
+  docAutoUpdate: boolean;
+  /**
+   * Provider AI fissato per l'auto-aggiornamento Docs; null = automatico (primo
+   * provider abilitato in ordine di failover).
+   */
+  docAutoUpdateProviderId: string | null;
   createdAt: string;
 }
 
@@ -816,6 +823,10 @@ export interface ProjectPatch {
   testCommand?: string | null;
   /** null = svuota (torna all'auto-detect dal lockfile); assente = invariato. */
   installCommand?: string | null;
+  /** Toggle auto-aggiornamento Docs ai push sul branch di default; assente = invariato. */
+  docAutoUpdate?: boolean;
+  /** Provider AI per l'auto-aggiornamento; null = automatico; assente = invariato. */
+  docAutoUpdateProviderId?: string | null;
 }
 
 export function getProjects(): Promise<Project[]> {

@@ -3,7 +3,7 @@ import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { ProjectPatch } from "../lib/api";
 import { deriveFullName } from "../lib/format";
-import { gitAccountsQueryOptions } from "../lib/queries";
+import { aiProvidersQueryOptions, gitAccountsQueryOptions } from "../lib/queries";
 import { BranchSelect } from "./branch-select";
 import { FormError, SelectField, SubmitButton, TextField } from "./field";
 
@@ -17,6 +17,10 @@ interface ProjectInitialValues {
   testCommand: string | null;
   /** Comando di installazione custom; null = auto-detect (dal lockfile). */
   installCommand: string | null;
+  /** Se true, ogni push sul branch di default rigenera la documentazione. */
+  docAutoUpdate: boolean;
+  /** Provider AI fissato per l'auto-aggiornamento; null = automatico (primo abilitato). */
+  docAutoUpdateProviderId: string | null;
 }
 
 interface ProjectFormProps {
@@ -37,6 +41,12 @@ interface ProjectFormProps {
 export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
   const { t } = useTranslation();
   const { data: accounts } = useSuspenseQuery(gitAccountsQueryOptions);
+  // Provider AI configurati: alimentano il select del provider per l'auto-update.
+  // Il form è admin-only (montato solo per gli admin nel dettaglio progetto),
+  // quindi possiamo leggere l'endpoint admin senza ulteriore gating. Ordinati
+  // per position (failover), mostriamo tutti i provider con label + tipo.
+  const { data: providers } = useSuspenseQuery(aiProvidersQueryOptions);
+  const sortedProviders = [...providers].sort((a, b) => a.position - b.position);
 
   const [name, setName] = useState(initial.name);
   const [repoUrl, setRepoUrl] = useState(initial.repoUrl);
@@ -46,6 +56,12 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
   const [testCommand, setTestCommand] = useState(initial.testCommand ?? "");
   // Comando di installazione come stringa controllata: vuoto = auto-detect (dal lockfile).
   const [installCommand, setInstallCommand] = useState(initial.installCommand ?? "");
+  // Auto-aggiornamento Docs ai push (default off) e provider fissato: "" =
+  // automatico (primo abilitato), id = provider scelto.
+  const [docAutoUpdate, setDocAutoUpdate] = useState(initial.docAutoUpdate);
+  const [docAutoUpdateProviderId, setDocAutoUpdateProviderId] = useState(
+    initial.docAutoUpdateProviderId ?? "",
+  );
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -60,6 +76,8 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
       const nextTestCommand = trimmedTestCommand === "" ? null : trimmedTestCommand;
       const trimmedInstallCommand = installCommand.trim();
       const nextInstallCommand = trimmedInstallCommand === "" ? null : trimmedInstallCommand;
+      // "" = automatico (primo abilitato) → null lato server; altrimenti l'id scelto.
+      const nextProviderId = docAutoUpdateProviderId === "" ? null : docAutoUpdateProviderId;
       await onSubmit({
         name,
         repoUrl,
@@ -74,6 +92,12 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
         // installCommand incluso solo se cambiato (null↔stringa) per un PATCH minimo.
         ...(nextInstallCommand !== (initial.installCommand ?? null) && {
           installCommand: nextInstallCommand,
+        }),
+        // docAutoUpdate incluso solo se cambiato (toggle), per un PATCH minimo.
+        ...(docAutoUpdate !== initial.docAutoUpdate && { docAutoUpdate }),
+        // Provider incluso solo se cambiato (null↔id) per un PATCH minimo.
+        ...(nextProviderId !== (initial.docAutoUpdateProviderId ?? null) && {
+          docAutoUpdateProviderId: nextProviderId,
         }),
       });
     } catch (cause) {
@@ -154,6 +178,53 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
       <p className="-mt-1 font-mono text-[11px] text-fg-faint">
         {t("projects:form.installCommandHint")}
       </p>
+
+      {/*
+        Auto-aggiornamento Docs: toggle (default off) + select opzionale del
+        provider, mostrato solo a toggle attivo. "" = automatico (primo provider
+        abilitato in ordine di failover).
+      */}
+      <div className="flex flex-col gap-1.5 rounded-sm border border-line bg-ink-900 px-3 py-3">
+        <div className="flex items-center gap-2.5">
+          <input
+            id="project-doc-auto-update"
+            type="checkbox"
+            checked={docAutoUpdate}
+            onChange={(event) => setDocAutoUpdate(event.target.checked)}
+            className="h-4 w-4 shrink-0 accent-signal"
+          />
+          <label
+            htmlFor="project-doc-auto-update"
+            className="font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase"
+          >
+            {t("projects:form.docAutoUpdate")}
+          </label>
+        </div>
+        <p className="font-mono text-[11px] text-fg-faint">
+          {t("projects:form.docAutoUpdateHint")}
+        </p>
+
+        {docAutoUpdate && (
+          <div className="mt-1">
+            <SelectField
+              id="project-doc-auto-update-provider"
+              label={t("projects:form.docAutoUpdateProvider")}
+              value={docAutoUpdateProviderId}
+              onChange={(event) => setDocAutoUpdateProviderId(event.target.value)}
+              options={[
+                { value: "", label: t("projects:form.docAutoUpdateProviderAuto") },
+                ...sortedProviders.map((provider) => ({
+                  value: provider.id,
+                  label: `${provider.label} (${provider.kind})`,
+                })),
+              ]}
+            />
+            <p className="mt-1.5 font-mono text-[11px] text-fg-faint">
+              {t("projects:form.docAutoUpdateProviderHint")}
+            </p>
+          </div>
+        )}
+      </div>
 
       <FormError message={error} />
       <SubmitButton pending={pending}>

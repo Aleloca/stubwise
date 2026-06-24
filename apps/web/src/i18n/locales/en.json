@@ -679,6 +679,11 @@
       "testCommandHint": "// empty = auto-detect (package.json test script).",
       "installCommand": "Install command (optional)",
       "installCommandHint": "// empty = auto-detected from the lockfile.",
+      "docAutoUpdate": "Auto-update the documentation on every push",
+      "docAutoUpdateHint": "// regenerates the Docs when a push lands on the default branch.",
+      "docAutoUpdateProvider": "Provider for auto-update",
+      "docAutoUpdateProviderAuto": "Automatic (first enabled)",
+      "docAutoUpdateProviderHint": "// empty = first enabled provider in failover order.",
       "save": "Save changes",
       "saving": "Saving…"
     },
@@ -861,6 +866,7 @@
       "groupTechnical": "Technical",
       "groupFunctional": "Functional",
       "groupManual": "Manual",
+      "groupReleases": "Releases",
       "groupEmpty": "// empty",
       "selectPage": "Select a page",
       "selectPageHint": "Pick a page from the tree to read its documentation.",
@@ -932,7 +938,8 @@
     "search": {
       "kindTechnical": "technical",
       "kindFunctional": "functional",
-      "kindManual": "manual"
+      "kindManual": "manual",
+      "kindReleases": "release"
     },
     "palette": {
       "trigger": "Search documentation…",

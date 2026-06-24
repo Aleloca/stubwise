@@ -17,13 +17,18 @@ import { CollapsibleSection } from "./collapsible-section";
  * la selezione corrente resta sempre visibile (es. arrivando dalla ricerca).
  */
 
-/** Ordine dei gruppi nella sidebar (registri tecnico → funzionale → manuale). */
-const GROUP_ORDER: DocPageKind[] = ["technical", "functional", "manual"];
+/**
+ * Ordine dei gruppi nella sidebar (registri tecnico → funzionale → manuale →
+ * release). Le release stanno in coda: changelog/note di rilascio aggiornate in
+ * automatico ai push.
+ */
+const GROUP_ORDER: DocPageKind[] = ["technical", "functional", "manual", "releases"];
 
 const GROUP_LABEL_KEY: Record<DocPageKind, string> = {
   technical: "docs:space.groupTechnical",
   functional: "docs:space.groupFunctional",
   manual: "docs:space.groupManual",
+  releases: "docs:space.groupReleases",
 };
 
 /** Nodo dell'albero con i figli già risolti (gerarchia + ordinamento). */

@@ -12,9 +12,10 @@ import type { DocTreeNode } from "../lib/docs-api";
 import { DocsTree } from "./docs-tree";
 
 /**
- * Test isolato del solo `DocsTree`: i tre gruppi, l'annidamento per
- * parentId/position e lo stato vuoto. Lo montiamo in un router minimale perché
- * usa `<Link to="/docs/$projectId/$slug">` (serve il contesto della rotta).
+ * Test isolato del solo `DocsTree`: i quattro gruppi (technical/functional/
+ * manual/releases), l'annidamento per parentId/position e lo stato vuoto. Lo
+ * montiamo in un router minimale perché usa `<Link to="/docs/$projectId/$slug">`
+ * (serve il contesto della rotta).
  */
 
 const PROJECT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -46,7 +47,7 @@ function renderTree(nodes: DocTreeNode[]) {
 }
 
 describe("DocsTree", () => {
-  it("rende i tre gruppi con conteggio e annida i figli sotto il parent", async () => {
+  it("rende i quattro gruppi con conteggio e annida i figli sotto il parent", async () => {
     renderTree([
       node({ id: "t1", slug: "tech-overview", title: "Technical overview", kind: "technical" }),
       node({
@@ -67,12 +68,14 @@ describe("DocsTree", () => {
       }),
       node({ id: "f1", slug: "func", title: "Functional page", kind: "functional" }),
       node({ id: "m1", slug: "manual", title: "Manual page", kind: "manual" }),
+      node({ id: "r1", slug: "v1-0", title: "v1.0", kind: "releases" }),
     ]);
 
-    // Tre gruppi con conteggio nel meta.
+    // Quattro gruppi con conteggio nel meta.
     expect(await screen.findByRole("button", { name: /Technical 3/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Functional 1/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Manual 1/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Releases 1/ })).toBeInTheDocument();
 
     // Annidamento: Module A e B sono dentro l'<li> di Technical overview.
     const overviewItem = screen.getByRole("link", { name: "Technical overview" }).closest("li")!;
@@ -83,6 +86,24 @@ describe("DocsTree", () => {
       "Module A",
       "Module B",
     ]);
+  });
+
+  it("una pagina releases compare nel gruppo Releases", async () => {
+    renderTree([
+      node({ id: "t1", slug: "tech", title: "Tech", kind: "technical" }),
+      node({ id: "r1", slug: "v2-0", title: "v2.0 release notes", kind: "releases" }),
+    ]);
+
+    // Il gruppo Releases ha conteggio 1 ed è aperto di default (non vuoto): la
+    // pagina è visibile come link dentro la sua sezione.
+    const releasesGroup = await screen.findByRole("button", { name: /Releases 1/ });
+    expect(releasesGroup).toBeInTheDocument();
+    const releasePage = screen.getByRole("link", { name: "v2.0 release notes" });
+    expect(releasePage).toBeInTheDocument();
+    expect(releasePage).toHaveAttribute(
+      "href",
+      `/docs/${PROJECT_ID}/v2-0`,
+    );
   });
 
   it("annida tre livelli (root → child → grandchild) via parentId", async () => {

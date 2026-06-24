@@ -23,6 +23,8 @@ const projects: Project[] = [
     webhookConfiguredAt: null,
     testCommand: null,
     installCommand: null,
+    docAutoUpdate: false,
+    docAutoUpdateProviderId: null,
     createdAt: "2026-01-01T00:00:00.000Z",
   },
   {
@@ -38,6 +40,8 @@ const projects: Project[] = [
     webhookConfiguredAt: null,
     testCommand: null,
     installCommand: null,
+    docAutoUpdate: false,
+    docAutoUpdateProviderId: null,
     createdAt: "2026-01-02T00:00:00.000Z",
   },
 ];

@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { GitAccount } from "../lib/api";
+import type { AiProvider, GitAccount } from "../lib/api";
 import { ProjectForm } from "./project-form";
 
 /**
@@ -49,6 +49,34 @@ const ACCOUNT_B: GitAccount = {
   createdAt: "2026-06-02T10:00:00.000Z",
 };
 
+const PROVIDER_A: AiProvider = {
+  id: "33333333-3333-4333-8333-333333333333",
+  kind: "api_key",
+  label: "Claude API",
+  position: 0,
+  enabled: true,
+  secretSet: true,
+  createdAt: "2026-06-01T10:00:00.000Z",
+  testStatus: "idle",
+  testRequestedAt: null,
+  testCheckedAt: null,
+  testError: null,
+};
+
+const PROVIDER_B: AiProvider = {
+  id: "44444444-4444-4444-8444-444444444444",
+  kind: "account",
+  label: "Max subscription",
+  position: 1,
+  enabled: false,
+  secretSet: true,
+  createdAt: "2026-06-02T10:00:00.000Z",
+  testStatus: "idle",
+  testRequestedAt: null,
+  testCheckedAt: null,
+  testError: null,
+};
+
 const initial = {
   name: "Demo Shop",
   repoUrl: "https://github.com/acme/demo-shop",
@@ -56,15 +84,24 @@ const initial = {
   gitAccountId: ACCOUNT_A.id,
   testCommand: null,
   installCommand: null,
+  docAutoUpdate: false,
+  docAutoUpdateProviderId: null,
 };
 
 type Handler = (url: URL) => Response;
 
 function mockApi(handlers: Record<string, Handler>) {
+  // Il form legge i provider AII via useSuspenseQuery: forniamo un default così
+  // i test che usano mockApi non devono dichiararlo esplicitamente (lo possono
+  // comunque sovrascrivere passando un handler per /api/ai-providers).
+  const withDefaults: Record<string, Handler> = {
+    "/api/ai-providers": () => jsonResponse(200, [PROVIDER_A, PROVIDER_B]),
+    ...handlers,
+  };
   fetchMock.mockImplementation((input) => {
     const raw = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     const url = new URL(raw, "http://test.local");
-    const handler = handlers[url.pathname];
+    const handler = withDefaults[url.pathname];
     if (!handler) throw new Error(`fetch non mockata per ${raw}`);
     return Promise.resolve(handler(url));
   });
@@ -246,6 +283,82 @@ describe("ProjectForm in modifica", () => {
 
     const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
     expect("testCommand" in payload).toBe(false);
+  });
+
+  it("il select del provider è nascosto finché il toggle auto-update è off", async () => {
+    mockAccounts([ACCOUNT_A]);
+    await renderForm({ onSubmit: vi.fn() });
+
+    // Toggle presente ma spento di default → niente select del provider.
+    expect(
+      screen.getByLabelText("Auto-update the documentation on every push"),
+    ).not.toBeChecked();
+    expect(screen.queryByLabelText("Provider for auto-update")).not.toBeInTheDocument();
+  });
+
+  it("attivando il toggle e scegliendo un provider, il PATCH li include", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockAccounts([ACCOUNT_A]);
+    await renderForm({ onSubmit });
+
+    await user.click(screen.getByLabelText("Auto-update the documentation on every push"));
+    // Il select compare solo a toggle attivo: contiene "Automatico" + i provider.
+    const providerSelect = screen.getByLabelText("Provider for auto-update");
+    await user.selectOptions(providerSelect, PROVIDER_A.id);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.docAutoUpdate).toBe(true);
+    expect(payload.docAutoUpdateProviderId).toBe(PROVIDER_A.id);
+  });
+
+  it("toggle attivo con provider 'Automatico' invia docAutoUpdateProviderId null", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockAccounts([ACCOUNT_A]);
+    await renderForm({ onSubmit });
+
+    await user.click(screen.getByLabelText("Auto-update the documentation on every push"));
+    // Lascia il select su "Automatico" (value="") → null lato server.
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.docAutoUpdate).toBe(true);
+    // Provider invariato (resta automatico): non entra nel PATCH minimo.
+    expect("docAutoUpdateProviderId" in payload).toBe(false);
+  });
+
+  it("prefilla toggle e provider dai valori del progetto", async () => {
+    mockAccounts([ACCOUNT_A]);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectForm
+          initial={{ ...initial, docAutoUpdate: true, docAutoUpdateProviderId: PROVIDER_B.id }}
+          onSubmit={vi.fn() as never}
+        />
+      </QueryClientProvider>,
+    );
+    await screen.findByLabelText("Name");
+
+    expect(
+      screen.getByLabelText("Auto-update the documentation on every push"),
+    ).toBeChecked();
+    expect(await screen.findByLabelText("Provider for auto-update")).toHaveValue(PROVIDER_B.id);
+  });
+
+  it("un toggle/provider invariati NON entrano nel PATCH", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockAccounts([ACCOUNT_A]);
+    await renderForm({ onSubmit });
+
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
+    expect("docAutoUpdate" in payload).toBe(false);
+    expect("docAutoUpdateProviderId" in payload).toBe(false);
   });
 
   it("un rigetto di onSubmit mostra l'errore", async () => {

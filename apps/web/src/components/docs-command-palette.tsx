@@ -27,6 +27,7 @@ const KIND_LABEL_KEY: Record<DocPageKind, string> = {
   technical: "docs:search.kindTechnical",
   functional: "docs:search.kindFunctional",
   manual: "docs:search.kindManual",
+  releases: "docs:search.kindReleases",
 };
 
 /** Soglia minima di caratteri per interrogare la ricerca (come `DocsSearch`). */

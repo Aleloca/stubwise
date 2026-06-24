@@ -679,6 +679,11 @@
       "testCommandHint": "// vuoto = auto-detect (script test del package.json).",
       "installCommand": "Comando di installazione (opzionale)",
       "installCommandHint": "// vuoto = auto-rilevato dal lockfile.",
+      "docAutoUpdate": "Auto-aggiorna la documentazione ad ogni push",
+      "docAutoUpdateHint": "// rigenera i Docs quando arriva un push sul branch di default.",
+      "docAutoUpdateProvider": "Provider per l'auto-aggiornamento",
+      "docAutoUpdateProviderAuto": "Automatico (primo abilitato)",
+      "docAutoUpdateProviderHint": "// vuoto = primo provider abilitato in ordine di failover.",
       "save": "Salva modifiche",
       "saving": "Salvataggio…"
     },
@@ -861,6 +866,7 @@
       "groupTechnical": "Tecnico",
       "groupFunctional": "Funzionale",
       "groupManual": "Manuale",
+      "groupReleases": "Releases",
       "groupEmpty": "// vuoto",
       "selectPage": "Seleziona una pagina",
       "selectPageHint": "Scegli una pagina dall'albero per leggerne la documentazione.",
@@ -932,7 +938,8 @@
     "search": {
       "kindTechnical": "tecnico",
       "kindFunctional": "funzionale",
-      "kindManual": "manuale"
+      "kindManual": "manuale",
+      "kindReleases": "rilascio"
     },
     "palette": {
       "trigger": "Cerca nella documentazione…",
