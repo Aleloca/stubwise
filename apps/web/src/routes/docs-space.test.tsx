@@ -160,10 +160,11 @@ describe("spazio documentazione", () => {
     mockApi(treeHandlers());
     renderApp(`/docs/${PROJECT_ID}`);
 
-    // I tre gruppi.
-    expect(await screen.findByRole("button", { name: /Technical/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Functional/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Manual/ })).toBeInTheDocument();
+    // I tre gruppi (header con conteggio: il regex col numero esclude i chevron
+    // dei nodi, le cui aria-label contengono il titolo es. "Technical overview").
+    expect(await screen.findByRole("button", { name: /Technical \d/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Functional \d/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Manual \d/ })).toBeInTheDocument();
 
     // Le pagine dell'albero (overview tecnica + modulo annidato, funzionale, manuale).
     const overview = screen.getByRole("link", { name: "Technical overview" });

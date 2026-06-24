@@ -108,9 +108,59 @@ describe("DocsTree", () => {
     expect(within(rootItem).getByRole("link", { name: "Child" })).toBe(child);
     const childItem = child.closest("li")!;
     expect(within(childItem).getByRole("link", { name: "Grandchild" })).toBe(grandchild);
-    // Indentazione crescente con la profondità (padding-left per livello).
-    expect(grandchild.style.paddingLeft).not.toBe(child.style.paddingLeft);
-    expect(child.style.paddingLeft).not.toBe(root.style.paddingLeft);
+    // Solo i nodi con figli hanno un toggle di collasso; la foglia no.
+    expect(within(rootItem).getByRole("button", { name: /Root/ })).toBeInTheDocument();
+    expect(within(childItem).getByRole("button", { name: /Child/ })).toBeInTheDocument();
+    const grandchildItem = grandchild.closest("li")!;
+    expect(within(grandchildItem).queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("collassa un padre nascondendone i discendenti e li riespande", async () => {
+    renderTree([
+      node({ id: "l0", slug: "root", title: "Root", kind: "technical" }),
+      node({ id: "l1", slug: "child", title: "Child", kind: "technical", parentId: "l0" }),
+      node({
+        id: "l2",
+        slug: "grandchild",
+        title: "Grandchild",
+        kind: "technical",
+        parentId: "l1",
+      }),
+    ]);
+
+    // Espanso di default: tutti i discendenti sono visibili.
+    expect(await screen.findByRole("link", { name: "Child" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Grandchild" })).toBeInTheDocument();
+
+    // Collasso Root: i discendenti spariscono, Root resta.
+    await userEvent.click(screen.getByRole("button", { name: /Root/ }));
+    expect(screen.queryByRole("link", { name: "Child" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Grandchild" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Root" })).toBeInTheDocument();
+
+    // Riespando Root: i discendenti ricompaiono.
+    await userEvent.click(screen.getByRole("button", { name: /Root/ }));
+    expect(screen.getByRole("link", { name: "Child" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Grandchild" })).toBeInTheDocument();
+  });
+
+  it('"comprimi tutto" collassa tutti i padri del gruppo, "espandi tutto" li riapre', async () => {
+    renderTree([
+      node({ id: "l0", slug: "root", title: "Root", kind: "technical" }),
+      node({ id: "l1", slug: "child", title: "Child", kind: "technical", parentId: "l0" }),
+      node({ id: "s0", slug: "sib", title: "Sibling", kind: "technical", parentId: "l0" }),
+    ]);
+
+    expect(await screen.findByRole("link", { name: "Child" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /Comprimi tutto|Collapse all/ }));
+    expect(screen.queryByRole("link", { name: "Child" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Sibling" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Root" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /Espandi tutto|Expand all/ }));
+    expect(screen.getByRole("link", { name: "Child" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Sibling" })).toBeInTheDocument();
   });
 
   it("gruppo vuoto: mostra il placeholder vuoto", async () => {

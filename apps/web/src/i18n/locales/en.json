@@ -876,7 +876,11 @@
       "index": "Index",
       "indexLabel": "Documentation index",
       "chat": "Chat",
-      "subbarLabel": "Documentation toolbar"
+      "subbarLabel": "Documentation toolbar",
+      "collapse": "Collapse “{{title}}”",
+      "expand": "Expand “{{title}}”",
+      "collapseAll": "Collapse all",
+      "expandAll": "Expand all"
     },
     "manual": {
       "newPage": "New manual page",

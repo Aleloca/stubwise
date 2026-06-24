@@ -876,7 +876,11 @@
       "index": "Indice",
       "indexLabel": "Indice documentazione",
       "chat": "Chat",
-      "subbarLabel": "Barra strumenti documentazione"
+      "subbarLabel": "Barra strumenti documentazione",
+      "collapse": "Comprimi «{{title}}»",
+      "expand": "Espandi «{{title}}»",
+      "collapseAll": "Comprimi tutto",
+      "expandAll": "Espandi tutto"
     },
     "manual": {
       "newPage": "Nuova pagina manuale",
