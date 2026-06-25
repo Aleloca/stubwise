@@ -20,6 +20,7 @@ import {
   DOCS_QUERY_CALLBACK_ID,
 } from "./docs-modal.js";
 import { loadSlackCreds, defaultSlackClientFactory, type SlackClientFactory } from "./creds.js";
+import { mrkdwnSections } from "./mrkdwn.js";
 import { verifySlackSignature } from "./verify.js";
 
 /**
@@ -211,12 +212,14 @@ async function answerAndPostToSlack(
       { projectId: input.projectId, question: input.question },
     );
 
-    // Risposta come blocco mrkdwn: il markdown del modello passa così com'è
-    // (Slack ne rende un sottoinsieme). I link cliccabili sono nei blocchi
-    // dedicati alle fonti.
-    const blocks: unknown[] = [
-      { type: "section", text: { type: "mrkdwn", text: text || "(nessuna risposta)" } },
-    ];
+    // Risposta: il markdown del modello viene CONVERTITO nel mrkdwn di Slack
+    // (heading/grassetto/bullet/link), poi spezzato in blocchi sotto il limite
+    // di 3000 char per `section`. I link delle fonti sono nel blocco context.
+    const sections = mrkdwnSections(text);
+    const blocks: unknown[] =
+      sections.length > 0
+        ? sections.map((s) => ({ type: "section", text: { type: "mrkdwn", text: s } }))
+        : [{ type: "section", text: { type: "mrkdwn", text: "(nessuna risposta)" } }];
     if (citations.length > 0) {
       const sources = citations
         .map((c) =>
