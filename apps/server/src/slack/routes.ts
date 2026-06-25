@@ -1,15 +1,24 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { ticketTypeSchema, type TicketType } from "@stubwise/shared";
-import { projects, users } from "@stubwise/db";
+import { docPages, projects, users } from "@stubwise/db";
+import type { Db } from "@stubwise/db";
+import type { EmbeddingClient } from "@stubwise/embeddings";
 import { ProjectNotFoundError } from "../db/tickets.js";
 import { createExternalTicket } from "../ingest/processor.js";
 import { resolveReporter, resolveReporterBySlackId } from "../ingest/reporter.js";
 import { publicUrlOrUndefined, ticketUrl } from "../ingest/shared.js";
 import { apiError } from "../errors.js";
+import type { ChatLlm } from "../routes/chat-llm.js";
+import { answerDocsQuestion } from "../routes/docs-rag.js";
 import { isUniqueViolation } from "../routes/shared.js";
 import { ACTION_IDS, BLOCK_IDS, buildTicketModal } from "./modal.js";
-import { buildDocsQueryModal } from "./docs-modal.js";
+import {
+  buildDocsQueryModal,
+  DOCS_ACTION_IDS,
+  DOCS_BLOCK_IDS,
+  DOCS_QUERY_CALLBACK_ID,
+} from "./docs-modal.js";
 import { loadSlackCreds, defaultSlackClientFactory, type SlackClientFactory } from "./creds.js";
 import { verifySlackSignature } from "./verify.js";
 
@@ -37,6 +46,48 @@ export interface SlackRoutesOptions {
    * Date.now. Iniettabile nei test per firmare con un timestamp deterministico.
    */
   now?: () => number;
+  /**
+   * Client di embedding per il retrieval RAG dei Docs (risposta `/docs` via
+   * Slack). Default: `instance.embeddingClient` (lo stesso decorato sull'app e
+   * usato dalla chat web). Override nei test per iniettare un fake.
+   */
+  embeddingClient?: EmbeddingClient;
+  /**
+   * LLM della chat RAG per generare la risposta `/docs`. Default:
+   * `instance.chatLlm` (la stessa istanza usata dalla chat web). Override nei
+   * test per iniettare un fake.
+   */
+  chatLlm?: ChatLlm;
+  /**
+   * URL pubblico dell'istanza, per comporre i link alle citazioni
+   * (`${publicUrl}/docs/:projectId/:slug`). Default: `instance.publicUrl` se
+   * configurato, altrimenti undefined (le citazioni elencano solo i titoli).
+   */
+  publicUrl?: string;
+  /**
+   * POST best-effort verso un response_url di Slack (risposta differita post-ack).
+   * Default: `fetch` JSON con try/catch (gli errori sono assorbiti: la risposta
+   * differita è best-effort, mai un 5xx verso Slack). Iniettabile nei test come
+   * spy senza toccare la rete.
+   */
+  postResponse?: (url: string, payload: unknown) => Promise<void>;
+}
+
+/**
+ * POST best-effort di default verso un response_url Slack: JSON via fetch, con
+ * gli errori assorbiti (la risposta differita non deve mai propagare un errore
+ * né bloccare l'ack già inviato).
+ */
+async function defaultPostResponse(url: string, payload: unknown): Promise<void> {
+  try {
+    await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    // Best-effort: niente da fare se Slack non è raggiungibile.
+  }
 }
 
 /**
@@ -77,6 +128,112 @@ async function listProjects(instance: FastifyInstance): Promise<{ id: string; na
     .orderBy(asc(projects.name));
 }
 
+/**
+ * Progetti CON documentazione — stesso criterio dell'hub `GET /api/docs/spaces`:
+ * almeno una pagina visibile (generazione corrente OR manuale). Restituisce
+ * id/name/slug, filtrabili lato chiamante per l'autocomplete del modal /docs.
+ * Il join sulle pagine è ristretto come in docs.ts così le generazioni stale non
+ * fanno comparire un progetto come "con documentazione".
+ */
+async function listProjectsWithDocs(
+  db: Db,
+): Promise<{ id: string; name: string; slug: string }[]> {
+  const rows = await db
+    .select({
+      id: projects.id,
+      name: projects.name,
+      slug: projects.slug,
+      pageCount: sql<number>`count(${docPages.id})::int`,
+    })
+    .from(projects)
+    .leftJoin(
+      docPages,
+      and(
+        eq(docPages.projectId, projects.id),
+        or(
+          eq(docPages.generationId, projects.currentDocGenerationId),
+          isNull(docPages.generationId),
+        ),
+      ),
+    )
+    .groupBy(projects.id, projects.name, projects.slug)
+    .orderBy(asc(projects.name));
+  return rows
+    .filter((r) => r.pageCount > 0)
+    .map((r) => ({ id: r.id, name: r.name, slug: r.slug }));
+}
+
+/** Tetto al numero di option restituite all'autocomplete external_select. */
+const DOCS_SUGGESTIONS_LIMIT = 20;
+
+/**
+ * Genera la risposta RAG ai Docs e la posta sul response_url di Slack (fase
+ * differita, DOPO l'ack della view_submission). Best-effort end-to-end: ogni
+ * esito (chat non disponibile, errore di generazione) si traduce in un messaggio
+ * leggibile via response_url; NON propaga MAI (il chiamante la lancia
+ * fire-and-forget).
+ */
+async function answerAndPostToSlack(
+  deps: {
+    db: Db;
+    embeddingClient: EmbeddingClient;
+    chatLlm: ChatLlm;
+    postResponse: (url: string, payload: unknown) => Promise<void>;
+    publicUrl?: string;
+  },
+  input: { projectId: string; question: string; responseUrl: string },
+): Promise<void> {
+  // Pre-flight: se l'LLM espone isAvailable e la chat non è servibile (tipico:
+  // nessun provider api_key), rispondi con un messaggio chiaro invece di
+  // fallire a metà generazione.
+  if (deps.chatLlm.isAvailable) {
+    const availability = await deps.chatLlm.isAvailable();
+    if (!availability.available) {
+      await deps.postResponse(input.responseUrl, {
+        response_type: "ephemeral",
+        text: "La chat AI non è disponibile (configura un provider con API key).",
+      });
+      return;
+    }
+  }
+
+  try {
+    const { text, citations } = await answerDocsQuestion(
+      { db: deps.db, embeddingClient: deps.embeddingClient, chatLlm: deps.chatLlm },
+      { projectId: input.projectId, question: input.question },
+    );
+
+    // Risposta come blocco mrkdwn: il markdown del modello passa così com'è
+    // (Slack ne rende un sottoinsieme). I link cliccabili sono nei blocchi
+    // dedicati alle fonti.
+    const blocks: unknown[] = [
+      { type: "section", text: { type: "mrkdwn", text: text || "(nessuna risposta)" } },
+    ];
+    if (citations.length > 0) {
+      const sources = citations
+        .map((c) =>
+          deps.publicUrl
+            ? `<${deps.publicUrl}/docs/${input.projectId}/${c.slug}|${c.title}>`
+            : c.title,
+        )
+        .join("  ·  ");
+      blocks.push({
+        type: "context",
+        elements: [{ type: "mrkdwn", text: `*Fonti:* ${sources}` }],
+      });
+    }
+
+    await deps.postResponse(input.responseUrl, { response_type: "in_channel", blocks });
+  } catch {
+    // Best-effort: errore di generazione/retrieval → messaggio effimero. Niente
+    // throw (fire-and-forget); il chiamante logga via .catch.
+    await deps.postResponse(input.responseUrl, {
+      response_type: "ephemeral",
+      text: "Errore durante la ricerca nella documentazione.",
+    });
+  }
+}
+
 /** Estrae un valore di static_select da view.state.values, o undefined. */
 function selectedValue(
   values: Record<string, Record<string, SlackStateValue>> | undefined,
@@ -108,8 +265,21 @@ interface SlackInteractionPayload {
   user?: { id?: string; username?: string; name?: string };
   message?: { text?: string };
   view?: {
+    callback_id?: string;
+    private_metadata?: string;
     state?: { values?: Record<string, Record<string, SlackStateValue>> };
   };
+  // Presenti su `block_suggestions` (autocomplete external_select): il testo
+  // digitato e l'action_id dell'elemento che sta suggerendo.
+  value?: string;
+  action_id?: string;
+}
+
+/** Contesto serializzato nel private_metadata del modal /docs. */
+interface DocsQueryMetadata {
+  responseUrl?: string;
+  channelId?: string;
+  slackUserId?: string;
 }
 
 /** Acknowledgement vuoto e immediato (200): chiude il modal / conferma a Slack. */
@@ -140,6 +310,21 @@ export async function slackRoutes(
 ): Promise<void> {
   const now = opts.now ?? Date.now;
   const clientFactory = opts.slackClientFactory ?? defaultSlackClientFactory;
+  const postResponse = opts.postResponse ?? defaultPostResponse;
+  // embeddingClient/chatLlm/publicUrl: di default le STESSE istanze decorate
+  // sull'app (usate dalla chat web). publicUrl ha un getter che lancia se non
+  // configurato: lo si legge in modo difensivo (le citazioni elencano i soli
+  // titoli se manca).
+  const embeddingClient = opts.embeddingClient ?? instance.embeddingClient;
+  const chatLlm = opts.chatLlm ?? instance.chatLlm;
+  let publicUrl = opts.publicUrl;
+  if (publicUrl === undefined) {
+    try {
+      publicUrl = instance.publicUrl;
+    } catch {
+      publicUrl = undefined;
+    }
+  }
 
   // Parser urlencoded con cattura del raw body, limitato a questo scope.
   instance.addContentTypeParser(
@@ -239,6 +424,28 @@ export async function slackRoutes(
 
     const client = clientFactory(creds.botToken);
 
+    // Autocomplete dell'external_select progetto del modal /docs. Slack invia un
+    // `block_suggestions` con il testo digitato in `value`; rispondiamo con le
+    // option (progetti CON documentazione) filtrate. Branch additivo, PRIMA degli
+    // altri tipi: non tocca il flusso ticket.
+    if (payload.type === "block_suggestions") {
+      const q = (payload.value ?? "").toLowerCase().trim();
+      const withDocs = await listProjectsWithDocs(instance.db);
+      const matches = withDocs
+        .filter((p) =>
+          q === ""
+            ? true
+            : p.name.toLowerCase().includes(q) || p.slug.toLowerCase().includes(q),
+        )
+        .slice(0, DOCS_SUGGESTIONS_LIMIT);
+      return reply.code(200).send({
+        options: matches.map((p) => ({
+          text: { type: "plain_text", text: p.name },
+          value: p.id,
+        })),
+      });
+    }
+
     if (payload.type === "message_action") {
       // Apre il modal precompilato dal testo del messaggio: prima riga (max
       // 300) come titolo, testo intero come descrizione.
@@ -259,6 +466,71 @@ export async function slackRoutes(
     }
 
     if (payload.type === "view_submission") {
+      // Branch /docs: la view di interrogazione dei Docs (callback_id dedicato).
+      // Additivo, PRIMA della logica ticket; se il callback_id non è quello,
+      // prosegue invariato col flusso ticket sottostante.
+      if (payload.view?.callback_id === DOCS_QUERY_CALLBACK_ID) {
+        const docsValues = payload.view?.state?.values;
+        const docsProjectId = selectedValue(
+          docsValues,
+          DOCS_BLOCK_IDS.project,
+          DOCS_ACTION_IDS.project,
+        );
+        const question = inputValue(docsValues, DOCS_BLOCK_IDS.question, DOCS_ACTION_IDS.question);
+
+        // Contesto dello slash command, propagato via private_metadata. Se non
+        // parsabile, non c'è response_url su cui rispondere: ack e basta.
+        let meta: DocsQueryMetadata;
+        try {
+          meta = JSON.parse(payload.view.private_metadata ?? "{}") as DocsQueryMetadata;
+        } catch {
+          return ack(reply);
+        }
+
+        // Validazione: progetto + domanda obbligatori, errori ancorati ai block.
+        const docsErrors: Record<string, string> = {};
+        if (!docsProjectId) docsErrors[DOCS_BLOCK_IDS.project] = "Seleziona un progetto.";
+        if (!question) docsErrors[DOCS_BLOCK_IDS.question] = "Inserisci una domanda.";
+        if (Object.keys(docsErrors).length > 0) {
+          return reply.code(200).send({ response_action: "errors", errors: docsErrors });
+        }
+
+        // Ri-auth: lo Slack user del submit deve essere ancora collegato a un
+        // utente Stubwise (lo stesso dello slash command). Se non lo è più, ack
+        // + messaggio effimero best-effort (la generazione non parte).
+        const [linked] = meta.slackUserId
+          ? await instance.db
+              .select({ id: users.id })
+              .from(users)
+              .where(eq(users.slackUserId, meta.slackUserId))
+          : [];
+        if (!linked) {
+          if (meta.responseUrl) {
+            await postResponse(meta.responseUrl, {
+              response_type: "ephemeral",
+              text: "Non sei più collegato a Stubwise.",
+            });
+          }
+          return ack(reply);
+        }
+
+        // Senza response_url non c'è dove postare la risposta differita: ack.
+        if (!meta.responseUrl) return ack(reply);
+
+        // ACK IMMEDIATO (entro 3s) + generazione ASYNC fire-and-forget: l'ack
+        // chiude il modal subito, il RAG prosegue dopo e posta via response_url.
+        // L'ack NON deve aspettare il RAG.
+        const ackReply = ack(reply);
+        const responseUrl = meta.responseUrl;
+        void answerAndPostToSlack(
+          { db: instance.db, embeddingClient, chatLlm, postResponse, publicUrl },
+          { projectId: docsProjectId!, question: question!, responseUrl },
+        ).catch((err) => {
+          request.log.warn({ err }, "[slack] docs answer failed");
+        });
+        return ackReply;
+      }
+
       const values = payload.view?.state?.values;
       const projectId = selectedValue(values, BLOCK_IDS.project, ACTION_IDS.project);
       const title = inputValue(values, BLOCK_IDS.title, ACTION_IDS.title);

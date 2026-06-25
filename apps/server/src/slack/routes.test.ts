@@ -2,15 +2,31 @@ import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { encrypt, instanceSettings, tickets, users } from "@stubwise/db";
+import { createFakeEmbeddingClient } from "@stubwise/embeddings";
+import {
+  docChunks,
+  docGenerations,
+  docPages,
+  encrypt,
+  instanceSettings,
+  projects,
+  tickets,
+  users,
+} from "@stubwise/db";
+import type { Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
+import type { ChatAvailability, ChatLlm, ChatLlmInput } from "../routes/chat-llm.js";
 import { seedUsers } from "../test/fixtures.js";
 import type { SlackClient } from "./api.js";
 import type { SlackClientFactory } from "./routes.js";
 import { ACTION_IDS, BLOCK_IDS, CREATE_TICKET_CALLBACK_ID } from "./modal.js";
-import { DOCS_QUERY_CALLBACK_ID } from "./docs-modal.js";
+import {
+  DOCS_ACTION_IDS,
+  DOCS_BLOCK_IDS,
+  DOCS_QUERY_CALLBACK_ID,
+} from "./docs-modal.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -46,6 +62,31 @@ const slackClientFactory: SlackClientFactory = () => ({
   listWorkspaceUsers,
 });
 
+// Fake embedding client (deterministico): un testo identico → vettore identico,
+// così il chunk seedato ranka primo nel retrieval RAG di /docs.
+const embeddingClient = createFakeEmbeddingClient();
+
+// Fake ChatLlm: emette delta canned (concatenati = la risposta). isAvailable
+// pilotabile per-test via availabilityOverride; stream pilotabile via
+// streamOverride (per il path d'errore: lancia).
+const FAKE_DELTAS = ["Risposta ", "dai ", "docs."];
+let availabilityOverride: ChatAvailability | null = null;
+let streamOverride: ((input: ChatLlmInput) => AsyncIterable<string>) | null = null;
+async function* defaultStream(): AsyncIterable<string> {
+  for (const d of FAKE_DELTAS) yield d;
+}
+const fakeChatLlm: ChatLlm = {
+  stream(input: ChatLlmInput): AsyncIterable<string> {
+    return (streamOverride ?? defaultStream)(input);
+  },
+  async isAvailable(): Promise<ChatAvailability> {
+    return availabilityOverride ?? { available: true };
+  },
+};
+
+// Spy della POST differita verso il response_url di Slack (niente rete).
+const postResponse = vi.fn<(url: string, payload: unknown) => Promise<void>>(async () => {});
+
 async function createProject(name: string): Promise<string> {
   const accountRes = await app.inject({
     method: "POST",
@@ -65,6 +106,83 @@ async function createProject(name: string): Promise<string> {
   });
   if (res.statusCode !== 201) throw new Error(`progetto: ${res.statusCode} ${res.body}`);
   return (res.json() as { id: string }).id;
+}
+
+/**
+ * Dota un progetto di documentazione: una generazione corrente `succeeded`, una
+ * pagina e un chunk con embedding del suo contenuto. Così il progetto compare
+ * come "con documentazione" (block_suggestions) e il retrieval RAG lo cita.
+ */
+async function seedDocsForProject(
+  db: Db,
+  pid: string,
+  page: { title: string; slug: string; content: string },
+): Promise<void> {
+  const [gen] = await db
+    .insert(docGenerations)
+    .values({
+      projectId: pid,
+      status: "succeeded",
+      commitSha: randomBytes(4).toString("hex"),
+      trigger: "manual",
+      startedAt: new Date(),
+      finishedAt: new Date(),
+    })
+    .returning();
+  if (!gen) throw new Error("insert generazione non ha restituito la riga");
+  await db.update(projects).set({ currentDocGenerationId: gen.id }).where(eq(projects.id, pid));
+
+  const [row] = await db
+    .insert(docPages)
+    .values({
+      projectId: pid,
+      generationId: gen.id,
+      kind: "technical",
+      slug: page.slug,
+      title: page.title,
+      body: page.content,
+      isManual: false,
+    })
+    .returning();
+  if (!row) throw new Error("insert pagina non ha restituito la riga");
+
+  const [vector] = await embeddingClient.embed([page.content]);
+  await db.insert(docChunks).values({
+    pageId: row.id,
+    projectId: pid,
+    generationId: gen.id,
+    content: page.content,
+    embedding: vector,
+  });
+}
+
+/** Costruisce il raw body urlencoded di un view_submission del modal /docs. */
+function docsSubmissionBody(opts: {
+  projectId?: string;
+  question?: string;
+  meta?: Record<string, unknown>;
+}): string {
+  const values: Record<string, Record<string, unknown>> = {};
+  if (opts.projectId !== undefined) {
+    values[DOCS_BLOCK_IDS.project] = {
+      [DOCS_ACTION_IDS.project]: { selected_option: { value: opts.projectId } },
+    };
+  }
+  if (opts.question !== undefined) {
+    values[DOCS_BLOCK_IDS.question] = {
+      [DOCS_ACTION_IDS.question]: { value: opts.question },
+    };
+  }
+  const payload = {
+    type: "view_submission",
+    user: { id: "Usubmit", username: "slackuser" },
+    view: {
+      callback_id: DOCS_QUERY_CALLBACK_ID,
+      private_metadata: JSON.stringify(opts.meta ?? {}),
+      state: { values },
+    },
+  };
+  return new URLSearchParams({ payload: JSON.stringify(payload) }).toString();
 }
 
 /** Imposta (o azzera) i segreti Slack cifrati sul singleton instance settings. */
@@ -161,6 +279,9 @@ beforeAll(async () => {
     publicUrl: PUBLIC_URL,
     slackClientFactory,
     slackNow: () => NOW,
+    embeddingClient,
+    chatLlm: fakeChatLlm,
+    slackPostResponse: postResponse,
   });
   ({ adminCookie } = await seedUsers(app));
   projectId = await createProject("slack-proj");
@@ -180,6 +301,9 @@ afterEach(async () => {
   openView.mockClear();
   getUserEmail.mockClear();
   getUserProfile.mockClear();
+  postResponse.mockClear();
+  availabilityOverride = null;
+  streamOverride = null;
   emailToReturn = null;
   avatarToReturn = null;
   // Ripristina lo stato del reporter: i test di auto-link mutano slack_user_id
@@ -551,5 +675,192 @@ describe("POST /api/slack/interactions — message_action", () => {
     const json = JSON.stringify(view);
     expect(json).toContain("Prima riga del bug");
     expect(json).toContain("Dettagli ulteriori");
+  });
+});
+
+describe("POST /api/slack/interactions — block_suggestions (autocomplete /docs)", () => {
+  /** Costruisce il raw body di un block_suggestions col testo digitato. */
+  function suggestBody(value: string): string {
+    const payload = {
+      type: "block_suggestions",
+      action_id: DOCS_ACTION_IDS.project,
+      value,
+      user: { id: "Usugg" },
+    };
+    return new URLSearchParams({ payload: JSON.stringify(payload) }).toString();
+  }
+
+  it("ritorna solo i progetti CON documentazione che matchano, niente quelli senza", async () => {
+    // Un progetto con docs il cui nome matcha "wil", uno senza docs.
+    const withDocsId = await createProject(`wildoc-${randomUUID().slice(0, 8)}`);
+    await seedDocsForProject(testDb.db, withDocsId, {
+      title: "Pagina Wil",
+      slug: `wil-page-${randomUUID().slice(0, 8)}`,
+      content: "Contenuto della documentazione di Wil.",
+    });
+    const withoutDocsId = await createProject(`wilnodoc-${randomUUID().slice(0, 8)}`);
+
+    const res = await slackPost("/api/slack/interactions", suggestBody("wil"));
+    expect(res.statusCode).toBe(200);
+    const json = res.json() as { options: { value: string; text: { text: string } }[] };
+    const values = json.options.map((o) => o.value);
+    expect(values).toContain(withDocsId);
+    // Il progetto senza documentazione NON compare.
+    expect(values).not.toContain(withoutDocsId);
+  });
+
+  it("rispetta il tetto di 20 option", async () => {
+    // Seed di 22 progetti con docs il cui nome matcha un prefisso comune.
+    const prefix = `cap${randomUUID().slice(0, 6)}`;
+    for (let i = 0; i < 22; i++) {
+      const pid = await createProject(`${prefix}-${i}`);
+      await seedDocsForProject(testDb.db, pid, {
+        title: `Cap ${i}`,
+        slug: `cap-${randomUUID().slice(0, 8)}`,
+        content: `Documentazione capped numero ${i}.`,
+      });
+    }
+    const res = await slackPost("/api/slack/interactions", suggestBody(prefix));
+    expect(res.statusCode).toBe(200);
+    const json = res.json() as { options: unknown[] };
+    expect(json.options.length).toBeLessThanOrEqual(20);
+  });
+});
+
+describe("POST /api/slack/interactions — view_submission docs_query", () => {
+  const META_USER = "Udocsubmit";
+  const RESPONSE_URL = "https://hooks.slack.com/docs-resp";
+
+  /** Link l'utente del submit a uno Stubwise user (ri-auth ok). */
+  async function linkSubmitter(slackUserId = META_USER): Promise<void> {
+    await testDb.db
+      .update(users)
+      .set({ slackUserId })
+      .where(eq(users.id, reporterUserId));
+  }
+
+  it("progetto+domanda presenti, utente collegato → ack 200 e risposta postata in_channel con citazioni", async () => {
+    await linkSubmitter();
+    const pid = await createProject(`ask-${randomUUID().slice(0, 8)}`);
+    const slug = `ask-page-${randomUUID().slice(0, 8)}`;
+    await seedDocsForProject(testDb.db, pid, {
+      title: "Come si configura",
+      slug,
+      content: "Per configurare il sistema apri le impostazioni.",
+    });
+
+    const body = docsSubmissionBody({
+      projectId: pid,
+      question: "Come si configura il sistema?",
+      meta: { responseUrl: RESPONSE_URL, channelId: "C9", slackUserId: META_USER },
+    });
+    const res = await slackPost("/api/slack/interactions", body);
+    // Ack immediato (entro 3s): 200 vuoto, NON aspetta il RAG.
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toBe("");
+
+    // La POST differita è fire-and-forget: attendi che lo spy sia invocato.
+    await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
+    const [url, payload] = postResponse.mock.calls[0]!;
+    expect(url).toBe(RESPONSE_URL);
+    const p = payload as { response_type: string; blocks: unknown[] };
+    expect(p.response_type).toBe("in_channel");
+    const flat = JSON.stringify(p.blocks);
+    // La risposta canned del fake LLM + un link citazione verso la pagina.
+    expect(flat).toContain("Risposta dai docs.");
+    expect(flat).toContain(`${PUBLIC_URL}/docs/${pid}/${slug}`);
+    expect(flat).toContain("Come si configura");
+  });
+
+  it("domanda mancante → response_action errors, nessuna POST", async () => {
+    await linkSubmitter();
+    const pid = await createProject(`noq-${randomUUID().slice(0, 8)}`);
+    const body = docsSubmissionBody({
+      projectId: pid,
+      meta: { responseUrl: RESPONSE_URL, slackUserId: META_USER },
+    });
+    const res = await slackPost("/api/slack/interactions", body);
+    expect(res.statusCode).toBe(200);
+    const json = res.json() as { response_action: string; errors: Record<string, string> };
+    expect(json.response_action).toBe("errors");
+    expect(json.errors[DOCS_BLOCK_IDS.question]).toBeTruthy();
+    expect(postResponse).not.toHaveBeenCalled();
+  });
+
+  it("utente non più collegato → nessuna risposta-answer, eventuale messaggio 'non collegato'", async () => {
+    // Il reporter NON è linkato a META_USER: la ri-auth fallisce.
+    const pid = await createProject(`unlinked-${randomUUID().slice(0, 8)}`);
+    await seedDocsForProject(testDb.db, pid, {
+      title: "X",
+      slug: `x-${randomUUID().slice(0, 8)}`,
+      content: "y",
+    });
+    const body = docsSubmissionBody({
+      projectId: pid,
+      question: "Domanda qualsiasi?",
+      meta: { responseUrl: RESPONSE_URL, slackUserId: "Umai-collegato" },
+    });
+    const res = await slackPost("/api/slack/interactions", body);
+    expect(res.statusCode).toBe(200);
+    // Una sola POST (il "non collegato"), MAI la risposta RAG in_channel.
+    await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
+    const inChannel = postResponse.mock.calls.find(
+      ([, payload]) => (payload as { response_type?: string }).response_type === "in_channel",
+    );
+    expect(inChannel).toBeUndefined();
+    const [, payload] = postResponse.mock.calls[0]!;
+    expect((payload as { text: string }).text).toContain("Non sei più collegato");
+  });
+
+  it("chatLlm non disponibile → messaggio d'errore 'non disponibile'", async () => {
+    await linkSubmitter();
+    availabilityOverride = { available: false, reason: "no_api_key_provider" };
+    const pid = await createProject(`unavail-${randomUUID().slice(0, 8)}`);
+    await seedDocsForProject(testDb.db, pid, {
+      title: "X",
+      slug: `x-${randomUUID().slice(0, 8)}`,
+      content: "y",
+    });
+    const body = docsSubmissionBody({
+      projectId: pid,
+      question: "Domanda?",
+      meta: { responseUrl: RESPONSE_URL, slackUserId: META_USER },
+    });
+    const res = await slackPost("/api/slack/interactions", body);
+    expect(res.statusCode).toBe(200);
+    await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
+    const [, payload] = postResponse.mock.calls[0]!;
+    const p = payload as { response_type: string; text: string };
+    expect(p.response_type).toBe("ephemeral");
+    expect(p.text).toContain("non è disponibile");
+  });
+
+  it("answerDocsQuestion che lancia → messaggio d'errore, nessun throw/5xx", async () => {
+    await linkSubmitter();
+    // Stream che lancia: simula un fallimento di generazione/retrieval. Yield
+    // condizionale a `false` per soddisfare il tipo AsyncIterable<string> senza
+    // codice irraggiungibile.
+    streamOverride = async function* (): AsyncIterable<string> {
+      if (Math.random() < 0) yield "";
+      throw new Error("boom LLM");
+    };
+    const pid = await createProject(`boom-${randomUUID().slice(0, 8)}`);
+    await seedDocsForProject(testDb.db, pid, {
+      title: "X",
+      slug: `x-${randomUUID().slice(0, 8)}`,
+      content: "y",
+    });
+    const body = docsSubmissionBody({
+      projectId: pid,
+      question: "Domanda?",
+      meta: { responseUrl: RESPONSE_URL, slackUserId: META_USER },
+    });
+    const res = await slackPost("/api/slack/interactions", body);
+    expect(res.statusCode).toBe(200);
+    await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
+    const [, payload] = postResponse.mock.calls[0]!;
+    const p = payload as { response_type: string; text: string };
+    expect(p.response_type).toBe("ephemeral");
+    expect(p.text).toContain("Errore durante la ricerca");
   });
 });

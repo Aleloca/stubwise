@@ -130,6 +130,12 @@ export interface BuildAppOptions {
    */
   slackNow?: () => number;
   /**
+   * POST best-effort verso un response_url di Slack (risposta differita di
+   * `/docs` post-ack). Default: fetch JSON con try/catch. Override pensato per i
+   * test: inietta uno spy che non tocca la rete e si può attendere.
+   */
+  slackPostResponse?: (url: string, payload: unknown) => Promise<void>;
+  /**
    * Client di embedding per la ricerca semantica / chat RAG sui Docs. Default:
    * client reale {@link createEmbeddingClient} costruito da embeddingBaseUrl /
    * embeddingModel / embeddingApiKey. Override pensato per i test: inietta un
@@ -376,6 +382,14 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     prefix: "/api/slack",
     slackClientFactory: opts.slackClientFactory,
     now: opts.slackNow,
+    // STESSE istanze embeddingClient/chatLlm della chat web (decorate sull'app):
+    // la risposta RAG di `/docs` via Slack riusa identico retrieval + LLM. Il
+    // publicUrl compone i link alle citazioni (può essere assente in test/unit:
+    // slackRoutes lo legge in modo difensivo dal decorator se non passato).
+    embeddingClient,
+    chatLlm,
+    ...(publicUrl !== undefined ? { publicUrl } : {}),
+    ...(opts.slackPostResponse ? { postResponse: opts.slackPostResponse } : {}),
   });
 
   // Gestione dell'identità Slack degli utenti (link/unlink + picker membri
