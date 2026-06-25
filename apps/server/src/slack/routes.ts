@@ -9,6 +9,7 @@ import { publicUrlOrUndefined, ticketUrl } from "../ingest/shared.js";
 import { apiError } from "../errors.js";
 import { isUniqueViolation } from "../routes/shared.js";
 import { ACTION_IDS, BLOCK_IDS, buildTicketModal } from "./modal.js";
+import { buildDocsQueryModal } from "./docs-modal.js";
 import { loadSlackCreds, defaultSlackClientFactory, type SlackClientFactory } from "./creds.js";
 import { verifySlackSignature } from "./verify.js";
 
@@ -164,6 +165,45 @@ export async function slackRoutes(
     if (!verifyOrReject(request, reply, creds.signingSecret, now)) return reply;
 
     const body = request.body as Record<string, string>;
+    const command = body.command;
+
+    // Branch /docs: apre il modal di interrogazione dei Docs, ma SOLO per gli
+    // utenti Slack già collegati a un account Stubwise. Additivo: il ramo
+    // ticket sottostante resta invariato per ogni altro comando.
+    if (command === "/docs") {
+      // Auth: l'utente Slack dev'essere mappato a un utente Stubwise.
+      const [linked] = body.user_id
+        ? await instance.db
+            .select({ id: users.id })
+            .from(users)
+            .where(eq(users.slackUserId, body.user_id))
+        : [];
+      if (!linked) {
+        // Non collegato (o user id assente): messaggio effimero, niente modal.
+        return reply.code(200).send({
+          response_type: "ephemeral",
+          text: "Non sei collegato a un account Stubwise. Chiedi a un admin di collegarti dalle impostazioni.",
+        });
+      }
+
+      const docsTriggerId = body.trigger_id;
+      if (docsTriggerId) {
+        const client = clientFactory(creds.botToken);
+        await client.openView(
+          docsTriggerId,
+          buildDocsQueryModal({
+            prefillQuestion: body.text?.trim() || undefined,
+            privateMetadata: JSON.stringify({
+              responseUrl: body.response_url,
+              channelId: body.channel_id,
+              slackUserId: body.user_id,
+            }),
+          }),
+        );
+      }
+      return ack(reply);
+    }
+
     const triggerId = body.trigger_id;
     if (triggerId) {
       const client = clientFactory(creds.botToken);

@@ -10,6 +10,7 @@ import { seedUsers } from "../test/fixtures.js";
 import type { SlackClient } from "./api.js";
 import type { SlackClientFactory } from "./routes.js";
 import { ACTION_IDS, BLOCK_IDS, CREATE_TICKET_CALLBACK_ID } from "./modal.js";
+import { DOCS_QUERY_CALLBACK_ID } from "./docs-modal.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -274,6 +275,75 @@ describe("POST /api/slack/commands", () => {
     expect(initial).toBeDefined();
     expect(initial!.length).toBeLessThanOrEqual(300);
     expect(initial).toBe("a".repeat(initial!.length));
+  });
+});
+
+describe("POST /api/slack/commands — /docs", () => {
+  /** Block Kit: cerca un element con il `type` dato in qualunque block della view. */
+  function hasElementOfType(view: unknown, type: string): boolean {
+    const blocks = (view as { blocks?: unknown[] }).blocks ?? [];
+    return blocks.some((b) => (b as { element?: { type?: string } }).element?.type === type);
+  }
+
+  it("utente non collegato → 200 effimero, niente openView", async () => {
+    // Nessuna riga users con slackUserId = Unotlinked.
+    const res = await slackPost(
+      "/api/slack/commands",
+      "command=%2Fdocs&trigger_id=TRIG&user_id=Unotlinked&channel_id=C1&response_url=https%3A%2F%2Fhooks.slack.com%2Fr1&text=ciao",
+    );
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { response_type: string }).response_type).toBe("ephemeral");
+    expect(openView).not.toHaveBeenCalled();
+  });
+
+  it("utente collegato → openView con la view docs e private_metadata corretto", async () => {
+    await testDb.db
+      .update(users)
+      .set({ slackUserId: "Udocslinked" })
+      .where(eq(users.id, reporterUserId));
+
+    const res = await slackPost(
+      "/api/slack/commands",
+      "command=%2Fdocs&trigger_id=TRIGDOCS&user_id=Udocslinked&channel_id=C42&response_url=https%3A%2F%2Fhooks.slack.com%2Fresp&text=Come+funziona%3F",
+    );
+    expect(res.statusCode).toBe(200);
+    expect(openView).toHaveBeenCalledTimes(1);
+    const [triggerId, view] = openView.mock.calls[0]!;
+    expect(triggerId).toBe("TRIGDOCS");
+    expect((view as { callback_id: string }).callback_id).toBe(DOCS_QUERY_CALLBACK_ID);
+    // Selettore progetto (external_select) + input domanda.
+    expect(hasElementOfType(view, "external_select")).toBe(true);
+    expect(hasElementOfType(view, "plain_text_input")).toBe(true);
+    // private_metadata parsabile col contesto dello slash command.
+    const meta = JSON.parse((view as { private_metadata: string }).private_metadata) as {
+      responseUrl: string;
+      channelId: string;
+      slackUserId: string;
+    };
+    expect(meta.responseUrl).toBe("https://hooks.slack.com/resp");
+    expect(meta.channelId).toBe("C42");
+    expect(meta.slackUserId).toBe("Udocslinked");
+  });
+
+  it("firma non valida → 401", async () => {
+    const res = await slackPost(
+      "/api/slack/commands",
+      "command=%2Fdocs&trigger_id=TRIG&user_id=Udocslinked",
+      { sign: false },
+    );
+    expect(res.statusCode).toBe(401);
+    expect(openView).not.toHaveBeenCalled();
+  });
+
+  it("/stubwise → comportamento invariato (apre il ticket modal)", async () => {
+    const res = await slackPost(
+      "/api/slack/commands",
+      "command=%2Fstubwise&trigger_id=TRIGTICKET&user_id=U1",
+    );
+    expect(res.statusCode).toBe(200);
+    expect(openView).toHaveBeenCalledTimes(1);
+    const [, view] = openView.mock.calls[0]!;
+    expect((view as { callback_id: string }).callback_id).toBe(CREATE_TICKET_CALLBACK_ID);
   });
 });
 
