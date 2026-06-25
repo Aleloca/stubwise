@@ -10,6 +10,7 @@ import {
   linkUserSlack,
   postInvite,
   unlinkUserSlack,
+  updateUserRole,
   type Invite,
   type PendingInvite,
   type SlackWorkspaceUser,
@@ -189,6 +190,17 @@ function MemberRow({
     onError: (cause) => setError(translateApiError(cause, t)),
   });
 
+  // Cambio ruolo (solo admin, e mai sul proprio account): l'UI è comodità, i
+  // safeguard (no auto-cambio, no declassamento dell'ultimo admin) sono
+  // autoritativi lato server e tornano come ApiError tradotti per code.
+  const roleMutation = useMutation({
+    mutationFn: (role: "admin" | "member") => updateUserRole(user.id, role),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: usersQueryOptions.queryKey });
+    },
+    onError: (cause) => setError(translateApiError(cause, t)),
+  });
+
   function handleUnlink() {
     if (!window.confirm(t("settings:team.confirmUnlink", { email: user.email }))) return;
     setError(null);
@@ -258,7 +270,23 @@ function MemberRow({
         <span className="hidden font-mono text-[11px] text-fg-faint sm:inline">
           {t("settings:team.memberSince", { date: formatDate(user.createdAt) })}
         </span>
-        <RoleBadge role={user.role} />
+        {isAdmin && !isCurrentUser ? (
+          <select
+            aria-label={t("settings:team.changeRoleLabel", { email: user.email })}
+            value={user.role}
+            disabled={roleMutation.isPending}
+            onChange={(event) => {
+              setError(null);
+              roleMutation.mutate(event.target.value as "admin" | "member");
+            }}
+            className="tap rounded-sm border border-line-strong bg-ink-950 px-2 py-1 font-mono text-[10px] tracking-[0.12em] text-fg-muted uppercase transition-colors hover:border-signal-dim/40 hover:text-signal disabled:opacity-50"
+          >
+            <option value="admin">{t("settings:team.roleAdmin")}</option>
+            <option value="member">{t("settings:team.roleMember")}</option>
+          </select>
+        ) : (
+          <RoleBadge role={user.role} />
+        )}
       </div>
 
       {error && (

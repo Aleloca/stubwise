@@ -552,4 +552,88 @@ describe("pagina team", () => {
     expect(within(row).getByText("via Slack")).toBeInTheDocument();
     expect(within(row).getByRole("img", { name: "dan@example.com" })).toBeInTheDocument();
   });
+
+  it("admin: vede il selettore di ruolo per gli altri, solo il badge per sé", async () => {
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/users": () => jsonResponse(200, USERS),
+      "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
+      "GET /api/auth/invites": () => jsonResponse(200, []),
+    });
+
+    renderTeam();
+
+    // Altro utente (Bea): selettore di ruolo presente.
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    expect(
+      within(beaRow).getByRole("combobox", { name: "Role of bea@example.com" }),
+    ).toBeInTheDocument();
+
+    // Sé stesso (Ada/admin): niente selettore, solo il badge read-only.
+    expect(
+      screen.queryByRole("combobox", { name: "Role of ada@example.com" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("admin: cambiare il selettore invia la PATCH col ruolo giusto", async () => {
+    const user = userEvent.setup();
+    let patchBody: unknown;
+    let patchedPath: string | null = null;
+
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/users": () => jsonResponse(200, USERS),
+      "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
+      "GET /api/auth/invites": () => jsonResponse(200, []),
+      "PATCH /api/users/u2/role": (url, init) => {
+        patchedPath = url.pathname;
+        patchBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, { ...USERS[1], role: "admin" });
+      },
+    });
+
+    renderTeam();
+
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    const roleSelect = within(beaRow).getByRole("combobox", { name: "Role of bea@example.com" });
+    await user.selectOptions(roleSelect, "admin");
+
+    await waitFor(() => expect(patchBody).toEqual({ role: "admin" }));
+    expect(patchedPath).toBe("/api/users/u2/role");
+  });
+
+  it("member: non vede il selettore di ruolo per nessuno (solo badge)", async () => {
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...MEMBER, language: "en" } }),
+      "GET /api/users": () => jsonResponse(200, USERS),
+    });
+
+    renderTeam();
+
+    await screen.findByText("ada@example.com");
+    expect(screen.queryByRole("combobox", { name: /^Role of/ })).not.toBeInTheDocument();
+  });
+
+  it("admin: errore last_admin dalla PATCH mostra il messaggio i18n", async () => {
+    const user = userEvent.setup();
+
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/users": () => jsonResponse(200, USERS),
+      "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
+      "GET /api/auth/invites": () => jsonResponse(200, []),
+      "PATCH /api/users/u2/role": () =>
+        jsonResponse(409, { code: "last_admin", message: "cannot demote" }),
+    });
+
+    renderTeam();
+
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    const roleSelect = within(beaRow).getByRole("combobox", { name: "Role of bea@example.com" });
+    await user.selectOptions(roleSelect, "admin");
+
+    expect(
+      await screen.findByText("You cannot demote the last admin"),
+    ).toBeInTheDocument();
+  });
 });

@@ -759,6 +759,16 @@ export function unlinkUserSlack(userId: string): Promise<void> {
   return request("DELETE", `/api/users/${encodeURIComponent(userId)}/slack`);
 }
 
+/**
+ * Cambia il ruolo di un utente (solo admin). Il server applica i safeguard
+ * autoritativi (no auto-cambio, no declassamento dell'ultimo admin): 400
+ * `cannot_change_own_role`, 409 `last_admin`, 404 `user_not_found`. Ritorna
+ * l'utente aggiornato.
+ */
+export function updateUserRole(userId: string, role: "admin" | "member"): Promise<TeamUser> {
+  return api.patch(`/api/users/${encodeURIComponent(userId)}/role`, { role });
+}
+
 // --- Projects ---
 
 export interface Project {
