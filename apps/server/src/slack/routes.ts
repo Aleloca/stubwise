@@ -120,6 +120,17 @@ function header(request: FastifyRequest, name: string): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
+/**
+ * Riconosce il comando di interrogazione dei Docs. Oltre a `/docs`, accetta le
+ * varianti con namespace/suffisso che l'utente può scegliere in Slack (es.
+ * `/stubwise:docs`, `/qualcosa-docs`): il campo `command` arriva col nome esatto
+ * configurato e non possiamo imporlo. Ogni altro comando cade nel ramo ticket.
+ */
+function isDocsCommand(command: string | undefined): boolean {
+  if (!command) return false;
+  return command === "/docs" || command.endsWith(":docs") || command.endsWith("-docs");
+}
+
 /** Progetti per il select del modal, ordinati per nome. */
 async function listProjects(instance: FastifyInstance): Promise<{ id: string; name: string }[]> {
   return instance.db
@@ -355,7 +366,7 @@ export async function slackRoutes(
     // Branch /docs: apre il modal di interrogazione dei Docs, ma SOLO per gli
     // utenti Slack già collegati a un account Stubwise. Additivo: il ramo
     // ticket sottostante resta invariato per ogni altro comando.
-    if (command === "/docs") {
+    if (isDocsCommand(command)) {
       // Auth: l'utente Slack dev'essere mappato a un utente Stubwise.
       const [linked] = body.user_id
         ? await instance.db

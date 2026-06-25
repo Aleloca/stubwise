@@ -449,6 +449,23 @@ describe("POST /api/slack/commands — /docs", () => {
     expect(meta.slackUserId).toBe("Udocslinked");
   });
 
+  it("comando con namespace (/stubwise:docs) → apre comunque il modale Docs", async () => {
+    await testDb.db
+      .update(users)
+      .set({ slackUserId: "Udocslinked" })
+      .where(eq(users.id, reporterUserId));
+
+    // command=/stubwise:docs urlencoded; il riconoscimento è per suffisso "docs".
+    const res = await slackPost(
+      "/api/slack/commands",
+      "command=%2Fstubwise%3Adocs&trigger_id=TRIGNS&user_id=Udocslinked&channel_id=C7&response_url=https%3A%2F%2Fhooks.slack.com%2Fns&text=domanda",
+    );
+    expect(res.statusCode).toBe(200);
+    expect(openView).toHaveBeenCalledTimes(1);
+    const [, view] = openView.mock.calls[0]!;
+    expect((view as { callback_id: string }).callback_id).toBe(DOCS_QUERY_CALLBACK_ID);
+  });
+
   it("firma non valida → 401", async () => {
     const res = await slackPost(
       "/api/slack/commands",
