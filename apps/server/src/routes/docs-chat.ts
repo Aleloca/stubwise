@@ -33,7 +33,8 @@ import { docChatMessages, docChatSessions, projects } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import type { ChatLlm } from "./chat-llm.js";
-import { retrieveChunks, type RetrievedChunk } from "./docs-retrieval.js";
+import { retrieveChunks } from "./docs-retrieval.js";
+import { buildCitations, buildDocsSystemPrompt, CHAT_RETRIEVAL_K } from "./docs-rag.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 declare module "fastify" {
@@ -56,68 +57,11 @@ const chatBodySchema = z.object({
   message: z.string().min(1).max(8000),
 });
 
-/** Numero di pagine di contesto recuperate per la chat. */
-const CHAT_RETRIEVAL_K = 8;
-
-/** Citazione restituita alla UI / persistita: riferimento a una pagina doc. */
-interface Citation {
-  slug: string;
-  title: string;
-  kind: RetrievedChunk["kind"];
-}
-
 /**
- * System prompt della chat RAG. Codifica i requisiti di prodotto:
- *  - DOPPIO REGISTRO: domanda tecnica → risposta tecnica con moduli/API;
- *    domanda capability ("si può fare X") → risposta funzionale con i passi se
- *    fattibile, oppure il perché non lo è.
- *  - ANTI-ALLUCINAZIONE: rispondere SOLO dal contesto recuperato; se non basta,
- *    dirlo esplicitamente invece di inventare.
- *  - CITAZIONI: citare le pagine usate (per slug/titolo).
- *
- * Il contesto recuperato è incluso in coda al prompt, con slug/titolo per ogni
- * pagina così il modello può citarle.
+ * Numero di pagine di contesto recuperate per la chat. Il system prompt e le
+ * citazioni vivono in {@link ./docs-rag.ts} (UNICA definizione, condivisa con il
+ * flusso RAG non-streaming): qui li importiamo invece di duplicarli.
  */
-function buildSystemPrompt(chunks: RetrievedChunk[]): string {
-  const header = [
-    "Sei l'assistente di documentazione di un progetto software. Rispondi nella lingua della domanda.",
-    "",
-    "ADATTA IL REGISTRO ALLA DOMANDA:",
-    '- Domanda TECNICA ("come funziona X?", "dove sta Y?") → risposta tecnica, con riferimenti a moduli, API pubbliche e flussi reali presenti nel contesto.',
-    '- Domanda di CAPABILITY ("si può fare X?", "è possibile Y?") → risposta funzionale: se è fattibile descrivi i passi; se NON è fattibile spiega il perché, sempre ancorato a cosa il codice/documentazione effettivamente fa.',
-    "",
-    "RISPONDI SOLO DAL CONTESTO RECUPERATO QUI SOTTO. Non inventare: se il contesto non basta a rispondere, dillo esplicitamente (es. \"La documentazione recuperata non copre questo punto\") invece di tirare a indovinare.",
-    "",
-    "CITA SEMPRE le pagine di documentazione che hai usato, riferendoti al loro titolo.",
-    "",
-    "--- CONTESTO RECUPERATO ---",
-  ];
-
-  if (chunks.length === 0) {
-    header.push("(nessuna pagina di documentazione rilevante è stata trovata per questa domanda)");
-    return header.join("\n");
-  }
-
-  const context = chunks.map((c, i) => {
-    return [
-      `[${i + 1}] Pagina "${c.title}" (slug: ${c.slug}, tipo: ${c.kind})`,
-      c.snippet,
-    ].join("\n");
-  });
-
-  return [...header, ...context].join("\n\n");
-}
-
-/** Deriva le citazioni (una per pagina) dai chunk recuperati, deduplicate per slug. */
-function toCitations(chunks: RetrievedChunk[]): Citation[] {
-  const bySlug = new Map<string, Citation>();
-  for (const c of chunks) {
-    if (!bySlug.has(c.slug)) {
-      bySlug.set(c.slug, { slug: c.slug, title: c.title, kind: c.kind });
-    }
-  }
-  return [...bySlug.values()];
-}
 
 /** Scrive un evento SSE (`data: {json}\n\n`) sullo stream grezzo. */
 function writeSseEvent(reply: FastifyReply, event: unknown): void {
@@ -249,8 +193,8 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
         k: CHAT_RETRIEVAL_K,
         logger: request.log,
       });
-      const citations = toCitations(chunks);
-      const system = buildSystemPrompt(chunks);
+      const citations = buildCitations(chunks);
+      const system = buildDocsSystemPrompt(chunks);
       const history = await loadHistory(app.db, resolvedSessionId);
 
       // --- Streaming SSE ------------------------------------------------------
