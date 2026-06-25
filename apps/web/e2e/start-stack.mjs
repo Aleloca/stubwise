@@ -22,7 +22,12 @@ import { PostgreSqlContainer } from "@testcontainers/postgresql";
 const serverDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../server");
 
 console.log("[e2e] avvio Postgres effimero…");
-const container = await new PostgreSqlContainer("postgres:17-alpine").start();
+// Immagine pgvector (come i testcontainers unitari): le migrazioni del server
+// fanno `CREATE EXTENSION vector` per gli embedding dei Docs, che un postgres
+// "liscio" non ha. `--locale=C` per una collation deterministica, allineata.
+const container = await new PostgreSqlContainer("pgvector/pgvector:pg17")
+  .withEnvironment({ POSTGRES_INITDB_ARGS: "--locale=C" })
+  .start();
 console.log("[e2e] Postgres pronto, avvio il server su :3210");
 
 // Binario tsx del workspace server: niente build, gira i sorgenti TS.
