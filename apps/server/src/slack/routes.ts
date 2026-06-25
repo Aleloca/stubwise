@@ -142,7 +142,7 @@ async function listProjects(instance: FastifyInstance): Promise<{ id: string; na
 /**
  * Progetti CON documentazione — stesso criterio dell'hub `GET /api/docs/spaces`:
  * almeno una pagina visibile (generazione corrente OR manuale). Restituisce
- * id/name/slug, filtrabili lato chiamante per l'autocomplete del modal /docs.
+ * id/name/slug; popolano le option dello static_select progetto del modal /docs.
  * Il join sulle pagine è ristretto come in docs.ts così le generazioni stale non
  * fanno comparire un progetto come "con documentazione".
  */
@@ -173,9 +173,6 @@ async function listProjectsWithDocs(
     .filter((r) => r.pageCount > 0)
     .map((r) => ({ id: r.id, name: r.name, slug: r.slug }));
 }
-
-/** Tetto al numero di option restituite all'autocomplete external_select. */
-const DOCS_SUGGESTIONS_LIMIT = 20;
 
 /**
  * Genera la risposta RAG ai Docs e la posta sul response_url di Slack (fase
@@ -382,12 +379,24 @@ export async function slackRoutes(
         });
       }
 
+      // Progetti CON documentazione: popolano il static_select del modal. Se
+      // nessuno ha ancora docs generate, non c'è nulla da interrogare → messaggio
+      // effimero (lo static_select non può avere zero option).
+      const docsProjects = await listProjectsWithDocs(instance.db);
+      if (docsProjects.length === 0) {
+        return reply.code(200).send({
+          response_type: "ephemeral",
+          text: "Nessun progetto ha ancora documentazione generata. Genera prima la documentazione di un progetto.",
+        });
+      }
+
       const docsTriggerId = body.trigger_id;
       if (docsTriggerId) {
         const client = clientFactory(creds.botToken);
         await client.openView(
           docsTriggerId,
           buildDocsQueryModal({
+            projects: docsProjects.map((p) => ({ id: p.id, name: p.name })),
             prefillQuestion: body.text?.trim() || undefined,
             privateMetadata: JSON.stringify({
               responseUrl: body.response_url,
@@ -434,28 +443,6 @@ export async function slackRoutes(
     }
 
     const client = clientFactory(creds.botToken);
-
-    // Autocomplete dell'external_select progetto del modal /docs. Slack invia un
-    // `block_suggestions` con il testo digitato in `value`; rispondiamo con le
-    // option (progetti CON documentazione) filtrate. Branch additivo, PRIMA degli
-    // altri tipi: non tocca il flusso ticket.
-    if (payload.type === "block_suggestions") {
-      const q = (payload.value ?? "").toLowerCase().trim();
-      const withDocs = await listProjectsWithDocs(instance.db);
-      const matches = withDocs
-        .filter((p) =>
-          q === ""
-            ? true
-            : p.name.toLowerCase().includes(q) || p.slug.toLowerCase().includes(q),
-        )
-        .slice(0, DOCS_SUGGESTIONS_LIMIT);
-      return reply.code(200).send({
-        options: matches.map((p) => ({
-          text: { type: "plain_text", text: p.name },
-          value: p.id,
-        })),
-      });
-    }
 
     if (payload.type === "message_action") {
       // Apre il modal precompilato dal testo del messaggio: prima riga (max

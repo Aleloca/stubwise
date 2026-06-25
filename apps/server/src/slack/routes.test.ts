@@ -409,6 +409,17 @@ describe("POST /api/slack/commands — /docs", () => {
     return blocks.some((b) => (b as { element?: { type?: string } }).element?.type === type);
   }
 
+  // Almeno un progetto CON documentazione deve esistere, altrimenti il modal non
+  // si apre (lo static_select non può avere zero option → messaggio effimero).
+  beforeAll(async () => {
+    const pid = await createProject(`docscmd-${randomUUID().slice(0, 8)}`);
+    await seedDocsForProject(testDb.db, pid, {
+      title: "Pagina docs cmd",
+      slug: `docscmd-page-${randomUUID().slice(0, 8)}`,
+      content: "Documentazione per i test del comando /docs.",
+    });
+  });
+
   it("utente non collegato → 200 effimero, niente openView", async () => {
     // Nessuna riga users con slackUserId = Unotlinked.
     const res = await slackPost(
@@ -435,8 +446,8 @@ describe("POST /api/slack/commands — /docs", () => {
     const [triggerId, view] = openView.mock.calls[0]!;
     expect(triggerId).toBe("TRIGDOCS");
     expect((view as { callback_id: string }).callback_id).toBe(DOCS_QUERY_CALLBACK_ID);
-    // Selettore progetto (external_select) + input domanda.
-    expect(hasElementOfType(view, "external_select")).toBe(true);
+    // Selettore progetto (static_select coi progetti con docs) + input domanda.
+    expect(hasElementOfType(view, "static_select")).toBe(true);
     expect(hasElementOfType(view, "plain_text_input")).toBe(true);
     // private_metadata parsabile col contesto dello slash command.
     const meta = JSON.parse((view as { private_metadata: string }).private_metadata) as {
@@ -692,55 +703,6 @@ describe("POST /api/slack/interactions — message_action", () => {
     const json = JSON.stringify(view);
     expect(json).toContain("Prima riga del bug");
     expect(json).toContain("Dettagli ulteriori");
-  });
-});
-
-describe("POST /api/slack/interactions — block_suggestions (autocomplete /docs)", () => {
-  /** Costruisce il raw body di un block_suggestions col testo digitato. */
-  function suggestBody(value: string): string {
-    const payload = {
-      type: "block_suggestions",
-      action_id: DOCS_ACTION_IDS.project,
-      value,
-      user: { id: "Usugg" },
-    };
-    return new URLSearchParams({ payload: JSON.stringify(payload) }).toString();
-  }
-
-  it("ritorna solo i progetti CON documentazione che matchano, niente quelli senza", async () => {
-    // Un progetto con docs il cui nome matcha "wil", uno senza docs.
-    const withDocsId = await createProject(`wildoc-${randomUUID().slice(0, 8)}`);
-    await seedDocsForProject(testDb.db, withDocsId, {
-      title: "Pagina Wil",
-      slug: `wil-page-${randomUUID().slice(0, 8)}`,
-      content: "Contenuto della documentazione di Wil.",
-    });
-    const withoutDocsId = await createProject(`wilnodoc-${randomUUID().slice(0, 8)}`);
-
-    const res = await slackPost("/api/slack/interactions", suggestBody("wil"));
-    expect(res.statusCode).toBe(200);
-    const json = res.json() as { options: { value: string; text: { text: string } }[] };
-    const values = json.options.map((o) => o.value);
-    expect(values).toContain(withDocsId);
-    // Il progetto senza documentazione NON compare.
-    expect(values).not.toContain(withoutDocsId);
-  });
-
-  it("rispetta il tetto di 20 option", async () => {
-    // Seed di 22 progetti con docs il cui nome matcha un prefisso comune.
-    const prefix = `cap${randomUUID().slice(0, 6)}`;
-    for (let i = 0; i < 22; i++) {
-      const pid = await createProject(`${prefix}-${i}`);
-      await seedDocsForProject(testDb.db, pid, {
-        title: `Cap ${i}`,
-        slug: `cap-${randomUUID().slice(0, 8)}`,
-        content: `Documentazione capped numero ${i}.`,
-      });
-    }
-    const res = await slackPost("/api/slack/interactions", suggestBody(prefix));
-    expect(res.statusCode).toBe(200);
-    const json = res.json() as { options: unknown[] };
-    expect(json.options.length).toBeLessThanOrEqual(20);
   });
 });
 

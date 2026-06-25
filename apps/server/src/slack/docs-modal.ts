@@ -23,7 +23,18 @@ export const DOCS_ACTION_IDS = {
 /** Limite di rendering di Slack per `initial_value` di un plain_text_input. */
 const QUESTION_PREFILL_MAX = 150;
 
+export interface DocsModalProject {
+  id: string;
+  name: string;
+}
+
 export interface BuildDocsQueryModalInput {
+  /**
+   * Progetti CON documentazione selezionabili: popolano le option dello
+   * static_select progetto. Devono essere non vuoti (il chiamante gestisce il
+   * caso "nessun progetto con docs" prima di aprire il modal).
+   */
+  projects: DocsModalProject[];
   /**
    * Testo digitato dopo `/docs` (campo `text` dello slash command), usato per
    * precompilare la domanda. Troncato a ~150 char (limite di rendering Slack).
@@ -39,16 +50,17 @@ export interface BuildDocsQueryModalInput {
 
 /**
  * Costruisce la view Block Kit del modal di interrogazione dei Docs. Contiene:
- * - external_select PROGETTO (le option arrivano via block_suggestions, Task 3:
- *   qui NON si mettono option statiche; `min_query_length: 0` mostra subito i
- *   suggerimenti senza dover digitare);
+ * - static_select PROGETTO (option = progetti CON documentazione passati dal
+ *   chiamante; mostra i NOMI, niente slug da digitare. Slack aggiunge da sé una
+ *   casella di ricerca quando le option sono molte — niente external_select, che
+ *   richiederebbe la configurazione di un Options Load URL lato app Slack);
  * - plain_text_input multiline DOMANDA (precompilabile dal testo dello slash
  *   command, troncato a 150 char per il limite di rendering Slack).
  *
  * `private_metadata` trasporta il contesto dello slash command fino al submit.
  */
 export function buildDocsQueryModal(input: BuildDocsQueryModalInput): Record<string, unknown> {
-  const { prefillQuestion, privateMetadata } = input;
+  const { projects, prefillQuestion, privateMetadata } = input;
 
   return {
     type: "modal",
@@ -63,10 +75,13 @@ export function buildDocsQueryModal(input: BuildDocsQueryModalInput): Record<str
         block_id: DOCS_BLOCK_IDS.project,
         label: { type: "plain_text", text: "Progetto" },
         element: {
-          type: "external_select",
+          type: "static_select",
           action_id: DOCS_ACTION_IDS.project,
-          min_query_length: 0,
-          placeholder: { type: "plain_text", text: "Cerca un progetto…" },
+          placeholder: { type: "plain_text", text: "Seleziona un progetto" },
+          options: projects.map((p) => ({
+            text: { type: "plain_text", text: p.name },
+            value: p.id,
+          })),
         },
       },
       {
