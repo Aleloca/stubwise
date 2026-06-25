@@ -22,7 +22,17 @@ export default defineConfig({
     baseURL: "http://localhost:5210",
     trace: "retain-on-failure",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  // Viewport ampio (full HD): la board kanban ha 6 colonne (min 15rem ciascuna)
+  // e sotto una certa larghezza va in scroll orizzontale. Con un viewport stretto
+  // l'auto-scroll di dnd-kit durante il drag sposterebbe le colonne sotto il
+  // puntatore, facendo cadere il rilascio sulla colonna sbagliata: a 1920px tutte
+  // le colonne stanno in pagina e il drag-and-drop col mouse è deterministico.
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1920, height: 1080 } },
+    },
+  ],
   webServer: [
     {
       command: "node e2e/start-stack.mjs",
