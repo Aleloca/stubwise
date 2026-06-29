@@ -270,6 +270,14 @@ export class MirrorManager {
           throw error;
         }
       } else {
+        // Worktree orfani (es. la dir effimera in /tmp sparisce al riavvio del
+        // worker mentre un fix era aperto) restano registrati e tengono "checked
+        // out" il loro branch: `fetch --prune` rifiuterebbe di toccarlo (exit 128,
+        // "refusing to fetch into branch ... checked out at ..."). `worktree prune`
+        // rimuove SOLO le registrazioni la cui directory non esiste più — i
+        // worktree VIVI (es. quello di una generazione in corso) restano intatti,
+        // preservando l'invariante "niente fetch --prune con un worktree aperto".
+        await this.git(["worktree", "prune"], { cwd: dir });
         await this.git(["fetch", "--prune", "origin"], { cwd: dir, auth: project });
       }
       return dir;

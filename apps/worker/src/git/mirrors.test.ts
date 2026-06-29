@@ -181,6 +181,25 @@ describe("MirrorManager.ensureMirror", () => {
     expect(await git(["rev-parse", "main"], dir)).toBe(newSha);
   });
 
+  it("ripulisce i worktree orfani (dir sparita) che bloccherebbero il fetch --prune", async () => {
+    const { manager, upstream } = await makeFixture();
+    const project = projectFor(upstream);
+    const dir = await manager.ensureMirror(project);
+
+    // Simula il worktree di un fix lasciato orfano: lo crea su un branch
+    // stubwise/* e poi ne CANCELLA la directory (come quando il worker si riavvia
+    // e la dir effimera in /tmp sparisce). La registrazione resta e tiene
+    // "checked out" il branch: senza prune, il fetch --prune fallirebbe (exit 128).
+    const wtDir = join(dir, "..", "orphan-wt");
+    await git(["worktree", "add", "--quiet", "-b", "stubwise/ticket-1", wtDir, "main"], dir);
+    await rm(wtDir, { recursive: true, force: true });
+
+    const newSha = await upstream.addCommit("post-orphan.txt", "x\n");
+    // Deve riuscire (prune + fetch) e vedere i nuovi commit upstream.
+    await expect(manager.ensureMirror(project)).resolves.toBe(dir);
+    expect(await git(["rev-parse", "main"], dir)).toBe(newSha);
+  });
+
   it("serializza chiamate concorrenti sullo stesso repo (entrambe riescono)", async () => {
     const { manager, upstream } = await makeFixture();
     const project = projectFor(upstream);
