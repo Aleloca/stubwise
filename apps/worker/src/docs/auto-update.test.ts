@@ -146,7 +146,7 @@ async function createProject(
       defaultBranch: "main",
       ingestionKey: `ingestion-au-${uniq}`,
       docAutoUpdate: true,
-      ...(opts.providerId !== undefined ? { docAutoUpdateProviderId: opts.providerId } : {}),
+      ...(opts.providerId !== undefined ? { aiProviderId: opts.providerId } : {}),
     })
     .returning();
   if (!project) throw new Error("insert del progetto non ha restituito la riga");
@@ -293,7 +293,7 @@ function baseDeps(
     // restano invariati. I test Fase 2 passano esplicitamente un maxRefreshPages > 0.
     maxRefreshPages: opts.maxRefreshPages ?? 0,
     // Catena vuota di default: provider undefined (auth storica). I test che vogliono
-    // un provider bloccato passano docAutoUpdateProviderId + un loadProviderByIdFn fake.
+    // un provider bloccato passano aiProviderId + un loadProviderByIdFn fake.
     loadProviderChainFn: async () => [],
   };
 }

@@ -108,7 +108,11 @@ async function makeMirrors(): Promise<MirrorManager> {
   return new MirrorManager({ mirrorsDir: join(root, "mirrors") });
 }
 
-async function createProject(db: Db, repoUrl: string): Promise<string> {
+async function createProject(
+  db: Db,
+  repoUrl: string,
+  opts: { aiProviderId?: string } = {},
+): Promise<string> {
   uniq++;
   const gitAccountId = await seedGitAccount(db, {
     provider: "github",
@@ -124,6 +128,7 @@ async function createProject(db: Db, repoUrl: string): Promise<string> {
       repoUrl,
       defaultBranch: "main",
       ingestionKey: `ingestion-dispatch-${uniq}`,
+      ...(opts.aiProviderId !== undefined ? { aiProviderId: opts.aiProviderId } : {}),
     })
     .returning();
   if (!project) throw new Error("insert del progetto non ha restituito la riga");
@@ -448,24 +453,24 @@ describe("dispatch del DAG (M7.1)", () => {
   });
 });
 
-// Provider BLOCCATO (pin): l'intera generazione usa SOLO quel provider, niente fallback.
-describe("provider bloccato (pinned)", () => {
+// Provider del PROGETTO (projects.aiProviderId): l'intera generazione usa SOLO quel
+// provider, niente fallback.
+describe("provider bloccato (project.aiProviderId)", () => {
   const PINNED: ResolvedProvider = {
     id: "00000000-0000-0000-0000-000000000001",
     kind: "api_key",
     secret: "sk-pinned",
   };
 
-  it("trigger con pin valido → orientamento usa il provider bloccato (mock loadProviderByIdFn)", async () => {
+  it("trigger con project.aiProviderId valido → orientamento usa quel provider (mock loadProviderByIdFn)", async () => {
     const { db } = testDb;
     const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, upstream);
     const providerId = await createProvider(db);
+    const projectId = await createProject(db, upstream, { aiProviderId: providerId });
     // Chiamando l'handler direttamente saltiamo claimNextDocJob: il trigger va messo
     // `running` a mano (è lo stato in cui l'handler reale lo riceve).
     const triggerId = await enqueueTrigger(db, projectId, {
-      pinnedProviderId: providerId,
       status: "running",
       startedAt: new Date(),
     });
@@ -499,10 +504,9 @@ describe("provider bloccato (pinned)", () => {
     await docHandler({
       id: triggerId,
       projectId,
-      pinnedProviderId: providerId,
     } as never);
 
-    // Il pin è stato risolto per id (non via chain) e l'orientamento ha usato QUEL provider.
+    // Il provider è stato risolto per id (non via chain) e l'orientamento ha usato QUEL provider.
     expect(byIdArgs).toEqual({ id: providerId });
     expect(runner.calls.length).toBeGreaterThan(0);
     expect(runner.calls[0]?.provider).toEqual(pinnedForId);
@@ -519,13 +523,14 @@ describe("provider bloccato (pinned)", () => {
     if (wt) await wt.close().catch(() => {});
   });
 
-  it("trigger con pin NON risolvibile → trigger failed, runOrientation MAI chiamata, niente fallback", async () => {
+  it("trigger con project.aiProviderId NON risolvibile → trigger failed, runOrientation MAI chiamata, niente fallback", async () => {
     const { db } = testDb;
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, "https://github.com/acme/x");
     const providerId = await createProvider(db);
+    const projectId = await createProject(db, "https://github.com/acme/x", {
+      aiProviderId: providerId,
+    });
     const triggerId = await enqueueTrigger(db, projectId, {
-      pinnedProviderId: providerId,
       status: "running",
       startedAt: new Date(),
     });
@@ -558,7 +563,6 @@ describe("provider bloccato (pinned)", () => {
     await docHandler({
       id: triggerId,
       projectId,
-      pinnedProviderId: providerId,
     } as never);
 
     // NESSUN fallback: la catena non è stata interrogata, l'agente non è stato invocato
@@ -578,6 +582,67 @@ describe("provider bloccato (pinned)", () => {
       .where(eq(docGenerationJobs.id, triggerId));
     expect(trigger?.status).toBe("failed");
     expect(trigger?.error).toBe("pinned_provider_unavailable");
+  });
+
+  it("trigger SENZA project.aiProviderId → chain[0] (comportamento automatico), loadProviderById MAI chiamata", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const projectId = await createProject(db, upstream); // niente aiProviderId
+    const triggerId = await enqueueTrigger(db, projectId, {
+      status: "running",
+      startedAt: new Date(),
+    });
+
+    const runner = scriptedRunner();
+    const registry = createGenerationWorktreeRegistry();
+    const serializer = createProjectSerializer();
+    const chainProvider: ResolvedProvider = {
+      id: "11111111-1111-1111-1111-111111111111",
+      kind: "api_key",
+      secret: "sk-chain",
+    };
+    let byIdCalled = false;
+
+    const docHandler = createDocHandler(
+      {
+        db,
+        runner,
+        mirrors,
+        registry,
+        encryptionKey: ENCRYPTION_KEY,
+        model: "opus",
+        agentTimeoutMs: 600_000,
+        maxTurns: 30,
+        loadProviderChainFn: async () => [chainProvider],
+        loadProviderByIdFn: async () => {
+          byIdCalled = true;
+          return null;
+        },
+      },
+      serializer,
+    );
+
+    await docHandler({
+      id: triggerId,
+      projectId,
+    } as never);
+
+    // Senza provider di progetto: si usa chain[0], loadProviderById MAI chiamata.
+    expect(byIdCalled).toBe(false);
+    expect(runner.calls.length).toBeGreaterThan(0);
+    expect(runner.calls[0]?.provider).toEqual(chainProvider);
+
+    // La generazione NON è stata seminata con un pin (resta null).
+    const [gen] = await db
+      .select()
+      .from(docGenerations)
+      .where(eq(docGenerations.projectId, projectId));
+    expect(gen?.pinnedProviderId).toBeNull();
+
+    // Pulizia del worktree aperto dall'orientamento.
+    const wt = registry.claimForFinalize(gen!.id);
+    if (wt) await wt.close().catch(() => {});
   });
 
   it("nodo di una generazione pinnata → usa il provider bloccato, NON chain[0]", async () => {

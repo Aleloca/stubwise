@@ -1,4 +1,5 @@
-import type { Db } from "@stubwise/db";
+import { projects, type Db } from "@stubwise/db";
+import { eq } from "drizzle-orm";
 import type { AgentRunner } from "../agent/runner.js";
 import type { MirrorManager } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
@@ -59,8 +60,8 @@ export interface DocHandlerDeps {
    * loadProviderChain. La PRIMA voce della catena è la credenziale usata. */
   loadProviderChainFn?: (db: Db, encryptionKey: Buffer) => Promise<ResolvedProvider[]>;
   /** Risolutore di UN provider per id (iniettabile nei test). Default:
-   * loadProviderById. Usato quando il trigger ha un provider bloccato
-   * (`pinnedProviderId`): se ritorna null la generazione è annullata, MAI fallback. */
+   * loadProviderById. Usato quando il progetto ha un provider AI impostato
+   * (`aiProviderId`): se ritorna null la generazione è annullata, MAI fallback. */
   loadProviderByIdFn?: (
     db: Db,
     encryptionKey: Buffer,
@@ -94,21 +95,29 @@ export function createDocHandler(
         return;
       }
 
-      // Scelta della credenziale AI dell'INTERA generazione.
-      //  - Con `pinnedProviderId` (provider BLOCCATO dall'utente): risolviamo SOLO
-      //    quel provider. Se non è risolvibile al run (disabilitato/cancellato/segreto
-      //    non decifrabile → loadProviderById = null) la generazione è ANNULLATA: trigger
-      //    `failed`, NIENTE fallback su chain[0] (il pin è una scelta esplicita, non un
-      //    suggerimento). L'utente ri-triggererà con un provider valido.
-      //  - Senza pin: comportamento ATTUALE — la prima credenziale della catena (come la
-      //    pipeline fix). Catena vuota → undefined = auth storica del container.
+      // Scelta della credenziale AI dell'INTERA generazione. La FONTE è il provider AI
+      // del PROGETTO (`projects.aiProviderId`), non più il job.
+      //  - Con `aiProviderId` impostato (provider BLOCCATO a livello di progetto):
+      //    risolviamo SOLO quel provider. Se non è risolvibile al run (disabilitato/
+      //    cancellato/segreto non decifrabile → loadProviderById = null) la generazione è
+      //    ANNULLATA: trigger `failed`, NIENTE fallback su chain[0] (è una scelta
+      //    esplicita, non un suggerimento). L'utente ri-triggererà con un provider valido.
+      //  - Senza (null = automatico): comportamento ATTUALE — la prima credenziale della
+      //    catena (come la pipeline fix). Catena vuota → undefined = auth storica del
+      //    container.
+      const [project] = await deps.db
+        .select({ aiProviderId: projects.aiProviderId })
+        .from(projects)
+        .where(eq(projects.id, job.projectId));
+      const aiProviderId = project?.aiProviderId ?? null;
+
       let provider: ResolvedProvider | undefined;
-      if (job.pinnedProviderId) {
+      if (aiProviderId) {
         const loadById = deps.loadProviderByIdFn ?? loadProviderById;
-        const pinned = await loadById(deps.db, deps.encryptionKey, job.pinnedProviderId);
+        const pinned = await loadById(deps.db, deps.encryptionKey, aiProviderId);
         if (!pinned) {
           await failDocJob(deps.db, job.id, {
-            log: "[docs] provider bloccato non disponibile (disabilitato o cancellato): generazione annullata",
+            log: "[docs] provider AI del progetto non disponibile (disabilitato o cancellato): generazione annullata",
             error: "pinned_provider_unavailable",
           });
           return;
@@ -133,9 +142,10 @@ export function createDocHandler(
           agentTimeoutMs: deps.agentTimeoutMs,
           maxTurns: deps.maxTurns,
           ...(provider !== undefined ? { provider } : {}),
-          // Il pin è propagato alla generazione: l'orientamento lo semina su
-          // doc_generations, i job-nodo lo rileggono per blindarsi sullo stesso provider.
-          ...(job.pinnedProviderId ? { pinnedProviderId: job.pinnedProviderId } : {}),
+          // Il provider del progetto è propagato alla generazione: l'orientamento lo semina
+          // su doc_generations.pinned_provider_id, i job-nodo lo rileggono per blindarsi
+          // sullo stesso provider.
+          ...(aiProviderId ? { pinnedProviderId: aiProviderId } : {}),
         },
         job,
       );

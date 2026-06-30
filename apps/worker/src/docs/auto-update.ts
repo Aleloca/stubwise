@@ -38,7 +38,7 @@ import { EMBED_BATCH_SIZE, embedAndStoreChunks } from "./embed.js";
  * doc-generation, così non si sovrappone a un fetch --prune dello stesso progetto).
  *
  * Cosa fa `runAutoUpdate`:
- *  1. carica il progetto (defaultBranch, docAutoUpdateProviderId, currentDocGenerationId);
+ *  1. carica il progetto (defaultBranch, aiProviderId, currentDocGenerationId);
  *  2. calcola il diff del range (file cambiati + subject dei commit) sul mirror;
  *  3. GATE RUMORE deterministico: se TUTTI i file cambiati sono rumore (lockfile,
  *     cartelle di processo/doc) o non c'è alcun file → niente agente, niente entry;
@@ -173,7 +173,7 @@ function timestampForSlug(now: Date): string {
 /** Contesto del progetto necessario all'auto-update. */
 interface ProjectContext {
   mirrorProject: MirrorProject;
-  docAutoUpdateProviderId: string | null;
+  aiProviderId: string | null;
   currentDocGenerationId: string | null;
 }
 
@@ -218,7 +218,7 @@ async function loadProjectContext(
       defaultBranch: project.defaultBranch,
       credentials,
     },
-    docAutoUpdateProviderId: project.docAutoUpdateProviderId,
+    aiProviderId: project.aiProviderId,
     currentDocGenerationId: project.currentDocGenerationId,
   };
 }
@@ -284,7 +284,7 @@ async function loadPageBody(db: Db, pageId: string): Promise<PageBody | null> {
 
 /**
  * Risolve il provider AI dell'auto-update:
- *  - con `docAutoUpdateProviderId`: SOLO quel provider (provider "bloccato"). Se non è
+ *  - con `aiProviderId`: SOLO quel provider (provider "bloccato"). Se non è
  *    risolvibile (disabilitato/cancellato/segreto non decifrabile) ritorna
  *    `{ blocked: true }` → l'handler termina SENZA fallback;
  *  - senza id (automatico): la prima voce della catena (come la generazione normale).
@@ -292,11 +292,11 @@ async function loadPageBody(db: Db, pageId: string): Promise<PageBody | null> {
  */
 async function resolveProvider(
   deps: RunAutoUpdateDeps,
-  docAutoUpdateProviderId: string | null,
+  aiProviderId: string | null,
 ): Promise<{ provider: ResolvedProvider | undefined } | { blocked: true }> {
-  if (docAutoUpdateProviderId) {
+  if (aiProviderId) {
     const loadById = deps.loadProviderByIdFn ?? loadProviderById;
-    const pinned = await loadById(deps.db, deps.encryptionKey, docAutoUpdateProviderId);
+    const pinned = await loadById(deps.db, deps.encryptionKey, aiProviderId);
     if (!pinned) return { blocked: true };
     return { provider: pinned };
   }
@@ -567,7 +567,7 @@ export async function runAutoUpdate(deps: RunAutoUpdateDeps, job: AutoUpdateJob)
 
   // Provider: bloccato (per id) o automatico (chain[0]). Bloccato non risolvibile → stop
   // senza fallback (coerente col "provider bloccato" della generazione).
-  const resolved = await resolveProvider(deps, ctx.docAutoUpdateProviderId);
+  const resolved = await resolveProvider(deps, ctx.aiProviderId);
   if ("blocked" in resolved) {
     console.error(
       `[stubwise-worker] auto-update: provider auto del progetto ${job.projectId} non disponibile (disabilitato/cancellato), salto senza fallback`,
