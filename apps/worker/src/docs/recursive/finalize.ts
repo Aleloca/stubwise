@@ -3,7 +3,7 @@ import {
   docNodes,
   docPages,
   docGenerations,
-  projects,
+  repositories,
   type Db,
 } from "@stubwise/db";
 import {
@@ -42,7 +42,7 @@ import type { DocNode } from "../nodes.js";
  *  4. RELATED (semantico, IN-MEMORY): per ogni pagina, `selectRelatedLinks` sui vettori
  *     di pagina già calcolati (cosine), escludendo self/padre/figli/già-linkate; i link
  *     `related` sono APPESI a doc_pages.links.
- *  5. SWAP + PRUNE: `projects.currentDocGenerationId = generationId`, generazione
+ *  5. SWAP + PRUNE: `repositories.currentDocGenerationId = generationId`, generazione
  *     `succeeded` con stats + costo aggregato dai nodi, prune (corrente + precedente). Il
  *     TRIGGER doc-job NON viene toccato qui: è già `succeeded` (decoupling C2 — chiuso
  *     dall'orientamento appena seminato il DAG). Su QUALSIASI errore mid-finalize:
@@ -148,8 +148,8 @@ export async function allRootsDone(db: DbOrTx, generationId: string): Promise<bo
  *  - tutti i nodi non `done` → `failed` (così nessun ramo resta claimabile/in volo);
  *  - il trigger ancora `running` collegato → `failed`.
  * L'utente ri-triggera (la generazione è ripartibile da zero, deterministica). Il
- * progetto NON resta escluso dal claim: il worktree non è registrato, quindi
- * `activeProjectIds` non lo elenca. Ritorna true se ha fatto fallire la generazione
+ * repository NON resta escluso dal claim: il worktree non è registrato, quindi
+ * `activeRepositoryIds` non lo elenca. Ritorna true se ha fatto fallire la generazione
  * (era `running`), false se era già terminale (un altro path l'ha già chiusa).
  */
 export async function failGenerationOnRestart(
@@ -212,7 +212,7 @@ interface ProjectedPage {
  */
 async function projectPages(
   tx: DbOrTx,
-  projectId: string,
+  repositoryId: string,
   generationId: string,
   doneNodes: DocNode[],
   implementsLinks: Map<string, NodeLink[]>,
@@ -227,7 +227,7 @@ async function projectPages(
     const [stored] = await tx
       .insert(docPages)
       .values({
-        projectId,
+        repositoryId,
         generationId,
         kind: node.tree,
         slug: node.slug,
@@ -281,13 +281,13 @@ export async function finalizeGeneration(
 ): Promise<FinalizeOutcome> {
   const { db, embeddingClient } = deps;
 
-  // La generazione + il progetto (per projectId e per lo swap).
+  // La generazione + il repository (per repositoryId e per lo swap).
   const [generation] = await db
     .select()
     .from(docGenerations)
     .where(eq(docGenerations.id, generationId));
   if (!generation) return "failed";
-  const projectId = generation.projectId;
+  const repositoryId = generation.repositoryId;
 
   // Tutti i nodi della generazione (per stats, cross-link, proiezione).
   const allNodes = await db.select().from(docNodes).where(eq(docNodes.generationId, generationId));
@@ -325,7 +325,7 @@ export async function finalizeGeneration(
       // 2) Proiezione doc_nodes → doc_pages (due passaggi sui parent) + link implements.
       const projected = await projectPages(
         tx,
-        projectId,
+        repositoryId,
         generationId,
         doneNodes,
         implementsLinks,
@@ -339,7 +339,7 @@ export async function finalizeGeneration(
         sourcePath: p.sourcePath,
       }));
       const embedded = await embedAndStoreChunks(tx, embeddingClient, {
-        projectId,
+        repositoryId,
         generationId,
         pages: embedPages,
         batchSize: deps.embedBatchSize ?? EMBED_BATCH_SIZE,
@@ -402,12 +402,12 @@ export async function finalizeGeneration(
 
   // SWAP: il puntatore corrente passa a questa generazione SOLO ora (su successo).
   await db
-    .update(projects)
+    .update(repositories)
     .set({ currentDocGenerationId: generationId })
-    .where(eq(projects.id, projectId));
+    .where(eq(repositories.id, repositoryId));
 
   // PRUNE: corrente + precedente (cascade su doc_pages/doc_chunks).
-  await pruneOldGenerations(db, projectId, generationId);
+  await pruneOldGenerations(db, repositoryId, generationId);
 
   console.error(
     `[stubwise-worker] doc-generation ${generationId} completata: ${stats.pages} pagine ` +

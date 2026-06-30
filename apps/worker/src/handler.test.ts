@@ -5,6 +5,7 @@ import {
   encrypt,
   gitAccounts,
   projects,
+  repositories,
   tickets,
   type Db,
 } from "@stubwise/db";
@@ -25,8 +26,9 @@ import { claimNextJob, type AiJob } from "./queue.js";
 
 // E2E del wiring: job `queued` reclamato → handler → triage (decisione fix)
 // → fase di fix con push e PR finta. Più i test della serializzazione
-// per-progetto (due job dello stesso progetto non devono mai sovrapporsi:
-// il fetch --prune di un job cancellerebbe i ref stubwise/* dell'altro).
+// per-repository (due job dello stesso repository non devono mai sovrapporsi:
+// il fetch --prune di un job cancellerebbe i ref stubwise/* dell'altro), e il
+// parallelismo di repository diversi (anche dello stesso progetto).
 
 vi.setConfig({ testTimeout: 60_000 });
 
@@ -81,19 +83,42 @@ async function makeMirrors(): Promise<MirrorManager> {
   return new MirrorManager({ mirrorsDir: join(root, "mirrors") });
 }
 
-async function createProject(
+interface RepoRef {
+  projectId: string;
+  repositoryId: string;
+}
+
+// Crea un progetto (gruppo) — con l'eventuale aiProviderId, che ora vive sul gruppo —
+// e un repository che vi appartiene. Ritorna entrambi gli id: il fix lavora sul
+// repository, il provider AI è risolto dal progetto del repository. Per testare due
+// repository dello STESSO progetto si passa `projectId`.
+async function createRepository(
   db: Db,
   repoUrl: string,
-  opts: { aiProviderId?: string } = {},
-): Promise<string> {
+  opts: { aiProviderId?: string; projectId?: string } = {},
+): Promise<RepoRef> {
   uniq++;
   const gitAccountId = await seedGitAccount(db, {
     provider: "github",
     encryptedCredentials: encrypt(JSON.stringify({ token: "tok" }), ENCRYPTION_KEY),
   });
-  const [project] = await db
-    .insert(projects)
+  let projectId = opts.projectId;
+  if (!projectId) {
+    const [project] = await db
+      .insert(projects)
+      .values({
+        name: `Gruppo ${uniq}`,
+        slug: `gruppo-${uniq}`,
+        ...(opts.aiProviderId !== undefined ? { aiProviderId: opts.aiProviderId } : {}),
+      })
+      .returning();
+    if (!project) throw new Error("insert del progetto non ha restituito la riga");
+    projectId = project.id;
+  }
+  const [repository] = await db
+    .insert(repositories)
     .values({
+      projectId,
       name: `Handler ${uniq}`,
       slug: `handler-${uniq}`,
       provider: "github",
@@ -101,23 +126,30 @@ async function createProject(
       repoUrl,
       defaultBranch: "main",
       ingestionKey: `ingestion-handler-${uniq}`,
-      ...(opts.aiProviderId !== undefined ? { aiProviderId: opts.aiProviderId } : {}),
     })
     .returning();
-  if (!project) throw new Error("insert del progetto non ha restituito la riga");
-  return project.id;
+  if (!repository) throw new Error("insert del repository non ha restituito la riga");
+  return { projectId, repositoryId: repository.id };
 }
 
 async function createQueuedJob(
   db: Db,
-  projectId: string,
+  ref: RepoRef,
   title: string,
   number: number,
   jobValues: Partial<typeof aiJobs.$inferInsert> = {},
 ): Promise<string> {
   const [ticket] = await db
     .insert(tickets)
-    .values({ projectId, number, title, type: "bug", priority: "high", source: "sdk_error" })
+    .values({
+      projectId: ref.projectId,
+      repositoryId: ref.repositoryId,
+      number,
+      title,
+      type: "bug",
+      priority: "high",
+      source: "sdk_error",
+    })
     .returning();
   if (!ticket) throw new Error("insert del ticket non ha restituito la riga");
   const [job] = await db.insert(aiJobs).values({ ticketId: ticket.id, ...jobValues }).returning();
@@ -140,8 +172,8 @@ describe("createHandler", () => {
     const { db } = testDb;
     const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, upstream.url);
-    const ticketId = await createQueuedJob(db, projectId, "sum sbaglia il segno", 3);
+    const repo = await createRepository(db, upstream.url);
+    const ticketId = await createQueuedJob(db, repo, "sum sbaglia il segno", 3);
 
     const REPORT = "## Processo di indagine\nok\n## Causa radice\nok\n## Soluzione\nok\n## Motivazione\nok\n";
     const runner = new FakeAgentRunner({
@@ -191,8 +223,8 @@ describe("createHandler", () => {
   it("decisione skip → la fase di fix non parte (runner chiamato una sola volta)", async () => {
     const { db } = testDb;
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, "https://github.com/acme/mai-clonato");
-    await createQueuedJob(db, projectId, "ticket vago", 1);
+    const repo = await createRepository(db, "https://github.com/acme/mai-clonato");
+    await createQueuedJob(db, repo, "ticket vago", 1);
 
     const runner = new FakeAgentRunner({
       output: `{"decision":"skip","type":"bug","effort":1,"reason":"troppo vago"}`,
@@ -211,8 +243,8 @@ describe("createHandler", () => {
     const { db } = testDb;
     const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, upstream.url);
-    const ticketId = await createQueuedJob(db, projectId, "sum sbaglia il segno", 7, {
+    const repo = await createRepository(db, upstream.url);
+    const ticketId = await createQueuedJob(db, repo, "sum sbaglia il segno", 7, {
       resumeMode: "fix",
     });
 
@@ -261,8 +293,8 @@ describe("createHandler", () => {
   it("resume_mode=fix con ownership persa: markFixing fallisce → il fix NON parte", async () => {
     const { db } = testDb;
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, "https://github.com/acme/mai-clonato");
-    await createQueuedJob(db, projectId, "job di ripresa orfano", 11, { resumeMode: "fix" });
+    const repo = await createRepository(db, "https://github.com/acme/mai-clonato");
+    await createQueuedJob(db, repo, "job di ripresa orfano", 11, { resumeMode: "fix" });
 
     // Lo script lancerebbe se il runner venisse invocato: ci serve solo per
     // accorgerci se per errore il fix partisse (runner.calls dovrà restare vuoto).
@@ -295,12 +327,12 @@ describe("createHandler", () => {
     expect(jobAfter?.status).toBe("failed");
   });
 
-  it("serializza i job dello STESSO progetto: il secondo parte solo dopo la fine del primo", async () => {
+  it("serializza i job dello STESSO repository: il secondo parte solo dopo la fine del primo", async () => {
     const { db } = testDb;
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, "https://github.com/acme/seriale");
-    await createQueuedJob(db, projectId, "primo job", 1);
-    await createQueuedJob(db, projectId, "secondo job", 2);
+    const repo = await createRepository(db, "https://github.com/acme/seriale");
+    await createQueuedJob(db, repo, "primo job", 1);
+    await createQueuedJob(db, repo, "secondo job", 2);
 
     const windows: Array<{ title: string; start: number; end: number }> = [];
     const runner = new FakeAgentRunner({
@@ -331,13 +363,13 @@ describe("createHandler", () => {
     expect(second.start).toBeGreaterThanOrEqual(first.end);
   });
 
-  it("NON serializza job di progetti DIVERSI: le esecuzioni si sovrappongono", async () => {
+  it("NON serializza job di repository DIVERSI: le esecuzioni si sovrappongono", async () => {
     const { db } = testDb;
     const mirrors = await makeMirrors();
-    const projectA = await createProject(db, "https://github.com/acme/parallelo-a");
-    const projectB = await createProject(db, "https://github.com/acme/parallelo-b");
-    await createQueuedJob(db, projectA, "job progetto A", 1);
-    await createQueuedJob(db, projectB, "job progetto B", 1);
+    const repoA = await createRepository(db, "https://github.com/acme/parallelo-a");
+    const repoB = await createRepository(db, "https://github.com/acme/parallelo-b");
+    await createQueuedJob(db, repoA, "job repo A", 1);
+    await createQueuedJob(db, repoB, "job repo B", 1);
 
     const windows: Array<{ start: number; end: number }> = [];
     const runner = new FakeAgentRunner({
@@ -366,11 +398,53 @@ describe("createHandler", () => {
     expect(second.start).toBeLessThan(first.end);
   });
 
+  it("NON serializza due repository dello STESSO progetto: si sovrappongono (chiave = repository)", async () => {
+    const { db } = testDb;
+    const mirrors = await makeMirrors();
+    // Due repository DIVERSI dentro lo STESSO progetto (gruppo): la serializzazione
+    // è per repository (il mirror è del repo), quindi questi due possono procedere
+    // in parallelo nonostante condividano il progetto.
+    const repoA = await createRepository(db, "https://github.com/acme/gruppo-a");
+    const repoB = await createRepository(db, "https://github.com/acme/gruppo-b", {
+      projectId: repoA.projectId,
+    });
+    expect(repoB.projectId).toBe(repoA.projectId);
+    await createQueuedJob(db, repoA, "job repo A", 1);
+    // Stesso progetto → numerazione ticket per-progetto: il secondo ticket ha numero 2.
+    await createQueuedJob(db, repoB, "job repo B", 2);
+
+    const windows: Array<{ start: number; end: number }> = [];
+    const runner = new FakeAgentRunner({
+      script: async () => {
+        const start = Date.now();
+        await sleep(300);
+        windows.push({ start, end: Date.now() });
+        return {
+          output: `{"decision":"skip","type":"bug","effort":1,"reason":"test di parallelismo intra-progetto"}`,
+          exitCode: 0,
+        };
+      },
+    });
+    const handler = createHandler({ db, runner, mirrors, encryptionKey: ENCRYPTION_KEY });
+
+    const job1 = await claim(db);
+    const job2 = await claim(db);
+    await Promise.all([handler(job1), handler(job2)]);
+
+    expect(windows).toHaveLength(2);
+    const [first, second] = [...windows].sort((a, b) => a.start - b.start) as [
+      (typeof windows)[number],
+      (typeof windows)[number],
+    ];
+    // Sovrapposizione: la chiave del serializer è il repository, non il progetto.
+    expect(second.start).toBeLessThan(first.end);
+  });
+
   it("seleziona la PRIMA credenziale della catena, la passa al runner e registra provider_id", async () => {
     const { db } = testDb;
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, "https://github.com/acme/mai-clonato");
-    await createQueuedJob(db, projectId, "ticket vago", 11);
+    const repo = await createRepository(db, "https://github.com/acme/mai-clonato");
+    await createQueuedJob(db, repo, "ticket vago", 11);
 
     // Due provider abilitati: il primo (position 1) è quello atteso.
     const [first] = await db
@@ -411,8 +485,8 @@ describe("createHandler", () => {
     const { db } = testDb;
     const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, upstream.url);
-    const ticketId = await createQueuedJob(db, projectId, "sum sbaglia il segno", 21);
+    const repo = await createRepository(db, upstream.url);
+    const ticketId = await createQueuedJob(db, repo, "sum sbaglia il segno", 21);
 
     const [provA] = await db
       .insert(aiProviders)
@@ -481,8 +555,8 @@ describe("createHandler", () => {
   it("failover: catena [A,B] entrambe al limite → job HELD con commento, nessuna PR", async () => {
     const { db } = testDb;
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, "https://github.com/acme/mai-clonato");
-    const ticketId = await createQueuedJob(db, projectId, "ticket al limite", 22);
+    const repo = await createRepository(db, "https://github.com/acme/mai-clonato");
+    const ticketId = await createQueuedJob(db, repo, "ticket al limite", 22);
 
     await db.insert(aiProviders).values({
       position: 1,
@@ -528,8 +602,8 @@ describe("createHandler", () => {
   it("failover: credenziale SINGOLA al limite → job HELD (niente failover possibile)", async () => {
     const { db } = testDb;
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, "https://github.com/acme/mai-clonato");
-    await createQueuedJob(db, projectId, "ticket al limite", 23);
+    const repo = await createRepository(db, "https://github.com/acme/mai-clonato");
+    await createQueuedJob(db, repo, "ticket al limite", 23);
 
     await db.insert(aiProviders).values({
       position: 1,
@@ -553,8 +627,8 @@ describe("createHandler", () => {
   it("errore NON-limite (output triage invalido): NESSUN failover, comportamento attuale", async () => {
     const { db } = testDb;
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, "https://github.com/acme/mai-clonato");
-    await createQueuedJob(db, projectId, "ticket rotto", 24);
+    const repo = await createRepository(db, "https://github.com/acme/mai-clonato");
+    await createQueuedJob(db, repo, "ticket rotto", 24);
 
     const [provA] = await db
       .insert(aiProviders)
@@ -609,8 +683,8 @@ describe("createHandler", () => {
       .returning();
     if (!assigned) throw new Error("insert provider non ha restituito la riga");
 
-    const projectId = await createProject(db, upstream.url, { aiProviderId: assigned.id });
-    const ticketId = await createQueuedJob(db, projectId, "sum sbaglia il segno", 31);
+    const repo = await createRepository(db, upstream.url, { aiProviderId: assigned.id });
+    const ticketId = await createQueuedJob(db, repo, "sum sbaglia il segno", 31);
 
     const resolved = { id: assigned.id, kind: "api_key" as const, secret: "sk-progetto" };
     const loadProviderByIdFn = vi.fn().mockResolvedValue(resolved);
@@ -668,10 +742,10 @@ describe("createHandler", () => {
       .returning();
     if (!assigned) throw new Error("insert provider non ha restituito la riga");
 
-    const projectId = await createProject(db, "https://github.com/acme/mai-clonato", {
+    const repo = await createRepository(db, "https://github.com/acme/mai-clonato", {
       aiProviderId: assigned.id,
     });
-    await createQueuedJob(db, projectId, "ticket al limite", 32);
+    await createQueuedJob(db, repo, "ticket al limite", 32);
 
     const loadProviderByIdFn = vi
       .fn()
@@ -716,10 +790,10 @@ describe("createHandler", () => {
       .returning();
     if (!assigned) throw new Error("insert provider non ha restituito la riga");
 
-    const projectId = await createProject(db, "https://github.com/acme/mai-clonato", {
+    const repo = await createRepository(db, "https://github.com/acme/mai-clonato", {
       aiProviderId: assigned.id,
     });
-    await createQueuedJob(db, projectId, "provider disabilitato", 33);
+    await createQueuedJob(db, repo, "provider disabilitato", 33);
 
     // Provider non disponibile (disabilitato/cancellato/non decifrabile).
     const loadProviderByIdFn = vi.fn().mockResolvedValue(null);
@@ -748,8 +822,8 @@ describe("createHandler", () => {
   it("catena vuota: nessun provider passato al runner (retro-compat)", async () => {
     const { db } = testDb;
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, "https://github.com/acme/mai-clonato");
-    await createQueuedJob(db, projectId, "ticket vago", 12);
+    const repo = await createRepository(db, "https://github.com/acme/mai-clonato");
+    await createQueuedJob(db, repo, "ticket vago", 12);
 
     const runner = new FakeAgentRunner({
       output: `{"decision":"skip","type":"bug","effort":1,"reason":"troppo vago"}`,

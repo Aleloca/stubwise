@@ -1,5 +1,5 @@
-import { docGenerations, projects, type Db } from "@stubwise/db";
-import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { docGenerations, projects, repositories, type Db } from "@stubwise/db";
+import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { pruneOldGenerations } from "./pipeline.js";
@@ -13,7 +13,6 @@ import { pruneOldGenerations } from "./pipeline.js";
 vi.setConfig({ testTimeout: 60_000 });
 
 let testDb: TestDb;
-let uniq = 0;
 
 beforeAll(async () => {
   testDb = await startTestDb();
@@ -27,53 +26,39 @@ afterAll(async () => {
   await testDb.stop();
 });
 
-async function createProject(db: Db): Promise<string> {
-  uniq++;
-  const gitAccountId = await seedGitAccount(db);
-  const [project] = await db
-    .insert(projects)
-    .values({
-      name: `Prune ${uniq}`,
-      slug: `prune-${uniq}`,
-      provider: "github",
-      gitAccountId,
-      repoUrl: "https://github.com/acme/prune",
-      defaultBranch: "main",
-      ingestionKey: `ingestion-prune-${uniq}`,
-    })
-    .returning();
-  if (!project) throw new Error("insert del progetto non ha restituito la riga");
-  return project.id;
+async function createRepository(db: Db): Promise<string> {
+  const { repositoryId } = await seedRepository(db);
+  return repositoryId;
 }
 
 describe("pruneOldGenerations", () => {
   it("non evince MAI la corrente succeeded anche se esistono due generazioni più recenti failed", async () => {
     const { db } = testDb;
-    const projectId = await createProject(db);
+    const repositoryId = await createRepository(db);
 
     // Corrente: succeeded, ma più VECCHIA delle due failed (il caso che la vecchia
     // logica per createdAt DESC + top-2 evinceva erroneamente).
     const [current] = await db
       .insert(docGenerations)
-      .values({ projectId, status: "succeeded", createdAt: new Date(Date.now() - 30_000) })
+      .values({ repositoryId, status: "succeeded", createdAt: new Date(Date.now() - 30_000) })
       .returning();
     await db
-      .update(projects)
+      .update(repositories)
       .set({ currentDocGenerationId: current!.id })
-      .where(eq(projects.id, projectId));
+      .where(eq(repositories.id, repositoryId));
     // Due generazioni NEWER e failed.
     const [failedOld] = await db
       .insert(docGenerations)
-      .values({ projectId, status: "failed", createdAt: new Date(Date.now() - 20_000) })
+      .values({ repositoryId, status: "failed", createdAt: new Date(Date.now() - 20_000) })
       .returning();
     const [failedNew] = await db
       .insert(docGenerations)
-      .values({ projectId, status: "failed", createdAt: new Date(Date.now() - 10_000) })
+      .values({ repositoryId, status: "failed", createdAt: new Date(Date.now() - 10_000) })
       .returning();
 
-    await pruneOldGenerations(db, projectId, current!.id);
+    await pruneOldGenerations(db, repositoryId, current!.id);
 
-    const remaining = await db.select().from(docGenerations).where(eq(docGenerations.projectId, projectId));
+    const remaining = await db.select().from(docGenerations).where(eq(docGenerations.repositoryId, repositoryId));
     const ids = new Set(remaining.map((g) => g.id));
     // La corrente succeeded NON è prunata (guard autoritativo su currentGenerationId).
     expect(ids.has(current!.id)).toBe(true);

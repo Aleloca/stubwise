@@ -6,6 +6,7 @@ import {
   encrypt,
   gitAccounts,
   projects,
+  repositories,
   type Db,
 } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
@@ -96,7 +97,10 @@ async function makeMirrors(): Promise<MirrorManager> {
   return new MirrorManager({ mirrorsDir: join(root, "mirrors") });
 }
 
-async function createProject(db: Db, repoUrl: string): Promise<string> {
+// Crea un progetto (gruppo) + un repository che vi appartiene e ritorna il
+// repositoryId (la documentazione è per repository). Il provider AI del progetto
+// resta null (automatico) salvo override esplicito nel progetto altrove.
+async function createRepository(db: Db, repoUrl: string): Promise<string> {
   uniq++;
   const gitAccountId = await seedGitAccount(db, {
     provider: "github",
@@ -104,7 +108,13 @@ async function createProject(db: Db, repoUrl: string): Promise<string> {
   });
   const [project] = await db
     .insert(projects)
+    .values({ name: `Gruppo ${uniq}`, slug: `gruppo-${uniq}` })
+    .returning();
+  if (!project) throw new Error("insert del progetto non ha restituito la riga");
+  const [repository] = await db
+    .insert(repositories)
     .values({
+      projectId: project.id,
       name: `Docs ${uniq}`,
       slug: `docs-${uniq}`,
       provider: "github",
@@ -114,14 +124,14 @@ async function createProject(db: Db, repoUrl: string): Promise<string> {
       ingestionKey: `ingestion-docs-${uniq}`,
     })
     .returning();
-  if (!project) throw new Error("insert del progetto non ha restituito la riga");
-  return project.id;
+  if (!repository) throw new Error("insert del repository non ha restituito la riga");
+  return repository.id;
 }
 
-async function enqueueTrigger(db: Db, projectId: string): Promise<DocJob> {
+async function enqueueTrigger(db: Db, repositoryId: string): Promise<DocJob> {
   const [job] = await db
     .insert(docGenerationJobs)
-    .values({ projectId, status: "running", startedAt: new Date() })
+    .values({ repositoryId, status: "running", startedAt: new Date() })
     .returning();
   if (!job) throw new Error("insert del trigger non ha restituito la riga");
   return job;
@@ -161,8 +171,8 @@ describe("runOrientation", () => {
     const { db } = testDb;
     const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, upstream.url);
-    const job = await enqueueTrigger(db, projectId);
+    const repositoryId = await createRepository(db, upstream.url);
+    const job = await enqueueTrigger(db, repositoryId);
 
     const runner = new FakeAgentRunner({
       script: () => ({ output: VALID_PLAN, exitCode: 0, usage: USAGE }),
@@ -178,7 +188,7 @@ describe("runOrientation", () => {
     expect(runner.calls[0]?.prompt).toContain("package.json");
 
     // Generazione running + commitSha + costo aggregato dell'orientamento.
-    const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.projectId, projectId));
+    const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.repositoryId, repositoryId));
     expect(gen?.status).toBe("running");
     expect(gen?.commitSha).toMatch(/^[0-9a-f]{40}$/);
     expect(Number(gen?.cost)).toBeCloseTo(0.02, 6);
@@ -231,8 +241,8 @@ describe("runOrientation", () => {
     const { db } = testDb;
     const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, upstream.url);
-    const job = await enqueueTrigger(db, projectId);
+    const repositoryId = await createRepository(db, upstream.url);
+    const job = await enqueueTrigger(db, repositoryId);
 
     // Un provider AI abilitato da bloccare sulla generazione.
     const [provider] = await db
@@ -259,7 +269,7 @@ describe("runOrientation", () => {
     const [gen] = await db
       .select()
       .from(docGenerations)
-      .where(eq(docGenerations.projectId, projectId));
+      .where(eq(docGenerations.repositoryId, repositoryId));
     expect(gen?.pinnedProviderId).toBe(provider!.id);
   });
 
@@ -267,8 +277,8 @@ describe("runOrientation", () => {
     const { db } = testDb;
     const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, upstream.url);
-    const job = await enqueueTrigger(db, projectId);
+    const repositoryId = await createRepository(db, upstream.url);
+    const job = await enqueueTrigger(db, repositoryId);
 
     const runner = new FakeAgentRunner({
       script: () => ({ output: VALID_PLAN, exitCode: 0, usage: USAGE }),
@@ -279,7 +289,7 @@ describe("runOrientation", () => {
     const [gen] = await db
       .select()
       .from(docGenerations)
-      .where(eq(docGenerations.projectId, projectId));
+      .where(eq(docGenerations.repositoryId, repositoryId));
     expect(gen?.pinnedProviderId).toBeNull();
   });
 
@@ -287,8 +297,8 @@ describe("runOrientation", () => {
     const { db } = testDb;
     const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, upstream.url);
-    const job = await enqueueTrigger(db, projectId);
+    const repositoryId = await createRepository(db, upstream.url);
+    const job = await enqueueTrigger(db, repositoryId);
 
     const runner = new FakeAgentRunner({
       script: () => ({
@@ -304,7 +314,7 @@ describe("runOrientation", () => {
     expect(runner.calls).toHaveLength(2);
 
     // Generazione failed, nessun nodo seminato.
-    const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.projectId, projectId));
+    const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.repositoryId, repositoryId));
     expect(gen?.status).toBe("failed");
     expect(gen?.error).toMatch(/orientamento|marcatori|non valido/i);
     const nodes = await db.select().from(docNodes).where(eq(docNodes.generationId, gen!.id));
@@ -319,8 +329,8 @@ describe("runOrientation", () => {
     const { db } = testDb;
     const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, upstream.url);
-    const job = await enqueueTrigger(db, projectId);
+    const repositoryId = await createRepository(db, upstream.url);
+    const job = await enqueueTrigger(db, repositoryId);
 
     // Piano valido (marcatori presenti) ma con la sola child-list tecnica popolata.
     const planFuncEmpty = [
@@ -340,7 +350,7 @@ describe("runOrientation", () => {
     const outcome = await runOrientation(baseDeps(db, mirrors, runner), job);
     expect(outcome).toBe("seeded");
 
-    const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.projectId, projectId));
+    const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.repositoryId, repositoryId));
     const nodes = await db.select().from(docNodes).where(eq(docNodes.generationId, gen!.id));
     const funcRoot = nodes.find((n) => n.parentId === null && n.tree === "functional");
     // Radice funzionale degenere: done, pendingChildren 0, nessun figlio.
@@ -358,8 +368,8 @@ describe("runOrientation", () => {
     const { db } = testDb;
     const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, upstream.url);
-    const job = await enqueueTrigger(db, projectId);
+    const repositoryId = await createRepository(db, upstream.url);
+    const job = await enqueueTrigger(db, repositoryId);
 
     // Piano coi marcatori presenti (parse valido) ma ENTRAMBE le child-list vuote:
     // l'agente non ha trovato nulla da documentare. Senza il fix la generazione
@@ -385,7 +395,7 @@ describe("runOrientation", () => {
     expect(outcome).toBe("failed");
 
     // Generazione failed (NON stuck running) con ragione "piano vuoto"; nessun nodo seminato.
-    const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.projectId, projectId));
+    const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.repositoryId, repositoryId));
     expect(gen?.status).toBe("failed");
     expect(gen?.error).toMatch(/vuoto|nessuna unità/i);
     expect(gen?.finishedAt).not.toBeNull();
@@ -398,22 +408,22 @@ describe("runOrientation", () => {
 
     // Worktree CHIUSO: il registro non ha l'handle (nessun leak), nessun progetto attivo.
     expect(registry.has(gen!.id)).toBe(false);
-    expect(registry.activeProjectIds().size).toBe(0);
+    expect(registry.activeRepositoryIds().size).toBe(0);
   });
 
   it("guard DB: un secondo trigger con una generazione già `running` per il progetto NON ne avvia una seconda (C2)", async () => {
     const { db } = testDb;
     const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, upstream.url);
+    const repositoryId = await createRepository(db, upstream.url);
 
     // Simula una generazione GIÀ in corso per il progetto (es. avviata da un trigger
     // precedente o sopravvissuta a un riavvio): una riga doc_generations `running`.
     await db
       .insert(docGenerations)
-      .values({ projectId, status: "running", model: "opus" });
+      .values({ repositoryId, status: "running", model: "opus" });
 
-    const job = await enqueueTrigger(db, projectId);
+    const job = await enqueueTrigger(db, repositoryId);
     const runner = new FakeAgentRunner({
       script: () => ({ output: VALID_PLAN, exitCode: 0, usage: USAGE }),
     });
@@ -424,7 +434,7 @@ describe("runOrientation", () => {
     expect(runner.calls).toHaveLength(0);
 
     // NESSUNA seconda generazione creata: resta solo la riga running preesistente.
-    const gens = await db.select().from(docGenerations).where(eq(docGenerations.projectId, projectId));
+    const gens = await db.select().from(docGenerations).where(eq(docGenerations.repositoryId, repositoryId));
     expect(gens).toHaveLength(1);
     expect(gens[0]?.status).toBe("running");
 
@@ -432,7 +442,7 @@ describe("runOrientation", () => {
     const nodes = await db
       .select()
       .from(docNodes)
-      .where(eq(docNodes.projectId, projectId));
+      .where(eq(docNodes.repositoryId, repositoryId));
     expect(nodes).toHaveLength(0);
 
     // Il trigger è chiuso `succeeded`-skip (nessun errore: una generazione è già in corso).

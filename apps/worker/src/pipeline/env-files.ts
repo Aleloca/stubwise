@@ -5,9 +5,9 @@ import { isSafeRelPath, serializeDotenv } from "@stubwise/shared";
 import { asc, eq } from "drizzle-orm";
 
 /**
- * File d'ambiente di un progetto già caricato e DECIFRATO, pronto per essere
+ * File d'ambiente di un repository già caricato e DECIFRATO, pronto per essere
  * materializzato nel worktree. `path` è il percorso relativo configurato sul
- * progetto; `vars` sono le coppie chiave/valore in CHIARO. I valori non vanno
+ * repository; `vars` sono le coppie chiave/valore in CHIARO. I valori non vanno
  * MAI loggati.
  */
 export interface LoadedEnvFile {
@@ -16,7 +16,7 @@ export interface LoadedEnvFile {
 }
 
 /**
- * Carica tutti i file d'ambiente di un progetto con le rispettive variabili,
+ * Carica tutti i file d'ambiente di un repository con le rispettive variabili,
  * decifrando ciascun valore. I file sono ordinati per `path` (deterministico:
  * stabilisce la precedenza last-wins in materializeEnvFiles).
  *
@@ -27,13 +27,13 @@ export interface LoadedEnvFile {
  */
 export async function loadProjectEnvFiles(
   db: Db,
-  projectId: string,
+  repositoryId: string,
   encryptionKey: Buffer,
 ): Promise<LoadedEnvFile[]> {
   const fileRows = await db
     .select({ id: projectEnvFiles.id, path: projectEnvFiles.path })
     .from(projectEnvFiles)
-    .where(eq(projectEnvFiles.projectId, projectId))
+    .where(eq(projectEnvFiles.repositoryId, repositoryId))
     .orderBy(asc(projectEnvFiles.path));
 
   const result: LoadedEnvFile[] = [];

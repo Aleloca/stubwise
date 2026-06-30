@@ -1,4 +1,4 @@
-import { comments, projects, tickets, type Db } from "@stubwise/db";
+import { comments, projects, repositories, tickets, type Db } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
 import { eq } from "drizzle-orm";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -18,14 +18,16 @@ import { getContentLanguage } from "./settings.js";
  * fix. Il job arriva già reclamato (`triaging`); triage e fix lo chiudono o
  * lo fanno avanzare da soli (vedi runTriage/runFix).
  *
- * SERIALIZZAZIONE PER PROGETTO: runWorker gira con concurrency 2, ma due job
- * dello STESSO progetto non devono mai sovrapporsi — l'ensureMirror del
+ * SERIALIZZAZIONE PER REPOSITORY: runWorker gira con concurrency 2, ma due job
+ * dello STESSO repository non devono mai sovrapporsi — l'ensureMirror del
  * secondo farebbe `fetch --prune` nel mirror condiviso e cancellerebbe il
  * branch stubwise/* non ancora pushato del primo (limite documentato in
- * mirrors.ts). Qui ogni esecuzione viene accodata a una catena di promise
- * per projectId (in-process: l'assunzione di deployment è un singolo
- * processo worker, come per i lock di MirrorManager); job di progetti
- * diversi restano paralleli perché hanno catene indipendenti.
+ * mirrors.ts). Il mirror è del repository (repoUrl), quindi la chiave del
+ * serializer è il repositoryId: ogni esecuzione viene accodata a una catena di
+ * promise per repositoryId (in-process: l'assunzione di deployment è un singolo
+ * processo worker, come per i lock di MirrorManager); job di repository diversi
+ * — anche dello STESSO progetto — restano paralleli perché hanno catene
+ * indipendenti.
  */
 export interface HandlerDeps {
   db: Db;
@@ -256,47 +258,49 @@ async function processJob(
 }
 
 /**
- * Serializzatore per progetto CONDIVISO fra tipi di job diversi (fix e
- * doc-generation): mantiene una catena di promise per projectId e accoda ogni
- * esecuzione alla coda del proprio progetto. È la stessa meccanica di
+ * Serializzatore per REPOSITORY CONDIVISO fra tipi di job diversi (fix e
+ * doc-generation): mantiene una catena di promise per repositoryId e accoda ogni
+ * esecuzione alla coda del proprio repository. È la stessa meccanica di
  * withRepoLock e dell'handler fix, estratta perché DEVE essere condivisa: un
- * doc-job e un fix-job dello STESSO progetto non devono mai sovrapporsi —
+ * doc-job e un fix-job dello STESSO repository non devono mai sovrapporsi —
  * l'ensureMirror del secondo farebbe `fetch --prune` nel mirror condiviso e
  * cancellerebbe il branch stubwise/* non ancora pushato del primo (limite
- * documentato in mirrors.ts). Routando entrambi gli handler attraverso lo
- * STESSO serializer (stessa Map), job dello stesso progetto serializzano anche
- * fra tipi diversi; progetti diversi restano paralleli (catene indipendenti).
+ * documentato in mirrors.ts). Il mirror è del repository, quindi la chiave è il
+ * repositoryId. Routando entrambi gli handler attraverso lo STESSO serializer
+ * (stessa Map), job dello stesso repository serializzano anche fra tipi diversi;
+ * repository diversi — anche dello stesso progetto — restano paralleli (catene
+ * indipendenti).
  *
  * Assunzione di deployment: un singolo processo worker (come i lock di
  * MirrorManager). La concorrenza fra processi è esclusa a monte dal claim
  * atomico (`FOR UPDATE SKIP LOCKED`).
  */
-export interface ProjectSerializer {
+export interface RepositorySerializer {
   /**
-   * Accoda `task` alla catena di `projectId` e restituisce la promise della sua
+   * Accoda `task` alla catena di `repositoryId` e restituisce la promise della sua
    * esecuzione. La sezione get→set è SINCRONA (niente await in mezzo): due
-   * chiamate concorrenti sullo stesso progetto vedono e allungano la stessa
+   * chiamate concorrenti sullo stesso repository vedono e allungano la stessa
    * catena.
    */
-  run<T>(projectId: string, task: () => Promise<T>): Promise<T>;
+  run<T>(repositoryId: string, task: () => Promise<T>): Promise<T>;
 }
 
-/** Crea un ProjectSerializer con la sua Map interna di catene per progetto. */
-export function createProjectSerializer(): ProjectSerializer {
+/** Crea un RepositorySerializer con la sua Map interna di catene per repository. */
+export function createRepositorySerializer(): RepositorySerializer {
   const chains = new Map<string, Promise<void>>();
   return {
-    run<T>(projectId: string, task: () => Promise<T>): Promise<T> {
-      const prev = chains.get(projectId) ?? Promise.resolve();
+    run<T>(repositoryId: string, task: () => Promise<T>): Promise<T> {
+      const prev = chains.get(repositoryId) ?? Promise.resolve();
       const run = prev.then(task);
       // La catena memorizzata non rigetta mai: un job fallito non blocca i
-      // successivi dello stesso progetto.
+      // successivi dello stesso repository.
       const tail = run.then(
         () => undefined,
         () => undefined,
       );
-      chains.set(projectId, tail);
+      chains.set(repositoryId, tail);
       void tail.then(() => {
-        if (chains.get(projectId) === tail) chains.delete(projectId);
+        if (chains.get(repositoryId) === tail) chains.delete(repositoryId);
       });
       return run;
     },
@@ -311,30 +315,36 @@ export function createProjectSerializer(): ProjectSerializer {
  */
 export function createHandler(
   deps: HandlerDeps,
-  serializer: ProjectSerializer = createProjectSerializer(),
+  serializer: RepositorySerializer = createRepositorySerializer(),
 ): (job: AiJob) => Promise<void> {
   return async function handler(job: AiJob): Promise<void> {
-    // projectId per la serializzazione + nome del progetto per le notifiche,
-    // in un'unica join.
+    // Risoluzione in un'unica join (ticket → repository bersaglio → progetto):
+    //  - repositoryId del repo bersaglio = chiave del serializer (il mirror è
+    //    del repository);
+    //  - nome del repository per le notifiche (= ex nome progetto, comportamento
+    //    invariato);
+    //  - aiProviderId del PROGETTO del repository (la sorgente del provider AI è
+    //    salita al gruppo): provider strict/failover risolto da qui.
     const [row] = await deps.db
       .select({
-        projectId: tickets.projectId,
-        projectName: projects.name,
+        repositoryId: tickets.repositoryId,
+        repositoryName: repositories.name,
         aiProviderId: projects.aiProviderId,
       })
       .from(tickets)
-      .innerJoin(projects, eq(projects.id, tickets.projectId))
+      .innerJoin(repositories, eq(repositories.id, tickets.repositoryId))
+      .innerJoin(projects, eq(projects.id, repositories.projectId))
       .where(eq(tickets.id, job.ticketId));
-    if (!row) {
+    if (!row || row.repositoryId === null) {
       await failJob(deps.db, job.id, {
-        log: `[stubwise] ticket ${job.ticketId} non trovato`,
-        error: "ticket del job non trovato",
+        log: `[stubwise] ticket ${job.ticketId} o repository bersaglio non trovato`,
+        error: "ticket o repository del job non trovato",
       });
       return;
     }
 
-    return serializer.run(row.projectId, () =>
-      processJob(deps, job, row.projectName, job.ticketId, row.aiProviderId),
+    return serializer.run(row.repositoryId, () =>
+      processJob(deps, job, row.repositoryName, job.ticketId, row.aiProviderId),
     );
   };
 }

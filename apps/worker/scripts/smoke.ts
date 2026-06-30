@@ -47,6 +47,7 @@ import {
   encrypt,
   gitAccounts,
   projects,
+  repositories,
   runMigrations,
   tickets,
   type Db,
@@ -390,9 +391,20 @@ async function runLocal(keep: boolean): Promise<number> {
       })
       .returning();
     if (!account) throw new Error("insert dell'account git non ha restituito la riga");
+    // Progetto (gruppo) + repository: il fix lavora sul repository (repoUrl/branch);
+    // il provider AI è risolto dal progetto del repository.
     const [project] = await db
       .insert(projects)
       .values({
+        name: "Smoke Group",
+        slug: `smoke-group-${Date.now()}`,
+      })
+      .returning();
+    if (!project) throw new Error("insert del progetto non ha restituito la riga");
+    const [repository] = await db
+      .insert(repositories)
+      .values({
+        projectId: project.id,
         name: "Smoke Local",
         slug: `smoke-local-${Date.now()}`,
         provider: "github",
@@ -402,7 +414,7 @@ async function runLocal(keep: boolean): Promise<number> {
         ingestionKey: `smoke-ingestion-${Date.now()}`,
       })
       .returning();
-    if (!project) throw new Error("insert del progetto non ha restituito la riga");
+    if (!repository) throw new Error("insert del repository non ha restituito la riga");
 
     // Ticket realistico: titolo + body + payload tecnico (stack che punta al
     // file buggy), come arriverebbe dall'SDK.
@@ -410,6 +422,7 @@ async function runLocal(keep: boolean): Promise<number> {
       .insert(tickets)
       .values({
         projectId: project.id,
+        repositoryId: repository.id,
         number: 1,
         title: "slugify perde il primo carattere del titolo",
         body:
@@ -552,12 +565,17 @@ async function runRemote(keep: boolean): Promise<number> {
   const root = await mkdtemp(join(tmpdir(), "stubwise-smoke-remote-"));
 
   try {
-    const [project] = await db.select().from(projects).where(eq(projects.slug, projectSlug));
-    if (!project) {
-      console.error(`[smoke] progetto con slug '${projectSlug}' non trovato nel DB.`);
+    // SMOKE_PROJECT_SLUG identifica un REPOSITORY (lo slug è del repo). Il ticket è
+    // product-level: projectId = progetto del repository, repositoryId = il repo.
+    const [repository] = await db
+      .select()
+      .from(repositories)
+      .where(eq(repositories.slug, projectSlug));
+    if (!repository) {
+      console.error(`[smoke] repository con slug '${projectSlug}' non trovato nel DB.`);
       return 2;
     }
-    log(`progetto: ${project.name} (${project.provider}, ${project.repoUrl})`);
+    log(`repository: ${repository.name} (${repository.provider}, ${repository.repoUrl})`);
 
     // Ticket: esistente (SMOKE_TICKET_NUMBER) o creato al volo.
     let ticketId: string;
@@ -570,31 +588,32 @@ async function runRemote(keep: boolean): Promise<number> {
       const [existing] = await db
         .select()
         .from(tickets)
-        .where(and(eq(tickets.projectId, project.id), eq(tickets.number, wantedNumber)));
+        .where(and(eq(tickets.repositoryId, repository.id), eq(tickets.number, wantedNumber)));
       if (!existing) {
-        console.error(`[smoke] ticket #${wantedNumber} non trovato nel progetto.`);
+        console.error(`[smoke] ticket #${wantedNumber} non trovato nel repository.`);
         return 2;
       }
       ticketId = existing.id;
       ticketNumber = existing.number;
       log(`uso il ticket esistente #${ticketNumber}: ${existing.title}`);
     } else {
-      // Numero ticket sequenziale per-progetto, in transazione (come il server).
+      // Numero ticket sequenziale per-repository, in transazione (come il server).
       const created = await db.transaction(async (tx) => {
-        const [p] = await tx
-          .select({ next: projects.nextTicketNumber })
-          .from(projects)
-          .where(eq(projects.id, project.id))
+        const [r] = await tx
+          .select({ next: repositories.nextTicketNumber })
+          .from(repositories)
+          .where(eq(repositories.id, repository.id))
           .for("update");
-        const number = p?.next ?? 1;
+        const number = r?.next ?? 1;
         await tx
-          .update(projects)
+          .update(repositories)
           .set({ nextTicketNumber: number + 1 })
-          .where(eq(projects.id, project.id));
+          .where(eq(repositories.id, repository.id));
         const [t] = await tx
           .insert(tickets)
           .values({
-            projectId: project.id,
+            projectId: repository.projectId,
+            repositoryId: repository.id,
             number,
             title: process.env.SMOKE_TICKET_TITLE ?? "Smoke test: ticket di prova della pipeline",
             body:

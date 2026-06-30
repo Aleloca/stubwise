@@ -1,6 +1,6 @@
 import { docAutoUpdateJobs } from "@stubwise/db";
 import { lte, sql } from "drizzle-orm";
-import type { ProjectSerializer } from "../handler.js";
+import type { RepositorySerializer } from "../handler.js";
 import { runAutoUpdate, type AutoUpdateJob, type RunAutoUpdateDeps } from "./auto-update.js";
 
 /**
@@ -8,9 +8,9 @@ import { runAutoUpdate, type AutoUpdateJob, type RunAutoUpdateDeps } from "./aut
  *
  * Task SEPARATO dal loop dei job (come usage-poller / credential-tester): su un proprio
  * intervallo reclama i pending di `doc_auto_update_jobs` scaduti (`not_before <= now`) e
- * processa ciascuno via `runAutoUpdate` nella CATENA PER-PROGETTO (serializer condiviso
+ * processa ciascuno via `runAutoUpdate` nella CATENA PER-REPOSITORY (serializer condiviso
  * col fix e con la doc-generation), così l'auto-update non si sovrappone a un fetch
- * --prune dello stesso progetto (invariante del mirror).
+ * --prune dello stesso repository (invariante del mirror).
  *
  * CLAIM ANTI-DOPPIONE: ogni pending viene RECLAMATO con un `DELETE ... RETURNING`
  * atomico PRIMA di processarlo. Reclamato = rimosso dalla tabella: un secondo tick (o un
@@ -29,8 +29,8 @@ import { runAutoUpdate, type AutoUpdateJob, type RunAutoUpdateDeps } from "./aut
  */
 
 export interface PollAutoUpdateDeps extends RunAutoUpdateDeps {
-  /** Catena per-progetto CONDIVISA col fix e la doc-generation (serializzazione). */
-  serializer: ProjectSerializer;
+  /** Catena per-repository CONDIVISA col fix e la doc-generation (serializzazione). */
+  serializer: RepositorySerializer;
 }
 
 function errText(err: unknown): string {
@@ -53,7 +53,7 @@ export async function pollAutoUpdateOnce(deps: PollAutoUpdateDeps): Promise<numb
       .where(lte(docAutoUpdateJobs.notBefore, sql`now()`))
       .returning({
         id: docAutoUpdateJobs.id,
-        projectId: docAutoUpdateJobs.projectId,
+        repositoryId: docAutoUpdateJobs.repositoryId,
         fromSha: docAutoUpdateJobs.fromSha,
         toSha: docAutoUpdateJobs.toSha,
       });
@@ -65,13 +65,13 @@ export async function pollAutoUpdateOnce(deps: PollAutoUpdateDeps): Promise<numb
 
   for (const job of claimed) {
     try {
-      // Catena per-progetto: l'auto-update si accoda dietro un eventuale fix/generazione
-      // in corso dello stesso progetto (e li precede/segue serialmente).
-      await deps.serializer.run(job.projectId, () => runAutoUpdate(deps, job));
+      // Catena per-repository: l'auto-update si accoda dietro un eventuale fix/generazione
+      // in corso dello stesso repository (e li precede/segue serialmente).
+      await deps.serializer.run(job.repositoryId, () => runAutoUpdate(deps, job));
     } catch (err) {
       // Best-effort: un job fallito non blocca gli altri reclamati in questo giro.
       console.error(
-        `[stubwise-worker] auto-update-poll: job ${job.id} (progetto ${job.projectId}) saltato: ${errText(err)}`,
+        `[stubwise-worker] auto-update-poll: job ${job.id} (repository ${job.repositoryId}) saltato: ${errText(err)}`,
       );
     }
   }
@@ -79,7 +79,7 @@ export async function pollAutoUpdateOnce(deps: PollAutoUpdateDeps): Promise<numb
 }
 
 export interface StartAutoUpdatePollerOptions extends RunAutoUpdateDeps {
-  serializer: ProjectSerializer;
+  serializer: RepositorySerializer;
   /** Intervallo di poll in secondi. ≤ 0 = disabilitato (non avvia nulla). */
   intervalSeconds: number;
   signal: AbortSignal;

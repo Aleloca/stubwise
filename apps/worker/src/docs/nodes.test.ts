@@ -1,5 +1,5 @@
-import { docGenerations, docNodes, projects, type Db } from "@stubwise/db";
-import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { docGenerations, docNodes, type Db } from "@stubwise/db";
+import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -18,28 +18,14 @@ import {
 // in afterEach (claimNextNode è globale: prende il nodo claimabile più vecchio
 // dell'intera tabella).
 let testDb: TestDb;
-let projectId: string;
+let repositoryId: string;
 let generationId: string;
 
 beforeAll(async () => {
   testDb = await startTestDb();
   const { db } = testDb;
-  const gitAccountId = await seedGitAccount(db);
-  const [project] = await db
-    .insert(projects)
-    .values({
-      name: "Nodi",
-      slug: "nodi",
-      provider: "github",
-      gitAccountId,
-      repoUrl: "https://github.com/acme/nodi",
-      defaultBranch: "main",
-      ingestionKey: "ingestion-nodi",
-    })
-    .returning();
-  if (!project) throw new Error("insert del progetto non ha restituito la riga");
-  projectId = project.id;
-  const [generation] = await db.insert(docGenerations).values({ projectId }).returning();
+  ({ repositoryId } = await seedRepository(db));
+  const [generation] = await db.insert(docGenerations).values({ repositoryId }).returning();
   if (!generation) throw new Error("insert della generazione non ha restituito la riga");
   generationId = generation.id;
 }, 120_000);
@@ -70,7 +56,7 @@ async function insertNode(db: Db, opts: InsertNodeOptions = {}): Promise<DocNode
   const { tree, ...rest } = opts;
   const [node] = await db
     .insert(docNodes)
-    .values({ generationId, projectId, tree: tree ?? "technical", ...rest })
+    .values({ generationId, repositoryId, tree: tree ?? "technical", ...rest })
     .returning();
   if (!node) throw new Error("insert del nodo non ha restituito la riga");
   return node;
@@ -201,7 +187,7 @@ describe("createChildren", () => {
       expect(child.status).toBe("pending");
       expect(child.depth).toBe(2);
       expect(child.generationId).toBe(parent.generationId);
-      expect(child.projectId).toBe(parent.projectId);
+      expect(child.repositoryId).toBe(parent.repositoryId);
     }
     expect(new Set(children.map((c) => c.position))).toEqual(new Set([0, 1]));
   });

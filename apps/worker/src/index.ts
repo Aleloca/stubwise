@@ -9,7 +9,7 @@ import { createDocHandler, failDocJobOnError } from "./docs/handler.js";
 import { dispatchNode } from "./docs/recursive/node-dispatch.js";
 import { createGenerationWorktreeRegistry } from "./docs/recursive/registry.js";
 import { MirrorManager } from "./git/mirrors.js";
-import { createHandler, createProjectSerializer } from "./handler.js";
+import { createHandler, createRepositorySerializer } from "./handler.js";
 import { DEFAULT_FIX_PLAN_TIMEOUT_MS, DEFAULT_FIX_TIMEOUT_MS } from "./pipeline/fix.js";
 import { DEFAULT_TRIAGE_TIMEOUT_MS } from "./pipeline/triage.js";
 import { runWorker } from "./queue.js";
@@ -100,16 +100,16 @@ const { db, client } = createDb(config.databaseUrl, { poolMax: config.databasePo
 
 // Dipendenze costruite UNA VOLTA all'avvio e condivise da entrambi gli handler
 // (fix e doc-generation): stesso runner CLI e stesso MirrorManager (il mirror è
-// condiviso per progetto), così la serializzazione per-progetto vale anche fra
+// condiviso per repository), così la serializzazione per-repository vale anche fra
 // i due tipi di job (vedi più sotto).
 const runner = new ClaudeCliRunner();
 const mirrors = new MirrorManager({ mirrorsDir: config.mirrorsDir });
 
-// Serializzatore per-progetto CONDIVISO fra fix e doc-generation: un doc-job e
-// un fix-job dello stesso progetto si accodano alla STESSA catena e non si
+// Serializzatore per-repository CONDIVISO fra fix e doc-generation: un doc-job e
+// un fix-job dello stesso repository si accodano alla STESSA catena e non si
 // sovrappongono mai (il fetch --prune di MirrorManager cancellerebbe il branch
 // stubwise/* non ancora pushato dell'altro). Vedi handler.ts.
-const serializer = createProjectSerializer();
+const serializer = createRepositorySerializer();
 
 const handler = createHandler(
   {
@@ -142,16 +142,16 @@ const embeddingClient = createEmbeddingClient({
 
 // Registro IN-PROCESSO dei worktree di generazione del DAG (M7): l'orientamento vi
 // registra il worktree aperto, i job-nodo ne ricavano la `dir`, la finalizzazione lo
-// chiude. Espone activeProjectIds per la mutua esclusione col fix (un fix farebbe
+// chiude. Espone activeRepositoryIds per la mutua esclusione col fix (un fix farebbe
 // fetch --prune cancellando il ref checked-out del worktree). È un contenitore
 // in-memoria: a un riavvio del worker gli handle sono persi e il dispatch fa fallire
 // pulitamente le generazioni interrotte (fail-on-restart, vedi node-dispatch.ts).
 const generationRegistry = createGenerationWorktreeRegistry();
 
 // Handler del TRIGGER doc-generation (M7): avvia l'ORIENTAMENTO (apre+registra il
-// worktree, semina il DAG), serializzato per-progetto col fix (serializer condiviso)
+// worktree, semina il DAG), serializzato per-repository col fix (serializer condiviso)
 // SOLO per la durata dell'orientamento; il resto della generazione è retto dal
-// registro (activeProjectIds) e dal dispatch dei nodi. Il timeout di ogni run
+// registro (activeRepositoryIds) e dal dispatch dei nodi. Il timeout di ogni run
 // dell'agente è DOC_AGENT_TIMEOUT_MS (default 8', più corto del fix).
 const docHandler = createDocHandler(
   {
@@ -224,7 +224,7 @@ startCredentialTester({
 
 // Poller di auto-aggiornamento Docs (Fase 1): task SEPARATO dal loop dei job, sul
 // proprio intervallo. Reclama i pending di doc_auto_update_jobs scaduti (debounce) ed
-// esegue l'agente che produce la entry release, nella CATENA PER-PROGETTO (serializer
+// esegue l'agente che produce la entry release, nella CATENA PER-REPOSITORY (serializer
 // condiviso col fix e la doc-generation: niente sovrapposizione col fetch --prune dello
 // stesso progetto). È BEST-EFFORT (non fa mai crashare il worker) e NON tocca il
 // lock/heartbeat né i timeout dei job. Si ferma sullo stesso AbortSignal.
@@ -266,7 +266,7 @@ await runWorker({
   docHandler,
   docHandlerOnError: failDocJobOnError,
   dispatchNode: dispatchNodeFn,
-  activeGenerationProjectIds: () => generationRegistry.activeProjectIds(),
+  activeGenerationRepositoryIds: () => generationRegistry.activeRepositoryIds(),
   concurrency: config.concurrency,
   staleAfterMinutes: config.staleAfterMinutes,
   signal: controller.signal,
