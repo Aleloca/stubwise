@@ -94,7 +94,7 @@ describe("POST /api/projects", () => {
       installCommand: null,
       webhookConfiguredAt: null,
       docAutoUpdate: false,
-      docAutoUpdateProviderId: null,
+      aiProviderId: null,
       createdAt: expect.any(String),
     });
     expect(res.body).not.toContain("webhookSecret");
@@ -444,8 +444,8 @@ describe("PATCH /api/projects/:slug", () => {
     expect((reread.json() as { docAutoUpdate: boolean }).docAutoUpdate).toBe(true);
   });
 
-  it("docAutoUpdateProviderId con provider esistente lo imposta, null lo azzera", async () => {
-    const created = await createProject({ ...basePayload(), name: "Auto Update Provider" });
+  it("aiProviderId con provider esistente lo imposta, null lo azzera", async () => {
+    const created = await createProject({ ...basePayload(), name: "AI Provider" });
     const slug = (created.json() as { slug: string }).slug;
     // Seed di un provider AI direttamente in DB (l'API di creazione non è qui).
     const [aiProvider] = await testDb.db
@@ -457,34 +457,30 @@ describe("PATCH /api/projects/:slug", () => {
       method: "PATCH",
       url: `/api/projects/${slug}`,
       headers: { cookie: adminCookie },
-      payload: { docAutoUpdateProviderId: aiProvider!.id },
+      payload: { aiProviderId: aiProvider!.id },
     });
     expect(set.statusCode).toBe(200);
-    expect((set.json() as { docAutoUpdateProviderId: string | null }).docAutoUpdateProviderId).toBe(
-      aiProvider!.id,
-    );
+    expect((set.json() as { aiProviderId: string | null }).aiProviderId).toBe(aiProvider!.id);
 
     // null lo azzera (ricade sull'automatico).
     const cleared = await app.inject({
       method: "PATCH",
       url: `/api/projects/${slug}`,
       headers: { cookie: adminCookie },
-      payload: { docAutoUpdateProviderId: null },
+      payload: { aiProviderId: null },
     });
     expect(cleared.statusCode).toBe(200);
-    expect(
-      (cleared.json() as { docAutoUpdateProviderId: string | null }).docAutoUpdateProviderId,
-    ).toBeNull();
+    expect((cleared.json() as { aiProviderId: string | null }).aiProviderId).toBeNull();
   });
 
-  it("docAutoUpdateProviderId con provider inesistente: 400", async () => {
-    const created = await createProject({ ...basePayload(), name: "Auto Update Provider KO" });
+  it("aiProviderId con provider inesistente: 400", async () => {
+    const created = await createProject({ ...basePayload(), name: "AI Provider KO" });
     const slug = (created.json() as { slug: string }).slug;
     const res = await app.inject({
       method: "PATCH",
       url: `/api/projects/${slug}`,
       headers: { cookie: adminCookie },
-      payload: { docAutoUpdateProviderId: "00000000-0000-0000-0000-000000000000" },
+      payload: { aiProviderId: "00000000-0000-0000-0000-000000000000" },
     });
     expect(res.statusCode).toBe(400);
   });

@@ -218,7 +218,9 @@ describe("POST /api/projects/:projectId/docs/generate", () => {
     expect(res.statusCode).toBe(404);
   });
 
-  it("con providerId di un provider abilitato: 202 e job con pinned_provider_id", async () => {
+  it("il body con providerId viene ignorato: il job non porta alcun pin", async () => {
+    // Il provider non si sceglie più al trigger (la scelta vive sul progetto):
+    // un eventuale body è inerte e il job si crea senza pin a livello di job.
     const project = await insertProject(testDb.db);
     const provider = await insertProvider(testDb.db, { enabled: true });
     const res = await app.inject({
@@ -234,55 +236,7 @@ describe("POST /api/projects/:projectId/docs/generate", () => {
       .from(docGenerationJobs)
       .where(eq(docGenerationJobs.projectId, project.id));
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.pinnedProviderId).toBe(provider.id);
-  });
-
-  it("con providerId di un provider disabilitato: 400 provider_not_available", async () => {
-    const project = await insertProject(testDb.db);
-    const provider = await insertProvider(testDb.db, { enabled: false });
-    const res = await app.inject({
-      method: "POST",
-      url: `/api/projects/${project.id}/docs/generate`,
-      headers: { cookie: adminCookie },
-      payload: { providerId: provider.id },
-    });
-    expect(res.statusCode).toBe(400);
-    expect((res.json() as { code: string }).code).toBe("provider_not_available");
-
-    const rows = await testDb.db
-      .select()
-      .from(docGenerationJobs)
-      .where(eq(docGenerationJobs.projectId, project.id));
-    expect(rows).toHaveLength(0);
-  });
-
-  it("con providerId inesistente: 400 provider_not_available", async () => {
-    const project = await insertProject(testDb.db);
-    const res = await app.inject({
-      method: "POST",
-      url: `/api/projects/${project.id}/docs/generate`,
-      headers: { cookie: adminCookie },
-      payload: { providerId: "00000000-0000-0000-0000-000000000000" },
-    });
-    expect(res.statusCode).toBe(400);
-    expect((res.json() as { code: string }).code).toBe("provider_not_available");
-  });
-
-  it("senza body: job creato con pin null (comportamento invariato)", async () => {
-    const project = await insertProject(testDb.db);
-    const res = await app.inject({
-      method: "POST",
-      url: `/api/projects/${project.id}/docs/generate`,
-      headers: { cookie: adminCookie },
-    });
-    expect(res.statusCode).toBe(202);
-
-    const rows = await testDb.db
-      .select()
-      .from(docGenerationJobs)
-      .where(eq(docGenerationJobs.projectId, project.id));
-    expect(rows).toHaveLength(1);
-    expect(rows[0]!.pinnedProviderId).toBeNull();
+    expect(rows[0]!.status).toBe("queued");
   });
 });
 
@@ -327,15 +281,26 @@ describe("GET /api/projects/:projectId/docs/status", () => {
     expect(body.pinnedProvider).toBeNull();
   });
 
-  it("con job pinnato: espone pinnedProvider {id,label,kind}", async () => {
+  it("con generazione corrente pinnata: espone pinnedProvider {id,label,kind}", async () => {
+    // Il pin ora vive sulla generazione (doc_generations.pinned_provider_id),
+    // scritto dal worker dal provider del progetto: lo seediamo qui.
     const project = await insertProject(testDb.db);
     const provider = await insertProvider(testDb.db, { kind: "account", label: "Pinned Co" });
-    await app.inject({
-      method: "POST",
-      url: `/api/projects/${project.id}/docs/generate`,
-      headers: { cookie: adminCookie },
-      payload: { providerId: provider.id },
-    });
+    const [gen] = await testDb.db
+      .insert(docGenerations)
+      .values({
+        projectId: project.id,
+        status: "succeeded",
+        trigger: "manual",
+        pinnedProviderId: provider.id,
+        startedAt: new Date(),
+        finishedAt: new Date(),
+      })
+      .returning();
+    await testDb.db
+      .update(projects)
+      .set({ currentDocGenerationId: gen!.id })
+      .where(eq(projects.id, project.id));
 
     const res = await app.inject({
       method: "GET",

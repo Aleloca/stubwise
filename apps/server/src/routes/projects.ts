@@ -60,9 +60,9 @@ const updateProjectSchema = z.object({
   installCommand: z.string().trim().min(1).max(500).nullable().optional(),
   // Toggle auto-aggiornamento Docs ai push: omesso lo lascia invariato.
   docAutoUpdate: z.boolean().optional(),
-  // Provider AI per l'auto-aggiornamento Docs: un uuid esistente lo imposta,
+  // Provider AI del progetto (Docs e fix): un uuid esistente lo imposta,
   // null lo azzera (ricade sull'automatico), omesso lo lascia invariato.
-  docAutoUpdateProviderId: z.uuid().nullable().optional(),
+  aiProviderId: z.uuid().nullable().optional(),
 });
 
 const slugParamsSchema = z.object({ slug: z.string().min(1) });
@@ -131,7 +131,7 @@ function toPublicProject(
     installCommand: row.installCommand,
     webhookConfiguredAt: row.webhookConfiguredAt?.toISOString() ?? null,
     docAutoUpdate: row.docAutoUpdate,
-    docAutoUpdateProviderId: row.docAutoUpdateProviderId,
+    aiProviderId: row.aiProviderId,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -355,7 +355,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         testCommand,
         installCommand,
         docAutoUpdate,
-        docAutoUpdateProviderId,
+        aiProviderId,
       } = request.body;
       const updates: Partial<ProjectRow> = {};
       if (name !== undefined) updates.name = name;
@@ -367,20 +367,20 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       if (installCommand !== undefined) updates.installCommand = installCommand;
       // Toggle auto-aggiornamento Docs: omesso lo lascia invariato.
       if (docAutoUpdate !== undefined) updates.docAutoUpdate = docAutoUpdate;
-      // Provider AI per l'auto-update Docs. null lo azzera (automatico); un uuid
-      // deve riferire una riga ai_providers esistente — non serve enabled, è
-      // configurazione e l'enabled si valuta all'esecuzione. omesso lo lascia.
-      if (docAutoUpdateProviderId !== undefined) {
-        if (docAutoUpdateProviderId !== null) {
+      // Provider AI del progetto (Docs e fix). null lo azzera (automatico); un
+      // uuid deve riferire una riga ai_providers esistente — non serve enabled,
+      // è configurazione e l'enabled si valuta all'esecuzione. omesso lo lascia.
+      if (aiProviderId !== undefined) {
+        if (aiProviderId !== null) {
           const [aiProvider] = await app.db
             .select({ id: aiProviders.id })
             .from(aiProviders)
-            .where(eq(aiProviders.id, docAutoUpdateProviderId));
+            .where(eq(aiProviders.id, aiProviderId));
           if (!aiProvider) {
             return apiError(reply, 400, "ai_provider_not_found", "AI provider not found");
           }
         }
-        updates.docAutoUpdateProviderId = docAutoUpdateProviderId;
+        updates.aiProviderId = aiProviderId;
       }
       // Cambio di account: valida l'esistenza e ri-denormalizza il provider.
       if (gitAccountId !== undefined) {
