@@ -106,12 +106,12 @@ export interface DocsAnswer {
  */
 export async function answerDocsQuestion(
   deps: { db: Db; embeddingClient: EmbeddingClient; chatLlm: ChatLlm },
-  input: { projectId: string; question: string },
+  input: { repositoryId: string; question: string },
 ): Promise<DocsAnswer> {
   const chunks = await retrieveChunks(
     deps.db,
     deps.embeddingClient,
-    input.projectId,
+    input.repositoryId,
     input.question,
     { k: CHAT_RETRIEVAL_K },
   );

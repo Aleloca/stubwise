@@ -44,6 +44,16 @@ async function createProject(): Promise<{ id: string }> {
   return { id: repositoryId };
 }
 
+/**
+ * Variante di {@link createProject} che espone anche il `projectId` (gruppo) del
+ * repository: serve ai test che verificano che il ticket auto-generato erediti il
+ * progetto del repository (derivato, non passato dall'ingestion).
+ */
+async function createRepositoryWithProject(): Promise<{ id: string; projectId: string }> {
+  const { repositoryId, projectId } = await seedRepository(testDb.db);
+  return { id: repositoryId, projectId };
+}
+
 function errorEvent(overrides: Partial<ErrorEvent> = {}): ErrorEvent {
   return {
     kind: "error",
@@ -108,6 +118,25 @@ describe("processEvents — eventi errore", () => {
     const jobs = await ticketJobs(ticket.id);
     expect(jobs).toHaveLength(1);
     expect(jobs[0]!.status).toBe("queued");
+  });
+
+  it("il ticket auto-generato e l'errorGroup sono scopati al repository, col progetto derivato dal repo", async () => {
+    const repo = await createRepositoryWithProject();
+    await processEvents(testDb.db, { id: repo.id }, [errorEvent()]);
+
+    const rows = await projectTickets(repo.id);
+    expect(rows).toHaveLength(1);
+    const ticket = rows[0]!;
+    // repositoryId = il repo dell'ingestionKey; projectId = il progetto (gruppo)
+    // del repo, derivato in createTicket senza che l'ingestion lo passi.
+    expect(ticket.repositoryId).toBe(repo.id);
+    expect(ticket.projectId).toBe(repo.projectId);
+
+    // L'errorGroup è del repository (non del progetto/gruppo).
+    const groups = await projectGroups(repo.id);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.repositoryId).toBe(repo.id);
+    expect(groups[0]!.ticketId).toBe(ticket.id);
   });
 
   it("il secondo evento identico non crea ticket: incrementa occurrences e aggiorna lastSeenAt", async () => {

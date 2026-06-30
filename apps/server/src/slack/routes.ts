@@ -193,7 +193,7 @@ async function answerAndPostToSlack(
     postResponse: (url: string, payload: unknown) => Promise<void>;
     publicUrl?: string;
   },
-  input: { projectId: string; question: string; responseUrl: string },
+  input: { repositoryId: string; question: string; responseUrl: string },
 ): Promise<void> {
   // Pre-flight: se l'LLM espone isAvailable e la chat non è servibile (tipico:
   // nessun provider api_key), rispondi con un messaggio chiaro invece di
@@ -212,7 +212,7 @@ async function answerAndPostToSlack(
   try {
     const { text, citations } = await answerDocsQuestion(
       { db: deps.db, embeddingClient: deps.embeddingClient, chatLlm: deps.chatLlm },
-      { projectId: input.projectId, question: input.question },
+      { repositoryId: input.repositoryId, question: input.question },
     );
 
     // Risposta: il markdown del modello viene CONVERTITO nel mrkdwn di Slack
@@ -227,7 +227,7 @@ async function answerAndPostToSlack(
       const sources = citations
         .map((c) =>
           deps.publicUrl
-            ? `<${deps.publicUrl}/docs/${input.projectId}/${c.slug}|${c.title}>`
+            ? `<${deps.publicUrl}/docs/${input.repositoryId}/${c.slug}|${c.title}>`
             : c.title,
         )
         .join("  ·  ");
@@ -475,7 +475,10 @@ export async function slackRoutes(
       // prosegue invariato col flusso ticket sottostante.
       if (payload.view?.callback_id === DOCS_QUERY_CALLBACK_ID) {
         const docsValues = payload.view?.state?.values;
-        const docsProjectId = selectedValue(
+        // Il value del static_select è un repository id: la modale /docs lavora a
+        // livello di repository (i docs sono per-repo). Il block id resta `project`
+        // (UI: il blocco è etichettato "Progetto"), ma il valore è il repo.
+        const docsRepositoryId = selectedValue(
           docsValues,
           DOCS_BLOCK_IDS.project,
           DOCS_ACTION_IDS.project,
@@ -493,7 +496,7 @@ export async function slackRoutes(
 
         // Validazione: progetto + domanda obbligatori, errori ancorati ai block.
         const docsErrors: Record<string, string> = {};
-        if (!docsProjectId) docsErrors[DOCS_BLOCK_IDS.project] = "Seleziona un progetto.";
+        if (!docsRepositoryId) docsErrors[DOCS_BLOCK_IDS.project] = "Seleziona un progetto.";
         if (!question) docsErrors[DOCS_BLOCK_IDS.question] = "Inserisci una domanda.";
         if (Object.keys(docsErrors).length > 0) {
           return reply.code(200).send({ response_action: "errors", errors: docsErrors });
@@ -528,7 +531,7 @@ export async function slackRoutes(
         const responseUrl = meta.responseUrl;
         void answerAndPostToSlack(
           { db: instance.db, embeddingClient, chatLlm, postResponse, publicUrl },
-          { projectId: docsProjectId!, question: question!, responseUrl },
+          { repositoryId: docsRepositoryId!, question: question!, responseUrl },
         ).catch((err) => {
           request.log.warn({ err }, "[slack] docs answer failed");
         });

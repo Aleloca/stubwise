@@ -468,6 +468,42 @@ describe("POST /api/slack/commands — /docs", () => {
     expect(meta.slackUserId).toBe("Udocslinked");
   });
 
+  /** Estrae i `value` (repository id) delle option dello static_select progetto. */
+  function selectOptionValues(view: unknown): string[] {
+    const blocks = (view as { blocks?: unknown[] }).blocks ?? [];
+    for (const b of blocks) {
+      const el = (b as { element?: { type?: string; options?: { value: string }[] } }).element;
+      if (el?.type === "static_select") return (el.options ?? []).map((o) => o.value);
+    }
+    return [];
+  }
+
+  it("il selettore elenca SOLO i repository con documentazione (esclude quelli senza)", async () => {
+    await testDb.db
+      .update(users)
+      .set({ slackUserId: "Udocslinked" })
+      .where(eq(users.id, reporterUserId));
+
+    // Un repository CON docs e uno SENZA: solo il primo deve comparire fra le option.
+    const withDocs = await createProject(`sel-with-${randomUUID().slice(0, 8)}`);
+    await seedDocsForProject(testDb.db, withDocs, {
+      title: "Pagina sel",
+      slug: `sel-page-${randomUUID().slice(0, 8)}`,
+      content: "Contenuto del repository documentato.",
+    });
+    const withoutDocs = await createProject(`sel-without-${randomUUID().slice(0, 8)}`);
+
+    const res = await slackPost(
+      "/api/slack/commands",
+      "command=%2Fdocs&trigger_id=TRIGSEL&user_id=Udocslinked&channel_id=C1&response_url=https%3A%2F%2Fhooks.slack.com%2Fsel",
+    );
+    expect(res.statusCode).toBe(200);
+    const [, view] = openView.mock.calls[0]!;
+    const values = selectOptionValues(view);
+    expect(values).toContain(withDocs);
+    expect(values).not.toContain(withoutDocs);
+  });
+
   it("comando con namespace (/stubwise:docs) → apre comunque il modale Docs", async () => {
     await testDb.db
       .update(users)
@@ -757,6 +793,42 @@ describe("POST /api/slack/interactions — view_submission docs_query", () => {
     expect(flat).toContain("Risposta dai docs.");
     expect(flat).toContain(`${PUBLIC_URL}/docs/${pid}/${slug}`);
     expect(flat).toContain("Come si configura");
+  });
+
+  it("due repository con docs: la risposta è scopata al repository SELEZIONATO (non all'altro)", async () => {
+    await linkSubmitter();
+    // Repo A (selezionato) e repo B: ciascuno con la propria pagina. Il retrieval
+    // RAG deve restare nel repo selezionato, quindi citare solo la pagina di A.
+    const pidA = await createProject(`isoA-${randomUUID().slice(0, 8)}`);
+    const slugA = `iso-a-${randomUUID().slice(0, 8)}`;
+    await seedDocsForProject(testDb.db, pidA, {
+      title: "Pagina del repo A",
+      slug: slugA,
+      content: "Per configurare il deploy del repo A apri il pannello deploy.",
+    });
+    const pidB = await createProject(`isoB-${randomUUID().slice(0, 8)}`);
+    const slugB = `iso-b-${randomUUID().slice(0, 8)}`;
+    await seedDocsForProject(testDb.db, pidB, {
+      title: "Pagina del repo B",
+      slug: slugB,
+      content: "Per configurare il deploy del repo B apri il pannello deploy.",
+    });
+
+    const body = docsSubmissionBody({
+      projectId: pidA,
+      question: "Come si configura il deploy?",
+      meta: { responseUrl: RESPONSE_URL, channelId: "C9", slackUserId: META_USER },
+    });
+    const res = await slackPost("/api/slack/interactions", body);
+    expect(res.statusCode).toBe(200);
+
+    await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
+    const [, payload] = postResponse.mock.calls[0]!;
+    const flat = JSON.stringify((payload as { blocks: unknown[] }).blocks);
+    // La citazione punta al repo A selezionato; la pagina di B non compare.
+    expect(flat).toContain(`${PUBLIC_URL}/docs/${pidA}/${slugA}`);
+    expect(flat).not.toContain(slugB);
+    expect(flat).not.toContain(`/docs/${pidB}/`);
   });
 
   it("domanda mancante → response_action errors, nessuna POST", async () => {
