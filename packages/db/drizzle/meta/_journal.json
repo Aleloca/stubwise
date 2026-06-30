@@ -225,6 +225,13 @@
       "when": 1782309628491,
       "tag": "0031_minor_onslaught",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1782839216761,
+      "tag": "0032_handy_baron_zemo",
+      "breakpoints": true
     }
   ]
 }

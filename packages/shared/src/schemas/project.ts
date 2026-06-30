@@ -43,10 +43,10 @@ export const projectSchema = z.object({
   installCommand: z.string().min(1).nullable(),
   webhookConfiguredAt: z.iso.datetime().nullable(),
   // Auto-aggiornamento della documentazione ai push sul branch di default:
-  // toggle per-progetto. `docAutoUpdateProviderId` è il provider AI scelto per
-  // la rigenerazione (null = automatico, primo abilitato all'esecuzione).
+  // toggle per-progetto. `aiProviderId` è il provider AI generale del progetto
+  // (Docs e fix); null = automatico, primo abilitato all'esecuzione.
   docAutoUpdate: z.boolean(),
-  docAutoUpdateProviderId: z.uuid().nullable(),
+  aiProviderId: z.uuid().nullable(),
   // Il segreto HMAC del webhook git NON fa parte della proiezione pubblica:
   // è un segreto che permetterebbe di forgiare webhook di merge e forzare i
   // ticket a "done". Si legge solo via l'endpoint admin GET /:slug/webhook.

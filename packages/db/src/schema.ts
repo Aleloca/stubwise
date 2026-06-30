@@ -272,13 +272,12 @@ export const projects = pgTable("projects", {
   // Aggiornamento automatico della documentazione ai push (changelog/release):
   // false = disattivo (i push non innescano nulla). Toggle per-progetto.
   docAutoUpdate: boolean("doc_auto_update").notNull().default(false),
-  // Provider AI da usare per l'auto-aggiornamento docs; null = automatico (primo
-  // abilitato al momento dell'esecuzione). ON DELETE SET NULL: rimuovere il
-  // provider non blocca il progetto, ricade sull'automatico.
-  docAutoUpdateProviderId: uuid("doc_auto_update_provider_id").references(
-    () => aiProviders.id,
-    { onDelete: "set null" },
-  ),
+  // Provider AI generale del progetto, valido per Docs e fix; null = automatico
+  // (primo abilitato al momento dell'esecuzione). ON DELETE SET NULL: rimuovere
+  // il provider non blocca il progetto, ricade sull'automatico.
+  aiProviderId: uuid("ai_provider_id").references(() => aiProviders.id, {
+    onDelete: "set null",
+  }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -1054,10 +1053,6 @@ export const docGenerationJobs = pgTable(
     }),
     status: docJobStatus("status").notNull().default("queued"),
     trigger: docGenerationTrigger("trigger").notNull().default("manual"),
-    // Provider AI scelto per blindare la generazione; null = automatico (primo abilitato).
-    pinnedProviderId: uuid("pinned_provider_id").references(() => aiProviders.id, {
-      onDelete: "set null",
-    }),
     log: text("log").notNull().default(""),
     error: text("error"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
