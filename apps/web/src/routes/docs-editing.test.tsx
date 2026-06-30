@@ -102,12 +102,12 @@ const TECH_PAGE = makePage({
 function baseHandlers(role: "admin" | "member" = "member"): Record<string, Handler> {
   return {
     "GET /api/auth/me": meHandler(role),
-    [`GET /api/projects/${PROJECT_ID}/docs/tree`]: () => jsonResponse(200, TREE),
-    [`GET /api/projects/${PROJECT_ID}/docs/status`]: () =>
+    [`GET /api/repositories/${PROJECT_ID}/docs/tree`]: () => jsonResponse(200, TREE),
+    [`GET /api/repositories/${PROJECT_ID}/docs/status`]: () =>
       jsonResponse(200, { generation: null, latestJob: null, pinnedProvider: null }),
     [`GET /api/ai-providers`]: () => jsonResponse(200, []),
-    [`GET /api/projects/${PROJECT_ID}/docs/pages/guide`]: () => jsonResponse(200, MANUAL_PAGE),
-    [`GET /api/projects/${PROJECT_ID}/docs/pages/tech-overview`]: () =>
+    [`GET /api/repositories/${PROJECT_ID}/docs/pages/guide`]: () => jsonResponse(200, MANUAL_PAGE),
+    [`GET /api/repositories/${PROJECT_ID}/docs/pages/tech-overview`]: () =>
       jsonResponse(200, TECH_PAGE),
   };
 }
@@ -136,7 +136,7 @@ describe("editing pagine manuali (M7.3)", () => {
     let posted: unknown = null;
     mockApi({
       ...baseHandlers(),
-      [`POST /api/projects/${PROJECT_ID}/docs/manual`]: (_url, init) => {
+      [`POST /api/repositories/${PROJECT_ID}/docs/manual`]: (_url, init) => {
         posted = JSON.parse(String(init?.body));
         return jsonResponse(201, created);
       },
@@ -167,9 +167,9 @@ describe("editing pagine manuali (M7.3)", () => {
       ...baseHandlers(),
       // Dopo il PATCH la GET della pagina riflette il body aggiornato (la
       // mutation invalida la query → refetch).
-      [`GET /api/projects/${PROJECT_ID}/docs/pages/guide`]: () =>
+      [`GET /api/repositories/${PROJECT_ID}/docs/pages/guide`]: () =>
         jsonResponse(200, patched ? updated : MANUAL_PAGE),
-      [`PATCH /api/projects/${PROJECT_ID}/docs/manual/${MANUAL_ID}`]: (_url, init) => {
+      [`PATCH /api/repositories/${PROJECT_ID}/docs/manual/${MANUAL_ID}`]: (_url, init) => {
         patched = JSON.parse(String(init?.body));
         return jsonResponse(200, updated);
       },
@@ -189,7 +189,7 @@ describe("editing pagine manuali (M7.3)", () => {
     let deleted = false;
     mockApi({
       ...baseHandlers(),
-      [`DELETE /api/projects/${PROJECT_ID}/docs/manual/${MANUAL_ID}`]: () => {
+      [`DELETE /api/repositories/${PROJECT_ID}/docs/manual/${MANUAL_ID}`]: () => {
         deleted = true;
         return jsonResponse(204, null);
       },
@@ -208,7 +208,7 @@ describe("editing pagine manuali (M7.3)", () => {
   it("conflitto di slug (409): mostra l'errore dedicato", async () => {
     mockApi({
       ...baseHandlers(),
-      [`POST /api/projects/${PROJECT_ID}/docs/manual`]: () =>
+      [`POST /api/repositories/${PROJECT_ID}/docs/manual`]: () =>
         jsonResponse(409, { message: "conflict", code: "doc_page_slug_conflict" }),
     });
     renderApp(`/docs/${PROJECT_ID}/new`);
@@ -234,8 +234,8 @@ describe("trigger generazione + stato (M7.4)", () => {
     let statusCalls = 0;
     mockApi({
       "GET /api/auth/me": meHandler("admin"),
-      [`GET /api/projects/${PROJECT_ID}/docs/tree`]: () => jsonResponse(200, TREE),
-      [`GET /api/projects/${PROJECT_ID}/docs/status`]: () => {
+      [`GET /api/repositories/${PROJECT_ID}/docs/tree`]: () => jsonResponse(200, TREE),
+      [`GET /api/repositories/${PROJECT_ID}/docs/status`]: () => {
         statusCalls += 1;
         // Dopo il trigger lo stato riporta un job queued.
         const latestJob =
@@ -253,7 +253,7 @@ describe("trigger generazione + stato (M7.4)", () => {
         return jsonResponse(200, { generation: null, latestJob, pinnedProvider: null });
       },
       [`GET /api/ai-providers`]: () => jsonResponse(200, []),
-      [`POST /api/projects/${PROJECT_ID}/docs/generate`]: () =>
+      [`POST /api/repositories/${PROJECT_ID}/docs/generate`]: () =>
         jsonResponse(202, {
           id: "job1",
           status: "queued",
@@ -287,7 +287,7 @@ describe("trigger generazione + stato (M7.4)", () => {
   it("il pannello mostra lo stato dell'ultima generazione", async () => {
     mockApi({
       ...baseHandlers("admin"),
-      [`GET /api/projects/${PROJECT_ID}/docs/status`]: () =>
+      [`GET /api/repositories/${PROJECT_ID}/docs/status`]: () =>
         jsonResponse(200, {
           generation: {
             id: "g1",
@@ -321,7 +321,7 @@ describe("trigger generazione + stato (M7.4)", () => {
   it("un job held mostra il motivo (job.error) oltre allo stato", async () => {
     mockApi({
       ...baseHandlers("admin"),
-      [`GET /api/projects/${PROJECT_ID}/docs/status`]: () =>
+      [`GET /api/repositories/${PROJECT_ID}/docs/status`]: () =>
         jsonResponse(200, {
           generation: null,
           latestJob: {
@@ -356,7 +356,7 @@ describe("trigger generazione + stato (M7.4)", () => {
     let hadBody = true;
     mockApi({
       ...baseHandlers("admin"),
-      [`POST /api/projects/${PROJECT_ID}/docs/generate`]: (_url, init) => {
+      [`POST /api/repositories/${PROJECT_ID}/docs/generate`]: (_url, init) => {
         hadBody = init?.body != null;
         posted = init?.body ? JSON.parse(String(init.body)) : null;
         return jsonResponse(202, {
@@ -385,7 +385,7 @@ describe("trigger generazione + stato (M7.4)", () => {
   it("mostra il provider bloccato della generazione corrente", async () => {
     mockApi({
       ...baseHandlers("admin"),
-      [`GET /api/projects/${PROJECT_ID}/docs/status`]: () =>
+      [`GET /api/repositories/${PROJECT_ID}/docs/status`]: () =>
         jsonResponse(200, {
           generation: null,
           latestJob: null,
@@ -402,8 +402,8 @@ describe("ricerca via command palette (Cmd/K)", () => {
   it("il trigger nella sidebar apre la palette; digitando una query mostra i risultati", async () => {
     mockApi({
       ...baseHandlers(),
-      [`GET /api/projects/${PROJECT_ID}/docs/history`]: () => jsonResponse(200, []),
-      [`GET /api/projects/${PROJECT_ID}/docs/search`]: () =>
+      [`GET /api/repositories/${PROJECT_ID}/docs/history`]: () => jsonResponse(200, []),
+      [`GET /api/repositories/${PROJECT_ID}/docs/search`]: () =>
         jsonResponse(200, [
           {
             slug: "guide",
@@ -430,7 +430,7 @@ describe("ricerca via command palette (Cmd/K)", () => {
   it("la scorciatoia Cmd/K apre la palette", async () => {
     mockApi({
       ...baseHandlers(),
-      [`GET /api/projects/${PROJECT_ID}/docs/history`]: () => jsonResponse(200, []),
+      [`GET /api/repositories/${PROJECT_ID}/docs/history`]: () => jsonResponse(200, []),
     });
     renderApp(`/docs/${PROJECT_ID}`);
 
@@ -445,8 +445,8 @@ describe("ricerca via command palette (Cmd/K)", () => {
   it("nessun risultato: mostra lo stato vuoto nella palette", async () => {
     mockApi({
       ...baseHandlers(),
-      [`GET /api/projects/${PROJECT_ID}/docs/history`]: () => jsonResponse(200, []),
-      [`GET /api/projects/${PROJECT_ID}/docs/search`]: () => jsonResponse(200, []),
+      [`GET /api/repositories/${PROJECT_ID}/docs/history`]: () => jsonResponse(200, []),
+      [`GET /api/repositories/${PROJECT_ID}/docs/search`]: () => jsonResponse(200, []),
     });
     renderApp(`/docs/${PROJECT_ID}`);
 

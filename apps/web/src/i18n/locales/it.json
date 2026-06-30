@@ -21,7 +21,9 @@
       "docs": "Documentazione",
       "label": "Navigazione",
       "open": "Apri navigazione"
-    }
+    },
+    "on": "attivo",
+    "off": "disattivato"
   },
   "errors": {
     "unauthorized": "Autenticazione richiesta",
@@ -117,7 +119,8 @@
       "all": "Tutti"
     },
     "row": {
-      "occurrences": "Occorrenze deduplicate"
+      "occurrences": "Occorrenze deduplicate",
+      "repository": "Repository bersaglio"
     },
     "editor": {
       "bold": "Grassetto",
@@ -141,7 +144,9 @@
       "descriptionPlaceholder": "Markdown supportato…",
       "cancel": "Annulla",
       "submit": "Crea ticket",
-      "submitPending": "Creazione…"
+      "submitPending": "Creazione…",
+      "repository": "Repository bersaglio",
+      "noRepositories": "Questo progetto non ha repository: aggiungine uno dal dettaglio del progetto."
     },
     "detail": {
       "back": "← Tutti i ticket",
@@ -652,19 +657,66 @@
   "projects": {
     "list": {
       "title": "Progetti",
-      "subtitle": "Repository collegati, chiavi di ingestion e credenziali della pipeline.",
+      "subtitle": "Raggruppa i repository e configura provider AI e ticket di prodotto.",
       "newProject": "Nuovo progetto",
-      "empty": "// nessun progetto collegato",
-      "emptyHintAdmin": "Crea il primo progetto per ottenere una chiave di ingestion.",
-      "emptyHintMember": "Chiedi a un amministratore di collegare il primo repository.",
+      "newName": "Nome del progetto",
+      "newNamePlaceholder": "Es. Piattaforma Acme",
+      "create": "Crea progetto",
+      "creating": "Creazione…",
+      "cancel": "Annulla",
+      "empty": "// nessun progetto",
+      "emptyHintAdmin": "Crea il primo progetto, poi aggiungi i suoi repository.",
+      "emptyHintMember": "Chiedi a un amministratore di creare il primo progetto.",
+      "repositoryCount": "{{count}} repository",
+      "repositoryCount_one": "{{count}} repository",
       "createdAt": "creato {{date}}"
     },
     "detail": {
       "back": "← Tutti i progetti",
+      "createdAt": "creato",
+      "settings": "Impostazioni del progetto",
+      "saved": "Modifiche salvate.",
+      "name": "Nome",
+      "readOnlyHint": "// sola lettura: le impostazioni le modificano gli admin",
+      "repositories": "Repository",
+      "addRepository": "+ Aggiungi repository",
+      "noRepositories": "// nessun repository",
+      "noRepositoriesHintAdmin": "Aggiungi il primo repository per ottenere una chiave di ingestion.",
+      "noRepositoriesHintMember": "Chiedi a un amministratore di collegare un repository.",
+      "dangerZone": "Zona pericolosa",
+      "deleteProject": "Elimina progetto",
+      "deleteConfirm": "Eliminare il progetto e TUTTI i suoi repository (ticket, docs, fix)? L'azione è irreversibile.",
+      "deleteConfirmYes": "Sì, elimina",
+      "deleting": "Eliminazione…",
+      "cancel": "Annulla"
+    },
+    "form": {
+      "name": "Nome",
+      "namePlaceholder": "Es. Piattaforma Acme",
+      "description": "Descrizione (opzionale)",
+      "descriptionPlaceholder": "A cosa serve questo progetto…",
+      "docAutoUpdate": "Auto-aggiorna la documentazione ad ogni push",
+      "docAutoUpdateHint": "// rigenera i Docs di un repo quando arriva un push sul suo branch di default.",
+      "aiProvider": "Provider AI del progetto",
+      "aiProviderAuto": "Automatico (catena con failover)",
+      "aiProviderHint": "// vale per Docs e fix di tutti i repository; vuoto = catena dei provider abilitati.",
+      "save": "Salva modifiche",
+      "saving": "Salvataggio…"
+    },
+    "branchSelect": {
+      "label": "Branch di default",
+      "loadFailed": "// impossibile caricare i branch: inseriscilo manualmente.",
+      "loading": "// caricamento branch…"
+    }
+  },
+  "repositories": {
+    "detail": {
+      "back": "← Torna al progetto",
       "branch": "branch",
       "createdAt": "creato",
-      "configuredBanner": "✓ Progetto configurato correttamente",
-      "configuration": "Configurazione",
+      "configuredBanner": "✓ Repository configurato correttamente",
+      "configuration": "Configurazione git",
+      "openDocs": "Apri documentazione",
       "saved": "Modifiche salvate.",
       "name": "Nome",
       "repoUrl": "URL repository",
@@ -685,11 +737,6 @@
       "testCommandHint": "// vuoto = auto-detect (script test del package.json).",
       "installCommand": "Comando di installazione (opzionale)",
       "installCommandHint": "// vuoto = auto-rilevato dal lockfile.",
-      "docAutoUpdate": "Auto-aggiorna la documentazione ad ogni push",
-      "docAutoUpdateHint": "// rigenera i Docs quando arriva un push sul branch di default.",
-      "aiProvider": "Provider AI del progetto",
-      "aiProviderAuto": "Automatico (catena con failover)",
-      "aiProviderHint": "// vale per Docs e fix; vuoto = catena dei provider abilitati in ordine di failover.",
       "save": "Salva modifiche",
       "saving": "Salvataggio…"
     },
@@ -720,7 +767,7 @@
       "testCommandHint": "// vuoto = auto-detect (script test del package.json).",
       "installCommand": "Comando di installazione (opzionale)",
       "installCommandHint": "// vuoto = auto-rilevato dal lockfile.",
-      "submit": "Crea progetto",
+      "submit": "Aggiungi repository",
       "submitting": "Creazione…"
     },
     "branchSelect": {
@@ -729,8 +776,8 @@
       "loading": "// caricamento branch…"
     },
     "new": {
-      "back": "← Tutti i progetti",
-      "title": "Nuovo progetto",
+      "back": "← Torna al progetto",
+      "title": "Aggiungi un repository",
       "subtitle": "Scegli un account git, il repository e il branch: slug e chiave di ingestion vengono generati alla creazione."
     }
   },

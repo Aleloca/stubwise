@@ -27,6 +27,7 @@ import {
   notificationSettingsQueryOptions,
   projectQueryOptions,
   projectsQueryOptions,
+  repositoryQueryOptions,
   ticketAttachmentsQueryOptions,
   ticketJobsQueryOptions,
   ticketLinksQueryOptions,
@@ -44,9 +45,10 @@ import {
 } from "./routes/docs/$projectId";
 import { DocsPage } from "./routes/docs/index";
 import { LoginPage } from "./routes/login";
-import { ProjectDetailPage } from "./routes/projects/$slug";
+import { ProjectDetailPage } from "./routes/projects/$projectId";
 import { ProjectsPage } from "./routes/projects/index";
-import { NewProjectPage } from "./routes/projects/new";
+import { RepositoryDetailPage } from "./routes/repositories/$slug";
+import { NewRepositoryPage } from "./routes/repositories/new";
 import { registerSearchSchema, RegisterPage } from "./routes/register";
 import { SettingsAccountPage } from "./routes/settings/account";
 import { SettingsAiProvidersPage } from "./routes/settings/ai-providers";
@@ -194,27 +196,39 @@ const projectsRoute = createRoute({
   component: ProjectsPage,
 });
 
-const projectNewRoute = createRoute({
-  getParentRoute: () => authedRoute,
-  path: "/projects/new",
-  // Creazione riservata agli admin: un member che digita l'URL torna alla
-  // lista invece di compilare un form che il server rifiuterebbe con 403.
-  beforeLoad: ({ context }) => {
-    if (context.user.role !== "admin") throw redirect({ to: "/projects" });
-  },
-  component: NewProjectPage,
-});
-
 const projectDetailRoute = createRoute({
   getParentRoute: () => authedRoute,
-  path: "/projects/$slug",
+  path: "/projects/$projectId",
   loader: async ({ context, params }) => {
-    // Il progetto prima (serve l'id per le milestone), poi le sue milestone:
-    // il MilestoneManager usa useSuspenseQuery e non deve attendere al render.
-    const project = await context.queryClient.ensureQueryData(projectQueryOptions(params.slug));
+    // Il progetto (gruppo) prima — l'id coincide col param — poi le sue
+    // milestone: il MilestoneManager usa useSuspenseQuery e non deve attendere.
+    const project = await context.queryClient.ensureQueryData(
+      projectQueryOptions(params.projectId),
+    );
     await context.queryClient.ensureQueryData(milestonesQueryOptions(project.id));
   },
   component: ProjectDetailPage,
+});
+
+const repositoryNewRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/projects/$projectId/repositories/new",
+  // Aggiunta di un repository riservata agli admin: un member che digita l'URL
+  // torna al dettaglio del progetto invece di un form che il server rifiuterebbe.
+  beforeLoad: ({ context, params }) => {
+    if (context.user.role !== "admin") {
+      throw redirect({ to: "/projects/$projectId", params: { projectId: params.projectId } });
+    }
+  },
+  component: NewRepositoryPage,
+});
+
+const repositoryDetailRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/repositories/$slug",
+  loader: ({ context, params }) =>
+    context.queryClient.ensureQueryData(repositoryQueryOptions(params.slug)),
+  component: RepositoryDetailPage,
 });
 
 /**
@@ -400,8 +414,9 @@ const routeTree = rootRoute.addChildren([
     ticketDetailRoute,
     boardRoute,
     projectsRoute,
-    projectNewRoute,
     projectDetailRoute,
+    repositoryNewRoute,
+    repositoryDetailRoute,
     docsRoute,
     docsSpaceRoute.addChildren([docsSpaceIndexRoute, docsManualNewRoute, docsPageRoute]),
     teamRoute,

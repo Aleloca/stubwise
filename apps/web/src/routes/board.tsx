@@ -17,7 +17,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { ticketStatusSchema, type TicketStatus } from "@stubwise/shared";
-import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
@@ -28,6 +28,7 @@ import {
   BOARD_TICKETS_LIMIT,
   boardTicketsQueryOptions,
   projectsQueryOptions,
+  repositoriesQueryOptions,
   ticketKeys,
 } from "../lib/queries";
 
@@ -131,6 +132,10 @@ export function BoardPage() {
 
   const { data: projects } = useSuspenseQuery(projectsQueryOptions);
   const { data: tickets } = useSuspenseQuery(boardTicketsQueryOptions(search.projectId));
+  // Repository per il badge del bersaglio sulle card. Non-suspense: assente →
+  // nessun badge (degradazione innocua).
+  const { data: repositories } = useQuery(repositoriesQueryOptions());
+  const repositoryNames = new Map((repositories ?? []).map((repo) => [repo.id, repo.name]));
   const { moveTicket, isError, error, reset } = useMoveTicket(search.projectId);
 
   // PointerSensor (mouse) — distanza di attivazione 8px: sotto è un click (apre
@@ -241,6 +246,7 @@ export function BoardPage() {
               key={status}
               status={status}
               tickets={byStatus.get(status) ?? []}
+              repositoryNames={repositoryNames}
               onOpen={openTicket}
             />
           ))}
@@ -253,10 +259,12 @@ export function BoardPage() {
 interface BoardColumnProps {
   status: TicketStatus;
   tickets: Ticket[];
+  /** Mappa repositoryId → nome, per il badge del bersaglio sulle card. */
+  repositoryNames: Map<string, string>;
   onOpen: (id: string) => void;
 }
 
-function BoardColumn({ status, tickets, onOpen }: BoardColumnProps) {
+function BoardColumn({ status, tickets, repositoryNames, onOpen }: BoardColumnProps) {
   const { t } = useTranslation();
   const { setNodeRef, isOver } = useDroppable({ id: status });
 
@@ -287,7 +295,14 @@ function BoardColumn({ status, tickets, onOpen }: BoardColumnProps) {
       >
         <ul className="flex min-h-16 flex-1 flex-col gap-2 overflow-y-auto p-2">
           {tickets.map((ticket) => (
-            <BoardCard key={ticket.id} ticket={ticket} onOpen={() => onOpen(ticket.id)} />
+            <BoardCard
+              key={ticket.id}
+              ticket={ticket}
+              repositoryName={
+                ticket.repositoryId ? (repositoryNames.get(ticket.repositoryId) ?? null) : null
+              }
+              onOpen={() => onOpen(ticket.id)}
+            />
           ))}
           {tickets.length === 0 && (
             <li className="grid flex-1 place-items-center rounded-sm border border-dashed border-line py-6">
@@ -304,10 +319,12 @@ function BoardColumn({ status, tickets, onOpen }: BoardColumnProps) {
 
 interface BoardCardProps {
   ticket: Ticket;
+  /** Nome del repository bersaglio, o null se assente/non risolvibile. */
+  repositoryName: string | null;
   onOpen: () => void;
 }
 
-function BoardCard({ ticket, onOpen }: BoardCardProps) {
+function BoardCard({ ticket, repositoryName, onOpen }: BoardCardProps) {
   const { t } = useTranslation();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: ticket.id,
@@ -350,6 +367,13 @@ function BoardCard({ ticket, onOpen }: BoardCardProps) {
         )}
       </div>
       <p className="mt-1 line-clamp-2 text-sm font-medium text-fg">{ticket.title}</p>
+      {repositoryName && (
+        <p className="mt-1.5 truncate font-mono text-[10px] tracking-[0.06em] text-fg-faint">
+          <span className="rounded-sm border border-line bg-ink-900 px-1.5 py-0.5 text-fg-muted">
+            {repositoryName}
+          </span>
+        </p>
+      )}
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
         <TypeBadge type={ticket.type} />
         <PriorityBadge priority={ticket.priority} />

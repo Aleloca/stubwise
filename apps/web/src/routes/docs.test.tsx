@@ -49,7 +49,7 @@ function meHandler(role: "admin" | "member"): Handler {
 
 function makeSpace(overrides: Partial<DocSpace> = {}): DocSpace {
   return {
-    projectId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    repositoryId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     slug: "demo-shop",
     name: "Demo Shop",
     pageCount: 12,
@@ -81,7 +81,7 @@ describe("hub documentazione", () => {
         jsonResponse(200, [
           makeSpace(),
           makeSpace({
-            projectId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            repositoryId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
             slug: "backoffice",
             name: "Backoffice",
             pageCount: 1,
@@ -91,7 +91,7 @@ describe("hub documentazione", () => {
           // Progetto senza alcuna documentazione: compare comunque (entry point
           // per generare), con stato "not generated yet".
           makeSpace({
-            projectId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            repositoryId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
             slug: "fresh-app",
             name: "Fresh App",
             pageCount: 0,

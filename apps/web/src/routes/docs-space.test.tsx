@@ -128,12 +128,12 @@ const PAGES: Record<string, DocPage> = {
 function treeHandlers(): Record<string, Handler> {
   return {
     "GET /api/auth/me": meHandler(),
-    [`GET /api/projects/${PROJECT_ID}/docs/tree`]: () => jsonResponse(200, TREE),
-    [`GET /api/projects/${PROJECT_ID}/docs/pages/module-auth`]: () =>
+    [`GET /api/repositories/${PROJECT_ID}/docs/tree`]: () => jsonResponse(200, TREE),
+    [`GET /api/repositories/${PROJECT_ID}/docs/pages/module-auth`]: () =>
       jsonResponse(200, PAGES["module-auth"]),
-    [`GET /api/projects/${PROJECT_ID}/docs/pages/getting-started`]: () =>
+    [`GET /api/repositories/${PROJECT_ID}/docs/pages/getting-started`]: () =>
       jsonResponse(200, PAGES["getting-started"]),
-    [`GET /api/projects/${PROJECT_ID}/docs/pages/func-overview`]: () =>
+    [`GET /api/repositories/${PROJECT_ID}/docs/pages/func-overview`]: () =>
       jsonResponse(200, PAGES["func-overview"]),
   };
 }
@@ -263,7 +263,7 @@ describe("spazio documentazione", () => {
   it("404: messaggio amichevole di pagina non trovata", async () => {
     mockApi({
       ...treeHandlers(),
-      [`GET /api/projects/${PROJECT_ID}/docs/pages/ghost`]: () =>
+      [`GET /api/repositories/${PROJECT_ID}/docs/pages/ghost`]: () =>
         jsonResponse(404, { message: "not found", code: "doc_page_not_found" }),
     });
     renderApp(`/docs/${PROJECT_ID}/ghost`);
@@ -363,7 +363,7 @@ describe("spazio documentazione — command palette (Cmd/K)", () => {
   it("il trigger nella sidebar apre la palette", async () => {
     mockApi({
       ...treeHandlers(),
-      [`GET /api/projects/${PROJECT_ID}/docs/history`]: () => jsonResponse(200, []),
+      [`GET /api/repositories/${PROJECT_ID}/docs/history`]: () => jsonResponse(200, []),
     });
     renderApp(`/docs/${PROJECT_ID}`);
     const user = userEvent.setup();
@@ -379,7 +379,7 @@ describe("spazio documentazione — command palette (Cmd/K)", () => {
   it("la scorciatoia Cmd/K apre la palette", async () => {
     mockApi({
       ...treeHandlers(),
-      [`GET /api/projects/${PROJECT_ID}/docs/history`]: () => jsonResponse(200, []),
+      [`GET /api/repositories/${PROJECT_ID}/docs/history`]: () => jsonResponse(200, []),
     });
     renderApp(`/docs/${PROJECT_ID}`);
     const user = userEvent.setup();

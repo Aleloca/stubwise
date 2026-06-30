@@ -8,14 +8,19 @@ interface TicketRowProps {
   ticket: Ticket;
   /** Nome del progetto risolto dal chiamante (la lista ha già i progetti). */
   projectName: string;
+  /**
+   * Nome del repository bersaglio del ticket, risolto dal chiamante; null se il
+   * ticket non ha un repository (Fase 3) o non è risolvibile. Mostrato come badge.
+   */
+  repositoryName?: string | null;
 }
 
 /**
  * Riga della lista ticket: tutta cliccabile verso il dettaglio. Numero e
  * metadati in mono, titolo in sans; i badge raccontano stato/tipo/priorità
- * a colpo d'occhio.
+ * a colpo d'occhio. Se risolto, un badge mostra il repository bersaglio.
  */
-export function TicketRow({ ticket, projectName }: TicketRowProps) {
+export function TicketRow({ ticket, projectName, repositoryName }: TicketRowProps) {
   const { t } = useTranslation();
 
   return (
@@ -32,6 +37,14 @@ export function TicketRow({ ticket, projectName }: TicketRowProps) {
         <span className="block truncate text-sm font-medium text-fg">{ticket.title}</span>
         <span className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[11px] text-fg-faint">
           <span className="text-fg-muted">{projectName}</span>
+          {repositoryName && (
+            <span
+              className="rounded-sm border border-line bg-ink-850 px-1.5 text-fg-muted"
+              title={t("tickets:row.repository")}
+            >
+              {repositoryName}
+            </span>
+          )}
           <SourceBadge source={ticket.source} />
           {ticket.occurrences > 1 && (
             <span className="text-signal" title={t("tickets:row.occurrences")}>

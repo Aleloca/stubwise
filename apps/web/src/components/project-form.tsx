@@ -2,25 +2,17 @@ import { useSuspenseQuery } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { ProjectPatch } from "../lib/api";
-import { deriveFullName } from "../lib/format";
-import { aiProvidersQueryOptions, gitAccountsQueryOptions } from "../lib/queries";
-import { BranchSelect } from "./branch-select";
+import { aiProvidersQueryOptions } from "../lib/queries";
 import { FormError, SelectField, SubmitButton, TextField } from "./field";
 
 interface ProjectInitialValues {
   name: string;
-  repoUrl: string;
-  defaultBranch: string;
-  /** Account git attualmente collegato (per preselezionare il select). */
-  gitAccountId: string;
-  /** Comando di test custom; null = auto-detect (script test del package.json). */
-  testCommand: string | null;
-  /** Comando di installazione custom; null = auto-detect (dal lockfile). */
-  installCommand: string | null;
-  /** Se true, ogni push sul branch di default rigenera la documentazione. */
-  docAutoUpdate: boolean;
+  /** Descrizione del progetto; null = assente. */
+  description: string | null;
   /** Provider AI del progetto (Docs e fix); null = automatico (catena con failover). */
   aiProviderId: string | null;
+  /** Se true, ogni push sul branch di default di un repo rigenera i suoi Docs. */
+  docAutoUpdate: boolean;
 }
 
 interface ProjectFormProps {
@@ -29,38 +21,28 @@ interface ProjectFormProps {
 }
 
 /**
- * Form di modifica progetto: nome, URL repository, branch di default e account
- * git collegato (selezionabile fra quelli esistenti). Le credenziali NON
- * vivono più sul progetto — stanno sull'account git, si gestiscono in Settings
- * → Account Git — quindi questo form non le tocca. Cambiare account aggiorna
- * anche il provider del progetto lato server.
+ * Form di impostazioni di un PROGETTO (gruppo): nome, descrizione e le
+ * impostazioni di prodotto che valgono per TUTTI i repository del progetto — il
+ * provider AI (Docs e fix) e l'auto-aggiornamento della documentazione ai push.
  *
- * La creazione di un progetto NON usa questo form: passa dal wizard
- * (account → repository → branch), vedi {@link ProjectWizard}.
+ * Provider e auto-update vivevano prima sul form del repository: in Fase 1 sono
+ * saliti qui, al progetto. La configurazione git (repoUrl, branch, account,
+ * comandi) resta sul repository (vedi {@link RepositoryForm}).
  */
 export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
   const { t } = useTranslation();
-  const { data: accounts } = useSuspenseQuery(gitAccountsQueryOptions);
-  // Provider AI configurati: alimentano il select del provider del progetto
-  // (vale per Docs e fix). Il form è admin-only (montato solo per gli admin nel
-  // dettaglio progetto), quindi possiamo leggere l'endpoint admin senza ulteriore
-  // gating. Ordinati per position (failover), mostriamo tutti i provider con label + tipo.
+  // Provider AI configurati: alimentano il select del provider del progetto. Il
+  // form è admin-only (montato solo per gli admin nel dettaglio progetto).
   const { data: providers } = useSuspenseQuery(aiProvidersQueryOptions);
   const sortedProviders = [...providers].sort((a, b) => a.position - b.position);
 
   const [name, setName] = useState(initial.name);
-  const [repoUrl, setRepoUrl] = useState(initial.repoUrl);
-  const [defaultBranch, setDefaultBranch] = useState(initial.defaultBranch);
-  const [gitAccountId, setGitAccountId] = useState(initial.gitAccountId);
-  // Comando di test come stringa controllata: vuoto = nessun comando (auto-detect).
-  const [testCommand, setTestCommand] = useState(initial.testCommand ?? "");
-  // Comando di installazione come stringa controllata: vuoto = auto-detect (dal lockfile).
-  const [installCommand, setInstallCommand] = useState(initial.installCommand ?? "");
-  // Auto-aggiornamento Docs ai push (default off): campo indipendente.
-  const [docAutoUpdate, setDocAutoUpdate] = useState(initial.docAutoUpdate);
-  // Provider AI del progetto (Docs + fix): "" = automatico (catena con
-  // failover), id = provider scelto. Indipendente dal toggle auto-update.
+  // Descrizione come stringa controllata: vuoto = nessuna descrizione (null).
+  const [description, setDescription] = useState(initial.description ?? "");
+  // Provider AI: "" = automatico (catena con failover), id = provider scelto.
   const [aiProviderId, setAiProviderId] = useState(initial.aiProviderId ?? "");
+  // Auto-aggiornamento Docs ai push (default off).
+  const [docAutoUpdate, setDocAutoUpdate] = useState(initial.docAutoUpdate);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -69,35 +51,18 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
     setError(null);
     setPending(true);
     try {
-      // Stringa vuota → null (svuota = torna all'auto-detect); altrimenti il
-      // comando senza spazi di contorno.
-      const trimmedTestCommand = testCommand.trim();
-      const nextTestCommand = trimmedTestCommand === "" ? null : trimmedTestCommand;
-      const trimmedInstallCommand = installCommand.trim();
-      const nextInstallCommand = trimmedInstallCommand === "" ? null : trimmedInstallCommand;
+      const trimmedDescription = description.trim();
+      const nextDescription = trimmedDescription === "" ? null : trimmedDescription;
       // "" = automatico (catena con failover) → null lato server; altrimenti l'id scelto.
       const nextProviderId = aiProviderId === "" ? null : aiProviderId;
       await onSubmit({
-        name,
-        repoUrl,
-        defaultBranch,
-        // Includo gitAccountId solo se cambiato: un PATCH minimo evita di
-        // ri-denormalizzare il provider quando non serve.
-        ...(gitAccountId !== initial.gitAccountId && { gitAccountId }),
-        // testCommand incluso solo se cambiato (null↔stringa) per un PATCH minimo.
-        ...(nextTestCommand !== (initial.testCommand ?? null) && {
-          testCommand: nextTestCommand,
-        }),
-        // installCommand incluso solo se cambiato (null↔stringa) per un PATCH minimo.
-        ...(nextInstallCommand !== (initial.installCommand ?? null) && {
-          installCommand: nextInstallCommand,
-        }),
+        ...(name !== initial.name && { name }),
+        // description inclusa solo se cambiata (null↔stringa) per un PATCH minimo.
+        ...(nextDescription !== (initial.description ?? null) && { description: nextDescription }),
+        // Provider incluso solo se cambiato (null↔id) per un PATCH minimo.
+        ...(nextProviderId !== (initial.aiProviderId ?? null) && { aiProviderId: nextProviderId }),
         // docAutoUpdate incluso solo se cambiato (toggle), per un PATCH minimo.
         ...(docAutoUpdate !== initial.docAutoUpdate && { docAutoUpdate }),
-        // Provider incluso solo se cambiato (null↔id) per un PATCH minimo.
-        ...(nextProviderId !== (initial.aiProviderId ?? null) && {
-          aiProviderId: nextProviderId,
-        }),
       });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("common:unexpectedError"));
@@ -118,70 +83,18 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
       />
 
       <TextField
-        id="project-repo-url"
-        label={t("projects:form.repoUrl")}
-        type="url"
-        required
-        placeholder="https://github.com/acme/demo"
-        value={repoUrl}
-        onChange={(event) => setRepoUrl(event.target.value)}
+        id="project-description"
+        label={t("projects:form.description")}
+        type="text"
+        placeholder={t("projects:form.descriptionPlaceholder")}
+        value={description}
+        onChange={(event) => setDescription(event.target.value)}
       />
 
       {/*
-        Branch via API dell'account collegato. Il repoUrl (anche se modificato a
-        mano) viene tradotto in owner/repo; se non parsabile, BranchSelect
-        degrada a input testuale così l'utente non resta bloccato.
-      */}
-      <BranchSelect
-        id="project-default-branch"
-        accountId={gitAccountId}
-        repoFullName={deriveFullName(repoUrl) ?? undefined}
-        value={defaultBranch}
-        onChange={setDefaultBranch}
-      />
-
-      <SelectField
-        id="project-git-account"
-        label={t("projects:form.gitAccount")}
-        value={gitAccountId}
-        onChange={(event) => setGitAccountId(event.target.value)}
-        options={accounts.map((account) => ({
-          value: account.id,
-          label: `${account.name} (${account.provider})`,
-        }))}
-      />
-      <p className="-mt-1 font-mono text-[11px] text-fg-faint">
-        {t("projects:form.credentialsHint")}
-      </p>
-
-      <TextField
-        id="project-test-command"
-        label={t("projects:form.testCommand")}
-        type="text"
-        placeholder="npm test"
-        value={testCommand}
-        onChange={(event) => setTestCommand(event.target.value)}
-      />
-      <p className="-mt-1 font-mono text-[11px] text-fg-faint">
-        {t("projects:form.testCommandHint")}
-      </p>
-
-      <TextField
-        id="project-install-command"
-        label={t("projects:form.installCommand")}
-        type="text"
-        placeholder="pnpm install"
-        value={installCommand}
-        onChange={(event) => setInstallCommand(event.target.value)}
-      />
-      <p className="-mt-1 font-mono text-[11px] text-fg-faint">
-        {t("projects:form.installCommandHint")}
-      </p>
-
-      {/*
-        Provider AI del progetto: vale per la generazione Docs e per i fix.
-        Mostrato sempre (il form è admin-only) e indipendente dal toggle
-        auto-update. "" = automatico (catena dei provider abilitati con failover).
+        Provider AI del progetto: vale per la generazione Docs e per i fix di
+        tutti i suoi repository. "" = automatico (catena dei provider abilitati
+        con failover).
       */}
       <SelectField
         id="project-ai-provider"
@@ -200,7 +113,7 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
 
       {/*
         Auto-aggiornamento Docs: toggle (default off) ai push sul branch di
-        default. Campo indipendente dal provider AI del progetto.
+        default. Vale per tutti i repository del progetto.
       */}
       <div className="flex flex-col gap-1.5 rounded-sm border border-line bg-ink-900 px-3 py-3">
         <div className="flex items-center gap-2.5">
@@ -218,9 +131,7 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
             {t("projects:form.docAutoUpdate")}
           </label>
         </div>
-        <p className="font-mono text-[11px] text-fg-faint">
-          {t("projects:form.docAutoUpdateHint")}
-        </p>
+        <p className="font-mono text-[11px] text-fg-faint">{t("projects:form.docAutoUpdateHint")}</p>
       </div>
 
       <FormError message={error} />

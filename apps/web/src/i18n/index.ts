@@ -22,6 +22,7 @@ export const NAMESPACES = [
   "jobStatus",
   "badges",
   "projects",
+  "repositories",
   "integration",
   "milestones",
   "savedViews",

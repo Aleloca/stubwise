@@ -64,7 +64,7 @@ function renderSection() {
   );
 }
 
-const base = `/api/projects/${PROJECT_ID}/env-files`;
+const base = `/api/repositories/${PROJECT_ID}/env-files`;
 
 describe("ProjectEnvFilesSection — lista", () => {
   it("mostra i file per path e le variabili con valore mascherato (mai il valore)", async () => {

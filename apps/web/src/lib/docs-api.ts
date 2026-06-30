@@ -16,13 +16,13 @@ import { ApiError, api } from "./api";
 // --- Hub spazi (GET /api/docs/spaces) ---
 
 /**
- * Uno "spazio" dell'hub: un progetto che ha documentazione (almeno una pagina
+ * Uno "spazio" dell'hub: un repository che ha documentazione (almeno una pagina
  * autogenerata della generazione corrente o manuale). `lastGenerationAt`/
  * `lastCommitSha` sono null finché non c'è una generazione corrente riuscita
  * (es. spazi con sole pagine manuali).
  */
 export interface DocSpace {
-  projectId: string;
+  repositoryId: string;
   slug: string;
   name: string;
   pageCount: number;
@@ -30,12 +30,12 @@ export interface DocSpace {
   lastCommitSha: string | null;
 }
 
-/** Hub degli spazi: i progetti con documentazione, ordinati per nome. */
+/** Hub degli spazi: i repository con documentazione, ordinati per nome. */
 export function getDocSpaces(): Promise<DocSpace[]> {
   return api.get("/api/docs/spaces");
 }
 
-// --- Albero pagine (GET /api/projects/:id/docs/tree) ---
+// --- Albero pagine (GET /api/repositories/:repositoryId/docs/tree) ---
 
 /**
  * Nodo dell'albero/sidebar: il minimo per renderizzare la navigazione di uno
@@ -54,11 +54,11 @@ export interface DocTreeNode {
 }
 
 /** Albero delle pagine di uno spazio (generazione corrente + manuali). */
-export function getDocTree(projectId: string): Promise<DocTreeNode[]> {
-  return api.get(`/api/projects/${encodeURIComponent(projectId)}/docs/tree`);
+export function getDocTree(repositoryId: string): Promise<DocTreeNode[]> {
+  return api.get(`/api/repositories/${encodeURIComponent(repositoryId)}/docs/tree`);
 }
 
-// --- Pagina singola (GET /api/projects/:id/docs/pages/:slug) ---
+// --- Pagina singola (GET /api/repositories/:repositoryId/docs/pages/:slug) ---
 
 /**
  * Un cross-link risolto di una pagina: `type` raggruppa la relazione
@@ -92,9 +92,9 @@ export interface DocPage {
 }
 
 /** Una pagina dello spazio per slug. */
-export function getDocPage(projectId: string, slug: string): Promise<DocPage> {
+export function getDocPage(repositoryId: string, slug: string): Promise<DocPage> {
   return api.get(
-    `/api/projects/${encodeURIComponent(projectId)}/docs/pages/${encodeURIComponent(slug)}`,
+    `/api/repositories/${encodeURIComponent(repositoryId)}/docs/pages/${encodeURIComponent(slug)}`,
   );
 }
 
@@ -143,8 +143,8 @@ export interface DocStatus {
 }
 
 /** Stato della documentazione di un progetto (generazione corrente + ultimo job). */
-export function getDocStatus(projectId: string): Promise<DocStatus> {
-  return api.get(`/api/projects/${encodeURIComponent(projectId)}/docs/status`);
+export function getDocStatus(repositoryId: string): Promise<DocStatus> {
+  return api.get(`/api/repositories/${encodeURIComponent(repositoryId)}/docs/status`);
 }
 
 /**
@@ -153,11 +153,11 @@ export function getDocStatus(projectId: string): Promise<DocStatus> {
  * Il provider AI è quello configurato a livello di progetto (impostazioni
  * progetto): la generazione non lo accetta più come parametro.
  */
-export function generateDocs(projectId: string): Promise<DocGenerationJob> {
-  return api.post(`/api/projects/${encodeURIComponent(projectId)}/docs/generate`);
+export function generateDocs(repositoryId: string): Promise<DocGenerationJob> {
+  return api.post(`/api/repositories/${encodeURIComponent(repositoryId)}/docs/generate`);
 }
 
-// --- Ricerca (GET /api/projects/:id/docs/search?q=) ---
+// --- Ricerca (GET /api/repositories/:repositoryId/docs/search?q=) ---
 
 /**
  * Un risultato di ricerca: la pagina (slug/title/kind) più l'estratto rilevante,
@@ -173,13 +173,13 @@ export interface DocSearchResult {
 }
 
 /** Ricerca ibrida (semantica + full-text) nella documentazione di un progetto. */
-export function searchDocs(projectId: string, q: string): Promise<DocSearchResult[]> {
+export function searchDocs(repositoryId: string, q: string): Promise<DocSearchResult[]> {
   return api.get(
-    `/api/projects/${encodeURIComponent(projectId)}/docs/search?q=${encodeURIComponent(q)}`,
+    `/api/repositories/${encodeURIComponent(repositoryId)}/docs/search?q=${encodeURIComponent(q)}`,
   );
 }
 
-// --- Cronologia ricerca (GET/POST/DELETE /api/projects/:id/docs/history) ---
+// --- Cronologia ricerca (GET/POST/DELETE /api/repositories/:repositoryId/docs/history) ---
 
 /**
  * Una voce della cronologia server-side: la pagina visitata dalla command
@@ -196,28 +196,28 @@ export interface DocHistoryEntry {
 }
 
 /** Cronologia delle pagine recenti dell'utente corrente nello spazio. */
-export function getDocsHistory(projectId: string): Promise<DocHistoryEntry[]> {
-  return api.get(`/api/projects/${encodeURIComponent(projectId)}/docs/history`);
+export function getDocsHistory(repositoryId: string): Promise<DocHistoryEntry[]> {
+  return api.get(`/api/repositories/${encodeURIComponent(repositoryId)}/docs/history`);
 }
 
 /** Registra (upsert) un click su una pagina nella cronologia: ritorna 204. */
 export function recordDocsHistoryClick(
-  projectId: string,
+  repositoryId: string,
   entry: { slug: string; title: string; kind: DocPageKind; snippet?: string },
 ): Promise<void> {
-  return api.post(`/api/projects/${encodeURIComponent(projectId)}/docs/history`, entry);
+  return api.post(`/api/repositories/${encodeURIComponent(repositoryId)}/docs/history`, entry);
 }
 
 /** Rimuove una singola voce della cronologia per slug: ritorna 204. */
-export function deleteDocsHistoryEntry(projectId: string, slug: string): Promise<void> {
+export function deleteDocsHistoryEntry(repositoryId: string, slug: string): Promise<void> {
   return api.delete(
-    `/api/projects/${encodeURIComponent(projectId)}/docs/history/${encodeURIComponent(slug)}`,
+    `/api/repositories/${encodeURIComponent(repositoryId)}/docs/history/${encodeURIComponent(slug)}`,
   );
 }
 
 /** Svuota tutta la cronologia dell'utente corrente nello spazio: ritorna 204. */
-export function clearDocsHistory(projectId: string): Promise<void> {
-  return api.delete(`/api/projects/${encodeURIComponent(projectId)}/docs/history`);
+export function clearDocsHistory(repositoryId: string): Promise<void> {
+  return api.delete(`/api/repositories/${encodeURIComponent(repositoryId)}/docs/history`);
 }
 
 // --- Pagine manuali (CRUD) ---
@@ -240,26 +240,26 @@ export interface ManualPagePatch {
 }
 
 /** Crea una pagina manuale nello spazio Manuale (member ok): 409 slug duplicato. */
-export function createManualPage(projectId: string, draft: ManualPageDraft): Promise<DocPage> {
-  return api.post(`/api/projects/${encodeURIComponent(projectId)}/docs/manual`, draft);
+export function createManualPage(repositoryId: string, draft: ManualPageDraft): Promise<DocPage> {
+  return api.post(`/api/repositories/${encodeURIComponent(repositoryId)}/docs/manual`, draft);
 }
 
 /** Aggiorna una pagina manuale (member ok): solo le pagine isManual. */
 export function updateManualPage(
-  projectId: string,
+  repositoryId: string,
   id: string,
   patch: ManualPagePatch,
 ): Promise<DocPage> {
   return api.patch(
-    `/api/projects/${encodeURIComponent(projectId)}/docs/manual/${encodeURIComponent(id)}`,
+    `/api/repositories/${encodeURIComponent(repositoryId)}/docs/manual/${encodeURIComponent(id)}`,
     patch,
   );
 }
 
 /** Elimina una pagina manuale (member ok): solo le pagine isManual. */
-export function deleteManualPage(projectId: string, id: string): Promise<void> {
+export function deleteManualPage(repositoryId: string, id: string): Promise<void> {
   return api.delete(
-    `/api/projects/${encodeURIComponent(projectId)}/docs/manual/${encodeURIComponent(id)}`,
+    `/api/repositories/${encodeURIComponent(repositoryId)}/docs/manual/${encodeURIComponent(id)}`,
   );
 }
 
@@ -288,17 +288,17 @@ export interface DocChatMessage {
 }
 
 /** Le sessioni di chat dello spazio dell'utente corrente. */
-export function getDocChatSessions(projectId: string): Promise<DocChatSession[]> {
-  return api.get(`/api/projects/${encodeURIComponent(projectId)}/docs/chat/sessions`);
+export function getDocChatSessions(repositoryId: string): Promise<DocChatSession[]> {
+  return api.get(`/api/repositories/${encodeURIComponent(repositoryId)}/docs/chat/sessions`);
 }
 
 /** I messaggi di una sessione di chat. */
 export function getDocChatMessages(
-  projectId: string,
+  repositoryId: string,
   sessionId: string,
 ): Promise<DocChatMessage[]> {
   return api.get(
-    `/api/projects/${encodeURIComponent(projectId)}/docs/chat/sessions/${encodeURIComponent(sessionId)}/messages`,
+    `/api/repositories/${encodeURIComponent(repositoryId)}/docs/chat/sessions/${encodeURIComponent(sessionId)}/messages`,
   );
 }
 
@@ -308,12 +308,12 @@ export function getDocChatMessages(
  * legge `response.body` incrementalmente. `sessionId` assente = nuova sessione.
  */
 export async function postDocChat(
-  projectId: string,
+  repositoryId: string,
   body: { sessionId?: string; message: string },
 ): Promise<Response> {
   let response: Response;
   try {
-    response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/docs/chat`, {
+    response = await fetch(`/api/repositories/${encodeURIComponent(repositoryId)}/docs/chat`, {
       method: "POST",
       credentials: "include",
       headers: { "content-type": "application/json" },

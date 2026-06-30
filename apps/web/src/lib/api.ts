@@ -193,7 +193,13 @@ export function postRegister(registration: Registration): Promise<{ user: Public
 
 export interface Ticket {
   id: string;
+  /** Progetto (gruppo) a cui il ticket appartiene. */
   projectId: string;
+  /**
+   * Repository bersaglio del fix; null per ticket senza repo (Fase 3). In Fase 1
+   * è sempre valorizzato.
+   */
+  repositoryId: string | null;
   number: number;
   title: string;
   body: string;
@@ -268,7 +274,13 @@ export function patchTicket(id: string, patch: TicketPatch): Promise<Ticket> {
 
 /** Creazione manuale di un ticket dalla UI (source "manual" lato server). */
 export interface TicketDraft {
+  /** Progetto (gruppo) a cui il ticket appartiene. */
   projectId: string;
+  /**
+   * Repository bersaglio del fix: in Fase 1 obbligatorio e deve appartenere al
+   * progetto indicato (il server risponde 400 altrimenti).
+   */
+  repositoryId: string;
   title: string;
   body?: string;
   type: TicketType;
@@ -769,17 +781,25 @@ export function updateUserRole(userId: string, role: "admin" | "member"): Promis
   return api.patch(`/api/users/${encodeURIComponent(userId)}/role`, { role });
 }
 
-// --- Projects ---
+// --- Repositories (ex "Project" = singolo repo git) ---
 
-export interface Project {
+/**
+ * Proiezione pubblica di un REPOSITORY: un singolo repo git. Appartiene a
+ * esattamente un progetto-gruppo (`projectId`). Porta tutto ciò che è specifico
+ * del repo git/ingest/webhook/docs. Le impostazioni di prodotto (provider AI,
+ * auto-update docs) NON ne fanno più parte: sono salite al {@link Project} (gruppo).
+ */
+export interface Repository {
   id: string;
+  /** Progetto (gruppo) a cui il repository appartiene. */
+  projectId: string;
   name: string;
   slug: string;
   provider: GitProviderKind;
   repoUrl: string;
   defaultBranch: string;
   ingestionKey: string;
-  /** Account git che fornisce le credenziali del progetto. */
+  /** Account git che fornisce le credenziali del repository. */
   gitAccountId: string;
   /** Nome dell'account git collegato (per la UI). */
   gitAccountName: string;
@@ -789,13 +809,6 @@ export interface Project {
   testCommand: string | null;
   /** Comando di installazione dipendenze custom; null = auto-detect (dal lockfile). */
   installCommand: string | null;
-  /** Se true, ogni push sul branch di default rigenera la documentazione (Docs). */
-  docAutoUpdate: boolean;
-  /**
-   * Provider AI del progetto (vale per Docs e fix); null = automatico (catena
-   * dei provider abilitati con failover, in ordine di position).
-   */
-  aiProviderId: string | null;
   createdAt: string;
 }
 
@@ -811,9 +824,11 @@ export interface GitCredentials {
   token: string;
 }
 
-export interface ProjectDraft {
+export interface RepositoryDraft {
+  /** Progetto (gruppo) a cui il repository appartiene. */
+  projectId: string;
   name: string;
-  /** Account git riutilizzabile da cui il progetto eredita provider e credenziali. */
+  /** Account git riutilizzabile da cui il repository eredita provider e credenziali. */
   gitAccountId: string;
   repoUrl: string;
   defaultBranch?: string;
@@ -823,7 +838,7 @@ export interface ProjectDraft {
   installCommand?: string | null;
 }
 
-export interface ProjectPatch {
+export interface RepositoryPatch {
   name?: string;
   repoUrl?: string;
   defaultBranch?: string;
@@ -833,44 +848,122 @@ export interface ProjectPatch {
   testCommand?: string | null;
   /** null = svuota (torna all'auto-detect dal lockfile); assente = invariato. */
   installCommand?: string | null;
-  /** Toggle auto-aggiornamento Docs ai push sul branch di default; assente = invariato. */
-  docAutoUpdate?: boolean;
-  /** Provider AI del progetto (Docs e fix); null = automatico; assente = invariato. */
-  aiProviderId?: string | null;
 }
 
-export function getProjects(): Promise<Project[]> {
-  return api.get("/api/projects");
+/** Elenca i repository, opzionalmente filtrati per progetto (gruppo). */
+export function getRepositories(projectId?: string): Promise<Repository[]> {
+  const qs = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
+  return api.get(`/api/repositories${qs}`);
 }
 
-export function getProject(slug: string): Promise<Project> {
-  return api.get(`/api/projects/${slug}`);
+export function getRepository(slug: string): Promise<Repository> {
+  return api.get(`/api/repositories/${encodeURIComponent(slug)}`);
 }
 
 /**
- * Config del webhook git di un progetto: segreto HMAC + path su cui il
+ * Config del webhook git di un repository: segreto HMAC + path su cui il
  * provider consegna gli eventi di merge. Endpoint solo admin: i member
  * ricevono 403. Il segreto permette di forgiare webhook, quindi non compare
- * mai nella proiezione pubblica del progetto.
+ * mai nella proiezione pubblica del repository.
  */
-export interface ProjectWebhook {
+export interface RepositoryWebhook {
   webhookSecret: string;
   webhookPath: string;
 }
 
-export function getProjectWebhook(slug: string): Promise<ProjectWebhook> {
-  return api.get(`/api/projects/${slug}/webhook`);
+export function getRepositoryWebhook(slug: string): Promise<RepositoryWebhook> {
+  return api.get(`/api/repositories/${encodeURIComponent(slug)}/webhook`);
+}
+
+export function postRepository(draft: RepositoryDraft): Promise<Repository> {
+  return api.post("/api/repositories", draft);
+}
+
+export function patchRepository(slug: string, patch: RepositoryPatch): Promise<Repository> {
+  return api.patch(`/api/repositories/${encodeURIComponent(slug)}`, patch);
+}
+
+// --- Projects (gruppi: raggruppano 1:N repository) ---
+
+/**
+ * Proiezione pubblica di un PROGETTO (gruppo): raggruppa 1:N repository. È il
+ * livello "prodotto" (ticket e milestone) e porta le impostazioni che valgono
+ * per tutti i suoi repository: il provider AI generale (Docs e fix; null =
+ * automatico) e l'auto-aggiornamento della documentazione ai push.
+ */
+export interface Project {
+  id: string;
+  name: string;
+  slug: string;
+  /** Descrizione del progetto; null = assente. */
+  description: string | null;
+  /**
+   * Provider AI del progetto (vale per Docs e fix di tutti i suoi repository);
+   * null = automatico (catena dei provider abilitati con failover).
+   */
+  aiProviderId: string | null;
+  /** Se true, ogni push sul branch di default di un repo rigenera i suoi Docs. */
+  docAutoUpdate: boolean;
+  createdAt: string;
+}
+
+/** Riepilogo sintetico di un repository nel dettaglio progetto. */
+export interface RepositorySummary {
+  id: string;
+  name: string;
+  slug: string;
+  provider: GitProviderKind;
+}
+
+/** Progetto nella lista: con il conteggio dei repository del gruppo. */
+export interface ProjectListItem extends Project {
+  repositoryCount: number;
+}
+
+/** Dettaglio del progetto: con l'elenco (sintetico) dei suoi repository. */
+export interface ProjectDetail extends Project {
+  repositories: RepositorySummary[];
+}
+
+/** Dati di creazione di un progetto (gruppo). */
+export interface ProjectDraft {
+  name: string;
+  description?: string | null;
+  aiProviderId?: string | null;
+  docAutoUpdate?: boolean;
+}
+
+/** Campi modificabili di un progetto (gruppo). Patch parziale. */
+export interface ProjectPatch {
+  name?: string;
+  description?: string | null;
+  /** Provider AI del progetto (Docs e fix); null = automatico; assente = invariato. */
+  aiProviderId?: string | null;
+  /** Toggle auto-aggiornamento Docs ai push; assente = invariato. */
+  docAutoUpdate?: boolean;
+}
+
+export function getProjects(): Promise<ProjectListItem[]> {
+  return api.get("/api/projects");
+}
+
+export function getProject(projectId: string): Promise<ProjectDetail> {
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}`);
 }
 
 export function postProject(draft: ProjectDraft): Promise<Project> {
   return api.post("/api/projects", draft);
 }
 
-export function patchProject(slug: string, patch: ProjectPatch): Promise<Project> {
-  return api.patch(`/api/projects/${slug}`, patch);
+export function patchProject(projectId: string, patch: ProjectPatch): Promise<Project> {
+  return api.patch(`/api/projects/${encodeURIComponent(projectId)}`, patch);
 }
 
-// --- Project env files ---
+export function deleteProject(projectId: string): Promise<void> {
+  return request("DELETE", `/api/projects/${encodeURIComponent(projectId)}`);
+}
+
+// --- Repository env files ---
 
 /**
  * Variabile di un file d'ambiente nella proiezione pubblica: solo la CHIAVE e
@@ -883,7 +976,7 @@ export interface ProjectEnvVar {
 }
 
 /**
- * File d'ambiente di un progetto (solo admin): un percorso (es. `.env.local`)
+ * File d'ambiente di un repository (solo admin): un percorso (es. `.env.local`)
  * con l'elenco delle sue variabili. I valori non transitano mai in lettura.
  */
 export interface ProjectEnvFile {
@@ -898,14 +991,14 @@ export interface EnvImportResult {
   imported: string[];
 }
 
-/** File d'ambiente di un progetto (solo admin): 403 per i member. */
-export function listEnvFiles(projectId: string): Promise<ProjectEnvFile[]> {
-  return api.get(`/api/projects/${encodeURIComponent(projectId)}/env-files`);
+/** File d'ambiente di un repository (solo admin): 403 per i member. */
+export function listEnvFiles(repositoryId: string): Promise<ProjectEnvFile[]> {
+  return api.get(`/api/repositories/${encodeURIComponent(repositoryId)}/env-files`);
 }
 
 /** Crea un file d'ambiente (solo admin): 400 path non valido, 409 duplicato. */
-export function createEnvFile(projectId: string, path: string): Promise<ProjectEnvFile> {
-  return api.post(`/api/projects/${encodeURIComponent(projectId)}/env-files`, { path });
+export function createEnvFile(repositoryId: string, path: string): Promise<ProjectEnvFile> {
+  return api.post(`/api/repositories/${encodeURIComponent(repositoryId)}/env-files`, { path });
 }
 
 /**
@@ -914,42 +1007,42 @@ export function createEnvFile(projectId: string, path: string): Promise<ProjectE
  * importate (mai i valori).
  */
 export function importEnvFile(
-  projectId: string,
+  repositoryId: string,
   fileId: string,
   content: string,
 ): Promise<EnvImportResult> {
   return api.post(
-    `/api/projects/${encodeURIComponent(projectId)}/env-files/${encodeURIComponent(fileId)}/import`,
+    `/api/repositories/${encodeURIComponent(repositoryId)}/env-files/${encodeURIComponent(fileId)}/import`,
     { content },
   );
 }
 
 /** Imposta/sostituisce il valore (write-only) di una variabile (solo admin). */
 export function setEnvVar(
-  projectId: string,
+  repositoryId: string,
   fileId: string,
   key: string,
   value: string,
 ): Promise<ProjectEnvVar> {
   return api.put(
-    `/api/projects/${encodeURIComponent(projectId)}/env-files/${encodeURIComponent(fileId)}/vars/${encodeURIComponent(key)}`,
+    `/api/repositories/${encodeURIComponent(repositoryId)}/env-files/${encodeURIComponent(fileId)}/vars/${encodeURIComponent(key)}`,
     { value },
   );
 }
 
 /** Elimina una variabile da un file d'ambiente (solo admin). */
-export function deleteEnvVar(projectId: string, fileId: string, key: string): Promise<void> {
+export function deleteEnvVar(repositoryId: string, fileId: string, key: string): Promise<void> {
   return request(
     "DELETE",
-    `/api/projects/${encodeURIComponent(projectId)}/env-files/${encodeURIComponent(fileId)}/vars/${encodeURIComponent(key)}`,
+    `/api/repositories/${encodeURIComponent(repositoryId)}/env-files/${encodeURIComponent(fileId)}/vars/${encodeURIComponent(key)}`,
   );
 }
 
 /** Elimina un file d'ambiente con tutte le sue variabili (solo admin). */
-export function deleteEnvFile(projectId: string, fileId: string): Promise<void> {
+export function deleteEnvFile(repositoryId: string, fileId: string): Promise<void> {
   return request(
     "DELETE",
-    `/api/projects/${encodeURIComponent(projectId)}/env-files/${encodeURIComponent(fileId)}`,
+    `/api/repositories/${encodeURIComponent(repositoryId)}/env-files/${encodeURIComponent(fileId)}`,
   );
 }
 
@@ -1167,11 +1260,11 @@ export interface ConfigureWebhookResult {
 
 /**
  * Registra in modo idempotente il webhook PR-merged sul provider git usando le
- * credenziali del progetto. Endpoint solo admin. Su scope insufficiente l'API
+ * credenziali del repository. Endpoint solo admin. Su scope insufficiente l'API
  * risponde con un 4xx e un messaggio di guida, propagato come errore.
  */
 export function postConfigureWebhook(slug: string): Promise<ConfigureWebhookResult> {
-  return api.post(`/api/projects/${slug}/configure-webhook`);
+  return api.post(`/api/repositories/${encodeURIComponent(slug)}/configure-webhook`);
 }
 
 // --- Settings: automazione AI ---

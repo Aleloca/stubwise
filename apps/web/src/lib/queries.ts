@@ -11,7 +11,9 @@ import {
   getNotificationSettings,
   getProject,
   getProjects,
-  getProjectWebhook,
+  getRepositories,
+  getRepository,
+  getRepositoryWebhook,
   listEnvFiles,
   getSlackWorkspaceUsers,
   getTicket,
@@ -190,11 +192,41 @@ export const slackWorkspaceUsersQueryOptions = queryOptions({
   staleTime: 60_000,
 });
 
+/**
+ * Lista dei progetti (gruppi), con il conteggio repository. Chiave radice
+ * ["projects"]: ogni create/update/delete di un progetto la invalida.
+ */
 export const projectsQueryOptions = queryOptions({
   queryKey: ["projects"],
   queryFn: getProjects,
   staleTime: 60_000,
 });
+
+/**
+ * Lista dei repository, opzionalmente filtrata per progetto (gruppo). Chiave
+ * ["repositories", projectId|null]: la lista globale e quella di un progetto
+ * sono cache distinte. Usata dal selettore "repository bersaglio" del dialog
+ * Nuovo ticket e dal dettaglio progetto.
+ */
+export function repositoriesQueryOptions(projectId?: string) {
+  return queryOptions({
+    queryKey: ["repositories", projectId ?? null],
+    queryFn: () => getRepositories(projectId),
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * Dettaglio di un repository per slug. Chiave figlia di ["repositories"]:
+ * invalidare il prefisso riconcilia liste e dettagli in un colpo solo.
+ */
+export function repositoryQueryOptions(slug: string) {
+  return queryOptions({
+    queryKey: ["repositories", "detail", slug],
+    queryFn: () => getRepository(slug),
+    staleTime: 60_000,
+  });
+}
 
 /**
  * Milestone (con avanzamento) di un progetto. Le milestone sono per-progetto:
@@ -311,27 +343,28 @@ export const aiUsageSnapshotsQueryOptions = queryOptions({
 });
 
 /**
- * Dettaglio di un progetto per slug. Chiave figlia di ["projects"]:
- * invalidare il prefisso riconcilia lista e dettagli in un colpo solo.
+ * Dettaglio di un progetto (gruppo) per id, con l'elenco dei suoi repository.
+ * Chiave figlia di ["projects"]: invalidare il prefisso riconcilia lista e
+ * dettagli in un colpo solo.
  */
-export function projectQueryOptions(slug: string) {
+export function projectQueryOptions(projectId: string) {
   return queryOptions({
-    queryKey: ["projects", "detail", slug],
-    queryFn: () => getProject(slug),
+    queryKey: ["projects", "detail", projectId],
+    queryFn: () => getProject(projectId),
     staleTime: 60_000,
   });
 }
 
 /**
- * File d'ambiente di un progetto (solo admin): la pagina di dettaglio la
- * abilita in base al ruolo. Chiave figlia del progetto: ogni create/import/
- * delete sulle variabili o sui file la invalida così la lista resta
- * riconciliata col backend.
+ * File d'ambiente di un repository (solo admin): la pagina di dettaglio del
+ * repository la abilita in base al ruolo. Chiave figlia del repository: ogni
+ * create/import/delete sulle variabili o sui file la invalida così la lista
+ * resta riconciliata col backend.
  */
-export function projectEnvFilesQueryOptions(projectId: string) {
+export function projectEnvFilesQueryOptions(repositoryId: string) {
   return queryOptions({
-    queryKey: ["projects", "env-files", projectId],
-    queryFn: () => listEnvFiles(projectId),
+    queryKey: ["repositories", "env-files", repositoryId],
+    queryFn: () => listEnvFiles(repositoryId),
     staleTime: 30_000,
   });
 }
@@ -357,14 +390,14 @@ export function gitAccountQueryOptions(id: string) {
 }
 
 /**
- * Config webhook di un progetto (solo admin). Chiave separata dal dettaglio:
+ * Config webhook di un repository (solo admin). Chiave separata dal dettaglio:
  * il segreto si carica solo dove serve (pannello admin) e non finisce nella
- * cache del progetto condivisa con i member.
+ * cache del repository condivisa con i member.
  */
-export function projectWebhookQueryOptions(slug: string) {
+export function repositoryWebhookQueryOptions(slug: string) {
   return queryOptions({
-    queryKey: ["projects", "detail", slug, "webhook"],
-    queryFn: () => getProjectWebhook(slug),
+    queryKey: ["repositories", "detail", slug, "webhook"],
+    queryFn: () => getRepositoryWebhook(slug),
     staleTime: 60_000,
   });
 }
@@ -372,22 +405,23 @@ export function projectWebhookQueryOptions(slug: string) {
 /**
  * Key factory del dominio Docs: unica fonte delle chiavi, sia per le
  * queryOptions qui sotto sia per invalidazioni mirate altrove. Gerarchiche:
- * `spaces()` matcha l'hub, `space(projectId)` ogni dato di uno spazio, e
+ * `spaces()` matcha l'hub, `space(repositoryId)` ogni dato di uno spazio, e
  * `tree`/`page`/`status` ne sono figlie così una rigenerazione invalida tutto
- * lo spazio in un colpo solo.
+ * lo spazio in un colpo solo. Lo spazio è per-repository.
  */
 export const docsKeys = {
   all: ["docs"] as const,
   spaces: () => [...docsKeys.all, "spaces"] as const,
-  space: (projectId: string) => [...docsKeys.all, "space", projectId] as const,
-  tree: (projectId: string) => [...docsKeys.space(projectId), "tree"] as const,
-  page: (projectId: string, slug: string) => [...docsKeys.space(projectId), "page", slug] as const,
-  status: (projectId: string) => [...docsKeys.space(projectId), "status"] as const,
-  history: (projectId: string) => [...docsKeys.space(projectId), "history"] as const,
+  space: (repositoryId: string) => [...docsKeys.all, "space", repositoryId] as const,
+  tree: (repositoryId: string) => [...docsKeys.space(repositoryId), "tree"] as const,
+  page: (repositoryId: string, slug: string) =>
+    [...docsKeys.space(repositoryId), "page", slug] as const,
+  status: (repositoryId: string) => [...docsKeys.space(repositoryId), "status"] as const,
+  history: (repositoryId: string) => [...docsKeys.space(repositoryId), "history"] as const,
 };
 
 /**
- * Hub degli spazi di documentazione: i progetti con doc (conteggio pagine,
+ * Hub degli spazi di documentazione: i repository con doc (conteggio pagine,
  * data/commit dell'ultima generazione). Chiave radice del dominio docs: una
  * generazione o una pagina manuale la invalida così l'hub resta riconciliato.
  */
@@ -401,10 +435,10 @@ export const docSpacesQueryOptions = queryOptions({
  * Albero delle pagine di uno spazio (generazione corrente + manuali). Chiave
  * figlia dello spazio: ogni CRUD manuale o rigenerazione la invalida.
  */
-export function docTreeQueryOptions(projectId: string) {
+export function docTreeQueryOptions(repositoryId: string) {
   return queryOptions({
-    queryKey: docsKeys.tree(projectId),
-    queryFn: () => getDocTree(projectId),
+    queryKey: docsKeys.tree(repositoryId),
+    queryFn: () => getDocTree(repositoryId),
     staleTime: 30_000,
   });
 }
@@ -413,23 +447,23 @@ export function docTreeQueryOptions(projectId: string) {
  * Pagina singola di uno spazio per slug. Chiave figlia dello spazio: una patch
  * della pagina (o una rigenerazione) la invalida.
  */
-export function docPageQueryOptions(projectId: string, slug: string) {
+export function docPageQueryOptions(repositoryId: string, slug: string) {
   return queryOptions({
-    queryKey: docsKeys.page(projectId, slug),
-    queryFn: () => getDocPage(projectId, slug),
+    queryKey: docsKeys.page(repositoryId, slug),
+    queryFn: () => getDocPage(repositoryId, slug),
     staleTime: 30_000,
   });
 }
 
 /**
- * Stato Docs di un progetto (generazione corrente + ultimo job): alimenta il
+ * Stato Docs di un repository (generazione corrente + ultimo job): alimenta il
  * pannello trigger/stato. `staleTime` breve: il worker aggiorna lo stato in
  * modo asincrono mentre la generazione avanza.
  */
-export function docStatusQueryOptions(projectId: string) {
+export function docStatusQueryOptions(repositoryId: string) {
   return queryOptions({
-    queryKey: docsKeys.status(projectId),
-    queryFn: () => getDocStatus(projectId),
+    queryKey: docsKeys.status(repositoryId),
+    queryFn: () => getDocStatus(repositoryId),
     staleTime: 10_000,
   });
 }

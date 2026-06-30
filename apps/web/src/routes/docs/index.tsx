@@ -5,9 +5,9 @@ import { formatRelativeTime } from "../../lib/format";
 import { docSpacesQueryOptions } from "../../lib/queries";
 
 /**
- * Hub della documentazione: ogni progetto con doc è uno "spazio". Lista i
- * progetti (nome/slug), il conteggio pagine e la data/commit dell'ultima
- * generazione; ogni riga linka allo spazio del progetto. Mirror strutturale
+ * Hub della documentazione: ogni repository con doc è uno "spazio". Lista i
+ * repository (nome/slug), il conteggio pagine e la data/commit dell'ultima
+ * generazione; ogni riga linka allo spazio del repository. Mirror strutturale
  * della lista progetti (stesse classi/altitudine), senza nuovo design system.
  */
 export function DocsPage() {
@@ -31,10 +31,10 @@ export function DocsPage() {
       ) : (
         <ul className="mt-6 rounded-sm border border-line bg-ink-900">
           {spaces.map((space) => (
-            <li key={space.projectId} className="border-b border-line last:border-b-0">
+            <li key={space.repositoryId} className="border-b border-line last:border-b-0">
               <Link
                 to="/docs/$projectId"
-                params={{ projectId: space.projectId }}
+                params={{ projectId: space.repositoryId }}
                 className="flex flex-wrap items-baseline gap-x-4 gap-y-1.5 px-5 py-4 transition-colors hover:bg-ink-850"
               >
                 <span className="text-[15px] font-medium text-fg">{space.name}</span>
