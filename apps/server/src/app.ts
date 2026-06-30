@@ -33,6 +33,7 @@ import { gitAccountRoutes } from "./routes/git-accounts.js";
 import { inboundRoutes } from "./routes/inbound.js";
 import { ingestRoutes } from "./routes/ingest.js";
 import { milestoneRoutes } from "./routes/milestones.js";
+import { projectDocsRoutes } from "./routes/project-docs.js";
 import { projectEnvFileRoutes } from "./routes/project-env-files.js";
 import { projectRoutes } from "./routes/projects.js";
 import { repositoryRoutes } from "./routes/repositories.js";
@@ -338,6 +339,11 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // schema di risposta Zod (stream SSE grezzo su reply.raw). Path interno
   // completo `/projects/:projectId/docs/chat` sotto /api.
   void app.register(docsChatRoutes, { prefix: "/api" });
+  // Documentazione a livello di PROGETTO (Fase 2 multi-repo): hub spazi aggregato,
+  // ricerca cross-repo, chat RAG cross-repo su sessione project-level. Path interni
+  // completi (es. /projects/:projectId/docs/spaces, .../docs/chat) sotto /api.
+  // Stesso prefisso /api delle altre route docs: i path portano già /projects.
+  void app.register(projectDocsRoutes, { prefix: "/api" });
   // Milestone di progetto: pianificazione e avanzamento, per ogni utente.
   void app.register(milestoneRoutes, { prefix: "/api/milestones" });
   // Viste salvate dei filtri della lista ticket: private o condivise.

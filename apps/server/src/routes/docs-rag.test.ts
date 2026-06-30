@@ -6,12 +6,15 @@ import type { RetrievedChunk } from "./docs-retrieval.js";
 // reale in questo unit test. Restituiamo chunk canned per asserire il wiring
 // (system prompt col contesto, citazioni dedup) senza testcontainers.
 const retrieveChunksMock = vi.fn();
+const retrieveChunksForProjectMock = vi.fn();
 vi.mock("./docs-retrieval.js", () => ({
   retrieveChunks: (...args: unknown[]) => retrieveChunksMock(...args),
+  retrieveChunksForProject: (...args: unknown[]) => retrieveChunksForProjectMock(...args),
 }));
 
 // Import DOPO il vi.mock così il modulo sotto test lega la versione mockata.
-const { answerDocsQuestion, CHAT_RETRIEVAL_K } = await import("./docs-rag.js");
+const { answerDocsQuestion, answerProjectDocsQuestion, CHAT_RETRIEVAL_K } =
+  await import("./docs-rag.js");
 
 function chunk(over: Partial<RetrievedChunk> & { slug: string; title: string }): RetrievedChunk {
   return {
@@ -129,5 +132,87 @@ describe("answerDocsQuestion", () => {
     expect(answer.citations).toEqual([]);
     expect(answer.text).toBe(FAKE_DELTAS.join(""));
     expect(lastChatInput!.system).toContain("nessuna pagina di documentazione rilevante");
+  });
+});
+
+describe("answerProjectDocsQuestion", () => {
+  it("aggrega da PIÙ repo: testo accumulato + citazioni che includono il repo", async () => {
+    lastChatInput = null;
+    // Chunk da DUE repository diversi dello stesso progetto.
+    retrieveChunksForProjectMock.mockResolvedValueOnce([
+      chunk({
+        slug: "auth",
+        title: "Autenticazione",
+        repositoryId: "repo-a",
+        repositorySlug: "repo-alfa",
+        repositoryName: "Repo Alfa",
+        snippet: "L'auth di Alfa usa cookie firmati.",
+      }),
+      chunk({
+        slug: "billing",
+        title: "Fatturazione",
+        kind: "functional",
+        repositoryId: "repo-b",
+        repositorySlug: "repo-beta",
+        repositoryName: "Repo Beta",
+        snippet: "La fatturazione di Beta calcola le imposte.",
+      }),
+    ]);
+
+    const answer = await answerProjectDocsQuestion(
+      { db: fakeDb, embeddingClient: fakeEmbeddingClient, chatLlm: fakeChatLlm },
+      { projectId: "proj-1", question: "Come funziona auth e billing?" },
+    );
+
+    // Testo = delta accumulati (one-shot, niente streaming).
+    expect(answer.text).toBe(FAKE_DELTAS.join(""));
+
+    // Citazioni da ENTRAMBI i repo, con i campi repository valorizzati.
+    expect(answer.citations).toEqual([
+      {
+        slug: "auth",
+        title: "Autenticazione",
+        kind: "technical",
+        repositoryId: "repo-a",
+        repositorySlug: "repo-alfa",
+        repositoryName: "Repo Alfa",
+      },
+      {
+        slug: "billing",
+        title: "Fatturazione",
+        kind: "functional",
+        repositoryId: "repo-b",
+        repositorySlug: "repo-beta",
+        repositoryName: "Repo Beta",
+      },
+    ]);
+
+    // Il system prompt include il contesto cross-repo (snippet + titolo + nome repo).
+    expect(lastChatInput!.system).toContain("L'auth di Alfa usa cookie firmati.");
+    expect(lastChatInput!.system).toContain("Repo Beta");
+    // Nessuna history: un solo messaggio user = la domanda.
+    expect(lastChatInput!.messages).toEqual([
+      { role: "user", content: "Come funziona auth e billing?" },
+    ]);
+    expect(lastChatInput!.signal).toBeUndefined();
+  });
+
+  it("usa il retrieval cross-repo di progetto (k di default, niente k forzato)", async () => {
+    lastChatInput = null;
+    retrieveChunksForProjectMock.mockResolvedValueOnce([]);
+
+    await answerProjectDocsQuestion(
+      { db: fakeDb, embeddingClient: fakeEmbeddingClient, chatLlm: fakeChatLlm },
+      { projectId: "proj-2", question: "Domanda di progetto." },
+    );
+
+    // retrieveChunksForProject chiamato con le deps inoltrate, projectId e query.
+    // k NON è forzato: lo dimensiona retrieveChunksForProject di default (D6).
+    expect(retrieveChunksForProjectMock).toHaveBeenLastCalledWith(
+      fakeDb,
+      fakeEmbeddingClient,
+      "proj-2",
+      "Domanda di progetto.",
+    );
   });
 });

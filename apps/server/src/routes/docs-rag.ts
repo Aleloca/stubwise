@@ -19,7 +19,11 @@
  */
 
 import type { ChatLlm } from "./chat-llm.js";
-import { retrieveChunks, type RetrievedChunk } from "./docs-retrieval.js";
+import {
+  retrieveChunks,
+  retrieveChunksForProject,
+  type RetrievedChunk,
+} from "./docs-retrieval.js";
 import type { EmbeddingClient } from "@stubwise/embeddings";
 import type { Db } from "@stubwise/db";
 
@@ -145,6 +149,43 @@ export async function answerDocsQuestion(
   const messages = [{ role: "user" as const, content: input.question }];
 
   // Accumula lo stream: Slack non stremma, vuole il testo completo in una volta.
+  let text = "";
+  for await (const delta of deps.chatLlm.stream({ system, messages })) {
+    text += delta;
+  }
+
+  return { text, citations: buildCitations(chunks) };
+}
+
+/**
+ * Flusso RAG completo NON-streaming a livello di PROGETTO (Fase 2).
+ *
+ * Identica meccanica di {@link answerDocsQuestion} — stesso system prompt, stesse
+ * citazioni, accumulo dello stream invece dell'inoltro frammento-per-frammento —
+ * ma il retrieval è CROSS-REPO via {@link retrieveChunksForProject}: aggrega i
+ * Docs di TUTTI i repository del progetto. Le citazioni includono il repository di
+ * origine di ciascuna fonte (campo già presente in {@link Citation}), così il
+ * chiamante (es. Slack `/docs` di progetto) può disambiguare/linkare per repo.
+ *
+ * `k` non è forzato: {@link retrieveChunksForProject} lo dimensiona di default in
+ * proporzione al numero di repo documentati (D6).
+ */
+export async function answerProjectDocsQuestion(
+  deps: { db: Db; embeddingClient: EmbeddingClient; chatLlm: ChatLlm },
+  input: { projectId: string; question: string },
+): Promise<DocsAnswer> {
+  const chunks = await retrieveChunksForProject(
+    deps.db,
+    deps.embeddingClient,
+    input.projectId,
+    input.question,
+  );
+
+  const system = buildDocsSystemPrompt(chunks);
+  // Niente history: solo la domanda corrente come unico messaggio utente.
+  const messages = [{ role: "user" as const, content: input.question }];
+
+  // Accumula lo stream: il chiamante one-shot vuole il testo completo in una volta.
   let text = "";
   for await (const delta of deps.chatLlm.stream({ system, messages })) {
     text += delta;
