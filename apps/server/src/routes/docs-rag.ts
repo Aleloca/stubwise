@@ -28,6 +28,15 @@ export interface Citation {
   slug: string;
   title: string;
   kind: RetrievedChunk["kind"];
+  /**
+   * Repository d'origine della pagina citata. Valorizzato sia nella chat per-repo
+   * (costante) sia in quella cross-repo di progetto (Fase 2), dove disambigua da
+   * QUALE repository proviene la fonte (link "Fonti" col `repositoryId`, nome repo
+   * nella UI/Slack).
+   */
+  repositoryId: string;
+  repositorySlug: string;
+  repositoryName: string;
 }
 
 /** Numero di pagine di contesto recuperate per la chat/RAG. */
@@ -55,7 +64,9 @@ export function buildDocsSystemPrompt(chunks: RetrievedChunk[]): string {
     "",
     "RISPONDI SOLO DAL CONTESTO RECUPERATO QUI SOTTO. Non inventare: se il contesto non basta a rispondere, dillo esplicitamente (es. \"La documentazione recuperata non copre questo punto\") invece di tirare a indovinare.",
     "",
-    "CITA SEMPRE le pagine di documentazione che hai usato, riferendoti al loro titolo.",
+    "Il contesto può provenire da PIÙ REPOSITORY dello stesso progetto: ogni fonte indica il repository di appartenenza. DISAMBIGUA per repository quando ti riferisci a moduli/concetti omonimi, e indica il repository pertinente nella risposta.",
+    "",
+    "CITA SEMPRE le pagine di documentazione che hai usato, riferendoti al loro titolo e al repository di appartenenza.",
     "",
     "--- CONTESTO RECUPERATO ---",
   ];
@@ -67,7 +78,7 @@ export function buildDocsSystemPrompt(chunks: RetrievedChunk[]): string {
 
   const context = chunks.map((c, i) => {
     return [
-      `[${i + 1}] Pagina "${c.title}" (slug: ${c.slug}, tipo: ${c.kind})`,
+      `[${i + 1}] Repository "${c.repositoryName}" — Pagina "${c.title}" (slug: ${c.slug}, tipo: ${c.kind})`,
       c.snippet,
     ].join("\n");
   });
@@ -75,15 +86,28 @@ export function buildDocsSystemPrompt(chunks: RetrievedChunk[]): string {
   return [...header, ...context].join("\n\n");
 }
 
-/** Deriva le citazioni (una per pagina) dai chunk recuperati, deduplicate per slug. */
+/**
+ * Deriva le citazioni (una per pagina) dai chunk recuperati, deduplicate per
+ * `(repositoryId, slug)`: nel retrieval cross-repo di progetto pagine di repo
+ * DIVERSI possono condividere lo stesso slug (gli slug sono unici per-repo, non
+ * globalmente), quindi la chiave di dedup include il repository.
+ */
 export function buildCitations(chunks: RetrievedChunk[]): Citation[] {
-  const bySlug = new Map<string, Citation>();
+  const byKey = new Map<string, Citation>();
   for (const c of chunks) {
-    if (!bySlug.has(c.slug)) {
-      bySlug.set(c.slug, { slug: c.slug, title: c.title, kind: c.kind });
+    const key = `${c.repositoryId}:${c.slug}`;
+    if (!byKey.has(key)) {
+      byKey.set(key, {
+        slug: c.slug,
+        title: c.title,
+        kind: c.kind,
+        repositoryId: c.repositoryId,
+        repositorySlug: c.repositorySlug,
+        repositoryName: c.repositoryName,
+      });
     }
   }
-  return [...bySlug.values()];
+  return [...byKey.values()];
 }
 
 /** Risposta RAG non-streaming: testo accumulato + citazioni. */

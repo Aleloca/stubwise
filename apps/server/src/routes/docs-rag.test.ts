@@ -20,6 +20,9 @@ function chunk(over: Partial<RetrievedChunk> & { slug: string; title: string }):
     snippet: "snippet",
     score: 1,
     source: "semantic",
+    repositoryId: "repo-1",
+    repositorySlug: "repo-uno",
+    repositoryName: "Repo Uno",
     ...over,
   };
 }
@@ -59,10 +62,24 @@ describe("answerDocsQuestion", () => {
     // Testo = delta concatenati (accumulo, niente streaming).
     expect(answer.text).toBe(FAKE_DELTAS.join(""));
 
-    // Citazioni dedup per slug, con kind preservato.
+    // Citazioni dedup per (repository, slug), con kind e repository preservati.
     expect(answer.citations).toEqual([
-      { slug: "auth", title: "Autenticazione", kind: "technical" },
-      { slug: "billing", title: "Fatturazione", kind: "functional" },
+      {
+        slug: "auth",
+        title: "Autenticazione",
+        kind: "technical",
+        repositoryId: "repo-1",
+        repositorySlug: "repo-uno",
+        repositoryName: "Repo Uno",
+      },
+      {
+        slug: "billing",
+        title: "Fatturazione",
+        kind: "functional",
+        repositoryId: "repo-1",
+        repositorySlug: "repo-uno",
+        repositoryName: "Repo Uno",
+      },
     ]);
   });
 
