@@ -2,9 +2,10 @@ import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { agentRuns, aiJobs, aiProviders } from "@stubwise/db";
+import { eq } from "drizzle-orm";
+import { agentRuns, aiJobs, aiProviders, projects } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { startTestDb } from "@stubwise/db/testing";
+import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
 import { seedUsers } from "../test/fixtures.js";
 
@@ -21,24 +22,16 @@ let projectBId: string;
 let providerXId: string;
 let providerYId: string;
 
-async function createProject(name: string, repoUrl: string): Promise<string> {
-  const accountRes = await app.inject({
-    method: "POST",
-    url: "/api/git-accounts",
-    headers: { cookie: users.adminCookie },
-    payload: { name: `Account ${name}`, provider: "github", credentials: { token: "tok" } },
-  });
-  expect(accountRes.statusCode).toBe(201);
-  const gitAccountId = (accountRes.json() as { id: string }).id;
+/** Progetto (gruppo) → repository bersaglio di default. */
+const repoForProject = new Map<string, string>();
 
-  const projectRes = await app.inject({
-    method: "POST",
-    url: "/api/projects",
-    headers: { cookie: users.adminCookie },
-    payload: { name, gitAccountId, repoUrl },
-  });
-  expect(projectRes.statusCode).toBe(201);
-  return (projectRes.json() as { id: string }).id;
+async function createProject(name: string): Promise<string> {
+  const { projectId, repositoryId } = await seedRepository(testDb.db);
+  repoForProject.set(projectId, repositoryId);
+  // I costi sono aggregati per progetto (gruppo): fissiamo un nome noto per le
+  // asserzioni di byProject.
+  await testDb.db.update(projects).set({ name }).where(eq(projects.id, projectId));
+  return projectId;
 }
 
 async function createTicket(projectId: string, title: string): Promise<string> {
@@ -46,7 +39,7 @@ async function createTicket(projectId: string, title: string): Promise<string> {
     method: "POST",
     url: "/api/tickets",
     headers: { cookie: users.memberCookie },
-    payload: { projectId, title, type: "bug" },
+    payload: { projectId, repositoryId: repoForProject.get(projectId), title, type: "bug" },
   });
   expect(res.statusCode).toBe(201);
   return (res.json() as { id: string }).id;
@@ -92,8 +85,8 @@ beforeAll(async () => {
   });
   users = await seedUsers(app);
 
-  projectAId = await createProject("Project A", "https://github.com/acme/a");
-  projectBId = await createProject("Project B", "https://github.com/acme/b");
+  projectAId = await createProject("Project A");
+  projectBId = await createProject("Project B");
 
   [providerXId, providerYId] = (
     await testDb.db

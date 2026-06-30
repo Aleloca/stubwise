@@ -15,7 +15,7 @@ import {
   docGenerations,
   docPages,
   docSearchHistory,
-  projects,
+  repositories,
 } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import { apiError } from "../errors.js";
@@ -23,9 +23,9 @@ import { aiProviderKindSchema } from "./ai-providers.js";
 import { retrieveChunks } from "./docs-retrieval.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 
-const projectIdParamsSchema = z.object({ projectId: z.uuid() });
-const slugParamsSchema = z.object({ projectId: z.uuid(), slug: z.string().min(1) });
-const manualIdParamsSchema = z.object({ projectId: z.uuid(), id: z.uuid() });
+const repositoryIdParamsSchema = z.object({ repositoryId: z.uuid() });
+const slugParamsSchema = z.object({ repositoryId: z.uuid(), slug: z.string().min(1) });
+const manualIdParamsSchema = z.object({ repositoryId: z.uuid(), id: z.uuid() });
 
 /** Job di generazione restituito dalle route di trigger/stato. */
 const jobSchema = z.object({
@@ -159,9 +159,9 @@ function toPage(row: DocPageRow, commitSha: string | null = null): z.infer<typeo
   };
 }
 
-/** Uno "spazio" dell'hub: un progetto che ha documentazione. */
+/** Uno "spazio" dell'hub: un repository che ha documentazione. */
 const spaceSchema = z.object({
-  projectId: z.uuid(),
+  repositoryId: z.uuid(),
   slug: z.string(),
   name: z.string(),
   pageCount: z.number().int(),
@@ -216,7 +216,7 @@ const recordHistoryBodySchema = z.object({
 
 /** Params per la cancellazione di una singola voce di cronologia. */
 const historySlugParamsSchema = z.object({
-  projectId: z.uuid(),
+  repositoryId: z.uuid(),
   slug: z.string().min(1),
 });
 
@@ -256,15 +256,15 @@ function slugify(title: string): string {
  * validata a mano per evitare di puntare a pagine di altri progetti o
  * inesistenti.
  */
-async function isParentInProject(
+async function isParentInRepository(
   db: Db,
-  projectId: string,
+  repositoryId: string,
   parentId: string,
 ): Promise<boolean> {
   const [parent] = await db
     .select({ id: docPages.id })
     .from(docPages)
-    .where(and(eq(docPages.id, parentId), eq(docPages.projectId, projectId)));
+    .where(and(eq(docPages.id, parentId), eq(docPages.repositoryId, repositoryId)));
   return parent !== undefined;
 }
 
@@ -296,11 +296,11 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
    * livello di job.
    */
   app.post(
-    "/projects/:projectId/docs/generate",
+    "/repositories/:repositoryId/docs/generate",
     {
       preHandler: requireAdmin,
       schema: {
-        params: projectIdParamsSchema,
+        params: repositoryIdParamsSchema,
         response: {
           200: jobSchema,
           202: jobSchema,
@@ -310,13 +310,13 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { projectId } = request.params;
+      const { repositoryId } = request.params;
 
-      const [project] = await app.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(eq(projects.id, projectId));
-      if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
+      const [repository] = await app.db
+        .select({ id: repositories.id })
+        .from(repositories)
+        .where(eq(repositories.id, repositoryId));
+      if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
 
       // Job attivo già in coda/in esecuzione: lo riusiamo (idempotente).
       const [active] = await app.db
@@ -324,7 +324,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         .from(docGenerationJobs)
         .where(
           and(
-            eq(docGenerationJobs.projectId, projectId),
+            eq(docGenerationJobs.repositoryId, repositoryId),
             or(eq(docGenerationJobs.status, "queued"), eq(docGenerationJobs.status, "running")),
           ),
         )
@@ -334,7 +334,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
 
       const [created] = await app.db
         .insert(docGenerationJobs)
-        .values({ projectId, status: "queued", trigger: "manual" })
+        .values({ repositoryId, status: "queued", trigger: "manual" })
         .returning();
       if (!created) throw new Error("insert del job non ha restituito la riga");
       return reply.code(202).send(toJob(created));
@@ -346,11 +346,11 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
    * e l'ultimo job (qualunque stato). Null-safe quando non c'è ancora nulla.
    */
   app.get(
-    "/projects/:projectId/docs/status",
+    "/repositories/:repositoryId/docs/status",
     {
       preHandler: requireAuth,
       schema: {
-        params: projectIdParamsSchema,
+        params: repositoryIdParamsSchema,
         response: {
           200: z.object({
             generation: generationSchema.nullable(),
@@ -363,23 +363,23 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { projectId } = request.params;
+      const { repositoryId } = request.params;
 
-      const [project] = await app.db
-        .select({ id: projects.id, currentDocGenerationId: projects.currentDocGenerationId })
-        .from(projects)
-        .where(eq(projects.id, projectId));
-      if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
+      const [repository] = await app.db
+        .select({ id: repositories.id, currentDocGenerationId: repositories.currentDocGenerationId })
+        .from(repositories)
+        .where(eq(repositories.id, repositoryId));
+      if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
 
       let generation: z.infer<typeof generationSchema> | null = null;
       // Pin esposto dalla generazione corrente (doc_generations.pinned_provider_id),
       // scritto dal worker dal provider del progetto. I job non portano più pin.
       let pinnedProviderId: string | null = null;
-      if (project.currentDocGenerationId) {
+      if (repository.currentDocGenerationId) {
         const [gen] = await app.db
           .select()
           .from(docGenerations)
-          .where(eq(docGenerations.id, project.currentDocGenerationId));
+          .where(eq(docGenerations.id, repository.currentDocGenerationId));
         generation = gen ? toGeneration(gen) : null;
         pinnedProviderId = gen?.pinnedProviderId ?? null;
       }
@@ -387,7 +387,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       const [job] = await app.db
         .select()
         .from(docGenerationJobs)
-        .where(eq(docGenerationJobs.projectId, projectId))
+        .where(eq(docGenerationJobs.repositoryId, repositoryId))
         .orderBy(desc(docGenerationJobs.createdAt))
         .limit(1);
 
@@ -420,30 +420,30 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       schema: { response: { 200: z.array(spaceSchema), ...authErrorResponses } },
     },
     async () => {
-      // L'hub elenca TUTTI i progetti, ognuno come "spazio" doc: è anche l'entry
-      // point per generare la prima volta. Left join su doc_pages, quindi un
-      // progetto senza documentazione compare con pageCount 0 e lastGenerationAt
-      // null. Il join sulle pagine conta solo quelle della generazione corrente
-      // o manuali (generationId null): le pagine di generazioni stale NON
-      // gonfiano il conteggio. Il join su docGenerations è ristretto alla
-      // singola generazione corrente+succeeded, quindi commitSha/finishedAt
-      // sono selezionabili direttamente (niente max() lessicografico).
+      // L'hub elenca TUTTI i repository, ognuno come "spazio" doc: è anche
+      // l'entry point per generare la prima volta. Left join su doc_pages, quindi
+      // un repository senza documentazione compare con pageCount 0 e
+      // lastGenerationAt null. Il join sulle pagine conta solo quelle della
+      // generazione corrente o manuali (generationId null): le pagine di
+      // generazioni stale NON gonfiano il conteggio. Il join su docGenerations è
+      // ristretto alla singola generazione corrente+succeeded, quindi
+      // commitSha/finishedAt sono selezionabili direttamente.
       const rows = await app.db
         .select({
-          projectId: projects.id,
-          slug: projects.slug,
-          name: projects.name,
+          repositoryId: repositories.id,
+          slug: repositories.slug,
+          name: repositories.name,
           pageCount: sql<number>`count(${docPages.id})::int`,
           lastGenerationAt: docGenerations.finishedAt,
           lastCommitSha: docGenerations.commitSha,
         })
-        .from(projects)
+        .from(repositories)
         .leftJoin(
           docPages,
           and(
-            eq(docPages.projectId, projects.id),
+            eq(docPages.repositoryId, repositories.id),
             or(
-              eq(docPages.generationId, projects.currentDocGenerationId),
+              eq(docPages.generationId, repositories.currentDocGenerationId),
               isNull(docPages.generationId),
             ),
           ),
@@ -451,21 +451,21 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         .leftJoin(
           docGenerations,
           and(
-            eq(docGenerations.id, projects.currentDocGenerationId),
+            eq(docGenerations.id, repositories.currentDocGenerationId),
             eq(docGenerations.status, "succeeded"),
           ),
         )
         .groupBy(
-          projects.id,
-          projects.slug,
-          projects.name,
+          repositories.id,
+          repositories.slug,
+          repositories.name,
           docGenerations.finishedAt,
           docGenerations.commitSha,
         )
-        .orderBy(asc(projects.name));
+        .orderBy(asc(repositories.name));
 
       return rows.map((r) => ({
-        projectId: r.projectId,
+        repositoryId: r.repositoryId,
         slug: r.slug,
         name: r.name,
         pageCount: r.pageCount,
@@ -483,26 +483,26 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
    * position/titolo. Le pagine di generazioni NON correnti sono escluse.
    */
   app.get(
-    "/projects/:projectId/docs/tree",
+    "/repositories/:repositoryId/docs/tree",
     {
       preHandler: requireAuth,
       schema: {
-        params: projectIdParamsSchema,
+        params: repositoryIdParamsSchema,
         response: { 200: z.array(treeNodeSchema), 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
-      const { projectId } = request.params;
+      const { repositoryId } = request.params;
 
-      const [project] = await app.db
-        .select({ id: projects.id, currentDocGenerationId: projects.currentDocGenerationId })
-        .from(projects)
-        .where(eq(projects.id, projectId));
-      if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
+      const [repository] = await app.db
+        .select({ id: repositories.id, currentDocGenerationId: repositories.currentDocGenerationId })
+        .from(repositories)
+        .where(eq(repositories.id, repositoryId));
+      if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
 
       // Generazione corrente OR manuale (generationId null). Senza generazione
       // corrente restano solo le manuali.
-      const currentGen = project.currentDocGenerationId;
+      const currentGen = repository.currentDocGenerationId;
       const genFilter = currentGen
         ? or(eq(docPages.generationId, currentGen), isNull(docPages.generationId))
         : isNull(docPages.generationId);
@@ -519,7 +519,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
           isManual: docPages.isManual,
         })
         .from(docPages)
-        .where(and(eq(docPages.projectId, projectId), genFilter))
+        .where(and(eq(docPages.repositoryId, repositoryId), genFilter))
         .orderBy(asc(docPages.kind), asc(docPages.position), asc(docPages.title));
 
       return rows;
@@ -533,7 +533,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
    * autogenerate.
    */
   app.get(
-    "/projects/:projectId/docs/pages/:slug",
+    "/repositories/:repositoryId/docs/pages/:slug",
     {
       preHandler: requireAuth,
       schema: {
@@ -542,27 +542,27 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { projectId, slug } = request.params;
+      const { repositoryId, slug } = request.params;
 
-      const [project] = await app.db
-        .select({ id: projects.id, currentDocGenerationId: projects.currentDocGenerationId })
-        .from(projects)
-        .where(eq(projects.id, projectId));
-      if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
+      const [repository] = await app.db
+        .select({ id: repositories.id, currentDocGenerationId: repositories.currentDocGenerationId })
+        .from(repositories)
+        .where(eq(repositories.id, repositoryId));
+      if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
 
       // Con l'unicità slug per-generazione una pagina manuale e una della
       // generazione corrente possono condividere lo stesso slug: la query è
       // ristretta alle pagine VISIBILI (manuale OR generazione corrente) e
       // ordinata in modo deterministico, preferendo la pagina della generazione
       // corrente (autogenerata) alla manuale. `.limit(1)` rende l'esito stabile.
-      const currentGen = project.currentDocGenerationId;
+      const currentGen = repository.currentDocGenerationId;
       const visibleScope = currentGen
         ? or(eq(docPages.generationId, currentGen), isNull(docPages.generationId))
         : isNull(docPages.generationId);
       const [page] = await app.db
         .select()
         .from(docPages)
-        .where(and(eq(docPages.projectId, projectId), eq(docPages.slug, slug), visibleScope))
+        .where(and(eq(docPages.repositoryId, repositoryId), eq(docPages.slug, slug), visibleScope))
         // generationId NOT NULL (corrente) prima della manuale (null): nulls last.
         .orderBy(sql`${docPages.generationId} DESC NULLS LAST`)
         .limit(1);
@@ -591,11 +591,11 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
    * di merge/ranking (semantici prima, full-text-only dopo). Riusata dalla chat.
    */
   app.get(
-    "/projects/:projectId/docs/search",
+    "/repositories/:repositoryId/docs/search",
     {
       preHandler: requireAuth,
       schema: {
-        params: projectIdParamsSchema,
+        params: repositoryIdParamsSchema,
         querystring: searchQuerySchema,
         response: {
           200: z.array(searchResultSchema),
@@ -606,20 +606,20 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { projectId } = request.params;
+      const { repositoryId } = request.params;
       const query = request.query.q.trim();
       // `q` di soli spazi passa il min(1) di Zod ma è semanticamente vuota.
       if (query.length === 0) {
         return apiError(reply, 400, "empty_query", "Search query must not be empty");
       }
 
-      const [project] = await app.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(eq(projects.id, projectId));
-      if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
+      const [repository] = await app.db
+        .select({ id: repositories.id })
+        .from(repositories)
+        .where(eq(repositories.id, repositoryId));
+      if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
 
-      const results = await retrieveChunks(app.db, app.embeddingClient, projectId, query, {
+      const results = await retrieveChunks(app.db, app.embeddingClient, repositoryId, query, {
         logger: request.log,
       });
       return results.map((r) => ({
@@ -640,11 +640,11 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
    * dal click più recente. Scope su `userId` + `projectId`.
    */
   app.get(
-    "/projects/:projectId/docs/history",
+    "/repositories/:repositoryId/docs/history",
     {
       preHandler: requireAuth,
       schema: {
-        params: projectIdParamsSchema,
+        params: repositoryIdParamsSchema,
         response: {
           200: z.array(historyEntrySchema),
           404: errorSchema,
@@ -653,13 +653,13 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { projectId } = request.params;
+      const { repositoryId } = request.params;
 
-      const [project] = await app.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(eq(projects.id, projectId));
-      if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
+      const [repository] = await app.db
+        .select({ id: repositories.id })
+        .from(repositories)
+        .where(eq(repositories.id, repositoryId));
+      if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
 
       const rows = await app.db
         .select({
@@ -673,7 +673,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         .where(
           and(
             eq(docSearchHistory.userId, request.user!.id),
-            eq(docSearchHistory.projectId, projectId),
+            eq(docSearchHistory.repositoryId, repositoryId),
           ),
         )
         .orderBy(desc(docSearchHistory.clickedAt))
@@ -696,33 +696,33 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
    * righe oltre le 20 più recenti per (utente, progetto). 204 senza corpo.
    */
   app.post(
-    "/projects/:projectId/docs/history",
+    "/repositories/:repositoryId/docs/history",
     {
       preHandler: requireAuth,
       schema: {
-        params: projectIdParamsSchema,
+        params: repositoryIdParamsSchema,
         body: recordHistoryBodySchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
-      const { projectId } = request.params;
+      const { repositoryId } = request.params;
       const { slug, title, kind, snippet } = request.body;
       const userId = request.user!.id;
       // Stringa vuota → null: non salviamo anteprime vuote.
       const snippetValue = snippet && snippet.trim().length > 0 ? snippet : null;
 
-      const [project] = await app.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(eq(projects.id, projectId));
-      if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
+      const [repository] = await app.db
+        .select({ id: repositories.id })
+        .from(repositories)
+        .where(eq(repositories.id, repositoryId));
+      if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
 
       await app.db
         .insert(docSearchHistory)
-        .values({ projectId, userId, slug, title, kind, snippet: snippetValue })
+        .values({ repositoryId, userId, slug, title, kind, snippet: snippetValue })
         .onConflictDoUpdate({
-          target: [docSearchHistory.userId, docSearchHistory.projectId, docSearchHistory.slug],
+          target: [docSearchHistory.userId, docSearchHistory.repositoryId, docSearchHistory.slug],
           set: { clickedAt: new Date(), title, kind, snippet: snippetValue },
         });
 
@@ -731,7 +731,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         .select({ id: docSearchHistory.id })
         .from(docSearchHistory)
         .where(
-          and(eq(docSearchHistory.userId, userId), eq(docSearchHistory.projectId, projectId)),
+          and(eq(docSearchHistory.userId, userId), eq(docSearchHistory.repositoryId, repositoryId)),
         )
         .orderBy(desc(docSearchHistory.clickedAt))
         .limit(20);
@@ -740,7 +740,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         .where(
           and(
             eq(docSearchHistory.userId, userId),
-            eq(docSearchHistory.projectId, projectId),
+            eq(docSearchHistory.repositoryId, repositoryId),
             notInArray(docSearchHistory.id, keep),
           ),
         );
@@ -754,7 +754,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
    * anche se la voce non esiste (idempotente).
    */
   app.delete(
-    "/projects/:projectId/docs/history/:slug",
+    "/repositories/:repositoryId/docs/history/:slug",
     {
       preHandler: requireAuth,
       schema: {
@@ -763,20 +763,20 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { projectId, slug } = request.params;
+      const { repositoryId, slug } = request.params;
 
-      const [project] = await app.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(eq(projects.id, projectId));
-      if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
+      const [repository] = await app.db
+        .select({ id: repositories.id })
+        .from(repositories)
+        .where(eq(repositories.id, repositoryId));
+      if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
 
       await app.db
         .delete(docSearchHistory)
         .where(
           and(
             eq(docSearchHistory.userId, request.user!.id),
-            eq(docSearchHistory.projectId, projectId),
+            eq(docSearchHistory.repositoryId, repositoryId),
             eq(docSearchHistory.slug, slug),
           ),
         );
@@ -788,29 +788,29 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
    * Svuota tutta la cronologia dell'utente corrente in un progetto. 204.
    */
   app.delete(
-    "/projects/:projectId/docs/history",
+    "/repositories/:repositoryId/docs/history",
     {
       preHandler: requireAuth,
       schema: {
-        params: projectIdParamsSchema,
+        params: repositoryIdParamsSchema,
         response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
-      const { projectId } = request.params;
+      const { repositoryId } = request.params;
 
-      const [project] = await app.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(eq(projects.id, projectId));
-      if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
+      const [repository] = await app.db
+        .select({ id: repositories.id })
+        .from(repositories)
+        .where(eq(repositories.id, repositoryId));
+      if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
 
       await app.db
         .delete(docSearchHistory)
         .where(
           and(
             eq(docSearchHistory.userId, request.user!.id),
-            eq(docSearchHistory.projectId, projectId),
+            eq(docSearchHistory.repositoryId, repositoryId),
           ),
         );
       return reply.code(204).send(null);
@@ -825,11 +825,11 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
    * assente; unico per progetto (409 in conflitto, anche con le autogenerate).
    */
   app.post(
-    "/projects/:projectId/docs/manual",
+    "/repositories/:repositoryId/docs/manual",
     {
       preHandler: requireAuth,
       schema: {
-        params: projectIdParamsSchema,
+        params: repositoryIdParamsSchema,
         body: createManualSchema,
         response: {
           201: pageSchema,
@@ -840,17 +840,17 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { projectId } = request.params;
+      const { repositoryId } = request.params;
       const { title, slug, parentId, position, body } = request.body;
 
-      const [project] = await app.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(eq(projects.id, projectId));
-      if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
+      const [repository] = await app.db
+        .select({ id: repositories.id })
+        .from(repositories)
+        .where(eq(repositories.id, repositoryId));
+      if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
 
       // parentId è una soft-FK: deve risolvere a una pagina dello STESSO progetto.
-      if (parentId != null && !(await isParentInProject(app.db, projectId, parentId))) {
+      if (parentId != null && !(await isParentInRepository(app.db, repositoryId, parentId))) {
         return apiError(reply, 400, "invalid_parent", "Parent page not found in this project");
       }
 
@@ -861,7 +861,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         const [created] = await app.db
           .insert(docPages)
           .values({
-            projectId,
+            repositoryId,
             generationId: null,
             kind: "manual",
             slug: resolvedSlug,
@@ -890,7 +890,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
    * "manual", quindi non esiste per questo endpoint). 404 anche se inesistente.
    */
   app.patch(
-    "/projects/:projectId/docs/manual/:id",
+    "/repositories/:repositoryId/docs/manual/:id",
     {
       preHandler: requireAuth,
       schema: {
@@ -900,7 +900,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { projectId, id } = request.params;
+      const { repositoryId, id } = request.params;
       const { title, parentId, position, body } = request.body;
 
       // parentId soft-FG: self-parent vietato e deve essere dello stesso progetto.
@@ -908,7 +908,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         if (parentId === id) {
           return apiError(reply, 400, "invalid_parent", "A page cannot be its own parent");
         }
-        if (!(await isParentInProject(app.db, projectId, parentId))) {
+        if (!(await isParentInRepository(app.db, repositoryId, parentId))) {
           return apiError(reply, 400, "invalid_parent", "Parent page not found in this project");
         }
       }
@@ -928,7 +928,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
               .where(
                 and(
                   eq(docPages.id, id),
-                  eq(docPages.projectId, projectId),
+                  eq(docPages.repositoryId, repositoryId),
                   eq(docPages.isManual, true),
                 ),
               )
@@ -938,7 +938,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
               .where(
                 and(
                   eq(docPages.id, id),
-                  eq(docPages.projectId, projectId),
+                  eq(docPages.repositoryId, repositoryId),
                   eq(docPages.isManual, true),
                 ),
               )
@@ -954,7 +954,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
    * pagina autogenerata non viene toccata (404, non corrisponde al filtro).
    */
   app.delete(
-    "/projects/:projectId/docs/manual/:id",
+    "/repositories/:repositoryId/docs/manual/:id",
     {
       preHandler: requireAuth,
       schema: {
@@ -963,13 +963,13 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { projectId, id } = request.params;
+      const { repositoryId, id } = request.params;
       const deleted = await app.db
         .delete(docPages)
         .where(
           and(
             eq(docPages.id, id),
-            eq(docPages.projectId, projectId),
+            eq(docPages.repositoryId, repositoryId),
             eq(docPages.isManual, true),
           ),
         )

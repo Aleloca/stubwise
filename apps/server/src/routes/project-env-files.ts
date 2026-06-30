@@ -1,4 +1,4 @@
-import { encrypt, projectEnvFiles, projectEnvVars, projects } from "@stubwise/db";
+import { encrypt, projectEnvFiles, projectEnvVars, repositories } from "@stubwise/db";
 import { isSafeRelPath, isValidEnvKey, parseDotenv } from "@stubwise/shared";
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -37,8 +37,9 @@ const importResultSchema = z.object({
 });
 
 /**
- * Route dei file d'ambiente di un progetto, registrate sotto /api/projects.
- * Tutte solo admin. I valori delle variabili sono cifrati AES-256-GCM at rest
+ * Route dei file d'ambiente di un repository, registrate sotto
+ * /api/repositories. Il parametro `:id` dell'URL è il repositoryId. Tutte solo
+ * admin. I valori delle variabili sono cifrati AES-256-GCM at rest
  * (vedi secrets.ts) e non escono MAI dall'API: la proiezione pubblica è
  * write-only (espone solo `valueSet`). `path` e `key` sono sempre validati in
  * ingresso (anti-traversal) con isSafeRelPath/isValidEnvKey. Le var sono
@@ -58,15 +59,15 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
     return rows.map((r) => ({ key: r.key, valueSet: true as const }));
   }
 
-  // Verifica che il file esista E appartenga al progetto dell'URL: evita di
-  // operare su file di altri progetti tramite fileId indovinati.
-  async function findFile(projectId: string, fileId: string) {
+  // Verifica che il file esista E appartenga al repository dell'URL: evita di
+  // operare su file di altri repository tramite fileId indovinati.
+  async function findFile(repositoryId: string, fileId: string) {
     // Solo guard di esistenza/ownership: ai chiamanti basta sapere se la riga
     // esiste, quindi proiettiamo solo l'id (niente select dell'intera riga).
     const [row] = await app.db
       .select({ id: projectEnvFiles.id })
       .from(projectEnvFiles)
-      .where(and(eq(projectEnvFiles.id, fileId), eq(projectEnvFiles.projectId, projectId)));
+      .where(and(eq(projectEnvFiles.id, fileId), eq(projectEnvFiles.repositoryId, repositoryId)));
     return row;
   }
 
@@ -87,22 +88,22 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
       },
     },
     async (request, reply) => {
-      const { id: projectId } = request.params;
+      const { id: repositoryId } = request.params;
       const { path } = request.body;
       if (!isSafeRelPath(path)) {
         return apiError(reply, 400, "invalid_env_path", "Env file path is not a safe relative path");
       }
 
-      const [project] = await app.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(eq(projects.id, projectId));
-      if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
+      const [repository] = await app.db
+        .select({ id: repositories.id })
+        .from(repositories)
+        .where(eq(repositories.id, repositoryId));
+      if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
 
       try {
         const [created] = await app.db
           .insert(projectEnvFiles)
-          .values({ projectId, path })
+          .values({ repositoryId, path })
           .returning();
         if (!created) throw new Error("insert del file env non ha restituito la riga");
         return await reply.code(201).send({ id: created.id, path: created.path, vars: [] });
@@ -125,17 +126,17 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
       },
     },
     async (request, reply) => {
-      const { id: projectId } = request.params;
-      const [project] = await app.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(eq(projects.id, projectId));
-      if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
+      const { id: repositoryId } = request.params;
+      const [repository] = await app.db
+        .select({ id: repositories.id })
+        .from(repositories)
+        .where(eq(repositories.id, repositoryId));
+      if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
 
       const files = await app.db
         .select()
         .from(projectEnvFiles)
-        .where(eq(projectEnvFiles.projectId, projectId))
+        .where(eq(projectEnvFiles.repositoryId, repositoryId))
         .orderBy(asc(projectEnvFiles.path));
       return Promise.all(
         files.map(async (f) => ({ id: f.id, path: f.path, vars: await publicVarsOf(f.id) })),
@@ -157,8 +158,8 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
       },
     },
     async (request, reply) => {
-      const { id: projectId, fileId } = request.params;
-      const file = await findFile(projectId, fileId);
+      const { id: repositoryId, fileId } = request.params;
+      const file = await findFile(repositoryId, fileId);
       if (!file) return apiError(reply, 404, "env_file_not_found", "Env file not found");
 
       const valid = parseDotenv(request.body.content).filter((v) => isValidEnvKey(v.key));
@@ -195,11 +196,11 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
       },
     },
     async (request, reply) => {
-      const { id: projectId, fileId, key } = request.params;
+      const { id: repositoryId, fileId, key } = request.params;
       if (!isValidEnvKey(key)) {
         return apiError(reply, 400, "invalid_env_key", "Env variable key is not valid");
       }
-      const file = await findFile(projectId, fileId);
+      const file = await findFile(repositoryId, fileId);
       if (!file) return apiError(reply, 404, "env_file_not_found", "Env file not found");
 
       const valueEncrypted = encrypt(request.body.value, app.encryptionKey);
@@ -224,11 +225,11 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
       },
     },
     async (request, reply) => {
-      const { id: projectId, fileId, key } = request.params;
+      const { id: repositoryId, fileId, key } = request.params;
       if (!isValidEnvKey(key)) {
         return apiError(reply, 400, "invalid_env_key", "Env variable key is not valid");
       }
-      const file = await findFile(projectId, fileId);
+      const file = await findFile(repositoryId, fileId);
       if (!file) return apiError(reply, 404, "env_file_not_found", "Env file not found");
 
       const deleted = await app.db
@@ -252,11 +253,11 @@ export async function projectEnvFileRoutes(instance: FastifyInstance): Promise<v
       },
     },
     async (request, reply) => {
-      const { id: projectId, fileId } = request.params;
-      // Il vincolo sul projectId evita di cancellare file di altri progetti.
+      const { id: repositoryId, fileId } = request.params;
+      // Il vincolo sul repositoryId evita di cancellare file di altri repository.
       const deleted = await app.db
         .delete(projectEnvFiles)
-        .where(and(eq(projectEnvFiles.id, fileId), eq(projectEnvFiles.projectId, projectId)))
+        .where(and(eq(projectEnvFiles.id, fileId), eq(projectEnvFiles.repositoryId, repositoryId)))
         .returning({ id: projectEnvFiles.id });
       if (deleted.length === 0) {
         return apiError(reply, 404, "env_file_not_found", "Env file not found");

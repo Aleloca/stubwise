@@ -8,12 +8,12 @@ import { and, eq, ne, sql } from "drizzle-orm";
  * capability-pass, `runDocGenerationJob`), sostituita dal motore a DAG ricorsivo
  * (vedi docs/recursive/*). È rimasto `pruneOldGenerations`, riusato dalla
  * finalizzazione del DAG (recursive/finalize.ts) per tenere a freno lo storico delle
- * generazioni del progetto.
+ * generazioni del repository.
  */
 
 /**
- * Pruna le generazioni vecchie del progetto. Regola (semplice e corretta):
- *  - si tiene SEMPRE la corrente (`projects.currentDocGenerationId`), qualunque sia
+ * Pruna le generazioni vecchie del repository. Regola (semplice e corretta):
+ *  - si tiene SEMPRE la corrente (`repositories.currentDocGenerationId`), qualunque sia
  *    la sua posizione temporale: MAI prunata, anche se più vecchia di run `failed`
  *    o `held` più recenti (non c'è FK a proteggerla);
  *  - si tiene inoltre la singola generazione più recente DIVERSA dalla corrente,
@@ -27,13 +27,13 @@ import { and, eq, ne, sql } from "drizzle-orm";
  */
 export async function pruneOldGenerations(
   db: Db,
-  projectId: string,
+  repositoryId: string,
   currentGenerationId: string,
 ): Promise<void> {
   const rows = await db
     .select({ id: docGenerations.id })
     .from(docGenerations)
-    .where(eq(docGenerations.projectId, projectId))
+    .where(eq(docGenerations.repositoryId, repositoryId))
     .orderBy(sql`${docGenerations.createdAt} DESC`, sql`${docGenerations.id} DESC`);
   // Si tiene la corrente (sempre, autoritativo) + la più recente diversa dalla corrente.
   const keep = new Set<string>([currentGenerationId]);

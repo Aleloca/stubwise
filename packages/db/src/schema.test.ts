@@ -16,13 +16,20 @@ import {
   projectEnvFiles,
   projectEnvVars,
   projects,
+  repositories,
   savedViews,
   ticketEvents,
   ticketLinks,
   tickets,
   users,
 } from "./schema.js";
-import { seedGitAccount, startTestDb, type TestDb } from "./testing.js";
+import {
+  seedGitAccount,
+  seedRepository,
+  seedTicket as seedTicketRow,
+  startTestDb,
+  type TestDb,
+} from "./testing.js";
 
 /**
  * Verifica che la migrazione del loop di feedback AI sia applicabile su un
@@ -44,33 +51,8 @@ describe("schema: loop di feedback AI", () => {
   });
 
   async function seedTicket(): Promise<string> {
-    const gitAccountId = await seedGitAccount(db);
-    const [project] = await db
-      .insert(projects)
-      .values({
-        name: "Progetto di test",
-        slug: `progetto-${randomUUID()}`,
-        provider: "github",
-        gitAccountId,
-        repoUrl: "https://example.com/repo.git",
-        defaultBranch: "main",
-        ingestionKey: randomUUID(),
-      })
-      .returning();
-    if (!project) throw new Error("insert del progetto non ha restituito la riga");
-    const [ticket] = await db
-      .insert(tickets)
-      .values({
-        projectId: project.id,
-        number: 1,
-        title: "Ticket di test",
-        type: "bug",
-        priority: "medium",
-        source: "manual",
-      })
-      .returning();
-    if (!ticket) throw new Error("insert del ticket non ha restituito la riga");
-    return ticket.id;
+    const { ticketId } = await seedTicketRow(db);
+    return ticketId;
   }
 
   it("persiste un job in awaiting_plan_approval con resume_mode e plan_text", async () => {
@@ -157,21 +139,8 @@ describe("schema: ingestion esterna (source slack/webhook + colonne Slack)", () 
   });
 
   async function seedProject(): Promise<string> {
-    const gitAccountId = await seedGitAccount(db);
-    const [project] = await db
-      .insert(projects)
-      .values({
-        name: "Progetto di test",
-        slug: `progetto-${randomUUID()}`,
-        provider: "github",
-        gitAccountId,
-        repoUrl: "https://example.com/repo.git",
-        defaultBranch: "main",
-        ingestionKey: randomUUID(),
-      })
-      .returning();
-    if (!project) throw new Error("insert del progetto non ha restituito la riga");
-    return project.id;
+    const { projectId } = await seedRepository(db);
+    return projectId;
   }
 
   it("inserisce e rilegge un ticket con source 'slack'", async () => {
@@ -322,18 +291,19 @@ describe("schema: self-repair e budget di costo", () => {
     await testDb.stop();
   });
 
-  async function insertProject(
+  async function insertRepository(
     testCommand: string | null,
     installCommand: string | null = null,
   ): Promise<string> {
-    const gitAccountId = await seedGitAccount(db);
-    const [project] = await db
-      .insert(projects)
+    const { projectId } = await seedRepository(db);
+    const [repository] = await db
+      .insert(repositories)
       .values({
-        name: "Progetto di test",
-        slug: `progetto-${randomUUID()}`,
+        projectId,
+        name: "Repository di test",
+        slug: `repo-${randomUUID()}`,
         provider: "github",
-        gitAccountId,
+        gitAccountId: await seedGitAccount(db),
         repoUrl: "https://example.com/repo.git",
         defaultBranch: "main",
         ingestionKey: randomUUID(),
@@ -341,26 +311,32 @@ describe("schema: self-repair e budget di costo", () => {
         installCommand,
       })
       .returning();
-    if (!project) throw new Error("insert del progetto non ha restituito la riga");
-    return project.id;
+    if (!repository) throw new Error("insert del repository non ha restituito la riga");
+    return repository.id;
   }
 
-  it("persiste projects.test_command valorizzato e null", async () => {
-    const withCommandId = await insertProject("pnpm test");
-    const withNullId = await insertProject(null);
+  it("persiste repositories.test_command valorizzato e null", async () => {
+    const withCommandId = await insertRepository("pnpm test");
+    const withNullId = await insertRepository(null);
 
-    const [withCommand] = await db.select().from(projects).where(eq(projects.id, withCommandId));
-    const [withNull] = await db.select().from(projects).where(eq(projects.id, withNullId));
+    const [withCommand] = await db
+      .select()
+      .from(repositories)
+      .where(eq(repositories.id, withCommandId));
+    const [withNull] = await db.select().from(repositories).where(eq(repositories.id, withNullId));
     expect(withCommand?.testCommand).toBe("pnpm test");
     expect(withNull?.testCommand).toBeNull();
   });
 
-  it("persiste projects.install_command valorizzato e null", async () => {
-    const withCommandId = await insertProject(null, "pnpm install");
-    const withNullId = await insertProject(null, null);
+  it("persiste repositories.install_command valorizzato e null", async () => {
+    const withCommandId = await insertRepository(null, "pnpm install");
+    const withNullId = await insertRepository(null, null);
 
-    const [withCommand] = await db.select().from(projects).where(eq(projects.id, withCommandId));
-    const [withNull] = await db.select().from(projects).where(eq(projects.id, withNullId));
+    const [withCommand] = await db
+      .select()
+      .from(repositories)
+      .where(eq(repositories.id, withCommandId));
+    const [withNull] = await db.select().from(repositories).where(eq(repositories.id, withNullId));
     expect(withCommand?.installCommand).toBe("pnpm install");
     expect(withNull?.installCommand).toBeNull();
   });
@@ -429,33 +405,8 @@ describe("schema: ticket_events (audit)", () => {
   });
 
   async function seedTicket(): Promise<string> {
-    const gitAccountId = await seedGitAccount(db);
-    const [project] = await db
-      .insert(projects)
-      .values({
-        name: "Progetto di test",
-        slug: `progetto-${randomUUID()}`,
-        provider: "github",
-        gitAccountId,
-        repoUrl: "https://example.com/repo.git",
-        defaultBranch: "main",
-        ingestionKey: randomUUID(),
-      })
-      .returning();
-    if (!project) throw new Error("insert del progetto non ha restituito la riga");
-    const [ticket] = await db
-      .insert(tickets)
-      .values({
-        projectId: project.id,
-        number: 1,
-        title: "Ticket di test",
-        type: "bug",
-        priority: "medium",
-        source: "manual",
-      })
-      .returning();
-    if (!ticket) throw new Error("insert del ticket non ha restituito la riga");
-    return ticket.id;
+    const { ticketId } = await seedTicketRow(db);
+    return ticketId;
   }
 
   async function seedUser(): Promise<string> {
@@ -548,47 +499,26 @@ describe("schema: ticket_links (relazioni tra ticket)", () => {
     await testDb.stop();
   });
 
-  /** Crea un progetto e ne restituisce l'id. */
-  async function seedProject(): Promise<string> {
-    const gitAccountId = await seedGitAccount(db);
-    const [project] = await db
-      .insert(projects)
-      .values({
-        name: "Progetto di test",
-        slug: `progetto-${randomUUID()}`,
-        provider: "github",
-        gitAccountId,
-        repoUrl: "https://example.com/repo.git",
-        defaultBranch: "main",
-        ingestionKey: randomUUID(),
-      })
-      .returning();
-    if (!project) throw new Error("insert del progetto non ha restituito la riga");
-    return project.id;
+  /** Crea un progetto (gruppo) con un repository e ne restituisce gli id. */
+  async function seedProject(): Promise<{ projectId: string; repositoryId: string }> {
+    return seedRepository(db);
   }
 
   /** Crea un ticket nel progetto col numero indicato e ne restituisce l'id. */
-  async function seedTicket(projectId: string, number: number): Promise<string> {
-    const [ticket] = await db
-      .insert(tickets)
-      .values({
-        projectId,
-        number,
-        title: `Ticket ${number}`,
-        type: "bug",
-        priority: "medium",
-        source: "manual",
-      })
-      .returning();
-    if (!ticket) throw new Error("insert del ticket non ha restituito la riga");
-    return ticket.id;
+  async function seedTicketIn(
+    projectId: string,
+    repositoryId: string,
+    number: number,
+  ): Promise<string> {
+    const { ticketId } = await seedTicketRow(db, { projectId, repositoryId, number });
+    return ticketId;
   }
 
   /** Crea un progetto con due ticket (source e target). */
   async function seedTwoTickets(): Promise<{ projectId: string; source: string; target: string }> {
-    const projectId = await seedProject();
-    const source = await seedTicket(projectId, 1);
-    const target = await seedTicket(projectId, 2);
+    const { projectId, repositoryId } = await seedProject();
+    const source = await seedTicketIn(projectId, repositoryId, 1);
+    const target = await seedTicketIn(projectId, repositoryId, 2);
     return { projectId, source, target };
   }
 
@@ -685,33 +615,8 @@ describe("schema: attachments + colonne S3 (instance_settings)", () => {
   });
 
   async function seedTicket(): Promise<string> {
-    const gitAccountId = await seedGitAccount(db);
-    const [project] = await db
-      .insert(projects)
-      .values({
-        name: "Progetto di test",
-        slug: `progetto-${randomUUID()}`,
-        provider: "github",
-        gitAccountId,
-        repoUrl: "https://example.com/repo.git",
-        defaultBranch: "main",
-        ingestionKey: randomUUID(),
-      })
-      .returning();
-    if (!project) throw new Error("insert del progetto non ha restituito la riga");
-    const [ticket] = await db
-      .insert(tickets)
-      .values({
-        projectId: project.id,
-        number: 1,
-        title: "Ticket di test",
-        type: "bug",
-        priority: "medium",
-        source: "manual",
-      })
-      .returning();
-    if (!ticket) throw new Error("insert del ticket non ha restituito la riga");
-    return ticket.id;
+    const { ticketId } = await seedTicketRow(db);
+    return ticketId;
   }
 
   async function seedUser(): Promise<string> {
@@ -902,21 +807,8 @@ describe("schema: ricerca full-text (tsvector + GIN)", () => {
   });
 
   async function seedProject(): Promise<string> {
-    const gitAccountId = await seedGitAccount(db);
-    const [project] = await db
-      .insert(projects)
-      .values({
-        name: "Progetto di test",
-        slug: `progetto-${randomUUID()}`,
-        provider: "github",
-        gitAccountId,
-        repoUrl: "https://example.com/repo.git",
-        defaultBranch: "main",
-        ingestionKey: randomUUID(),
-      })
-      .returning();
-    if (!project) throw new Error("insert del progetto non ha restituito la riga");
-    return project.id;
+    const { projectId } = await seedRepository(db);
+    return projectId;
   }
 
   it("trova un ticket cercando una parola presente solo nel corpo (non nel titolo)", async () => {
@@ -1043,46 +935,16 @@ describe("schema: milestones + tickets.milestoneId", () => {
     await testDb.stop();
   });
 
-  async function seedProject(): Promise<string> {
-    const gitAccountId = await seedGitAccount(db);
-    const [project] = await db
-      .insert(projects)
-      .values({
-        name: "Progetto di test",
-        slug: `progetto-${randomUUID()}`,
-        provider: "github",
-        gitAccountId,
-        repoUrl: "https://example.com/repo.git",
-        defaultBranch: "main",
-        ingestionKey: randomUUID(),
-      })
-      .returning();
-    if (!project) throw new Error("insert del progetto non ha restituito la riga");
-    return project.id;
-  }
-
-  async function seedTicket(projectId: string, number: number): Promise<string> {
-    const [ticket] = await db
-      .insert(tickets)
-      .values({
-        projectId,
-        number,
-        title: `Ticket ${number}`,
-        type: "bug",
-        priority: "medium",
-        source: "manual",
-      })
-      .returning();
-    if (!ticket) throw new Error("insert del ticket non ha restituito la riga");
-    return ticket.id;
+  async function seedProject(): Promise<{ projectId: string; repositoryId: string }> {
+    return seedRepository(db);
   }
 
   it("persiste una milestone con dueDate valorizzata (status default open)", async () => {
-    const projectId = await seedProject();
+    const { projectId, repositoryId } = await seedProject();
     const due = new Date("2026-12-31T00:00:00.000Z");
     const [inserted] = await db
       .insert(milestones)
-      .values({ projectId, name: "v1.0", dueDate: due })
+      .values({ projectId, repositoryId, name: "v1.0", dueDate: due })
       .returning();
     if (!inserted) throw new Error("insert della milestone non ha restituito la riga");
 
@@ -1096,35 +958,39 @@ describe("schema: milestones + tickets.milestoneId", () => {
   });
 
   it("ammette dueDate null", async () => {
-    const projectId = await seedProject();
+    const { projectId, repositoryId } = await seedProject();
     const [inserted] = await db
       .insert(milestones)
-      .values({ projectId, name: "backlog" })
+      .values({ projectId, repositoryId, name: "backlog" })
       .returning();
     expect(inserted?.dueDate).toBeNull();
     expect(inserted?.status).toBe("open");
   });
 
   it("vieta due milestone omonime nello stesso progetto, ammette omonime in progetti diversi", async () => {
-    const projectA = await seedProject();
-    const projectB = await seedProject();
-    await db.insert(milestones).values({ projectId: projectA, name: "Sprint 1" });
+    const a = await seedProject();
+    const b = await seedProject();
+    await db
+      .insert(milestones)
+      .values({ projectId: a.projectId, repositoryId: a.repositoryId, name: "Sprint 1" });
 
     await expect(
-      db.insert(milestones).values({ projectId: projectA, name: "Sprint 1" }),
+      db
+        .insert(milestones)
+        .values({ projectId: a.projectId, repositoryId: a.repositoryId, name: "Sprint 1" }),
     ).rejects.toThrow();
 
     const [other] = await db
       .insert(milestones)
-      .values({ projectId: projectB, name: "Sprint 1" })
+      .values({ projectId: b.projectId, repositoryId: b.repositoryId, name: "Sprint 1" })
       .returning();
-    expect(other?.projectId).toBe(projectB);
+    expect(other?.projectId).toBe(b.projectId);
     expect(other?.name).toBe("Sprint 1");
   });
 
   it("cancella in cascata le milestone quando il progetto viene eliminato", async () => {
-    const projectId = await seedProject();
-    await db.insert(milestones).values({ projectId, name: "da-cancellare" });
+    const { projectId, repositoryId } = await seedProject();
+    await db.insert(milestones).values({ projectId, repositoryId, name: "da-cancellare" });
 
     const before = await db
       .select()
@@ -1142,11 +1008,11 @@ describe("schema: milestones + tickets.milestoneId", () => {
   });
 
   it("nulla tickets.milestoneId quando la milestone viene eliminata (set null)", async () => {
-    const projectId = await seedProject();
-    const ticketId = await seedTicket(projectId, 1);
+    const { projectId, repositoryId } = await seedProject();
+    const { ticketId } = await seedTicketRow(db, { projectId, repositoryId, number: 1 });
     const [milestone] = await db
       .insert(milestones)
-      .values({ projectId, name: "rilascio" })
+      .values({ projectId, repositoryId, name: "rilascio" })
       .returning();
     if (!milestone) throw new Error("insert della milestone non ha restituito la riga");
 
@@ -1411,33 +1277,8 @@ describe("schema: ai_providers + ai_usage_snapshots + ai_jobs.providerId", () =>
   });
 
   async function seedTicket(): Promise<string> {
-    const gitAccountId = await seedGitAccount(db);
-    const [project] = await db
-      .insert(projects)
-      .values({
-        name: "Progetto di test",
-        slug: `progetto-${randomUUID()}`,
-        provider: "github",
-        gitAccountId,
-        repoUrl: "https://example.com/repo.git",
-        defaultBranch: "main",
-        ingestionKey: randomUUID(),
-      })
-      .returning();
-    if (!project) throw new Error("insert del progetto non ha restituito la riga");
-    const [ticket] = await db
-      .insert(tickets)
-      .values({
-        projectId: project.id,
-        number: 1,
-        title: "Ticket di test",
-        type: "bug",
-        priority: "medium",
-        source: "manual",
-      })
-      .returning();
-    if (!ticket) throw new Error("insert del ticket non ha restituito la riga");
-    return ticket.id;
+    const { ticketId } = await seedTicketRow(db);
+    return ticketId;
   }
 
   async function seedProvider(
@@ -1601,39 +1442,25 @@ describe("schema: project_env_files + project_env_vars", () => {
     await testDb.stop();
   });
 
-  async function seedProject(): Promise<string> {
-    const gitAccountId = await seedGitAccount(db);
-    const [project] = await db
-      .insert(projects)
-      .values({
-        name: "Progetto di test",
-        slug: `progetto-${randomUUID()}`,
-        provider: "github",
-        gitAccountId,
-        repoUrl: "https://example.com/repo.git",
-        defaultBranch: "main",
-        ingestionKey: randomUUID(),
-      })
-      .returning();
-    if (!project) throw new Error("insert del progetto non ha restituito la riga");
-    return project.id;
+  async function seedProject(): Promise<{ projectId: string; repositoryId: string }> {
+    return seedRepository(db);
   }
 
-  async function seedEnvFile(projectId: string, path = ".env"): Promise<string> {
+  async function seedEnvFile(repositoryId: string, path = ".env"): Promise<string> {
     const [file] = await db
       .insert(projectEnvFiles)
-      .values({ projectId, path })
+      .values({ repositoryId, path })
       .returning();
     if (!file) throw new Error("insert del file env non ha restituito la riga");
     return file.id;
   }
 
   it("persiste un file con due variabili e le rilegge", async () => {
-    const projectId = await seedProject();
-    const fileId = await seedEnvFile(projectId, ".env");
+    const { repositoryId } = await seedProject();
+    const fileId = await seedEnvFile(repositoryId, ".env");
 
     const [file] = await db.select().from(projectEnvFiles).where(eq(projectEnvFiles.id, fileId));
-    expect(file?.projectId).toBe(projectId);
+    expect(file?.repositoryId).toBe(repositoryId);
     expect(file?.path).toBe(".env");
     expect(file?.createdAt).toBeInstanceOf(Date);
     expect(file?.updatedAt).toBeInstanceOf(Date);
@@ -1651,8 +1478,8 @@ describe("schema: project_env_files + project_env_vars", () => {
   });
 
   it("cancella in cascata le variabili quando il file viene eliminato", async () => {
-    const projectId = await seedProject();
-    const fileId = await seedEnvFile(projectId);
+    const { repositoryId } = await seedProject();
+    const fileId = await seedEnvFile(repositoryId);
     await db.insert(projectEnvVars).values({ fileId, key: "FOO", valueEncrypted: "x" });
 
     const before = await db.select().from(projectEnvVars).where(eq(projectEnvVars.fileId, fileId));
@@ -1665,8 +1492,8 @@ describe("schema: project_env_files + project_env_vars", () => {
   });
 
   it("cancella in cascata file e variabili quando il progetto viene eliminato", async () => {
-    const projectId = await seedProject();
-    const fileId = await seedEnvFile(projectId);
+    const { projectId, repositoryId } = await seedProject();
+    const fileId = await seedEnvFile(repositoryId);
     await db.insert(projectEnvVars).values({ fileId, key: "BAR", valueEncrypted: "y" });
 
     await db.delete(projects).where(eq(projects.id, projectId));
@@ -1674,33 +1501,33 @@ describe("schema: project_env_files + project_env_vars", () => {
     const files = await db
       .select()
       .from(projectEnvFiles)
-      .where(eq(projectEnvFiles.projectId, projectId));
+      .where(eq(projectEnvFiles.repositoryId, repositoryId));
     expect(files.length).toBe(0);
     const vars = await db.select().from(projectEnvVars).where(eq(projectEnvVars.fileId, fileId));
     expect(vars.length).toBe(0);
   });
 
-  it("vieta due file con lo stesso (project_id, path), ammette stesso path in progetti diversi", async () => {
-    const projectA = await seedProject();
-    const projectB = await seedProject();
-    await db.insert(projectEnvFiles).values({ projectId: projectA, path: ".env" });
+  it("vieta due file con lo stesso (repository_id, path), ammette stesso path in repository diversi", async () => {
+    const a = await seedProject();
+    const b = await seedProject();
+    await db.insert(projectEnvFiles).values({ repositoryId: a.repositoryId, path: ".env" });
 
     await expect(
-      db.insert(projectEnvFiles).values({ projectId: projectA, path: ".env" }),
+      db.insert(projectEnvFiles).values({ repositoryId: a.repositoryId, path: ".env" }),
     ).rejects.toThrow();
 
     const [other] = await db
       .insert(projectEnvFiles)
-      .values({ projectId: projectB, path: ".env" })
+      .values({ repositoryId: b.repositoryId, path: ".env" })
       .returning();
-    expect(other?.projectId).toBe(projectB);
+    expect(other?.repositoryId).toBe(b.repositoryId);
     expect(other?.path).toBe(".env");
   });
 
   it("vieta due variabili con la stessa (file_id, key), ammette stessa key in file diversi", async () => {
-    const projectId = await seedProject();
-    const fileA = await seedEnvFile(projectId, ".env");
-    const fileB = await seedEnvFile(projectId, ".env.local");
+    const { repositoryId } = await seedProject();
+    const fileA = await seedEnvFile(repositoryId, ".env");
+    const fileB = await seedEnvFile(repositoryId, ".env.local");
     await db.insert(projectEnvVars).values({ fileId: fileA, key: "TOKEN", valueEncrypted: "a" });
 
     await expect(

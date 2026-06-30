@@ -5,6 +5,7 @@ import {
   docPages,
   gitAccounts,
   projects,
+  repositories,
   type Db,
 } from "@stubwise/db";
 import {
@@ -34,11 +35,12 @@ import { EMBED_BATCH_SIZE, embedAndStoreChunks } from "./embed.js";
  *
  * Quando un pending di `doc_auto_update_jobs` scade (`not_before <= now`), il poller
  * (auto-update-poller.ts) lo RECLAMA in modo atomico (DELETE ... RETURNING) e chiama
- * `runAutoUpdate` nella catena PER-PROGETTO (serializer condiviso col fix e con la
- * doc-generation, così non si sovrappone a un fetch --prune dello stesso progetto).
+ * `runAutoUpdate` nella catena PER-REPOSITORY (serializer condiviso col fix e con la
+ * doc-generation, così non si sovrappone a un fetch --prune dello stesso repository).
  *
  * Cosa fa `runAutoUpdate`:
- *  1. carica il progetto (defaultBranch, aiProviderId, currentDocGenerationId);
+ *  1. carica il repository (defaultBranch, currentDocGenerationId) e l'aiProviderId del
+ *     suo PROGETTO;
  *  2. calcola il diff del range (file cambiati + subject dei commit) sul mirror;
  *  3. GATE RUMORE deterministico: se TUTTI i file cambiati sono rumore (lockfile,
  *     cartelle di processo/doc) o non c'è alcun file → niente agente, niente entry;
@@ -84,7 +86,7 @@ const credentialsSchema = z.object({
 /** Riga di pending reclamata dal poller, passata all'handler. */
 export interface AutoUpdateJob {
   id: string;
-  projectId: string;
+  repositoryId: string;
   fromSha: string;
   toSha: string;
 }
@@ -170,7 +172,7 @@ function timestampForSlug(now: Date): string {
   );
 }
 
-/** Contesto del progetto necessario all'auto-update. */
+/** Contesto del repository necessario all'auto-update. */
 interface ProjectContext {
   mirrorProject: MirrorProject;
   aiProviderId: string | null;
@@ -178,26 +180,33 @@ interface ProjectContext {
 }
 
 /**
- * Carica il progetto + l'account git e decifra le credenziali per costruire il
- * MirrorProject. Ritorna null (con log) se il progetto/account non c'è o le credenziali
- * non si decifrano: l'auto-update è best-effort, non c'è un job da fallire.
+ * Carica il repository + il suo PROGETTO (per `aiProviderId`) + l'account git e decifra
+ * le credenziali per costruire il MirrorProject. Il provider AI dell'auto-update è del
+ * PROGETTO del repository (join repositories→projects). Ritorna null (con log) se il
+ * repository/account non c'è o le credenziali non si decifrano: l'auto-update è
+ * best-effort, non c'è un job da fallire.
  */
 async function loadProjectContext(
   deps: RunAutoUpdateDeps,
-  projectId: string,
+  repositoryId: string,
 ): Promise<ProjectContext | null> {
   const [row] = await deps.db
-    .select({ project: projects, account: gitAccounts })
-    .from(projects)
-    .innerJoin(gitAccounts, eq(projects.gitAccountId, gitAccounts.id))
-    .where(eq(projects.id, projectId));
+    .select({
+      repository: repositories,
+      account: gitAccounts,
+      aiProviderId: projects.aiProviderId,
+    })
+    .from(repositories)
+    .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
+    .innerJoin(projects, eq(projects.id, repositories.projectId))
+    .where(eq(repositories.id, repositoryId));
   if (!row) {
     console.error(
-      `[stubwise-worker] auto-update: progetto ${projectId} o account git collegato non trovato, salto`,
+      `[stubwise-worker] auto-update: repository ${repositoryId} o account git collegato non trovato, salto`,
     );
     return null;
   }
-  const { project, account } = row;
+  const { repository, account } = row;
 
   let credentials: z.infer<typeof credentialsSchema>;
   try {
@@ -206,20 +215,20 @@ async function loadProjectContext(
     );
   } catch {
     console.error(
-      `[stubwise-worker] auto-update: credenziali git del progetto ${projectId} non decifrabili, salto`,
+      `[stubwise-worker] auto-update: credenziali git del repository ${repositoryId} non decifrabili, salto`,
     );
     return null;
   }
 
   return {
     mirrorProject: {
-      provider: project.provider,
-      repoUrl: project.repoUrl,
-      defaultBranch: project.defaultBranch,
+      provider: repository.provider,
+      repoUrl: repository.repoUrl,
+      defaultBranch: repository.defaultBranch,
       credentials,
     },
-    aiProviderId: project.aiProviderId,
-    currentDocGenerationId: project.currentDocGenerationId,
+    aiProviderId: row.aiProviderId,
+    currentDocGenerationId: repository.currentDocGenerationId,
   };
 }
 
@@ -309,11 +318,11 @@ async function resolveProvider(
  * Costruisce uno slug univoco per la release: `release-<YYYYMMDD-HHmm>-<shortSha>`. Se
  * collide con una pagina release già esistente (stesso minuto + stesso sha breve) appende
  * un suffisso numerico. Lo slug è univoco tra le pagine PERSISTENTI (generation_id null)
- * del progetto (vincolo parziale doc_pages_manual_slug_unique).
+ * del repository (vincolo parziale doc_pages_manual_slug_unique).
  */
 async function uniqueReleaseSlug(
   db: Db,
-  projectId: string,
+  repositoryId: string,
   toSha: string,
   now: Date,
 ): Promise<string> {
@@ -328,7 +337,7 @@ async function uniqueReleaseSlug(
       .from(docPages)
       .where(
         and(
-          eq(docPages.projectId, projectId),
+          eq(docPages.repositoryId, repositoryId),
           eq(docPages.slug, slug),
           isNull(docPages.generationId),
         ),
@@ -398,7 +407,7 @@ async function refreshAffectedPages(
   material: string[],
   commitSubjects: string[],
   provider: ResolvedProvider | undefined,
-  projectId: string,
+  repositoryId: string,
 ): Promise<RefreshResult> {
   const { affected, newAreas, truncated } = mapAffectedPages(
     material,
@@ -468,7 +477,7 @@ async function refreshAffectedPages(
             // body, così la ricerca semantica resta allineata.
             await tx.delete(docChunks).where(eq(docChunks.pageId, page.id));
             await embedAndStoreChunks(tx, deps.embeddingClient, {
-              projectId,
+              repositoryId,
               generationId,
               pages: [
                 {
@@ -487,7 +496,7 @@ async function refreshAffectedPages(
           // BEST-EFFORT per pagina: un refresh fallito (agente o embed) non blocca le
           // altre né l'intero auto-update.
           console.error(
-            `[stubwise-worker] auto-update: refresh della pagina '${page.slug}' (progetto ${projectId}) fallito (${errText(err)}), proseguo`,
+            `[stubwise-worker] auto-update: refresh della pagina '${page.slug}' (repository ${repositoryId}) fallito (${errText(err)}), proseguo`,
           );
         }
       }
@@ -496,7 +505,7 @@ async function refreshAffectedPages(
     // Apertura del worktree fallita (es. mirror non raggiungibile): niente rigenerazione,
     // ma l'auto-update prosegue con la sola entry release (best-effort).
     console.error(
-      `[stubwise-worker] auto-update: worktree di refresh del progetto ${projectId} non apribile (${errText(err)}), solo entry release`,
+      `[stubwise-worker] auto-update: worktree di refresh del repository ${repositoryId} non apribile (${errText(err)}), solo entry release`,
     );
   }
 
@@ -529,7 +538,7 @@ function newAreasSection(newAreas: string[], truncated: number): string {
  * pending (non esiste più). Vedi il docblock del modulo per il flusso completo.
  */
 export async function runAutoUpdate(deps: RunAutoUpdateDeps, job: AutoUpdateJob): Promise<void> {
-  const ctx = await loadProjectContext(deps, job.projectId);
+  const ctx = await loadProjectContext(deps, job.repositoryId);
   if (!ctx) return;
 
   // Diff del range: file cambiati + subject dei commit. Se gli sha non sono raggiungibili
@@ -547,7 +556,7 @@ export async function runAutoUpdate(deps: RunAutoUpdateDeps, job: AutoUpdateJob)
     commitSubjects = commits.map((c) => c.subject);
   } catch (err) {
     console.error(
-      `[stubwise-worker] auto-update: diff ${job.fromSha}..${job.toSha} del progetto ${job.projectId} fallito (${errText(err)}), salto`,
+      `[stubwise-worker] auto-update: diff ${job.fromSha}..${job.toSha} del repository ${job.repositoryId} fallito (${errText(err)}), salto`,
     );
     return;
   }
@@ -560,7 +569,7 @@ export async function runAutoUpdate(deps: RunAutoUpdateDeps, job: AutoUpdateJob)
   const material = changed.filter((path) => !isNoise(path));
   if (material.length === 0) {
     console.error(
-      `[stubwise-worker] auto-update: progetto ${job.projectId} ${job.fromSha}..${job.toSha} è solo rumore (${changed.length} file), nessuna entry release`,
+      `[stubwise-worker] auto-update: repository ${job.repositoryId} ${job.fromSha}..${job.toSha} è solo rumore (${changed.length} file), nessuna entry release`,
     );
     return;
   }
@@ -570,7 +579,7 @@ export async function runAutoUpdate(deps: RunAutoUpdateDeps, job: AutoUpdateJob)
   const resolved = await resolveProvider(deps, ctx.aiProviderId);
   if ("blocked" in resolved) {
     console.error(
-      `[stubwise-worker] auto-update: provider auto del progetto ${job.projectId} non disponibile (disabilitato/cancellato), salto senza fallback`,
+      `[stubwise-worker] auto-update: provider auto del repository ${job.repositoryId} non disponibile (disabilitato/cancellato), salto senza fallback`,
     );
     return;
   }
@@ -598,7 +607,7 @@ export async function runAutoUpdate(deps: RunAutoUpdateDeps, job: AutoUpdateJob)
       material,
       commitSubjects,
       resolved.provider,
-      job.projectId,
+      job.repositoryId,
     );
   }
 
@@ -626,13 +635,13 @@ export async function runAutoUpdate(deps: RunAutoUpdateDeps, job: AutoUpdateJob)
     notes = parseReleaseNotes(result.output);
   } catch (err) {
     console.error(
-      `[stubwise-worker] auto-update: agente di release del progetto ${job.projectId} fallito (${errText(err)}), nessuna entry`,
+      `[stubwise-worker] auto-update: agente di release del repository ${job.repositoryId} fallito (${errText(err)}), nessuna entry`,
     );
     return;
   }
   if (!notes) {
     console.error(
-      `[stubwise-worker] auto-update: output dell'agente di release del progetto ${job.projectId} non valido (marcatori mancanti), nessuna entry`,
+      `[stubwise-worker] auto-update: output dell'agente di release del repository ${job.repositoryId} non valido (marcatori mancanti), nessuna entry`,
     );
     return;
   }
@@ -641,7 +650,7 @@ export async function runAutoUpdate(deps: RunAutoUpdateDeps, job: AutoUpdateJob)
   // prefisso "[minore]" quando NON significativa; position decrescente nel tempo così le
   // più recenti sono in cima all'albero.
   const now = new Date();
-  const slug = await uniqueReleaseSlug(deps.db, job.projectId, job.toSha, now);
+  const slug = await uniqueReleaseSlug(deps.db, job.repositoryId, job.toSha, now);
   const title = notes.significant ? notes.title : `[minore] ${notes.title}`;
   // Cross-link related = unione DETERMINISTICA degli slug aggiornati in-place (Fase 2) e
   // degli affectedSlugs dell'agente, filtrati alle pagine esistenti (buildRelatedLinks
@@ -656,7 +665,7 @@ export async function runAutoUpdate(deps: RunAutoUpdateDeps, job: AutoUpdateJob)
 
   try {
     await deps.db.insert(docPages).values({
-      projectId: job.projectId,
+      repositoryId: job.repositoryId,
       generationId: null,
       kind: "releases",
       isManual: false,
@@ -670,7 +679,7 @@ export async function runAutoUpdate(deps: RunAutoUpdateDeps, job: AutoUpdateJob)
     });
   } catch (err) {
     console.error(
-      `[stubwise-worker] auto-update: insert della entry release del progetto ${job.projectId} fallito (${errText(err)})`,
+      `[stubwise-worker] auto-update: insert della entry release del repository ${job.repositoryId} fallito (${errText(err)})`,
     );
     return;
   }
@@ -692,6 +701,6 @@ export async function runAutoUpdate(deps: RunAutoUpdateDeps, job: AutoUpdateJob)
   }
 
   console.error(
-    `[stubwise-worker] auto-update: entry release '${slug}' creata per il progetto ${job.projectId} (significant=${notes.significant}, ${links.length} link)`,
+    `[stubwise-worker] auto-update: entry release '${slug}' creata per il repository ${job.repositoryId} (significant=${notes.significant}, ${links.length} link)`,
   );
 }

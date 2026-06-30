@@ -29,7 +29,7 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAuth } from "../auth/session.js";
-import { docChatMessages, docChatSessions, projects } from "@stubwise/db";
+import { docChatMessages, docChatSessions, repositories } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import type { ChatLlm } from "./chat-llm.js";
@@ -49,7 +49,7 @@ declare module "fastify" {
   }
 }
 
-const projectIdParamsSchema = z.object({ projectId: z.uuid() });
+const repositoryIdParamsSchema = z.object({ repositoryId: z.uuid() });
 
 /** Body della chat: messaggio non vuoto, sessione opzionale (creata se assente). */
 const chatBodySchema = z.object({
@@ -105,11 +105,11 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
   app.post(
-    "/projects/:projectId/docs/chat",
+    "/repositories/:repositoryId/docs/chat",
     {
       preHandler: requireAuth,
       schema: {
-        params: projectIdParamsSchema,
+        params: repositoryIdParamsSchema,
         body: chatBodySchema,
         // Nessuno schema di risposta 200: la risposta è uno stream SSE grezzo
         // scritto su reply.raw (reply.hijack), non un body serializzato da Zod.
@@ -120,15 +120,15 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { projectId } = request.params;
+      const { repositoryId } = request.params;
       const { sessionId, message } = request.body;
       const userId = request.user!.id;
 
       // Progetto esistente (404 altrimenti).
       const [project] = await app.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(eq(projects.id, projectId));
+        .select({ id: repositories.id })
+        .from(repositories)
+        .where(eq(repositories.id, repositoryId));
       if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
 
       // PRE-FLIGHT disponibilità chat: BEFORE l'hijack dello stream. Se l'LLM
@@ -159,7 +159,7 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
           .where(
             and(
               eq(docChatSessions.id, sessionId),
-              eq(docChatSessions.projectId, projectId),
+              eq(docChatSessions.repositoryId, repositoryId),
               eq(docChatSessions.userId, userId),
             ),
           );
@@ -172,7 +172,7 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
       } else {
         const [created] = await app.db
           .insert(docChatSessions)
-          .values({ projectId, userId })
+          .values({ repositoryId, userId })
           .returning({ id: docChatSessions.id });
         if (!created) throw new Error("insert della sessione di chat non ha restituito la riga");
         resolvedSessionId = created.id;
@@ -189,7 +189,7 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
       // RETRIEVAL riusato (no reimplementazione): stesso scope/ranking della
       // ricerca M6.4. Se l'embedding è down, retrieveChunks fa fallback
       // full-text-only e non lancia — la chat resta servibile.
-      const chunks = await retrieveChunks(app.db, app.embeddingClient, projectId, message, {
+      const chunks = await retrieveChunks(app.db, app.embeddingClient, repositoryId, message, {
         k: CHAT_RETRIEVAL_K,
         logger: request.log,
       });
@@ -240,7 +240,7 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
         // `error` e abortiamo la generazione sottostante (no token sprecati).
         // Logghiamo per intero lato server (mai nel body).
         controller.abort();
-        request.log.error({ err: error, projectId, sessionId: resolvedSessionId }, "chat LLM error");
+        request.log.error({ err: error, repositoryId, sessionId: resolvedSessionId }, "chat LLM error");
         if (!clientGone) {
           writeSseEvent(reply, { type: "error", message: "Chat generation failed" });
         }
@@ -289,11 +289,11 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
 
   /** Sessioni di chat dell'utente per il progetto, più recenti prima. */
   app.get(
-    "/projects/:projectId/docs/chat/sessions",
+    "/repositories/:repositoryId/docs/chat/sessions",
     {
       preHandler: requireAuth,
       schema: {
-        params: projectIdParamsSchema,
+        params: repositoryIdParamsSchema,
         response: {
           200: z.array(z.object({ id: z.uuid(), createdAt: z.string() })),
           404: errorSchema,
@@ -302,20 +302,20 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { projectId } = request.params;
+      const { repositoryId } = request.params;
       const userId = request.user!.id;
 
       const [project] = await app.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(eq(projects.id, projectId));
+        .select({ id: repositories.id })
+        .from(repositories)
+        .where(eq(repositories.id, repositoryId));
       if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
 
       const rows = await app.db
         .select({ id: docChatSessions.id, createdAt: docChatSessions.createdAt })
         .from(docChatSessions)
         .where(
-          and(eq(docChatSessions.projectId, projectId), eq(docChatSessions.userId, userId)),
+          and(eq(docChatSessions.repositoryId, repositoryId), eq(docChatSessions.userId, userId)),
         )
         .orderBy(asc(docChatSessions.createdAt));
 
@@ -325,11 +325,11 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
 
   /** Messaggi di una sessione (cronologico). Solo se la sessione è dell'utente. */
   app.get(
-    "/projects/:projectId/docs/chat/sessions/:id/messages",
+    "/repositories/:repositoryId/docs/chat/sessions/:id/messages",
     {
       preHandler: requireAuth,
       schema: {
-        params: z.object({ projectId: z.uuid(), id: z.uuid() }),
+        params: z.object({ repositoryId: z.uuid(), id: z.uuid() }),
         response: {
           200: z.array(
             z.object({
@@ -346,7 +346,7 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { projectId, id } = request.params;
+      const { repositoryId, id } = request.params;
       const userId = request.user!.id;
 
       // Ownership della sessione: deve essere dell'utente e del progetto.
@@ -356,7 +356,7 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
         .where(
           and(
             eq(docChatSessions.id, id),
-            eq(docChatSessions.projectId, projectId),
+            eq(docChatSessions.repositoryId, repositoryId),
             eq(docChatSessions.userId, userId),
           ),
         );

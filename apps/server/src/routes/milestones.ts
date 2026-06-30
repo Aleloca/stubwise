@@ -5,7 +5,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAuth } from "../auth/session.js";
 import type { Db } from "@stubwise/db";
-import { milestoneStatus, milestones, projects, tickets } from "@stubwise/db";
+import { milestoneStatus, milestones, projects, repositories, tickets } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 
@@ -44,6 +44,10 @@ const statusSchema = z.enum(milestoneStatus.enumValues);
 
 const createMilestoneBodySchema = z.object({
   projectId: z.uuid(),
+  // Repository d'origine della milestone: deve appartenere al progetto (400
+  // altrimenti). In Fase 1 la milestone è product-level ma porta un repo
+  // d'origine valorizzato (continuità con i dati esistenti, schema NOT NULL).
+  repositoryId: z.uuid(),
   name: nameSchema,
   dueDate: dueDateSchema.optional(),
   status: statusSchema.optional(),
@@ -138,6 +142,7 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
         body: createMilestoneBodySchema,
         response: {
           201: milestoneSchema,
+          400: errorSchema,
           404: errorSchema,
           409: errorSchema,
           ...authErrorResponses,
@@ -145,7 +150,7 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
       },
     },
     async (request, reply) => {
-      const { projectId, name, dueDate, status } = request.body;
+      const { projectId, repositoryId, name, dueDate, status } = request.body;
 
       const [project] = await app.db
         .select({ id: projects.id })
@@ -153,11 +158,26 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
         .where(eq(projects.id, projectId));
       if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
 
+      // Il repository d'origine deve appartenere al progetto (400 altrimenti).
+      const [repository] = await app.db
+        .select({ id: repositories.id })
+        .from(repositories)
+        .where(and(eq(repositories.id, repositoryId), eq(repositories.projectId, projectId)));
+      if (!repository) {
+        return apiError(
+          reply,
+          400,
+          "repository_not_in_project",
+          "Repository not found in this project",
+        );
+      }
+
       try {
         const [created] = await app.db
           .insert(milestones)
           .values({
             projectId,
+            repositoryId,
             name,
             dueDate: dueDate !== undefined && dueDate !== null ? new Date(dueDate) : null,
             ...(status !== undefined ? { status } : {}),

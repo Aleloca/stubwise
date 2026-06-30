@@ -1,5 +1,5 @@
-import { docGenerationJobs, docGenerations, projects, type Db } from "@stubwise/db";
-import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { docGenerationJobs, docGenerations, type Db } from "@stubwise/db";
+import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -17,26 +17,12 @@ import {
 // isolano svuotando doc_generation_jobs in afterEach (claimNextDocJob è
 // globale: prende il job queued più vecchio dell'intera tabella).
 let testDb: TestDb;
-let projectId: string;
+let repositoryId: string;
 
 beforeAll(async () => {
   testDb = await startTestDb();
   const { db } = testDb;
-  const gitAccountId = await seedGitAccount(db);
-  const [project] = await db
-    .insert(projects)
-    .values({
-      name: "Coda",
-      slug: "coda",
-      provider: "github",
-      gitAccountId,
-      repoUrl: "https://github.com/acme/coda",
-      defaultBranch: "main",
-      ingestionKey: "ingestion-coda",
-    })
-    .returning();
-  if (!project) throw new Error("insert del progetto non ha restituito la riga");
-  projectId = project.id;
+  ({ repositoryId } = await seedRepository(db));
 }, 120_000);
 
 afterEach(async () => {
@@ -61,7 +47,7 @@ interface EnqueueOptions {
 async function enqueueDocJob(db: Db, opts: EnqueueOptions = {}): Promise<DocJob> {
   const [job] = await db
     .insert(docGenerationJobs)
-    .values({ projectId, ...opts })
+    .values({ repositoryId, ...opts })
     .returning();
   if (!job) throw new Error("insert del doc-job non ha restituito la riga");
   return job;
@@ -127,7 +113,7 @@ describe("claimNextDocJob", () => {
 describe("transizioni di stato", () => {
   it("completeDocJob marca succeeded con generationId, log e finishedAt", async () => {
     const { db } = testDb;
-    const [generation] = await db.insert(docGenerations).values({ projectId }).returning();
+    const [generation] = await db.insert(docGenerations).values({ repositoryId }).returning();
     if (!generation) throw new Error("insert della generazione non ha restituito la riga");
     const job = await enqueueDocJob(db);
     await claimNextDocJob(db);

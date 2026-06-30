@@ -138,7 +138,7 @@ export interface ChildSpec {
 /**
  * Crea i nodi figli di `parentId` e arma il join, tutto in UNA transazione:
  *  - inserisce le righe figlie (`pending`, depth = padre+1, position = indice),
- *    ereditando generationId/projectId dal padre;
+ *    ereditando generationId/repositoryId dal padre;
  *  - imposta `parent.pending_children = specs.length` (il contatore del join);
  *  - porta il padre da `exploring` a `awaiting_children`.
  * L'atomicità è essenziale: il contatore e lo stato del padre devono diventare
@@ -158,7 +158,7 @@ export async function createChildren(
     const [parent] = await tx
       .select({
         generationId: docNodes.generationId,
-        projectId: docNodes.projectId,
+        repositoryId: docNodes.repositoryId,
         depth: docNodes.depth,
       })
       .from(docNodes)
@@ -182,7 +182,7 @@ export async function createChildren(
     await tx.insert(docNodes).values(
       specs.map((spec, index) => ({
         generationId: parent.generationId,
-        projectId: parent.projectId,
+        repositoryId: parent.repositoryId,
         parentId,
         tree: spec.tree,
         status: "pending" as const,

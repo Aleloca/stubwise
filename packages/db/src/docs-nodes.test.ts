@@ -1,9 +1,8 @@
-import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "./client.js";
-import { docGenerations, docNodes, docPages, projects } from "./schema.js";
-import { seedGitAccount, startTestDb, type TestDb } from "./testing.js";
+import { docGenerations, docNodes, docPages } from "./schema.js";
+import { seedRepository, startTestDb, type TestDb } from "./testing.js";
 
 /**
  * Verifica che la migrazione del DAG di documentazione (enum `doc_node_status`/
@@ -25,32 +24,19 @@ describe("schema: nodi del DAG Docs", () => {
   });
 
   async function seedProject(): Promise<string> {
-    const gitAccountId = await seedGitAccount(db);
-    const [project] = await db
-      .insert(projects)
-      .values({
-        name: "Progetto di test",
-        slug: `progetto-${randomUUID()}`,
-        provider: "github",
-        gitAccountId,
-        repoUrl: "https://example.com/repo.git",
-        defaultBranch: "main",
-        ingestionKey: randomUUID(),
-      })
-      .returning();
-    if (!project) throw new Error("insert del progetto non ha restituito la riga");
-    return project.id;
+    const { repositoryId } = await seedRepository(db);
+    return repositoryId;
   }
 
   it("persiste un nodo radice (default) e un figlio collegato via parent_id", async () => {
-    const projectId = await seedProject();
-    const [gen] = await db.insert(docGenerations).values({ projectId }).returning();
+    const repositoryId = await seedProject();
+    const [gen] = await db.insert(docGenerations).values({ repositoryId }).returning();
     if (!gen) throw new Error("insert della generazione non ha restituito la riga");
 
     // Radice tecnica: parentId null, default su status/pendingChildren/sourcePaths.
     const [root] = await db
       .insert(docNodes)
-      .values({ generationId: gen.id, projectId, tree: "technical", parentId: null })
+      .values({ generationId: gen.id, repositoryId, tree: "technical", parentId: null })
       .returning();
     if (!root) throw new Error("insert del nodo radice non ha restituito la riga");
 
@@ -66,7 +52,7 @@ describe("schema: nodi del DAG Docs", () => {
       .insert(docNodes)
       .values({
         generationId: gen.id,
-        projectId,
+        repositoryId,
         tree: "technical",
         parentId: root.id,
         depth: 1,
@@ -81,8 +67,8 @@ describe("schema: nodi del DAG Docs", () => {
   });
 
   it("una pagina può portare un valore jsonb in links (round-trip)", async () => {
-    const projectId = await seedProject();
-    const [gen] = await db.insert(docGenerations).values({ projectId }).returning();
+    const repositoryId = await seedProject();
+    const [gen] = await db.insert(docGenerations).values({ repositoryId }).returning();
     if (!gen) throw new Error("insert della generazione non ha restituito la riga");
 
     const links = [
@@ -92,7 +78,7 @@ describe("schema: nodi del DAG Docs", () => {
     const [page] = await db
       .insert(docPages)
       .values({
-        projectId,
+        repositoryId,
         generationId: gen.id,
         kind: "functional",
         slug: "login",

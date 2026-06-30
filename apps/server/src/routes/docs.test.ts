@@ -8,11 +8,11 @@ import {
   docGenerationJobs,
   docGenerations,
   docPages,
-  projects,
+  repositories,
 } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedGitAccount, startTestDb } from "@stubwise/db/testing";
+import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
@@ -23,27 +23,19 @@ let app: FastifyInstance;
 let adminCookie: string;
 let memberCookie: string;
 
-let projectSeq = 0;
-
-/** Inserisce un progetto minimo valido, slug/ingestionKey univoci per chiamata. */
+/**
+ * Inserisce un repository (con il suo progetto-gruppo) e ne restituisce id/slug/
+ * name. In Fase 1 i Docs sono per-repository: l'`id` restituito è il repositoryId
+ * usato dalle route `/api/repositories/:repositoryId/docs/...` e dalle colonne
+ * repository-level (docPages.repositoryId, docGenerations.repositoryId, ecc.).
+ */
 async function insertProject(db: Db): Promise<{ id: string; slug: string; name: string }> {
-  projectSeq++;
-  const slug = `docs-proj-${projectSeq}`;
-  const gitAccountId = await seedGitAccount(db);
-  const [project] = await db
-    .insert(projects)
-    .values({
-      name: `Docs Project ${projectSeq}`,
-      slug,
-      provider: "github",
-      gitAccountId,
-      repoUrl: "https://github.com/acme/demo",
-      defaultBranch: "main",
-      ingestionKey: `ingestion-${slug}`,
-    })
-    .returning();
-  if (!project) throw new Error("insert del progetto non ha restituito la riga");
-  return { id: project.id, slug: project.slug, name: project.name };
+  const { repositoryId } = await seedRepository(db);
+  const [repository] = await db
+    .select({ slug: repositories.slug, name: repositories.name })
+    .from(repositories)
+    .where(eq(repositories.id, repositoryId));
+  return { id: repositoryId, slug: repository!.slug, name: repository!.name };
 }
 
 /**
@@ -59,7 +51,7 @@ async function seedSucceededGeneration(
   const [gen] = await db
     .insert(docGenerations)
     .values({
-      projectId,
+      repositoryId: projectId,
       status: "succeeded",
       commitSha: opts.commitSha ?? "abc1234",
       trigger: "manual",
@@ -74,7 +66,7 @@ async function seedSucceededGeneration(
 
   await db.insert(docPages).values([
     {
-      projectId,
+      repositoryId: projectId,
       generationId: gen.id,
       kind: "technical",
       slug: `tech-overview-${gen.id.slice(0, 8)}`,
@@ -84,7 +76,7 @@ async function seedSucceededGeneration(
       body: "# Technical\n\nDettagli tecnici.",
     },
     {
-      projectId,
+      repositoryId: projectId,
       generationId: gen.id,
       kind: "functional",
       slug: `func-overview-${gen.id.slice(0, 8)}`,
@@ -96,9 +88,9 @@ async function seedSucceededGeneration(
 
   if (opts.current !== false) {
     await db
-      .update(projects)
+      .update(repositories)
       .set({ currentDocGenerationId: gen.id })
-      .where(eq(projects.id, projectId));
+      .where(eq(repositories.id, projectId));
   }
   return gen.id;
 }
@@ -143,12 +135,12 @@ afterAll(async () => {
   await testDb.stop();
 });
 
-describe("POST /api/projects/:projectId/docs/generate", () => {
+describe("POST /api/repositories/:projectId/docs/generate", () => {
   it("un member non può: 403", async () => {
     const project = await insertProject(testDb.db);
     const res = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/generate`,
+      url: `/api/repositories/${project.id}/docs/generate`,
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(403);
@@ -158,7 +150,7 @@ describe("POST /api/projects/:projectId/docs/generate", () => {
     const project = await insertProject(testDb.db);
     const res = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/generate`,
+      url: `/api/repositories/${project.id}/docs/generate`,
     });
     expect(res.statusCode).toBe(401);
   });
@@ -167,7 +159,7 @@ describe("POST /api/projects/:projectId/docs/generate", () => {
     const project = await insertProject(testDb.db);
     const res = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/generate`,
+      url: `/api/repositories/${project.id}/docs/generate`,
       headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(202);
@@ -178,7 +170,7 @@ describe("POST /api/projects/:projectId/docs/generate", () => {
     const rows = await testDb.db
       .select()
       .from(docGenerationJobs)
-      .where(eq(docGenerationJobs.projectId, project.id));
+      .where(eq(docGenerationJobs.repositoryId, project.id));
     expect(rows).toHaveLength(1);
     expect(rows[0]!.status).toBe("queued");
   });
@@ -187,7 +179,7 @@ describe("POST /api/projects/:projectId/docs/generate", () => {
     const project = await insertProject(testDb.db);
     const first = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/generate`,
+      url: `/api/repositories/${project.id}/docs/generate`,
       headers: { cookie: adminCookie },
     });
     expect(first.statusCode).toBe(202);
@@ -195,7 +187,7 @@ describe("POST /api/projects/:projectId/docs/generate", () => {
 
     const second = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/generate`,
+      url: `/api/repositories/${project.id}/docs/generate`,
       headers: { cookie: adminCookie },
     });
     expect(second.statusCode).toBe(200);
@@ -205,14 +197,14 @@ describe("POST /api/projects/:projectId/docs/generate", () => {
     const rows = await testDb.db
       .select()
       .from(docGenerationJobs)
-      .where(eq(docGenerationJobs.projectId, project.id));
+      .where(eq(docGenerationJobs.repositoryId, project.id));
     expect(rows).toHaveLength(1);
   });
 
   it("progetto inesistente: 404", async () => {
     const res = await app.inject({
       method: "POST",
-      url: "/api/projects/00000000-0000-0000-0000-000000000000/docs/generate",
+      url: "/api/repositories/00000000-0000-0000-0000-000000000000/docs/generate",
       headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(404);
@@ -225,7 +217,7 @@ describe("POST /api/projects/:projectId/docs/generate", () => {
     const provider = await insertProvider(testDb.db, { enabled: true });
     const res = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/generate`,
+      url: `/api/repositories/${project.id}/docs/generate`,
       headers: { cookie: adminCookie },
       payload: { providerId: provider.id },
     });
@@ -234,18 +226,18 @@ describe("POST /api/projects/:projectId/docs/generate", () => {
     const rows = await testDb.db
       .select()
       .from(docGenerationJobs)
-      .where(eq(docGenerationJobs.projectId, project.id));
+      .where(eq(docGenerationJobs.repositoryId, project.id));
     expect(rows).toHaveLength(1);
     expect(rows[0]!.status).toBe("queued");
   });
 });
 
-describe("GET /api/projects/:projectId/docs/status", () => {
+describe("GET /api/repositories/:projectId/docs/status", () => {
   it("nessuna generazione: generation e latestJob null", async () => {
     const project = await insertProject(testDb.db);
     const res = await app.inject({
       method: "GET",
-      url: `/api/projects/${project.id}/docs/status`,
+      url: `/api/repositories/${project.id}/docs/status`,
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(200);
@@ -257,13 +249,13 @@ describe("GET /api/projects/:projectId/docs/status", () => {
     const genId = await seedSucceededGeneration(testDb.db, project.id, { commitSha: "deadbeef" });
     await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/generate`,
+      url: `/api/repositories/${project.id}/docs/generate`,
       headers: { cookie: adminCookie },
     });
 
     const res = await app.inject({
       method: "GET",
-      url: `/api/projects/${project.id}/docs/status`,
+      url: `/api/repositories/${project.id}/docs/status`,
       headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(200);
@@ -289,7 +281,7 @@ describe("GET /api/projects/:projectId/docs/status", () => {
     const [gen] = await testDb.db
       .insert(docGenerations)
       .values({
-        projectId: project.id,
+        repositoryId: project.id,
         status: "succeeded",
         trigger: "manual",
         pinnedProviderId: provider.id,
@@ -298,13 +290,13 @@ describe("GET /api/projects/:projectId/docs/status", () => {
       })
       .returning();
     await testDb.db
-      .update(projects)
+      .update(repositories)
       .set({ currentDocGenerationId: gen!.id })
-      .where(eq(projects.id, project.id));
+      .where(eq(repositories.id, project.id));
 
     const res = await app.inject({
       method: "GET",
-      url: `/api/projects/${project.id}/docs/status`,
+      url: `/api/repositories/${project.id}/docs/status`,
       headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(200);
@@ -321,7 +313,7 @@ describe("GET /api/projects/:projectId/docs/status", () => {
   it("progetto inesistente: 404", async () => {
     const res = await app.inject({
       method: "GET",
-      url: "/api/projects/00000000-0000-0000-0000-000000000000/docs/status",
+      url: "/api/repositories/00000000-0000-0000-0000-000000000000/docs/status",
       headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(404);
@@ -331,7 +323,7 @@ describe("GET /api/projects/:projectId/docs/status", () => {
     const project = await insertProject(testDb.db);
     const res = await app.inject({
       method: "GET",
-      url: `/api/projects/${project.id}/docs/status`,
+      url: `/api/repositories/${project.id}/docs/status`,
     });
     expect(res.statusCode).toBe(401);
   });
@@ -350,18 +342,18 @@ describe("GET /api/docs/spaces", () => {
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as {
-      projectId: string;
+      repositoryId: string;
       pageCount: number;
       lastCommitSha: string | null;
       lastGenerationAt: string | null;
     }[];
     // Il progetto con doc: conteggio + commit della generazione corrente.
-    const docs = body.find((s) => s.projectId === withDocs.id)!;
+    const docs = body.find((s) => s.repositoryId === withDocs.id)!;
     expect(docs.pageCount).toBe(2);
     expect(docs.lastCommitSha).toBe("space01");
     // Il progetto SENZA doc compare comunque (è l'entry point per generare):
     // pageCount 0, nessuna generazione.
-    const none = body.find((s) => s.projectId === withoutDocs.id);
+    const none = body.find((s) => s.repositoryId === withoutDocs.id);
     expect(none).toBeDefined();
     expect(none!.pageCount).toBe(0);
     expect(none!.lastCommitSha).toBeNull();
@@ -380,7 +372,7 @@ describe("GET /api/docs/spaces", () => {
     // Una pagina manuale (generationId null): va contata.
     await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/manual`,
+      url: `/api/repositories/${project.id}/docs/manual`,
       headers: { cookie: memberCookie },
       payload: { title: "Manuale Conteggio", slug: "manuale-conteggio", body: "x" },
     });
@@ -392,11 +384,11 @@ describe("GET /api/docs/spaces", () => {
     });
     expect(res.statusCode).toBe(200);
     const body = res.json() as {
-      projectId: string;
+      repositoryId: string;
       pageCount: number;
       lastCommitSha: string | null;
     }[];
-    const space = body.find((s) => s.projectId === project.id)!;
+    const space = body.find((s) => s.repositoryId === project.id)!;
     // 2 (corrente) + 1 (manuale) = 3; le 2 stale sono escluse.
     expect(space.pageCount).toBe(3);
     // Commit/date sono quelli della generazione CORRENTE, non della stale.
@@ -407,7 +399,7 @@ describe("GET /api/docs/spaces", () => {
     const project = await insertProject(testDb.db);
     await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/manual`,
+      url: `/api/repositories/${project.id}/docs/manual`,
       headers: { cookie: memberCookie },
       payload: { title: "Solo Manuale", body: "ciao" },
     });
@@ -417,8 +409,8 @@ describe("GET /api/docs/spaces", () => {
       url: "/api/docs/spaces",
       headers: { cookie: memberCookie },
     });
-    const body = res.json() as { projectId: string; pageCount: number }[];
-    const space = body.find((s) => s.projectId === project.id);
+    const body = res.json() as { repositoryId: string; pageCount: number }[];
+    const space = body.find((s) => s.repositoryId === project.id);
     expect(space).toBeDefined();
     expect(space!.pageCount).toBe(1);
   });
@@ -429,20 +421,20 @@ describe("GET /api/docs/spaces", () => {
   });
 });
 
-describe("GET /api/projects/:projectId/docs/tree", () => {
+describe("GET /api/repositories/:projectId/docs/tree", () => {
   it("ritorna le pagine della generazione corrente + manuali, raggruppate per kind", async () => {
     const project = await insertProject(testDb.db);
     await seedSucceededGeneration(testDb.db, project.id);
     await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/manual`,
+      url: `/api/repositories/${project.id}/docs/manual`,
       headers: { cookie: memberCookie },
       payload: { title: "Nota Manuale", slug: "nota-manuale", body: "x" },
     });
 
     const res = await app.inject({
       method: "GET",
-      url: `/api/projects/${project.id}/docs/tree`,
+      url: `/api/repositories/${project.id}/docs/tree`,
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(200);
@@ -470,7 +462,7 @@ describe("GET /api/projects/:projectId/docs/tree", () => {
 
     const res = await app.inject({
       method: "GET",
-      url: `/api/projects/${project.id}/docs/tree`,
+      url: `/api/repositories/${project.id}/docs/tree`,
       headers: { cookie: memberCookie },
     });
     const body = res.json() as { id: string }[];
@@ -488,14 +480,14 @@ describe("GET /api/projects/:projectId/docs/tree", () => {
   it("progetto inesistente: 404", async () => {
     const res = await app.inject({
       method: "GET",
-      url: "/api/projects/00000000-0000-0000-0000-000000000000/docs/tree",
+      url: "/api/repositories/00000000-0000-0000-0000-000000000000/docs/tree",
       headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(404);
   });
 });
 
-describe("GET /api/projects/:projectId/docs/pages/:slug", () => {
+describe("GET /api/repositories/:projectId/docs/pages/:slug", () => {
   it("ritorna la pagina autogenerata con commitSha della generazione", async () => {
     const project = await insertProject(testDb.db);
     const genId = await seedSucceededGeneration(testDb.db, project.id, { commitSha: "page999" });
@@ -503,7 +495,7 @@ describe("GET /api/projects/:projectId/docs/pages/:slug", () => {
 
     const res = await app.inject({
       method: "GET",
-      url: `/api/projects/${project.id}/docs/pages/${slug}`,
+      url: `/api/repositories/${project.id}/docs/pages/${slug}`,
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(200);
@@ -519,7 +511,7 @@ describe("GET /api/projects/:projectId/docs/pages/:slug", () => {
     const genId = await seedSucceededGeneration(testDb.db, project.id, { commitSha: "links001" });
     const slug = `linked-page-${genId.slice(0, 8)}`;
     await testDb.db.insert(docPages).values({
-      projectId: project.id,
+      repositoryId: project.id,
       generationId: genId,
       kind: "functional",
       slug,
@@ -534,7 +526,7 @@ describe("GET /api/projects/:projectId/docs/pages/:slug", () => {
 
     const res = await app.inject({
       method: "GET",
-      url: `/api/projects/${project.id}/docs/pages/${slug}`,
+      url: `/api/repositories/${project.id}/docs/pages/${slug}`,
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(200);
@@ -556,7 +548,7 @@ describe("GET /api/projects/:projectId/docs/pages/:slug", () => {
 
     const res = await app.inject({
       method: "GET",
-      url: `/api/projects/${project.id}/docs/pages/${slug}`,
+      url: `/api/repositories/${project.id}/docs/pages/${slug}`,
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(200);
@@ -568,7 +560,7 @@ describe("GET /api/projects/:projectId/docs/pages/:slug", () => {
     await seedSucceededGeneration(testDb.db, project.id);
     const res = await app.inject({
       method: "GET",
-      url: `/api/projects/${project.id}/docs/pages/non-esiste`,
+      url: `/api/repositories/${project.id}/docs/pages/non-esiste`,
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(404);
@@ -585,7 +577,7 @@ describe("GET /api/projects/:projectId/docs/pages/:slug", () => {
 
     const res = await app.inject({
       method: "GET",
-      url: `/api/projects/${project.id}/docs/pages/${staleSlug}`,
+      url: `/api/repositories/${project.id}/docs/pages/${staleSlug}`,
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(404);
@@ -599,7 +591,7 @@ describe("GET /api/projects/:projectId/docs/pages/:slug", () => {
     // riga, deterministicamente quella della generazione corrente (autogenerata).
     const sharedSlug = "guida-condivisa";
     await testDb.db.insert(docPages).values({
-      projectId: project.id,
+      repositoryId: project.id,
       generationId: genId,
       kind: "technical",
       slug: sharedSlug,
@@ -607,7 +599,7 @@ describe("GET /api/projects/:projectId/docs/pages/:slug", () => {
       body: "# Auto\n\nContenuto autogenerato.",
     });
     await testDb.db.insert(docPages).values({
-      projectId: project.id,
+      repositoryId: project.id,
       generationId: null,
       kind: "manual",
       slug: sharedSlug,
@@ -618,7 +610,7 @@ describe("GET /api/projects/:projectId/docs/pages/:slug", () => {
 
     const res = await app.inject({
       method: "GET",
-      url: `/api/projects/${project.id}/docs/pages/${sharedSlug}`,
+      url: `/api/repositories/${project.id}/docs/pages/${sharedSlug}`,
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(200);
@@ -635,7 +627,7 @@ describe("manual pages CRUD", () => {
     const project = await insertProject(testDb.db);
     const res = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/manual`,
+      url: `/api/repositories/${project.id}/docs/manual`,
       headers: { cookie: memberCookie },
       payload: { title: "Guida Operativa", body: "# Guida" },
     });
@@ -658,14 +650,14 @@ describe("manual pages CRUD", () => {
     const payload = { title: "Conflitto", slug: "conflitto", body: "a" };
     const first = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/manual`,
+      url: `/api/repositories/${project.id}/docs/manual`,
       headers: { cookie: memberCookie },
       payload,
     });
     expect(first.statusCode).toBe(201);
     const second = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/manual`,
+      url: `/api/repositories/${project.id}/docs/manual`,
       headers: { cookie: memberCookie },
       payload,
     });
@@ -676,7 +668,7 @@ describe("manual pages CRUD", () => {
     const project = await insertProject(testDb.db);
     const created = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/manual`,
+      url: `/api/repositories/${project.id}/docs/manual`,
       headers: { cookie: memberCookie },
       payload: { title: "Da Modificare", slug: "da-modificare", body: "vecchio" },
     });
@@ -684,7 +676,7 @@ describe("manual pages CRUD", () => {
 
     const res = await app.inject({
       method: "PATCH",
-      url: `/api/projects/${project.id}/docs/manual/${id}`,
+      url: `/api/repositories/${project.id}/docs/manual/${id}`,
       headers: { cookie: memberCookie },
       payload: { title: "Modificata", body: "nuovo" },
     });
@@ -698,7 +690,7 @@ describe("manual pages CRUD", () => {
     const project = await insertProject(testDb.db);
     const created = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/manual`,
+      url: `/api/repositories/${project.id}/docs/manual`,
       headers: { cookie: memberCookie },
       payload: { title: "Da Eliminare", slug: "da-eliminare", body: "x" },
     });
@@ -706,14 +698,14 @@ describe("manual pages CRUD", () => {
 
     const del = await app.inject({
       method: "DELETE",
-      url: `/api/projects/${project.id}/docs/manual/${id}`,
+      url: `/api/repositories/${project.id}/docs/manual/${id}`,
       headers: { cookie: memberCookie },
     });
     expect(del.statusCode).toBe(204);
 
     const again = await app.inject({
       method: "DELETE",
-      url: `/api/projects/${project.id}/docs/manual/${id}`,
+      url: `/api/repositories/${project.id}/docs/manual/${id}`,
       headers: { cookie: memberCookie },
     });
     expect(again.statusCode).toBe(404);
@@ -732,7 +724,7 @@ describe("manual pages CRUD", () => {
 
     const patch = await app.inject({
       method: "PATCH",
-      url: `/api/projects/${project.id}/docs/manual/${generated!.id}`,
+      url: `/api/repositories/${project.id}/docs/manual/${generated!.id}`,
       headers: { cookie: memberCookie },
       payload: { title: "Hack" },
     });
@@ -740,7 +732,7 @@ describe("manual pages CRUD", () => {
 
     const del = await app.inject({
       method: "DELETE",
-      url: `/api/projects/${project.id}/docs/manual/${generated!.id}`,
+      url: `/api/repositories/${project.id}/docs/manual/${generated!.id}`,
       headers: { cookie: memberCookie },
     });
     expect(del.statusCode).toBe(404);
@@ -758,7 +750,7 @@ describe("manual pages CRUD", () => {
     const project = await insertProject(testDb.db);
     const parent = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/manual`,
+      url: `/api/repositories/${project.id}/docs/manual`,
       headers: { cookie: memberCookie },
       payload: { title: "Padre", slug: "padre", body: "x" },
     });
@@ -766,7 +758,7 @@ describe("manual pages CRUD", () => {
 
     const child = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/manual`,
+      url: `/api/repositories/${project.id}/docs/manual`,
       headers: { cookie: memberCookie },
       payload: { title: "Figlio", slug: "figlio", parentId, body: "y" },
     });
@@ -779,7 +771,7 @@ describe("manual pages CRUD", () => {
     const projectB = await insertProject(testDb.db);
     const foreign = await app.inject({
       method: "POST",
-      url: `/api/projects/${projectB.id}/docs/manual`,
+      url: `/api/repositories/${projectB.id}/docs/manual`,
       headers: { cookie: memberCookie },
       payload: { title: "Estraneo", slug: "estraneo", body: "x" },
     });
@@ -787,7 +779,7 @@ describe("manual pages CRUD", () => {
 
     const res = await app.inject({
       method: "POST",
-      url: `/api/projects/${projectA.id}/docs/manual`,
+      url: `/api/repositories/${projectA.id}/docs/manual`,
       headers: { cookie: memberCookie },
       payload: { title: "Orfano", slug: "orfano", parentId: foreignId, body: "y" },
     });
@@ -799,7 +791,7 @@ describe("manual pages CRUD", () => {
     const project = await insertProject(testDb.db);
     const created = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/manual`,
+      url: `/api/repositories/${project.id}/docs/manual`,
       headers: { cookie: memberCookie },
       payload: { title: "Auto", slug: "auto", body: "x" },
     });
@@ -807,7 +799,7 @@ describe("manual pages CRUD", () => {
 
     const res = await app.inject({
       method: "PATCH",
-      url: `/api/projects/${project.id}/docs/manual/${id}`,
+      url: `/api/repositories/${project.id}/docs/manual/${id}`,
       headers: { cookie: memberCookie },
       payload: { parentId: id },
     });
@@ -819,7 +811,7 @@ describe("manual pages CRUD", () => {
     const project = await insertProject(testDb.db);
     const res = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/manual`,
+      url: `/api/repositories/${project.id}/docs/manual`,
       headers: { cookie: memberCookie },
       payload: { title: "Negativa", slug: "negativa", position: -1, body: "x" },
     });
@@ -830,7 +822,7 @@ describe("manual pages CRUD", () => {
     const project = await insertProject(testDb.db);
     const res = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/manual`,
+      url: `/api/repositories/${project.id}/docs/manual`,
       payload: { title: "Anon", body: "x" },
     });
     expect(res.statusCode).toBe(401);

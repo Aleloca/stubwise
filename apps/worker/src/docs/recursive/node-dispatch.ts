@@ -39,8 +39,8 @@ import type { GenerationWorktreeRegistry } from "./registry.js";
  * serializzatore per-progetto (che serializzerebbe i fix vs le generazioni, non i
  * nodi tra loro). I job-nodo LEGGONO soltanto dal worktree (nessuna scrittura git),
  * quindi non interferiscono. La mutua esclusione col FIX (invariante del mirror) è
- * garantita altrove: il registro espone `activeProjectIds()` e il loop NON reclama un
- * fix-job per un progetto con una generazione attiva (vedi runWorker).
+ * garantita altrove: il registro espone `activeRepositoryIds()` e il loop NON reclama un
+ * fix-job per un repository con una generazione attiva (vedi runWorker).
  *
  * FINALIZZAZIONE EXACTLY-ONCE: dopo che un nodo va `done`/`failed` (il join è già
  * avvenuto dentro l'handler), se TUTTE le radici della generazione sono `done` si

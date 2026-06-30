@@ -230,13 +230,52 @@ export const gitAccounts = pgTable("git_accounts", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * Progetto (gruppo): raggruppa uno o più repository (relazione 1:N). È il
+ * livello "prodotto" — vi appartengono ticket e milestone — e porta le
+ * impostazioni di prodotto che valgono per tutti i suoi repository: il provider
+ * AI (`aiProviderId`, salito dal vecchio progetto/repo) e il toggle di
+ * auto-aggiornamento della documentazione (`docAutoUpdate`). Lo `slug` è unico.
+ */
 export const projects = pgTable("projects", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
+  // Descrizione libera del progetto, opzionale (mostrata nella UI di dettaglio).
+  description: text("description"),
+  // Provider AI generale del progetto, valido per Docs e fix di tutti i suoi
+  // repository; null = automatico (primo abilitato al momento dell'esecuzione).
+  // ON DELETE SET NULL: rimuovere il provider non blocca il progetto, ricade
+  // sull'automatico.
+  aiProviderId: uuid("ai_provider_id").references(() => aiProviders.id, {
+    onDelete: "set null",
+  }),
+  // Aggiornamento automatico della documentazione ai push (changelog/release):
+  // false = disattivo (i push non innescano nulla). Toggle per-progetto, vale
+  // per tutti i repository del progetto.
+  docAutoUpdate: boolean("doc_auto_update").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Repository: un singolo repo git (l'ex "progetto", rinominato). Appartiene a
+ * esattamente un progetto (`projectId`, NOT NULL, cascade). Porta tutto ciò che
+ * è specifico del repo git/ingest/webhook/docs. Le impostazioni di prodotto
+ * (provider AI, auto-update docs) NON vivono più qui: sono salite al progetto.
+ */
+export const repositories = pgTable("repositories", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  // Progetto (gruppo) a cui il repository appartiene. NOT NULL: un repo sta
+  // sempre in un progetto. ON DELETE CASCADE: eliminare il progetto porta via i
+  // suoi repository.
+  projectId: uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
   provider: gitProviderKind("provider").notNull(),
-  // Account git che fornisce le credenziali del progetto. ON DELETE RESTRICT:
-  // un account in uso da almeno un progetto non può essere eliminato (il
+  // Account git che fornisce le credenziali del repository. ON DELETE RESTRICT:
+  // un account in uso da almeno un repository non può essere eliminato (il
   // server risponde 409). Le credenziali NON vivono più qui: stanno sull'account.
   gitAccountId: uuid("git_account_id")
     .notNull()
@@ -245,56 +284,55 @@ export const projects = pgTable("projects", {
   defaultBranch: text("default_branch").notNull(),
   ingestionKey: text("ingestion_key").notNull().unique(),
   // Segreto HMAC del webhook git (chiusura automatica al merge): 32 hex
-  // generati alla creazione del progetto. Il default '' copre le righe
-  // pre-esistenti alla migrazione; un progetto con segreto vuoto rifiuta i
+  // generati alla creazione del repository. Il default '' copre le righe
+  // pre-esistenti alla migrazione; un repository con segreto vuoto rifiuta i
   // webhook (non li può verificare).
   webhookSecret: text("webhook_secret").notNull().default(""),
   // Istante in cui il webhook git è stato configurato automaticamente sul
   // provider (POST /configure-webhook). Nullable: null = mai configurato, la
   // UI mostra l'azione di configurazione; valorizzato = stato "configurato".
   webhookConfiguredAt: timestamp("webhook_configured_at", { withTimezone: true }),
-  // Contatore per i numeri ticket sequenziali per-progetto: l'applicazione
+  // Contatore per i numeri ticket sequenziali per-repository: l'applicazione
   // lo incrementa in transazione quando crea un ticket.
   nextTicketNumber: integer("next_ticket_number").notNull().default(1),
-  // Comando di test del progetto (es. "pnpm test"), eseguito dall'agente per
+  // Comando di test del repository (es. "pnpm test"), eseguito dall'agente per
   // verificare il fix prima di aprire la PR (self-repair). Null = nessun
   // comando configurato: l'agente non esegue la fase di verifica.
   testCommand: text("test_command"),
-  // Comando di install del progetto (es. "pnpm install"), eseguito dall'agente
+  // Comando di install del repository (es. "pnpm install"), eseguito dall'agente
   // nel worktree effimero prima della fase di fix/verifica. Override opzionale:
   // null = nessun comando configurato, l'agente usa il default/euristica.
   installCommand: text("install_command"),
-  // Generazione di documentazione "corrente" del progetto: puntatore soft alla
+  // Generazione di documentazione "corrente" del repository: puntatore soft alla
   // doc_generations attiva (si imposta dopo lo swap). Niente reference circolare
-  // hard (projects↔doc_generations) per evitare problemi d'ordine in migrazione:
-  // l'integrità è validata a livello applicativo. Null = nessuna doc generata.
+  // hard (repositories↔doc_generations) per evitare problemi d'ordine in
+  // migrazione: l'integrità è validata a livello applicativo. Null = nessuna doc.
   currentDocGenerationId: uuid("current_doc_generation_id"),
-  // Aggiornamento automatico della documentazione ai push (changelog/release):
-  // false = disattivo (i push non innescano nulla). Toggle per-progetto.
-  docAutoUpdate: boolean("doc_auto_update").notNull().default(false),
-  // Provider AI generale del progetto, valido per Docs e fix; null = automatico
-  // (primo abilitato al momento dell'esecuzione). ON DELETE SET NULL: rimuovere
-  // il provider non blocca il progetto, ricade sull'automatico.
-  aiProviderId: uuid("ai_provider_id").references(() => aiProviders.id, {
-    onDelete: "set null",
-  }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 /**
  * Milestone di progetto: raggruppa i ticket verso un obiettivo (release,
- * sprint) con una scadenza opzionale. Cancellata in cascata col progetto.
- * `dueDate` null = nessuna scadenza. L'unique (project_id, name) impedisce
- * milestone omonime nello stesso progetto, ma ammette lo stesso nome in
- * progetti diversi.
+ * sprint) con una scadenza opzionale. È a livello di PROGETTO (gruppo):
+ * `projectId` punta a `projects`. `repositoryId` è il repository d'origine
+ * (ereditato dalla migrazione 1:1) e resta valorizzato in Fase 1; cancellata in
+ * cascata col progetto. `dueDate` null = nessuna scadenza. L'unique
+ * (project_id, name) impedisce milestone omonime nello stesso progetto, ma
+ * ammette lo stesso nome in progetti diversi.
  */
 export const milestones = pgTable(
   "milestones",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    // Progetto (gruppo) a cui la milestone appartiene.
     projectId: uuid("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
+    // Repository d'origine della milestone (ex project_id, ora → repositories).
+    // Tenuto per continuità con i dati esistenti; in Fase 1 sempre valorizzato.
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     // Scadenza opzionale della milestone: null = nessuna data.
     dueDate: timestamp("due_date", { withTimezone: true }),
@@ -313,9 +351,16 @@ export const tickets = pgTable(
   "tickets",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    // Progetto (gruppo) a cui il ticket appartiene: il ticket è product-level.
     projectId: uuid("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
+    // Repository bersaglio del fix (ex project_id, ora → repositories). NULLABLE:
+    // in Fase 1 è sempre valorizzato (un repo per ticket), ma la colonna è
+    // nullable per essere pronta alla Fase 3 (fix multi-repo: repo opzionale).
+    repositoryId: uuid("repository_id").references(() => repositories.id, {
+      onDelete: "cascade",
+    }),
     number: integer("number").notNull(),
     title: text("title").notNull(),
     body: text("body").notNull().default(""),
@@ -365,9 +410,9 @@ export const errorGroups = pgTable(
   "error_groups",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    projectId: uuid("project_id")
+    repositoryId: uuid("repository_id")
       .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+      .references(() => repositories.id, { onDelete: "cascade" }),
     fingerprint: text("fingerprint").notNull(),
     ticketId: uuid("ticket_id")
       .notNull()
@@ -375,7 +420,7 @@ export const errorGroups = pgTable(
   },
   (table) => [
     uniqueIndex("error_groups_project_id_fingerprint_unique").on(
-      table.projectId,
+      table.repositoryId,
       table.fingerprint,
     ),
     // FK: risalita dal ticket al gruppo di errori e delete in cascata.
@@ -809,9 +854,9 @@ export const projectEnvFiles = pgTable(
   "project_env_files",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    projectId: uuid("project_id")
+    repositoryId: uuid("repository_id")
       .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+      .references(() => repositories.id, { onDelete: "cascade" }),
     path: text("path").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
@@ -820,8 +865,8 @@ export const projectEnvFiles = pgTable(
       .$onUpdate(() => new Date()),
   },
   (table) => [
-    // Percorso univoco per progetto.
-    uniqueIndex("project_env_files_project_id_path_unique").on(table.projectId, table.path),
+    // Percorso univoco per repository.
+    uniqueIndex("project_env_files_project_id_path_unique").on(table.repositoryId, table.path),
   ],
 );
 
@@ -866,9 +911,9 @@ export const docGenerations = pgTable(
   "doc_generations",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    projectId: uuid("project_id")
+    repositoryId: uuid("repository_id")
       .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+      .references(() => repositories.id, { onDelete: "cascade" }),
     status: docGenerationStatus("status").notNull().default("pending"),
     // Commit documentato da questa generazione; null finché il job non lo fissa.
     commitSha: text("commit_sha"),
@@ -889,8 +934,8 @@ export const docGenerations = pgTable(
     finishedAt: timestamp("finished_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  // Le generazioni si elencano sempre per progetto (storico, prune).
-  (table) => [index("doc_generations_project_idx").on(table.projectId)],
+  // Le generazioni si elencano sempre per repository (storico, prune).
+  (table) => [index("doc_generations_project_idx").on(table.repositoryId)],
 );
 
 /**
@@ -907,9 +952,9 @@ export const docAutoUpdateJobs = pgTable(
   "doc_auto_update_jobs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    projectId: uuid("project_id")
+    repositoryId: uuid("repository_id")
       .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+      .references(() => repositories.id, { onDelete: "cascade" }),
     // Commit da cui calcolare il diff: la documentazione è ferma qui.
     fromSha: text("from_sha").notNull(),
     // Head dell'ultimo push accumulato: la documentazione va portata fin qui.
@@ -922,8 +967,8 @@ export const docAutoUpdateJobs = pgTable(
       .defaultNow()
       .$onUpdate(() => new Date()),
   },
-  // Un solo job pending per progetto: il webhook fa upsert su questo vincolo.
-  (table) => [uniqueIndex("doc_auto_update_jobs_project_unique").on(table.projectId)],
+  // Un solo job pending per repository: il webhook fa upsert su questo vincolo.
+  (table) => [uniqueIndex("doc_auto_update_jobs_project_unique").on(table.repositoryId)],
 );
 
 /**
@@ -947,9 +992,9 @@ export const docPages = pgTable(
   "doc_pages",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    projectId: uuid("project_id")
+    repositoryId: uuid("repository_id")
       .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+      .references(() => repositories.id, { onDelete: "cascade" }),
     // Generazione di appartenenza; null per le pagine manuali (non rigenerate).
     // Cascata: una generazione rimossa porta via le sue pagine autogenerate.
     generationId: uuid("generation_id").references(() => docGenerations.id, {
@@ -983,16 +1028,16 @@ export const docPages = pgTable(
     ),
   },
   (table) => [
-    index("doc_pages_project_idx").on(table.projectId),
+    index("doc_pages_project_idx").on(table.repositoryId),
     index("doc_pages_generation_idx").on(table.generationId),
     // Slug univoco per generazione (pagine autogenerate): generazioni diverse
     // condividono gli stessi slug deterministici, ma una generazione non può
     // avere due pagine con lo stesso slug.
     uniqueIndex("doc_pages_generation_slug_unique").on(table.generationId, table.slug),
-    // Slug univoco per progetto SOLO tra le pagine manuali (generation_id null):
+    // Slug univoco per repository SOLO tra le pagine manuali (generation_id null):
     // indice parziale, non collide con gli slug autogenerati.
     uniqueIndex("doc_pages_manual_slug_unique")
-      .on(table.projectId, table.slug)
+      .on(table.repositoryId, table.slug)
       .where(sql`generation_id IS NULL`),
     // Ricerca full-text sul vettore generato.
     index("doc_pages_search_tsv_idx").using("gin", table.searchTsv),
@@ -1012,9 +1057,9 @@ export const docChunks = pgTable(
     pageId: uuid("page_id")
       .notNull()
       .references(() => docPages.id, { onDelete: "cascade" }),
-    projectId: uuid("project_id")
+    repositoryId: uuid("repository_id")
       .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+      .references(() => repositories.id, { onDelete: "cascade" }),
     // Generazione di appartenenza; null per chunk di pagine manuali. Cascata.
     generationId: uuid("generation_id").references(() => docGenerations.id, {
       onDelete: "cascade",
@@ -1025,12 +1070,12 @@ export const docChunks = pgTable(
     tokenCount: integer("token_count"),
   },
   (table) => [
-    // I chunk si filtrano sempre per progetto nel retrieval (single-project v1).
-    index("doc_chunks_project_idx").on(table.projectId),
-    // Il retrieval filtra per (progetto, generazione corrente) prima
+    // I chunk si filtrano sempre per repository nel retrieval (per-repo v1).
+    index("doc_chunks_project_idx").on(table.repositoryId),
+    // Il retrieval filtra per (repository, generazione corrente) prima
     // dell'ordinamento <=>: l'HNSW non può portare questa uguaglianza, serve
     // un btree dedicato.
-    index("doc_chunks_project_generation_idx").on(table.projectId, table.generationId),
+    index("doc_chunks_project_generation_idx").on(table.repositoryId, table.generationId),
   ],
 );
 
@@ -1045,9 +1090,9 @@ export const docGenerationJobs = pgTable(
   "doc_generation_jobs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    projectId: uuid("project_id")
+    repositoryId: uuid("repository_id")
       .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+      .references(() => repositories.id, { onDelete: "cascade" }),
     generationId: uuid("generation_id").references(() => docGenerations.id, {
       onDelete: "set null",
     }),
@@ -1068,8 +1113,8 @@ export const docGenerationJobs = pgTable(
     index("doc_generation_jobs_queued_created_at_idx")
       .on(table.createdAt)
       .where(sql`status = 'queued'`),
-    // Lookup dei job di un progetto (storico, serializzazione per-progetto).
-    index("doc_generation_jobs_project_idx").on(table.projectId),
+    // Lookup dei job di un repository (storico, serializzazione per-repository).
+    index("doc_generation_jobs_project_idx").on(table.repositoryId),
   ],
 );
 
@@ -1089,9 +1134,9 @@ export const docNodes = pgTable(
     generationId: uuid("generation_id")
       .notNull()
       .references(() => docGenerations.id, { onDelete: "cascade" }),
-    projectId: uuid("project_id")
+    repositoryId: uuid("repository_id")
       .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+      .references(() => repositories.id, { onDelete: "cascade" }),
     // Genitore nel DAG; soft self-ref (radici = null), niente FK per ordine.
     parentId: uuid("parent_id"),
     tree: docTree("tree").notNull(),
@@ -1134,16 +1179,16 @@ export const docChatSessions = pgTable(
   "doc_chat_sessions",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    projectId: uuid("project_id")
+    repositoryId: uuid("repository_id")
       .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+      .references(() => repositories.id, { onDelete: "cascade" }),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  // Le sessioni si elencano per progetto.
-  (table) => [index("doc_chat_sessions_project_idx").on(table.projectId)],
+  // Le sessioni si elencano per repository.
+  (table) => [index("doc_chat_sessions_project_idx").on(table.repositoryId)],
 );
 
 /**
@@ -1179,9 +1224,9 @@ export const docSearchHistory = pgTable(
   "doc_search_history",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    projectId: uuid("project_id")
+    repositoryId: uuid("repository_id")
       .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+      .references(() => repositories.id, { onDelete: "cascade" }),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -1195,16 +1240,16 @@ export const docSearchHistory = pgTable(
     clickedAt: timestamp("clicked_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    // Una sola voce per (utente, progetto, slug): target dell'upsert.
+    // Una sola voce per (utente, repository, slug): target dell'upsert.
     uniqueIndex("doc_search_history_user_project_slug_unique").on(
       table.userId,
-      table.projectId,
+      table.repositoryId,
       table.slug,
     ),
-    // Cronologia recente di un utente in un progetto: i click più nuovi prima.
+    // Cronologia recente di un utente in un repository: i click più nuovi prima.
     index("doc_search_history_recent_idx").on(
       table.userId,
-      table.projectId,
+      table.repositoryId,
       table.clickedAt.desc(),
     ),
   ],

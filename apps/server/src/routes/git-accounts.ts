@@ -1,6 +1,6 @@
 import { gitAccountSchema, gitProviderKindSchema } from "@stubwise/shared";
 import { GitProviderError, getProvider } from "@stubwise/git";
-import { decrypt, encrypt, gitAccounts, projects } from "@stubwise/db";
+import { decrypt, encrypt, gitAccounts, repositories } from "@stubwise/db";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -209,15 +209,15 @@ export async function gitAccountRoutes(instance: FastifyInstance): Promise<void>
       },
     },
     async (request, reply) => {
-      // 409 se almeno un progetto usa l'account: la FK è ON DELETE RESTRICT,
+      // 409 se almeno un repository usa l'account: la FK è ON DELETE RESTRICT,
       // ma controlliamo prima per dare un messaggio chiaro invece di un 500.
       const [used] = await app.db
-        .select({ id: projects.id })
-        .from(projects)
-        .where(eq(projects.gitAccountId, request.params.id))
+        .select({ id: repositories.id })
+        .from(repositories)
+        .where(eq(repositories.gitAccountId, request.params.id))
         .limit(1);
       if (used) {
-        return apiError(reply, 409, "git_account_in_use", "Git account in use by one or more projects: unlink it before deleting");
+        return apiError(reply, 409, "git_account_in_use", "Git account in use by one or more repositories: unlink it before deleting");
       }
       const deleted = await app.db
         .delete(gitAccounts)

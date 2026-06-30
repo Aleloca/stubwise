@@ -35,6 +35,7 @@ import { ingestRoutes } from "./routes/ingest.js";
 import { milestoneRoutes } from "./routes/milestones.js";
 import { projectEnvFileRoutes } from "./routes/project-env-files.js";
 import { projectRoutes } from "./routes/projects.js";
+import { repositoryRoutes } from "./routes/repositories.js";
 import { savedViewRoutes } from "./routes/saved-views.js";
 import { settingsRoutes } from "./routes/settings.js";
 import type { RateLimitConfig } from "./routes/shared.js";
@@ -319,8 +320,15 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Account git riutilizzabili (credenziali slegate dal progetto): lettura per
   // ogni utente (scelta in fase di creazione progetto), scrittura solo admin.
   void app.register(gitAccountRoutes, { prefix: "/api/git-accounts" });
+  // Progetti (gruppi): CRUD del raggruppamento product-level (ticket/milestone)
+  // con le impostazioni di prodotto (provider AI, auto-update docs).
   void app.register(projectRoutes, { prefix: "/api/projects" });
-  void app.register(projectEnvFileRoutes, { prefix: "/api/projects" });
+  // Repository: il singolo repo git (ex "progetto") con setup git, branch,
+  // webhook, ingestion, docs. Appartiene sempre a un progetto.
+  void app.register(repositoryRoutes, { prefix: "/api/repositories" });
+  // File d'ambiente, materializzati nel worktree del repo: sono repository-level
+  // (il parametro :id dell'URL è il repositoryId).
+  void app.register(projectEnvFileRoutes, { prefix: "/api/repositories" });
   void app.register(ticketRoutes, { prefix: "/api/tickets" });
   // Documentazione (non-chat): trigger/stato generazione, hub spazi, albero,
   // pagina, CRUD pagine manuali. Path interni completi (es.

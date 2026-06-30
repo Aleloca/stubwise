@@ -10,6 +10,7 @@ import {
   encrypt,
   instanceSettings,
   projects,
+  repositories,
   tickets,
   users,
 } from "@stubwise/db";
@@ -98,13 +99,20 @@ async function createProject(name: string): Promise<string> {
     throw new Error(`account git: ${accountRes.statusCode} ${accountRes.body}`);
   }
   const gitAccountId = (accountRes.json() as { id: string }).id;
+  // Progetto (gruppo) sotto cui creare il repository. La modale Slack lavora a
+  // livello di repository (ticket bersaglio e docs sono per-repo): l'id
+  // restituito è il repositoryId.
+  const [group] = await testDb.db
+    .insert(projects)
+    .values({ name: `${name} — gruppo`, slug: `gruppo-${randomBytes(4).toString("hex")}` })
+    .returning({ id: projects.id });
   const res = await app.inject({
     method: "POST",
-    url: "/api/projects",
+    url: "/api/repositories",
     headers: { cookie: adminCookie },
-    payload: { name, gitAccountId, repoUrl: `https://github.com/acme/${name}` },
+    payload: { projectId: group!.id, name, gitAccountId, repoUrl: `https://github.com/acme/${name}` },
   });
-  if (res.statusCode !== 201) throw new Error(`progetto: ${res.statusCode} ${res.body}`);
+  if (res.statusCode !== 201) throw new Error(`repository: ${res.statusCode} ${res.body}`);
   return (res.json() as { id: string }).id;
 }
 
@@ -121,7 +129,7 @@ async function seedDocsForProject(
   const [gen] = await db
     .insert(docGenerations)
     .values({
-      projectId: pid,
+      repositoryId: pid,
       status: "succeeded",
       commitSha: randomBytes(4).toString("hex"),
       trigger: "manual",
@@ -130,12 +138,12 @@ async function seedDocsForProject(
     })
     .returning();
   if (!gen) throw new Error("insert generazione non ha restituito la riga");
-  await db.update(projects).set({ currentDocGenerationId: gen.id }).where(eq(projects.id, pid));
+  await db.update(repositories).set({ currentDocGenerationId: gen.id }).where(eq(repositories.id, pid));
 
   const [row] = await db
     .insert(docPages)
     .values({
-      projectId: pid,
+      repositoryId: pid,
       generationId: gen.id,
       kind: "technical",
       slug: page.slug,
@@ -149,7 +157,7 @@ async function seedDocsForProject(
   const [vector] = await embeddingClient.embed([page.content]);
   await db.insert(docChunks).values({
     pageId: row.id,
-    projectId: pid,
+    repositoryId: pid,
     generationId: gen.id,
     content: page.content,
     embedding: vector,
@@ -460,6 +468,42 @@ describe("POST /api/slack/commands — /docs", () => {
     expect(meta.slackUserId).toBe("Udocslinked");
   });
 
+  /** Estrae i `value` (repository id) delle option dello static_select progetto. */
+  function selectOptionValues(view: unknown): string[] {
+    const blocks = (view as { blocks?: unknown[] }).blocks ?? [];
+    for (const b of blocks) {
+      const el = (b as { element?: { type?: string; options?: { value: string }[] } }).element;
+      if (el?.type === "static_select") return (el.options ?? []).map((o) => o.value);
+    }
+    return [];
+  }
+
+  it("il selettore elenca SOLO i repository con documentazione (esclude quelli senza)", async () => {
+    await testDb.db
+      .update(users)
+      .set({ slackUserId: "Udocslinked" })
+      .where(eq(users.id, reporterUserId));
+
+    // Un repository CON docs e uno SENZA: solo il primo deve comparire fra le option.
+    const withDocs = await createProject(`sel-with-${randomUUID().slice(0, 8)}`);
+    await seedDocsForProject(testDb.db, withDocs, {
+      title: "Pagina sel",
+      slug: `sel-page-${randomUUID().slice(0, 8)}`,
+      content: "Contenuto del repository documentato.",
+    });
+    const withoutDocs = await createProject(`sel-without-${randomUUID().slice(0, 8)}`);
+
+    const res = await slackPost(
+      "/api/slack/commands",
+      "command=%2Fdocs&trigger_id=TRIGSEL&user_id=Udocslinked&channel_id=C1&response_url=https%3A%2F%2Fhooks.slack.com%2Fsel",
+    );
+    expect(res.statusCode).toBe(200);
+    const [, view] = openView.mock.calls[0]!;
+    const values = selectOptionValues(view);
+    expect(values).toContain(withDocs);
+    expect(values).not.toContain(withoutDocs);
+  });
+
   it("comando con namespace (/stubwise:docs) → apre comunque il modale Docs", async () => {
     await testDb.db
       .update(users)
@@ -511,7 +555,7 @@ describe("POST /api/slack/interactions — view_submission", () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toBe("");
 
-    const rows = await testDb.db.select().from(tickets).where(eq(tickets.projectId, projectId));
+    const rows = await testDb.db.select().from(tickets).where(eq(tickets.repositoryId, projectId));
     const created = rows.find((t) => t.title === "Bottone rotto");
     expect(created).toBeDefined();
     expect(created!.source).toBe("slack");
@@ -647,7 +691,7 @@ describe("POST /api/slack/interactions — view_submission", () => {
   });
 
   it("campi mancanti → response_action errors, nessun ticket creato", async () => {
-    const before = await testDb.db.select().from(tickets).where(eq(tickets.projectId, projectId));
+    const before = await testDb.db.select().from(tickets).where(eq(tickets.repositoryId, projectId));
     // Titolo assente.
     const body = viewSubmissionBody({ projectId, type: "bug" });
     const res = await slackPost("/api/slack/interactions", body);
@@ -656,7 +700,7 @@ describe("POST /api/slack/interactions — view_submission", () => {
     expect(json.response_action).toBe("errors");
     expect(json.errors[BLOCK_IDS.title]).toBeTruthy();
 
-    const after = await testDb.db.select().from(tickets).where(eq(tickets.projectId, projectId));
+    const after = await testDb.db.select().from(tickets).where(eq(tickets.repositoryId, projectId));
     expect(after.length).toBe(before.length);
   });
 
@@ -749,6 +793,42 @@ describe("POST /api/slack/interactions — view_submission docs_query", () => {
     expect(flat).toContain("Risposta dai docs.");
     expect(flat).toContain(`${PUBLIC_URL}/docs/${pid}/${slug}`);
     expect(flat).toContain("Come si configura");
+  });
+
+  it("due repository con docs: la risposta è scopata al repository SELEZIONATO (non all'altro)", async () => {
+    await linkSubmitter();
+    // Repo A (selezionato) e repo B: ciascuno con la propria pagina. Il retrieval
+    // RAG deve restare nel repo selezionato, quindi citare solo la pagina di A.
+    const pidA = await createProject(`isoA-${randomUUID().slice(0, 8)}`);
+    const slugA = `iso-a-${randomUUID().slice(0, 8)}`;
+    await seedDocsForProject(testDb.db, pidA, {
+      title: "Pagina del repo A",
+      slug: slugA,
+      content: "Per configurare il deploy del repo A apri il pannello deploy.",
+    });
+    const pidB = await createProject(`isoB-${randomUUID().slice(0, 8)}`);
+    const slugB = `iso-b-${randomUUID().slice(0, 8)}`;
+    await seedDocsForProject(testDb.db, pidB, {
+      title: "Pagina del repo B",
+      slug: slugB,
+      content: "Per configurare il deploy del repo B apri il pannello deploy.",
+    });
+
+    const body = docsSubmissionBody({
+      projectId: pidA,
+      question: "Come si configura il deploy?",
+      meta: { responseUrl: RESPONSE_URL, channelId: "C9", slackUserId: META_USER },
+    });
+    const res = await slackPost("/api/slack/interactions", body);
+    expect(res.statusCode).toBe(200);
+
+    await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
+    const [, payload] = postResponse.mock.calls[0]!;
+    const flat = JSON.stringify((payload as { blocks: unknown[] }).blocks);
+    // La citazione punta al repo A selezionato; la pagina di B non compare.
+    expect(flat).toContain(`${PUBLIC_URL}/docs/${pidA}/${slugA}`);
+    expect(flat).not.toContain(slugB);
+    expect(flat).not.toContain(`/docs/${pidB}/`);
   });
 
   it("domanda mancante → response_action errors, nessuna POST", async () => {

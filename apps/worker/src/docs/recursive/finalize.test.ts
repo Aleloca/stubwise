@@ -5,9 +5,10 @@ import {
   docNodes,
   docPages,
   projects,
+  repositories,
   type Db,
 } from "@stubwise/db";
-import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { createFakeEmbeddingClient, FAKE_EMBEDDING_DIMENSION } from "@stubwise/embeddings";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -35,7 +36,6 @@ interface Links {
 }
 
 let testDb: TestDb;
-let uniq = 0;
 
 beforeAll(async () => {
   testDb = await startTestDb();
@@ -49,23 +49,9 @@ afterAll(async () => {
   await testDb.stop();
 });
 
-async function createProject(db: Db): Promise<string> {
-  uniq++;
-  const gitAccountId = await seedGitAccount(db);
-  const [project] = await db
-    .insert(projects)
-    .values({
-      name: `Fin ${uniq}`,
-      slug: `fin-${uniq}`,
-      provider: "github",
-      gitAccountId,
-      repoUrl: "https://github.com/acme/fin",
-      defaultBranch: "main",
-      ingestionKey: `ingestion-fin-${uniq}`,
-    })
-    .returning();
-  if (!project) throw new Error("insert del progetto non ha restituito la riga");
-  return project.id;
+async function createRepository(db: Db): Promise<string> {
+  const { repositoryId } = await seedRepository(db);
+  return repositoryId;
 }
 
 interface InsertNodeOptions {
@@ -98,14 +84,14 @@ function longBody(label: string): string {
 async function insertNode(
   db: Db,
   generationId: string,
-  projectId: string,
+  repositoryId: string,
   opts: InsertNodeOptions,
 ): Promise<DocNode> {
   const [node] = await db
     .insert(docNodes)
     .values({
       generationId,
-      projectId,
+      repositoryId,
       parentId: opts.parentId ?? null,
       tree: opts.tree,
       status: opts.status ?? "done",
@@ -129,11 +115,11 @@ async function insertNode(
  * `succeeded` quando la finalizzazione gira (l'orientamento lo chiude al seed del DAG):
  * la finalizzazione NON lo tocca più. Lo seminiamo `succeeded` per riflettere la realtà.
  */
-async function insertTrigger(db: Db, projectId: string, generationId: string): Promise<string> {
+async function insertTrigger(db: Db, repositoryId: string, generationId: string): Promise<string> {
   const [job] = await db
     .insert(docGenerationJobs)
     .values({
-      projectId,
+      repositoryId,
       generationId,
       status: "succeeded",
       startedAt: new Date(),
@@ -157,9 +143,9 @@ async function insertTrigger(db: Db, projectId: string, generationId: string): P
 async function seedCompleteDag(
   db: Db,
   generationId: string,
-  projectId: string,
+  repositoryId: string,
 ): Promise<void> {
-  const techRoot = await insertNode(db, generationId, projectId, {
+  const techRoot = await insertNode(db, generationId, repositoryId, {
     tree: "technical",
     depth: 0,
     title: "Architecture",
@@ -167,7 +153,7 @@ async function seedCompleteDag(
     body: longBody("Architecture"),
     cost: "0.10",
   });
-  const apiLayer = await insertNode(db, generationId, projectId, {
+  const apiLayer = await insertNode(db, generationId, repositoryId, {
     tree: "technical",
     parentId: techRoot.id,
     depth: 1,
@@ -177,7 +163,7 @@ async function seedCompleteDag(
     sourcePaths: ["apps/server"],
     cost: "0.05",
   });
-  await insertNode(db, generationId, projectId, {
+  await insertNode(db, generationId, repositoryId, {
     tree: "technical",
     parentId: apiLayer.id,
     depth: 2,
@@ -188,7 +174,7 @@ async function seedCompleteDag(
     cost: "0.02",
   });
 
-  const fnRoot = await insertNode(db, generationId, projectId, {
+  const fnRoot = await insertNode(db, generationId, repositoryId, {
     tree: "functional",
     depth: 0,
     title: "Capabilities",
@@ -196,7 +182,7 @@ async function seedCompleteDag(
     body: longBody("Capabilities"),
     cost: "0.08",
   });
-  await insertNode(db, generationId, projectId, {
+  await insertNode(db, generationId, repositoryId, {
     tree: "functional",
     parentId: fnRoot.id,
     depth: 1,
@@ -212,10 +198,10 @@ function deps(db: Db): FinalizeGenerationDeps {
   return { db, embeddingClient: createFakeEmbeddingClient() };
 }
 
-async function newGeneration(db: Db, projectId: string, cost?: string): Promise<string> {
+async function newGeneration(db: Db, repositoryId: string, cost?: string): Promise<string> {
   const [gen] = await db
     .insert(docGenerations)
-    .values({ projectId, status: "running", model: "opus", cost })
+    .values({ repositoryId, status: "running", model: "opus", cost })
     .returning();
   if (!gen) throw new Error("insert della generazione non ha restituito la riga");
   return gen.id;
@@ -224,10 +210,10 @@ async function newGeneration(db: Db, projectId: string, cost?: string): Promise<
 describe("finalizeGeneration", () => {
   it("proietta il DAG in pagine annidate + chunk, risolve implements + related, fa lo swap e completa il trigger", async () => {
     const { db } = testDb;
-    const projectId = await createProject(db);
-    const generationId = await newGeneration(db, projectId, "0.20");
-    await seedCompleteDag(db, generationId, projectId);
-    const triggerId = await insertTrigger(db, projectId, generationId);
+    const repositoryId = await createRepository(db);
+    const generationId = await newGeneration(db, repositoryId, "0.20");
+    await seedCompleteDag(db, generationId, repositoryId);
+    const triggerId = await insertTrigger(db, repositoryId, generationId);
 
     const outcome = await finalizeGeneration(deps(db), generationId);
     expect(outcome).toBe("succeeded");
@@ -274,8 +260,11 @@ describe("finalizeGeneration", () => {
     }
 
     // SWAP del puntatore corrente.
-    const [projAfter] = await db.select().from(projects).where(eq(projects.id, projectId));
-    expect(projAfter?.currentDocGenerationId).toBe(generationId);
+    const [repoAfter] = await db
+      .select()
+      .from(repositories)
+      .where(eq(repositories.id, repositoryId));
+    expect(repoAfter?.currentDocGenerationId).toBe(generationId);
 
     // Generazione succeeded con stats + costo aggregato (base 0.20 + costi nodi).
     const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.id, generationId));
@@ -299,16 +288,16 @@ describe("finalizeGeneration", () => {
 
   it("allRootsDone è true solo quando ENTRAMBE le radici sono done", async () => {
     const { db } = testDb;
-    const projectId = await createProject(db);
-    const generationId = await newGeneration(db, projectId);
+    const repositoryId = await createRepository(db);
+    const generationId = await newGeneration(db, repositoryId);
 
-    const r1 = await insertNode(db, generationId, projectId, {
+    const r1 = await insertNode(db, generationId, repositoryId, {
       tree: "technical",
       status: "awaiting_children",
       title: "T",
       slug: "t-root",
     });
-    await insertNode(db, generationId, projectId, {
+    await insertNode(db, generationId, repositoryId, {
       tree: "functional",
       status: "awaiting_children",
       title: "F",
@@ -330,17 +319,17 @@ describe("finalizeGeneration", () => {
 
   it("un nodo failed è saltato dalle pagine ma non blocca la finalizzazione", async () => {
     const { db } = testDb;
-    const projectId = await createProject(db);
-    const generationId = await newGeneration(db, projectId);
+    const repositoryId = await createRepository(db);
+    const generationId = await newGeneration(db, repositoryId);
 
-    const techRoot = await insertNode(db, generationId, projectId, {
+    const techRoot = await insertNode(db, generationId, repositoryId, {
       tree: "technical",
       title: "Arch",
       slug: "arch",
       body: longBody("Arch"),
     });
     // Figlio FAILED (saltato dalla proiezione).
-    await insertNode(db, generationId, projectId, {
+    await insertNode(db, generationId, repositoryId, {
       tree: "technical",
       parentId: techRoot.id,
       depth: 1,
@@ -349,13 +338,13 @@ describe("finalizeGeneration", () => {
       slug: "broken",
       error: "boom",
     });
-    await insertNode(db, generationId, projectId, {
+    await insertNode(db, generationId, repositoryId, {
       tree: "functional",
       title: "Caps",
       slug: "caps",
       body: longBody("Caps"),
     });
-    const triggerId = await insertTrigger(db, projectId, generationId);
+    const triggerId = await insertTrigger(db, repositoryId, generationId);
 
     const outcome = await finalizeGeneration(deps(db), generationId);
     expect(outcome).toBe("succeeded");
@@ -377,20 +366,20 @@ describe("finalizeGeneration", () => {
 
   it("failGenerationOnRestart: generazione running + nodi non-done + trigger → failed (C3)", async () => {
     const { db } = testDb;
-    const projectId = await createProject(db);
-    const generationId = await newGeneration(db, projectId);
+    const repositoryId = await createRepository(db);
+    const generationId = await newGeneration(db, repositoryId);
 
     // Un DAG a metà: una radice awaiting_children, un figlio exploring (in volo), un
     // figlio già done. Il trigger è ancora running (caso reale: l'orientamento aveva
     // chiuso il trigger succeeded, ma testiamo che un trigger residuo running venga
     // chiuso comunque).
-    const root = await insertNode(db, generationId, projectId, {
+    const root = await insertNode(db, generationId, repositoryId, {
       tree: "technical",
       status: "awaiting_children",
       title: "Root",
       slug: "root",
     });
-    const exploring = await insertNode(db, generationId, projectId, {
+    const exploring = await insertNode(db, generationId, repositoryId, {
       tree: "technical",
       parentId: root.id,
       depth: 1,
@@ -398,7 +387,7 @@ describe("finalizeGeneration", () => {
       title: "In volo",
       slug: "in-volo",
     });
-    const doneChild = await insertNode(db, generationId, projectId, {
+    const doneChild = await insertNode(db, generationId, repositoryId, {
       tree: "technical",
       parentId: root.id,
       depth: 1,
@@ -408,7 +397,7 @@ describe("finalizeGeneration", () => {
     });
     const [trigger] = await db
       .insert(docGenerationJobs)
-      .values({ projectId, generationId, status: "running", startedAt: new Date() })
+      .values({ repositoryId, generationId, status: "running", startedAt: new Date() })
       .returning();
 
     const reason = "riavvio worker";
@@ -441,19 +430,19 @@ describe("finalizeGeneration", () => {
 
   it("prune: tiene corrente + precedente, evince le più vecchie (cascade)", async () => {
     const { db } = testDb;
-    const projectId = await createProject(db);
+    const repositoryId = await createRepository(db);
 
     // Due generazioni vecchie già succeeded.
     const [oldest] = await db
       .insert(docGenerations)
-      .values({ projectId, status: "succeeded", createdAt: new Date(Date.now() - 20_000) })
+      .values({ repositoryId, status: "succeeded", createdAt: new Date(Date.now() - 20_000) })
       .returning();
     const [previous] = await db
       .insert(docGenerations)
-      .values({ projectId, status: "succeeded", createdAt: new Date(Date.now() - 10_000) })
+      .values({ repositoryId, status: "succeeded", createdAt: new Date(Date.now() - 10_000) })
       .returning();
     await db.insert(docPages).values({
-      projectId,
+      repositoryId,
       generationId: oldest!.id,
       kind: "technical",
       slug: "old",
@@ -461,14 +450,14 @@ describe("finalizeGeneration", () => {
     });
 
     // Nuova generazione finalizzata (la più recente).
-    const generationId = await newGeneration(db, projectId);
-    await insertNode(db, generationId, projectId, { tree: "technical", title: "A", slug: "a", body: longBody("A") });
-    await insertNode(db, generationId, projectId, { tree: "functional", title: "B", slug: "b", body: longBody("B") });
-    await insertTrigger(db, projectId, generationId);
+    const generationId = await newGeneration(db, repositoryId);
+    await insertNode(db, generationId, repositoryId, { tree: "technical", title: "A", slug: "a", body: longBody("A") });
+    await insertNode(db, generationId, repositoryId, { tree: "functional", title: "B", slug: "b", body: longBody("B") });
+    await insertTrigger(db, repositoryId, generationId);
 
     await finalizeGeneration(deps(db), generationId);
 
-    const remaining = await db.select().from(docGenerations).where(eq(docGenerations.projectId, projectId));
+    const remaining = await db.select().from(docGenerations).where(eq(docGenerations.repositoryId, repositoryId));
     const ids = new Set(remaining.map((g) => g.id));
     expect(ids.has(generationId)).toBe(true); // corrente
     expect(ids.has(previous!.id)).toBe(true); // precedente

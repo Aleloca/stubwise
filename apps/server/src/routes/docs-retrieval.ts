@@ -12,7 +12,7 @@
 
 import { and, eq, isNull, or, sql } from "drizzle-orm";
 import type { EmbeddingClient } from "@stubwise/embeddings";
-import { docChunks, docPages, projects } from "@stubwise/db";
+import { docChunks, docPages, repositories } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 
 /**
@@ -52,13 +52,13 @@ function toVectorLiteral(vector: number[]): string {
  */
 function scopeFilter(
   table: typeof docChunks | typeof docPages,
-  projectId: string,
+  repositoryId: string,
   currentGenerationId: string | null,
 ) {
   const genFilter = currentGenerationId
     ? or(eq(table.generationId, currentGenerationId), isNull(table.generationId))
     : isNull(table.generationId);
-  return and(eq(table.projectId, projectId), genFilter);
+  return and(eq(table.repositoryId, repositoryId), genFilter);
 }
 
 /** Logger minimale (sottoinsieme di pino/`request.log`) per i warning del retrieval. */
@@ -119,19 +119,19 @@ const MIN_CHUNK_OVERFETCH = 40;
 export async function retrieveChunks(
   db: Db,
   embeddingClient: EmbeddingClient,
-  projectId: string,
+  repositoryId: string,
   query: string,
   options: RetrieveChunksOptions = {},
 ): Promise<RetrievedChunk[]> {
   const k = options.k ?? 10;
   const logger = options.logger;
 
-  // Generazione corrente del progetto: definisce lo scope di entrambe le query.
-  const [project] = await db
-    .select({ currentDocGenerationId: projects.currentDocGenerationId })
-    .from(projects)
-    .where(eq(projects.id, projectId));
-  const currentGenerationId = project?.currentDocGenerationId ?? null;
+  // Generazione corrente del repository: definisce lo scope di entrambe le query.
+  const [repository] = await db
+    .select({ currentDocGenerationId: repositories.currentDocGenerationId })
+    .from(repositories)
+    .where(eq(repositories.id, repositoryId));
+  const currentGenerationId = repository?.currentDocGenerationId ?? null;
 
   // --- 1) Retrieval semantico ------------------------------------------------
   // Tutta la gamba semantica (embed + query coseno) è racchiusa in try/catch:
@@ -167,7 +167,7 @@ export async function retrieveChunks(
       .innerJoin(docPages, eq(docChunks.pageId, docPages.id))
       .where(
         and(
-          scopeFilter(docChunks, projectId, currentGenerationId),
+          scopeFilter(docChunks, repositoryId, currentGenerationId),
           sql`${docChunks.embedding} IS NOT NULL`,
         ),
       )
@@ -201,7 +201,7 @@ export async function retrieveChunks(
     // Fallback: niente semantico, prosegue il solo full-text sotto.
     const log = logger ?? console;
     log.warn(
-      { err: error, projectId },
+      { err: error, repositoryId },
       "retrieval semantico non disponibile (embedding fallito); fallback full-text-only",
     );
   }
@@ -228,7 +228,7 @@ export async function retrieveChunks(
       snippet: sql<string>`ts_headline('english', ${docPages.body}, ${tsq}, 'MaxFragments=1,MaxWords=40,MinWords=15')`,
     })
     .from(docPages)
-    .where(and(scopeFilter(docPages, projectId, currentGenerationId), sql`${docPages.searchTsv} @@ ${tsq}`))
+    .where(and(scopeFilter(docPages, repositoryId, currentGenerationId), sql`${docPages.searchTsv} @@ ${tsq}`))
     .orderBy(sql`ts_rank_cd(${docPages.searchTsv}, ${tsq}, 32) DESC`)
     .limit(k);
 

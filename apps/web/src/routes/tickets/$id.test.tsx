@@ -52,6 +52,7 @@ const milestonesFixture: MilestoneWithCounts[] = [
 const ticketFixture: Ticket = {
   id: TICKET_ID,
   projectId: PROJECT_ID,
+  repositoryId: null,
   number: 7,
   title: "TypeError al checkout",
   body: "Il bottone **Paga ora** lancia un'eccezione.",

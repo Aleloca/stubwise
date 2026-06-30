@@ -1,8 +1,8 @@
-import { projects, type Db } from "@stubwise/db";
+import { projects, repositories, type Db } from "@stubwise/db";
 import { eq } from "drizzle-orm";
 import type { AgentRunner } from "../agent/runner.js";
 import type { MirrorManager } from "../git/mirrors.js";
-import type { ProjectSerializer } from "../handler.js";
+import type { RepositorySerializer } from "../handler.js";
 import {
   loadProviderById,
   loadProviderChain,
@@ -14,7 +14,7 @@ import { completeDocJob, failDocJob, type DocJob } from "./queue.js";
 
 /**
  * Wiring del TRIGGER di doc-generation per runWorker (M7): handler(job) =
- * runOrientation, accodato alla catena per-progetto CONDIVISA con l'handler fix.
+ * runOrientation, accodato alla catena per-repository CONDIVISA con l'handler fix.
  *
  * Il trigger di documentazione avvia l'ORIENTAMENTO (M5a): apre il worktree di
  * generazione, lo registra nel registro in-processo (i job-nodo lo riusano), semina le
@@ -23,16 +23,16 @@ import { completeDocJob, failDocJob, type DocJob } from "./queue.js";
  * finalizzazione; lo stato "generazione in corso" vive su `doc_generations`, NON sul
  * trigger (che è già concluso).
  *
- * SERIALIZZAZIONE: l'orientamento gira nella catena per-progetto (serializer condiviso)
+ * SERIALIZZAZIONE: l'orientamento gira nella catena per-repository (serializer condiviso)
  * — fa `ensureMirror` + apre il worktree, e NON deve sovrapporsi a un fix dello stesso
- * progetto (il fetch --prune del fix cancellerebbe il ref). Una volta seminato il DAG e
+ * repository (il fetch --prune del fix cancellerebbe il ref). Una volta seminato il DAG e
  * REGISTRATO il worktree, la catena si libera: da quel momento la mutua esclusione
- * col fix è retta dal registro (activeProjectIds → il loop non reclama fix di quel
- * progetto finché il worktree è aperto, vedi node-dispatch/queue.ts).
+ * col fix è retta dal registro (activeRepositoryIds → il loop non reclama fix di quel
+ * repository finché il worktree è aperto, vedi node-dispatch/queue.ts).
  *
- * GUARDIA NUOVA-GENERAZIONE: se il progetto ha GIÀ una generazione attiva NON se ne avvia
+ * GUARDIA NUOVA-GENERAZIONE: se il repository ha GIÀ una generazione attiva NON se ne avvia
  * una seconda — aprirebbe un secondo worktree concorrente sullo stesso mirror. Due
- * livelli: (1) qui il guard IN-PROCESSO del registro (`activeProjectIds`) come fast-path
+ * livelli: (1) qui il guard IN-PROCESSO del registro (`activeRepositoryIds`) come fast-path
  * — difesa in profondità che si azzera al riavvio; (2) dentro runOrientation il guard DB
  * AUTORITATIVO (`hasRunningGeneration`), che persiste tra i riavvii. In entrambi i casi
  * il trigger è `succeeded`-skip (nessun errore: una generazione è già in corso).
@@ -60,8 +60,8 @@ export interface DocHandlerDeps {
    * loadProviderChain. La PRIMA voce della catena è la credenziale usata. */
   loadProviderChainFn?: (db: Db, encryptionKey: Buffer) => Promise<ResolvedProvider[]>;
   /** Risolutore di UN provider per id (iniettabile nei test). Default:
-   * loadProviderById. Usato quando il progetto ha un provider AI impostato
-   * (`aiProviderId`): se ritorna null la generazione è annullata, MAI fallback. */
+   * loadProviderById. Usato quando il PROGETTO del repository ha un provider AI
+   * impostato (`aiProviderId`): se ritorna null la generazione è annullata, MAI fallback. */
   loadProviderByIdFn?: (
     db: Db,
     encryptionKey: Buffer,
@@ -71,32 +71,33 @@ export interface DocHandlerDeps {
 
 /**
  * Crea l'handler del trigger doc-generation per runWorker. `serializer` è la catena
- * per-progetto, la STESSA dell'handler fix (passata da index.ts): è ciò che
- * garantisce la serializzazione orientamento↔fix sullo stesso progetto.
+ * per-repository, la STESSA dell'handler fix (passata da index.ts): è ciò che
+ * garantisce la serializzazione orientamento↔fix sullo stesso repository.
  */
 export function createDocHandler(
   deps: DocHandlerDeps,
-  serializer: ProjectSerializer,
+  serializer: RepositorySerializer,
 ): (job: DocJob) => Promise<void> {
   return function handler(job: DocJob): Promise<void> {
-    // Il doc-job porta già il projectId: niente join, si accoda direttamente
-    // alla catena del progetto.
-    return serializer.run(job.projectId, async () => {
+    // Il doc-job porta già il repositoryId: niente join, si accoda direttamente
+    // alla catena del repository.
+    return serializer.run(job.repositoryId, async () => {
       // GUARDIA IN-PROCESSO (difesa in profondità): niente seconda generazione
-      // concorrente sullo stesso progetto se il registro ha già un worktree aperto. È un
+      // concorrente sullo stesso repository se il registro ha già un worktree aperto. È un
       // fast-path che evita perfino di aprire il mirror; il check AUTORITATIVO (che
       // sopravvive al riavvio del worker) è la guardia DB dentro runOrientation
       // (hasRunningGeneration). Qui marco il trigger `succeeded`-skip senza errore: una
       // generazione è già in corso, il trigger ha fatto il suo dovere.
-      if (deps.registry.activeProjectIds().has(job.projectId)) {
+      if (deps.registry.activeRepositoryIds().has(job.repositoryId)) {
         await completeDocJob(deps.db, job.id, {
-          log: "[docs] una generazione è già attiva per questo progetto (worktree aperto, guard in-processo): trigger ignorato",
+          log: "[docs] una generazione è già attiva per questo repository (worktree aperto, guard in-processo): trigger ignorato",
         });
         return;
       }
 
       // Scelta della credenziale AI dell'INTERA generazione. La FONTE è il provider AI
-      // del PROGETTO (`projects.aiProviderId`), non più il job.
+      // del PROGETTO del repository (`projects.aiProviderId` via repositories.projectId),
+      // non più il job.
       //  - Con `aiProviderId` impostato (provider BLOCCATO a livello di progetto):
       //    risolviamo SOLO quel provider. Se non è risolvibile al run (disabilitato/
       //    cancellato/segreto non decifrabile → loadProviderById = null) la generazione è
@@ -107,8 +108,9 @@ export function createDocHandler(
       //    container.
       const [project] = await deps.db
         .select({ aiProviderId: projects.aiProviderId })
-        .from(projects)
-        .where(eq(projects.id, job.projectId));
+        .from(repositories)
+        .innerJoin(projects, eq(projects.id, repositories.projectId))
+        .where(eq(repositories.id, job.repositoryId));
       const aiProviderId = project?.aiProviderId ?? null;
 
       let provider: ResolvedProvider | undefined;

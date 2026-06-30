@@ -11,11 +11,11 @@ import {
   docChunks,
   docGenerations,
   docPages,
-  projects,
+  repositories,
 } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedGitAccount, startTestDb } from "@stubwise/db/testing";
+import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
@@ -62,33 +62,20 @@ let app: FastifyInstance;
 let adminCookie: string;
 let memberCookie: string;
 
-let projectSeq = 0;
-
 async function insertProject(db: Db): Promise<{ id: string; slug: string }> {
-  projectSeq++;
-  const slug = `docs-chat-proj-${projectSeq}`;
-  const gitAccountId = await seedGitAccount(db);
-  const [project] = await db
-    .insert(projects)
-    .values({
-      name: `Docs Chat Project ${projectSeq}`,
-      slug,
-      provider: "github",
-      gitAccountId,
-      repoUrl: "https://github.com/acme/demo",
-      defaultBranch: "main",
-      ingestionKey: `ingestion-${slug}`,
-    })
-    .returning();
-  if (!project) throw new Error("insert del progetto non ha restituito la riga");
-  return { id: project.id, slug: project.slug };
+  const { repositoryId } = await seedRepository(db);
+  const [repository] = await db
+    .select({ slug: repositories.slug })
+    .from(repositories)
+    .where(eq(repositories.id, repositoryId));
+  return { id: repositoryId, slug: repository!.slug };
 }
 
 async function insertCurrentGeneration(db: Db, projectId: string): Promise<string> {
   const [gen] = await db
     .insert(docGenerations)
     .values({
-      projectId,
+      repositoryId: projectId,
       status: "succeeded",
       commitSha: randomBytes(4).toString("hex"),
       trigger: "manual",
@@ -97,7 +84,10 @@ async function insertCurrentGeneration(db: Db, projectId: string): Promise<strin
     })
     .returning();
   if (!gen) throw new Error("insert della generazione non ha restituito la riga");
-  await db.update(projects).set({ currentDocGenerationId: gen.id }).where(eq(projects.id, projectId));
+  await db
+    .update(repositories)
+    .set({ currentDocGenerationId: gen.id })
+    .where(eq(repositories.id, projectId));
   return gen.id;
 }
 
@@ -113,7 +103,7 @@ async function insertPageWithChunk(
   const [row] = await db
     .insert(docPages)
     .values({
-      projectId,
+      repositoryId: projectId,
       generationId,
       kind: "technical",
       slug: `chat-page-${pageSeq}`,
@@ -127,7 +117,7 @@ async function insertPageWithChunk(
   const [vector] = await embeddingClient.embed([page.chunkContent]);
   await db.insert(docChunks).values({
     pageId: row.id,
-    projectId,
+    repositoryId: projectId,
     generationId,
     content: page.chunkContent,
     embedding: vector,
@@ -167,7 +157,7 @@ beforeEach(() => {
   availabilityOverride = null;
 });
 
-describe("POST /api/projects/:projectId/docs/chat", () => {
+describe("POST /api/repositories/:projectId/docs/chat", () => {
   it("nuova sessione: stremma i delta + done con citazioni, persiste sessione e 2 messaggi", async () => {
     const project = await insertProject(testDb.db);
     const genId = await insertCurrentGeneration(testDb.db, project.id);
@@ -181,7 +171,7 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
 
     const res = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/chat`,
+      url: `/api/repositories/${project.id}/docs/chat`,
       headers: { cookie: memberCookie },
       payload: { message: question },
     });
@@ -201,7 +191,7 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
     const sessions = await testDb.db
       .select()
       .from(docChatSessions)
-      .where(eq(docChatSessions.projectId, project.id));
+      .where(eq(docChatSessions.repositoryId, project.id));
     expect(sessions.length).toBe(1);
     // Il `done` echeggia il sessionId creato: il client lo persiste per il
     // multi-turn (riusa la stessa sessione nei turni successivi).
@@ -234,7 +224,7 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
 
     const res = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/chat`,
+      url: `/api/repositories/${project.id}/docs/chat`,
       headers: { cookie: memberCookie },
       payload: { message: distinctive },
     });
@@ -256,7 +246,7 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
 
     const res = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/chat`,
+      url: `/api/repositories/${project.id}/docs/chat`,
       headers: { cookie: memberCookie },
       payload: { message: "Una domanda qualsiasi senza contesto rilevante." },
     });
@@ -280,7 +270,7 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
     // Prima chiamata: crea la sessione.
     const first = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/chat`,
+      url: `/api/repositories/${project.id}/docs/chat`,
       headers: { cookie: memberCookie },
       payload: { message: "Prima domanda." },
     });
@@ -288,13 +278,13 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
     const [session] = await testDb.db
       .select()
       .from(docChatSessions)
-      .where(eq(docChatSessions.projectId, project.id));
+      .where(eq(docChatSessions.repositoryId, project.id));
     expect(session).toBeDefined();
 
     // Seconda chiamata con lo stesso sessionId: nessuna nuova sessione, +2 messaggi.
     const second = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/chat`,
+      url: `/api/repositories/${project.id}/docs/chat`,
       headers: { cookie: memberCookie },
       payload: { sessionId: session!.id, message: "Seconda domanda." },
     });
@@ -303,7 +293,7 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
     const sessions = await testDb.db
       .select()
       .from(docChatSessions)
-      .where(eq(docChatSessions.projectId, project.id));
+      .where(eq(docChatSessions.repositoryId, project.id));
     expect(sessions.length).toBe(1);
 
     const messages = await testDb.db
@@ -320,7 +310,7 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
     // Sessione creata dal member.
     const created = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/chat`,
+      url: `/api/repositories/${project.id}/docs/chat`,
       headers: { cookie: memberCookie },
       payload: { message: "Domanda del member." },
     });
@@ -328,12 +318,12 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
     const [session] = await testDb.db
       .select()
       .from(docChatSessions)
-      .where(eq(docChatSessions.projectId, project.id));
+      .where(eq(docChatSessions.repositoryId, project.id));
 
     // L'admin prova a usare la sessione del member → 404.
     const res = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/chat`,
+      url: `/api/repositories/${project.id}/docs/chat`,
       headers: { cookie: adminCookie },
       payload: { sessionId: session!.id, message: "Intrusione." },
     });
@@ -347,7 +337,7 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
 
     const created = await app.inject({
       method: "POST",
-      url: `/api/projects/${projectA.id}/docs/chat`,
+      url: `/api/repositories/${projectA.id}/docs/chat`,
       headers: { cookie: memberCookie },
       payload: { message: "Domanda nel progetto A." },
     });
@@ -355,12 +345,12 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
     const [session] = await testDb.db
       .select()
       .from(docChatSessions)
-      .where(eq(docChatSessions.projectId, projectA.id));
+      .where(eq(docChatSessions.repositoryId, projectA.id));
 
     // Stessa sessione, ma sotto projectB → 404.
     const res = await app.inject({
       method: "POST",
-      url: `/api/projects/${projectB.id}/docs/chat`,
+      url: `/api/repositories/${projectB.id}/docs/chat`,
       headers: { cookie: memberCookie },
       payload: { sessionId: session!.id, message: "Cross-project." },
     });
@@ -370,7 +360,7 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
   it("progetto inesistente: 404", async () => {
     const res = await app.inject({
       method: "POST",
-      url: "/api/projects/00000000-0000-0000-0000-000000000000/docs/chat",
+      url: "/api/repositories/00000000-0000-0000-0000-000000000000/docs/chat",
       headers: { cookie: memberCookie },
       payload: { message: "ciao" },
     });
@@ -386,7 +376,7 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
 
     const res = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/chat`,
+      url: `/api/repositories/${project.id}/docs/chat`,
       headers: { cookie: memberCookie },
       payload: { message: "Una domanda con chat indisponibile." },
     });
@@ -401,7 +391,7 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
     const sessions = await testDb.db
       .select()
       .from(docChatSessions)
-      .where(eq(docChatSessions.projectId, project.id));
+      .where(eq(docChatSessions.repositoryId, project.id));
     expect(sessions.length).toBe(0);
   });
 
@@ -409,7 +399,7 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
     const project = await insertProject(testDb.db);
     const res = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/chat`,
+      url: `/api/repositories/${project.id}/docs/chat`,
       payload: { message: "ciao" },
     });
     expect(res.statusCode).toBe(401);
@@ -419,7 +409,7 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
     const project = await insertProject(testDb.db);
     const res = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/chat`,
+      url: `/api/repositories/${project.id}/docs/chat`,
       headers: { cookie: memberCookie },
       payload: { message: "" },
     });
@@ -448,7 +438,7 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
 
     const res = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/chat`,
+      url: `/api/repositories/${project.id}/docs/chat`,
       headers: { cookie: memberCookie },
       payload: { message: question },
     });
@@ -470,7 +460,7 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
     const [session] = await testDb.db
       .select()
       .from(docChatSessions)
-      .where(eq(docChatSessions.projectId, project.id));
+      .where(eq(docChatSessions.repositoryId, project.id));
     const messages = await testDb.db
       .select()
       .from(docChatMessages)
@@ -496,7 +486,7 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
 
     const res = await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/chat`,
+      url: `/api/repositories/${project.id}/docs/chat`,
       headers: { cookie: memberCookie },
       payload: { message: "Domanda che fallisce subito." },
     });
@@ -510,7 +500,7 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
     const [session] = await testDb.db
       .select()
       .from(docChatSessions)
-      .where(eq(docChatSessions.projectId, project.id));
+      .where(eq(docChatSessions.repositoryId, project.id));
     const messages = await testDb.db
       .select()
       .from(docChatMessages)
@@ -520,21 +510,21 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
   });
 });
 
-describe("GET /api/projects/:projectId/docs/chat/sessions[/:id/messages]", () => {
+describe("GET /api/repositories/:projectId/docs/chat/sessions[/:id/messages]", () => {
   it("elenca le sessioni dell'utente e i loro messaggi", async () => {
     const project = await insertProject(testDb.db);
     await insertCurrentGeneration(testDb.db, project.id);
 
     await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/chat`,
+      url: `/api/repositories/${project.id}/docs/chat`,
       headers: { cookie: memberCookie },
       payload: { message: "Domanda per lo storico." },
     });
 
     const sessionsRes = await app.inject({
       method: "GET",
-      url: `/api/projects/${project.id}/docs/chat/sessions`,
+      url: `/api/repositories/${project.id}/docs/chat/sessions`,
       headers: { cookie: memberCookie },
     });
     expect(sessionsRes.statusCode).toBe(200);
@@ -543,7 +533,7 @@ describe("GET /api/projects/:projectId/docs/chat/sessions[/:id/messages]", () =>
 
     const messagesRes = await app.inject({
       method: "GET",
-      url: `/api/projects/${project.id}/docs/chat/sessions/${sessions[0]!.id}/messages`,
+      url: `/api/repositories/${project.id}/docs/chat/sessions/${sessions[0]!.id}/messages`,
       headers: { cookie: memberCookie },
     });
     expect(messagesRes.statusCode).toBe(200);
@@ -560,18 +550,18 @@ describe("GET /api/projects/:projectId/docs/chat/sessions[/:id/messages]", () =>
     await insertCurrentGeneration(testDb.db, project.id);
     await app.inject({
       method: "POST",
-      url: `/api/projects/${project.id}/docs/chat`,
+      url: `/api/repositories/${project.id}/docs/chat`,
       headers: { cookie: memberCookie },
       payload: { message: "Domanda member." },
     });
     const [session] = await testDb.db
       .select()
       .from(docChatSessions)
-      .where(eq(docChatSessions.projectId, project.id));
+      .where(eq(docChatSessions.repositoryId, project.id));
 
     const res = await app.inject({
       method: "GET",
-      url: `/api/projects/${project.id}/docs/chat/sessions/${session!.id}/messages`,
+      url: `/api/repositories/${project.id}/docs/chat/sessions/${session!.id}/messages`,
       headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(404);

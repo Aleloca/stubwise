@@ -1,9 +1,8 @@
-import { randomBytes } from "node:crypto";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { encrypt, projectEnvFiles, projectEnvVars, projects } from "@stubwise/db";
-import { startTestDb, seedGitAccount, type TestDb } from "@stubwise/db/testing";
+import { encrypt, projectEnvFiles, projectEnvVars } from "@stubwise/db";
+import { startTestDb, seedRepository, type TestDb } from "@stubwise/db/testing";
 import { parseDotenv } from "@stubwise/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -27,35 +26,19 @@ afterAll(async () => {
   await t?.stop();
 });
 
-let projectSeq = 0;
-
-async function seedProject(): Promise<string> {
-  projectSeq++;
-  const gitAccountId = await seedGitAccount(t.db);
-  const [row] = await t.db
-    .insert(projects)
-    .values({
-      name: `Progetto env ${projectSeq}`,
-      slug: `progetto-env-${projectSeq}-${randomBytes(4).toString("hex")}`,
-      provider: "github",
-      gitAccountId,
-      repoUrl: "https://example.com/repo.git",
-      defaultBranch: "main",
-      ingestionKey: randomBytes(8).toString("hex"),
-    })
-    .returning();
-  if (!row) throw new Error("insert del progetto di test non ha restituito la riga");
-  return row.id;
+async function seedRepositoryRow(): Promise<string> {
+  const { repositoryId } = await seedRepository(t.db);
+  return repositoryId;
 }
 
 async function seedFile(
-  projectId: string,
+  repositoryId: string,
   path: string,
   vars: { key: string; valueEncrypted: string }[],
 ): Promise<void> {
   const [file] = await t.db
     .insert(projectEnvFiles)
-    .values({ projectId, path })
+    .values({ repositoryId, path })
     .returning();
   if (!file) throw new Error("insert del file env di test non ha restituito la riga");
   if (vars.length > 0) {
@@ -67,16 +50,16 @@ async function seedFile(
 
 describe("loadProjectEnvFiles", () => {
   it("decifra correttamente le variabili di tutti i file, ordinati per path", async () => {
-    const projectId = await seedProject();
-    await seedFile(projectId, "apps/web/.env", [
+    const repositoryId = await seedRepositoryRow();
+    await seedFile(repositoryId, "apps/web/.env", [
       { key: "API_URL", valueEncrypted: encrypt("https://api.example.com", KEY) },
     ]);
-    await seedFile(projectId, ".env", [
+    await seedFile(repositoryId, ".env", [
       { key: "DATABASE_URL", valueEncrypted: encrypt("postgres://x", KEY) },
       { key: "SECRET", valueEncrypted: encrypt("s3cr3t", KEY) },
     ]);
 
-    const loaded = await loadProjectEnvFiles(t.db, projectId, KEY);
+    const loaded = await loadProjectEnvFiles(t.db, repositoryId, KEY);
 
     // Ordinati per path: ".env" prima di "apps/web/.env".
     expect(loaded.map((f) => f.path)).toEqual([".env", "apps/web/.env"]);
@@ -88,15 +71,15 @@ describe("loadProjectEnvFiles", () => {
   });
 
   it("salta una var non decifrabile e tiene le altre, senza lanciare", async () => {
-    const projectId = await seedProject();
-    await seedFile(projectId, ".env", [
+    const repositoryId = await seedRepositoryRow();
+    await seedFile(repositoryId, ".env", [
       { key: "OK", valueEncrypted: encrypt("buono", KEY) },
       // Cifrata con un'altra chiave: la decifratura con KEY fallisce.
       { key: "BAD", valueEncrypted: encrypt("cattivo", OTHER_KEY) },
       { key: "OK2", valueEncrypted: encrypt("buono2", KEY) },
     ]);
 
-    const loaded = await loadProjectEnvFiles(t.db, projectId, KEY);
+    const loaded = await loadProjectEnvFiles(t.db, repositoryId, KEY);
 
     expect(loaded).toHaveLength(1);
     expect(loaded[0]?.vars).toEqual([
@@ -106,8 +89,8 @@ describe("loadProjectEnvFiles", () => {
   });
 
   it("ritorna [] per un progetto senza file env", async () => {
-    const projectId = await seedProject();
-    const loaded = await loadProjectEnvFiles(t.db, projectId, KEY);
+    const repositoryId = await seedRepositoryRow();
+    const loaded = await loadProjectEnvFiles(t.db, repositoryId, KEY);
     expect(loaded).toEqual([]);
   });
 });

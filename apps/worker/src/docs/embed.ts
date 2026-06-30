@@ -37,7 +37,7 @@ export interface EmbeddablePage {
 }
 
 export interface EmbedAndStoreInput<P extends EmbeddablePage> {
-  projectId: string;
+  repositoryId: string;
   generationId: string;
   pages: P[];
   /** Tetto di input per chiamata `embed()` (vedi `EMBED_BATCH_SIZE`). */
@@ -121,7 +121,7 @@ export async function embedAndStoreChunks<P extends EmbeddablePage>(
   await db.insert(docChunks).values(
     all.map((c) => ({
       pageId: c.page.id,
-      projectId: input.projectId,
+      repositoryId: input.repositoryId,
       generationId: input.generationId,
       content: c.content,
       embedding: c.embedding,

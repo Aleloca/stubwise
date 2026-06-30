@@ -44,7 +44,7 @@ test("primo setup: crea l'admin e atterra sulla lista ticket vuota", async () =>
 // stack e2e sono finte (GitHub non viene mai contattato alla creazione), quindi
 // l'account viene salvato e compare in lista. Le operazioni che decifrano e
 // usano davvero le credenziali (validate, elenco repo/branch) fallirebbero: per
-// questo la creazione del progetto usa il fallback manuale del wizard.
+// questo l'aggiunta del repository usa il fallback manuale del wizard.
 test("crea un account git dalla UI (Settings → Account Git)", async () => {
   // La sidebar porta a /settings, che reindirizza alla sotto-pagina Account.
   // Il nome accessibile del link di sidebar include la sigla ("SET Settings"):
@@ -73,18 +73,30 @@ test("crea un account git dalla UI (Settings → Account Git)", async () => {
   await expect(gitSection.getByText("GitHub")).toBeVisible();
 });
 
-// Creazione del progetto INTERAMENTE dalla UI tramite il wizard. Si sceglie
-// l'account git (preselezionato, unico) e si attende che il wizard tenti di
-// elencare i repository: con le credenziali finte dell'e2e quella chiamata
-// fallisce (4xx dal provider), il wizard mostra l'errore e rivela il FALLBACK
-// MANUALE (URL repository + branch a mano). Si completa la creazione da lì, così
-// l'intero flusso resta nella UI senza dipendere da un provider git reale.
-test("crea un progetto dal wizard (fallback manuale) e lo vede in lista", async () => {
+// Creazione del PROGETTO (gruppo) dalla UI: form inline nella lista progetti
+// che invia il solo nome. Sul 201 si atterra sul dettaglio del gruppo.
+test("crea un progetto (gruppo) dalla lista", async () => {
   await page.getByRole("link", { name: /PRJ projects/i }).click();
-  await expect(page.getByText("// no linked projects")).toBeVisible();
-  await page.getByRole("link", { name: /new project/i }).click();
+  await expect(page.getByText("// no projects")).toBeVisible();
+  await page.getByRole("button", { name: /new project/i }).click();
 
-  await expect(page.getByRole("heading", { name: "New project" })).toBeVisible();
+  await page.getByLabel("Project name").fill("Acme Platform");
+  await page.getByRole("button", { name: "Create project" }).click();
+
+  // Sul 201 si atterra sul dettaglio del progetto (gruppo, id nell'URL).
+  await expect(page).toHaveURL(/\/projects\/[0-9a-f-]{36}$/);
+  await expect(page.getByRole("heading", { name: "Acme Platform" })).toBeVisible();
+});
+
+// Aggiunta del REPOSITORY al progetto, INTERAMENTE dalla UI tramite il wizard.
+// Si sceglie l'account git (preselezionato, unico) e si attende che il wizard
+// tenti di elencare i repository: con le credenziali finte dell'e2e quella
+// chiamata fallisce (4xx dal provider), il wizard mostra l'errore e rivela il
+// FALLBACK MANUALE (URL repository + branch a mano). Si completa da lì.
+test("aggiunge un repository al progetto dal wizard (fallback manuale)", async () => {
+  await page.getByRole("link", { name: /add repository/i }).click();
+  await expect(page.getByRole("heading", { name: "Add a repository" })).toBeVisible();
+
   await page.getByLabel("Name", { exact: true }).fill("Demo Shop");
   // L'account "Account Demo" è preselezionato (unico). Il wizard tenta l'elenco
   // repo e, fallendo con le credenziali finte, scopre i campi manuali.
@@ -93,25 +105,22 @@ test("crea un progetto dal wizard (fallback manuale) e lo vede in lista", async 
   await repoUrl.fill("https://github.com/acme/demo-shop");
   const branch = page.getByLabel("Default branch");
   await branch.fill("main");
-  await page.getByRole("button", { name: "Create project" }).click();
+  await page.getByRole("button", { name: "Add repository" }).click();
 
-  // Sul 201 si atterra sul dettaglio del progetto.
-  await expect(page).toHaveURL(/\/projects\/demo-shop$/);
+  // Sul 201 si atterra sul dettaglio del repository.
+  await expect(page).toHaveURL(/\/repositories\/demo-shop$/);
   await expect(page.getByRole("heading", { name: "Demo Shop" })).toBeVisible();
-
-  // E nella lista progetti il nuovo progetto è presente. La sigla "PRJ" del
-  // link di sidebar lo distingue dal back-link di pagina ("← All projects").
-  await page.getByRole("link", { name: /PRJ projects/i }).click();
-  await expect(page.getByRole("link", { name: /demo shop/i })).toBeVisible();
 });
 
-test("crea un ticket dal dialog e lo ritrova in lista", async () => {
+test("crea un ticket dal dialog (col repository bersaglio) e lo ritrova in lista", async () => {
   await page.getByRole("link", { name: /TKT tickets/i }).click();
   await page.getByRole("button", { name: "New ticket" }).click();
 
   const dialog = page.getByRole("dialog", { name: "New ticket" });
   await dialog.getByLabel("Title").fill("Crash al checkout");
-  await dialog.getByLabel("Project").selectOption({ label: "Demo Shop" });
+  await dialog.getByLabel("Project").selectOption({ label: "Acme Platform" });
+  // Il repository bersaglio si popola dal progetto: si sceglie il repo "Demo Shop".
+  await dialog.getByLabel("Target repository").selectOption({ label: "Demo Shop" });
   await dialog.getByLabel("Type").selectOption("bug");
   await dialog.getByLabel("Priority").selectOption("high");
   await dialog.getByLabel("Description (optional)").fill("Il pagamento esplode al submit.");

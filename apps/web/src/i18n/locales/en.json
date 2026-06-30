@@ -21,7 +21,9 @@
       "docs": "Documentation",
       "label": "Navigation",
       "open": "Open navigation"
-    }
+    },
+    "on": "on",
+    "off": "off"
   },
   "errors": {
     "unauthorized": "Authentication required",
@@ -117,7 +119,8 @@
       "all": "All"
     },
     "row": {
-      "occurrences": "Deduplicated occurrences"
+      "occurrences": "Deduplicated occurrences",
+      "repository": "Target repository"
     },
     "editor": {
       "bold": "Bold",
@@ -141,7 +144,9 @@
       "descriptionPlaceholder": "Markdown supported…",
       "cancel": "Cancel",
       "submit": "Create ticket",
-      "submitPending": "Creating…"
+      "submitPending": "Creating…",
+      "repository": "Target repository",
+      "noRepositories": "This project has no repositories: add one from the project detail."
     },
     "detail": {
       "back": "← All tickets",
@@ -652,19 +657,66 @@
   "projects": {
     "list": {
       "title": "Projects",
-      "subtitle": "Linked repositories, ingestion keys and pipeline credentials.",
+      "subtitle": "Group repositories and configure the AI provider and product tickets.",
       "newProject": "New project",
-      "empty": "// no linked projects",
-      "emptyHintAdmin": "Create the first project to get an ingestion key.",
-      "emptyHintMember": "Ask an administrator to link the first repository.",
+      "newName": "Project name",
+      "newNamePlaceholder": "e.g. Acme Platform",
+      "create": "Create project",
+      "creating": "Creating…",
+      "cancel": "Cancel",
+      "empty": "// no projects",
+      "emptyHintAdmin": "Create the first project, then add its repositories.",
+      "emptyHintMember": "Ask an administrator to create the first project.",
+      "repositoryCount": "{{count}} repositories",
+      "repositoryCount_one": "{{count}} repository",
       "createdAt": "created {{date}}"
     },
     "detail": {
       "back": "← All projects",
+      "createdAt": "created",
+      "settings": "Project settings",
+      "saved": "Changes saved.",
+      "name": "Name",
+      "readOnlyHint": "// read-only: settings are changed by admins",
+      "repositories": "Repositories",
+      "addRepository": "+ Add repository",
+      "noRepositories": "// no repositories",
+      "noRepositoriesHintAdmin": "Add the first repository to get an ingestion key.",
+      "noRepositoriesHintMember": "Ask an administrator to link a repository.",
+      "dangerZone": "Danger zone",
+      "deleteProject": "Delete project",
+      "deleteConfirm": "Delete the project and ALL its repositories (tickets, docs, fixes)? This cannot be undone.",
+      "deleteConfirmYes": "Yes, delete",
+      "deleting": "Deleting…",
+      "cancel": "Cancel"
+    },
+    "form": {
+      "name": "Name",
+      "namePlaceholder": "e.g. Acme Platform",
+      "description": "Description (optional)",
+      "descriptionPlaceholder": "What this project is for…",
+      "docAutoUpdate": "Auto-update documentation on every push",
+      "docAutoUpdateHint": "// regenerates a repo's Docs when a push lands on its default branch.",
+      "aiProvider": "Project AI provider",
+      "aiProviderAuto": "Automatic (failover chain)",
+      "aiProviderHint": "// applies to Docs and fixes of all repositories; empty = chain of enabled providers.",
+      "save": "Save changes",
+      "saving": "Saving…"
+    },
+    "branchSelect": {
+      "label": "Default branch",
+      "loadFailed": "// unable to load branches: enter it manually.",
+      "loading": "// loading branches…"
+    }
+  },
+  "repositories": {
+    "detail": {
+      "back": "← Back to project",
       "branch": "branch",
       "createdAt": "created",
-      "configuredBanner": "✓ Project configured correctly",
-      "configuration": "Configuration",
+      "configuredBanner": "✓ Repository configured correctly",
+      "configuration": "Git configuration",
+      "openDocs": "Open documentation",
       "saved": "Changes saved.",
       "name": "Name",
       "repoUrl": "Repository URL",
@@ -673,11 +725,11 @@
       "status": "Status",
       "webhookConfiguredAt": "✓ Webhook configured on {{date}}",
       "webhookNotConfigured": "— Webhook not configured",
-      "readOnlyHint": "// read-only: the configuration is changed by admins"
+      "readOnlyHint": "// read-only: configuration is changed by admins"
     },
     "form": {
       "name": "Name",
-      "namePlaceholder": "E.g. Demo Shop",
+      "namePlaceholder": "e.g. Demo Shop",
       "repoUrl": "Repository URL",
       "gitAccount": "Git account",
       "credentialsHint": "// credentials live on the account: manage them in Settings → Git Accounts.",
@@ -685,19 +737,14 @@
       "testCommandHint": "// empty = auto-detect (package.json test script).",
       "installCommand": "Install command (optional)",
       "installCommandHint": "// empty = auto-detected from the lockfile.",
-      "docAutoUpdate": "Auto-update the documentation on every push",
-      "docAutoUpdateHint": "// regenerates the Docs when a push lands on the default branch.",
-      "aiProvider": "Project AI provider",
-      "aiProviderAuto": "Automatic (failover chain)",
-      "aiProviderHint": "// applies to Docs and fixes; empty = enabled providers chain in failover order.",
       "save": "Save changes",
       "saving": "Saving…"
     },
     "wizard": {
       "name": "Name",
-      "namePlaceholder": "E.g. Demo Shop",
-      "noGitAccount": "// no git accounts",
-      "createAccountFirstPrefix": "Create a git account first in ",
+      "namePlaceholder": "e.g. Demo Shop",
+      "noGitAccount": "// no git account",
+      "createAccountFirstPrefix": "First create a git account in ",
       "createAccountFirstLink": "Settings → Git Accounts",
       "createAccountFirstSuffix": ", then come back here to link it to a repository.",
       "gitAccount": "Git account",
@@ -707,31 +754,31 @@
       "searchRepoPlaceholder": "Filter by name…",
       "noRepoMatch": "// no repository matches",
       "default": "default",
-      "listReposFailed": "Unable to list the account repositories",
-      "manualHint": "// listing unavailable: enter URL and branch manually.",
+      "listReposFailed": "Could not list the account's repositories",
+      "manualHint": "// list unavailable: enter URL and branch manually.",
       "repoUrl": "Repository URL",
       "defaultBranch": "Default branch",
       "verifyAccess": "Verify repository access",
       "verifyHint1": "// advisory check of repo permissions (git push / PR / webhook).",
-      "verifyHint2": "// does not block creation: webhook config is optional.",
+      "verifyHint2": "// does not block creation: the webhook config is optional.",
       "verifying": "Verifying…",
-      "verifyError": "Error while verifying the repository",
+      "verifyError": "Error verifying the repository",
       "testCommand": "Test command (optional)",
       "testCommandHint": "// empty = auto-detect (package.json test script).",
       "installCommand": "Install command (optional)",
       "installCommandHint": "// empty = auto-detected from the lockfile.",
-      "submit": "Create project",
+      "submit": "Add repository",
       "submitting": "Creating…"
     },
     "branchSelect": {
       "label": "Default branch",
-      "loadFailed": "// unable to load branches: enter it manually.",
+      "loadFailed": "// could not load branches: enter it manually.",
       "loading": "// loading branches…"
     },
     "new": {
-      "back": "← All projects",
-      "title": "New project",
-      "subtitle": "Pick a git account, the repository and the branch: slug and ingestion key are generated on creation."
+      "back": "← Back to project",
+      "title": "Add a repository",
+      "subtitle": "Choose a git account, the repository and the branch: slug and ingestion key are generated on creation."
     }
   },
   "integration": {

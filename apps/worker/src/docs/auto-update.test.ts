@@ -7,6 +7,7 @@ import {
   encrypt,
   gitAccounts,
   projects,
+  repositories,
   type Db,
 } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
@@ -31,7 +32,7 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeAgentRunner } from "../agent/fake.js";
-import { createProjectSerializer } from "../handler.js";
+import { createRepositorySerializer } from "../handler.js";
 import { MirrorManager } from "../git/mirrors.js";
 import { isNoise, runAutoUpdate, type RunAutoUpdateDeps } from "./auto-update.js";
 import { pollAutoUpdateOnce } from "./auto-update-poller.js";
@@ -125,7 +126,10 @@ async function makeMirrors(): Promise<MirrorManager> {
   return new MirrorManager({ mirrorsDir: join(root, "mirrors") });
 }
 
-async function createProject(
+// Crea un progetto (gruppo) — con docAutoUpdate e l'eventuale aiProviderId, che ora
+// vivono sul gruppo — e un repository che vi appartiene. Ritorna il repositoryId
+// (l'auto-update è per repository; il provider AI è risolto dal progetto del repository).
+async function createRepository(
   db: Db,
   repoUrl: string,
   opts: { providerId?: string | null } = {},
@@ -138,6 +142,17 @@ async function createProject(
   const [project] = await db
     .insert(projects)
     .values({
+      name: `Gruppo ${uniq}`,
+      slug: `gruppo-${uniq}`,
+      docAutoUpdate: true,
+      ...(opts.providerId !== undefined ? { aiProviderId: opts.providerId } : {}),
+    })
+    .returning();
+  if (!project) throw new Error("insert del progetto non ha restituito la riga");
+  const [repository] = await db
+    .insert(repositories)
+    .values({
+      projectId: project.id,
       name: `Docs ${uniq}`,
       slug: `docs-${uniq}`,
       provider: "github",
@@ -145,27 +160,25 @@ async function createProject(
       repoUrl,
       defaultBranch: "main",
       ingestionKey: `ingestion-au-${uniq}`,
-      docAutoUpdate: true,
-      ...(opts.providerId !== undefined ? { aiProviderId: opts.providerId } : {}),
     })
     .returning();
-  if (!project) throw new Error("insert del progetto non ha restituito la riga");
-  return project.id;
+  if (!repository) throw new Error("insert del repository non ha restituito la riga");
+  return repository.id;
 }
 
 /** Crea una generazione corrente + una pagina, e la collega come currentDocGenerationId. */
 async function seedCurrentGeneration(
   db: Db,
-  projectId: string,
+  repositoryId: string,
   commitSha: string,
 ): Promise<{ generationId: string; pageSlug: string }> {
   const [gen] = await db
     .insert(docGenerations)
-    .values({ projectId, status: "succeeded", model: "opus", commitSha })
+    .values({ repositoryId, status: "succeeded", model: "opus", commitSha })
     .returning();
   const generationId = gen!.id;
   await db.insert(docPages).values({
-    projectId,
+    repositoryId,
     generationId,
     kind: "technical",
     slug: "app-module",
@@ -173,7 +186,10 @@ async function seedCurrentGeneration(
     sourcePath: "src",
     body: "La pagina del modulo app.",
   });
-  await db.update(projects).set({ currentDocGenerationId: generationId }).where(eq(projects.id, projectId));
+  await db
+    .update(repositories)
+    .set({ currentDocGenerationId: generationId })
+    .where(eq(repositories.id, repositoryId));
   return { generationId, pageSlug: "app-module" };
 }
 
@@ -190,13 +206,13 @@ interface SeedPage {
  */
 async function seedGenerationWithPages(
   db: Db,
-  projectId: string,
+  repositoryId: string,
   commitSha: string,
   pages: SeedPage[],
 ): Promise<{ generationId: string; pageIds: Record<string, string> }> {
   const [gen] = await db
     .insert(docGenerations)
-    .values({ projectId, status: "succeeded", model: "opus", commitSha })
+    .values({ repositoryId, status: "succeeded", model: "opus", commitSha })
     .returning();
   const generationId = gen!.id;
   const pageIds: Record<string, string> = {};
@@ -204,7 +220,7 @@ async function seedGenerationWithPages(
     const [row] = await db
       .insert(docPages)
       .values({
-        projectId,
+        repositoryId,
         generationId,
         kind: "technical",
         slug: p.slug,
@@ -216,9 +232,9 @@ async function seedGenerationWithPages(
     pageIds[p.slug] = row!.id;
   }
   await db
-    .update(projects)
+    .update(repositories)
     .set({ currentDocGenerationId: generationId })
-    .where(eq(projects.id, projectId));
+    .where(eq(repositories.id, repositoryId));
   return { generationId, pageIds };
 }
 
@@ -315,18 +331,18 @@ describe("runAutoUpdate", () => {
     const { db } = testDb;
     const upstream = await makeUpstream({ noiseOnly: true });
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, upstream.url);
+    const repositoryId = await createRepository(db, upstream.url);
 
     const runner = new FakeAgentRunner({ script: () => ({ output: SIGNIFICANT_OUTPUT, exitCode: 0 }) });
     await runAutoUpdate(baseDeps(db, mirrors, runner), {
       id: "job-1",
-      projectId,
+      repositoryId,
       fromSha: upstream.fromSha,
       toSha: upstream.toSha,
     });
 
     expect(runner.calls).toHaveLength(0);
-    const pages = await db.select().from(docPages).where(eq(docPages.projectId, projectId));
+    const pages = await db.select().from(docPages).where(eq(docPages.repositoryId, repositoryId));
     expect(pages).toHaveLength(0);
   });
 
@@ -334,13 +350,13 @@ describe("runAutoUpdate", () => {
     const { db } = testDb;
     const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, upstream.url);
-    const { generationId } = await seedCurrentGeneration(db, projectId, upstream.fromSha);
+    const repositoryId = await createRepository(db, upstream.url);
+    const { generationId } = await seedCurrentGeneration(db, repositoryId, upstream.fromSha);
 
     const runner = new FakeAgentRunner({ script: () => ({ output: SIGNIFICANT_OUTPUT, exitCode: 0 }) });
     await runAutoUpdate(baseDeps(db, mirrors, runner), {
       id: "job-2",
-      projectId,
+      repositoryId,
       fromSha: upstream.fromSha,
       toSha: upstream.toSha,
     });
@@ -357,7 +373,7 @@ describe("runAutoUpdate", () => {
     const releases = await db
       .select()
       .from(docPages)
-      .where(and(eq(docPages.projectId, projectId), eq(docPages.kind, "releases")));
+      .where(and(eq(docPages.repositoryId, repositoryId), eq(docPages.kind, "releases")));
     expect(releases).toHaveLength(1);
     const page = releases[0]!;
     expect(page.generationId).toBeNull();
@@ -378,12 +394,12 @@ describe("runAutoUpdate", () => {
     const { db } = testDb;
     const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, upstream.url);
+    const repositoryId = await createRepository(db, upstream.url);
 
     const runner = new FakeAgentRunner({ script: () => ({ output: MINOR_OUTPUT, exitCode: 0 }) });
     await runAutoUpdate(baseDeps(db, mirrors, runner), {
       id: "job-3",
-      projectId,
+      repositoryId,
       fromSha: upstream.fromSha,
       toSha: upstream.toSha,
     });
@@ -391,7 +407,7 @@ describe("runAutoUpdate", () => {
     const [page] = await db
       .select()
       .from(docPages)
-      .where(and(eq(docPages.projectId, projectId), eq(docPages.kind, "releases")));
+      .where(and(eq(docPages.repositoryId, repositoryId), eq(docPages.kind, "releases")));
     expect(page?.title).toBe("[minore] Refactor interno");
     expect(page?.links).toBeNull();
   });
@@ -412,17 +428,17 @@ describe("runAutoUpdate", () => {
         position: 0,
       })
       .returning();
-    const projectId = await createProject(db, upstream.url, { providerId: provider!.id });
+    const repositoryId = await createRepository(db, upstream.url, { providerId: provider!.id });
 
     const runner = new FakeAgentRunner({ script: () => ({ output: SIGNIFICANT_OUTPUT, exitCode: 0 }) });
     await runAutoUpdate(
       { ...baseDeps(db, mirrors, runner), loadProviderByIdFn: async () => null },
-      { id: "job-4", projectId, fromSha: upstream.fromSha, toSha: upstream.toSha },
+      { id: "job-4", repositoryId, fromSha: upstream.fromSha, toSha: upstream.toSha },
     );
 
     // Agente NON invocato, nessuna entry.
     expect(runner.calls).toHaveLength(0);
-    const pages = await db.select().from(docPages).where(eq(docPages.projectId, projectId));
+    const pages = await db.select().from(docPages).where(eq(docPages.repositoryId, repositoryId));
     expect(pages).toHaveLength(0);
   });
 
@@ -430,18 +446,18 @@ describe("runAutoUpdate", () => {
     const { db } = testDb;
     const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, upstream.url);
+    const repositoryId = await createRepository(db, upstream.url);
 
     const runner = new FakeAgentRunner({ script: () => ({ output: SIGNIFICANT_OUTPUT, exitCode: 0 }) });
     await runAutoUpdate(baseDeps(db, mirrors, runner), {
       id: "job-5",
-      projectId,
+      repositoryId,
       fromSha: "0".repeat(40),
       toSha: upstream.toSha,
     });
 
     expect(runner.calls).toHaveLength(0);
-    const pages = await db.select().from(docPages).where(eq(docPages.projectId, projectId));
+    const pages = await db.select().from(docPages).where(eq(docPages.repositoryId, repositoryId));
     expect(pages).toHaveLength(0);
   });
 });
@@ -451,10 +467,10 @@ describe("runAutoUpdate — rigenerazione mirata (Fase 2)", () => {
     const { db } = testDb;
     const upstream = await makeUpstream(); // cambia src/app.ts
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, upstream.url);
+    const repositoryId = await createRepository(db, upstream.url);
     const { generationId, pageIds } = await seedGenerationWithPages(
       db,
-      projectId,
+      repositoryId,
       upstream.fromSha,
       [{ slug: "app-module", title: "App Module", sourcePath: "src", body: "Vecchio corpo." }],
     );
@@ -463,7 +479,7 @@ describe("runAutoUpdate — rigenerazione mirata (Fase 2)", () => {
     // Pre-seed di un chunk vecchio per la pagina, così possiamo verificare il DELETE.
     await db.insert(docChunks).values({
       pageId,
-      projectId,
+      repositoryId,
       generationId,
       content: "vecchio chunk",
       embedding: new Array(1024).fill(0),
@@ -476,7 +492,7 @@ describe("runAutoUpdate — rigenerazione mirata (Fase 2)", () => {
     });
     await runAutoUpdate(baseDeps(db, mirrors, runner, { maxRefreshPages: 10 }), {
       id: "job-r1",
-      projectId,
+      repositoryId,
       fromSha: upstream.fromSha,
       toSha: upstream.toSha,
     });
@@ -505,7 +521,7 @@ describe("runAutoUpdate — rigenerazione mirata (Fase 2)", () => {
     const [release] = await db
       .select()
       .from(docPages)
-      .where(and(eq(docPages.projectId, projectId), eq(docPages.kind, "releases")));
+      .where(and(eq(docPages.repositoryId, repositoryId), eq(docPages.kind, "releases")));
     expect(release).toBeDefined();
     expect(release?.links).toEqual([
       { type: "related", slug: "app-module", title: "App Module" },
@@ -516,17 +532,17 @@ describe("runAutoUpdate — rigenerazione mirata (Fase 2)", () => {
     const { db } = testDb;
     const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, upstream.url);
+    const repositoryId = await createRepository(db, upstream.url);
     const { generationId, pageIds } = await seedGenerationWithPages(
       db,
-      projectId,
+      repositoryId,
       upstream.fromSha,
       [{ slug: "app-module", title: "App Module", sourcePath: "src", body: "Corpo originale." }],
     );
     const pageId = pageIds["app-module"]!;
     await db.insert(docChunks).values({
       pageId,
-      projectId,
+      repositoryId,
       generationId,
       content: "chunk originale",
       embedding: new Array(1024).fill(0),
@@ -539,7 +555,7 @@ describe("runAutoUpdate — rigenerazione mirata (Fase 2)", () => {
     });
     await runAutoUpdate(baseDeps(db, mirrors, runner, { maxRefreshPages: 10 }), {
       id: "job-r2",
-      projectId,
+      repositoryId,
       fromSha: upstream.fromSha,
       toSha: upstream.toSha,
     });
@@ -559,8 +575,8 @@ describe("runAutoUpdate — rigenerazione mirata (Fase 2)", () => {
     const { db } = testDb;
     const upstream = await makeUpstream(); // cambia solo src/app.ts
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, upstream.url);
-    const { pageIds } = await seedGenerationWithPages(db, projectId, upstream.fromSha, [
+    const repositoryId = await createRepository(db, upstream.url);
+    const { pageIds } = await seedGenerationWithPages(db, repositoryId, upstream.fromSha, [
       { slug: "app-module", title: "App Module", sourcePath: "src", body: "Vecchio app." },
       { slug: "other-module", title: "Other", sourcePath: "lib", body: "Corpo other." },
     ]);
@@ -570,7 +586,7 @@ describe("runAutoUpdate — rigenerazione mirata (Fase 2)", () => {
     });
     await runAutoUpdate(baseDeps(db, mirrors, runner, { maxRefreshPages: 10 }), {
       id: "job-r3",
-      projectId,
+      repositoryId,
       fromSha: upstream.fromSha,
       toSha: upstream.toSha,
     });
@@ -587,8 +603,8 @@ describe("runAutoUpdate — rigenerazione mirata (Fase 2)", () => {
     // Cambia src/app.ts (coperto da src) E un file non coperto da alcuna pagina.
     const upstream = await makeUpstream({ extraFiles: { "uncovered/thing.ts": "export const u = 1;\n" } });
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, upstream.url);
-    await seedGenerationWithPages(db, projectId, upstream.fromSha, [
+    const repositoryId = await createRepository(db, upstream.url);
+    await seedGenerationWithPages(db, repositoryId, upstream.fromSha, [
       { slug: "app-module", title: "App Module", sourcePath: "src", body: "Vecchio app." },
     ]);
 
@@ -597,7 +613,7 @@ describe("runAutoUpdate — rigenerazione mirata (Fase 2)", () => {
     });
     await runAutoUpdate(baseDeps(db, mirrors, runner, { maxRefreshPages: 10 }), {
       id: "job-r4",
-      projectId,
+      repositoryId,
       fromSha: upstream.fromSha,
       toSha: upstream.toSha,
     });
@@ -605,7 +621,7 @@ describe("runAutoUpdate — rigenerazione mirata (Fase 2)", () => {
     const [release] = await db
       .select()
       .from(docPages)
-      .where(and(eq(docPages.projectId, projectId), eq(docPages.kind, "releases")));
+      .where(and(eq(docPages.repositoryId, repositoryId), eq(docPages.kind, "releases")));
     expect(release?.body).toContain("Aree nuove non documentate");
     expect(release?.body).toContain("uncovered/thing.ts");
   });
@@ -614,8 +630,8 @@ describe("runAutoUpdate — rigenerazione mirata (Fase 2)", () => {
     const { db } = testDb;
     const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, upstream.url);
-    const { pageIds } = await seedGenerationWithPages(db, projectId, upstream.fromSha, [
+    const repositoryId = await createRepository(db, upstream.url);
+    const { pageIds } = await seedGenerationWithPages(db, repositoryId, upstream.fromSha, [
       { slug: "app-module", title: "App Module", sourcePath: "src", body: "Corpo intatto." },
     ]);
 
@@ -624,7 +640,7 @@ describe("runAutoUpdate — rigenerazione mirata (Fase 2)", () => {
     });
     await runAutoUpdate(baseDeps(db, mirrors, runner, { maxRefreshPages: 0 }), {
       id: "job-r5",
-      projectId,
+      repositoryId,
       fromSha: upstream.fromSha,
       toSha: upstream.toSha,
     });
@@ -639,7 +655,7 @@ describe("runAutoUpdate — rigenerazione mirata (Fase 2)", () => {
     const releases = await db
       .select()
       .from(docPages)
-      .where(and(eq(docPages.projectId, projectId), eq(docPages.kind, "releases")));
+      .where(and(eq(docPages.repositoryId, repositoryId), eq(docPages.kind, "releases")));
     expect(releases).toHaveLength(1);
   });
 
@@ -647,8 +663,8 @@ describe("runAutoUpdate — rigenerazione mirata (Fase 2)", () => {
     const { db } = testDb;
     const upstream = await makeUpstream({ extraFiles: { "lib/util.ts": "export const x = 9;\n" } });
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, upstream.url);
-    const { pageIds } = await seedGenerationWithPages(db, projectId, upstream.fromSha, [
+    const repositoryId = await createRepository(db, upstream.url);
+    const { pageIds } = await seedGenerationWithPages(db, repositoryId, upstream.fromSha, [
       { slug: "app-module", title: "App Module", sourcePath: "src", body: "Vecchio app." },
       { slug: "lib-module", title: "Lib Module", sourcePath: "lib", body: "Vecchio lib." },
     ]);
@@ -668,7 +684,7 @@ describe("runAutoUpdate — rigenerazione mirata (Fase 2)", () => {
     });
     await runAutoUpdate(baseDeps(db, mirrors, runner, { maxRefreshPages: 10 }), {
       id: "job-r6",
-      projectId,
+      repositoryId,
       fromSha: upstream.fromSha,
       toSha: upstream.toSha,
     });
@@ -682,7 +698,7 @@ describe("runAutoUpdate — rigenerazione mirata (Fase 2)", () => {
     const releases = await db
       .select()
       .from(docPages)
-      .where(and(eq(docPages.projectId, projectId), eq(docPages.kind, "releases")));
+      .where(and(eq(docPages.repositoryId, repositoryId), eq(docPages.kind, "releases")));
     expect(releases).toHaveLength(1);
   });
 });
@@ -692,18 +708,18 @@ describe("pollAutoUpdateOnce", () => {
     const { db } = testDb;
     const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, upstream.url);
+    const repositoryId = await createRepository(db, upstream.url);
 
     // Un pending scaduto (not_before nel passato).
     await db.insert(docAutoUpdateJobs).values({
-      projectId,
+      repositoryId,
       fromSha: upstream.fromSha,
       toSha: upstream.toSha,
       notBefore: new Date(Date.now() - 60_000),
     });
 
     const runner = new FakeAgentRunner({ script: () => ({ output: SIGNIFICANT_OUTPUT, exitCode: 0 }) });
-    const serializer = createProjectSerializer();
+    const serializer = createRepositorySerializer();
     const claimed = await pollAutoUpdateOnce({
       ...baseDeps(db, mirrors, runner),
       serializer,
@@ -716,7 +732,7 @@ describe("pollAutoUpdateOnce", () => {
     const releases = await db
       .select()
       .from(docPages)
-      .where(and(eq(docPages.projectId, projectId), eq(docPages.kind, "releases")));
+      .where(and(eq(docPages.repositoryId, repositoryId), eq(docPages.kind, "releases")));
     expect(releases).toHaveLength(1);
   });
 
@@ -724,10 +740,10 @@ describe("pollAutoUpdateOnce", () => {
     const { db } = testDb;
     const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, upstream.url);
+    const repositoryId = await createRepository(db, upstream.url);
 
     await db.insert(docAutoUpdateJobs).values({
-      projectId,
+      repositoryId,
       fromSha: upstream.fromSha,
       toSha: upstream.toSha,
       notBefore: new Date(Date.now() + 5 * 60_000),
@@ -736,7 +752,7 @@ describe("pollAutoUpdateOnce", () => {
     const runner = new FakeAgentRunner({ script: () => ({ output: SIGNIFICANT_OUTPUT, exitCode: 0 }) });
     const claimed = await pollAutoUpdateOnce({
       ...baseDeps(db, mirrors, runner),
-      serializer: createProjectSerializer(),
+      serializer: createRepositorySerializer(),
     });
     expect(claimed).toBe(0);
     expect(runner.calls).toHaveLength(0);
@@ -744,7 +760,7 @@ describe("pollAutoUpdateOnce", () => {
     const remaining = await db
       .select()
       .from(docAutoUpdateJobs)
-      .where(eq(docAutoUpdateJobs.projectId, projectId));
+      .where(eq(docAutoUpdateJobs.repositoryId, repositoryId));
     expect(remaining).toHaveLength(1);
   });
 });

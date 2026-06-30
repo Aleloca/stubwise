@@ -1,5 +1,5 @@
-import { agentRuns, aiJobs, comments, instanceSettings, projects, tickets, type Db } from "@stubwise/db";
-import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { agentRuns, aiJobs, comments, instanceSettings, tickets, type Db } from "@stubwise/db";
+import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -18,27 +18,14 @@ import { runTriage, type TriageDeps } from "./triage.js";
 
 let testDb: TestDb;
 let projectId: string;
+let repositoryId: string;
 let workDir: string;
 let nextNumber = 1;
 
 beforeAll(async () => {
   testDb = await startTestDb();
   workDir = await mkdtemp(join(tmpdir(), "stubwise-triage-test-"));
-  const gitAccountId = await seedGitAccount(testDb.db);
-  const [project] = await testDb.db
-    .insert(projects)
-    .values({
-      name: "Triage",
-      slug: "triage",
-      provider: "github",
-      gitAccountId,
-      repoUrl: "https://github.com/acme/triage",
-      defaultBranch: "main",
-      ingestionKey: "ingestion-triage",
-    })
-    .returning();
-  if (!project) throw new Error("insert del progetto non ha restituito la riga");
-  projectId = project.id;
+  ({ projectId, repositoryId } = await seedRepository(testDb.db));
 }, 120_000);
 
 afterEach(async () => {
@@ -78,6 +65,7 @@ async function createTicket(db: Db, overrides: TicketOverrides = {}): Promise<Ti
     .insert(tickets)
     .values({
       projectId,
+      repositoryId,
       number: nextNumber++,
       title: overrides.title ?? "Errore in produzione",
       type: "bug",

@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "./client.js";
-import { docChunks, docGenerations, docPages, docSearchHistory, projects, users } from "./schema.js";
-import { seedGitAccount, startTestDb, type TestDb } from "./testing.js";
+import { docChunks, docGenerations, docPages, docSearchHistory, users } from "./schema.js";
+import { seedRepository, startTestDb, type TestDb } from "./testing.js";
 
 /**
  * Verifica che la migrazione del dominio Docs (estensione pgvector + tabelle)
@@ -25,21 +25,8 @@ describe("schema: dominio Docs", () => {
   });
 
   async function seedProject(): Promise<string> {
-    const gitAccountId = await seedGitAccount(db);
-    const [project] = await db
-      .insert(projects)
-      .values({
-        name: "Progetto di test",
-        slug: `progetto-${randomUUID()}`,
-        provider: "github",
-        gitAccountId,
-        repoUrl: "https://example.com/repo.git",
-        defaultBranch: "main",
-        ingestionKey: randomUUID(),
-      })
-      .returning();
-    if (!project) throw new Error("insert del progetto non ha restituito la riga");
-    return project.id;
+    const { repositoryId } = await seedRepository(db);
+    return repositoryId;
   }
 
   async function seedUser(): Promise<string> {
@@ -56,14 +43,14 @@ describe("schema: dominio Docs", () => {
   }
 
   it("persiste una generazione (status default pending) e una pagina manuale (generationId null)", async () => {
-    const projectId = await seedProject();
-    const [gen] = await db.insert(docGenerations).values({ projectId }).returning();
+    const repositoryId = await seedProject();
+    const [gen] = await db.insert(docGenerations).values({ repositoryId }).returning();
     if (!gen) throw new Error("insert della generazione non ha restituito la riga");
 
     const [page] = await db
       .insert(docPages)
       .values({
-        projectId,
+        repositoryId,
         generationId: null,
         kind: "manual",
         slug: "guida",
@@ -81,58 +68,58 @@ describe("schema: dominio Docs", () => {
   });
 
   it("permette lo stesso slug a generazioni diverse ma lo vieta dentro una generazione", async () => {
-    const projectId = await seedProject();
-    const [gen1] = await db.insert(docGenerations).values({ projectId }).returning();
-    const [gen2] = await db.insert(docGenerations).values({ projectId }).returning();
+    const repositoryId = await seedProject();
+    const [gen1] = await db.insert(docGenerations).values({ repositoryId }).returning();
+    const [gen2] = await db.insert(docGenerations).values({ repositoryId }).returning();
     if (!gen1 || !gen2) throw new Error("insert delle generazioni non ha restituito la riga");
 
     // Stesso slug deterministico ("overview") in due generazioni diverse: OK.
     await db
       .insert(docPages)
-      .values({ projectId, generationId: gen1.id, kind: "technical", slug: "overview", title: "G1" });
+      .values({ repositoryId, generationId: gen1.id, kind: "technical", slug: "overview", title: "G1" });
     await db
       .insert(docPages)
-      .values({ projectId, generationId: gen2.id, kind: "technical", slug: "overview", title: "G2" });
+      .values({ repositoryId, generationId: gen2.id, kind: "technical", slug: "overview", title: "G2" });
 
     // Stesso slug DENTRO la stessa generazione: vietato (unique generation_id+slug).
     await expect(
       db
         .insert(docPages)
-        .values({ projectId, generationId: gen1.id, kind: "technical", slug: "overview", title: "dup" }),
+        .values({ repositoryId, generationId: gen1.id, kind: "technical", slug: "overview", title: "dup" }),
     ).rejects.toThrow();
   });
 
   it("mantiene unico lo slug tra le pagine manuali ma non collide con quelle autogenerate", async () => {
-    const projectId = await seedProject();
-    const [gen] = await db.insert(docGenerations).values({ projectId }).returning();
+    const repositoryId = await seedProject();
+    const [gen] = await db.insert(docGenerations).values({ repositoryId }).returning();
     if (!gen) throw new Error("insert della generazione non ha restituito la riga");
 
     // Una pagina autogenerata con slug "overview"...
     await db
       .insert(docPages)
-      .values({ projectId, generationId: gen.id, kind: "technical", slug: "overview", title: "auto" });
+      .values({ repositoryId, generationId: gen.id, kind: "technical", slug: "overview", title: "auto" });
     // ...non collide con una pagina manuale dello stesso slug (indice parziale).
     await db
       .insert(docPages)
-      .values({ projectId, generationId: null, kind: "manual", slug: "overview", title: "manuale", isManual: true });
+      .values({ repositoryId, generationId: null, kind: "manual", slug: "overview", title: "manuale", isManual: true });
 
     // Ma due pagine manuali con lo stesso slug nello stesso progetto: vietato.
     await expect(
       db
         .insert(docPages)
-        .values({ projectId, generationId: null, kind: "manual", slug: "overview", title: "dup", isManual: true }),
+        .values({ repositoryId, generationId: null, kind: "manual", slug: "overview", title: "dup", isManual: true }),
     ).rejects.toThrow();
   });
 
   it("inserisce un chunk con embedding a 1024 dim e fa ricerca per distanza coseno", async () => {
-    const projectId = await seedProject();
-    const [gen] = await db.insert(docGenerations).values({ projectId }).returning();
+    const repositoryId = await seedProject();
+    const [gen] = await db.insert(docGenerations).values({ repositoryId }).returning();
     if (!gen) throw new Error("insert della generazione non ha restituito la riga");
 
     const [page] = await db
       .insert(docPages)
       .values({
-        projectId,
+        repositoryId,
         generationId: gen.id,
         kind: "technical",
         slug: "panoramica",
@@ -147,7 +134,7 @@ describe("schema: dominio Docs", () => {
       .insert(docChunks)
       .values({
         pageId: page.id,
-        projectId,
+        repositoryId,
         generationId: gen.id,
         content: "ciao",
         embedding: emb,
@@ -174,12 +161,12 @@ describe("schema: dominio Docs", () => {
   });
 
   it("cronologia di ricerca: una sola voce per (utente, progetto, slug)", async () => {
-    const projectId = await seedProject();
+    const repositoryId = await seedProject();
     const userId = await seedUser();
 
     const [entry] = await db
       .insert(docSearchHistory)
-      .values({ projectId, userId, slug: "panoramica", title: "Panoramica", kind: "technical" })
+      .values({ repositoryId, userId, slug: "panoramica", title: "Panoramica", kind: "technical" })
       .returning();
     if (!entry) throw new Error("insert della cronologia non ha restituito la riga");
     expect(entry.title).toBe("Panoramica");
@@ -188,7 +175,7 @@ describe("schema: dominio Docs", () => {
     await expect(
       db
         .insert(docSearchHistory)
-        .values({ projectId, userId, slug: "panoramica", title: "Dup", kind: "technical" }),
+        .values({ repositoryId, userId, slug: "panoramica", title: "Dup", kind: "technical" }),
     ).rejects.toThrow();
   });
 });

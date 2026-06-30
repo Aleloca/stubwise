@@ -45,6 +45,7 @@ function makeTicket(overrides: Partial<Ticket>): Ticket {
   return {
     id: "11111111-1111-4111-8111-111111111111",
     projectId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    repositoryId: null,
     number: 1,
     title: "Ticket di prova",
     body: "",
@@ -66,6 +67,7 @@ function makeTicket(overrides: Partial<Ticket>): Ticket {
 }
 
 const PROJECT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const REPOSITORY_ID = "11111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 const baseHandlers = {
   "/api/auth/me": () =>
@@ -77,9 +79,29 @@ const baseHandlers = {
         id: PROJECT_ID,
         name: "Progetto Alfa",
         slug: "progetto-alfa",
+        description: null,
+        aiProviderId: null,
+        docAutoUpdate: false,
+        repositoryCount: 1,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ]),
+  "/api/repositories": () =>
+    jsonResponse(200, [
+      {
+        id: REPOSITORY_ID,
+        projectId: PROJECT_ID,
+        name: "alfa-api",
+        slug: "alfa-api",
         provider: "github",
         repoUrl: "https://github.com/acme/alfa",
         defaultBranch: "main",
+        ingestionKey: "key-alfa",
+        gitAccountId: "acc-1",
+        gitAccountName: "GitHub Demo",
+        webhookConfiguredAt: null,
+        testCommand: null,
+        installCommand: null,
         createdAt: "2026-01-01T00:00:00.000Z",
       },
     ]),
@@ -289,6 +311,10 @@ describe("nuovo ticket dalla lista", () => {
     await user.click(screen.getByRole("button", { name: "New ticket" }));
     const dialog = screen.getByRole("dialog", { name: "New ticket" });
     await user.type(within(dialog).getByLabelText("Title"), "Crash al checkout");
+    // Il repository bersaglio del progetto si preseleziona (unico repo del gruppo).
+    await waitFor(() =>
+      expect(within(dialog).getByLabelText("Target repository")).toHaveValue(REPOSITORY_ID),
+    );
     await user.selectOptions(within(dialog).getByLabelText("Type"), "Bug");
     await user.selectOptions(within(dialog).getByLabelText("Priority"), "High");
     await user.click(within(dialog).getByRole("button", { name: "Create ticket" }));
@@ -300,6 +326,7 @@ describe("nuovo ticket dalla lista", () => {
     expect(await screen.findByText("Crash al checkout")).toBeInTheDocument();
     expect(postBody).toEqual({
       projectId: PROJECT_ID,
+      repositoryId: REPOSITORY_ID,
       title: "Crash al checkout",
       type: "bug",
       priority: "high",

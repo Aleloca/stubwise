@@ -8,6 +8,7 @@ import {
   encrypt,
   gitAccounts,
   projects,
+  repositories,
   type Db,
 } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
@@ -40,7 +41,7 @@ import { FakeAgentRunner } from "../../agent/fake.js";
 import type { AgentRunOptions, AgentRunResult } from "../../agent/runner.js";
 import { MirrorManager } from "../../git/mirrors.js";
 import { createDocHandler, failDocJobOnError } from "../handler.js";
-import { createProjectSerializer } from "../../handler.js";
+import { createRepositorySerializer } from "../../handler.js";
 import { runWorker } from "../../queue.js";
 import { dispatchNode } from "./node-dispatch.js";
 import { createGenerationWorktreeRegistry } from "./registry.js";
@@ -108,7 +109,10 @@ async function makeMirrors(): Promise<MirrorManager> {
   return new MirrorManager({ mirrorsDir: join(root, "mirrors") });
 }
 
-async function createProject(
+// Crea un progetto (gruppo) — con l'eventuale aiProviderId, che ora vive sul gruppo —
+// e un repository che vi appartiene. Ritorna il repositoryId (la documentazione è per
+// repository; il provider AI è risolto dal progetto del repository).
+async function createRepository(
   db: Db,
   repoUrl: string,
   opts: { aiProviderId?: string } = {},
@@ -121,6 +125,16 @@ async function createProject(
   const [project] = await db
     .insert(projects)
     .values({
+      name: `Gruppo ${uniq}`,
+      slug: `gruppo-${uniq}`,
+      ...(opts.aiProviderId !== undefined ? { aiProviderId: opts.aiProviderId } : {}),
+    })
+    .returning();
+  if (!project) throw new Error("insert del progetto non ha restituito la riga");
+  const [repository] = await db
+    .insert(repositories)
+    .values({
+      projectId: project.id,
       name: `Dispatch ${uniq}`,
       slug: `dispatch-${uniq}`,
       provider: "github",
@@ -128,21 +142,20 @@ async function createProject(
       repoUrl,
       defaultBranch: "main",
       ingestionKey: `ingestion-dispatch-${uniq}`,
-      ...(opts.aiProviderId !== undefined ? { aiProviderId: opts.aiProviderId } : {}),
     })
     .returning();
-  if (!project) throw new Error("insert del progetto non ha restituito la riga");
-  return project.id;
+  if (!repository) throw new Error("insert del repository non ha restituito la riga");
+  return repository.id;
 }
 
 async function enqueueTrigger(
   db: Db,
-  projectId: string,
+  repositoryId: string,
   extra: Partial<typeof docGenerationJobs.$inferInsert> = {},
 ): Promise<string> {
   const [job] = await db
     .insert(docGenerationJobs)
-    .values({ projectId, status: "queued", ...extra })
+    .values({ repositoryId, status: "queued", ...extra })
     .returning();
   if (!job) throw new Error("insert del trigger non ha restituito la riga");
   return job.id;
@@ -260,13 +273,13 @@ describe("dispatch del DAG (M7.1)", () => {
     const { db } = testDb;
     const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, upstream);
-    const triggerId = await enqueueTrigger(db, projectId);
+    const repositoryId = await createRepository(db, upstream);
+    const triggerId = await enqueueTrigger(db, repositoryId);
 
     const runner = scriptedRunner();
     const embeddingClient = createFakeEmbeddingClient();
     const registry = createGenerationWorktreeRegistry();
-    const serializer = createProjectSerializer();
+    const serializer = createRepositorySerializer();
 
     const docHandler = createDocHandler(
       {
@@ -310,7 +323,7 @@ describe("dispatch del DAG (M7.1)", () => {
       docHandler,
       docHandlerOnError: failDocJobOnError,
       dispatchNode: dispatchNodeFn,
-      activeGenerationProjectIds: () => registry.activeProjectIds(),
+      activeGenerationRepositoryIds: () => registry.activeRepositoryIds(),
       concurrency: 2,
       pollMs: 50,
       requeueEveryMs: 1_000_000, // niente requeue durante il test
@@ -326,7 +339,7 @@ describe("dispatch del DAG (M7.1)", () => {
       const [g] = await db
         .select({ status: docGenerations.status })
         .from(docGenerations)
-        .where(eq(docGenerations.projectId, projectId));
+        .where(eq(docGenerations.repositoryId, repositoryId));
       genStatus = g?.status;
       if (genStatus === "succeeded" || genStatus === "failed") break;
       await new Promise((r) => setTimeout(r, 100));
@@ -344,7 +357,7 @@ describe("dispatch del DAG (M7.1)", () => {
     expect(trigger?.status).toBe("succeeded");
 
     // Generazione succeeded.
-    const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.projectId, projectId));
+    const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.repositoryId, repositoryId));
     expect(gen?.status).toBe("succeeded");
 
     // Nodi: 2 radici + 2 figli di 1° livello (rami) + 2 nipoti (foglie) = 6, tutti done.
@@ -379,29 +392,29 @@ describe("dispatch del DAG (M7.1)", () => {
     expect(chunks.length).toBeGreaterThan(0);
 
     // SWAP del puntatore corrente.
-    const [proj] = await db.select().from(projects).where(eq(projects.id, projectId));
-    expect(proj?.currentDocGenerationId).toBe(gen!.id);
+    const [repo] = await db.select().from(repositories).where(eq(repositories.id, repositoryId));
+    expect(repo?.currentDocGenerationId).toBe(gen!.id);
 
-    // Worktree chiuso e deregistrato: registro vuoto, nessun progetto attivo.
+    // Worktree chiuso e deregistrato: registro vuoto, nessun repository attivo.
     expect(registry.has(gen!.id)).toBe(false);
-    expect(registry.activeProjectIds().size).toBe(0);
+    expect(registry.activeRepositoryIds().size).toBe(0);
   });
 
   it("worktree perso al riavvio (registro vuoto) → generazione + nodi pendenti failed, nessun reopen-at-HEAD (C3)", async () => {
     const { db } = testDb;
-    const projectId = await createProject(db, "https://github.com/acme/x");
+    const repositoryId = await createRepository(db, "https://github.com/acme/x");
 
     // Generazione `running` con un nodo claimabile, SENZA worktree nel registro: è
     // l'esatta situazione post-riavvio (i nodi sopravvivono nel DB, l'handle in-memoria no).
     const [gen] = await db
       .insert(docGenerations)
-      .values({ projectId, status: "running", model: "opus" })
+      .values({ repositoryId, status: "running", model: "opus" })
       .returning();
     const [root] = await db
       .insert(docNodes)
       .values({
         generationId: gen!.id,
-        projectId,
+        repositoryId,
         tree: "technical",
         status: "pending",
         depth: 0,
@@ -449,7 +462,7 @@ describe("dispatch del DAG (M7.1)", () => {
     expect(nodeAfter?.status).toBe("failed");
 
     // Il progetto NON resta escluso dal claim (il worktree non è registrato).
-    expect(registry.activeProjectIds().size).toBe(0);
+    expect(registry.activeRepositoryIds().size).toBe(0);
   });
 });
 
@@ -467,17 +480,17 @@ describe("provider bloccato (project.aiProviderId)", () => {
     const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
     const providerId = await createProvider(db);
-    const projectId = await createProject(db, upstream, { aiProviderId: providerId });
+    const repositoryId = await createRepository(db, upstream, { aiProviderId: providerId });
     // Chiamando l'handler direttamente saltiamo claimNextDocJob: il trigger va messo
     // `running` a mano (è lo stato in cui l'handler reale lo riceve).
-    const triggerId = await enqueueTrigger(db, projectId, {
+    const triggerId = await enqueueTrigger(db, repositoryId, {
       status: "running",
       startedAt: new Date(),
     });
 
     const runner = scriptedRunner();
     const registry = createGenerationWorktreeRegistry();
-    const serializer = createProjectSerializer();
+    const serializer = createRepositorySerializer();
     const pinnedForId: ResolvedProvider = { ...PINNED, id: providerId };
 
     let byIdArgs: { id: string } | null = null;
@@ -503,7 +516,7 @@ describe("provider bloccato (project.aiProviderId)", () => {
 
     await docHandler({
       id: triggerId,
-      projectId,
+      repositoryId,
     } as never);
 
     // Il provider è stato risolto per id (non via chain) e l'orientamento ha usato QUEL provider.
@@ -515,7 +528,7 @@ describe("provider bloccato (project.aiProviderId)", () => {
     const [gen] = await db
       .select()
       .from(docGenerations)
-      .where(eq(docGenerations.projectId, projectId));
+      .where(eq(docGenerations.repositoryId, repositoryId));
     expect(gen?.pinnedProviderId).toBe(providerId);
 
     // Pulizia del worktree aperto dall'orientamento.
@@ -527,17 +540,17 @@ describe("provider bloccato (project.aiProviderId)", () => {
     const { db } = testDb;
     const mirrors = await makeMirrors();
     const providerId = await createProvider(db);
-    const projectId = await createProject(db, "https://github.com/acme/x", {
+    const repositoryId = await createRepository(db, "https://github.com/acme/x", {
       aiProviderId: providerId,
     });
-    const triggerId = await enqueueTrigger(db, projectId, {
+    const triggerId = await enqueueTrigger(db, repositoryId, {
       status: "running",
       startedAt: new Date(),
     });
 
     const runner = scriptedRunner();
     const registry = createGenerationWorktreeRegistry();
-    const serializer = createProjectSerializer();
+    const serializer = createRepositorySerializer();
 
     let chainCalled = false;
     const docHandler = createDocHandler(
@@ -562,7 +575,7 @@ describe("provider bloccato (project.aiProviderId)", () => {
 
     await docHandler({
       id: triggerId,
-      projectId,
+      repositoryId,
     } as never);
 
     // NESSUN fallback: la catena non è stata interrogata, l'agente non è stato invocato
@@ -572,7 +585,7 @@ describe("provider bloccato (project.aiProviderId)", () => {
     const gens = await db
       .select()
       .from(docGenerations)
-      .where(eq(docGenerations.projectId, projectId));
+      .where(eq(docGenerations.repositoryId, repositoryId));
     expect(gens).toHaveLength(0);
 
     // Trigger failed con l'errore del pin.
@@ -588,15 +601,15 @@ describe("provider bloccato (project.aiProviderId)", () => {
     const { db } = testDb;
     const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
-    const projectId = await createProject(db, upstream); // niente aiProviderId
-    const triggerId = await enqueueTrigger(db, projectId, {
+    const repositoryId = await createRepository(db, upstream); // niente aiProviderId
+    const triggerId = await enqueueTrigger(db, repositoryId, {
       status: "running",
       startedAt: new Date(),
     });
 
     const runner = scriptedRunner();
     const registry = createGenerationWorktreeRegistry();
-    const serializer = createProjectSerializer();
+    const serializer = createRepositorySerializer();
     const chainProvider: ResolvedProvider = {
       id: "11111111-1111-1111-1111-111111111111",
       kind: "api_key",
@@ -625,7 +638,7 @@ describe("provider bloccato (project.aiProviderId)", () => {
 
     await docHandler({
       id: triggerId,
-      projectId,
+      repositoryId,
     } as never);
 
     // Senza provider di progetto: si usa chain[0], loadProviderById MAI chiamata.
@@ -637,7 +650,7 @@ describe("provider bloccato (project.aiProviderId)", () => {
     const [gen] = await db
       .select()
       .from(docGenerations)
-      .where(eq(docGenerations.projectId, projectId));
+      .where(eq(docGenerations.repositoryId, repositoryId));
     expect(gen?.pinnedProviderId).toBeNull();
 
     // Pulizia del worktree aperto dall'orientamento.
@@ -647,19 +660,19 @@ describe("provider bloccato (project.aiProviderId)", () => {
 
   it("nodo di una generazione pinnata → usa il provider bloccato, NON chain[0]", async () => {
     const { db } = testDb;
-    const projectId = await createProject(db, "https://github.com/acme/x");
+    const repositoryId = await createRepository(db, "https://github.com/acme/x");
     const providerId = await createProvider(db);
 
     // Generazione `running` pinnata + un nodo explore claimabile, worktree registrato.
     const [gen] = await db
       .insert(docGenerations)
-      .values({ projectId, status: "running", model: "opus", pinnedProviderId: providerId })
+      .values({ repositoryId, status: "running", model: "opus", pinnedProviderId: providerId })
       .returning();
     await db
       .insert(docNodes)
       .values({
         generationId: gen!.id,
-        projectId,
+        repositoryId,
         tree: "technical",
         status: "pending",
         depth: 1,
@@ -675,7 +688,7 @@ describe("provider bloccato (project.aiProviderId)", () => {
     // Worktree fittizio registrato (il nodo legge solo, una dir basta).
     const fakeDir = await mkdtemp(join(tmpdir(), "stubwise-pin-wt-"));
     cleanups.push(() => rm(fakeDir, { recursive: true, force: true }));
-    registry.register(gen!.id, projectId, {
+    registry.register(gen!.id, repositoryId, {
       dir: fakeDir,
       commitSha: "0".repeat(40),
       close: async () => {},
@@ -722,18 +735,18 @@ describe("provider bloccato (project.aiProviderId)", () => {
 
   it("nodo con pin NON risolvibile → generazione failed, chain[0] MAI usata per il nodo", async () => {
     const { db } = testDb;
-    const projectId = await createProject(db, "https://github.com/acme/x");
+    const repositoryId = await createRepository(db, "https://github.com/acme/x");
     const providerId = await createProvider(db);
 
     const [gen] = await db
       .insert(docGenerations)
-      .values({ projectId, status: "running", model: "opus", pinnedProviderId: providerId })
+      .values({ repositoryId, status: "running", model: "opus", pinnedProviderId: providerId })
       .returning();
     const [node] = await db
       .insert(docNodes)
       .values({
         generationId: gen!.id,
-        projectId,
+        repositoryId,
         tree: "technical",
         status: "pending",
         depth: 0,
@@ -749,7 +762,7 @@ describe("provider bloccato (project.aiProviderId)", () => {
     const registry = createGenerationWorktreeRegistry();
     const fakeDir = await mkdtemp(join(tmpdir(), "stubwise-pin-wt-"));
     cleanups.push(() => rm(fakeDir, { recursive: true, force: true }));
-    registry.register(gen!.id, projectId, {
+    registry.register(gen!.id, repositoryId, {
       dir: fakeDir,
       commitSha: "0".repeat(40),
       close: async () => {},
@@ -798,17 +811,17 @@ describe("provider bloccato (project.aiProviderId)", () => {
 
   it("nodo SENZA pin → chain[0] (regressione del comportamento attuale)", async () => {
     const { db } = testDb;
-    const projectId = await createProject(db, "https://github.com/acme/x");
+    const repositoryId = await createRepository(db, "https://github.com/acme/x");
 
     const [gen] = await db
       .insert(docGenerations)
-      .values({ projectId, status: "running", model: "opus" })
+      .values({ repositoryId, status: "running", model: "opus" })
       .returning();
     await db
       .insert(docNodes)
       .values({
         generationId: gen!.id,
-        projectId,
+        repositoryId,
         tree: "technical",
         status: "pending",
         depth: 1,
@@ -824,7 +837,7 @@ describe("provider bloccato (project.aiProviderId)", () => {
     const registry = createGenerationWorktreeRegistry();
     const fakeDir = await mkdtemp(join(tmpdir(), "stubwise-nopin-wt-"));
     cleanups.push(() => rm(fakeDir, { recursive: true, force: true }));
-    registry.register(gen!.id, projectId, {
+    registry.register(gen!.id, repositoryId, {
       dir: fakeDir,
       commitSha: "0".repeat(40),
       close: async () => {},

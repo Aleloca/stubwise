@@ -232,6 +232,13 @@
       "when": 1782839216761,
       "tag": "0032_handy_baron_zemo",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1782847610837,
+      "tag": "0033_huge_mentallo",
+      "breakpoints": true
     }
   ]
 }

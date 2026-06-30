@@ -1,10 +1,9 @@
-import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "./client.js";
 import { monthlyCostUsd, ticketCostUsd } from "./cost.js";
-import { agentRuns, aiJobs, projects, tickets } from "./schema.js";
-import { seedGitAccount, startTestDb, type TestDb } from "./testing.js";
+import { agentRuns, aiJobs } from "./schema.js";
+import { seedTicket as seedTicketRow, startTestDb, type TestDb } from "./testing.js";
 
 /**
  * Verifica i due helper di lettura costo su un Postgres reale: la somma dei
@@ -27,34 +26,9 @@ describe("cost: ticketCostUsd e monthlyCostUsd", () => {
   });
 
   async function seedTicket(): Promise<string> {
-    const gitAccountId = await seedGitAccount(db);
-    const [project] = await db
-      .insert(projects)
-      .values({
-        name: "Progetto di test",
-        slug: `progetto-${randomUUID()}`,
-        provider: "github",
-        gitAccountId,
-        repoUrl: "https://example.com/repo.git",
-        defaultBranch: "main",
-        ingestionKey: randomUUID(),
-      })
-      .returning();
-    if (!project) throw new Error("insert del progetto non ha restituito la riga");
     ticketCounter++;
-    const [ticket] = await db
-      .insert(tickets)
-      .values({
-        projectId: project.id,
-        number: ticketCounter,
-        title: "Ticket di test",
-        type: "bug",
-        priority: "medium",
-        source: "manual",
-      })
-      .returning();
-    if (!ticket) throw new Error("insert del ticket non ha restituito la riga");
-    return ticket.id;
+    const { ticketId } = await seedTicketRow(db, { number: ticketCounter });
+    return ticketId;
   }
 
   async function seedJob(ticketId: string): Promise<string> {

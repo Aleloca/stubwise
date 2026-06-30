@@ -5,7 +5,7 @@ import {
   gitAccounts,
   instanceSettings,
   monthlyCostUsd,
-  projects,
+  repositories,
   ticketCostUsd,
   tickets,
   type Db,
@@ -62,12 +62,12 @@ import {
  * `Stubwise AI <ai@stubwise>`, pusha il branch e apre la PR con il report
  * come corpo, poi commenta il ticket e lo porta in `in_review`.
  *
- * SERIALIZZAZIONE PER PROGETTO (requisito review): runFix non si difende da
- * un secondo runFix CONCORRENTE sullo stesso progetto — il `fetch --prune`
+ * SERIALIZZAZIONE PER REPOSITORY (requisito review): runFix non si difende da
+ * un secondo runFix CONCORRENTE sullo stesso repository — il `fetch --prune`
  * di ensureMirror cancellerebbe i ref stubwise/* non ancora pushati dell'altro
  * job (vedi docblock di mirrors.ts). runFix è progettato per essere chiamato
- * SERIALMENTE per progetto: è il wiring del worker (handler.ts) a garantirlo
- * con una catena di promise per projectId; progetti diversi procedono in
+ * SERIALMENTE per repository: è il wiring del worker (handler.ts) a garantirlo
+ * con una catena di promise per repositoryId; repository diversi procedono in
  * parallelo senza rischi (mirror e ref indipendenti).
  *
  * Permessi dell'agente (requisito review): in headless `--permission-mode
@@ -267,11 +267,11 @@ export interface FixDeps extends NotifyDeps {
   ) => Promise<TestRunResult>;
   /** Timeout dell'install delle dipendenze (default 600000 = 10'). */
   installTimeoutMs?: number;
-  /** Carica i file d'ambiente del progetto decifrati (iniettabile nei test).
+  /** Carica i file d'ambiente del repository decifrati (iniettabile nei test).
    * Default: loadProjectEnvFiles da ./env-files.js. */
   loadEnvFilesFn?: (
     db: Db,
-    projectId: string,
+    repositoryId: string,
     encryptionKey: Buffer,
   ) => Promise<LoadedEnvFile[]>;
   /** Materializza i file d'ambiente nel worktree e costruisce la mappa env
@@ -480,18 +480,27 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     });
     return "failed";
   }
-  // Carica il progetto E l'account git collegato in un colpo solo: le
-  // credenziali vivono ora sull'account (riutilizzabile tra progetti), non più
-  // sul progetto. Il provider usato è quello denormalizzato sul progetto.
+  // Carica il REPOSITORY bersaglio (dal ticket) E l'account git collegato in un
+  // colpo solo: il fix lavora sul repo del ticket (repoUrl/branch/credenziali).
+  // Le credenziali vivono sull'account (riutilizzabile tra repository), non più
+  // sul repo. `repositoryId` del ticket è nullable in schema (Fase 3) ma in Fase
+  // 1 è sempre valorizzato; se mancasse il job fallisce con un messaggio chiaro.
+  if (ticket.repositoryId === null) {
+    await failJob(db, job.id, {
+      log: `[fix] ticket ${ticket.id} senza repository bersaglio`,
+      error: "ticket senza repository bersaglio",
+    });
+    return "failed";
+  }
   const [row] = await db
-    .select({ project: projects, account: gitAccounts })
-    .from(projects)
-    .innerJoin(gitAccounts, eq(projects.gitAccountId, gitAccounts.id))
-    .where(eq(projects.id, ticket.projectId));
+    .select({ project: repositories, account: gitAccounts })
+    .from(repositories)
+    .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
+    .where(eq(repositories.id, ticket.repositoryId));
   if (!row) {
     await failJob(db, job.id, {
-      log: `[fix] progetto ${ticket.projectId} o account git collegato non trovato`,
-      error: "progetto del ticket non trovato",
+      log: `[fix] repository ${ticket.repositoryId} o account git collegato non trovato`,
+      error: "repository del ticket non trovato",
     });
     return "failed";
   }

@@ -3,7 +3,15 @@ import { t } from "@stubwise/i18n";
 import { dispatchNotification } from "@stubwise/notifications";
 import { and, eq, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
-import { aiJobs, comments, docAutoUpdateJobs, docGenerations, projects, tickets } from "@stubwise/db";
+import {
+  aiJobs,
+  comments,
+  docAutoUpdateJobs,
+  docGenerations,
+  projects,
+  repositories,
+  tickets,
+} from "@stubwise/db";
 import { getContentLanguage } from "../settings.js";
 import { apiError } from "../errors.js";
 
@@ -97,28 +105,28 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
       // progetto sconosciuto o col segreto vuoto chiudono qui con 401.
       preValidation: async (request, reply) => {
         const { projectSlug } = request.params;
-        const [project] = await instance.db
+        const [repository] = await instance.db
           .select({
-            id: projects.id,
-            provider: projects.provider,
-            webhookSecret: projects.webhookSecret,
+            id: repositories.id,
+            provider: repositories.provider,
+            webhookSecret: repositories.webhookSecret,
           })
-          .from(projects)
-          .where(eq(projects.slug, projectSlug));
+          .from(repositories)
+          .where(eq(repositories.slug, projectSlug));
 
         // Slug sconosciuto o segreto vuoto (legacy, non verificabile): 401,
         // indistinguibile da una firma errata.
-        if (!project || project.webhookSecret === "") {
+        if (!repository || repository.webhookSecret === "") {
           return apiError(reply, 401, "webhook_unauthorized", "Webhook unauthorized");
         }
-        const provider = getProvider(project.provider);
+        const provider = getProvider(repository.provider);
         const headers = normalizeHeaders(request.headers);
         const rawBody = request.rawBody ?? Buffer.alloc(0);
-        if (!provider.verifyWebhook(headers, rawBody, project.webhookSecret)) {
+        if (!provider.verifyWebhook(headers, rawBody, repository.webhookSecret)) {
           return apiError(reply, 401, "webhook_unauthorized", "Webhook unauthorized");
         }
 
-        request.webhookContext = { projectId: project.id, provider: project.provider };
+        request.webhookContext = { repositoryId: repository.id, provider: repository.provider };
       },
     },
     async (request, reply) => {
@@ -131,19 +139,27 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
       // parseWebhook null per i push, quindi al più uno dei due rami è attivo.
       const push = provider.parsePushEvent(headers, request.body);
       if (push) {
-        const [project] = await instance.db
+        // Il toggle docAutoUpdate è salito al PROGETTO: si legge via join dal
+        // repository al suo progetto. defaultBranch/currentDocGenerationId
+        // restano sul repository.
+        const [repository] = await instance.db
           .select({
-            defaultBranch: projects.defaultBranch,
+            defaultBranch: repositories.defaultBranch,
             docAutoUpdate: projects.docAutoUpdate,
-            currentDocGenerationId: projects.currentDocGenerationId,
+            currentDocGenerationId: repositories.currentDocGenerationId,
           })
-          .from(projects)
-          .where(eq(projects.id, context.projectId));
+          .from(repositories)
+          .innerJoin(projects, eq(projects.id, repositories.projectId))
+          .where(eq(repositories.id, context.repositoryId));
 
-        // Gate: si agisce solo sui push al branch di default di un progetto col
-        // toggle attivo. Tutto il resto è no-op (un push su un branch di feature
-        // o con auto-update spento non innesca nulla).
-        if (!project || push.branch !== project.defaultBranch || project.docAutoUpdate !== true) {
+        // Gate: si agisce solo sui push al branch di default di un repository il
+        // cui progetto ha il toggle attivo. Tutto il resto è no-op (un push su un
+        // branch di feature o con auto-update spento non innesca nulla).
+        if (
+          !repository ||
+          push.branch !== repository.defaultBranch ||
+          repository.docAutoUpdate !== true
+        ) {
           return reply.code(204).send();
         }
 
@@ -151,27 +167,27 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
         // corrente, se presente e registrato; altrimenti il `before` del push.
         // Su conflitto NON si tocca `fromSha`, così accumula dal primo push.
         let fromShaOnInsert = push.beforeSha;
-        if (project.currentDocGenerationId) {
+        if (repository.currentDocGenerationId) {
           const [generation] = await instance.db
             .select({ commitSha: docGenerations.commitSha })
             .from(docGenerations)
-            .where(eq(docGenerations.id, project.currentDocGenerationId));
+            .where(eq(docGenerations.id, repository.currentDocGenerationId));
           if (generation?.commitSha) fromShaOnInsert = generation.commitSha;
         }
 
-        // Upsert sul vincolo unique (project_id): un solo job pending per
-        // progetto. Push ravvicinati aggiornano solo head e finestra di debounce.
+        // Upsert sul vincolo unique (repository_id): un solo job pending per
+        // repository. Push ravvicinati aggiornano solo head e finestra di debounce.
         const notBefore = new Date(Date.now() + DEBOUNCE_MS);
         await instance.db
           .insert(docAutoUpdateJobs)
           .values({
-            projectId: context.projectId,
+            repositoryId: context.repositoryId,
             fromSha: fromShaOnInsert,
             toSha: push.afterSha,
             notBefore,
           })
           .onConflictDoUpdate({
-            target: docAutoUpdateJobs.projectId,
+            target: docAutoUpdateJobs.repositoryId,
             set: { toSha: push.afterSha, notBefore },
           });
 
@@ -195,7 +211,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
           title: tickets.title,
         })
         .from(tickets)
-        .where(and(eq(tickets.projectId, context.projectId), eq(tickets.number, ticketNumber)));
+        .where(and(eq(tickets.repositoryId, context.repositoryId), eq(tickets.number, ticketNumber)));
 
       // Lingua dei contenuti d'istanza, risolta UNA VOLTA prima della
       // transazione (una sola select, non allunga la tx): i body dei commenti
@@ -265,15 +281,15 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
       // lancia mai, ma il nome del progetto è in una query a parte: la
       // racchiudiamo comunque in try/catch per non far fallire la 204.
       try {
-        const [project] = await instance.db
-          .select({ name: projects.name })
-          .from(projects)
-          .where(eq(projects.id, context.projectId));
+        const [repository] = await instance.db
+          .select({ name: repositories.name })
+          .from(repositories)
+          .where(eq(repositories.id, context.repositoryId));
         await dispatchNotification(instance.db, {
           kind: "job.pr_closed",
           ticketNumber: ticket.number,
           ticketTitle: ticket.title,
-          projectName: project?.name ?? "",
+          projectName: repository?.name ?? "",
           prUrl: event.prUrl,
           ticketUrl: ticketUrl(instance.publicUrl, ticket.id),
         });
@@ -290,7 +306,7 @@ declare module "fastify" {
   interface FastifyRequest {
     /** Corpo grezzo del webhook, catturato dal content-type parser per l'HMAC. */
     rawBody?: Buffer;
-    /** Progetto e provider autenticati dalla verifica della firma del webhook. */
-    webhookContext?: { projectId: string; provider: "bitbucket" | "github" };
+    /** Repository e provider autenticati dalla verifica della firma del webhook. */
+    webhookContext?: { repositoryId: string; provider: "bitbucket" | "github" };
   }
 }

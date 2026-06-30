@@ -53,7 +53,7 @@ describe("answerDocsQuestion", () => {
 
     const answer = await answerDocsQuestion(
       { db: fakeDb, embeddingClient: fakeEmbeddingClient, chatLlm: fakeChatLlm },
-      { projectId: "proj-1", question: "Come funziona l'auth?" },
+      { repositoryId: "proj-1", question: "Come funziona l'auth?" },
     );
 
     // Testo = delta concatenati (accumulo, niente streaming).
@@ -75,7 +75,7 @@ describe("answerDocsQuestion", () => {
     const question = "Si può fare un incasso ricorrente?";
     await answerDocsQuestion(
       { db: fakeDb, embeddingClient: fakeEmbeddingClient, chatLlm: fakeChatLlm },
-      { projectId: "proj-2", question },
+      { repositoryId: "proj-2", question },
     );
 
     // retrieveChunks chiamato con le deps inoltrate, la query e k=8.
@@ -106,7 +106,7 @@ describe("answerDocsQuestion", () => {
 
     const answer = await answerDocsQuestion(
       { db: fakeDb, embeddingClient: fakeEmbeddingClient, chatLlm: fakeChatLlm },
-      { projectId: "proj-3", question: "Domanda senza contesto." },
+      { repositoryId: "proj-3", question: "Domanda senza contesto." },
     );
 
     expect(answer.citations).toEqual([]);

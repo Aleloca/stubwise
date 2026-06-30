@@ -6,7 +6,7 @@ import {
   getAccountBranches,
   getAccountRepositories,
   getValidateAccountRepo,
-  type ProjectDraft,
+  type RepositoryDraft,
   type RepoSummary,
 } from "../lib/api";
 import { gitAccountsQueryOptions } from "../lib/queries";
@@ -15,24 +15,20 @@ import { BranchSelect } from "./branch-select";
 import { CredentialChecks } from "./credential-fields";
 import { FormError, SelectField, SubmitButton, TextField } from "./field";
 
-interface ProjectWizardProps {
-  onSubmit: (draft: ProjectDraft) => Promise<void>;
+interface RepositoryWizardProps {
+  /** Progetto (gruppo) a cui il nuovo repository verrà collegato. */
+  projectId: string;
+  onSubmit: (draft: RepositoryDraft) => Promise<void>;
 }
 
 /**
- * Repository scelto nel wizard: o uno selezionato dal picker (con cloneUrl e
- * defaultBranch dal provider) o l'inserimento manuale di fallback (quando il
- * provider non espone l'elenco). In entrambi i casi alla fine si ha un repoUrl.
+ * Wizard di aggiunta di un REPOSITORY a un progetto: rivelazioni sequenziali —
+ * Nome, Account git, Repository (picker filtrabile), Branch di default
+ * (preselezionato). Se l'elenco repo/branch del provider non è disponibile si
+ * degrada a inserimento manuale di repoUrl e branch, così l'utente non resta
+ * bloccato. Il repository viene collegato al progetto `projectId`.
  */
-
-/**
- * Wizard di creazione progetto: rivelazioni sequenziali — Nome, Account git,
- * Repository (picker filtrabile dai repo dell'account), Branch di default
- * (preselezionato). Se l'elenco repo/branch del provider non è disponibile
- * (scope mancante, credenziali finte) si degrada a inserimento manuale di
- * repoUrl e branch, così l'utente non resta bloccato.
- */
-export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
+export function RepositoryWizard({ projectId, onSubmit }: RepositoryWizardProps) {
   const { t } = useTranslation();
   const { data: accounts } = useSuspenseQuery(gitAccountsQueryOptions);
 
@@ -41,8 +37,7 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
   const [selectedRepo, setSelectedRepo] = useState<RepoSummary | null>(null);
   const [search, setSearch] = useState("");
   const [branch, setBranch] = useState("");
-  // Fallback manuale: repoUrl/branch a mano quando il picker non è disponibile
-  // o l'utente sceglie di inserirli manualmente.
+  // Fallback manuale: repoUrl/branch a mano quando il picker non è disponibile.
   const [manualRepoUrl, setManualRepoUrl] = useState("");
   // Comando di test opzionale: vuoto = auto-detect (script test del package.json).
   const [testCommand, setTestCommand] = useState("");
@@ -111,24 +106,21 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
   }, [selectedRepo, manualMode, repoUrl]);
 
   // Verifica advisory dell'accesso al repo: i 3 check repo-specifici (push git /
-  // REST PR / webhook). NON blocca la creazione del progetto.
+  // REST PR / webhook). NON blocca la creazione del repository.
   const repoCheck = useMutation({
     mutationFn: (fullName: string) => getValidateAccountRepo(accountId, fullName),
   });
 
-  // Cambiando account si azzera la scelta repo/branch e l'esito della verifica:
-  // non avrebbero più senso. (Definito dopo repoCheck per usarne reset.)
+  // Cambiando account si azzera la scelta repo/branch e l'esito della verifica.
   useEffect(() => {
     setSelectedRepo(null);
     setSearch("");
     setBranch("");
     setManualRepoUrl("");
-    // repoCheck.reset è stabile fra i render: azzera l'esito stantio.
     repoCheck.reset();
   }, [accountId]);
 
-  // L'esito della verifica è legato a un repo preciso: cambiando repo lo si
-  // azzera per non mostrare check di un altro repository.
+  // L'esito della verifica è legato a un repo preciso: cambiando repo lo si azzera.
   useEffect(() => {
     repoCheck.reset();
   }, [repoFullName]);
@@ -143,6 +135,7 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
     setPending(true);
     try {
       await onSubmit({
+        projectId,
         name: name.trim(),
         gitAccountId: accountId,
         repoUrl,
@@ -163,9 +156,9 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
     <form onSubmit={(event) => void handleSubmit(event)} className="flex flex-col gap-6" noValidate>
       <TextField
         id="wizard-name"
-        label={t("projects:wizard.name")}
+        label={t("repositories:wizard.name")}
         required
-        placeholder={t("projects:wizard.namePlaceholder")}
+        placeholder={t("repositories:wizard.namePlaceholder")}
         value={name}
         onChange={(event) => setName(event.target.value)}
       />
@@ -173,21 +166,21 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
       {accounts.length === 0 ? (
         <div className="rounded-sm border border-dashed border-line-strong px-4 py-6">
           <p className="font-mono text-[12px] tracking-[0.14em] text-fg-faint uppercase">
-            {t("projects:wizard.noGitAccount")}
+            {t("repositories:wizard.noGitAccount")}
           </p>
           <p className="mt-2 text-sm text-fg-muted">
-            {t("projects:wizard.createAccountFirstPrefix")}
+            {t("repositories:wizard.createAccountFirstPrefix")}
             <Link to="/settings" className="text-signal underline hover:text-signal-bright">
-              {t("projects:wizard.createAccountFirstLink")}
+              {t("repositories:wizard.createAccountFirstLink")}
             </Link>
-            {t("projects:wizard.createAccountFirstSuffix")}
+            {t("repositories:wizard.createAccountFirstSuffix")}
           </p>
         </div>
       ) : (
-        <Step label={t("projects:wizard.gitAccount")}>
+        <Step label={t("repositories:wizard.gitAccount")}>
           <SelectField
             id="wizard-account"
-            label={t("projects:wizard.gitAccount")}
+            label={t("repositories:wizard.gitAccount")}
             value={accountId}
             onChange={(event) => setAccountId(event.target.value)}
             options={accounts.map((account) => ({
@@ -206,23 +199,25 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
       )}
 
       {accountId !== "" && !manualMode && (
-        <Step label={t("projects:wizard.repository")}>
+        <Step label={t("repositories:wizard.repository")}>
           {reposQuery.isLoading ? (
-            <p className="font-mono text-[12px] text-fg-faint">{t("projects:wizard.loadingRepos")}</p>
+            <p className="font-mono text-[12px] text-fg-faint">
+              {t("repositories:wizard.loadingRepos")}
+            </p>
           ) : (
             <>
               <TextField
                 id="wizard-repo-search"
-                label={t("projects:wizard.searchRepo")}
+                label={t("repositories:wizard.searchRepo")}
                 type="text"
-                placeholder={t("projects:wizard.searchRepoPlaceholder")}
+                placeholder={t("repositories:wizard.searchRepoPlaceholder")}
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
               />
               <ul className="mt-3 max-h-64 overflow-y-auto rounded-sm border border-line bg-ink-950/40">
                 {filteredRepos.length === 0 ? (
                   <li className="px-3 py-3 font-mono text-[12px] text-fg-faint">
-                    {t("projects:wizard.noRepoMatch")}
+                    {t("repositories:wizard.noRepoMatch")}
                   </li>
                 ) : (
                   filteredRepos.map((repo) => {
@@ -241,7 +236,7 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
                           </span>
                           {repo.defaultBranch && (
                             <span className="font-mono text-[11px] text-fg-faint">
-                              {t("projects:wizard.default")}: {repo.defaultBranch}
+                              {t("repositories:wizard.default")}: {repo.defaultBranch}
                             </span>
                           )}
                           {active && <span className="ml-auto font-mono text-[12px] text-signal">✓</span>}
@@ -257,21 +252,21 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
       )}
 
       {manualMode && (
-        <Step label={t("projects:wizard.repository")}>
+        <Step label={t("repositories:wizard.repository")}>
           <p
             role="alert"
             className="mb-3 rounded-sm border border-danger/30 bg-danger/10 px-3 py-2 font-mono text-[12px] text-danger"
           >
             {reposQuery.error instanceof Error
               ? reposQuery.error.message
-              : t("projects:wizard.listReposFailed")}
+              : t("repositories:wizard.listReposFailed")}
           </p>
           <p className="mb-3 font-mono text-[11px] text-fg-faint">
-            {t("projects:wizard.manualHint")}
+            {t("repositories:wizard.manualHint")}
           </p>
           <TextField
             id="wizard-manual-repo-url"
-            label={t("projects:wizard.repoUrl")}
+            label={t("repositories:wizard.repoUrl")}
             type="url"
             required
             placeholder="https://github.com/acme/demo"
@@ -281,7 +276,7 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
           <div className="mt-4">
             <TextField
               id="wizard-manual-branch"
-              label={t("projects:wizard.defaultBranch")}
+              label={t("repositories:wizard.defaultBranch")}
               required
               placeholder="main"
               value={branch}
@@ -292,13 +287,7 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
       )}
 
       {!manualMode && selectedRepo && (
-        <Step label={t("projects:wizard.defaultBranch")}>
-          {/*
-            Stesso componente del form di modifica: select dei branch via API,
-            con fallback a input testuale su errore. Il branch è già
-            preselezionato dal defaultBranch del repo scelto (vedi l'effetto
-            sopra), quindi BranchSelect non lo sovrascrive.
-          */}
+        <Step label={t("repositories:wizard.defaultBranch")}>
           <BranchSelect
             id="wizard-branch"
             accountId={accountId}
@@ -310,11 +299,11 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
       )}
 
       {repoFullName && (
-        <Step label={t("projects:wizard.verifyAccess")}>
+        <Step label={t("repositories:wizard.verifyAccess")}>
           <p className="mb-3 font-mono text-[11px] text-fg-faint">
-            {t("projects:wizard.verifyHint1")}
+            {t("repositories:wizard.verifyHint1")}
             <br />
-            {t("projects:wizard.verifyHint2")}
+            {t("repositories:wizard.verifyHint2")}
           </p>
           <button
             type="button"
@@ -322,13 +311,15 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
             disabled={repoCheck.isPending}
             className="rounded-sm border border-line-strong bg-ink-950/70 px-3 py-2 font-mono text-[12px] font-medium tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {repoCheck.isPending ? t("projects:wizard.verifying") : t("projects:wizard.verifyAccess")}
+            {repoCheck.isPending
+              ? t("repositories:wizard.verifying")
+              : t("repositories:wizard.verifyAccess")}
           </button>
           {repoCheck.isError && (
             <p role="alert" className="mt-3 font-mono text-[12px] text-danger">
               {repoCheck.error instanceof Error
                 ? repoCheck.error.message
-                : t("projects:wizard.verifyError")}
+                : t("repositories:wizard.verifyError")}
             </p>
           )}
           {repoCheck.data && (
@@ -340,29 +331,29 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
       )}
 
       {repoUrl !== "" && (
-        <Step label={t("projects:wizard.testCommand")}>
+        <Step label={t("repositories:wizard.testCommand")}>
           <TextField
             id="wizard-test-command"
-            label={t("projects:wizard.testCommand")}
+            label={t("repositories:wizard.testCommand")}
             type="text"
             placeholder="npm test"
             value={testCommand}
             onChange={(event) => setTestCommand(event.target.value)}
           />
           <p className="mt-2 font-mono text-[11px] text-fg-faint">
-            {t("projects:wizard.testCommandHint")}
+            {t("repositories:wizard.testCommandHint")}
           </p>
           <div className="mt-4">
             <TextField
               id="wizard-install-command"
-              label={t("projects:wizard.installCommand")}
+              label={t("repositories:wizard.installCommand")}
               type="text"
               placeholder="pnpm install"
               value={installCommand}
               onChange={(event) => setInstallCommand(event.target.value)}
             />
             <p className="mt-2 font-mono text-[11px] text-fg-faint">
-              {t("projects:wizard.installCommandHint")}
+              {t("repositories:wizard.installCommandHint")}
             </p>
           </div>
         </Step>
@@ -370,7 +361,7 @@ export function ProjectWizard({ onSubmit }: ProjectWizardProps) {
 
       <FormError message={error} />
       <SubmitButton pending={pending} disabled={!canSubmit}>
-        {pending ? t("projects:wizard.submitting") : t("projects:wizard.submit")}
+        {pending ? t("repositories:wizard.submitting") : t("repositories:wizard.submit")}
       </SubmitButton>
     </form>
   );

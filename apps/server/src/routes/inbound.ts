@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { projects } from "@stubwise/db";
+import { repositories } from "@stubwise/db";
 import { createExternalTicket } from "../ingest/processor.js";
 import { resolveReporter } from "../ingest/reporter.js";
 import { keysMatch, publicUrlOrUndefined, ticketUrl } from "../ingest/shared.js";
@@ -55,20 +55,24 @@ export async function inboundRoutes(
       preValidation: async (request, reply) => {
         const provided = request.headers["x-stubwise-key"];
         const { slug } = request.params as { slug: string };
-        const [project] = await app.db
-          .select({ id: projects.id, name: projects.name, ingestionKey: projects.ingestionKey })
-          .from(projects)
-          .where(eq(projects.slug, slug));
+        const [repository] = await app.db
+          .select({
+            id: repositories.id,
+            name: repositories.name,
+            ingestionKey: repositories.ingestionKey,
+          })
+          .from(repositories)
+          .where(eq(repositories.slug, slug));
         // Ramo unico di rifiuto: header assente, slug sconosciuto e chiave
         // errata sono indistinguibili dal client.
         if (
           typeof provided !== "string" ||
-          !project ||
-          !keysMatch(provided, project.ingestionKey)
+          !repository ||
+          !keysMatch(provided, repository.ingestionKey)
         ) {
           return apiError(reply, 401, "invalid_ingestion_key", "Invalid ingestion key");
         }
-        request.ingestProject = { id: project.id, name: project.name };
+        request.ingestProject = { id: repository.id, name: repository.name };
       },
       schemaErrorFormatter: (errors, dataVar) => {
         const error = new Error(
@@ -99,7 +103,7 @@ export async function inboundRoutes(
     },
     async (request, reply) => {
       const { title, body, type, priority, reporterEmail } = request.body;
-      const project = request.ingestProject!;
+      const repository = request.ingestProject!;
 
       const assigneeId = await resolveReporter(app.db, reporterEmail);
       // Provenienza sempre tracciata: generica se non c'è un'email, con email
@@ -110,7 +114,7 @@ export async function inboundRoutes(
           ? `Reported via webhook (no Stubwise account: ${reporterEmail})`
           : "Reported via webhook";
 
-      const ticket = await createExternalTicket(app.db, project, {
+      const ticket = await createExternalTicket(app.db, repository, {
         title,
         body,
         type,

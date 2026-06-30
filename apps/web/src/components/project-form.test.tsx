@@ -1,18 +1,14 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AiProvider, GitAccount } from "../lib/api";
+import type { AiProvider } from "../lib/api";
 import { ProjectForm } from "./project-form";
 
 /**
- * Form di MODIFICA progetto: nome, repoUrl, branch e account git collegato
- * (select fra quelli esistenti). Le credenziali NON vivono più sul progetto —
- * stanno sull'account git — quindi il form non le tocca: niente campi
- * credenziali né validazione. La creazione passa dal wizard, testato a parte.
- *
- * Il form legge gli account con `useSuspenseQuery`: rete mockata via `fetch`
- * globale, come negli altri test che dipendono dalle queryOptions.
+ * Form di impostazioni del PROGETTO (gruppo): nome, descrizione, provider AI e
+ * toggle auto-update Docs. Provider e auto-update vivevano sul repository: ora
+ * sono qui, al progetto. Il form legge i provider con `useSuspenseQuery`.
  */
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -32,22 +28,6 @@ afterEach(() => {
   vi.unstubAllGlobals();
   fetchMock.mockReset();
 });
-
-const ACCOUNT_A: GitAccount = {
-  id: "11111111-1111-4111-8111-111111111111",
-  name: "GitHub Demo",
-  provider: "github",
-  workspace: null,
-  createdAt: "2026-06-01T10:00:00.000Z",
-};
-
-const ACCOUNT_B: GitAccount = {
-  id: "22222222-2222-4222-8222-222222222222",
-  name: "Bitbucket Prod",
-  provider: "bitbucket",
-  workspace: "bb-prod",
-  createdAt: "2026-06-02T10:00:00.000Z",
-};
 
 const PROVIDER_A: AiProvider = {
   id: "33333333-3333-4333-8333-333333333333",
@@ -77,233 +57,64 @@ const PROVIDER_B: AiProvider = {
   testError: null,
 };
 
-const initial = {
-  name: "Demo Shop",
-  repoUrl: "https://github.com/acme/demo-shop",
-  defaultBranch: "main",
-  gitAccountId: ACCOUNT_A.id,
-  testCommand: null,
-  installCommand: null,
-  docAutoUpdate: false,
+const initial: {
+  name: string;
+  description: string | null;
+  aiProviderId: string | null;
+  docAutoUpdate: boolean;
+} = {
+  name: "Acme Platform",
+  description: null,
   aiProviderId: null,
+  docAutoUpdate: false,
 };
 
-type Handler = (url: URL) => Response;
-
-function mockApi(handlers: Record<string, Handler>) {
-  // Il form legge i provider AII via useSuspenseQuery: forniamo un default così
-  // i test che usano mockApi non devono dichiararlo esplicitamente (lo possono
-  // comunque sovrascrivere passando un handler per /api/ai-providers).
-  const withDefaults: Record<string, Handler> = {
-    "/api/ai-providers": () => jsonResponse(200, [PROVIDER_A, PROVIDER_B]),
-    ...handlers,
-  };
+function mockProviders() {
   fetchMock.mockImplementation((input) => {
     const raw = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     const url = new URL(raw, "http://test.local");
-    const handler = withDefaults[url.pathname];
-    if (!handler) throw new Error(`fetch non mockata per ${raw}`);
-    return Promise.resolve(handler(url));
+    if (url.pathname === "/api/ai-providers") {
+      return Promise.resolve(jsonResponse(200, [PROVIDER_A, PROVIDER_B]));
+    }
+    throw new Error(`fetch non mockata per ${raw}`);
   });
 }
 
-/**
- * Mock di base: account git + elenco branch del repo (popola il BranchSelect).
- * `repoUrl` iniziale → acme/demo-shop, da cui il form ricava owner/repo.
- */
-function mockAccounts(accounts: GitAccount[]) {
-  mockApi({
-    "/api/git-accounts": () => jsonResponse(200, accounts),
-    [`/api/git-accounts/${ACCOUNT_A.id}/branches`]: () =>
-      jsonResponse(200, { branches: ["main", "develop"], defaultBranch: "main" }),
-    [`/api/git-accounts/${ACCOUNT_B.id}/branches`]: () =>
-      jsonResponse(200, { branches: ["main", "develop"], defaultBranch: "main" }),
-  });
-}
-
-async function renderForm(props: { onSubmit: (values: unknown) => Promise<void> }) {
+async function renderForm(
+  props: { onSubmit: (values: unknown) => Promise<void> },
+  init = initial,
+) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <ProjectForm initial={initial} onSubmit={props.onSubmit as never} />
+      <ProjectForm initial={init} onSubmit={props.onSubmit as never} />
     </QueryClientProvider>,
   );
-  // Attende che la suspense risolva (gli account sono caricati) e che il
-  // BranchSelect abbia caricato i branch (passa da "caricamento" al select).
   await screen.findByLabelText("Name");
-  await waitFor(() => {
-    const branch = screen.getByLabelText("Default branch");
-    expect(branch.tagName).toBe("SELECT");
-  });
 }
 
-describe("ProjectForm in modifica", () => {
-  it("prefilla i campi e NON mostra campi credenziali", async () => {
-    mockAccounts([ACCOUNT_A, ACCOUNT_B]);
+describe("ProjectForm (impostazioni del gruppo)", () => {
+  it("mostra nome, descrizione, provider AI e toggle auto-update", async () => {
+    mockProviders();
     await renderForm({ onSubmit: vi.fn() });
 
-    expect(screen.getByLabelText("Name")).toHaveValue("Demo Shop");
-    expect(screen.getByLabelText("Repository URL")).toHaveValue("https://github.com/acme/demo-shop");
-    expect(screen.getByLabelText("Default branch")).toHaveValue("main");
-    // L'account collegato è preselezionato.
-    expect(screen.getByLabelText("Git account")).toHaveValue(ACCOUNT_A.id);
-
-    // Nessun campo credenziale né bottone di validazione: vivono sull'account.
-    expect(screen.queryByLabelText("Access token")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Username")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /valida/i })).not.toBeInTheDocument();
-  });
-
-  it("senza cambiare account il payload omette gitAccountId", async () => {
-    const user = userEvent.setup();
-    const onSubmit = vi.fn().mockResolvedValue(undefined);
-    mockAccounts([ACCOUNT_A, ACCOUNT_B]);
-    await renderForm({ onSubmit });
-
-    const name = screen.getByLabelText("Name");
-    await user.clear(name);
-    await user.type(name, "Demo Shop EU");
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-
-    expect(onSubmit).toHaveBeenCalledWith({
-      name: "Demo Shop EU",
-      repoUrl: "https://github.com/acme/demo-shop",
-      defaultBranch: "main",
-    });
-    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
-    expect("gitAccountId" in payload).toBe(false);
-    expect("credentials" in payload).toBe(false);
-  });
-
-  it("cambiando account il payload include il nuovo gitAccountId", async () => {
-    const user = userEvent.setup();
-    const onSubmit = vi.fn().mockResolvedValue(undefined);
-    mockAccounts([ACCOUNT_A, ACCOUNT_B]);
-    await renderForm({ onSubmit });
-
-    await user.selectOptions(screen.getByLabelText("Git account"), ACCOUNT_B.id);
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-
-    expect(onSubmit).toHaveBeenCalledWith({
-      name: "Demo Shop",
-      repoUrl: "https://github.com/acme/demo-shop",
-      defaultBranch: "main",
-      gitAccountId: ACCOUNT_B.id,
-    });
-  });
-
-  it("impostando il comando di test, il PATCH lo include", async () => {
-    const user = userEvent.setup();
-    const onSubmit = vi.fn().mockResolvedValue(undefined);
-    mockAccounts([ACCOUNT_A]);
-    await renderForm({ onSubmit });
-
-    await user.type(screen.getByLabelText("Test command (optional)"), "pnpm test");
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-
-    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
-    expect(payload.testCommand).toBe("pnpm test");
-  });
-
-  it("prefilla il comando di installazione dal progetto", async () => {
-    mockAccounts([ACCOUNT_A]);
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ProjectForm
-          initial={{ ...initial, installCommand: "pnpm install" }}
-          onSubmit={vi.fn() as never}
-        />
-      </QueryClientProvider>,
-    );
-    await screen.findByLabelText("Name");
-
-    expect(screen.getByLabelText("Install command (optional)")).toHaveValue("pnpm install");
-  });
-
-  it("impostando il comando di installazione, il PATCH lo include", async () => {
-    const user = userEvent.setup();
-    const onSubmit = vi.fn().mockResolvedValue(undefined);
-    mockAccounts([ACCOUNT_A]);
-    await renderForm({ onSubmit });
-
-    await user.type(screen.getByLabelText("Install command (optional)"), "pnpm install");
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-
-    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
-    expect(payload.installCommand).toBe("pnpm install");
-  });
-
-  it("svuotando un comando di test esistente, il PATCH invia null", async () => {
-    const user = userEvent.setup();
-    const onSubmit = vi.fn().mockResolvedValue(undefined);
-    mockAccounts([ACCOUNT_A]);
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ProjectForm
-          initial={{ ...initial, testCommand: "npm test" }}
-          onSubmit={onSubmit as never}
-        />
-      </QueryClientProvider>,
-    );
-    await screen.findByLabelText("Name");
-    await waitFor(() => {
-      expect(screen.getByLabelText("Default branch").tagName).toBe("SELECT");
-    });
-
-    const cmd = screen.getByLabelText("Test command (optional)");
-    expect(cmd).toHaveValue("npm test");
-    await user.clear(cmd);
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-
-    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
-    expect(payload.testCommand).toBeNull();
-  });
-
-  it("un comando di test invariato NON entra nel PATCH", async () => {
-    const user = userEvent.setup();
-    const onSubmit = vi.fn().mockResolvedValue(undefined);
-    mockAccounts([ACCOUNT_A]);
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ProjectForm
-          initial={{ ...initial, testCommand: "npm test" }}
-          onSubmit={onSubmit as never}
-        />
-      </QueryClientProvider>,
-    );
-    await screen.findByLabelText("Name");
-    await waitFor(() => {
-      expect(screen.getByLabelText("Default branch").tagName).toBe("SELECT");
-    });
-
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-
-    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
-    expect("testCommand" in payload).toBe(false);
-  });
-
-  it("il select del provider AI è sempre presente, indipendente dal toggle", async () => {
-    mockAccounts([ACCOUNT_A]);
-    await renderForm({ onSubmit: vi.fn() });
-
-    // Il provider AI del progetto è generale: mostrato anche a toggle spento.
-    expect(
-      screen.getByLabelText("Auto-update the documentation on every push"),
-    ).not.toBeChecked();
+    expect(screen.getByLabelText("Name")).toHaveValue("Acme Platform");
+    expect(screen.getByLabelText("Description (optional)")).toBeInTheDocument();
     const providerSelect = screen.getByLabelText("Project AI provider");
-    expect(providerSelect).toBeInTheDocument();
-    // Default "Automatico" (value vuoto) + i provider configurati.
     expect(providerSelect).toHaveValue("");
     expect(screen.getByRole("option", { name: "Automatic (failover chain)" })).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Auto-update documentation on every push"),
+    ).not.toBeChecked();
+    // Nessun campo git: la configurazione del repo vive altrove.
+    expect(screen.queryByLabelText("Repository URL")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Git account")).not.toBeInTheDocument();
   });
 
   it("scegliendo un provider, il PATCH invia aiProviderId", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockResolvedValue(undefined);
-    mockAccounts([ACCOUNT_A]);
+    mockProviders();
     await renderForm({ onSubmit });
 
     await user.selectOptions(screen.getByLabelText("Project AI provider"), PROVIDER_A.id);
@@ -311,29 +122,28 @@ describe("ProjectForm in modifica", () => {
 
     const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
     expect(payload.aiProviderId).toBe(PROVIDER_A.id);
-    // Il provider è indipendente dal toggle: il toggle invariato non entra nel PATCH.
-    expect("docAutoUpdate" in payload).toBe(false);
+  });
+
+  it("attivando l'auto-update, il PATCH invia docAutoUpdate true", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockProviders();
+    await renderForm({ onSubmit });
+
+    await user.click(screen.getByLabelText("Auto-update documentation on every push"));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.docAutoUpdate).toBe(true);
   });
 
   it("riportando il provider su 'Automatico', il PATCH invia aiProviderId null", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockResolvedValue(undefined);
-    mockAccounts([ACCOUNT_A]);
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ProjectForm
-          initial={{ ...initial, aiProviderId: PROVIDER_B.id }}
-          onSubmit={onSubmit as never}
-        />
-      </QueryClientProvider>,
-    );
-    await screen.findByLabelText("Name");
-    await waitFor(() => {
-      expect(screen.getByLabelText("Default branch").tagName).toBe("SELECT");
-    });
+    mockProviders();
+    await renderForm({ onSubmit }, { ...initial, aiProviderId: PROVIDER_B.id });
 
-    // Da un provider fissato torna su "Automatico" (value vuoto) → null lato server.
+    expect(await screen.findByLabelText("Project AI provider")).toHaveValue(PROVIDER_B.id);
     await user.selectOptions(screen.getByLabelText("Project AI provider"), "");
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
@@ -341,76 +151,28 @@ describe("ProjectForm in modifica", () => {
     expect(payload.aiProviderId).toBeNull();
   });
 
-  it("prefilla il provider AI dai valori del progetto", async () => {
-    mockAccounts([ACCOUNT_A]);
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ProjectForm
-          initial={{ ...initial, aiProviderId: PROVIDER_B.id }}
-          onSubmit={vi.fn() as never}
-        />
-      </QueryClientProvider>,
-    );
-    await screen.findByLabelText("Name");
-
-    expect(await screen.findByLabelText("Project AI provider")).toHaveValue(PROVIDER_B.id);
-  });
-
-  it("un toggle/provider invariati NON entrano nel PATCH", async () => {
+  it("senza modifiche il PATCH è vuoto", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockResolvedValue(undefined);
-    mockAccounts([ACCOUNT_A]);
+    mockProviders();
     await renderForm({ onSubmit });
 
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
-    expect("docAutoUpdate" in payload).toBe(false);
-    expect("aiProviderId" in payload).toBe(false);
+    expect(Object.keys(payload)).toHaveLength(0);
   });
 
-  it("un rigetto di onSubmit mostra l'errore", async () => {
+  it("impostando una descrizione, il PATCH la include", async () => {
     const user = userEvent.setup();
-    const onSubmit = vi.fn().mockRejectedValue(new Error("Vietato"));
-    mockAccounts([ACCOUNT_A]);
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockProviders();
     await renderForm({ onSubmit });
 
+    await user.type(screen.getByLabelText("Description (optional)"), "Il monorepo Acme");
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Vietato");
-  });
-
-  it("con account e repoUrl validi il branch è una SELECT popolata dall'API", async () => {
-    mockApi({
-      "/api/git-accounts": () => jsonResponse(200, [ACCOUNT_A]),
-      [`/api/git-accounts/${ACCOUNT_A.id}/branches`]: () =>
-        jsonResponse(200, { branches: ["main", "develop", "release"], defaultBranch: "main" }),
-    });
-    await renderForm({ onSubmit: vi.fn() });
-
-    const branch = screen.getByLabelText("Default branch");
-    expect(branch.tagName).toBe("SELECT");
-    expect(branch).toHaveValue("main");
-    // L'elenco arriva dall'API; "release" è una delle opzioni.
-    expect(screen.getByRole("option", { name: "release" })).toBeInTheDocument();
-  });
-
-  it("se l'elenco dei branch fallisce ricade su un input testuale", async () => {
-    mockApi({
-      "/api/git-accounts": () => jsonResponse(200, [ACCOUNT_A]),
-      [`/api/git-accounts/${ACCOUNT_A.id}/branches`]: () =>
-        jsonResponse(422, { message: "scope branch mancante" }),
-    });
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ProjectForm initial={initial} onSubmit={vi.fn()} />
-      </QueryClientProvider>,
-    );
-
-    const branch = await screen.findByLabelText("Default branch");
-    await waitFor(() => expect(branch.tagName).toBe("INPUT"));
-    expect(branch).toHaveValue("main");
+    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.description).toBe("Il monorepo Acme");
   });
 });

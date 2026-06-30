@@ -192,7 +192,7 @@ class GroupConflictError extends Error {
  */
 async function processErrorEvent(
   db: Db,
-  projectId: string,
+  repositoryId: string,
   event: ErrorEvent,
   opts?: ProcessOptions,
 ): Promise<{ outcome: "created"; ticket: Ticket } | { outcome: "deduped" }> {
@@ -208,7 +208,7 @@ async function processErrorEvent(
         const [group] = await tx
           .select({ ticketId: errorGroups.ticketId })
           .from(errorGroups)
-          .where(and(eq(errorGroups.projectId, projectId), eq(errorGroups.fingerprint, fp)))
+          .where(and(eq(errorGroups.repositoryId, repositoryId), eq(errorGroups.fingerprint, fp)))
           .limit(1);
 
         if (group) {
@@ -225,7 +225,7 @@ async function processErrorEvent(
         await opts?.beforeTicketCreate?.();
 
         const ticket = await createTicket(tx, {
-          projectId,
+          repositoryId,
           title: truncate(`${event.errorType ?? "Error"}: ${event.message}`),
           type: "bug",
           priority: "medium",
@@ -244,7 +244,7 @@ async function processErrorEvent(
 
         const inserted = await tx
           .insert(errorGroups)
-          .values({ projectId, fingerprint: fp, ticketId: ticket.id })
+          .values({ repositoryId, fingerprint: fp, ticketId: ticket.id })
           .onConflictDoNothing()
           .returning({ id: errorGroups.id });
         if (inserted.length === 0) {
@@ -267,7 +267,7 @@ async function processErrorEvent(
 /** I feedback non si dedupano: ogni segnalazione utente è un ticket. */
 async function processFeedbackEvent(
   db: Db,
-  projectId: string,
+  repositoryId: string,
   event: FeedbackEvent,
 ): Promise<Ticket> {
   const bodyLines = [
@@ -278,7 +278,7 @@ async function processFeedbackEvent(
   ];
   return db.transaction(async (tx) => {
     const ticket = await createTicket(tx, {
-      projectId,
+      repositoryId,
       title: truncate(event.message),
       body: bodyLines.join("\n"),
       type: "feedback",
@@ -317,7 +317,7 @@ export interface ExternalTicketInput {
  */
 export async function createExternalTicket(
   db: Db,
-  project: { id: string },
+  repository: { id: string },
   input: ExternalTicketInput,
 ): Promise<Ticket> {
   const body = input.reporterNote
@@ -325,7 +325,7 @@ export async function createExternalTicket(
     : input.body;
   return db.transaction(async (tx) => {
     const ticket = await createTicket(tx, {
-      projectId: project.id,
+      repositoryId: repository.id,
       title: truncate(input.title),
       body,
       type: input.type,
@@ -341,12 +341,12 @@ export async function createExternalTicket(
 /** Creazione ticket esplicita via SDK/API: type e priority li sceglie il client. */
 async function processTicketEvent(
   db: Db,
-  projectId: string,
+  repositoryId: string,
   event: TicketCreateEvent,
 ): Promise<Ticket> {
   return createExternalTicket(
     db,
-    { id: projectId },
+    { id: repositoryId },
     {
       title: event.title,
       body: event.body,
@@ -407,7 +407,7 @@ async function notifyTicketCreated(
  */
 export async function processEvents(
   db: Db,
-  project: { id: string },
+  repository: { id: string },
   events: IngestEvent[],
   opts?: ProcessOptions,
 ): Promise<ProcessResult> {
@@ -415,7 +415,7 @@ export async function processEvents(
   for (const event of events) {
     switch (event.kind) {
       case "error": {
-        const res = await processErrorEvent(db, project.id, event, opts);
+        const res = await processErrorEvent(db, repository.id, event, opts);
         result[res.outcome] += 1;
         // Notifica solo sui ticket genuinamente nuovi (mai sul dedup), DOPO il
         // commit della transazione: la notifica riflette così realtà committata.
@@ -423,7 +423,7 @@ export async function processEvents(
         break;
       }
       case "feedback": {
-        const ticket = await processFeedbackEvent(db, project.id, event);
+        const ticket = await processFeedbackEvent(db, repository.id, event);
         result.created += 1;
         // Screenshot come allegato DOPO il commit del ticket: best-effort, non
         // disfa mai l'ingestion (vedi saveScreenshotAttachment).
@@ -436,7 +436,7 @@ export async function processEvents(
       case "ticket":
         // I ticket api/manuali non generano notifica (rumore): notifyTicketCreated
         // ignora le sorgenti non-SDK, ma non lo chiamiamo nemmeno qui.
-        await processTicketEvent(db, project.id, event);
+        await processTicketEvent(db, repository.id, event);
         result.created += 1;
         break;
     }

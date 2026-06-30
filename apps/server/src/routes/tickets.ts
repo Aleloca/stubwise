@@ -16,6 +16,7 @@ import {
   comments,
   commentAuthorType,
   milestones,
+  repositories,
   ticketEventKind,
   ticketEvents,
   ticketLinkKind,
@@ -39,6 +40,9 @@ import {
 export const ticketSchema = z.object({
   id: z.uuid(),
   projectId: z.uuid(),
+  // Repository bersaglio del fix; null per ticket senza repo (Fase 3). In Fase 1
+  // è sempre valorizzato.
+  repositoryId: z.uuid().nullable(),
   number: z.number().int(),
   title: z.string(),
   body: z.string(),
@@ -64,7 +68,11 @@ const bodyTextSchema = z.string().max(20_000);
 const labelsSchema = z.array(z.string().min(1).max(50)).max(20);
 
 const createTicketBodySchema = z.object({
+  // Progetto (gruppo) a cui il ticket appartiene.
   projectId: z.uuid(),
+  // Repository bersaglio del fix: in Fase 1 obbligatorio e deve appartenere al
+  // progetto indicato (400 altrimenti). Da qui si genera il numero per-repo.
+  repositoryId: z.uuid(),
   title: titleSchema,
   body: bodyTextSchema.optional(),
   type: ticketTypeSchema,
@@ -220,6 +228,7 @@ function toPublicTicket(row: Ticket): z.infer<typeof ticketSchema> {
   return {
     id: row.id,
     projectId: row.projectId,
+    repositoryId: row.repositoryId,
     number: row.number,
     title: row.title,
     body: row.body,
@@ -372,13 +381,31 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { projectId, title, body, type, priority, assigneeId, labels } = request.body;
+      const { projectId, repositoryId, title, body, type, priority, assigneeId, labels } =
+        request.body;
       if (assigneeId !== undefined && !(await userExists(app.db, assigneeId))) {
         return apiError(reply, 400, "assignee_not_found", "Assignee not found");
+      }
+      // Il repository bersaglio deve esistere E appartenere al progetto indicato:
+      // un repo di un altro progetto (o inesistente) è un 400. La validazione qui
+      // (prima dell'insert) dà un messaggio chiaro; il numero ticket si genera
+      // poi dal repository (per-repo) dentro createTicket.
+      const [repository] = await app.db
+        .select({ id: repositories.id })
+        .from(repositories)
+        .where(and(eq(repositories.id, repositoryId), eq(repositories.projectId, projectId)));
+      if (!repository) {
+        return apiError(
+          reply,
+          400,
+          "repository_not_in_project",
+          "Repository not found in this project",
+        );
       }
       try {
         const ticket = await createTicket(app.db, {
           projectId,
+          repositoryId,
           title,
           body,
           type,
@@ -392,7 +419,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         return await reply.code(201).send(toPublicTicket(ticket));
       } catch (error) {
         if (error instanceof ProjectNotFoundError) {
-          return apiError(reply, 404, "project_not_found", "Project not found");
+          return apiError(reply, 404, "repository_not_found", "Repository not found");
         }
         // Finestra TOCTOU: l'utente verificato sopra può sparire prima
         // dell'insert; la FK su assignee_id lo segnala a posteriori.

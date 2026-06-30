@@ -4,14 +4,17 @@ import {
   type TicketPriority,
   type TicketType,
 } from "@stubwise/shared";
-import { useState, type FormEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { Project, TicketDraft } from "../lib/api";
+import { repositoriesQueryOptions } from "../lib/queries";
 import { PRIORITY_LABEL_KEYS, TYPE_LABEL_KEYS } from "./badges";
 import { FormError, SelectField, TextField } from "./field";
 import { MarkdownEditor } from "./markdown-editor";
 
 interface NewTicketDialogProps {
+  /** Progetti (gruppi) disponibili: il primo è preselezionato. */
   projects: Project[];
   /** Crea il ticket; il rigetto mostra l'errore e lascia il dialog aperto. */
   onSubmit: (draft: TicketDraft) => Promise<void>;
@@ -19,14 +22,16 @@ interface NewTicketDialogProps {
 }
 
 /**
- * Dialog di creazione manuale di un ticket, per tutto ciò che non arriva
- * dagli SDK. Pannello modale in stile sala controllo: overlay scuro, panel
- * rialzato, Escape o Annulla per chiudere. Volutamente minimale: assegnatario
- * e label si impostano dal dettaglio.
+ * Dialog di creazione manuale di un ticket. Si sceglie il PROGETTO (gruppo) e,
+ * fra i suoi repository, il REPOSITORY BERSAGLIO del fix (obbligatorio): il
+ * dropdown dei repository si popola dal progetto selezionato. Pannello modale in
+ * stile sala controllo: Escape o Annulla per chiudere. Assegnatario e label si
+ * impostano dal dettaglio.
  */
 export function NewTicketDialog({ projects, onSubmit, onClose }: NewTicketDialogProps) {
   const { t } = useTranslation();
   const [projectId, setProjectId] = useState(projects[0]?.id ?? "");
+  const [repositoryId, setRepositoryId] = useState("");
   const [title, setTitle] = useState("");
   const [type, setType] = useState<TicketType>("task");
   const [priority, setPriority] = useState<TicketPriority>("medium");
@@ -34,15 +39,35 @@ export function NewTicketDialog({ projects, onSubmit, onClose }: NewTicketDialog
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
+  // Repository del progetto selezionato: alimentano il dropdown del bersaglio.
+  const { data: repositories } = useQuery({
+    ...repositoriesQueryOptions(projectId),
+    enabled: projectId !== "",
+  });
+
+  // Cambiato progetto (o caricati i repo): preseleziona il primo repository del
+  // progetto e azzera la scelta se non appartiene più al progetto corrente.
+  useEffect(() => {
+    const repos = repositories ?? [];
+    if (repos.length === 0) {
+      setRepositoryId("");
+      return;
+    }
+    setRepositoryId((current) =>
+      repos.some((repo) => repo.id === current) ? current : (repos[0]?.id ?? ""),
+    );
+  }, [repositories]);
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (title.trim() === "" || projectId === "") return;
+    if (title.trim() === "" || projectId === "" || repositoryId === "") return;
     setError(null);
     setPending(true);
     try {
       const trimmedBody = body.trim();
       await onSubmit({
         projectId,
+        repositoryId,
         title: title.trim(),
         ...(trimmedBody !== "" && { body: trimmedBody }),
         type,
@@ -54,6 +79,12 @@ export function NewTicketDialog({ projects, onSubmit, onClose }: NewTicketDialog
       setPending(false);
     }
   }
+
+  const repositoryOptions = (repositories ?? []).map((repo) => ({
+    value: repo.id,
+    label: repo.name,
+  }));
+  const noRepositories = projectId !== "" && repositories !== undefined && repositoryOptions.length === 0;
 
   return (
     <div
@@ -106,6 +137,22 @@ export function NewTicketDialog({ projects, onSubmit, onClose }: NewTicketDialog
             options={projects.map((project) => ({ value: project.id, label: project.name }))}
           />
 
+          <div>
+            <SelectField
+              id="ticket-repository"
+              label={t("tickets:newDialog.repository")}
+              required
+              value={repositoryId}
+              onChange={(event) => setRepositoryId(event.target.value)}
+              options={repositoryOptions}
+            />
+            {noRepositories && (
+              <p role="alert" className="mt-1.5 font-mono text-[11px] text-danger">
+                {t("tickets:newDialog.noRepositories")}
+              </p>
+            )}
+          </div>
+
           <div className="grid gap-4 sm:grid-cols-2">
             <SelectField
               id="ticket-type"
@@ -156,7 +203,7 @@ export function NewTicketDialog({ projects, onSubmit, onClose }: NewTicketDialog
             </button>
             <button
               type="submit"
-              disabled={pending || title.trim() === ""}
+              disabled={pending || title.trim() === "" || repositoryId === ""}
               className="rounded-sm bg-signal px-4 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright active:bg-signal-dim disabled:cursor-not-allowed disabled:bg-signal-dim disabled:opacity-60"
             >
               {pending ? t("tickets:newDialog.submitPending") : t("tickets:newDialog.submit")}

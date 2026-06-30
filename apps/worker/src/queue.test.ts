@@ -1,5 +1,5 @@
-import { aiJobs, projects, tickets, type Db } from "@stubwise/db";
-import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { aiJobs, type Db } from "@stubwise/db";
+import { seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
@@ -25,33 +25,7 @@ let ticketId: string;
 beforeAll(async () => {
   testDb = await startTestDb();
   const { db } = testDb;
-  const gitAccountId = await seedGitAccount(db);
-  const [project] = await db
-    .insert(projects)
-    .values({
-      name: "Coda",
-      slug: "coda",
-      provider: "github",
-      gitAccountId,
-      repoUrl: "https://github.com/acme/coda",
-      defaultBranch: "main",
-      ingestionKey: "ingestion-coda",
-    })
-    .returning();
-  if (!project) throw new Error("insert del progetto non ha restituito la riga");
-  const [ticket] = await db
-    .insert(tickets)
-    .values({
-      projectId: project.id,
-      number: 1,
-      title: "Bug da sistemare",
-      type: "bug",
-      priority: "high",
-      source: "manual",
-    })
-    .returning();
-  if (!ticket) throw new Error("insert del ticket non ha restituito la riga");
-  ticketId = ticket.id;
+  ({ ticketId } = await seedTicket(db));
 }, 120_000);
 
 afterEach(async () => {

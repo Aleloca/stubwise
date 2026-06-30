@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { tickets } from "@stubwise/db";
+import { projects, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { seedUsers } from "../test/fixtures.js";
@@ -40,14 +40,20 @@ async function createGitAccount(): Promise<string> {
 
 async function createProject(name: string): Promise<SeededProject> {
   const gitAccountId = await createGitAccount();
+  // L'inbound è per-repository (la chiave d'ingestion vive sul repo): creiamo
+  // un progetto (gruppo) e vi montiamo un repository.
+  const [group] = await testDb.db
+    .insert(projects)
+    .values({ name: `${name} — gruppo`, slug: `gruppo-${randomBytes(4).toString("hex")}` })
+    .returning({ id: projects.id });
   const res = await app.inject({
     method: "POST",
-    url: "/api/projects",
+    url: "/api/repositories",
     headers: { cookie: adminCookie },
-    payload: { name, gitAccountId, repoUrl: `https://github.com/acme/${name}` },
+    payload: { projectId: group!.id, name, gitAccountId, repoUrl: `https://github.com/acme/${name}` },
   });
   if (res.statusCode !== 201) {
-    throw new Error(`creazione progetto fallita: ${res.statusCode} ${res.body}`);
+    throw new Error(`creazione repository fallita: ${res.statusCode} ${res.body}`);
   }
   return res.json() as SeededProject;
 }

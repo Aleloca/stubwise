@@ -1,4 +1,4 @@
-import { agentRuns, aiJobs, automationRules, comments, encrypt, gitAccounts, instanceSettings, projects, tickets, type Db } from "@stubwise/db";
+import { agentRuns, aiJobs, automationRules, comments, encrypt, gitAccounts, instanceSettings, projects, repositories, tickets, type Db } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { execa } from "execa";
@@ -71,7 +71,10 @@ const SEED_COMMIT_ARGS = ["-c", "user.name=Seed", "-c", "user.email=seed@example
 interface Fixture {
   upstreamDir: string;
   mirrors: MirrorManager;
+  /** Progetto (gruppo) a cui appartiene il repository del fix. */
   projectId: string;
+  /** Repository bersaglio del fix (repoUrl/branch/account vivono qui). */
+  repositoryId: string;
   gitAccountId: string;
 }
 
@@ -96,14 +99,21 @@ async function makeFixture(credentials: { token: string; username?: string } = {
   await git(["push", "origin", "main"], work);
 
   uniq++;
-  // Le credenziali vivono sull'account git collegato, non sul progetto.
+  // Le credenziali vivono sull'account git collegato, non sul repository.
   const gitAccountId = await seedGitAccount(testDb.db, {
     provider: "github",
     encryptedCredentials: encrypt(JSON.stringify(credentials), ENCRYPTION_KEY),
   });
+  // Progetto (gruppo) + repository: il fix lavora sul repository (repoUrl/branch).
   const [project] = await testDb.db
     .insert(projects)
+    .values({ name: `Gruppo ${uniq}`, slug: `gruppo-fix-${uniq}` })
+    .returning();
+  if (!project) throw new Error("insert del progetto non ha restituito la riga");
+  const [repository] = await testDb.db
+    .insert(repositories)
     .values({
+      projectId: project.id,
       name: `Fix ${uniq}`,
       slug: `fix-${uniq}`,
       provider: "github",
@@ -113,12 +123,13 @@ async function makeFixture(credentials: { token: string; username?: string } = {
       ingestionKey: `ingestion-fix-${uniq}`,
     })
     .returning();
-  if (!project) throw new Error("insert del progetto non ha restituito la riga");
+  if (!repository) throw new Error("insert del repository non ha restituito la riga");
 
   return {
     upstreamDir,
     mirrors: new MirrorManager({ mirrorsDir: join(root, "mirrors") }),
     projectId: project.id,
+    repositoryId: repository.id,
     gitAccountId,
   };
 }
@@ -127,13 +138,14 @@ type Ticket = typeof tickets.$inferSelect;
 
 async function createTicket(
   db: Db,
-  projectId: string,
+  fixture: Pick<Fixture, "projectId" | "repositoryId">,
   overrides: Partial<typeof tickets.$inferInsert> = {},
 ): Promise<Ticket> {
   const [ticket] = await db
     .insert(tickets)
     .values({
-      projectId,
+      projectId: fixture.projectId,
+      repositoryId: fixture.repositoryId,
       number: 7,
       title: "sum restituisce la differenza",
       body: "Chiamando sum(2, 3) ottengo -1 invece di 5",
@@ -497,7 +509,7 @@ describe("runFix", () => {
   it("flusso felice: branch pushato, PR aperta, commento AI, ticket in_review, job pr_opened", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     // Due fasi (default): plan produce un piano, execute scrive il diff+report.
     const runner = new FakeAgentRunner({
@@ -593,7 +605,7 @@ describe("runFix", () => {
     const { db } = testDb;
     await setContentLanguage(db, "it");
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
       fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
@@ -622,7 +634,7 @@ describe("runFix", () => {
   it("FIX_TWO_PHASE=false: un solo run con executeModel, comportamento storico", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
       fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
@@ -648,7 +660,7 @@ describe("runFix", () => {
   it("il run di pianificazione fallisce (exit non-zero) → niente esecuzione né PR, job failed", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
       results: [{ output: "pianificazione esplosa", exitCode: 4 }],
@@ -674,7 +686,7 @@ describe("runFix", () => {
   it("il run di pianificazione va in timeout → niente esecuzione né PR, job failed", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     let calls = 0;
     const runner = new FakeAgentRunner({
@@ -699,7 +711,7 @@ describe("runFix", () => {
   it("nessun diff prodotto → job failed con log, niente PR né branch", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     // Il fake scrive solo il report: dopo l'esclusione del report non resta nulla.
     const runner = new FakeAgentRunner({
@@ -727,7 +739,7 @@ describe("runFix", () => {
   it("eccezione durante il run → worktree comunque rimosso dal filesystem, job failed", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
       script: () => {
@@ -752,7 +764,7 @@ describe("runFix", () => {
   it("report mancante ma diff presente → PR aperta con body di fallback e warning nel log", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
       fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n" },
@@ -774,7 +786,7 @@ describe("runFix", () => {
   it("STUBWISE_REPORT.md creato come DIRECTORY → trattato come mancante, rimosso, fuori dal commit", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
       fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n" },
@@ -804,7 +816,7 @@ describe("runFix", () => {
   it("exit code non-zero → job failed (conservativo), niente PR anche se c'è un diff", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
       fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
@@ -828,7 +840,7 @@ describe("runFix", () => {
   it("timeout dell'agente → job failed con l'output parziale nel log", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
       script: () => {
@@ -849,7 +861,7 @@ describe("runFix", () => {
   it("apertura PR fallita dopo il push → job failed con log azionabile (branch + upstream + recupero)", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
       fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
@@ -869,9 +881,12 @@ describe("runFix", () => {
     const jobAfter = await getJob(db, job.id);
     expect(jobAfter.status).toBe("failed");
     expect(jobAfter.log).toContain(branch);
-    // L'upstream è il repoUrl del progetto (file:// nel fixture).
-    const [proj] = await db.select().from(projects).where(eq(projects.id, fixture.projectId));
-    expect(jobAfter.log).toContain(proj!.repoUrl);
+    // L'upstream è il repoUrl del repository (file:// nel fixture).
+    const [repo] = await db
+      .select()
+      .from(repositories)
+      .where(eq(repositories.id, fixture.repositoryId));
+    expect(jobAfter.log).toContain(repo!.repoUrl);
     expect(jobAfter.log).toMatch(/recupero manuale/i);
     expect(jobAfter.log).toMatch(/--delete/);
     expect(jobAfter.error).toContain("403 da GitHub");
@@ -880,7 +895,7 @@ describe("runFix", () => {
   it("l'heartbeat rinfresca lastActivityAt durante un run lento, e requeueStale NON lo riaccoda", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     // Job partito 30' fa e senza segni di vita da 30': senza heartbeat sarebbe
     // un candidato perfetto al requeue (PR duplicata).
     const job = await createFixingJob(db, ticket.id, {
@@ -919,7 +934,7 @@ describe("runFix", () => {
   it("i commenti utente del ticket finiscono nel prompt come <indicazioni_del_team>", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     // Commenti di tipi diversi: solo quelli 'user' sono indicazioni del team.
     await db.insert(comments).values([
       { ticketId: ticket.id, authorType: "user", body: "Controlla il modulo auth" },
@@ -960,7 +975,7 @@ describe("runFix", () => {
       .update(gitAccounts)
       .set({ encryptedCredentials: encrypt(JSON.stringify({ token: "x" }), randomBytes(32)) })
       .where(eq(gitAccounts.id, fixture.gitAccountId));
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner();
     const provider = makeProvider();
@@ -979,7 +994,7 @@ describe("runFix", () => {
     const fixture = await makeFixture();
     // Soglia di approvazione del piano per il tipo 'bug' a 3; ticket con effort 4.
     await db.update(automationRules).set({ planApprovalMinEffort: 3 }).where(eq(automationRules.type, "bug"));
-    const ticket = await createTicket(db, fixture.projectId, { type: "bug", effort: 4 });
+    const ticket = await createTicket(db, fixture, { type: "bug", effort: 4 });
     const job = await createFixingJob(db, ticket.id);
     // Se l'esecuzione partisse scriverebbe questi file: NON devono mai comparire.
     const runner = new FakeAgentRunner({
@@ -1032,7 +1047,7 @@ describe("runFix", () => {
     const { db } = testDb;
     const fixture = await makeFixture();
     await db.update(automationRules).set({ planApprovalMinEffort: 3 }).where(eq(automationRules.type, "bug"));
-    const ticket = await createTicket(db, fixture.projectId, { type: "bug", effort: 5 });
+    const ticket = await createTicket(db, fixture, { type: "bug", effort: 5 });
     // manualTrigger=true: un avvio a mano NON aggira l'approvazione del piano.
     const [job] = await db
       .insert(aiJobs)
@@ -1057,7 +1072,7 @@ describe("runFix", () => {
     const { db } = testDb;
     const fixture = await makeFixture();
     await db.update(automationRules).set({ planApprovalMinEffort: 3 }).where(eq(automationRules.type, "bug"));
-    const ticket = await createTicket(db, fixture.projectId, { type: "bug", effort: 4 });
+    const ticket = await createTicket(db, fixture, { type: "bug", effort: 4 });
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
       results: [{ output: "pianificazione esplosa", exitCode: 7 }],
@@ -1078,7 +1093,7 @@ describe("runFix", () => {
   it("execute-only: resumeMode=execute + planText → niente pianificazione, riprende dal piano e apre la PR", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const PLAN = "PIANO APPROVATO: sostituisci - con + in app.js e aggiungi un test";
     const [job] = await db
       .insert(aiJobs)
@@ -1126,7 +1141,7 @@ describe("runFix", () => {
     // esplicito perché le righe automation_rules sono seedate e condivise tra
     // test (afterEach non le ripulisce).
     await db.update(automationRules).set({ planApprovalMinEffort: null }).where(eq(automationRules.type, "bug"));
-    const ticket = await createTicket(db, fixture.projectId, { type: "bug", effort: 5 });
+    const ticket = await createTicket(db, fixture, { type: "bug", effort: 5 });
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
       fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
@@ -1160,7 +1175,7 @@ describe("runFix — self-repair (Task 5)", () => {
   it("success: 1° run test rosso → riparazione (prompt con <test_failure>) → 2° run verde → PR aperta, commit, report escluso", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     // Due run dell'agente: plan + execute. La RIPARAZIONE è un terzo run
     // (execute-model). Il fake scrive app.js + report ad ogni run.
@@ -1217,7 +1232,7 @@ describe("runFix — self-repair (Task 5)", () => {
   it("exhausted: test sempre rossi → dopo selfRepairMaxAttempts riparazioni → failed, niente PR, output test nel log", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
       fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
@@ -1259,7 +1274,7 @@ describe("runFix — self-repair (Task 5)", () => {
   it("no testCmd (resolveTestCommandFn → null): comportamento ATTUALE, niente loop né esecuzione test", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
       fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
@@ -1293,7 +1308,7 @@ describe("runFix — self-repair (Task 5)", () => {
   it("selfRepairMaxAttempts=0: nessun loop, comportamento attuale anche con testCmd risolto", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
       fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
@@ -1322,7 +1337,7 @@ describe("runFix — self-repair (Task 5)", () => {
   it("diff vuoto dopo l'esecuzione (solo report) → NoChangesError, niente esecuzione test né PR", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     // Solo il report: dopo l'esclusione del report il diff è vuoto.
     const runner = new FakeAgentRunner({
@@ -1358,7 +1373,7 @@ describe("runFix — self-repair (Task 5)", () => {
   it("execute-only con self-repair: riprende dal piano, esegue i test e ripara", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const PLAN = "PIANO APPROVATO: sostituisci - con +";
     const [job] = await db
       .insert(aiJobs)
@@ -1405,7 +1420,7 @@ describe("runFix — install delle dipendenze (Task 4)", () => {
   it("install eseguito PRIMA del primo run dell'agente (modalità full)", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const order: string[] = [];
     const runner = new FakeAgentRunner({
@@ -1450,7 +1465,7 @@ describe("runFix — install delle dipendenze (Task 4)", () => {
   it("install eseguito PRIMA dell'agente anche in execute-only", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const PLAN = "PIANO APPROVATO: cambia - in +";
     const [job] = await db
       .insert(aiJobs)
@@ -1489,7 +1504,7 @@ describe("runFix — install delle dipendenze (Task 4)", () => {
     const { db } = testDb;
     const fixture = await makeFixture();
     await db.update(automationRules).set({ planApprovalMinEffort: 3 }).where(eq(automationRules.type, "bug"));
-    const ticket = await createTicket(db, fixture.projectId, { type: "bug", effort: 4 });
+    const ticket = await createTicket(db, fixture, { type: "bug", effort: 4 });
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({ results: [{ output: "PIANO", exitCode: 0 }] });
     const provider = makeProvider();
@@ -1510,7 +1525,7 @@ describe("runFix — install delle dipendenze (Task 4)", () => {
   it("install fallito (exit non-zero) → log prominente, la run prosegue, l'agente è comunque invocato", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
       fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
@@ -1547,7 +1562,7 @@ describe("runFix — install delle dipendenze (Task 4)", () => {
   it("resolveInstallCommandFn → null (nessun package.json): install NON eseguito, run normale", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
       fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
@@ -1583,7 +1598,7 @@ describe("runFix — notifiche", () => {
   it("dispatcha job.pr_opened con prUrl e link al ticket sul successo", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
       fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
@@ -1612,7 +1627,7 @@ describe("runFix — notifiche", () => {
   it("dispatcha job.failed sul fallimento (nessuna modifica)", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     // Nessun file change → NoChangesError → failJob.
     const runner = new FakeAgentRunner();
@@ -1640,7 +1655,7 @@ describe("runFix — notifiche", () => {
   it("un dispatch che lancia non altera l'esito (best-effort)", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
       fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
@@ -1666,7 +1681,7 @@ describe("runFix — notifiche", () => {
     const { db } = testDb;
     const fixture = await makeFixture();
     await db.update(automationRules).set({ planApprovalMinEffort: 3 }).where(eq(automationRules.type, "bug"));
-    const ticket = await createTicket(db, fixture.projectId, { type: "bug", effort: 4 });
+    const ticket = await createTicket(db, fixture, { type: "bug", effort: 4 });
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({ results: [{ output: "PIANO", exitCode: 0 }] });
     const provider = makeProvider();
@@ -1709,7 +1724,7 @@ describe("runFix — budget di costo (Task 6)", () => {
       .update(instanceSettings)
       .set({ monthlyBudgetUsd: "10" })
       .where(eq(instanceSettings.id, 1));
-    const ticket = await createTicket(db, fixture.projectId, { type: "bug" });
+    const ticket = await createTicket(db, fixture, { type: "bug" });
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
       fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
@@ -1759,7 +1774,7 @@ describe("runFix — budget di costo (Task 6)", () => {
     const { db } = testDb;
     const fixture = await makeFixture();
     await db.update(automationRules).set({ maxCostUsd: "2.5" }).where(eq(automationRules.type, "bug"));
-    const ticket = await createTicket(db, fixture.projectId, { type: "bug" });
+    const ticket = await createTicket(db, fixture, { type: "bug" });
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
       fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
@@ -1801,7 +1816,7 @@ describe("runFix — budget di costo (Task 6)", () => {
       .set({ monthlyBudgetUsd: "1" })
       .where(eq(instanceSettings.id, 1));
     await db.update(automationRules).set({ maxCostUsd: "1" }).where(eq(automationRules.type, "bug"));
-    const ticket = await createTicket(db, fixture.projectId, { type: "bug" });
+    const ticket = await createTicket(db, fixture, { type: "bug" });
     // Job avviato manualmente: scavalca entrambi i tetti.
     const [manualJob] = await db
       .insert(aiJobs)
@@ -1841,7 +1856,7 @@ describe("runFix — budget di costo (Task 6)", () => {
     // Prima della 2ª riparazione: stima 0 + 0.1 (execute) + 0.1 (riparazione 1)
     // = 0.2 >= 0.15 → BudgetExceededError → held (la 2ª riparazione NON parte).
     await db.update(automationRules).set({ maxCostUsd: "0.15" }).where(eq(automationRules.type, "bug"));
-    const ticket = await createTicket(db, fixture.projectId, { type: "bug" });
+    const ticket = await createTicket(db, fixture, { type: "bug" });
     const job = await createFixingJob(db, ticket.id);
     const usage = (cost: number) => ({
       totalCostUsd: cost,
@@ -1909,7 +1924,7 @@ describe("runFix — file d'ambiente per progetto (Task 5 wiring)", () => {
   it("materializza le env PRIMA dell'install e dell'agente (ordine env → install → agente)", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const order: string[] = [];
     const runner = new FakeAgentRunner({
@@ -1950,7 +1965,7 @@ describe("runFix — file d'ambiente per progetto (Task 5 wiring)", () => {
     const { db } = testDb;
     const fixture = await makeFixture();
     await db.update(automationRules).set({ planApprovalMinEffort: 3 }).where(eq(automationRules.type, "bug"));
-    const ticket = await createTicket(db, fixture.projectId, { type: "bug", effort: 4 });
+    const ticket = await createTicket(db, fixture, { type: "bug", effort: 4 });
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({ results: [{ output: "PIANO", exitCode: 0 }] });
     const provider = makeProvider();
@@ -1970,7 +1985,7 @@ describe("runFix — file d'ambiente per progetto (Task 5 wiring)", () => {
   it("inietta la process env materializzata in install e test (extraEnv come 4° argomento)", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
       fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
@@ -2020,7 +2035,7 @@ describe("runFix — file d'ambiente per progetto (Task 5 wiring)", () => {
   it("SAFEGUARD anti-leak: i file env materializzati NON finiscono nel commit/push", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
       fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
@@ -2078,7 +2093,7 @@ describe("runFix — file d'ambiente per progetto (Task 5 wiring)", () => {
   it("SAFEGUARD anti-leak: esclusione anche nel ramo SENZA self-repair", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
       fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
@@ -2114,7 +2129,7 @@ describe("runFix — file d'ambiente per progetto (Task 5 wiring)", () => {
   it("best-effort: materializeEnvFilesFn che lancia → il fix prosegue (PR aperta), install/agente eseguiti, env esclusi vuoti", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
       fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
@@ -2162,7 +2177,7 @@ describe("runFix — file d'ambiente per progetto (Task 5 wiring)", () => {
   it("solo env scritti, nessun diff reale → NoChangesError (gli env esclusi NON mascherano un diff vuoto)", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     // L'agente NON produce modifiche al codice: scrive solo il report (escluso).
     const runner = new FakeAgentRunner({
@@ -2204,7 +2219,7 @@ describe("runFix — file d'ambiente per progetto (Task 5 wiring)", () => {
   it("nessun env file: comportamento invariato (commit normale, NoChangesError non scattato dal solo env)", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
-    const ticket = await createTicket(db, fixture.projectId);
+    const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
       fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },

@@ -1,5 +1,5 @@
-import { docGenerations, docNodes, projects, type Db } from "@stubwise/db";
-import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { docGenerations, docNodes, type Db } from "@stubwise/db";
+import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { SYNTH_BODY_END_MARKER, SYNTH_BODY_START_MARKER } from "@stubwise/docs-engine";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -16,28 +16,14 @@ import { runSynthesize, type RunSynthesizeDeps } from "./synthesize-handler.js";
 vi.setConfig({ testTimeout: 60_000 });
 
 let testDb: TestDb;
-let projectId: string;
+let repositoryId: string;
 let generationId: string;
 
 beforeAll(async () => {
   testDb = await startTestDb();
   const { db } = testDb;
-  const gitAccountId = await seedGitAccount(db);
-  const [project] = await db
-    .insert(projects)
-    .values({
-      name: "Synth",
-      slug: "synth",
-      provider: "github",
-      gitAccountId,
-      repoUrl: "https://github.com/acme/synth",
-      defaultBranch: "main",
-      ingestionKey: "ingestion-synth",
-    })
-    .returning();
-  if (!project) throw new Error("insert del progetto non ha restituito la riga");
-  projectId = project.id;
-  const [generation] = await db.insert(docGenerations).values({ projectId }).returning();
+  ({ repositoryId } = await seedRepository(db));
+  const [generation] = await db.insert(docGenerations).values({ repositoryId }).returning();
   if (!generation) throw new Error("insert della generazione non ha restituito la riga");
   generationId = generation.id;
 }, 120_000);
@@ -65,7 +51,7 @@ async function insertNode(db: Db, opts: InsertNodeOptions = {}): Promise<DocNode
   const { tree, ...rest } = opts;
   const [node] = await db
     .insert(docNodes)
-    .values({ generationId, projectId, tree: tree ?? "technical", ...rest })
+    .values({ generationId, repositoryId, tree: tree ?? "technical", ...rest })
     .returning();
   if (!node) throw new Error("insert del nodo non ha restituito la riga");
   return node;
