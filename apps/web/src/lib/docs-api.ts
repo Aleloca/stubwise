@@ -150,15 +150,11 @@ export function getDocStatus(projectId: string): Promise<DocStatus> {
 /**
  * Avvia (o restituisce quello già attivo) un job di generazione documentazione
  * per il progetto. Solo admin/maintainer lato server. Ritorna il job in coda.
- * `providerId` (opzionale) blocca la generazione su un provider abilitato; se
- * assente il server usa il primo abilitato (failover automatico): il body è
- * mandato solo quando il provider è scelto, così il default resta inalterato.
+ * Il provider AI è quello configurato a livello di progetto (impostazioni
+ * progetto): la generazione non lo accetta più come parametro.
  */
-export function generateDocs(projectId: string, providerId?: string): Promise<DocGenerationJob> {
-  return api.post(
-    `/api/projects/${encodeURIComponent(projectId)}/docs/generate`,
-    providerId ? { providerId } : undefined,
-  );
+export function generateDocs(projectId: string): Promise<DocGenerationJob> {
+  return api.post(`/api/projects/${encodeURIComponent(projectId)}/docs/generate`);
 }
 
 // --- Ricerca (GET /api/projects/:id/docs/search?q=) ---

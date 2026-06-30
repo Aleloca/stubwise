@@ -107,7 +107,7 @@ export function ProjectDetailPage() {
                   testCommand: project.testCommand,
                   installCommand: project.installCommand,
                   docAutoUpdate: project.docAutoUpdate,
-                  docAutoUpdateProviderId: project.docAutoUpdateProviderId,
+                  aiProviderId: project.aiProviderId,
                 }}
                 onSubmit={handleSubmit}
               />

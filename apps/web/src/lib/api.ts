@@ -792,10 +792,10 @@ export interface Project {
   /** Se true, ogni push sul branch di default rigenera la documentazione (Docs). */
   docAutoUpdate: boolean;
   /**
-   * Provider AI fissato per l'auto-aggiornamento Docs; null = automatico (primo
-   * provider abilitato in ordine di failover).
+   * Provider AI del progetto (vale per Docs e fix); null = automatico (catena
+   * dei provider abilitati con failover, in ordine di position).
    */
-  docAutoUpdateProviderId: string | null;
+  aiProviderId: string | null;
   createdAt: string;
 }
 
@@ -835,8 +835,8 @@ export interface ProjectPatch {
   installCommand?: string | null;
   /** Toggle auto-aggiornamento Docs ai push sul branch di default; assente = invariato. */
   docAutoUpdate?: boolean;
-  /** Provider AI per l'auto-aggiornamento; null = automatico; assente = invariato. */
-  docAutoUpdateProviderId?: string | null;
+  /** Provider AI del progetto (Docs e fix); null = automatico; assente = invariato. */
+  aiProviderId?: string | null;
 }
 
 export function getProjects(): Promise<Project[]> {

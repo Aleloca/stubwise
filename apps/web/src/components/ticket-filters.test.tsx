@@ -20,7 +20,7 @@ const projects: Project[] = [
     testCommand: null,
     installCommand: null,
     docAutoUpdate: false,
-    docAutoUpdateProviderId: null,
+    aiProviderId: null,
     createdAt: "2026-01-01T00:00:00.000Z",
   },
   {
@@ -37,7 +37,7 @@ const projects: Project[] = [
     testCommand: null,
     installCommand: null,
     docAutoUpdate: false,
-    docAutoUpdateProviderId: null,
+    aiProviderId: null,
     createdAt: "2026-01-02T00:00:00.000Z",
   },
 ];

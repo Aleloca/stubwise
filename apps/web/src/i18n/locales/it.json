@@ -687,9 +687,9 @@
       "installCommandHint": "// vuoto = auto-rilevato dal lockfile.",
       "docAutoUpdate": "Auto-aggiorna la documentazione ad ogni push",
       "docAutoUpdateHint": "// rigenera i Docs quando arriva un push sul branch di default.",
-      "docAutoUpdateProvider": "Provider per l'auto-aggiornamento",
-      "docAutoUpdateProviderAuto": "Automatico (primo abilitato)",
-      "docAutoUpdateProviderHint": "// vuoto = primo provider abilitato in ordine di failover.",
+      "aiProvider": "Provider AI del progetto",
+      "aiProviderAuto": "Automatico (catena con failover)",
+      "aiProviderHint": "// vale per Docs e fix; vuoto = catena dei provider abilitati in ordine di failover.",
       "save": "Salva modifiche",
       "saving": "Salvataggio…"
     },
@@ -934,11 +934,7 @@
       "jobRunning": "Generazione in corso…",
       "jobFailed": "L'ultima generazione è fallita.",
       "jobReason": "Motivo: {{reason}}",
-      "provider": "Provider",
-      "providerAuto": "Automatico (primo abilitato)",
       "providerPinned": "Provider: {{label}}",
-      "providerKindAccount": "ACCOUNT",
-      "providerKindApiKey": "API KEY",
       "error": "Impossibile avviare la generazione."
     },
     "search": {

@@ -82,7 +82,7 @@ const CREATED: Project = {
   testCommand: null,
   installCommand: null,
   docAutoUpdate: false,
-  docAutoUpdateProviderId: null,
+  aiProviderId: null,
   createdAt: "2026-06-01T10:00:00.000Z",
 };
 

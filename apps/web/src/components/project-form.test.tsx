@@ -85,7 +85,7 @@ const initial = {
   testCommand: null,
   installCommand: null,
   docAutoUpdate: false,
-  docAutoUpdateProviderId: null,
+  aiProviderId: null,
 };
 
 type Handler = (url: URL) => Response;
@@ -285,67 +285,76 @@ describe("ProjectForm in modifica", () => {
     expect("testCommand" in payload).toBe(false);
   });
 
-  it("il select del provider è nascosto finché il toggle auto-update è off", async () => {
+  it("il select del provider AI è sempre presente, indipendente dal toggle", async () => {
     mockAccounts([ACCOUNT_A]);
     await renderForm({ onSubmit: vi.fn() });
 
-    // Toggle presente ma spento di default → niente select del provider.
+    // Il provider AI del progetto è generale: mostrato anche a toggle spento.
     expect(
       screen.getByLabelText("Auto-update the documentation on every push"),
     ).not.toBeChecked();
-    expect(screen.queryByLabelText("Provider for auto-update")).not.toBeInTheDocument();
+    const providerSelect = screen.getByLabelText("Project AI provider");
+    expect(providerSelect).toBeInTheDocument();
+    // Default "Automatico" (value vuoto) + i provider configurati.
+    expect(providerSelect).toHaveValue("");
+    expect(screen.getByRole("option", { name: "Automatic (failover chain)" })).toBeInTheDocument();
   });
 
-  it("attivando il toggle e scegliendo un provider, il PATCH li include", async () => {
+  it("scegliendo un provider, il PATCH invia aiProviderId", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockResolvedValue(undefined);
     mockAccounts([ACCOUNT_A]);
     await renderForm({ onSubmit });
 
-    await user.click(screen.getByLabelText("Auto-update the documentation on every push"));
-    // Il select compare solo a toggle attivo: contiene "Automatico" + i provider.
-    const providerSelect = screen.getByLabelText("Provider for auto-update");
-    await user.selectOptions(providerSelect, PROVIDER_A.id);
+    await user.selectOptions(screen.getByLabelText("Project AI provider"), PROVIDER_A.id);
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
-    expect(payload.docAutoUpdate).toBe(true);
-    expect(payload.docAutoUpdateProviderId).toBe(PROVIDER_A.id);
+    expect(payload.aiProviderId).toBe(PROVIDER_A.id);
+    // Il provider è indipendente dal toggle: il toggle invariato non entra nel PATCH.
+    expect("docAutoUpdate" in payload).toBe(false);
   });
 
-  it("toggle attivo con provider 'Automatico' invia docAutoUpdateProviderId null", async () => {
+  it("riportando il provider su 'Automatico', il PATCH invia aiProviderId null", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockResolvedValue(undefined);
-    mockAccounts([ACCOUNT_A]);
-    await renderForm({ onSubmit });
-
-    await user.click(screen.getByLabelText("Auto-update the documentation on every push"));
-    // Lascia il select su "Automatico" (value="") → null lato server.
-    await user.click(screen.getByRole("button", { name: "Save changes" }));
-
-    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
-    expect(payload.docAutoUpdate).toBe(true);
-    // Provider invariato (resta automatico): non entra nel PATCH minimo.
-    expect("docAutoUpdateProviderId" in payload).toBe(false);
-  });
-
-  it("prefilla toggle e provider dai valori del progetto", async () => {
     mockAccounts([ACCOUNT_A]);
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(
       <QueryClientProvider client={queryClient}>
         <ProjectForm
-          initial={{ ...initial, docAutoUpdate: true, docAutoUpdateProviderId: PROVIDER_B.id }}
+          initial={{ ...initial, aiProviderId: PROVIDER_B.id }}
+          onSubmit={onSubmit as never}
+        />
+      </QueryClientProvider>,
+    );
+    await screen.findByLabelText("Name");
+    await waitFor(() => {
+      expect(screen.getByLabelText("Default branch").tagName).toBe("SELECT");
+    });
+
+    // Da un provider fissato torna su "Automatico" (value vuoto) → null lato server.
+    await user.selectOptions(screen.getByLabelText("Project AI provider"), "");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.aiProviderId).toBeNull();
+  });
+
+  it("prefilla il provider AI dai valori del progetto", async () => {
+    mockAccounts([ACCOUNT_A]);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectForm
+          initial={{ ...initial, aiProviderId: PROVIDER_B.id }}
           onSubmit={vi.fn() as never}
         />
       </QueryClientProvider>,
     );
     await screen.findByLabelText("Name");
 
-    expect(
-      screen.getByLabelText("Auto-update the documentation on every push"),
-    ).toBeChecked();
-    expect(await screen.findByLabelText("Provider for auto-update")).toHaveValue(PROVIDER_B.id);
+    expect(await screen.findByLabelText("Project AI provider")).toHaveValue(PROVIDER_B.id);
   });
 
   it("un toggle/provider invariati NON entrano nel PATCH", async () => {
@@ -358,7 +367,7 @@ describe("ProjectForm in modifica", () => {
 
     const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
     expect("docAutoUpdate" in payload).toBe(false);
-    expect("docAutoUpdateProviderId" in payload).toBe(false);
+    expect("aiProviderId" in payload).toBe(false);
   });
 
   it("un rigetto di onSubmit mostra l'errore", async () => {

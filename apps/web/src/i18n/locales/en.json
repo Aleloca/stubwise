@@ -687,9 +687,9 @@
       "installCommandHint": "// empty = auto-detected from the lockfile.",
       "docAutoUpdate": "Auto-update the documentation on every push",
       "docAutoUpdateHint": "// regenerates the Docs when a push lands on the default branch.",
-      "docAutoUpdateProvider": "Provider for auto-update",
-      "docAutoUpdateProviderAuto": "Automatic (first enabled)",
-      "docAutoUpdateProviderHint": "// empty = first enabled provider in failover order.",
+      "aiProvider": "Project AI provider",
+      "aiProviderAuto": "Automatic (failover chain)",
+      "aiProviderHint": "// applies to Docs and fixes; empty = enabled providers chain in failover order.",
       "save": "Save changes",
       "saving": "Saving…"
     },
@@ -934,11 +934,7 @@
       "jobRunning": "A generation is in progress…",
       "jobFailed": "Last generation failed.",
       "jobReason": "Reason: {{reason}}",
-      "provider": "Provider",
-      "providerAuto": "Automatic (first enabled)",
       "providerPinned": "Provider: {{label}}",
-      "providerKindAccount": "ACCOUNT",
-      "providerKindApiKey": "API KEY",
       "error": "Could not start generation."
     },
     "search": {
