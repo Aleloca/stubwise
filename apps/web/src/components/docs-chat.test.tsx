@@ -25,11 +25,17 @@ const DESKTOP_QUERY = "(min-width: 1024px)";
 
 const PROJECT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
-// Mock del modulo API: solo postDocChat, le altre export restano reali.
+// Mock del modulo API: solo i POST chat (per-repo e di progetto), le altre
+// export restano reali.
 const postDocChat = vi.fn();
+const postProjectDocChat = vi.fn();
 vi.mock("../lib/docs-api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../lib/docs-api")>();
-  return { ...actual, postDocChat: (...args: unknown[]) => postDocChat(...args) };
+  return {
+    ...actual,
+    postDocChat: (...args: unknown[]) => postDocChat(...args),
+    postProjectDocChat: (...args: unknown[]) => postProjectDocChat(...args),
+  };
 });
 
 /**
@@ -70,6 +76,25 @@ function renderChat() {
   render(<RouterProvider router={router} />);
 }
 
+/**
+ * Variante di progetto (`scope="project"`): `projectId` è un vero projectId, ma
+ * le citazioni linkano alla route per-repo `/docs/<repositoryId>/<slug>`.
+ */
+const PROJECT_SCOPE_ID = "99999999-9999-4999-8999-999999999999";
+
+function renderProjectChat() {
+  const rootRoute = createRootRoute({
+    component: () => <DocsChat projectId={PROJECT_SCOPE_ID} scope="project" />,
+  });
+  const spaceRoute = createRoute({ getParentRoute: () => rootRoute, path: "/docs/$projectId" });
+  const pageRoute = createRoute({ getParentRoute: () => spaceRoute, path: "/$slug" });
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([spaceRoute.addChildren([pageRoute])]),
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+  });
+  render(<RouterProvider router={router} />);
+}
+
 /** Apre il drawer (è chiuso di default) e restituisce la textarea. */
 async function openChat(user: ReturnType<typeof userEvent.setup>) {
   await user.click(await screen.findByRole("button", { name: /open chat/i }));
@@ -78,6 +103,7 @@ async function openChat(user: ReturnType<typeof userEvent.setup>) {
 
 afterEach(() => {
   postDocChat.mockReset();
+  postProjectDocChat.mockReset();
 });
 
 describe("DocsChat", () => {
@@ -293,5 +319,66 @@ describe("DocsChat", () => {
     expect(b).toHaveAttribute("href", `/docs/${PROJECT_ID}/b`);
     // Sanity: vivono entrambi sotto la sezione "Sources".
     expect(within(a.closest("ul")!).getAllByRole("link")).toHaveLength(2);
+  });
+});
+
+describe("DocsChat (scope=project)", () => {
+  const REPO_X = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const REPO_Y = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+
+  it("usa l'endpoint di progetto e le citazioni mostrano il repo + linkano alla route per-repo", async () => {
+    postProjectDocChat.mockResolvedValueOnce(
+      sseResponse([
+        sse({ type: "delta", text: "cross-repo answer" }),
+        sse({
+          type: "done",
+          sessionId: "p-sess-1",
+          citations: [
+            {
+              slug: "auth",
+              title: "Authentication",
+              kind: "technical",
+              repositoryId: REPO_X,
+              repositorySlug: "api",
+              repositoryName: "API",
+            },
+            {
+              slug: "billing",
+              title: "Billing",
+              kind: "functional",
+              repositoryId: REPO_Y,
+              repositorySlug: "web",
+              repositoryName: "Web",
+            },
+          ],
+        }),
+      ]),
+    );
+
+    const user = userEvent.setup();
+    renderProjectChat();
+    const input = await openChat(user);
+
+    await user.type(input, "how does billing relate to auth?");
+    await user.click(screen.getByRole("button", { name: /^send$/i }));
+
+    await waitFor(() => expect(screen.getByText("cross-repo answer")).toBeInTheDocument());
+
+    // Il POST è andato all'endpoint di progetto, non a quello per-repo.
+    expect(postProjectDocChat).toHaveBeenCalledWith(PROJECT_SCOPE_ID, {
+      sessionId: undefined,
+      message: "how does billing relate to auth?",
+    });
+    expect(postDocChat).not.toHaveBeenCalled();
+
+    // Le citazioni mostrano il nome del repository d'origine.
+    expect(screen.getByText(/API ›/)).toBeInTheDocument();
+    expect(screen.getByText(/Web ›/)).toBeInTheDocument();
+
+    // I link puntano alla route per-repo col repositoryId della citazione.
+    const authLink = await screen.findByRole("link", { name: /Authentication/ });
+    const billingLink = await screen.findByRole("link", { name: /Billing/ });
+    expect(authLink).toHaveAttribute("href", `/docs/${REPO_X}/auth`);
+    expect(billingLink).toHaveAttribute("href", `/docs/${REPO_Y}/billing`);
   });
 });

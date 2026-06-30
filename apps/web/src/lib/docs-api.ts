@@ -35,6 +35,14 @@ export function getDocSpaces(): Promise<DocSpace[]> {
   return api.get("/api/docs/spaces");
 }
 
+/**
+ * Gli spazi-doc di un PROGETTO: i suoi repository con documentazione. Stesso
+ * shape dell'hub globale (un repository = uno spazio), filtrato sul progetto.
+ */
+export function getProjectDocSpaces(projectId: string): Promise<DocSpace[]> {
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/docs/spaces`);
+}
+
 // --- Albero pagine (GET /api/repositories/:repositoryId/docs/tree) ---
 
 /**
@@ -170,12 +178,31 @@ export interface DocSearchResult {
   snippet: string;
   score: number;
   source: "semantic" | "fulltext" | "hybrid";
+  /**
+   * Repository d'origine della pagina. Sempre presente nel JSON del server (sia
+   * per-repo sia cross-repo di progetto): nelle viste per-repo è ridondante e si
+   * può ignorare, nella ricerca di progetto disambigua la fonte tra i repo.
+   */
+  repositoryId?: string;
+  repositorySlug?: string;
+  repositoryName?: string;
 }
 
 /** Ricerca ibrida (semantica + full-text) nella documentazione di un progetto. */
 export function searchDocs(repositoryId: string, q: string): Promise<DocSearchResult[]> {
   return api.get(
     `/api/repositories/${encodeURIComponent(repositoryId)}/docs/search?q=${encodeURIComponent(q)}`,
+  );
+}
+
+/**
+ * Ricerca cross-repo nella documentazione di un PROGETTO: stesso shape della
+ * ricerca per-repo, ma i risultati arrivano da TUTTI i repo del progetto e
+ * portano sempre il repository d'origine (`repositoryId/Slug/Name`).
+ */
+export function searchProjectDocs(projectId: string, q: string): Promise<DocSearchResult[]> {
+  return api.get(
+    `/api/projects/${encodeURIComponent(projectId)}/docs/search?q=${encodeURIComponent(q)}`,
   );
 }
 
@@ -276,6 +303,14 @@ export interface DocChatCitation {
   slug: string;
   title: string;
   kind: DocPageKind;
+  /**
+   * Repository d'origine della fonte. Sempre presente nel JSON del server (sia
+   * per-repo sia cross-repo): nella chat per-repo è ridondante, nella chat di
+   * progetto serve a mostrare/linkare la pagina nel repo giusto.
+   */
+  repositoryId?: string;
+  repositorySlug?: string;
+  repositoryName?: string;
 }
 
 /** Messaggio persistito di una sessione di chat. */
@@ -302,18 +337,36 @@ export function getDocChatMessages(
   );
 }
 
+/** Le sessioni di chat (cross-repo) di un PROGETTO dell'utente corrente. */
+export function getProjectDocChatSessions(projectId: string): Promise<DocChatSession[]> {
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/docs/chat/sessions`);
+}
+
+/** I messaggi di una sessione di chat di progetto. */
+export function getProjectDocChatMessages(
+  projectId: string,
+  sessionId: string,
+): Promise<DocChatMessage[]> {
+  return api.get(
+    `/api/projects/${encodeURIComponent(projectId)}/docs/chat/sessions/${encodeURIComponent(sessionId)}/messages`,
+  );
+}
+
 /**
- * Invia un messaggio alla chat RAG dello spazio. La risposta è uno stream SSE
- * (`text/event-stream`): non passa dal wrapper JSON `api`, il chiamante (M7.5)
- * legge `response.body` incrementalmente. `sessionId` assente = nuova sessione.
+ * Helper condiviso della chat RAG (per-repo e di progetto): POSTa il messaggio
+ * a `path` e ritorna la `Response` grezza per la lettura incrementale dello
+ * stream SSE (`text/event-stream`) da parte del chiamante. NON passa dal wrapper
+ * JSON `api`; mappa gli errori di rete e di stato in `ApiError` come le altre
+ * chiamate. Il parsing SSE vive nel componente chat, identico per entrambe le
+ * sorgenti (per-repo / per-progetto), quindi non è duplicato qui.
  */
-export async function postDocChat(
-  repositoryId: string,
+async function postDocChatStream(
+  path: string,
   body: { sessionId?: string; message: string },
 ): Promise<Response> {
   let response: Response;
   try {
-    response = await fetch(`/api/repositories/${encodeURIComponent(repositoryId)}/docs/chat`, {
+    response = await fetch(path, {
       method: "POST",
       credentials: "include",
       headers: { "content-type": "application/json" },
@@ -340,4 +393,32 @@ export async function postDocChat(
     throw new ApiError(response.status, message, code);
   }
   return response;
+}
+
+/**
+ * Invia un messaggio alla chat RAG dello spazio (per-repository). La risposta è
+ * uno stream SSE letto incrementalmente dal chiamante (M7.5). `sessionId`
+ * assente = nuova sessione.
+ */
+export function postDocChat(
+  repositoryId: string,
+  body: { sessionId?: string; message: string },
+): Promise<Response> {
+  return postDocChatStream(
+    `/api/repositories/${encodeURIComponent(repositoryId)}/docs/chat`,
+    body,
+  );
+}
+
+/**
+ * Invia un messaggio alla chat RAG cross-repo di un PROGETTO. Stessa meccanica
+ * SSE della chat per-repo (`postDocChatStream`); le citazioni del `done`
+ * portano il repository d'origine. `sessionId` assente = nuova sessione di
+ * progetto (project-level).
+ */
+export function postProjectDocChat(
+  projectId: string,
+  body: { sessionId?: string; message: string },
+): Promise<Response> {
+  return postDocChatStream(`/api/projects/${encodeURIComponent(projectId)}/docs/chat`, body);
 }

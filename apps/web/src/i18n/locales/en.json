@@ -907,12 +907,19 @@
       "empty": "// no projects yet",
       "emptyHint": "Create a project first — each linked project gets a documentation space here.",
       "openSpace": "Open space",
+      "openProject": "Project documentation",
       "pageCount_one": "{{count}} page",
       "pageCount_other": "{{count}} pages",
       "lastGenerated": "generated {{date}}",
       "atCommit": "at {{commit}}",
       "neverGenerated": "manual pages only",
       "notGenerated": "not generated yet"
+    },
+    "project": {
+      "eyebrow": "Project documentation",
+      "subtitle": "Ask across all the project's repositories, with citations to the source repo.",
+      "spacesHeading": "All the project's repositories",
+      "spacesEmpty": "No repository in this project has documentation yet."
     },
     "space": {
       "back": "Documentation",
@@ -1006,6 +1013,10 @@
     "chat": {
       "title": "Ask the docs",
       "subtitle": "RAG over this project's documentation.",
+      "projectTitle": "Ask the project docs",
+      "projectSubtitle": "RAG across all the project's repositories.",
+      "projectPlaceholder": "Ask about this project…",
+      "projectEmptyHint": "Answers span all the project's repositories; each citation shows its source repo.",
       "open": "Open chat",
       "close": "Close chat",
       "placeholder": "Ask about this project…",

@@ -25,8 +25,10 @@ import {
   invitesQueryOptions,
   milestonesQueryOptions,
   notificationSettingsQueryOptions,
+  projectDocSpacesQueryOptions,
   projectQueryOptions,
   projectsQueryOptions,
+  repositoriesQueryOptions,
   repositoryQueryOptions,
   ticketAttachmentsQueryOptions,
   ticketJobsQueryOptions,
@@ -44,6 +46,7 @@ import {
   DocsSpaceLayout,
 } from "./routes/docs/$projectId";
 import { DocsPage } from "./routes/docs/index";
+import { ProjectDocsLanding } from "./routes/docs/project.$projectId";
 import { LoginPage } from "./routes/login";
 import { ProjectDetailPage } from "./routes/projects/$projectId";
 import { ProjectsPage } from "./routes/projects/index";
@@ -239,8 +242,32 @@ const repositoryDetailRoute = createRoute({
 const docsRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/docs",
-  loader: ({ context }) => context.queryClient.ensureQueryData(docSpacesQueryOptions),
+  // Spazi (hub globale) + progetti + repository: l'hub raggruppa i repo-spazi
+  // per progetto lato client, quindi tutte e tre le liste in cache prima del
+  // render (le useSuspenseQuery del componente non attendono).
+  loader: ({ context }) =>
+    Promise.all([
+      context.queryClient.ensureQueryData(docSpacesQueryOptions),
+      context.queryClient.ensureQueryData(projectsQueryOptions),
+      context.queryClient.ensureQueryData(repositoriesQueryOptions()),
+    ]),
   component: DocsPage,
+});
+
+/**
+ * Landing della documentazione di progetto (`/docs/project/$projectId`): spazi
+ * del progetto + chat cross-repo. Segmento statico `project/` distinto dal
+ * `/docs/$projectId` per-repo. Prefetch del progetto e dei suoi spazi.
+ */
+const projectDocsRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/docs/project/$projectId",
+  loader: ({ context, params }) =>
+    Promise.all([
+      context.queryClient.ensureQueryData(projectQueryOptions(params.projectId)),
+      context.queryClient.ensureQueryData(projectDocSpacesQueryOptions(params.projectId)),
+    ]),
+  component: ProjectDocsLanding,
 });
 
 /**
@@ -418,6 +445,7 @@ const routeTree = rootRoute.addChildren([
     repositoryNewRoute,
     repositoryDetailRoute,
     docsRoute,
+    projectDocsRoute,
     docsSpaceRoute.addChildren([docsSpaceIndexRoute, docsManualNewRoute, docsPageRoute]),
     teamRoute,
     settingsRoute.addChildren([
