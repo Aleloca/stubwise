@@ -10,6 +10,7 @@ import {
   encrypt,
   instanceSettings,
   projects,
+  repositories,
   tickets,
   users,
 } from "@stubwise/db";
@@ -98,13 +99,20 @@ async function createProject(name: string): Promise<string> {
     throw new Error(`account git: ${accountRes.statusCode} ${accountRes.body}`);
   }
   const gitAccountId = (accountRes.json() as { id: string }).id;
+  // Progetto (gruppo) sotto cui creare il repository. La modale Slack lavora a
+  // livello di repository (ticket bersaglio e docs sono per-repo): l'id
+  // restituito è il repositoryId.
+  const [group] = await testDb.db
+    .insert(projects)
+    .values({ name: `${name} — gruppo`, slug: `gruppo-${randomBytes(4).toString("hex")}` })
+    .returning({ id: projects.id });
   const res = await app.inject({
     method: "POST",
-    url: "/api/projects",
+    url: "/api/repositories",
     headers: { cookie: adminCookie },
-    payload: { name, gitAccountId, repoUrl: `https://github.com/acme/${name}` },
+    payload: { projectId: group!.id, name, gitAccountId, repoUrl: `https://github.com/acme/${name}` },
   });
-  if (res.statusCode !== 201) throw new Error(`progetto: ${res.statusCode} ${res.body}`);
+  if (res.statusCode !== 201) throw new Error(`repository: ${res.statusCode} ${res.body}`);
   return (res.json() as { id: string }).id;
 }
 
@@ -121,7 +129,7 @@ async function seedDocsForProject(
   const [gen] = await db
     .insert(docGenerations)
     .values({
-      projectId: pid,
+      repositoryId: pid,
       status: "succeeded",
       commitSha: randomBytes(4).toString("hex"),
       trigger: "manual",
@@ -130,12 +138,12 @@ async function seedDocsForProject(
     })
     .returning();
   if (!gen) throw new Error("insert generazione non ha restituito la riga");
-  await db.update(projects).set({ currentDocGenerationId: gen.id }).where(eq(projects.id, pid));
+  await db.update(repositories).set({ currentDocGenerationId: gen.id }).where(eq(repositories.id, pid));
 
   const [row] = await db
     .insert(docPages)
     .values({
-      projectId: pid,
+      repositoryId: pid,
       generationId: gen.id,
       kind: "technical",
       slug: page.slug,
@@ -149,7 +157,7 @@ async function seedDocsForProject(
   const [vector] = await embeddingClient.embed([page.content]);
   await db.insert(docChunks).values({
     pageId: row.id,
-    projectId: pid,
+    repositoryId: pid,
     generationId: gen.id,
     content: page.content,
     embedding: vector,
@@ -511,7 +519,7 @@ describe("POST /api/slack/interactions — view_submission", () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toBe("");
 
-    const rows = await testDb.db.select().from(tickets).where(eq(tickets.projectId, projectId));
+    const rows = await testDb.db.select().from(tickets).where(eq(tickets.repositoryId, projectId));
     const created = rows.find((t) => t.title === "Bottone rotto");
     expect(created).toBeDefined();
     expect(created!.source).toBe("slack");
@@ -647,7 +655,7 @@ describe("POST /api/slack/interactions — view_submission", () => {
   });
 
   it("campi mancanti → response_action errors, nessun ticket creato", async () => {
-    const before = await testDb.db.select().from(tickets).where(eq(tickets.projectId, projectId));
+    const before = await testDb.db.select().from(tickets).where(eq(tickets.repositoryId, projectId));
     // Titolo assente.
     const body = viewSubmissionBody({ projectId, type: "bug" });
     const res = await slackPost("/api/slack/interactions", body);
@@ -656,7 +664,7 @@ describe("POST /api/slack/interactions — view_submission", () => {
     expect(json.response_action).toBe("errors");
     expect(json.errors[BLOCK_IDS.title]).toBeTruthy();
 
-    const after = await testDb.db.select().from(tickets).where(eq(tickets.projectId, projectId));
+    const after = await testDb.db.select().from(tickets).where(eq(tickets.repositoryId, projectId));
     expect(after.length).toBe(before.length);
   });
 

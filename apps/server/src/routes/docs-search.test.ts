@@ -6,10 +6,10 @@ import { createFakeEmbeddingClient } from "@stubwise/embeddings";
 import type { EmbeddingClient } from "@stubwise/embeddings";
 import { buildApp } from "../app.js";
 import { retrieveChunks } from "./docs-retrieval.js";
-import { docChunks, docGenerations, docPages, projects } from "@stubwise/db";
+import { docChunks, docGenerations, docPages, repositories } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedGitAccount, startTestDb } from "@stubwise/db/testing";
+import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
@@ -27,26 +27,13 @@ let app: FastifyInstance;
 let adminCookie: string;
 let memberCookie: string;
 
-let projectSeq = 0;
-
 async function insertProject(db: Db): Promise<{ id: string; slug: string }> {
-  projectSeq++;
-  const slug = `docs-search-proj-${projectSeq}`;
-  const gitAccountId = await seedGitAccount(db);
-  const [project] = await db
-    .insert(projects)
-    .values({
-      name: `Docs Search Project ${projectSeq}`,
-      slug,
-      provider: "github",
-      gitAccountId,
-      repoUrl: "https://github.com/acme/demo",
-      defaultBranch: "main",
-      ingestionKey: `ingestion-${slug}`,
-    })
-    .returning();
-  if (!project) throw new Error("insert del progetto non ha restituito la riga");
-  return { id: project.id, slug: project.slug };
+  const { repositoryId } = await seedRepository(db);
+  const [repository] = await db
+    .select({ slug: repositories.slug })
+    .from(repositories)
+    .where(eq(repositories.id, repositoryId));
+  return { id: repositoryId, slug: repository!.slug };
 }
 
 /** Crea una generazione succeeded (corrente o stale a scelta). */
@@ -58,7 +45,7 @@ async function insertGeneration(
   const [gen] = await db
     .insert(docGenerations)
     .values({
-      projectId,
+      repositoryId: projectId,
       status: "succeeded",
       commitSha: randomBytes(4).toString("hex"),
       trigger: "manual",
@@ -69,9 +56,9 @@ async function insertGeneration(
   if (!gen) throw new Error("insert della generazione non ha restituito la riga");
   if (opts.current !== false) {
     await db
-      .update(projects)
+      .update(repositories)
       .set({ currentDocGenerationId: gen.id })
-      .where(eq(projects.id, projectId));
+      .where(eq(repositories.id, projectId));
   }
   return gen.id;
 }
@@ -94,7 +81,7 @@ async function insertPageWithChunk(
   const [row] = await db
     .insert(docPages)
     .values({
-      projectId,
+      repositoryId: projectId,
       generationId,
       kind,
       slug: `page-${pageSeq}`,
@@ -108,7 +95,7 @@ async function insertPageWithChunk(
   const [vector] = await embeddingClient.embed([page.chunkContent]);
   await db.insert(docChunks).values({
     pageId: row.id,
-    projectId,
+    repositoryId: projectId,
     generationId,
     content: page.chunkContent,
     embedding: vector,
@@ -132,7 +119,7 @@ async function insertPageWithChunks(
   const [row] = await db
     .insert(docPages)
     .values({
-      projectId,
+      repositoryId: projectId,
       generationId,
       kind: generationId === null ? "manual" : "technical",
       slug: `page-${pageSeq}`,
@@ -147,7 +134,7 @@ async function insertPageWithChunks(
   await db.insert(docChunks).values(
     page.chunkContents.map((content, i) => ({
       pageId: row.id,
-      projectId,
+      repositoryId: projectId,
       generationId,
       content,
       embedding: vectors[i],
@@ -182,7 +169,7 @@ interface SearchHit {
   source: string;
 }
 
-describe("GET /api/projects/:projectId/docs/search", () => {
+describe("GET /api/repositories/:projectId/docs/search", () => {
   it("una query semanticamente vicina a un chunk restituisce quella pagina per prima", async () => {
     const project = await insertProject(testDb.db);
     const genId = await insertGeneration(testDb.db, project.id);
@@ -204,7 +191,7 @@ describe("GET /api/projects/:projectId/docs/search", () => {
 
     const res = await app.inject({
       method: "GET",
-      url: `/api/projects/${project.id}/docs/search?q=${encodeURIComponent(target)}`,
+      url: `/api/repositories/${project.id}/docs/search?q=${encodeURIComponent(target)}`,
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(200);
@@ -236,7 +223,7 @@ describe("GET /api/projects/:projectId/docs/search", () => {
 
     const res = await app.inject({
       method: "GET",
-      url: `/api/projects/${project.id}/docs/search?q=Zxqwfoobar`,
+      url: `/api/repositories/${project.id}/docs/search?q=Zxqwfoobar`,
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(200);
@@ -267,7 +254,7 @@ describe("GET /api/projects/:projectId/docs/search", () => {
 
     const res = await app.inject({
       method: "GET",
-      url: `/api/projects/${project.id}/docs/search?q=${encodeURIComponent(staleQuery)}`,
+      url: `/api/repositories/${project.id}/docs/search?q=${encodeURIComponent(staleQuery)}`,
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(200);
@@ -289,7 +276,7 @@ describe("GET /api/projects/:projectId/docs/search", () => {
 
     const res = await app.inject({
       method: "GET",
-      url: `/api/projects/${project.id}/docs/search?q=${encodeURIComponent(manualQuery)}`,
+      url: `/api/repositories/${project.id}/docs/search?q=${encodeURIComponent(manualQuery)}`,
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(200);
@@ -301,7 +288,7 @@ describe("GET /api/projects/:projectId/docs/search", () => {
     const project = await insertProject(testDb.db);
     const res = await app.inject({
       method: "GET",
-      url: `/api/projects/${project.id}/docs/search?q=${encodeURIComponent("   ")}`,
+      url: `/api/repositories/${project.id}/docs/search?q=${encodeURIComponent("   ")}`,
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(400);
@@ -311,7 +298,7 @@ describe("GET /api/projects/:projectId/docs/search", () => {
     const project = await insertProject(testDb.db);
     const res = await app.inject({
       method: "GET",
-      url: `/api/projects/${project.id}/docs/search`,
+      url: `/api/repositories/${project.id}/docs/search`,
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(400);
@@ -320,7 +307,7 @@ describe("GET /api/projects/:projectId/docs/search", () => {
   it("progetto inesistente: 404", async () => {
     const res = await app.inject({
       method: "GET",
-      url: "/api/projects/00000000-0000-0000-0000-000000000000/docs/search?q=ciao",
+      url: "/api/repositories/00000000-0000-0000-0000-000000000000/docs/search?q=ciao",
       headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(404);
@@ -330,7 +317,7 @@ describe("GET /api/projects/:projectId/docs/search", () => {
     const project = await insertProject(testDb.db);
     const res = await app.inject({
       method: "GET",
-      url: `/api/projects/${project.id}/docs/search?q=ciao`,
+      url: `/api/repositories/${project.id}/docs/search?q=ciao`,
     });
     expect(res.statusCode).toBe(401);
   });
@@ -380,7 +367,7 @@ describe("GET /api/projects/:projectId/docs/search", () => {
       // quindi è valido anche su questa app (stesso DB, stesso secret).
       const res = await failApp.inject({
         method: "GET",
-        url: `/api/projects/${project.id}/docs/search?q=Qzxvplumber`,
+        url: `/api/repositories/${project.id}/docs/search?q=Qzxvplumber`,
         headers: { cookie: memberCookie },
       });
       expect(res.statusCode).toBe(200);

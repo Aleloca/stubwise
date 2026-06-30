@@ -11,6 +11,7 @@ import {
   instanceSettings,
   notificationSettings,
   projects,
+  repositories,
   tickets,
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
@@ -70,7 +71,10 @@ async function setContentLanguage(lang: "en" | "it"): Promise<void> {
 }
 
 interface CreatedProject {
+  /** Id del repository (ex "progetto"): è quello usato dal webhook git. */
   id: string;
+  /** Id del progetto (gruppo) sotto cui vive il repository. */
+  projectId: string;
   slug: string;
   provider: string;
   webhookSecret: string;
@@ -102,39 +106,54 @@ async function createProject(payload: Record<string, unknown>): Promise<CreatedP
   }
   const gitAccountId = (accountRes.json() as { id: string }).id;
 
+  // Progetto (gruppo) sotto cui creare il repository: seedato direttamente.
+  const [group] = await testDb.db
+    .insert(projects)
+    .values({ name: `${name} — gruppo`, slug: `gruppo-${randomBytes(4).toString("hex")}` })
+    .returning({ id: projects.id });
+
   const res = await app.inject({
     method: "POST",
-    url: "/api/projects",
+    url: "/api/repositories",
     headers: { cookie: adminCookie },
-    payload: { name, gitAccountId, ...rest },
+    payload: { projectId: group!.id, name, gitAccountId, ...rest },
   });
   if (res.statusCode !== 201) {
-    throw new Error(`creazione progetto fallita: ${res.statusCode} ${res.body}`);
+    throw new Error(`creazione repository fallita: ${res.statusCode} ${res.body}`);
   }
-  const project = res.json() as { id: string; slug: string; provider: string };
+  const repository = res.json() as { id: string; slug: string; provider: string };
 
   const webhookRes = await app.inject({
     method: "GET",
-    url: `/api/projects/${project.slug}/webhook`,
+    url: `/api/repositories/${repository.slug}/webhook`,
     headers: { cookie: adminCookie },
   });
   if (webhookRes.statusCode !== 200) {
     throw new Error(`lettura webhookSecret fallita: ${webhookRes.statusCode} ${webhookRes.body}`);
   }
   const { webhookSecret } = webhookRes.json() as { webhookSecret: string };
-  return { ...project, webhookSecret };
+  return { ...repository, projectId: group!.id, webhookSecret };
 }
 
-/** Inserisce un ticket con numero e stato espliciti, restituendone l'id. */
+/**
+ * Inserisce un ticket con numero e stato espliciti, restituendone l'id. Riceve
+ * il repositoryId (bersaglio, ex "progetto"): il webhook risolve il ticket per
+ * repositoryId + numero. Il progetto (gruppo) del ticket è derivato dal repo.
+ */
 async function insertTicket(
-  projectId: string,
+  repositoryId: string,
   number: number,
   status: "in_review" | "done" | "triaged",
 ): Promise<string> {
+  const [repository] = await testDb.db
+    .select({ projectId: repositories.projectId })
+    .from(repositories)
+    .where(eq(repositories.id, repositoryId));
   const [row] = await testDb.db
     .insert(tickets)
     .values({
-      projectId,
+      projectId: repository!.projectId,
+      repositoryId,
       number,
       title: `Ticket ${number}`,
       type: "bug",
@@ -519,9 +538,14 @@ describe("POST /webhooks/git/:projectSlug", () => {
 
   it("progetto con segreto vuoto (legacy) → 401", async () => {
     const gitAccountId = await seedGitAccount(testDb.db);
-    const [row] = await testDb.db
+    const [group] = await testDb.db
       .insert(projects)
+      .values({ name: "Legacy", slug: `legacy-gruppo-${randomBytes(4).toString("hex")}` })
+      .returning({ id: projects.id });
+    const [row] = await testDb.db
+      .insert(repositories)
       .values({
+        projectId: group!.id,
         name: "Legacy",
         slug: "legacy-no-secret",
         provider: "github",
@@ -531,7 +555,7 @@ describe("POST /webhooks/git/:projectSlug", () => {
         ingestionKey: randomBytes(16).toString("hex"),
         webhookSecret: "",
       })
-      .returning({ id: projects.id, slug: projects.slug });
+      .returning({ id: repositories.id, slug: repositories.slug });
     const body = githubPayload("stubwise/ticket-1");
 
     const res = await app.inject({
@@ -899,27 +923,35 @@ describe("POST /webhooks/git/:projectSlug", () => {
 describe("POST /webhooks/git/:projectSlug — push (auto-aggiornamento Docs)", () => {
   const SHA = (c: string) => c.repeat(40);
 
-  /** Porta a true (o false) il toggle docAutoUpdate del progetto. */
-  async function setDocAutoUpdate(projectId: string, value: boolean): Promise<void> {
+  /**
+   * Porta a true (o false) il toggle docAutoUpdate. Il toggle è salito al
+   * PROGETTO (gruppo): qui riceviamo il repositoryId e aggiorniamo il progetto
+   * del repository, coerente con come il webhook lo legge (join repo→progetto).
+   */
+  async function setDocAutoUpdate(repositoryId: string, value: boolean): Promise<void> {
+    const [repository] = await testDb.db
+      .select({ projectId: repositories.projectId })
+      .from(repositories)
+      .where(eq(repositories.id, repositoryId));
     await testDb.db
       .update(projects)
       .set({ docAutoUpdate: value })
-      .where(eq(projects.id, projectId));
+      .where(eq(projects.id, repository!.projectId));
   }
 
   /**
    * Crea una generazione Docs con `commitSha`, la imposta come corrente del
-   * progetto e ne restituisce il commitSha (base attesa del diff all'insert).
+   * repository e ne restituisce il commitSha (base attesa del diff all'insert).
    */
-  async function seedCurrentGeneration(projectId: string, commitSha: string): Promise<string> {
+  async function seedCurrentGeneration(repositoryId: string, commitSha: string): Promise<string> {
     const [gen] = await testDb.db
       .insert(docGenerations)
-      .values({ projectId, status: "succeeded", commitSha })
+      .values({ repositoryId, status: "succeeded", commitSha })
       .returning({ id: docGenerations.id });
     await testDb.db
-      .update(projects)
+      .update(repositories)
       .set({ currentDocGenerationId: gen!.id })
-      .where(eq(projects.id, projectId));
+      .where(eq(repositories.id, repositoryId));
     return commitSha;
   }
 
@@ -928,7 +960,7 @@ describe("POST /webhooks/git/:projectSlug — push (auto-aggiornamento Docs)", (
     const [row] = await testDb.db
       .select()
       .from(docAutoUpdateJobs)
-      .where(eq(docAutoUpdateJobs.projectId, projectId));
+      .where(eq(docAutoUpdateJobs.repositoryId, projectId));
     return row;
   }
 
@@ -1012,7 +1044,7 @@ describe("POST /webhooks/git/:projectSlug — push (auto-aggiornamento Docs)", (
     const all = await testDb.db
       .select()
       .from(docAutoUpdateJobs)
-      .where(eq(docAutoUpdateJobs.projectId, project.id));
+      .where(eq(docAutoUpdateJobs.repositoryId, project.id));
     expect(all).toHaveLength(1);
     const second = all[0]!;
     // from accumula dal primo push: invariato.

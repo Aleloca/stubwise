@@ -1,7 +1,7 @@
 import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { ticketTypeSchema, type TicketType } from "@stubwise/shared";
-import { docPages, projects, users } from "@stubwise/db";
+import { docPages, repositories, users } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import type { EmbeddingClient } from "@stubwise/embeddings";
 import { ProjectNotFoundError } from "../db/tickets.js";
@@ -132,12 +132,15 @@ function isDocsCommand(command: string | undefined): boolean {
   return command === "/docs" || command.endsWith(":docs") || command.endsWith("-docs");
 }
 
-/** Progetti per il select del modal, ordinati per nome. */
+/**
+ * Repository per il select del modal di creazione ticket, ordinati per nome. Il
+ * ticket creato via Slack ha un repository bersaglio (`id` selezionato).
+ */
 async function listProjects(instance: FastifyInstance): Promise<{ id: string; name: string }[]> {
   return instance.db
-    .select({ id: projects.id, name: projects.name })
-    .from(projects)
-    .orderBy(asc(projects.name));
+    .select({ id: repositories.id, name: repositories.name })
+    .from(repositories)
+    .orderBy(asc(repositories.name));
 }
 
 /**
@@ -152,24 +155,24 @@ async function listProjectsWithDocs(
 ): Promise<{ id: string; name: string; slug: string }[]> {
   const rows = await db
     .select({
-      id: projects.id,
-      name: projects.name,
-      slug: projects.slug,
+      id: repositories.id,
+      name: repositories.name,
+      slug: repositories.slug,
       pageCount: sql<number>`count(${docPages.id})::int`,
     })
-    .from(projects)
+    .from(repositories)
     .leftJoin(
       docPages,
       and(
-        eq(docPages.projectId, projects.id),
+        eq(docPages.repositoryId, repositories.id),
         or(
-          eq(docPages.generationId, projects.currentDocGenerationId),
+          eq(docPages.generationId, repositories.currentDocGenerationId),
           isNull(docPages.generationId),
         ),
       ),
     )
-    .groupBy(projects.id, projects.name, projects.slug)
-    .orderBy(asc(projects.name));
+    .groupBy(repositories.id, repositories.name, repositories.slug)
+    .orderBy(asc(repositories.name));
   return rows
     .filter((r) => r.pageCount > 0)
     .map((r) => ({ id: r.id, name: r.name, slug: r.slug }));

@@ -4,10 +4,10 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
 import { buildApp } from "../app.js";
-import { docSearchHistory, projects } from "@stubwise/db";
+import { docSearchHistory } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedGitAccount, startTestDb } from "@stubwise/db/testing";
+import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
@@ -21,26 +21,9 @@ let adminCookie: string;
 let memberCookie: string;
 let memberId: string;
 
-let projectSeq = 0;
-
 async function insertProject(db: Db): Promise<string> {
-  projectSeq++;
-  const slug = `docs-history-proj-${projectSeq}`;
-  const gitAccountId = await seedGitAccount(db);
-  const [project] = await db
-    .insert(projects)
-    .values({
-      name: `Docs History Project ${projectSeq}`,
-      slug,
-      provider: "github",
-      gitAccountId,
-      repoUrl: "https://github.com/acme/demo",
-      defaultBranch: "main",
-      ingestionKey: `ingestion-${slug}`,
-    })
-    .returning();
-  if (!project) throw new Error("insert del progetto non ha restituito la riga");
-  return project.id;
+  const { repositoryId } = await seedRepository(db);
+  return repositoryId;
 }
 
 interface HistoryEntry {
@@ -58,7 +41,7 @@ async function record(
 ) {
   return app.inject({
     method: "POST",
-    url: `/api/projects/${projectId}/docs/history`,
+    url: `/api/repositories/${projectId}/docs/history`,
     headers: { cookie },
     payload: { kind: "technical", ...body },
   });
@@ -67,7 +50,7 @@ async function record(
 async function getHistory(projectId: string, cookie: string): Promise<HistoryEntry[]> {
   const res = await app.inject({
     method: "GET",
-    url: `/api/projects/${projectId}/docs/history`,
+    url: `/api/repositories/${projectId}/docs/history`,
     headers: { cookie },
   });
   expect(res.statusCode).toBe(200);
@@ -91,7 +74,7 @@ afterAll(async () => {
   await testDb.stop();
 });
 
-describe("POST /api/projects/:projectId/docs/history", () => {
+describe("POST /api/repositories/:projectId/docs/history", () => {
   it("crea una voce e risponde 204", async () => {
     const projectId = await insertProject(testDb.db);
     const res = await record(projectId, memberCookie, { slug: "auth", title: "Auth" });
@@ -162,7 +145,7 @@ describe("POST /api/projects/:projectId/docs/history", () => {
       .where(
         and(
           eq(docSearchHistory.userId, memberId),
-          eq(docSearchHistory.projectId, projectId),
+          eq(docSearchHistory.repositoryId, projectId),
         ),
       );
     expect(rows).toHaveLength(20);
@@ -174,7 +157,7 @@ describe("POST /api/projects/:projectId/docs/history", () => {
   it("progetto inesistente: 404", async () => {
     const res = await app.inject({
       method: "POST",
-      url: "/api/projects/00000000-0000-0000-0000-000000000000/docs/history",
+      url: "/api/repositories/00000000-0000-0000-0000-000000000000/docs/history",
       headers: { cookie: memberCookie },
       payload: { slug: "x", title: "X", kind: "technical" },
     });
@@ -185,14 +168,14 @@ describe("POST /api/projects/:projectId/docs/history", () => {
     const projectId = await insertProject(testDb.db);
     const res = await app.inject({
       method: "POST",
-      url: `/api/projects/${projectId}/docs/history`,
+      url: `/api/repositories/${projectId}/docs/history`,
       payload: { slug: "x", title: "X", kind: "technical" },
     });
     expect(res.statusCode).toBe(401);
   });
 });
 
-describe("GET /api/projects/:projectId/docs/history", () => {
+describe("GET /api/repositories/:projectId/docs/history", () => {
   it("ritorna solo le righe dell'utente corrente (isolamento per utente)", async () => {
     const projectId = await insertProject(testDb.db);
     await record(projectId, memberCookie, { slug: "member-page", title: "Member" });
@@ -229,7 +212,7 @@ describe("GET /api/projects/:projectId/docs/history", () => {
   it("progetto inesistente: 404", async () => {
     const res = await app.inject({
       method: "GET",
-      url: "/api/projects/00000000-0000-0000-0000-000000000000/docs/history",
+      url: "/api/repositories/00000000-0000-0000-0000-000000000000/docs/history",
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(404);
@@ -239,13 +222,13 @@ describe("GET /api/projects/:projectId/docs/history", () => {
     const projectId = await insertProject(testDb.db);
     const res = await app.inject({
       method: "GET",
-      url: `/api/projects/${projectId}/docs/history`,
+      url: `/api/repositories/${projectId}/docs/history`,
     });
     expect(res.statusCode).toBe(401);
   });
 });
 
-describe("DELETE /api/projects/:projectId/docs/history/:slug", () => {
+describe("DELETE /api/repositories/:projectId/docs/history/:slug", () => {
   it("rimuove solo la voce indicata", async () => {
     const projectId = await insertProject(testDb.db);
     await record(projectId, memberCookie, { slug: "keep", title: "Keep" });
@@ -253,7 +236,7 @@ describe("DELETE /api/projects/:projectId/docs/history/:slug", () => {
 
     const res = await app.inject({
       method: "DELETE",
-      url: `/api/projects/${projectId}/docs/history/remove`,
+      url: `/api/repositories/${projectId}/docs/history/remove`,
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(204);
@@ -265,7 +248,7 @@ describe("DELETE /api/projects/:projectId/docs/history/:slug", () => {
   it("progetto inesistente: 404", async () => {
     const res = await app.inject({
       method: "DELETE",
-      url: "/api/projects/00000000-0000-0000-0000-000000000000/docs/history/x",
+      url: "/api/repositories/00000000-0000-0000-0000-000000000000/docs/history/x",
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(404);
@@ -275,13 +258,13 @@ describe("DELETE /api/projects/:projectId/docs/history/:slug", () => {
     const projectId = await insertProject(testDb.db);
     const res = await app.inject({
       method: "DELETE",
-      url: `/api/projects/${projectId}/docs/history/x`,
+      url: `/api/repositories/${projectId}/docs/history/x`,
     });
     expect(res.statusCode).toBe(401);
   });
 });
 
-describe("DELETE /api/projects/:projectId/docs/history", () => {
+describe("DELETE /api/repositories/:projectId/docs/history", () => {
   it("svuota la cronologia solo per utente+progetto correnti", async () => {
     const projectId = await insertProject(testDb.db);
     await record(projectId, memberCookie, { slug: "m-1", title: "M1" });
@@ -290,7 +273,7 @@ describe("DELETE /api/projects/:projectId/docs/history", () => {
 
     const res = await app.inject({
       method: "DELETE",
-      url: `/api/projects/${projectId}/docs/history`,
+      url: `/api/repositories/${projectId}/docs/history`,
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(204);
@@ -309,7 +292,7 @@ describe("DELETE /api/projects/:projectId/docs/history", () => {
 
     await app.inject({
       method: "DELETE",
-      url: `/api/projects/${projectA}/docs/history`,
+      url: `/api/repositories/${projectA}/docs/history`,
       headers: { cookie: memberCookie },
     });
 
@@ -320,7 +303,7 @@ describe("DELETE /api/projects/:projectId/docs/history", () => {
   it("progetto inesistente: 404", async () => {
     const res = await app.inject({
       method: "DELETE",
-      url: "/api/projects/00000000-0000-0000-0000-000000000000/docs/history",
+      url: "/api/repositories/00000000-0000-0000-0000-000000000000/docs/history",
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(404);
@@ -330,7 +313,7 @@ describe("DELETE /api/projects/:projectId/docs/history", () => {
     const projectId = await insertProject(testDb.db);
     const res = await app.inject({
       method: "DELETE",
-      url: `/api/projects/${projectId}/docs/history`,
+      url: `/api/repositories/${projectId}/docs/history`,
     });
     expect(res.statusCode).toBe(401);
   });

@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { aiJobs, comments, ticketEvents, ticketLinks, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { startTestDb } from "@stubwise/db/testing";
+import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
 import { seedUsers } from "../test/fixtures.js";
 
@@ -27,8 +27,8 @@ beforeAll(async () => {
     encryptionKey: randomBytes(32).toString("base64"),
   });
   users = await seedUsers(app);
-  projectId = await createProject("Progetto Alfa");
-  otherProjectId = await createProject("Progetto Beta");
+  projectId = await createProject();
+  otherProjectId = await createProject();
 }, 120_000);
 
 afterAll(async () => {
@@ -36,35 +36,33 @@ afterAll(async () => {
   await testDb.stop();
 });
 
-async function createGitAccount(): Promise<string> {
-  const res = await app.inject({
-    method: "POST",
-    url: "/api/git-accounts",
-    headers: { cookie: users.adminCookie },
-    payload: { name: "Account di test", provider: "github", credentials: { token: "token-di-test" } },
-  });
-  expect(res.statusCode).toBe(201);
-  return (res.json() as { id: string }).id;
-}
+/**
+ * Mappa progetto (gruppo) → repository bersaglio di default, popolata da
+ * {@link createProject}: i ticket sono product-level (`projectId` = gruppo) ma
+ * in Fase 1 richiedono sempre un `repositoryId` bersaglio, che postTicket
+ * inietta automaticamente dal progetto se il body non lo specifica.
+ */
+const repoForProject = new Map<string, string>();
 
-async function createProject(name: string): Promise<string> {
-  const gitAccountId = await createGitAccount();
-  const res = await app.inject({
-    method: "POST",
-    url: "/api/projects",
-    headers: { cookie: users.adminCookie },
-    payload: {
-      name,
-      gitAccountId,
-      repoUrl: `https://github.com/acme/${name.toLowerCase().replace(/\s+/g, "-")}`,
-    },
-  });
-  expect(res.statusCode).toBe(201);
-  return (res.json() as { id: string }).id;
+/**
+ * Crea un progetto (gruppo) con un repository sotto e restituisce l'id del
+ * GRUPPO (è quello usato come `projectId` da ticket/milestone/filtri). Registra
+ * il repository di default in {@link repoForProject}.
+ */
+async function createProject(): Promise<string> {
+  const { projectId: pid, repositoryId } = await seedRepository(testDb.db);
+  repoForProject.set(pid, repositoryId);
+  return pid;
 }
 
 function postTicket(payload: Record<string, unknown>, cookie = users.memberCookie) {
-  return app.inject({ method: "POST", url: "/api/tickets", headers: { cookie }, payload });
+  // Inietta il repository bersaglio di default del progetto se il test non ne
+  // passa uno esplicito (la maggior parte dei test non si cura del repo).
+  const withRepo =
+    payload.repositoryId === undefined && typeof payload.projectId === "string"
+      ? { ...payload, repositoryId: repoForProject.get(payload.projectId) }
+      : payload;
+  return app.inject({ method: "POST", url: "/api/tickets", headers: { cookie }, payload: withRepo });
 }
 
 function listTickets(query: Record<string, string>, cookie = users.memberCookie) {
@@ -79,6 +77,7 @@ function listTickets(query: Record<string, string>, cookie = users.memberCookie)
 interface TicketBody {
   id: string;
   projectId: string;
+  repositoryId: string | null;
   number: number;
   title: string;
   body: string;
@@ -114,6 +113,7 @@ describe("POST /api/tickets", () => {
     expect(body).toEqual({
       id: expect.any(String),
       projectId,
+      repositoryId: repoForProject.get(projectId),
       number: 1,
       title: "Login rotto su Safari",
       body: "",
@@ -176,9 +176,36 @@ describe("POST /api/tickets", () => {
     expect(body.assigneeId).toBe(users.memberId);
   });
 
-  it("progetto inesistente: 404", async () => {
-    const res = await postTicket({ projectId: randomUUID(), title: "Orfano", type: "bug" });
-    expect(res.statusCode).toBe(404);
+  it("repository non appartenente al progetto (o progetto inesistente): 400", async () => {
+    // repositoryId valido ma di un ALTRO progetto → non appartiene → 400.
+    const foreignRepo = repoForProject.get(otherProjectId)!;
+    const res = await postTicket({
+      projectId,
+      repositoryId: foreignRepo,
+      title: "Repo di un altro progetto",
+      type: "bug",
+    });
+    expect(res.statusCode).toBe(400);
+
+    // Progetto inesistente con un repository qualsiasi → il repo non appartiene
+    // a quel progetto → 400.
+    const res2 = await postTicket({
+      projectId: randomUUID(),
+      repositoryId: repoForProject.get(projectId),
+      title: "Orfano",
+      type: "bug",
+    });
+    expect(res2.statusCode).toBe(400);
+  });
+
+  it("repositoryId mancante: 400 (in Fase 1 è obbligatorio)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/tickets",
+      headers: { cookie: users.memberCookie },
+      payload: { projectId, title: "Senza repo", type: "bug" },
+    });
+    expect(res.statusCode).toBe(400);
   });
 
   it("assigneeId che non corrisponde a nessun utente: 400", async () => {
@@ -214,7 +241,12 @@ describe("POST /api/tickets", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/tickets",
-      payload: { projectId, title: "Anonimo", type: "bug" },
+      payload: {
+        projectId,
+        repositoryId: repoForProject.get(projectId),
+        title: "Anonimo",
+        type: "bug",
+      },
     });
     expect(res.statusCode).toBe(401);
   });
@@ -225,7 +257,7 @@ describe("GET /api/tickets — filtri", () => {
   let bugId: string;
 
   beforeAll(async () => {
-    filterProjectId = await createProject("Progetto Filtri");
+    filterProjectId = await createProject();
 
     const bug = await postTicket({
       projectId: filterProjectId,
@@ -298,7 +330,7 @@ describe("GET /api/tickets — filtri", () => {
       method: "POST",
       url: "/api/milestones",
       headers: { cookie: users.memberCookie },
-      payload: { projectId: filterProjectId, name: "filtro-milestone" },
+      payload: { projectId: filterProjectId, repositoryId: repoForProject.get(filterProjectId), name: "filtro-milestone" },
     });
     expect(ms.statusCode).toBe(201);
     const milestoneId = (ms.json() as { id: string }).id;
@@ -349,7 +381,7 @@ describe("GET /api/tickets — paginazione cursor", () => {
   const createdIds: string[] = [];
 
   beforeAll(async () => {
-    pageProjectId = await createProject("Progetto Paginazione");
+    pageProjectId = await createProject();
     for (let i = 1; i <= 30; i++) {
       const res = await postTicket({
         projectId: pageProjectId,
@@ -425,7 +457,7 @@ describe("GET /api/tickets — ricerca full-text q", () => {
   let stemmingId: string;
 
   beforeAll(async () => {
-    ftsProjectId = await createProject("Progetto Ricerca");
+    ftsProjectId = await createProject();
 
     const bodyMatch = await postTicket({
       projectId: ftsProjectId,
@@ -514,7 +546,7 @@ describe("GET /api/tickets — ricerca full-text q", () => {
   });
 
   it("paginazione: q che matcha > limit ticket impagina senza sovrapposizioni", async () => {
-    const pagingProjectId = await createProject("Progetto Ricerca Paginata");
+    const pagingProjectId = await createProject();
     const ids: string[] = [];
     for (let i = 1; i <= 5; i++) {
       const res = await postTicket({
@@ -582,7 +614,7 @@ describe("GET /api/tickets/:id", () => {
       method: "POST",
       url: "/api/milestones",
       headers: { cookie: users.memberCookie },
-      payload: { projectId, name: "Sprint dettaglio" },
+      payload: { projectId, repositoryId: repoForProject.get(projectId), name: "Sprint dettaglio" },
     });
     const milestoneId = (ms.json() as { id: string }).id;
     await testDb.db.update(tickets).set({ milestoneId }).where(eq(tickets.id, id));
@@ -781,13 +813,13 @@ describe("PATCH /api/tickets/:id — milestone", () => {
       method: "POST",
       url: "/api/milestones",
       headers: { cookie: users.memberCookie },
-      payload: { projectId, name: "patch-ms-a" },
+      payload: { projectId, repositoryId: repoForProject.get(projectId), name: "patch-ms-a" },
     });
     const b = await app.inject({
       method: "POST",
       url: "/api/milestones",
       headers: { cookie: users.memberCookie },
-      payload: { projectId, name: "patch-ms-b" },
+      payload: { projectId, repositoryId: repoForProject.get(projectId), name: "patch-ms-b" },
     });
     msA = (a.json() as { id: string }).id;
     msB = (b.json() as { id: string }).id;
@@ -854,7 +886,7 @@ describe("PATCH /api/tickets/:id — milestone", () => {
       method: "POST",
       url: "/api/milestones",
       headers: { cookie: users.memberCookie },
-      payload: { projectId: otherProjectId, name: "cross-ms" },
+      payload: { projectId: otherProjectId, repositoryId: repoForProject.get(otherProjectId), name: "cross-ms" },
     });
     const crossId = (otherMs.json() as { id: string }).id;
     const id = await freshTicket();
@@ -1317,7 +1349,7 @@ describe("relazioni tra ticket — /api/tickets/:id/links", () => {
   }
 
   beforeAll(async () => {
-    linksProjectId = await createProject("Progetto Relazioni");
+    linksProjectId = await createProject();
   });
 
   it("crea un link: 201, link presente, DUE eventi relation_added (outgoing/incoming) con otherNumber e actorId corretti", async () => {

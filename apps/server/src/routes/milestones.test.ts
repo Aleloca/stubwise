@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { startTestDb } from "@stubwise/db/testing";
+import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
 import { seedUsers } from "../test/fixtures.js";
 
@@ -25,8 +25,8 @@ beforeAll(async () => {
     encryptionKey: randomBytes(32).toString("base64"),
   });
   users = await seedUsers(app);
-  projectId = await createProject("Progetto Milestone");
-  otherProjectId = await createProject("Progetto Milestone Beta");
+  projectId = await createProject();
+  otherProjectId = await createProject();
 }, 120_000);
 
 afterAll(async () => {
@@ -34,39 +34,31 @@ afterAll(async () => {
   await testDb.stop();
 });
 
-async function createGitAccount(): Promise<string> {
-  const res = await app.inject({
-    method: "POST",
-    url: "/api/git-accounts",
-    headers: { cookie: users.adminCookie },
-    payload: { name: "Account di test", provider: "github", credentials: { token: "token-di-test" } },
-  });
-  expect(res.statusCode).toBe(201);
-  return (res.json() as { id: string }).id;
-}
+/** Progetto (gruppo) → repository d'origine di default per le milestone. */
+const repoForProject = new Map<string, string>();
 
-async function createProject(name: string): Promise<string> {
-  const gitAccountId = await createGitAccount();
-  const res = await app.inject({
-    method: "POST",
-    url: "/api/projects",
-    headers: { cookie: users.adminCookie },
-    payload: {
-      name,
-      gitAccountId,
-      repoUrl: `https://github.com/acme/${name.toLowerCase().replace(/\s+/g, "-")}`,
-    },
-  });
-  expect(res.statusCode).toBe(201);
-  return (res.json() as { id: string }).id;
+/**
+ * Crea un progetto (gruppo) con un repository sotto e restituisce l'id del
+ * GRUPPO (usato come `projectId` dalle milestone). Le milestone sono
+ * product-level ma in Fase 1 richiedono un `repositoryId` d'origine, iniettato
+ * da {@link createMilestone} dal repository di default del progetto.
+ */
+async function createProject(): Promise<string> {
+  const { projectId: pid, repositoryId } = await seedRepository(testDb.db);
+  repoForProject.set(pid, repositoryId);
+  return pid;
 }
 
 function createMilestone(payload: Record<string, unknown>, cookie = users.memberCookie) {
+  const withRepo =
+    payload.repositoryId === undefined && typeof payload.projectId === "string"
+      ? { ...payload, repositoryId: repoForProject.get(payload.projectId) }
+      : payload;
   return app.inject({
     method: "POST",
     url: "/api/milestones",
     headers: { cookie },
-    payload,
+    payload: withRepo,
   });
 }
 
@@ -95,7 +87,7 @@ async function createTicketInMilestone(
     method: "POST",
     url: "/api/tickets",
     headers: { cookie: users.memberCookie },
-    payload: { projectId, title, type: "bug" },
+    payload: { projectId, repositoryId: repoForProject.get(projectId), title, type: "bug" },
   });
   expect(post.statusCode).toBe(201);
   const id = (post.json() as { id: string }).id;
@@ -157,16 +149,32 @@ describe("POST /api/milestones", () => {
   });
 
   it("progetto inesistente: 404 project_not_found", async () => {
-    const res = await createMilestone({ projectId: randomUUID(), name: "orfana" });
+    // repositoryId valido (di un progetto reale) ma projectId inesistente: il
+    // check di esistenza del progetto scatta prima → 404.
+    const res = await createMilestone({
+      projectId: randomUUID(),
+      repositoryId: repoForProject.get(projectId),
+      name: "orfana",
+    });
     expect(res.statusCode).toBe(404);
     expect((res.json() as { code: string }).code).toBe("project_not_found");
+  });
+
+  it("repository non del progetto: 400 repository_not_in_project", async () => {
+    const res = await createMilestone({
+      projectId,
+      repositoryId: repoForProject.get(otherProjectId),
+      name: "repo-altrui",
+    });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("repository_not_in_project");
   });
 
   it("senza sessione: 401", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/milestones",
-      payload: { projectId, name: "no-auth" },
+      payload: { projectId, repositoryId: repoForProject.get(projectId), name: "no-auth" },
     });
     expect(res.statusCode).toBe(401);
   });
@@ -176,7 +184,7 @@ describe("GET /api/milestones — lista con counts e ordinamento", () => {
   let listProjectId: string;
 
   beforeAll(async () => {
-    listProjectId = await createProject("Progetto Lista");
+    listProjectId = await createProject();
   });
 
   function createMs(payload: Record<string, unknown>) {
@@ -184,7 +192,7 @@ describe("GET /api/milestones — lista con counts e ordinamento", () => {
       method: "POST",
       url: "/api/milestones",
       headers: { cookie: users.memberCookie },
-      payload: { projectId: listProjectId, ...payload },
+      payload: { projectId: listProjectId, repositoryId: repoForProject.get(listProjectId), ...payload },
     });
   }
 
@@ -193,7 +201,12 @@ describe("GET /api/milestones — lista con counts e ordinamento", () => {
       method: "POST",
       url: "/api/tickets",
       headers: { cookie: users.memberCookie },
-      payload: { projectId: listProjectId, title: "t", type: "bug" },
+      payload: {
+        projectId: listProjectId,
+        repositoryId: repoForProject.get(listProjectId),
+        title: "t",
+        type: "bug",
+      },
     });
     const id = (post.json() as { id: string }).id;
     await testDb.db
@@ -230,13 +243,13 @@ describe("GET /api/milestones — lista con counts e ordinamento", () => {
   });
 
   it("ordinamento: open prima di closed, poi dueDate asc (NULLS LAST), poi name", async () => {
-    const orderProjectId = await createProject("Progetto Ordine");
+    const orderProjectId = await createProject();
     async function ms(payload: Record<string, unknown>) {
       const r = await app.inject({
         method: "POST",
         url: "/api/milestones",
         headers: { cookie: users.memberCookie },
-        payload: { projectId: orderProjectId, ...payload },
+        payload: { projectId: orderProjectId, repositoryId: repoForProject.get(orderProjectId), ...payload },
       });
       return (r.json() as MilestoneBody).id;
     }

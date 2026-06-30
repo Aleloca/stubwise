@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
-import { decrypt, gitAccounts, projects } from "@stubwise/db";
+import { decrypt, gitAccounts, projects, repositories } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { seedUsers } from "../test/fixtures.js";
@@ -240,11 +240,16 @@ describe("DELETE /api/git-accounts/:id", () => {
     expect(again.statusCode).toBe(404);
   });
 
-  it("409 se un progetto usa l'account", async () => {
+  it("409 se un repository usa l'account", async () => {
     const created = await createAccount({ ...basePayload, name: "In Uso" });
     const id = (created.json() as { id: string }).id;
-    await testDb.db.insert(projects).values({
-      name: "Progetto Collegato",
+    const [project] = await testDb.db
+      .insert(projects)
+      .values({ name: "Progetto Collegato", slug: `gruppo-${randomBytes(4).toString("hex")}` })
+      .returning({ id: projects.id });
+    await testDb.db.insert(repositories).values({
+      projectId: project!.id,
+      name: "Repository Collegato",
       slug: `collegato-${randomBytes(4).toString("hex")}`,
       provider: "github",
       gitAccountId: id,

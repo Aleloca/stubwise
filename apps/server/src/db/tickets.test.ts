@@ -1,8 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedGitAccount, startTestDb } from "@stubwise/db/testing";
-import type { Db } from "@stubwise/db";
-import { errorGroups, projects } from "@stubwise/db";
+import { seedRepository, startTestDb } from "@stubwise/db/testing";
+import { errorGroups } from "@stubwise/db";
 import { createTicket, ProjectNotFoundError } from "./tickets.js";
 
 /**
@@ -17,27 +16,8 @@ function pgErrorCode(error: unknown): string | undefined {
   return pgErrorCode(err.cause);
 }
 
-/** Inserisce un progetto minimo valido, con slug e ingestion key univoci. */
-async function insertProject(db: Db, slug: string) {
-  const gitAccountId = await seedGitAccount(db);
-  const [project] = await db
-    .insert(projects)
-    .values({
-      name: slug,
-      slug,
-      provider: "github",
-      gitAccountId,
-      repoUrl: "https://github.com/acme/demo",
-      defaultBranch: "main",
-      ingestionKey: `ingestion-${slug}`,
-    })
-    .returning();
-  if (!project) throw new Error("insert del progetto non ha restituito la riga");
-  return project;
-}
-
 // Un container Postgres per file di test: l'avvio costa secondi, i singoli
-// test si isolano usando progetti distinti.
+// test si isolano usando repository distinti.
 let testDb: TestDb;
 
 beforeAll(async () => {
@@ -49,19 +29,19 @@ afterAll(async () => {
 });
 
 describe("schema: tickets", () => {
-  it("assegna numeri sequenziali per-progetto (1, poi 2)", async () => {
+  it("assegna numeri sequenziali per-repository (1, poi 2)", async () => {
     const { db } = testDb;
-    const project = await insertProject(db, "seq");
+    const { repositoryId } = await seedRepository(db);
 
     const first = await createTicket(db, {
-      projectId: project.id,
+      repositoryId,
       title: "Primo ticket",
       type: "bug",
       priority: "high",
       source: "manual",
     });
     const second = await createTicket(db, {
-      projectId: project.id,
+      repositoryId,
       title: "Secondo ticket",
       type: "feature",
       priority: "low",
@@ -72,20 +52,20 @@ describe("schema: tickets", () => {
     expect(second.number).toBe(2);
   });
 
-  it("il contatore è indipendente tra progetti", async () => {
+  it("il contatore è indipendente tra repository", async () => {
     const { db } = testDb;
-    const a = await insertProject(db, "indip-a");
-    const b = await insertProject(db, "indip-b");
+    const a = await seedRepository(db);
+    const b = await seedRepository(db);
 
     const ticketA = await createTicket(db, {
-      projectId: a.id,
+      repositoryId: a.repositoryId,
       title: "Ticket A",
       type: "task",
       priority: "medium",
       source: "manual",
     });
     const ticketB = await createTicket(db, {
-      projectId: b.id,
+      repositoryId: b.repositoryId,
       title: "Ticket B",
       type: "task",
       priority: "medium",
@@ -96,14 +76,30 @@ describe("schema: tickets", () => {
     expect(ticketB.number).toBe(1);
   });
 
+  it("deriva il progetto dal repository bersaglio", async () => {
+    const { db } = testDb;
+    const { projectId, repositoryId } = await seedRepository(db);
+
+    const ticket = await createTicket(db, {
+      repositoryId,
+      title: "Ticket con progetto derivato",
+      type: "bug",
+      priority: "medium",
+      source: "manual",
+    });
+
+    expect(ticket.projectId).toBe(projectId);
+    expect(ticket.repositoryId).toBe(repositoryId);
+  });
+
   it("5 createTicket concorrenti producono i numeri 1..5 senza duplicati", async () => {
     const { db } = testDb;
-    const project = await insertProject(db, "concurrent");
+    const { repositoryId } = await seedRepository(db);
 
     const created = await Promise.all(
       Array.from({ length: 5 }, (_, i) =>
         createTicket(db, {
-          projectId: project.id,
+          repositoryId,
           title: `Ticket concorrente ${i}`,
           type: "bug",
           priority: "urgent",
@@ -116,11 +112,11 @@ describe("schema: tickets", () => {
     expect(numbers).toEqual([1, 2, 3, 4, 5]);
   });
 
-  it("rifiuta la creazione di un ticket su un progetto inesistente", async () => {
+  it("rifiuta la creazione di un ticket su un repository inesistente", async () => {
     const { db } = testDb;
     await expect(
       createTicket(db, {
-        projectId: "00000000-0000-0000-0000-000000000000",
+        repositoryId: "00000000-0000-0000-0000-000000000000",
         title: "Orfano",
         type: "bug",
         priority: "low",
@@ -131,11 +127,11 @@ describe("schema: tickets", () => {
 });
 
 describe("schema: errorGroups", () => {
-  it("rifiuta due gruppi con la stessa (projectId, fingerprint) con violazione unique (23505)", async () => {
+  it("rifiuta due gruppi con la stessa (repositoryId, fingerprint) con violazione unique (23505)", async () => {
     const { db } = testDb;
-    const project = await insertProject(db, "fingerprint");
+    const { repositoryId } = await seedRepository(db);
     const ticket = await createTicket(db, {
-      projectId: project.id,
+      repositoryId,
       title: "Errore raggruppato",
       type: "bug",
       priority: "high",
@@ -143,13 +139,13 @@ describe("schema: errorGroups", () => {
     });
 
     await db.insert(errorGroups).values({
-      projectId: project.id,
+      repositoryId,
       fingerprint: "abc123",
       ticketId: ticket.id,
     });
 
     const otherTicket = await createTicket(db, {
-      projectId: project.id,
+      repositoryId,
       title: "Altro ticket",
       type: "bug",
       priority: "high",
@@ -159,7 +155,7 @@ describe("schema: errorGroups", () => {
     let caught: unknown;
     try {
       await db.insert(errorGroups).values({
-        projectId: project.id,
+        repositoryId,
         fingerprint: "abc123",
         ticketId: otherTicket.id,
       });

@@ -16,7 +16,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { aiJobs, tickets } from "@stubwise/db";
+import { aiJobs, projects, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { seedUsers } from "../test/fixtures.js";
@@ -31,7 +31,9 @@ let projectId: string;
 type TicketRow = typeof tickets.$inferSelect;
 
 async function projectTickets(): Promise<TicketRow[]> {
-  return testDb.db.select().from(tickets).where(eq(tickets.projectId, projectId));
+  // `projectId` qui è il repositoryId (la chiave d'ingestion è per-repo): i
+  // ticket SDK nascono col repository bersaglio valorizzato.
+  return testDb.db.select().from(tickets).where(eq(tickets.repositoryId, projectId));
 }
 
 beforeAll(async () => {
@@ -52,18 +54,23 @@ beforeAll(async () => {
     throw new Error(`creazione account git fallita: ${account.statusCode} ${account.body}`);
   }
   const gitAccountId = (account.json() as { id: string }).id;
+  const [group] = await testDb.db
+    .insert(projects)
+    .values({ name: "e2e — gruppo", slug: `gruppo-${randomBytes(4).toString("hex")}` })
+    .returning({ id: projects.id });
   const created = await app.inject({
     method: "POST",
-    url: "/api/projects",
+    url: "/api/repositories",
     headers: { cookie: adminCookie },
     payload: {
+      projectId: group!.id,
       name: "e2e-ingestion",
       gitAccountId,
       repoUrl: "https://github.com/acme/e2e-ingestion",
     },
   });
   if (created.statusCode !== 201) {
-    throw new Error(`creazione progetto fallita: ${created.statusCode} ${created.body}`);
+    throw new Error(`creazione repository fallita: ${created.statusCode} ${created.body}`);
   }
   const project = created.json() as { id: string; slug: string; ingestionKey: string };
   projectId = project.id;

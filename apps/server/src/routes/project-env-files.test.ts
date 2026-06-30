@@ -5,12 +5,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { decrypt, projectEnvVars } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { startTestDb } from "@stubwise/db/testing";
+import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
-const PLAINTEXT_TOKEN = "ghp_token-da-non-salvare-in-chiaro";
 
 let testDb: TestDb;
 let app: FastifyInstance;
@@ -28,35 +27,10 @@ beforeAll(async () => {
   });
   ({ adminCookie, memberCookie } = await seedUsers(app));
 
-  const account = await app.inject({
-    method: "POST",
-    url: "/api/git-accounts",
-    headers: { cookie: adminCookie },
-    payload: {
-      name: "Account GitHub",
-      provider: "github",
-      credentials: { username: "acme-bot", token: PLAINTEXT_TOKEN },
-    },
-  });
-  if (account.statusCode !== 201) {
-    throw new Error(`creazione account fallita: ${account.statusCode} ${account.body}`);
-  }
-  const gitAccountId = (account.json() as { id: string }).id;
-
-  const project = await app.inject({
-    method: "POST",
-    url: "/api/projects",
-    headers: { cookie: adminCookie },
-    payload: {
-      name: "Sito Vetrina",
-      gitAccountId,
-      repoUrl: "https://github.com/acme/sito-vetrina",
-    },
-  });
-  if (project.statusCode !== 201) {
-    throw new Error(`creazione progetto fallita: ${project.statusCode} ${project.body}`);
-  }
-  projectId = (project.json() as { id: string }).id;
+  // I file d'ambiente sono repository-level: `projectId` qui è il repositoryId
+  // usato dalle route /api/repositories/:id/env-files.
+  const { repositoryId } = await seedRepository(testDb.db);
+  projectId = repositoryId;
 }, 120_000);
 
 afterAll(async () => {
@@ -67,7 +41,7 @@ afterAll(async () => {
 function createEnvFile(path: string, cookie = adminCookie, pid = projectId) {
   return app.inject({
     method: "POST",
-    url: `/api/projects/${pid}/env-files`,
+    url: `/api/repositories/${pid}/env-files`,
     headers: { cookie },
     payload: { path },
   });
@@ -75,7 +49,7 @@ function createEnvFile(path: string, cookie = adminCookie, pid = projectId) {
 
 const MISSING_UUID = "00000000-0000-0000-0000-000000000000";
 
-describe("POST /api/projects/:id/env-files", () => {
+describe("POST /api/repositories/:id/env-files", () => {
   it("l'admin crea un file env: 201 con { id, path, vars: [] }", async () => {
     const res = await createEnvFile(".env");
     expect(res.statusCode).toBe(201);
@@ -116,21 +90,21 @@ describe("POST /api/projects/:id/env-files", () => {
   it("senza sessione: 401", async () => {
     const res = await app.inject({
       method: "POST",
-      url: `/api/projects/${projectId}/env-files`,
+      url: `/api/repositories/${projectId}/env-files`,
       payload: { path: ".env.anon" },
     });
     expect(res.statusCode).toBe(401);
   });
 });
 
-describe("POST /api/projects/:id/env-files/:fileId/import", () => {
+describe("POST /api/repositories/:id/env-files/:fileId/import", () => {
   it("upsert delle sole chiavi valide, valori cifrati, risposta = chiavi importate", async () => {
     const file = await createEnvFile(".env.import");
     const fileId = (file.json() as { id: string }).id;
 
     const res = await app.inject({
       method: "POST",
-      url: `/api/projects/${projectId}/env-files/${fileId}/import`,
+      url: `/api/repositories/${projectId}/env-files/${fileId}/import`,
       headers: { cookie: adminCookie },
       payload: { content: "A=1\nB=2\n# c\nexport C=3\nBAD-KEY=x" },
     });
@@ -160,7 +134,7 @@ describe("POST /api/projects/:id/env-files/:fileId/import", () => {
 
     await app.inject({
       method: "POST",
-      url: `/api/projects/${projectId}/env-files/${fileId}/import`,
+      url: `/api/repositories/${projectId}/env-files/${fileId}/import`,
       headers: { cookie: adminCookie },
       payload: { content: "A=1\nB=2\nC=3" },
     });
@@ -171,7 +145,7 @@ describe("POST /api/projects/:id/env-files/:fileId/import", () => {
 
     await app.inject({
       method: "POST",
-      url: `/api/projects/${projectId}/env-files/${fileId}/import`,
+      url: `/api/repositories/${projectId}/env-files/${fileId}/import`,
       headers: { cookie: adminCookie },
       payload: { content: "A=9" },
     });
@@ -190,7 +164,7 @@ describe("POST /api/projects/:id/env-files/:fileId/import", () => {
   it("file inesistente: 404", async () => {
     const res = await app.inject({
       method: "POST",
-      url: `/api/projects/${projectId}/env-files/${MISSING_UUID}/import`,
+      url: `/api/repositories/${projectId}/env-files/${MISSING_UUID}/import`,
       headers: { cookie: adminCookie },
       payload: { content: "A=1" },
     });
@@ -202,7 +176,7 @@ describe("POST /api/projects/:id/env-files/:fileId/import", () => {
     const fileId = (file.json() as { id: string }).id;
     const res = await app.inject({
       method: "POST",
-      url: `/api/projects/${projectId}/env-files/${fileId}/import`,
+      url: `/api/repositories/${projectId}/env-files/${fileId}/import`,
       headers: { cookie: memberCookie },
       payload: { content: "A=1" },
     });
@@ -210,20 +184,20 @@ describe("POST /api/projects/:id/env-files/:fileId/import", () => {
   });
 });
 
-describe("GET /api/projects/:id/env-files", () => {
+describe("GET /api/repositories/:id/env-files", () => {
   it("ritorna i file con vars { key, valueSet: true }, nessun valore", async () => {
     const file = await createEnvFile(".env.list");
     const fileId = (file.json() as { id: string }).id;
     await app.inject({
       method: "POST",
-      url: `/api/projects/${projectId}/env-files/${fileId}/import`,
+      url: `/api/repositories/${projectId}/env-files/${fileId}/import`,
       headers: { cookie: adminCookie },
       payload: { content: "SECRET=valore-super-segreto" },
     });
 
     const res = await app.inject({
       method: "GET",
-      url: `/api/projects/${projectId}/env-files`,
+      url: `/api/repositories/${projectId}/env-files`,
       headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(200);
@@ -240,21 +214,21 @@ describe("GET /api/projects/:id/env-files", () => {
   it("un member non può leggere: 403", async () => {
     const res = await app.inject({
       method: "GET",
-      url: `/api/projects/${projectId}/env-files`,
+      url: `/api/repositories/${projectId}/env-files`,
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(403);
   });
 });
 
-describe("PUT /api/projects/:id/env-files/:fileId/vars/:key", () => {
+describe("PUT /api/repositories/:id/env-files/:fileId/vars/:key", () => {
   it("upsert: crea o sostituisce la var cifrata, nessun valore in risposta", async () => {
     const file = await createEnvFile(".env.put");
     const fileId = (file.json() as { id: string }).id;
 
     const created = await app.inject({
       method: "PUT",
-      url: `/api/projects/${projectId}/env-files/${fileId}/vars/TOKEN`,
+      url: `/api/repositories/${projectId}/env-files/${fileId}/vars/TOKEN`,
       headers: { cookie: adminCookie },
       payload: { value: "primo" },
     });
@@ -263,7 +237,7 @@ describe("PUT /api/projects/:id/env-files/:fileId/vars/:key", () => {
 
     const replaced = await app.inject({
       method: "PUT",
-      url: `/api/projects/${projectId}/env-files/${fileId}/vars/TOKEN`,
+      url: `/api/repositories/${projectId}/env-files/${fileId}/vars/TOKEN`,
       headers: { cookie: adminCookie },
       payload: { value: "nuovo" },
     });
@@ -282,7 +256,7 @@ describe("PUT /api/projects/:id/env-files/:fileId/vars/:key", () => {
     const fileId = (file.json() as { id: string }).id;
     const res = await app.inject({
       method: "PUT",
-      url: `/api/projects/${projectId}/env-files/${fileId}/vars/BAD-KEY`,
+      url: `/api/repositories/${projectId}/env-files/${fileId}/vars/BAD-KEY`,
       headers: { cookie: adminCookie },
       payload: { value: "x" },
     });
@@ -292,7 +266,7 @@ describe("PUT /api/projects/:id/env-files/:fileId/vars/:key", () => {
   it("file inesistente: 404", async () => {
     const res = await app.inject({
       method: "PUT",
-      url: `/api/projects/${projectId}/env-files/${MISSING_UUID}/vars/TOKEN`,
+      url: `/api/repositories/${projectId}/env-files/${MISSING_UUID}/vars/TOKEN`,
       headers: { cookie: adminCookie },
       payload: { value: "x" },
     });
@@ -304,7 +278,7 @@ describe("PUT /api/projects/:id/env-files/:fileId/vars/:key", () => {
     const fileId = (file.json() as { id: string }).id;
     const res = await app.inject({
       method: "PUT",
-      url: `/api/projects/${projectId}/env-files/${fileId}/vars/TOKEN`,
+      url: `/api/repositories/${projectId}/env-files/${fileId}/vars/TOKEN`,
       headers: { cookie: memberCookie },
       payload: { value: "x" },
     });
@@ -318,13 +292,13 @@ describe("DELETE var e file", () => {
     const fileId = (file.json() as { id: string }).id;
     await app.inject({
       method: "PUT",
-      url: `/api/projects/${projectId}/env-files/${fileId}/vars/TOKEN`,
+      url: `/api/repositories/${projectId}/env-files/${fileId}/vars/TOKEN`,
       headers: { cookie: adminCookie },
       payload: { value: "x" },
     });
     const res = await app.inject({
       method: "DELETE",
-      url: `/api/projects/${projectId}/env-files/${fileId}/vars/TOKEN`,
+      url: `/api/repositories/${projectId}/env-files/${fileId}/vars/TOKEN`,
       headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(204);
@@ -340,13 +314,13 @@ describe("DELETE var e file", () => {
     const fileId = (file.json() as { id: string }).id;
     await app.inject({
       method: "POST",
-      url: `/api/projects/${projectId}/env-files/${fileId}/import`,
+      url: `/api/repositories/${projectId}/env-files/${fileId}/import`,
       headers: { cookie: adminCookie },
       payload: { content: "A=1\nB=2" },
     });
     const res = await app.inject({
       method: "DELETE",
-      url: `/api/projects/${projectId}/env-files/${fileId}`,
+      url: `/api/repositories/${projectId}/env-files/${fileId}`,
       headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(204);
@@ -360,7 +334,7 @@ describe("DELETE var e file", () => {
   it("DELETE file inesistente: 404", async () => {
     const res = await app.inject({
       method: "DELETE",
-      url: `/api/projects/${projectId}/env-files/${MISSING_UUID}`,
+      url: `/api/repositories/${projectId}/env-files/${MISSING_UUID}`,
       headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(404);
@@ -371,7 +345,7 @@ describe("DELETE var e file", () => {
     const fileId = (file.json() as { id: string }).id;
     const res = await app.inject({
       method: "DELETE",
-      url: `/api/projects/${projectId}/env-files/${fileId}`,
+      url: `/api/repositories/${projectId}/env-files/${fileId}`,
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(403);

@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { agentRuns, aiJobs, aiProviders } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { startTestDb } from "@stubwise/db/testing";
+import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
 import { seedUsers } from "../test/fixtures.js";
 
@@ -24,33 +24,13 @@ beforeAll(async () => {
   });
   users = await seedUsers(app);
 
-  const accountRes = await app.inject({
-    method: "POST",
-    url: "/api/git-accounts",
-    headers: { cookie: users.adminCookie },
-    payload: { name: "Account Jobs", provider: "github", credentials: { token: "token-di-test" } },
-  });
-  expect(accountRes.statusCode).toBe(201);
-  const gitAccountId = (accountRes.json() as { id: string }).id;
-
-  const projectRes = await app.inject({
-    method: "POST",
-    url: "/api/projects",
-    headers: { cookie: users.adminCookie },
-    payload: {
-      name: "Progetto Jobs",
-      gitAccountId,
-      repoUrl: "https://github.com/acme/progetto-jobs",
-    },
-  });
-  expect(projectRes.statusCode).toBe(201);
-  const projectId = (projectRes.json() as { id: string }).id;
+  const { projectId, repositoryId } = await seedRepository(testDb.db);
 
   const ticketRes = await app.inject({
     method: "POST",
     url: "/api/tickets",
     headers: { cookie: users.memberCookie },
-    payload: { projectId, title: "Crash al checkout", type: "bug" },
+    payload: { projectId, repositoryId, title: "Crash al checkout", type: "bug" },
   });
   expect(ticketRes.statusCode).toBe(201);
   ticketId = (ticketRes.json() as { id: string }).id;

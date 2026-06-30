@@ -5,7 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import { buildApp } from "../app.js";
 import { attachments } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { startTestDb } from "@stubwise/db/testing";
+import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import type { ObjectStorage } from "../storage/index.js";
 import type { SeededUsers } from "../test/fixtures.js";
 import { seedUsers } from "../test/fixtures.js";
@@ -41,6 +41,7 @@ function createFakeStorage(): ObjectStorage & {
 let testDb: TestDb;
 let users: SeededUsers;
 let projectId: string;
+let repositoryId: string;
 
 /** Storage corrente: lo cambiamo per-test (configurato vs assente). */
 let activeStorage: ObjectStorage | null;
@@ -65,7 +66,7 @@ beforeAll(async () => {
     storageFactory: async () => activeStorage,
   });
   users = await seedUsers(app);
-  projectId = await createProject("Progetto Allegati");
+  projectId = await createProject();
 }, 120_000);
 
 afterAll(async () => {
@@ -77,31 +78,11 @@ beforeEach(() => {
   activeStorage = fakeStorage;
 });
 
-async function createGitAccount(): Promise<string> {
-  const res = await app.inject({
-    method: "POST",
-    url: "/api/git-accounts",
-    headers: { cookie: users.adminCookie },
-    payload: { name: "Account di test", provider: "github", credentials: { token: "token-di-test" } },
-  });
-  expect(res.statusCode).toBe(201);
-  return (res.json() as { id: string }).id;
-}
-
-async function createProject(name: string): Promise<string> {
-  const gitAccountId = await createGitAccount();
-  const res = await app.inject({
-    method: "POST",
-    url: "/api/projects",
-    headers: { cookie: users.adminCookie },
-    payload: {
-      name,
-      gitAccountId,
-      repoUrl: `https://github.com/acme/${name.toLowerCase().replace(/\s+/g, "-")}`,
-    },
-  });
-  expect(res.statusCode).toBe(201);
-  return (res.json() as { id: string }).id;
+/** Crea un progetto (gruppo) con un repository sotto, salvando i due id. */
+async function createProject(): Promise<string> {
+  const seeded = await seedRepository(testDb.db);
+  repositoryId = seeded.repositoryId;
+  return seeded.projectId;
 }
 
 async function createTicket(): Promise<string> {
@@ -109,7 +90,7 @@ async function createTicket(): Promise<string> {
     method: "POST",
     url: "/api/tickets",
     headers: { cookie: users.memberCookie },
-    payload: { projectId, title: "Ticket con allegati", type: "bug" },
+    payload: { projectId, repositoryId, title: "Ticket con allegati", type: "bug" },
   });
   expect(res.statusCode).toBe(201);
   return (res.json() as { id: string }).id;

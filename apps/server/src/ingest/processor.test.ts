@@ -1,9 +1,9 @@
 import type { ErrorEvent, FeedbackEvent, TicketCreateEvent } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { aiJobs, attachments, errorGroups, projects, tickets } from "@stubwise/db";
+import { aiJobs, attachments, errorGroups, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedGitAccount, startTestDb } from "@stubwise/db/testing";
+import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import type { ObjectStorage } from "../storage/index.js";
 import { processEvents } from "./processor.js";
 
@@ -34,26 +34,14 @@ afterAll(async () => {
   await testDb.stop();
 });
 
-let projectCounter = 0;
-
-/** Ogni test lavora su un progetto fresco: isolamento senza truncate. */
+/**
+ * Ogni test lavora su un repository fresco: isolamento senza truncate.
+ * processEvents risolve un repository (ex "progetto"): qui passiamo il
+ * repositoryId come `{ id }`.
+ */
 async function createProject(): Promise<{ id: string }> {
-  projectCounter += 1;
-  const gitAccountId = await seedGitAccount(testDb.db);
-  const [project] = await testDb.db
-    .insert(projects)
-    .values({
-      name: `Progetto ${projectCounter}`,
-      slug: `progetto-${projectCounter}`,
-      provider: "github",
-      gitAccountId,
-      repoUrl: "https://github.com/acme/demo",
-      defaultBranch: "main",
-      ingestionKey: `chiave-${projectCounter}`,
-    })
-    .returning({ id: projects.id });
-  if (!project) throw new Error("insert progetto fallita");
-  return project;
+  const { repositoryId } = await seedRepository(testDb.db);
+  return { id: repositoryId };
 }
 
 function errorEvent(overrides: Partial<ErrorEvent> = {}): ErrorEvent {
@@ -75,12 +63,12 @@ function errorEvent(overrides: Partial<ErrorEvent> = {}): ErrorEvent {
   };
 }
 
-async function projectTickets(projectId: string) {
-  return testDb.db.select().from(tickets).where(eq(tickets.projectId, projectId));
+async function projectTickets(repositoryId: string) {
+  return testDb.db.select().from(tickets).where(eq(tickets.repositoryId, repositoryId));
 }
 
-async function projectGroups(projectId: string) {
-  return testDb.db.select().from(errorGroups).where(eq(errorGroups.projectId, projectId));
+async function projectGroups(repositoryId: string) {
+  return testDb.db.select().from(errorGroups).where(eq(errorGroups.repositoryId, repositoryId));
 }
 
 async function ticketJobs(ticketId: string) {
