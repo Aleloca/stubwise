@@ -81,7 +81,11 @@ async function makeMirrors(): Promise<MirrorManager> {
   return new MirrorManager({ mirrorsDir: join(root, "mirrors") });
 }
 
-async function createProject(db: Db, repoUrl: string): Promise<string> {
+async function createProject(
+  db: Db,
+  repoUrl: string,
+  opts: { aiProviderId?: string } = {},
+): Promise<string> {
   uniq++;
   const gitAccountId = await seedGitAccount(db, {
     provider: "github",
@@ -97,6 +101,7 @@ async function createProject(db: Db, repoUrl: string): Promise<string> {
       repoUrl,
       defaultBranch: "main",
       ingestionKey: `ingestion-handler-${uniq}`,
+      ...(opts.aiProviderId !== undefined ? { aiProviderId: opts.aiProviderId } : {}),
     })
     .returning();
   if (!project) throw new Error("insert del progetto non ha restituito la riga");
@@ -584,6 +589,160 @@ describe("createHandler", () => {
     expect(jobAfter?.status).toBe("failed");
     // provider_id resta quello tentato (A): nessun failover.
     expect(jobAfter?.providerId).toBe(provA.id);
+  });
+
+  it("provider di progetto (strict): usa SOLO quel provider, catena MAI consultata", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+
+    // Provider assegnato al progetto (FK valida): la riga serve solo per l'id,
+    // la risoluzione è mockata via loadProviderByIdFn.
+    const [assigned] = await db
+      .insert(aiProviders)
+      .values({
+        position: 1,
+        kind: "api_key",
+        label: "progetto",
+        secretEncrypted: encrypt("sk-progetto", ENCRYPTION_KEY),
+      })
+      .returning();
+    if (!assigned) throw new Error("insert provider non ha restituito la riga");
+
+    const projectId = await createProject(db, upstream.url, { aiProviderId: assigned.id });
+    const ticketId = await createQueuedJob(db, projectId, "sum sbaglia il segno", 31);
+
+    const resolved = { id: assigned.id, kind: "api_key" as const, secret: "sk-progetto" };
+    const loadProviderByIdFn = vi.fn().mockResolvedValue(resolved);
+    const loadProviderChainFn = vi.fn(); // non deve MAI essere chiamata
+
+    const REPORT = "## Processo di indagine\nok\n## Causa radice\nok\n## Soluzione\nok\n## Motivazione\nok\n";
+    const runner = new FakeAgentRunner({
+      script: async (opts: AgentRunOptions) => {
+        if (opts.model === "haiku") {
+          return { output: `{"decision":"fix","type":"bug","effort":3}`, exitCode: 0 };
+        }
+        await writeFile(join(opts.cwd, "app.js"), "exports.sum = (a, b) => a + b;\n");
+        await writeFile(join(opts.cwd, "STUBWISE_REPORT.md"), REPORT);
+        return { output: "fix applicato", exitCode: 0 };
+      },
+    });
+    const openPullRequest = vi.fn().mockResolvedValue({ url: "https://github.com/acme/repo/pull/31" });
+    const handler = createHandler({
+      db,
+      runner,
+      mirrors,
+      encryptionKey: ENCRYPTION_KEY,
+      loadProviderByIdFn,
+      loadProviderChainFn,
+      getProviderFn: () => ({ openPullRequest }) as never,
+    });
+
+    const job = await claim(db);
+    await handler(job);
+
+    // La catena non è MAI stata consultata: solo il provider del progetto.
+    expect(loadProviderChainFn).not.toHaveBeenCalled();
+    expect(loadProviderByIdFn).toHaveBeenCalledWith(db, ENCRYPTION_KEY, assigned.id);
+    expect(runner.calls.every((c) => c.provider?.secret === "sk-progetto")).toBe(true);
+
+    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter?.status).toBe("pr_opened");
+    expect(jobAfter?.providerId).toBe(assigned.id);
+    const [ticketAfter] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
+    expect(ticketAfter?.status).toBe("in_review");
+  });
+
+  it("provider di progetto (strict): esito LIMIT → job HELD, nessun failover", async () => {
+    const { db } = testDb;
+    const mirrors = await makeMirrors();
+
+    const [assigned] = await db
+      .insert(aiProviders)
+      .values({
+        position: 1,
+        kind: "api_key",
+        label: "progetto",
+        secretEncrypted: encrypt("sk-progetto", ENCRYPTION_KEY),
+      })
+      .returning();
+    if (!assigned) throw new Error("insert provider non ha restituito la riga");
+
+    const projectId = await createProject(db, "https://github.com/acme/mai-clonato", {
+      aiProviderId: assigned.id,
+    });
+    await createQueuedJob(db, projectId, "ticket al limite", 32);
+
+    const loadProviderByIdFn = vi
+      .fn()
+      .mockResolvedValue({ id: assigned.id, kind: "api_key" as const, secret: "sk-progetto" });
+    const loadProviderChainFn = vi.fn();
+
+    // Qualunque run → limite di rate/usage.
+    const runner = new FakeAgentRunner({ output: "usage limit reached", exitCode: 1 });
+    const handler = createHandler({
+      db,
+      runner,
+      mirrors,
+      encryptionKey: ENCRYPTION_KEY,
+      loadProviderByIdFn,
+      loadProviderChainFn,
+    });
+
+    const job = await claim(db);
+    await handler(job);
+
+    // Niente failover: la catena non viene consultata e si è usato solo il
+    // provider del progetto.
+    expect(loadProviderChainFn).not.toHaveBeenCalled();
+    expect(runner.calls.every((c) => c.provider?.secret === "sk-progetto")).toBe(true);
+    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter?.status).toBe("held");
+    expect(jobAfter?.log).toContain("provider AI del progetto al limite");
+  });
+
+  it("provider di progetto (strict): non risolvibile (null) → job HELD, runner MAI invocato", async () => {
+    const { db } = testDb;
+    const mirrors = await makeMirrors();
+
+    const [assigned] = await db
+      .insert(aiProviders)
+      .values({
+        position: 1,
+        kind: "api_key",
+        label: "progetto",
+        secretEncrypted: encrypt("sk-progetto", ENCRYPTION_KEY),
+      })
+      .returning();
+    if (!assigned) throw new Error("insert provider non ha restituito la riga");
+
+    const projectId = await createProject(db, "https://github.com/acme/mai-clonato", {
+      aiProviderId: assigned.id,
+    });
+    await createQueuedJob(db, projectId, "provider disabilitato", 33);
+
+    // Provider non disponibile (disabilitato/cancellato/non decifrabile).
+    const loadProviderByIdFn = vi.fn().mockResolvedValue(null);
+    const loadProviderChainFn = vi.fn();
+    const runner = new FakeAgentRunner({ output: "non dovrei mai girare" });
+    const handler = createHandler({
+      db,
+      runner,
+      mirrors,
+      encryptionKey: ENCRYPTION_KEY,
+      loadProviderByIdFn,
+      loadProviderChainFn,
+    });
+
+    const job = await claim(db);
+    await handler(job);
+
+    // Nessun tentativo: il runner non è mai stato chiamato, niente catena.
+    expect(runner.calls).toHaveLength(0);
+    expect(loadProviderChainFn).not.toHaveBeenCalled();
+    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter?.status).toBe("held");
+    expect(jobAfter?.log).toContain("provider AI del progetto non disponibile");
   });
 
   it("catena vuota: nessun provider passato al runner (retro-compat)", async () => {

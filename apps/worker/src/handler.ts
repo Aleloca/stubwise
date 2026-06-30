@@ -9,7 +9,7 @@ import type { MirrorManager } from "./git/mirrors.js";
 import { runFix, type FixDeps, type FixOutcome } from "./pipeline/fix.js";
 import type { DispatchFn } from "./pipeline/notify.js";
 import { runTriage, type TriageOutcome } from "./pipeline/triage.js";
-import { loadProviderChain, type ResolvedProvider } from "./providers/chain.js";
+import { loadProviderById, loadProviderChain, type ResolvedProvider } from "./providers/chain.js";
 import { appendLog, failJob, holdJob, markFixing, setJobProvider, type AiJob } from "./queue.js";
 import { getContentLanguage } from "./settings.js";
 
@@ -39,6 +39,10 @@ export interface HandlerDeps {
    * loadProviderChain da ./providers/chain.js. Restituisce le credenziali
    * abilitate ordinate per position, già decifrate. */
   loadProviderChainFn?: (db: Db, encryptionKey: Buffer) => Promise<ResolvedProvider[]>;
+  /** Risolutore di UN provider per id (iniettabile nei test). Default:
+   * loadProviderById da ./providers/chain.js. Usato dal provider AI di progetto
+   * (modalità strict): ritorna null se disabilitato/cancellato/non decifrabile. */
+  loadProviderByIdFn?: (db: Db, encryptionKey: Buffer, id: string) => Promise<ResolvedProvider | null>;
   /** URL pubblico dell'istanza (PUBLIC_URL), per i link nelle notifiche. Vuoto
    * = il link al ticket è il solo path. */
   publicUrl?: string;
@@ -136,6 +140,19 @@ async function runJobWithProvider(
 }
 
 /**
+ * Mette il job in held con un messaggio (status-guarded, come holdJob). Se la
+ * ownership è persa (job requeued e reclamato altrove) la transizione non
+ * avviene: si logga best-effort. NON failed: il job va ritentato (avvio manuale
+ * o re-run) dopo che la causa del hold è rientrata.
+ */
+async function holdJobWithReason(deps: HandlerDeps, job: AiJob, log: string): Promise<void> {
+  const held = await holdJob(deps.db, job.id, { log });
+  if (!held) {
+    await appendLog(deps.db, job.id, "[stubwise] ownership persa dopo il hold");
+  }
+}
+
+/**
  * Mette il job in held quando TUTTE le credenziali della catena hanno toccato
  * il limite di rate/usage. Riusa il pattern budget-held del fix: commento AI di
  * sistema sul ticket + transizione holdJob (status-guarded). NON failed: il job
@@ -155,12 +172,11 @@ async function holdAllProvidersLimited(
       body: t(lang, "comment.providersLimitHeld"),
     });
   });
-  const held = await holdJob(deps.db, job.id, {
-    log: "[stubwise] tutti i provider AI al limite di rate/usage → job in pausa (held), ritenta dopo il reset",
-  });
-  if (!held) {
-    await appendLog(deps.db, job.id, "[stubwise] ownership persa dopo il hold per limite provider");
-  }
+  await holdJobWithReason(
+    deps,
+    job,
+    "[stubwise] tutti i provider AI al limite di rate/usage → job in pausa (held), ritenta dopo il reset",
+  );
 }
 
 async function processJob(
@@ -168,6 +184,7 @@ async function processJob(
   job: AiJob,
   projectName: string,
   ticketId: string,
+  aiProviderId: string | null,
 ): Promise<void> {
   // Contesto delle notifiche comune a triage e fix (best-effort): URL pubblico
   // per il link, nome progetto per il messaggio, dispatch iniettabile nei test.
@@ -176,6 +193,32 @@ async function processJob(
     projectName,
     ...(deps.dispatch !== undefined ? { dispatch: deps.dispatch } : {}),
   };
+
+  // PROVIDER AI DI PROGETTO (modalità STRICT): se il progetto ha un provider
+  // assegnato si usa SOLO quello — niente catena, niente failover. Risolviamo la
+  // singola credenziale; se non è disponibile (disabilitata/cancellata/segreto
+  // non decifrabile) o tocca il limite, il job va in held e si ferma qui.
+  if (aiProviderId !== null) {
+    const loadById = deps.loadProviderByIdFn ?? loadProviderById;
+    const provider = await loadById(deps.db, deps.encryptionKey, aiProviderId);
+    if (provider === null) {
+      await holdJobWithReason(
+        deps,
+        job,
+        "[stubwise] provider AI del progetto non disponibile (disabilitato/cancellato) → job in pausa, riprende dopo averlo riabilitato",
+      );
+      return;
+    }
+    const limited = await runJobWithProvider(deps, job, notifyOpts, provider);
+    if (limited) {
+      await holdJobWithReason(
+        deps,
+        job,
+        "[stubwise] provider AI del progetto al limite di rate/usage → job in pausa, ritenta dopo il reset",
+      );
+    }
+    return;
+  }
 
   // Catena dei provider AI abilitati (ordinati per position). FAILOVER: si prova
   // la prima credenziale; se il run si esaurisce per LIMITE di rate/usage (esito
@@ -274,7 +317,11 @@ export function createHandler(
     // projectId per la serializzazione + nome del progetto per le notifiche,
     // in un'unica join.
     const [row] = await deps.db
-      .select({ projectId: tickets.projectId, projectName: projects.name })
+      .select({
+        projectId: tickets.projectId,
+        projectName: projects.name,
+        aiProviderId: projects.aiProviderId,
+      })
       .from(tickets)
       .innerJoin(projects, eq(projects.id, tickets.projectId))
       .where(eq(tickets.id, job.ticketId));
@@ -287,7 +334,7 @@ export function createHandler(
     }
 
     return serializer.run(row.projectId, () =>
-      processJob(deps, job, row.projectName, job.ticketId),
+      processJob(deps, job, row.projectName, job.ticketId, row.aiProviderId),
     );
   };
 }
