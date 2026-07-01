@@ -1,7 +1,7 @@
 import { getProvider } from "@stubwise/git";
 import { t } from "@stubwise/i18n";
 import { dispatchNotification } from "@stubwise/notifications";
-import { and, eq, sql } from "drizzle-orm";
+import { and, count, eq, ne, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
   aiJobs,
@@ -10,6 +10,7 @@ import {
   docGenerations,
   projects,
   repositories,
+  ticketRepositories,
   tickets,
 } from "@stubwise/db";
 import { getContentLanguage } from "../settings.js";
@@ -205,9 +206,11 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
 
       // Il ticket appartiene solo al PROGETTO (Fase 3, tickets.repositoryId
       // rimosso): il webhook (per-repo) risolve il ticket per (progetto del
-      // repo del webhook, N). La chiusura aggregata multi-repo (marcare la riga
-      // ticket_repositories e portare a `done` solo quando TUTTE sono merged) è
-      // demandata al Task 5; qui si mantiene il comportamento single-repo.
+      // repo del webhook, N). Poiché N è unico per progetto (Fase 3, Task 1),
+      // (progetto, N) risolve al più UN ticket. La chiusura è AGGREGATA
+      // (Task 5): il merge marca la riga ticket_repositories di QUESTO repo e
+      // porta il ticket a `done` solo quando TUTTE le righe del ticket sono
+      // `merged` (vedi sotto).
       const [ticket] = await instance.db
         .select({
           id: tickets.id,
@@ -231,17 +234,87 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
           return reply.code(204).send();
         }
 
+        // Chiusura AGGREGATA multi-repo. Regole:
+        //  1. Marca la riga ticket_repositories di QUESTO repo come `merged`.
+        //     Se la riga manca (caso limite: PR mergiata ma riga assente — es.
+        //     legacy single-repo dove il worker non l'ha popolata, o disallineo
+        //     DB), la si CREA `merged`: la PR mergiata è la fonte di verità, e
+        //     creare la riga è più sicuro che ignorare il merge (che lascerebbe
+        //     il ticket bloccato). L'upsert sull'unique (ticketId, repositoryId)
+        //     rende l'operazione idempotente: una ri-consegna non duplica.
+        //  2. Il ticket va a `done` SOLO SE, dopo l'upsert, TUTTE le sue righe
+        //     sono `merged`. Una riga `open` (repo con PR ancora da mergiare) o
+        //     `closed_unmerged` (repo la cui PR è stata rifiutata e attende un
+        //     nuovo fix) tiene il ticket in `in_review`. Le righe
+        //     `closed_unmerged` impediscono il `done` finché quel repo non viene
+        //     ri-fixato e la nuova PR mergiata (che rimette la riga a `merged`).
+        //     Fonte di verità = l'insieme attuale delle righe: un re-run che
+        //     restringe i repo toccati rimpiazza le righe (upsert per repo), non
+        //     lascia righe stale di repo non più modificati.
         await instance.db.transaction(async (tx) => {
-          await tx.update(tickets).set({ status: "done" }).where(eq(tickets.id, ticket.id));
+          // Stato della riga di QUESTO repo prima dell'upsert: distingue la
+          // prima consegna del merge (riga assente o `open`/`closed_unmerged`)
+          // da una ri-consegna (riga già `merged`). Serve a non scrivere un
+          // secondo commento di sistema quando il merge dello stesso repo viene
+          // riconsegnato mentre il ticket è ancora `in_review` (merge parziale).
+          const [existingRow] = await tx
+            .select({ prState: ticketRepositories.prState })
+            .from(ticketRepositories)
+            .where(
+              and(
+                eq(ticketRepositories.ticketId, ticket.id),
+                eq(ticketRepositories.repositoryId, context.repositoryId),
+              ),
+            );
+          const alreadyMerged = existingRow?.prState === "merged";
+
+          await tx
+            .insert(ticketRepositories)
+            .values({
+              ticketId: ticket.id,
+              repositoryId: context.repositoryId,
+              branch: event.branch,
+              prUrl: event.prUrl,
+              prState: "merged",
+            })
+            .onConflictDoUpdate({
+              target: [ticketRepositories.ticketId, ticketRepositories.repositoryId],
+              set: { prState: "merged", prUrl: event.prUrl },
+            });
+
+          // Ri-consegna dello stesso repo già `merged`: idempotente, niente
+          // commento né transizioni. (La riga era già merged; il gate sotto non
+          // cambierebbe nulla.)
+          if (alreadyMerged) return;
+
+          // Commento di sistema: una PR di questo repo è stata mergiata.
           await tx.insert(comments).values({
             ticketId: ticket.id,
             authorType: "system",
             body: t(lang, "comment.prMerged", { url: event.prUrl }),
           });
+
+          // Gate aggregato: esiste ancora una riga NON `merged`? Se sì, il
+          // ticket resta in review; se no (tutte merged), va a `done`.
+          const [pending] = await tx
+            .select({ value: count() })
+            .from(ticketRepositories)
+            .where(
+              and(
+                eq(ticketRepositories.ticketId, ticket.id),
+                ne(ticketRepositories.prState, "merged"),
+              ),
+            );
+          const allMerged = (pending?.value ?? 0) === 0;
+          if (!allMerged) return;
+
+          await tx.update(tickets).set({ status: "done" }).where(eq(tickets.id, ticket.id));
           // Allinea il job AI alla realtà: la PR aperta dalla pipeline è stata
           // mergiata. Si tocca SOLO il job in stato `pr_opened` (al più uno per
           // ticket), così una ri-consegna del webhook trova zero righe da
-          // aggiornare (idempotenza) e gli altri stati restano intatti.
+          // aggiornare (idempotenza) e gli altri stati restano intatti. Il job
+          // passa a `pr_merged` quando il TICKET va a `done` (semantica job
+          // coerente col ticket: un solo job per ticket, non per repo).
           await tx
             .update(aiJobs)
             .set({
@@ -255,13 +328,31 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
         return reply.code(204).send();
       }
 
-      // event.kind === "closed_unmerged": riapertura del ticket.
+      // event.kind === "closed_unmerged": riapertura del ticket per QUESTO repo.
       // Agiamo SOLO se il ticket è ancora in review (la pipeline ci ha appena
       // aperto la PR). Qualunque altro stato → 204 idempotente: una ri-consegna,
       // o un ticket già ripreso/concluso a mano, non deve produrre effetti.
       if (!ticket || ticket.status !== "in_review") return reply.code(204).send();
 
       await instance.db.transaction(async (tx) => {
+        // Marca la riga ticket_repositories di QUESTO repo come
+        // `closed_unmerged`, senza toccare le righe/PR degli altri repo (lo
+        // scope ticketId+repositoryId isola l'update). La riga tornerà `merged`
+        // solo quando quel repo verrà ri-fixato e la nuova PR mergiata; finché
+        // resta `closed_unmerged` il gate aggregato del merge non porterà mai il
+        // ticket a `done`. Update mirato (non upsert): se la riga manca — PR
+        // rifiutata senza che il fix ne abbia mai aperta una tracciata — non c'è
+        // uno stato per-repo da mantenere, ma il ticket rientra comunque in
+        // lavorazione (transizione sotto), coerente col comportamento pre-Fase 3.
+        await tx
+          .update(ticketRepositories)
+          .set({ prState: "closed_unmerged", prUrl: event.prUrl })
+          .where(
+            and(
+              eq(ticketRepositories.ticketId, ticket.id),
+              eq(ticketRepositories.repositoryId, context.repositoryId),
+            ),
+          );
         await tx.update(tickets).set({ status: "triaged" }).where(eq(tickets.id, ticket.id));
         await tx.insert(comments).values({
           ticketId: ticket.id,

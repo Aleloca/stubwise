@@ -1,5 +1,5 @@
 import { createHmac, randomBytes } from "node:crypto";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
@@ -12,6 +12,7 @@ import {
   notificationSettings,
   projects,
   repositories,
+  ticketRepositories,
   tickets,
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
@@ -140,6 +141,57 @@ async function createProject(payload: Record<string, unknown>): Promise<CreatedP
 }
 
 /**
+ * Aggiunge un SECONDO repository allo stesso progetto (gruppo) di `project`,
+ * creandolo via API con lo stesso gitAccount. Restituisce id/slug/secret del
+ * nuovo repo: serve ai test multi-repo, dove un ticket ha PR su più repo del
+ * medesimo progetto e ogni webhook (per-repo) risolve lo STESSO ticket.
+ */
+async function addRepository(
+  project: CreatedProject,
+  payload: Record<string, unknown>,
+): Promise<CreatedProject> {
+  const { provider, credentials, name, ...rest } = payload as {
+    provider: string;
+    credentials: unknown;
+    name: string;
+    repoUrl?: string;
+    defaultBranch?: string;
+  };
+  const accountRes = await app.inject({
+    method: "POST",
+    url: "/api/git-accounts",
+    headers: { cookie: adminCookie },
+    payload: { name: `${name} — account`, provider, credentials },
+  });
+  if (accountRes.statusCode !== 201) {
+    throw new Error(`creazione account git fallita: ${accountRes.statusCode} ${accountRes.body}`);
+  }
+  const gitAccountId = (accountRes.json() as { id: string }).id;
+
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/repositories",
+    headers: { cookie: adminCookie },
+    payload: { projectId: project.projectId, name, gitAccountId, ...rest },
+  });
+  if (res.statusCode !== 201) {
+    throw new Error(`creazione repository fallita: ${res.statusCode} ${res.body}`);
+  }
+  const repository = res.json() as { id: string; slug: string; provider: string };
+
+  const webhookRes = await app.inject({
+    method: "GET",
+    url: `/api/repositories/${repository.slug}/webhook`,
+    headers: { cookie: adminCookie },
+  });
+  if (webhookRes.statusCode !== 200) {
+    throw new Error(`lettura webhookSecret fallita: ${webhookRes.statusCode} ${webhookRes.body}`);
+  }
+  const { webhookSecret } = webhookRes.json() as { webhookSecret: string };
+  return { ...repository, projectId: project.projectId, webhookSecret };
+}
+
+/**
  * Inserisce un ticket con numero e stato espliciti, restituendone l'id. Riceve
  * il repositoryId del repo del webhook: dalla Fase 3 il ticket appartiene solo
  * al PROGETTO (niente repositoryId), e il webhook lo risolve per (progetto del
@@ -184,6 +236,39 @@ async function insertJob(ticketId: string, status: "pr_opened" | "failed"): Prom
 async function jobById(jobId: string) {
   const [row] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
   return row!;
+}
+
+/**
+ * Inserisce una riga ticket_repositories (stato PR per-repo di un ticket),
+ * con prState esplicito (default `open`). Modella l'insieme di PR aperte dal
+ * fix multi-repo: una riga per repo effettivamente modificato.
+ */
+async function seedTicketRepository(
+  ticketId: string,
+  repositoryId: string,
+  prState: "open" | "merged" | "closed_unmerged" = "open",
+): Promise<void> {
+  await testDb.db.insert(ticketRepositories).values({
+    ticketId,
+    repositoryId,
+    branch: "stubwise/ticket-1",
+    prUrl: "https://example.com/pr/1",
+    prState,
+  });
+}
+
+/** Legge lo stato PR (prState) della riga (ticket, repo), o undefined se assente. */
+async function repoState(ticketId: string, repositoryId: string): Promise<string | undefined> {
+  const [row] = await testDb.db
+    .select({ prState: ticketRepositories.prState })
+    .from(ticketRepositories)
+    .where(
+      and(
+        eq(ticketRepositories.ticketId, ticketId),
+        eq(ticketRepositories.repositoryId, repositoryId),
+      ),
+    );
+  return row?.prState;
 }
 
 /** Header firma HMAC-SHA256 (sha256=<hex>) sul raw body, schema condiviso da entrambi i provider. */
@@ -924,6 +1009,231 @@ describe("POST /webhooks/git/:projectSlug", () => {
     expect(res.statusCode).toBe(204);
     expect(await ticketStatus(ticketId)).toBe("done");
     expect(await ticketComments(ticketId)).toHaveLength(0);
+  });
+});
+
+describe("POST /webhooks/git/:projectSlug — chiusura aggregata multi-repo", () => {
+  /** POST di un merge GitHub firmato per il repo `repo`, branch `stubwise/ticket-N`. */
+  function postMerge(repo: CreatedProject, ticketNumber: number, prUrl?: string) {
+    const body = githubPayload(`stubwise/ticket-${ticketNumber}`, prUrl);
+    return app.inject({
+      method: "POST",
+      url: `/webhooks/git/${repo.slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": sign(repo.webhookSecret, body),
+      },
+      payload: body,
+    });
+  }
+
+  /** POST di una PR chiusa senza merge (GitHub) firmata per `repo`. */
+  function postClosedUnmerged(repo: CreatedProject, ticketNumber: number, prUrl?: string) {
+    const body = githubClosedUnmergedPayload(`stubwise/ticket-${ticketNumber}`, prUrl);
+    return app.inject({
+      method: "POST",
+      url: `/webhooks/git/${repo.slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": sign(repo.webhookSecret, body),
+      },
+      payload: body,
+    });
+  }
+
+  it("due repo, ticket con 2 PR: il primo merge non chiude; il secondo porta a done", async () => {
+    const repoA = await createProject({
+      name: "Agg A",
+      provider: "github",
+      repoUrl: "https://github.com/acme/agg-a",
+      credentials: { token: "tok" },
+    });
+    const repoB = await addRepository(repoA, {
+      name: "Agg B",
+      provider: "github",
+      repoUrl: "https://github.com/acme/agg-b",
+      credentials: { token: "tok" },
+    });
+    const ticketId = await insertTicket(repoA.id, 1, "in_review");
+    const jobId = await insertJob(ticketId, "pr_opened");
+    // Due PR aperte, una per repo del progetto.
+    await seedTicketRepository(ticketId, repoA.id, "open");
+    await seedTicketRepository(ticketId, repoB.id, "open");
+
+    // Merge del PRIMO repo: la sua riga → merged, ma il ticket resta in_review
+    // (riga B ancora open) e il job resta pr_opened.
+    const first = await postMerge(repoA, 1);
+    expect(first.statusCode).toBe(204);
+    expect(await repoState(ticketId, repoA.id)).toBe("merged");
+    expect(await repoState(ticketId, repoB.id)).toBe("open");
+    expect(await ticketStatus(ticketId)).toBe("in_review");
+    expect((await jobById(jobId)).status).toBe("pr_opened");
+    // Un commento di sistema per la PR mergiata di A.
+    expect(await ticketComments(ticketId)).toHaveLength(1);
+
+    // Merge del SECONDO repo: ora TUTTE le righe sono merged → ticket done,
+    // job pr_merged.
+    const second = await postMerge(repoB, 1);
+    expect(second.statusCode).toBe(204);
+    expect(await repoState(ticketId, repoB.id)).toBe("merged");
+    expect(await ticketStatus(ticketId)).toBe("done");
+    expect((await jobById(jobId)).status).toBe("pr_merged");
+    // Due commenti totali (uno per PR mergiata).
+    expect(await ticketComments(ticketId)).toHaveLength(2);
+  });
+
+  it("closed_unmerged di un repo non chiude gli altri; ri-merge dopo un nuovo fix → done", async () => {
+    const repoA = await createProject({
+      name: "Agg Reopen A",
+      provider: "github",
+      repoUrl: "https://github.com/acme/agg-reopen-a",
+      credentials: { token: "tok" },
+    });
+    const repoB = await addRepository(repoA, {
+      name: "Agg Reopen B",
+      provider: "github",
+      repoUrl: "https://github.com/acme/agg-reopen-b",
+      credentials: { token: "tok" },
+    });
+    const ticketId = await insertTicket(repoA.id, 1, "in_review");
+    const jobId = await insertJob(ticketId, "pr_opened");
+    await seedTicketRepository(ticketId, repoA.id, "open");
+    await seedTicketRepository(ticketId, repoB.id, "open");
+
+    // Merge di A: riga A merged, ticket ancora in_review (B open).
+    expect((await postMerge(repoA, 1)).statusCode).toBe(204);
+    expect(await ticketStatus(ticketId)).toBe("in_review");
+
+    // La PR di B viene CHIUSA senza merge: riga B → closed_unmerged, la riga A
+    // NON è toccata (resta merged), il ticket rientra in lavorazione (triaged).
+    expect((await postClosedUnmerged(repoB, 1)).statusCode).toBe(204);
+    expect(await repoState(ticketId, repoA.id)).toBe("merged");
+    expect(await repoState(ticketId, repoB.id)).toBe("closed_unmerged");
+    expect(await ticketStatus(ticketId)).toBe("triaged");
+    expect((await jobById(jobId)).status).toBe("pr_closed");
+
+    // Un nuovo fix riapre la PR su B (la riga torna open): il ticket torna in
+    // review. Simuliamo lo stato: riga B → open, ticket → in_review, nuovo job.
+    await testDb.db
+      .update(ticketRepositories)
+      .set({ prState: "open" })
+      .where(
+        and(
+          eq(ticketRepositories.ticketId, ticketId),
+          eq(ticketRepositories.repositoryId, repoB.id),
+        ),
+      );
+    await testDb.db.update(tickets).set({ status: "in_review" }).where(eq(tickets.id, ticketId));
+    const jobId2 = await insertJob(ticketId, "pr_opened");
+
+    // Re-merge di B: tutte le righe merged → done.
+    expect((await postMerge(repoB, 1)).statusCode).toBe(204);
+    expect(await repoState(ticketId, repoB.id)).toBe("merged");
+    expect(await ticketStatus(ticketId)).toBe("done");
+    expect((await jobById(jobId2)).status).toBe("pr_merged");
+  });
+
+  it("idempotenza: doppio webhook merged sullo stesso repo → una sola transizione, nessun errore", async () => {
+    const repoA = await createProject({
+      name: "Agg Idem A",
+      provider: "github",
+      repoUrl: "https://github.com/acme/agg-idem-a",
+      credentials: { token: "tok" },
+    });
+    const repoB = await addRepository(repoA, {
+      name: "Agg Idem B",
+      provider: "github",
+      repoUrl: "https://github.com/acme/agg-idem-b",
+      credentials: { token: "tok" },
+    });
+    const ticketId = await insertTicket(repoA.id, 1, "in_review");
+    await seedTicketRepository(ticketId, repoA.id, "open");
+    await seedTicketRepository(ticketId, repoB.id, "open");
+
+    // Primo merge di A.
+    expect((await postMerge(repoA, 1)).statusCode).toBe(204);
+    expect(await ticketComments(ticketId)).toHaveLength(1);
+    expect(await ticketStatus(ticketId)).toBe("in_review");
+
+    // Ri-consegna dello STESSO merge di A (ticket ancora in_review perché B è
+    // open): idempotente → nessun secondo commento, riga A ancora merged.
+    expect((await postMerge(repoA, 1)).statusCode).toBe(204);
+    expect(await ticketComments(ticketId)).toHaveLength(1);
+    expect(await repoState(ticketId, repoA.id)).toBe("merged");
+    expect(await ticketStatus(ticketId)).toBe("in_review");
+  });
+
+  it("single-repo (una sola riga): merge → done immediato", async () => {
+    const repo = await createProject({
+      name: "Agg Single",
+      provider: "github",
+      repoUrl: "https://github.com/acme/agg-single",
+      credentials: { token: "tok" },
+    });
+    const ticketId = await insertTicket(repo.id, 1, "in_review");
+    const jobId = await insertJob(ticketId, "pr_opened");
+    await seedTicketRepository(ticketId, repo.id, "open");
+
+    expect((await postMerge(repo, 1)).statusCode).toBe(204);
+    expect(await repoState(ticketId, repo.id)).toBe("merged");
+    expect(await ticketStatus(ticketId)).toBe("done");
+    expect((await jobById(jobId)).status).toBe("pr_merged");
+  });
+
+  it("merge con riga mancante: la crea merged e (single-repo) chiude il ticket", async () => {
+    const repo = await createProject({
+      name: "Agg Riga Mancante",
+      provider: "github",
+      repoUrl: "https://github.com/acme/agg-riga-mancante",
+      credentials: { token: "tok" },
+    });
+    const ticketId = await insertTicket(repo.id, 1, "in_review");
+    // Nessuna riga ticket_repositories seedata: caso limite (PR mergiata ma
+    // riga assente). Il webhook la crea `merged`, e — essendo l'unica riga —
+    // porta il ticket a done.
+    expect((await postMerge(repo, 1)).statusCode).toBe(204);
+    expect(await repoState(ticketId, repo.id)).toBe("merged");
+    expect(await ticketStatus(ticketId)).toBe("done");
+  });
+
+  it("numero univoco per progetto: due repo dello stesso progetto risolvono lo STESSO ticket; un altro progetto non è toccato", async () => {
+    const repoA = await createProject({
+      name: "Agg Univoco A",
+      provider: "github",
+      repoUrl: "https://github.com/acme/agg-univoco-a",
+      credentials: { token: "tok" },
+    });
+    const repoB = await addRepository(repoA, {
+      name: "Agg Univoco B",
+      provider: "github",
+      repoUrl: "https://github.com/acme/agg-univoco-b",
+      credentials: { token: "tok" },
+    });
+    // Ticket con lo stesso numero su un ALTRO progetto: non deve essere toccato.
+    const other = await createProject({
+      name: "Agg Univoco Altro",
+      provider: "github",
+      repoUrl: "https://github.com/acme/agg-univoco-altro",
+      credentials: { token: "tok" },
+    });
+    const ticketId = await insertTicket(repoA.id, 7, "in_review");
+    const otherTicketId = await insertTicket(other.id, 7, "in_review");
+    await seedTicketRepository(ticketId, repoA.id, "open");
+    await seedTicketRepository(ticketId, repoB.id, "open");
+
+    // Merge su repoA e repoB (stesso progetto) risolvono lo STESSO ticket (N=7),
+    // marcando righe diverse; il ticket dell'altro progetto resta intatto.
+    expect((await postMerge(repoA, 7)).statusCode).toBe(204);
+    expect((await postMerge(repoB, 7)).statusCode).toBe(204);
+    expect(await repoState(ticketId, repoA.id)).toBe("merged");
+    expect(await repoState(ticketId, repoB.id)).toBe("merged");
+    expect(await ticketStatus(ticketId)).toBe("done");
+    // L'altro progetto con lo stesso numero: non toccato.
+    expect(await ticketStatus(otherTicketId)).toBe("in_review");
+    expect(await ticketComments(otherTicketId)).toHaveLength(0);
+    expect(await repoState(otherTicketId, other.id)).toBeUndefined();
   });
 });
 
