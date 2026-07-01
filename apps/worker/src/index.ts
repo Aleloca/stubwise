@@ -99,8 +99,8 @@ try {
 const { db, client } = createDb(config.databaseUrl, { poolMax: config.databasePoolMax });
 
 // Dipendenze costruite UNA VOLTA all'avvio e condivise da entrambi gli handler
-// (fix e doc-generation): stesso runner CLI e stesso MirrorManager (il mirror è
-// condiviso per repository), così la serializzazione per-repository vale anche fra
+// (fix e doc-generation): stesso runner CLI e stesso MirrorManager (i mirror sono
+// condivisi per repository), così la serializzazione per-progetto vale anche fra
 // i due tipi di job (vedi più sotto).
 const runner = new ClaudeCliRunner();
 const mirrors = new MirrorManager({ mirrorsDir: config.mirrorsDir });
@@ -150,7 +150,7 @@ const embeddingClient = createEmbeddingClient({
 const generationRegistry = createGenerationWorktreeRegistry();
 
 // Handler del TRIGGER doc-generation (M7): avvia l'ORIENTAMENTO (apre+registra il
-// worktree, semina il DAG), serializzato per-repository col fix (serializer condiviso)
+// worktree, semina il DAG), serializzato per-progetto col fix (serializer condiviso)
 // SOLO per la durata dell'orientamento; il resto della generazione è retto dal
 // registro (activeRepositoryIds) e dal dispatch dei nodi. Il timeout di ogni run
 // dell'agente è DOC_AGENT_TIMEOUT_MS (default 8', più corto del fix).
