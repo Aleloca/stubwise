@@ -63,6 +63,7 @@ export const TYPE_LABEL_KEYS: Record<TicketType, string> = {
   feature: "badges:type.feature",
   task: "badges:type.task",
   feedback: "badges:type.feedback",
+  review: "badges:type.review",
 };
 
 const TYPE_CLASS: Record<TicketType, string> = {
@@ -70,6 +71,7 @@ const TYPE_CLASS: Record<TicketType, string> = {
   feature: "text-ok border-ok/30",
   task: "text-fg-muted border-line-strong",
   feedback: "text-sky-400 border-sky-400/30",
+  review: "text-purple-400 border-purple-400/30",
 };
 
 export const SOURCE_LABEL_KEYS: Record<TicketSource, string> = {

@@ -163,6 +163,10 @@ describe("parseTriageDecision", () => {
     expect(parseTriageDecision(`{"decision":"fix","type":"banana","effort":3}`)).toBeNull();
   });
 
+  it("rifiuta 'review' come tipo prodotto dal triage (riservato all'automazione PR Review)", () => {
+    expect(parseTriageDecision(`{"decision":"fix","type":"review","effort":2}`)).toBeNull();
+  });
+
   it("effort mancante o fuori scala 1–5 → decisione non valida (null)", () => {
     expect(parseTriageDecision(`{"decision":"fix","type":"bug"}`)).toBeNull();
     expect(parseTriageDecision(`{"decision":"fix","type":"bug","effort":0}`)).toBeNull();

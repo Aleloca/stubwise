@@ -641,7 +641,8 @@
       "bug": "Bug",
       "feature": "Feature",
       "task": "Task",
-      "feedback": "Feedback"
+      "feedback": "Feedback",
+      "review": "Review"
     },
     "source": {
       "manual": "Manuale",

@@ -10,7 +10,7 @@ export const ticketStatusSchema = z.enum([
 ]);
 export type TicketStatus = z.infer<typeof ticketStatusSchema>;
 
-export const ticketTypeSchema = z.enum(["bug", "feature", "task", "feedback"]);
+export const ticketTypeSchema = z.enum(["bug", "feature", "task", "feedback", "review"]);
 export type TicketType = z.infer<typeof ticketTypeSchema>;
 
 export const ticketPrioritySchema = z.enum(["low", "medium", "high", "urgent"]);
