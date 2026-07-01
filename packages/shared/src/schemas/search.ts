@@ -68,6 +68,25 @@ export const searchDocHitSchema = z.object({
 export type SearchDocHit = z.infer<typeof searchDocHitSchema>;
 
 /**
+ * Un risultato Docs della corsia SEMANTICA (lenta) — `GET /api/search/docs-semantic`.
+ * Stesso shape del gruppo `docs` della corsia full-text ({@link searchDocHitSchema})
+ * più uno `score` di rilevanza in [0, 1]: il client fonde questi risultati nel
+ * gruppo Docs, usando lo `score` per ordinarli/deduplicarli con quelli full-text.
+ */
+export const searchDocSemanticHitSchema = searchDocHitSchema.extend({
+  score: z.number(),
+});
+export type SearchDocSemanticHit = z.infer<typeof searchDocSemanticHitSchema>;
+
+/**
+ * Risposta della corsia semantica Docs (`GET /api/search/docs-semantic`): una
+ * lista piatta di hit Docs con `score`. Best-effort: se l'embedding non è
+ * disponibile o non ci sono Docs, è una lista vuota (mai un errore).
+ */
+export const searchDocsSemanticResultsSchema = z.array(searchDocSemanticHitSchema);
+export type SearchDocsSemanticResults = z.infer<typeof searchDocsSemanticResultsSchema>;
+
+/**
  * Un gruppo di risultati (per tipo): i primi N item e `hasMore` se il full-text
  * ne ha trovati altri oltre la finestra restituita.
  */

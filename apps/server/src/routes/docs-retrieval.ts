@@ -6,7 +6,9 @@
  *    (`repositories.currentDocGenerationId`) PIÙ le righe manuali
  *    (`generationId IS NULL`);
  *  - {@link retrieveChunksForProject} — CROSS-REPO su tutti i repository di un
- *    PROGETTO, con filtro generazione PER-REPO (Fase 2, D1).
+ *    PROGETTO, con filtro generazione PER-REPO (Fase 2, D1);
+ *  - {@link retrieveChunksAll} — CROSS-REPO GLOBALE su tutti i repository di ogni
+ *    progetto, per la ricerca globale senza scope (Task 2).
  *
  * In entrambi i casi i chunk/pagine di generazioni stale NON sono mai restituiti —
  * stesso invariante dell'albero e della pagina singola. Usato dalla ricerca (M6.4)
@@ -258,6 +260,56 @@ export async function retrieveChunksForProject(
     logger: options.logger,
     scope: crossRepoScopePredicate(repos),
     logContext: { projectId },
+  });
+}
+
+/**
+ * Retrieval ibrido CROSS-REPO GLOBALE (Task 2): come {@link retrieveChunksForProject}
+ * ma sui repository di TUTTI i progetti — nessun filtro `projectId`. Serve la
+ * corsia LENTA della ricerca globale (spotlight Cmd/K senza scope di repository):
+ * il retrieval semantico federato su tutto il corpus Docs.
+ *
+ * Riusa lo stesso {@link crossRepoScopePredicate} (OR-di-coppie per-repo, filtro
+ * generazione corrente PER-REPO, righe manuali) e lo stesso cuore condiviso
+ * {@link retrieveWithScope} (due gambe, dedup, merge/rank, resilienza embedding).
+ *
+ * `k` è dimensionato sul numero di repo DOCUMENTATI come per il progetto (D6),
+ * salvo override esplicito. Se non esiste alcun repository documentato (nessuna
+ * generazione corrente né pagina manuale) ritorna `[]`.
+ */
+export async function retrieveChunksAll(
+  db: Db,
+  embeddingClient: EmbeddingClient,
+  query: string,
+  options: RetrieveChunksOptions = {},
+): Promise<RetrievedChunk[]> {
+  // TUTTI i repository (di ogni progetto), con la rispettiva generazione corrente.
+  const repos = await db
+    .select({
+      id: repositories.id,
+      slug: repositories.slug,
+      name: repositories.name,
+      currentDocGenerationId: repositories.currentDocGenerationId,
+    })
+    .from(repositories);
+
+  // Nessun repository → niente da recuperare.
+  if (repos.length === 0) return [];
+
+  // Stesso dimensionamento di k del progetto: proporzionale ai repo documentati.
+  const documentedCount = Math.max(
+    1,
+    repos.filter((r) => r.currentDocGenerationId !== null).length,
+  );
+  const k =
+    options.k ??
+    Math.min(PROJECT_K_BASE + PROJECT_K_STEP * (documentedCount - 1), PROJECT_K_MAX);
+
+  return retrieveWithScope(db, embeddingClient, query, {
+    k,
+    logger: options.logger,
+    scope: crossRepoScopePredicate(repos),
+    logContext: { scope: "global" },
   });
 }
 

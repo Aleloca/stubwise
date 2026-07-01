@@ -266,6 +266,124 @@ describe("GET /api/search", () => {
   });
 });
 
+interface DocSemanticHit {
+  slug: string;
+  title: string;
+  kind: string;
+  snippet: string;
+  repositoryId: string;
+  repositorySlug: string;
+  repositoryName: string;
+  score: number;
+}
+
+async function docsSemantic(
+  q: string,
+  cookie = memberCookie,
+  scope?: string,
+): Promise<DocSemanticHit[]> {
+  const url = `/api/search/docs-semantic?q=${encodeURIComponent(q)}${scope ? `&repositoryId=${scope}` : ""}`;
+  const res = await app.inject({ method: "GET", url, headers: { cookie } });
+  expect(res.statusCode).toBe(200);
+  return res.json() as DocSemanticHit[];
+}
+
+describe("GET /api/search/docs-semantic", () => {
+  it("GLOBALE: recupera Docs semantici da repo di progetti diversi, con repository corretto e score", async () => {
+    // Due repo (progetti diversi via seedRepository) con una pagina ciascuno.
+    const token = `semglob${randomUUID().slice(0, 8)}`;
+    const { repositoryId: repoA } = await seedRepository(testDb.db);
+    const genA = await currentGeneration(testDb.db, repoA);
+    const slugA = await insertDocPage(testDb.db, repoA, genA, {
+      title: `${token} Alfa`,
+      body: `Il ${token} di Alfa gestisce l'autenticazione degli utenti.`,
+    });
+    const { repositoryId: repoB } = await seedRepository(testDb.db);
+    const genB = await currentGeneration(testDb.db, repoB);
+    const slugB = await insertDocPage(testDb.db, repoB, genB, {
+      title: `${token} Beta`,
+      body: `Il ${token} di Beta gestisce la fatturazione mensile.`,
+    });
+
+    const hits = await docsSemantic(token);
+    const hitA = hits.find((h) => h.slug === slugA);
+    const hitB = hits.find((h) => h.slug === slugB);
+    expect(hitA).toBeDefined();
+    expect(hitB).toBeDefined();
+    expect(hitA!.repositoryId).toBe(repoA);
+    expect(hitB!.repositoryId).toBe(repoB);
+    // Shape del gruppo docs + score presente.
+    expect(hitA!.snippet.length).toBeGreaterThan(0);
+    expect(typeof hitA!.score).toBe("number");
+  });
+
+  it("PER-REPO (repositoryId): ristringe a quel repository", async () => {
+    const token = `semscope${randomUUID().slice(0, 8)}`;
+    const { repositoryId: repoA } = await seedRepository(testDb.db);
+    const genA = await currentGeneration(testDb.db, repoA);
+    const slugA = await insertDocPage(testDb.db, repoA, genA, {
+      title: `${token} A`,
+      body: `doc ${token} nel repo A`,
+    });
+    const { repositoryId: repoB } = await seedRepository(testDb.db);
+    const genB = await currentGeneration(testDb.db, repoB);
+    const slugB = await insertDocPage(testDb.db, repoB, genB, {
+      title: `${token} B`,
+      body: `doc ${token} nel repo B`,
+    });
+
+    const scoped = await docsSemantic(token, memberCookie, repoA);
+    const slugs = scoped.map((h) => h.slug);
+    expect(slugs).toContain(slugA);
+    expect(slugs).not.toContain(slugB);
+  });
+
+  it("embedding non disponibile: lista vuota, nessun 500", async () => {
+    // App separata con un embedding client che fallisce sempre: la gamba
+    // semantica degrada (full-text-only) e per un token inesistente non c'è
+    // nemmeno match full-text → lista vuota, MAI un 500.
+    // Stesso DB (le sessioni sono persistite) → il cookie del member esistente è
+    // valido anche su questa app; non ri-seediamo gli utenti (setup fallirebbe:
+    // admin già presente).
+    const brokenApp = buildApp({
+      db: testDb.db,
+      sessionSecret: SESSION_SECRET,
+      encryptionKey: ENCRYPTION_KEY.toString("base64"),
+      publicUrl: "https://stubwise.example.com",
+      embeddingClient: {
+        embed: async () => {
+          throw new Error("embedding KO");
+        },
+      },
+    });
+    try {
+      const res = await brokenApp.inject({
+        method: "GET",
+        url: `/api/search/docs-semantic?q=inesistente${randomUUID().slice(0, 8)}`,
+        headers: { cookie: memberCookie },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual([]);
+    } finally {
+      await brokenApp.close();
+    }
+  });
+
+  it("q assente: 400 (validazione Zod)", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/search/docs-semantic",
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("senza sessione: 401", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/search/docs-semantic?q=ciao" });
+    expect(res.statusCode).toBe(401);
+  });
+});
+
 async function getHistory(cookie: string, scope?: string) {
   const res = await app.inject({
     method: "GET",

@@ -1,5 +1,6 @@
 import {
   recordSearchHistoryBodySchema,
+  searchDocsSemanticResultsSchema,
   searchHistoryItemSchema,
   searchResultsSchema,
 } from "@stubwise/shared";
@@ -17,6 +18,7 @@ import {
   tickets,
 } from "@stubwise/db";
 import { apiError } from "../errors.js";
+import { retrieveChunks, retrieveChunksAll } from "./docs-retrieval.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 // Quanti risultati per gruppo restituisce la corsia veloce; ne chiediamo uno in
@@ -31,6 +33,13 @@ const searchQuerySchema = z.object({
   q: z.string().min(1).max(300),
   // Scope Docs: se presente, RISTRINGE SOLO il gruppo docs a questo repository.
   // Gli altri gruppi (ticket/progetti/repo) restano globali.
+  repositoryId: z.uuid().optional(),
+});
+
+const docsSemanticQuerySchema = z.object({
+  q: z.string().min(1).max(300),
+  // Scope Docs: se presente, il retrieval semantico è ristretto a QUEL repository
+  // (+ generazione corrente/manuali); altrimenti è GLOBALE su tutti i repo.
   repositoryId: z.uuid().optional(),
 });
 
@@ -224,6 +233,61 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
           hasMore: docRows.length > PER_GROUP,
         },
       };
+    },
+  );
+
+  /**
+   * Corsia LENTA della ricerca globale: retrieval SEMANTICO sui Docs. Con
+   * `repositoryId` è ristretta a quel repository ({@link retrieveChunks});
+   * altrimenti è GLOBALE su tutti i repo di ogni progetto
+   * ({@link retrieveChunksAll}). I risultati hanno lo STESSO shape del gruppo
+   * `docs` di `GET /api/search` (più `score`), così il client li fonde nel
+   * gruppo Docs.
+   *
+   * Best-effort: se l'embedding non è disponibile la gamba semantica degrada a
+   * full-text-only DENTRO al retrieval (mai un 500); se non c'è alcun Doc
+   * ritorna semplicemente una lista vuota. Lo `snippet` è quello del chunk più
+   * rilevante già calcolato dal retrieval.
+   */
+  app.get(
+    "/docs-semantic",
+    {
+      preHandler: requireAuth,
+      schema: {
+        querystring: docsSemanticQuerySchema,
+        response: {
+          200: searchDocsSemanticResultsSchema,
+          400: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const q = request.query.q.trim();
+      // `q` di soli spazi passa il min(1) di Zod ma è semanticamente vuota.
+      if (q.length === 0) {
+        return apiError(reply, 400, "empty_query", "Search query must not be empty");
+      }
+      const { repositoryId } = request.query;
+
+      const chunks = repositoryId
+        ? await retrieveChunks(app.db, app.embeddingClient, repositoryId, q, {
+            logger: request.log,
+          })
+        : await retrieveChunksAll(app.db, app.embeddingClient, q, {
+            logger: request.log,
+          });
+
+      return chunks.map((c) => ({
+        slug: c.slug,
+        title: c.title,
+        kind: c.kind,
+        snippet: c.snippet,
+        repositoryId: c.repositoryId,
+        repositorySlug: c.repositorySlug,
+        repositoryName: c.repositoryName,
+        score: c.score,
+      }));
     },
   );
 
