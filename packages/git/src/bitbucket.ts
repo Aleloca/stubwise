@@ -14,6 +14,7 @@ import {
   type FetchLike,
   type GitProvider,
   type GitProviderOptions,
+  type PrActivityEvent,
   type ProjectGitConfig,
   type PushWebhookEvent,
   type RepoSummary,
@@ -112,13 +113,69 @@ export class BitbucketProvider implements GitProvider {
     const pullrequest = (body as { pullrequest?: unknown }).pullrequest;
     if (typeof pullrequest !== "object" || pullrequest === null) return null;
     const pr = pullrequest as {
+      id?: unknown;
       source?: { branch?: { name?: unknown } };
       links?: { html?: { href?: unknown } };
     };
     const branch = pr.source?.branch?.name;
     const prUrl = pr.links?.html?.href;
     if (typeof branch !== "string" || typeof prUrl !== "string") return null;
-    return { kind, provider: "bitbucket", branch, prUrl };
+    if (typeof pr.id !== "number") return null;
+    return { kind, provider: "bitbucket", branch, prUrl, prNumber: pr.id };
+  }
+
+  /**
+   * Eventi PR created/updated per l'automazione PR Review: pullrequest:created
+   * diventa `opened`, pullrequest:updated diventa `updated` (Bitbucket lo emette
+   * anche su edit di titolo/descrizione: il debounce a valle assorbe il rumore).
+   * L'hash del commit sorgente è abbreviato (~12 char): va bene, git lo risolve
+   * nel mirror. Ogni body malformato restituisce null, senza mai lanciare.
+   */
+  parsePrEvent(headers: Record<string, string>, body: unknown): PrActivityEvent | null {
+    const eventKey = getHeader(headers, "x-event-key");
+    const kind =
+      eventKey === "pullrequest:created"
+        ? "opened"
+        : eventKey === "pullrequest:updated"
+          ? "updated"
+          : null;
+    if (kind === null) return null;
+    if (typeof body !== "object" || body === null) return null;
+    const pullrequest = (body as { pullrequest?: unknown }).pullrequest;
+    if (typeof pullrequest !== "object" || pullrequest === null) return null;
+    const pr = pullrequest as {
+      id?: unknown;
+      title?: unknown;
+      description?: unknown;
+      source?: { branch?: { name?: unknown }; commit?: { hash?: unknown } };
+      destination?: { branch?: { name?: unknown } };
+      links?: { html?: { href?: unknown } };
+    };
+    const sourceBranch = pr.source?.branch?.name;
+    const headSha = pr.source?.commit?.hash;
+    const targetBranch = pr.destination?.branch?.name;
+    const prUrl = pr.links?.html?.href;
+    if (
+      typeof pr.id !== "number" ||
+      typeof pr.title !== "string" ||
+      typeof sourceBranch !== "string" ||
+      typeof headSha !== "string" ||
+      typeof targetBranch !== "string" ||
+      typeof prUrl !== "string"
+    ) {
+      return null;
+    }
+    return {
+      kind,
+      provider: "bitbucket",
+      prNumber: pr.id,
+      title: pr.title,
+      description: typeof pr.description === "string" ? pr.description : "",
+      sourceBranch,
+      targetBranch,
+      headSha,
+      prUrl,
+    };
   }
 
   parsePushEvent(headers: Record<string, string>, body: unknown): PushWebhookEvent | null {

@@ -75,6 +75,26 @@ export interface WebhookEvent {
   /** Source branch della PR. */
   branch: string;
   prUrl: string;
+  /** Numero della PR sul provider (GitHub number / Bitbucket id). */
+  prNumber: number;
+}
+
+/**
+ * Evento di apertura/aggiornamento di una PR (automazione PR Review).
+ * `opened` copre anche la riapertura; `updated` è un push sulla source branch
+ * (GitHub `synchronize`) o una modifica della PR (Bitbucket `pullrequest:updated`,
+ * che scatta anche su edit di titolo/descrizione: il debounce assorbe il rumore).
+ */
+export interface PrActivityEvent {
+  kind: "opened" | "updated";
+  provider: GitProviderKind;
+  prNumber: number;
+  title: string;
+  description: string;
+  sourceBranch: string;
+  targetBranch: string;
+  headSha: string;
+  prUrl: string;
 }
 
 /**
@@ -161,6 +181,8 @@ export interface GitProvider {
    * input. Does NOT verify the signature — call verifyWebhook first.
    */
   parseWebhook(headers: Record<string, string>, body: unknown): WebhookEvent | null;
+  /** Eventi PR opened/updated per l'automazione PR Review; null se non pertinente. */
+  parsePrEvent(headers: Record<string, string>, body: unknown): PrActivityEvent | null;
   /**
    * Returns a PushWebhookEvent if the webhook payload represents a push to a
    * branch, otherwise null (PR events, tag pushes, branch deletes, malformed

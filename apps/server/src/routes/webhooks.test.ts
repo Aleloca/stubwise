@@ -319,14 +319,14 @@ function captureNotificationPosts(): Array<{ url: string; body: Record<string, u
 
 function bitbucketPayload(branch: string, prUrl = "https://bitbucket.org/acme/repo/pull-requests/7") {
   return JSON.stringify({
-    pullrequest: { source: { branch: { name: branch } }, links: { html: { href: prUrl } } },
+    pullrequest: { id: 7, source: { branch: { name: branch } }, links: { html: { href: prUrl } } },
   });
 }
 
 function githubPayload(branch: string, prUrl = "https://github.com/acme/repo/pull/7") {
   return JSON.stringify({
     action: "closed",
-    pull_request: { merged: true, head: { ref: branch }, html_url: prUrl },
+    pull_request: { number: 7, merged: true, head: { ref: branch }, html_url: prUrl },
   });
 }
 
@@ -351,7 +351,7 @@ function githubClosedUnmergedPayload(
 ) {
   return JSON.stringify({
     action: "closed",
-    pull_request: { merged: false, head: { ref: branch }, html_url: prUrl },
+    pull_request: { number: 7, merged: false, head: { ref: branch }, html_url: prUrl },
   });
 }
 
@@ -361,7 +361,7 @@ function bitbucketRejectedPayload(
   prUrl = "https://bitbucket.org/acme/repo/pull-requests/7",
 ) {
   return JSON.stringify({
-    pullrequest: { source: { branch: { name: branch } }, links: { html: { href: prUrl } } },
+    pullrequest: { id: 7, source: { branch: { name: branch } }, links: { html: { href: prUrl } } },
   });
 }
 
@@ -595,7 +595,7 @@ describe("POST /webhooks/git/:projectSlug", () => {
     });
     const body = JSON.stringify({
       action: "closed",
-      pull_request: { merged: false, head: { ref: "stubwise/ticket-1" }, html_url: "x" },
+      pull_request: { number: 7, merged: false, head: { ref: "stubwise/ticket-1" }, html_url: "x" },
     });
     const res = await app.inject({
       method: "POST",

@@ -15,6 +15,7 @@ import {
   type FetchLike,
   type GitProvider,
   type GitProviderOptions,
+  type PrActivityEvent,
   type ProjectGitConfig,
   type PushWebhookEvent,
   type RepoSummary,
@@ -87,12 +88,67 @@ export class GitHubProvider implements GitProvider {
     const payload = body as { action?: unknown; pull_request?: unknown };
     if (payload.action !== "closed") return null;
     if (typeof payload.pull_request !== "object" || payload.pull_request === null) return null;
-    const pr = payload.pull_request as { merged?: unknown; head?: { ref?: unknown }; html_url?: unknown };
+    const pr = payload.pull_request as {
+      number?: unknown;
+      merged?: unknown;
+      head?: { ref?: unknown };
+      html_url?: unknown;
+    };
     const branch = pr.head?.ref;
     const prUrl = pr.html_url;
     if (typeof branch !== "string" || typeof prUrl !== "string") return null;
+    if (typeof pr.number !== "number") return null;
     const kind = pr.merged === true ? "merged" : "closed_unmerged";
-    return { kind, provider: "github", branch, prUrl };
+    return { kind, provider: "github", branch, prUrl, prNumber: pr.number };
+  }
+
+  /**
+   * Eventi PR opened/reopened/synchronize per l'automazione PR Review:
+   * opened e reopened diventano `opened`, synchronize (push sulla source
+   * branch) diventa `updated`. Ogni altro action (closed, edited, ...) e ogni
+   * body malformato restituiscono null, senza mai lanciare.
+   */
+  parsePrEvent(headers: Record<string, string>, body: unknown): PrActivityEvent | null {
+    if (getHeader(headers, "x-github-event") !== "pull_request") return null;
+    if (typeof body !== "object" || body === null) return null;
+    const payload = body as { action?: unknown; pull_request?: unknown };
+    const kind =
+      payload.action === "opened" || payload.action === "reopened"
+        ? "opened"
+        : payload.action === "synchronize"
+          ? "updated"
+          : null;
+    if (kind === null) return null;
+    if (typeof payload.pull_request !== "object" || payload.pull_request === null) return null;
+    const pr = payload.pull_request as {
+      number?: unknown;
+      title?: unknown;
+      body?: unknown;
+      html_url?: unknown;
+      head?: { ref?: unknown; sha?: unknown };
+      base?: { ref?: unknown };
+    };
+    if (
+      typeof pr.number !== "number" ||
+      typeof pr.title !== "string" ||
+      typeof pr.html_url !== "string" ||
+      typeof pr.head?.ref !== "string" ||
+      typeof pr.head?.sha !== "string" ||
+      typeof pr.base?.ref !== "string"
+    ) {
+      return null;
+    }
+    return {
+      kind,
+      provider: "github",
+      prNumber: pr.number,
+      title: pr.title,
+      description: typeof pr.body === "string" ? pr.body : "",
+      sourceBranch: pr.head.ref,
+      targetBranch: pr.base.ref,
+      headSha: pr.head.sha,
+      prUrl: pr.html_url,
+    };
   }
 
   parsePushEvent(headers: Record<string, string>, body: unknown): PushWebhookEvent | null {

@@ -144,6 +144,7 @@ describe("GitHubProvider.parseWebhook", () => {
   const mergedBody = {
     action: "closed",
     pull_request: {
+      number: 7,
       merged: true,
       head: { ref: "stubwise/fix-1" },
       html_url: "https://github.com/octo/repo/pull/42",
@@ -157,7 +158,13 @@ describe("GitHubProvider.parseWebhook", () => {
       provider: "github",
       branch: "stubwise/fix-1",
       prUrl: "https://github.com/octo/repo/pull/42",
+      prNumber: 7,
     });
+  });
+
+  it("exposes the PR number as prNumber", () => {
+    const event = provider.parseWebhook({ "x-github-event": "pull_request" }, mergedBody);
+    expect(event?.prNumber).toBe(7);
   });
 
   it("matches the event header case-insensitively", () => {
@@ -179,6 +186,7 @@ describe("GitHubProvider.parseWebhook", () => {
       provider: "github",
       branch: "stubwise/fix-1",
       prUrl: "https://github.com/octo/repo/pull/42",
+      prNumber: 7,
     });
   });
 
@@ -188,6 +196,73 @@ describe("GitHubProvider.parseWebhook", () => {
     expect(provider.parseWebhook(headers, 42)).toBeNull();
     expect(provider.parseWebhook(headers, { action: "closed" })).toBeNull();
     expect(provider.parseWebhook(headers, { action: "closed", pull_request: { merged: true } })).toBeNull();
+  });
+
+  it("returns null when the PR number is missing or not a number", () => {
+    const headers = { "x-github-event": "pull_request" };
+    const withoutNumber: Record<string, unknown> = { ...mergedBody.pull_request };
+    delete withoutNumber["number"];
+    expect(provider.parseWebhook(headers, { ...mergedBody, pull_request: withoutNumber })).toBeNull();
+    expect(
+      provider.parseWebhook(headers, {
+        ...mergedBody,
+        pull_request: { ...mergedBody.pull_request, number: "7" },
+      })
+    ).toBeNull();
+  });
+});
+
+describe("GitHubProvider.parsePrEvent", () => {
+  const provider = new GitHubProvider();
+  const payload = (action: string) => ({
+    action,
+    pull_request: {
+      number: 42,
+      title: "Add login",
+      body: "Implements login flow",
+      html_url: "https://github.com/acme/repo/pull/42",
+      head: { ref: "feature/login", sha: "a".repeat(40) },
+      base: { ref: "main" },
+    },
+  });
+  const headers = { "x-github-event": "pull_request" };
+
+  it("action=opened → kind opened con tutti i campi", () => {
+    expect(provider.parsePrEvent(headers, payload("opened"))).toEqual({
+      kind: "opened",
+      provider: "github",
+      prNumber: 42,
+      title: "Add login",
+      description: "Implements login flow",
+      sourceBranch: "feature/login",
+      targetBranch: "main",
+      headSha: "a".repeat(40),
+      prUrl: "https://github.com/acme/repo/pull/42",
+    });
+  });
+
+  it("action=reopened → opened; synchronize → updated", () => {
+    expect(provider.parsePrEvent(headers, payload("reopened"))?.kind).toBe("opened");
+    expect(provider.parsePrEvent(headers, payload("synchronize"))?.kind).toBe("updated");
+  });
+
+  it("action=closed o evento non-PR → null; body null → null", () => {
+    expect(provider.parsePrEvent(headers, payload("closed"))).toBeNull();
+    expect(provider.parsePrEvent({ "x-github-event": "push" }, payload("opened"))).toBeNull();
+    expect(provider.parsePrEvent(headers, null)).toBeNull();
+  });
+
+  it("body PR null → description stringa vuota", () => {
+    const p = payload("opened");
+    (p.pull_request as { body: unknown }).body = null;
+    expect(provider.parsePrEvent(headers, p)?.description).toBe("");
+  });
+
+  it("campi obbligatori mancanti → null", () => {
+    const p = payload("opened");
+    (p.pull_request as { head: unknown }).head = { ref: "feature/login" };
+    expect(provider.parsePrEvent(headers, p)).toBeNull();
+    expect(provider.parsePrEvent(headers, { action: "opened" })).toBeNull();
   });
 });
 
@@ -277,6 +352,7 @@ describe("GitHubProvider.parsePushEvent", () => {
     const prBody = {
       action: "closed",
       pull_request: {
+        number: 42,
         merged: true,
         head: { ref: "stubwise/fix-1" },
         html_url: "https://github.com/octo/repo/pull/42",

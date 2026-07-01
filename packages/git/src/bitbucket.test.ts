@@ -196,6 +196,7 @@ describe("BitbucketProvider.parseWebhook", () => {
   const provider = new BitbucketProvider();
   const mergedBody = {
     pullrequest: {
+      id: 7,
       source: { branch: { name: "stubwise/fix-1" } },
       links: { html: { href: "https://bitbucket.org/myws/myrepo/pull-requests/7" } },
     },
@@ -208,6 +209,7 @@ describe("BitbucketProvider.parseWebhook", () => {
       provider: "bitbucket",
       branch: "stubwise/fix-1",
       prUrl: "https://bitbucket.org/myws/myrepo/pull-requests/7",
+      prNumber: 7,
     });
   });
 
@@ -218,7 +220,19 @@ describe("BitbucketProvider.parseWebhook", () => {
       provider: "bitbucket",
       branch: "stubwise/fix-1",
       prUrl: "https://bitbucket.org/myws/myrepo/pull-requests/7",
+      prNumber: 7,
     });
+  });
+
+  it("exposes pullrequest.id as prNumber and returns null when it is missing", () => {
+    const headers = { "x-event-key": "pullrequest:fulfilled" };
+    expect(provider.parseWebhook(headers, mergedBody)?.prNumber).toBe(7);
+    const withoutId: Record<string, unknown> = { ...mergedBody.pullrequest };
+    delete withoutId["id"];
+    expect(provider.parseWebhook(headers, { pullrequest: withoutId })).toBeNull();
+    expect(
+      provider.parseWebhook(headers, { pullrequest: { ...mergedBody.pullrequest, id: "7" } })
+    ).toBeNull();
   });
 
   it("matches the event header case-insensitively", () => {
@@ -236,6 +250,77 @@ describe("BitbucketProvider.parseWebhook", () => {
     expect(provider.parseWebhook(headers, "garbage")).toBeNull();
     expect(provider.parseWebhook(headers, { pullrequest: {} })).toBeNull();
     expect(provider.parseWebhook(headers, { pullrequest: { source: { branch: {} } } })).toBeNull();
+  });
+});
+
+describe("BitbucketProvider.parsePrEvent", () => {
+  const provider = new BitbucketProvider();
+  const payload = {
+    pullrequest: {
+      id: 7,
+      title: "Add login",
+      description: "Implements login flow",
+      source: { branch: { name: "feature/login" }, commit: { hash: "abc123def456" } },
+      destination: { branch: { name: "main" } },
+      links: { html: { href: "https://bitbucket.org/acme/repo/pull-requests/7" } },
+    },
+  };
+
+  it("pullrequest:created → kind opened con tutti i campi", () => {
+    expect(provider.parsePrEvent({ "x-event-key": "pullrequest:created" }, payload)).toEqual({
+      kind: "opened",
+      provider: "bitbucket",
+      prNumber: 7,
+      title: "Add login",
+      description: "Implements login flow",
+      sourceBranch: "feature/login",
+      targetBranch: "main",
+      headSha: "abc123def456",
+      prUrl: "https://bitbucket.org/acme/repo/pull-requests/7",
+    });
+  });
+
+  it("pullrequest:updated → kind updated", () => {
+    expect(provider.parsePrEvent({ "x-event-key": "pullrequest:updated" }, payload)?.kind).toBe(
+      "updated"
+    );
+  });
+
+  it("matches the event header case-insensitively", () => {
+    expect(provider.parsePrEvent({ "X-Event-Key": "pullrequest:created" }, payload)).not.toBeNull();
+  });
+
+  it("event-key di chiusura o assente → null", () => {
+    expect(provider.parsePrEvent({ "x-event-key": "pullrequest:fulfilled" }, payload)).toBeNull();
+    expect(provider.parsePrEvent({ "x-event-key": "pullrequest:rejected" }, payload)).toBeNull();
+    expect(provider.parsePrEvent({}, payload)).toBeNull();
+  });
+
+  it("campi obbligatori mancanti o body malformato → null", () => {
+    const headers = { "x-event-key": "pullrequest:created" };
+    expect(provider.parsePrEvent(headers, null)).toBeNull();
+    expect(provider.parsePrEvent(headers, "garbage")).toBeNull();
+    expect(provider.parsePrEvent(headers, { pullrequest: {} })).toBeNull();
+    const withoutSource: Record<string, unknown> = { ...payload.pullrequest };
+    delete withoutSource["source"];
+    expect(provider.parsePrEvent(headers, { pullrequest: withoutSource })).toBeNull();
+    expect(
+      provider.parsePrEvent(headers, {
+        pullrequest: { ...payload.pullrequest, source: { branch: { name: "feature/login" } } },
+      })
+    ).toBeNull();
+    expect(
+      provider.parsePrEvent(headers, { pullrequest: { ...payload.pullrequest, id: "7" } })
+    ).toBeNull();
+  });
+
+  it("description mancante → stringa vuota", () => {
+    const withoutDescription: Record<string, unknown> = { ...payload.pullrequest };
+    delete withoutDescription["description"];
+    expect(
+      provider.parsePrEvent({ "x-event-key": "pullrequest:created" }, { pullrequest: withoutDescription })
+        ?.description
+    ).toBe("");
   });
 });
 
@@ -345,6 +430,7 @@ describe("BitbucketProvider.parsePushEvent", () => {
   it("cross-check: a PR webhook stays a PR — parseWebhook parses it, parsePushEvent does not", () => {
     const prBody = {
       pullrequest: {
+        id: 7,
         source: { branch: { name: "stubwise/fix-1" } },
         links: { html: { href: "https://bitbucket.org/myws/myrepo/pull-requests/7" } },
       },
