@@ -3,4 +3,5 @@ export * from "./schemas/project.js";
 export * from "./schemas/ingest.js";
 export * from "./schemas/language.js";
 export * from "./schemas/docs.js";
+export * from "./schemas/search.js";
 export * from "./env/dotenv.js";

@@ -38,6 +38,7 @@ import { projectEnvFileRoutes } from "./routes/project-env-files.js";
 import { projectRoutes } from "./routes/projects.js";
 import { repositoryRoutes } from "./routes/repositories.js";
 import { savedViewRoutes } from "./routes/saved-views.js";
+import { searchRoutes } from "./routes/search.js";
 import { settingsRoutes } from "./routes/settings.js";
 import type { RateLimitConfig } from "./routes/shared.js";
 import { slackRoutes } from "./slack/routes.js";
@@ -348,6 +349,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(milestoneRoutes, { prefix: "/api/milestones" });
   // Viste salvate dei filtri della lista ticket: private o condivise.
   void app.register(savedViewRoutes, { prefix: "/api/saved-views" });
+  // Ricerca globale (spotlight Cmd/K): full-text federata cross-entità e
+  // cronologia unificata dei risultati cliccati. Path: /api/search[/history].
+  void app.register(searchRoutes, { prefix: "/api/search" });
   // I commenti vivono sotto il singolo ticket: il prefisso porta il
   // parametro :ticketId, disponibile nelle route come request.params.
   void app.register(commentRoutes, { prefix: "/api/tickets/:ticketId/comments" });

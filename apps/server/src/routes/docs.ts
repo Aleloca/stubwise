@@ -4,7 +4,7 @@ import {
   docJobStatusSchema,
   docPageKindSchema,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, isNull, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -14,7 +14,6 @@ import {
   docGenerationJobs,
   docGenerations,
   docPages,
-  docSearchHistory,
   repositories,
 } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
@@ -191,34 +190,6 @@ const searchResultSchema = z.object({
   source: z.enum(["semantic", "fulltext", "hybrid"]),
 });
 
-/**
- * Una voce della cronologia di ricerca Docs di un utente: la pagina visitata
- * (slug/title/kind) e l'istante dell'ultimo click. `clickedAt` serializzato come
- * ISO string, coerente con `updatedAt`/timestamp delle altre route.
- */
-const historyEntrySchema = z.object({
-  slug: z.string(),
-  title: z.string(),
-  kind: docPageKindSchema,
-  snippet: z.string().nullable(),
-  clickedAt: z.string(),
-});
-
-/** Body per registrare/aggiornare una voce di cronologia. */
-const recordHistoryBodySchema = z.object({
-  slug: z.string().min(1).max(300),
-  title: z.string().min(1).max(300),
-  kind: docPageKindSchema,
-  // Anteprima vista nella palette al momento del click (facoltativa): la
-  // tronchiamo per non gonfiare la riga di cronologia.
-  snippet: z.string().max(2000).optional(),
-});
-
-/** Params per la cancellazione di una singola voce di cronologia. */
-const historySlugParamsSchema = z.object({
-  repositoryId: z.uuid(),
-  slug: z.string().min(1),
-});
 
 const createManualSchema = z.object({
   title: z.string().min(1).max(300),
@@ -630,190 +601,6 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         score: r.score,
         source: r.source,
       }));
-    },
-  );
-
-  // --- Cronologia di ricerca Docs (per utente, per progetto) -------------
-
-  /**
-   * Cronologia recente dell'utente corrente in un progetto: le ultime 8 voci,
-   * dal click più recente. Scope su `userId` + `projectId`.
-   */
-  app.get(
-    "/repositories/:repositoryId/docs/history",
-    {
-      preHandler: requireAuth,
-      schema: {
-        params: repositoryIdParamsSchema,
-        response: {
-          200: z.array(historyEntrySchema),
-          404: errorSchema,
-          ...authErrorResponses,
-        },
-      },
-    },
-    async (request, reply) => {
-      const { repositoryId } = request.params;
-
-      const [repository] = await app.db
-        .select({ id: repositories.id })
-        .from(repositories)
-        .where(eq(repositories.id, repositoryId));
-      if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
-
-      const rows = await app.db
-        .select({
-          slug: docSearchHistory.slug,
-          title: docSearchHistory.title,
-          kind: docSearchHistory.kind,
-          snippet: docSearchHistory.snippet,
-          clickedAt: docSearchHistory.clickedAt,
-        })
-        .from(docSearchHistory)
-        .where(
-          and(
-            eq(docSearchHistory.userId, request.user!.id),
-            eq(docSearchHistory.repositoryId, repositoryId),
-          ),
-        )
-        .orderBy(desc(docSearchHistory.clickedAt))
-        .limit(8);
-
-      return rows.map((r) => ({
-        slug: r.slug,
-        title: r.title,
-        kind: r.kind,
-        snippet: r.snippet,
-        clickedAt: r.clickedAt.toISOString(),
-      }));
-    },
-  );
-
-  /**
-   * Registra (upsert) la visita a una pagina nella cronologia dell'utente. Una
-   * sola voce per (utente, progetto, slug): un re-click aggiorna `clickedAt`
-   * (e title/kind, che possono essere cambiati). Dopo l'inserimento pota le
-   * righe oltre le 20 più recenti per (utente, progetto). 204 senza corpo.
-   */
-  app.post(
-    "/repositories/:repositoryId/docs/history",
-    {
-      preHandler: requireAuth,
-      schema: {
-        params: repositoryIdParamsSchema,
-        body: recordHistoryBodySchema,
-        response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
-      },
-    },
-    async (request, reply) => {
-      const { repositoryId } = request.params;
-      const { slug, title, kind, snippet } = request.body;
-      const userId = request.user!.id;
-      // Stringa vuota → null: non salviamo anteprime vuote.
-      const snippetValue = snippet && snippet.trim().length > 0 ? snippet : null;
-
-      const [repository] = await app.db
-        .select({ id: repositories.id })
-        .from(repositories)
-        .where(eq(repositories.id, repositoryId));
-      if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
-
-      await app.db
-        .insert(docSearchHistory)
-        .values({ repositoryId, userId, slug, title, kind, snippet: snippetValue })
-        .onConflictDoUpdate({
-          target: [docSearchHistory.userId, docSearchHistory.repositoryId, docSearchHistory.slug],
-          set: { clickedAt: new Date(), title, kind, snippet: snippetValue },
-        });
-
-      // Poda: tieni solo le 20 voci più recenti per (utente, progetto).
-      const keep = app.db
-        .select({ id: docSearchHistory.id })
-        .from(docSearchHistory)
-        .where(
-          and(eq(docSearchHistory.userId, userId), eq(docSearchHistory.repositoryId, repositoryId)),
-        )
-        .orderBy(desc(docSearchHistory.clickedAt))
-        .limit(20);
-      await app.db
-        .delete(docSearchHistory)
-        .where(
-          and(
-            eq(docSearchHistory.userId, userId),
-            eq(docSearchHistory.repositoryId, repositoryId),
-            notInArray(docSearchHistory.id, keep),
-          ),
-        );
-
-      return reply.code(204).send(null);
-    },
-  );
-
-  /**
-   * Rimuove una singola voce di cronologia (per slug) dell'utente corrente. 204
-   * anche se la voce non esiste (idempotente).
-   */
-  app.delete(
-    "/repositories/:repositoryId/docs/history/:slug",
-    {
-      preHandler: requireAuth,
-      schema: {
-        params: historySlugParamsSchema,
-        response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
-      },
-    },
-    async (request, reply) => {
-      const { repositoryId, slug } = request.params;
-
-      const [repository] = await app.db
-        .select({ id: repositories.id })
-        .from(repositories)
-        .where(eq(repositories.id, repositoryId));
-      if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
-
-      await app.db
-        .delete(docSearchHistory)
-        .where(
-          and(
-            eq(docSearchHistory.userId, request.user!.id),
-            eq(docSearchHistory.repositoryId, repositoryId),
-            eq(docSearchHistory.slug, slug),
-          ),
-        );
-      return reply.code(204).send(null);
-    },
-  );
-
-  /**
-   * Svuota tutta la cronologia dell'utente corrente in un progetto. 204.
-   */
-  app.delete(
-    "/repositories/:repositoryId/docs/history",
-    {
-      preHandler: requireAuth,
-      schema: {
-        params: repositoryIdParamsSchema,
-        response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
-      },
-    },
-    async (request, reply) => {
-      const { repositoryId } = request.params;
-
-      const [repository] = await app.db
-        .select({ id: repositories.id })
-        .from(repositories)
-        .where(eq(repositories.id, repositoryId));
-      if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
-
-      await app.db
-        .delete(docSearchHistory)
-        .where(
-          and(
-            eq(docSearchHistory.userId, request.user!.id),
-            eq(docSearchHistory.repositoryId, repositoryId),
-          ),
-        );
-      return reply.code(204).send(null);
     },
   );
 
