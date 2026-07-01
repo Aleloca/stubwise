@@ -161,9 +161,11 @@ export class GitHubProvider implements GitProvider {
     const branch = pr.head?.ref;
     const prUrl = pr.html_url;
     if (typeof branch !== "string" || typeof prUrl !== "string") return null;
-    if (typeof pr.number !== "number") return null;
     const kind = pr.merged === true ? "merged" : "closed_unmerged";
-    return { kind, provider: "github", branch, prUrl, prNumber: pr.number };
+    // Numero mancante o malformato: l'evento di chiusura resta valido (serve
+    // alla chiusura del ticket via branch), solo il cleanup review lo salta.
+    const prNumber = typeof pr.number === "number" ? pr.number : null;
+    return { kind, provider: "github", branch, prUrl, prNumber };
   }
 
   /**

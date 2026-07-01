@@ -168,8 +168,10 @@ export class BitbucketProvider implements GitProvider {
     const branch = pr.source?.branch?.name;
     const prUrl = pr.links?.html?.href;
     if (typeof branch !== "string" || typeof prUrl !== "string") return null;
-    if (typeof pr.id !== "number") return null;
-    return { kind, provider: "bitbucket", branch, prUrl, prNumber: pr.id };
+    // Id mancante o malformato: l'evento di chiusura resta valido (serve alla
+    // chiusura del ticket via branch), solo il cleanup review lo salta.
+    const prNumber = typeof pr.id === "number" ? pr.id : null;
+    return { kind, provider: "bitbucket", branch, prUrl, prNumber };
   }
 
   /**

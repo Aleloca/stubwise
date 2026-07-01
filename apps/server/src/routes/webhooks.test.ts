@@ -11,6 +11,7 @@ import {
   instanceSettings,
   notificationSettings,
   prReviewJobs,
+  prReviews,
   projects,
   repositories,
   ticketRepositories,
@@ -1643,5 +1644,189 @@ describe("webhook PR Review (accodamento)", () => {
     expect(jobs[0]!.prNumber).toBe(42);
     expect(jobs[0]!.headSha).toBe("abc123def456");
     expect(jobs[0]!.prUrl).toBe("https://bitbucket.org/acme/repo/pull-requests/42");
+  });
+});
+
+describe("webhook PR Review (chiusura)", () => {
+  /**
+   * Inserisce un ticket di tipo `review` (quelli creati dal worker per le PR
+   * esterne) con numero e stato espliciti, restituendone l'id. Come
+   * insertTicket, ma il type è `review`: è l'unico type che il webhook di
+   * chiusura auto-chiude.
+   */
+  async function insertReviewTicket(
+    repositoryId: string,
+    number: number,
+    status: "open" | "done" | "closed" = "open",
+  ): Promise<string> {
+    const [repository] = await testDb.db
+      .select({ projectId: repositories.projectId })
+      .from(repositories)
+      .where(eq(repositories.id, repositoryId));
+    const [row] = await testDb.db
+      .insert(tickets)
+      .values({
+        projectId: repository!.projectId,
+        number,
+        title: `Review PR #${number}`,
+        type: "review",
+        priority: "medium",
+        status,
+        source: "webhook",
+      })
+      .returning({ id: tickets.id });
+    if (!row) throw new Error("insert ticket review non ha restituito la riga");
+    return row.id;
+  }
+
+  /** Riga di storico pr_reviews che lega la PR al suo ticket review. */
+  async function seedPrReview(
+    repositoryId: string,
+    prNumber: number,
+    ticketId: string,
+  ): Promise<void> {
+    await testDb.db.insert(prReviews).values({
+      repositoryId,
+      prNumber,
+      prUrl: `https://github.com/acme/repo/pull/${prNumber}`,
+      prTitle: "Add login",
+      headSha: "a".repeat(40),
+      ticketId,
+      status: "completed",
+    });
+  }
+
+  /** Pending in coda pr_review_jobs per (repo, PR): quello che la chiusura deve eliminare. */
+  async function seedPendingReviewJob(repositoryId: string, prNumber: number): Promise<void> {
+    await testDb.db.insert(prReviewJobs).values({
+      repositoryId,
+      prNumber,
+      prUrl: `https://github.com/acme/repo/pull/${prNumber}`,
+      prTitle: "Add login",
+      prBody: "desc",
+      sourceBranch: "feature/login",
+      targetBranch: "main",
+      headSha: "a".repeat(40),
+      notBefore: new Date(Date.now() + 60_000),
+    });
+  }
+
+  /** Le righe pr_review_jobs del repository. */
+  async function pendingJobs(repositoryId: string) {
+    return testDb.db
+      .select()
+      .from(prReviewJobs)
+      .where(eq(prReviewJobs.repositoryId, repositoryId));
+  }
+
+  function postGithubClosure(repo: CreatedProject, body: string) {
+    return app.inject({
+      method: "POST",
+      url: `/webhooks/git/${repo.slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": sign(repo.webhookSecret, body),
+      },
+      payload: body,
+    });
+  }
+
+  it("PR esterna mergiata → pending eliminato e ticket review chiuso a done con commento", async () => {
+    const project = await createProject({
+      name: "Review Chiusura Merge",
+      provider: "github",
+      repoUrl: "https://github.com/acme/review-chiusura-merge",
+      credentials: { token: "tok" },
+    });
+    const ticketId = await insertReviewTicket(project.id, 1, "open");
+    await seedPrReview(project.id, 7, ticketId);
+    await seedPendingReviewJob(project.id, 7);
+    // Branch NON stubwise: il flusso di chiusura dei ticket del fix non scatta.
+    const body = githubPayload("feature/login");
+
+    const res = await postGithubClosure(project, body);
+    expect(res.statusCode).toBe(204);
+
+    // Il pending della PR chiusa è stato eliminato (la review non serve più).
+    expect(await pendingJobs(project.id)).toHaveLength(0);
+    // Il ticket review si è auto-chiuso a done (PR mergiata), con commento system.
+    expect(await ticketStatus(ticketId)).toBe("done");
+    const cmts = await ticketComments(ticketId);
+    expect(cmts).toHaveLength(1);
+    expect(cmts[0]!.authorType).toBe("system");
+    expect(cmts[0]!.body).toContain("https://github.com/acme/repo/pull/7");
+  });
+
+  it("PR esterna chiusa senza merge → ticket review a closed", async () => {
+    const project = await createProject({
+      name: "Review Chiusura Rifiuto",
+      provider: "github",
+      repoUrl: "https://github.com/acme/review-chiusura-rifiuto",
+      credentials: { token: "tok" },
+    });
+    const ticketId = await insertReviewTicket(project.id, 1, "open");
+    await seedPrReview(project.id, 7, ticketId);
+    await seedPendingReviewJob(project.id, 7);
+    const body = githubClosedUnmergedPayload("feature/login");
+
+    const res = await postGithubClosure(project, body);
+    expect(res.statusCode).toBe(204);
+
+    expect(await pendingJobs(project.id)).toHaveLength(0);
+    // PR rifiutata (non mergiata): il ticket review va a closed, non done.
+    expect(await ticketStatus(ticketId)).toBe("closed");
+    const cmts = await ticketComments(ticketId);
+    expect(cmts).toHaveLength(1);
+    expect(cmts[0]!.authorType).toBe("system");
+    expect(cmts[0]!.body).toContain("https://github.com/acme/repo/pull/7");
+  });
+
+  it("chiusura senza prNumber → nessun cleanup ma nessun errore", async () => {
+    const project = await createProject({
+      name: "Review Chiusura NoNumber",
+      provider: "github",
+      repoUrl: "https://github.com/acme/review-chiusura-nonumber",
+      credentials: { token: "tok" },
+    });
+    // Pending di un'ALTRA PR (9): non deve essere toccato dal cleanup saltato.
+    await seedPendingReviewJob(project.id, 9);
+    // Payload closed SENZA number: provider anomalo → prNumber null.
+    const body = JSON.stringify({
+      action: "closed",
+      pull_request: {
+        merged: true,
+        head: { ref: "feature/login" },
+        html_url: "https://github.com/acme/repo/pull/7",
+      },
+    });
+
+    const res = await postGithubClosure(project, body);
+    expect(res.statusCode).toBe(204);
+    // Il cleanup è stato saltato: il pending dell'altra PR resta.
+    expect(await pendingJobs(project.id)).toHaveLength(1);
+  });
+
+  it("ticket review già chiuso → idempotente, un solo commento system", async () => {
+    const project = await createProject({
+      name: "Review Chiusura Idem",
+      provider: "github",
+      repoUrl: "https://github.com/acme/review-chiusura-idem",
+      credentials: { token: "tok" },
+    });
+    const ticketId = await insertReviewTicket(project.id, 1, "open");
+    await seedPrReview(project.id, 7, ticketId);
+    await seedPendingReviewJob(project.id, 7);
+    const body = githubPayload("feature/login");
+
+    // Prima consegna: chiude il ticket con un commento.
+    expect((await postGithubClosure(project, body)).statusCode).toBe(204);
+    expect(await ticketStatus(ticketId)).toBe("done");
+    expect(await ticketComments(ticketId)).toHaveLength(1);
+
+    // Seconda consegna dello STESSO evento: 204, nessun secondo commento.
+    expect((await postGithubClosure(project, body)).statusCode).toBe(204);
+    expect(await ticketStatus(ticketId)).toBe("done");
+    expect(await ticketComments(ticketId)).toHaveLength(1);
   });
 });

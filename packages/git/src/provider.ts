@@ -75,8 +75,13 @@ export interface WebhookEvent {
   /** Source branch della PR. */
   branch: string;
   prUrl: string;
-  /** Numero della PR sul provider (GitHub number / Bitbucket id). */
-  prNumber: number;
+  /**
+   * Numero della PR sul provider (GitHub number / Bitbucket id); null se il
+   * provider non lo fornisce nel payload. La chiusura del ticket non ne
+   * dipende (usa il branch): serve solo al cleanup della review, che in sua
+   * assenza viene semplicemente saltato.
+   */
+  prNumber: number | null;
 }
 
 /**

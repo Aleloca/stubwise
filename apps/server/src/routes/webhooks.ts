@@ -1,7 +1,7 @@
 import { getProvider } from "@stubwise/git";
 import { t } from "@stubwise/i18n";
 import { dispatchNotification } from "@stubwise/notifications";
-import { and, count, eq, ne, sql } from "drizzle-orm";
+import { and, count, desc, eq, ne, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
   aiJobs,
@@ -10,6 +10,7 @@ import {
   docGenerations,
   instanceSettings,
   prReviewJobs,
+  prReviews,
   projects,
   repositories,
   ticketRepositories,
@@ -254,6 +255,65 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
       const event = provider.parseWebhook(headers, request.body);
       // Non è un merge di PR che ci interessa: ignorato (204), niente da fare.
       if (!event) return reply.code(204).send();
+
+      // Lato PR Review, per QUALUNQUE PR chiusa: il pending in coda non serve
+      // più (la review di una PR chiusa è inutile), e l'eventuale ticket di
+      // tipo `review` della PR si chiude da solo (done se mergiata, closed se
+      // rifiutata). Vale anche per le PR stubwise (che però non hanno mai un
+      // ticket review: le query sotto sono no-op in quel caso). Il numero PR
+      // può mancare (provider anomalo): in quel caso si salta solo il cleanup,
+      // la chiusura del ticket del fix sotto non ne dipende.
+      if (event.prNumber != null) {
+        await instance.db
+          .delete(prReviewJobs)
+          .where(
+            and(
+              eq(prReviewJobs.repositoryId, context.repositoryId),
+              eq(prReviewJobs.prNumber, event.prNumber),
+            ),
+          );
+
+        const [reviewRow] = await instance.db
+          .select({ ticketId: prReviews.ticketId })
+          .from(prReviews)
+          .where(
+            and(
+              eq(prReviews.repositoryId, context.repositoryId),
+              eq(prReviews.prNumber, event.prNumber),
+            ),
+          )
+          .orderBy(desc(prReviews.createdAt))
+          .limit(1);
+        if (reviewRow?.ticketId) {
+          const [reviewTicket] = await instance.db
+            .select({ id: tickets.id, status: tickets.status, type: tickets.type })
+            .from(tickets)
+            .where(eq(tickets.id, reviewRow.ticketId));
+          // Si auto-chiude SOLO il ticket di tipo review ancora aperto: il
+          // ticket di un fix stubwise ha già il suo flusso di chiusura sotto.
+          if (
+            reviewTicket &&
+            reviewTicket.type === "review" &&
+            reviewTicket.status !== "done" &&
+            reviewTicket.status !== "closed"
+          ) {
+            const lang = await getContentLanguage(instance.db);
+            await instance.db.transaction(async (tx) => {
+              await tx
+                .update(tickets)
+                .set({ status: event.kind === "merged" ? "done" : "closed" })
+                .where(eq(tickets.id, reviewTicket.id));
+              await tx.insert(comments).values({
+                ticketId: reviewTicket.id,
+                authorType: "system",
+                body: t(lang, event.kind === "merged" ? "comment.prMerged" : "comment.prClosed", {
+                  url: event.prUrl,
+                }),
+              });
+            });
+          }
+        }
+      }
 
       const match = STUBWISE_BRANCH_RE.exec(event.branch);
       // Ramo non gestito da Stubwise: ignorato.

@@ -293,16 +293,25 @@ describe("GitHubProvider.parseWebhook", () => {
     expect(provider.parseWebhook(headers, { action: "closed", pull_request: { merged: true } })).toBeNull();
   });
 
-  it("returns null when the PR number is missing or not a number", () => {
+  it("PR number missing or not a number → evento valido con prNumber null", () => {
+    // La chiusura del ticket dipende dal branch, non dal numero PR: un payload
+    // senza `number` resta un evento valido, solo il cleanup review lo salterà.
     const headers = { "x-github-event": "pull_request" };
     const withoutNumber: Record<string, unknown> = { ...mergedBody.pull_request };
     delete withoutNumber["number"];
-    expect(provider.parseWebhook(headers, { ...mergedBody, pull_request: withoutNumber })).toBeNull();
+    const event = provider.parseWebhook(headers, { ...mergedBody, pull_request: withoutNumber });
+    expect(event).toEqual({
+      kind: "merged",
+      provider: "github",
+      branch: "stubwise/fix-1",
+      prUrl: "https://github.com/octo/repo/pull/42",
+      prNumber: null,
+    });
     expect(
       provider.parseWebhook(headers, {
         ...mergedBody,
         pull_request: { ...mergedBody.pull_request, number: "7" },
-      })
+      })?.prNumber
     ).toBeNull();
   });
 });

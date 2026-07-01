@@ -363,14 +363,24 @@ describe("BitbucketProvider.parseWebhook", () => {
     });
   });
 
-  it("exposes pullrequest.id as prNumber and returns null when it is missing", () => {
+  it("exposes pullrequest.id as prNumber; id mancante/malformato → evento valido con prNumber null", () => {
+    // La chiusura del ticket dipende dal branch, non dall'id PR: un payload
+    // senza `id` resta un evento valido, solo il cleanup review lo salterà.
     const headers = { "x-event-key": "pullrequest:fulfilled" };
     expect(provider.parseWebhook(headers, mergedBody)?.prNumber).toBe(7);
     const withoutId: Record<string, unknown> = { ...mergedBody.pullrequest };
     delete withoutId["id"];
-    expect(provider.parseWebhook(headers, { pullrequest: withoutId })).toBeNull();
+    const event = provider.parseWebhook(headers, { pullrequest: withoutId });
+    expect(event).toEqual({
+      kind: "merged",
+      provider: "bitbucket",
+      branch: "stubwise/fix-1",
+      prUrl: "https://bitbucket.org/myws/myrepo/pull-requests/7",
+      prNumber: null,
+    });
     expect(
       provider.parseWebhook(headers, { pullrequest: { ...mergedBody.pullrequest, id: "7" } })
+        ?.prNumber
     ).toBeNull();
   });
 
