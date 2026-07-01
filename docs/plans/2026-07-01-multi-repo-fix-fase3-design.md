@@ -1,155 +1,144 @@
 # Fix multi-repository (Fase 3) — Design
 
-**Data:** 2026-07-01
-**Stato:** PROGETTATO in autonomia (notte), **in attesa di revisione dell'utente prima dell'implementazione.**
-**Dipende da:** Fase 1 (modello a due livelli, su `main`) e — per i Docs — Fase 2 (branch `feat/multi-repo-docs`).
+**Data:** 2026-07-01 (rivisto insieme all'utente)
+**Stato:** VALIDATO in brainstorming con l'utente. Pronto per il piano di implementazione.
+**Dipende da:** Fase 1 (modello a due livelli) e Fase 2 (docs cross-repo), entrambe in prod.
 
-> Questa è la "frontiera" che il piano multi-repo ha sempre rimandato a un design
-> dedicato, perché cambia il **ciclo di vita del ticket** e il **cuore del motore
-> di fix**. Ho preso decisioni di default ragionate ed evidenziato le **scelte di
-> prodotto da confermare**: vedi §"Decisioni da confermare". Non l'ho implementata
-> stanotte di proposito — implementarla su semantiche inventate rischierebbe rework.
+> Questo design sostituisce la bozza speculativa notturna: l'architettura è cambiata
+> in meglio grazie alla visione dell'utente (un solo agente che vede tutti i repo del
+> progetto, e sceglie da sé quali toccare).
 
 ## Obiettivo
 
-Permettere a **un singolo ticket** di avere **N repository bersaglio**: il fix viene
-eseguito su ciascun repo (worktree e PR per-repo) e il ticket si chiude **solo quando
-tutte le PR sono mergiate**. Caso d'uso: un ticket "aggiungi il campo X" che richiede
-una modifica al backend (repo API) e una al frontend (repo web) dello stesso progetto.
+Un singolo ticket può richiedere modifiche a **più repository dello stesso progetto**
+(es. una feature che tocca API + web). L'agente esegue il fix vedendo **tutti** i repo
+del progetto insieme, decide da sé su quali operare, e apre **una PR per ogni repo
+modificato**. Il ticket si chiude quando **tutte** le PR sono mergiate.
 
-## Dov'è oggi l'assunzione "1 ticket = 1 repo = 1 PR"
+## Decisioni validate (brainstorming)
 
-(riferimenti verificati sul motore attuale, post-Fase 1)
-1. `tickets.repositoryId` colonna **singola** (nullable, già predisposta) e
-   `ai_jobs.prUrl` **singolo** — la PR è registrata sul job, non c'è tabella PR.
-2. `ai_jobs` **non** ha `repositoryId`: il repo bersaglio si deriva sempre dal ticket
-   (`handler.ts` risolve un repo e serializza su un `repositoryId`).
-3. `runFix` carica **un** repo, apre **un** worktree, **una** PR (branch
-   `stubwise/ticket-N`).
-4. Webhook di merge: porta il ticket a `done` al **primo** merge
-   (`tickets` risolto per `(repositoryId, number)`).
-5. Cardinalità "1 job vivo per ticket": `run-ai` riusa l'ultimo job; il webhook tocca
-   "il job `pr_opened`".
+- **D1 — L'AGENTE sceglie i repo, non l'utente.** Il triage (Haiku) resta invariato
+  (tipologia + go/no-go). È **Opus, in fase di piano**, che esplorando il codice decide
+  quali repo toccare. Nessuna multi-selezione manuale in "Nuovo ticket".
+- **D2 — Modello uniforme "cartella progetto".** Ogni fix gira alla radice di una
+  working dir `projectName/` che contiene un **worktree per ciascun repo del progetto**
+  (`projectName/<repoSlug>/`). Un solo `claude` con `cwd = projectName/` vede tutto,
+  come in un monorepo. Progetti con 1 repo → identico a oggi (nessun ramo speciale).
+- **D3 — Un solo job di fix per ticket** (non uno per repo). Dopo l'esecuzione, per ogni
+  repo con `git status` sporco → commit + push + **una PR**; i repo non toccati non
+  producono nulla. Un fix che modifica un solo repo degrada naturalmente al caso di oggi.
+- **D4 — RAG/Docs NON iniettata nel fix.** L'agente esplora liberamente i file. Motivo:
+  i file non possono "sbagliare", la documentazione sì (stale/imprecisa) e potrebbe
+  traviare l'agente. (Eventuale iniezione RAG = miglioramento separato, fuori scope.)
+- **D5 — Numerazione per-progetto.** Il contatore si sposta da
+  `repositories.next_ticket_number` a `projects.next_ticket_number`. Il branch
+  `stubwise/ticket-N` usa N **di progetto** ed è pushato su ciascun repo modificato. Il
+  webhook risolve il ticket per `(progetto del repo, N)`. Risolve la tensione nota della
+  Fase 1 (numero per-repo vs unique `(projectId, number)`).
+- **D6 — Serializzazione per-progetto, Livello 1.** Un solo fix attivo per progetto; gli
+  altri ticket del progetto restano in coda finché il fix **non completa** (PR aperte),
+  non fino al merge umano. Progetti diversi girano in parallelo. Elimina i conflitti
+  **meccanici** (worktree/mirror); i conflitti **logici** tra PR parallele di ticket
+  diversi si risolvono in review, come nel normale lavoro su git.
+- **D7 — Chiusura aggregata.** Ticket → `in_review` quando le PR sono aperte; → `done`
+  **solo quando tutte** le sue PR sono mergiate. Una PR chiusa-non-mergiata rimette in
+  lavorazione **solo** quel repo, senza toccare gli altri.
 
-## Modello dati proposto (migrazione 0035)
+## Modello dati (migrazione 0035)
 
-### Nuova tabella `ticket_repositories` (il fix per-repo)
-Sostituisce funzionalmente `tickets.repositoryId` + `ai_jobs.prUrl` come **stato
-per-repo del ticket**:
-- `id`, `ticketId` (FK tickets cascade), `repositoryId` (FK repositories cascade),
-- `branch` (`stubwise/ticket-<n>` o variante namespaced, vedi §Numerazione),
-- `prUrl` nullable, `prState` enum (`none|open|merged|closed_unmerged`),
-- `jobId` nullable (il job che esegue questo repo), `createdAt`.
-- UNIQUE `(ticketId, repositoryId)`.
+- **`projects.next_ticket_number`** (integer, default 1): il contatore per-progetto.
+  Migrazione: per ogni progetto, `next_ticket_number = max(tickets.number)+1` (oggi
+  coincide col contatore del suo unico repo). Rimuovere/deprecare
+  `repositories.next_ticket_number`.
+- **Nuova `ticket_repositories`** — lo stato PR **per-repo** di un ticket:
+  `id`, `ticketId` (FK tickets cascade), `repositoryId` (FK repositories cascade),
+  `branch`, `prUrl` nullable, `prState` enum (`open|merged|closed_unmerged`),
+  `createdAt`. UNIQUE `(ticketId, repositoryId)`. Popolata **dopo** l'esecuzione, una
+  riga per repo effettivamente modificato.
+- **`tickets.repositoryId`**: declassato a **"repo di origine"** (dove è nato il ticket:
+  errore SDK via `ingestionKey`, o scelta al ticket manuale) — metadato nullable. NON è
+  più il bersaglio d'esecuzione (il bersaglio è il progetto). La dedup del triage è già
+  per `projectId` (nessun cambiamento lì).
+- **`ai_jobs`**: resta **uno per ticket**. `prUrl` singolo è superato da
+  `ticket_repositories` (per il multi-repo); mantenuto come "PR primaria" per
+  retro-compatibilità del re-run, oppure deprecato in favore della lettura aggregata.
 
-### `ai_jobs` guadagna `repositoryId`
-- `ADD COLUMN repository_id uuid REFERENCES repositories(id)` (nullable per i job
-  vecchi; per i nuovi sempre valorizzato). Il claim e il serializer leggono questo
-  invece di derivarlo dal ticket → N job dello stesso ticket girano in **parallelo su
-  repo diversi** (mirror/worktree sono già isolati per repo, e la serializzazione è
-  già per-`repositoryId`). Backfill: `UPDATE ai_jobs SET repository_id = (SELECT
-  tickets.repository_id ...)`.
+## Worker (cuore della fase)
 
-### `tickets.repositoryId`
-- **Mantenuto** in 3a come "repo primario/legacy" per retro-compatibilità e per i
-  ticket a singolo repo (la stragrande maggioranza). In 3a un ticket single-repo crea
-  comunque **una** riga `ticket_repositories`. Deprecabile in seguito.
+- **Claim e serializzazione per-progetto**: il claim (`queue.ts`) e il serializer
+  (`handler.ts`) passano da `repositoryId` a **`projectId`** (da `tickets.projectId`).
+  L'esclusione fix↔generazione-docs si allarga: un fix di progetto esclude (ed è escluso
+  da) qualunque worktree — fix o generazione — su **un qualsiasi repo del progetto**. Il
+  provider AI è già risolto dal progetto (Fase 1), invariato.
+- **MirrorManager — nuovo primitivo multi-worktree**: `withProjectWorktrees(project,
+  repos, branch, fn)` che materializza, sotto una parent dir comune
+  (`stubwise-proj-<slug>/`), un worktree per ogni repo (`<repoSlug>/`) agganciato al
+  rispettivo mirror, su `git switch -C stubwise/ticket-N` in ciascuno; passa la parent
+  dir a `fn`; cleanup di tutti i worktree in `finally`. I mirror per-repo esistono già;
+  è "N `openWorktree` coordinati sotto una root". L'invariante mirror (niente
+  `fetch --prune` con un worktree aperto) è rispettata dalla serializzazione per-progetto.
+- **`runFix` sul progetto**: risolve il **progetto** dal ticket, carica i suoi repo,
+  materializza i worktree, esegue **un** agente `claude` con `cwd = projectName/` (piano
+  Opus → esecuzione Sonnet, come oggi). Materializzazione env-files **per ogni repo** nel
+  proprio worktree (safeguard anti-leak invariato). Install/test: l'agente li lancia dove
+  servono nei sotto-repo (i comandi install/test sono per-repo, gestiti come oggi ma
+  dentro le sottocartelle).
+- **Apertura PR multipla**: dopo l'agente, per ogni repo con diff: commit (autore
+  `Stubwise AI`), `pushBranch`, `openPullRequest` via il provider di **quel** repo;
+  inserisce una riga `ticket_repositories` con branch/prUrl/prState=open. Nessun repo
+  modificato → esito "nessuna modifica" (come oggi il caso NoChangesError).
+- **Prompt** (`prompts.ts`): il contesto elenca i repo del progetto come sottocartelle e
+  istruisce l'agente a modificare solo quelle necessarie; per il resto la cornice è
+  quella attuale (solo contenuto del ticket, nessuna RAG — D4).
+- **Costo**: un agente su tutti i repo esplora di più → **più token di discovery per
+  ticket** (accettato). Il budget per-ticket e mensile resta il guardrail (invariato).
 
-### Numerazione ticket (RISOLUZIONE della tensione Fase 1) — **decisione da confermare**
-Oggi il numero è generato da `repositories.next_ticket_number` (per-repo) ma l'unique
-è `(projectId, number)` (per-progetto): con più repo per progetto due repo possono
-collidere. Con un ticket multi-repo serve un numero **univoco a livello di progetto**.
-**Raccomandazione (Opzione A):** spostare il contatore su `projects.next_ticket_number`
-(numero per-progetto), migrando i contatori esistenti (max(number)+1 per progetto), e
-il branch diventa `stubwise/ticket-<number>` con `number` di progetto. Il webhook
-risolve il ticket per `(projectId-del-repo, number)` invece di `(repositoryId, number)`.
-- *Opzione B* (meno invasiva ma più fragile): tenere il numero per-repo e namespacare
-  il branch con lo slug del repo (`stubwise/<repoSlug>/ticket-N`); il webhook resta
-  per-(repository, number). Sconsigliata: complica branch e UX.
+## Server
 
-## Esecuzione del fix (worker)
+- **Create ticket**: numero da `projects.next_ticket_number` (row-lock sul progetto);
+  `tickets.repositoryId` = repo d'origine (ingest/manuale). Dedup triage invariata
+  (per progetto).
+- **Webhook merge** (`webhooks.ts`): estrae N dal branch `stubwise/ticket-N`, risolve il
+  ticket per `(progetto del repo del webhook, N)`, marca la **riga** `ticket_repositories`
+  di quel repo come `merged`; porta il ticket a `done` **solo se tutte** le righe sono
+  `merged` (gate aggregato). `closed_unmerged` → quella riga torna `closed_unmerged`, il
+  ticket resta/rientra in lavorazione per quel repo.
+- **Mapper ticket / API**: espone lo stato per-repo (le righe `ticket_repositories` con
+  prState + link PR). Costi: `ticketCostUsd` aggrega già per ticket via job → invariato.
 
-- **Espansione in job per-repo**: alla creazione/lancio del fix di un ticket con N
-  repo, si creano N righe `ticket_repositories` + N `ai_jobs` (uno per repo,
-  `repositoryId` valorizzato). Ognuno è claimato indipendentemente; la serializzazione
-  per-`repositoryId` (già esistente) garantisce isolamento sul mirror.
-- **`runFix` per-repo**: invariato nella sostanza (un repo, un worktree, una PR), ma
-  prende il `repositoryId` dal job (non dal ticket) e aggiorna la riga
-  `ticket_repositories` (branch/prUrl/prState) invece di `ai_jobs.prUrl`.
-- **Stato del ticket aggregato**: `in_progress` se almeno un repo sta pianificando;
-  `in_review` quando **tutte** le PR sono aperte; `done` quando **tutte** mergiate
-  (gestito dal webhook, vedi sotto). Una vista/funzione `ticketAggregateState(ticketId)`
-  calcola lo stato dal set di `ticket_repositories`.
-- **Contesto cross-repo per l'agente** — **decisione da confermare**:
-  - *3a (raccomandato, MVP):* ogni repo è fixato **indipendentemente**; l'agente vede
-    solo il proprio worktree + la descrizione del ticket (come oggi). Nel prompt si
-    aggiunge l'elenco dei repo coinvolti ("questo ticket tocca anche i repo X, Y; tu
-    lavori su Z") come semplice contesto testuale, senza checkout degli altri.
-  - *3b (avanzato, fase successiva):* l'agente riceve un **checkout read-only dei repo
-    fratelli** come contesto (per far combaciare API e client), e/o una **fase di
-    pianificazione condivisa** che produce un piano cross-repo prima dei fix per-repo.
-    Più potente, molto più complesso (coordinamento, ordine, contratto API). Deferito.
+## Web
 
-## Webhook / ciclo di vita (chiusura aggregata)
+- **Nuovo ticket**: NESSUNA multi-selezione repo (l'AI decide — D1). Resta la scelta del
+  progetto (e per i ticket manuali, opzionalmente il repo d'origine).
+- **Dettaglio ticket**: nuova sezione **"Repository / PR"** che, dopo l'esecuzione, elenca
+  i repo toccati con stato (`open/merged/closed_unmerged`) e link alla PR. Prima
+  dell'esecuzione è vuota (l'agente non ha ancora deciso).
+- **Board / lista**: badge con il numero di repo toccati / PR aperte del ticket.
+- i18n it/en per le nuove label.
 
-- Merge PR del branch del ticket su un repo → aggiorna la **riga** `ticket_repositories`
-  corrispondente a `prState=merged`; il job → `pr_merged`.
-- Il ticket passa a `done` **solo se tutte** le righe `ticket_repositories` sono
-  `merged` (gate aggregato); altrimenti resta `in_review`. (Oggi chiude al primo merge:
-  va inserito il gate.)
-- `closed_unmerged` su un repo → quella riga torna `closed_unmerged` e il ticket
-  rientra in lavorazione per quel repo, senza toccare gli altri.
-- Notifiche: `job.pr_opened`/`pr_merged` restano per-job (per-repo); aggiungere un
-  evento aggregato `ticket.completed` quando l'ultimo repo mergia (opzionale).
+## Piano (sotto-fasi subagent-driven, ognuna verde prima della successiva)
 
-## UI web
-
-- **Nuovo ticket**: il selettore "repository bersaglio" diventa **multi-selezione** dei
-  repo del progetto (oggi è singolo). Almeno uno obbligatorio.
-- **Dettaglio ticket**: una sezione "Repository" con, per ciascun repo, stato del fix e
-  link alla PR (prState). La board/lista mostra un badge "N repo" o gli slug.
-- **Costi**: `ticketCostUsd` già aggrega per ticket via job → regge (i job per-repo
-  restano legati al `ticketId`).
-
-## Decisioni da confermare (prima di implementare)
-
-1. **Numerazione**: Opzione A (numero per-progetto, contatore migrato su `projects`,
-   webhook per-(project,number)) [raccomandata] vs B (namespacing branch per-repo).
-2. **Contesto agente**: 3a fix indipendenti con contesto testuale [raccomandata per
-   l'MVP] vs 3b checkout cross-repo / piano condiviso [fase successiva].
-3. **Lancio**: i job per-repo partono **tutti insieme** [raccomandato] o in **ordine**
-   (es. prima il backend poi il frontend)? L'ordine serve solo con 3b.
-4. **`tickets.repositoryId`**: tenerlo come "primario/legacy" in 3a [raccomandato] o
-   migrare subito tutto su `ticket_repositories` (più pulito, più rischio dati)?
-5. **Ambito 3a**: confermare che l'MVP sono fix indipendenti per-repo con chiusura
-   aggregata, rimandando il coordinamento cross-repo dell'agente.
-
-## Piano (sotto-fasi, una volta confermate le decisioni)
-
-- **3a-1 — Modello + numerazione.** Migrazione 0035 (`ticket_repositories`,
-  `ai_jobs.repositoryId` + backfill; eventuale spostamento contatore su `projects` con
-  migrazione dei numeri). Test integrità.
-- **3a-2 — Server.** Create ticket con N repo (crea righe `ticket_repositories` + job
-  per-repo); webhook con chiusura aggregata; `ticketAggregateState`; mapper ticket con
-  lo stato per-repo. Test.
-- **3a-3 — Worker.** `runFix` legge il `repositoryId` dal job e aggiorna
-  `ticket_repositories`; serializzazione invariata; prompt con elenco repo coinvolti. Test.
-- **3a-4 — Web.** Multi-selezione repo nel nuovo-ticket; sezione Repository nel dettaglio
-  ticket con stato/PR per-repo; badge in board/lista; i18n. Test (+E2E).
-- **3a-5 — Verifica + review olistico + merge** (deploy demandato all'utente).
-- **3b (fase successiva, design a parte):** contesto cross-repo per l'agente (checkout
-  read-only dei fratelli e/o pianificazione condivisa), ordinamento dei job.
+- **3-1 — Modello + numerazione.** Migrazione 0035 (`projects.next_ticket_number` +
+  migrazione dati; `ticket_repositories`; declassamento `tickets.repositoryId` a origine).
+  Shared schemas. Test integrità.
+- **3-2 — Worker.** `withProjectWorktrees`; `runFix` sul progetto con agente unico;
+  apertura PR multipla + `ticket_repositories`; serializzazione/claim per-progetto;
+  esclusione allargata fix↔generazione. Test (materializzazione multi-worktree,
+  PR multiple, serializzazione per-progetto, single-repo invariato).
+- **3-3 — Server.** Create con numero di progetto; webhook con chiusura aggregata;
+  mapper ticket con stato per-repo. Test (merge parziale non chiude; tutti merged → done).
+- **3-4 — Web.** Sezione Repository/PR nel dettaglio ticket; badge; i18n. Test (+E2E).
+- **3-5 — Verifica full-repo + review olistico + merge** (deploy demandato all'utente,
+  migrazione strutturale → backup DB prima).
 
 ## Rischi
 
-- **Numerazione** (il più critico): finché non risolto (Opzione A/B), abilitare più repo
-  per progetto rompe l'unique `(projectId, number)`. La 3a-1 DEVE risolverlo prima di
-  permettere ticket multi-repo reali.
-- **Webhook che chiude troppo presto**: senza il gate aggregato, il ticket andrebbe a
-  `done` al primo merge. Il gate è obbligatorio nella 3a-2.
-- **Cardinalità job**: `run-ai` ("ultimo job") e il webhook ("il job pr_opened") vanno
-  resi per-repo, altrimenti il re-run e la chiusura toccano il job sbagliato.
-- **Serializzazione**: già per-repo (OK); due job dello stesso ticket sullo stesso repo
-  restano serializzati (corretto).
-- **Contesto agente (3a)**: fix indipendenti possono produrre PR non perfettamente
-  coordinate (es. naming di un campo API) — accettabile per l'MVP, risolto da 3b.
+- **Costo token per ticket** più alto (agente su tutti i repo): accettato; budget come
+  guardrail. Mitigabile in futuro con RAG-assist (fuori scope, D4).
+- **Meno parallelismo** su progetti multi-repo (serializzazione per-progetto): voluto,
+  evita conflitti meccanici.
+- **Conflitti logici** tra PR parallele di ticket diversi: gestiti in review (Livello 1).
+- **Spazio disco** dei worktree multipli in /tmp per progetti con molti repo grandi:
+  worktree effimeri, rimossi a fine job.
+- **Esclusione allargata**: un fix di progetto blocca temporaneamente anche le generazioni
+  docs dei suoi repo (e viceversa) — coerente con l'invariante del mirror.
