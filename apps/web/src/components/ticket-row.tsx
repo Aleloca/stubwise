@@ -1,26 +1,22 @@
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import type { Ticket } from "../lib/api";
+import type { TicketListItem } from "../lib/api";
 import { formatRelativeTime } from "../lib/format";
 import { PriorityBadge, SourceBadge, StatusBadge, TypeBadge } from "./badges";
 
 interface TicketRowProps {
-  ticket: Ticket;
+  ticket: TicketListItem;
   /** Nome del progetto risolto dal chiamante (la lista ha già i progetti). */
   projectName: string;
-  /**
-   * Nome del repository bersaglio del ticket, risolto dal chiamante; null se il
-   * ticket non ha un repository (Fase 3) o non è risolvibile. Mostrato come badge.
-   */
-  repositoryName?: string | null;
 }
 
 /**
  * Riga della lista ticket: tutta cliccabile verso il dettaglio. Numero e
  * metadati in mono, titolo in sans; i badge raccontano stato/tipo/priorità
- * a colpo d'occhio. Se risolto, un badge mostra il repository bersaglio.
+ * a colpo d'occhio. Se il fix ha toccato dei repository, un badge mostra il
+ * numero di repo/PR del ticket (Fase 3, fix multi-repo).
  */
-export function TicketRow({ ticket, projectName, repositoryName }: TicketRowProps) {
+export function TicketRow({ ticket, projectName }: TicketRowProps) {
   const { t } = useTranslation();
 
   return (
@@ -37,12 +33,12 @@ export function TicketRow({ ticket, projectName, repositoryName }: TicketRowProp
         <span className="block truncate text-sm font-medium text-fg">{ticket.title}</span>
         <span className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[11px] text-fg-faint">
           <span className="text-fg-muted">{projectName}</span>
-          {repositoryName && (
+          {ticket.repositoryCount > 0 && (
             <span
               className="rounded-sm border border-line bg-ink-850 px-1.5 text-fg-muted"
-              title={t("tickets:row.repository")}
+              title={t("tickets:row.repositoryCount", { count: ticket.repositoryCount })}
             >
-              {repositoryName}
+              {t("tickets:row.repositoryCountBadge", { count: ticket.repositoryCount })}
             </span>
           )}
           <SourceBadge source={ticket.source} />

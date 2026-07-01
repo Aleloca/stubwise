@@ -41,9 +41,9 @@ const NOW = 1_700_000_000_000;
 let testDb: TestDb;
 let app: FastifyInstance;
 let adminCookie: string;
-// Repository bersaglio dei test di creazione ticket via Slack (il ticket modal
-// seleziona un repository): è un repositoryId, usato come `tickets.repositoryId`.
-let ticketRepoId: string;
+// Progetto bersaglio dei test di creazione ticket via Slack (il ticket modal
+// seleziona un PROGETTO — Fase 3): è un projectId, usato come `tickets.projectId`.
+let ticketProjectId: string;
 let reporterUserId: string;
 
 // Spie del client Slack iniettato (niente rete). emailToReturn e
@@ -129,7 +129,11 @@ async function createRepoInProject(projectGroupId: string, name: string): Promis
 async function createProjectGroup(name: string): Promise<string> {
   const [group] = await testDb.db
     .insert(projects)
-    .values({ name: `${name} — gruppo`, slug: `gruppo-${randomBytes(4).toString("hex")}` })
+    .values({
+      name: `${name} — gruppo`,
+      slug: `gruppo-${randomBytes(4).toString("hex")}`,
+      ingestionKey: randomBytes(16).toString("hex"),
+    })
     .returning({ id: projects.id });
   return group!.id;
 }
@@ -324,7 +328,7 @@ beforeAll(async () => {
     slackPostResponse: postResponse,
   });
   ({ adminCookie } = await seedUsers(app));
-  ({ repositoryId: ticketRepoId } = await createProject("slack-proj"));
+  ({ projectId: ticketProjectId } = await createProject("slack-proj"));
   const [u] = await testDb.db
     .insert(users)
     .values({ email: "Slack.Reporter@Example.com", passwordHash: "x", role: "member" })
@@ -585,7 +589,7 @@ describe("POST /api/slack/commands — /docs", () => {
 describe("POST /api/slack/interactions — view_submission", () => {
   it("crea ticket source=slack con progetto/titolo scelti", async () => {
     const body = viewSubmissionBody({
-      projectId: ticketRepoId,
+      projectId: ticketProjectId,
       title: "Bottone rotto",
       description: "Non funziona il submit",
       type: "bug",
@@ -597,7 +601,7 @@ describe("POST /api/slack/interactions — view_submission", () => {
     const rows = await testDb.db
       .select()
       .from(tickets)
-      .where(eq(tickets.repositoryId, ticketRepoId));
+      .where(eq(tickets.projectId, ticketProjectId));
     const created = rows.find((t) => t.title === "Bottone rotto");
     expect(created).toBeDefined();
     expect(created!.source).toBe("slack");
@@ -609,7 +613,7 @@ describe("POST /api/slack/interactions — view_submission", () => {
   it("attribuzione: email che matcha un utente → assigneeId settato", async () => {
     emailToReturn = "slack.reporter@example.com";
     const body = viewSubmissionBody({
-      projectId: ticketRepoId,
+      projectId: ticketProjectId,
       title: "Con assegnatario",
       type: "feature",
       userId: "Uxyz",
@@ -636,7 +640,7 @@ describe("POST /api/slack/interactions — view_submission", () => {
     // Email "sbagliata": se venisse usata, il match fallirebbe.
     emailToReturn = "nessuno@example.com";
     const body = viewSubmissionBody({
-      projectId: ticketRepoId,
+      projectId: ticketProjectId,
       title: "Match per slack id",
       type: "bug",
       userId: "Ulinked123",
@@ -657,7 +661,7 @@ describe("POST /api/slack/interactions — view_submission", () => {
     emailToReturn = "slack.reporter@example.com";
     avatarToReturn = "https://avatars.slack-edge.com/auto.png";
     const body = viewSubmissionBody({
-      projectId: ticketRepoId,
+      projectId: ticketProjectId,
       title: "Auto link",
       type: "task",
       userId: "Uauto999",
@@ -689,7 +693,7 @@ describe("POST /api/slack/interactions — view_submission", () => {
     // Email che matcherebbe il reporter (non linkato): non deve essere usata.
     emailToReturn = "slack.reporter@example.com";
     const body = viewSubmissionBody({
-      projectId: ticketRepoId,
+      projectId: ticketProjectId,
       title: "Slack id altrui",
       type: "bug",
       userId: "Ucollision",
@@ -717,7 +721,7 @@ describe("POST /api/slack/interactions — view_submission", () => {
   it("email no-match → assigneeId null + nota provenienza", async () => {
     emailToReturn = "nessuno@example.com";
     const body = viewSubmissionBody({
-      projectId: ticketRepoId,
+      projectId: ticketProjectId,
       title: "Senza account",
       type: "task",
     });
@@ -736,9 +740,9 @@ describe("POST /api/slack/interactions — view_submission", () => {
     const before = await testDb.db
       .select()
       .from(tickets)
-      .where(eq(tickets.repositoryId, ticketRepoId));
+      .where(eq(tickets.projectId, ticketProjectId));
     // Titolo assente.
-    const body = viewSubmissionBody({ projectId: ticketRepoId, type: "bug" });
+    const body = viewSubmissionBody({ projectId: ticketProjectId, type: "bug" });
     const res = await slackPost("/api/slack/interactions", body);
     expect(res.statusCode).toBe(200);
     const json = res.json() as { response_action: string; errors: Record<string, string> };
@@ -748,7 +752,7 @@ describe("POST /api/slack/interactions — view_submission", () => {
     const after = await testDb.db
       .select()
       .from(tickets)
-      .where(eq(tickets.repositoryId, ticketRepoId));
+      .where(eq(tickets.projectId, ticketProjectId));
     expect(after.length).toBe(before.length);
   });
 
@@ -771,7 +775,7 @@ describe("POST /api/slack/interactions — view_submission", () => {
   });
 
   it("firma non valida → 401", async () => {
-    const body = viewSubmissionBody({ projectId: ticketRepoId, title: "x", type: "bug" });
+    const body = viewSubmissionBody({ projectId: ticketProjectId, title: "x", type: "bug" });
     const res = await slackPost("/api/slack/interactions", body, { sign: false });
     expect(res.statusCode).toBe(401);
   });

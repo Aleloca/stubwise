@@ -1,4 +1,16 @@
+import { randomBytes } from "node:crypto";
 import { z } from "zod";
+
+/**
+ * Genera una chiave di ingestion per gli SDK: 32 caratteri esadecimali (16
+ * byte casuali). Dalla Fase 3 l'ingestion è a livello di PROGETTO (D8): la
+ * chiave si genera alla creazione del progetto. Lo stesso generatore serviva
+ * finora ai repository; è estratto qui per un'unica fonte di verità sul formato
+ * (32 hex), atteso dagli SDK già distribuiti e dai test.
+ */
+export function generateIngestionKey(): string {
+  return randomBytes(16).toString("hex");
+}
 
 /**
  * Corpo standard delle risposte di errore JSON: `{ message }` più un `code`

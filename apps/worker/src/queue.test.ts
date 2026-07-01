@@ -21,11 +21,12 @@ import {
 // prende il job queued più vecchio dell'intera tabella).
 let testDb: TestDb;
 let ticketId: string;
+let seededProjectId: string;
 
 beforeAll(async () => {
   testDb = await startTestDb();
   const { db } = testDb;
-  ({ ticketId } = await seedTicket(db));
+  ({ ticketId, projectId: seededProjectId } = await seedTicket(db));
 }, 120_000);
 
 afterEach(async () => {
@@ -114,6 +115,30 @@ describe("claimNextJob", () => {
     expect(claimed).toHaveLength(3);
     expect(nulls).toHaveLength(2);
     expect(new Set(claimed.map((job) => job.id)).size).toBe(3);
+  });
+
+  it("excludeProjectIds: salta i job dei progetti esclusi, reclama il primo di un progetto NON escluso", async () => {
+    const { db } = testDb;
+    // Ticket in un SECONDO progetto (seedTicket crea progetto+repo+ticket).
+    const other = await seedTicket(db);
+    // Job del progetto condiviso (ticketId globale) — più VECCHIO → normalmente primo.
+    const excludedJob = await enqueueJob(db, { createdAt: minutesAgo(5) });
+    // Job del secondo progetto — più recente.
+    const [otherJob] = await db
+      .insert(aiJobs)
+      .values({ ticketId: other.ticketId, createdAt: minutesAgo(1) })
+      .returning();
+    if (!otherJob) throw new Error("insert del job non ha restituito la riga");
+
+    // Escludendo il progetto del job più vecchio, il claim salta a quello dell'altro
+    // progetto (nonostante sia più recente).
+    const claimed = await claimNextJob(db, [seededProjectId]);
+    expect(claimed?.id).toBe(otherJob.id);
+
+    // Senza esclusione, il claim prende il più vecchio (progetto condiviso).
+    await db.update(aiJobs).set({ status: "queued", startedAt: null }).where(eq(aiJobs.id, otherJob.id));
+    const claimed2 = await claimNextJob(db, []);
+    expect(claimed2?.id).toBe(excludedJob.id);
   });
 });
 

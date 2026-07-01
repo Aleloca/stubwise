@@ -3,7 +3,7 @@ import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Ticket } from "../../lib/api";
+import type { TicketListItem } from "../../lib/api";
 import { createAppRouter } from "../../router";
 
 /**
@@ -41,11 +41,10 @@ function mockApi(handlers: Record<string, (url: URL) => Response>) {
   });
 }
 
-function makeTicket(overrides: Partial<Ticket>): Ticket {
+function makeTicket(overrides: Partial<TicketListItem>): TicketListItem {
   return {
     id: "11111111-1111-4111-8111-111111111111",
     projectId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-    repositoryId: null,
     number: 1,
     title: "Ticket di prova",
     body: "",
@@ -62,12 +61,12 @@ function makeTicket(overrides: Partial<Ticket>): Ticket {
     lastSeenAt: "2026-06-01T10:00:00.000Z",
     createdAt: "2026-06-01T10:00:00.000Z",
     updatedAt: "2026-06-01T10:00:00.000Z",
+    repositoryCount: 0,
     ...overrides,
   };
 }
 
 const PROJECT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-const REPOSITORY_ID = "11111111-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 const baseHandlers = {
   "/api/auth/me": () =>
@@ -82,26 +81,9 @@ const baseHandlers = {
         description: null,
         aiProviderId: null,
         docAutoUpdate: false,
-        repositoryCount: 1,
-        createdAt: "2026-01-01T00:00:00.000Z",
-      },
-    ]),
-  "/api/repositories": () =>
-    jsonResponse(200, [
-      {
-        id: REPOSITORY_ID,
-        projectId: PROJECT_ID,
-        name: "alfa-api",
-        slug: "alfa-api",
-        provider: "github",
-        repoUrl: "https://github.com/acme/alfa",
-        defaultBranch: "main",
         ingestionKey: "key-alfa",
-        gitAccountId: "acc-1",
-        gitAccountName: "GitHub Demo",
-        webhookConfiguredAt: null,
-        testCommand: null,
-        installCommand: null,
+        nextTicketNumber: 1,
+        repositoryCount: 1,
         createdAt: "2026-01-01T00:00:00.000Z",
       },
     ]),
@@ -133,6 +115,7 @@ describe("lista ticket", () => {
       source: "sdk_error",
       occurrences: 7,
       labels: ["pagamenti"],
+      repositoryCount: 3,
     });
     const feature = makeTicket({
       id: "22222222-2222-4222-8222-222222222222",
@@ -161,9 +144,13 @@ describe("lista ticket", () => {
     expect(within(row).getByText("Open")).toBeInTheDocument();
     expect(within(row).getByText("×7")).toBeInTheDocument();
     expect(within(row).getByText("pagamenti")).toBeInTheDocument();
+    // Badge del numero di repo toccati dal fix (repositoryCount = 3).
+    expect(within(row).getByText("3 repos")).toBeInTheDocument();
 
     const doneRow = screen.getByRole("link", { name: /export csv/i });
     expect(within(doneRow).getByText("Done")).toBeInTheDocument();
+    // feature ha repositoryCount 0: nessun badge repo.
+    expect(within(doneRow).queryByText(/\d+ repos?/)).not.toBeInTheDocument();
   });
 
   it("senza risultati mostra lo stato vuoto", async () => {
@@ -311,10 +298,8 @@ describe("nuovo ticket dalla lista", () => {
     await user.click(screen.getByRole("button", { name: "New ticket" }));
     const dialog = screen.getByRole("dialog", { name: "New ticket" });
     await user.type(within(dialog).getByLabelText("Title"), "Crash al checkout");
-    // Il repository bersaglio del progetto si preseleziona (unico repo del gruppo).
-    await waitFor(() =>
-      expect(within(dialog).getByLabelText("Target repository")).toHaveValue(REPOSITORY_ID),
-    );
+    // In Fase 3 non c'è più il selettore "repository bersaglio": l'AI sceglie i repo.
+    expect(within(dialog).queryByLabelText("Target repository")).not.toBeInTheDocument();
     await user.selectOptions(within(dialog).getByLabelText("Type"), "Bug");
     await user.selectOptions(within(dialog).getByLabelText("Priority"), "High");
     await user.click(within(dialog).getByRole("button", { name: "Create ticket" }));
@@ -326,7 +311,6 @@ describe("nuovo ticket dalla lista", () => {
     expect(await screen.findByText("Crash al checkout")).toBeInTheDocument();
     expect(postBody).toEqual({
       projectId: PROJECT_ID,
-      repositoryId: REPOSITORY_ID,
       title: "Crash al checkout",
       type: "bug",
       priority: "high",

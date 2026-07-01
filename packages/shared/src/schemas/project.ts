@@ -24,9 +24,10 @@ export type GitAccount = z.infer<typeof gitAccountSchema>;
 /**
  * Proiezione pubblica di un REPOSITORY (l'ex "progetto", rinominato): un singolo
  * repo git. Appartiene a esattamente un progetto-gruppo (`projectId`). Porta
- * tutto ciò che è specifico del repo git/ingest/webhook/docs. Le impostazioni di
- * prodotto (provider AI, auto-update docs) NON ne fanno più parte: sono salite al
- * progetto (vedi projectSchema).
+ * tutto ciò che è specifico del repo git/webhook/docs. Le impostazioni di
+ * prodotto (provider AI, auto-update docs) e l'ingestion (`ingestionKey`,
+ * numerazione ticket) NON ne fanno più parte: sono salite al progetto (Fase 3,
+ * vedi projectSchema). Il webhook git delle PR resta invece per-repo.
  */
 export const repositorySchema = z.object({
   id: z.uuid(),
@@ -37,7 +38,6 @@ export const repositorySchema = z.object({
   provider: gitProviderKindSchema,
   repoUrl: z.url(),
   defaultBranch: z.string().min(1),
-  ingestionKey: z.string().min(1),
   // Account git che fornisce le credenziali del repository: id (per la modifica/
   // selezione) e nome (per la UI). Le credenziali NON sono mai esposte: vivono
   // cifrate sull'account. `webhookConfiguredAt` è l'istante in cui il webhook
@@ -63,7 +63,10 @@ export type Repository = z.infer<typeof repositorySchema>;
  * (1:N). È il livello "prodotto" (ticket e milestone) e porta le impostazioni
  * che valgono per tutti i suoi repository: il provider AI generale (Docs e fix;
  * null = automatico, primo abilitato all'esecuzione) e l'auto-aggiornamento
- * della documentazione ai push. `description` è opzionale (null = assente).
+ * della documentazione ai push. Dalla Fase 3 porta anche l'ingestion di prodotto:
+ * `ingestionKey` (salita dal repo) con cui gli SDK inviano errori/feedback, e la
+ * numerazione ticket per-progetto (`nextTicketNumber`). `description` è opzionale
+ * (null = assente).
  */
 export const projectSchema = z.object({
   id: z.uuid(),
@@ -72,6 +75,11 @@ export const projectSchema = z.object({
   description: z.string().nullable(),
   aiProviderId: z.uuid().nullable(),
   docAutoUpdate: z.boolean(),
+  // Chiave di ingestion del progetto: gli SDK la usano per inviare errori e
+  // feedback (l'ingestion è di prodotto, non di repo — Fase 3).
+  ingestionKey: z.string().min(1),
+  // Prossimo numero ticket sequenziale del progetto (per-progetto, Fase 3).
+  nextTicketNumber: z.number().int().min(1),
   createdAt: z.iso.datetime(),
 });
 export type Project = z.infer<typeof projectSchema>;

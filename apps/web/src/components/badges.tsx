@@ -1,5 +1,6 @@
 import type {
   GitProviderKind,
+  PrState,
   TicketPriority,
   TicketSource,
   TicketStatus,
@@ -145,6 +146,29 @@ export function SourceBadge({ source }: { source: TicketSource }) {
   return (
     <span className={`${badgeBase} text-fg-faint`} title={t("badges:sourceTitle", { label })}>
       ◇ {label}
+    </span>
+  );
+}
+
+/** Chiave i18n dell'etichetta di ogni stato PR per-repo (Fase 3, fix multi-repo). */
+export const PR_STATE_LABEL_KEYS: Record<PrState, string> = {
+  open: "badges:prState.open",
+  merged: "badges:prState.merged",
+  closed_unmerged: "badges:prState.closed_unmerged",
+};
+
+const PR_STATE_CLASS: Record<PrState, string> = {
+  open: "text-signal border-signal-dim/40",
+  merged: "text-ok border-ok/30",
+  closed_unmerged: "text-danger border-danger/30",
+};
+
+/** Stato della PR aperta dal fix su un repo del ticket: chip colorato per stato. */
+export function PrStateBadge({ state }: { state: PrState }) {
+  const { t } = useTranslation();
+  return (
+    <span className={`${badgeBase} border px-2 py-0.5 ${PR_STATE_CLASS[state]}`}>
+      {t(PR_STATE_LABEL_KEYS[state])}
     </span>
   );
 }

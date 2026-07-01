@@ -10,7 +10,12 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAdmin, requireAuth } from "../auth/session.js";
 import { aiProviders, projects, repositories } from "@stubwise/db";
-import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
+import {
+  authErrorResponses,
+  errorSchema,
+  generateIngestionKey,
+  isUniqueViolation,
+} from "./shared.js";
 import { apiError } from "../errors.js";
 
 /**
@@ -73,6 +78,10 @@ function toPublicProject(row: ProjectRow): z.infer<typeof projectSchema> {
     description: row.description,
     aiProviderId: row.aiProviderId,
     docAutoUpdate: row.docAutoUpdate,
+    // Ingestion di prodotto (Fase 3): la chiave con cui gli SDK inviano
+    // errori/feedback e il contatore ticket per-progetto, saliti dal repo.
+    ingestionKey: row.ingestionKey,
+    nextTicketNumber: row.nextTicketNumber,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -129,6 +138,11 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
               description: description ?? null,
               aiProviderId: aiProviderId ?? null,
               ...(docAutoUpdate !== undefined ? { docAutoUpdate } : {}),
+              // Chiave di ingestion del progetto per gli SDK (Fase 3): 32 hex,
+              // stesso generatore usato finora per i repository. UNIQUE: in caso
+              // di collisione (astronomicamente improbabile) l'insert rilancia e
+              // il giro dopo ne genera un'altra insieme allo slug.
+              ingestionKey: generateIngestionKey(),
             })
             .returning();
           if (!created) throw new Error("insert del progetto non ha restituito la riga");

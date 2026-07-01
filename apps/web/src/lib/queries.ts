@@ -211,8 +211,8 @@ export const projectsQueryOptions = queryOptions({
 /**
  * Lista dei repository, opzionalmente filtrata per progetto (gruppo). Chiave
  * ["repositories", projectId|null]: la lista globale e quella di un progetto
- * sono cache distinte. Usata dal selettore "repository bersaglio" del dialog
- * Nuovo ticket e dal dettaglio progetto.
+ * sono cache distinte. Usata dal dettaglio progetto per elencare i repository
+ * del gruppo.
  */
 export function repositoriesQueryOptions(projectId?: string) {
   return queryOptions({

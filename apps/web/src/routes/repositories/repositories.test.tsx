@@ -76,7 +76,6 @@ function makeRepo(overrides: Partial<Repository> = {}): Repository {
     provider: "github",
     repoUrl: "https://github.com/acme/demo-shop",
     defaultBranch: "main",
-    ingestionKey: "0123456789abcdef0123456789abcdef",
     gitAccountId: ACCOUNT.id,
     gitAccountName: ACCOUNT.name,
     webhookConfiguredAt: null,
@@ -149,7 +148,7 @@ describe("dettaglio repository", () => {
     });
   });
 
-  it("admin: webhook configurato mostra il banner e i link DSN/snippet", async () => {
+  it("admin: webhook configurato mostra il banner e il pannello webhook git (niente ingestion)", async () => {
     const repo = makeRepo({ webhookConfiguredAt: "2026-06-05T09:30:00.000Z" });
     mockApi({
       "GET /api/auth/me": meHandler("admin"),
@@ -168,8 +167,10 @@ describe("dettaglio repository", () => {
     expect(await screen.findByTestId("repository-configured-banner")).toHaveTextContent(
       "Repository configured correctly",
     );
-    await screen.findByText(repo.ingestionKey);
-    expect(screen.getByTestId("init-snippet")).toBeInTheDocument();
+    // Il webhook git (per-repo) è qui; l'ingestion NON più (salita al progetto).
+    expect(await screen.findByTestId("webhook-config")).toBeInTheDocument();
+    expect(screen.getByText("s3cr3t")).toBeInTheDocument();
+    expect(screen.queryByTestId("init-snippet")).not.toBeInTheDocument();
     // Link allo spazio Docs del repository.
     expect(screen.getByRole("link", { name: /open documentation/i })).toHaveAttribute(
       "href",
@@ -177,7 +178,7 @@ describe("dettaglio repository", () => {
     );
   });
 
-  it("member: sola lettura ma con chiave di ingestion e snippet visibili", async () => {
+  it("member: sola lettura, niente pannello webhook (admin-only) né ingestion sul repo", async () => {
     const repo = makeRepo();
     mockApi({
       "GET /api/auth/me": meHandler("member"),
@@ -186,10 +187,13 @@ describe("dettaglio repository", () => {
 
     renderApp("/repositories/demo-shop");
 
-    await screen.findByText(repo.ingestionKey);
+    // La config git in sola lettura conferma che il dettaglio è renderizzato.
+    await screen.findByText("https://github.com/acme/demo-shop");
     expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
-    expect(screen.getByTestId("init-snippet")).toBeInTheDocument();
+    // Ingestion e webhook non compaiono sul repo per il member.
+    expect(screen.queryByTestId("init-snippet")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("webhook-config")).not.toBeInTheDocument();
   });
 });
 

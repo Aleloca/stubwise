@@ -57,7 +57,7 @@ let memberCookie: string;
 async function seedProject(db: Db): Promise<string> {
   const [project] = await db
     .insert(projects)
-    .values({ name: "Progetto", slug: `progetto-${randomUUID()}` })
+    .values({ name: "Progetto", slug: `progetto-${randomUUID()}`, ingestionKey: randomUUID() })
     .returning();
   if (!project) throw new Error("insert del progetto non ha restituito la riga");
   return project.id;
@@ -84,7 +84,6 @@ async function seedRepoInProject(
       gitAccountId: account!.id,
       repoUrl: "https://example.com/repo.git",
       defaultBranch: "main",
-      ingestionKey: randomUUID(),
     })
     .returning();
   if (!repo) throw new Error("insert del repository non ha restituito la riga");

@@ -31,9 +31,9 @@ let projectId: string;
 type TicketRow = typeof tickets.$inferSelect;
 
 async function projectTickets(): Promise<TicketRow[]> {
-  // `projectId` qui è il repositoryId (la chiave d'ingestion è per-repo): i
-  // ticket SDK nascono col repository bersaglio valorizzato.
-  return testDb.db.select().from(tickets).where(eq(tickets.repositoryId, projectId));
+  // Dalla Fase 3 l'ingestion è a livello di PROGETTO: i ticket SDK nascono col
+  // solo projectId (niente repository bersaglio).
+  return testDb.db.select().from(tickets).where(eq(tickets.projectId, projectId));
 }
 
 beforeAll(async () => {
@@ -54,9 +54,13 @@ beforeAll(async () => {
     throw new Error(`creazione account git fallita: ${account.statusCode} ${account.body}`);
   }
   const gitAccountId = (account.json() as { id: string }).id;
+  // Dalla Fase 3 l'ingestion è a livello di PROGETTO: slug e chiave sono del
+  // progetto. Vi montiamo un repository per completezza del modello.
+  const projectSlug = `gruppo-${randomBytes(4).toString("hex")}`;
+  const ingestionKey = randomBytes(16).toString("hex");
   const [group] = await testDb.db
     .insert(projects)
-    .values({ name: "e2e — gruppo", slug: `gruppo-${randomBytes(4).toString("hex")}` })
+    .values({ name: "e2e — gruppo", slug: projectSlug, ingestionKey })
     .returning({ id: projects.id });
   const created = await app.inject({
     method: "POST",
@@ -72,7 +76,7 @@ beforeAll(async () => {
   if (created.statusCode !== 201) {
     throw new Error(`creazione repository fallita: ${created.statusCode} ${created.body}`);
   }
-  const project = created.json() as { id: string; slug: string; ingestionKey: string };
+  const project = { id: group!.id, slug: projectSlug, ingestionKey };
   projectId = project.id;
 
   // Server HTTP vero su porta effimera: l'SDK parla via rete, non via inject.

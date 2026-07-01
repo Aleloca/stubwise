@@ -1,6 +1,6 @@
-import { agentRuns, aiJobs, automationRules, comments, encrypt, gitAccounts, instanceSettings, projects, repositories, tickets, type Db } from "@stubwise/db";
+import { agentRuns, aiJobs, automationRules, comments, encrypt, gitAccounts, instanceSettings, projects, repositories, ticketRepositories, tickets, type Db } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
-import { eq } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { execa } from "execa";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
@@ -11,7 +11,7 @@ import { pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeAgentRunner } from "../agent/fake.js";
 import { AgentTimeoutError } from "../agent/runner.js";
-import { MirrorManager } from "../git/mirrors.js";
+import { MirrorManager, mirrorSlug } from "../git/mirrors.js";
 import { requeueStale, type AiJob } from "../queue.js";
 import { DEFAULT_FIX_ALLOWED_TOOLS, runFix, type FixDeps } from "./fix.js";
 import type { LoadedEnvFile } from "./env-files.js";
@@ -70,10 +70,13 @@ const SEED_COMMIT_ARGS = ["-c", "user.name=Seed", "-c", "user.email=seed@example
 
 interface Fixture {
   upstreamDir: string;
+  /** URL (file://) del repo, = repoUrl del repository; determina la sottocartella
+   * `mirrorSlug` del worktree in cui l'agente scrive il diff. */
+  repoUrl: string;
   mirrors: MirrorManager;
   /** Progetto (gruppo) a cui appartiene il repository del fix. */
   projectId: string;
-  /** Repository bersaglio del fix (repoUrl/branch/account vivono qui). */
+  /** Repository (unico) del progetto, dove il fix apre la PR. */
   repositoryId: string;
   gitAccountId: string;
 }
@@ -104,10 +107,11 @@ async function makeFixture(credentials: { token: string; username?: string } = {
     provider: "github",
     encryptedCredentials: encrypt(JSON.stringify(credentials), ENCRYPTION_KEY),
   });
-  // Progetto (gruppo) + repository: il fix lavora sul repository (repoUrl/branch).
+  // Progetto (gruppo) + repository: il fix (Fase 3) gira sull'intera cartella
+  // progetto; questo fixture ha UN repo → una PR, comportamento storico.
   const [project] = await testDb.db
     .insert(projects)
-    .values({ name: `Gruppo ${uniq}`, slug: `gruppo-fix-${uniq}` })
+    .values({ name: `Gruppo ${uniq}`, slug: `gruppo-fix-${uniq}`, ingestionKey: `ingestion-fix-${uniq}` })
     .returning();
   if (!project) throw new Error("insert del progetto non ha restituito la riga");
   const [repository] = await testDb.db
@@ -120,13 +124,13 @@ async function makeFixture(credentials: { token: string; username?: string } = {
       gitAccountId,
       repoUrl: pathToFileURL(upstreamDir).href,
       defaultBranch: "main",
-      ingestionKey: `ingestion-fix-${uniq}`,
     })
     .returning();
   if (!repository) throw new Error("insert del repository non ha restituito la riga");
 
   return {
     upstreamDir,
+    repoUrl: pathToFileURL(upstreamDir).href,
     mirrors: new MirrorManager({ mirrorsDir: join(root, "mirrors") }),
     projectId: project.id,
     repositoryId: repository.id,
@@ -138,14 +142,13 @@ type Ticket = typeof tickets.$inferSelect;
 
 async function createTicket(
   db: Db,
-  fixture: Pick<Fixture, "projectId" | "repositoryId">,
+  fixture: Pick<Fixture, "projectId">,
   overrides: Partial<typeof tickets.$inferInsert> = {},
 ): Promise<Ticket> {
   const [ticket] = await db
     .insert(tickets)
     .values({
       projectId: fixture.projectId,
-      repositoryId: fixture.repositoryId,
       number: 7,
       title: "sum restituisce la differenza",
       body: "Chiamando sum(2, 3) ottengo -1 invece di 5",
@@ -213,6 +216,30 @@ const REPORT = [
   "## Motivazione",
   "Fix minimale.",
 ].join("\n");
+
+/** Sottocartella del (singolo) repo del fixture dentro la cartella progetto: è
+ * `mirrorSlug(repoUrl)`, la stessa che withProjectWorktrees usa. L'agente gira su
+ * parentDir e scrive il diff DENTRO questa sottocartella; il report resta nella
+ * radice del progetto. */
+function repoDir(fixture: Pick<Fixture, "repoUrl">): string {
+  return mirrorSlug(fixture.repoUrl);
+}
+
+/** fileChanges standard del fix a 1 repo: il "diff" (app.js) nel worktree del repo
+ * (sottocartella mirrorSlug) e il report nella radice del progetto. Sostituisce il
+ * vecchio `{ "app.js": …, "STUBWISE_REPORT.md": REPORT }` ora che l'agente gira su
+ * parentDir e non più nel worktree del singolo repo. */
+function fixChanges(fixture: Pick<Fixture, "repoUrl">): Record<string, string> {
+  return {
+    [`${repoDir(fixture)}/app.js`]: "exports.sum = (a, b) => a + b;\n",
+    "STUBWISE_REPORT.md": REPORT,
+  };
+}
+
+/** Come fixChanges ma SENZA report (il caso "report mancante ma diff presente"). */
+function appOnlyChanges(fixture: Pick<Fixture, "repoUrl">): Record<string, string> {
+  return { [`${repoDir(fixture)}/app.js`]: "exports.sum = (a, b) => a + b;\n" };
+}
 
 describe("buildFixPrompt", () => {
   const baseTicket = {
@@ -513,7 +540,7 @@ describe("runFix", () => {
     const job = await createFixingJob(db, ticket.id);
     // Due fasi (default): plan produce un piano, execute scrive il diff+report.
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
       results: [
         {
           output: "PIANO: cambia il - in + in app.js, aggiungi test",
@@ -608,7 +635,7 @@ describe("runFix", () => {
     const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
       results: [
         { output: "PIANO: cambia il - in + in app.js", exitCode: 0 },
         { output: "ho corretto il bug", exitCode: 0 },
@@ -637,7 +664,7 @@ describe("runFix", () => {
     const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
       output: "fix monolitico",
     });
     const provider = makeProvider();
@@ -767,7 +794,7 @@ describe("runFix", () => {
     const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n" },
+      fileChanges: appOnlyChanges(fixture),
     });
     const provider = makeProvider();
 
@@ -789,7 +816,7 @@ describe("runFix", () => {
     const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n" },
+      fileChanges: appOnlyChanges(fixture),
       // Output malformato: l'agente ha creato il report come directory.
       script: async (opts) => {
         const dirReport = join(opts.cwd, "STUBWISE_REPORT.md");
@@ -819,7 +846,7 @@ describe("runFix", () => {
     const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
       output: "errore del CLI",
       exitCode: 2,
     });
@@ -864,7 +891,7 @@ describe("runFix", () => {
     const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
     });
     const provider: FakeProvider = {
       openPullRequest: vi.fn().mockRejectedValue(new Error("403 da GitHub")),
@@ -909,7 +936,7 @@ describe("runFix", () => {
         await new Promise((resolve) => setTimeout(resolve, 250));
         return { output: "ho corretto il bug", exitCode: 0 };
       },
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
     });
     const provider = makeProvider();
 
@@ -943,7 +970,7 @@ describe("runFix", () => {
     ]);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
       results: [
         { output: "PIANO", exitCode: 0 },
         { output: "fatto", exitCode: 0 },
@@ -998,7 +1025,7 @@ describe("runFix", () => {
     const job = await createFixingJob(db, ticket.id);
     // Se l'esecuzione partisse scriverebbe questi file: NON devono mai comparire.
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
       results: [
         {
           output: "PIANO PROPOSTO: cambia - in + in app.js",
@@ -1101,7 +1128,7 @@ describe("runFix", () => {
       .returning();
     if (!job) throw new Error("insert del job non ha restituito la riga");
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
       results: [
         {
           output: "ho applicato il piano approvato",
@@ -1144,7 +1171,7 @@ describe("runFix", () => {
     const ticket = await createTicket(db, fixture, { type: "bug", effort: 5 });
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
       results: [
         { output: "PIANO", exitCode: 0 },
         { output: "fatto", exitCode: 0 },
@@ -1180,7 +1207,7 @@ describe("runFix — self-repair (Task 5)", () => {
     // Due run dell'agente: plan + execute. La RIPARAZIONE è un terzo run
     // (execute-model). Il fake scrive app.js + report ad ogni run.
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
       results: [
         { output: "PIANO", exitCode: 0 },
         { output: "primo tentativo di fix", exitCode: 0 },
@@ -1235,7 +1262,7 @@ describe("runFix — self-repair (Task 5)", () => {
     const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
       // plan, execute, + riparazioni: ne bastano molti, il fake ricade sui fissi.
       output: "tentativo",
       exitCode: 0,
@@ -1277,7 +1304,7 @@ describe("runFix — self-repair (Task 5)", () => {
     const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
       results: [
         { output: "PIANO", exitCode: 0 },
         { output: "fatto", exitCode: 0 },
@@ -1311,7 +1338,7 @@ describe("runFix — self-repair (Task 5)", () => {
     const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
       results: [
         { output: "PIANO", exitCode: 0 },
         { output: "fatto", exitCode: 0 },
@@ -1381,7 +1408,7 @@ describe("runFix — self-repair (Task 5)", () => {
       .returning();
     if (!job) throw new Error("insert del job non ha restituito la riga");
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
       results: [
         { output: "esecuzione dal piano", exitCode: 0 },
         { output: "riparazione", exitCode: 0 },
@@ -1424,7 +1451,7 @@ describe("runFix — install delle dipendenze (Task 4)", () => {
     const job = await createFixingJob(db, ticket.id);
     const order: string[] = [];
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
       script: async () => {
         order.push("agent");
         return { output: "fatto", exitCode: 0 };
@@ -1474,7 +1501,7 @@ describe("runFix — install delle dipendenze (Task 4)", () => {
     if (!job) throw new Error("insert del job non ha restituito la riga");
     const order: string[] = [];
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
       script: async () => {
         order.push("agent");
         return { output: "fatto", exitCode: 0 };
@@ -1528,7 +1555,7 @@ describe("runFix — install delle dipendenze (Task 4)", () => {
     const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
       results: [
         { output: "PIANO", exitCode: 0 },
         { output: "fatto", exitCode: 0 },
@@ -1565,7 +1592,7 @@ describe("runFix — install delle dipendenze (Task 4)", () => {
     const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
       results: [
         { output: "PIANO", exitCode: 0 },
         { output: "fatto", exitCode: 0 },
@@ -1601,7 +1628,7 @@ describe("runFix — notifiche", () => {
     const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
     });
     const provider = makeProvider("https://github.com/acme/repo/pull/77");
     const calls: Dispatched[] = [];
@@ -1658,7 +1685,7 @@ describe("runFix — notifiche", () => {
     const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
     });
     const provider = makeProvider();
 
@@ -1727,7 +1754,7 @@ describe("runFix — budget di costo (Task 6)", () => {
     const ticket = await createTicket(db, fixture, { type: "bug" });
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
     });
     const provider = makeProvider();
     const calls: BudgetDispatched[] = [];
@@ -1777,7 +1804,7 @@ describe("runFix — budget di costo (Task 6)", () => {
     const ticket = await createTicket(db, fixture, { type: "bug" });
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
     });
     const provider = makeProvider();
     const calls: BudgetDispatched[] = [];
@@ -1824,7 +1851,7 @@ describe("runFix — budget di costo (Task 6)", () => {
       .returning();
     if (!manualJob) throw new Error("insert del job non ha restituito la riga");
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
       results: [
         { output: "PIANO", exitCode: 0 },
         { output: "fatto", exitCode: 0 },
@@ -1863,7 +1890,7 @@ describe("runFix — budget di costo (Task 6)", () => {
       models: [{ model: "sonnet", inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, costUsd: cost }],
     });
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
       results: [
         { output: "PIANO", exitCode: 0, usage: usage(0) }, // plan (0)
         { output: "execute", exitCode: 0, usage: usage(0.1) }, // execute (0.1)
@@ -1928,7 +1955,7 @@ describe("runFix — file d'ambiente per progetto (Task 5 wiring)", () => {
     const job = await createFixingJob(db, ticket.id);
     const order: string[] = [];
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
       script: async () => {
         order.push("agent");
         return { output: "fatto", exitCode: 0 };
@@ -1988,7 +2015,7 @@ describe("runFix — file d'ambiente per progetto (Task 5 wiring)", () => {
     const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
       results: [
         { output: "PIANO", exitCode: 0 },
         { output: "fix", exitCode: 0 },
@@ -2038,7 +2065,7 @@ describe("runFix — file d'ambiente per progetto (Task 5 wiring)", () => {
     const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
       results: [
         { output: "PIANO", exitCode: 0 },
         { output: "fix", exitCode: 0 },
@@ -2096,7 +2123,7 @@ describe("runFix — file d'ambiente per progetto (Task 5 wiring)", () => {
     const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
       results: [
         { output: "PIANO", exitCode: 0 },
         { output: "fix", exitCode: 0 },
@@ -2132,7 +2159,7 @@ describe("runFix — file d'ambiente per progetto (Task 5 wiring)", () => {
     const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
       results: [
         { output: "PIANO", exitCode: 0 },
         { output: "fix", exitCode: 0 },
@@ -2222,7 +2249,7 @@ describe("runFix — file d'ambiente per progetto (Task 5 wiring)", () => {
     const ticket = await createTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({
-      fileChanges: { "app.js": "exports.sum = (a, b) => a + b;\n", "STUBWISE_REPORT.md": REPORT },
+      fileChanges: fixChanges(fixture),
       results: [
         { output: "PIANO", exitCode: 0 },
         { output: "fix", exitCode: 0 },
@@ -2244,5 +2271,351 @@ describe("runFix — file d'ambiente per progetto (Task 5 wiring)", () => {
     const files = await git(["ls-tree", "-r", "--name-only", branch], fixture.upstreamDir);
     expect(files).toContain("app.js");
     expect(files).not.toContain("STUBWISE_REPORT.md");
+  });
+});
+
+/* ------------------------------------------------------------------------ *
+ * Fix MULTI-REPOSITORY (Fase 3): un progetto con N repo, l'agente gira sulla
+ * cartella progetto e apre UNA PR per ogni repo modificato.
+ * ------------------------------------------------------------------------ */
+
+interface MultiRepo {
+  repositoryId: string;
+  repoUrl: string;
+  upstreamDir: string;
+}
+
+interface MultiFixture {
+  mirrors: MirrorManager;
+  projectId: string;
+  repos: MultiRepo[];
+}
+
+/** Crea un progetto con N repo (upstream bare locali seedati), tutti nello stesso
+ * progetto. Il fix (Fase 3) monta tutti i repo sotto una cartella progetto. */
+async function makeMultiRepoFixture(repoCount: number): Promise<MultiFixture> {
+  const root = await mkdtemp(join(tmpdir(), "stubwise-multifix-test-"));
+  cleanups.push(() => rm(root, { recursive: true, force: true }));
+  uniq++;
+  const gitAccountId = await seedGitAccount(testDb.db, {
+    provider: "github",
+    encryptedCredentials: encrypt(JSON.stringify({ token: "tok" }), ENCRYPTION_KEY),
+  });
+  const [project] = await testDb.db
+    .insert(projects)
+    .values({ name: `Multi ${uniq}`, slug: `multi-${uniq}`, ingestionKey: `ingestion-multi-${uniq}` })
+    .returning();
+  if (!project) throw new Error("insert del progetto non ha restituito la riga");
+
+  const repos: MultiRepo[] = [];
+  for (let i = 0; i < repoCount; i++) {
+    const upstreamDir = join(root, `upstream-${i}.git`);
+    await execa("git", ["init", "--bare", "-b", "main", upstreamDir]);
+    const work = join(root, `seed-${i}`);
+    await execa("git", ["init", "-b", "main", work]);
+    await git(["remote", "add", "origin", upstreamDir], work);
+    await writeFile(join(work, "app.js"), "exports.sum = (a, b) => a - b;\n");
+    await git(["add", "."], work);
+    await git([...SEED_COMMIT_ARGS, "commit", "-m", "seed"], work);
+    await git(["push", "origin", "main"], work);
+    const repoUrl = pathToFileURL(upstreamDir).href;
+    const [repository] = await testDb.db
+      .insert(repositories)
+      .values({
+        projectId: project.id,
+        name: `Repo ${i}`,
+        slug: `multi-${uniq}-repo-${i}`,
+        provider: "github",
+        gitAccountId,
+        repoUrl,
+        defaultBranch: "main",
+      })
+      .returning();
+    if (!repository) throw new Error("insert del repository non ha restituito la riga");
+    repos.push({ repositoryId: repository.id, repoUrl, upstreamDir });
+  }
+  return { mirrors: new MirrorManager({ mirrorsDir: join(root, "mirrors") }), projectId: project.id, repos };
+}
+
+async function createMultiTicket(db: Db, projectId: string, number = 7): Promise<Ticket> {
+  const [ticket] = await db
+    .insert(tickets)
+    .values({
+      projectId,
+      number,
+      title: "feature che tocca più repo",
+      body: "Cambia la logica in uno o più repo del progetto",
+      type: "feature",
+      priority: "high",
+      source: "manual",
+    })
+    .returning();
+  if (!ticket) throw new Error("insert del ticket non ha restituito la riga");
+  return ticket;
+}
+
+function makeMultiDeps(
+  fixture: MultiFixture,
+  runner: FakeAgentRunner,
+  provider: FakeProvider,
+  overrides: Partial<FixDeps> = {},
+): FixDeps {
+  return {
+    db: testDb.db,
+    runner,
+    mirrors: fixture.mirrors,
+    encryptionKey: ENCRYPTION_KEY,
+    getProviderFn: () => provider as never,
+    ...overrides,
+  };
+}
+
+describe("runFix — multi-repository (Fase 3)", () => {
+  it("progetto a 1 repo: comportamento IDENTICO a oggi (una PR, una riga ticket_repositories)", async () => {
+    const { db } = testDb;
+    const fixture = await makeMultiRepoFixture(1);
+    const ticket = await createMultiTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    const repo = fixture.repos[0]!;
+    const runner = new FakeAgentRunner({
+      fileChanges: {
+        [`${mirrorSlug(repo.repoUrl)}/app.js`]: "exports.sum = (a, b) => a + b;\n",
+        "STUBWISE_REPORT.md": REPORT,
+      },
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "fix", exitCode: 0 },
+      ],
+    });
+    const provider = makeProvider("https://github.com/acme/r0/pull/1");
+
+    const outcome = await runFix(makeMultiDeps(fixture, runner, provider), job);
+
+    expect(outcome).toBe("pr_opened");
+    expect(provider.openPullRequest).toHaveBeenCalledTimes(1);
+    const rows = await db
+      .select()
+      .from(ticketRepositories)
+      .where(eq(ticketRepositories.ticketId, ticket.id));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.repositoryId).toBe(repo.repositoryId);
+    expect(rows[0]?.prState).toBe("open");
+    expect(rows[0]?.prUrl).toBe("https://github.com/acme/r0/pull/1");
+    expect(rows[0]?.branch).toBe(`stubwise/ticket-${ticket.number}`);
+    const [after] = await db.select().from(tickets).where(eq(tickets.id, ticket.id));
+    expect(after?.status).toBe("in_review");
+    // Il branch è davvero atterrato sull'upstream del repo.
+    const branch = `stubwise/ticket-${ticket.number}`;
+    expect(await git(["branch", "--list", branch], repo.upstreamDir)).toContain(branch);
+  });
+
+  it("progetto a 2 repo, l'agente modifica SOLO 1: una sola PR e una sola riga", async () => {
+    const { db } = testDb;
+    const fixture = await makeMultiRepoFixture(2);
+    const ticket = await createMultiTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    const [repoA, repoB] = fixture.repos as [MultiRepo, MultiRepo];
+    // L'agente tocca SOLO repoA (scrive nella sua sottocartella); repoB resta pulito.
+    const runner = new FakeAgentRunner({
+      fileChanges: {
+        [`${mirrorSlug(repoA.repoUrl)}/app.js`]: "exports.sum = (a, b) => a + b;\n",
+        "STUBWISE_REPORT.md": REPORT,
+      },
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "fix", exitCode: 0 },
+      ],
+    });
+    const provider = makeProvider("https://github.com/acme/rA/pull/1");
+
+    const outcome = await runFix(makeMultiDeps(fixture, runner, provider), job);
+
+    expect(outcome).toBe("pr_opened");
+    // Una sola PR: quella del repo modificato.
+    expect(provider.openPullRequest).toHaveBeenCalledTimes(1);
+    const rows = await db
+      .select()
+      .from(ticketRepositories)
+      .where(eq(ticketRepositories.ticketId, ticket.id));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.repositoryId).toBe(repoA.repositoryId);
+    // L'agente gira sulla RADICE del progetto: il cwd dell'execute è il parent dir,
+    // NON un worktree del singolo repo.
+    const branch = `stubwise/ticket-${ticket.number}`;
+    expect(await git(["branch", "--list", branch], repoA.upstreamDir)).toContain(branch);
+    // Nessun branch sul repo NON toccato.
+    expect(await git(["branch", "--list", branch], repoB.upstreamDir)).toBe("");
+  });
+
+  it("progetto a 2 repo, l'agente modifica ENTRAMBI: due PR e due righe ticket_repositories", async () => {
+    const { db } = testDb;
+    const fixture = await makeMultiRepoFixture(2);
+    const ticket = await createMultiTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    const [repoA, repoB] = fixture.repos as [MultiRepo, MultiRepo];
+    const runner = new FakeAgentRunner({
+      fileChanges: {
+        [`${mirrorSlug(repoA.repoUrl)}/app.js`]: "exports.sum = (a, b) => a + b;\n",
+        [`${mirrorSlug(repoB.repoUrl)}/app.js`]: "exports.mul = (a, b) => a * b;\n",
+        "STUBWISE_REPORT.md": REPORT,
+      },
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "fix", exitCode: 0 },
+      ],
+    });
+    // Provider finto che restituisce URL distinti per chiamata (una PR per repo).
+    let n = 0;
+    const provider: FakeProvider = {
+      openPullRequest: vi.fn().mockImplementation(async () => ({
+        url: `https://github.com/acme/pull/${++n}`,
+      })),
+    };
+
+    const outcome = await runFix(makeMultiDeps(fixture, runner, provider), job);
+
+    expect(outcome).toBe("pr_opened");
+    expect(provider.openPullRequest).toHaveBeenCalledTimes(2);
+    const rows = await db
+      .select()
+      .from(ticketRepositories)
+      .where(eq(ticketRepositories.ticketId, ticket.id))
+      .orderBy(asc(ticketRepositories.repositoryId));
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.prState === "open")).toBe(true);
+    expect(new Set(rows.map((r) => r.repositoryId))).toEqual(
+      new Set([repoA.repositoryId, repoB.repositoryId]),
+    );
+    const branch = `stubwise/ticket-${ticket.number}`;
+    expect(await git(["branch", "--list", branch], repoA.upstreamDir)).toContain(branch);
+    expect(await git(["branch", "--list", branch], repoB.upstreamDir)).toContain(branch);
+    const [after] = await db.select().from(tickets).where(eq(tickets.id, ticket.id));
+    expect(after?.status).toBe("in_review");
+  });
+
+  it("progetto a 2 repo, entrambi modificati, openPullRequest fallisce sul 2° → job failed, riga del 1° open, log azionabile", async () => {
+    const { db } = testDb;
+    const fixture = await makeMultiRepoFixture(2);
+    const ticket = await createMultiTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    const [repoA, repoB] = fixture.repos as [MultiRepo, MultiRepo];
+    // Entrambi i repo vengono modificati (una sottocartella ciascuno).
+    const runner = new FakeAgentRunner({
+      fileChanges: {
+        [`${mirrorSlug(repoA.repoUrl)}/app.js`]: "exports.sum = (a, b) => a + b;\n",
+        [`${mirrorSlug(repoB.repoUrl)}/app.js`]: "exports.mul = (a, b) => a * b;\n",
+        "STUBWISE_REPORT.md": REPORT,
+      },
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "fix", exitCode: 0 },
+      ],
+    });
+    // Il provider APRE la PR sulla 1ª chiamata (repoA, per slug) e LANCIA sulla 2ª (repoB).
+    let call = 0;
+    const firstPrUrl = "https://github.com/acme/rA/pull/1";
+    const provider: FakeProvider = {
+      openPullRequest: vi.fn().mockImplementation(async () => {
+        call++;
+        if (call === 1) return { url: firstPrUrl };
+        throw new Error("500 da GitHub sul 2° repo");
+      }),
+    };
+
+    const outcome = await runFix(makeMultiDeps(fixture, runner, provider), job);
+
+    // Fallimento parziale = terminale failed (i push sono già atterrati su entrambi).
+    expect(outcome).toBe("failed");
+    expect(provider.openPullRequest).toHaveBeenCalledTimes(2);
+
+    // Ordine di apertura = ordine dei repo (per slug): repoA prima, repoB dopo.
+    // La riga di repoA (PR aperta PRIMA del fallimento) è persistita a `open`;
+    // quella di repoB NON esiste (il fallimento precede l'insert).
+    const rows = await db
+      .select()
+      .from(ticketRepositories)
+      .where(eq(ticketRepositories.ticketId, ticket.id));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.repositoryId).toBe(repoA.repositoryId);
+    expect(rows[0]?.prState).toBe("open");
+    expect(rows[0]?.prUrl).toBe(firstPrUrl);
+    expect(rows[0]?.branch).toBe(`stubwise/ticket-${ticket.number}`);
+
+    // Log azionabile: nomina il repo/branch fallito, l'upstream, il recupero manuale
+    // E la PR già aperta sull'altro repo (per non riaprirla a mano).
+    const branch = `stubwise/ticket-${ticket.number}`;
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("failed");
+    expect(jobAfter.log).toContain(branch);
+    expect(jobAfter.log).toContain(repoB.repoUrl);
+    expect(jobAfter.log).toMatch(/recupero manuale/i);
+    expect(jobAfter.log).toMatch(/PR già aperte/i);
+    expect(jobAfter.log).toContain(firstPrUrl);
+    expect(jobAfter.error).toContain("500 da GitHub sul 2° repo");
+
+    // Il ticket NON transita a in_review (resta nello stato pre-fix).
+    const [after] = await db.select().from(tickets).where(eq(tickets.id, ticket.id));
+    expect(after?.status).not.toBe("in_review");
+    expect(after?.status).not.toBe("done");
+
+    // I branch sono comunque atterrati su ENTRAMBI gli upstream (il push precede la PR).
+    expect(await git(["branch", "--list", branch], repoA.upstreamDir)).toContain(branch);
+    expect(await git(["branch", "--list", branch], repoB.upstreamDir)).toContain(branch);
+  });
+
+  it("progetto a 2 repo, NESSUNA modifica → NoChangesError, niente PR né righe", async () => {
+    const { db } = testDb;
+    const fixture = await makeMultiRepoFixture(2);
+    const ticket = await createMultiTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    // L'agente scrive solo il report (nella radice del progetto): nessun repo cambia.
+    const runner = new FakeAgentRunner({
+      fileChanges: { "STUBWISE_REPORT.md": REPORT },
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "niente da fare", exitCode: 0 },
+      ],
+    });
+    const provider = makeProvider();
+
+    const outcome = await runFix(makeMultiDeps(fixture, runner, provider), job);
+
+    expect(outcome).toBe("failed");
+    expect(provider.openPullRequest).not.toHaveBeenCalled();
+    const rows = await db
+      .select()
+      .from(ticketRepositories)
+      .where(eq(ticketRepositories.ticketId, ticket.id));
+    expect(rows).toHaveLength(0);
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.error).toContain("nessuna modifica");
+  });
+
+  it("il prompt elenca i repo del progetto come sottocartelle (cornice multi-repo)", async () => {
+    const { db } = testDb;
+    const fixture = await makeMultiRepoFixture(2);
+    const ticket = await createMultiTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    const [repoA] = fixture.repos as [MultiRepo, MultiRepo];
+    const runner = new FakeAgentRunner({
+      fileChanges: {
+        [`${mirrorSlug(repoA.repoUrl)}/app.js`]: "exports.sum = (a, b) => a + b;\n",
+        "STUBWISE_REPORT.md": REPORT,
+      },
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "fix", exitCode: 0 },
+      ],
+    });
+    const provider = makeProvider();
+
+    await runFix(makeMultiDeps(fixture, runner, provider), job);
+
+    // Il prompt di piano (opus) e di esecuzione (sonnet) citano le sottocartelle.
+    const planPrompt = runner.calls[0]?.prompt ?? "";
+    expect(planPrompt).toMatch(/one subdirectory per repository/i);
+    for (const repo of fixture.repos) {
+      expect(planPrompt).toContain(`./${mirrorSlug(repo.repoUrl)}/`);
+    }
   });
 });

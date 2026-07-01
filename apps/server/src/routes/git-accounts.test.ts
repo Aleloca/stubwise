@@ -245,7 +245,11 @@ describe("DELETE /api/git-accounts/:id", () => {
     const id = (created.json() as { id: string }).id;
     const [project] = await testDb.db
       .insert(projects)
-      .values({ name: "Progetto Collegato", slug: `gruppo-${randomBytes(4).toString("hex")}` })
+      .values({
+        name: "Progetto Collegato",
+        slug: `gruppo-${randomBytes(4).toString("hex")}`,
+        ingestionKey: randomBytes(16).toString("hex"),
+      })
       .returning({ id: projects.id });
     await testDb.db.insert(repositories).values({
       projectId: project!.id,
@@ -255,7 +259,6 @@ describe("DELETE /api/git-accounts/:id", () => {
       gitAccountId: id,
       repoUrl: "https://github.com/acme/collegato",
       defaultBranch: "main",
-      ingestionKey: randomBytes(16).toString("hex"),
       webhookSecret: randomBytes(16).toString("hex"),
     });
     const res = await app.inject({

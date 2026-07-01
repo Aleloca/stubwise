@@ -17,7 +17,7 @@ function pgErrorCode(error: unknown): string | undefined {
 }
 
 // Un container Postgres per file di test: l'avvio costa secondi, i singoli
-// test si isolano usando repository distinti.
+// test si isolano usando progetti distinti.
 let testDb: TestDb;
 
 beforeAll(async () => {
@@ -29,19 +29,19 @@ afterAll(async () => {
 });
 
 describe("schema: tickets", () => {
-  it("assegna numeri sequenziali per-repository (1, poi 2)", async () => {
+  it("assegna numeri sequenziali per-progetto (1, poi 2)", async () => {
     const { db } = testDb;
-    const { repositoryId } = await seedRepository(db);
+    const { projectId } = await seedRepository(db);
 
     const first = await createTicket(db, {
-      repositoryId,
+      projectId,
       title: "Primo ticket",
       type: "bug",
       priority: "high",
       source: "manual",
     });
     const second = await createTicket(db, {
-      repositoryId,
+      projectId,
       title: "Secondo ticket",
       type: "feature",
       priority: "low",
@@ -52,20 +52,20 @@ describe("schema: tickets", () => {
     expect(second.number).toBe(2);
   });
 
-  it("il contatore è indipendente tra repository", async () => {
+  it("il contatore è indipendente tra progetti", async () => {
     const { db } = testDb;
     const a = await seedRepository(db);
     const b = await seedRepository(db);
 
     const ticketA = await createTicket(db, {
-      repositoryId: a.repositoryId,
+      projectId: a.projectId,
       title: "Ticket A",
       type: "task",
       priority: "medium",
       source: "manual",
     });
     const ticketB = await createTicket(db, {
-      repositoryId: b.repositoryId,
+      projectId: b.projectId,
       title: "Ticket B",
       type: "task",
       priority: "medium",
@@ -76,30 +76,31 @@ describe("schema: tickets", () => {
     expect(ticketB.number).toBe(1);
   });
 
-  it("deriva il progetto dal repository bersaglio", async () => {
+  it("il ticket appartiene al progetto indicato (senza repository bersaglio)", async () => {
     const { db } = testDb;
-    const { projectId, repositoryId } = await seedRepository(db);
+    const { projectId } = await seedRepository(db);
 
     const ticket = await createTicket(db, {
-      repositoryId,
-      title: "Ticket con progetto derivato",
+      projectId,
+      title: "Ticket di progetto",
       type: "bug",
       priority: "medium",
       source: "manual",
     });
 
     expect(ticket.projectId).toBe(projectId);
-    expect(ticket.repositoryId).toBe(repositoryId);
+    // Dalla Fase 3 il ticket non ha più un repository bersaglio.
+    expect(ticket).not.toHaveProperty("repositoryId");
   });
 
   it("5 createTicket concorrenti producono i numeri 1..5 senza duplicati", async () => {
     const { db } = testDb;
-    const { repositoryId } = await seedRepository(db);
+    const { projectId } = await seedRepository(db);
 
     const created = await Promise.all(
       Array.from({ length: 5 }, (_, i) =>
         createTicket(db, {
-          repositoryId,
+          projectId,
           title: `Ticket concorrente ${i}`,
           type: "bug",
           priority: "urgent",
@@ -112,11 +113,11 @@ describe("schema: tickets", () => {
     expect(numbers).toEqual([1, 2, 3, 4, 5]);
   });
 
-  it("rifiuta la creazione di un ticket su un repository inesistente", async () => {
+  it("rifiuta la creazione di un ticket su un progetto inesistente", async () => {
     const { db } = testDb;
     await expect(
       createTicket(db, {
-        repositoryId: "00000000-0000-0000-0000-000000000000",
+        projectId: "00000000-0000-0000-0000-000000000000",
         title: "Orfano",
         type: "bug",
         priority: "low",
@@ -127,11 +128,11 @@ describe("schema: tickets", () => {
 });
 
 describe("schema: errorGroups", () => {
-  it("rifiuta due gruppi con la stessa (repositoryId, fingerprint) con violazione unique (23505)", async () => {
+  it("rifiuta due gruppi con la stessa (projectId, fingerprint) con violazione unique (23505)", async () => {
     const { db } = testDb;
-    const { repositoryId } = await seedRepository(db);
+    const { projectId } = await seedRepository(db);
     const ticket = await createTicket(db, {
-      repositoryId,
+      projectId,
       title: "Errore raggruppato",
       type: "bug",
       priority: "high",
@@ -139,13 +140,13 @@ describe("schema: errorGroups", () => {
     });
 
     await db.insert(errorGroups).values({
-      repositoryId,
+      projectId,
       fingerprint: "abc123",
       ticketId: ticket.id,
     });
 
     const otherTicket = await createTicket(db, {
-      repositoryId,
+      projectId,
       title: "Altro ticket",
       type: "bug",
       priority: "high",
@@ -155,7 +156,7 @@ describe("schema: errorGroups", () => {
     let caught: unknown;
     try {
       await db.insert(errorGroups).values({
-        repositoryId,
+        projectId,
         fingerprint: "abc123",
         ticketId: otherTicket.id,
       });

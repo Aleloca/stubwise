@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { repositories } from "@stubwise/db";
+import { projects } from "@stubwise/db";
 import { processEvents } from "../ingest/processor.js";
 import { keysMatch, publicUrlOrUndefined } from "../ingest/shared.js";
 import { errorSchema } from "./shared.js";
@@ -65,24 +65,26 @@ export async function ingestRoutes(
       preValidation: async (request, reply) => {
         const provided = request.headers["x-stubwise-key"];
         const { slug } = request.params as { slug: string };
-        const [repository] = await app.db
+        // Dalla Fase 3 l'ingestion è a livello di PROGETTO: lo slug identifica
+        // il progetto e la ingestionKey è quella del progetto.
+        const [project] = await app.db
           .select({
-            id: repositories.id,
-            name: repositories.name,
-            ingestionKey: repositories.ingestionKey,
+            id: projects.id,
+            name: projects.name,
+            ingestionKey: projects.ingestionKey,
           })
-          .from(repositories)
-          .where(eq(repositories.slug, slug));
+          .from(projects)
+          .where(eq(projects.slug, slug));
         // Ramo unico di rifiuto: header assente, slug sconosciuto e chiave
         // errata sono indistinguibili dal client.
         if (
           typeof provided !== "string" ||
-          !repository ||
-          !keysMatch(provided, repository.ingestionKey)
+          !project ||
+          !keysMatch(provided, project.ingestionKey)
         ) {
           return apiError(reply, 401, "invalid_ingestion_key", "Invalid ingestion key");
         }
-        request.ingestProject = { id: repository.id, name: repository.name };
+        request.ingestProject = { id: project.id, name: project.name };
       },
       schemaErrorFormatter: (errors, dataVar) => {
         const error = new Error(

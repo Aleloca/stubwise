@@ -3,7 +3,7 @@ import { getRouteApi, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ProviderBadge } from "../../components/badges";
-import { IntegrationPanel } from "../../components/integration-panel";
+import { WebhookConfigPanel } from "../../components/webhook-config-panel";
 import { ProjectEnvFilesSection } from "../../components/project-env-files-section";
 import { RepositoryForm } from "../../components/repository-form";
 import { patchRepository, type RepositoryPatch } from "../../lib/api";
@@ -157,15 +157,20 @@ export function RepositoryDetailPage() {
           )}
         </div>
 
-        <div className="min-w-0">
-          <IntegrationPanel
-            ingestionKey={repository.ingestionKey}
-            slug={repository.slug}
-            webhook={isAdmin ? webhook : undefined}
-            webhookConfiguredAt={isAdmin ? repository.webhookConfiguredAt : undefined}
-            onWebhookConfigured={handleWebhookConfigured}
-          />
-        </div>
+        {/*
+          Webhook git (PR-merged) del repository: solo admin. L'ingestion NON è
+          più qui (salita al progetto, Fase 3): il repo eredita quella del gruppo.
+        */}
+        {isAdmin && webhook && (
+          <div className="min-w-0">
+            <WebhookConfigPanel
+              slug={repository.slug}
+              webhook={webhook}
+              webhookConfiguredAt={repository.webhookConfiguredAt}
+              onWebhookConfigured={handleWebhookConfigured}
+            />
+          </div>
+        )}
       </div>
 
       {/*

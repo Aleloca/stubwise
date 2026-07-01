@@ -120,7 +120,10 @@
     },
     "row": {
       "occurrences": "Deduplicated occurrences",
-      "repository": "Target repository"
+      "repositoryCount": "{{count}} repository touched by the fix",
+      "repositoryCount_other": "{{count}} repositories touched by the fix",
+      "repositoryCountBadge": "{{count}} repo",
+      "repositoryCountBadge_other": "{{count}} repos"
     },
     "editor": {
       "bold": "Bold",
@@ -144,9 +147,7 @@
       "descriptionPlaceholder": "Markdown supported…",
       "cancel": "Cancel",
       "submit": "Create ticket",
-      "submitPending": "Creating…",
-      "repository": "Target repository",
-      "noRepositories": "This project has no repositories: add one from the project detail."
+      "submitPending": "Creating…"
     },
     "detail": {
       "back": "← All tickets",
@@ -178,6 +179,11 @@
       "updatedAt": "Updated",
       "lastSeenAt": "Last seen",
       "occurrencesMeta": "Occurrences"
+    },
+    "repositories": {
+      "title": "Repository / PR",
+      "empty": "// no PR yet — the fix hasn't run yet",
+      "viewPr": "View PR ↗"
     },
     "timeline": {
       "empty": "// no AI activity for this ticket",
@@ -651,6 +657,11 @@
       "4": "Large",
       "5": "Very large"
     },
+    "prState": {
+      "open": "PR open",
+      "merged": "PR merged",
+      "closed_unmerged": "PR closed"
+    },
     "priorityTitle": "Priority: {{label}}",
     "sourceTitle": "Source: {{label}}"
   },
@@ -681,7 +692,7 @@
       "repositories": "Repositories",
       "addRepository": "+ Add repository",
       "noRepositories": "// no repositories",
-      "noRepositoriesHintAdmin": "Add the first repository to get an ingestion key.",
+      "noRepositoriesHintAdmin": "Add the first repository so the AI can fix tickets on it.",
       "noRepositoriesHintMember": "Ask an administrator to link a repository.",
       "dangerZone": "Danger zone",
       "deleteProject": "Delete project",
@@ -778,7 +789,7 @@
     "new": {
       "back": "← Back to project",
       "title": "Add a repository",
-      "subtitle": "Choose a git account, the repository and the branch: slug and ingestion key are generated on creation."
+      "subtitle": "Choose a git account, the repository and the branch: the slug is generated on creation; the ingestion key lives on the project."
     }
   },
   "integration": {

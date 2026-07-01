@@ -58,6 +58,8 @@ function listItem(overrides: Partial<ProjectListItem> = {}): ProjectListItem {
     description: null,
     aiProviderId: null,
     docAutoUpdate: false,
+    ingestionKey: "0123456789abcdef0123456789abcdef",
+    nextTicketNumber: 1,
     repositoryCount: 2,
     createdAt: "2026-06-01T10:00:00.000Z",
     ...overrides,
@@ -72,6 +74,8 @@ function detail(overrides: Partial<ProjectDetail> = {}): ProjectDetail {
     description: null,
     aiProviderId: null,
     docAutoUpdate: false,
+    ingestionKey: "0123456789abcdef0123456789abcdef",
+    nextTicketNumber: 1,
     repositories: [
       { id: "r1", name: "acme-api", slug: "acme-api", provider: "github" },
       { id: "r2", name: "acme-web", slug: "acme-web", provider: "bitbucket" },
@@ -196,6 +200,35 @@ describe("dettaglio progetto (gruppo)", () => {
       "href",
       `/projects/${PROJECT_ID}/repositories/new`,
     );
+  });
+
+  it("mostra la sezione Integrazione col la chiave di ingestion del progetto e lo snippet", async () => {
+    mockApi({
+      "GET /api/auth/me": meHandler("admin"),
+      [`GET /api/projects/${PROJECT_ID}`]: () => jsonResponse(200, detail()),
+      "GET /api/milestones": () => jsonResponse(200, []),
+    });
+
+    renderApp(`/projects/${PROJECT_ID}`);
+
+    // La chiave di ingestion, salita dal repo al progetto (Fase 3), è mostrata qui.
+    expect(await screen.findByText("0123456789abcdef0123456789abcdef")).toBeInTheDocument();
+    const snippet = screen.getByTestId("init-snippet");
+    expect(snippet.textContent).toContain('from "@stubwise/sdk/browser"');
+    // Il DSN usa lo slug di PROGETTO (…/p/<projectSlug>).
+    expect(snippet.textContent).toContain("/p/acme-platform");
+  });
+
+  it("member: vede comunque la chiave di ingestion del progetto (integrare non richiede admin)", async () => {
+    mockApi({
+      "GET /api/auth/me": meHandler("member"),
+      [`GET /api/projects/${PROJECT_ID}`]: () => jsonResponse(200, detail()),
+      "GET /api/milestones": () => jsonResponse(200, []),
+    });
+
+    renderApp(`/projects/${PROJECT_ID}`);
+
+    expect(await screen.findByText("0123456789abcdef0123456789abcdef")).toBeInTheDocument();
   });
 
   it("admin: salvataggio del provider invia il PATCH al gruppo", async () => {

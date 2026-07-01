@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { aiJobs, comments, ticketEvents, ticketLinks, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedRepository, startTestDb } from "@stubwise/db/testing";
+import { seedRepository, seedTicketRepository, startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
 import { seedUsers } from "../test/fixtures.js";
 
@@ -37,10 +37,10 @@ afterAll(async () => {
 });
 
 /**
- * Mappa progetto (gruppo) → repository bersaglio di default, popolata da
- * {@link createProject}: i ticket sono product-level (`projectId` = gruppo) ma
- * in Fase 1 richiedono sempre un `repositoryId` bersaglio, che postTicket
- * inietta automaticamente dal progetto se il body non lo specifica.
+ * Mappa progetto (gruppo) → repository di default, popolata da
+ * {@link createProject}. Dalla Fase 3 i ticket NON hanno più un repository
+ * bersaglio (sono product-level puri), ma le milestone lo richiedono ancora:
+ * questa mappa serve ai payload di milestone dei test.
  */
 const repoForProject = new Map<string, string>();
 
@@ -56,13 +56,8 @@ async function createProject(): Promise<string> {
 }
 
 function postTicket(payload: Record<string, unknown>, cookie = users.memberCookie) {
-  // Inietta il repository bersaglio di default del progetto se il test non ne
-  // passa uno esplicito (la maggior parte dei test non si cura del repo).
-  const withRepo =
-    payload.repositoryId === undefined && typeof payload.projectId === "string"
-      ? { ...payload, repositoryId: repoForProject.get(payload.projectId) }
-      : payload;
-  return app.inject({ method: "POST", url: "/api/tickets", headers: { cookie }, payload: withRepo });
+  // Dalla Fase 3 il POST ticket è a livello di progetto: nessun repositoryId.
+  return app.inject({ method: "POST", url: "/api/tickets", headers: { cookie }, payload });
 }
 
 function listTickets(query: Record<string, string>, cookie = users.memberCookie) {
@@ -77,7 +72,6 @@ function listTickets(query: Record<string, string>, cookie = users.memberCookie)
 interface TicketBody {
   id: string;
   projectId: string;
-  repositoryId: string | null;
   number: number;
   title: string;
   body: string;
@@ -94,6 +88,15 @@ interface TicketBody {
   lastSeenAt: string;
   createdAt: string;
   updatedAt: string;
+  // Presente solo nel dettaglio (GET /:id): stato PR per-repo (Fase 3).
+  repositories: {
+    repositoryId: string;
+    repositorySlug: string;
+    repositoryName?: string;
+    branch: string;
+    prUrl: string | null;
+    prState: string;
+  }[];
 }
 
 interface ListBody {
@@ -113,7 +116,6 @@ describe("POST /api/tickets", () => {
     expect(body).toEqual({
       id: expect.any(String),
       projectId,
-      repositoryId: repoForProject.get(projectId),
       number: 1,
       title: "Login rotto su Safari",
       body: "",
@@ -176,36 +178,19 @@ describe("POST /api/tickets", () => {
     expect(body.assigneeId).toBe(users.memberId);
   });
 
-  it("repository non appartenente al progetto (o progetto inesistente): 400", async () => {
-    // repositoryId valido ma di un ALTRO progetto → non appartiene → 400.
-    const foreignRepo = repoForProject.get(otherProjectId)!;
+  it("progetto inesistente: 404 (il numero è per-progetto, Fase 3)", async () => {
     const res = await postTicket({
-      projectId,
-      repositoryId: foreignRepo,
-      title: "Repo di un altro progetto",
-      type: "bug",
-    });
-    expect(res.statusCode).toBe(400);
-
-    // Progetto inesistente con un repository qualsiasi → il repo non appartiene
-    // a quel progetto → 400.
-    const res2 = await postTicket({
       projectId: randomUUID(),
-      repositoryId: repoForProject.get(projectId),
       title: "Orfano",
       type: "bug",
     });
-    expect(res2.statusCode).toBe(400);
+    expect(res.statusCode).toBe(404);
   });
 
-  it("repositoryId mancante: 400 (in Fase 1 è obbligatorio)", async () => {
-    const res = await app.inject({
-      method: "POST",
-      url: "/api/tickets",
-      headers: { cookie: users.memberCookie },
-      payload: { projectId, title: "Senza repo", type: "bug" },
-    });
-    expect(res.statusCode).toBe(400);
+  it("il ticket non ha più un repositoryId nella risposta (Fase 3)", async () => {
+    const res = await postTicket({ projectId, title: "Senza repo bersaglio", type: "bug" });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).not.toHaveProperty("repositoryId");
   });
 
   it("assigneeId che non corrisponde a nessun utente: 400", async () => {
@@ -597,6 +582,37 @@ describe("GET /api/tickets/:id", () => {
     const body = res.json() as TicketBody;
     expect(body.id).toBe(id);
     expect(body.title).toBe("Da rileggere");
+    // Prima dell'esecuzione dell'agente lo stato per-repo è vuoto.
+    expect(body.repositories).toEqual([]);
+  });
+
+  it("espone lo stato PR per-repo dalle righe ticket_repositories (Fase 3)", async () => {
+    const created = await postTicket({ projectId, title: "Con PR per-repo", type: "task" });
+    const id = (created.json() as TicketBody).id;
+    const repositoryId = repoForProject.get(projectId)!;
+    await seedTicketRepository(testDb.db, {
+      ticketId: id,
+      repositoryId,
+      branch: "stubwise/ticket-42",
+      prUrl: "https://github.com/acme/repo/pull/42",
+      prState: "open",
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/tickets/${id}`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as TicketBody;
+    expect(body.repositories).toHaveLength(1);
+    expect(body.repositories[0]).toMatchObject({
+      repositoryId,
+      repositorySlug: expect.any(String),
+      branch: "stubwise/ticket-42",
+      prUrl: "https://github.com/acme/repo/pull/42",
+      prState: "open",
+    });
   });
 
   it("espone milestoneId: null di default, l'id della milestone dopo l'assegnazione", async () => {

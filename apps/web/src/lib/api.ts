@@ -1,11 +1,14 @@
 import type {
   GitProviderKind,
   Language,
+  PrState,
   TicketPriority,
   TicketSource,
   TicketStatus,
   TicketType,
 } from "@stubwise/shared";
+
+export type { PrState } from "@stubwise/shared";
 
 /**
  * Wrapper fetch tipizzato per l'API di Stubwise.
@@ -191,15 +194,33 @@ export function postRegister(registration: Registration): Promise<{ user: Public
 
 // --- Tickets ---
 
-export interface Ticket {
+/**
+ * Stato per-repo di un ticket (Fase 3, fix multi-repo): una voce per ogni
+ * repository effettivamente modificato dal fix (riga `ticket_repositories`),
+ * con il branch, la PR aperta (se già aperta) e il suo stato. Esposto solo nel
+ * DETTAGLIO del ticket; vuoto finché il fix non è stato eseguito.
+ */
+export interface TicketRepository {
+  repositoryId: string;
+  repositorySlug: string;
+  /** Nome del repository (comodità di UI); slug e id sono sempre presenti. */
+  repositoryName?: string;
+  branch: string;
+  /** URL della PR aperta dal fix; null finché non è stata aperta. */
+  prUrl: string | null;
+  prState: PrState;
+}
+
+/**
+ * Campi base di un ticket, comuni a tutte le risposte (POST/PATCH li
+ * restituiscono così com'è; lista e dettaglio li estendono con lo stato repo).
+ * Il ticket appartiene al solo PROGETTO (Fase 3): non c'è più un repository
+ * bersaglio, l'AI sceglie i repo da toccare in fase di fix.
+ */
+export interface TicketBase {
   id: string;
   /** Progetto (gruppo) a cui il ticket appartiene. */
   projectId: string;
-  /**
-   * Repository bersaglio del fix; null per ticket senza repo (Fase 3). In Fase 1
-   * è sempre valorizzato.
-   */
-  repositoryId: string | null;
   number: number;
   title: string;
   body: string;
@@ -220,6 +241,24 @@ export interface Ticket {
   updatedAt: string;
 }
 
+/**
+ * Ticket nel DETTAGLIO (getTicket): oltre ai campi base, lo stato per-repo
+ * (`repositories`). Una voce per ogni repository modificato dal fix; vuoto
+ * finché il fix non è stato eseguito.
+ */
+export interface Ticket extends TicketBase {
+  repositories: TicketRepository[];
+}
+
+/**
+ * Ticket nella LISTA/BOARD: i campi base più il solo CONTEGGIO dei repo toccati
+ * (`repositoryCount`), per il badge di board/lista senza caricare lo stato PR
+ * completo.
+ */
+export interface TicketListItem extends TicketBase {
+  repositoryCount: number;
+}
+
 /** Filtri della lista ticket: combaciano con i search param di /tickets. */
 export interface TicketFilters {
   projectId?: string;
@@ -231,7 +270,7 @@ export interface TicketFilters {
 }
 
 export interface TicketPage {
-  items: Ticket[];
+  items: TicketListItem[];
   nextCursor: string | null;
 }
 
@@ -268,26 +307,25 @@ export function getTicket(id: string): Promise<Ticket> {
   return api.get(`/api/tickets/${id}`);
 }
 
-export function patchTicket(id: string, patch: TicketPatch): Promise<Ticket> {
+export function patchTicket(id: string, patch: TicketPatch): Promise<TicketBase> {
   return api.patch(`/api/tickets/${id}`, patch);
 }
 
-/** Creazione manuale di un ticket dalla UI (source "manual" lato server). */
+/**
+ * Creazione manuale di un ticket dalla UI (source "manual" lato server). Il
+ * ticket appartiene al solo PROGETTO: nessun repository bersaglio (Fase 3),
+ * l'AI sceglie i repo da toccare in fase di fix.
+ */
 export interface TicketDraft {
   /** Progetto (gruppo) a cui il ticket appartiene. */
   projectId: string;
-  /**
-   * Repository bersaglio del fix: in Fase 1 obbligatorio e deve appartenere al
-   * progetto indicato (il server risponde 400 altrimenti).
-   */
-  repositoryId: string;
   title: string;
   body?: string;
   type: TicketType;
   priority: TicketPriority;
 }
 
-export function postTicket(draft: TicketDraft): Promise<Ticket> {
+export function postTicket(draft: TicketDraft): Promise<TicketBase> {
   return api.post("/api/tickets", draft);
 }
 
@@ -786,8 +824,10 @@ export function updateUserRole(userId: string, role: "admin" | "member"): Promis
 /**
  * Proiezione pubblica di un REPOSITORY: un singolo repo git. Appartiene a
  * esattamente un progetto-gruppo (`projectId`). Porta tutto ciò che è specifico
- * del repo git/ingest/webhook/docs. Le impostazioni di prodotto (provider AI,
- * auto-update docs) NON ne fanno più parte: sono salite al {@link Project} (gruppo).
+ * del repo git/webhook/docs. La chiave di ingestion NON ne fa più parte: è
+ * salita al {@link Project} (gruppo) in Fase 3 — il repo eredita l'ingestion del
+ * progetto. Anche le impostazioni di prodotto (provider AI, auto-update docs)
+ * sono sul {@link Project}.
  */
 export interface Repository {
   id: string;
@@ -798,7 +838,6 @@ export interface Repository {
   provider: GitProviderKind;
   repoUrl: string;
   defaultBranch: string;
-  ingestionKey: string;
   /** Account git che fornisce le credenziali del repository. */
   gitAccountId: string;
   /** Nome dell'account git collegato (per la UI). */
@@ -904,6 +943,14 @@ export interface Project {
   aiProviderId: string | null;
   /** Se true, ogni push sul branch di default di un repo rigenera i suoi Docs. */
   docAutoUpdate: boolean;
+  /**
+   * Chiave di ingestion del progetto (Fase 3): gli SDK e i webhook inbound la
+   * usano per autenticare l'invio di errori/ticket. Salita dal repository al
+   * progetto; tutti i repo del gruppo condividono questa chiave.
+   */
+  ingestionKey: string;
+  /** Prossimo numero di ticket del progetto (numerazione per-progetto). */
+  nextTicketNumber: number;
   createdAt: string;
 }
 

@@ -63,37 +63,39 @@ const ACTIVE_STATUSES = ["triaging", "fixing"] as const;
  * worker concorrenti non possono mai prendere lo stesso job, chi trova la
  * riga già lockata passa alla successiva (o riceve null se la coda è vuota).
  *
- * MUTUA ESCLUSIONE FIX↔GENERAZIONE (M7): `excludeRepositoryIds` esclude dal claim i
- * fix-job dei repository con una GENERAZIONE di documentazione attiva (worktree
- * aperto). Un fix farebbe `ensureMirror → fetch --prune` nel mirror condiviso del
- * repository, cancellando il ref `stubwise/*` checked-out del worktree di generazione
- * (limite documentato in mirrors.ts). La subquery joina ai_jobs→tickets per il
- * repository bersaglio (`tickets.repository_id`) e salta i job di quei repository; gli
- * ALTRI fix (repository senza generazione attiva, anche dello stesso progetto) restano
- * reclamabili nel loro ordine. Insieme vuoto (default) = nessuna esclusione,
- * comportamento storico. La generazione resta comunque la priorità BASSA (fix-first):
- * questa esclusione tocca solo i repository con un worktree aperto.
+ * MUTUA ESCLUSIONE FIX↔GENERAZIONE (M7, per-PROGETTO in Fase 3): `excludeProjectIds`
+ * esclude dal claim i fix-job dei PROGETTI con una GENERAZIONE di documentazione attiva
+ * (worktree aperto su un loro repo). Un fix di progetto apre un worktree su TUTTI i repo
+ * del progetto (`withProjectWorktrees`); se una generazione ha un worktree aperto su uno
+ * di quei repo, l'ensureMirror del fix farebbe `fetch --prune` nel mirror condiviso di
+ * quel repo, cancellando il ref `stubwise/*` checked-out del worktree di generazione
+ * (limite documentato in mirrors.ts). La subquery filtra i job per `tickets.project_id`
+ * (il ticket è product-level in Fase 3, non ha più `repository_id`) e salta i job di quei
+ * progetti; gli ALTRI fix (progetti senza generazione attiva) restano reclamabili nel
+ * loro ordine. Insieme vuoto (default) = nessuna esclusione, comportamento storico. La
+ * generazione resta comunque la priorità BASSA (fix-first): questa esclusione tocca solo
+ * i progetti con un worktree aperto.
  */
 export async function claimNextJob(
   db: Db,
-  excludeRepositoryIds: string[] = [],
+  excludeProjectIds: string[] = [],
 ): Promise<AiJob | null> {
-  // Subquery del claim: il job queued più vecchio, opzionalmente escludendo i repository
-  // con una generazione attiva (join a tickets per il repository bersaglio). La lista di
+  // Subquery del claim: il job queued più vecchio, opzionalmente escludendo i progetti
+  // con una generazione attiva (join a tickets per il progetto del ticket). La lista di
   // esclusione è interpolata come tupla `(v1, v2, …)` per il NOT IN (drizzle param-binda
   // ciascun valore, niente SQL injection).
   const excludeTuple = sql.join(
-    excludeRepositoryIds.map((id) => sql`${id}`),
+    excludeProjectIds.map((id) => sql`${id}`),
     sql`, `,
   );
   const subquery =
-    excludeRepositoryIds.length === 0
+    excludeProjectIds.length === 0
       ? sql`(SELECT id FROM ai_jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED)`
       : sql`(
           SELECT j.id FROM ai_jobs j
           JOIN tickets t ON t.id = j.ticket_id
           WHERE j.status = 'queued'
-            AND t.repository_id NOT IN (${excludeTuple})
+            AND t.project_id NOT IN (${excludeTuple})
           ORDER BY j.created_at LIMIT 1 FOR UPDATE OF j SKIP LOCKED
         )`;
   const [job] = await db
@@ -344,8 +346,8 @@ export interface RunWorkerOptions {
    * Riceve il doc-job già reclamato (`running`); l'orientamento semina il DAG e
    * lascia il trigger `running` (lo chiude la finalizzazione), oppure lo fallisce.
    * Se lancia, il job è marcato `failed` via docHandlerOnError. DEVE condividere la
-   * catena per-repository con `handler` (vedi createRepositorySerializer in handler.ts)
-   * perché orientamento e fix dello stesso repository non si sovrappongano sul mirror.
+   * catena per-progetto con `handler` (vedi createProjectSerializer in handler.ts)
+   * perché orientamento e fix dello stesso progetto non si sovrappongano sul mirror.
    */
   docHandler?: (job: DocJob) => Promise<void>;
   /** Marca il doc-job `failed` se docHandler lancia (vedi failDocJobOnError). */
@@ -362,12 +364,13 @@ export interface RunWorkerOptions {
    */
   dispatchNode?: (track: (work: Promise<void>) => void) => Promise<boolean>;
   /**
-   * Insieme dei repositoryId con una GENERAZIONE attiva (worktree aperto). Il loop NON
-   * reclama fix-job di quei repository (mutua esclusione col mirror, M7): un fix farebbe
-   * `fetch --prune` cancellando il ref checked-out del worktree di generazione. Di
-   * default vuoto (nessuna esclusione). Vedi registry.activeRepositoryIds.
+   * Insieme dei PROJECT id con una GENERAZIONE attiva (worktree aperto su un loro repo).
+   * Il loop NON reclama fix-job di quei progetti (mutua esclusione col mirror, M7,
+   * per-progetto in Fase 3): un fix di progetto apre un worktree su TUTTI i suoi repo, e
+   * un `fetch --prune` cancellerebbe il ref checked-out del worktree di generazione su uno
+   * di essi. Di default vuoto (nessuna esclusione). Vedi registry.activeProjectIds.
    */
-  activeGenerationRepositoryIds?: () => Set<string>;
+  activeGenerationProjectIds?: () => Set<string>;
   /** Job in lavorazione contemporanea (default 2). */
   concurrency?: number;
   /** Intervallo di poll della coda quando non c'è niente da fare (default 3s). */
@@ -451,7 +454,7 @@ export async function runWorker(options: RunWorkerOptions): Promise<void> {
     docHandler,
     docHandlerOnError,
     dispatchNode,
-    activeGenerationRepositoryIds,
+    activeGenerationProjectIds,
     concurrency = 2,
     pollMs = 3000,
     signal,
@@ -495,11 +498,12 @@ export async function runWorker(options: RunWorkerOptions): Promise<void> {
         // bug, che restano la priorità del worker. Single-process: niente slot
         // dedicato, si condivide il budget di concorrenza. Politica loggata in index.ts.
         //
-        // MUTUA ESCLUSIONE FIX↔GENERAZIONE (M7): i fix dei repository con una
-        // generazione attiva (worktree aperto) sono ESCLUSI dal claim — un fix farebbe
-        // `fetch --prune` cancellando il ref checked-out del worktree (vedi claimNextJob
-        // e registry.activeRepositoryIds). Gli altri fix restano reclamabili.
-        const excluded = activeGenerationRepositoryIds ? [...activeGenerationRepositoryIds()] : [];
+        // MUTUA ESCLUSIONE FIX↔GENERAZIONE (M7, per-PROGETTO in Fase 3): i fix dei
+        // PROGETTI con una generazione attiva (worktree aperto su un loro repo) sono
+        // ESCLUSI dal claim — un fix di progetto apre un worktree su TUTTI i suoi repo e un
+        // `fetch --prune` cancellerebbe il ref checked-out del worktree (vedi claimNextJob
+        // e registry.activeProjectIds). Gli altri fix restano reclamabili.
+        const excluded = activeGenerationProjectIds ? [...activeGenerationProjectIds()] : [];
         let claimedFix = false;
         while (inFlight.size < concurrency && !signal?.aborted) {
           const job = await claim(db, excluded);

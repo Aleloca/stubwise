@@ -41,7 +41,7 @@ import { FakeAgentRunner } from "../../agent/fake.js";
 import type { AgentRunOptions, AgentRunResult } from "../../agent/runner.js";
 import { MirrorManager } from "../../git/mirrors.js";
 import { createDocHandler, failDocJobOnError } from "../handler.js";
-import { createRepositorySerializer } from "../../handler.js";
+import { createProjectSerializer } from "../../handler.js";
 import { runWorker } from "../../queue.js";
 import { dispatchNode } from "./node-dispatch.js";
 import { createGenerationWorktreeRegistry } from "./registry.js";
@@ -127,6 +127,7 @@ async function createRepository(
     .values({
       name: `Gruppo ${uniq}`,
       slug: `gruppo-${uniq}`,
+      ingestionKey: `ingestion-dispatch-${uniq}`,
       ...(opts.aiProviderId !== undefined ? { aiProviderId: opts.aiProviderId } : {}),
     })
     .returning();
@@ -141,11 +142,20 @@ async function createRepository(
       gitAccountId,
       repoUrl,
       defaultBranch: "main",
-      ingestionKey: `ingestion-dispatch-${uniq}`,
     })
     .returning();
   if (!repository) throw new Error("insert del repository non ha restituito la riga");
   return repository.id;
+}
+
+/** Progetto del repository (per registry.register, che ora vuole anche il projectId). */
+async function projectIdOf(db: Db, repositoryId: string): Promise<string> {
+  const [repo] = await db
+    .select({ projectId: repositories.projectId })
+    .from(repositories)
+    .where(eq(repositories.id, repositoryId));
+  if (!repo) throw new Error(`repository ${repositoryId} non trovato`);
+  return repo.projectId;
 }
 
 async function enqueueTrigger(
@@ -279,7 +289,7 @@ describe("dispatch del DAG (M7.1)", () => {
     const runner = scriptedRunner();
     const embeddingClient = createFakeEmbeddingClient();
     const registry = createGenerationWorktreeRegistry();
-    const serializer = createRepositorySerializer();
+    const serializer = createProjectSerializer();
 
     const docHandler = createDocHandler(
       {
@@ -323,7 +333,7 @@ describe("dispatch del DAG (M7.1)", () => {
       docHandler,
       docHandlerOnError: failDocJobOnError,
       dispatchNode: dispatchNodeFn,
-      activeGenerationRepositoryIds: () => registry.activeRepositoryIds(),
+      activeGenerationProjectIds: () => registry.activeProjectIds(),
       concurrency: 2,
       pollMs: 50,
       requeueEveryMs: 1_000_000, // niente requeue durante il test
@@ -490,7 +500,7 @@ describe("provider bloccato (project.aiProviderId)", () => {
 
     const runner = scriptedRunner();
     const registry = createGenerationWorktreeRegistry();
-    const serializer = createRepositorySerializer();
+    const serializer = createProjectSerializer();
     const pinnedForId: ResolvedProvider = { ...PINNED, id: providerId };
 
     let byIdArgs: { id: string } | null = null;
@@ -550,7 +560,7 @@ describe("provider bloccato (project.aiProviderId)", () => {
 
     const runner = scriptedRunner();
     const registry = createGenerationWorktreeRegistry();
-    const serializer = createRepositorySerializer();
+    const serializer = createProjectSerializer();
 
     let chainCalled = false;
     const docHandler = createDocHandler(
@@ -609,7 +619,7 @@ describe("provider bloccato (project.aiProviderId)", () => {
 
     const runner = scriptedRunner();
     const registry = createGenerationWorktreeRegistry();
-    const serializer = createRepositorySerializer();
+    const serializer = createProjectSerializer();
     const chainProvider: ResolvedProvider = {
       id: "11111111-1111-1111-1111-111111111111",
       kind: "api_key",
@@ -688,7 +698,7 @@ describe("provider bloccato (project.aiProviderId)", () => {
     // Worktree fittizio registrato (il nodo legge solo, una dir basta).
     const fakeDir = await mkdtemp(join(tmpdir(), "stubwise-pin-wt-"));
     cleanups.push(() => rm(fakeDir, { recursive: true, force: true }));
-    registry.register(gen!.id, repositoryId, {
+    registry.register(gen!.id, repositoryId, await projectIdOf(db, repositoryId), {
       dir: fakeDir,
       commitSha: "0".repeat(40),
       close: async () => {},
@@ -762,7 +772,7 @@ describe("provider bloccato (project.aiProviderId)", () => {
     const registry = createGenerationWorktreeRegistry();
     const fakeDir = await mkdtemp(join(tmpdir(), "stubwise-pin-wt-"));
     cleanups.push(() => rm(fakeDir, { recursive: true, force: true }));
-    registry.register(gen!.id, repositoryId, {
+    registry.register(gen!.id, repositoryId, await projectIdOf(db, repositoryId), {
       dir: fakeDir,
       commitSha: "0".repeat(40),
       close: async () => {},
@@ -837,7 +847,7 @@ describe("provider bloccato (project.aiProviderId)", () => {
     const registry = createGenerationWorktreeRegistry();
     const fakeDir = await mkdtemp(join(tmpdir(), "stubwise-nopin-wt-"));
     cleanups.push(() => rm(fakeDir, { recursive: true, force: true }));
-    registry.register(gen!.id, repositoryId, {
+    registry.register(gen!.id, repositoryId, await projectIdOf(db, repositoryId), {
       dir: fakeDir,
       commitSha: "0".repeat(40),
       close: async () => {},

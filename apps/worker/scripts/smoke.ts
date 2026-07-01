@@ -398,6 +398,7 @@ async function runLocal(keep: boolean): Promise<number> {
       .values({
         name: "Smoke Group",
         slug: `smoke-group-${Date.now()}`,
+        ingestionKey: `smoke-ingestion-${Date.now()}`,
       })
       .returning();
     if (!project) throw new Error("insert del progetto non ha restituito la riga");
@@ -411,7 +412,6 @@ async function runLocal(keep: boolean): Promise<number> {
         gitAccountId: account.id,
         repoUrl: origin.url,
         defaultBranch: "main",
-        ingestionKey: `smoke-ingestion-${Date.now()}`,
       })
       .returning();
     if (!repository) throw new Error("insert del repository non ha restituito la riga");
@@ -422,7 +422,6 @@ async function runLocal(keep: boolean): Promise<number> {
       .insert(tickets)
       .values({
         projectId: project.id,
-        repositoryId: repository.id,
         number: 1,
         title: "slugify perde il primo carattere del titolo",
         body:
@@ -588,32 +587,31 @@ async function runRemote(keep: boolean): Promise<number> {
       const [existing] = await db
         .select()
         .from(tickets)
-        .where(and(eq(tickets.repositoryId, repository.id), eq(tickets.number, wantedNumber)));
+        .where(and(eq(tickets.projectId, repository.projectId), eq(tickets.number, wantedNumber)));
       if (!existing) {
-        console.error(`[smoke] ticket #${wantedNumber} non trovato nel repository.`);
+        console.error(`[smoke] ticket #${wantedNumber} non trovato nel progetto.`);
         return 2;
       }
       ticketId = existing.id;
       ticketNumber = existing.number;
       log(`uso il ticket esistente #${ticketNumber}: ${existing.title}`);
     } else {
-      // Numero ticket sequenziale per-repository, in transazione (come il server).
+      // Numero ticket sequenziale per-PROGETTO (Fase 3), in transazione (come il server).
       const created = await db.transaction(async (tx) => {
         const [r] = await tx
-          .select({ next: repositories.nextTicketNumber })
-          .from(repositories)
-          .where(eq(repositories.id, repository.id))
+          .select({ next: projects.nextTicketNumber })
+          .from(projects)
+          .where(eq(projects.id, repository.projectId))
           .for("update");
         const number = r?.next ?? 1;
         await tx
-          .update(repositories)
+          .update(projects)
           .set({ nextTicketNumber: number + 1 })
-          .where(eq(repositories.id, repository.id));
+          .where(eq(projects.id, repository.projectId));
         const [t] = await tx
           .insert(tickets)
           .values({
             projectId: repository.projectId,
-            repositoryId: repository.id,
             number,
             title: process.env.SMOKE_TICKET_TITLE ?? "Smoke test: ticket di prova della pipeline",
             body:

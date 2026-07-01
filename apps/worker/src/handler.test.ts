@@ -18,11 +18,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { randomUUID } from "node:crypto";
 import { FakeAgentRunner } from "./agent/fake.js";
 import type { AgentRunOptions } from "./agent/runner.js";
-import { MirrorManager } from "./git/mirrors.js";
+import { MirrorManager, mirrorSlug } from "./git/mirrors.js";
 import { createHandler } from "./handler.js";
 import { claimNextJob, type AiJob } from "./queue.js";
+
+/**
+ * Scrive il "diff" del fix nel worktree del repo `repoUrl` (sottocartella
+ * `mirrorSlug` di parentDir, dove ora gira l'agente) e il report nella RADICE del
+ * progetto (parentDir). Riproduce ciò che l'agente reale fa quando modifica un
+ * singolo repo del progetto: il worker committa+pusha SOLO i repo con un diff.
+ */
+async function writeFixDiff(cwd: string, repoUrl: string, report: string): Promise<void> {
+  await writeFile(join(cwd, mirrorSlug(repoUrl), "app.js"), "exports.sum = (a, b) => a + b;\n");
+  await writeFile(join(cwd, "STUBWISE_REPORT.md"), report);
+}
 
 // E2E del wiring: job `queued` reclamato → handler → triage (decisione fix)
 // → fase di fix con push e PR finta. Più i test della serializzazione
@@ -109,6 +121,7 @@ async function createRepository(
       .values({
         name: `Gruppo ${uniq}`,
         slug: `gruppo-${uniq}`,
+        ingestionKey: `ingestion-gruppo-${uniq}-${randomUUID()}`,
         ...(opts.aiProviderId !== undefined ? { aiProviderId: opts.aiProviderId } : {}),
       })
       .returning();
@@ -125,7 +138,6 @@ async function createRepository(
       gitAccountId,
       repoUrl,
       defaultBranch: "main",
-      ingestionKey: `ingestion-handler-${uniq}`,
     })
     .returning();
   if (!repository) throw new Error("insert del repository non ha restituito la riga");
@@ -143,7 +155,6 @@ async function createQueuedJob(
     .insert(tickets)
     .values({
       projectId: ref.projectId,
-      repositoryId: ref.repositoryId,
       number,
       title,
       type: "bug",
@@ -183,8 +194,7 @@ describe("createHandler", () => {
           return { output: `{"decision":"fix","type":"bug","effort":3}`, exitCode: 0 };
         }
         // Fase di fix: scrive il "diff" e il report nel worktree.
-        await writeFile(join(opts.cwd, "app.js"), "exports.sum = (a, b) => a + b;\n");
-        await writeFile(join(opts.cwd, "STUBWISE_REPORT.md"), REPORT);
+        await writeFixDiff(opts.cwd, upstream.url, REPORT);
         return { output: "fix applicato", exitCode: 0 };
       },
     });
@@ -256,8 +266,7 @@ describe("createHandler", () => {
         if (opts.model === "haiku") {
           return { output: `{"decision":"fix","type":"bug","effort":3}`, exitCode: 0 };
         }
-        await writeFile(join(opts.cwd, "app.js"), "exports.sum = (a, b) => a + b;\n");
-        await writeFile(join(opts.cwd, "STUBWISE_REPORT.md"), REPORT);
+        await writeFixDiff(opts.cwd, upstream.url, REPORT);
         return { output: "fix applicato", exitCode: 0 };
       },
     });
@@ -327,7 +336,7 @@ describe("createHandler", () => {
     expect(jobAfter?.status).toBe("failed");
   });
 
-  it("serializza i job dello STESSO repository: il secondo parte solo dopo la fine del primo", async () => {
+  it("serializza i job dello STESSO progetto: il secondo parte solo dopo la fine del primo", async () => {
     const { db } = testDb;
     const mirrors = await makeMirrors();
     const repo = await createRepository(db, "https://github.com/acme/seriale");
@@ -363,7 +372,7 @@ describe("createHandler", () => {
     expect(second.start).toBeGreaterThanOrEqual(first.end);
   });
 
-  it("NON serializza job di repository DIVERSI: le esecuzioni si sovrappongono", async () => {
+  it("NON serializza job di PROGETTI DIVERSI: le esecuzioni si sovrappongono", async () => {
     const { db } = testDb;
     const mirrors = await makeMirrors();
     const repoA = await createRepository(db, "https://github.com/acme/parallelo-a");
@@ -398,20 +407,19 @@ describe("createHandler", () => {
     expect(second.start).toBeLessThan(first.end);
   });
 
-  it("NON serializza due repository dello STESSO progetto: si sovrappongono (chiave = repository)", async () => {
+  it("SERIALIZZA due ticket dello STESSO progetto (chiave = progetto, Fase 3)", async () => {
     const { db } = testDb;
     const mirrors = await makeMirrors();
-    // Due repository DIVERSI dentro lo STESSO progetto (gruppo): la serializzazione
-    // è per repository (il mirror è del repo), quindi questi due possono procedere
-    // in parallelo nonostante condividano il progetto.
+    // Due ticket DELLO STESSO progetto (gruppo), anche se il progetto ha più repo:
+    // la serializzazione è per PROGETTO (un fix di progetto tiene worktree su TUTTI
+    // i suoi repo), quindi i due fix NON si sovrappongono.
     const repoA = await createRepository(db, "https://github.com/acme/gruppo-a");
-    const repoB = await createRepository(db, "https://github.com/acme/gruppo-b", {
+    await createRepository(db, "https://github.com/acme/gruppo-b", {
       projectId: repoA.projectId,
     });
-    expect(repoB.projectId).toBe(repoA.projectId);
-    await createQueuedJob(db, repoA, "job repo A", 1);
+    await createQueuedJob(db, repoA, "primo ticket del progetto", 1);
     // Stesso progetto → numerazione ticket per-progetto: il secondo ticket ha numero 2.
-    await createQueuedJob(db, repoB, "job repo B", 2);
+    await createQueuedJob(db, repoA, "secondo ticket del progetto", 2);
 
     const windows: Array<{ start: number; end: number }> = [];
     const runner = new FakeAgentRunner({
@@ -420,7 +428,7 @@ describe("createHandler", () => {
         await sleep(300);
         windows.push({ start, end: Date.now() });
         return {
-          output: `{"decision":"skip","type":"bug","effort":1,"reason":"test di parallelismo intra-progetto"}`,
+          output: `{"decision":"skip","type":"bug","effort":1,"reason":"test di serializzazione per-progetto"}`,
           exitCode: 0,
         };
       },
@@ -436,8 +444,8 @@ describe("createHandler", () => {
       (typeof windows)[number],
       (typeof windows)[number],
     ];
-    // Sovrapposizione: la chiave del serializer è il repository, non il progetto.
-    expect(second.start).toBeLessThan(first.end);
+    // Nessuna sovrapposizione: il secondo inizia dopo la fine del primo (chiave = progetto).
+    expect(second.start).toBeGreaterThanOrEqual(first.end);
   });
 
   it("seleziona la PRIMA credenziale della catena, la passa al runner e registra provider_id", async () => {
@@ -520,8 +528,7 @@ describe("createHandler", () => {
         if (opts.model === "haiku") {
           return { output: `{"decision":"fix","type":"bug","effort":3}`, exitCode: 0 };
         }
-        await writeFile(join(opts.cwd, "app.js"), "exports.sum = (a, b) => a + b;\n");
-        await writeFile(join(opts.cwd, "STUBWISE_REPORT.md"), REPORT);
+        await writeFixDiff(opts.cwd, upstream.url, REPORT);
         return { output: "fix applicato", exitCode: 0 };
       },
     });
@@ -696,8 +703,7 @@ describe("createHandler", () => {
         if (opts.model === "haiku") {
           return { output: `{"decision":"fix","type":"bug","effort":3}`, exitCode: 0 };
         }
-        await writeFile(join(opts.cwd, "app.js"), "exports.sum = (a, b) => a + b;\n");
-        await writeFile(join(opts.cwd, "STUBWISE_REPORT.md"), REPORT);
+        await writeFixDiff(opts.cwd, upstream.url, REPORT);
         return { output: "fix applicato", exitCode: 0 };
       },
     });

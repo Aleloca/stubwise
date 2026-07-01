@@ -35,23 +35,13 @@ afterAll(async () => {
 });
 
 /**
- * Ogni test lavora su un repository fresco: isolamento senza truncate.
- * processEvents risolve un repository (ex "progetto"): qui passiamo il
- * repositoryId come `{ id }`.
+ * Ogni test lavora su un progetto fresco: isolamento senza truncate.
+ * Dalla Fase 3 processEvents risolve un PROGETTO: qui passiamo il projectId
+ * come `{ id }`.
  */
 async function createProject(): Promise<{ id: string }> {
-  const { repositoryId } = await seedRepository(testDb.db);
-  return { id: repositoryId };
-}
-
-/**
- * Variante di {@link createProject} che espone anche il `projectId` (gruppo) del
- * repository: serve ai test che verificano che il ticket auto-generato erediti il
- * progetto del repository (derivato, non passato dall'ingestion).
- */
-async function createRepositoryWithProject(): Promise<{ id: string; projectId: string }> {
-  const { repositoryId, projectId } = await seedRepository(testDb.db);
-  return { id: repositoryId, projectId };
+  const { projectId } = await seedRepository(testDb.db);
+  return { id: projectId };
 }
 
 function errorEvent(overrides: Partial<ErrorEvent> = {}): ErrorEvent {
@@ -73,12 +63,12 @@ function errorEvent(overrides: Partial<ErrorEvent> = {}): ErrorEvent {
   };
 }
 
-async function projectTickets(repositoryId: string) {
-  return testDb.db.select().from(tickets).where(eq(tickets.repositoryId, repositoryId));
+async function projectTickets(projectId: string) {
+  return testDb.db.select().from(tickets).where(eq(tickets.projectId, projectId));
 }
 
-async function projectGroups(repositoryId: string) {
-  return testDb.db.select().from(errorGroups).where(eq(errorGroups.repositoryId, repositoryId));
+async function projectGroups(projectId: string) {
+  return testDb.db.select().from(errorGroups).where(eq(errorGroups.projectId, projectId));
 }
 
 async function ticketJobs(ticketId: string) {
@@ -120,22 +110,21 @@ describe("processEvents — eventi errore", () => {
     expect(jobs[0]!.status).toBe("queued");
   });
 
-  it("il ticket auto-generato e l'errorGroup sono scopati al repository, col progetto derivato dal repo", async () => {
-    const repo = await createRepositoryWithProject();
-    await processEvents(testDb.db, { id: repo.id }, [errorEvent()]);
+  it("il ticket auto-generato e l'errorGroup sono scopati al PROGETTO (Fase 3)", async () => {
+    const project = await createProject();
+    await processEvents(testDb.db, project, [errorEvent()]);
 
-    const rows = await projectTickets(repo.id);
+    const rows = await projectTickets(project.id);
     expect(rows).toHaveLength(1);
     const ticket = rows[0]!;
-    // repositoryId = il repo dell'ingestionKey; projectId = il progetto (gruppo)
-    // del repo, derivato in createTicket senza che l'ingestion lo passi.
-    expect(ticket.repositoryId).toBe(repo.id);
-    expect(ticket.projectId).toBe(repo.projectId);
+    // Il ticket appartiene solo al progetto: niente repository bersaglio.
+    expect(ticket.projectId).toBe(project.id);
+    expect(ticket).not.toHaveProperty("repositoryId");
 
-    // L'errorGroup è del repository (non del progetto/gruppo).
-    const groups = await projectGroups(repo.id);
+    // L'errorGroup è del progetto (Fase 3: ingestion di prodotto).
+    const groups = await projectGroups(project.id);
     expect(groups).toHaveLength(1);
-    expect(groups[0]!.repositoryId).toBe(repo.id);
+    expect(groups[0]!.projectId).toBe(project.id);
     expect(groups[0]!.ticketId).toBe(ticket.id);
   });
 
@@ -185,6 +174,24 @@ describe("processEvents — eventi errore", () => {
     expect(result).toEqual({ created: 1, deduped: 0 });
     expect(await projectTickets(project.id)).toHaveLength(2);
     expect(await projectGroups(project.id)).toHaveLength(2);
+  });
+
+  it("lo stesso fingerprint su PROGETTI diversi crea gruppi e ticket distinti (dedup per progetto)", async () => {
+    const projectA = await createProject();
+    const projectB = await createProject();
+    const resA = await processEvents(testDb.db, projectA, [errorEvent()]);
+    const resB = await processEvents(testDb.db, projectB, [errorEvent()]);
+    // Stesso errore, ma progetti diversi → due ticket nuovi (nessun dedup
+    // cross-progetto).
+    expect(resA).toEqual({ created: 1, deduped: 0 });
+    expect(resB).toEqual({ created: 1, deduped: 0 });
+
+    const groupsA = await projectGroups(projectA.id);
+    const groupsB = await projectGroups(projectB.id);
+    expect(groupsA).toHaveLength(1);
+    expect(groupsB).toHaveLength(1);
+    // Gruppi distinti, ognuno legato al ticket del proprio progetto.
+    expect(groupsA[0]!.ticketId).not.toBe(groupsB[0]!.ticketId);
   });
 
   it("senza errorType il titolo usa il fallback Error", async () => {

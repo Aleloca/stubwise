@@ -112,6 +112,9 @@ async function hasRunningGeneration(db: Db, repositoryId: string): Promise<boole
 /** Contesto di generazione: repository + MirrorProject pronti, riga generation creata. */
 interface GenerationContext {
   repositoryId: string;
+  /** Progetto (gruppo) del repository: usato per la mutua esclusione fix↔generazione
+   * per-progetto (registry.activeProjectIds). */
+  projectId: string;
   mirrorProject: MirrorProject;
   generationId: string;
   trigger: DocGenerationTrigger;
@@ -195,6 +198,7 @@ async function loadGenerationContext(
 
   return {
     repositoryId: project.id,
+    projectId: project.projectId,
     mirrorProject,
     generationId: generation.id,
     trigger: job.trigger,
@@ -491,8 +495,9 @@ export async function runOrientation(
 
     // Il worktree resta APERTO: i job-nodo del DAG lo riusano (read-only). Lo
     // REGISTRO nel registro in-processo (M7) così il dispatch ne ricava la `dir` per
-    // explore/synthesize e ne traccia la mutua esclusione col fix (activeRepositoryIds).
-    deps.registry?.register(ctx.generationId, ctx.repositoryId, worktree);
+    // explore/synthesize e ne traccia la mutua esclusione col fix (activeRepositoryIds per
+    // la guardia nuova-generazione; activeProjectIds per l'esclusione dei fix di progetto).
+    deps.registry?.register(ctx.generationId, ctx.repositoryId, ctx.projectId, worktree);
 
     // TRIGGER `succeeded` ORA (C2): seminato il DAG, il compito del trigger è finito.
     // La vita della generazione (running → succeeded/failed) vive su `doc_generations`,

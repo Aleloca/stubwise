@@ -17,18 +17,17 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { ticketStatusSchema, type TicketStatus } from "@stubwise/shared";
-import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { PriorityBadge, STATUS_DOT, STATUS_LABEL_KEYS, TypeBadge } from "../components/badges";
-import { patchTicket, type Ticket } from "../lib/api";
+import { patchTicket, type TicketListItem } from "../lib/api";
 import {
   BOARD_TICKETS_LIMIT,
   boardTicketsQueryOptions,
   projectsQueryOptions,
-  repositoriesQueryOptions,
   ticketKeys,
 } from "../lib/queries";
 
@@ -72,8 +71,8 @@ export function useMoveTicket(projectId?: string) {
       // Un refetch in volo risolverebbe DOPO il setQueryData ottimistico,
       // sovrascrivendolo con dati stantii: prima si cancella.
       await queryClient.cancelQueries({ queryKey: boardKey });
-      const previous = queryClient.getQueryData<Ticket[]>(boardKey);
-      queryClient.setQueryData<Ticket[]>(boardKey, (tickets) =>
+      const previous = queryClient.getQueryData<TicketListItem[]>(boardKey);
+      queryClient.setQueryData<TicketListItem[]>(boardKey, (tickets) =>
         tickets?.map((ticket) =>
           ticket.id === ticketId ? { ...ticket, status: toStatus } : ticket,
         ),
@@ -102,7 +101,7 @@ export function useMoveTicket(projectId?: string) {
   const { mutate } = mutation;
   const moveTicket = useCallback(
     (ticketId: string, toStatus: TicketStatus) => {
-      const tickets = queryClient.getQueryData<Ticket[]>(boardKey);
+      const tickets = queryClient.getQueryData<TicketListItem[]>(boardKey);
       const ticket = tickets?.find((candidate) => candidate.id === ticketId);
       // Rilascio nella colonna di partenza (o ticket sparito): nessuna PATCH.
       if (!ticket || ticket.status === toStatus) return;
@@ -132,10 +131,6 @@ export function BoardPage() {
 
   const { data: projects } = useSuspenseQuery(projectsQueryOptions);
   const { data: tickets } = useSuspenseQuery(boardTicketsQueryOptions(search.projectId));
-  // Repository per il badge del bersaglio sulle card. Non-suspense: assente →
-  // nessun badge (degradazione innocua).
-  const { data: repositories } = useQuery(repositoriesQueryOptions());
-  const repositoryNames = new Map((repositories ?? []).map((repo) => [repo.id, repo.name]));
   const { moveTicket, isError, error, reset } = useMoveTicket(search.projectId);
 
   // PointerSensor (mouse) — distanza di attivazione 8px: sotto è un click (apre
@@ -162,7 +157,7 @@ export function BoardPage() {
     }),
   );
 
-  const byStatus = new Map<TicketStatus, Ticket[]>(
+  const byStatus = new Map<TicketStatus, TicketListItem[]>(
     BOARD_STATUSES.map((status) => [status, []]),
   );
   for (const ticket of tickets) byStatus.get(ticket.status)?.push(ticket);
@@ -246,7 +241,6 @@ export function BoardPage() {
               key={status}
               status={status}
               tickets={byStatus.get(status) ?? []}
-              repositoryNames={repositoryNames}
               onOpen={openTicket}
             />
           ))}
@@ -258,13 +252,11 @@ export function BoardPage() {
 
 interface BoardColumnProps {
   status: TicketStatus;
-  tickets: Ticket[];
-  /** Mappa repositoryId → nome, per il badge del bersaglio sulle card. */
-  repositoryNames: Map<string, string>;
+  tickets: TicketListItem[];
   onOpen: (id: string) => void;
 }
 
-function BoardColumn({ status, tickets, repositoryNames, onOpen }: BoardColumnProps) {
+function BoardColumn({ status, tickets, onOpen }: BoardColumnProps) {
   const { t } = useTranslation();
   const { setNodeRef, isOver } = useDroppable({ id: status });
 
@@ -295,14 +287,7 @@ function BoardColumn({ status, tickets, repositoryNames, onOpen }: BoardColumnPr
       >
         <ul className="flex min-h-16 flex-1 flex-col gap-2 overflow-y-auto p-2">
           {tickets.map((ticket) => (
-            <BoardCard
-              key={ticket.id}
-              ticket={ticket}
-              repositoryName={
-                ticket.repositoryId ? (repositoryNames.get(ticket.repositoryId) ?? null) : null
-              }
-              onOpen={() => onOpen(ticket.id)}
-            />
+            <BoardCard key={ticket.id} ticket={ticket} onOpen={() => onOpen(ticket.id)} />
           ))}
           {tickets.length === 0 && (
             <li className="grid flex-1 place-items-center rounded-sm border border-dashed border-line py-6">
@@ -318,13 +303,11 @@ function BoardColumn({ status, tickets, repositoryNames, onOpen }: BoardColumnPr
 }
 
 interface BoardCardProps {
-  ticket: Ticket;
-  /** Nome del repository bersaglio, o null se assente/non risolvibile. */
-  repositoryName: string | null;
+  ticket: TicketListItem;
   onOpen: () => void;
 }
 
-function BoardCard({ ticket, repositoryName, onOpen }: BoardCardProps) {
+function BoardCard({ ticket, onOpen }: BoardCardProps) {
   const { t } = useTranslation();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: ticket.id,
@@ -367,10 +350,13 @@ function BoardCard({ ticket, repositoryName, onOpen }: BoardCardProps) {
         )}
       </div>
       <p className="mt-1 line-clamp-2 text-sm font-medium text-fg">{ticket.title}</p>
-      {repositoryName && (
+      {ticket.repositoryCount > 0 && (
         <p className="mt-1.5 truncate font-mono text-[10px] tracking-[0.06em] text-fg-faint">
-          <span className="rounded-sm border border-line bg-ink-900 px-1.5 py-0.5 text-fg-muted">
-            {repositoryName}
+          <span
+            className="rounded-sm border border-line bg-ink-900 px-1.5 py-0.5 text-fg-muted"
+            title={t("tickets:row.repositoryCount", { count: ticket.repositoryCount })}
+          >
+            {t("tickets:row.repositoryCountBadge", { count: ticket.repositoryCount })}
           </span>
         </p>
       )}

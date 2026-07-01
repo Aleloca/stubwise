@@ -108,7 +108,7 @@ async function createRepository(db: Db, repoUrl: string): Promise<string> {
   });
   const [project] = await db
     .insert(projects)
-    .values({ name: `Gruppo ${uniq}`, slug: `gruppo-${uniq}` })
+    .values({ name: `Gruppo ${uniq}`, slug: `gruppo-${uniq}`, ingestionKey: `ingestion-docs-${uniq}` })
     .returning();
   if (!project) throw new Error("insert del progetto non ha restituito la riga");
   const [repository] = await db
@@ -121,7 +121,6 @@ async function createRepository(db: Db, repoUrl: string): Promise<string> {
       gitAccountId,
       repoUrl,
       defaultBranch: "main",
-      ingestionKey: `ingestion-docs-${uniq}`,
     })
     .returning();
   if (!repository) throw new Error("insert del repository non ha restituito la riga");
