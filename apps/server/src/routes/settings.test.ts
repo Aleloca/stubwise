@@ -141,12 +141,22 @@ describe("GET /api/settings/automation", () => {
       maxCostUsd: null,
     });
   });
+
+  it("GET /automation include prReview (default: disabilitata, nessun cap)", async () => {
+    const res = await getAutomation(users.adminCookie);
+    expect(res.statusCode).toBe(200);
+    expect(res.json().prReview).toEqual({ enabled: false, maxCostUsd: null });
+  });
 });
 
 describe("PUT /api/settings/automation", () => {
+  // prReview è obbligatoria nel body del PUT: default "spenta" per i test
+  // che esercitano solo le rules.
+  const PR_REVIEW_OFF = { enabled: false, maxCostUsd: null };
+
   it("member: 403", async () => {
     const res = await putAutomation(
-      { rules: [{ type: "bug", autoFix: false, maxEffort: 1 }] },
+      { rules: [{ type: "bug", autoFix: false, maxEffort: 1 }], prReview: PR_REVIEW_OFF },
       users.memberCookie,
     );
     expect(res.statusCode).toBe(403);
@@ -159,6 +169,7 @@ describe("PUT /api/settings/automation", () => {
           { type: "bug", autoFix: false, maxEffort: 5, planApprovalMinEffort: 4, maxCostUsd: 1.5 },
           { type: "feature", autoFix: true, maxEffort: 4, planApprovalMinEffort: null },
         ],
+        prReview: PR_REVIEW_OFF,
       },
       users.adminCookie,
     );
@@ -199,6 +210,7 @@ describe("PUT /api/settings/automation", () => {
           { type: "task", autoFix: true, maxEffort: 2, maxCostUsd: 0.5 },
           { type: "feature", autoFix: true, maxEffort: 3, maxCostUsd: null },
         ],
+        prReview: PR_REVIEW_OFF,
       },
       users.adminCookie,
     );
@@ -213,7 +225,7 @@ describe("PUT /api/settings/automation", () => {
 
   it("maxCostUsd negativo → 400", async () => {
     const res = await putAutomation(
-      { rules: [{ type: "bug", autoFix: true, maxEffort: 3, maxCostUsd: -1 }] },
+      { rules: [{ type: "bug", autoFix: true, maxEffort: 3, maxCostUsd: -1 }], prReview: PR_REVIEW_OFF },
       users.adminCookie,
     );
     expect(res.statusCode).toBe(400);
@@ -221,7 +233,7 @@ describe("PUT /api/settings/automation", () => {
 
   it("maxCostUsd omesso → null (compatibilità client legacy)", async () => {
     const res = await putAutomation(
-      { rules: [{ type: "bug", autoFix: true, maxEffort: 3 }] },
+      { rules: [{ type: "bug", autoFix: true, maxEffort: 3 }], prReview: PR_REVIEW_OFF },
       users.adminCookie,
     );
     expect(res.statusCode).toBe(200);
@@ -233,7 +245,10 @@ describe("PUT /api/settings/automation", () => {
     expect(
       (
         await putAutomation(
-          { rules: [{ type: "bug", autoFix: true, maxEffort: 3, planApprovalMinEffort: 6 }] },
+          {
+            rules: [{ type: "bug", autoFix: true, maxEffort: 3, planApprovalMinEffort: 6 }],
+            prReview: PR_REVIEW_OFF,
+          },
           users.adminCookie,
         )
       ).statusCode,
@@ -241,7 +256,10 @@ describe("PUT /api/settings/automation", () => {
     expect(
       (
         await putAutomation(
-          { rules: [{ type: "bug", autoFix: true, maxEffort: 3, planApprovalMinEffort: 0 }] },
+          {
+            rules: [{ type: "bug", autoFix: true, maxEffort: 3, planApprovalMinEffort: 0 }],
+            prReview: PR_REVIEW_OFF,
+          },
           users.adminCookie,
         )
       ).statusCode,
@@ -250,7 +268,7 @@ describe("PUT /api/settings/automation", () => {
 
   it("planApprovalMinEffort omesso → trattato come null (compatibilità client legacy)", async () => {
     const res = await putAutomation(
-      { rules: [{ type: "task", autoFix: true, maxEffort: 2 }] },
+      { rules: [{ type: "task", autoFix: true, maxEffort: 2 }], prReview: PR_REVIEW_OFF },
       users.adminCookie,
     );
     expect(res.statusCode).toBe(200);
@@ -262,7 +280,7 @@ describe("PUT /api/settings/automation", () => {
     expect(
       (
         await putAutomation(
-          { rules: [{ type: "bug", autoFix: true, maxEffort: 6 }] },
+          { rules: [{ type: "bug", autoFix: true, maxEffort: 6 }], prReview: PR_REVIEW_OFF },
           users.adminCookie,
         )
       ).statusCode,
@@ -270,7 +288,7 @@ describe("PUT /api/settings/automation", () => {
     expect(
       (
         await putAutomation(
-          { rules: [{ type: "bug", autoFix: true, maxEffort: 0 }] },
+          { rules: [{ type: "bug", autoFix: true, maxEffort: 0 }], prReview: PR_REVIEW_OFF },
           users.adminCookie,
         )
       ).statusCode,
@@ -279,10 +297,24 @@ describe("PUT /api/settings/automation", () => {
 
   it("tipo fuori enum → 400", async () => {
     const res = await putAutomation(
-      { rules: [{ type: "banana", autoFix: true, maxEffort: 3 }] },
+      { rules: [{ type: "banana", autoFix: true, maxEffort: 3 }], prReview: PR_REVIEW_OFF },
       users.adminCookie,
     );
     expect(res.statusCode).toBe(400);
+  });
+
+  it("PUT /automation salva prReview e la restituisce", async () => {
+    const current = (await getAutomation(users.adminCookie)).json() as { rules: Rule[] };
+    const res = await putAutomation(
+      { rules: current.rules, prReview: { enabled: true, maxCostUsd: 2.5 } },
+      users.adminCookie,
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json().prReview).toEqual({ enabled: true, maxCostUsd: 2.5 });
+
+    // Persistito: un GET successivo la rilegge dal singleton instance_settings.
+    const after = await getAutomation(users.adminCookie);
+    expect(after.json().prReview).toEqual({ enabled: true, maxCostUsd: 2.5 });
   });
 });
 

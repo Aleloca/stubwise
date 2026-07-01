@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { effortSchema, languageSchema, ticketTypeSchema, type TicketType } from "@stubwise/shared";
 import { sendTest } from "@stubwise/notifications";
 import type { FastifyInstance } from "fastify";
@@ -46,14 +47,25 @@ const automationRuleSchema = z.object({
   maxCostUsd: z.number().nonnegative().nullable().default(null),
 });
 
+// Automazione PR Review d'istanza (singleton instance_settings): se attiva, il
+// worker recensisce le PR esterne dei progetti abilitati.
+const prReviewSettingsSchema = z.object({
+  enabled: z.boolean(),
+  // Tetto di costo per-review (USD). null = nessun tetto. Colonna numeric(12,6)
+  // in drizzle → stringa; l'API la espone come number.
+  maxCostUsd: z.number().nonnegative().nullable().default(null),
+});
+
 const automationSettingsSchema = z.object({
   rules: z.array(automationRuleSchema),
+  prReview: prReviewSettingsSchema,
 });
 
 const updateAutomationBodySchema = z.object({
   // Almeno una regola; ogni tipo al più una volta è una garanzia debole qui
   // (l'upsert è idempotente), ma lo schema valida tipo/effort di ciascuna.
   rules: z.array(automationRuleSchema).min(1),
+  prReview: prReviewSettingsSchema,
 });
 
 type AutomationRule = z.infer<typeof automationRuleSchema>;
@@ -260,6 +272,22 @@ async function loadAllRules(db: Db): Promise<AutomationRule[]> {
   });
 }
 
+/** Impostazioni PR Review dal singleton instance_settings (default: spenta). */
+async function loadPrReviewSettings(db: Db): Promise<z.infer<typeof prReviewSettingsSchema>> {
+  const [row] = await db
+    .select({
+      enabled: instanceSettings.prReviewEnabled,
+      maxCostUsd: instanceSettings.prReviewMaxCostUsd,
+    })
+    .from(instanceSettings)
+    .where(eq(instanceSettings.id, 1));
+  return {
+    enabled: row?.enabled ?? false,
+    // numeric → stringa lato driver: converto a number, null resta null.
+    maxCostUsd: row?.maxCostUsd != null ? Number(row.maxCostUsd) : null,
+  };
+}
+
 /**
  * Route delle impostazioni, registrate sotto /api/settings. Solo admin:
  * l'automazione AI tocca quota e PR, è una scelta di amministrazione.
@@ -276,7 +304,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async () => {
-      return { rules: await loadAllRules(app.db) };
+      return { rules: await loadAllRules(app.db), prReview: await loadPrReviewSettings(app.db) };
     },
   );
 
@@ -315,8 +343,26 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
               },
             });
         }
+        // Impostazioni PR Review sul singleton instance_settings (id=1): la
+        // migrazione seeda la riga, onConflict la rende idempotente comunque.
+        // numeric(12,6): drizzle scrive una STRINGA. number → stringa, null resta null.
+        const maxCost = request.body.prReview.maxCostUsd;
+        await tx
+          .insert(instanceSettings)
+          .values({
+            id: 1,
+            prReviewEnabled: request.body.prReview.enabled,
+            prReviewMaxCostUsd: maxCost != null ? String(maxCost) : null,
+          })
+          .onConflictDoUpdate({
+            target: instanceSettings.id,
+            set: {
+              prReviewEnabled: request.body.prReview.enabled,
+              prReviewMaxCostUsd: maxCost != null ? String(maxCost) : null,
+            },
+          });
       });
-      return { rules: await loadAllRules(app.db) };
+      return { rules: await loadAllRules(app.db), prReview: await loadPrReviewSettings(app.db) };
     },
   );
 
