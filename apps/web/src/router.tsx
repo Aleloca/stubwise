@@ -51,7 +51,9 @@ import { LoginPage } from "./routes/login";
 import { ProjectDetailPage } from "./routes/projects/$projectId";
 import { ProjectsPage } from "./routes/projects/index";
 import { RepositoryDetailPage } from "./routes/repositories/$slug";
+import { RepositoriesListPage } from "./routes/repositories/index";
 import { NewRepositoryPage } from "./routes/repositories/new";
+import { NewRepositoryStandalonePage } from "./routes/repositories/new-standalone";
 import { registerSearchSchema, RegisterPage } from "./routes/register";
 import { SettingsAccountPage } from "./routes/settings/account";
 import { SettingsAiProvidersPage } from "./routes/settings/ai-providers";
@@ -224,6 +226,45 @@ const repositoryNewRoute = createRoute({
     }
   },
   component: NewRepositoryPage,
+});
+
+/**
+ * Elenco di TUTTI i repository collegati (voce di primo livello in sidebar),
+ * raggruppati per progetto. Prefetch di repository + progetti prima del render:
+ * le useSuspenseQuery del componente non attendono.
+ */
+const repositoriesIndexRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/repositories",
+  loader: ({ context }) =>
+    Promise.all([
+      context.queryClient.ensureQueryData(repositoriesQueryOptions()),
+      context.queryClient.ensureQueryData(projectsQueryOptions),
+    ]),
+  component: RepositoriesListPage,
+});
+
+/**
+ * Aggiunta STANDALONE di un repository (solo admin): segmento statico `new`, ha
+ * priorità sul dinamico `$slug` (nessun repo può avere slug "new"). Il progetto
+ * di appartenenza si sceglie in un selettore nella pagina, non nell'URL. Un
+ * member che digita l'URL torna alla lista invece di un form che il server
+ * rifiuterebbe. Prefetch di progetti (selettore) e account git (wizard).
+ */
+const repositoryStandaloneNewRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/repositories/new",
+  beforeLoad: ({ context }) => {
+    if (context.user.role !== "admin") {
+      throw redirect({ to: "/repositories" });
+    }
+  },
+  loader: ({ context }) =>
+    Promise.all([
+      context.queryClient.ensureQueryData(projectsQueryOptions),
+      context.queryClient.ensureQueryData(gitAccountsQueryOptions),
+    ]),
+  component: NewRepositoryStandalonePage,
 });
 
 const repositoryDetailRoute = createRoute({
@@ -443,6 +484,8 @@ const routeTree = rootRoute.addChildren([
     projectsRoute,
     projectDetailRoute,
     repositoryNewRoute,
+    repositoriesIndexRoute,
+    repositoryStandaloneNewRoute,
     repositoryDetailRoute,
     docsRoute,
     projectDocsRoute,

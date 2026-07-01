@@ -16,6 +16,7 @@
       "tickets": "Tickets",
       "board": "Board",
       "projects": "Projects",
+      "repositories": "Repositories",
       "team": "Team",
       "settings": "Settings",
       "docs": "Documentation",
@@ -790,6 +791,28 @@
       "back": "← Back to project",
       "title": "Add a repository",
       "subtitle": "Choose a git account, the repository and the branch: the slug is generated on creation; the ingestion key lives on the project."
+    },
+    "list": {
+      "title": "Repositories",
+      "subtitle": "All linked repositories, grouped by project.",
+      "add": "Add repository",
+      "empty": "// no repositories",
+      "emptyHintAdmin": "Add a repository to link it to a project.",
+      "emptyHintMember": "No repositories linked yet: ask an administrator to add one.",
+      "branch": "branch",
+      "unknownProject": "unknown project"
+    },
+    "newStandalone": {
+      "back": "← All repositories",
+      "title": "Add a repository",
+      "subtitle": "Choose the project the repository belongs to, then the git account, the repository and the branch.",
+      "projectLabel": "Project",
+      "projectPlaceholder": "Select the project the repository belongs to",
+      "projectHint": "// choose a project to proceed with adding the repository.",
+      "noProjects": "// no projects",
+      "noProjectsHintPrefix": "Create a project first in ",
+      "noProjectsHintLink": "Projects",
+      "noProjectsHintSuffix": ", then come back here to link a repository to it."
     }
   },
   "integration": {
