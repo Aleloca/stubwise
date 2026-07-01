@@ -1,5 +1,6 @@
 import {
   ticketPrioritySchema,
+  ticketRepositorySchema,
   ticketSourceSchema,
   ticketStatusSchema,
   ticketTypeSchema,
@@ -16,11 +17,12 @@ import {
   comments,
   commentAuthorType,
   milestones,
-  repositories,
   ticketEventKind,
   ticketEvents,
   ticketLinkKind,
   ticketLinks,
+  ticketRepositories,
+  repositories,
   tickets,
   users,
 } from "@stubwise/db";
@@ -40,9 +42,6 @@ import {
 export const ticketSchema = z.object({
   id: z.uuid(),
   projectId: z.uuid(),
-  // Repository bersaglio del fix; null per ticket senza repo (Fase 3). In Fase 1
-  // è sempre valorizzato.
-  repositoryId: z.uuid().nullable(),
   number: z.number().int(),
   title: z.string(),
   body: z.string(),
@@ -63,16 +62,35 @@ export const ticketSchema = z.object({
   updatedAt: z.iso.datetime(),
 });
 
+/**
+ * Dettaglio del ticket: la forma pubblica più lo stato PR per-repo (Fase 3,
+ * fix multi-repo). `repositories` elenca una voce per ogni repository
+ * effettivamente modificato dal fix (righe `ticket_repositories`), con branch,
+ * PR e stato. Vuoto prima dell'esecuzione dell'agente. È l'unico legame
+ * ticket↔repo: il ticket appartiene solo al progetto.
+ */
+export const ticketDetailSchema = ticketSchema.extend({
+  repositories: z.array(ticketRepositorySchema),
+});
+
+/**
+ * Item della lista ticket: la forma pubblica più il conteggio dei repository
+ * toccati (righe `ticket_repositories`), utile ai badge di board/lista senza
+ * caricare l'elenco completo per ogni ticket.
+ */
+export const ticketListItemSchema = ticketSchema.extend({
+  repositoryCount: z.number().int(),
+});
+
 const titleSchema = z.string().min(1).max(300);
 const bodyTextSchema = z.string().max(20_000);
 const labelsSchema = z.array(z.string().min(1).max(50)).max(20);
 
 const createTicketBodySchema = z.object({
-  // Progetto (gruppo) a cui il ticket appartiene.
+  // Progetto (gruppo) a cui il ticket appartiene: dalla Fase 3 è l'unico legame
+  // del ticket con la gerarchia repo (niente repository bersaglio, l'agente
+  // sceglie i repo da toccare). Il numero ticket è per-progetto.
   projectId: z.uuid(),
-  // Repository bersaglio del fix: in Fase 1 obbligatorio e deve appartenere al
-  // progetto indicato (400 altrimenti). Da qui si genera il numero per-repo.
-  repositoryId: z.uuid(),
   title: titleSchema,
   body: bodyTextSchema.optional(),
   type: ticketTypeSchema,
@@ -107,7 +125,7 @@ const listTicketsQuerySchema = z.object({
 });
 
 const listTicketsResponseSchema = z.object({
-  items: z.array(ticketSchema),
+  items: z.array(ticketListItemSchema),
   nextCursor: z.string().nullable(),
 });
 
@@ -228,7 +246,6 @@ function toPublicTicket(row: Ticket): z.infer<typeof ticketSchema> {
   return {
     id: row.id,
     projectId: row.projectId,
-    repositoryId: row.repositoryId,
     number: row.number,
     title: row.title,
     body: row.body,
@@ -246,6 +263,40 @@ function toPublicTicket(row: Ticket): z.infer<typeof ticketSchema> {
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+/**
+ * Stato PR per-repo di un ticket (Fase 3, fix multi-repo): le righe
+ * `ticket_repositories`, joinate su `repositories` per slug/nome, ordinate per
+ * data di creazione (deterministica per la UI). Vuoto finché l'agente non ha
+ * aperto PR. È l'unico legame ticket↔repo esposto: il ticket appartiene solo al
+ * progetto.
+ */
+async function loadTicketRepositories(
+  db: Db,
+  ticketId: string,
+): Promise<z.infer<typeof ticketRepositorySchema>[]> {
+  const rows = await db
+    .select({
+      repositoryId: ticketRepositories.repositoryId,
+      repositorySlug: repositories.slug,
+      repositoryName: repositories.name,
+      branch: ticketRepositories.branch,
+      prUrl: ticketRepositories.prUrl,
+      prState: ticketRepositories.prState,
+    })
+    .from(ticketRepositories)
+    .innerJoin(repositories, eq(repositories.id, ticketRepositories.repositoryId))
+    .where(eq(ticketRepositories.ticketId, ticketId))
+    .orderBy(ticketRepositories.createdAt, ticketRepositories.repositoryId);
+  return rows.map((row) => ({
+    repositoryId: row.repositoryId,
+    repositorySlug: row.repositorySlug,
+    repositoryName: row.repositoryName,
+    branch: row.branch,
+    prUrl: row.prUrl,
+    prState: row.prState,
+  }));
 }
 
 /**
@@ -381,31 +432,16 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { projectId, repositoryId, title, body, type, priority, assigneeId, labels } =
-        request.body;
+      const { projectId, title, body, type, priority, assigneeId, labels } = request.body;
       if (assigneeId !== undefined && !(await userExists(app.db, assigneeId))) {
         return apiError(reply, 400, "assignee_not_found", "Assignee not found");
       }
-      // Il repository bersaglio deve esistere E appartenere al progetto indicato:
-      // un repo di un altro progetto (o inesistente) è un 400. La validazione qui
-      // (prima dell'insert) dà un messaggio chiaro; il numero ticket si genera
-      // poi dal repository (per-repo) dentro createTicket.
-      const [repository] = await app.db
-        .select({ id: repositories.id })
-        .from(repositories)
-        .where(and(eq(repositories.id, repositoryId), eq(repositories.projectId, projectId)));
-      if (!repository) {
-        return apiError(
-          reply,
-          400,
-          "repository_not_in_project",
-          "Repository not found in this project",
-        );
-      }
       try {
+        // Il ticket nasce a livello di PROGETTO (Fase 3): niente repository
+        // bersaglio, il numero è per-progetto (row-lock su projects dentro
+        // createTicket). L'agente sceglierà da sé i repo da toccare.
         const ticket = await createTicket(app.db, {
           projectId,
-          repositoryId,
           title,
           body,
           type,
@@ -419,7 +455,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         return await reply.code(201).send(toPublicTicket(ticket));
       } catch (error) {
         if (error instanceof ProjectNotFoundError) {
-          return apiError(reply, 404, "repository_not_found", "Repository not found");
+          return apiError(reply, 404, "project_not_found", "Project not found");
         }
         // Finestra TOCTOU: l'utente verificato sopra può sparire prima
         // dell'insert; la FK su assignee_id lo segnala a posteriori.
@@ -497,7 +533,31 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         rows.length > limit && last
           ? encodeCursor({ createdAt: last.cursorTimestamp, id: last.ticket.id })
           : null;
-      return { items: page.map((row) => toPublicTicket(row.ticket)), nextCursor };
+
+      // Conteggio dei repository toccati per ciascun ticket della pagina (righe
+      // ticket_repositories), in un'unica query, per i badge di board/lista.
+      // Vuoto per i ticket non ancora eseguiti (nessuna riga → count 0).
+      const ticketIds = page.map((row) => row.ticket.id);
+      const countByTicket = new Map<string, number>();
+      if (ticketIds.length > 0) {
+        const counts = await app.db
+          .select({
+            ticketId: ticketRepositories.ticketId,
+            count: sql<number>`count(*)::int`,
+          })
+          .from(ticketRepositories)
+          .where(inArray(ticketRepositories.ticketId, ticketIds))
+          .groupBy(ticketRepositories.ticketId);
+        for (const c of counts) countByTicket.set(c.ticketId, c.count);
+      }
+
+      return {
+        items: page.map((row) => ({
+          ...toPublicTicket(row.ticket),
+          repositoryCount: countByTicket.get(row.ticket.id) ?? 0,
+        })),
+        nextCursor,
+      };
     },
   );
 
@@ -507,7 +567,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       preHandler: requireAuth,
       schema: {
         params: idParamsSchema,
-        response: { 200: ticketSchema, 404: errorSchema, ...authErrorResponses },
+        response: { 200: ticketDetailSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
@@ -516,7 +576,9 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         .from(tickets)
         .where(eq(tickets.id, request.params.id));
       if (!row) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
-      return toPublicTicket(row);
+      // Stato PR per-repo (Fase 3): vuoto finché l'agente non apre PR.
+      const repositoriesState = await loadTicketRepositories(app.db, row.id);
+      return { ...toPublicTicket(row), repositories: repositoriesState };
     },
   );
 

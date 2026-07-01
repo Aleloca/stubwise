@@ -203,6 +203,11 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
       if (!match) return reply.code(204).send();
       const ticketNumber = Number(match[1]);
 
+      // Il ticket appartiene solo al PROGETTO (Fase 3, tickets.repositoryId
+      // rimosso): il webhook (per-repo) risolve il ticket per (progetto del
+      // repo del webhook, N). La chiusura aggregata multi-repo (marcare la riga
+      // ticket_repositories e portare a `done` solo quando TUTTE sono merged) è
+      // demandata al Task 5; qui si mantiene il comportamento single-repo.
       const [ticket] = await instance.db
         .select({
           id: tickets.id,
@@ -211,7 +216,8 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
           title: tickets.title,
         })
         .from(tickets)
-        .where(and(eq(tickets.repositoryId, context.repositoryId), eq(tickets.number, ticketNumber)));
+        .innerJoin(repositories, eq(repositories.projectId, tickets.projectId))
+        .where(and(eq(repositories.id, context.repositoryId), eq(tickets.number, ticketNumber)));
 
       // Lingua dei contenuti d'istanza, risolta UNA VOLTA prima della
       // transazione (una sola select, non allunga la tx): i body dei commenti

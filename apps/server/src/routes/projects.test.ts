@@ -60,8 +60,22 @@ describe("POST /api/projects", () => {
       description: null,
       aiProviderId: null,
       docAutoUpdate: false,
+      // Fase 3: il progetto nasce con la chiave di ingestion (32 hex) e il
+      // contatore ticket per-progetto a 1.
+      ingestionKey: expect.stringMatching(/^[0-9a-f]{32}$/),
+      nextTicketNumber: 1,
       createdAt: expect.any(String),
     });
+  });
+
+  it("due progetti ricevono ingestionKey diverse (uniche)", async () => {
+    const a = await createProject({ name: "Ingest A" });
+    const b = await createProject({ name: "Ingest B" });
+    const keyA = (a.json() as { ingestionKey: string }).ingestionKey;
+    const keyB = (b.json() as { ingestionKey: string }).ingestionKey;
+    expect(keyA).toMatch(/^[0-9a-f]{32}$/);
+    expect(keyB).toMatch(/^[0-9a-f]{32}$/);
+    expect(keyA).not.toBe(keyB);
   });
 
   it("collisione di slug: stesso nome → suffisso numerico", async () => {

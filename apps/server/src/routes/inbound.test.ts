@@ -40,11 +40,13 @@ async function createGitAccount(): Promise<string> {
 
 async function createProject(name: string): Promise<SeededProject> {
   const gitAccountId = await createGitAccount();
-  // L'inbound è per-repository (la chiave d'ingestion vive sul repo): creiamo
-  // un progetto (gruppo) e vi montiamo un repository.
+  // Dalla Fase 3 l'inbound è a livello di PROGETTO: la chiave d'ingestion e lo
+  // slug sono quelli del progetto. Vi montiamo un repository per completezza.
+  const slug = `gruppo-${randomBytes(4).toString("hex")}`;
+  const ingestionKey = randomBytes(16).toString("hex");
   const [group] = await testDb.db
     .insert(projects)
-    .values({ name: `${name} — gruppo`, slug: `gruppo-${randomBytes(4).toString("hex")}` })
+    .values({ name: `${name} — gruppo`, slug, ingestionKey })
     .returning({ id: projects.id });
   const res = await app.inject({
     method: "POST",
@@ -55,7 +57,7 @@ async function createProject(name: string): Promise<SeededProject> {
   if (res.statusCode !== 201) {
     throw new Error(`creazione repository fallita: ${res.statusCode} ${res.body}`);
   }
-  return res.json() as SeededProject;
+  return { id: group!.id, slug, ingestionKey };
 }
 
 beforeAll(async () => {

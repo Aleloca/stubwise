@@ -36,7 +36,7 @@ beforeAll(async () => {
   ({ adminCookie, memberCookie } = await seedUsers(app));
   const [project] = await testDb.db
     .insert(projects)
-    .values({ name: "Gruppo di test", slug: "gruppo-di-test" })
+    .values({ name: "Gruppo di test", slug: "gruppo-di-test", ingestionKey: randomBytes(16).toString("hex") })
     .returning({ id: projects.id });
   projectId = project!.id;
   githubAccountId = await createAccount({
@@ -96,7 +96,6 @@ describe("POST /api/projects", () => {
       provider: "github",
       repoUrl: "https://github.com/acme/sito-vetrina",
       defaultBranch: "main",
-      ingestionKey: expect.stringMatching(/^[0-9a-f]{32}$/),
       gitAccountId: githubAccountId,
       gitAccountName: "Account GitHub",
       testCommand: null,
@@ -150,10 +149,16 @@ describe("POST /api/projects", () => {
     expect(body.slug).toBe("api-backend");
   });
 
-  it("ogni progetto riceve una ingestionKey diversa", async () => {
-    const keys = await testDb.db.select({ key: repositories.ingestionKey }).from(repositories);
-    const unique = new Set(keys.map((k) => k.key));
-    expect(unique.size).toBe(keys.length);
+  it("il repository NON genera più una ingestionKey e non la espone (salita al progetto, Fase 3)", async () => {
+    const res = await createProject({
+      ...basePayload(),
+      name: "Repo Product Level",
+    });
+    expect(res.statusCode).toBe(201);
+    // La proiezione pubblica del repository non contiene più ingestionKey.
+    expect(res.json()).not.toHaveProperty("ingestionKey");
+    expect(res.body).not.toContain("ingestionKey");
+    expect(res.body).not.toContain("ingestion_key");
   });
 
   it("ogni progetto riceve un webhookSecret diverso (32 hex)", async () => {

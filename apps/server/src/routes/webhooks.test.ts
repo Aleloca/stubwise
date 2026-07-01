@@ -109,7 +109,11 @@ async function createProject(payload: Record<string, unknown>): Promise<CreatedP
   // Progetto (gruppo) sotto cui creare il repository: seedato direttamente.
   const [group] = await testDb.db
     .insert(projects)
-    .values({ name: `${name} — gruppo`, slug: `gruppo-${randomBytes(4).toString("hex")}` })
+    .values({
+      name: `${name} — gruppo`,
+      slug: `gruppo-${randomBytes(4).toString("hex")}`,
+      ingestionKey: randomBytes(16).toString("hex"),
+    })
     .returning({ id: projects.id });
 
   const res = await app.inject({
@@ -137,8 +141,9 @@ async function createProject(payload: Record<string, unknown>): Promise<CreatedP
 
 /**
  * Inserisce un ticket con numero e stato espliciti, restituendone l'id. Riceve
- * il repositoryId (bersaglio, ex "progetto"): il webhook risolve il ticket per
- * repositoryId + numero. Il progetto (gruppo) del ticket è derivato dal repo.
+ * il repositoryId del repo del webhook: dalla Fase 3 il ticket appartiene solo
+ * al PROGETTO (niente repositoryId), e il webhook lo risolve per (progetto del
+ * repo, numero). Il progetto del ticket è derivato dal repo passato.
  */
 async function insertTicket(
   repositoryId: string,
@@ -153,7 +158,6 @@ async function insertTicket(
     .insert(tickets)
     .values({
       projectId: repository!.projectId,
-      repositoryId,
       number,
       title: `Ticket ${number}`,
       type: "bug",
@@ -540,7 +544,11 @@ describe("POST /webhooks/git/:projectSlug", () => {
     const gitAccountId = await seedGitAccount(testDb.db);
     const [group] = await testDb.db
       .insert(projects)
-      .values({ name: "Legacy", slug: `legacy-gruppo-${randomBytes(4).toString("hex")}` })
+      .values({
+        name: "Legacy",
+        slug: `legacy-gruppo-${randomBytes(4).toString("hex")}`,
+        ingestionKey: randomBytes(16).toString("hex"),
+      })
       .returning({ id: projects.id });
     const [row] = await testDb.db
       .insert(repositories)
@@ -552,7 +560,6 @@ describe("POST /webhooks/git/:projectSlug", () => {
         gitAccountId,
         repoUrl: "https://github.com/acme/legacy",
         defaultBranch: "main",
-        ingestionKey: randomBytes(16).toString("hex"),
         webhookSecret: "",
       })
       .returning({ id: repositories.id, slug: repositories.slug });

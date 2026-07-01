@@ -1,35 +1,32 @@
 import type { TicketPriority, TicketSource, TicketType } from "@stubwise/shared";
 import { eq, sql } from "drizzle-orm";
 import type { Db } from "@stubwise/db";
-import { repositories, tickets } from "@stubwise/db";
+import { projects, tickets } from "@stubwise/db";
 
 export type Ticket = typeof tickets.$inferSelect;
 
 /**
- * Lanciato da {@link createTicket} quando il repository bersaglio indicato non
- * esiste. Conserva il nome storico ProjectNotFoundError per non rompere i
- * chiamanti (ingest/slack) che lo mappano su 404, ma ora rappresenta un
- * repository mancante: il numero ticket è per-repository.
+ * Lanciato da {@link createTicket} quando il progetto bersaglio indicato non
+ * esiste. Dalla Fase 3 il ticket appartiene solo al PROGETTO: il numero
+ * sequenziale è per-progetto e non esiste più un "repo di origine". I chiamanti
+ * (ingest/inbound/slack) mappano questo errore su una risposta di "progetto
+ * inesistente".
  */
 export class ProjectNotFoundError extends Error {
-  constructor(repositoryId: string) {
-    super(`Repository ${repositoryId} inesistente: impossibile creare il ticket`);
+  constructor(projectId: string) {
+    super(`Progetto ${projectId} inesistente: impossibile creare il ticket`);
     this.name = "ProjectNotFoundError";
   }
 }
 
 export interface CreateTicketInput {
   /**
-   * Repository bersaglio del ticket: da qui si claima il numero sequenziale
-   * (per-repository) e si deriva il progetto (gruppo) se `projectId` è omesso.
+   * Progetto (gruppo) bersaglio del ticket: da qui si claima il numero
+   * sequenziale per-progetto (Fase 3). Il ticket appartiene solo al progetto:
+   * non ha più un repository bersaglio (il legame ticket↔repo vive in
+   * `ticket_repositories`, popolato dopo l'esecuzione del fix).
    */
-  repositoryId: string;
-  /**
-   * Progetto (gruppo) a cui il ticket appartiene. Opzionale: se omesso viene
-   * derivato dal repository bersaglio (relazione 1:N, ogni repo ha un progetto).
-   * Quando il chiamante l'ha già validato (route HTTP) lo passa esplicito.
-   */
-  projectId?: string;
+  projectId: string;
   title: string;
   body?: string;
   type: TicketType;
@@ -42,37 +39,32 @@ export interface CreateTicketInput {
 
 /**
  * Crea un ticket assegnandogli atomicamente il prossimo numero sequenziale del
- * REPOSITORY bersaglio. L'UPDATE su `repositories.next_ticket_number` prende il
- * row lock sul repository: creazioni concorrenti sullo stesso repository si
- * serializzano lì, quindi i numeri (per-repo) escono senza buchi né duplicati.
- * Il progetto (gruppo) del ticket si deriva dal repository se non passato.
- * Tutto in transazione: se l'insert fallisce il contatore non avanza.
+ * PROGETTO bersaglio. L'UPDATE su `projects.next_ticket_number` prende il row
+ * lock sul progetto: creazioni concorrenti sullo stesso progetto si
+ * serializzano lì, quindi i numeri (per-progetto) escono senza buchi né
+ * duplicati. Tutto in transazione: se l'insert fallisce il contatore non
+ * avanza.
  *
  * Riusato dalle route HTTP e dall'ingestion SDK.
  */
 export async function createTicket(db: Db, input: CreateTicketInput): Promise<Ticket> {
   return db.transaction(async (tx) => {
     const [claimed] = await tx
-      .update(repositories)
-      .set({ nextTicketNumber: sql`${repositories.nextTicketNumber} + 1` })
-      .where(eq(repositories.id, input.repositoryId))
+      .update(projects)
+      .set({ nextTicketNumber: sql`${projects.nextTicketNumber} + 1` })
+      .where(eq(projects.id, input.projectId))
       // RETURNING restituisce il valore già incrementato: il numero riservato a
-      // questo ticket è quello precedente. Recupera anche il progetto del repo,
-      // così il ticket nasce col gruppo corretto senza una query extra.
-      .returning({
-        nextTicketNumber: repositories.nextTicketNumber,
-        projectId: repositories.projectId,
-      });
+      // questo ticket è quello precedente.
+      .returning({ nextTicketNumber: projects.nextTicketNumber });
 
     if (!claimed) {
-      throw new ProjectNotFoundError(input.repositoryId);
+      throw new ProjectNotFoundError(input.projectId);
     }
 
     const [ticket] = await tx
       .insert(tickets)
       .values({
-        projectId: input.projectId ?? claimed.projectId,
-        repositoryId: input.repositoryId,
+        projectId: input.projectId,
         number: claimed.nextTicketNumber - 1,
         title: input.title,
         body: input.body,

@@ -110,8 +110,9 @@ type RepositoryRow = typeof repositories.$inferSelect;
  * spread della riga. Le credenziali non vivono sul repository (stanno
  * sull'account git); si espongono `gitAccountId` e `gitAccountName` per la UI.
  * `projectId` è il progetto (gruppo) a cui il repository appartiene. Le
- * impostazioni di prodotto (provider AI, auto-update docs) sono salite al
- * progetto e NON fanno più parte di questa proiezione.
+ * impostazioni di prodotto (provider AI, auto-update docs) e l'ingestion
+ * (`ingestionKey`, numerazione ticket) sono salite al progetto (Fase 3) e NON
+ * fanno più parte di questa proiezione.
  */
 function toPublicRepository(
   row: RepositoryRow,
@@ -125,7 +126,6 @@ function toPublicRepository(
     provider: row.provider,
     repoUrl: row.repoUrl,
     defaultBranch: row.defaultBranch,
-    ingestionKey: row.ingestionKey,
     gitAccountId: row.gitAccountId,
     gitAccountName,
     testCommand: row.testCommand,
@@ -193,19 +193,17 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
               testCommand: testCommand ?? null,
               // Omesso → null: nessun comando di installazione alla creazione.
               installCommand: installCommand ?? null,
-              // Chiave di ingestion per gli SDK: 32 caratteri esadecimali.
-              ingestionKey: randomBytes(16).toString("hex"),
-              // Segreto HMAC del webhook git, generato come l'ingestionKey:
-              // 32 hex. Sempre valorizzato alla creazione, così nessun
-              // repository nuovo nasce con webhook non verificabili.
+              // Segreto HMAC del webhook git: 32 hex. Sempre valorizzato alla
+              // creazione, così nessun repository nuovo nasce con webhook non
+              // verificabili. L'ingestionKey NON vive più qui (salita al
+              // progetto, Fase 3): il repo eredita l'ingestion del suo progetto.
               webhookSecret: randomBytes(16).toString("hex"),
             })
             .returning();
           if (!created) throw new Error("insert del repository non ha restituito la riga");
           return await reply.code(201).send(toPublicRepository(created, account.name));
         } catch (error) {
-          // Collisione di slug (o, in teoria, di ingestionKey: entrambi
-          // vengono rigenerati al giro dopo). Tutto il resto riemerge.
+          // Collisione di slug: rigenerato al giro dopo. Tutto il resto riemerge.
           if (!isUniqueViolation(error)) throw error;
         }
       }

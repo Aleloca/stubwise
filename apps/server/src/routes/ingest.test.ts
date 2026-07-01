@@ -54,11 +54,14 @@ async function createGitAccount(): Promise<string> {
 
 async function createProject(name: string): Promise<SeededProject> {
   const gitAccountId = await createGitAccount();
-  // L'ingestion è per-repository (la chiave vive sul repo): creiamo un progetto
-  // (gruppo) e vi montiamo un repository, restituendo la proiezione del repo.
+  // Dalla Fase 3 l'ingestion è a livello di PROGETTO: la chiave e lo slug con
+  // cui gli SDK inviano gli eventi sono quelli del progetto. Vi montiamo un
+  // repository solo per completezza del modello (non serve all'ingest).
+  const slug = `gruppo-${randomBytes(4).toString("hex")}`;
+  const ingestionKey = randomBytes(16).toString("hex");
   const [group] = await testDb.db
     .insert(projects)
-    .values({ name: `${name} — gruppo`, slug: `gruppo-${randomBytes(4).toString("hex")}` })
+    .values({ name: `${name} — gruppo`, slug, ingestionKey })
     .returning({ id: projects.id });
   const res = await app.inject({
     method: "POST",
@@ -74,7 +77,7 @@ async function createProject(name: string): Promise<SeededProject> {
   if (res.statusCode !== 201) {
     throw new Error(`creazione repository fallita: ${res.statusCode} ${res.body}`);
   }
-  return res.json() as SeededProject;
+  return { id: group!.id, slug, ingestionKey };
 }
 
 beforeAll(async () => {
@@ -126,7 +129,7 @@ describe("POST /ingest/:slug", () => {
     const rows = await testDb.db
       .select()
       .from(tickets)
-      .where(eq(tickets.repositoryId, project.id));
+      .where(eq(tickets.projectId, project.id));
     expect(rows).toHaveLength(3);
     const errorTicket = rows.find((r) => r.source === "sdk_error");
     expect(errorTicket).toBeDefined();
