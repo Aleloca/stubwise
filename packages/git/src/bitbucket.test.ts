@@ -290,6 +290,23 @@ describe("BitbucketProvider.upsertPrComment", () => {
     expect(JSON.parse(init.body as string)).toEqual({ content: { raw: `${MARKER}\nnuova` } });
   });
 
+  it("commento col marker ma deleted: true → POST (il PUT su un commento cancellato fallirebbe)", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ values: [{ id: 9, deleted: true, content: { raw: `${MARKER}\nvecchia` } }] }, 200)
+      )
+      .mockResolvedValueOnce(jsonResponse({ id: 10 }, 201));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    await provider.upsertPrComment(config, 7, MARKER, `${MARKER}\nnuova`);
+
+    expect(fetchImpl).toHaveBeenLastCalledWith(
+      "https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests/7/comments",
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
   it("throws when both email and username are missing (before any request)", async () => {
     const fetchImpl = vi.fn();
     const provider = new BitbucketProvider({ fetchImpl });

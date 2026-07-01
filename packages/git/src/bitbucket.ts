@@ -62,22 +62,10 @@ export class BitbucketProvider implements GitProvider {
     pr: { branch: string; title: string; body: string }
   ): Promise<{ url: string }> {
     const { owner, repo } = parseRepoUrl(p.repoUrl);
-    // REST identity: Bitbucket API tokens authenticate on api.bitbucket.org as
-    // the Atlassian EMAIL (not the git username). Legacy app passwords have no
-    // email and authenticate as the username, so we fall back to it.
-    const { email, username, token } = p.credentials;
-    const restUser = email ?? username;
-    if (!restUser) {
-      throw new GitProviderError(
-        "Bitbucket REST credentials require an email (API tokens) or a username (legacy app passwords)",
-        0,
-        ""
-      );
-    }
     const response = await this.fetchImpl(`${API_BASE}/repositories/${owner}/${repo}/pullrequests`, {
       method: "POST",
       headers: {
-        Authorization: `Basic ${Buffer.from(`${restUser}:${token}`).toString("base64")}`,
+        Authorization: this.projectRestAuthHeader(p),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -140,11 +128,13 @@ export class BitbucketProvider implements GitProvider {
     });
     await ensureOkResponse(listResponse, "Bitbucket");
     const list = (await readJsonResponse(listResponse, "Bitbucket")) as {
-      values?: { id?: unknown; content?: { raw?: unknown } }[];
+      values?: { id?: unknown; deleted?: unknown; content?: { raw?: unknown } }[];
     };
     const values = Array.isArray(list.values) ? list.values : [];
+    // Bitbucket include anche i commenti cancellati (deleted: true): un PUT su
+    // quelli fallirebbe, quindi li ignoriamo e ricreiamo il commento (self-healing).
     const existing = values.find(
-      (c) => typeof c.content?.raw === "string" && c.content.raw.includes(marker)
+      (c) => c.deleted !== true && typeof c.content?.raw === "string" && c.content.raw.includes(marker)
     );
     const target =
       existing && typeof existing.id === "number"
