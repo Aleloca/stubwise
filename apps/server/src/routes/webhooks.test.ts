@@ -55,12 +55,12 @@ afterEach(async () => {
     .update(notificationSettings)
     .set({ webhookUrl: null })
     .where(eq(notificationSettings.id, 1));
-  // Ripristina la lingua d'istanza al default 'en' (riga singleton id=1
-  // condivisa tra i test): un test che la porta a 'it' non deve influenzare i
-  // successivi.
+  // Ripristina le impostazioni d'istanza ai default (riga singleton id=1
+  // condivisa tra i test): un test che cambia lingua o toggle PR review non
+  // deve influenzare i successivi.
   await testDb.db
     .update(instanceSettings)
-    .set({ contentLanguage: "en" })
+    .set({ contentLanguage: "en", prReviewEnabled: false })
     .where(eq(instanceSettings.id, 1));
 });
 
@@ -1463,7 +1463,7 @@ describe("POST /webhooks/git/:projectSlug — push (auto-aggiornamento Docs)", (
 describe("webhook PR Review (accodamento)", () => {
   /**
    * Porta il toggle d'istanza prReviewEnabled (singleton id=1, seedato dalla
-   * migrazione) al valore richiesto. Upsert per robustezza, come fa il server.
+   * migrazione) al valore richiesto.
    */
   async function setPrReviewEnabled(enabled: boolean): Promise<void> {
     await testDb.db
@@ -1545,8 +1545,9 @@ describe("webhook PR Review (accodamento)", () => {
     expect(job.sourceBranch).toBe("feature/login");
     expect(job.targetBranch).toBe("main");
     expect(job.prUrl).toBe("https://github.com/acme/repo/pull/42");
-    // not_before nel futuro: finestra di debounce.
-    expect(job.notBefore.getTime()).toBeGreaterThan(before);
+    // not_before almeno 90s nel futuro: pinna la finestra di debounce
+    // (before è catturato prima della request, quindi mai flaky).
+    expect(job.notBefore.getTime()).toBeGreaterThanOrEqual(before + 90_000);
   });
 
   it("synchronize sulla stessa PR → upsert (una sola riga, head e debounce aggiornati)", async () => {

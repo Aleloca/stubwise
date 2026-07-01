@@ -243,6 +243,9 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
               targetBranch: prEvent.targetBranch,
               headSha: prEvent.headSha,
               notBefore,
+              // $onUpdate di Drizzle non scatta su onConflictDoUpdate: aggiorniamo
+              // updated_at a mano (utile come segnale di quando è arrivato l'ultimo push).
+              updatedAt: new Date(),
             },
           });
         return reply.code(204).send();
