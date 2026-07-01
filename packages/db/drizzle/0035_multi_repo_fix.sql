@@ -4,8 +4,17 @@
 -- migrazione è 1:1), gli errorGroups diventano per-progetto, tickets.repository_id
 -- è rimosso (il legame ticket↔repo vive ora solo in ticket_repositories).
 
--- 1) Numerazione ticket per-PROGETTO. Oggi c'è 1 repo per progetto, quindi il
---    numero coincide col contatore del suo unico repo (MAX per robustezza).
+-- pgcrypto: serve `gen_random_bytes` per generare le ingestion_key dei progetti
+-- SENZA repo (vedi punto 2). `gen_random_uuid` usato altrove è built-in in pg17,
+-- ma `gen_random_bytes` no. IF NOT EXISTS: idempotente e innocuo se già presente.
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";--> statement-breakpoint
+
+-- 1) Numerazione ticket per-PROGETTO. Il numero è il MAX dei contatori dei repo
+--    del progetto: robusto per QUALSIASI cardinalità.
+--    - 1 repo (caso 1:1 odierno): coincide col contatore dell'unico repo.
+--    - N repo: prende il massimo, così nessun numero già usato viene riemesso.
+--    - 0 repo (progetto vuoto, ammesso da POST /api/projects): non compare nella
+--      subquery, quindi resta il DEFAULT 1 (corretto: nessun ticket ancora).
 ALTER TABLE "projects" ADD COLUMN "next_ticket_number" integer DEFAULT 1 NOT NULL;--> statement-breakpoint
 UPDATE "projects" p SET "next_ticket_number" = sub.n FROM (
 	SELECT r."project_id" AS pid, MAX(r."next_ticket_number") AS n
@@ -13,11 +22,35 @@ UPDATE "projects" p SET "next_ticket_number" = sub.n FROM (
 ) sub WHERE p."id" = sub.pid;--> statement-breakpoint
 ALTER TABLE "repositories" DROP COLUMN "next_ticket_number";--> statement-breakpoint
 
--- 2) ingestion_key sale al progetto (migrata identica dal repo 1:1 al suo
---    progetto: gli SDK già installati continuano a funzionare senza modifiche).
+-- 2) ingestion_key sale al progetto. La colonna nasce NULLABLE, si popola in due
+--    passi e SOLO ALLA FINE diventa NOT NULL + UNIQUE, così regge ogni cardinalità:
+--
+--    2a) Progetti CON almeno un repo: eredita la ingestion_key del repo più VECCHIO
+--        (DISTINCT ON + ORDER BY created_at ASC, id ASC come tie-breaker stabile
+--        quando due repo condividono il created_at — es. seminati nello stesso
+--        istante). Scelta DETERMINISTICA: la migrazione dà sempre lo stesso esito.
+--        Nel caso 1:1 odierno è la chiave esistente migrata identica, così gli SDK
+--        già installati continuano a funzionare senza riconfigurazione.
+--        NB (decisione D8): per i progetti MULTI-repo le ingestion_key dei repo
+--        NON scelti vengono ABBANDONATE. È una conseguenza inerente del passaggio
+--        a un'ingestion per-PROGETTO (l'errore è del prodotto, non del singolo
+--        repo): resta valida una sola chiave per progetto, quella del repo più
+--        vecchio; gli SDK degli altri repo vanno riconfigurati sulla chiave del
+--        progetto. Oggi non esistono progetti multi-repo in prod, quindi nessun
+--        SDK viene di fatto invalidato dalla migrazione.
+--    2b) Progetti SENZA repo (ingestion_key ancora NULL): ne generano una NUOVA,
+--        nello STESSO FORMATO dell'app — `randomBytes(16).toString("hex")`, cioè
+--        32 hex minuscoli (vedi apps/server/src/routes/repositories.ts) — così una
+--        futura ingestion sul progetto e la unique valgono anche per loro. Senza
+--        questo passo il SET NOT NULL fallirebbe e il server non partirebbe.
 ALTER TABLE "projects" ADD COLUMN "ingestion_key" text;--> statement-breakpoint
-UPDATE "projects" p SET "ingestion_key" = r."ingestion_key"
-	FROM "repositories" r WHERE r."project_id" = p."id";--> statement-breakpoint
+UPDATE "projects" p SET "ingestion_key" = sub."ingestion_key" FROM (
+	SELECT DISTINCT ON (r."project_id") r."project_id" AS pid, r."ingestion_key"
+	FROM "repositories" r
+	ORDER BY r."project_id", r."created_at" ASC, r."id" ASC
+) sub WHERE p."id" = sub.pid;--> statement-breakpoint
+UPDATE "projects" SET "ingestion_key" = encode(gen_random_bytes(16), 'hex')
+	WHERE "ingestion_key" IS NULL;--> statement-breakpoint
 ALTER TABLE "projects" ALTER COLUMN "ingestion_key" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "projects" ADD CONSTRAINT "projects_ingestion_key_unique" UNIQUE("ingestion_key");--> statement-breakpoint
 -- La unique del repo (repositories_ingestion_key_unique) cade col DROP COLUMN.

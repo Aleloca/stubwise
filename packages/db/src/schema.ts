@@ -7,6 +7,7 @@ import {
   docTreeSchema,
   gitProviderKindSchema,
   languageSchema,
+  prStateSchema,
   ticketPrioritySchema,
   ticketSourceSchema,
   ticketStatusSchema,
@@ -140,8 +141,9 @@ export const resumeMode = pgEnum("resume_mode", ["fix", "execute"]);
 //  "merged"          → PR mergiata (il gate aggregato può chiudere il ticket);
 //  "closed_unmerged" → PR chiusa senza merge (rifiutata): rimette in lavorazione
 //                      solo quel repo, senza toccare gli altri.
-// Lista letterale locale al DB (come gli altri enum del dominio AI/worker).
-export const prState = pgEnum("pr_state", ["open", "merged", "closed_unmerged"]);
+// I valori derivano da `prStateSchema` (shared = unica fonte di verità), come
+// gli altri enum del dominio: l'enum Postgres resta in sync con lo Zod.
+export const prState = pgEnum("pr_state", enumValues(prStateSchema));
 
 // Tipo di credenziale di un provider AI: "api_key" (chiave API a consumo) o
 // "account" (login a un piano/abbonamento, es. Claude Max). Determina come il
