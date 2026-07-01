@@ -82,6 +82,70 @@ export class GitHubProvider implements GitProvider {
     return { url: data.html_url };
   }
 
+  /** Stato attuale della PR via REST: 'open' se ancora aperta, altrimenti 'closed'. */
+  async getPullRequestState(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<"open" | "closed"> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const response = await fetchImpl(`${API_BASE}/repos/${owner}/${repo}/pulls/${prNumber}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${p.credentials.token}`,
+        Accept: "application/vnd.github+json",
+      },
+    });
+    await ensureOkResponse(response, "GitHub");
+    const data = (await readJsonResponse(response, "GitHub")) as { state?: unknown };
+    return data.state === "open" ? "open" : "closed";
+  }
+
+  /**
+   * Commento "sticky" della review: cerca tra gli issue comment della PR (su
+   * GitHub i commenti di conversazione delle PR sono issue comment) quello che
+   * contiene `marker` e lo aggiorna (PATCH), altrimenti ne crea uno (POST).
+   */
+  async upsertPrComment(
+    p: ProjectGitConfig,
+    prNumber: number,
+    marker: string,
+    body: string,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<void> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const headers = {
+      Authorization: `Bearer ${p.credentials.token}`,
+      Accept: "application/vnd.github+json",
+      "Content-Type": "application/json",
+    };
+    // Una pagina da 100 basta: il commento sticky è tra i primi della PR.
+    const listResponse = await fetchImpl(
+      `${API_BASE}/repos/${owner}/${repo}/issues/${prNumber}/comments?per_page=100`,
+      { method: "GET", headers }
+    );
+    await ensureOkResponse(listResponse, "GitHub");
+    const list = (await readJsonResponse(listResponse, "GitHub")) as {
+      id?: unknown;
+      body?: unknown;
+    }[];
+    const existing = Array.isArray(list)
+      ? list.find((c) => typeof c.body === "string" && c.body.includes(marker))
+      : undefined;
+    const target =
+      existing && typeof existing.id === "number"
+        ? { url: `${API_BASE}/repos/${owner}/${repo}/issues/comments/${existing.id}`, method: "PATCH" }
+        : { url: `${API_BASE}/repos/${owner}/${repo}/issues/${prNumber}/comments`, method: "POST" };
+    const response = await fetchImpl(target.url, {
+      method: target.method,
+      headers,
+      body: JSON.stringify({ body }),
+    });
+    await ensureOkResponse(response, "GitHub");
+  }
+
   parseWebhook(headers: Record<string, string>, body: unknown): WebhookEvent | null {
     if (getHeader(headers, "x-github-event") !== "pull_request") return null;
     if (typeof body !== "object" || body === null) return null;

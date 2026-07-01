@@ -192,6 +192,128 @@ describe("BitbucketProvider.openPullRequest", () => {
   });
 });
 
+describe("BitbucketProvider.getPullRequestState", () => {
+  it("state=OPEN → 'open'; MERGED/DECLINED/SUPERSEDED → 'closed'", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ state: "OPEN" }, 200));
+    const provider = new BitbucketProvider({ fetchImpl });
+    await expect(provider.getPullRequestState(config, 7)).resolves.toBe("open");
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests/7",
+      expect.objectContaining({ method: "GET" })
+    );
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe(`Basic ${Buffer.from("alice:app-pass").toString("base64")}`);
+
+    for (const state of ["MERGED", "DECLINED", "SUPERSEDED"]) {
+      const closedFetch = vi.fn().mockResolvedValue(jsonResponse({ state }, 200));
+      const closedProvider = new BitbucketProvider({ fetchImpl: closedFetch });
+      await expect(closedProvider.getPullRequestState(config, 7)).resolves.toBe("closed");
+    }
+  });
+
+  it("uses the Atlassian email (not the username) for Basic auth when email is present", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ state: "OPEN" }, 200));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    await provider.getPullRequestState(
+      { ...config, credentials: { username: "alice", email: "alice@corp.io", token: "api-token" } },
+      7
+    );
+
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe(
+      `Basic ${Buffer.from("alice@corp.io:api-token").toString("base64")}`
+    );
+  });
+
+  it("throws GitProviderError on non-2xx", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 404 }));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const error = await provider
+      .getPullRequestState(config, 7)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(404);
+  });
+});
+
+describe("BitbucketProvider.upsertPrComment", () => {
+  const MARKER = "<!-- stubwise-pr-review -->";
+
+  it("nessun commento col marker → POST di un nuovo commento", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ values: [{ id: 1, content: { raw: "altro" } }] }, 200)) // list
+      .mockResolvedValueOnce(jsonResponse({ id: 2 }, 201)); // create
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    await provider.upsertPrComment(config, 7, MARKER, `${MARKER}\nAnalisi`);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      1,
+      "https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests/7/comments?pagelen=100",
+      expect.objectContaining({ method: "GET" })
+    );
+    expect(fetchImpl).toHaveBeenLastCalledWith(
+      "https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests/7/comments",
+      expect.objectContaining({ method: "POST" })
+    );
+    const [, init] = fetchImpl.mock.calls[1] as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe(`Basic ${Buffer.from("alice:app-pass").toString("base64")}`);
+    expect(headers["Content-Type"]).toBe("application/json");
+    expect(JSON.parse(init.body as string)).toEqual({ content: { raw: `${MARKER}\nAnalisi` } });
+  });
+
+  it("commento col marker esistente → PUT dello stesso commento", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ values: [{ id: 9, content: { raw: `${MARKER}\nvecchia` } }] }, 200)
+      )
+      .mockResolvedValueOnce(jsonResponse({ id: 9 }, 200));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    await provider.upsertPrComment(config, 7, MARKER, `${MARKER}\nnuova`);
+
+    expect(fetchImpl).toHaveBeenLastCalledWith(
+      "https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests/7/comments/9",
+      expect.objectContaining({ method: "PUT" })
+    );
+    const [, init] = fetchImpl.mock.calls[1] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ content: { raw: `${MARKER}\nnuova` } });
+  });
+
+  it("throws when both email and username are missing (before any request)", async () => {
+    const fetchImpl = vi.fn();
+    const provider = new BitbucketProvider({ fetchImpl });
+    await expect(
+      provider.upsertPrComment({ ...config, credentials: { token: "t" } }, 7, MARKER, "testo")
+    ).rejects.toThrow(/email.*username|username.*email/i);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("throws GitProviderError when the list call fails", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("forbidden", { status: 403 }));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const error = await provider
+      .upsertPrComment(config, 7, MARKER, "testo")
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(403);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("BitbucketProvider.parseWebhook", () => {
   const provider = new BitbucketProvider();
   const mergedBody = {

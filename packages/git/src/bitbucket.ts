@@ -100,6 +100,64 @@ export class BitbucketProvider implements GitProvider {
     return { url };
   }
 
+  /** Stato attuale della PR via REST: OPEN → 'open'; MERGED/DECLINED/SUPERSEDED → 'closed'. */
+  async getPullRequestState(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<"open" | "closed"> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const auth = this.projectRestAuthHeader(p);
+    const response = await fetchImpl(
+      `${API_BASE}/repositories/${owner}/${repo}/pullrequests/${prNumber}`,
+      { method: "GET", headers: { Authorization: auth } }
+    );
+    await ensureOkResponse(response, "Bitbucket");
+    const data = (await readJsonResponse(response, "Bitbucket")) as { state?: unknown };
+    return data.state === "OPEN" ? "open" : "closed";
+  }
+
+  /**
+   * Commento "sticky" della review: cerca tra i commenti della PR quello che
+   * contiene `marker` in content.raw e lo aggiorna (PUT), altrimenti ne crea
+   * uno (POST). Una pagina da 100 basta: il commento sticky è tra i primi.
+   */
+  async upsertPrComment(
+    p: ProjectGitConfig,
+    prNumber: number,
+    marker: string,
+    body: string,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<void> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const auth = this.projectRestAuthHeader(p);
+    const base = `${API_BASE}/repositories/${owner}/${repo}/pullrequests/${prNumber}/comments`;
+    const listResponse = await fetchImpl(`${base}?pagelen=100`, {
+      method: "GET",
+      headers: { Authorization: auth },
+    });
+    await ensureOkResponse(listResponse, "Bitbucket");
+    const list = (await readJsonResponse(listResponse, "Bitbucket")) as {
+      values?: { id?: unknown; content?: { raw?: unknown } }[];
+    };
+    const values = Array.isArray(list.values) ? list.values : [];
+    const existing = values.find(
+      (c) => typeof c.content?.raw === "string" && c.content.raw.includes(marker)
+    );
+    const target =
+      existing && typeof existing.id === "number"
+        ? { url: `${base}/${existing.id}`, method: "PUT" }
+        : { url: base, method: "POST" };
+    const response = await fetchImpl(target.url, {
+      method: target.method,
+      headers: { Authorization: auth, "Content-Type": "application/json" },
+      body: JSON.stringify({ content: { raw: body } }),
+    });
+    await ensureOkResponse(response, "Bitbucket");
+  }
+
   parseWebhook(headers: Record<string, string>, body: unknown): WebhookEvent | null {
     const eventKey = getHeader(headers, "x-event-key");
     const kind =
@@ -598,6 +656,24 @@ export class BitbucketProvider implements GitProvider {
       );
     }
     return basicAuthHeader(restUser, creds.credentials.token);
+  }
+
+  /**
+   * Header Basic per la REST API a partire dalla config di progetto: identità
+   * = email Atlassian (API token) o, in fallback, username (app password
+   * legacy). Stessa regola di openPullRequest/restAuthHeader; lancia se
+   * mancano entrambe, prima di qualsiasi richiesta.
+   */
+  private projectRestAuthHeader(p: ProjectGitConfig): string {
+    const restUser = p.credentials.email ?? p.credentials.username;
+    if (!restUser) {
+      throw new GitProviderError(
+        "Bitbucket REST credentials require an email (API tokens) or a username (legacy app passwords)",
+        0,
+        ""
+      );
+    }
+    return basicAuthHeader(restUser, p.credentials.token);
   }
 
   /**

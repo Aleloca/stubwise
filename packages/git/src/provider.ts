@@ -174,6 +174,23 @@ export interface GitProvider {
     p: ProjectGitConfig,
     pr: { branch: string; title: string; body: string }
   ): Promise<{ url: string }>;
+  /** Stato attuale della PR: 'open' se ancora aperta, 'closed' se mergiata/chiusa. */
+  getPullRequestState(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts?: { fetchImpl?: FetchLike }
+  ): Promise<"open" | "closed">;
+  /**
+   * Crea o aggiorna il commento "sticky" della review sulla PR: se esiste già
+   * un commento che contiene `marker` lo aggiorna, altrimenti ne crea uno.
+   */
+  upsertPrComment(
+    p: ProjectGitConfig,
+    prNumber: number,
+    marker: string,
+    body: string,
+    opts?: { fetchImpl?: FetchLike }
+  ): Promise<void>;
   /**
    * Returns a WebhookEvent if the webhook payload represents a closed PR —
    * `kind: "merged"` if it was merged, `kind: "closed_unmerged"` if it was
