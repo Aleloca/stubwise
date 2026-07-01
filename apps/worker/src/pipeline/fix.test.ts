@@ -2493,6 +2493,76 @@ describe("runFix — multi-repository (Fase 3)", () => {
     expect(after?.status).toBe("in_review");
   });
 
+  it("progetto a 2 repo, entrambi modificati, openPullRequest fallisce sul 2° → job failed, riga del 1° open, log azionabile", async () => {
+    const { db } = testDb;
+    const fixture = await makeMultiRepoFixture(2);
+    const ticket = await createMultiTicket(db, fixture.projectId);
+    const job = await createFixingJob(db, ticket.id);
+    const [repoA, repoB] = fixture.repos as [MultiRepo, MultiRepo];
+    // Entrambi i repo vengono modificati (una sottocartella ciascuno).
+    const runner = new FakeAgentRunner({
+      fileChanges: {
+        [`${mirrorSlug(repoA.repoUrl)}/app.js`]: "exports.sum = (a, b) => a + b;\n",
+        [`${mirrorSlug(repoB.repoUrl)}/app.js`]: "exports.mul = (a, b) => a * b;\n",
+        "STUBWISE_REPORT.md": REPORT,
+      },
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "fix", exitCode: 0 },
+      ],
+    });
+    // Il provider APRE la PR sulla 1ª chiamata (repoA, per slug) e LANCIA sulla 2ª (repoB).
+    let call = 0;
+    const firstPrUrl = "https://github.com/acme/rA/pull/1";
+    const provider: FakeProvider = {
+      openPullRequest: vi.fn().mockImplementation(async () => {
+        call++;
+        if (call === 1) return { url: firstPrUrl };
+        throw new Error("500 da GitHub sul 2° repo");
+      }),
+    };
+
+    const outcome = await runFix(makeMultiDeps(fixture, runner, provider), job);
+
+    // Fallimento parziale = terminale failed (i push sono già atterrati su entrambi).
+    expect(outcome).toBe("failed");
+    expect(provider.openPullRequest).toHaveBeenCalledTimes(2);
+
+    // Ordine di apertura = ordine dei repo (per slug): repoA prima, repoB dopo.
+    // La riga di repoA (PR aperta PRIMA del fallimento) è persistita a `open`;
+    // quella di repoB NON esiste (il fallimento precede l'insert).
+    const rows = await db
+      .select()
+      .from(ticketRepositories)
+      .where(eq(ticketRepositories.ticketId, ticket.id));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.repositoryId).toBe(repoA.repositoryId);
+    expect(rows[0]?.prState).toBe("open");
+    expect(rows[0]?.prUrl).toBe(firstPrUrl);
+    expect(rows[0]?.branch).toBe(`stubwise/ticket-${ticket.number}`);
+
+    // Log azionabile: nomina il repo/branch fallito, l'upstream, il recupero manuale
+    // E la PR già aperta sull'altro repo (per non riaprirla a mano).
+    const branch = `stubwise/ticket-${ticket.number}`;
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("failed");
+    expect(jobAfter.log).toContain(branch);
+    expect(jobAfter.log).toContain(repoB.repoUrl);
+    expect(jobAfter.log).toMatch(/recupero manuale/i);
+    expect(jobAfter.log).toMatch(/PR già aperte/i);
+    expect(jobAfter.log).toContain(firstPrUrl);
+    expect(jobAfter.error).toContain("500 da GitHub sul 2° repo");
+
+    // Il ticket NON transita a in_review (resta nello stato pre-fix).
+    const [after] = await db.select().from(tickets).where(eq(tickets.id, ticket.id));
+    expect(after?.status).not.toBe("in_review");
+    expect(after?.status).not.toBe("done");
+
+    // I branch sono comunque atterrati su ENTRAMBI gli upstream (il push precede la PR).
+    expect(await git(["branch", "--list", branch], repoA.upstreamDir)).toContain(branch);
+    expect(await git(["branch", "--list", branch], repoB.upstreamDir)).toContain(branch);
+  });
+
   it("progetto a 2 repo, NESSUNA modifica → NoChangesError, niente PR né righe", async () => {
     const { db } = testDb;
     const fixture = await makeMultiRepoFixture(2);
