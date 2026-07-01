@@ -58,33 +58,40 @@ export function IntegrationPanel({ ingestionKey, slug, origin }: IntegrationPane
         </span>
       </header>
 
-      <div className="space-y-4 px-4 py-4">
-        <IntegrationRow
-          label={t("integration:ingestionKey")}
-          copyLabel={t("integration:copyIngestionKey")}
-          text={ingestionKey}
-        />
-        <IntegrationRow label={t("integration:dsn")} copyLabel={t("integration:copyDsn")} text={dsn} />
+      {/* Due colonne su schermi larghi (lg+): a sinistra SDK/ingest, a destra il
+          webhook generico; sotto lg tornano impilate a colonna singola. */}
+      <div className="grid grid-cols-1 gap-x-6 gap-y-4 px-4 py-4 lg:grid-cols-2">
+        <div className="space-y-4">
+          <IntegrationRow
+            label={t("integration:ingestionKey")}
+            copyLabel={t("integration:copyIngestionKey")}
+            text={ingestionKey}
+          />
+          <IntegrationRow label={t("integration:dsn")} copyLabel={t("integration:copyDsn")} text={dsn} />
 
-        <div>
-          <div className="mb-1.5 flex items-center justify-between gap-3">
-            <span className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
-              {t("integration:snippet")}
-            </span>
-            <CopyButton text={snippet} label={t("integration:copySnippet")} />
+          <div>
+            <div className="mb-1.5 flex items-center justify-between gap-3">
+              <span className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
+                {t("integration:snippet")}
+              </span>
+              <CopyButton text={snippet} label={t("integration:copySnippet")} />
+            </div>
+            <pre
+              data-testid="init-snippet"
+              className="overflow-x-auto rounded-sm border border-line bg-ink-950/70 p-3 font-mono text-[12px] leading-relaxed text-fg"
+            >
+              <code>{snippet}</code>
+            </pre>
+            <p className="mt-2 font-mono text-[11px] text-fg-faint">
+              {t("integration:snippetHint")}
+            </p>
           </div>
-          <pre
-            data-testid="init-snippet"
-            className="overflow-x-auto rounded-sm border border-line bg-ink-950/70 p-3 font-mono text-[12px] leading-relaxed text-fg"
-          >
-            <code>{snippet}</code>
-          </pre>
-          <p className="mt-2 font-mono text-[11px] text-fg-faint">
-            {t("integration:snippetHint")}
-          </p>
         </div>
 
-        <div className="space-y-4 border-t border-line pt-4" data-testid="inbound-webhook">
+        <div
+          className="space-y-4 border-t border-line pt-4 lg:border-t-0 lg:border-l lg:pt-0 lg:pl-6"
+          data-testid="inbound-webhook"
+        >
           <div className="flex items-baseline justify-between">
             <span className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
               {t("integration:inboundSection")}
