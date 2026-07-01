@@ -43,6 +43,16 @@ modificato**. Il ticket si chiude quando **tutte** le PR sono mergiate.
 - **D7 — Chiusura aggregata.** Ticket → `in_review` quando le PR sono aperte; → `done`
   **solo quando tutte** le sue PR sono mergiate. Una PR chiusa-non-mergiata rimette in
   lavorazione **solo** quel repo, senza toccare gli altri.
+- **D8 — Ingestion a livello di PROGETTO.** Gli errori via SDK e i feedback sono del
+  **prodotto/progetto**, non di un repo: è l'agente a capire quale repo sistemare.
+  Quindi `ingestionKey` sale da `repositories` a `projects`, e gli `errorGroups`
+  diventano per-progetto. La chiave esistente viene **migrata identica** sul progetto →
+  gli SDK già installati continuano a funzionare senza riconfigurazione. **NON** riguarda
+  il **webhook git delle PR** (merge/close), che notifica un evento da uno specifico repo
+  git e quindi resta per-repo (`repositories.webhookSecret`, risoluzione per slug).
+- **D9 — `tickets.repositoryId` RIMOSSO del tutto.** L'unico legame ticket↔repo è
+  `ticket_repositories`, popolato dopo l'esecuzione. Il ticket appartiene solo al
+  progetto (`tickets.projectId`); non ha un "repo di origine" persistente.
 
 ## Modello dati (migrazione 0035)
 
@@ -54,14 +64,19 @@ modificato**. Il ticket si chiude quando **tutte** le PR sono mergiate.
   `id`, `ticketId` (FK tickets cascade), `repositoryId` (FK repositories cascade),
   `branch`, `prUrl` nullable, `prState` enum (`open|merged|closed_unmerged`),
   `createdAt`. UNIQUE `(ticketId, repositoryId)`. Popolata **dopo** l'esecuzione, una
-  riga per repo effettivamente modificato.
-- **`tickets.repositoryId`**: declassato a **"repo di origine"** (dove è nato il ticket:
-  errore SDK via `ingestionKey`, o scelta al ticket manuale) — metadato nullable. NON è
-  più il bersaglio d'esecuzione (il bersaglio è il progetto). La dedup del triage è già
-  per `projectId` (nessun cambiamento lì).
+  riga per repo effettivamente modificato. È l'**unico** legame ticket↔repo.
+- **`tickets.repositoryId` RIMOSSO** (D9): il ticket appartiene solo al progetto
+  (`tickets.projectId`, già NOT NULL dalla Fase 1). La dedup del triage è già per
+  `projectId` (nessun cambiamento). Migrazione: drop della colonna (i dati per-repo
+  storici non servono più; i ticket restano legati al progetto).
+- **Ingestion → progetto** (D8): `ingestionKey` si sposta da `repositories` a `projects`
+  (UNIQUE, migrata identica dal repo 1:1 al suo progetto); `repositories.ingestionKey`
+  rimossa. `errorGroups.repositoryId` → `errorGroups.projectId` (con migrazione dei dati
+  via il progetto del repo; aggiornare l'unique del fingerprint a `(projectId, …)`).
+  `repositories.webhookSecret` e il webhook PR **restano** per-repo.
 - **`ai_jobs`**: resta **uno per ticket**. `prUrl` singolo è superato da
-  `ticket_repositories` (per il multi-repo); mantenuto come "PR primaria" per
-  retro-compatibilità del re-run, oppure deprecato in favore della lettura aggregata.
+  `ticket_repositories`; mantenuto come "PR primaria" per retro-compatibilità del
+  re-run, oppure deprecato in favore della lettura aggregata.
 
 ## Worker (cuore della fase)
 
@@ -95,10 +110,14 @@ modificato**. Il ticket si chiude quando **tutte** le PR sono mergiate.
 
 ## Server
 
+- **Ingest SDK/feedback → progetto** (D8): la route di ingest risolve un **progetto**
+  dall'`ingestionKey` (ora su `projects`), non più un repo; gli `errorGroups` sono
+  per-progetto; il ticket generato ha solo `projectId` (niente `repositoryId`). Route
+  `/api/repositories/:id/env-files` e simili invariate (gli env-file restano per-repo).
 - **Create ticket**: numero da `projects.next_ticket_number` (row-lock sul progetto);
-  `tickets.repositoryId` = repo d'origine (ingest/manuale). Dedup triage invariata
-  (per progetto).
-- **Webhook merge** (`webhooks.ts`): estrae N dal branch `stubwise/ticket-N`, risolve il
+  il ticket ha solo `projectId`. Dedup triage invariata (per progetto).
+- **Webhook merge git** (`webhooks.ts`): resta **per-repo** (autenticato per slug +
+  `repositories.webhookSecret`); estrae N dal branch `stubwise/ticket-N`, risolve il
   ticket per `(progetto del repo del webhook, N)`, marca la **riga** `ticket_repositories`
   di quel repo come `merged`; porta il ticket a `done` **solo se tutte** le righe sono
   `merged` (gate aggregato). `closed_unmerged` → quella riga torna `closed_unmerged`, il
@@ -108,8 +127,8 @@ modificato**. Il ticket si chiude quando **tutte** le PR sono mergiate.
 
 ## Web
 
-- **Nuovo ticket**: NESSUNA multi-selezione repo (l'AI decide — D1). Resta la scelta del
-  progetto (e per i ticket manuali, opzionalmente il repo d'origine).
+- **Nuovo ticket**: NESSUNA multi-selezione repo (l'AI decide — D1). Resta solo la scelta
+  del progetto.
 - **Dettaglio ticket**: nuova sezione **"Repository / PR"** che, dopo l'esecuzione, elenca
   i repo toccati con stato (`open/merged/closed_unmerged`) e link alla PR. Prima
   dell'esecuzione è vuota (l'agente non ha ancora deciso).
@@ -118,15 +137,19 @@ modificato**. Il ticket si chiude quando **tutte** le PR sono mergiate.
 
 ## Piano (sotto-fasi subagent-driven, ognuna verde prima della successiva)
 
-- **3-1 — Modello + numerazione.** Migrazione 0035 (`projects.next_ticket_number` +
-  migrazione dati; `ticket_repositories`; declassamento `tickets.repositoryId` a origine).
-  Shared schemas. Test integrità.
+- **3-1 — Modello + numerazione + ingestion di progetto.** Migrazione 0035:
+  `projects.next_ticket_number` (+ migrazione dati); nuova `ticket_repositories`; **drop**
+  `tickets.repositoryId`; **spostamento** `ingestionKey` da `repositories` a `projects`
+  (migrata identica) e `errorGroups.repositoryId` → `errorGroups.projectId` (+ unique del
+  fingerprint per progetto); `webhookSecret` resta sul repo. Shared schemas. Test integrità.
 - **3-2 — Worker.** `withProjectWorktrees`; `runFix` sul progetto con agente unico;
   apertura PR multipla + `ticket_repositories`; serializzazione/claim per-progetto;
   esclusione allargata fix↔generazione. Test (materializzazione multi-worktree,
   PR multiple, serializzazione per-progetto, single-repo invariato).
-- **3-3 — Server.** Create con numero di progetto; webhook con chiusura aggregata;
-  mapper ticket con stato per-repo. Test (merge parziale non chiude; tutti merged → done).
+- **3-3 — Server.** Ingest SDK/feedback risolto per progetto (`ingestionKey` su
+  `projects`, `errorGroups` per progetto); create con numero di progetto; webhook git
+  (per-repo) con chiusura aggregata; mapper ticket con stato per-repo. Test (ingest →
+  ticket di progetto; merge parziale non chiude; tutti merged → done).
 - **3-4 — Web.** Sezione Repository/PR nel dettaglio ticket; badge; i18n. Test (+E2E).
 - **3-5 — Verifica full-repo + review olistico + merge** (deploy demandato all'utente,
   migrazione strutturale → backup DB prima).
