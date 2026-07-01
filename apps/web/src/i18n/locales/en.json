@@ -1065,5 +1065,31 @@
       "unavailable": "Docs chat needs an API-key AI provider. Ask an admin to add one in settings (account/OAuth providers don't work here).",
       "newChat": "New chat"
     }
+  },
+  "search": {
+    "label": "Global search",
+    "trigger": "Search…",
+    "placeholderGlobal": "Search everything…",
+    "recents": "Recent",
+    "clearAll": "Clear all",
+    "removeOne": "Remove {{title}} from recents",
+    "noResults": "No results",
+    "searching": "Searching…",
+    "enriching": "Refining…",
+    "showMore": "Show more",
+    "hintNav": "navigate",
+    "hintOpen": "open",
+    "hintScope": "scope",
+    "hintClose": "close",
+    "groups": {
+      "tickets": "Tickets",
+      "projects": "Projects",
+      "repositories": "Repositories",
+      "docs": "Documentation"
+    },
+    "scope": {
+      "repo": "This documentation",
+      "all": "Everything"
+    }
   }
 }

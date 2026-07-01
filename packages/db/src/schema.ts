@@ -8,6 +8,7 @@ import {
   gitProviderKindSchema,
   languageSchema,
   prStateSchema,
+  searchEntityTypeSchema,
   ticketPrioritySchema,
   ticketSourceSchema,
   ticketStatusSchema,
@@ -170,6 +171,9 @@ export const docGenerationTrigger = pgEnum(
 export const docJobStatus = pgEnum("doc_job_status", enumValues(docJobStatusSchema));
 export const docNodeStatus = pgEnum("doc_node_status", enumValues(docNodeStatusSchema));
 export const docTree = pgEnum("doc_tree", enumValues(docTreeSchema));
+// Tipo di entità nella cronologia di ricerca unificata (spotlight globale):
+// ticket, progetto, repository o pagina di documentazione.
+export const searchEntity = pgEnum("search_entity", enumValues(searchEntityTypeSchema));
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -1292,40 +1296,51 @@ export const docChatMessages = pgTable(
 );
 
 /**
- * Cronologia di ricerca dei Docs (command palette): l'ultima pagina cliccata da
- * un utente in un progetto, denormalizzata (slug/title/kind) per il render
- * diretto senza join sulle pagine. Una riga per (utente, progetto, slug):
- * l'upsert aggiorna `clickedAt` e i campi denormalizzati a ogni click. Cascata
- * con progetto e utente.
+ * Cronologia UNIFICATA di ricerca (spotlight globale Cmd/K): i risultati
+ * cliccati da un utente, poliformi (ticket/progetto/repository/pagina doc),
+ * denormalizzati (title/subtitle/route) per il render diretto senza join. Una
+ * riga per (utente, tipo, entityId): l'upsert aggiorna `clickedAt` e i campi
+ * denormalizzati a ogni click; oltre le N più recenti per utente si potano.
+ * `repositoryId` è valorizzato per le voci Docs (filtra i recenti in scope
+ * "questa documentazione"), null per gli altri tipi. Generalizza la vecchia
+ * la vecchia `doc_search_history` (migrazione 0036, dati Docs preservati come type='doc').
+ * Cascata con l'utente; il repository eliminato azzera `repositoryId` (set null).
  */
-export const docSearchHistory = pgTable(
-  "doc_search_history",
+export const searchHistory = pgTable(
+  "search_history",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    repositoryId: uuid("repository_id")
-      .notNull()
-      .references(() => repositories.id, { onDelete: "cascade" }),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    slug: text("slug").notNull(),
+    type: searchEntity("type").notNull(),
+    // Id dell'entità nel suo dominio: id del ticket/progetto/repo, oppure
+    // `repositoryId:slug` per una pagina doc (una doc è identificata da repo+slug).
+    entityId: text("entity_id").notNull(),
     title: text("title").notNull(),
-    kind: docPageKind("kind").notNull(),
-    // Anteprima testuale della pagina al momento del click (lo snippet visto
-    // nella palette): mostrata nei recenti senza join. Null per i click
-    // registrati prima di questa feature o senza snippet disponibile.
-    snippet: text("snippet"),
+    // Contesto secondario denormalizzato: progetto del ticket, kind della pagina,
+    // ecc. Null quando non applicabile.
+    subtitle: text("subtitle"),
+    // Route verso cui navigare al click sul recente (già risolta lato client).
+    route: text("route").notNull(),
+    // Repository d'appartenenza per le voci Docs (filtro in scope); null per
+    // ticket/progetti/repository. Set null se il repository viene eliminato.
+    repositoryId: uuid("repository_id").references(() => repositories.id, {
+      onDelete: "set null",
+    }),
     clickedAt: timestamp("clicked_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    // Una sola voce per (utente, repository, slug): target dell'upsert.
-    uniqueIndex("doc_search_history_user_project_slug_unique").on(
+    // Una sola voce per (utente, tipo, entità): target dell'upsert.
+    uniqueIndex("search_history_user_type_entity_unique").on(
       table.userId,
-      table.repositoryId,
-      table.slug,
+      table.type,
+      table.entityId,
     ),
-    // Cronologia recente di un utente in un repository: i click più nuovi prima.
-    index("doc_search_history_recent_idx").on(
+    // Cronologia recente globale di un utente: i click più nuovi prima.
+    index("search_history_recent_idx").on(table.userId, table.clickedAt.desc()),
+    // Cronologia recente in scope Docs (per repository): i click più nuovi prima.
+    index("search_history_repo_recent_idx").on(
       table.userId,
       table.repositoryId,
       table.clickedAt.desc(),

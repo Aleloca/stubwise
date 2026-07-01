@@ -2,7 +2,11 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
-import { retrieveChunks, retrieveChunksForProject } from "./docs-retrieval.js";
+import {
+  retrieveChunks,
+  retrieveChunksAll,
+  retrieveChunksForProject,
+} from "./docs-retrieval.js";
 import {
   docChunks,
   docGenerations,
@@ -239,6 +243,98 @@ describe("retrieveChunksForProject (cross-repo)", () => {
   it("progetto senza alcun repository → []", async () => {
     const projectId = await seedProject();
     const res = await retrieveChunksForProject(db, embeddingClient, projectId, "qualunque query");
+    expect(res).toEqual([]);
+  });
+});
+
+describe("retrieveChunksAll (cross-repo GLOBALE)", () => {
+  it("recupera da repo di progetti DIVERSI, entrambi rappresentati col repo corretto", async () => {
+    // Due progetti distinti, un repo documentato ciascuno.
+    const projectA = await seedProject();
+    const projectB = await seedProject();
+    const repoA = await seedRepoInProject(projectA, "Global Repo Alfa");
+    const repoB = await seedRepoInProject(projectB, "Global Repo Beta");
+    const genA = await seedGeneration(repoA.id);
+    const genB = await seedGeneration(repoB.id);
+
+    // Token univoco condiviso dai due chunk: il full-text lo trova in entrambi i
+    // repo, quindi il risultato globale deve rappresentare ENTRAMBI i progetti.
+    const token = `globtok${randomUUID().slice(0, 8)}`;
+    const contentA = `Il ${token} di Alfa gestisce l'autenticazione.`;
+    const contentB = `Il ${token} di Beta gestisce la fatturazione.`;
+    const slugA = await seedPageWithChunk(repoA.id, genA, {
+      title: "Alfa Globale",
+      body: contentA,
+      chunkContent: contentA,
+    });
+    const slugB = await seedPageWithChunk(repoB.id, genB, {
+      title: "Beta Globale",
+      body: contentB,
+      chunkContent: contentB,
+    });
+
+    const res = await retrieveChunksAll(db, embeddingClient, token);
+    const hitA = res.find((r) => r.slug === slugA);
+    const hitB = res.find((r) => r.slug === slugB);
+    expect(hitA).toBeDefined();
+    expect(hitB).toBeDefined();
+    expect(hitA!.repositoryId).toBe(repoA.id);
+    expect(hitA!.repositoryName).toBe("Global Repo Alfa");
+    expect(hitB!.repositoryId).toBe(repoB.id);
+    expect(hitB!.repositoryName).toBe("Global Repo Beta");
+  });
+
+  it("filtro generazione PER-REPO: un chunk di generazione NON corrente è escluso", async () => {
+    const projectA = await seedProject();
+    const repoA = await seedRepoInProject(projectA, "Global Stale");
+    // Generazione STALE (non corrente) con un match perfetto sul token.
+    const staleGen = await seedGeneration(repoA.id, { current: false });
+    const token = `globstale${randomUUID().slice(0, 8)}`;
+    const staleContent = `Contenuto ${token} di una generazione stale globale.`;
+    const staleSlug = await seedPageWithChunk(repoA.id, staleGen, {
+      title: "Stale Globale",
+      body: staleContent,
+      chunkContent: staleContent,
+    });
+    // Generazione corrente, irrilevante al token.
+    const currentGen = await seedGeneration(repoA.id);
+    await seedPageWithChunk(repoA.id, currentGen, {
+      title: "Current Globale",
+      body: "Contenuto corrente qualunque.",
+      chunkContent: "Contenuto corrente qualunque.",
+    });
+
+    const res = await retrieveChunksAll(db, embeddingClient, token);
+    expect(res.some((r) => r.slug === staleSlug)).toBe(false);
+  });
+
+  it("include le pagine manuali (generationId NULL) globalmente", async () => {
+    const projectA = await seedProject();
+    const repoA = await seedRepoInProject(projectA, "Global Manual");
+    await seedGeneration(repoA.id);
+    const token = `globman${randomUUID().slice(0, 8)}`;
+    const manualContent = `Procedura ${token} manuale globale.`;
+    const manualSlug = await seedPageWithChunk(repoA.id, null, {
+      title: "Manuale Globale",
+      body: manualContent,
+      chunkContent: manualContent,
+    });
+
+    const res = await retrieveChunksAll(db, embeddingClient, token);
+    const hit = res.find((r) => r.slug === manualSlug);
+    expect(hit).toBeDefined();
+    expect(hit!.repositoryId).toBe(repoA.id);
+  });
+
+  it("nessun repository (DB senza repo) → [] senza toccare embedding/query", async () => {
+    // Il DB del testcontainer è condiviso e ha già repo seedati dagli altri test:
+    // l'early-return `repos.length === 0` non è osservabile su `db`. Lo isoliamo
+    // con uno stub minimale del select che ritorna una lista di repo vuota; se
+    // l'early-return non scattasse, il retrieval proverebbe a usare db/embedding.
+    const emptyDb = {
+      select: () => ({ from: async () => [] }),
+    } as unknown as Db;
+    const res = await retrieveChunksAll(emptyDb, embeddingClient, "qualunque query");
     expect(res).toEqual([]);
   });
 });

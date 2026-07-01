@@ -1065,5 +1065,31 @@
       "unavailable": "La chat dei docs richiede un provider AI con API key. Chiedi a un admin di aggiungerne uno nelle impostazioni (i provider account/OAuth non funzionano qui).",
       "newChat": "Nuova chat"
     }
+  },
+  "search": {
+    "label": "Ricerca globale",
+    "trigger": "Cerca…",
+    "placeholderGlobal": "Cerca in tutto…",
+    "recents": "Recenti",
+    "clearAll": "Cancella tutto",
+    "removeOne": "Rimuovi {{title}} dai recenti",
+    "noResults": "Nessun risultato",
+    "searching": "Ricerca in corso…",
+    "enriching": "Affinamento…",
+    "showMore": "Mostra altri",
+    "hintNav": "naviga",
+    "hintOpen": "apri",
+    "hintScope": "ambito",
+    "hintClose": "chiudi",
+    "groups": {
+      "tickets": "Ticket",
+      "projects": "Progetti",
+      "repositories": "Repository",
+      "docs": "Documentazione"
+    },
+    "scope": {
+      "repo": "Questa documentazione",
+      "all": "Tutto"
+    }
   }
 }

@@ -398,22 +398,42 @@ describe("trigger generazione + stato (M7.4)", () => {
   });
 });
 
+/** Risposta vuota della corsia veloce `/api/search` (tutti i gruppi senza item). */
+function emptySearchResults() {
+  return {
+    tickets: { items: [], hasMore: false },
+    projects: { items: [], hasMore: false },
+    repositories: { items: [], hasMore: false },
+    docs: { items: [], hasMore: false },
+  };
+}
+
 describe("ricerca via command palette (Cmd/K)", () => {
   it("il trigger nella sidebar apre la palette; digitando una query mostra i risultati", async () => {
+    // La palette dei Docs è ora lo spotlight globale ancorato al repo: full-text
+    // via `/api/search` (scope repo), semantica via `/api/search/docs-semantic`.
     mockApi({
       ...baseHandlers(),
-      [`GET /api/repositories/${PROJECT_ID}/docs/history`]: () => jsonResponse(200, []),
-      [`GET /api/repositories/${PROJECT_ID}/docs/search`]: () =>
-        jsonResponse(200, [
-          {
-            slug: "guide",
-            title: "Guide",
-            kind: "manual",
-            snippet: "A manual onboarding guide.",
-            score: 0.9,
-            source: "hybrid",
+      "GET /api/search/history": () => jsonResponse(200, []),
+      "GET /api/search": () =>
+        jsonResponse(200, {
+          ...emptySearchResults(),
+          docs: {
+            items: [
+              {
+                slug: "guide",
+                title: "Guide",
+                kind: "manual",
+                snippet: "A manual onboarding guide.",
+                repositoryId: PROJECT_ID,
+                repositorySlug: "repo",
+                repositoryName: "Repo",
+              },
+            ],
+            hasMore: false,
           },
-        ]),
+        }),
+      "GET /api/search/docs-semantic": () => jsonResponse(200, []),
     });
     renderApp(`/docs/${PROJECT_ID}`);
 
@@ -430,7 +450,7 @@ describe("ricerca via command palette (Cmd/K)", () => {
   it("la scorciatoia Cmd/K apre la palette", async () => {
     mockApi({
       ...baseHandlers(),
-      [`GET /api/repositories/${PROJECT_ID}/docs/history`]: () => jsonResponse(200, []),
+      "GET /api/search/history": () => jsonResponse(200, []),
     });
     renderApp(`/docs/${PROJECT_ID}`);
 
@@ -445,8 +465,9 @@ describe("ricerca via command palette (Cmd/K)", () => {
   it("nessun risultato: mostra lo stato vuoto nella palette", async () => {
     mockApi({
       ...baseHandlers(),
-      [`GET /api/repositories/${PROJECT_ID}/docs/history`]: () => jsonResponse(200, []),
-      [`GET /api/repositories/${PROJECT_ID}/docs/search`]: () => jsonResponse(200, []),
+      "GET /api/search/history": () => jsonResponse(200, []),
+      "GET /api/search": () => jsonResponse(200, emptySearchResults()),
+      "GET /api/search/docs-semantic": () => jsonResponse(200, []),
     });
     renderApp(`/docs/${PROJECT_ID}`);
 

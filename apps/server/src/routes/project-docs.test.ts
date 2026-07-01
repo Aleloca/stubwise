@@ -11,10 +11,10 @@ import {
   docChunks,
   docGenerations,
   docPages,
-  docSearchHistory,
   gitAccounts,
   projects,
   repositories,
+  searchHistory,
 } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
@@ -275,12 +275,12 @@ describe("GET /api/projects/:projectId/docs/search", () => {
     // cronologia resta per-repository: nessuna riga per i repo coinvolti.
     const historyForRepoA = await testDb.db
       .select()
-      .from(docSearchHistory)
-      .where(eq(docSearchHistory.repositoryId, repoA.id));
+      .from(searchHistory)
+      .where(eq(searchHistory.repositoryId, repoA.id));
     const historyForRepoB = await testDb.db
       .select()
-      .from(docSearchHistory)
-      .where(eq(docSearchHistory.repositoryId, repoB.id));
+      .from(searchHistory)
+      .where(eq(searchHistory.repositoryId, repoB.id));
     expect(historyForRepoA.length).toBe(0);
     expect(historyForRepoB.length).toBe(0);
   });

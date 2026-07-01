@@ -7,7 +7,7 @@ import {
   docChunks,
   docGenerations,
   docPages,
-  docSearchHistory,
+  searchHistory,
   users,
 } from "./schema.js";
 import { seedRepository, startTestDb, type TestDb } from "./testing.js";
@@ -167,22 +167,36 @@ describe("schema: dominio Docs", () => {
     expect(read?.embedding?.[0]).toBe(1);
   });
 
-  it("cronologia di ricerca: una sola voce per (utente, progetto, slug)", async () => {
+  it("cronologia di ricerca: una sola voce per (utente, tipo, entità)", async () => {
     const repositoryId = await seedProject();
     const userId = await seedUser();
+    const entityId = `${repositoryId}:panoramica`;
 
     const [entry] = await db
-      .insert(docSearchHistory)
-      .values({ repositoryId, userId, slug: "panoramica", title: "Panoramica", kind: "technical" })
+      .insert(searchHistory)
+      .values({
+        userId,
+        type: "doc",
+        entityId,
+        title: "Panoramica",
+        subtitle: "technical",
+        route: `/docs/${repositoryId}/panoramica`,
+        repositoryId,
+      })
       .returning();
     if (!entry) throw new Error("insert della cronologia non ha restituito la riga");
     expect(entry.title).toBe("Panoramica");
 
-    // Stesso (utente, progetto, slug): vietato un secondo INSERT (unique).
+    // Stesso (utente, tipo, entità): vietato un secondo INSERT (unique).
     await expect(
-      db
-        .insert(docSearchHistory)
-        .values({ repositoryId, userId, slug: "panoramica", title: "Dup", kind: "technical" }),
+      db.insert(searchHistory).values({
+        userId,
+        type: "doc",
+        entityId,
+        title: "Dup",
+        route: `/docs/${repositoryId}/panoramica`,
+        repositoryId,
+      }),
     ).rejects.toThrow();
   });
 });

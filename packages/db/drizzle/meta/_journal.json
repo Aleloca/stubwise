@@ -253,6 +253,13 @@
 			"when": 1782900854977,
 			"tag": "0035_multi_repo_fix",
 			"breakpoints": true
+		},
+		{
+			"idx": 36,
+			"version": "7",
+			"when": 1782900954977,
+			"tag": "0036_global_search_history",
+			"breakpoints": true
 		}
 	]
 }
