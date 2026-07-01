@@ -10,6 +10,7 @@ import {
   docGenerations,
   instanceSettings,
   notificationSettings,
+  prReviewJobs,
   projects,
   repositories,
   ticketRepositories,
@@ -1456,5 +1457,190 @@ describe("POST /webhooks/git/:projectSlug — push (auto-aggiornamento Docs)", (
     expect(await ticketStatus(ticketId)).toBe("done");
     // E nessun job di auto-update è stato creato.
     expect(await pendingJob(project.id)).toBeUndefined();
+  });
+});
+
+describe("webhook PR Review (accodamento)", () => {
+  /**
+   * Porta il toggle d'istanza prReviewEnabled (singleton id=1, seedato dalla
+   * migrazione) al valore richiesto. Upsert per robustezza, come fa il server.
+   */
+  async function setPrReviewEnabled(enabled: boolean): Promise<void> {
+    await testDb.db
+      .insert(instanceSettings)
+      .values({ id: 1, prReviewEnabled: enabled })
+      .onConflictDoUpdate({ target: instanceSettings.id, set: { prReviewEnabled: enabled } });
+  }
+
+  /** Payload GitHub pull_request opened/synchronize per la PR #42. */
+  function githubPrOpenedPayload(overrides: Partial<{ action: string; sha: string }> = {}): string {
+    return JSON.stringify({
+      action: overrides.action ?? "opened",
+      pull_request: {
+        number: 42,
+        title: "Add login",
+        body: "desc",
+        html_url: "https://github.com/acme/repo/pull/42",
+        head: { ref: "feature/login", sha: overrides.sha ?? "a".repeat(40) },
+        base: { ref: "main" },
+      },
+    });
+  }
+
+  /** Payload Bitbucket pullrequest:created per la PR #42. */
+  function bitbucketPrCreatedPayload(): string {
+    return JSON.stringify({
+      pullrequest: {
+        id: 42,
+        title: "Add login",
+        description: "desc",
+        source: { branch: { name: "feature/login" }, commit: { hash: "abc123def456" } },
+        destination: { branch: { name: "main" } },
+        links: { html: { href: "https://bitbucket.org/acme/repo/pull-requests/42" } },
+      },
+    });
+  }
+
+  /** Le righe pr_review_jobs del repository (attese: 0 o 1 per il vincolo unique). */
+  async function reviewJobs(repositoryId: string) {
+    return testDb.db
+      .select()
+      .from(prReviewJobs)
+      .where(eq(prReviewJobs.repositoryId, repositoryId));
+  }
+
+  function postGithubPr(repo: CreatedProject, body: string) {
+    return app.inject({
+      method: "POST",
+      url: `/webhooks/git/${repo.slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": sign(repo.webhookSecret, body),
+      },
+      payload: body,
+    });
+  }
+
+  it("pull_request opened con toggle attivo → riga in pr_review_jobs", async () => {
+    const project = await createProject({
+      name: "PR Review Opened",
+      provider: "github",
+      repoUrl: "https://github.com/acme/pr-review-opened",
+      credentials: { token: "tok" },
+    });
+    await setPrReviewEnabled(true);
+    const before = Date.now();
+
+    const res = await postGithubPr(project, githubPrOpenedPayload());
+    expect(res.statusCode).toBe(204);
+
+    const jobs = await reviewJobs(project.id);
+    expect(jobs).toHaveLength(1);
+    const job = jobs[0]!;
+    expect(job.prNumber).toBe(42);
+    expect(job.headSha).toBe("a".repeat(40));
+    expect(job.prTitle).toBe("Add login");
+    expect(job.prBody).toBe("desc");
+    expect(job.sourceBranch).toBe("feature/login");
+    expect(job.targetBranch).toBe("main");
+    expect(job.prUrl).toBe("https://github.com/acme/repo/pull/42");
+    // not_before nel futuro: finestra di debounce.
+    expect(job.notBefore.getTime()).toBeGreaterThan(before);
+  });
+
+  it("synchronize sulla stessa PR → upsert (una sola riga, head e debounce aggiornati)", async () => {
+    const project = await createProject({
+      name: "PR Review Sync",
+      provider: "github",
+      repoUrl: "https://github.com/acme/pr-review-sync",
+      credentials: { token: "tok" },
+    });
+    await setPrReviewEnabled(true);
+
+    expect((await postGithubPr(project, githubPrOpenedPayload())).statusCode).toBe(204);
+    const [first] = await reviewJobs(project.id);
+    const firstNotBefore = first!.notBefore.getTime();
+
+    // Push sulla source branch: synchronize con nuova head.
+    const newSha = "b".repeat(40);
+    const res = await postGithubPr(
+      project,
+      githubPrOpenedPayload({ action: "synchronize", sha: newSha }),
+    );
+    expect(res.statusCode).toBe(204);
+
+    // SEMPRE una sola riga (upsert sul vincolo repo+PR), head e debounce avanzati.
+    const jobs = await reviewJobs(project.id);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.headSha).toBe(newSha);
+    expect(jobs[0]!.notBefore.getTime()).toBeGreaterThanOrEqual(firstNotBefore);
+  });
+
+  it("toggle spento → nessuna riga (204)", async () => {
+    const project = await createProject({
+      name: "PR Review Off",
+      provider: "github",
+      repoUrl: "https://github.com/acme/pr-review-off",
+      credentials: { token: "tok" },
+    });
+    await setPrReviewEnabled(false);
+
+    const res = await postGithubPr(project, githubPrOpenedPayload());
+    expect(res.statusCode).toBe(204);
+    expect(await reviewJobs(project.id)).toHaveLength(0);
+  });
+
+  it("firma errata → 401 e nessuna riga", async () => {
+    const project = await createProject({
+      name: "PR Review Firma KO",
+      provider: "github",
+      repoUrl: "https://github.com/acme/pr-review-firma-ko",
+      credentials: { token: "tok" },
+    });
+    await setPrReviewEnabled(true);
+    const body = githubPrOpenedPayload();
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/webhooks/git/${project.slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": sign("segreto-sbagliato", body),
+      },
+      payload: body,
+    });
+    expect(res.statusCode).toBe(401);
+    expect(await reviewJobs(project.id)).toHaveLength(0);
+  });
+
+  it("Bitbucket pullrequest:created con toggle attivo → riga accodata", async () => {
+    const project = await createProject({
+      name: "PR Review BB",
+      provider: "bitbucket",
+      repoUrl: "https://bitbucket.org/acme/pr-review-bb",
+      credentials: { username: "acme-bot", token: "tok" },
+    });
+    await setPrReviewEnabled(true);
+    const body = bitbucketPrCreatedPayload();
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/webhooks/git/${project.slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-event-key": "pullrequest:created",
+        "x-hub-signature": sign(project.webhookSecret, body),
+      },
+      payload: body,
+    });
+    expect(res.statusCode).toBe(204);
+
+    const jobs = await reviewJobs(project.id);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.prNumber).toBe(42);
+    expect(jobs[0]!.headSha).toBe("abc123def456");
+    expect(jobs[0]!.prUrl).toBe("https://bitbucket.org/acme/repo/pull-requests/42");
   });
 });

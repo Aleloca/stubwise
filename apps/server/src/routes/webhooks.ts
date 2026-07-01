@@ -8,6 +8,8 @@ import {
   comments,
   docAutoUpdateJobs,
   docGenerations,
+  instanceSettings,
+  prReviewJobs,
   projects,
   repositories,
   ticketRepositories,
@@ -35,6 +37,15 @@ const STUBWISE_BRANCH_RE = /^stubwise\/ticket-(\d+)$/;
  * (non vale una variabile d'ambiente in più da propagare in buildApp/compose).
  */
 const DEBOUNCE_MS = 5 * 60 * 1000;
+
+/**
+ * Debounce dell'automazione PR Review: ogni opened/synchronize sposta
+ * `not_before` di questo intervallo, così una raffica di push sulla PR produce
+ * una sola review sulla head finale. Più corto del debounce Docs: la review
+ * serve "presto" dopo l'apertura, e i push su una PR sono meno frequenti dei
+ * push su main.
+ */
+const PR_REVIEW_DEBOUNCE_MS = 90 * 1000;
 
 /**
  * Normalizza gli header Fastify (string | string[] | undefined) nella
@@ -192,6 +203,48 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
             set: { toSha: push.afterSha, notBefore },
           });
 
+        return reply.code(204).send();
+      }
+
+      // Ramo PR Review: apertura/aggiornamento di una PR. Mutuamente esclusivo
+      // con gli altri due (parsePushEvent copre solo i push, parseWebhook solo
+      // le chiusure). Gate sul toggle d'istanza: spento = no-op.
+      const prEvent = provider.parsePrEvent(headers, request.body);
+      if (prEvent) {
+        const [settings] = await instance.db
+          .select({ enabled: instanceSettings.prReviewEnabled })
+          .from(instanceSettings)
+          .where(eq(instanceSettings.id, 1));
+        if (settings?.enabled !== true) return reply.code(204).send();
+
+        // Upsert sul vincolo (repository, PR): un solo pending per PR, i push
+        // ravvicinati aggiornano head/metadati e allungano il debounce.
+        const notBefore = new Date(Date.now() + PR_REVIEW_DEBOUNCE_MS);
+        await instance.db
+          .insert(prReviewJobs)
+          .values({
+            repositoryId: context.repositoryId,
+            prNumber: prEvent.prNumber,
+            prUrl: prEvent.prUrl,
+            prTitle: prEvent.title,
+            prBody: prEvent.description,
+            sourceBranch: prEvent.sourceBranch,
+            targetBranch: prEvent.targetBranch,
+            headSha: prEvent.headSha,
+            notBefore,
+          })
+          .onConflictDoUpdate({
+            target: [prReviewJobs.repositoryId, prReviewJobs.prNumber],
+            set: {
+              prUrl: prEvent.prUrl,
+              prTitle: prEvent.title,
+              prBody: prEvent.description,
+              sourceBranch: prEvent.sourceBranch,
+              targetBranch: prEvent.targetBranch,
+              headSha: prEvent.headSha,
+              notBefore,
+            },
+          });
         return reply.code(204).send();
       }
 
