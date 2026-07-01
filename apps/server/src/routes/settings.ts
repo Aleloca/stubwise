@@ -14,7 +14,7 @@ import { authErrorResponses, errorSchema } from "./shared.js";
  * Settings, se l'auto-fix è attivo per un tipo e fino a quale sforzo
  * (max_effort): il triage avvia il fix automaticamente solo se auto_fix è
  * true E l'effort stimato è <= max_effort. Le righe sono seedate dalla
- * migrazione per tutti e 4 i tipi; questo modulo le legge/aggiorna e fa
+ * migrazione per tutti i tipi; questo modulo le legge/aggiorna e fa
  * comunque fallback a un default se una riga mancasse.
  */
 
@@ -25,6 +25,11 @@ const DEFAULT_RULE = {
   planApprovalMinEffort: null,
   maxCostUsd: null,
 } as const;
+
+// `review` nasce con auto-fix spento anche nel fallback (anti-loop): la riga
+// seedata dalla migrazione lo garantisce già, questo copre il DB pre-seed.
+const defaultRuleFor = (type: TicketType): Omit<AutomationRule, "type"> =>
+  type === "review" ? { ...DEFAULT_RULE, autoFix: false } : DEFAULT_RULE;
 
 const automationRuleSchema = z.object({
   type: ticketTypeSchema,
@@ -234,22 +239,23 @@ async function loadInstanceSettings(
 }
 
 /**
- * Restituisce le regole per TUTTI e 4 i tipi, riempiendo con il default
- * quelle eventualmente assenti nel DB: la UI mostra sempre 4 righe coerenti.
+ * Restituisce le regole per TUTTI i tipi di ticket (i 5 di ticketTypeSchema),
+ * riempiendo con il default quelle eventualmente assenti nel DB: la UI mostra
+ * sempre una riga coerente per ogni tipo.
  */
 async function loadAllRules(db: Db): Promise<AutomationRule[]> {
   const rows = await db.select().from(automationRules);
   const byType = new Map(rows.map((r) => [r.type, r]));
   return ticketTypeSchema.options.map((type: TicketType) => {
     const row = byType.get(type);
+    const fallback = defaultRuleFor(type);
     return {
       type,
-      autoFix: row?.autoFix ?? DEFAULT_RULE.autoFix,
-      maxEffort: row?.maxEffort ?? DEFAULT_RULE.maxEffort,
-      planApprovalMinEffort: row?.planApprovalMinEffort ?? DEFAULT_RULE.planApprovalMinEffort,
+      autoFix: row?.autoFix ?? fallback.autoFix,
+      maxEffort: row?.maxEffort ?? fallback.maxEffort,
+      planApprovalMinEffort: row?.planApprovalMinEffort ?? fallback.planApprovalMinEffort,
       // numeric → stringa lato driver: converto a number, null resta null.
-      maxCostUsd:
-        row?.maxCostUsd != null ? Number(row.maxCostUsd) : DEFAULT_RULE.maxCostUsd,
+      maxCostUsd: row?.maxCostUsd != null ? Number(row.maxCostUsd) : fallback.maxCostUsd,
     };
   });
 }

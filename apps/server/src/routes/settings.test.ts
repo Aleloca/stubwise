@@ -70,11 +70,11 @@ describe("GET /api/settings/automation", () => {
     expect((await getAutomation(users.memberCookie)).statusCode).toBe(403);
   });
 
-  it("admin: restituisce le 4 regole con i default seedati", async () => {
+  it("admin: restituisce le 5 regole con i default seedati", async () => {
     const res = await getAutomation(users.adminCookie);
     expect(res.statusCode).toBe(200);
     const { rules } = res.json() as { rules: Rule[] };
-    expect(rules).toHaveLength(4);
+    expect(rules).toHaveLength(5);
     const byType = new Map(rules.map((r) => [r.type, r]));
     // Default di seed della migrazione. planApprovalMinEffort null = mai.
     expect(byType.get("bug")).toEqual({
@@ -105,19 +105,37 @@ describe("GET /api/settings/automation", () => {
       planApprovalMinEffort: null,
       maxCostUsd: null,
     });
+    // Seed anti-loop dell'automazione PR Review: auto-fix SPENTO.
+    expect(byType.get("review")).toEqual({
+      type: "review",
+      autoFix: false,
+      maxEffort: 3,
+      planApprovalMinEffort: null,
+      maxCostUsd: null,
+    });
   });
 
   it("admin: una riga mancante nel DB viene riempita con il default", async () => {
-    // Rimuove la riga 'feedback': la GET deve comunque restituirne 4.
+    // Rimuove le righe 'feedback' e 'review': la GET deve comunque restituirne 5.
     await testDb.db.delete(automationRules).where(eq(automationRules.type, "feedback"));
+    await testDb.db.delete(automationRules).where(eq(automationRules.type, "review"));
     const res = await getAutomation(users.adminCookie);
     const { rules } = res.json() as { rules: Rule[] };
-    expect(rules).toHaveLength(4);
+    expect(rules).toHaveLength(5);
     const feedback = rules.find((r) => r.type === "feedback");
     // Default difensivo: auto-fix true, max 3, nessuna soglia di approvazione.
     expect(feedback).toEqual({
       type: "feedback",
       autoFix: true,
+      maxEffort: 3,
+      planApprovalMinEffort: null,
+      maxCostUsd: null,
+    });
+    // Per 'review' il fallback resta con auto-fix SPENTO (anti-loop, anche pre-seed).
+    const review = rules.find((r) => r.type === "review");
+    expect(review).toEqual({
+      type: "review",
+      autoFix: false,
       maxEffort: 3,
       planApprovalMinEffort: null,
       maxCostUsd: null,
