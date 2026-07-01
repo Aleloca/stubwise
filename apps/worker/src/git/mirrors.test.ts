@@ -9,6 +9,9 @@ import {
   GitCommandError,
   InvalidBranchNameError,
   InvalidDefaultBranchError,
+  InvalidShaError,
+  InvalidTargetBranchError,
+  MAX_DIFF_CHARS,
   MirrorManager,
   MirrorNotFoundError,
   mirrorRemoteUrl,
@@ -39,6 +42,12 @@ interface Upstream {
   url: string;
   /** Aggiunge un commit su main nell'upstream e restituisce lo sha. */
   addCommit: (fileName: string, content: string) => Promise<string>;
+  /**
+   * Crea (o riallinea) `branch` dalla main corrente, ci committa un file, lo
+   * pusha e torna su main. Restituisce lo sha del commit: simula la source
+   * branch di una PR non ancora mergiata.
+   */
+  addCommitOnBranch: (branch: string, fileName: string, content: string) => Promise<string>;
 }
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -66,8 +75,18 @@ async function makeUpstream(root: string, name = "upstream"): Promise<Upstream> 
     await git(["push", "origin", "main"], work);
     return git(["rev-parse", "HEAD"], work);
   };
+  const addCommitOnBranch = async (branch: string, fileName: string, content: string): Promise<string> => {
+    await git(["switch", "-C", branch, "main"], work);
+    await writeFile(join(work, fileName), content);
+    await git(["add", "."], work);
+    await git([...COMMIT_ARGS, "commit", "-m", `add ${fileName}`], work);
+    await git(["push", "origin", branch], work);
+    const sha = await git(["rev-parse", "HEAD"], work);
+    await git(["switch", "main"], work);
+    return sha;
+  };
   await addCommit("README.md", "hello\n");
-  return { dir, url: pathToFileURL(dir).href, addCommit };
+  return { dir, url: pathToFileURL(dir).href, addCommit, addCommitOnBranch };
 }
 
 function projectFor(upstream: Upstream): MirrorProject {
@@ -318,6 +337,137 @@ describe("MirrorManager.withWorktree", () => {
       })
     ).rejects.toBeInstanceOf(InvalidBranchNameError);
     expect(called).toBe(false);
+  });
+});
+
+describe("MirrorManager.withWorktreeAtSha", () => {
+  it("monta un worktree detached allo sha e lo rimuove alla fine", async () => {
+    const { manager, upstream } = await makeFixture();
+    const project = projectFor(upstream);
+    const shaA = await upstream.addCommit("a.txt", "alpha\n");
+    await upstream.addCommit("b.txt", "beta\n");
+
+    let seenDir = "";
+    let seenHead = "";
+    let seenA = false;
+    let seenB = true;
+    const result = await manager.withWorktreeAtSha(project, shaA, async (dir) => {
+      seenDir = dir;
+      seenHead = await git(["rev-parse", "HEAD"], dir);
+      seenA = existsSync(join(dir, "a.txt"));
+      seenB = existsSync(join(dir, "b.txt"));
+      return 7;
+    });
+
+    expect(result).toBe(7);
+    // HEAD è ESATTAMENTE lo sha richiesto (detached), non la punta di main...
+    expect(seenHead).toBe(shaA);
+    expect(seenA).toBe(true);
+    // ...quindi il file del commit successivo non esiste nel worktree.
+    expect(seenB).toBe(false);
+    // Il worktree è stato rimosso e deregistrato dal mirror.
+    expect(existsSync(seenDir)).toBe(false);
+    const mirrorDir = manager.mirrorDirFor(project);
+    expect(await git(["worktree", "list", "--porcelain"], mirrorDir)).not.toContain(seenDir);
+  });
+
+  it("rifiuta uno sha malformato con InvalidShaError senza eseguire alcun comando git", async () => {
+    const root = await makeRoot();
+    const mirrorsDir = join(root, "mirrors");
+    const manager = new MirrorManager({ mirrorsDir });
+    const project: MirrorProject = {
+      provider: "github",
+      repoUrl: "https://github.com/acme/repo",
+      defaultBranch: "main",
+      credentials: { token: "t" },
+    };
+
+    let called = false;
+    for (const sha of ["not-a-sha; rm -rf /", "", "--all", "HEAD", "abc123"]) {
+      await expect(
+        manager.withWorktreeAtSha(project, sha, async () => {
+          called = true;
+        })
+      ).rejects.toBeInstanceOf(InvalidShaError);
+    }
+    expect(called).toBe(false);
+    // Nessun ensureMirror (quindi nessun comando git): la mirrorsDir non esiste.
+    expect(existsSync(mirrorsDir)).toBe(false);
+  });
+
+  it("rimuove il worktree anche se fn lancia", async () => {
+    const { manager, upstream } = await makeFixture();
+    const project = projectFor(upstream);
+    const sha = await upstream.addCommit("a.txt", "alpha\n");
+
+    let seenDir = "";
+    const boom = new Error("fn esplosa");
+    await expect(
+      manager.withWorktreeAtSha(project, sha, async (dir) => {
+        seenDir = dir;
+        throw boom;
+      })
+    ).rejects.toBe(boom);
+
+    expect(seenDir).not.toBe("");
+    expect(existsSync(seenDir)).toBe(false);
+    const mirrorDir = manager.mirrorDirFor(project);
+    expect(await git(["worktree", "list", "--porcelain"], mirrorDir)).not.toContain(seenDir);
+  });
+});
+
+describe("MirrorManager.getPrDiff", () => {
+  it("ritorna il diff dal merge-base col branch target", async () => {
+    const { manager, upstream } = await makeFixture();
+    const project = projectFor(upstream);
+    // feature parte dalla main corrente (seed); poi main avanza da sola.
+    const shaC = await upstream.addCommitOnBranch("feature", "feature.txt", "nuova feature\n");
+    await upstream.addCommit("main-only.txt", "solo main\n");
+
+    const { diff, truncated } = await manager.getPrDiff(project, shaC, "main");
+
+    // Il diff è dal merge-base (il seed), non dalla punta di main: contiene la
+    // feature ma NON i commit successivi di main.
+    expect(diff).toContain("feature.txt");
+    expect(diff).not.toContain("main-only.txt");
+    expect(truncated).toBe(false);
+  });
+
+  it("tronca i diff enormi e segnala truncated", async () => {
+    const { manager, upstream } = await makeFixture();
+    const project = projectFor(upstream);
+    const shaBig = await upstream.addCommitOnBranch(
+      "big",
+      "big.txt",
+      `${"x".repeat(MAX_DIFF_CHARS + 50_000)}\n`
+    );
+
+    const { diff, truncated } = await manager.getPrDiff(project, shaBig, "main");
+
+    expect(truncated).toBe(true);
+    expect(diff.length).toBe(MAX_DIFF_CHARS);
+  });
+
+  it("rifiuta sha e target branch malformati con errori tipati, senza comandi git", async () => {
+    const root = await makeRoot();
+    const mirrorsDir = join(root, "mirrors");
+    const manager = new MirrorManager({ mirrorsDir });
+    const project: MirrorProject = {
+      provider: "github",
+      repoUrl: "https://github.com/acme/repo",
+      defaultBranch: "main",
+      credentials: { token: "t" },
+    };
+    const validSha = "a".repeat(40);
+
+    for (const target of ["-evil", "a..b", "", "spazio no", "a//b", "-"]) {
+      await expect(manager.getPrDiff(project, validSha, target)).rejects.toBeInstanceOf(
+        InvalidTargetBranchError
+      );
+    }
+    await expect(manager.getPrDiff(project, "not-a-sha", "main")).rejects.toBeInstanceOf(InvalidShaError);
+    // Nessun ensureMirror (quindi nessun comando git): la mirrorsDir non esiste.
+    expect(existsSync(mirrorsDir)).toBe(false);
   });
 });
 

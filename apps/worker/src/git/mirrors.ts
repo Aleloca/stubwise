@@ -93,6 +93,24 @@ export class InvalidDefaultBranchError extends Error {
   }
 }
 
+/** Errore tipato per sha rifiutati (head di una PR arrivata da webhook). */
+export class InvalidShaError extends Error {
+  constructor(sha: string) {
+    super(`SHA non valido: "${sha}" — atteso esadecimale di 7-40 caratteri`);
+    this.name = "InvalidShaError";
+  }
+}
+
+/** Errore tipato per branch target di una PR rifiutati (mai passati a git). */
+export class InvalidTargetBranchError extends Error {
+  constructor(branch: string) {
+    super(
+      `Branch target non valido: "${branch}" — segmenti [A-Za-z0-9._-] separati da "/", senza "..", segmenti vuoti o iniziali con "-"`
+    );
+    this.name = "InvalidTargetBranchError";
+  }
+}
+
 /** Errore tipato: pushBranch chiamato senza un mirror esistente. */
 export class MirrorNotFoundError extends Error {
   constructor(remoteUrl: string) {
@@ -150,6 +168,15 @@ export function mirrorRemoteUrl(project: MirrorProject): string {
   return `https://${host}/${owner}/${repo}.git`;
 }
 
+/**
+ * Cap del diff passato al prompt della review: oltre, si tronca (l'agente ha
+ * comunque il worktree completo per approfondire).
+ */
+export const MAX_DIFF_CHARS = 150_000;
+
+/** Sha abbreviato o completo (hex 7-40): tutto il resto è rifiutato a monte. */
+const SHA_RE = /^[0-9a-f]{7,40}$/i;
+
 const BRANCH_SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 function assertBranchName(branch: string): void {
@@ -159,6 +186,20 @@ function assertBranchName(branch: string): void {
   const segments = branch.slice(prefix.length).split("/");
   if (segments.length === 0 || segments.some((s) => !BRANCH_SEGMENT.test(s))) {
     throw new InvalidBranchNameError(branch);
+  }
+}
+
+/**
+ * Validazione GENERICA di un branch (il target di una PR è scelto dall'utente
+ * sull'hosting, es. "main" o "release/1.2"): stessi vincoli per-segmento di
+ * assertBranchName ma senza il prefisso stubwise/. Niente "..", segmenti vuoti
+ * o inizianti con "-": mai interpretabile come range o opzione da git.
+ */
+function assertTargetBranch(branch: string): void {
+  if (branch.includes("..")) throw new InvalidTargetBranchError(branch);
+  const segments = branch.split("/");
+  if (segments.length === 0 || segments.some((s) => !BRANCH_SEGMENT.test(s))) {
+    throw new InvalidTargetBranchError(branch);
   }
 }
 
@@ -377,6 +418,38 @@ export class MirrorManager {
   }
 
   /**
+   * Monta un worktree DETACHED a uno sha arbitrario (la head di una PR) e lo
+   * rimuove alla fine (anche se `fn` lancia). A differenza di openWorktree non
+   * crea alcun branch: la review è read-only, nessun push. Lo sha deve essere
+   * raggiungibile dal mirror — GitHub: il `clone --mirror` porta anche i
+   * refs/pull/*; Bitbucket: la source branch di una PR same-repo è un branch
+   * normale. Le PR da fork Bitbucket NON sono raggiungibili: l'errore git
+   * (GitCommandError sullo sha sconosciuto) emerge chiaro qui.
+   *
+   * ensureMirror fa SEMPRE `fetch --prune` quando il mirror esiste già (nessun
+   * caching): lo sha appena pushato dal webhook è quindi visibile.
+   */
+  async withWorktreeAtSha<T>(
+    project: MirrorProject,
+    sha: string,
+    fn: (dir: string) => Promise<T>
+  ): Promise<T> {
+    if (!SHA_RE.test(sha)) throw new InvalidShaError(sha);
+    const mirrorDir = await this.ensureMirror(project);
+    // Stesso schema path di openWorktree: parent temporanea posseduta da noi.
+    const parent = await mkdtemp(join(tmpdir(), "stubwise-wt-"));
+    const worktreeDir = join(parent, "wt");
+    try {
+      // Sha validato da SHA_RE (mai interpretabile come opzione da git).
+      await this.git(["worktree", "add", "--force", "--detach", worktreeDir, sha], { cwd: mirrorDir });
+      return await fn(worktreeDir);
+    } finally {
+      // Rimozione best-effort come openWorktree; nessun branch da cancellare.
+      await this.removeWorktree(mirrorDir, worktreeDir, parent, undefined);
+    }
+  }
+
+  /**
    * Materializza N worktree — uno per repo del progetto — SOTTO una parent dir
    * temporanea comune, ognuno su `git switch -C <branchName>` (lo STESSO branch
    * in ogni repo). Esegue `fn` con `{ parentDir, worktrees }`: l'agente `claude`
@@ -441,7 +514,8 @@ export class MirrorManager {
 
   /**
    * Smonta un worktree: rimozione del worktree dal mirror (con fallback manuale
-   * + prune dei metadati orfani), cancellazione del branch effimero e della
+   * + prune dei metadati orfani), cancellazione del branch effimero (se il
+   * worktree ne aveva uno — quelli detached di withWorktreeAtSha no) e della
    * directory temporanea che lo conteneva. Tutto best-effort: un residuo viene
    * comunque riallineato dal prossimo `switch -C` o ripulito dal `fetch --prune`.
    */
@@ -449,7 +523,7 @@ export class MirrorManager {
     mirrorDir: string,
     worktreeDir: string,
     parent: string | undefined,
-    branchName: string
+    branchName: string | undefined
   ): Promise<void> {
     try {
       await this.git(["worktree", "remove", "--force", worktreeDir], { cwd: mirrorDir });
@@ -460,7 +534,9 @@ export class MirrorManager {
     }
     // Branch effimero: best effort, un eventuale residuo viene comunque
     // riallineato da switch -C o ripulito dal fetch --prune successivo.
-    await this.git(["branch", "-D", branchName], { cwd: mirrorDir }).catch(() => undefined);
+    if (branchName !== undefined) {
+      await this.git(["branch", "-D", branchName], { cwd: mirrorDir }).catch(() => undefined);
+    }
     // Rimuoviamo la parent dir SOLO se la possediamo (dir temporanea creata da
     // openWorktree). Quando la dir del worktree è imposta dal chiamante
     // (withProjectWorktrees) la parent è condivisa da più worktree ed è di
@@ -534,6 +610,34 @@ export class MirrorManager {
         const tab = line.indexOf("\t");
         return { sha: line.slice(0, tab), subject: line.slice(tab + 1) };
       });
+  }
+
+  /**
+   * Diff della PR: merge-base tra la head e il branch target, poi `git diff`
+   * troncato a MAX_DIFF_CHARS (l'agente ha comunque il worktree per il resto).
+   * Se il merge-base non è calcolabile (storia riscritta sul target), fallback
+   * al diff diretto contro il target: meno preciso ma utilizzabile.
+   */
+  async getPrDiff(
+    project: MirrorProject,
+    headSha: string,
+    targetBranch: string
+  ): Promise<{ diff: string; truncated: boolean }> {
+    if (!SHA_RE.test(headSha)) throw new InvalidShaError(headSha);
+    assertTargetBranch(targetBranch);
+    const mirrorDir = await this.ensureMirror(project);
+    // refs/heads/<branch>: forma non ambigua (come openWorktree), oltre alla
+    // validazione di assertTargetBranch.
+    let base = `refs/heads/${targetBranch}`;
+    try {
+      base = (await this.git(["merge-base", headSha, base], { cwd: mirrorDir })).trim();
+    } catch {
+      // Fallback: diff diretto contro il target.
+    }
+    // `--` separa revisioni da pathspec, come getChangedFiles.
+    const diff = await this.git(["diff", base, headSha, "--"], { cwd: mirrorDir });
+    if (diff.length <= MAX_DIFF_CHARS) return { diff, truncated: false };
+    return { diff: diff.slice(0, MAX_DIFF_CHARS), truncated: true };
   }
 
   private git(
