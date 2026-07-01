@@ -171,9 +171,7 @@ export function ProjectDetailPage() {
         className="mt-8 border-t border-line pt-6"
       >
         <h2 className={sectionTitleClass}>{t("integration:title")}</h2>
-        <div className="max-w-2xl">
-          <IntegrationPanel ingestionKey={project.ingestionKey} slug={project.slug} />
-        </div>
+        <IntegrationPanel ingestionKey={project.ingestionKey} slug={project.slug} />
       </section>
 
       {/*
