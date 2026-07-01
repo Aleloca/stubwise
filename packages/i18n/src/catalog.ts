@@ -69,8 +69,8 @@ export const en: Catalog = {
   "notify.scopeTicket": "ticket",
   "notify.scopeMonthly": "monthly",
   // Verdetti della review PR (interpolati in `notify.reviewCompleted`).
-  "notify.verdict.approve": "approval suggested ✅",
-  "notify.verdict.requestChanges": "changes requested ⚠️",
+  "notify.verdict.approve": "approval suggested",
+  "notify.verdict.requestChanges": "changes requested",
   // Suffisso costo (anteposto allo spazio: la frase ha già lo spazio prima).
   "notify.costSuffix": " (cost ${cost})",
   // Etichette dei link (rese nel markup del formato attorno all'URL).
@@ -140,8 +140,8 @@ export const it: Catalog = {
     "Review della PR completata per {ref} — {ticketTitle} ({projectName}): {verdict}. {link}",
   "notify.scopeTicket": "ticket",
   "notify.scopeMonthly": "mensile",
-  "notify.verdict.approve": "approvazione suggerita ✅",
-  "notify.verdict.requestChanges": "modifiche richieste ⚠️",
+  "notify.verdict.approve": "approvazione suggerita",
+  "notify.verdict.requestChanges": "modifiche richieste",
   "notify.costSuffix": " (costo ${cost})",
   "notify.linkOpen": "Apri",
   "notify.linkReview": "Rivedi",

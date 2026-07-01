@@ -319,6 +319,15 @@ describe("formatNotification — discord", () => {
     expect(content).toContain("Budget superato (mensile)");
     expect(content).toContain("[Apri](https://app.example.com/tickets/42)");
   });
+
+  it("review.completed: verdetto nel testo e link PR in stile markdown (en)", () => {
+    const content = (formatNotification(REVIEW_COMPLETED, "discord").body as { content: string })
+      .content;
+    expect(content).toContain("PR review completed");
+    expect(content).toContain("approval suggested");
+    expect(content).toContain("[View PR](https://github.com/o/r/pull/7)");
+    expect(content).toContain("[Ticket](https://app.example.com/tickets/42)");
+  });
 });
 
 describe("formatNotification — generic", () => {
@@ -413,6 +422,8 @@ describe("formatNotification — generic", () => {
     expect(body.ticketUrl).toBe("https://app.example.com/tickets/42");
     expect(body.message as string).toContain("PR review completed");
     expect(body.message as string).toContain("approval suggested");
+    expect(body.message as string).not.toContain("✅");
+    expect(body.message as string).not.toContain("🔎");
   });
 
   it("review.completed (request_changes) → verdict grezzo nel payload", () => {
