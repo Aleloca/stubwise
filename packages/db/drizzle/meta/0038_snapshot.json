@@ -1,6 +1,6 @@
 {
-  "id": "e0d24bac-c04d-4b82-828c-c1216b810aba",
-  "prevId": "fd77d56f-6765-412d-8f7b-029e91ef3bf5",
+  "id": "93508bfc-7d34-4c66-8f21-ade85c0d0ea8",
+  "prevId": "d3a6d849-95b0-426c-8236-d93f7a7cd9d7",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -90,6 +90,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "agent_runs_pr_review_id_idx": {
+          "name": "agent_runs_pr_review_id_idx",
+          "columns": [
+            {
+              "expression": "pr_review_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -123,7 +138,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "agent_runs_owner_check": {
+          "name": "agent_runs_owner_check",
+          "value": "num_nonnulls(job_id, pr_review_id) = 1"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.ai_jobs": {

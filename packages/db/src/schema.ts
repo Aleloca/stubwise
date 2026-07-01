@@ -645,6 +645,11 @@ export const agentRuns = pgTable(
   (table) => [
     // Aggregazione dei consumi per job (e, via join, per ticket).
     index("agent_runs_job_id_idx").on(table.jobId),
+    // Aggregazione del costo per review + cascade delete da pr_reviews.
+    index("agent_runs_pr_review_id_idx").on(table.prReviewId),
+    // Esattamente uno tra job_id e pr_review_id valorizzato (vedi commenti
+    // sulle colonne): l'invariante è garantita dal DB, non solo dal codice.
+    check("agent_runs_owner_check", sql`num_nonnulls(job_id, pr_review_id) = 1`),
   ],
 );
 

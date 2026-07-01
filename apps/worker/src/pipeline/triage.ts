@@ -1,5 +1,6 @@
 import { automationRules, comments, tickets, type Db } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
+import type { TicketType } from "@stubwise/shared";
 import { and, desc, eq, ne } from "drizzle-orm";
 import {
   AgentRunError,
@@ -32,7 +33,7 @@ import { buildTriagePrompt, parseTriageDecision, type TriageDecision } from "./p
  */
 const DEFAULT_AUTOMATION_RULE = { autoFix: true, maxEffort: 3 } as const;
 
-const defaultAutomationRuleFor = (type: string): { autoFix: boolean; maxEffort: number } =>
+const defaultAutomationRuleFor = (type: TicketType): { autoFix: boolean; maxEffort: number } =>
   type === "review" ? { ...DEFAULT_AUTOMATION_RULE, autoFix: false } : DEFAULT_AUTOMATION_RULE;
 
 /**

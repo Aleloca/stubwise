@@ -44,4 +44,6 @@ ALTER TABLE "pr_reviews" ADD CONSTRAINT "pr_reviews_repository_id_repositories_i
 ALTER TABLE "pr_reviews" ADD CONSTRAINT "pr_reviews_ticket_id_tickets_id_fk" FOREIGN KEY ("ticket_id") REFERENCES "public"."tickets"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "pr_review_jobs_repository_pr_unique" ON "pr_review_jobs" USING btree ("repository_id","pr_number");--> statement-breakpoint
 CREATE INDEX "pr_reviews_repository_pr_idx" ON "pr_reviews" USING btree ("repository_id","pr_number");--> statement-breakpoint
-ALTER TABLE "agent_runs" ADD CONSTRAINT "agent_runs_pr_review_id_pr_reviews_id_fk" FOREIGN KEY ("pr_review_id") REFERENCES "public"."pr_reviews"("id") ON DELETE cascade ON UPDATE no action;
+ALTER TABLE "agent_runs" ADD CONSTRAINT "agent_runs_pr_review_id_pr_reviews_id_fk" FOREIGN KEY ("pr_review_id") REFERENCES "public"."pr_reviews"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "agent_runs_pr_review_id_idx" ON "agent_runs" USING btree ("pr_review_id");--> statement-breakpoint
+ALTER TABLE "agent_runs" ADD CONSTRAINT "agent_runs_owner_check" CHECK (num_nonnulls(job_id, pr_review_id) = 1);
