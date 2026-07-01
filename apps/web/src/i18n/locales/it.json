@@ -16,6 +16,7 @@
       "tickets": "Ticket",
       "board": "Bacheca",
       "projects": "Progetti",
+      "repositories": "Repository",
       "team": "Team",
       "settings": "Impostazioni",
       "docs": "Documentazione",
@@ -790,6 +791,28 @@
       "back": "← Torna al progetto",
       "title": "Aggiungi un repository",
       "subtitle": "Scegli un account git, il repository e il branch: lo slug viene generato alla creazione; la chiave di ingestion vive sul progetto."
+    },
+    "list": {
+      "title": "Repository",
+      "subtitle": "Tutti i repository collegati, raggruppati per progetto.",
+      "add": "Aggiungi repository",
+      "empty": "// nessun repository",
+      "emptyHintAdmin": "Aggiungi un repository per collegarlo a un progetto.",
+      "emptyHintMember": "Nessun repository collegato: chiedi a un amministratore di aggiungerne uno.",
+      "branch": "branch",
+      "unknownProject": "progetto sconosciuto"
+    },
+    "newStandalone": {
+      "back": "← Tutti i repository",
+      "title": "Aggiungi un repository",
+      "subtitle": "Scegli il progetto a cui collegare il repository, poi l'account git, il repository e il branch.",
+      "projectLabel": "Progetto",
+      "projectPlaceholder": "Seleziona il progetto a cui appartiene il repository",
+      "projectHint": "// scegli un progetto per procedere con l'aggiunta del repository.",
+      "noProjects": "// nessun progetto",
+      "noProjectsHintPrefix": "Crea prima un progetto in ",
+      "noProjectsHintLink": "Progetti",
+      "noProjectsHintSuffix": ", poi torna qui per collegarci un repository."
     }
   },
   "integration": {

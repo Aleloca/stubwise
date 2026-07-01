@@ -109,6 +109,7 @@ describe("app-shell responsive", () => {
     for (const { code, label } of [
       { code: "TKT", label: "Tickets" },
       { code: "PRJ", label: "Projects" },
+      { code: "REP", label: "Repositories" },
       { code: "SET", label: "Settings" },
     ]) {
       const inSidebar = within(aside)
@@ -120,6 +121,19 @@ describe("app-shell responsive", () => {
       expect(inSidebar, `${code} nella sidebar`).toHaveLength(1);
       expect(inDrawer, `${code} nel drawer`).toHaveLength(1);
     }
+  });
+
+  it("la voce Repositories in sidebar linka a /repositories", async () => {
+    mockApi(baseApi());
+    renderApp("/docs");
+    await screen.findByRole("heading", { name: "Documentation" });
+
+    const aside = document.querySelector("aside") as HTMLElement;
+    const repoLink = within(aside)
+      .getAllByRole("link", { hidden: true })
+      .find((el) => el.textContent === "REPRepositories");
+    expect(repoLink).toBeDefined();
+    expect(repoLink).toHaveAttribute("href", "/repositories");
   });
 
   it("l'hamburger apre il drawer e aria-expanded riflette lo stato", async () => {
