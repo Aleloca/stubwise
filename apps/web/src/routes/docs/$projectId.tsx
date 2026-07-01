@@ -3,10 +3,10 @@ import { Link, Outlet, useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { DocsChat } from "../../components/docs-chat";
-import { DocsCommandPalette } from "../../components/docs-command-palette";
 import { DocsManualForm } from "../../components/docs-manual-form";
 import { DocsSidebar } from "../../components/docs-sidebar";
 import { Drawer } from "../../components/drawer";
+import { GlobalSearchPalette } from "../../components/global-search-palette";
 import { Markdown } from "../../components/markdown";
 import { ApiError } from "../../lib/api";
 import { type DocPage, type DocPageLink, deleteManualPage } from "../../lib/docs-api";
@@ -24,8 +24,9 @@ import { useMediaQuery } from "../../lib/use-media-query";
  *   basso a destra.
  *
  * Tutte le sotto-feature dello spazio sono ora montate: trigger generazione +
- * stato (`DocsGenerationPanel`, M7.4), ricerca via command palette Cmd/K
- * (`DocsCommandPalette`), editing pagine manuali (`DocsManualForm`, M7.3) e chat
+ * stato (`DocsGenerationPanel`, M7.4), ricerca via spotlight Cmd/K
+ * (`GlobalSearchPalette` in scope repository), editing pagine manuali
+ * (`DocsManualForm`, M7.3) e chat
  * in streaming (`DocsChat`, M7.5).
  */
 export function DocsSpaceLayout() {
@@ -150,9 +151,11 @@ export function DocsSpaceLayout() {
         <DocsChat projectId={projectId} open={chatOpen} onOpenChange={setChatOpen} />
       </div>
 
-      {/* Command palette di ricerca (Cmd/K): modale a livello di layout. */}
-      <DocsCommandPalette
-        projectId={projectId}
+      {/* Spotlight (Cmd/K): stessa palette globale, ancorata a QUESTO repository
+          (scope Docs) — full-text + semantica + cronologia di questo repo, più il
+          toggle "Tutto" per allargare a globale. */}
+      <GlobalSearchPalette
+        scope={{ repositoryId: projectId }}
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
       />

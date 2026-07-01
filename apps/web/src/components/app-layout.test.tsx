@@ -210,3 +210,58 @@ describe("app-shell responsive", () => {
     expect(hamburger).toHaveAttribute("aria-expanded", "false");
   });
 });
+
+describe("spotlight globale (Cmd/K)", () => {
+  /** Risposta full-text con un solo ticket, per identificare il gruppo TKT. */
+  function searchApi(): Record<string, Handler> {
+    return {
+      ...baseApi(),
+      "GET /api/search/history": () => jsonResponse(200, []),
+      "GET /api/search": () =>
+        jsonResponse(200, {
+          tickets: {
+            items: [
+              {
+                id: "t1",
+                number: 7,
+                title: "Global hit",
+                status: "open",
+                snippet: "",
+                projectId: "p1",
+                projectName: "Acme",
+              },
+            ],
+            hasMore: false,
+          },
+          projects: { items: [], hasMore: false },
+          repositories: { items: [], hasMore: false },
+          docs: { items: [], hasMore: false },
+        }),
+      "GET /api/search/docs-semantic": () => jsonResponse(200, []),
+    };
+  }
+
+  it("Cmd/K apre lo spotlight in scope globale e mostra i risultati di /api/search", async () => {
+    const user = userEvent.setup();
+    mockApi(searchApi());
+    renderApp("/tickets");
+    await screen.findByRole("button", { name: "Global search" });
+
+    // Fuori da uno spazio Docs il Cmd/K è gestito da app-layout (scope globale).
+    await user.keyboard("{Meta>}k{/Meta}");
+    const dialog = await screen.findByRole("dialog", { name: "Global search" });
+
+    await user.type(within(dialog).getByRole("textbox"), "global");
+    expect(await within(dialog).findByText("#7 Global hit")).toBeInTheDocument();
+  });
+
+  it("l'affordance 'Cerca ⌘K' nella sidebar apre lo spotlight globale", async () => {
+    const user = userEvent.setup();
+    mockApi(searchApi());
+    renderApp("/tickets");
+
+    const trigger = await screen.findByRole("button", { name: "Global search" });
+    await user.click(trigger);
+    expect(await screen.findByRole("dialog", { name: "Global search" })).toBeInTheDocument();
+  });
+});

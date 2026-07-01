@@ -363,7 +363,7 @@ describe("spazio documentazione — command palette (Cmd/K)", () => {
   it("il trigger nella sidebar apre la palette", async () => {
     mockApi({
       ...treeHandlers(),
-      [`GET /api/repositories/${PROJECT_ID}/docs/history`]: () => jsonResponse(200, []),
+      "GET /api/search/history": () => jsonResponse(200, []),
     });
     renderApp(`/docs/${PROJECT_ID}`);
     const user = userEvent.setup();
@@ -379,7 +379,7 @@ describe("spazio documentazione — command palette (Cmd/K)", () => {
   it("la scorciatoia Cmd/K apre la palette", async () => {
     mockApi({
       ...treeHandlers(),
-      [`GET /api/repositories/${PROJECT_ID}/docs/history`]: () => jsonResponse(200, []),
+      "GET /api/search/history": () => jsonResponse(200, []),
     });
     renderApp(`/docs/${PROJECT_ID}`);
     const user = userEvent.setup();

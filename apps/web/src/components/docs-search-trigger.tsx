@@ -4,7 +4,8 @@ import { useTranslation } from "react-i18next";
  * Trigger della command palette dei Docs: un `<button>` full-width che, allo
  * stile del vecchio box di ricerca inline, apre la palette (Cmd/K). Mostra a
  * sinistra un'icona ⌕, al centro il placeholder e a destra un kbd `⌘K` statico.
- * Tutta la logica di ricerca vive in `DocsCommandPalette`; qui solo l'apertura.
+ * Tutta la logica di ricerca vive in `GlobalSearchPalette` (aperta in scope
+ * repository dalla route Docs); qui solo l'apertura.
  */
 export function DocsSearchTrigger({ onOpen }: { onOpen: () => void }) {
   const { t } = useTranslation();

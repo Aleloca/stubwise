@@ -423,7 +423,6 @@ export const docsKeys = {
   page: (repositoryId: string, slug: string) =>
     [...docsKeys.space(repositoryId), "page", slug] as const,
   status: (repositoryId: string) => [...docsKeys.space(repositoryId), "status"] as const,
-  history: (repositoryId: string) => [...docsKeys.space(repositoryId), "history"] as const,
   // Sotto-albero della documentazione di PROGETTO (Fase 2): scoped al projectId,
   // distinto dallo spazio per-repository sopra.
   project: (projectId: string) => [...docsKeys.all, "project", projectId] as const,

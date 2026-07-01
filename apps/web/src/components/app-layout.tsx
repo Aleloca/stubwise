@@ -1,13 +1,26 @@
 import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { Link, Outlet, useNavigate } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { postLogout } from "../lib/api";
 import { meQueryOptions } from "../lib/auth";
 import { useCloseOnRouteChange } from "../lib/use-close-on-route-change";
 import { Avatar } from "./avatar";
 import { Drawer } from "./drawer";
+import { GlobalSearchPalette } from "./global-search-palette";
 import { Wordmark } from "./wordmark";
+
+/**
+ * Uno spazio Docs (`/docs/<repositoryId>` e figli) gestisce da sé il proprio
+ * Cmd/K (apre la palette in scope repository): lì il trigger globale di
+ * app-layout NON deve intercettare, per non aprire DUE palette. Esclude l'hub
+ * `/docs` e la landing di progetto `/docs/project/<id>`.
+ */
+function isDocsSpacePath(pathname: string): boolean {
+  const match = /^\/docs\/([^/]+)/.exec(pathname);
+  if (!match) return false;
+  return match[1] !== "project";
+}
 
 const NAV_ITEMS = [
   { to: "/tickets", labelKey: "common:nav.tickets", code: "TKT" },
@@ -57,7 +70,17 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
  * Barra superiore mobile (`md:hidden`): hamburger che apre il drawer di
  * navigazione + wordmark. Su desktop la sidebar la sostituisce.
  */
-function MobileTopBar({ navOpen, onToggle }: { navOpen: boolean; onToggle: () => void }) {
+function MobileTopBar({
+  navOpen,
+  onToggle,
+  onOpenSearch,
+  searchLabel,
+}: {
+  navOpen: boolean;
+  onToggle: () => void;
+  onOpenSearch: () => void;
+  searchLabel: string;
+}) {
   const { t } = useTranslation();
   return (
     <div className="sticky top-0 z-30 flex h-12 shrink-0 items-center gap-3 border-b border-line bg-ink-900 px-4 md:hidden">
@@ -86,6 +109,24 @@ function MobileTopBar({ navOpen, onToggle }: { navOpen: boolean; onToggle: () =>
       <Link to="/tickets" className="inline-block">
         <Wordmark className="text-sm" />
       </Link>
+      <button
+        type="button"
+        onClick={onOpenSearch}
+        aria-label={searchLabel}
+        className="ml-auto rounded-sm p-1.5 text-fg-muted transition-colors hover:bg-ink-800 hover:text-fg"
+      >
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          className="size-5"
+        >
+          <circle cx="7" cy="7" r="4.5" />
+          <path d="M10.5 10.5 14 14" strokeLinecap="round" />
+        </svg>
+      </button>
     </div>
   );
 }
@@ -102,6 +143,16 @@ export function AppLayout() {
   const { t, i18n } = useTranslation();
   const [loggingOut, setLoggingOut] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
+  // Spotlight globale (Cmd/K): scope "global". Dentro uno spazio Docs il Cmd/K è
+  // gestito dalla route Docs (scope repository), quindi qui NON lo intercettiamo.
+  const [searchOpen, setSearchOpen] = useState(false);
+  // Pathname del router (non `window.location`, che con la memory history dei
+  // test resta `/`): serve al gate del Cmd/K per non collidere con la palette
+  // Docs. Tenuto in un ref così il listener keydown resta stabile (registrato
+  // una volta) e legge sempre il valore corrente.
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
 
   // Callback stabile: `useCloseOnRouteChange` ha `close` nelle deps del suo
   // effect, quindi un closure inline (nuova identità a ogni render) lo farebbe
@@ -109,6 +160,21 @@ export function AppLayout() {
   // solo al cambio di pathname, com'è inteso.
   const closeNav = useCallback(() => setNavOpen(false), []);
   useCloseOnRouteChange(closeNav);
+
+  // Scorciatoia globale Cmd/Ctrl+K: apre lo spotlight in scope globale, TRANNE
+  // dentro uno spazio Docs (che ha il proprio handler in scope repository): così
+  // c'è un solo trigger attivo alla volta, mai due palette aperte.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        if (isDocsSpacePath(pathnameRef.current)) return;
+        event.preventDefault();
+        setSearchOpen(true);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // Allinea la lingua della UI alla preferenza persistita dell'utente: questo
   // layout monta su ogni pagina autenticata, quindi è il primo punto dopo il
@@ -141,6 +207,10 @@ export function AppLayout() {
           <Link to="/tickets" className="inline-block">
             <Wordmark className="text-base" />
           </Link>
+        </div>
+
+        <div className="px-3 pt-3">
+          <SearchAffordance label={t("search:trigger")} onOpen={() => setSearchOpen(true)} />
         </div>
 
         <NavLinks />
@@ -179,11 +249,45 @@ export function AppLayout() {
       </Drawer>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <MobileTopBar navOpen={navOpen} onToggle={() => setNavOpen((v) => !v)} />
+        <MobileTopBar
+          navOpen={navOpen}
+          onToggle={() => setNavOpen((v) => !v)}
+          onOpenSearch={() => setSearchOpen(true)}
+          searchLabel={t("search:label")}
+        />
         <main className="min-w-0 flex-1 overflow-y-auto">
           <Outlet />
         </main>
       </div>
+
+      {/* Spotlight globale (Cmd/K): modale a livello di app, sempre scope globale. */}
+      <GlobalSearchPalette
+        scope="global"
+        open={searchOpen}
+        onClose={() => setSearchOpen(false)}
+      />
     </div>
+  );
+}
+
+/**
+ * Affordance visibile dello spotlight nella sidebar: un `<button>` full-width in
+ * stile "box di ricerca" che apre la palette globale, con un kbd `⌘K` a destra.
+ */
+function SearchAffordance({ label, onOpen }: { label: string; onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex w-full items-center gap-2 rounded-sm border border-line-strong bg-ink-950/70 px-3 py-2 text-left text-[13px] text-fg-muted transition-colors hover:border-ink-700 hover:text-fg"
+    >
+      <span aria-hidden="true" className="shrink-0 text-fg-faint">
+        ⌕
+      </span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <kbd className="shrink-0 rounded-sm border border-line px-1.5 py-0.5 font-mono text-[10px] tracking-[0.08em] text-fg-faint">
+        ⌘K
+      </kbd>
+    </button>
   );
 }

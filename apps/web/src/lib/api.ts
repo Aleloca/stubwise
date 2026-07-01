@@ -2,6 +2,11 @@ import type {
   GitProviderKind,
   Language,
   PrState,
+  RecordSearchHistoryBody,
+  SearchDocsSemanticResults,
+  SearchEntityType,
+  SearchHistoryItem,
+  SearchResults,
   TicketPriority,
   TicketSource,
   TicketStatus,
@@ -1615,4 +1620,74 @@ export interface AiUsageSnapshot {
  */
 export function getAiUsageSnapshots(): Promise<AiUsageSnapshot[]> {
   return api.get("/api/ai-usage/snapshots");
+}
+
+// --- Ricerca globale (spotlight Cmd/K) ---
+
+export type {
+  SearchResults,
+  SearchTicketHit,
+  SearchProjectHit,
+  SearchRepositoryHit,
+  SearchDocHit,
+  SearchDocSemanticHit,
+  SearchDocsSemanticResults,
+  SearchHistoryItem,
+  SearchEntityType,
+} from "@stubwise/shared";
+
+/**
+ * Corsia VELOCE della ricerca globale: full-text federato su ticket/progetti/
+ * repository/docs. `repositoryId` (scope Docs) ristringe SOLO il gruppo docs; gli
+ * altri gruppi restano globali. Gemella di `GET /api/search`.
+ */
+export function getSearch(q: string, repositoryId?: string): Promise<SearchResults> {
+  const params = new URLSearchParams({ q });
+  if (repositoryId) params.set("repositoryId", repositoryId);
+  return api.get(`/api/search?${params.toString()}`);
+}
+
+/**
+ * Corsia LENTA della ricerca globale: retrieval SEMANTICO sui Docs, che il client
+ * fonde nel gruppo Docs (dedup per `(repositoryId, slug)`, semantica prima).
+ * `repositoryId` restringe il retrieval a quel repository; altrimenti globale.
+ * Best-effort lato server (mai un errore): lista vuota se non disponibile.
+ */
+export function getDocsSemantic(
+  q: string,
+  repositoryId?: string,
+): Promise<SearchDocsSemanticResults> {
+  const params = new URLSearchParams({ q });
+  if (repositoryId) params.set("repositoryId", repositoryId);
+  return api.get(`/api/search/docs-semantic?${params.toString()}`);
+}
+
+/**
+ * Cronologia unificata (recenti) dell'utente corrente: a query vuota alimenta i
+ * "recenti" della palette. `repositoryId` (scope Docs) filtra a quel repository.
+ */
+export function getSearchHistory(repositoryId?: string): Promise<SearchHistoryItem[]> {
+  const qs = repositoryId ? `?repositoryId=${encodeURIComponent(repositoryId)}` : "";
+  return api.get(`/api/search/history${qs}`);
+}
+
+/** Registra (upsert) un risultato cliccato nella cronologia: ritorna 204. */
+export function postSearchHistory(body: RecordSearchHistoryBody): Promise<void> {
+  return api.post("/api/search/history", body);
+}
+
+/** Rimuove una singola voce (per tipo+entità) della cronologia: ritorna 204. */
+export function deleteSearchHistoryEntry(
+  type: SearchEntityType,
+  entityId: string,
+): Promise<void> {
+  return request(
+    "DELETE",
+    `/api/search/history/${encodeURIComponent(type)}/${encodeURIComponent(entityId)}`,
+  );
+}
+
+/** Svuota tutta la cronologia dell'utente corrente: ritorna 204. */
+export function deleteSearchHistory(): Promise<void> {
+  return request("DELETE", "/api/search/history");
 }

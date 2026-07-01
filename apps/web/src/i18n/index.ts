@@ -28,6 +28,7 @@ export const NAMESPACES = [
   "savedViews",
   "envFiles",
   "docs",
+  "search",
 ] as const;
 
 /**
