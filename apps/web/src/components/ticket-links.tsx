@@ -7,7 +7,7 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import type { Ticket, TicketLinkKind, TicketLinkView, TicketRelation } from "../lib/api";
+import type { TicketLinkKind, TicketLinkView, TicketListItem, TicketRelation } from "../lib/api";
 import { createTicketLink, deleteTicketLink, listTickets } from "../lib/api";
 import { ticketKeys, ticketLinksQueryOptions } from "../lib/queries";
 import { StatusBadge } from "./badges";
@@ -196,7 +196,7 @@ function LinkPicker({
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState<TicketLinkKind>("blocks");
-  const [selected, setSelected] = useState<Ticket | null>(null);
+  const [selected, setSelected] = useState<TicketListItem | null>(null);
 
   const trimmed = query.trim();
   const filters = { projectId, q: trimmed };

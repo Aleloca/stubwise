@@ -52,7 +52,6 @@ const milestonesFixture: MilestoneWithCounts[] = [
 const ticketFixture: Ticket = {
   id: TICKET_ID,
   projectId: PROJECT_ID,
-  repositoryId: null,
   number: 7,
   title: "TypeError al checkout",
   body: "Il bottone **Paga ora** lancia un'eccezione.",
@@ -80,7 +79,32 @@ const ticketFixture: Ticket = {
   lastSeenAt: "2026-06-08T10:00:00.000Z",
   createdAt: "2026-06-01T10:00:00.000Z",
   updatedAt: "2026-06-08T10:00:00.000Z",
+  // Vuoto di default: il fix non ha ancora toccato repository (placeholder).
+  repositories: [],
 };
+
+const REPO_A_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const REPO_B_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+
+/** Stato PR per-repo di un ticket dopo l'esecuzione del fix (Fase 3). */
+const ticketRepositoriesFixture = [
+  {
+    repositoryId: REPO_A_ID,
+    repositorySlug: "shop-api",
+    repositoryName: "Shop API",
+    branch: "stubwise/fix-7",
+    prUrl: "https://github.com/acme/shop-api/pull/12",
+    prState: "open" as const,
+  },
+  {
+    repositoryId: REPO_B_ID,
+    repositorySlug: "shop-web",
+    repositoryName: "Shop Web",
+    branch: "stubwise/fix-7",
+    prUrl: "https://github.com/acme/shop-web/pull/34",
+    prState: "merged" as const,
+  },
+];
 
 const commentsFixture: Comment[] = [
   {
@@ -569,6 +593,30 @@ describe("dettaglio ticket", () => {
     expect(within(header).getByText(/SDK/)).toBeInTheDocument();
     expect(within(header).getByText("Shop Acme")).toBeInTheDocument();
     expect(within(header).getByText("×12")).toBeInTheDocument();
+  });
+
+  it("sezione Repository/PR: elenca repo, stato PR e link alla PR (fix eseguito)", async () => {
+    mockDetailApi({ ticket: { ...ticketFixture, repositories: ticketRepositoriesFixture } });
+    renderDetail();
+
+    const section = await screen.findByRole("region", { name: "Repository / PR" });
+    // Un repo con PR aperta e uno con PR mergiata: nomi, stati e link corretti.
+    expect(within(section).getByText("Shop API")).toBeInTheDocument();
+    expect(within(section).getByText("Shop Web")).toBeInTheDocument();
+    expect(within(section).getByText("PR open")).toBeInTheDocument();
+    expect(within(section).getByText("PR merged")).toBeInTheDocument();
+    const prLinks = within(section).getAllByRole("link", { name: /view pr/i });
+    expect(prLinks[0]).toHaveAttribute("href", "https://github.com/acme/shop-api/pull/12");
+    expect(prLinks[1]).toHaveAttribute("href", "https://github.com/acme/shop-web/pull/34");
+  });
+
+  it("sezione Repository/PR: placeholder quando il fix non ha ancora toccato repo", async () => {
+    mockDetailApi({ ticket: { ...ticketFixture, repositories: [] } });
+    renderDetail();
+
+    const section = await screen.findByRole("region", { name: "Repository / PR" });
+    expect(within(section).getByText(/no PR yet/i)).toBeInTheDocument();
+    expect(within(section).queryByRole("link", { name: /view pr/i })).not.toBeInTheDocument();
   });
 
   it("mostra l'effort stimato quando valorizzato (etichetta + n/5)", async () => {

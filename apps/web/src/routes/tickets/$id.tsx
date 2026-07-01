@@ -19,6 +19,7 @@ import { AttachmentUpload } from "../../components/attachment-upload";
 import { Avatar } from "../../components/avatar";
 import {
   PriorityBadge,
+  PrStateBadge,
   SOURCE_LABEL_KEYS,
   PRIORITY_LABEL_KEYS,
   STATUS_LABEL_KEYS,
@@ -103,7 +104,12 @@ export function TicketDetailPage() {
       // Un refetch del dettaglio già in volo risolverebbe DOPO il
       // setQueryData, sovrascrivendolo con dati stantii: prima si cancella.
       await queryClient.cancelQueries({ queryKey: ticketKeys.detail(id) });
-      queryClient.setQueryData(ticketQueryOptions(id).queryKey, updated);
+      // La PATCH restituisce il ticket base (senza lo stato per-repo): si fonde
+      // conservando `repositories` dalla cache del dettaglio, che una PATCH di
+      // metadati non tocca. L'invalidate qui sotto riconcilia comunque col server.
+      queryClient.setQueryData(ticketQueryOptions(id).queryKey, (previous) =>
+        previous ? { ...previous, ...updated } : { ...updated, repositories: [] },
+      );
       // Il dettaglio resta fresco per i prossimi mount; liste e board
       // mostrano status/priorità/label e le loro cache sono da rifare
       // (boards() matcha ogni board, qualunque filtro progetto).
@@ -345,6 +351,44 @@ export function TicketDetailPage() {
                   </span>
                 )}
               </div>
+            )}
+          </section>
+
+          <section aria-label={t("tickets:repositories.title")}>
+            <h2 className={sectionTitleClass}>{t("tickets:repositories.title")}</h2>
+            {ticket.repositories.length === 0 ? (
+              <p className="font-mono text-[12px] text-fg-faint">
+                {t("tickets:repositories.empty")}
+              </p>
+            ) : (
+              <ul className="rounded-sm border border-line bg-ink-900">
+                {ticket.repositories.map((repo) => (
+                  <li
+                    key={repo.repositoryId}
+                    className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-line px-4 py-3 last:border-b-0"
+                  >
+                    <Link
+                      to="/repositories/$slug"
+                      params={{ slug: repo.repositorySlug }}
+                      className="text-sm font-medium text-fg transition-colors hover:text-signal"
+                    >
+                      {repo.repositoryName ?? repo.repositorySlug}
+                    </Link>
+                    <span className="font-mono text-[11px] text-fg-faint">{repo.branch}</span>
+                    <PrStateBadge state={repo.prState} />
+                    {repo.prUrl && (
+                      <a
+                        href={repo.prUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="ml-auto font-mono text-[11px] tracking-[0.08em] text-signal uppercase transition-colors hover:text-signal-bright"
+                      >
+                        {t("tickets:repositories.viewPr")}
+                      </a>
+                    )}
+                  </li>
+                ))}
+              </ul>
             )}
           </section>
 

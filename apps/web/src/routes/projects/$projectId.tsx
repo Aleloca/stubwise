@@ -3,6 +3,7 @@ import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { ProviderBadge } from "../../components/badges";
+import { IntegrationPanel } from "../../components/integration-panel";
 import { MilestoneManager } from "../../components/milestone-manager";
 import { ProjectForm } from "../../components/project-form";
 import { deleteProject, patchProject, type ProjectPatch } from "../../lib/api";
@@ -159,6 +160,21 @@ export function ProjectDetailPage() {
           )}
         </div>
       </div>
+
+      {/*
+        Integrazione del progetto (Fase 3): la chiave di ingestion è salita dal
+        repository al progetto, quindi vale per tutti i repo del gruppo. Visibile
+        a tutti gli utenti autenticati (integrare l'SDK non richiede privilegi).
+      */}
+      <section
+        aria-label={t("integration:title")}
+        className="mt-8 border-t border-line pt-6"
+      >
+        <h2 className={sectionTitleClass}>{t("integration:title")}</h2>
+        <div className="max-w-2xl">
+          <IntegrationPanel ingestionKey={project.ingestionKey} slug={project.slug} />
+        </div>
+      </section>
 
       {/*
         Gestione milestone: vivono per-progetto (gruppo). Visibile a tutti gli

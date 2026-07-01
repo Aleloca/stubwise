@@ -4,7 +4,6 @@ import {
   ticketTypeSchema,
 } from "@stubwise/shared";
 import {
-  useQuery,
   useQueryClient,
   useSuspenseInfiniteQuery,
   useSuspenseQuery,
@@ -25,7 +24,6 @@ import {
 } from "../../lib/api";
 import {
   projectsQueryOptions,
-  repositoriesQueryOptions,
   ticketKeys,
   ticketsInfiniteQueryOptions,
 } from "../../lib/queries";
@@ -62,16 +60,12 @@ export function TicketsPage() {
   const [creating, setCreating] = useState(false);
 
   const { data: projects } = useSuspenseQuery(projectsQueryOptions);
-  // Tutti i repository: alimentano il badge del repository bersaglio sulle righe.
-  // Non-suspense: assente → nessun badge (degradazione innocua), niente attese.
-  const { data: repositories } = useQuery(repositoriesQueryOptions());
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage } = useSuspenseInfiniteQuery(
     ticketsInfiniteQueryOptions(search),
   );
 
   const tickets = data.pages.flatMap((page) => page.items);
   const projectNames = new Map(projects.map((project) => [project.id, project.name]));
-  const repositoryNames = new Map((repositories ?? []).map((repo) => [repo.id, repo.name]));
 
   function handleFiltersChange(patch: Partial<TicketFiltersValue>) {
     void navigate({
@@ -171,9 +165,6 @@ export function TicketsPage() {
               key={ticket.id}
               ticket={ticket}
               projectName={projectNames.get(ticket.projectId) ?? "—"}
-              repositoryName={
-                ticket.repositoryId ? (repositoryNames.get(ticket.repositoryId) ?? null) : null
-              }
             />
           ))}
 

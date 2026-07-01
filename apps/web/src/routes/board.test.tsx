@@ -4,7 +4,7 @@ import { act, render, renderHook, screen, waitFor, within } from "@testing-libra
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Ticket } from "../lib/api";
+import type { TicketListItem } from "../lib/api";
 import { ticketKeys } from "../lib/queries";
 import { createAppRouter } from "../router";
 import { useMoveTicket } from "./board";
@@ -53,11 +53,10 @@ function mockApi(handlers: Record<string, Handler>) {
 const PROJECT_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const PROJECT_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
-function makeTicket(overrides: Partial<Ticket>): Ticket {
+function makeTicket(overrides: Partial<TicketListItem>): TicketListItem {
   return {
     id: "11111111-1111-4111-8111-111111111111",
     projectId: PROJECT_A,
-    repositoryId: null,
     number: 1,
     title: "Ticket di prova",
     body: "",
@@ -74,6 +73,7 @@ function makeTicket(overrides: Partial<Ticket>): Ticket {
     lastSeenAt: "2026-06-01T10:00:00.000Z",
     createdAt: "2026-06-01T10:00:00.000Z",
     updatedAt: "2026-06-01T10:00:00.000Z",
+    repositoryCount: 0,
     ...overrides,
   };
 }
@@ -129,6 +129,8 @@ const baseHandlers: Record<string, Handler> = {
         description: null,
         aiProviderId: null,
         docAutoUpdate: false,
+        ingestionKey: "key-proj",
+        nextTicketNumber: 1,
         repositoryCount: 1,
         createdAt: "2026-01-01T00:00:00.000Z",
       },
@@ -139,6 +141,8 @@ const baseHandlers: Record<string, Handler> = {
         description: null,
         aiProviderId: null,
         docAutoUpdate: false,
+        ingestionKey: "key-proj",
+        nextTicketNumber: 1,
         repositoryCount: 1,
         createdAt: "2026-01-01T00:00:00.000Z",
       },
@@ -208,6 +212,29 @@ describe("board kanban", () => {
     expect(screen.queryByText(/showing the first/i)).not.toBeInTheDocument();
   });
 
+  it("mostra il badge del numero di repo toccati solo sulle card con repositoryCount > 0", async () => {
+    const touched = makeTicket({
+      id: "44444444-4444-4444-8444-444444444444",
+      number: 99,
+      title: "Fix multi-repo",
+      status: "open",
+      repositoryCount: 2,
+    });
+    mockApi({
+      ...baseHandlers,
+      "/api/tickets": () =>
+        jsonResponse(200, { items: [crash, touched], nextCursor: null }),
+    });
+
+    renderApp();
+
+    const touchedCard = await screen.findByRole("button", { name: /fix multi-repo/i });
+    expect(within(touchedCard).getByText("2 repos")).toBeInTheDocument();
+    // La card senza repo toccati (crash, repositoryCount 0) non mostra il badge.
+    const crashCard = screen.getByRole("button", { name: /crash al checkout/i });
+    expect(within(crashCard).queryByText(/\d+ repos?/)).not.toBeInTheDocument();
+  });
+
   it("con esattamente 100 ticket (limite board) mostra l'avviso di troncamento", async () => {
     const many = Array.from({ length: 100 }, (_, index) =>
       makeTicket({
@@ -264,7 +291,8 @@ describe("board kanban", () => {
   it("il click su una card (non drag) naviga al dettaglio del ticket", async () => {
     mockApi({
       ...baseHandlers,
-      [`/api/tickets/${crash.id}`]: () => jsonResponse(200, crash),
+      [`/api/tickets/${crash.id}`]: () =>
+        jsonResponse(200, { ...crash, repositories: [] }),
       [`/api/tickets/${crash.id}/comments`]: () => jsonResponse(200, []),
       [`/api/tickets/${crash.id}/jobs`]: () => jsonResponse(200, []),
       "/api/users": () => jsonResponse(200, []),
@@ -280,7 +308,7 @@ describe("board kanban", () => {
 });
 
 describe("useMoveTicket", () => {
-  function setupHook(tickets: Ticket[], projectId?: string) {
+  function setupHook(tickets: TicketListItem[], projectId?: string) {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
     });
@@ -293,7 +321,7 @@ describe("useMoveTicket", () => {
   }
 
   function boardData(queryClient: QueryClient, projectId?: string) {
-    return queryClient.getQueryData<Ticket[]>(ticketKeys.board(projectId));
+    return queryClient.getQueryData<TicketListItem[]>(ticketKeys.board(projectId));
   }
 
   it("aggiorna la cache in modo ottimistico, prima che la PATCH risolva", async () => {

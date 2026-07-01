@@ -120,7 +120,10 @@
     },
     "row": {
       "occurrences": "Occorrenze deduplicate",
-      "repository": "Repository bersaglio"
+      "repositoryCount": "{{count}} repository toccato dal fix",
+      "repositoryCount_other": "{{count}} repository toccati dal fix",
+      "repositoryCountBadge": "{{count}} repo",
+      "repositoryCountBadge_other": "{{count}} repo"
     },
     "editor": {
       "bold": "Grassetto",
@@ -144,9 +147,7 @@
       "descriptionPlaceholder": "Markdown supportato…",
       "cancel": "Annulla",
       "submit": "Crea ticket",
-      "submitPending": "Creazione…",
-      "repository": "Repository bersaglio",
-      "noRepositories": "Questo progetto non ha repository: aggiungine uno dal dettaglio del progetto."
+      "submitPending": "Creazione…"
     },
     "detail": {
       "back": "← Tutti i ticket",
@@ -178,6 +179,11 @@
       "updatedAt": "Aggiornato",
       "lastSeenAt": "Ultimo visto",
       "occurrencesMeta": "Occorrenze"
+    },
+    "repositories": {
+      "title": "Repository / PR",
+      "empty": "// nessuna PR ancora — il fix non è stato ancora eseguito",
+      "viewPr": "Vedi PR ↗"
     },
     "timeline": {
       "empty": "// nessuna attività AI per questo ticket",
@@ -651,6 +657,11 @@
       "4": "Grande",
       "5": "Molto grande"
     },
+    "prState": {
+      "open": "PR aperta",
+      "merged": "PR mergiata",
+      "closed_unmerged": "PR chiusa"
+    },
     "priorityTitle": "Priorità: {{label}}",
     "sourceTitle": "Origine: {{label}}"
   },
@@ -681,7 +692,7 @@
       "repositories": "Repository",
       "addRepository": "+ Aggiungi repository",
       "noRepositories": "// nessun repository",
-      "noRepositoriesHintAdmin": "Aggiungi il primo repository per ottenere una chiave di ingestion.",
+      "noRepositoriesHintAdmin": "Aggiungi il primo repository così l'AI potrà correggere i ticket su di esso.",
       "noRepositoriesHintMember": "Chiedi a un amministratore di collegare un repository.",
       "dangerZone": "Zona pericolosa",
       "deleteProject": "Elimina progetto",
@@ -778,7 +789,7 @@
     "new": {
       "back": "← Torna al progetto",
       "title": "Aggiungi un repository",
-      "subtitle": "Scegli un account git, il repository e il branch: slug e chiave di ingestion vengono generati alla creazione."
+      "subtitle": "Scegli un account git, il repository e il branch: lo slug viene generato alla creazione; la chiave di ingestion vive sul progetto."
     }
   },
   "integration": {

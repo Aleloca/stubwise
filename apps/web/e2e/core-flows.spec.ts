@@ -112,15 +112,15 @@ test("aggiunge un repository al progetto dal wizard (fallback manuale)", async (
   await expect(page.getByRole("heading", { name: "Demo Shop" })).toBeVisible();
 });
 
-test("crea un ticket dal dialog (col repository bersaglio) e lo ritrova in lista", async () => {
+test("crea un ticket dal dialog (solo progetto, niente repo bersaglio) e lo ritrova in lista", async () => {
   await page.getByRole("link", { name: /TKT tickets/i }).click();
   await page.getByRole("button", { name: "New ticket" }).click();
 
   const dialog = page.getByRole("dialog", { name: "New ticket" });
   await dialog.getByLabel("Title").fill("Crash al checkout");
   await dialog.getByLabel("Project").selectOption({ label: "Acme Platform" });
-  // Il repository bersaglio si popola dal progetto: si sceglie il repo "Demo Shop".
-  await dialog.getByLabel("Target repository").selectOption({ label: "Demo Shop" });
+  // Fase 3: niente selettore "repository bersaglio" — l'AI sceglie i repo al fix.
+  await expect(dialog.getByLabel("Target repository")).toHaveCount(0);
   await dialog.getByLabel("Type").selectOption("bug");
   await dialog.getByLabel("Priority").selectOption("high");
   await dialog.getByLabel("Description (optional)").fill("Il pagamento esplode al submit.");

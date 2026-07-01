@@ -13,6 +13,8 @@ const projects: Project[] = [
     description: null,
     aiProviderId: null,
     docAutoUpdate: false,
+    ingestionKey: "key-p1",
+    nextTicketNumber: 1,
     createdAt: "2026-01-01T00:00:00.000Z",
   },
   {
@@ -22,6 +24,8 @@ const projects: Project[] = [
     description: null,
     aiProviderId: null,
     docAutoUpdate: false,
+    ingestionKey: "key-p2",
+    nextTicketNumber: 1,
     createdAt: "2026-01-02T00:00:00.000Z",
   },
 ];
