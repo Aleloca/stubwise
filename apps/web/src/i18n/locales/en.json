@@ -980,7 +980,8 @@
       "collapse": "Collapse “{{title}}”",
       "expand": "Expand “{{title}}”",
       "collapseAll": "Collapse all",
-      "expandAll": "Expand all"
+      "expandAll": "Expand all",
+      "downloadCategory": "Download {{category}} (.md, zip)"
     },
     "manual": {
       "newPage": "New manual page",

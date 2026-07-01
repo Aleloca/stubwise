@@ -19,7 +19,7 @@ import {
 import type { Db } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { aiProviderKindSchema } from "./ai-providers.js";
-import { retrieveChunks } from "./docs-retrieval.js";
+import { buildDocsExportZip, safeFilenamePart } from "./docs-export-zip.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 
 const repositoryIdParamsSchema = z.object({ repositoryId: z.uuid() });
@@ -167,29 +167,6 @@ const spaceSchema = z.object({
   lastGenerationAt: z.string().nullable(),
   lastCommitSha: z.string().nullable(),
 });
-
-/**
- * Query di ricerca: `q` non vuota, cappata a 300 char (come la ricerca ticket).
- * `q` di soli spazi viene trattata come vuota a runtime (400).
- */
-const searchQuerySchema = z.object({
-  q: z.string().min(1).max(300),
-});
-
-/**
- * Un risultato di ricerca: la pagina (slug/title/kind) più l'estratto rilevante
- * e il punteggio. Nessuna colonna interna (embedding, ids di chunk, distanze
- * grezze) esce: solo ciò che serve a linkare la pagina e mostrare un'anteprima.
- */
-const searchResultSchema = z.object({
-  slug: z.string(),
-  title: z.string(),
-  kind: docPageKindSchema,
-  snippet: z.string(),
-  score: z.number(),
-  source: z.enum(["semantic", "fulltext", "hybrid"]),
-});
-
 
 const createManualSchema = z.object({
   title: z.string().min(1).max(300),
@@ -498,6 +475,77 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
   );
 
   /**
+   * Export ZIP di una categoria (kind): tutte le pagine visibili (generazione
+   * corrente + manuali) di quel kind, come file `.md` organizzati in cartelle
+   * che rispecchiano ESATTAMENTE la foresta della sidebar (stesso ordinamento
+   * per position poi title). Vedi docs-export-zip.ts per la costruzione dello
+   * ZIP e la sanificazione dei nomi (nessun path può uscire dalla root).
+   *
+   * 404 se il repository non esiste o non ha pagine per quel kind (il web mostra
+   * il bottone solo quando ci sono pagine). Risposta binaria: application/zip.
+   */
+  app.get(
+    "/repositories/:repositoryId/docs/export",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: repositoryIdParamsSchema,
+        querystring: z.object({ kind: docPageKindSchema }),
+        response: { 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { repositoryId } = request.params;
+      const { kind } = request.query;
+
+      const [repository] = await app.db
+        .select({
+          id: repositories.id,
+          slug: repositories.slug,
+          currentDocGenerationId: repositories.currentDocGenerationId,
+        })
+        .from(repositories)
+        .where(eq(repositories.id, repositoryId));
+      if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
+
+      // Stesso scope della sidebar/tree: generazione corrente OR manuale.
+      const currentGen = repository.currentDocGenerationId;
+      const genFilter = currentGen
+        ? or(eq(docPages.generationId, currentGen), isNull(docPages.generationId))
+        : isNull(docPages.generationId);
+
+      const pages = await app.db
+        .select({
+          id: docPages.id,
+          parentId: docPages.parentId,
+          slug: docPages.slug,
+          title: docPages.title,
+          position: docPages.position,
+          body: docPages.body,
+        })
+        .from(docPages)
+        .where(
+          and(eq(docPages.repositoryId, repositoryId), eq(docPages.kind, kind), genFilter),
+        );
+
+      if (pages.length === 0) {
+        return apiError(reply, 404, "doc_pages_not_found", "No documentation pages for this kind");
+      }
+
+      const zip = buildDocsExportZip(pages);
+      const filename = `${safeFilenamePart(repository.slug)}-${kind}-docs.zip`;
+      reply
+        .header("Content-Type", "application/zip")
+        .header("Content-Disposition", `attachment; filename="${filename}"`);
+      // Risposta binaria: il type provider Zod tipizza `send` sull'unione degli
+      // schemi di risposta dichiarati (solo errori qui, nessun 200), quindi il
+      // Buffer va inviato aggirando quel tipo. Nessuno schema 200 = nessuna
+      // serializzazione JSON: Fastify manda il Buffer così com'è.
+      return reply.send(Buffer.from(zip) as unknown as never);
+    },
+  );
+
+  /**
    * Pagina singola per slug (univoco per progetto): solo se appartiene alla
    * generazione corrente o è manuale. 404 altrimenti (anche per pagine di
    * generazioni vecchie). Include il commitSha della generazione per le pagine
@@ -549,58 +597,6 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       }
 
       return toPage(page, commitSha);
-    },
-  );
-
-  // --- M6.4: ricerca (semantica + full-text) -----------------------------
-
-  /**
-   * Ricerca ibrida nei Docs del progetto: embedding della query → retrieval
-   * semantico sui chunk (pgvector) UNITO al full-text su doc_pages.search_tsv.
-   * Scope: generazione corrente + pagine manuali; le generazioni stale non
-   * compaiono. `q` vuota/di soli spazi → 400. Vedi retrieveChunks per la regola
-   * di merge/ranking (semantici prima, full-text-only dopo). Riusata dalla chat.
-   */
-  app.get(
-    "/repositories/:repositoryId/docs/search",
-    {
-      preHandler: requireAuth,
-      schema: {
-        params: repositoryIdParamsSchema,
-        querystring: searchQuerySchema,
-        response: {
-          200: z.array(searchResultSchema),
-          400: errorSchema,
-          404: errorSchema,
-          ...authErrorResponses,
-        },
-      },
-    },
-    async (request, reply) => {
-      const { repositoryId } = request.params;
-      const query = request.query.q.trim();
-      // `q` di soli spazi passa il min(1) di Zod ma è semanticamente vuota.
-      if (query.length === 0) {
-        return apiError(reply, 400, "empty_query", "Search query must not be empty");
-      }
-
-      const [repository] = await app.db
-        .select({ id: repositories.id })
-        .from(repositories)
-        .where(eq(repositories.id, repositoryId));
-      if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
-
-      const results = await retrieveChunks(app.db, app.embeddingClient, repositoryId, query, {
-        logger: request.log,
-      });
-      return results.map((r) => ({
-        slug: r.slug,
-        title: r.title,
-        kind: r.kind,
-        snippet: r.snippet,
-        score: r.score,
-        source: r.source,
-      }));
     },
   );
 

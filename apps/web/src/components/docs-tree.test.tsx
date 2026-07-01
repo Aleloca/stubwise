@@ -192,4 +192,52 @@ describe("DocsTree", () => {
     await userEvent.click(manual);
     expect(screen.getByText("// empty")).toBeInTheDocument();
   });
+
+  it("mostra il bottone di download ZIP accanto alle categorie con pagine, con l'href corretto", async () => {
+    renderTree([
+      node({ id: "t1", slug: "tech", title: "Tech", kind: "technical" }),
+      node({ id: "f1", slug: "func", title: "Func", kind: "functional" }),
+    ]);
+
+    const techDownload = await screen.findByRole("link", { name: /Technical/i });
+    expect(techDownload).toHaveAttribute(
+      "href",
+      `/api/repositories/${PROJECT_ID}/docs/export?kind=technical`,
+    );
+    expect(techDownload).toHaveAttribute("download");
+
+    const funcDownload = screen.getByRole("link", { name: /Functional/i });
+    expect(funcDownload).toHaveAttribute(
+      "href",
+      `/api/repositories/${PROJECT_ID}/docs/export?kind=functional`,
+    );
+  });
+
+  it("non mostra il bottone di download per le categorie vuote", async () => {
+    renderTree([node({ id: "t1", slug: "tech", title: "Tech", kind: "technical" })]);
+
+    await screen.findByRole("button", { name: /Technical 1/ });
+    // Manual/Functional/Releases sono vuoti: nessun link di export per loro.
+    expect(
+      screen.queryByRole("link", { name: /Manual.*\.md.*zip|Manual.*zip/i }),
+    ).not.toBeInTheDocument();
+    // Un solo link di download in totale (solo la technical).
+    const downloads = screen
+      .getAllByRole("link")
+      .filter((l) => l.getAttribute("href")?.includes("/docs/export"));
+    expect(downloads).toHaveLength(1);
+    expect(downloads[0]).toHaveAttribute("href", expect.stringContaining("kind=technical"));
+  });
+
+  it("cliccare il download non apre/chiude la sezione (non triggera il toggle)", async () => {
+    renderTree([node({ id: "t1", slug: "tech", title: "Tech", kind: "technical" })]);
+
+    // La sezione technical è aperta di default (ha pagine): il link è visibile.
+    const link = await screen.findByRole("link", { name: "Tech" });
+    expect(link).toBeInTheDocument();
+
+    // Click sul download: la sezione resta aperta (il contenuto resta montato).
+    await userEvent.click(screen.getByRole("link", { name: /Technical/i }));
+    expect(screen.getByRole("link", { name: "Tech" })).toBeInTheDocument();
+  });
 });
