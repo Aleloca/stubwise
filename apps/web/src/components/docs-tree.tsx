@@ -259,12 +259,35 @@ export function DocsTree({
       {GROUP_ORDER.map((kind) => {
         const groupNodes = nodes.filter((node) => node.kind === kind);
         const forest = buildForest(groupNodes);
+        const hasPages = groupNodes.length > 0;
+        // Bottone di download ZIP per categoria (solo se ci sono pagine). È un
+        // <a href download>: il download parte dal browser con il cookie di
+        // sessione. `stopPropagation` evita di triggerare il toggle di sezione.
+        const downloadLabel = t("docs:space.downloadCategory", {
+          category: t(GROUP_LABEL_KEY[kind]),
+        });
+        const action = hasPages ? (
+          <a
+            href={`/api/repositories/${projectId}/docs/export?kind=${kind}`}
+            download
+            onClick={(e) => e.stopPropagation()}
+            aria-label={downloadLabel}
+            title={downloadLabel}
+            className="flex items-center gap-1 rounded-sm px-1.5 py-1 font-mono text-[10px] tracking-[0.1em] text-fg-faint uppercase transition-colors hover:bg-ink-800 hover:text-fg"
+          >
+            <span aria-hidden>MD</span>
+            <span aria-hidden className="text-[11px] leading-none">
+              ⭳
+            </span>
+          </a>
+        ) : undefined;
         return (
           <CollapsibleSection
             key={kind}
             title={t(GROUP_LABEL_KEY[kind])}
             meta={String(groupNodes.length)}
             defaultOpen={groupNodes.length > 0}
+            action={action}
           >
             {forest.length === 0 ? (
               <p className="font-mono text-[11px] tracking-[0.12em] text-fg-faint uppercase">

@@ -980,7 +980,8 @@
       "collapse": "Comprimi «{{title}}»",
       "expand": "Espandi «{{title}}»",
       "collapseAll": "Comprimi tutto",
-      "expandAll": "Espandi tutto"
+      "expandAll": "Espandi tutto",
+      "downloadCategory": "Scarica {{category}} (.md, zip)"
     },
     "manual": {
       "newPage": "Nuova pagina manuale",
