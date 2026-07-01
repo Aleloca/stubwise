@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "../router";
@@ -53,7 +53,10 @@ function baseApi(): Record<string, Handler> {
   return {
     "GET /api/auth/me": meHandler(),
     // Le rotte montano l'app-shell; mocka i fetch tipici delle pagine landing.
+    // L'hub Docs raggruppa per progetto: serve anche progetti + repository.
     "GET /api/docs/spaces": () => jsonResponse(200, []),
+    "GET /api/projects": () => jsonResponse(200, []),
+    "GET /api/repositories": () => jsonResponse(200, []),
     "GET /api/tickets": () => jsonResponse(200, { items: [], nextCursor: null }),
   };
 }
@@ -185,7 +188,11 @@ describe("app-shell responsive", () => {
     expect(dialog.closest("[aria-hidden]")).toHaveAttribute("aria-hidden", "false");
 
     await router.navigate({ to: "/tickets" });
-    expect(dialog.closest("[aria-hidden]")).toHaveAttribute("aria-hidden", "true");
+    // Il cambio di rotta chiude il drawer via `useCloseOnRouteChange`: la chiusura
+    // avviene in un effect dopo il commit della nuova location, quindi si attende.
+    await waitFor(() =>
+      expect(dialog.closest("[aria-hidden]")).toHaveAttribute("aria-hidden", "true"),
+    );
     expect(hamburger).toHaveAttribute("aria-expanded", "false");
   });
 });

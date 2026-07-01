@@ -907,12 +907,19 @@
       "empty": "// ancora nessun progetto",
       "emptyHint": "Crea prima un progetto: ogni progetto collegato avrà qui il suo spazio di documentazione.",
       "openSpace": "Apri spazio",
+      "openProject": "Documentazione di progetto",
       "pageCount_one": "{{count}} pagina",
       "pageCount_other": "{{count}} pagine",
       "lastGenerated": "generata {{date}}",
       "atCommit": "al commit {{commit}}",
       "neverGenerated": "solo pagine manuali",
       "notGenerated": "non ancora generata"
+    },
+    "project": {
+      "eyebrow": "Documentazione di progetto",
+      "subtitle": "Interroga tutti i repository del progetto, con citazioni al repo d'origine.",
+      "spacesHeading": "Tutti i repository del progetto",
+      "spacesEmpty": "Nessun repository di questo progetto ha ancora documentazione."
     },
     "space": {
       "back": "Documentazione",
@@ -1006,6 +1013,10 @@
     "chat": {
       "title": "Chiedi ai docs",
       "subtitle": "RAG sulla documentazione di questo progetto.",
+      "projectTitle": "Chiedi alla documentazione del progetto",
+      "projectSubtitle": "RAG su tutti i repository del progetto.",
+      "projectPlaceholder": "Chiedi qualcosa su questo progetto…",
+      "projectEmptyHint": "Le risposte spaziano su tutti i repository del progetto; ogni citazione mostra il repo d'origine.",
       "open": "Apri chat",
       "close": "Chiudi chat",
       "placeholder": "Chiedi qualcosa su questo progetto…",

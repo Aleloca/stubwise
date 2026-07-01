@@ -1,7 +1,7 @@
 import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { ticketTypeSchema, type TicketType } from "@stubwise/shared";
-import { docPages, repositories, users } from "@stubwise/db";
+import { docPages, projects, repositories, users } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import type { EmbeddingClient } from "@stubwise/embeddings";
 import { ProjectNotFoundError } from "../db/tickets.js";
@@ -10,7 +10,7 @@ import { resolveReporter, resolveReporterBySlackId } from "../ingest/reporter.js
 import { publicUrlOrUndefined, ticketUrl } from "../ingest/shared.js";
 import { apiError } from "../errors.js";
 import type { ChatLlm } from "../routes/chat-llm.js";
-import { answerDocsQuestion } from "../routes/docs-rag.js";
+import { answerProjectDocsQuestion } from "../routes/docs-rag.js";
 import { isUniqueViolation } from "../routes/shared.js";
 import { ACTION_IDS, BLOCK_IDS, buildTicketModal } from "./modal.js";
 import {
@@ -61,8 +61,9 @@ export interface SlackRoutesOptions {
   chatLlm?: ChatLlm;
   /**
    * URL pubblico dell'istanza, per comporre i link alle citazioni
-   * (`${publicUrl}/docs/:projectId/:slug`). Default: `instance.publicUrl` se
-   * configurato, altrimenti undefined (le citazioni elencano solo i titoli).
+   * (`${publicUrl}/docs/:repositoryId/:slug`, col repositoryId della singola
+   * fonte). Default: `instance.publicUrl` se configurato, altrimenti undefined
+   * (le citazioni elencano solo repo/titolo).
    */
   publicUrl?: string;
   /**
@@ -144,23 +145,27 @@ async function listProjects(instance: FastifyInstance): Promise<{ id: string; na
 }
 
 /**
- * Progetti CON documentazione — stesso criterio dell'hub `GET /api/docs/spaces`:
- * almeno una pagina visibile (generazione corrente OR manuale). Restituisce
- * id/name/slug; popolano le option dello static_select progetto del modal /docs.
- * Il join sulle pagine è ristretto come in docs.ts così le generazioni stale non
- * fanno comparire un progetto come "con documentazione".
+ * Progetti CON documentazione (Fase 2): un progetto compare se ALMENO UN suo
+ * repository ha una pagina visibile — stesso criterio per-pagina dell'hub
+ * `GET /api/docs/spaces` (generazione corrente del repo OR pagina manuale). Il
+ * join è progetto → repository → pagine; il filtro per generazione è per-repo
+ * (`currentDocGenerationId` del repository di quella pagina) così le generazioni
+ * stale non fanno comparire un progetto come "con documentazione". Restituisce
+ * id (= projectId)/name/slug; popolano le option dello static_select progetto del
+ * modal /docs. Un progetto i cui repo non hanno alcuna pagina NON compare.
  */
 async function listProjectsWithDocs(
   db: Db,
 ): Promise<{ id: string; name: string; slug: string }[]> {
   const rows = await db
     .select({
-      id: repositories.id,
-      name: repositories.name,
-      slug: repositories.slug,
+      id: projects.id,
+      name: projects.name,
+      slug: projects.slug,
       pageCount: sql<number>`count(${docPages.id})::int`,
     })
-    .from(repositories)
+    .from(projects)
+    .leftJoin(repositories, eq(repositories.projectId, projects.id))
     .leftJoin(
       docPages,
       and(
@@ -171,8 +176,8 @@ async function listProjectsWithDocs(
         ),
       ),
     )
-    .groupBy(repositories.id, repositories.name, repositories.slug)
-    .orderBy(asc(repositories.name));
+    .groupBy(projects.id, projects.name, projects.slug)
+    .orderBy(asc(projects.name));
   return rows
     .filter((r) => r.pageCount > 0)
     .map((r) => ({ id: r.id, name: r.name, slug: r.slug }));
@@ -193,7 +198,7 @@ async function answerAndPostToSlack(
     postResponse: (url: string, payload: unknown) => Promise<void>;
     publicUrl?: string;
   },
-  input: { repositoryId: string; question: string; responseUrl: string },
+  input: { projectId: string; question: string; responseUrl: string },
 ): Promise<void> {
   // Pre-flight: se l'LLM espone isAvailable e la chat non è servibile (tipico:
   // nessun provider api_key), rispondi con un messaggio chiaro invece di
@@ -210,9 +215,9 @@ async function answerAndPostToSlack(
   }
 
   try {
-    const { text, citations } = await answerDocsQuestion(
+    const { text, citations } = await answerProjectDocsQuestion(
       { db: deps.db, embeddingClient: deps.embeddingClient, chatLlm: deps.chatLlm },
-      { repositoryId: input.repositoryId, question: input.question },
+      { projectId: input.projectId, question: input.question },
     );
 
     // Risposta: il markdown del modello viene CONVERTITO nel mrkdwn di Slack
@@ -224,12 +229,17 @@ async function answerAndPostToSlack(
         ? sections.map((s) => ({ type: "section", text: { type: "mrkdwn", text: s } }))
         : [{ type: "section", text: { type: "mrkdwn", text: "(nessuna risposta)" } }];
     if (citations.length > 0) {
+      // Cross-repo: ogni citazione porta il SUO repository d'origine. Il link usa
+      // il `repositoryId` della singola fonte (`/docs/${repositoryId}/${slug}`) e
+      // il testo mostra "nomeRepo › titoloPagina" per disambiguare fonti omonime
+      // di repo diversi. Senza publicUrl: solo testo "nomeRepo › titoloPagina".
       const sources = citations
-        .map((c) =>
-          deps.publicUrl
-            ? `<${deps.publicUrl}/docs/${input.repositoryId}/${c.slug}|${c.title}>`
-            : c.title,
-        )
+        .map((c) => {
+          const label = `${c.repositoryName} › ${c.title}`;
+          return deps.publicUrl
+            ? `<${deps.publicUrl}/docs/${c.repositoryId}/${c.slug}|${label}>`
+            : label;
+        })
         .join("  ·  ");
       blocks.push({
         type: "context",
@@ -475,10 +485,10 @@ export async function slackRoutes(
       // prosegue invariato col flusso ticket sottostante.
       if (payload.view?.callback_id === DOCS_QUERY_CALLBACK_ID) {
         const docsValues = payload.view?.state?.values;
-        // Il value del static_select è un repository id: la modale /docs lavora a
-        // livello di repository (i docs sono per-repo). Il block id resta `project`
-        // (UI: il blocco è etichettato "Progetto"), ma il valore è il repo.
-        const docsRepositoryId = selectedValue(
+        // Il value del static_select è un projectId: la modale /docs interroga un
+        // intero PROGETTO (cross-repo, Fase 2). Il block id `project` e l'etichetta
+        // "Progetto" del blocco sono coerenti col valore.
+        const docsProjectId = selectedValue(
           docsValues,
           DOCS_BLOCK_IDS.project,
           DOCS_ACTION_IDS.project,
@@ -496,7 +506,7 @@ export async function slackRoutes(
 
         // Validazione: progetto + domanda obbligatori, errori ancorati ai block.
         const docsErrors: Record<string, string> = {};
-        if (!docsRepositoryId) docsErrors[DOCS_BLOCK_IDS.project] = "Seleziona un progetto.";
+        if (!docsProjectId) docsErrors[DOCS_BLOCK_IDS.project] = "Seleziona un progetto.";
         if (!question) docsErrors[DOCS_BLOCK_IDS.question] = "Inserisci una domanda.";
         if (Object.keys(docsErrors).length > 0) {
           return reply.code(200).send({ response_action: "errors", errors: docsErrors });
@@ -531,7 +541,7 @@ export async function slackRoutes(
         const responseUrl = meta.responseUrl;
         void answerAndPostToSlack(
           { db: instance.db, embeddingClient, chatLlm, postResponse, publicUrl },
-          { repositoryId: docsRepositoryId!, question: question!, responseUrl },
+          { projectId: docsProjectId!, question: question!, responseUrl },
         ).catch((err) => {
           request.log.warn({ err }, "[slack] docs answer failed");
         });

@@ -1,13 +1,17 @@
 /**
- * Retrieval ibrido (semantico + full-text) sui Docs di un progetto.
+ * Retrieval ibrido (semantico + full-text) sui Docs.
  *
- * Usato dalla ricerca (M6.4) e dalla chat RAG (M6.5): per questo la logica vive
- * qui, fuori dalle route, così entrambe la importano senza duplicarla.
+ * Due livelli di scope:
+ *  - {@link retrieveChunks} — un singolo REPOSITORY e la sua generazione corrente
+ *    (`repositories.currentDocGenerationId`) PIÙ le righe manuali
+ *    (`generationId IS NULL`);
+ *  - {@link retrieveChunksForProject} — CROSS-REPO su tutti i repository di un
+ *    PROGETTO, con filtro generazione PER-REPO (Fase 2, D1).
  *
- * Scope: SEMPRE limitato al progetto e alla sua generazione corrente
- * (`projects.currentDocGenerationId`) PIÙ i chunk/pagine manuali
- * (`generationId IS NULL`). I chunk/pagine di generazioni stale NON sono mai
- * restituiti — stesso invariante dell'albero e della pagina singola.
+ * In entrambi i casi i chunk/pagine di generazioni stale NON sono mai restituiti —
+ * stesso invariante dell'albero e della pagina singola. Usato dalla ricerca (M6.4)
+ * e dalla chat RAG (M6.5): per questo la logica vive qui, fuori dalle route, così
+ * tutti i consumatori la importano senza duplicarla.
  */
 
 import { and, eq, isNull, or, sql } from "drizzle-orm";
@@ -34,6 +38,14 @@ export interface RetrievedChunk {
   score: number;
   /** Sorgente del match: "semantic" (pgvector), "fulltext" (tsvector) o entrambi. */
   source: "semantic" | "fulltext" | "hybrid";
+  /**
+   * Repository d'origine della pagina. Valorizzato sempre — anche nel retrieval
+   * per-repo (dove è costante) — così la chat/ricerca cross-repo (Fase 2) può
+   * disambiguare la fonte per repository nelle citazioni e nel prompt.
+   */
+  repositoryId: string;
+  repositorySlug: string;
+  repositoryName: string;
 }
 
 /**
@@ -46,19 +58,55 @@ function toVectorLiteral(vector: number[]): string {
 }
 
 /**
- * Predicato di scope condiviso da semantico e full-text: riga del progetto AND
- * (generazione corrente OR manuale/`generationId IS NULL`). Quando il progetto
- * non ha ancora una generazione corrente restano solo le righe manuali.
+ * Tabella su cui applicare il predicato di scope: `doc_chunks` (gamba semantica)
+ * o `doc_pages` (gamba full-text). Entrambe espongono `repositoryId`/`generationId`,
+ * quindi lo stesso predicato si costruisce indifferentemente sull'una o sull'altra.
  */
-function scopeFilter(
-  table: typeof docChunks | typeof docPages,
-  repositoryId: string,
-  currentGenerationId: string | null,
-) {
-  const genFilter = currentGenerationId
-    ? or(eq(table.generationId, currentGenerationId), isNull(table.generationId))
-    : isNull(table.generationId);
-  return and(eq(table.repositoryId, repositoryId), genFilter);
+type ScopableTable = typeof docChunks | typeof docPages;
+
+/**
+ * Predicato di scope per UN repository: riga del repo AND (generazione corrente
+ * OR manuale/`generationId IS NULL`). Quando il repo non ha ancora una
+ * generazione corrente restano solo le righe manuali. È una funzione di `table`
+ * così la si applica sia a `doc_chunks` (semantico) sia a `doc_pages` (full-text).
+ */
+function repoScopePredicate(repositoryId: string, currentGenerationId: string | null) {
+  return (table: ScopableTable) => {
+    const genFilter = currentGenerationId
+      ? or(eq(table.generationId, currentGenerationId), isNull(table.generationId))
+      : isNull(table.generationId);
+    return and(eq(table.repositoryId, repositoryId), genFilter);
+  };
+}
+
+/** Info di un repository per arricchire le citazioni (id/slug/name della fonte). */
+interface RepoInfo {
+  id: string;
+  slug: string;
+  name: string;
+  currentDocGenerationId: string | null;
+}
+
+/**
+ * Predicato di scope CROSS-REPO (Fase 2): OR di coppie, una per repository del
+ * progetto — `(repository_id = A AND (generation_id = currentA OR generation_id IS NULL))`
+ * OR `(repository_id = B AND (...))` ... Il filtro generazione è PER-REPO (D1):
+ * NON si usa un `IN (currentGenIds)` piatto, che mescolerebbe la generazione
+ * corrente di un repo con quella stale di un altro. L'indice
+ * `doc_chunks (repository_id, generation_id)` copre la forma di ciascuna coppia.
+ * I repo senza generazione corrente contribuiscono solo con le righe manuali.
+ */
+function crossRepoScopePredicate(repos: RepoInfo[]) {
+  return (table: ScopableTable) => {
+    const perRepo = repos.map((r) => {
+      const genFilter = r.currentDocGenerationId
+        ? or(eq(table.generationId, r.currentDocGenerationId), isNull(table.generationId))
+        : isNull(table.generationId);
+      return and(eq(table.repositoryId, r.id), genFilter);
+    });
+    // or(...) con un solo elemento è quel predicato; con più, l'unione cross-repo.
+    return perRepo.length === 1 ? perRepo[0] : or(...perRepo);
+  };
 }
 
 /** Logger minimale (sottoinsieme di pino/`request.log`) per i warning del retrieval. */
@@ -123,15 +171,124 @@ export async function retrieveChunks(
   query: string,
   options: RetrieveChunksOptions = {},
 ): Promise<RetrievedChunk[]> {
-  const k = options.k ?? 10;
-  const logger = options.logger;
-
-  // Generazione corrente del repository: definisce lo scope di entrambe le query.
+  // Generazione corrente + info del repository: definiscono lo scope (entrambe le
+  // gambe) e arricchiscono le citazioni col repository d'origine.
   const [repository] = await db
-    .select({ currentDocGenerationId: repositories.currentDocGenerationId })
+    .select({
+      id: repositories.id,
+      slug: repositories.slug,
+      name: repositories.name,
+      currentDocGenerationId: repositories.currentDocGenerationId,
+    })
     .from(repositories)
     .where(eq(repositories.id, repositoryId));
-  const currentGenerationId = repository?.currentDocGenerationId ?? null;
+  if (!repository) return [];
+
+  return retrieveWithScope(db, embeddingClient, query, {
+    k: options.k ?? 10,
+    logger: options.logger,
+    scope: repoScopePredicate(repository.id, repository.currentDocGenerationId),
+    logContext: { repositoryId },
+  });
+}
+
+/**
+ * Numero massimo di repository documentati oltre i quali `k` non cresce più, e
+ * passo di crescita per repo aggiuntivo. `k = min(8 + 4*(nRepoDocumentati-1), 24)`
+ * (D6): un solo repo → 8 (come la chat per-repo); cresce per non perdere copertura
+ * sui progetti con molti repo, ma con un tetto per non gonfiare il contesto LLM.
+ */
+const PROJECT_K_BASE = 8;
+const PROJECT_K_STEP = 4;
+const PROJECT_K_MAX = 24;
+
+/**
+ * Retrieval ibrido CROSS-REPO a livello di PROGETTO (Fase 2).
+ *
+ * Aggrega i Docs di TUTTI i repository del progetto in un'unica ricerca, con lo
+ * stesso ranking della versione per-repo. Lo scope applica il filtro generazione
+ * PER-REPO (D1): per ogni repo, la sua generazione corrente OPPURE le righe
+ * manuali — costruito come OR di coppie (vedi {@link crossRepoScopePredicate}),
+ * NON come un `IN` piatto che mescolerebbe generazioni stale tra repo.
+ *
+ * Ogni `RetrievedChunk` è arricchito con `repositoryId/slug/name` della pagina di
+ * origine, così la chat di progetto può citare il repository di ciascuna fonte.
+ *
+ * `k` (se non passato esplicitamente) è proporzionale al numero di repo
+ * DOCUMENTATI (D6): `min(8 + 4*(nRepoDocumentati-1), 24)`.
+ *
+ * Se il progetto non ha repository, o nessuno con documentazione (generazione
+ * corrente o pagine manuali), ritorna `[]`.
+ */
+export async function retrieveChunksForProject(
+  db: Db,
+  embeddingClient: EmbeddingClient,
+  projectId: string,
+  query: string,
+  options: RetrieveChunksOptions = {},
+): Promise<RetrievedChunk[]> {
+  // Tutti i repo del progetto, con la rispettiva generazione corrente.
+  const repos = await db
+    .select({
+      id: repositories.id,
+      slug: repositories.slug,
+      name: repositories.name,
+      currentDocGenerationId: repositories.currentDocGenerationId,
+    })
+    .from(repositories)
+    .where(eq(repositories.projectId, projectId));
+
+  // Nessun repo nel progetto → niente da recuperare.
+  if (repos.length === 0) return [];
+
+  // `k` proporzionale al numero di repo DOCUMENTATI: hanno una generazione
+  // corrente (o quantomeno possono avere righe manuali). Per il dimensionamento
+  // di k contiamo i repo con generazione corrente; il minimo è 1 per non far
+  // collassare k quando solo le pagine manuali sono presenti.
+  const documentedCount = Math.max(
+    1,
+    repos.filter((r) => r.currentDocGenerationId !== null).length,
+  );
+  const k =
+    options.k ??
+    Math.min(PROJECT_K_BASE + PROJECT_K_STEP * (documentedCount - 1), PROJECT_K_MAX);
+
+  return retrieveWithScope(db, embeddingClient, query, {
+    k,
+    logger: options.logger,
+    scope: crossRepoScopePredicate(repos),
+    logContext: { projectId },
+  });
+}
+
+/** Predicato di scope applicabile a `doc_chunks` o `doc_pages`. */
+type ScopePredicate = (table: ScopableTable) => ReturnType<typeof and>;
+
+interface RetrieveWithScopeArgs {
+  k: number;
+  logger?: RetrievalLogger;
+  /** Predicato di scope (repo singolo o cross-repo), applicato a entrambe le gambe. */
+  scope: ScopePredicate;
+  /** Contesto per i log del fallback semantico (repositoryId o projectId). */
+  logContext: Record<string, string>;
+}
+
+/**
+ * Cuore condiviso del retrieval ibrido, parametrizzato dal `scope` (per-repo o
+ * cross-repo) e dalla lista `repos` per l'arricchimento. Le due gambe (semantica
+ * + full-text), il dedup per pagina, il merge/rank e la resilienza all'embedding
+ * KO sono identici per entrambi i chiamanti: vivono qui, una sola volta.
+ *
+ * Le query joinano `doc_pages` → `repositories` per portare `repositoryId/slug/name`
+ * della pagina d'origine in ogni `RetrievedChunk` (uniforme per-repo e cross-repo).
+ */
+async function retrieveWithScope(
+  db: Db,
+  embeddingClient: EmbeddingClient,
+  query: string,
+  args: RetrieveWithScopeArgs,
+): Promise<RetrievedChunk[]> {
+  const { k, logger, scope, logContext } = args;
 
   // --- 1) Retrieval semantico ------------------------------------------------
   // Tutta la gamba semantica (embed + query coseno) è racchiusa in try/catch:
@@ -160,17 +317,16 @@ export async function retrieveChunks(
         slug: docPages.slug,
         title: docPages.title,
         kind: docPages.kind,
+        repositoryId: repositories.id,
+        repositorySlug: repositories.slug,
+        repositoryName: repositories.name,
         content: docChunks.content,
         distance: sql<number>`(${docChunks.embedding} <=> ${queryLiteral}::vector)`,
       })
       .from(docChunks)
       .innerJoin(docPages, eq(docChunks.pageId, docPages.id))
-      .where(
-        and(
-          scopeFilter(docChunks, repositoryId, currentGenerationId),
-          sql`${docChunks.embedding} IS NOT NULL`,
-        ),
-      )
+      .innerJoin(repositories, eq(docPages.repositoryId, repositories.id))
+      .where(and(scope(docChunks), sql`${docChunks.embedding} IS NOT NULL`))
       .orderBy(sql`${docChunks.embedding} <=> ${queryLiteral}::vector`)
       .limit(chunkLimit);
 
@@ -195,13 +351,16 @@ export async function retrieveChunks(
         snippet: row.content,
         score,
         source: "semantic",
+        repositoryId: row.repositoryId,
+        repositorySlug: row.repositorySlug,
+        repositoryName: row.repositoryName,
       });
     }
   } catch (error) {
     // Fallback: niente semantico, prosegue il solo full-text sotto.
     const log = logger ?? console;
     log.warn(
-      { err: error, repositoryId },
+      { err: error, ...logContext },
       "retrieval semantico non disponibile (embedding fallito); fallback full-text-only",
     );
   }
@@ -224,11 +383,15 @@ export async function retrieveChunks(
       slug: docPages.slug,
       title: docPages.title,
       kind: docPages.kind,
+      repositoryId: repositories.id,
+      repositorySlug: repositories.slug,
+      repositoryName: repositories.name,
       rank: sql<number>`ts_rank_cd(${docPages.searchTsv}, ${tsq}, 32)`,
       snippet: sql<string>`ts_headline('english', ${docPages.body}, ${tsq}, 'MaxFragments=1,MaxWords=40,MinWords=15')`,
     })
     .from(docPages)
-    .where(and(scopeFilter(docPages, repositoryId, currentGenerationId), sql`${docPages.searchTsv} @@ ${tsq}`))
+    .innerJoin(repositories, eq(docPages.repositoryId, repositories.id))
+    .where(and(scope(docPages), sql`${docPages.searchTsv} @@ ${tsq}`))
     .orderBy(sql`ts_rank_cd(${docPages.searchTsv}, ${tsq}, 32) DESC`)
     .limit(k);
 
@@ -248,6 +411,9 @@ export async function retrieveChunks(
       snippet: row.snippet,
       score: row.rank * 0.5,
       source: "fulltext",
+      repositoryId: row.repositoryId,
+      repositorySlug: row.repositorySlug,
+      repositoryName: row.repositoryName,
     });
   }
 

@@ -1,15 +1,17 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DocSpace } from "../lib/docs-api";
 import { createAppRouter } from "../router";
 
 /**
  * Hub Docs con il router vero (memory history) e fetch mockata a livello di
- * rete: l'elenco degli spazi (nome/slug, conteggio pagine, ultima generazione),
- * il link allo spazio del progetto, la voce di sidebar "Documentation" e lo
- * stato vuoto.
+ * rete. Fase 2: gli spazi-repo sono RAGGRUPPATI per progetto (header progetto +
+ * card dei suoi repo-spazi). Il raggruppamento è lato client unendo
+ * `/api/docs/spaces` (repo-spazi), `/api/repositories` (mappa repo→progetto) e
+ * `/api/projects` (nomi). L'header progetto linka alla landing di progetto; le
+ * card repo alla vista per-repo esistente.
  */
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -47,15 +49,54 @@ function meHandler(role: "admin" | "member"): Handler {
   return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role } });
 }
 
+const REPO_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const REPO_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const REPO_C = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const PROJ_1 = "11111111-1111-4111-8111-111111111111";
+const PROJ_2 = "22222222-2222-4222-8222-222222222222";
+
 function makeSpace(overrides: Partial<DocSpace> = {}): DocSpace {
   return {
-    repositoryId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    repositoryId: REPO_A,
     slug: "demo-shop",
     name: "Demo Shop",
     pageCount: 12,
     lastGenerationAt: "2026-06-20T10:00:00.000Z",
     lastCommitSha: "abc1234def5678",
     ...overrides,
+  };
+}
+
+/** Repo minimale per la mappa repo→progetto dell'hub. */
+function makeRepo(id: string, projectId: string, slug: string, name: string) {
+  return {
+    id,
+    projectId,
+    name,
+    slug,
+    provider: "github",
+    repoUrl: "https://example.com/repo.git",
+    defaultBranch: "main",
+    ingestionKey: "k",
+    gitAccountId: "g1",
+    gitAccountName: "acct",
+    webhookConfiguredAt: null,
+    testCommand: null,
+    installCommand: null,
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
+}
+
+function makeProject(id: string, name: string, slug: string) {
+  return {
+    id,
+    name,
+    slug,
+    description: null,
+    aiProviderId: null,
+    docAutoUpdate: false,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    repositoryCount: 1,
   };
 }
 
@@ -74,24 +115,22 @@ function renderApp(initialPath: string) {
 }
 
 describe("hub documentazione", () => {
-  it("lista gli spazi: nome, slug, conteggio pagine e link allo spazio", async () => {
+  it("raggruppa gli spazi per progetto: header progetto + card dei repo-spazi", async () => {
     mockApi({
       "GET /api/auth/me": meHandler("member"),
       "GET /api/docs/spaces": () =>
         jsonResponse(200, [
           makeSpace(),
           makeSpace({
-            repositoryId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            repositoryId: REPO_B,
             slug: "backoffice",
             name: "Backoffice",
             pageCount: 1,
             lastGenerationAt: null,
             lastCommitSha: null,
           }),
-          // Progetto senza alcuna documentazione: compare comunque (entry point
-          // per generare), con stato "not generated yet".
           makeSpace({
-            repositoryId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            repositoryId: REPO_C,
             slug: "fresh-app",
             name: "Fresh App",
             pageCount: 0,
@@ -99,42 +138,62 @@ describe("hub documentazione", () => {
             lastCommitSha: null,
           }),
         ]),
+      // Repo A e B nel progetto Acme, repo C nel progetto Globex.
+      "GET /api/repositories": () =>
+        jsonResponse(200, [
+          makeRepo(REPO_A, PROJ_1, "demo-shop", "Demo Shop"),
+          makeRepo(REPO_B, PROJ_1, "backoffice", "Backoffice"),
+          makeRepo(REPO_C, PROJ_2, "fresh-app", "Fresh App"),
+        ]),
+      "GET /api/projects": () =>
+        jsonResponse(200, [
+          makeProject(PROJ_1, "Acme", "acme"),
+          makeProject(PROJ_2, "Globex", "globex"),
+        ]),
     });
 
     renderApp("/docs");
 
     expect(await screen.findByRole("heading", { name: "Documentation" })).toBeInTheDocument();
-    // Sidebar: la voce Docs è presente.
-    expect(screen.getByRole("link", { name: /^DOC Documentation$/ })).toBeInTheDocument();
 
-    // Primo spazio: nome, slug, conteggio plurale.
-    expect(screen.getByText("Demo Shop")).toBeInTheDocument();
-    expect(screen.getByText("demo-shop")).toBeInTheDocument();
-    expect(screen.getByText("12 pages")).toBeInTheDocument();
-    // Secondo spazio: conteggio singolare e stato "solo manuali".
-    expect(screen.getByText("Backoffice")).toBeInTheDocument();
-    expect(screen.getByText("1 page")).toBeInTheDocument();
-    expect(screen.getByText("manual pages only")).toBeInTheDocument();
-    // Terzo spazio: nessuna doc → "not generated yet", ma comunque linkabile.
-    expect(screen.getByText("Fresh App")).toBeInTheDocument();
-    expect(screen.getByText("not generated yet")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Fresh App/ })).toHaveAttribute(
+    // Due gruppi-progetto, ciascuno con header e link alla landing di progetto.
+    const acme = screen.getByRole("region", { name: "Acme" });
+    const globex = screen.getByRole("region", { name: "Globex" });
+    expect(within(acme).getByRole("heading", { name: "Acme" })).toBeInTheDocument();
+    expect(within(acme).getByRole("link", { name: "Project documentation" })).toHaveAttribute(
       "href",
-      "/docs/cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      `/docs/project/${PROJ_1}`,
+    );
+    expect(within(globex).getByRole("link", { name: "Project documentation" })).toHaveAttribute(
+      "href",
+      `/docs/project/${PROJ_2}`,
     );
 
-    // Il link punta allo spazio del progetto.
-    const spaceLink = screen.getByRole("link", { name: /Demo Shop/ });
-    expect(spaceLink).toHaveAttribute(
+    // Il progetto Acme contiene i suoi due repo-spazi; Globex il terzo.
+    expect(within(acme).getByText("Demo Shop")).toBeInTheDocument();
+    expect(within(acme).getByText("Backoffice")).toBeInTheDocument();
+    expect(within(acme).getByText("12 pages")).toBeInTheDocument();
+    expect(within(acme).getByText("1 page")).toBeInTheDocument();
+    expect(within(globex).getByText("Fresh App")).toBeInTheDocument();
+    expect(within(globex).getByText("not generated yet")).toBeInTheDocument();
+
+    // Le card repo linkano alla vista per-repo esistente (param = repositoryId).
+    expect(within(acme).getByRole("link", { name: /Demo Shop/ })).toHaveAttribute(
       "href",
-      "/docs/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      `/docs/${REPO_A}`,
+    );
+    expect(within(globex).getByRole("link", { name: /Fresh App/ })).toHaveAttribute(
+      "href",
+      `/docs/${REPO_C}`,
     );
   });
 
-  it("stato vuoto quando non c'è nessun progetto", async () => {
+  it("stato vuoto quando nessun progetto ha documentazione", async () => {
     mockApi({
       "GET /api/auth/me": meHandler("member"),
       "GET /api/docs/spaces": () => jsonResponse(200, []),
+      "GET /api/repositories": () => jsonResponse(200, []),
+      "GET /api/projects": () => jsonResponse(200, []),
     });
 
     renderApp("/docs");

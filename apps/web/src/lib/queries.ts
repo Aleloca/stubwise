@@ -29,7 +29,13 @@ import {
   listTickets,
   type TicketFilters,
 } from "./api";
-import { getDocPage, getDocSpaces, getDocStatus, getDocTree } from "./docs-api";
+import {
+  getDocPage,
+  getDocSpaces,
+  getDocStatus,
+  getDocTree,
+  getProjectDocSpaces,
+} from "./docs-api";
 
 /**
  * Query del dominio ticket/progetti, condivise tra loader delle route e
@@ -418,6 +424,10 @@ export const docsKeys = {
     [...docsKeys.space(repositoryId), "page", slug] as const,
   status: (repositoryId: string) => [...docsKeys.space(repositoryId), "status"] as const,
   history: (repositoryId: string) => [...docsKeys.space(repositoryId), "history"] as const,
+  // Sotto-albero della documentazione di PROGETTO (Fase 2): scoped al projectId,
+  // distinto dallo spazio per-repository sopra.
+  project: (projectId: string) => [...docsKeys.all, "project", projectId] as const,
+  projectSpaces: (projectId: string) => [...docsKeys.project(projectId), "spaces"] as const,
 };
 
 /**
@@ -430,6 +440,19 @@ export const docSpacesQueryOptions = queryOptions({
   queryFn: getDocSpaces,
   staleTime: 30_000,
 });
+
+/**
+ * Spazi-doc di un PROGETTO (Fase 2): i repository del gruppo con documentazione,
+ * per la landing di progetto. Chiave figlia del progetto: una generazione o una
+ * pagina manuale di un repo del gruppo dovrebbe invalidarla.
+ */
+export function projectDocSpacesQueryOptions(projectId: string) {
+  return queryOptions({
+    queryKey: docsKeys.projectSpaces(projectId),
+    queryFn: () => getProjectDocSpaces(projectId),
+    staleTime: 30_000,
+  });
+}
 
 /**
  * Albero delle pagine di uno spazio (generazione corrente + manuali). Chiave

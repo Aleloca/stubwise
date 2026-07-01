@@ -15,6 +15,7 @@ import {
 import { type SQL, sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   customType,
   index,
   integer,
@@ -1172,23 +1173,39 @@ export const docNodes = pgTable(
 );
 
 /**
- * Sessione di chat RAG sulla documentazione di un progetto, di un utente.
- * Raggruppa i messaggi. Cascata col progetto e con l'utente.
+ * Sessione di chat RAG sulla documentazione, di un utente. Raggruppa i messaggi.
+ *
+ * Scope a DUE livelli (Fase 2 multi-repo): una sessione è *o* repository-level
+ * (`repository_id` valorizzato, `project_id` NULL) *o* project-level
+ * (`project_id` valorizzato, `repository_id` NULL) — la chat di progetto recupera
+ * cross-repo dai repo del gruppo. Il CHECK `doc_chat_sessions_scope_chk` impone
+ * l'XOR (esattamente uno dei due valorizzato). Le righe pre-Fase 2 sono tutte
+ * repo-level e lo soddisfano già. Cascata col repository/progetto e con l'utente.
  */
 export const docChatSessions = pgTable(
   "doc_chat_sessions",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    repositoryId: uuid("repository_id")
-      .notNull()
-      .references(() => repositories.id, { onDelete: "cascade" }),
+    // Nullable: valorizzato per le sessioni repo-level, NULL per quelle di progetto.
+    repositoryId: uuid("repository_id").references(() => repositories.id, { onDelete: "cascade" }),
+    // Nullable: valorizzato per le sessioni project-level, NULL per quelle repo-level.
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  // Le sessioni si elencano per repository.
-  (table) => [index("doc_chat_sessions_project_idx").on(table.repositoryId)],
+  (table) => [
+    // Le sessioni repo-level si elencano per repository.
+    index("doc_chat_sessions_project_idx").on(table.repositoryId),
+    // Le sessioni project-level si elencano per progetto.
+    index("doc_chat_sessions_project_id_idx").on(table.projectId),
+    // XOR: esattamente uno tra repository_id e project_id valorizzato.
+    check(
+      "doc_chat_sessions_scope_chk",
+      sql`("repository_id" IS NOT NULL) <> ("project_id" IS NOT NULL)`,
+    ),
+  ],
 );
 
 /**

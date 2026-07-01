@@ -2,7 +2,14 @@ import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "./client.js";
-import { docChunks, docGenerations, docPages, docSearchHistory, users } from "./schema.js";
+import {
+  docChatSessions,
+  docChunks,
+  docGenerations,
+  docPages,
+  docSearchHistory,
+  users,
+} from "./schema.js";
 import { seedRepository, startTestDb, type TestDb } from "./testing.js";
 
 /**
@@ -177,5 +184,89 @@ describe("schema: dominio Docs", () => {
         .insert(docSearchHistory)
         .values({ repositoryId, userId, slug: "panoramica", title: "Dup", kind: "technical" }),
     ).rejects.toThrow();
+  });
+});
+
+/**
+ * Migrazione 0034 (Fase 2): le sessioni di chat doc sono a DUE livelli — repo o
+ * progetto — con un CHECK che impone l'XOR (esattamente uno tra repository_id e
+ * project_id valorizzato). Le righe pre-Fase 2 erano tutte repo-level e restano
+ * valide; le sessioni di progetto valorizzano solo project_id.
+ */
+describe("schema: sessioni chat doc a due livelli (0034)", () => {
+  let testDb: TestDb;
+  let db: Db;
+
+  beforeAll(async () => {
+    testDb = await startTestDb();
+    db = testDb.db;
+  });
+
+  afterAll(async () => {
+    await testDb.stop();
+  });
+
+  async function seedUser(): Promise<string> {
+    const [user] = await db
+      .insert(users)
+      .values({ email: `utente-${randomUUID()}@example.com`, passwordHash: "x", role: "member" })
+      .returning();
+    if (!user) throw new Error("insert dell'utente non ha restituito la riga");
+    return user.id;
+  }
+
+  it("sessione repo-level valida (repository_id valorizzato, project_id NULL)", async () => {
+    const { repositoryId } = await seedRepository(db);
+    const userId = await seedUser();
+    const [row] = await db
+      .insert(docChatSessions)
+      .values({ repositoryId, userId })
+      .returning();
+    expect(row?.repositoryId).toBe(repositoryId);
+    expect(row?.projectId).toBeNull();
+  });
+
+  it("sessione project-level valida (project_id valorizzato, repository_id NULL)", async () => {
+    const { projectId } = await seedRepository(db);
+    const userId = await seedUser();
+    const [row] = await db
+      .insert(docChatSessions)
+      .values({ projectId, userId })
+      .returning();
+    expect(row?.projectId).toBe(projectId);
+    expect(row?.repositoryId).toBeNull();
+  });
+
+  /**
+   * Verifica che l'insert violi il CHECK `doc_chat_sessions_scope_chk`. Il driver
+   * `postgres` mette il nome del vincolo in `constraint_name`/`detail`, NON nel
+   * messaggio top-level: asseriamo lo SQLSTATE 23514 (check_violation) + il nome.
+   */
+  async function expectScopeCheckViolation(promise: Promise<unknown>): Promise<void> {
+    const caught = await promise.then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(caught).not.toBeNull();
+    // Drizzle avvolge l'errore del driver `postgres` in un DrizzleQueryError: il
+    // PgError originale (con code/constraint_name) sta su `.cause`.
+    type PgError = { code?: string; constraint_name?: string };
+    const wrapper = caught as { cause?: PgError } & PgError;
+    const pgError: PgError = wrapper.code ? wrapper : (wrapper.cause ?? {});
+    expect(pgError.code).toBe("23514");
+    expect(pgError.constraint_name).toBe("doc_chat_sessions_scope_chk");
+  }
+
+  it("ENTRAMBI valorizzati: viola il CHECK XOR (insert rifiutato)", async () => {
+    const { projectId, repositoryId } = await seedRepository(db);
+    const userId = await seedUser();
+    await expectScopeCheckViolation(
+      db.insert(docChatSessions).values({ projectId, repositoryId, userId }),
+    );
+  });
+
+  it("NESSUNO valorizzato: viola il CHECK XOR (insert rifiutato)", async () => {
+    const userId = await seedUser();
+    await expectScopeCheckViolation(db.insert(docChatSessions).values({ userId }));
   });
 });

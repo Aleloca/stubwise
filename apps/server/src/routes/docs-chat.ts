@@ -25,16 +25,16 @@
  */
 
 import { and, asc, eq } from "drizzle-orm";
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAuth } from "../auth/session.js";
 import { docChatMessages, docChatSessions, repositories } from "@stubwise/db";
-import type { Db } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import type { ChatLlm } from "./chat-llm.js";
 import { retrieveChunks } from "./docs-retrieval.js";
 import { buildCitations, buildDocsSystemPrompt, CHAT_RETRIEVAL_K } from "./docs-rag.js";
+import { loadHistory, streamChatResponse } from "./docs-chat-core.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 declare module "fastify" {
@@ -60,41 +60,10 @@ const chatBodySchema = z.object({
 /**
  * Numero di pagine di contesto recuperate per la chat. Il system prompt e le
  * citazioni vivono in {@link ./docs-rag.ts} (UNICA definizione, condivisa con il
- * flusso RAG non-streaming): qui li importiamo invece di duplicarli.
+ * flusso RAG non-streaming): qui li importiamo invece di duplicarli. Il loop SSE,
+ * l'AbortSignal e la persistenza del messaggio assistant vivono in
+ * {@link ./docs-chat-core.ts}, condivisi con la chat di progetto.
  */
-
-/** Scrive un evento SSE (`data: {json}\n\n`) sullo stream grezzo. */
-function writeSseEvent(reply: FastifyReply, event: unknown): void {
-  // Niente gestione di backpressure (drain) qui: gli eventi della chat sono
-  // limitati in dimensione (un delta per frammento, risposta complessiva tetto
-  // CHAT_MAX_TOKENS), quindi il buffer di scrittura non cresce illimitatamente.
-  // Se in futuro le risposte diventassero molto grandi, andrebbe onorato il
-  // valore di ritorno di write() (await dell'evento 'drain' su false).
-  reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
-}
-
-/** Marcatore appeso a una risposta troncata (errore/disconnessione a metà stream). */
-const TRUNCATION_MARKER = "\n\n_[risposta interrotta]_";
-
-/**
- * Carica lo storico della sessione (cronologico) come messaggi per l'LLM.
- * Esclude il messaggio appena inserito? No: viene chiamata DOPO l'insert del
- * messaggio utente, così lo storico include già la domanda corrente in coda.
- */
-async function loadHistory(
-  db: Db,
-  sessionId: string,
-): Promise<{ role: "user" | "assistant"; content: string }[]> {
-  const rows = await db
-    .select({ role: docChatMessages.role, content: docChatMessages.content })
-    .from(docChatMessages)
-    .where(eq(docChatMessages.sessionId, sessionId))
-    .orderBy(asc(docChatMessages.createdAt));
-  // `role` è text libero a schema: normalizziamo ai due valori attesi dall'LLM.
-  return rows
-    .filter((r) => r.role === "user" || r.role === "assistant")
-    .map((r) => ({ role: r.role as "user" | "assistant", content: r.content }));
-}
 
 /**
  * Route della chat RAG, registrata sotto /api (path interno completo
@@ -197,91 +166,19 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
       const system = buildDocsSystemPrompt(chunks);
       const history = await loadHistory(app.db, resolvedSessionId);
 
-      // --- Streaming SSE ------------------------------------------------------
-      // Da qui in poi gestiamo la risposta a mano: header SSE + scrittura grezza
-      // su reply.raw. reply.hijack() impedisce a Fastify di serializzare/chiudere
-      // la risposta al posto nostro.
-      reply.hijack();
-      reply.raw.writeHead(200, {
-        "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-        "X-Accel-Buffering": "no",
+      // Streaming SSE + persistenza del messaggio assistant: cuore condiviso con
+      // la chat di progetto (vedi ./docs-chat-core.ts).
+      await streamChatResponse({
+        db: app.db,
+        chatLlm: app.chatLlm,
+        request,
+        reply,
+        sessionId: resolvedSessionId,
+        system,
+        history,
+        citations,
+        logContext: { repositoryId },
       });
-
-      // Disconnessione del client: oltre a smettere di scrivere/consumare lo
-      // stream, ABORTIAMO la generazione LLM sottostante per fermare il consumo
-      // di token (altrimenti l'SDK continuerebbe a generare fino a max_tokens).
-      const controller = new AbortController();
-      let clientGone = false;
-      request.raw.on("close", () => {
-        clientGone = true;
-        controller.abort();
-      });
-
-      let full = "";
-      // `completed` = lo stream è terminato normalmente (nessun errore, nessuna
-      // disconnessione a metà). Solo in quel caso la risposta è "completa" e
-      // tiene le citazioni; altrimenti è parziale e va marcata come interrotta.
-      let completed = false;
-      try {
-        for await (const delta of app.chatLlm.stream({
-          system,
-          messages: history,
-          signal: controller.signal,
-        })) {
-          if (clientGone) break;
-          full += delta;
-          writeSseEvent(reply, { type: "delta", text: delta });
-        }
-        completed = !clientGone;
-      } catch (error) {
-        // Errore dell'LLM a metà stream: lo segnaliamo al client con un evento
-        // `error` e abortiamo la generazione sottostante (no token sprecati).
-        // Logghiamo per intero lato server (mai nel body).
-        controller.abort();
-        request.log.error({ err: error, repositoryId, sessionId: resolvedSessionId }, "chat LLM error");
-        if (!clientGone) {
-          writeSseEvent(reply, { type: "error", message: "Chat generation failed" });
-        }
-      } finally {
-        // Lo stream HTTP grezzo va SEMPRE chiuso, anche su throw inatteso dopo
-        // hijack(): senza questo il socket resterebbe appeso. Su disconnessione
-        // del client la connessione è già chiusa, quindi non scriviamo/chiudiamo.
-        if (!clientGone) {
-          if (completed) {
-            // Risposta completa: evento finale con le citazioni e il sessionId,
-            // così il client può persistere la sessione (nuova al primo turno) e
-            // riusarla nei turni successivi (multi-turn).
-            writeSseEvent(reply, { type: "done", sessionId: resolvedSessionId, citations });
-          }
-          reply.raw.end();
-        }
-      }
-
-      // Persistenza del messaggio assistant.
-      //  - Risposta COMPLETA: testo + citazioni (storico/UI la trattano come tale).
-      //  - Risposta PARZIALE (errore o disconnessione a metà con testo accumulato):
-      //    la salviamo SENZA citazioni e con un marcatore di troncamento, così
-      //    history loader e UI distinguono una risposta interrotta da una completa
-      //    e non la reimmettono in storico come se fosse una risposta valida.
-      if (completed) {
-        await app.db.insert(docChatMessages).values({
-          sessionId: resolvedSessionId,
-          role: "assistant",
-          content: full,
-          citations,
-        });
-      } else if (full.length > 0) {
-        await app.db.insert(docChatMessages).values({
-          sessionId: resolvedSessionId,
-          role: "assistant",
-          content: full + TRUNCATION_MARKER,
-          // Niente citazioni su risposta interrotta: non sono "giustificate" da
-          // un ragionamento completato.
-          citations: null,
-        });
-      }
     },
   );
 

@@ -19,7 +19,11 @@
  */
 
 import type { ChatLlm } from "./chat-llm.js";
-import { retrieveChunks, type RetrievedChunk } from "./docs-retrieval.js";
+import {
+  retrieveChunks,
+  retrieveChunksForProject,
+  type RetrievedChunk,
+} from "./docs-retrieval.js";
 import type { EmbeddingClient } from "@stubwise/embeddings";
 import type { Db } from "@stubwise/db";
 
@@ -28,6 +32,15 @@ export interface Citation {
   slug: string;
   title: string;
   kind: RetrievedChunk["kind"];
+  /**
+   * Repository d'origine della pagina citata. Valorizzato sia nella chat per-repo
+   * (costante) sia in quella cross-repo di progetto (Fase 2), dove disambigua da
+   * QUALE repository proviene la fonte (link "Fonti" col `repositoryId`, nome repo
+   * nella UI/Slack).
+   */
+  repositoryId: string;
+  repositorySlug: string;
+  repositoryName: string;
 }
 
 /** Numero di pagine di contesto recuperate per la chat/RAG. */
@@ -55,7 +68,9 @@ export function buildDocsSystemPrompt(chunks: RetrievedChunk[]): string {
     "",
     "RISPONDI SOLO DAL CONTESTO RECUPERATO QUI SOTTO. Non inventare: se il contesto non basta a rispondere, dillo esplicitamente (es. \"La documentazione recuperata non copre questo punto\") invece di tirare a indovinare.",
     "",
-    "CITA SEMPRE le pagine di documentazione che hai usato, riferendoti al loro titolo.",
+    "Il contesto può provenire da PIÙ REPOSITORY dello stesso progetto: ogni fonte indica il repository di appartenenza. DISAMBIGUA per repository quando ti riferisci a moduli/concetti omonimi, e indica il repository pertinente nella risposta.",
+    "",
+    "CITA SEMPRE le pagine di documentazione che hai usato, riferendoti al loro titolo e al repository di appartenenza.",
     "",
     "--- CONTESTO RECUPERATO ---",
   ];
@@ -67,7 +82,7 @@ export function buildDocsSystemPrompt(chunks: RetrievedChunk[]): string {
 
   const context = chunks.map((c, i) => {
     return [
-      `[${i + 1}] Pagina "${c.title}" (slug: ${c.slug}, tipo: ${c.kind})`,
+      `[${i + 1}] Repository "${c.repositoryName}" — Pagina "${c.title}" (slug: ${c.slug}, tipo: ${c.kind})`,
       c.snippet,
     ].join("\n");
   });
@@ -75,15 +90,28 @@ export function buildDocsSystemPrompt(chunks: RetrievedChunk[]): string {
   return [...header, ...context].join("\n\n");
 }
 
-/** Deriva le citazioni (una per pagina) dai chunk recuperati, deduplicate per slug. */
+/**
+ * Deriva le citazioni (una per pagina) dai chunk recuperati, deduplicate per
+ * `(repositoryId, slug)`: nel retrieval cross-repo di progetto pagine di repo
+ * DIVERSI possono condividere lo stesso slug (gli slug sono unici per-repo, non
+ * globalmente), quindi la chiave di dedup include il repository.
+ */
 export function buildCitations(chunks: RetrievedChunk[]): Citation[] {
-  const bySlug = new Map<string, Citation>();
+  const byKey = new Map<string, Citation>();
   for (const c of chunks) {
-    if (!bySlug.has(c.slug)) {
-      bySlug.set(c.slug, { slug: c.slug, title: c.title, kind: c.kind });
+    const key = `${c.repositoryId}:${c.slug}`;
+    if (!byKey.has(key)) {
+      byKey.set(key, {
+        slug: c.slug,
+        title: c.title,
+        kind: c.kind,
+        repositoryId: c.repositoryId,
+        repositorySlug: c.repositorySlug,
+        repositoryName: c.repositoryName,
+      });
     }
   }
-  return [...bySlug.values()];
+  return [...byKey.values()];
 }
 
 /** Risposta RAG non-streaming: testo accumulato + citazioni. */
@@ -121,6 +149,43 @@ export async function answerDocsQuestion(
   const messages = [{ role: "user" as const, content: input.question }];
 
   // Accumula lo stream: Slack non stremma, vuole il testo completo in una volta.
+  let text = "";
+  for await (const delta of deps.chatLlm.stream({ system, messages })) {
+    text += delta;
+  }
+
+  return { text, citations: buildCitations(chunks) };
+}
+
+/**
+ * Flusso RAG completo NON-streaming a livello di PROGETTO (Fase 2).
+ *
+ * Identica meccanica di {@link answerDocsQuestion} — stesso system prompt, stesse
+ * citazioni, accumulo dello stream invece dell'inoltro frammento-per-frammento —
+ * ma il retrieval è CROSS-REPO via {@link retrieveChunksForProject}: aggrega i
+ * Docs di TUTTI i repository del progetto. Le citazioni includono il repository di
+ * origine di ciascuna fonte (campo già presente in {@link Citation}), così il
+ * chiamante (es. Slack `/docs` di progetto) può disambiguare/linkare per repo.
+ *
+ * `k` non è forzato: {@link retrieveChunksForProject} lo dimensiona di default in
+ * proporzione al numero di repo documentati (D6).
+ */
+export async function answerProjectDocsQuestion(
+  deps: { db: Db; embeddingClient: EmbeddingClient; chatLlm: ChatLlm },
+  input: { projectId: string; question: string },
+): Promise<DocsAnswer> {
+  const chunks = await retrieveChunksForProject(
+    deps.db,
+    deps.embeddingClient,
+    input.projectId,
+    input.question,
+  );
+
+  const system = buildDocsSystemPrompt(chunks);
+  // Niente history: solo la domanda corrente come unico messaggio utente.
+  const messages = [{ role: "user" as const, content: input.question }];
+
+  // Accumula lo stream: il chiamante one-shot vuole il testo completo in una volta.
   let text = "";
   for await (const delta of deps.chatLlm.stream({ system, messages })) {
     text += delta;

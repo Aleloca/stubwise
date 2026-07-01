@@ -3,7 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ApiError } from "../lib/api";
-import { type DocChatCitation, postDocChat } from "../lib/docs-api";
+import { type DocChatCitation, postDocChat, postProjectDocChat } from "../lib/docs-api";
 import { useMediaQuery } from "../lib/use-media-query";
 import { Drawer } from "./drawer";
 import { Markdown } from "./markdown";
@@ -18,7 +18,13 @@ import { Markdown } from "./markdown";
  *
  * Distinto dalla ricerca (M7.4): la ricerca linka pagine, la chat genera una
  * risposta in linguaggio naturale ancorata ai docs con citazioni cliccabili.
- * Scopato per-progetto (cross-project è future).
+ *
+ * Due sorgenti dati (`scope`), stesso identico comportamento SSE/render:
+ *  - `repo` (default): la chat di UNO spazio repository. `id` = repositoryId;
+ *    le citazioni linkano alla pagina dello stesso repo.
+ *  - `project`: la chat cross-repo di un PROGETTO. `id` = projectId; le citazioni
+ *    portano il repository d'origine, lo mostrano e linkano alla pagina nel repo
+ *    giusto (route per-repo `/docs/<repositoryId>/<slug>`).
  */
 
 /** Un messaggio della conversazione lato client (lo storico è solo in memoria). */
@@ -68,10 +74,14 @@ function nextLocalId(): string {
 
 export function DocsChat({
   projectId,
+  scope = "repo",
   open: openProp,
   onOpenChange,
 }: {
+  /** repositoryId quando `scope="repo"`, projectId quando `scope="project"`. */
   projectId: string;
+  /** Sorgente della chat: spazio repository (default) o progetto cross-repo. */
+  scope?: "repo" | "project";
   /** Stato aperto controllato (sub-barra Docs); se assente, è gestito internamente. */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -96,6 +106,13 @@ export function DocsChat({
     [onOpenChange],
   );
   const closeChat = useCallback(() => setOpen(false), [setOpen]);
+  // Copy scope-aware: nella chat di progetto titolo/sottotitolo/placeholder/hint
+  // chiariscono che la risposta spazia su tutti i repo del gruppo.
+  const isProject = scope === "project";
+  const titleKey = isProject ? "docs:chat.projectTitle" : "docs:chat.title";
+  const subtitleKey = isProject ? "docs:chat.projectSubtitle" : "docs:chat.subtitle";
+  const placeholderKey = isProject ? "docs:chat.projectPlaceholder" : "docs:chat.placeholder";
+  const emptyHintKey = isProject ? "docs:chat.projectEmptyHint" : "docs:chat.emptyHint";
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sending, setSending] = useState(false);
@@ -140,7 +157,7 @@ export function DocsChat({
     };
 
     try {
-      const response = await postDocChat(projectId, {
+      const response = await (scope === "project" ? postProjectDocChat : postDocChat)(projectId, {
         sessionId: sessionIdRef.current,
         message: question,
       });
@@ -216,9 +233,9 @@ export function DocsChat({
       <header className="flex items-center justify-between border-b border-line px-4 py-3">
         <div>
           <h2 className="font-mono text-[11px] tracking-[0.12em] text-fg uppercase">
-            {t("docs:chat.title")}
+            {t(titleKey)}
           </h2>
-          <p className="mt-0.5 text-[11px] text-fg-faint">{t("docs:chat.subtitle")}</p>
+          <p className="mt-0.5 text-[11px] text-fg-faint">{t(subtitleKey)}</p>
         </div>
         <button
           type="button"
@@ -237,13 +254,13 @@ export function DocsChat({
               <p className="font-mono text-[11px] tracking-[0.12em] text-fg-faint uppercase">
                 {t("docs:chat.emptyTitle")}
               </p>
-              <p className="mt-2 text-[12px] text-fg-muted">{t("docs:chat.emptyHint")}</p>
+              <p className="mt-2 text-[12px] text-fg-muted">{t(emptyHintKey)}</p>
             </div>
           </div>
         ) : (
           <ul className="flex flex-col gap-4">
             {messages.map((message) => (
-              <ChatBubble key={message.id} projectId={projectId} message={message} />
+              <ChatBubble key={message.id} projectId={projectId} scope={scope} message={message} />
             ))}
           </ul>
         )}
@@ -257,7 +274,7 @@ export function DocsChat({
         }}
       >
         <label htmlFor="docs-chat-input" className="sr-only">
-          {t("docs:chat.placeholder")}
+          {t(placeholderKey)}
         </label>
         <div className="flex items-end gap-2">
           <textarea
@@ -272,8 +289,8 @@ export function DocsChat({
               }
             }}
             rows={2}
-            placeholder={t("docs:chat.placeholder")}
-            aria-label={t("docs:chat.placeholder")}
+            placeholder={t(placeholderKey)}
+            aria-label={t(placeholderKey)}
             className="min-w-0 flex-1 resize-none rounded-sm border border-line-strong bg-ink-950/70 px-3 py-2 text-[13px] text-fg placeholder:text-fg-faint transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
           />
           <button
@@ -315,7 +332,7 @@ export function DocsChat({
           onClose={closeChat}
           side="right"
           widthClassName="w-[min(92vw,28rem)]"
-          aria-label={t("docs:chat.title")}
+          aria-label={t(titleKey)}
           id="docs-chat-drawer"
         >
           <div className="h-full bg-ink-950">{body}</div>
@@ -328,9 +345,11 @@ export function DocsChat({
 /** Una bolla della conversazione: utente (testo) o assistant (markdown + fonti). */
 function ChatBubble({
   projectId,
+  scope,
   message,
 }: {
   projectId: string;
+  scope: "repo" | "project";
   message: ChatMessage;
 }) {
   const { t } = useTranslation();
@@ -369,7 +388,7 @@ function ChatBubble({
                 </p>
               )}
               {message.citations && message.citations.length > 0 && (
-                <Citations projectId={projectId} citations={message.citations} />
+                <Citations projectId={projectId} scope={scope} citations={message.citations} />
               )}
             </>
           )}
@@ -386,12 +405,24 @@ const KIND_LABEL_KEY: Record<DocPageKind, string> = {
   releases: "docs:search.kindReleases",
 };
 
-/** Le citazioni del `done`: link cliccabili alla pagina sorgente (slug). */
+/**
+ * Le citazioni del `done`: link cliccabili alla pagina sorgente (slug).
+ *
+ * - `scope="repo"`: la fonte è nello stesso spazio; il link usa il `projectId`
+ *   (= repositoryId) del componente.
+ * - `scope="project"`: la fonte può venire da QUALSIASI repo del progetto; il
+ *   link usa il `repositoryId` della citazione (route per-repo) e si prefissa
+ *   col nome del repository ("repoName › titolo") per disambiguare. Se una
+ *   citazione non porta il repositoryId (server vecchio), si ripiega sul link
+ *   nello scope corrente.
+ */
 function Citations({
   projectId,
+  scope,
   citations,
 }: {
   projectId: string;
+  scope: "repo" | "project";
   citations: DocChatCitation[];
 }) {
   const { t } = useTranslation();
@@ -401,22 +432,34 @@ function Citations({
         {t("docs:chat.sources")}
       </p>
       <ul className="mt-1 flex flex-col gap-0.5">
-        {citations.map((citation) => (
-          <li key={citation.slug}>
-            <Link
-              to="/docs/$projectId/$slug"
-              params={{ projectId, slug: citation.slug }}
-              className="inline-flex items-baseline gap-2 text-[12px] text-signal-dim hover:text-fg"
-            >
-              <span className="truncate">{citation.title}</span>
-              {citation.kind && KIND_LABEL_KEY[citation.kind] && (
-                <span className="shrink-0 font-mono text-[10px] tracking-[0.1em] text-fg-faint uppercase">
-                  {t(KIND_LABEL_KEY[citation.kind])}
-                </span>
-              )}
-            </Link>
-          </li>
-        ))}
+        {citations.map((citation) => {
+          const showRepo = scope === "project" && Boolean(citation.repositoryName);
+          // Nello scope progetto la fonte vive nel suo repo: il link punta alla
+          // route per-repo con il repositoryId della citazione.
+          const targetRepoId =
+            scope === "project" ? (citation.repositoryId ?? projectId) : projectId;
+          return (
+            <li key={`${citation.repositoryId ?? "self"}:${citation.slug}`}>
+              <Link
+                to="/docs/$projectId/$slug"
+                params={{ projectId: targetRepoId, slug: citation.slug }}
+                className="inline-flex items-baseline gap-1.5 text-[12px] text-signal-dim hover:text-fg"
+              >
+                {showRepo && (
+                  <span className="shrink-0 font-mono text-[11px] text-fg-faint">
+                    {citation.repositoryName} ›
+                  </span>
+                )}
+                <span className="truncate">{citation.title}</span>
+                {citation.kind && KIND_LABEL_KEY[citation.kind] && (
+                  <span className="shrink-0 font-mono text-[10px] tracking-[0.1em] text-fg-faint uppercase">
+                    {t(KIND_LABEL_KEY[citation.kind])}
+                  </span>
+                )}
+              </Link>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
