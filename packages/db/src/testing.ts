@@ -6,7 +6,7 @@ import type { GitProviderKind } from "@stubwise/shared";
 import type postgres from "postgres";
 import { randomUUID } from "node:crypto";
 import { createDb, runMigrations, type Db } from "./client.js";
-import { gitAccounts, projects, repositories, tickets } from "./schema.js";
+import { gitAccounts, projects, repositories, ticketRepositories, tickets } from "./schema.js";
 
 export interface TestDb {
   db: Db;
@@ -74,9 +74,10 @@ export async function seedGitAccount(
 /**
  * Crea un progetto (gruppo) + un repository che vi appartiene, e restituisce i
  * due id. Comodo nei test che inseriscono direttamente entità repository-level
- * (docs, error groups, env files) o product-level (ticket/milestone): le prime
+ * (docs, env files) o product-level (ticket/milestone/error groups): le prime
  * vogliono un `repositoryId`, le seconde un `projectId`. Lo slug è univoco per
  * chiamata. Il git account è seedato internamente (il repository lo richiede).
+ * Dalla Fase 3 `ingestionKey` e la numerazione ticket vivono sul PROGETTO.
  */
 export async function seedRepository(
   db: Db,
@@ -86,7 +87,11 @@ export async function seedRepository(
   const slug = `repo-${randomUUID()}`;
   const [project] = await db
     .insert(projects)
-    .values({ name: "Progetto di test", slug: `progetto-${randomUUID()}` })
+    .values({
+      name: "Progetto di test",
+      slug: `progetto-${randomUUID()}`,
+      ingestionKey: randomUUID(),
+    })
     .returning();
   if (!project) throw new Error("insert del progetto di test non ha restituito la riga");
   const [repository] = await db
@@ -99,7 +104,6 @@ export async function seedRepository(
       gitAccountId,
       repoUrl: "https://example.com/repo.git",
       defaultBranch: "main",
-      ingestionKey: randomUUID(),
     })
     .returning();
   if (!repository) throw new Error("insert del repository di test non ha restituito la riga");
@@ -107,9 +111,39 @@ export async function seedRepository(
 }
 
 /**
+ * Crea un repository aggiuntivo dentro un progetto esistente e ne restituisce
+ * l'id. Comodo per i test multi-repo (Fase 3): un ticket di progetto può toccare
+ * più repo. Il git account è seedato internamente; lo slug è univoco per chiamata.
+ */
+export async function seedRepositoryInProject(
+  db: Db,
+  projectId: string,
+  opts: { provider?: GitProviderKind } = {},
+): Promise<string> {
+  const gitAccountId = await seedGitAccount(db, { provider: opts.provider });
+  const [repository] = await db
+    .insert(repositories)
+    .values({
+      projectId,
+      name: "Repository di test",
+      slug: `repo-${randomUUID()}`,
+      provider: opts.provider ?? "github",
+      gitAccountId,
+      repoUrl: "https://example.com/repo.git",
+      defaultBranch: "main",
+    })
+    .returning();
+  if (!repository) throw new Error("insert del repository di test non ha restituito la riga");
+  return repository.id;
+}
+
+/**
  * Crea un progetto + repository + un ticket che vi appartiene, e restituisce gli
- * id. Il ticket è product-level (`projectId` = gruppo) ma in Fase 1 ha sempre un
- * `repositoryId` bersaglio valorizzato. `number` default 1.
+ * id. Il ticket è product-level (`projectId` = gruppo): dalla Fase 3 NON ha più
+ * un `repositoryId` bersaglio (il legame ticket↔repo vive in
+ * `ticket_repositories`, popolato dopo l'esecuzione). `number` default 1. Il
+ * `repositoryId` restituito è quello del repo seedato col progetto, comodo per
+ * i test che vogliono agganciare una riga `ticket_repositories`.
  */
 export async function seedTicket(
   db: Db,
@@ -125,7 +159,6 @@ export async function seedTicket(
     .insert(tickets)
     .values({
       projectId,
-      repositoryId,
       number: opts.number ?? 1,
       title: "Ticket di test",
       type: "bug",
@@ -135,4 +168,34 @@ export async function seedTicket(
     .returning();
   if (!ticket) throw new Error("insert del ticket di test non ha restituito la riga");
   return { projectId, repositoryId, ticketId: ticket.id };
+}
+
+/**
+ * Aggancia un repository a un ticket via `ticket_repositories` (Fase 3, fix
+ * multi-repo) e ne restituisce l'id. Rappresenta la PR aperta dal fix su quel
+ * repo: `branch` default `stubwise/ticket-N`, `prState` default "open",
+ * `prUrl` default null (nessuna PR ancora aperta).
+ */
+export async function seedTicketRepository(
+  db: Db,
+  opts: {
+    ticketId: string;
+    repositoryId: string;
+    branch?: string;
+    prUrl?: string | null;
+    prState?: "open" | "merged" | "closed_unmerged";
+  },
+): Promise<string> {
+  const [row] = await db
+    .insert(ticketRepositories)
+    .values({
+      ticketId: opts.ticketId,
+      repositoryId: opts.repositoryId,
+      branch: opts.branch ?? "stubwise/ticket-1",
+      prUrl: opts.prUrl ?? null,
+      prState: opts.prState ?? "open",
+    })
+    .returning();
+  if (!row) throw new Error("insert di ticket_repositories di test non ha restituito la riga");
+  return row.id;
 }

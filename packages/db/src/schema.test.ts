@@ -9,6 +9,7 @@ import {
   attachments,
   automationRules,
   comments,
+  errorGroups,
   instanceSettings,
   invites,
   milestones,
@@ -20,13 +21,16 @@ import {
   savedViews,
   ticketEvents,
   ticketLinks,
+  ticketRepositories,
   tickets,
   users,
 } from "./schema.js";
 import {
   seedGitAccount,
   seedRepository,
+  seedRepositoryInProject,
   seedTicket as seedTicketRow,
+  seedTicketRepository,
   startTestDb,
   type TestDb,
 } from "./testing.js";
@@ -306,7 +310,6 @@ describe("schema: self-repair e budget di costo", () => {
         gitAccountId: await seedGitAccount(db),
         repoUrl: "https://example.com/repo.git",
         defaultBranch: "main",
-        ingestionKey: randomUUID(),
         testCommand,
         installCommand,
       })
@@ -1540,5 +1543,226 @@ describe("schema: project_env_files + project_env_vars", () => {
       .returning();
     expect(other?.fileId).toBe(fileB);
     expect(other?.key).toBe("TOKEN");
+  });
+});
+
+/**
+ * Verifica il modello del fix multi-repo (Fase 3, migrazione 0035): la
+ * numerazione ticket e l'ingestion_key sono salite al PROGETTO (unique); gli
+ * error_groups sono per-progetto (project_id, unique fingerprint per progetto);
+ * i tickets non hanno più repository_id; la nuova ticket_repositories con il suo
+ * unique (ticket_id, repository_id), il default prState=open e le cascate.
+ */
+describe("schema: fix multi-repo (progetto: ingestion/numerazione, error_groups, ticket_repositories)", () => {
+  let testDb: TestDb;
+  let db: Db;
+
+  beforeAll(async () => {
+    testDb = await startTestDb();
+    db = testDb.db;
+  });
+
+  afterAll(async () => {
+    await testDb.stop();
+  });
+
+  it("il progetto ha ingestion_key e next_ticket_number (default 1) e i seed li valorizzano", async () => {
+    const { projectId } = await seedRepository(db);
+    const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
+    expect(project?.ingestionKey).toBeTruthy();
+    // next_ticket_number ha default 1 (il seed non lo tocca).
+    expect(project?.nextTicketNumber).toBe(1);
+  });
+
+  it("vieta due progetti con la stessa ingestion_key (unique salita dal repo)", async () => {
+    const key = randomUUID();
+    await db
+      .insert(projects)
+      .values({ name: "P1", slug: `p1-${randomUUID()}`, ingestionKey: key });
+
+    await expect(
+      db.insert(projects).values({ name: "P2", slug: `p2-${randomUUID()}`, ingestionKey: key }),
+    ).rejects.toThrow();
+  });
+
+  it("le colonne ingestion_key/next_ticket_number NON esistono più su repositories", async () => {
+    const rows = await db.execute<{ column_name: string }>(
+      sql`select column_name from information_schema.columns where table_name = 'repositories'`,
+    );
+    const cols = rows.map((r) => r.column_name);
+    expect(cols).not.toContain("ingestion_key");
+    expect(cols).not.toContain("next_ticket_number");
+    // webhook_secret invece resta sul repo (il webhook PR è per-repo).
+    expect(cols).toContain("webhook_secret");
+  });
+
+  it("error_groups ha project_id e NON ha più repository_id", async () => {
+    const rows = await db.execute<{ column_name: string }>(
+      sql`select column_name from information_schema.columns where table_name = 'error_groups'`,
+    );
+    const cols = rows.map((r) => r.column_name);
+    expect(cols).toContain("project_id");
+    expect(cols).not.toContain("repository_id");
+  });
+
+  it("persiste un error_group per-progetto e lo lega al ticket", async () => {
+    const { projectId } = await seedRepository(db);
+    const { ticketId } = await seedTicketRow(db, {
+      projectId,
+      repositoryId: (await seedRepositoryInProject(db, projectId)),
+    });
+    const [eg] = await db
+      .insert(errorGroups)
+      .values({ projectId, fingerprint: "fp-1", ticketId })
+      .returning();
+    if (!eg) throw new Error("insert dell'error group non ha restituito la riga");
+
+    const [read] = await db.select().from(errorGroups).where(eq(errorGroups.id, eg.id));
+    expect(read?.projectId).toBe(projectId);
+    expect(read?.ticketId).toBe(ticketId);
+    expect(read?.fingerprint).toBe("fp-1");
+  });
+
+  it("unique del fingerprint è PER PROGETTO: stesso fingerprint in progetti diversi ok, duplicato nello stesso no", async () => {
+    const a = await seedRepository(db);
+    const b = await seedRepository(db);
+    const ticketA = (await seedTicketRow(db, { projectId: a.projectId, repositoryId: a.repositoryId }))
+      .ticketId;
+    const ticketB = (await seedTicketRow(db, { projectId: b.projectId, repositoryId: b.repositoryId }))
+      .ticketId;
+
+    await db
+      .insert(errorGroups)
+      .values({ projectId: a.projectId, fingerprint: "same-fp", ticketId: ticketA });
+
+    // Stesso fingerprint nello STESSO progetto → viola l'unique.
+    await expect(
+      db
+        .insert(errorGroups)
+        .values({ projectId: a.projectId, fingerprint: "same-fp", ticketId: ticketA }),
+    ).rejects.toThrow();
+
+    // Stesso fingerprint in un ALTRO progetto → ammesso.
+    const [other] = await db
+      .insert(errorGroups)
+      .values({ projectId: b.projectId, fingerprint: "same-fp", ticketId: ticketB })
+      .returning();
+    expect(other?.projectId).toBe(b.projectId);
+  });
+
+  it("cancella in cascata gli error_groups quando il progetto viene eliminato", async () => {
+    const { projectId, repositoryId } = await seedRepository(db);
+    const { ticketId } = await seedTicketRow(db, { projectId, repositoryId });
+    await db.insert(errorGroups).values({ projectId, fingerprint: "fp-cascade", ticketId });
+
+    const before = await db.select().from(errorGroups).where(eq(errorGroups.projectId, projectId));
+    expect(before.length).toBe(1);
+
+    await db.delete(projects).where(eq(projects.id, projectId));
+
+    const after = await db.select().from(errorGroups).where(eq(errorGroups.projectId, projectId));
+    expect(after.length).toBe(0);
+  });
+
+  it("tickets NON ha più la colonna repository_id", async () => {
+    const rows = await db.execute<{ column_name: string }>(
+      sql`select column_name from information_schema.columns where table_name = 'tickets'`,
+    );
+    const cols = rows.map((r) => r.column_name);
+    expect(cols).not.toContain("repository_id");
+    expect(cols).toContain("project_id");
+  });
+
+  it("persiste una riga ticket_repositories con default prState=open e pr_url null", async () => {
+    const { projectId, repositoryId } = await seedRepository(db);
+    const { ticketId } = await seedTicketRow(db, { projectId, repositoryId });
+
+    const [row] = await db
+      .insert(ticketRepositories)
+      .values({ ticketId, repositoryId, branch: "stubwise/ticket-7" })
+      .returning();
+    if (!row) throw new Error("insert di ticket_repositories non ha restituito la riga");
+
+    const [read] = await db
+      .select()
+      .from(ticketRepositories)
+      .where(eq(ticketRepositories.id, row.id));
+    expect(read?.ticketId).toBe(ticketId);
+    expect(read?.repositoryId).toBe(repositoryId);
+    expect(read?.branch).toBe("stubwise/ticket-7");
+    expect(read?.prUrl).toBeNull();
+    expect(read?.prState).toBe("open");
+    expect(read?.createdAt).toBeInstanceOf(Date);
+  });
+
+  it("accetta prState merged/closed_unmerged e un pr_url valorizzato", async () => {
+    const { projectId, repositoryId } = await seedRepository(db);
+    const { ticketId } = await seedTicketRow(db, { projectId, repositoryId });
+    const id = await seedTicketRepository(db, {
+      ticketId,
+      repositoryId,
+      branch: "stubwise/ticket-9",
+      prUrl: "https://example.com/pr/9",
+      prState: "merged",
+    });
+
+    const [read] = await db.select().from(ticketRepositories).where(eq(ticketRepositories.id, id));
+    expect(read?.prState).toBe("merged");
+    expect(read?.prUrl).toBe("https://example.com/pr/9");
+  });
+
+  it("vieta due righe per lo stesso (ticket, repo) ma ammette repo diversi per lo stesso ticket", async () => {
+    const { projectId, repositoryId } = await seedRepository(db);
+    const otherRepoId = await seedRepositoryInProject(db, projectId);
+    const { ticketId } = await seedTicketRow(db, { projectId, repositoryId });
+
+    await db
+      .insert(ticketRepositories)
+      .values({ ticketId, repositoryId, branch: "stubwise/ticket-1" });
+
+    // Stesso (ticket, repo) → viola l'unique.
+    await expect(
+      db.insert(ticketRepositories).values({ ticketId, repositoryId, branch: "stubwise/ticket-1" }),
+    ).rejects.toThrow();
+
+    // Stesso ticket, repo diverso → ammesso (fix multi-repo).
+    const [other] = await db
+      .insert(ticketRepositories)
+      .values({ ticketId, repositoryId: otherRepoId, branch: "stubwise/ticket-1" })
+      .returning();
+    expect(other?.repositoryId).toBe(otherRepoId);
+
+    const all = await db
+      .select()
+      .from(ticketRepositories)
+      .where(eq(ticketRepositories.ticketId, ticketId));
+    expect(all.length).toBe(2);
+  });
+
+  it("cancella in cascata ticket_repositories col ticket e col repository", async () => {
+    // Cascata dal ticket.
+    const t = await seedRepository(db);
+    const tk = (await seedTicketRow(db, { projectId: t.projectId, repositoryId: t.repositoryId }))
+      .ticketId;
+    await seedTicketRepository(db, { ticketId: tk, repositoryId: t.repositoryId });
+    await db.delete(tickets).where(eq(tickets.id, tk));
+    const afterTicket = await db
+      .select()
+      .from(ticketRepositories)
+      .where(eq(ticketRepositories.ticketId, tk));
+    expect(afterTicket.length).toBe(0);
+
+    // Cascata dal repository.
+    const r = await seedRepository(db);
+    const extraRepoId = await seedRepositoryInProject(db, r.projectId);
+    const tk2 = (await seedTicketRow(db, { projectId: r.projectId, repositoryId: r.repositoryId }))
+      .ticketId;
+    await seedTicketRepository(db, { ticketId: tk2, repositoryId: extraRepoId });
+    await db.delete(repositories).where(eq(repositories.id, extraRepoId));
+    const afterRepo = await db
+      .select()
+      .from(ticketRepositories)
+      .where(eq(ticketRepositories.repositoryId, extraRepoId));
+    expect(afterRepo.length).toBe(0);
   });
 });

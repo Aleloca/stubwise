@@ -43,3 +43,30 @@ export const EFFORT_LABELS: Record<number, string> = {
   4: "Grande",
   5: "Molto grande",
 };
+
+/**
+ * Stato della PR aperta dal fix su un singolo repo di un ticket (Fase 3, fix
+ * multi-repo): "open" (in attesa di merge), "merged" (mergiata) o
+ * "closed_unmerged" (chiusa senza merge). L'enum Postgres deriva da questo
+ * schema: valori e validazione non possono divergere.
+ */
+export const prStateSchema = z.enum(["open", "merged", "closed_unmerged"]);
+export type PrState = z.infer<typeof prStateSchema>;
+
+/**
+ * Proiezione pubblica dello stato PR per-repo di un ticket (Fase 3): una voce
+ * per ogni repository effettivamente modificato dal fix, con il branch, la PR
+ * aperta (se già aperta) e il suo stato. È l'unico legame ticket↔repo esposto:
+ * il ticket appartiene solo al progetto. Popolata dopo l'esecuzione dell'agente;
+ * vuota prima. `repositoryName` è opzionale (comodità di UI); slug e id sono
+ * sempre presenti.
+ */
+export const ticketRepositorySchema = z.object({
+  repositoryId: z.uuid(),
+  repositorySlug: z.string().min(1),
+  repositoryName: z.string().min(1).optional(),
+  branch: z.string().min(1),
+  prUrl: z.url().nullable(),
+  prState: prStateSchema,
+});
+export type TicketRepository = z.infer<typeof ticketRepositorySchema>;

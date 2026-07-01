@@ -135,6 +135,14 @@ export const agentRunPhase = pgEnum("agent_run_phase", ["triage", "fix"]);
 //  "execute"→ salta triage E pianificazione, esegue usando plan_text.
 export const resumeMode = pgEnum("resume_mode", ["fix", "execute"]);
 
+// Stato della PR aperta dal fix su un singolo repo di un ticket multi-repo:
+//  "open"            → PR aperta, in attesa di merge;
+//  "merged"          → PR mergiata (il gate aggregato può chiudere il ticket);
+//  "closed_unmerged" → PR chiusa senza merge (rifiutata): rimette in lavorazione
+//                      solo quel repo, senza toccare gli altri.
+// Lista letterale locale al DB (come gli altri enum del dominio AI/worker).
+export const prState = pgEnum("pr_state", ["open", "merged", "closed_unmerged"]);
+
 // Tipo di credenziale di un provider AI: "api_key" (chiave API a consumo) o
 // "account" (login a un piano/abbonamento, es. Claude Max). Determina come il
 // worker prepara l'ambiente per il CLI. Lista letterale locale al DB, come gli
@@ -255,6 +263,17 @@ export const projects = pgTable("projects", {
   // false = disattivo (i push non innescano nulla). Toggle per-progetto, vale
   // per tutti i repository del progetto.
   docAutoUpdate: boolean("doc_auto_update").notNull().default(false),
+  // Chiave di ingestion del progetto (salita da repositories in Fase 3): gli
+  // errori via SDK e i feedback sono del prodotto/progetto, non di un repo — è
+  // l'agente a capire quale repo sistemare. La chiave esistente è stata migrata
+  // identica dal repo 1:1 al suo progetto, così gli SDK già installati continuano
+  // a funzionare senza riconfigurazione. UNIQUE: identifica il progetto in ingest.
+  ingestionKey: text("ingestion_key").notNull().unique(),
+  // Contatore per i numeri ticket sequenziali per-PROGETTO (salito da
+  // repositories in Fase 3): l'applicazione lo incrementa in transazione quando
+  // crea un ticket. Il branch `stubwise/ticket-N` usa N di progetto ed è pushato
+  // su ciascun repo modificato dal fix multi-repo.
+  nextTicketNumber: integer("next_ticket_number").notNull().default(1),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -283,7 +302,6 @@ export const repositories = pgTable("repositories", {
     .references(() => gitAccounts.id, { onDelete: "restrict" }),
   repoUrl: text("repo_url").notNull(),
   defaultBranch: text("default_branch").notNull(),
-  ingestionKey: text("ingestion_key").notNull().unique(),
   // Segreto HMAC del webhook git (chiusura automatica al merge): 32 hex
   // generati alla creazione del repository. Il default '' copre le righe
   // pre-esistenti alla migrazione; un repository con segreto vuoto rifiuta i
@@ -293,9 +311,6 @@ export const repositories = pgTable("repositories", {
   // provider (POST /configure-webhook). Nullable: null = mai configurato, la
   // UI mostra l'azione di configurazione; valorizzato = stato "configurato".
   webhookConfiguredAt: timestamp("webhook_configured_at", { withTimezone: true }),
-  // Contatore per i numeri ticket sequenziali per-repository: l'applicazione
-  // lo incrementa in transazione quando crea un ticket.
-  nextTicketNumber: integer("next_ticket_number").notNull().default(1),
   // Comando di test del repository (es. "pnpm test"), eseguito dall'agente per
   // verificare il fix prima di aprire la PR (self-repair). Null = nessun
   // comando configurato: l'agente non esegue la fase di verifica.
@@ -353,15 +368,12 @@ export const tickets = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     // Progetto (gruppo) a cui il ticket appartiene: il ticket è product-level.
+    // In Fase 3 questo è l'UNICO legame del ticket con la gerarchia repo: il
+    // ticket non ha più un "repo di origine" (RIMOSSO). Il legame ticket↔repo
+    // vive solo in `ticketRepositories`, popolato dopo l'esecuzione del fix.
     projectId: uuid("project_id")
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
-    // Repository bersaglio del fix (ex project_id, ora → repositories). NULLABLE:
-    // in Fase 1 è sempre valorizzato (un repo per ticket), ma la colonna è
-    // nullable per essere pronta alla Fase 3 (fix multi-repo: repo opzionale).
-    repositoryId: uuid("repository_id").references(() => repositories.id, {
-      onDelete: "cascade",
-    }),
     number: integer("number").notNull(),
     title: text("title").notNull(),
     body: text("body").notNull().default(""),
@@ -407,25 +419,72 @@ export const tickets = pgTable(
   ],
 );
 
+/**
+ * Gruppo di errori per la dedup dell'ingestion: un `fingerprint` (firma
+ * dell'errore) mappa al ticket generato. In Fase 3 l'ingestion è a livello di
+ * PROGETTO (D8): gli errori via SDK sono del prodotto, non di un repo — quindi
+ * `projectId` (salito da `repositoryId`) e l'unicità del fingerprint è
+ * per-progetto. Cancellato in cascata col progetto.
+ */
 export const errorGroups = pgTable(
   "error_groups",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    repositoryId: uuid("repository_id")
+    projectId: uuid("project_id")
       .notNull()
-      .references(() => repositories.id, { onDelete: "cascade" }),
+      .references(() => projects.id, { onDelete: "cascade" }),
     fingerprint: text("fingerprint").notNull(),
     ticketId: uuid("ticket_id")
       .notNull()
       .references(() => tickets.id, { onDelete: "cascade" }),
   },
   (table) => [
+    // Fingerprint univoco per progetto: lo stesso errore in progetti diversi è
+    // un gruppo distinto, ma un duplicato nello stesso progetto è deduplicato.
     uniqueIndex("error_groups_project_id_fingerprint_unique").on(
-      table.repositoryId,
+      table.projectId,
       table.fingerprint,
     ),
     // FK: risalita dal ticket al gruppo di errori e delete in cascata.
     index("error_groups_ticket_id_idx").on(table.ticketId),
+  ],
+);
+
+/**
+ * Stato PR per-repo di un ticket (Fase 3, fix multi-repo): una riga per ogni
+ * repository effettivamente modificato dal fix, con il branch, la PR aperta e il
+ * suo stato. È l'UNICO legame ticket↔repo (tickets.repositoryId è stato rimosso):
+ * il ticket appartiene solo al progetto, e questa tabella traccia su quali repo
+ * ha prodotto una PR. Popolata DOPO l'esecuzione dell'agente. Il ticket va a
+ * `done` solo quando TUTTE le sue righe sono `merged` (gate aggregato). L'unique
+ * (ticket_id, repository_id) impedisce due righe per lo stesso repo di un ticket.
+ * Cancellata in cascata sia col ticket sia col repository.
+ */
+export const ticketRepositories = pgTable(
+  "ticket_repositories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    // Branch del fix su questo repo (es. `stubwise/ticket-N`, N di progetto).
+    branch: text("branch").notNull(),
+    // URL della PR aperta su questo repo; null finché non è stata aperta.
+    prUrl: text("pr_url"),
+    prState: prState("pr_state").notNull().default("open"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Una sola riga per (ticket, repo): il fix apre al più una PR per repo.
+    uniqueIndex("ticket_repositories_ticket_id_repository_id_unique").on(
+      table.ticketId,
+      table.repositoryId,
+    ),
+    // Lo stato per-repo si legge sempre per ticket (dettaglio, gate aggregato).
+    index("ticket_repositories_ticket_id_idx").on(table.ticketId),
   ],
 );
 
