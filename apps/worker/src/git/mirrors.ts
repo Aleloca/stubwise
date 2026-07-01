@@ -61,6 +61,18 @@ export interface MirrorManagerOptions {
   cloneTimeoutMs?: number;
 }
 
+/** Opzioni di `openWorktree`. */
+export interface OpenWorktreeOptions {
+  /**
+   * Directory in cui materializzare il worktree. Se assente, openWorktree crea
+   * (e possiede) una propria directory temporanea in /tmp e la cancella alla
+   * remove(). Se presente, il chiamante è responsabile della parent dir: la
+   * remove() smonta il worktree e ne rimuove SOLO questa sottocartella. Usata da
+   * withProjectWorktrees per collocare N worktree sotto una parent comune.
+   */
+  dir?: string;
+}
+
 /** Errore tipato per nomi branch rifiutati (deve essere `stubwise/<safe>`). */
 export class InvalidBranchNameError extends Error {
   constructor(branch: string) {
@@ -325,13 +337,20 @@ export class MirrorManager {
    */
   async openWorktree(
     project: MirrorProject,
-    branchName: string
+    branchName: string,
+    options?: OpenWorktreeOptions
   ): Promise<{ dir: string; remove: () => Promise<void> }> {
     assertBranchName(branchName);
     assertDefaultBranch(project.defaultBranch);
     const mirrorDir = await this.ensureMirror(project);
-    const parent = await mkdtemp(join(tmpdir(), "stubwise-wt-"));
-    const worktreeDir = join(parent, "wt");
+    // La directory del worktree può essere imposta dal chiamante (es.
+    // withProjectWorktrees, che vuole N worktree sotto una parent comune). Se
+    // non lo è, ci creiamo una parent temporanea in /tmp E la possediamo:
+    // remove() la cancella. Se invece è imposta dall'esterno, il chiamante è
+    // responsabile della sua parent — noi rimuoviamo solo la sottocartella.
+    const externalDir = options?.dir;
+    const parent = externalDir ? undefined : await mkdtemp(join(tmpdir(), "stubwise-wt-"));
+    const worktreeDir = externalDir ?? join(parent as string, "wt");
     try {
       // refs/heads/<branch>: forma non ambigua, mai interpretabile come
       // opzione da git (oltre alla validazione di assertDefaultBranch).
@@ -358,6 +377,69 @@ export class MirrorManager {
   }
 
   /**
+   * Materializza N worktree — uno per repo del progetto — SOTTO una parent dir
+   * temporanea comune, ognuno su `git switch -C <branchName>` (lo STESSO branch
+   * in ogni repo). Esegue `fn` con `{ parentDir, worktrees }`: l'agente `claude`
+   * girerà con `cwd = parentDir` e vedrà i repo come sottocartelle. In `finally`
+   * smonta TUTTI i worktree (dai rispettivi mirror), i loro branch effimeri e la
+   * parent dir — best-effort e idempotente come removeWorktree.
+   *
+   * Ogni repo finisce in una sottocartella deterministica `mirrorSlug(repoUrl)`
+   * (stabile e filesystem-safe, la stessa usata per la dir del mirror): due repo
+   * distinti non collidono mai (suffisso sha256), lo stesso repo mappa sempre
+   * sulla stessa sottocartella.
+   *
+   * È "N openWorktree coordinati sotto una root": riusa lo stesso primitivo (con
+   * la dir target imposta) e quindi le stesse invarianti — validazione
+   * branch/defaultBranch, worktree `--force --detach` su refs/heads/<default>,
+   * poi `switch -C`. Se il setup fallisce a metà (es. il 3° repo non si aggancia)
+   * smonta i worktree GIÀ aperti e la parent dir, poi rilancia.
+   *
+   * INVARIANTE mirror (come openWorktree): niente `fetch --prune` finché un
+   * worktree su un branch stubwise/* è aperto; garantita a monte dalla
+   * serializzazione per-progetto (l'esclusione fix↔generazione copre TUTTI i
+   * repo del progetto).
+   *
+   * Nota: `pushBranch` resta per-repo e va chiamato DENTRO `fn` (dopo i commit)
+   * sul singolo `project` del worktree.
+   */
+  async withProjectWorktrees<T>(
+    repos: MirrorProject[],
+    branchName: string,
+    fn: (ctx: {
+      parentDir: string;
+      worktrees: { project: MirrorProject; dir: string }[];
+    }) => Promise<T>
+  ): Promise<T> {
+    // Valida il branch prima di creare qualunque directory: fail-fast simmetrico
+    // a openWorktree (che valida branch/defaultBranch a monte di ensureMirror).
+    assertBranchName(branchName);
+    const parentDir = await mkdtemp(join(tmpdir(), "stubwise-proj-"));
+    const opened: { project: MirrorProject; dir: string; remove: () => Promise<void> }[] = [];
+    try {
+      for (const project of repos) {
+        const dir = join(parentDir, mirrorSlug(project.repoUrl));
+        // openWorktree con dir imposta: crea/aggancia il worktree SOTTO parentDir.
+        // La sua pulizia (worktree + branch effimero) è gestita dalla remove()
+        // che ci restituisce; la parent dir la possediamo noi (finally sotto).
+        const handle = await this.openWorktree(project, branchName, { dir });
+        opened.push({ project, dir: handle.dir, remove: handle.remove });
+      }
+      return await fn({
+        parentDir,
+        worktrees: opened.map(({ project, dir }) => ({ project, dir })),
+      });
+    } finally {
+      // Smonta i worktree GIÀ aperti (best-effort per ciascuno: un errore su uno
+      // non blocca gli altri) e poi rimuove la parent dir comune.
+      for (const handle of opened) {
+        await handle.remove().catch(() => undefined);
+      }
+      await rm(parentDir, { recursive: true, force: true });
+    }
+  }
+
+  /**
    * Smonta un worktree: rimozione del worktree dal mirror (con fallback manuale
    * + prune dei metadati orfani), cancellazione del branch effimero e della
    * directory temporanea che lo conteneva. Tutto best-effort: un residuo viene
@@ -366,7 +448,7 @@ export class MirrorManager {
   private async removeWorktree(
     mirrorDir: string,
     worktreeDir: string,
-    parent: string,
+    parent: string | undefined,
     branchName: string
   ): Promise<void> {
     try {
@@ -379,7 +461,15 @@ export class MirrorManager {
     // Branch effimero: best effort, un eventuale residuo viene comunque
     // riallineato da switch -C o ripulito dal fetch --prune successivo.
     await this.git(["branch", "-D", branchName], { cwd: mirrorDir }).catch(() => undefined);
-    await rm(parent, { recursive: true, force: true });
+    // Rimuoviamo la parent dir SOLO se la possediamo (dir temporanea creata da
+    // openWorktree). Quando la dir del worktree è imposta dal chiamante
+    // (withProjectWorktrees) la parent è condivisa da più worktree ed è di
+    // proprietà del chiamante: ci limitiamo alla sottocartella del worktree.
+    if (parent !== undefined) {
+      await rm(parent, { recursive: true, force: true });
+    } else {
+      await rm(worktreeDir, { recursive: true, force: true });
+    }
   }
 
   /**

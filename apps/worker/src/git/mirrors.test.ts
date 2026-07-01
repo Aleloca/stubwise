@@ -53,10 +53,10 @@ async function makeRoot(): Promise<string> {
   return root;
 }
 
-async function makeUpstream(root: string): Promise<Upstream> {
-  const dir = join(root, "upstream.git");
+async function makeUpstream(root: string, name = "upstream"): Promise<Upstream> {
+  const dir = join(root, `${name}.git`);
   await execa("git", ["init", "--bare", "-b", "main", dir]);
-  const work = join(root, "seed-work");
+  const work = join(root, `${name}-seed-work`);
   await execa("git", ["init", "-b", "main", work]);
   await git(["remote", "add", "origin", dir], work);
   const addCommit = async (fileName: string, content: string): Promise<string> => {
@@ -475,5 +475,153 @@ describe("MirrorManager.pushBranch", () => {
     );
     expect(error).toBeInstanceOf(MirrorNotFoundError);
     expect((error as Error).message).toMatch(/mirror/i);
+  });
+});
+
+describe("MirrorManager.withProjectWorktrees", () => {
+  it("materializza un worktree per repo sotto la stessa parent dir, ognuno sul branch dato", async () => {
+    const root = await makeRoot();
+    const upA = await makeUpstream(root, "repo-a");
+    const upB = await makeUpstream(root, "repo-b");
+    const manager = new MirrorManager({ mirrorsDir: join(root, "mirrors") });
+    const repos = [projectFor(upA), projectFor(upB)];
+
+    let seenParent = "";
+    const seen: { dir: string; branch: string; readme: boolean; underParent: boolean }[] = [];
+    await manager.withProjectWorktrees(repos, "stubwise/ticket-42", async ({ parentDir, worktrees }) => {
+      seenParent = parentDir;
+      expect(worktrees).toHaveLength(2);
+      // La lista rispecchia l'ordine dei repo passati.
+      expect(worktrees.map((w) => w.project.repoUrl)).toEqual([upA.url, upB.url]);
+      for (const wt of worktrees) {
+        // Sottocartella deterministica per-repo (lo stesso slug del mirror).
+        expect(wt.dir).toBe(join(parentDir, mirrorSlug(wt.project.repoUrl)));
+        seen.push({
+          dir: wt.dir,
+          branch: await git(["rev-parse", "--abbrev-ref", "HEAD"], wt.dir),
+          readme: existsSync(join(wt.dir, "README.md")),
+          underParent: wt.dir.startsWith(parentDir + "/"),
+        });
+      }
+    });
+
+    expect(seen).toHaveLength(2);
+    for (const s of seen) {
+      expect(s.branch).toBe("stubwise/ticket-42");
+      expect(s.readme).toBe(true);
+      expect(s.underParent).toBe(true);
+    }
+    // I due worktree stanno in sottocartelle distinte della stessa parent.
+    expect(seen[0]?.dir).not.toBe(seen[1]?.dir);
+    expect(seenParent).not.toBe("");
+  });
+
+  it("un commit in un worktree e pushBranch di quel repo pubblica sul suo upstream", async () => {
+    const root = await makeRoot();
+    const upA = await makeUpstream(root, "repo-a");
+    const upB = await makeUpstream(root, "repo-b");
+    const manager = new MirrorManager({ mirrorsDir: join(root, "mirrors") });
+    const projA = projectFor(upA);
+    const projB = projectFor(upB);
+
+    let pushedSha = "";
+    await manager.withProjectWorktrees([projA, projB], "stubwise/ticket-77", async ({ worktrees }) => {
+      const wtA = worktrees.find((w) => w.project.repoUrl === upA.url)!;
+      await writeFile(join(wtA.dir, "fix.txt"), "fixed\n");
+      await git(["add", "."], wtA.dir);
+      await git([...COMMIT_ARGS, "commit", "-m", "fix: bug in A"], wtA.dir);
+      pushedSha = await git(["rev-parse", "HEAD"], wtA.dir);
+      await manager.pushBranch(projA, "stubwise/ticket-77");
+    });
+
+    // Il branch vive nel mirror di A e il push l'ha portato sul suo upstream.
+    expect(pushedSha).not.toBe("");
+    expect(await git(["rev-parse", "refs/heads/stubwise/ticket-77"], upA.dir)).toBe(pushedSha);
+    // L'upstream di B NON ha il branch (push è per-repo).
+    expect(await git(["branch", "--list", "stubwise/ticket-77"], upB.dir)).toBe("");
+  });
+
+  it("rimuove tutti i worktree, i branch effimeri e la parent dir dopo fn", async () => {
+    const root = await makeRoot();
+    const upA = await makeUpstream(root, "repo-a");
+    const upB = await makeUpstream(root, "repo-b");
+    const manager = new MirrorManager({ mirrorsDir: join(root, "mirrors") });
+    const projA = projectFor(upA);
+    const projB = projectFor(upB);
+
+    let parent = "";
+    const dirs: string[] = [];
+    await manager.withProjectWorktrees([projA, projB], "stubwise/ticket-88", async (ctx) => {
+      parent = ctx.parentDir;
+      for (const wt of ctx.worktrees) dirs.push(wt.dir);
+    });
+
+    // Parent dir e worktree rimossi.
+    expect(existsSync(parent)).toBe(false);
+    for (const d of dirs) expect(existsSync(d)).toBe(false);
+    // Branch effimeri ripuliti da entrambi i mirror, nessun worktree registrato.
+    for (const p of [projA, projB]) {
+      const mirrorDir = manager.mirrorDirFor(p);
+      expect(await git(["branch", "--list", "stubwise/ticket-88"], mirrorDir)).toBe("");
+      expect(await git(["worktree", "list", "--porcelain"], mirrorDir)).not.toContain(parent);
+    }
+  });
+
+  it("pulisce worktree e parent dir anche se fn lancia", async () => {
+    const root = await makeRoot();
+    const upA = await makeUpstream(root, "repo-a");
+    const upB = await makeUpstream(root, "repo-b");
+    const manager = new MirrorManager({ mirrorsDir: join(root, "mirrors") });
+    const repos = [projectFor(upA), projectFor(upB)];
+
+    let parent = "";
+    const boom = new Error("fn esplosa");
+    await expect(
+      manager.withProjectWorktrees(repos, "stubwise/ticket-99", async (ctx) => {
+        parent = ctx.parentDir;
+        throw boom;
+      })
+    ).rejects.toBe(boom);
+
+    expect(parent).not.toBe("");
+    expect(existsSync(parent)).toBe(false);
+    for (const p of repos) {
+      const mirrorDir = manager.mirrorDirFor(p);
+      expect(await git(["branch", "--list", "stubwise/ticket-99"], mirrorDir)).toBe("");
+    }
+  });
+
+  it("se un repo non si aggancia a metà setup, smonta i worktree già creati, rimuove la parent dir e rilancia", async () => {
+    const root = await makeRoot();
+    const upA = await makeUpstream(root, "repo-a");
+    const upB = await makeUpstream(root, "repo-b");
+    const manager = new MirrorManager({ mirrorsDir: join(root, "mirrors") });
+    const projA = projectFor(upA);
+    // Il secondo repo ha un defaultBranch inesistente: il `worktree add` su
+    // refs/heads/<default> fallisce → setup fallito dopo aver aperto il 1°.
+    const projBad: MirrorProject = { ...projectFor(upB), defaultBranch: "does-not-exist" };
+
+    let fnCalled = false;
+    let openedDirA = "";
+    const error = await manager
+      .withProjectWorktrees([projA, projBad], "stubwise/ticket-mid", async ({ worktrees }) => {
+        fnCalled = true;
+        openedDirA = worktrees[0]?.dir ?? "";
+      })
+      .then(
+        () => null,
+        (e: unknown) => e
+      );
+
+    // fn non è mai stata invocata (setup incompleto) e l'errore è propagato.
+    expect(fnCalled).toBe(false);
+    expect(error).toBeInstanceOf(GitCommandError);
+    // La parent dir non deve sopravvivere: la ricaviamo dal mirror di A, il cui
+    // worktree già aperto deve essere stato smontato.
+    expect(openedDirA).toBe("");
+    const mirrorA = manager.mirrorDirFor(projA);
+    // Nessun worktree residuo registrato nel mirror di A e branch ripulito.
+    expect(await git(["worktree", "list", "--porcelain"], mirrorA)).not.toContain("stubwise-proj-");
+    expect(await git(["branch", "--list", "stubwise/ticket-mid"], mirrorA)).toBe("");
   });
 });
