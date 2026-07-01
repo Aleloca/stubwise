@@ -497,7 +497,16 @@ export class BitbucketProvider implements GitProvider {
       description: "Stubwise",
       url: hook.url,
       active: true,
-      events: ["pullrequest:fulfilled", "pullrequest:rejected", "repo:push"],
+      // created/updated alimentano l'automazione PR Review; fulfilled/rejected
+      // e repo:push servono al tracking dei fix. I webhook già configurati vanno
+      // riallineati con "Configura webhook" dalla UI (ensureWebhook è idempotente).
+      events: [
+        "pullrequest:created",
+        "pullrequest:updated",
+        "pullrequest:fulfilled",
+        "pullrequest:rejected",
+        "repo:push",
+      ],
       secret: hook.secret,
     };
 

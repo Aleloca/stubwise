@@ -839,7 +839,13 @@ describe("BitbucketProvider.ensureWebhook", () => {
       description: "Stubwise",
       url: hook.url,
       active: true,
-      events: ["pullrequest:fulfilled", "pullrequest:rejected", "repo:push"],
+      events: [
+        "pullrequest:created",
+        "pullrequest:updated",
+        "pullrequest:fulfilled",
+        "pullrequest:rejected",
+        "repo:push",
+      ],
       secret: hook.secret,
     });
   });
@@ -871,7 +877,13 @@ describe("BitbucketProvider.ensureWebhook", () => {
       description: "Stubwise",
       url: hook.url,
       active: true,
-      events: ["pullrequest:fulfilled", "pullrequest:rejected", "repo:push"],
+      events: [
+        "pullrequest:created",
+        "pullrequest:updated",
+        "pullrequest:fulfilled",
+        "pullrequest:rejected",
+        "repo:push",
+      ],
       secret: hook.secret,
     });
   });
