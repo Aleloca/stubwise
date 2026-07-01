@@ -9,7 +9,7 @@ import { createDocHandler, failDocJobOnError } from "./docs/handler.js";
 import { dispatchNode } from "./docs/recursive/node-dispatch.js";
 import { createGenerationWorktreeRegistry } from "./docs/recursive/registry.js";
 import { MirrorManager } from "./git/mirrors.js";
-import { createHandler, createRepositorySerializer } from "./handler.js";
+import { createHandler, createProjectSerializer } from "./handler.js";
 import { DEFAULT_FIX_PLAN_TIMEOUT_MS, DEFAULT_FIX_TIMEOUT_MS } from "./pipeline/fix.js";
 import { DEFAULT_TRIAGE_TIMEOUT_MS } from "./pipeline/triage.js";
 import { runWorker } from "./queue.js";
@@ -105,11 +105,12 @@ const { db, client } = createDb(config.databaseUrl, { poolMax: config.databasePo
 const runner = new ClaudeCliRunner();
 const mirrors = new MirrorManager({ mirrorsDir: config.mirrorsDir });
 
-// Serializzatore per-repository CONDIVISO fra fix e doc-generation: un doc-job e
-// un fix-job dello stesso repository si accodano alla STESSA catena e non si
-// sovrappongono mai (il fetch --prune di MirrorManager cancellerebbe il branch
-// stubwise/* non ancora pushato dell'altro). Vedi handler.ts.
-const serializer = createRepositorySerializer();
+// Serializzatore per-progetto CONDIVISO fra fix e doc-generation: un doc-job e
+// un fix-job dello stesso progetto si accodano alla STESSA catena e non si
+// sovrappongono mai (un fix di progetto tiene worktree su tutti i suoi repo; il
+// fetch --prune di MirrorManager cancellerebbe il branch stubwise/* non ancora
+// pushato dell'altro). Vedi handler.ts.
+const serializer = createProjectSerializer();
 
 const handler = createHandler(
   {
@@ -266,7 +267,7 @@ await runWorker({
   docHandler,
   docHandlerOnError: failDocJobOnError,
   dispatchNode: dispatchNodeFn,
-  activeGenerationRepositoryIds: () => generationRegistry.activeRepositoryIds(),
+  activeGenerationProjectIds: () => generationRegistry.activeProjectIds(),
   concurrency: config.concurrency,
   staleAfterMinutes: config.staleAfterMinutes,
   signal: controller.signal,

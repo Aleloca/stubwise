@@ -18,14 +18,13 @@ import { runTriage, type TriageDeps } from "./triage.js";
 
 let testDb: TestDb;
 let projectId: string;
-let repositoryId: string;
 let workDir: string;
 let nextNumber = 1;
 
 beforeAll(async () => {
   testDb = await startTestDb();
   workDir = await mkdtemp(join(tmpdir(), "stubwise-triage-test-"));
-  ({ projectId, repositoryId } = await seedRepository(testDb.db));
+  ({ projectId } = await seedRepository(testDb.db));
 }, 120_000);
 
 afterEach(async () => {
@@ -65,7 +64,6 @@ async function createTicket(db: Db, overrides: TicketOverrides = {}): Promise<Ti
     .insert(tickets)
     .values({
       projectId,
-      repositoryId,
       number: nextNumber++,
       title: overrides.title ?? "Errore in produzione",
       type: "bug",

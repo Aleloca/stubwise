@@ -15,11 +15,14 @@ import { type GenerationWorktree } from "../generation-worktree.js";
  * MUTUA ESCLUSIONE FIX↔GENERAZIONE (invariante del mirror): finché il worktree di una
  * generazione è aperto, NESSUN altro job dello stesso REPOSITORY può toccare il mirror
  * (un `fetch --prune` di ensureMirror cancellerebbe il ref `stubwise/*` checked-out del
- * worktree). Il mirror è del repository, quindi la chiave è il repositoryId. Il registro
- * espone `activeRepositoryIds()`: il loop di dispatch NON reclama un fix-job per un
- * repository con una generazione attiva, e l'handler di orientamento NON apre una nuova
- * generazione per un repository che ne ha già una attiva. La politica è documentata e
- * LOGGATA nel dispatch.
+ * worktree). Il mirror è del repository, quindi la guardia mirror è per repositoryId.
+ * In Fase 3 il fix è PER-PROGETTO (apre un worktree su TUTTI i repo del progetto), quindi
+ * il registro traccia anche il `projectId` di ogni generazione ed espone
+ * `activeProjectIds()`: il claim dei fix esclude i PROGETTI con una generazione attiva su
+ * un loro repo (un fix di progetto e quella generazione condividerebbero il mirror di quel
+ * repo). Continua a esporre `activeRepositoryIds()` per la guardia nuova-generazione
+ * (niente due generazioni sullo stesso repo). La politica è documentata e LOGGATA nel
+ * dispatch.
  *
  * RIAVVIO DEL WORKER (fail-on-restart, issue M2): il registro è in-memoria, quindi al
  * riavvio del worker TUTTI gli handle sono persi. I nodi pendenti sopravvivono nel DB
@@ -33,9 +36,10 @@ import { type GenerationWorktree } from "../generation-worktree.js";
  * senza alcuna riapertura dal mirror.
  */
 
-/** Voce del registro: l'handle del worktree + il repository a cui appartiene. */
+/** Voce del registro: l'handle del worktree + il repository e il progetto cui appartiene. */
 interface RegistryEntry {
   repositoryId: string;
+  projectId: string;
   worktree: GenerationWorktree;
 }
 
@@ -43,9 +47,15 @@ export interface GenerationWorktreeRegistry {
   /**
    * Registra l'handle del worktree appena aperto per `generationId` (lo fa
    * l'orientamento dopo `openGenerationWorktree`). Da quel momento il repository è
-   * "generazione attiva" (vedi activeRepositoryIds).
+   * "generazione attiva" (vedi activeRepositoryIds) e il suo progetto è escluso dai fix
+   * (vedi activeProjectIds).
    */
-  register(generationId: string, repositoryId: string, worktree: GenerationWorktree): void;
+  register(
+    generationId: string,
+    repositoryId: string,
+    projectId: string,
+    worktree: GenerationWorktree,
+  ): void;
   /**
    * Ritorna la `dir` del worktree REGISTRATO della generazione, oppure `null` se non
    * c'è (riavvio del worker → handle perso). NON riapre nulla: il chiamante (dispatch)
@@ -68,10 +78,16 @@ export interface GenerationWorktreeRegistry {
   claimForFinalize(generationId: string): GenerationWorktree | null;
   /**
    * Insieme dei repositoryId con una generazione attualmente attiva (worktree aperto).
-   * Il dispatch lo usa per NON reclamare fix-job di quei repository (mutua esclusione
-   * col mirror).
+   * Usato dalla guardia nuova-generazione (niente due generazioni sullo stesso repo).
    */
   activeRepositoryIds(): Set<string>;
+  /**
+   * Insieme dei projectId con una generazione attualmente attiva su un loro repo. Il
+   * claim dei fix lo usa per NON reclamare fix-job di quei progetti (mutua esclusione col
+   * mirror, per-progetto: un fix di progetto aprirebbe un worktree su TUTTI i repo del
+   * progetto, incluso quello con la generazione attiva).
+   */
+  activeProjectIds(): Set<string>;
 }
 
 /**
@@ -83,8 +99,8 @@ export function createGenerationWorktreeRegistry(): GenerationWorktreeRegistry {
   const entries = new Map<string, RegistryEntry>();
 
   return {
-    register(generationId, repositoryId, worktree): void {
-      entries.set(generationId, { repositoryId, worktree });
+    register(generationId, repositoryId, projectId, worktree): void {
+      entries.set(generationId, { repositoryId, projectId, worktree });
     },
 
     getWorktreeDir(generationId): string | null {
@@ -105,6 +121,12 @@ export function createGenerationWorktreeRegistry(): GenerationWorktreeRegistry {
     activeRepositoryIds(): Set<string> {
       const ids = new Set<string>();
       for (const entry of entries.values()) ids.add(entry.repositoryId);
+      return ids;
+    },
+
+    activeProjectIds(): Set<string> {
+      const ids = new Set<string>();
+      for (const entry of entries.values()) ids.add(entry.projectId);
       return ids;
     },
   };

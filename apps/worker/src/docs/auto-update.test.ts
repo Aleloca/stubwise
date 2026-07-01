@@ -32,7 +32,7 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeAgentRunner } from "../agent/fake.js";
-import { createRepositorySerializer } from "../handler.js";
+import { createProjectSerializer } from "../handler.js";
 import { MirrorManager } from "../git/mirrors.js";
 import { isNoise, runAutoUpdate, type RunAutoUpdateDeps } from "./auto-update.js";
 import { pollAutoUpdateOnce } from "./auto-update-poller.js";
@@ -144,6 +144,7 @@ async function createRepository(
     .values({
       name: `Gruppo ${uniq}`,
       slug: `gruppo-${uniq}`,
+      ingestionKey: `ingestion-au-${uniq}`,
       docAutoUpdate: true,
       ...(opts.providerId !== undefined ? { aiProviderId: opts.providerId } : {}),
     })
@@ -159,7 +160,6 @@ async function createRepository(
       gitAccountId,
       repoUrl,
       defaultBranch: "main",
-      ingestionKey: `ingestion-au-${uniq}`,
     })
     .returning();
   if (!repository) throw new Error("insert del repository non ha restituito la riga");
@@ -719,7 +719,7 @@ describe("pollAutoUpdateOnce", () => {
     });
 
     const runner = new FakeAgentRunner({ script: () => ({ output: SIGNIFICANT_OUTPUT, exitCode: 0 }) });
-    const serializer = createRepositorySerializer();
+    const serializer = createProjectSerializer();
     const claimed = await pollAutoUpdateOnce({
       ...baseDeps(db, mirrors, runner),
       serializer,
@@ -752,7 +752,7 @@ describe("pollAutoUpdateOnce", () => {
     const runner = new FakeAgentRunner({ script: () => ({ output: SIGNIFICANT_OUTPUT, exitCode: 0 }) });
     const claimed = await pollAutoUpdateOnce({
       ...baseDeps(db, mirrors, runner),
-      serializer: createRepositorySerializer(),
+      serializer: createProjectSerializer(),
     });
     expect(claimed).toBe(0);
     expect(runner.calls).toHaveLength(0);

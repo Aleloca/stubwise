@@ -2,7 +2,7 @@ import { projects, repositories, type Db } from "@stubwise/db";
 import { eq } from "drizzle-orm";
 import type { AgentRunner } from "../agent/runner.js";
 import type { MirrorManager } from "../git/mirrors.js";
-import type { RepositorySerializer } from "../handler.js";
+import type { ProjectSerializer } from "../handler.js";
 import {
   loadProviderById,
   loadProviderChain,
@@ -14,7 +14,7 @@ import { completeDocJob, failDocJob, type DocJob } from "./queue.js";
 
 /**
  * Wiring del TRIGGER di doc-generation per runWorker (M7): handler(job) =
- * runOrientation, accodato alla catena per-repository CONDIVISA con l'handler fix.
+ * runOrientation, accodato alla catena per-PROGETTO CONDIVISA con l'handler fix.
  *
  * Il trigger di documentazione avvia l'ORIENTAMENTO (M5a): apre il worktree di
  * generazione, lo registra nel registro in-processo (i job-nodo lo riusano), semina le
@@ -23,12 +23,14 @@ import { completeDocJob, failDocJob, type DocJob } from "./queue.js";
  * finalizzazione; lo stato "generazione in corso" vive su `doc_generations`, NON sul
  * trigger (che è già concluso).
  *
- * SERIALIZZAZIONE: l'orientamento gira nella catena per-repository (serializer condiviso)
- * — fa `ensureMirror` + apre il worktree, e NON deve sovrapporsi a un fix dello stesso
- * repository (il fetch --prune del fix cancellerebbe il ref). Una volta seminato il DAG e
- * REGISTRATO il worktree, la catena si libera: da quel momento la mutua esclusione
- * col fix è retta dal registro (activeRepositoryIds → il loop non reclama fix di quel
- * repository finché il worktree è aperto, vedi node-dispatch/queue.ts).
+ * SERIALIZZAZIONE (per-PROGETTO in Fase 3): l'orientamento gira nella catena per-progetto
+ * (serializer condiviso) — fa `ensureMirror` + apre il worktree, e NON deve sovrapporsi a
+ * un fix dello STESSO PROGETTO (un fix di progetto apre worktree su TUTTI i suoi repo, e il
+ * suo `fetch --prune` cancellerebbe il ref del worktree di generazione). La catena
+ * per-progetto garantisce che orientamento e fix dello stesso progetto non si
+ * sovrappongano. Una volta seminato il DAG e REGISTRATO il worktree, la catena si libera:
+ * da quel momento la mutua esclusione col fix è retta dal registro (activeProjectIds → il
+ * claim non reclama fix di quel progetto finché il worktree è aperto, vedi queue.ts).
  *
  * GUARDIA NUOVA-GENERAZIONE: se il repository ha GIÀ una generazione attiva NON se ne avvia
  * una seconda — aprirebbe un secondo worktree concorrente sullo stesso mirror. Due
@@ -71,17 +73,34 @@ export interface DocHandlerDeps {
 
 /**
  * Crea l'handler del trigger doc-generation per runWorker. `serializer` è la catena
- * per-repository, la STESSA dell'handler fix (passata da index.ts): è ciò che
- * garantisce la serializzazione orientamento↔fix sullo stesso repository.
+ * per-PROGETTO, la STESSA dell'handler fix (passata da index.ts): è ciò che
+ * garantisce la serializzazione orientamento↔fix sullo stesso PROGETTO (un fix di
+ * progetto tiene worktree su tutti i suoi repo, incluso quello della generazione).
  */
 export function createDocHandler(
   deps: DocHandlerDeps,
-  serializer: RepositorySerializer,
+  serializer: ProjectSerializer,
 ): (job: DocJob) => Promise<void> {
-  return function handler(job: DocJob): Promise<void> {
-    // Il doc-job porta già il repositoryId: niente join, si accoda direttamente
-    // alla catena del repository.
-    return serializer.run(job.repositoryId, async () => {
+  return async function handler(job: DocJob): Promise<void> {
+    // Il doc-job porta il repositoryId; risolviamo il PROGETTO del repository (chiave del
+    // serializer per-progetto) e il provider AI del progetto in un'unica join, PRIMA di
+    // entrare nella catena. Se il repository non esiste più (o non ha progetto) marchiamo
+    // il trigger `failed` con un messaggio chiaro.
+    const [project] = await deps.db
+      .select({ projectId: repositories.projectId, aiProviderId: projects.aiProviderId })
+      .from(repositories)
+      .innerJoin(projects, eq(projects.id, repositories.projectId))
+      .where(eq(repositories.id, job.repositoryId));
+    if (!project) {
+      await failDocJob(deps.db, job.id, {
+        log: `[docs] repository ${job.repositoryId} o progetto collegato non trovato`,
+        error: "repository del job non trovato",
+      });
+      return;
+    }
+    const aiProviderId = project.aiProviderId ?? null;
+
+    return serializer.run(project.projectId, async () => {
       // GUARDIA IN-PROCESSO (difesa in profondità): niente seconda generazione
       // concorrente sullo stesso repository se il registro ha già un worktree aperto. È un
       // fast-path che evita perfino di aprire il mirror; il check AUTORITATIVO (che
@@ -96,8 +115,7 @@ export function createDocHandler(
       }
 
       // Scelta della credenziale AI dell'INTERA generazione. La FONTE è il provider AI
-      // del PROGETTO del repository (`projects.aiProviderId` via repositories.projectId),
-      // non più il job.
+      // del PROGETTO del repository (`projects.aiProviderId`, risolto sopra), non il job.
       //  - Con `aiProviderId` impostato (provider BLOCCATO a livello di progetto):
       //    risolviamo SOLO quel provider. Se non è risolvibile al run (disabilitato/
       //    cancellato/segreto non decifrabile → loadProviderById = null) la generazione è
@@ -106,12 +124,6 @@ export function createDocHandler(
       //  - Senza (null = automatico): comportamento ATTUALE — la prima credenziale della
       //    catena (come la pipeline fix). Catena vuota → undefined = auth storica del
       //    container.
-      const [project] = await deps.db
-        .select({ aiProviderId: projects.aiProviderId })
-        .from(repositories)
-        .innerJoin(projects, eq(projects.id, repositories.projectId))
-        .where(eq(repositories.id, job.repositoryId));
-      const aiProviderId = project?.aiProviderId ?? null;
 
       let provider: ResolvedProvider | undefined;
       if (aiProviderId) {

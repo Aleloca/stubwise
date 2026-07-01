@@ -1,6 +1,7 @@
+import { repositories } from "@stubwise/db";
 import { docAutoUpdateJobs } from "@stubwise/db";
-import { lte, sql } from "drizzle-orm";
-import type { RepositorySerializer } from "../handler.js";
+import { eq, lte, sql } from "drizzle-orm";
+import type { ProjectSerializer } from "../handler.js";
 import { runAutoUpdate, type AutoUpdateJob, type RunAutoUpdateDeps } from "./auto-update.js";
 
 /**
@@ -8,9 +9,10 @@ import { runAutoUpdate, type AutoUpdateJob, type RunAutoUpdateDeps } from "./aut
  *
  * Task SEPARATO dal loop dei job (come usage-poller / credential-tester): su un proprio
  * intervallo reclama i pending di `doc_auto_update_jobs` scaduti (`not_before <= now`) e
- * processa ciascuno via `runAutoUpdate` nella CATENA PER-REPOSITORY (serializer condiviso
+ * processa ciascuno via `runAutoUpdate` nella CATENA PER-PROGETTO (serializer condiviso
  * col fix e con la doc-generation), così l'auto-update non si sovrappone a un fetch
- * --prune dello stesso repository (invariante del mirror).
+ * --prune dello stesso progetto (invariante del mirror; un fix di progetto tiene worktree
+ * su tutti i suoi repo).
  *
  * CLAIM ANTI-DOPPIONE: ogni pending viene RECLAMATO con un `DELETE ... RETURNING`
  * atomico PRIMA di processarlo. Reclamato = rimosso dalla tabella: un secondo tick (o un
@@ -29,8 +31,8 @@ import { runAutoUpdate, type AutoUpdateJob, type RunAutoUpdateDeps } from "./aut
  */
 
 export interface PollAutoUpdateDeps extends RunAutoUpdateDeps {
-  /** Catena per-repository CONDIVISA col fix e la doc-generation (serializzazione). */
-  serializer: RepositorySerializer;
+  /** Catena per-progetto CONDIVISA col fix e la doc-generation (serializzazione). */
+  serializer: ProjectSerializer;
 }
 
 function errText(err: unknown): string {
@@ -65,9 +67,22 @@ export async function pollAutoUpdateOnce(deps: PollAutoUpdateDeps): Promise<numb
 
   for (const job of claimed) {
     try {
-      // Catena per-repository: l'auto-update si accoda dietro un eventuale fix/generazione
-      // in corso dello stesso repository (e li precede/segue serialmente).
-      await deps.serializer.run(job.repositoryId, () => runAutoUpdate(deps, job));
+      // La catena di serializzazione è per PROGETTO (Fase 3): risolviamo il progetto del
+      // repository per accodarci alla stessa catena del fix/generazione dello STESSO
+      // progetto. Se il repository non esiste più, saltiamo il job (best-effort).
+      const [repo] = await deps.db
+        .select({ projectId: repositories.projectId })
+        .from(repositories)
+        .where(eq(repositories.id, job.repositoryId));
+      if (!repo) {
+        console.error(
+          `[stubwise-worker] auto-update-poll: repository ${job.repositoryId} non trovato, salto il job ${job.id}`,
+        );
+        continue;
+      }
+      // Catena per-progetto: l'auto-update si accoda dietro un eventuale fix/generazione
+      // in corso dello stesso progetto (e li precede/segue serialmente).
+      await deps.serializer.run(repo.projectId, () => runAutoUpdate(deps, job));
     } catch (err) {
       // Best-effort: un job fallito non blocca gli altri reclamati in questo giro.
       console.error(
@@ -79,7 +94,7 @@ export async function pollAutoUpdateOnce(deps: PollAutoUpdateDeps): Promise<numb
 }
 
 export interface StartAutoUpdatePollerOptions extends RunAutoUpdateDeps {
-  serializer: RepositorySerializer;
+  serializer: ProjectSerializer;
   /** Intervallo di poll in secondi. ≤ 0 = disabilitato (non avvia nulla). */
   intervalSeconds: number;
   signal: AbortSignal;

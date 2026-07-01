@@ -5,15 +5,17 @@ import {
   gitAccounts,
   instanceSettings,
   monthlyCostUsd,
+  projects,
   repositories,
   ticketCostUsd,
+  ticketRepositories,
   tickets,
   type Db,
 } from "@stubwise/db";
 import { getProvider, type GitProvider } from "@stubwise/git";
 import { t } from "@stubwise/i18n";
 import type { GitProviderKind } from "@stubwise/shared";
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import { execa } from "execa";
 import { readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
@@ -24,7 +26,7 @@ import {
   type AgentRunner,
   type AgentRunUsage,
 } from "../agent/runner.js";
-import { MirrorManager, type MirrorProject } from "../git/mirrors.js";
+import { mirrorSlug, MirrorManager, type MirrorProject } from "../git/mirrors.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { isLimitError, ProviderLimitError } from "../providers/limit.js";
 import {
@@ -56,19 +58,23 @@ import {
 } from "./env-files.js";
 
 /**
- * Fase 2 della pipeline: il fix. Il job è già in stato `fixing` (markFixing
- * dal triage). L'agente lavora in un worktree effimero sul branch
- * `stubwise/ticket-<numero>`; il worker (NON l'agente) committa con autore
- * `Stubwise AI <ai@stubwise>`, pusha il branch e apre la PR con il report
- * come corpo, poi commenta il ticket e lo porta in `in_review`.
+ * Fase 2 della pipeline: il fix, PER PROGETTO (Fase 3). Il job è già in stato
+ * `fixing` (markFixing dal triage). L'agente lavora alla RADICE di una cartella
+ * progetto che contiene un worktree per OGNI repo del progetto (sottocartelle,
+ * come in un monorepo), tutti sul branch `stubwise/ticket-<numero>` (numero di
+ * progetto). L'agente decide da sé quali repo toccare; il worker (NON l'agente)
+ * committa i repo modificati con autore `Stubwise AI <ai@stubwise>`, pusha il
+ * branch e apre UNA PR per repo modificato (report come corpo), inserisce una riga
+ * `ticket_repositories` per ciascuna e porta il ticket in `in_review`. Un progetto
+ * a 1 repo degrada naturalmente al comportamento storico (una PR, una riga).
  *
- * SERIALIZZAZIONE PER REPOSITORY (requisito review): runFix non si difende da
- * un secondo runFix CONCORRENTE sullo stesso repository — il `fetch --prune`
- * di ensureMirror cancellerebbe i ref stubwise/* non ancora pushati dell'altro
- * job (vedi docblock di mirrors.ts). runFix è progettato per essere chiamato
- * SERIALMENTE per repository: è il wiring del worker (handler.ts) a garantirlo
- * con una catena di promise per repositoryId; repository diversi procedono in
- * parallelo senza rischi (mirror e ref indipendenti).
+ * SERIALIZZAZIONE PER PROGETTO (requisito review): runFix non si difende da un
+ * secondo runFix CONCORRENTE sullo stesso progetto — il `fetch --prune` di
+ * ensureMirror cancellerebbe i ref stubwise/* non ancora pushati dell'altro job
+ * (vedi docblock di mirrors.ts). runFix è progettato per essere chiamato
+ * SERIALMENTE per progetto: è il wiring del worker (handler.ts) a garantirlo con
+ * una catena di promise per projectId; progetti diversi procedono in parallelo
+ * senza rischi (mirror e ref indipendenti).
  *
  * Permessi dell'agente (requisito review): in headless `--permission-mode
  * acceptEdits` consente le modifiche ai file ma NEGA Bash, mentre il prompt
@@ -480,35 +486,41 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     });
     return "failed";
   }
-  // Carica il REPOSITORY bersaglio (dal ticket) E l'account git collegato in un
-  // colpo solo: il fix lavora sul repo del ticket (repoUrl/branch/credenziali).
-  // Le credenziali vivono sull'account (riutilizzabile tra repository), non più
-  // sul repo. `repositoryId` del ticket è nullable in schema (Fase 3) ma in Fase
-  // 1 è sempre valorizzato; se mancasse il job fallisce con un messaggio chiaro.
-  if (ticket.repositoryId === null) {
+  // Carica il PROGETTO del ticket (nome, per le notifiche) e TUTTI i suoi
+  // repository con l'account git collegato: il fix (Fase 3) gira sull'intera
+  // cartella progetto, con un worktree per ogni repo del progetto. Le credenziali
+  // vivono sull'account (riutilizzabile tra repository), non sul repo.
+  const [projectRow] = await db
+    .select({ name: projects.name })
+    .from(projects)
+    .where(eq(projects.id, ticket.projectId));
+  if (!projectRow) {
     await failJob(db, job.id, {
-      log: `[fix] ticket ${ticket.id} senza repository bersaglio`,
-      error: "ticket senza repository bersaglio",
+      log: `[fix] progetto ${ticket.projectId} del ticket non trovato`,
+      error: "progetto del ticket non trovato",
     });
     return "failed";
   }
-  const [row] = await db
-    .select({ project: repositories, account: gitAccounts })
+  const projectName = projectRow.name;
+  const repoRows = await db
+    .select({ repository: repositories, account: gitAccounts })
     .from(repositories)
     .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
-    .where(eq(repositories.id, ticket.repositoryId));
-  if (!row) {
+    .where(eq(repositories.projectId, ticket.projectId))
+    .orderBy(asc(repositories.slug));
+  // Un fix richiede almeno un repository nel progetto: senza repo non c'è nulla
+  // su cui lavorare. Non dovrebbe accadere (un progetto operativo ha ≥ 1 repo).
+  if (repoRows.length === 0) {
     await failJob(db, job.id, {
-      log: `[fix] repository ${ticket.repositoryId} o account git collegato non trovato`,
-      error: "repository del ticket non trovato",
+      log: `[fix] il progetto ${ticket.projectId} non ha repository: impossibile eseguire il fix`,
+      error: "progetto senza repository",
     });
     return "failed";
   }
-  const { project, account } = row;
   // Contesto comune alle notifiche di QUESTA fase (best-effort, post-commit).
   const notifyDeps: NotifyDeps = {
     ...(deps.publicUrl !== undefined ? { publicUrl: deps.publicUrl } : {}),
-    projectName: project.name,
+    projectName,
     ...(deps.dispatch !== undefined ? { dispatch: deps.dispatch } : {}),
   };
   const url = ticketUrl(deps.publicUrl, ticket.id);
@@ -518,7 +530,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       kind: "job.failed",
       ticketNumber: ticket.number,
       ticketTitle: ticket.title,
-      projectName: project.name,
+      projectName,
       error,
       ticketUrl: url,
     });
@@ -558,7 +570,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       kind: "job.budget_held",
       ticketNumber: ticket.number,
       ticketTitle: ticket.title,
-      projectName: project.name,
+      projectName,
       scope,
       limitUsd,
       spentUsd,
@@ -608,29 +620,58 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     }
   }
 
-  // Credenziali: decifratura + parse PRIMA di toccare il repo, dall'ACCOUNT
-  // collegato. Un fallimento qui (chiave sbagliata, payload manomesso, JSON
-  // inatteso) è un errore di configurazione, non dell'agente: messaggio
-  // esplicito, MAI il payload.
-  let credentials: z.infer<typeof credentialsSchema>;
-  try {
-    credentials = credentialsSchema.parse(
-      JSON.parse(decrypt(account.encryptedCredentials, deps.encryptionKey)),
-    );
-  } catch {
-    await failJob(db, job.id, {
-      log: "[fix] impossibile decifrare le credenziali dell'account git (ENCRYPTION_KEY errata o payload non valido)",
-      error: "credenziali dell'account git non decifrabili",
-    });
-    return "failed";
+  // Prepara OGNI repository del progetto: decifra le credenziali del suo account
+  // git e costruisce il MirrorProject. Un fallimento qui (chiave sbagliata,
+  // payload manomesso, JSON inatteso su un repo) è un errore di configurazione,
+  // non dell'agente: messaggio esplicito (nomina il repo), MAI il payload.
+  // `repositoryId`/`installCommand`/`testCommand` restano per-repo per la
+  // materializzazione env, l'install e il self-repair mirati alla sottocartella.
+  interface PreparedRepo {
+    repositoryId: string;
+    name: string;
+    installCommand: string | null;
+    testCommand: string | null;
+    mirrorProject: MirrorProject;
   }
-
-  const mirrorProject: MirrorProject = {
-    provider: project.provider,
-    repoUrl: project.repoUrl,
-    defaultBranch: project.defaultBranch,
-    credentials,
-  };
+  const preparedRepos: PreparedRepo[] = [];
+  for (const { repository, account } of repoRows) {
+    let credentials: z.infer<typeof credentialsSchema>;
+    try {
+      credentials = credentialsSchema.parse(
+        JSON.parse(decrypt(account.encryptedCredentials, deps.encryptionKey)),
+      );
+    } catch {
+      await failJob(db, job.id, {
+        log: `[fix] impossibile decifrare le credenziali dell'account git del repository '${repository.name}' (ENCRYPTION_KEY errata o payload non valido)`,
+        error: "credenziali dell'account git non decifrabili",
+      });
+      return "failed";
+    }
+    preparedRepos.push({
+      repositoryId: repository.id,
+      name: repository.name,
+      installCommand: repository.installCommand,
+      testCommand: repository.testCommand,
+      mirrorProject: {
+        provider: repository.provider,
+        repoUrl: repository.repoUrl,
+        defaultBranch: repository.defaultBranch,
+        credentials,
+      },
+    });
+  }
+  // Sottocartella deterministica di ogni repo dentro la cartella progetto: la
+  // stessa che withProjectWorktrees usa (mirrorSlug del repoUrl). Ci serve per
+  // costruire la cornice del prompt (elenco dei repo) e, dentro la callback, per
+  // ritrovare la `dir` di ciascun worktree via il suo project. La mappa è
+  // repoUrl → prepared, così la callback riabbina worktree ↔ repo preparato.
+  const repoByUrl = new Map(preparedRepos.map((r) => [r.mirrorProject.repoUrl, r]));
+  // Etichette dei repo per il prompt (sottocartella + nome leggibile). Con un solo
+  // repo renderProjectReposBlock ritorna comunque vuoto → cornice classica.
+  const promptRepos = preparedRepos.map((r) => ({
+    dir: mirrorSlug(r.mirrorProject.repoUrl),
+    name: r.name,
+  }));
   const branch = `stubwise/ticket-${ticket.number}`;
   const titleLine = toSingleLine(ticket.title, TITLE_MAX_CHARS);
   const prTitle = `fix: ${titleLine} (#${ticket.number})`;
@@ -659,11 +700,21 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     .limit(10);
   const teamComments = teamCommentRows.map((r) => r.body);
 
-  // Esito della callback withWorktree, discriminato sulla modalità: in
+  // Un repo effettivamente MODIFICATO dall'agente e già pushato: raccoglie ciò che
+  // serve, FUORI dalla callback, per aprire la PR e inserire la riga
+  // `ticket_repositories`. Il push avviene DENTRO la callback (il ref vive nel
+  // mirror e sparisce all'uscita da withProjectWorktrees).
+  interface ChangedRepo {
+    repositoryId: string;
+    name: string;
+    mirrorProject: MirrorProject;
+  }
+  // Esito della callback withProjectWorktrees, discriminato sulla modalità: in
   // plan-only la callback produce SOLO il piano (niente report/commit/push); in
-  // full/execute-only produce il fix eseguito (report + output dell'agente).
+  // full/execute-only produce il fix eseguito (report + output dell'agente + i
+  // repo modificati, uno per PR).
   type WorktreeResult =
-    | { kind: "executed"; report: string | null; agentOutput: string }
+    | { kind: "executed"; report: string | null; agentOutput: string; changedRepos: ChangedRepo[] }
     | { kind: "planned"; planText: string };
   let worktreeResult: WorktreeResult;
   // Consumi dei run dell'agente: ogni run (plan ed execute, o l'unico run nella
@@ -679,10 +730,10 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     }
   };
   try {
-    worktreeResult = await mirrors.withWorktree(
-      mirrorProject,
+    worktreeResult = await mirrors.withProjectWorktrees(
+      preparedRepos.map((r) => r.mirrorProject),
       branch,
-      async (dir): Promise<WorktreeResult> => {
+      async ({ parentDir, worktrees }): Promise<WorktreeResult> => {
         // Heartbeat: il fix può durare a lungo (plan + execute) senza scrivere
         // nel log. Senza questo touchJob periodico, requeueStale crederebbe il
         // job orfano e ne aprirebbe un duplicato. L'interval avvolge il/i run
@@ -697,98 +748,120 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
         heartbeat.unref();
         let output: string;
         let exitCode: number;
-        // Pathspec di esclusione dei file env materializzati: avvolge OGNI git
-        // add/status del percorso così i segreti NON finiscono mai nel commit/
-        // push (SAFEGUARD anti-leak). Vuoto = nessun env → comandi invariati.
-        let envExcludePathspecs: string[] = [];
-        // Mappa env del progetto da iniettare in install/test (mai loggata).
-        let envProcessEnv: Record<string, string> = {};
-        try {
-          // FILE D'AMBIENTE del progetto: materializzati UNA volta, PRIMA
-          // dell'install e dell'agente (install/test possono averne bisogno).
-          // SALTATO in plan-only (read-only). BEST-EFFORT: un errore qui NON fa
-          // fallire il fix — si logga e si prosegue con env vuoto. I valori non
-          // vengono MAI loggati (solo il conteggio dei file). I path scritti
-          // alimentano l'esclusione anti-leak dai commit.
-          if (fixMode !== "plan-only") {
-            try {
-              const files = await loadEnvFilesFn(db, project.id, deps.encryptionKey);
-              const { writtenPaths, env } = await materializeEnvFilesFn(dir, files);
-              envProcessEnv = env;
-              envExcludePathspecs = writtenPaths.map((p) => `:(exclude)${p}`);
-              await appendLog(
-                db,
-                job.id,
-                `[fix] file d'ambiente materializzati (${writtenPaths.length} file)`,
-              ).catch(() => {
-                // Log best-effort.
-              });
-            } catch (envErr) {
-              const message = envErr instanceof Error ? envErr.message : String(envErr);
-              await appendLog(
-                db,
-                job.id,
-                `[fix] file d'ambiente: errore inatteso (proseguo senza): ${message}`,
-              ).catch(() => {
-                // Log best-effort.
-              });
-            }
+        // Stato PER-REPO: ogni repo del progetto ha il proprio worktree
+        // (sottocartella di parentDir), i propri file d'ambiente materializzati (la
+        // tabella env è scoped per repositoryId), il proprio pathspec di esclusione
+        // anti-leak e la propria mappa env per install/test. `prepared` riabbina il
+        // worktree al repo preparato (credenziali/comandi) via il repoUrl.
+        interface RepoState {
+          prepared: PreparedRepo;
+          dir: string;
+          /** Esclusione dei file env materializzati da OGNI git add/status del suo
+           * worktree (SAFEGUARD anti-leak). Vuoto = nessun env. */
+          envExcludePathspecs: string[];
+          /** Mappa env del repo da iniettare in install/test (mai loggata). */
+          envProcessEnv: Record<string, string>;
+        }
+        const repoStates: RepoState[] = worktrees.map(({ project: mp, dir }) => {
+          const prepared = repoByUrl.get(mp.repoUrl);
+          if (!prepared) {
+            // Non dovrebbe accadere: withProjectWorktrees monta esattamente i repo
+            // che gli passiamo. Un mismatch è un errore di programmazione.
+            throw new Error(`worktree senza repo preparato per ${mp.repoUrl}`);
           }
-          // INSTALL delle dipendenze: UNA volta, PRIMA di qualunque run
-          // dell'agente, così node_modules è popolato per i test del repo (loop
-          // di self-repair). SALTATO in plan-only (read-only, niente esecuzione).
-          // Un install fallito (exit non-zero) è un DATO, non un throw: si logga
-          // in modo prominente e si prosegue. Anche un errore inatteso del
-          // resolver è catturato e loggato, MAI fatale. L'install eredita l'env
-          // del worker (NON l'env ristretto dell'agente).
+          return { prepared, dir, envExcludePathspecs: [], envProcessEnv: {} };
+        });
+        try {
+          // FILE D'AMBIENTE + INSTALL, PER OGNI REPO, PRIMA dell'agente. SALTATI in
+          // plan-only (read-only). Ogni repo materializza i suoi env-file nel PROPRIO
+          // worktree e installa le sue dipendenze lì. Tutto BEST-EFFORT: un errore
+          // su un repo si logga e non blocca gli altri né il fix. I valori env non
+          // vengono MAI loggati (solo il conteggio dei file).
           if (fixMode !== "plan-only") {
-            try {
-              const installCmd = await resolveInstallCommandFn(
-                { installCommand: project.installCommand },
-                dir,
-              );
-              if (installCmd) {
-                await appendLog(
+            for (const state of repoStates) {
+              const repoName = state.prepared.name;
+              try {
+                const files = await loadEnvFilesFn(
                   db,
-                  job.id,
-                  `[fix] install dipendenze (${installCmd.cmd} ${installCmd.args.join(" ")})…`,
-                ).catch(() => {
-                  // Log best-effort.
-                });
-                const install = await runInstallCommand(
-                  installCmd,
-                  dir,
-                  installTimeoutMs,
-                  envProcessEnv,
+                  state.prepared.repositoryId,
+                  deps.encryptionKey,
                 );
+                const { writtenPaths, env } = await materializeEnvFilesFn(state.dir, files);
+                state.envProcessEnv = env;
+                state.envExcludePathspecs = writtenPaths.map((p) => `:(exclude)${p}`);
+                if (writtenPaths.length > 0) {
+                  await appendLog(
+                    db,
+                    job.id,
+                    `[fix] '${repoName}': file d'ambiente materializzati (${writtenPaths.length} file)`,
+                  ).catch(() => {
+                    // Log best-effort.
+                  });
+                }
+              } catch (envErr) {
+                const message = envErr instanceof Error ? envErr.message : String(envErr);
                 await appendLog(
                   db,
                   job.id,
-                  install.exitCode === 0
-                    ? "[fix] install dipendenze: ok"
-                    : `[fix] install dipendenze: fallito (exit ${install.exitCode})\n${install.output}`,
+                  `[fix] '${repoName}': file d'ambiente: errore inatteso (proseguo senza): ${message}`,
                 ).catch(() => {
                   // Log best-effort.
                 });
               }
-            } catch (installErr) {
-              // Errore INATTESO del resolver/esecuzione: non deve uccidere il
-              // fix. Una riga di log e si prosegue (l'install è best-effort).
-              const message = installErr instanceof Error ? installErr.message : String(installErr);
-              await appendLog(db, job.id, `[fix] install dipendenze: errore inatteso: ${message}`).catch(
-                () => {
+              // INSTALL delle dipendenze del repo (se ha un comando risolvibile):
+              // popola node_modules per i test del self-repair. Un install fallito
+              // (exit non-zero) è un DATO, non un throw: si logga e si prosegue.
+              // L'install eredita l'env del worker (NON l'env ristretto dell'agente)
+              // con NODE_ENV neutralizzato (le devDeps servono ai runner di test).
+              try {
+                const installCmd = await resolveInstallCommandFn(
+                  { installCommand: state.prepared.installCommand },
+                  state.dir,
+                );
+                if (installCmd) {
+                  await appendLog(
+                    db,
+                    job.id,
+                    `[fix] '${repoName}': install dipendenze (${installCmd.cmd} ${installCmd.args.join(" ")})…`,
+                  ).catch(() => {
+                    // Log best-effort.
+                  });
+                  const install = await runInstallCommand(
+                    installCmd,
+                    state.dir,
+                    installTimeoutMs,
+                    state.envProcessEnv,
+                  );
+                  await appendLog(
+                    db,
+                    job.id,
+                    install.exitCode === 0
+                      ? `[fix] '${repoName}': install dipendenze: ok`
+                      : `[fix] '${repoName}': install dipendenze: fallito (exit ${install.exitCode})\n${install.output}`,
+                  ).catch(() => {
+                    // Log best-effort.
+                  });
+                }
+              } catch (installErr) {
+                const message = installErr instanceof Error ? installErr.message : String(installErr);
+                await appendLog(
+                  db,
+                  job.id,
+                  `[fix] '${repoName}': install dipendenze: errore inatteso: ${message}`,
+                ).catch(() => {
                   // Log best-effort.
-                },
-              );
+                });
+              }
             }
           }
-          // PLAN-ONLY: solo il run di pianificazione (Opus, sola lettura). Si
-          // cattura il piano, NON si esegue il fix, NON si committa/pusha. Il
-          // plan run gira QUI perché l'agente deve esplorare il repo reale.
+          // PLAN-ONLY: solo il run di pianificazione (Opus, sola lettura) SULLA
+          // RADICE del progetto. Si cattura il piano, NON si esegue il fix, NON si
+          // committa/pusha. Il plan run gira QUI perché l'agente deve esplorare i
+          // repo reali (tutti, come sottocartelle di parentDir).
           if (fixMode === "plan-only") {
             const planResult = await runner.run({
-              cwd: dir,
-              prompt: buildFixPlanPrompt({ ticket, teamComments }, lang),
+              cwd: parentDir,
+              prompt: buildFixPlanPrompt({ ticket, teamComments, repos: promptRepos }, lang),
               model: planModel,
               permissionMode: "plan",
               maxTurns: DEFAULT_PLAN_MAX_TURNS,
@@ -808,24 +881,19 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
           }
 
           // FASE 1 — pianificazione (full + twoPhase): modello forte in sola
-          // lettura (permission-mode "plan"), nessun allowedTools di test,
-          // turni/timeout ridotti. In execute-only si SALTA: il piano è già
-          // stato approvato (job.planText) e va riusato verbatim.
+          // lettura (permission-mode "plan") sulla RADICE del progetto. In
+          // execute-only si SALTA: il piano è già stato approvato (job.planText).
           let executePrompt: string;
           if (fixMode === "execute-only") {
             // job.planText è garantito non-null/non-vuoto da resolveFixMode.
             executePrompt = buildFixExecutePrompt(
-              {
-                ticket,
-                plan: job.planText!,
-                teamComments,
-              },
+              { ticket, plan: job.planText!, teamComments, repos: promptRepos },
               lang,
             );
           } else if (twoPhase) {
             const planResult = await runner.run({
-              cwd: dir,
-              prompt: buildFixPlanPrompt({ ticket, teamComments }, lang),
+              cwd: parentDir,
+              prompt: buildFixPlanPrompt({ ticket, teamComments, repos: promptRepos }, lang),
               model: planModel,
               permissionMode: "plan",
               maxTurns: DEFAULT_PLAN_MAX_TURNS,
@@ -842,25 +910,21 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
               throw new AgentExitError(planResult.exitCode, planResult.output);
             }
             executePrompt = buildFixExecutePrompt(
-              {
-                ticket,
-                plan: planResult.output,
-                teamComments,
-              },
+              { ticket, plan: planResult.output, teamComments, repos: promptRepos },
               lang,
             );
           } else {
             // Fase singola (FIX_TWO_PHASE=false): un solo run con il prompt
             // monolitico storico, come prima dell'introduzione delle due fasi.
-            executePrompt = buildFixPrompt({ ticket, teamComments }, lang);
+            executePrompt = buildFixPrompt({ ticket, teamComments, repos: promptRepos }, lang);
           }
 
           // FASE 2 — esecuzione: modello economico, acceptEdits + allowedTools di
-          // test, turni/timeout pieni. Implementa il fix e scrive il report. In
-          // execute-only il piano è già stato approvato: si usa executeModel
-          // (c'è sempre un piano, quindi è di fatto la fase di esecuzione).
+          // test, turni/timeout pieni, SULLA RADICE del progetto. Implementa il fix
+          // e scrive il report (nella radice del progetto). In execute-only il piano
+          // è già stato approvato: si usa executeModel.
           const result = await runner.run({
-            cwd: dir,
+            cwd: parentDir,
             prompt: executePrompt,
             ...(twoPhase || fixMode === "execute-only"
               ? { model: executeModel }
@@ -881,25 +945,23 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
 
           // LIMITE di rate/usage (best-effort): qui non è ancora stato fatto né
           // git add né commit né push — nessun effetto osservabile. Failover
-          // sicuro (niente PR duplicate). Il check è PRIMA dell'AgentExitError
-          // così un exit non-zero "da limite" non viene scambiato per un
-          // normale fallimento del fix.
+          // sicuro (niente PR duplicate). Il check è PRIMA dell'AgentExitError.
           if (isLimitError(result)) throw new ProviderLimitError(output);
 
           if (exitCode !== 0) throw new AgentExitError(exitCode, output);
 
-          // Il report è il corpo della PR e NON deve MAI finire nel commit. Letto e
-          // rimosso DOPO che i test sono verdi (l'agente può riscriverlo nei
-          // tentativi di riparazione). Se è stato creato come DIRECTORY (output
-          // malformato), lo trattiamo come report mancante e lo rimuoviamo
-          // ricorsivamente, così non finisce comunque nel commit.
-          const reportPath = join(dir, REPORT_FILENAME);
+          // Il report è il corpo delle PR e NON deve MAI finire nei commit. Sta
+          // nella RADICE del progetto (parentDir), FUORI dai worktree dei repo:
+          // `git add` dentro un worktree non lo raggiunge mai. Letto e rimosso DOPO
+          // che i test sono verdi (l'agente può riscriverlo nelle riparazioni). Se
+          // è una DIRECTORY (output malformato) lo trattiamo come mancante.
+          const reportPath = join(parentDir, REPORT_FILENAME);
           const readAndRemoveReport = async (): Promise<string | null> => {
             try {
               const info = await stat(reportPath);
               if (info.isDirectory()) {
                 await rm(reportPath, { recursive: true, force: true });
-                return null; // Malformato: fallback + esclusione dal commit.
+                return null; // Malformato: fallback.
               }
               const content = await readFile(reportPath, "utf8");
               await rm(reportPath);
@@ -909,57 +971,100 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
             }
           };
 
-          // LOOP di self-repair (Task 5): se il repo ha un comando di test
-          // risolvibile e i RE-tentativi sono abilitati, il WORKER esegue da sé i
-          // test nel worktree e, finché restano rossi, reinvoca l'agente con
-          // l'output del fallimento, fino a selfRepairMaxAttempts riparazioni; solo
-          // con test verdi si procede a report/commit/push. Senza un comando di
-          // test risolvibile (o con maxAttempts 0) NON si entra nel loop e il
-          // flusso resta IDENTICO a prima (git add -A → status → commit).
-          const testCmd = await resolveTestCommandFn({ testCommand: project.testCommand }, dir);
-          if (testCmd && selfRepairMaxAttempts > 0) {
-            for (let attempt = 0; ; attempt++) {
-              // Diff vuoto come oggi (NoChangesError), ma ESCLUDENDO il report: lo
-              // si stage tutto tranne STUBWISE_REPORT.md, così il report non può
-              // mascherare un diff altrimenti vuoto né finire nel commit.
-              await gitIn(dir, [
+          // Stage di TUTTI i worktree (escludendo report + env), poi ritorna quali
+          // repo hanno effettivamente un diff. È il "il repo ha modifiche?" del
+          // multi-repo: si guarda `git status --porcelain` in OGNI sottocartella,
+          // scontando i file env materializzati e l'eventuale report (che comunque
+          // vive fuori dai worktree). Il report è escluso per igiene, come oggi.
+          const stageAndDetectChanged = async (): Promise<RepoState[]> => {
+            const changed: RepoState[] = [];
+            for (const state of repoStates) {
+              await gitIn(state.dir, [
                 "add",
                 "-A",
                 "--",
                 ".",
                 `:(exclude)${REPORT_FILENAME}`,
-                ...envExcludePathspecs,
+                ...state.envExcludePathspecs,
               ]);
-              const status = await gitIn(dir, [
+              const status = await gitIn(state.dir, [
                 "status",
                 "--porcelain",
                 "--",
                 ".",
                 `:(exclude)${REPORT_FILENAME}`,
-                ...envExcludePathspecs,
+                ...state.envExcludePathspecs,
               ]);
-              if (status.trim() === "") throw new NoChangesError(output);
+              if (status.trim() !== "") changed.push(state);
+            }
+            return changed;
+          };
 
-              const test = await runTestCommand(testCmd, dir, testTimeoutMs, envProcessEnv);
+          // LOOP di self-repair (Task 5), esteso al multi-repo: il WORKER esegue da
+          // sé i test dei repo MODIFICATI (quelli con un comando di test risolvibile)
+          // e, finché QUALCUNO è rosso, reinvoca l'agente sulla radice con l'output
+          // del fallimento, fino a selfRepairMaxAttempts riparazioni. Solo con TUTTI
+          // i test verdi si procede a commit/push. Con self-repair disattivato
+          // (maxAttempts 0) si salta il loop e si committa direttamente.
+          // Esegue i test dei repo modificati che hanno un comando RISOLVIBILE (via
+          // resolveTestCommandFn, come il caso a 1 repo di oggi: la risoluzione, non
+          // la sola colonna DB, decide). Ritorna l'esito aggregato: `redOutput`
+          // non-null = almeno un repo rosso (col suo output, prefissato dal nome);
+          // null = tutti verdi O nessun repo con test risolvibile (→ commit diretto).
+          const runRepoTests = async (
+            changed: RepoState[],
+          ): Promise<{ redOutput: string | null }> => {
+            for (const state of changed) {
+              const testCmd = await resolveTestCommandFn(
+                { testCommand: state.prepared.testCommand },
+                state.dir,
+              );
+              if (!testCmd) continue;
+              const test = await runTestCommand(
+                testCmd,
+                state.dir,
+                testTimeoutMs,
+                state.envProcessEnv,
+              );
               await appendLog(
                 db,
                 job.id,
-                `[fix] self-repair tentativo ${attempt}: test ${test.exitCode === 0 ? "verdi" : `rossi (exit ${test.exitCode})`}`,
+                `[fix] '${state.prepared.name}': test ${test.exitCode === 0 ? "verdi" : `rossi (exit ${test.exitCode})`}`,
               ).catch(() => {
-                // Log best-effort: non deve far fallire il fix.
+                // Log best-effort.
               });
-              if (test.exitCode === 0) break; // VERDI → report/commit/push.
-              if (attempt >= selfRepairMaxAttempts) {
-                throw new SelfRepairFailedError(test.output, output);
+              if (test.exitCode !== 0) {
+                return { redOutput: `[${state.prepared.name}]\n${test.output}` };
               }
-              // CHECK BUDGET-TICKET in-loop (Task 6): prima di spendere su una
-              // RI-riparazione, se il job non è manuale e c'è un tetto di costo,
-              // stima la spesa del ticket = storico (ticketCostBaseline) + somma
-              // dei costUsd dei run di QUESTO run (fixUsages, non ancora
-              // persistiti). Se la stima ha già raggiunto il tetto NON si
-              // ri-tenta: si lancia BudgetExceededError, che esce da withWorktree
-              // e nel catch porta al percorso budget-held (NON failJob). Stima:
-              // lo storico è preciso, fixUsages è il run corrente in memoria.
+            }
+            return { redOutput: null };
+          };
+
+          let changedRepoStates: RepoState[];
+          if (selfRepairMaxAttempts > 0) {
+            for (let attempt = 0; ; attempt++) {
+              const changed = await stageAndDetectChanged();
+              // Nessun repo modificato → NoChangesError (come oggi il caso a 1 repo).
+              if (changed.length === 0) throw new NoChangesError(output);
+
+              const { redOutput } = await runRepoTests(changed);
+              await appendLog(
+                db,
+                job.id,
+                `[fix] self-repair tentativo ${attempt}: ${redOutput === null ? "tutti i test verdi" : "test rossi"}`,
+              ).catch(() => {
+                // Log best-effort.
+              });
+              if (redOutput === null) {
+                changedRepoStates = changed;
+                break; // Tutti verdi → commit/push.
+              }
+              if (attempt >= selfRepairMaxAttempts) {
+                throw new SelfRepairFailedError(redOutput, output);
+              }
+              // CHECK BUDGET-TICKET in-loop (Task 6): stessa logica di oggi, prima di
+              // spendere su una ri-riparazione. Esce da withProjectWorktrees con
+              // BudgetExceededError → percorso budget-held (NON failJob).
               if (!job.manualTrigger && maxCostUsd != null) {
                 const runCost = fixUsages.reduce((sum, u) => sum + (u?.totalCostUsd ?? 0), 0);
                 const estimated = ticketCostBaseline + runCost;
@@ -968,9 +1073,9 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
                 }
               }
               const repair = await runner.run({
-                cwd: dir,
+                cwd: parentDir,
                 prompt: buildFixRepairPrompt(
-                  { ticket, teamComments, testOutput: test.output },
+                  { ticket, teamComments, testOutput: redOutput },
                   lang,
                 ),
                 model: executeModel,
@@ -981,21 +1086,27 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
                 ...providerOpt,
               });
               fixUsages.push(repair.usage);
-              // LIMITE di rate/usage (best-effort): siamo ancora nel loop di
-              // self-repair, PRIMA del commit/push finale (avvengono solo dopo
-              // l'uscita dal loop con test verdi). Nessun effetto osservabile →
-              // failover sicuro. Check PRIMA dell'AgentExitError, come per
-              // l'execute.
+              // LIMITE di rate/usage (best-effort): PRIMA del commit/push finale.
               if (isLimitError(repair)) throw new ProviderLimitError(repair.output);
               if (repair.exitCode !== 0) throw new AgentExitError(repair.exitCode, repair.output);
               output = repair.output; // Aggiorna l'output dell'agente per report/log.
             }
+          } else {
+            // Nessun comando di test risolvibile (o self-repair disattivato): stage +
+            // detect una sola volta, come oggi il flusso senza self-repair.
+            changedRepoStates = await stageAndDetectChanged();
+            if (changedRepoStates.length === 0) throw new NoChangesError(output);
+          }
 
-            // Test verdi: ora si legge+rimuove il report e si committa il solo fix
-            // (il report è già escluso dallo stage del loop e ora anche da disco).
-            const reportContent = await readAndRemoveReport();
-            await gitIn(dir, ["add", "-A", "--", ".", ...envExcludePathspecs]);
-            await gitIn(dir, [
+          // Test verdi (o nessun test): legge+rimuove il report e committa+pusha
+          // OGNI repo modificato. Un commit per repo (autore Stubwise AI), poi il
+          // push del branch sul rispettivo mirror. Il ref del branch vive nel mirror
+          // e sparisce all'uscita da withProjectWorktrees, quindi il push è QUI.
+          const reportContent = await readAndRemoveReport();
+          const changedRepos: ChangedRepo[] = [];
+          for (const state of changedRepoStates) {
+            await gitIn(state.dir, ["add", "-A", "--", ".", ...state.envExcludePathspecs]);
+            await gitIn(state.dir, [
               "-c",
               "user.name=Stubwise AI",
               "-c",
@@ -1004,40 +1115,16 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
               "-m",
               `${prTitle}\n\nTicket #${ticket.number} — fix automatico di Stubwise AI`,
             ]);
-            await mirrors.pushBranch(mirrorProject, branch);
-            return { kind: "executed", report: reportContent, agentOutput: output };
+            await mirrors.pushBranch(state.prepared.mirrorProject, branch);
+            changedRepos.push({
+              repositoryId: state.prepared.repositoryId,
+              name: state.prepared.name,
+              mirrorProject: state.prepared.mirrorProject,
+            });
           }
-
-          // Nessun comando di test risolvibile (o self-repair disattivato): flusso
-          // IDENTICO a prima — report letto/rimosso PRIMA di `git add -A`.
-          const reportContent = await readAndRemoveReport();
-          await gitIn(dir, ["add", "-A", "--", ".", ...envExcludePathspecs]);
-          const status = await gitIn(dir, [
-            "status",
-            "--porcelain",
-            "--",
-            ".",
-            ...envExcludePathspecs,
-          ]);
-          if (status.trim() === "") throw new NoChangesError(output);
-
-          // Autore esplicito per-invocazione: nessuna config git globale richiesta
-          // nel container del worker, e il commit è attribuito all'AI.
-          await gitIn(dir, [
-            "-c",
-            "user.name=Stubwise AI",
-            "-c",
-            "user.email=ai@stubwise",
-            "commit",
-            "-m",
-            `${prTitle}\n\nTicket #${ticket.number} — fix automatico di Stubwise AI`,
-          ]);
-          // Push DENTRO la callback: il branch ref vive nel mirror e viene
-          // cancellato all'uscita da withWorktree (vedi mirrors.ts).
-          await mirrors.pushBranch(mirrorProject, branch);
-          return { kind: "executed", report: reportContent, agentOutput: output };
+          return { kind: "executed", report: reportContent, agentOutput: output, changedRepos };
         } finally {
-          // L'heartbeat avvolge TUTTO il lavoro nel worktree: plan, esecuzione,
+          // L'heartbeat avvolge TUTTO il lavoro nei worktree: plan, esecuzione,
           // loop di self-repair (ri-esecuzioni dell'agente + run dei test),
           // commit e push. Cancellato qui, qualunque sia l'esito (return/throw).
           clearInterval(heartbeat);
@@ -1153,13 +1240,13 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       kind: "job.plan_review",
       ticketNumber: ticket.number,
       ticketTitle: ticket.title,
-      projectName: project.name,
+      projectName,
       ticketUrl: url,
     });
     return "awaiting_approval";
   }
 
-  const { report, agentOutput } = worktreeResult;
+  const { report, agentOutput, changedRepos } = worktreeResult;
   const logLines: string[] = [`[fix] output agente:\n${truncateForLog(agentOutput)}`];
   let reportBody: string;
   if (report === null) {
@@ -1167,71 +1254,98 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     // la PR con un corpo di cortesia e si lascia traccia nel log.
     reportBody = t(lang, "comment.reportMissing", { filename: REPORT_FILENAME });
     logLines.push(
-      `[fix] attenzione: ${REPORT_FILENAME} non trovato, PR aperta con body di fallback`,
+      `[fix] attenzione: ${REPORT_FILENAME} non trovato, PR aperte con body di fallback`,
     );
   } else {
     reportBody = report.trim();
   }
+  const prBody = `${reportBody}\n\n---\n${t(lang, "comment.reportFooter", { number: ticket.number })}`;
 
-  let prUrl: string;
-  try {
-    ({ url: prUrl } = await getProviderFn(project.provider).openPullRequest(mirrorProject, {
-      branch,
-      title: prTitle,
-      body: `${reportBody}\n\n---\n${t(lang, "comment.reportFooter", { number: ticket.number })}`,
-    }));
-  } catch (err) {
-    // LIMITE NOTO (nessun retry automatico): il push è già atterrato sul
-    // remote ma l'apertura PR è fallita → il branch resta orfano e il job è
-    // terminale `failed`. Un re-run rifarebbe il push sullo STESSO branch e
-    // potrebbe fallire (ref già esistente o non-fast-forward): il recupero
-    // manuale è cancellare il branch sull'upstream e poi aprire la PR a mano
-    // o ri-accodare il job. Il log nomina branch e upstream per renderlo
-    // azionabile senza dover indovinare i nomi.
-    const message = err instanceof Error ? err.message : String(err);
-    await failJob(db, job.id, {
-      log:
-        `${logLines.join("\n")}\n` +
-        `[fix] branch '${branch}' pushato su ${project.repoUrl} ma apertura PR fallita: ${message}\n` +
-        `[fix] recupero manuale: elimina il branch '${branch}' sull'upstream (es. git push ${project.repoUrl} --delete ${branch}) ` +
-        `prima di aprire la PR a mano o ri-accodare il job (un re-run riparte da un branch pulito).`,
-      error: `apertura PR fallita: ${message}`,
-    });
-    await notifyFailed(`apertura PR fallita: ${message}`);
-    return "failed";
+  // APERTURA PR MULTIPLA (Fase 3): una PR per OGNI repo modificato, ciascuna via il
+  // provider di QUEL repo. Ogni PR aperta produce una riga `ticket_repositories`
+  // (branch/prUrl/prState=open) — la fonte di verità dello stato per-repo. Il push
+  // è già avvenuto dentro la callback; qui apriamo le PR sull'upstream reale. Un
+  // fallimento su un repo è terminale `failed` (i push sono già atterrati): il log
+  // nomina branch/upstream per il recupero manuale. `ticket_repositories` viene
+  // popolata mano a mano: le righe dei repo già andati a buon fine restano (utili a
+  // capire quali PR esistono già in caso di re-run manuale).
+  const openedPrs: { name: string; prUrl: string }[] = [];
+  for (const repo of changedRepos) {
+    let prUrl: string;
+    try {
+      ({ url: prUrl } = await getProviderFn(repo.mirrorProject.provider).openPullRequest(
+        repo.mirrorProject,
+        { branch, title: prTitle, body: prBody },
+      ));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await failJob(db, job.id, {
+        log:
+          `${logLines.join("\n")}\n` +
+          `[fix] '${repo.name}': branch '${branch}' pushato su ${repo.mirrorProject.repoUrl} ma apertura PR fallita: ${message}\n` +
+          `[fix] recupero manuale: elimina il branch '${branch}' sull'upstream (es. git push ${repo.mirrorProject.repoUrl} --delete ${branch}) ` +
+          `prima di aprire la PR a mano o ri-accodare il job (un re-run riparte da un branch pulito).` +
+          (openedPrs.length > 0
+            ? `\n[fix] PR già aperte su questo ticket: ${openedPrs.map((p) => `${p.name} ${p.prUrl}`).join(", ")}`
+            : ""),
+        error: `apertura PR fallita (${repo.name}): ${message}`,
+      });
+      await notifyFailed(`apertura PR fallita (${repo.name}): ${message}`);
+      return "failed";
+    }
+    // Riga per-repo: branch + PR + stato open. UPSERT sul vincolo (ticketId,
+    // repositoryId) così un re-run del fix aggiorna la riga invece di duplicarla.
+    await db
+      .insert(ticketRepositories)
+      .values({ ticketId: ticket.id, repositoryId: repo.repositoryId, branch, prUrl, prState: "open" })
+      .onConflictDoUpdate({
+        target: [ticketRepositories.ticketId, ticketRepositories.repositoryId],
+        set: { branch, prUrl, prState: "open" },
+      });
+    openedPrs.push({ name: repo.name, prUrl });
+    logLines.push(`[fix] '${repo.name}': PR aperta: ${prUrl}`);
   }
 
-  // Commento AI + transizione in_review nella stessa transazione: o il
-  // ticket risulta in review CON il link alla PR, o niente.
+  // PR primaria (retro-compatibilità di ai_jobs.prUrl e delle notifiche): la prima
+  // aperta. La fonte di verità delle PR resta `ticket_repositories`.
+  const primaryPrUrl = openedPrs[0]!.prUrl;
+  // Riepilogo delle PR per il commento AI: una riga per repo con il link.
+  const prSummary = openedPrs.map((p) => `- ${p.name}: ${p.prUrl}`).join("\n");
+
+  // Commento AI + transizione in_review nella stessa transazione: o il ticket
+  // risulta in review CON i link alle PR, o niente. `comment.fixReady` cita la PR
+  // primaria; se le PR sono più d'una elenchiamo tutte le sottostanti.
   await db.transaction(async (tx) => {
     await tx.insert(comments).values({
       ticketId: ticket.id,
       authorType: "ai",
-      body: `${t(lang, "comment.fixReady", { url: prUrl })}\n\n${reportBody}`,
+      body:
+        `${t(lang, "comment.fixReady", { url: primaryPrUrl })}\n\n` +
+        (openedPrs.length > 1 ? `${prSummary}\n\n` : "") +
+        reportBody,
     });
     await tx.update(tickets).set({ status: "in_review" }).where(eq(tickets.id, ticket.id));
   });
 
-  logLines.push(`[fix] PR aperta: ${prUrl}`);
   const closed = await completeJob(db, job.id, {
     status: "pr_opened",
     log: logLines.join("\n"),
-    prUrl,
+    prUrl: primaryPrUrl,
   });
   if (!closed) {
-    // Ownership persa proprio alla fine: la PR esiste e il commento pure
+    // Ownership persa proprio alla fine: le PR esistono e il commento pure
     // (informazione vera comunque); solo una riga di log, niente overwrite.
-    await appendLog(db, job.id, `[fix] ownership persa dopo l'apertura della PR ${prUrl}`);
+    await appendLog(db, job.id, `[fix] ownership persa dopo l'apertura delle PR (${openedPrs.length})`);
   }
 
-  // Notifica job.pr_opened best-effort, DOPO la chiusura del job (stato
-  // committato). costUsd: null per v1 (il costo aggregato è ricavabile altrove).
+  // Notifica job.pr_opened best-effort, DOPO la chiusura del job (stato committato).
+  // Cita la PR primaria (payload invariato); il dettaglio per-repo è sul ticket.
   await notify(notifyDeps, db, {
     kind: "job.pr_opened",
     ticketNumber: ticket.number,
     ticketTitle: ticket.title,
-    projectName: project.name,
-    prUrl,
+    projectName,
+    prUrl: primaryPrUrl,
     ticketUrl: url,
     costUsd: null,
   });
