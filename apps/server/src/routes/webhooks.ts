@@ -1,7 +1,7 @@
 import { getProvider } from "@stubwise/git";
 import { t } from "@stubwise/i18n";
 import { dispatchNotification } from "@stubwise/notifications";
-import { and, count, desc, eq, ne, sql } from "drizzle-orm";
+import { and, count, desc, eq, ne, notInArray, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
   aiJobs,
@@ -291,6 +291,9 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
             .where(eq(tickets.id, reviewRow.ticketId));
           // Si auto-chiude SOLO il ticket di tipo review ancora aperto: il
           // ticket di un fix stubwise ha già il suo flusso di chiusura sotto.
+          // Il check di status qui è un fast-path (evita lookup lingua e
+          // transazione sulle ri-consegne): il gate VERO è il predicato
+          // dell'UPDATE sotto, atomico dentro la transazione.
           if (
             reviewTicket &&
             reviewTicket.type === "review" &&
@@ -299,17 +302,32 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
           ) {
             const lang = await getContentLanguage(instance.db);
             await instance.db.transaction(async (tx) => {
-              await tx
+              // Il predicato sullo status rende chiusura+commento atomici: due
+              // consegne CONCORRENTI leggono entrambe lo status "aperto" fuori
+              // transazione, ma solo quella il cui UPDATE tocca davvero la riga
+              // (ticket non ancora done/closed) inserisce il commento di
+              // sistema — mai duplicati.
+              const updated = await tx
                 .update(tickets)
                 .set({ status: event.kind === "merged" ? "done" : "closed" })
-                .where(eq(tickets.id, reviewTicket.id));
-              await tx.insert(comments).values({
-                ticketId: reviewTicket.id,
-                authorType: "system",
-                body: t(lang, event.kind === "merged" ? "comment.prMerged" : "comment.prClosed", {
-                  url: event.prUrl,
-                }),
-              });
+                .where(
+                  and(
+                    eq(tickets.id, reviewTicket.id),
+                    notInArray(tickets.status, ["done", "closed"]),
+                  ),
+                )
+                .returning({ id: tickets.id });
+              if (updated.length > 0) {
+                await tx.insert(comments).values({
+                  ticketId: reviewTicket.id,
+                  authorType: "system",
+                  body: t(
+                    lang,
+                    event.kind === "merged" ? "comment.prMerged" : "comment.prClosed",
+                    { url: event.prUrl },
+                  ),
+                });
+              }
             });
           }
         }

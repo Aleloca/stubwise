@@ -1742,14 +1742,20 @@ describe("webhook PR Review (chiusura)", () => {
     const ticketId = await insertReviewTicket(project.id, 1, "open");
     await seedPrReview(project.id, 7, ticketId);
     await seedPendingReviewJob(project.id, 7);
+    // Decoy: pending di un'ALTRA PR (9) dello stesso repo. La delete deve
+    // essere scoped a (repo, prNumber): il decoy deve sopravvivere.
+    await seedPendingReviewJob(project.id, 9);
     // Branch NON stubwise: il flusso di chiusura dei ticket del fix non scatta.
     const body = githubPayload("feature/login");
 
     const res = await postGithubClosure(project, body);
     expect(res.statusCode).toBe(204);
 
-    // Il pending della PR chiusa è stato eliminato (la review non serve più).
-    expect(await pendingJobs(project.id)).toHaveLength(0);
+    // Il pending della PR chiusa è stato eliminato (la review non serve più);
+    // quello dell'altra PR (9) è intatto.
+    const remaining = await pendingJobs(project.id);
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]!.prNumber).toBe(9);
     // Il ticket review si è auto-chiuso a done (PR mergiata), con commento system.
     expect(await ticketStatus(ticketId)).toBe("done");
     const cmts = await ticketComments(ticketId);
@@ -1828,5 +1834,39 @@ describe("webhook PR Review (chiusura)", () => {
     expect((await postGithubClosure(project, body)).statusCode).toBe(204);
     expect(await ticketStatus(ticketId)).toBe("done");
     expect(await ticketComments(ticketId)).toHaveLength(1);
+  });
+
+  it("ticket di FIX stubwise con riga pr_reviews → auto-chiusura review NON scatta, chiude il flusso stubwise (un solo commento)", async () => {
+    const project = await createProject({
+      name: "Review Chiusura FixTicket",
+      provider: "github",
+      repoUrl: "https://github.com/acme/review-chiusura-fixticket",
+      credentials: { token: "tok" },
+    });
+    // Ticket di FIX (type bug, in_review) con la sua PR stubwise aperta...
+    const ticketId = await insertTicket(project.id, 1, "in_review");
+    await seedTicketRepository(ticketId, project.id, "open");
+    const jobId = await insertJob(ticketId, "pr_opened");
+    // ...e una riga pr_reviews che punta a QUEL ticket (es. la PR stubwise è
+    // stata a sua volta reviewata). Il guard sul type deve impedire al ramo di
+    // auto-chiusura review di toccare il ticket: se lo facesse, il flusso
+    // stubwise sotto verrebbe cortocircuitato (riga ticket_repositories mai
+    // marcata merged, job AI mai allineato) o il commento duplicato.
+    await seedPrReview(project.id, 7, ticketId);
+
+    // Merge della PR stubwise: head.ref stubwise/ticket-1, number 7.
+    const body = githubPayload("stubwise/ticket-1");
+    const res = await postGithubClosure(project, body);
+    expect(res.statusCode).toBe(204);
+
+    // Il ticket va a done tramite il FLUSSO STUBWISE: riga per-repo marcata
+    // merged e job AI passato a pr_merged (side effect esclusivi di quel ramo).
+    expect(await ticketStatus(ticketId)).toBe("done");
+    expect(await repoState(ticketId, project.id)).toBe("merged");
+    expect((await jobById(jobId)).status).toBe("pr_merged");
+    // ESATTAMENTE UN commento system: quello del flusso stubwise, non due.
+    const cmts = await ticketComments(ticketId);
+    expect(cmts).toHaveLength(1);
+    expect(cmts[0]!.authorType).toBe("system");
   });
 });
