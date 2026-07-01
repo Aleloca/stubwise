@@ -94,6 +94,18 @@ export interface JobBudgetHeldEvent {
   ticketUrl: string;
 }
 
+/** Review AI di una PR completata (automazione PR Review). */
+export interface ReviewCompletedEvent {
+  kind: "review.completed";
+  ticketNumber: number;
+  ticketTitle: string;
+  projectName: string;
+  ticketUrl: string;
+  prUrl: string;
+  /** Verdetto della review. */
+  verdict: "approve" | "request_changes";
+}
+
 /** Il fix AI è fallito. */
 export interface JobFailedEvent {
   kind: "job.failed";
@@ -112,6 +124,7 @@ export type NotificationEvent =
   | JobHeldEvent
   | JobPlanReviewEvent
   | JobBudgetHeldEvent
+  | ReviewCompletedEvent
   | JobFailedEvent;
 
 /** Tipo dei `kind` degli eventi, per mappare evento → toggle. */
@@ -147,6 +160,7 @@ const EMOJI: Record<NotificationKind, string> = {
   "job.held": "⏸️",
   "job.plan_review": "📝",
   "job.budget_held": "💸",
+  "review.completed": "🔎",
   "job.failed": "❌",
 };
 
@@ -191,6 +205,7 @@ function linkParam(
       return renderLink(format, event.ticketUrl, t(lang, "notify.linkOpen"));
     case "job.pr_opened":
     case "job.pr_closed":
+    case "review.completed":
       return (
         `${renderLink(format, event.prUrl, t(lang, "notify.linkPr"))} · ` +
         `${renderLink(format, event.ticketUrl, t(lang, "notify.linkTicket"))}`
@@ -214,6 +229,7 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   "job.held": "notify.jobHeld",
   "job.plan_review": "notify.planReview",
   "job.budget_held": "notify.budgetHeld",
+  "review.completed": "notify.reviewCompleted",
   "job.failed": "notify.jobFailed",
 };
 
@@ -240,6 +256,16 @@ function textParams(
         ),
         limit: event.limitUsd.toFixed(2),
         spent: event.spentUsd.toFixed(2),
+      };
+    case "review.completed":
+      return {
+        ...base,
+        verdict: t(
+          lang,
+          event.verdict === "approve"
+            ? "notify.verdict.approve"
+            : "notify.verdict.requestChanges",
+        ),
       };
     case "job.failed":
       return { ...base, error: event.error };
@@ -321,6 +347,8 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
         limitUsd: event.limitUsd,
         spentUsd: event.spentUsd,
       };
+    case "review.completed":
+      return { ...base, prUrl: event.prUrl, verdict: event.verdict };
     case "job.failed":
       return { ...base, error: event.error };
   }
@@ -414,6 +442,15 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       projectName: "negozio-web",
       error: "test suite fallita dopo il fix (3 test rossi)",
       ticketUrl: `${base}/tickets/129`,
+    },
+    {
+      kind: "review.completed",
+      ticketNumber: 133,
+      ticketTitle: "Review PR #351 — refactor del carrello",
+      projectName: "negozio-web",
+      prUrl: "https://github.com/acme/negozio-web/pull/351",
+      ticketUrl: `${base}/tickets/133`,
+      verdict: "approve",
     },
   ];
 }

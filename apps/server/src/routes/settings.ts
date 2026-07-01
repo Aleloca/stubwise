@@ -88,6 +88,7 @@ const notificationSettingsResponseSchema = z.object({
   notifyJobHeld: z.boolean(),
   notifyPlanReview: z.boolean(),
   notifyBudgetHeld: z.boolean(),
+  notifyReviewCompleted: z.boolean(),
   notifyJobFailed: z.boolean(),
 });
 
@@ -115,6 +116,9 @@ const updateNotificationsBodySchema = z.object({
   // Default true: i client esistenti che non inviano il campo conservano il
   // comportamento "notifica i job messi in hold per superamento budget".
   notifyBudgetHeld: z.boolean().default(true),
+  // Default true: i client esistenti che non inviano il campo conservano il
+  // comportamento "notifica le review AI delle PR completate".
+  notifyReviewCompleted: z.boolean().default(true),
   notifyJobFailed: z.boolean(),
 });
 
@@ -193,6 +197,7 @@ async function loadNotificationSettings(
       notifyJobHeld: true,
       notifyPlanReview: true,
       notifyBudgetHeld: true,
+      notifyReviewCompleted: true,
       notifyJobFailed: true,
     };
   }
@@ -206,6 +211,7 @@ async function loadNotificationSettings(
     notifyJobHeld: row.notifyJobHeld,
     notifyPlanReview: row.notifyPlanReview,
     notifyBudgetHeld: row.notifyBudgetHeld,
+    notifyReviewCompleted: row.notifyReviewCompleted,
     notifyJobFailed: row.notifyJobFailed,
   };
 }
@@ -359,6 +365,8 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
             set: {
               prReviewEnabled: request.body.prReview.enabled,
               prReviewMaxCostUsd: maxCost != null ? String(maxCost) : null,
+              // Il $onUpdate di drizzle NON scatta su onConflictDoUpdate.
+              updatedAt: new Date(),
             },
           });
       });
@@ -397,7 +405,8 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
       // Stringa vuota → null: "nessun webhook configurato".
       const webhookUrl = body.webhookUrl === "" ? null : body.webhookUrl;
       // Upsert sul singleton (id=1): la migrazione seeda la riga, ma onConflict
-      // la rende idempotente anche se mancasse. updatedAt è gestito da $onUpdate.
+      // la rende idempotente anche se mancasse. updatedAt va impostato a mano
+      // nel `set`: il $onUpdate di drizzle NON scatta su onConflictDoUpdate.
       await app.db
         .insert(notificationSettings)
         .values({
@@ -411,6 +420,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
           notifyJobHeld: body.notifyJobHeld,
           notifyPlanReview: body.notifyPlanReview,
           notifyBudgetHeld: body.notifyBudgetHeld,
+          notifyReviewCompleted: body.notifyReviewCompleted,
           notifyJobFailed: body.notifyJobFailed,
         })
         .onConflictDoUpdate({
@@ -425,7 +435,9 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
             notifyJobHeld: body.notifyJobHeld,
             notifyPlanReview: body.notifyPlanReview,
             notifyBudgetHeld: body.notifyBudgetHeld,
+            notifyReviewCompleted: body.notifyReviewCompleted,
             notifyJobFailed: body.notifyJobFailed,
+            updatedAt: new Date(),
           },
         });
       return loadNotificationSettings(app.db);
@@ -477,7 +489,8 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
     async (request) => {
       const body = request.body;
       // Upsert sul singleton (id=1): la migrazione seeda la riga, ma onConflict
-      // la rende idempotente anche se mancasse. updatedAt è gestito da $onUpdate.
+      // la rende idempotente anche se mancasse. updatedAt va impostato a mano
+      // nel `set`: il $onUpdate di drizzle NON scatta su onConflictDoUpdate.
       // numeric(12,6): drizzle scrive una STRINGA. number → stringa, null resta null.
       const monthlyBudgetUsd = body.monthlyBudgetUsd != null ? String(body.monthlyBudgetUsd) : null;
 
@@ -514,7 +527,12 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
         .values({ id: 1, contentLanguage: body.contentLanguage, monthlyBudgetUsd, ...s3Set })
         .onConflictDoUpdate({
           target: instanceSettings.id,
-          set: { contentLanguage: body.contentLanguage, monthlyBudgetUsd, ...s3Set },
+          set: {
+            contentLanguage: body.contentLanguage,
+            monthlyBudgetUsd,
+            ...s3Set,
+            updatedAt: new Date(),
+          },
         });
       return loadInstanceSettings(app.db, app.encryptionKey);
     },

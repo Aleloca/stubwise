@@ -81,6 +81,16 @@ const BUDGET_HELD_TICKET: NotificationEvent = {
   ticketUrl: "https://app.example.com/tickets/42",
 };
 
+const REVIEW_COMPLETED: NotificationEvent = {
+  kind: "review.completed",
+  ticketNumber: 42,
+  ticketTitle: "Review PR #7 — fix checkout",
+  projectName: "webapp",
+  prUrl: "https://github.com/o/r/pull/7",
+  ticketUrl: "https://app.example.com/tickets/42",
+  verdict: "approve",
+};
+
 const BUDGET_HELD_MONTHLY: NotificationEvent = {
   kind: "job.budget_held",
   ticketNumber: 42,
@@ -168,6 +178,25 @@ describe("formatNotification — slack (lingua default en)", () => {
     expect(text).toContain("Budget exceeded (monthly)");
     expect(text).toContain("spent $51.70 of $50.00 limit");
   });
+
+  it("review.completed (approve) → verdetto umano, link PR e ticket", () => {
+    const text = (formatNotification(REVIEW_COMPLETED, "slack").body as { text: string }).text;
+    expect(text).toContain("🔎");
+    expect(text).toContain("*#42*");
+    expect(text).toContain("PR review completed");
+    expect(text).toContain("approval suggested");
+    expect(text).toContain("<https://github.com/o/r/pull/7|View PR>");
+    expect(text).toContain("<https://app.example.com/tickets/42|Ticket>");
+  });
+
+  it("review.completed (request_changes) → verdetto 'changes requested'", () => {
+    const text = (
+      formatNotification({ ...REVIEW_COMPLETED, verdict: "request_changes" }, "slack")
+        .body as { text: string }
+    ).text;
+    expect(text).toContain("changes requested");
+    expect(text).not.toContain("approval suggested");
+  });
 });
 
 describe("formatNotification — slack (lingua it)", () => {
@@ -210,6 +239,23 @@ describe("formatNotification — slack (lingua it)", () => {
       .text;
     expect(text).toContain("Budget superato (mensile)");
     expect(text).toContain("spesi $51.70 sul limite di $50.00");
+  });
+
+  it("review.completed → testo e verdetto italiani, label PR/Ticket localizzate", () => {
+    const text = (formatNotification(REVIEW_COMPLETED, "slack", "it").body as { text: string })
+      .text;
+    expect(text).toContain("Review della PR completata");
+    expect(text).toContain("approvazione suggerita");
+    expect(text).toContain("<https://github.com/o/r/pull/7|Vedi PR>");
+    expect(text).toContain("<https://app.example.com/tickets/42|Ticket>");
+  });
+
+  it("review.completed (request_changes) it → 'modifiche richieste'", () => {
+    const text = (
+      formatNotification({ ...REVIEW_COMPLETED, verdict: "request_changes" }, "slack", "it")
+        .body as { text: string }
+    ).text;
+    expect(text).toContain("modifiche richieste");
   });
 });
 
@@ -358,6 +404,26 @@ describe("formatNotification — generic", () => {
     expect(message.endsWith(".")).toBe(true);
   });
 
+  it("review.completed → payload piatto con prUrl e verdict machine-readable", () => {
+    const body = formatNotification(REVIEW_COMPLETED, "generic").body as Record<string, unknown>;
+    expect(body.event).toBe("review.completed");
+    expect(body.ticketNumber).toBe(42);
+    expect(body.prUrl).toBe("https://github.com/o/r/pull/7");
+    expect(body.verdict).toBe("approve");
+    expect(body.ticketUrl).toBe("https://app.example.com/tickets/42");
+    expect(body.message as string).toContain("PR review completed");
+    expect(body.message as string).toContain("approval suggested");
+  });
+
+  it("review.completed (request_changes) → verdict grezzo nel payload", () => {
+    const body = formatNotification(
+      { ...REVIEW_COMPLETED, verdict: "request_changes" },
+      "generic",
+    ).body as Record<string, unknown>;
+    expect(body.verdict).toBe("request_changes");
+    expect(body.message as string).toContain("changes requested");
+  });
+
   it("message → frase senza markup né link, niente emoji né spazio finale (en)", () => {
     const body = formatNotification(TICKET_CREATED, "generic").body as Record<string, unknown>;
     const message = body.message as string;
@@ -401,6 +467,7 @@ describe("sampleEvents", () => {
       "job.plan_review",
       "job.budget_held",
       "job.failed",
+      "review.completed",
     ]);
     for (const event of events) {
       expect(event.ticketUrl.startsWith("https://app.example.com/tickets/")).toBe(true);

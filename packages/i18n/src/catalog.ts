@@ -63,9 +63,14 @@ export const en: Catalog = {
   "notify.jobFailed": "AI fix failed on {ref} — {ticketTitle}: {error}. {link}",
   "notify.budgetHeld":
     "Budget exceeded ({scope}) — {ref} {ticketTitle} ({projectName}): spent ${spent} of ${limit} limit. Job on hold; start it manually to override. {link}",
+  "notify.reviewCompleted":
+    "PR review completed for {ref} — {ticketTitle} ({projectName}): {verdict}. {link}",
   // Etichette dello scope del budget (interpolate in `notify.budgetHeld`).
   "notify.scopeTicket": "ticket",
   "notify.scopeMonthly": "monthly",
+  // Verdetti della review PR (interpolati in `notify.reviewCompleted`).
+  "notify.verdict.approve": "approval suggested ✅",
+  "notify.verdict.requestChanges": "changes requested ⚠️",
   // Suffisso costo (anteposto allo spazio: la frase ha già lo spazio prima).
   "notify.costSuffix": " (cost ${cost})",
   // Etichette dei link (rese nel markup del formato attorno all'URL).
@@ -131,8 +136,12 @@ export const it: Catalog = {
   "notify.jobFailed": "Fix AI fallito su {ref} — {ticketTitle}: {error}. {link}",
   "notify.budgetHeld":
     "Budget superato ({scope}) — {ref} {ticketTitle} ({projectName}): spesi ${spent} sul limite di ${limit}. Job in pausa; avvialo manualmente per forzare. {link}",
+  "notify.reviewCompleted":
+    "Review della PR completata per {ref} — {ticketTitle} ({projectName}): {verdict}. {link}",
   "notify.scopeTicket": "ticket",
   "notify.scopeMonthly": "mensile",
+  "notify.verdict.approve": "approvazione suggerita ✅",
+  "notify.verdict.requestChanges": "modifiche richieste ⚠️",
   "notify.costSuffix": " (costo ${cost})",
   "notify.linkOpen": "Apri",
   "notify.linkReview": "Rivedi",

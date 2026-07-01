@@ -43,6 +43,7 @@ export interface NotificationSettingsRow {
   notifyJobFailed: boolean;
   notifyPrClosed: boolean;
   notifyBudgetHeld: boolean;
+  notifyReviewCompleted: boolean;
 }
 
 /**
@@ -71,6 +72,7 @@ const TOGGLE_FOR_KIND: Record<NotificationKind, keyof NotificationSettingsRow> =
   "job.budget_held": "notifyBudgetHeld",
   "job.failed": "notifyJobFailed",
   "job.pr_closed": "notifyPrClosed",
+  "review.completed": "notifyReviewCompleted",
 };
 
 /**
@@ -91,6 +93,7 @@ async function loadSettings(db: Db): Promise<NotificationSettingsRow | null> {
       notifyJobFailed: notificationSettings.notifyJobFailed,
       notifyPrClosed: notificationSettings.notifyPrClosed,
       notifyBudgetHeld: notificationSettings.notifyBudgetHeld,
+      notifyReviewCompleted: notificationSettings.notifyReviewCompleted,
     })
     .from(notificationSettings)
     .limit(1);
