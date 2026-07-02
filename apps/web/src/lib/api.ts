@@ -1343,8 +1343,19 @@ export interface AutomationRule {
   maxCostUsd: number | null;
 }
 
+/**
+ * Impostazioni della review automatica delle PR: se attiva, un agente AI
+ * recensisce ogni pull request aperta o aggiornata sul repo collegato.
+ */
+export interface PrReviewSettings {
+  enabled: boolean;
+  /** Tetto di costo USD per singola review; null = nessun limite. */
+  maxCostUsd: number | null;
+}
+
 export interface AutomationSettings {
   rules: AutomationRule[];
+  prReview: PrReviewSettings;
 }
 
 /** Regole di automazione AI (solo admin): 403 per i member. */
@@ -1353,8 +1364,11 @@ export function getAutomationSettings(): Promise<AutomationSettings> {
 }
 
 /** Upsert delle regole di automazione AI (solo admin). Ritorna lo stato aggiornato. */
-export function putAutomationSettings(rules: AutomationRule[]): Promise<AutomationSettings> {
-  return api.put("/api/settings/automation", { rules });
+export function putAutomationSettings(
+  rules: AutomationRule[],
+  prReview: PrReviewSettings,
+): Promise<AutomationSettings> {
+  return api.put("/api/settings/automation", { rules, prReview });
 }
 
 // --- Settings: notifiche webhook ---
@@ -1381,6 +1395,8 @@ export interface NotificationSettings {
   notifyPlanReview: boolean;
   /** Il budget di costo è stato superato e il job è stato tenuto in attesa. */
   notifyBudgetHeld: boolean;
+  /** La review AI di una PR è stata completata (verdetto pubblicato). */
+  notifyReviewCompleted: boolean;
   notifyJobFailed: boolean;
 }
 
@@ -1411,6 +1427,9 @@ export function putNotificationSettings(
     notifyJobHeld: settings.notifyJobHeld,
     notifyPlanReview: settings.notifyPlanReview,
     notifyBudgetHeld: settings.notifyBudgetHeld,
+    // Il server ha un default (true) su questo campo: va inviato SEMPRE
+    // esplicitamente per non resettare la scelta dell'utente.
+    notifyReviewCompleted: settings.notifyReviewCompleted,
     notifyJobFailed: settings.notifyJobFailed,
   });
 }

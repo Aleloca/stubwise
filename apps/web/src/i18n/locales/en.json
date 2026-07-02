@@ -535,6 +535,7 @@
       "jobHeld": "On hold",
       "planReview": "AI plan awaiting approval",
       "budgetHeld": "Budget exceeded (job held)",
+      "reviewCompleted": "PR review completed",
       "jobFailed": "Fix failed"
     },
     "samples": {
@@ -543,6 +544,7 @@
       "prClosed": "PR closed",
       "jobHeld": "On hold",
       "planReview": "Plan pending",
+      "reviewCompleted": "PR review",
       "jobFailed": "Fix failed"
     },
     "slack": {
@@ -594,6 +596,12 @@
     "maxCostPlaceholder": "No cap",
     "maxCostHint": "Per-type cap on AI cost per ticket. Empty = no cap.",
     "effortOption": "{{label}} ({{value}}/5)",
+    "prReviewTitle": "PR Review",
+    "prReviewSubtitle": "On every opened or updated pull request, an AI agent reviews the changes and suggests approval or changes. Requires the repository webhook (PR events).",
+    "prReviewEnabled": "Enabled",
+    "prReviewEnabledLabel": "PR review enabled",
+    "prReviewMaxCost": "Max cost per review ($)",
+    "prReviewMaxCostLabel": "Max cost per review ($)",
     "save": "Save",
     "saving": "Saving…",
     "saved": "Saved"
