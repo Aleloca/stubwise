@@ -58,7 +58,9 @@ import { buildReviewPrompt, parseReviewOutput } from "./prompts.js";
  * 11. ticket: branch `stubwise/ticket-N` → il ticket N del progetto; altrimenti
  *     il ticket dell'ultima review della stessa PR; altrimenti se ne CREA uno
  *     di tipo `review` (solo a parse riuscito: una review fallita non lascia
- *     ticket vuoti);
+ *     ticket vuoti) — ma prima di creare lo stato PR viene RI-verificato:
+ *     chiusa nel frattempo → riga `completed` con verdict/summary e ticketId
+ *     null, niente pubblicazioni (race col webhook di chiusura);
  * 12. transazione: commento AI sul ticket + riga → `completed`;
  * 13. commento sticky sulla PR (best-effort, fuori transazione);
  * 14. notifica `review.completed` (best-effort).
@@ -291,13 +293,20 @@ function runCostUsd(usage?: AgentRunUsage): number {
  *     claimando il numero dal contatore del progetto — stesso pattern
  *     transazionale di createTicket in apps/server/src/db/tickets.ts (il worker
  *     non può importare da apps/server).
+ *
+ * SOLO nel ramo 3 lo stato della PR viene RI-verificato (`getPrState`) appena
+ * prima di creare: `{ prClosed: true }` = PR chiusa nel frattempo, niente
+ * ticket (vedi il commento inline sulla race col webhook di chiusura). I rami
+ * 1 e 2 non ne hanno bisogno: il ticket esiste già e il webhook di chiusura
+ * della PR lo gestisce.
  */
 async function resolveTicket(
   db: Db,
   ctx: ReviewContext,
   job: PrReviewJobRow,
   lang: Language,
-): Promise<{ id: string; number: number; title: string } | null> {
+  getPrState: () => Promise<"open" | "closed">,
+): Promise<{ id: string; number: number; title: string } | { prClosed: true } | null> {
   const branchMatch = STUBWISE_BRANCH_RE.exec(job.sourceBranch);
   if (branchMatch) {
     const [existing] = await db
@@ -330,6 +339,21 @@ async function resolveTicket(
       .from(tickets)
       .where(eq(tickets.id, previous.ticketId));
     if (existing) return existing;
+  }
+
+  // Ri-verifica dello stato PR APPENA PRIMA di creare il ticket: il gate
+  // iniziale è girato MINUTI fa (il run dell'agente è lungo) e nel frattempo
+  // la PR può essere stata chiusa. In quel caso il webhook di chiusura non ha
+  // trovato alcun ticket da chiudere (pr_reviews.ticketId era ancora null):
+  // crearne uno ORA lo lascerebbe aperto per sempre, perché nessun evento
+  // futuro lo chiuderà. Errore API → fail-open (si crea comunque), coerente
+  // col gate iniziale.
+  try {
+    if ((await getPrState()) === "closed") return { prClosed: true };
+  } catch (err) {
+    console.error(
+      `[stubwise-worker] pr-review: stato della PR #${job.prNumber} non ri-verificabile (${errText(err)}), procedo a creare il ticket`,
+    );
   }
 
   // Creazione del ticket review: titolo CAPPATO (il titolo PR è dell'autore
@@ -415,6 +439,10 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
     try {
       spent = await monthlyCostUsdFn(deps.db);
     } catch (err) {
+      // Scelta deliberata: NESSUNA riga failed (a differenza del budget
+      // sforato, che è uno stato "vero" da mostrare nello storico) — qui
+      // l'errore è transitorio (query sul DB fallita) e il prossimo push
+      // sulla PR ri-accoderà il job; una riga failed sporcherebbe lo storico.
       console.error(
         `[stubwise-worker] pr-review: costo mensile non calcolabile (${errText(err)}), salto`,
       );
@@ -553,9 +581,34 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
     }
 
     // 11. Ticket che ospita la review (creato SOLO ora, a parse riuscito).
-    const ticket = await resolveTicket(deps.db, ctx, job, lang);
+    const ticket = await resolveTicket(deps.db, ctx, job, lang, () =>
+      getProviderFn(ctx.mirrorProject.provider).getPullRequestState(
+        ctx.mirrorProject,
+        job.prNumber,
+      ),
+    );
     if (!ticket) {
       await failRunningReview(deps.db, reviewId, "ticket della review non risolvibile");
+      return;
+    }
+    if ("prClosed" in ticket) {
+      // PR esterna chiusa DURANTE il run (race col webhook di chiusura, vedi
+      // resolveTicket): la riga si chiude completed con verdict/summary (lo
+      // storico e i costi restano consultabili) ma SENZA ticket, commento
+      // sticky né notifica — il lavoro non serve più a nessuno.
+      console.error(
+        `[stubwise-worker] pr-review: PR #${job.prNumber} chiusa durante la review, completo senza ticket`,
+      );
+      await deps.db
+        .update(prReviews)
+        .set({
+          status: "completed",
+          verdict: parsed.verdict,
+          summary: parsed.summary,
+          finishedAt: sql`now()`,
+          lastActivityAt: sql`now()`,
+        })
+        .where(eq(prReviews.id, reviewId));
       return;
     }
 

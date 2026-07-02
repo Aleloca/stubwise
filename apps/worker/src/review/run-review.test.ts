@@ -345,6 +345,43 @@ describe("runPrReview", () => {
     }
   });
 
+  it("PR esterna chiusa DURANTE la review: riga completed senza ticket, nessuna pubblicazione", async () => {
+    const { projectId, repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db);
+    const fakes = makeFakes();
+    // Aperta al gate iniziale, chiusa alla ri-verifica pre-creazione del
+    // ticket: race col webhook di chiusura mentre l'agente gira (il webhook
+    // non trova alcun ticket da chiudere perché ticketId è ancora null).
+    fakes.getPullRequestState
+      .mockResolvedValueOnce("open")
+      .mockResolvedValueOnce("closed");
+
+    await runPrReview(fakes.deps, makeJob(repositoryId));
+
+    // La riga si chiude completed (storico e costi restano) ma SENZA ticket.
+    const reviews = await testDb.db
+      .select()
+      .from(prReviews)
+      .where(eq(prReviews.repositoryId, repositoryId));
+    expect(reviews).toHaveLength(1);
+    expect(reviews[0]!.status).toBe("completed");
+    expect(reviews[0]!.verdict).toBe("request_changes");
+    expect(reviews[0]!.summary).toContain("src/x.ts:3");
+    expect(reviews[0]!.ticketId).toBeNull();
+    expect(reviews[0]!.finishedAt).not.toBeNull();
+
+    // Nessun ticket creato (resterebbe aperto per sempre), nessuna
+    // pubblicazione sulla PR, nessuna notifica.
+    const projectTickets = await testDb.db
+      .select()
+      .from(tickets)
+      .where(eq(tickets.projectId, projectId));
+    expect(projectTickets).toHaveLength(0);
+    expect(fakes.upsertPrComment).not.toHaveBeenCalled();
+    expect(fakes.dispatched).toHaveLength(0);
+    expect(fakes.getPullRequestState).toHaveBeenCalledTimes(2);
+  });
+
   it("PR già chiusa al claim: nessuna riga, agente mai invocato", async () => {
     const { repositoryId } = await createRepository(testDb.db);
     await enableReview(testDb.db);

@@ -37,8 +37,8 @@ export const en: Catalog = {
   "comment.providersLimitHeld":
     "All AI providers reached their rate/usage limit. The job will need to be retried after the limit resets.",
   // Verdetti della PR Review automatica postati come commento AI (niente
-  // emoji ✅/⚠️ nel testo: convenzione dei verdetti "senza emoji" condivisa
-  // con notify.verdict.*).
+  // emoji DI VERDETTO ✅/⚠️ nel testo, convenzione condivisa con
+  // notify.verdict.*; il 🔎 è il prefisso neutro della feature, non un verdetto).
   "comment.reviewVerdict.approve": "🔎 **PR Review** — approval suggested ({url})",
   "comment.reviewVerdict.requestChanges": "🔎 **PR Review** — changes requested ({url})",
   "comment.reviewTicketBody": "Automatic review of pull request {url} (branch `{branch}`).",
