@@ -52,7 +52,9 @@ import { buildReviewPrompt, parseReviewOutput } from "./prompts.js";
  *  6. riga `pr_reviews` RUNNING + heartbeat su lastActivityAt (60s, unref);
  *  7. diff dal mirror + agente read-only (plan) nel worktree alla head;
  *  8. registrazione consumi in `agent_runs` (phase "review") — PRIMA di cap e
- *     parse: i costi sono reali anche se l'output è inusabile;
+ *     parse: i costi sono reali anche se l'output è inusabile; poi GUARDIE sul
+ *     run: limite di rate/usage del provider → `failed`; exit ≠ 0 → `failed`
+ *     (mai un verdetto da un run crashato, anche se l'output parziale parsasse);
  *  9. cap per-review: sforato → `failed`, NESSUNA pubblicazione;
  * 10. parse dell'output: non parsabile → `failed` (mai un verdetto inventato);
  * 11. ticket: branch `stubwise/ticket-N` → il ticket N del progetto; altrimenti
@@ -237,13 +239,15 @@ async function insertFailedReview(
   }
 }
 
-/** Chiude come failed una riga running (mai lancia). */
+/** Chiude come failed una riga running (mai lancia). La guardia sullo status
+ * rende innocua una scrittura tardiva se il recovery delle righe stale l'ha
+ * già chiusa (riga non più running → update a vuoto). */
 async function failRunningReview(db: Db, reviewId: string, error: string): Promise<void> {
   try {
     await db
       .update(prReviews)
       .set({ status: "failed", error, finishedAt: sql`now()`, lastActivityAt: sql`now()` })
-      .where(eq(prReviews.id, reviewId));
+      .where(and(eq(prReviews.id, reviewId), eq(prReviews.status, "running")));
   } catch (err) {
     console.error(
       `[stubwise-worker] pr-review: update failed della review ${reviewId} fallito (${errText(err)})`,
@@ -433,7 +437,7 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
   }
 
   // 4. GATE budget mensile dell'istanza: sforato → riga failed (storico visibile).
-  if (settings.monthlyBudgetUsd != null && settings.monthlyBudgetUsd !== "") {
+  if (settings.monthlyBudgetUsd != null) {
     const budget = Number(settings.monthlyBudgetUsd);
     let spent: number;
     try {
@@ -558,9 +562,20 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
       return;
     }
 
+    // Run crashato (exit ≠ 0 senza marcatore di limite): runner.run RISOLVE
+    // anche su exit non-zero (vedi claude-cli.ts), quindi senza questa guardia
+    // l'output parziale finirebbe nel parse — errore attribuito male ("output
+    // non parsabile") o, peggio, un JSON valido PUBBLICATO da un run fallito.
+    // Mai un verdetto da un run fallito: stessa scelta di fix.ts
+    // (AgentExitError), più stretta di auto-update.ts.
+    if (result.exitCode !== 0) {
+      await failRunningReview(deps.db, reviewId, `agente uscito con exit ${result.exitCode}`);
+      return;
+    }
+
     // 9. Cap per-review: sforato → failed, NESSUNA pubblicazione (né ticket né
     // commenti né notifica).
-    if (settings.prReviewMaxCostUsd != null && settings.prReviewMaxCostUsd !== "") {
+    if (settings.prReviewMaxCostUsd != null) {
       const cap = Number(settings.prReviewMaxCostUsd);
       const cost = runCostUsd(result.usage);
       if (cost > cap) {

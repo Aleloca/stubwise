@@ -1,5 +1,6 @@
 import {
   agentRuns,
+  aiProviders,
   comments,
   encrypt,
   gitAccounts,
@@ -46,6 +47,7 @@ afterEach(async () => {
   await testDb.db.delete(agentRuns);
   await testDb.db.delete(projects);
   await testDb.db.delete(gitAccounts);
+  await testDb.db.delete(aiProviders);
   // Riporta il singleton delle impostazioni allo stato di default.
   await testDb.db
     .update(instanceSettings)
@@ -552,5 +554,78 @@ describe("runPrReview", () => {
     expect(reviews[0]!.status).toBe("failed");
     expect(reviews[0]!.error).toMatch(/limite/i);
     expect(fakes.upsertPrComment).not.toHaveBeenCalled();
+  });
+
+  it("run crashato (exit non-zero SENZA marcatore) con JSON valido nell'output: riga failed, NIENTE pubblicazione", async () => {
+    const { projectId, repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db);
+    const fakes = makeFakes();
+    // runner.run RISOLVE anche su exit ≠ 0 (vedi claude-cli.ts): l'output
+    // parziale contiene un JSON di review valido, ma un verdetto da un run
+    // fallito non va MAI pubblicato.
+    fakes.runner.run.mockResolvedValue(makeRunResult({ output: REVIEW_JSON, exitCode: 1 }));
+
+    await runPrReview(fakes.deps, makeJob(repositoryId));
+
+    const reviews = await testDb.db
+      .select()
+      .from(prReviews)
+      .where(eq(prReviews.repositoryId, repositoryId));
+    expect(reviews).toHaveLength(1);
+    expect(reviews[0]!.status).toBe("failed");
+    expect(reviews[0]!.error).toContain("exit 1");
+    expect(reviews[0]!.verdict).toBeNull();
+
+    // Nessun ticket, nessun commento sulla PR, nessuna notifica.
+    const projectTickets = await testDb.db
+      .select()
+      .from(tickets)
+      .where(eq(tickets.projectId, projectId));
+    expect(projectTickets).toHaveLength(0);
+    expect(fakes.upsertPrComment).not.toHaveBeenCalled();
+    expect(fakes.dispatched).toHaveLength(0);
+
+    // I costi del run si registrano comunque (la spesa è avvenuta).
+    const runs = await testDb.db
+      .select()
+      .from(agentRuns)
+      .where(eq(agentRuns.prReviewId, reviews[0]!.id));
+    expect(runs).toHaveLength(1);
+  });
+
+  it("provider pinned del progetto non risolvibile: riga failed senza fallback, agente mai invocato", async () => {
+    const { projectId, repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db);
+    // Un provider reale (FK valida) pinnato sul progetto, reso "non risolvibile"
+    // al run (disabilitato/eliminato) iniettando un loadProviderByIdFn che
+    // ritorna null — stesso pattern dei test di auto-update.ts.
+    const [provider] = await testDb.db
+      .insert(aiProviders)
+      .values({
+        label: "Pinned review",
+        kind: "api_key",
+        secretEncrypted: encrypt("sk-review", ENCRYPTION_KEY),
+        enabled: true,
+        position: 0,
+      })
+      .returning();
+    await testDb.db
+      .update(projects)
+      .set({ aiProviderId: provider!.id })
+      .where(eq(projects.id, projectId));
+    const fakes = makeFakes({ loadProviderByIdFn: async () => null });
+
+    await runPrReview(fakes.deps, makeJob(repositoryId));
+
+    const reviews = await testDb.db
+      .select()
+      .from(prReviews)
+      .where(eq(prReviews.repositoryId, repositoryId));
+    expect(reviews).toHaveLength(1);
+    expect(reviews[0]!.status).toBe("failed");
+    expect(reviews[0]!.error).toMatch(/provider AI/i);
+    expect(fakes.runner.run).not.toHaveBeenCalled();
+    expect(fakes.upsertPrComment).not.toHaveBeenCalled();
+    expect(fakes.dispatched).toHaveLength(0);
   });
 });
