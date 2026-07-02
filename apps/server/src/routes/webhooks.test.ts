@@ -1764,6 +1764,41 @@ describe("webhook PR Review (chiusura)", () => {
     expect(cmts[0]!.body).toContain("https://github.com/acme/repo/pull/7");
   });
 
+  it("re-review fallita (ticketId null) più recente della review col ticket → il merge chiude comunque il ticket", async () => {
+    const project = await createProject({
+      name: "Review Chiusura Failed Recente",
+      provider: "github",
+      repoUrl: "https://github.com/acme/review-chiusura-failed",
+      credentials: { token: "tok" },
+    });
+    const ticketId = await insertReviewTicket(project.id, 1, "open");
+    await seedPrReview(project.id, 7, ticketId);
+    // Re-review della STESSA PR fallita DOPO quella completata: ticketId null
+    // (le righe failed/running non hanno mai il ticket) e createdAt più
+    // recente. La lookup del webhook deve saltarla e trovare la riga col ticket.
+    await testDb.db.insert(prReviews).values({
+      repositoryId: project.id,
+      prNumber: 7,
+      prUrl: "https://github.com/acme/repo/pull/7",
+      prTitle: "Add login",
+      headSha: "b".repeat(40),
+      ticketId: null,
+      status: "failed",
+      createdAt: new Date(Date.now() + 60_000),
+    });
+    const body = githubPayload("feature/login");
+
+    const res = await postGithubClosure(project, body);
+    expect(res.statusCode).toBe(204);
+
+    // Nonostante la riga più recente sia senza ticket, il ticket review della
+    // riga completata si chiude a done con il commento system.
+    expect(await ticketStatus(ticketId)).toBe("done");
+    const cmts = await ticketComments(ticketId);
+    expect(cmts).toHaveLength(1);
+    expect(cmts[0]!.authorType).toBe("system");
+  });
+
   it("PR esterna chiusa senza merge → ticket review a closed", async () => {
     const project = await createProject({
       name: "Review Chiusura Rifiuto",

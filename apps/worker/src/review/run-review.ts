@@ -338,6 +338,8 @@ async function resolveTicket(
   if (previous?.ticketId) {
     // ticketId è ON DELETE SET NULL: non-null ⇒ il ticket esiste ancora, ma la
     // select conferma e porta numero/titolo per la notifica.
+    // Edge case ACCETTATO (v1): una PR riaperta riusa il ticket anche se già
+    // done/closed — il commento AI finisce su un ticket chiuso.
     const [existing] = await db
       .select({ id: tickets.id, number: tickets.number, title: tickets.title })
       .from(tickets)

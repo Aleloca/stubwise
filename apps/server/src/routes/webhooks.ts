@@ -1,7 +1,7 @@
 import { getProvider } from "@stubwise/git";
 import { t } from "@stubwise/i18n";
 import { dispatchNotification } from "@stubwise/notifications";
-import { and, count, desc, eq, ne, notInArray, sql } from "drizzle-orm";
+import { and, count, desc, eq, isNotNull, ne, notInArray, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
   aiJobs,
@@ -273,6 +273,10 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
             ),
           );
 
+        // Solo le righe CON ticket: quelle failed/running hanno ticketId null
+        // e una re-review fallita più recente maschererebbe la review
+        // completata che il ticket l'ha creato (stessa lookup di resolveTicket
+        // nel worker).
         const [reviewRow] = await instance.db
           .select({ ticketId: prReviews.ticketId })
           .from(prReviews)
@@ -280,6 +284,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
             and(
               eq(prReviews.repositoryId, context.repositoryId),
               eq(prReviews.prNumber, event.prNumber),
+              isNotNull(prReviews.ticketId),
             ),
           )
           .orderBy(desc(prReviews.createdAt))
