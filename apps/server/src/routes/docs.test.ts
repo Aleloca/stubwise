@@ -232,6 +232,87 @@ describe("POST /api/repositories/:projectId/docs/generate", () => {
   });
 });
 
+describe("POST /api/repositories/:repositoryId/docs/resume", () => {
+  /** Inserisce una generazione `paused` (pausedAt/pauseReason valorizzati). */
+  async function seedPausedGeneration(db: Db, projectId: string): Promise<string> {
+    const [gen] = await db
+      .insert(docGenerations)
+      .values({
+        repositoryId: projectId,
+        status: "paused",
+        trigger: "manual",
+        startedAt: new Date(),
+        pausedAt: new Date(),
+        pauseReason: "provider_limit",
+      })
+      .returning();
+    if (!gen) throw new Error("insert della generazione non ha restituito la riga");
+    return gen.id;
+  }
+
+  it("member → 403; senza sessione → 401; repository inesistente → 404", async () => {
+    const project = await insertProject(testDb.db);
+
+    const asMember = await app.inject({
+      method: "POST",
+      url: `/api/repositories/${project.id}/docs/resume`,
+      headers: { cookie: memberCookie },
+    });
+    expect(asMember.statusCode).toBe(403);
+
+    const anonymous = await app.inject({
+      method: "POST",
+      url: `/api/repositories/${project.id}/docs/resume`,
+    });
+    expect(anonymous.statusCode).toBe(401);
+
+    const missing = await app.inject({
+      method: "POST",
+      url: "/api/repositories/00000000-0000-0000-0000-000000000000/docs/resume",
+      headers: { cookie: adminCookie },
+    });
+    expect(missing.statusCode).toBe(404);
+  });
+
+  it("admin su generazione paused → 200 con la generazione running (pausedAt/pauseReason azzerati)", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await seedPausedGeneration(testDb.db, project.id);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/repositories/${project.id}/docs/resume`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { id: string; status: string };
+    expect(body.id).toBe(genId);
+    expect(body.status).toBe("running");
+
+    // Reread dal DB: running, pausa azzerata.
+    const [row] = await testDb.db
+      .select()
+      .from(docGenerations)
+      .where(eq(docGenerations.id, genId));
+    expect(row!.status).toBe("running");
+    expect(row!.pausedAt).toBeNull();
+    expect(row!.pauseReason).toBeNull();
+  });
+
+  it("nessuna generazione paused → 409 generation_not_paused", async () => {
+    const project = await insertProject(testDb.db);
+    // Una generazione c'è, ma non è paused: il resume non ha nulla da riprendere.
+    await seedSucceededGeneration(testDb.db, project.id);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/repositories/${project.id}/docs/resume`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(409);
+    expect((res.json() as { code: string }).code).toBe("generation_not_paused");
+  });
+});
+
 describe("GET /api/repositories/:projectId/docs/status", () => {
   it("nessuna generazione: generation e latestJob null", async () => {
     const project = await insertProject(testDb.db);
