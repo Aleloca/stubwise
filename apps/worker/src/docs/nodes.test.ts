@@ -1,13 +1,16 @@
 import { docGenerations, docNodes, type Db } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
-import { eq } from "drizzle-orm";
+import { eq, ne } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   claimNextNode,
   completeNode,
   createChildren,
   failNode,
+  pauseGeneration,
+  requeueNode,
   requeueStaleNodes,
+  resumeGeneration,
   touchNode,
   writeExploreResult,
   type ChildSpec,
@@ -32,6 +35,9 @@ beforeAll(async () => {
 
 afterEach(async () => {
   await testDb.db.delete(docNodes);
+  // I test su pause/claim creano generazioni extra: via anche quelle (i nodi
+  // sono già stati cancellati, quindi nessun vincolo FK residuo).
+  await testDb.db.delete(docGenerations).where(ne(docGenerations.id, generationId));
 });
 
 afterAll(async () => {
@@ -50,6 +56,7 @@ interface InsertNodeOptions {
   depth?: number;
   createdAt?: Date;
   lastActivityAt?: Date;
+  generationId?: string;
 }
 
 async function insertNode(db: Db, opts: InsertNodeOptions = {}): Promise<DocNode> {
@@ -60,6 +67,16 @@ async function insertNode(db: Db, opts: InsertNodeOptions = {}): Promise<DocNode
     .returning();
   if (!node) throw new Error("insert del nodo non ha restituito la riga");
   return node;
+}
+
+/** Inserisce una generazione extra (per i test su pause/resume e sul claim). */
+async function insertGeneration(
+  db: Db,
+  status: "pending" | "running" | "paused" | "succeeded" | "failed",
+): Promise<string> {
+  const [gen] = await db.insert(docGenerations).values({ repositoryId, status }).returning();
+  if (!gen) throw new Error("insert della generazione non ha restituito la riga");
+  return gen.id;
 }
 
 async function getNode(db: Db, id: string): Promise<DocNode> {
@@ -116,6 +133,24 @@ describe("claimNextNode", () => {
     await insertNode(db, { status: "exploring" });
     await insertNode(db, { status: "awaiting_children" });
     await insertNode(db, { status: "done" });
+    expect(await claimNextNode(db)).toBeNull();
+  });
+
+  it("NON reclama nodi di generazioni paused (e ordina tra i claimabili rimasti)", async () => {
+    const { db } = testDb;
+    const pausedGen = await insertGeneration(db, "paused");
+    const runningGen = await insertGeneration(db, "running");
+    // Il nodo della generazione in pausa è il più VECCHIO: se il claim si
+    // limitasse a saltare la prima riga (invece di filtrare a monte) non
+    // prenderebbe nulla. Deve invece ordinare tra i soli claimabili.
+    await insertNode(db, { generationId: pausedGen, createdAt: minutesAgo(10) });
+    const claimable = await insertNode(db, { generationId: runningGen, createdAt: minutesAgo(1) });
+
+    const claimed = await claimNextNode(db);
+    expect(claimed?.node.id).toBe(claimable.id);
+
+    // Con SOLO la generazione in pausa rimasta: nessun claim.
+    await db.delete(docNodes).where(eq(docNodes.generationId, runningGen));
     expect(await claimNextNode(db)).toBeNull();
   });
 
@@ -264,6 +299,92 @@ describe("completeNode / failNode", () => {
     expect((await getNode(db, child.id)).status).toBe("pending");
     // Il contatore del padre NON è stato toccato.
     expect((await getNode(db, parent.id)).pendingChildren).toBe(2);
+  });
+});
+
+describe("requeueNode", () => {
+  it("rimette exploring→pending (e synthesizing→ready_to_synthesize) SENZA joinare il padre", async () => {
+    const { db } = testDb;
+    const parent = await insertNode(db, { status: "awaiting_children", pendingChildren: 2 });
+    const exploring = await insertNode(db, { status: "exploring", parentId: parent.id });
+    const synthesizing = await insertNode(db, { status: "synthesizing", parentId: parent.id });
+
+    expect(await requeueNode(db, exploring.id)).toBe(true);
+    expect(await requeueNode(db, synthesizing.id)).toBe(true);
+
+    expect((await getNode(db, exploring.id)).status).toBe("pending");
+    expect((await getNode(db, synthesizing.id)).status).toBe("ready_to_synthesize");
+    // A differenza di failNode il padre è INVARIATO: i nodi non sono conclusi,
+    // verranno rieseguiti alla ripresa e joineranno solo allora.
+    const persistedParent = await getNode(db, parent.id);
+    expect(persistedParent.status).toBe("awaiting_children");
+    expect(persistedParent.pendingChildren).toBe(2);
+  });
+
+  it("su un nodo non attivo (done/failed) restituisce false senza cambiamenti", async () => {
+    const { db } = testDb;
+    const done = await insertNode(db, { status: "done" });
+    const failed = await insertNode(db, { status: "failed" });
+    const pending = await insertNode(db, { status: "pending" });
+
+    expect(await requeueNode(db, done.id)).toBe(false);
+    expect(await requeueNode(db, failed.id)).toBe(false);
+    expect(await requeueNode(db, pending.id)).toBe(false);
+
+    expect((await getNode(db, done.id)).status).toBe("done");
+    expect((await getNode(db, failed.id)).status).toBe("failed");
+    expect((await getNode(db, pending.id)).status).toBe("pending");
+  });
+});
+
+describe("pauseGeneration / resumeGeneration", () => {
+  async function getGeneration(db: Db, id: string) {
+    const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.id, id));
+    if (!gen) throw new Error(`generazione ${id} non trovata`);
+    return gen;
+  }
+
+  it("pauseGeneration: running→paused con pausedAt e pauseReason; già paused → false (no-op)", async () => {
+    const { db } = testDb;
+    const genId = await insertGeneration(db, "running");
+
+    expect(await pauseGeneration(db, genId, "limite di utilizzo del provider")).toBe(true);
+
+    const paused = await getGeneration(db, genId);
+    expect(paused.status).toBe("paused");
+    expect(paused.pausedAt).not.toBeNull();
+    expect(paused.pauseReason).toBe("limite di utilizzo del provider");
+
+    // Un secondo segnale concorrente è no-op: guardia di stato su `running`.
+    expect(await pauseGeneration(db, genId, "altro motivo")).toBe(false);
+    expect((await getGeneration(db, genId)).pauseReason).toBe("limite di utilizzo del provider");
+  });
+
+  it("pauseGeneration su una generazione non running restituisce false", async () => {
+    const { db } = testDb;
+    const genId = await insertGeneration(db, "succeeded");
+    expect(await pauseGeneration(db, genId, "limite")).toBe(false);
+    const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.id, genId));
+    expect(gen?.status).toBe("succeeded");
+  });
+
+  it("resumeGeneration: paused→running e azzera pausedAt/pauseReason; non-paused → false", async () => {
+    const { db } = testDb;
+    const genId = await insertGeneration(db, "running");
+    await pauseGeneration(db, genId, "limite di utilizzo");
+
+    expect(await resumeGeneration(db, genId)).toBe(true);
+
+    const resumed = await getGeneration(db, genId);
+    expect(resumed.status).toBe("running");
+    expect(resumed.pausedAt).toBeNull();
+    expect(resumed.pauseReason).toBeNull();
+
+    // Un secondo resume (o un resume su una generazione mai in pausa) è no-op.
+    expect(await resumeGeneration(db, genId)).toBe(false);
+    const failedGen = await insertGeneration(db, "failed");
+    expect(await resumeGeneration(db, failedGen)).toBe(false);
+    expect((await getGeneration(db, failedGen)).status).toBe("failed");
   });
 });
 
