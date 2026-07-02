@@ -597,7 +597,7 @@
     "maxCostHint": "Tetto per-tipo sul costo AI per ticket. Vuoto = nessun tetto.",
     "effortOption": "{{label}} ({{value}}/5)",
     "prReviewTitle": "Review PR",
-    "prReviewSubtitle": "Review automatica delle PR: ad ogni pull request aperta o aggiornata un agente AI analizza le modifiche e suggerisce l'approvazione o le modifiche. Richiede il webhook del repository (eventi PR).",
+    "prReviewSubtitle": "Review automatica delle PR: ad ogni pull request aperta o aggiornata un agente AI analizza le modifiche e suggerisce se approvare o richiedere modifiche. Richiede il webhook del repository (eventi PR).",
     "prReviewEnabled": "Attiva",
     "prReviewEnabledLabel": "Review PR attiva",
     "prReviewMaxCost": "Costo massimo per review ($)",

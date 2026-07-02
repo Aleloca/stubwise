@@ -11,9 +11,10 @@ import {
 import { automationSettingsQueryOptions } from "../../lib/queries";
 
 /**
- * Sotto-pagina Automazione AI (solo admin): una riga per ciascuno dei 4 tipi di
- * ticket con il toggle auto-fix e la soglia di sforzo. Un solo Save persiste
- * tutte le regole via PUT; lo stato locale parte dai dati del server.
+ * Sotto-pagina Automazione AI (solo admin): una riga per ciascun tipo di
+ * ticket con il toggle auto-fix e la soglia di sforzo, più la sezione con le
+ * impostazioni PR Review (toggle globale e tetto di costo). Un solo Save
+ * persiste tutto via PUT; lo stato locale parte dai dati del server.
  */
 export function SettingsAutomationPage() {
   const { t } = useTranslation();
@@ -199,7 +200,7 @@ export function SettingsAutomationPage() {
             <input
               type="number"
               inputMode="decimal"
-              step="0.5"
+              step="0.01"
               min={0}
               value={prReview.maxCostUsd ?? ""}
               disabled={mutation.isPending}
