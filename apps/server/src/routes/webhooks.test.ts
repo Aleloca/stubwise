@@ -10,6 +10,8 @@ import {
   docGenerations,
   instanceSettings,
   notificationSettings,
+  prReviewJobs,
+  prReviews,
   projects,
   repositories,
   ticketRepositories,
@@ -54,12 +56,12 @@ afterEach(async () => {
     .update(notificationSettings)
     .set({ webhookUrl: null })
     .where(eq(notificationSettings.id, 1));
-  // Ripristina la lingua d'istanza al default 'en' (riga singleton id=1
-  // condivisa tra i test): un test che la porta a 'it' non deve influenzare i
-  // successivi.
+  // Ripristina le impostazioni d'istanza ai default (riga singleton id=1
+  // condivisa tra i test): un test che cambia lingua o toggle PR review non
+  // deve influenzare i successivi.
   await testDb.db
     .update(instanceSettings)
-    .set({ contentLanguage: "en" })
+    .set({ contentLanguage: "en", prReviewEnabled: false })
     .where(eq(instanceSettings.id, 1));
 });
 
@@ -319,14 +321,14 @@ function captureNotificationPosts(): Array<{ url: string; body: Record<string, u
 
 function bitbucketPayload(branch: string, prUrl = "https://bitbucket.org/acme/repo/pull-requests/7") {
   return JSON.stringify({
-    pullrequest: { source: { branch: { name: branch } }, links: { html: { href: prUrl } } },
+    pullrequest: { id: 7, source: { branch: { name: branch } }, links: { html: { href: prUrl } } },
   });
 }
 
 function githubPayload(branch: string, prUrl = "https://github.com/acme/repo/pull/7") {
   return JSON.stringify({
     action: "closed",
-    pull_request: { merged: true, head: { ref: branch }, html_url: prUrl },
+    pull_request: { number: 7, merged: true, head: { ref: branch }, html_url: prUrl },
   });
 }
 
@@ -351,7 +353,7 @@ function githubClosedUnmergedPayload(
 ) {
   return JSON.stringify({
     action: "closed",
-    pull_request: { merged: false, head: { ref: branch }, html_url: prUrl },
+    pull_request: { number: 7, merged: false, head: { ref: branch }, html_url: prUrl },
   });
 }
 
@@ -361,7 +363,7 @@ function bitbucketRejectedPayload(
   prUrl = "https://bitbucket.org/acme/repo/pull-requests/7",
 ) {
   return JSON.stringify({
-    pullrequest: { source: { branch: { name: branch } }, links: { html: { href: prUrl } } },
+    pullrequest: { id: 7, source: { branch: { name: branch } }, links: { html: { href: prUrl } } },
   });
 }
 
@@ -595,7 +597,7 @@ describe("POST /webhooks/git/:projectSlug", () => {
     });
     const body = JSON.stringify({
       action: "closed",
-      pull_request: { merged: false, head: { ref: "stubwise/ticket-1" }, html_url: "x" },
+      pull_request: { number: 7, merged: false, head: { ref: "stubwise/ticket-1" }, html_url: "x" },
     });
     const res = await app.inject({
       method: "POST",
@@ -1456,5 +1458,450 @@ describe("POST /webhooks/git/:projectSlug — push (auto-aggiornamento Docs)", (
     expect(await ticketStatus(ticketId)).toBe("done");
     // E nessun job di auto-update è stato creato.
     expect(await pendingJob(project.id)).toBeUndefined();
+  });
+});
+
+describe("webhook PR Review (accodamento)", () => {
+  /**
+   * Porta il toggle d'istanza prReviewEnabled (singleton id=1, seedato dalla
+   * migrazione) al valore richiesto.
+   */
+  async function setPrReviewEnabled(enabled: boolean): Promise<void> {
+    await testDb.db
+      .insert(instanceSettings)
+      .values({ id: 1, prReviewEnabled: enabled })
+      .onConflictDoUpdate({ target: instanceSettings.id, set: { prReviewEnabled: enabled } });
+  }
+
+  /** Payload GitHub pull_request opened/synchronize per la PR #42. */
+  function githubPrOpenedPayload(overrides: Partial<{ action: string; sha: string }> = {}): string {
+    return JSON.stringify({
+      action: overrides.action ?? "opened",
+      pull_request: {
+        number: 42,
+        title: "Add login",
+        body: "desc",
+        html_url: "https://github.com/acme/repo/pull/42",
+        head: { ref: "feature/login", sha: overrides.sha ?? "a".repeat(40) },
+        base: { ref: "main" },
+      },
+    });
+  }
+
+  /** Payload Bitbucket pullrequest:created per la PR #42. */
+  function bitbucketPrCreatedPayload(): string {
+    return JSON.stringify({
+      pullrequest: {
+        id: 42,
+        title: "Add login",
+        description: "desc",
+        source: { branch: { name: "feature/login" }, commit: { hash: "abc123def456" } },
+        destination: { branch: { name: "main" } },
+        links: { html: { href: "https://bitbucket.org/acme/repo/pull-requests/42" } },
+      },
+    });
+  }
+
+  /** Le righe pr_review_jobs del repository (attese: 0 o 1 per il vincolo unique). */
+  async function reviewJobs(repositoryId: string) {
+    return testDb.db
+      .select()
+      .from(prReviewJobs)
+      .where(eq(prReviewJobs.repositoryId, repositoryId));
+  }
+
+  function postGithubPr(repo: CreatedProject, body: string) {
+    return app.inject({
+      method: "POST",
+      url: `/webhooks/git/${repo.slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": sign(repo.webhookSecret, body),
+      },
+      payload: body,
+    });
+  }
+
+  it("pull_request opened con toggle attivo → riga in pr_review_jobs", async () => {
+    const project = await createProject({
+      name: "PR Review Opened",
+      provider: "github",
+      repoUrl: "https://github.com/acme/pr-review-opened",
+      credentials: { token: "tok" },
+    });
+    await setPrReviewEnabled(true);
+    const before = Date.now();
+
+    const res = await postGithubPr(project, githubPrOpenedPayload());
+    expect(res.statusCode).toBe(204);
+
+    const jobs = await reviewJobs(project.id);
+    expect(jobs).toHaveLength(1);
+    const job = jobs[0]!;
+    expect(job.prNumber).toBe(42);
+    expect(job.headSha).toBe("a".repeat(40));
+    expect(job.prTitle).toBe("Add login");
+    expect(job.prBody).toBe("desc");
+    expect(job.sourceBranch).toBe("feature/login");
+    expect(job.targetBranch).toBe("main");
+    expect(job.prUrl).toBe("https://github.com/acme/repo/pull/42");
+    // not_before almeno 90s nel futuro: pinna la finestra di debounce
+    // (before è catturato prima della request, quindi mai flaky).
+    expect(job.notBefore.getTime()).toBeGreaterThanOrEqual(before + 90_000);
+  });
+
+  it("synchronize sulla stessa PR → upsert (una sola riga, head e debounce aggiornati)", async () => {
+    const project = await createProject({
+      name: "PR Review Sync",
+      provider: "github",
+      repoUrl: "https://github.com/acme/pr-review-sync",
+      credentials: { token: "tok" },
+    });
+    await setPrReviewEnabled(true);
+
+    expect((await postGithubPr(project, githubPrOpenedPayload())).statusCode).toBe(204);
+    const [first] = await reviewJobs(project.id);
+    const firstNotBefore = first!.notBefore.getTime();
+
+    // Push sulla source branch: synchronize con nuova head.
+    const newSha = "b".repeat(40);
+    const res = await postGithubPr(
+      project,
+      githubPrOpenedPayload({ action: "synchronize", sha: newSha }),
+    );
+    expect(res.statusCode).toBe(204);
+
+    // SEMPRE una sola riga (upsert sul vincolo repo+PR), head e debounce avanzati.
+    const jobs = await reviewJobs(project.id);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.headSha).toBe(newSha);
+    expect(jobs[0]!.notBefore.getTime()).toBeGreaterThanOrEqual(firstNotBefore);
+  });
+
+  it("toggle spento → nessuna riga (204)", async () => {
+    const project = await createProject({
+      name: "PR Review Off",
+      provider: "github",
+      repoUrl: "https://github.com/acme/pr-review-off",
+      credentials: { token: "tok" },
+    });
+    await setPrReviewEnabled(false);
+
+    const res = await postGithubPr(project, githubPrOpenedPayload());
+    expect(res.statusCode).toBe(204);
+    expect(await reviewJobs(project.id)).toHaveLength(0);
+  });
+
+  it("firma errata → 401 e nessuna riga", async () => {
+    const project = await createProject({
+      name: "PR Review Firma KO",
+      provider: "github",
+      repoUrl: "https://github.com/acme/pr-review-firma-ko",
+      credentials: { token: "tok" },
+    });
+    await setPrReviewEnabled(true);
+    const body = githubPrOpenedPayload();
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/webhooks/git/${project.slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": sign("segreto-sbagliato", body),
+      },
+      payload: body,
+    });
+    expect(res.statusCode).toBe(401);
+    expect(await reviewJobs(project.id)).toHaveLength(0);
+  });
+
+  it("Bitbucket pullrequest:created con toggle attivo → riga accodata", async () => {
+    const project = await createProject({
+      name: "PR Review BB",
+      provider: "bitbucket",
+      repoUrl: "https://bitbucket.org/acme/pr-review-bb",
+      credentials: { username: "acme-bot", token: "tok" },
+    });
+    await setPrReviewEnabled(true);
+    const body = bitbucketPrCreatedPayload();
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/webhooks/git/${project.slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-event-key": "pullrequest:created",
+        "x-hub-signature": sign(project.webhookSecret, body),
+      },
+      payload: body,
+    });
+    expect(res.statusCode).toBe(204);
+
+    const jobs = await reviewJobs(project.id);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.prNumber).toBe(42);
+    expect(jobs[0]!.headSha).toBe("abc123def456");
+    expect(jobs[0]!.prUrl).toBe("https://bitbucket.org/acme/repo/pull-requests/42");
+  });
+});
+
+describe("webhook PR Review (chiusura)", () => {
+  /**
+   * Inserisce un ticket di tipo `review` (quelli creati dal worker per le PR
+   * esterne) con numero e stato espliciti, restituendone l'id. Come
+   * insertTicket, ma il type è `review`: è l'unico type che il webhook di
+   * chiusura auto-chiude.
+   */
+  async function insertReviewTicket(
+    repositoryId: string,
+    number: number,
+    status: "open" | "done" | "closed" = "open",
+  ): Promise<string> {
+    const [repository] = await testDb.db
+      .select({ projectId: repositories.projectId })
+      .from(repositories)
+      .where(eq(repositories.id, repositoryId));
+    const [row] = await testDb.db
+      .insert(tickets)
+      .values({
+        projectId: repository!.projectId,
+        number,
+        title: `Review PR #${number}`,
+        type: "review",
+        priority: "medium",
+        status,
+        source: "webhook",
+      })
+      .returning({ id: tickets.id });
+    if (!row) throw new Error("insert ticket review non ha restituito la riga");
+    return row.id;
+  }
+
+  /** Riga di storico pr_reviews che lega la PR al suo ticket review. */
+  async function seedPrReview(
+    repositoryId: string,
+    prNumber: number,
+    ticketId: string,
+  ): Promise<void> {
+    await testDb.db.insert(prReviews).values({
+      repositoryId,
+      prNumber,
+      prUrl: `https://github.com/acme/repo/pull/${prNumber}`,
+      prTitle: "Add login",
+      headSha: "a".repeat(40),
+      ticketId,
+      status: "completed",
+    });
+  }
+
+  /** Pending in coda pr_review_jobs per (repo, PR): quello che la chiusura deve eliminare. */
+  async function seedPendingReviewJob(repositoryId: string, prNumber: number): Promise<void> {
+    await testDb.db.insert(prReviewJobs).values({
+      repositoryId,
+      prNumber,
+      prUrl: `https://github.com/acme/repo/pull/${prNumber}`,
+      prTitle: "Add login",
+      prBody: "desc",
+      sourceBranch: "feature/login",
+      targetBranch: "main",
+      headSha: "a".repeat(40),
+      notBefore: new Date(Date.now() + 60_000),
+    });
+  }
+
+  /** Le righe pr_review_jobs del repository. */
+  async function pendingJobs(repositoryId: string) {
+    return testDb.db
+      .select()
+      .from(prReviewJobs)
+      .where(eq(prReviewJobs.repositoryId, repositoryId));
+  }
+
+  function postGithubClosure(repo: CreatedProject, body: string) {
+    return app.inject({
+      method: "POST",
+      url: `/webhooks/git/${repo.slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "pull_request",
+        "x-hub-signature-256": sign(repo.webhookSecret, body),
+      },
+      payload: body,
+    });
+  }
+
+  it("PR esterna mergiata → pending eliminato e ticket review chiuso a done con commento", async () => {
+    const project = await createProject({
+      name: "Review Chiusura Merge",
+      provider: "github",
+      repoUrl: "https://github.com/acme/review-chiusura-merge",
+      credentials: { token: "tok" },
+    });
+    const ticketId = await insertReviewTicket(project.id, 1, "open");
+    await seedPrReview(project.id, 7, ticketId);
+    await seedPendingReviewJob(project.id, 7);
+    // Decoy: pending di un'ALTRA PR (9) dello stesso repo. La delete deve
+    // essere scoped a (repo, prNumber): il decoy deve sopravvivere.
+    await seedPendingReviewJob(project.id, 9);
+    // Branch NON stubwise: il flusso di chiusura dei ticket del fix non scatta.
+    const body = githubPayload("feature/login");
+
+    const res = await postGithubClosure(project, body);
+    expect(res.statusCode).toBe(204);
+
+    // Il pending della PR chiusa è stato eliminato (la review non serve più);
+    // quello dell'altra PR (9) è intatto.
+    const remaining = await pendingJobs(project.id);
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]!.prNumber).toBe(9);
+    // Il ticket review si è auto-chiuso a done (PR mergiata), con commento system.
+    expect(await ticketStatus(ticketId)).toBe("done");
+    const cmts = await ticketComments(ticketId);
+    expect(cmts).toHaveLength(1);
+    expect(cmts[0]!.authorType).toBe("system");
+    expect(cmts[0]!.body).toContain("https://github.com/acme/repo/pull/7");
+  });
+
+  it("re-review fallita (ticketId null) più recente della review col ticket → il merge chiude comunque il ticket", async () => {
+    const project = await createProject({
+      name: "Review Chiusura Failed Recente",
+      provider: "github",
+      repoUrl: "https://github.com/acme/review-chiusura-failed",
+      credentials: { token: "tok" },
+    });
+    const ticketId = await insertReviewTicket(project.id, 1, "open");
+    await seedPrReview(project.id, 7, ticketId);
+    // Re-review della STESSA PR fallita DOPO quella completata: ticketId null
+    // (le righe failed/running non hanno mai il ticket) e createdAt più
+    // recente. La lookup del webhook deve saltarla e trovare la riga col ticket.
+    await testDb.db.insert(prReviews).values({
+      repositoryId: project.id,
+      prNumber: 7,
+      prUrl: "https://github.com/acme/repo/pull/7",
+      prTitle: "Add login",
+      headSha: "b".repeat(40),
+      ticketId: null,
+      status: "failed",
+      createdAt: new Date(Date.now() + 60_000),
+    });
+    const body = githubPayload("feature/login");
+
+    const res = await postGithubClosure(project, body);
+    expect(res.statusCode).toBe(204);
+
+    // Nonostante la riga più recente sia senza ticket, il ticket review della
+    // riga completata si chiude a done con il commento system.
+    expect(await ticketStatus(ticketId)).toBe("done");
+    const cmts = await ticketComments(ticketId);
+    expect(cmts).toHaveLength(1);
+    expect(cmts[0]!.authorType).toBe("system");
+  });
+
+  it("PR esterna chiusa senza merge → ticket review a closed", async () => {
+    const project = await createProject({
+      name: "Review Chiusura Rifiuto",
+      provider: "github",
+      repoUrl: "https://github.com/acme/review-chiusura-rifiuto",
+      credentials: { token: "tok" },
+    });
+    const ticketId = await insertReviewTicket(project.id, 1, "open");
+    await seedPrReview(project.id, 7, ticketId);
+    await seedPendingReviewJob(project.id, 7);
+    const body = githubClosedUnmergedPayload("feature/login");
+
+    const res = await postGithubClosure(project, body);
+    expect(res.statusCode).toBe(204);
+
+    expect(await pendingJobs(project.id)).toHaveLength(0);
+    // PR rifiutata (non mergiata): il ticket review va a closed, non done.
+    expect(await ticketStatus(ticketId)).toBe("closed");
+    const cmts = await ticketComments(ticketId);
+    expect(cmts).toHaveLength(1);
+    expect(cmts[0]!.authorType).toBe("system");
+    expect(cmts[0]!.body).toContain("https://github.com/acme/repo/pull/7");
+  });
+
+  it("chiusura senza prNumber → nessun cleanup ma nessun errore", async () => {
+    const project = await createProject({
+      name: "Review Chiusura NoNumber",
+      provider: "github",
+      repoUrl: "https://github.com/acme/review-chiusura-nonumber",
+      credentials: { token: "tok" },
+    });
+    // Pending di un'ALTRA PR (9): non deve essere toccato dal cleanup saltato.
+    await seedPendingReviewJob(project.id, 9);
+    // Payload closed SENZA number: provider anomalo → prNumber null.
+    const body = JSON.stringify({
+      action: "closed",
+      pull_request: {
+        merged: true,
+        head: { ref: "feature/login" },
+        html_url: "https://github.com/acme/repo/pull/7",
+      },
+    });
+
+    const res = await postGithubClosure(project, body);
+    expect(res.statusCode).toBe(204);
+    // Il cleanup è stato saltato: il pending dell'altra PR resta.
+    expect(await pendingJobs(project.id)).toHaveLength(1);
+  });
+
+  it("ticket review già chiuso → idempotente, un solo commento system", async () => {
+    const project = await createProject({
+      name: "Review Chiusura Idem",
+      provider: "github",
+      repoUrl: "https://github.com/acme/review-chiusura-idem",
+      credentials: { token: "tok" },
+    });
+    const ticketId = await insertReviewTicket(project.id, 1, "open");
+    await seedPrReview(project.id, 7, ticketId);
+    await seedPendingReviewJob(project.id, 7);
+    const body = githubPayload("feature/login");
+
+    // Prima consegna: chiude il ticket con un commento.
+    expect((await postGithubClosure(project, body)).statusCode).toBe(204);
+    expect(await ticketStatus(ticketId)).toBe("done");
+    expect(await ticketComments(ticketId)).toHaveLength(1);
+
+    // Seconda consegna dello STESSO evento: 204, nessun secondo commento.
+    expect((await postGithubClosure(project, body)).statusCode).toBe(204);
+    expect(await ticketStatus(ticketId)).toBe("done");
+    expect(await ticketComments(ticketId)).toHaveLength(1);
+  });
+
+  it("ticket di FIX stubwise con riga pr_reviews → auto-chiusura review NON scatta, chiude il flusso stubwise (un solo commento)", async () => {
+    const project = await createProject({
+      name: "Review Chiusura FixTicket",
+      provider: "github",
+      repoUrl: "https://github.com/acme/review-chiusura-fixticket",
+      credentials: { token: "tok" },
+    });
+    // Ticket di FIX (type bug, in_review) con la sua PR stubwise aperta...
+    const ticketId = await insertTicket(project.id, 1, "in_review");
+    await seedTicketRepository(ticketId, project.id, "open");
+    const jobId = await insertJob(ticketId, "pr_opened");
+    // ...e una riga pr_reviews che punta a QUEL ticket (es. la PR stubwise è
+    // stata a sua volta reviewata). Il guard sul type deve impedire al ramo di
+    // auto-chiusura review di toccare il ticket: se lo facesse, il flusso
+    // stubwise sotto verrebbe cortocircuitato (riga ticket_repositories mai
+    // marcata merged, job AI mai allineato) o il commento duplicato.
+    await seedPrReview(project.id, 7, ticketId);
+
+    // Merge della PR stubwise: head.ref stubwise/ticket-1, number 7.
+    const body = githubPayload("stubwise/ticket-1");
+    const res = await postGithubClosure(project, body);
+    expect(res.statusCode).toBe(204);
+
+    // Il ticket va a done tramite il FLUSSO STUBWISE: riga per-repo marcata
+    // merged e job AI passato a pr_merged (side effect esclusivi di quel ramo).
+    expect(await ticketStatus(ticketId)).toBe("done");
+    expect(await repoState(ticketId, project.id)).toBe("merged");
+    expect((await jobById(jobId)).status).toBe("pr_merged");
+    // ESATTAMENTE UN commento system: quello del flusso stubwise, non due.
+    const cmts = await ticketComments(ticketId);
+    expect(cmts).toHaveLength(1);
+    expect(cmts[0]!.authorType).toBe("system");
   });
 });

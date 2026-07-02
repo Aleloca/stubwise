@@ -75,6 +75,31 @@ export interface WebhookEvent {
   /** Source branch della PR. */
   branch: string;
   prUrl: string;
+  /**
+   * Numero della PR sul provider (GitHub number / Bitbucket id); null se il
+   * provider non lo fornisce nel payload. La chiusura del ticket non ne
+   * dipende (usa il branch): serve solo al cleanup della review, che in sua
+   * assenza viene semplicemente saltato.
+   */
+  prNumber: number | null;
+}
+
+/**
+ * Evento di apertura/aggiornamento di una PR (automazione PR Review).
+ * `opened` copre anche la riapertura; `updated` è un push sulla source branch
+ * (GitHub `synchronize`) o una modifica della PR (Bitbucket `pullrequest:updated`,
+ * che scatta anche su edit di titolo/descrizione: il debounce assorbe il rumore).
+ */
+export interface PrActivityEvent {
+  kind: "opened" | "updated";
+  provider: GitProviderKind;
+  prNumber: number;
+  title: string;
+  description: string;
+  sourceBranch: string;
+  targetBranch: string;
+  headSha: string;
+  prUrl: string;
 }
 
 /**
@@ -154,6 +179,23 @@ export interface GitProvider {
     p: ProjectGitConfig,
     pr: { branch: string; title: string; body: string }
   ): Promise<{ url: string }>;
+  /** Stato attuale della PR: 'open' se ancora aperta, 'closed' se mergiata/chiusa. */
+  getPullRequestState(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts?: { fetchImpl?: FetchLike }
+  ): Promise<"open" | "closed">;
+  /**
+   * Crea o aggiorna il commento "sticky" della review sulla PR: se esiste già
+   * un commento che contiene `marker` lo aggiorna, altrimenti ne crea uno.
+   */
+  upsertPrComment(
+    p: ProjectGitConfig,
+    prNumber: number,
+    marker: string,
+    body: string,
+    opts?: { fetchImpl?: FetchLike }
+  ): Promise<void>;
   /**
    * Returns a WebhookEvent if the webhook payload represents a closed PR —
    * `kind: "merged"` if it was merged, `kind: "closed_unmerged"` if it was
@@ -161,6 +203,8 @@ export interface GitProvider {
    * input. Does NOT verify the signature — call verifyWebhook first.
    */
   parseWebhook(headers: Record<string, string>, body: unknown): WebhookEvent | null;
+  /** Eventi PR opened/updated per l'automazione PR Review; null se non pertinente. */
+  parsePrEvent(headers: Record<string, string>, body: unknown): PrActivityEvent | null;
   /**
    * Returns a PushWebhookEvent if the webhook payload represents a push to a
    * branch, otherwise null (PR events, tag pushes, branch deletes, malformed

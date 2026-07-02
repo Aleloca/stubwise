@@ -3,13 +3,18 @@ import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-q
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { TypeBadge } from "../../components/badges";
-import { putAutomationSettings, type AutomationRule } from "../../lib/api";
+import {
+  putAutomationSettings,
+  type AutomationRule,
+  type PrReviewSettings,
+} from "../../lib/api";
 import { automationSettingsQueryOptions } from "../../lib/queries";
 
 /**
- * Sotto-pagina Automazione AI (solo admin): una riga per ciascuno dei 4 tipi di
- * ticket con il toggle auto-fix e la soglia di sforzo. Un solo Save persiste
- * tutte le regole via PUT; lo stato locale parte dai dati del server.
+ * Sotto-pagina Automazione AI (solo admin): una riga per ciascun tipo di
+ * ticket con il toggle auto-fix e la soglia di sforzo, più la sezione con le
+ * impostazioni PR Review (toggle globale e tetto di costo). Un solo Save
+ * persiste tutto via PUT; lo stato locale parte dai dati del server.
  */
 export function SettingsAutomationPage() {
   const { t } = useTranslation();
@@ -31,8 +36,16 @@ export function SettingsAutomationPage() {
     setRules(settings.rules);
   }, [settings.rules]);
 
+  // Impostazioni PR review: stesso ciclo di vita delle regole (stato locale
+  // inizializzato dal server e risincronizzato dopo un salvataggio/refetch).
+  const [prReview, setPrReview] = useState<PrReviewSettings>(settings.prReview);
+  useEffect(() => {
+    setPrReview(settings.prReview);
+  }, [settings.prReview]);
+
   const mutation = useMutation({
-    mutationFn: (next: AutomationRule[]) => putAutomationSettings(next),
+    mutationFn: (next: { rules: AutomationRule[]; prReview: PrReviewSettings }) =>
+      putAutomationSettings(next.rules, next.prReview),
     onSuccess: (updated) => {
       queryClient.setQueryData(automationSettingsQueryOptions.queryKey, updated);
     },
@@ -46,6 +59,11 @@ export function SettingsAutomationPage() {
     setRules((current) => current.map((r) => (r.type === type ? { ...r, ...patch } : r)));
     // Un salvataggio andato a buon fine va "consumato": la riga di conferma
     // sparisce appena l'utente ritocca qualcosa.
+    if (mutation.isSuccess) mutation.reset();
+  };
+
+  const updatePrReview = (patch: Partial<PrReviewSettings>): void => {
+    setPrReview((current) => ({ ...current, ...patch }));
     if (mutation.isSuccess) mutation.reset();
   };
 
@@ -157,11 +175,57 @@ export function SettingsAutomationPage() {
         })}
       </div>
 
+      <section className="border-t border-line px-4 py-4">
+        <h3 className="font-mono text-[12px] font-medium tracking-[0.12em] text-fg-muted uppercase">
+          {t("automation:prReviewTitle")}
+        </h3>
+        <p className="mt-1 font-mono text-[11px] text-fg-faint">
+          {t("automation:prReviewSubtitle")}
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-3">
+          <label className="flex items-center gap-2 font-mono text-[12px] text-fg-muted">
+            <input
+              type="checkbox"
+              checked={prReview.enabled}
+              disabled={mutation.isPending}
+              onChange={(event) => updatePrReview({ enabled: event.target.checked })}
+              className="size-4 accent-signal"
+              aria-label={t("automation:prReviewEnabledLabel")}
+            />
+            {t("automation:prReviewEnabled")}
+          </label>
+
+          <label className="flex items-center gap-2 font-mono text-[12px] text-fg-muted">
+            <span className="text-fg-faint">{t("automation:prReviewMaxCost")}</span>
+            <input
+              type="number"
+              inputMode="decimal"
+              step="0.01"
+              min={0}
+              value={prReview.maxCostUsd ?? ""}
+              disabled={mutation.isPending}
+              onChange={(event) => {
+                // Vuoto → null (nessun tetto); altrimenti il numero parsato,
+                // con guardia su NaN (input non numerico) → null.
+                const raw = event.target.value;
+                const parsed = raw === "" ? null : Number(raw);
+                updatePrReview({
+                  maxCostUsd: parsed === null || Number.isNaN(parsed) ? null : parsed,
+                });
+              }}
+              placeholder={t("automation:maxCostPlaceholder")}
+              aria-label={t("automation:prReviewMaxCostLabel")}
+              className="w-24 rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
+            />
+          </label>
+        </div>
+      </section>
+
       <footer className="flex flex-wrap items-center gap-3 border-t border-line px-4 py-3">
         <button
           type="button"
           disabled={mutation.isPending}
-          onClick={() => mutation.mutate(rules)}
+          onClick={() => mutation.mutate({ rules, prReview })}
           className="rounded-sm bg-signal px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright active:bg-signal-dim disabled:cursor-not-allowed disabled:bg-signal-dim"
         >
           {mutation.isPending ? t("automation:saving") : t("automation:save")}

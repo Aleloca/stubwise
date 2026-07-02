@@ -1,5 +1,5 @@
 import { t, languageName, type Language } from "@stubwise/i18n";
-import { effortSchema, ticketTypeSchema } from "@stubwise/shared";
+import { effortSchema } from "@stubwise/shared";
 import { z } from "zod";
 
 /**
@@ -560,6 +560,12 @@ The original ticket is included below for reference, delimited by <ticket_conten
 ${renderTicketContentBlock(ticket)}`;
 }
 
+// Il triage riclassifica SOLO i tipi "umani": `review` è riservato ai ticket
+// creati dall'automazione PR Review e non deve mai uscire da una classificazione.
+// Volutamente NON deriva da `ticketTypeSchema` (che include `review`): il prompt
+// a monte elenca gli stessi quattro tipi.
+const triageTypeSchema = z.enum(["bug", "feature", "task", "feedback"]);
+
 /**
  * Decisione strutturata emessa dal triage. Oltre a `decision`, OGNI variante
  * porta il tipo (ri)validato e l'effort 1–5: il triage classifica sempre il
@@ -567,18 +573,18 @@ ${renderTicketContentBlock(ticket)}`;
  * scala rende la decisione invalida → percorso di retry, da contratto.
  */
 export const triageDecisionSchema = z.discriminatedUnion("decision", [
-  z.strictObject({ decision: z.literal("fix"), type: ticketTypeSchema, effort: effortSchema }),
+  z.strictObject({ decision: z.literal("fix"), type: triageTypeSchema, effort: effortSchema }),
   // reason con tetto: una reason chilometrica (es. exfiltration di contenuto
   // del prompt) rende la decisione invalida → percorso di retry, da contratto.
   z.strictObject({
     decision: z.literal("skip"),
-    type: ticketTypeSchema,
+    type: triageTypeSchema,
     effort: effortSchema,
     reason: z.string().min(1).max(500),
   }),
   z.strictObject({
     decision: z.literal("duplicate"),
-    type: ticketTypeSchema,
+    type: triageTypeSchema,
     effort: effortSchema,
     of: z.number().int().positive(),
   }),

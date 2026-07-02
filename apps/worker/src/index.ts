@@ -5,6 +5,7 @@ import { startCredentialTester } from "./agent/credential-tester.js";
 import { startUsagePoller } from "./agent/usage-poller.js";
 import { loadWorkerConfig, type WorkerConfig } from "./config.js";
 import { startAutoUpdatePoller } from "./docs/auto-update-poller.js";
+import { startPrReviewPoller } from "./review/poller.js";
 import { createDocHandler, failDocJobOnError } from "./docs/handler.js";
 import { dispatchNode } from "./docs/recursive/node-dispatch.js";
 import { createGenerationWorktreeRegistry } from "./docs/recursive/registry.js";
@@ -246,11 +247,33 @@ startAutoUpdatePoller({
   signal: controller.signal,
 });
 
+// Poller dell'automazione PR Review: task SEPARATO dal loop dei job, sul
+// proprio intervallo. Reclama i pending di pr_review_jobs scaduti (debounce)
+// ed esegue la review (agente read-only in plan mode) nella CATENA
+// PER-PROGETTO (serializer condiviso: niente sovrapposizione col fetch
+// --prune dello stesso progetto). È BEST-EFFORT e non tocca il lock/heartbeat
+// dei job. Si ferma sullo stesso AbortSignal.
+startPrReviewPoller({
+  db,
+  mirrors,
+  runner,
+  encryptionKey: config.encryptionKey,
+  model: config.prReviewModel,
+  maxTurns: config.prReviewMaxTurns,
+  agentTimeoutMs: config.prReviewTimeoutMs,
+  publicUrl: config.publicUrl,
+  staleMinutes: config.staleAfterMinutes,
+  serializer,
+  intervalSeconds: config.prReviewPollSeconds,
+  signal: controller.signal,
+});
+
 console.error(
   `[stubwise-worker] avviato (concurrency ${config.concurrency}, db-pool ${config.databasePoolMax}, mirrors in ${config.mirrorsDir}` +
     `, usage-poll ${config.usagePollMinutes > 0 ? `ogni ${config.usagePollMinutes}'` : "disabilitato"}` +
     `, credential-test ${config.credentialTestPollSeconds > 0 ? `ogni ${config.credentialTestPollSeconds}"` : "disabilitato"}` +
-    `, docs-auto-update ${config.docsAutoUpdatePollSeconds > 0 ? `ogni ${config.docsAutoUpdatePollSeconds}"` : "disabilitato"})`,
+    `, docs-auto-update ${config.docsAutoUpdatePollSeconds > 0 ? `ogni ${config.docsAutoUpdatePollSeconds}"` : "disabilitato"}` +
+    `, pr-review ${config.prReviewPollSeconds > 0 ? `ogni ${config.prReviewPollSeconds}"` : "disabilitato"})`,
 );
 // POLITICA DI PRIORITÀ doc vs fix (Task 5.4): i fix hanno la precedenza. Il
 // loop satura la concorrenza con i fix in coda; reclama UN doc-job per tick solo

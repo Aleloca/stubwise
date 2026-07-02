@@ -535,6 +535,7 @@
       "jobHeld": "In attesa",
       "planReview": "Piano AI in attesa di approvazione",
       "budgetHeld": "Budget superato (job in attesa)",
+      "reviewCompleted": "Review PR completata",
       "jobFailed": "Fix fallito"
     },
     "samples": {
@@ -543,6 +544,7 @@
       "prClosed": "PR chiusa",
       "jobHeld": "In attesa",
       "planReview": "Piano in attesa",
+      "reviewCompleted": "Review PR",
       "jobFailed": "Fix fallito"
     },
     "slack": {
@@ -594,6 +596,12 @@
     "maxCostPlaceholder": "Nessun tetto",
     "maxCostHint": "Tetto per-tipo sul costo AI per ticket. Vuoto = nessun tetto.",
     "effortOption": "{{label}} ({{value}}/5)",
+    "prReviewTitle": "Review PR",
+    "prReviewSubtitle": "Review automatica delle PR: ad ogni pull request aperta o aggiornata un agente AI analizza le modifiche e suggerisce se approvare o richiedere modifiche. Richiede il webhook del repository (eventi PR).",
+    "prReviewEnabled": "Attiva",
+    "prReviewEnabledLabel": "Review PR attiva",
+    "prReviewMaxCost": "Costo massimo per review ($)",
+    "prReviewMaxCostLabel": "Costo massimo per review ($)",
     "save": "Salva",
     "saving": "Salvataggio…",
     "saved": "Salvato"
@@ -641,7 +649,8 @@
       "bug": "Bug",
       "feature": "Feature",
       "task": "Task",
-      "feedback": "Feedback"
+      "feedback": "Feedback",
+      "review": "Review"
     },
     "source": {
       "manual": "Manuale",

@@ -1,13 +1,16 @@
 import { getProvider } from "@stubwise/git";
 import { t } from "@stubwise/i18n";
 import { dispatchNotification } from "@stubwise/notifications";
-import { and, count, eq, ne, sql } from "drizzle-orm";
+import { and, count, desc, eq, isNotNull, ne, notInArray, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
   aiJobs,
   comments,
   docAutoUpdateJobs,
   docGenerations,
+  instanceSettings,
+  prReviewJobs,
+  prReviews,
   projects,
   repositories,
   ticketRepositories,
@@ -35,6 +38,15 @@ const STUBWISE_BRANCH_RE = /^stubwise\/ticket-(\d+)$/;
  * (non vale una variabile d'ambiente in più da propagare in buildApp/compose).
  */
 const DEBOUNCE_MS = 5 * 60 * 1000;
+
+/**
+ * Debounce dell'automazione PR Review: ogni opened/synchronize sposta
+ * `not_before` di questo intervallo, così una raffica di push sulla PR produce
+ * una sola review sulla head finale. Più corto del debounce Docs: la review
+ * serve "presto" dopo l'apertura, e i push su una PR sono meno frequenti dei
+ * push su main.
+ */
+const PR_REVIEW_DEBOUNCE_MS = 90 * 1000;
 
 /**
  * Normalizza gli header Fastify (string | string[] | undefined) nella
@@ -195,9 +207,136 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
         return reply.code(204).send();
       }
 
+      // Ramo PR Review: apertura/aggiornamento di una PR. Mutuamente esclusivo
+      // con gli altri due (parsePushEvent copre solo i push, parseWebhook solo
+      // le chiusure). Gate sul toggle d'istanza: spento = no-op.
+      const prEvent = provider.parsePrEvent(headers, request.body);
+      if (prEvent) {
+        const [settings] = await instance.db
+          .select({ enabled: instanceSettings.prReviewEnabled })
+          .from(instanceSettings)
+          .where(eq(instanceSettings.id, 1));
+        if (settings?.enabled !== true) return reply.code(204).send();
+
+        // Upsert sul vincolo (repository, PR): un solo pending per PR, i push
+        // ravvicinati aggiornano head/metadati e allungano il debounce.
+        const notBefore = new Date(Date.now() + PR_REVIEW_DEBOUNCE_MS);
+        await instance.db
+          .insert(prReviewJobs)
+          .values({
+            repositoryId: context.repositoryId,
+            prNumber: prEvent.prNumber,
+            prUrl: prEvent.prUrl,
+            prTitle: prEvent.title,
+            prBody: prEvent.description,
+            sourceBranch: prEvent.sourceBranch,
+            targetBranch: prEvent.targetBranch,
+            headSha: prEvent.headSha,
+            notBefore,
+          })
+          .onConflictDoUpdate({
+            target: [prReviewJobs.repositoryId, prReviewJobs.prNumber],
+            set: {
+              prUrl: prEvent.prUrl,
+              prTitle: prEvent.title,
+              prBody: prEvent.description,
+              sourceBranch: prEvent.sourceBranch,
+              targetBranch: prEvent.targetBranch,
+              headSha: prEvent.headSha,
+              notBefore,
+              // $onUpdate di Drizzle non scatta su onConflictDoUpdate: aggiorniamo
+              // updated_at a mano (utile come segnale di quando è arrivato l'ultimo push).
+              updatedAt: new Date(),
+            },
+          });
+        return reply.code(204).send();
+      }
+
       const event = provider.parseWebhook(headers, request.body);
       // Non è un merge di PR che ci interessa: ignorato (204), niente da fare.
       if (!event) return reply.code(204).send();
+
+      // Lato PR Review, per QUALUNQUE PR chiusa: il pending in coda non serve
+      // più (la review di una PR chiusa è inutile), e l'eventuale ticket di
+      // tipo `review` della PR si chiude da solo (done se mergiata, closed se
+      // rifiutata). Vale anche per le PR stubwise (che però non hanno mai un
+      // ticket review: le query sotto sono no-op in quel caso). Il numero PR
+      // può mancare (provider anomalo): in quel caso si salta solo il cleanup,
+      // la chiusura del ticket del fix sotto non ne dipende.
+      if (event.prNumber != null) {
+        await instance.db
+          .delete(prReviewJobs)
+          .where(
+            and(
+              eq(prReviewJobs.repositoryId, context.repositoryId),
+              eq(prReviewJobs.prNumber, event.prNumber),
+            ),
+          );
+
+        // Solo le righe CON ticket: quelle failed/running hanno ticketId null
+        // e una re-review fallita più recente maschererebbe la review
+        // completata che il ticket l'ha creato (stessa lookup di resolveTicket
+        // nel worker).
+        const [reviewRow] = await instance.db
+          .select({ ticketId: prReviews.ticketId })
+          .from(prReviews)
+          .where(
+            and(
+              eq(prReviews.repositoryId, context.repositoryId),
+              eq(prReviews.prNumber, event.prNumber),
+              isNotNull(prReviews.ticketId),
+            ),
+          )
+          .orderBy(desc(prReviews.createdAt))
+          .limit(1);
+        if (reviewRow?.ticketId) {
+          const [reviewTicket] = await instance.db
+            .select({ id: tickets.id, status: tickets.status, type: tickets.type })
+            .from(tickets)
+            .where(eq(tickets.id, reviewRow.ticketId));
+          // Si auto-chiude SOLO il ticket di tipo review ancora aperto: il
+          // ticket di un fix stubwise ha già il suo flusso di chiusura sotto.
+          // Il check di status qui è un fast-path (evita lookup lingua e
+          // transazione sulle ri-consegne): il gate VERO è il predicato
+          // dell'UPDATE sotto, atomico dentro la transazione.
+          if (
+            reviewTicket &&
+            reviewTicket.type === "review" &&
+            reviewTicket.status !== "done" &&
+            reviewTicket.status !== "closed"
+          ) {
+            const lang = await getContentLanguage(instance.db);
+            await instance.db.transaction(async (tx) => {
+              // Il predicato sullo status rende chiusura+commento atomici: due
+              // consegne CONCORRENTI leggono entrambe lo status "aperto" fuori
+              // transazione, ma solo quella il cui UPDATE tocca davvero la riga
+              // (ticket non ancora done/closed) inserisce il commento di
+              // sistema — mai duplicati.
+              const updated = await tx
+                .update(tickets)
+                .set({ status: event.kind === "merged" ? "done" : "closed" })
+                .where(
+                  and(
+                    eq(tickets.id, reviewTicket.id),
+                    notInArray(tickets.status, ["done", "closed"]),
+                  ),
+                )
+                .returning({ id: tickets.id });
+              if (updated.length > 0) {
+                await tx.insert(comments).values({
+                  ticketId: reviewTicket.id,
+                  authorType: "system",
+                  body: t(
+                    lang,
+                    event.kind === "merged" ? "comment.prMerged" : "comment.prClosed",
+                    { url: event.prUrl },
+                  ),
+                });
+              }
+            });
+          }
+        }
+      }
 
       const match = STUBWISE_BRANCH_RE.exec(event.branch);
       // Ramo non gestito da Stubwise: ignorato.

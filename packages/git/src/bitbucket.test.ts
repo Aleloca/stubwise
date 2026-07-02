@@ -192,10 +192,150 @@ describe("BitbucketProvider.openPullRequest", () => {
   });
 });
 
+describe("BitbucketProvider.getPullRequestState", () => {
+  it("state=OPEN → 'open'; MERGED/DECLINED/SUPERSEDED → 'closed'", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ state: "OPEN" }, 200));
+    const provider = new BitbucketProvider({ fetchImpl });
+    await expect(provider.getPullRequestState(config, 7)).resolves.toBe("open");
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests/7",
+      expect.objectContaining({ method: "GET" })
+    );
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe(`Basic ${Buffer.from("alice:app-pass").toString("base64")}`);
+
+    for (const state of ["MERGED", "DECLINED", "SUPERSEDED"]) {
+      const closedFetch = vi.fn().mockResolvedValue(jsonResponse({ state }, 200));
+      const closedProvider = new BitbucketProvider({ fetchImpl: closedFetch });
+      await expect(closedProvider.getPullRequestState(config, 7)).resolves.toBe("closed");
+    }
+  });
+
+  it("uses the Atlassian email (not the username) for Basic auth when email is present", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ state: "OPEN" }, 200));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    await provider.getPullRequestState(
+      { ...config, credentials: { username: "alice", email: "alice@corp.io", token: "api-token" } },
+      7
+    );
+
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe(
+      `Basic ${Buffer.from("alice@corp.io:api-token").toString("base64")}`
+    );
+  });
+
+  it("throws GitProviderError on non-2xx", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 404 }));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const error = await provider
+      .getPullRequestState(config, 7)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(404);
+  });
+});
+
+describe("BitbucketProvider.upsertPrComment", () => {
+  const MARKER = "<!-- stubwise-pr-review -->";
+
+  it("nessun commento col marker → POST di un nuovo commento", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ values: [{ id: 1, content: { raw: "altro" } }] }, 200)) // list
+      .mockResolvedValueOnce(jsonResponse({ id: 2 }, 201)); // create
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    await provider.upsertPrComment(config, 7, MARKER, `${MARKER}\nAnalisi`);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      1,
+      "https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests/7/comments?pagelen=100",
+      expect.objectContaining({ method: "GET" })
+    );
+    expect(fetchImpl).toHaveBeenLastCalledWith(
+      "https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests/7/comments",
+      expect.objectContaining({ method: "POST" })
+    );
+    const [, init] = fetchImpl.mock.calls[1] as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe(`Basic ${Buffer.from("alice:app-pass").toString("base64")}`);
+    expect(headers["Content-Type"]).toBe("application/json");
+    expect(JSON.parse(init.body as string)).toEqual({ content: { raw: `${MARKER}\nAnalisi` } });
+  });
+
+  it("commento col marker esistente → PUT dello stesso commento", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ values: [{ id: 9, content: { raw: `${MARKER}\nvecchia` } }] }, 200)
+      )
+      .mockResolvedValueOnce(jsonResponse({ id: 9 }, 200));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    await provider.upsertPrComment(config, 7, MARKER, `${MARKER}\nnuova`);
+
+    expect(fetchImpl).toHaveBeenLastCalledWith(
+      "https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests/7/comments/9",
+      expect.objectContaining({ method: "PUT" })
+    );
+    const [, init] = fetchImpl.mock.calls[1] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ content: { raw: `${MARKER}\nnuova` } });
+  });
+
+  it("commento col marker ma deleted: true → POST (il PUT su un commento cancellato fallirebbe)", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse({ values: [{ id: 9, deleted: true, content: { raw: `${MARKER}\nvecchia` } }] }, 200)
+      )
+      .mockResolvedValueOnce(jsonResponse({ id: 10 }, 201));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    await provider.upsertPrComment(config, 7, MARKER, `${MARKER}\nnuova`);
+
+    expect(fetchImpl).toHaveBeenLastCalledWith(
+      "https://api.bitbucket.org/2.0/repositories/myws/myrepo/pullrequests/7/comments",
+      expect.objectContaining({ method: "POST" })
+    );
+  });
+
+  it("throws when both email and username are missing (before any request)", async () => {
+    const fetchImpl = vi.fn();
+    const provider = new BitbucketProvider({ fetchImpl });
+    await expect(
+      provider.upsertPrComment({ ...config, credentials: { token: "t" } }, 7, MARKER, "testo")
+    ).rejects.toThrow(/email.*username|username.*email/i);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("throws GitProviderError when the list call fails", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("forbidden", { status: 403 }));
+    const provider = new BitbucketProvider({ fetchImpl });
+
+    const error = await provider
+      .upsertPrComment(config, 7, MARKER, "testo")
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(403);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("BitbucketProvider.parseWebhook", () => {
   const provider = new BitbucketProvider();
   const mergedBody = {
     pullrequest: {
+      id: 7,
       source: { branch: { name: "stubwise/fix-1" } },
       links: { html: { href: "https://bitbucket.org/myws/myrepo/pull-requests/7" } },
     },
@@ -208,6 +348,7 @@ describe("BitbucketProvider.parseWebhook", () => {
       provider: "bitbucket",
       branch: "stubwise/fix-1",
       prUrl: "https://bitbucket.org/myws/myrepo/pull-requests/7",
+      prNumber: 7,
     });
   });
 
@@ -218,7 +359,29 @@ describe("BitbucketProvider.parseWebhook", () => {
       provider: "bitbucket",
       branch: "stubwise/fix-1",
       prUrl: "https://bitbucket.org/myws/myrepo/pull-requests/7",
+      prNumber: 7,
     });
+  });
+
+  it("exposes pullrequest.id as prNumber; id mancante/malformato → evento valido con prNumber null", () => {
+    // La chiusura del ticket dipende dal branch, non dall'id PR: un payload
+    // senza `id` resta un evento valido, solo il cleanup review lo salterà.
+    const headers = { "x-event-key": "pullrequest:fulfilled" };
+    expect(provider.parseWebhook(headers, mergedBody)?.prNumber).toBe(7);
+    const withoutId: Record<string, unknown> = { ...mergedBody.pullrequest };
+    delete withoutId["id"];
+    const event = provider.parseWebhook(headers, { pullrequest: withoutId });
+    expect(event).toEqual({
+      kind: "merged",
+      provider: "bitbucket",
+      branch: "stubwise/fix-1",
+      prUrl: "https://bitbucket.org/myws/myrepo/pull-requests/7",
+      prNumber: null,
+    });
+    expect(
+      provider.parseWebhook(headers, { pullrequest: { ...mergedBody.pullrequest, id: "7" } })
+        ?.prNumber
+    ).toBeNull();
   });
 
   it("matches the event header case-insensitively", () => {
@@ -236,6 +399,77 @@ describe("BitbucketProvider.parseWebhook", () => {
     expect(provider.parseWebhook(headers, "garbage")).toBeNull();
     expect(provider.parseWebhook(headers, { pullrequest: {} })).toBeNull();
     expect(provider.parseWebhook(headers, { pullrequest: { source: { branch: {} } } })).toBeNull();
+  });
+});
+
+describe("BitbucketProvider.parsePrEvent", () => {
+  const provider = new BitbucketProvider();
+  const payload = {
+    pullrequest: {
+      id: 7,
+      title: "Add login",
+      description: "Implements login flow",
+      source: { branch: { name: "feature/login" }, commit: { hash: "abc123def456" } },
+      destination: { branch: { name: "main" } },
+      links: { html: { href: "https://bitbucket.org/acme/repo/pull-requests/7" } },
+    },
+  };
+
+  it("pullrequest:created → kind opened con tutti i campi", () => {
+    expect(provider.parsePrEvent({ "x-event-key": "pullrequest:created" }, payload)).toEqual({
+      kind: "opened",
+      provider: "bitbucket",
+      prNumber: 7,
+      title: "Add login",
+      description: "Implements login flow",
+      sourceBranch: "feature/login",
+      targetBranch: "main",
+      headSha: "abc123def456",
+      prUrl: "https://bitbucket.org/acme/repo/pull-requests/7",
+    });
+  });
+
+  it("pullrequest:updated → kind updated", () => {
+    expect(provider.parsePrEvent({ "x-event-key": "pullrequest:updated" }, payload)?.kind).toBe(
+      "updated"
+    );
+  });
+
+  it("matches the event header case-insensitively", () => {
+    expect(provider.parsePrEvent({ "X-Event-Key": "pullrequest:created" }, payload)).not.toBeNull();
+  });
+
+  it("event-key di chiusura o assente → null", () => {
+    expect(provider.parsePrEvent({ "x-event-key": "pullrequest:fulfilled" }, payload)).toBeNull();
+    expect(provider.parsePrEvent({ "x-event-key": "pullrequest:rejected" }, payload)).toBeNull();
+    expect(provider.parsePrEvent({}, payload)).toBeNull();
+  });
+
+  it("campi obbligatori mancanti o body malformato → null", () => {
+    const headers = { "x-event-key": "pullrequest:created" };
+    expect(provider.parsePrEvent(headers, null)).toBeNull();
+    expect(provider.parsePrEvent(headers, "garbage")).toBeNull();
+    expect(provider.parsePrEvent(headers, { pullrequest: {} })).toBeNull();
+    const withoutSource: Record<string, unknown> = { ...payload.pullrequest };
+    delete withoutSource["source"];
+    expect(provider.parsePrEvent(headers, { pullrequest: withoutSource })).toBeNull();
+    expect(
+      provider.parsePrEvent(headers, {
+        pullrequest: { ...payload.pullrequest, source: { branch: { name: "feature/login" } } },
+      })
+    ).toBeNull();
+    expect(
+      provider.parsePrEvent(headers, { pullrequest: { ...payload.pullrequest, id: "7" } })
+    ).toBeNull();
+  });
+
+  it("description mancante → stringa vuota", () => {
+    const withoutDescription: Record<string, unknown> = { ...payload.pullrequest };
+    delete withoutDescription["description"];
+    expect(
+      provider.parsePrEvent({ "x-event-key": "pullrequest:created" }, { pullrequest: withoutDescription })
+        ?.description
+    ).toBe("");
   });
 });
 
@@ -345,6 +579,7 @@ describe("BitbucketProvider.parsePushEvent", () => {
   it("cross-check: a PR webhook stays a PR — parseWebhook parses it, parsePushEvent does not", () => {
     const prBody = {
       pullrequest: {
+        id: 7,
         source: { branch: { name: "stubwise/fix-1" } },
         links: { html: { href: "https://bitbucket.org/myws/myrepo/pull-requests/7" } },
       },
@@ -614,7 +849,13 @@ describe("BitbucketProvider.ensureWebhook", () => {
       description: "Stubwise",
       url: hook.url,
       active: true,
-      events: ["pullrequest:fulfilled", "pullrequest:rejected", "repo:push"],
+      events: [
+        "pullrequest:created",
+        "pullrequest:updated",
+        "pullrequest:fulfilled",
+        "pullrequest:rejected",
+        "repo:push",
+      ],
       secret: hook.secret,
     });
   });
@@ -646,7 +887,13 @@ describe("BitbucketProvider.ensureWebhook", () => {
       description: "Stubwise",
       url: hook.url,
       active: true,
-      events: ["pullrequest:fulfilled", "pullrequest:rejected", "repo:push"],
+      events: [
+        "pullrequest:created",
+        "pullrequest:updated",
+        "pullrequest:fulfilled",
+        "pullrequest:rejected",
+        "repo:push",
+      ],
       secret: hook.secret,
     });
   });

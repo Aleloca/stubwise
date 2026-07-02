@@ -1766,3 +1766,31 @@ describe("schema: fix multi-repo (progetto: ingestion/numerazione, error_groups,
     expect(afterRepo.length).toBe(0);
   });
 });
+
+/**
+ * Verifica le migrazioni dell'automazione PR Review (0037 + 0038): in
+ * particolare il seed della regola di automazione per il tipo `review`, che
+ * DEVE nascere con auto_fix spento (anti-loop: il ticket creato da una review
+ * non deve innescare la pipeline di fix). Il seed vive in una migrazione
+ * separata (0038) perché Postgres vieta l'uso di un valore enum aggiunto
+ * nella stessa transazione della ALTER TYPE.
+ */
+describe("schema: automazione PR Review (seed automation_rules)", () => {
+  let testDb: TestDb;
+  let db: Db;
+
+  beforeAll(async () => {
+    testDb = await startTestDb();
+    db = testDb.db;
+  });
+
+  afterAll(async () => {
+    await testDb.stop();
+  });
+
+  it("la migrazione seeda automation_rules per 'review' con auto_fix=false", async () => {
+    const [row] = await db.select().from(automationRules).where(eq(automationRules.type, "review"));
+    expect(row).toBeDefined();
+    expect(row!.autoFix).toBe(false);
+  });
+});

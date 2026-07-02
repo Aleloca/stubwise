@@ -128,8 +128,8 @@ export const aiJobStatus = pgEnum("ai_job_status", [
   // dell'approvazione umana prima di eseguirlo.
   "awaiting_plan_approval",
 ]);
-// Le due fasi AI di cui tracciamo i consumi (token + costo): triage e fix.
-export const agentRunPhase = pgEnum("agent_run_phase", ["triage", "fix"]);
+// Le fasi AI di cui tracciamo i consumi (token + costo): triage, fix e review.
+export const agentRunPhase = pgEnum("agent_run_phase", ["triage", "fix", "review"]);
 
 // Modalità di ripresa di un job rimesso in coda da un intervento umano:
 //  null     → job normale: triage → (gate) → fix;
@@ -627,9 +627,11 @@ export const agentRuns = pgTable(
   "agent_runs",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    jobId: uuid("job_id")
-      .notNull()
-      .references(() => aiJobs.id, { onDelete: "cascade" }),
+    // Job AI del fix/triage; null per i run dell'automazione PR Review (che
+    // referenziano pr_review_id). Esattamente uno dei due è valorizzato.
+    jobId: uuid("job_id").references(() => aiJobs.id, { onDelete: "cascade" }),
+    // Run dell'automazione PR Review; null per triage/fix.
+    prReviewId: uuid("pr_review_id").references(() => prReviews.id, { onDelete: "cascade" }),
     phase: agentRunPhase("phase").notNull(),
     model: text("model").notNull(),
     inputTokens: integer("input_tokens").notNull().default(0),
@@ -643,6 +645,11 @@ export const agentRuns = pgTable(
   (table) => [
     // Aggregazione dei consumi per job (e, via join, per ticket).
     index("agent_runs_job_id_idx").on(table.jobId),
+    // Aggregazione del costo per review + cascade delete da pr_reviews.
+    index("agent_runs_pr_review_id_idx").on(table.prReviewId),
+    // Esattamente uno tra job_id e pr_review_id valorizzato (vedi commenti
+    // sulle colonne): l'invariante è garantita dal DB, non solo dal codice.
+    check("agent_runs_owner_check", sql`num_nonnulls(job_id, pr_review_id) = 1`),
   ],
 );
 
@@ -787,6 +794,8 @@ export const notificationSettings = pgTable("notification_settings", {
   // Notifica quando un job viene parcheggiato per superamento del budget di
   // costo (budget held).
   notifyBudgetHeld: boolean("notify_budget_held").notNull().default(true),
+  // Notifica al completamento di una PR Review automatica.
+  notifyReviewCompleted: boolean("notify_review_completed").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
@@ -807,6 +816,11 @@ export const instanceSettings = pgTable("instance_settings", {
   // Budget di costo mensile complessivo in USD per l'intera istanza. Stesso
   // tipo di agentRuns.costUsd. null = nessun limite (default).
   monthlyBudgetUsd: numeric("monthly_budget_usd", { precision: 12, scale: 6 }),
+  // Automazione PR Review: interruttore globale (default spento) e tetto di
+  // costo USD per singola review (null = nessun limite). Il gate vive nel
+  // webhook (accodamento) e nel worker (claim + verifica post-run del cap).
+  prReviewEnabled: boolean("pr_review_enabled").notNull().default(false),
+  prReviewMaxCostUsd: numeric("pr_review_max_cost_usd", { precision: 12, scale: 6 }),
   // Configurazione dello storage S3-compatibile per gli allegati. Tutte
   // nullable: lo storage è opzionale; con queste colonne a null la feature
   // allegati è disattivata. La secret key è cifrata a riposo (AES-256-GCM, vedi
@@ -1035,6 +1049,79 @@ export const docAutoUpdateJobs = pgTable(
   },
   // Un solo job pending per repository: il webhook fa upsert su questo vincolo.
   (table) => [uniqueIndex("doc_auto_update_jobs_project_unique").on(table.repositoryId)],
+);
+
+export const prReviewStatus = pgEnum("pr_review_status", ["running", "completed", "failed"]);
+export const prReviewVerdict = pgEnum("pr_review_verdict", ["approve", "request_changes"]);
+
+/**
+ * Coda di debounce dell'automazione PR Review (pattern doc_auto_update_jobs):
+ * un solo job pending per (repository, PR). Il webhook fa upsert ad ogni
+ * opened/synchronize aggiornando head e finestra; il poller del worker reclama
+ * con DELETE...RETURNING quando `not_before` è scaduto. I metadati della PR
+ * (titolo, corpo, branch) viaggiano nel job così il worker non deve richiamare
+ * l'API del provider per costruire il prompt.
+ */
+export const prReviewJobs = pgTable(
+  "pr_review_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    prNumber: integer("pr_number").notNull(),
+    prUrl: text("pr_url").notNull(),
+    prTitle: text("pr_title").notNull(),
+    prBody: text("pr_body").notNull().default(""),
+    sourceBranch: text("source_branch").notNull(),
+    targetBranch: text("target_branch").notNull(),
+    headSha: text("head_sha").notNull(),
+    // Il poller reclama il job solo quando questo istante è scaduto (debounce).
+    notBefore: timestamp("not_before", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    // Un solo pending per (repo, PR): il webhook fa upsert su questo vincolo.
+    uniqueIndex("pr_review_jobs_repository_pr_unique").on(table.repositoryId, table.prNumber),
+  ],
+);
+
+/**
+ * Storico delle review eseguite: una riga per run. `ticketId` punta al ticket
+ * di Stubwise che ospita l'analisi (quello esistente per le PR aperte dal fix,
+ * o il ticket di tipo `review` creato per le PR esterne); set null se il ticket
+ * viene eliminato (lo storico sopravvive). `lastActivityAt` è l'heartbeat per
+ * il recovery delle righe `running` orfane (riavvio del worker a metà review).
+ */
+export const prReviews = pgTable(
+  "pr_reviews",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    prNumber: integer("pr_number").notNull(),
+    prUrl: text("pr_url").notNull(),
+    prTitle: text("pr_title").notNull(),
+    headSha: text("head_sha").notNull(),
+    ticketId: uuid("ticket_id").references(() => tickets.id, { onDelete: "set null" }),
+    status: prReviewStatus("status").notNull().default("running"),
+    verdict: prReviewVerdict("verdict"),
+    // Analisi in markdown prodotta dall'agente (null finché running/failed).
+    summary: text("summary"),
+    error: text("error"),
+    lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    // Lookup del ticket riusabile per le re-review della stessa PR.
+    index("pr_reviews_repository_pr_idx").on(table.repositoryId, table.prNumber),
+  ],
 );
 
 /**

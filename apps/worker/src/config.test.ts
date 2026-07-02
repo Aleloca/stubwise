@@ -41,6 +41,54 @@ describe("loadWorkerConfig", () => {
     expect(config.docsAutoUpdatePollSeconds).toBe(60);
     // Rigenerazione mirata: default 10 pagine per push.
     expect(config.docsAutoUpdateMaxPages).toBe(10);
+    // Poller PR Review: default 60 secondi, sonnet, 50 turni, timeout 15'.
+    expect(config.prReviewPollSeconds).toBe(60);
+    expect(config.prReviewModel).toBe("sonnet");
+    expect(config.prReviewMaxTurns).toBe(50);
+    expect(config.prReviewTimeoutMs).toBe(900_000);
+  });
+
+  it("rispetta PR_REVIEW_POLL_SECONDS esplicito e 0 = disabilitato", () => {
+    expect(loadWorkerConfig({ ...VALID, PR_REVIEW_POLL_SECONDS: "30" }).prReviewPollSeconds).toBe(
+      30,
+    );
+    expect(loadWorkerConfig({ ...VALID, PR_REVIEW_POLL_SECONDS: "0" }).prReviewPollSeconds).toBe(0);
+    // Vuoto (es. da .env.example) usa il default 60.
+    expect(loadWorkerConfig({ ...VALID, PR_REVIEW_POLL_SECONDS: "" }).prReviewPollSeconds).toBe(60);
+  });
+
+  it("rispetta modello, turni e timeout della PR Review (minuti → ms)", () => {
+    const config = loadWorkerConfig({
+      ...VALID,
+      PR_REVIEW_MODEL: "haiku",
+      PR_REVIEW_MAX_TURNS: "20",
+      PR_REVIEW_TIMEOUT_MINUTES: "10",
+    });
+    expect(config.prReviewModel).toBe("haiku");
+    expect(config.prReviewMaxTurns).toBe(20);
+    expect(config.prReviewTimeoutMs).toBe(600_000);
+    // Vuoti (es. da .env.example) usano i default.
+    const defaults = loadWorkerConfig({
+      ...VALID,
+      PR_REVIEW_MODEL: "",
+      PR_REVIEW_MAX_TURNS: "",
+      PR_REVIEW_TIMEOUT_MINUTES: "",
+    });
+    expect(defaults.prReviewModel).toBe("sonnet");
+    expect(defaults.prReviewMaxTurns).toBe(50);
+    expect(defaults.prReviewTimeoutMs).toBe(900_000);
+  });
+
+  it("rifiuta PR_REVIEW_MAX_TURNS e PR_REVIEW_TIMEOUT_MINUTES fuori range", () => {
+    expect(() => loadWorkerConfig({ ...VALID, PR_REVIEW_MAX_TURNS: "0" })).toThrow(
+      /PR_REVIEW_MAX_TURNS/,
+    );
+    expect(() => loadWorkerConfig({ ...VALID, PR_REVIEW_TIMEOUT_MINUTES: "0" })).toThrow(
+      /PR_REVIEW_TIMEOUT_MINUTES/,
+    );
+    expect(() => loadWorkerConfig({ ...VALID, PR_REVIEW_POLL_SECONDS: "-1" })).toThrow(
+      /PR_REVIEW_POLL_SECONDS/,
+    );
   });
 
   it("rispetta DOCS_AUTOUPDATE_POLL_SECONDS esplicito e 0 = disabilitato", () => {

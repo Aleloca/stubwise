@@ -1,5 +1,6 @@
 import { automationRules, comments, tickets, type Db } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
+import type { TicketType } from "@stubwise/shared";
 import { and, desc, eq, ne } from "drizzle-orm";
 import {
   AgentRunError,
@@ -24,10 +25,16 @@ import { buildTriagePrompt, parseTriageDecision, type TriageDecision } from "./p
 
 /**
  * Default difensivo del gate quando manca la riga automation_rules del tipo
- * (non dovrebbe accadere: la migrazione seeda tutti e 4 i tipi). Conservativo
+ * (non dovrebbe accadere: la migrazione seeda tutti i tipi). Conservativo
  * ma non bloccante: auto-fix attivo fino a effort medio, come per i bug.
+ * ECCEZIONE: per il tipo `review` il fallback ha auto-fix SPENTO (anti-loop):
+ * il ticket creato dall'automazione PR Review non deve innescare la pipeline
+ * di fix nemmeno su un DB pre-seed.
  */
 const DEFAULT_AUTOMATION_RULE = { autoFix: true, maxEffort: 3 } as const;
+
+const defaultAutomationRuleFor = (type: TicketType): { autoFix: boolean; maxEffort: number } =>
+  type === "review" ? { ...DEFAULT_AUTOMATION_RULE, autoFix: false } : DEFAULT_AUTOMATION_RULE;
 
 /**
  * Fase 1 della pipeline: il triage. Economica (model haiku, pochi turni),
@@ -291,7 +298,7 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
         .select({ autoFix: automationRules.autoFix, maxEffort: automationRules.maxEffort })
         .from(automationRules)
         .where(eq(automationRules.type, decision.type));
-      const effectiveRule = rule ?? DEFAULT_AUTOMATION_RULE;
+      const effectiveRule = rule ?? defaultAutomationRuleFor(decision.type);
       const allowAuto = effectiveRule.autoFix && decision.effort <= effectiveRule.maxEffort;
 
       if (job.manualTrigger || allowAuto) {

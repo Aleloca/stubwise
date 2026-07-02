@@ -1,6 +1,6 @@
 ---
 title: AI automation
-description: "Always-on triage (type + effort + decision), per-ticket-type rules, auto/held gate and manual fix start."
+description: "Always-on triage (type + effort + decision), per-ticket-type rules, auto/held gate, manual fix start and automatic PR review."
 ---
 
 Automation decides **whether and when** the AI pipeline tries to resolve a
@@ -17,7 +17,8 @@ Triage does three things:
 1. **Validates and re-classifies the type.** It doesn't trust the incoming type:
    it decides itself whether the ticket is `bug`, `feature`, `task` or
    `feedback`. It's the re-classified type that counts for the automation rules
-   below.
+   below. The fifth type, `review`, is **reserved**: triage never assigns it —
+   it's used only by the tickets the [PR review](#pr-review) automation creates.
 2. **Estimates the effort**, on a scale from **1 to 5**, saved on the ticket:
 
    | Effort | Label        |
@@ -37,8 +38,8 @@ the reason. Only on `fix` does the gate come into play.
 
 ## Per-type rules (Settings → AI Automation)
 
-In **Settings → AI Automation** (admin only) you configure, for each of the four
-ticket types, these parameters:
+In **Settings → AI Automation** (admin only) you configure, for each ticket
+type, these parameters:
 
 - **Auto-fix** (on/off): whether the pipeline can start the fix on its own for
   that type.
@@ -58,9 +59,13 @@ The seeded default values are:
 | `task`     | on       | ≤ 2 (Small)      |
 | `feature`  | off      | —                |
 | `feedback` | off      | —                |
+| `review`   | off      | —                |
 
 The idea: let the AI handle bugs and small tasks on its own, and keep features
-and feedback for human review.
+and feedback for human review. The `review` type is seeded with auto-fix **off**
+on purpose: the tickets created by the [PR review](#pr-review) automation must
+not trigger the fix pipeline in turn (it would loop — a review opens a ticket,
+the ticket opens a PR, the PR gets reviewed…).
 
 ## The gate: starts on its own or stays held
 
@@ -246,3 +251,78 @@ The **tokens and the cost** are tracked **per ticket** and **per model**
 detail the **"AI usage"** panel shows how much each stage cost. So the estimated
 effort isn't just a filter for the gate, but also a lens to read the spend
 after the fact.
+
+## PR review
+
+Beyond fixing tickets, Stubwise can **review pull requests**: on every PR
+**opened or updated** on a connected repository, a **read-only** AI agent
+checks out the PR's head, reads the **diff** against the target branch and
+navigates the surrounding codebase, judging correctness, regressions, security
+and consistency with the repo's conventions. It then posts a **comment on the
+PR** with a **verdict** — *approval suggested* or *changes requested* — and the
+analysis, with findings pinned to specific files and lines. The comment is
+**sticky**: each new review of the same PR **updates it in place**, so the PR
+never fills up with stale AI comments.
+
+It runs on **every** PR, including the ones Stubwise itself opens
+(`stubwise/ticket-N` branches): a second pair of eyes on the fix pipeline.
+Close pushes are **debounced** (~90 seconds): several pushes in a row collapse
+into a single review of the final head, and a push landing while a review is
+running queues a fresh review on the updated head.
+
+The agent **never modifies anything**: it runs in plan (read-only) mode, does
+not execute the repo's tests (that's what the repo's own CI is for) and its
+comments don't re-trigger the webhook, so there is no loop.
+
+### Where the review lands in Stubwise
+
+Besides the comment on the PR, every review is recorded in the ticketing
+system:
+
+- **PR opened by Stubwise** → the analysis is added as an **`ai` comment on the
+  existing ticket** the PR belongs to.
+- **External PR** (opened by a human or by another tool) → Stubwise creates a
+  **ticket of type `review`** (titled after the PR, linking to it) and puts the
+  analysis there. The ticket **closes itself** when the PR is merged or
+  declined — no manual bookkeeping.
+
+Each re-review adds a **new comment** on the ticket, so the ticket keeps the
+full history even though the PR comment is always the latest version. The cost
+of each review is tracked in the ticket's **AI usage** panel like every other
+agent run.
+
+### Enabling it
+
+PR review is **off by default**. In **Settings → AI Automation**, the **PR
+review** section has:
+
+- the global **on/off toggle** (instance-wide, all connected repositories);
+- an optional **"Max cost per review ($)"** cap: if a single review exceeds it,
+  the review is marked failed and its result is **discarded** (nothing is
+  published). Empty = no cap. Reviews also respect the instance's
+  [monthly budget](#cost-budget): once it's exhausted, reviews stop running.
+
+The trigger is the **repository webhook**: only repositories whose webhook is
+configured get reviews, which is also the natural per-repo filter.
+
+:::caution[Bitbucket repositories configured before this version]
+The Bitbucket webhook subscribes to an explicit list of events, and PR
+**created/updated** were added with this feature. For Bitbucket repositories
+whose webhook was configured **before** this version, open the repository page
+and re-run the automatic webhook configuration (**Reconfigure**) to register
+the PR events. GitHub webhooks already receive all `pull_request` events and
+need nothing.
+:::
+
+If you want to be alerted when a review completes, turn on the **"PR review
+completed"** event in **Settings → Notifications**: the
+[`review.completed`](/docs/notifications/) notification carries the verdict and
+the links to the PR and the ticket.
+
+### Tuning (worker variables)
+
+Four worker environment variables govern the review runs — model, poll
+interval, turn and time limits. The defaults (model `sonnet`, poll every 60
+seconds, 50 turns, 15-minute timeout) are fine for most instances; setting
+`PR_REVIEW_POLL_SECONDS=0` disables the poller entirely. See the
+[configuration reference](/docs/reference/configuration/) for the full table.

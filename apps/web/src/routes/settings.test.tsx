@@ -19,7 +19,9 @@ const DEFAULT_AUTOMATION = {
     { type: "task", autoFix: true, maxEffort: 2, planApprovalMinEffort: 4, maxCostUsd: 1.5 },
     { type: "feature", autoFix: false, maxEffort: 3, planApprovalMinEffort: null, maxCostUsd: null },
     { type: "feedback", autoFix: false, maxEffort: 3, planApprovalMinEffort: null, maxCostUsd: null },
+    { type: "review", autoFix: false, maxEffort: 3, planApprovalMinEffort: null, maxCostUsd: null },
   ],
+  prReview: { enabled: false, maxCostUsd: null },
 };
 
 const DEFAULT_NOTIFICATIONS = {
@@ -32,6 +34,7 @@ const DEFAULT_NOTIFICATIONS = {
   notifyJobHeld: true,
   notifyPlanReview: true,
   notifyBudgetHeld: true,
+  notifyReviewCompleted: true,
   notifyJobFailed: true,
 };
 
@@ -219,6 +222,7 @@ describe("impostazioni: /settings/automation (admin)", () => {
           rules: DEFAULT_AUTOMATION.rules.map((r) =>
             r.type === "bug" ? { ...r, autoFix: false } : r,
           ),
+          prReview: DEFAULT_AUTOMATION.prReview,
         });
       },
     });
@@ -291,6 +295,42 @@ describe("impostazioni: /settings/automation (admin)", () => {
     expect(body.rules.find((r) => r.type === "task")?.maxCostUsd).toBeNull();
   });
 
+  it("mostra la sezione PR Review e salva enabled + max cost nel PUT", async () => {
+    let putBody: unknown = null;
+    mockApi({
+      ...adminBase(),
+      "PUT /api/settings/automation": (_url, init) => {
+        putBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, {
+          rules: DEFAULT_AUTOMATION.rules,
+          prReview: { enabled: true, maxCostUsd: 2 },
+        });
+      },
+    });
+
+    renderAt("/settings/automation");
+
+    // La sezione parte dai dati del server: disabilitata e senza tetto.
+    const toggle = (await screen.findByLabelText("PR review enabled")) as HTMLInputElement;
+    expect(toggle).not.toBeChecked();
+    const cost = screen.getByLabelText("Max cost per review ($)") as HTMLInputElement;
+    expect(cost.value).toBe("");
+
+    await userEvent.click(toggle);
+    await userEvent.type(cost, "2");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(putBody).not.toBeNull());
+    const body = putBody as {
+      rules: unknown[];
+      prReview: { enabled: boolean; maxCostUsd: number | null };
+    };
+    expect(body.prReview).toEqual({ enabled: true, maxCostUsd: 2 });
+    // Le regole per-tipo restano invariate nel payload.
+    expect(body.rules).toEqual(DEFAULT_AUTOMATION.rules);
+    expect(await screen.findByText("Saved")).toBeInTheDocument();
+  });
+
   it("member: non raggiunge la rotta admin, viene rimandato ad account", async () => {
     mockApi(memberBase());
     const router = renderAt("/settings/automation");
@@ -341,6 +381,7 @@ describe("impostazioni: /settings/notifications (admin)", () => {
     expect(scope.getByLabelText("On hold")).toBeChecked();
     expect(scope.getByLabelText("AI plan awaiting approval")).toBeChecked();
     expect(scope.getByLabelText("Budget exceeded (job held)")).toBeChecked();
+    expect(scope.getByLabelText("PR review completed")).toBeChecked();
     expect(scope.getByLabelText("Fix failed")).toBeChecked();
   });
 
@@ -367,6 +408,7 @@ describe("impostazioni: /settings/notifications (admin)", () => {
     await userEvent.click(scope.getByLabelText("PR closed without merge (ticket reopened)"));
     await userEvent.click(scope.getByLabelText("AI plan awaiting approval"));
     await userEvent.click(scope.getByLabelText("Budget exceeded (job held)"));
+    await userEvent.click(scope.getByLabelText("PR review completed"));
     await userEvent.click(scope.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(putBody).not.toBeNull());
@@ -376,12 +418,14 @@ describe("impostazioni: /settings/notifications (admin)", () => {
       notifyPrClosed: boolean;
       notifyPlanReview: boolean;
       notifyBudgetHeld: boolean;
+      notifyReviewCompleted: boolean;
     };
     expect(body.webhookUrl).toBe("https://hooks.example.com/x");
     expect(body.format).toBe("discord");
     expect(body.notifyPrClosed).toBe(false);
     expect(body.notifyPlanReview).toBe(false);
     expect(body.notifyBudgetHeld).toBe(false);
+    expect(body.notifyReviewCompleted).toBe(false);
     expect(await scope.findByText("Saved")).toBeInTheDocument();
   });
 

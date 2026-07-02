@@ -43,6 +43,10 @@ plus:
 | `INSTALL_TIMEOUT_MS`    | No       | `600000`                 | Timeout in ms (10') of the dependency install run in the worktree, before the fix and the tests. Runs **once** per job, so it enters the staleness invariant as a single addend (not per attempt). |
 | `SELF_REPAIR_MAX_ATTEMPTS` | No    | `2`                      | Max self-repair cycles after a fix run whose tests fail (the worker re-runs the agent with the failure output). `0` disables the loop. Enters into the staleness invariant. |
 | `SELF_REPAIR_TEST_TIMEOUT_MS` | No | `300000`                 | Timeout in ms (5') of each test-command re-run during self-repair. Enters into the staleness invariant. |
+| `PR_REVIEW_POLL_SECONDS` | No      | `60`                     | Poll interval in seconds of the [PR review](/docs/ai-pipeline/automation/#pr-review) queue. `0` disables the poller. |
+| `PR_REVIEW_MODEL`       | No       | `sonnet`                 | Model of the PR review agent (read-only analysis on every PR push: keep it cheap). |
+| `PR_REVIEW_MAX_TURNS`   | No       | `50`                     | Max agentic turns per review run (bounds cost and duration).                               |
+| `PR_REVIEW_TIMEOUT_MINUTES` | No   | `15`                     | Timeout in **minutes** of a review run. Must stay **below `WORKER_STALE_MINUTES`**, or the stale recovery would fail reviews still alive. |
 | `ANTHROPIC_API_KEY`     | No       | —                        | Auth of the `claude` CLI (via API key). Alternative: OAuth/MAX login. See below.           |
 | `CLAUDE_CONFIG_DIR`     | No       | —                        | Config home of the `claude` CLI. In the compose it's `/home/worker/.claude` (persistent volume). |
 

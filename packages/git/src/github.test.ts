@@ -139,11 +139,107 @@ describe("GitHubProvider.openPullRequest", () => {
   });
 });
 
+describe("GitHubProvider.getPullRequestState", () => {
+  it("state=open → 'open'; state=closed → 'closed'", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ state: "open" }, 200));
+    const provider = new GitHubProvider({ fetchImpl });
+    await expect(provider.getPullRequestState(config, 42)).resolves.toBe("open");
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://api.github.com/repos/octo/repo/pulls/42",
+      expect.objectContaining({ method: "GET" })
+    );
+    const [, init] = fetchImpl.mock.calls[0] as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe("Bearer ghp_secret");
+    expect(headers["Accept"]).toBe("application/vnd.github+json");
+
+    const closedFetch = vi.fn().mockResolvedValue(jsonResponse({ state: "closed" }, 200));
+    const closedProvider = new GitHubProvider({ fetchImpl: closedFetch });
+    await expect(closedProvider.getPullRequestState(config, 42)).resolves.toBe("closed");
+  });
+
+  it("throws GitProviderError on non-2xx", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 404 }));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const error = await provider
+      .getPullRequestState(config, 42)
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(404);
+  });
+});
+
+describe("GitHubProvider.upsertPrComment", () => {
+  const MARKER = "<!-- stubwise-pr-review -->";
+
+  it("nessun commento col marker → POST di un nuovo commento", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse([{ id: 1, body: "altro" }], 200)) // list
+      .mockResolvedValueOnce(jsonResponse({ id: 2 }, 201)); // create
+    const provider = new GitHubProvider({ fetchImpl });
+
+    await provider.upsertPrComment(config, 42, MARKER, `${MARKER}\nAnalisi`);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      1,
+      "https://api.github.com/repos/octo/repo/issues/42/comments?per_page=100",
+      expect.objectContaining({ method: "GET" })
+    );
+    expect(fetchImpl).toHaveBeenLastCalledWith(
+      "https://api.github.com/repos/octo/repo/issues/42/comments",
+      expect.objectContaining({ method: "POST" })
+    );
+    const [, init] = fetchImpl.mock.calls[1] as [string, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe("Bearer ghp_secret");
+    expect(headers["Accept"]).toBe("application/vnd.github+json");
+    expect(headers["Content-Type"]).toBe("application/json");
+    expect(JSON.parse(init.body as string)).toEqual({ body: `${MARKER}\nAnalisi` });
+  });
+
+  it("commento col marker esistente → PATCH dello stesso commento", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse([{ id: 9, body: `${MARKER}\nvecchia` }], 200))
+      .mockResolvedValueOnce(jsonResponse({ id: 9 }, 200));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    await provider.upsertPrComment(config, 42, MARKER, `${MARKER}\nnuova`);
+
+    expect(fetchImpl).toHaveBeenLastCalledWith(
+      "https://api.github.com/repos/octo/repo/issues/comments/9",
+      expect.objectContaining({ method: "PATCH" })
+    );
+    const [, init] = fetchImpl.mock.calls[1] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ body: `${MARKER}\nnuova` });
+  });
+
+  it("throws GitProviderError when the list call fails", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("forbidden", { status: 403 }));
+    const provider = new GitHubProvider({ fetchImpl });
+
+    const error = await provider
+      .upsertPrComment(config, 42, MARKER, "testo")
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(GitProviderError);
+    expect((error as GitProviderError).status).toBe(403);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("GitHubProvider.parseWebhook", () => {
   const provider = new GitHubProvider();
   const mergedBody = {
     action: "closed",
     pull_request: {
+      number: 7,
       merged: true,
       head: { ref: "stubwise/fix-1" },
       html_url: "https://github.com/octo/repo/pull/42",
@@ -157,7 +253,13 @@ describe("GitHubProvider.parseWebhook", () => {
       provider: "github",
       branch: "stubwise/fix-1",
       prUrl: "https://github.com/octo/repo/pull/42",
+      prNumber: 7,
     });
+  });
+
+  it("exposes the PR number as prNumber", () => {
+    const event = provider.parseWebhook({ "x-github-event": "pull_request" }, mergedBody);
+    expect(event?.prNumber).toBe(7);
   });
 
   it("matches the event header case-insensitively", () => {
@@ -179,6 +281,7 @@ describe("GitHubProvider.parseWebhook", () => {
       provider: "github",
       branch: "stubwise/fix-1",
       prUrl: "https://github.com/octo/repo/pull/42",
+      prNumber: 7,
     });
   });
 
@@ -188,6 +291,82 @@ describe("GitHubProvider.parseWebhook", () => {
     expect(provider.parseWebhook(headers, 42)).toBeNull();
     expect(provider.parseWebhook(headers, { action: "closed" })).toBeNull();
     expect(provider.parseWebhook(headers, { action: "closed", pull_request: { merged: true } })).toBeNull();
+  });
+
+  it("PR number missing or not a number → evento valido con prNumber null", () => {
+    // La chiusura del ticket dipende dal branch, non dal numero PR: un payload
+    // senza `number` resta un evento valido, solo il cleanup review lo salterà.
+    const headers = { "x-github-event": "pull_request" };
+    const withoutNumber: Record<string, unknown> = { ...mergedBody.pull_request };
+    delete withoutNumber["number"];
+    const event = provider.parseWebhook(headers, { ...mergedBody, pull_request: withoutNumber });
+    expect(event).toEqual({
+      kind: "merged",
+      provider: "github",
+      branch: "stubwise/fix-1",
+      prUrl: "https://github.com/octo/repo/pull/42",
+      prNumber: null,
+    });
+    expect(
+      provider.parseWebhook(headers, {
+        ...mergedBody,
+        pull_request: { ...mergedBody.pull_request, number: "7" },
+      })?.prNumber
+    ).toBeNull();
+  });
+});
+
+describe("GitHubProvider.parsePrEvent", () => {
+  const provider = new GitHubProvider();
+  const payload = (action: string) => ({
+    action,
+    pull_request: {
+      number: 42,
+      title: "Add login",
+      body: "Implements login flow",
+      html_url: "https://github.com/acme/repo/pull/42",
+      head: { ref: "feature/login", sha: "a".repeat(40) },
+      base: { ref: "main" },
+    },
+  });
+  const headers = { "x-github-event": "pull_request" };
+
+  it("action=opened → kind opened con tutti i campi", () => {
+    expect(provider.parsePrEvent(headers, payload("opened"))).toEqual({
+      kind: "opened",
+      provider: "github",
+      prNumber: 42,
+      title: "Add login",
+      description: "Implements login flow",
+      sourceBranch: "feature/login",
+      targetBranch: "main",
+      headSha: "a".repeat(40),
+      prUrl: "https://github.com/acme/repo/pull/42",
+    });
+  });
+
+  it("action=reopened → opened; synchronize → updated", () => {
+    expect(provider.parsePrEvent(headers, payload("reopened"))?.kind).toBe("opened");
+    expect(provider.parsePrEvent(headers, payload("synchronize"))?.kind).toBe("updated");
+  });
+
+  it("action=closed o evento non-PR → null; body null → null", () => {
+    expect(provider.parsePrEvent(headers, payload("closed"))).toBeNull();
+    expect(provider.parsePrEvent({ "x-github-event": "push" }, payload("opened"))).toBeNull();
+    expect(provider.parsePrEvent(headers, null)).toBeNull();
+  });
+
+  it("body PR null → description stringa vuota", () => {
+    const p = payload("opened");
+    (p.pull_request as { body: unknown }).body = null;
+    expect(provider.parsePrEvent(headers, p)?.description).toBe("");
+  });
+
+  it("campi obbligatori mancanti → null", () => {
+    const p = payload("opened");
+    (p.pull_request as { head: unknown }).head = { ref: "feature/login" };
+    expect(provider.parsePrEvent(headers, p)).toBeNull();
+    expect(provider.parsePrEvent(headers, { action: "opened" })).toBeNull();
   });
 });
 
@@ -277,6 +456,7 @@ describe("GitHubProvider.parsePushEvent", () => {
     const prBody = {
       action: "closed",
       pull_request: {
+        number: 42,
         merged: true,
         head: { ref: "stubwise/fix-1" },
         html_url: "https://github.com/octo/repo/pull/42",

@@ -1,6 +1,6 @@
 ---
 title: Notifications
-description: "An outgoing webhook (Slack, Discord or generic JSON) alerts on the key events: new ticket, PR opened, PR closed, held job, plan to approve, failed fix."
+description: "An outgoing webhook (Slack, Discord or generic JSON) alerts on the key events: new ticket, PR opened, PR closed, held job, plan to approve, PR review completed, failed fix."
 ---
 
 Stubwise can send a notification to an **outgoing webhook** on the platform's
@@ -18,6 +18,7 @@ the message for.
 | `job.held`         | A job is awaiting human review (automation gate / effort threshold).       |
 | `job.plan_review`  | Planning produced a plan awaiting human approval.                          |
 | `job.budget_held`  | A job was held because it would exceed a cost budget (per ticket or monthly). |
+| `review.completed` | An automatic [PR review](/docs/ai-pipeline/automation/#pr-review) completed, with its verdict. |
 | `job.failed`       | The AI fix failed.                                                         |
 
 Each event has a dedicated toggle: you can enable only the ones you care about.
@@ -93,13 +94,14 @@ With the **generic JSON** format your endpoint receives a `POST` request with
 | `message`      | string           | always                  | Human-readable summary of the event, no markup. Rendered in the instance's [content language](/docs/ai-pipeline/configuration/#content-language) (not always English). |
 | `ticketUrl`    | string           | always                  | Link to the ticket in Stubwise.                         |
 | `source`       | string           | only `ticket.created`   | SDK source: `sdk_error` or `sdk_feedback`.              |
-| `prUrl`        | string           | only `job.pr_opened` / `job.pr_closed` | Pull request URL (opened or closed). |
+| `prUrl`        | string           | only `job.pr_opened` / `job.pr_closed` / `review.completed` | Pull request URL. |
 | `costUsd`      | number \| null   | only `job.pr_opened`    | USD cost of the fix run (`null` if unknown).            |
 | `type`         | string           | only `job.held`         | Ticket type (re)classified by triage.                   |
 | `effort`       | number           | only `job.held`         | Estimated effort, from 1 to 5.                          |
 | `scope`        | string           | only `job.budget_held`  | Which budget was hit: `ticket` or `monthly`.            |
 | `limitUsd`     | number           | only `job.budget_held`  | The budget ceiling in USD.                              |
 | `spentUsd`     | number           | only `job.budget_held`  | The cost already spent in USD.                          |
+| `verdict`      | string           | only `review.completed` | Review verdict: `approve` or `request_changes`.         |
 | `error`        | string           | only `job.failed`       | Error message of the failed fix.                        |
 
 ### Examples per event
@@ -188,6 +190,21 @@ With the **generic JSON** format your endpoint receives a `POST` request with
   "scope": "ticket",
   "limitUsd": 2,
   "spentUsd": 2.34
+}
+```
+
+`review.completed`:
+
+```json
+{
+  "event": "review.completed",
+  "ticketNumber": 133,
+  "title": "Review PR #351 — cart refactor",
+  "projectName": "web-shop",
+  "message": "PR review completed for #133 — Review PR #351 — cart refactor (web-shop): approval suggested.",
+  "ticketUrl": "https://stubwise.example.com/tickets/133",
+  "prUrl": "https://github.com/acme/web-shop/pull/351",
+  "verdict": "approve"
 }
 ```
 

@@ -15,6 +15,7 @@ import {
   type FetchLike,
   type GitProvider,
   type GitProviderOptions,
+  type PrActivityEvent,
   type ProjectGitConfig,
   type PushWebhookEvent,
   type RepoSummary,
@@ -81,18 +82,139 @@ export class GitHubProvider implements GitProvider {
     return { url: data.html_url };
   }
 
+  /** Stato attuale della PR via REST: 'open' se ancora aperta, altrimenti 'closed'. */
+  async getPullRequestState(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<"open" | "closed"> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const response = await fetchImpl(`${API_BASE}/repos/${owner}/${repo}/pulls/${prNumber}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${p.credentials.token}`,
+        Accept: "application/vnd.github+json",
+      },
+    });
+    await ensureOkResponse(response, "GitHub");
+    const data = (await readJsonResponse(response, "GitHub")) as { state?: unknown };
+    return data.state === "open" ? "open" : "closed";
+  }
+
+  /**
+   * Commento "sticky" della review: cerca tra gli issue comment della PR (su
+   * GitHub i commenti di conversazione delle PR sono issue comment) quello che
+   * contiene `marker` e lo aggiorna (PATCH), altrimenti ne crea uno (POST).
+   */
+  async upsertPrComment(
+    p: ProjectGitConfig,
+    prNumber: number,
+    marker: string,
+    body: string,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<void> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const headers = {
+      Authorization: `Bearer ${p.credentials.token}`,
+      Accept: "application/vnd.github+json",
+      "Content-Type": "application/json",
+    };
+    // Una pagina da 100 basta: il commento sticky è tra i primi della PR.
+    const listResponse = await fetchImpl(
+      `${API_BASE}/repos/${owner}/${repo}/issues/${prNumber}/comments?per_page=100`,
+      { method: "GET", headers }
+    );
+    await ensureOkResponse(listResponse, "GitHub");
+    const list = (await readJsonResponse(listResponse, "GitHub")) as {
+      id?: unknown;
+      body?: unknown;
+    }[];
+    const existing = Array.isArray(list)
+      ? list.find((c) => typeof c.body === "string" && c.body.includes(marker))
+      : undefined;
+    const target =
+      existing && typeof existing.id === "number"
+        ? { url: `${API_BASE}/repos/${owner}/${repo}/issues/comments/${existing.id}`, method: "PATCH" }
+        : { url: `${API_BASE}/repos/${owner}/${repo}/issues/${prNumber}/comments`, method: "POST" };
+    const response = await fetchImpl(target.url, {
+      method: target.method,
+      headers,
+      body: JSON.stringify({ body }),
+    });
+    await ensureOkResponse(response, "GitHub");
+  }
+
   parseWebhook(headers: Record<string, string>, body: unknown): WebhookEvent | null {
     if (getHeader(headers, "x-github-event") !== "pull_request") return null;
     if (typeof body !== "object" || body === null) return null;
     const payload = body as { action?: unknown; pull_request?: unknown };
     if (payload.action !== "closed") return null;
     if (typeof payload.pull_request !== "object" || payload.pull_request === null) return null;
-    const pr = payload.pull_request as { merged?: unknown; head?: { ref?: unknown }; html_url?: unknown };
+    const pr = payload.pull_request as {
+      number?: unknown;
+      merged?: unknown;
+      head?: { ref?: unknown };
+      html_url?: unknown;
+    };
     const branch = pr.head?.ref;
     const prUrl = pr.html_url;
     if (typeof branch !== "string" || typeof prUrl !== "string") return null;
     const kind = pr.merged === true ? "merged" : "closed_unmerged";
-    return { kind, provider: "github", branch, prUrl };
+    // Numero mancante o malformato: l'evento di chiusura resta valido (serve
+    // alla chiusura del ticket via branch), solo il cleanup review lo salta.
+    const prNumber = typeof pr.number === "number" ? pr.number : null;
+    return { kind, provider: "github", branch, prUrl, prNumber };
+  }
+
+  /**
+   * Eventi PR opened/reopened/synchronize per l'automazione PR Review:
+   * opened e reopened diventano `opened`, synchronize (push sulla source
+   * branch) diventa `updated`. Ogni altro action (closed, edited, ...) e ogni
+   * body malformato restituiscono null, senza mai lanciare.
+   */
+  parsePrEvent(headers: Record<string, string>, body: unknown): PrActivityEvent | null {
+    if (getHeader(headers, "x-github-event") !== "pull_request") return null;
+    if (typeof body !== "object" || body === null) return null;
+    const payload = body as { action?: unknown; pull_request?: unknown };
+    const kind =
+      payload.action === "opened" || payload.action === "reopened"
+        ? "opened"
+        : payload.action === "synchronize"
+          ? "updated"
+          : null;
+    if (kind === null) return null;
+    if (typeof payload.pull_request !== "object" || payload.pull_request === null) return null;
+    const pr = payload.pull_request as {
+      number?: unknown;
+      title?: unknown;
+      body?: unknown;
+      html_url?: unknown;
+      head?: { ref?: unknown; sha?: unknown };
+      base?: { ref?: unknown };
+    };
+    if (
+      typeof pr.number !== "number" ||
+      typeof pr.title !== "string" ||
+      typeof pr.html_url !== "string" ||
+      typeof pr.head?.ref !== "string" ||
+      typeof pr.head?.sha !== "string" ||
+      typeof pr.base?.ref !== "string"
+    ) {
+      return null;
+    }
+    return {
+      kind,
+      provider: "github",
+      prNumber: pr.number,
+      title: pr.title,
+      description: typeof pr.body === "string" ? pr.body : "",
+      sourceBranch: pr.head.ref,
+      targetBranch: pr.base.ref,
+      headSha: pr.head.sha,
+      prUrl: pr.html_url,
+    };
   }
 
   parsePushEvent(headers: Record<string, string>, body: unknown): PushWebhookEvent | null {

@@ -28,6 +28,7 @@ const BASE_ROW: NotificationSettingsRow = {
   notifyJobFailed: true,
   notifyPrClosed: true,
   notifyBudgetHeld: true,
+  notifyReviewCompleted: true,
 };
 
 /**
@@ -124,6 +125,16 @@ const BUDGET_HELD: NotificationEvent = {
   ticketUrl: "https://app.example.com/tickets/t1",
 };
 
+const REVIEW_COMPLETED: NotificationEvent = {
+  kind: "review.completed",
+  ticketNumber: 42,
+  ticketTitle: "Review PR #7 — fix checkout",
+  projectName: "webapp",
+  prUrl: "https://github.com/o/r/pull/7",
+  ticketUrl: "https://app.example.com/tickets/t1",
+  verdict: "approve",
+};
+
 function okFetch() {
   return vi.fn().mockResolvedValue(new Response("ok", { status: 200 }));
 }
@@ -213,6 +224,22 @@ describe("dispatchNotification — gating", () => {
   it("notifyBudgetHeld on posta job.budget_held", async () => {
     const fetchImpl = okFetch();
     await dispatchNotification(fakeDb(BASE_ROW), BUDGET_HELD, { fetchImpl });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("notifyReviewCompleted off blocca review.completed", async () => {
+    const fetchImpl = okFetch();
+    await dispatchNotification(
+      fakeDb({ ...BASE_ROW, notifyReviewCompleted: false }),
+      REVIEW_COMPLETED,
+      { fetchImpl },
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("notifyReviewCompleted on posta review.completed", async () => {
+    const fetchImpl = okFetch();
+    await dispatchNotification(fakeDb(BASE_ROW), REVIEW_COMPLETED, { fetchImpl });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 

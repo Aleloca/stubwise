@@ -35,6 +35,7 @@ const EVENT_TOGGLES: { key: keyof NotificationSettings; labelKey: string }[] = [
   { key: "notifyJobHeld", labelKey: "notifications:toggles.jobHeld" },
   { key: "notifyPlanReview", labelKey: "notifications:toggles.planReview" },
   { key: "notifyBudgetHeld", labelKey: "notifications:toggles.budgetHeld" },
+  { key: "notifyReviewCompleted", labelKey: "notifications:toggles.reviewCompleted" },
   { key: "notifyJobFailed", labelKey: "notifications:toggles.jobFailed" },
 ];
 
@@ -45,6 +46,7 @@ const SAMPLE_LABELS: { kind: NotificationEvent["kind"]; labelKey: string }[] = [
   { kind: "job.pr_closed", labelKey: "notifications:samples.prClosed" },
   { kind: "job.held", labelKey: "notifications:samples.jobHeld" },
   { kind: "job.plan_review", labelKey: "notifications:samples.planReview" },
+  { kind: "review.completed", labelKey: "notifications:samples.reviewCompleted" },
   { kind: "job.failed", labelKey: "notifications:samples.jobFailed" },
 ];
 

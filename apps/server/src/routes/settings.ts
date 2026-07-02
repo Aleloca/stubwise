@@ -1,3 +1,4 @@
+import { eq } from "drizzle-orm";
 import { effortSchema, languageSchema, ticketTypeSchema, type TicketType } from "@stubwise/shared";
 import { sendTest } from "@stubwise/notifications";
 import type { FastifyInstance } from "fastify";
@@ -14,7 +15,7 @@ import { authErrorResponses, errorSchema } from "./shared.js";
  * Settings, se l'auto-fix è attivo per un tipo e fino a quale sforzo
  * (max_effort): il triage avvia il fix automaticamente solo se auto_fix è
  * true E l'effort stimato è <= max_effort. Le righe sono seedate dalla
- * migrazione per tutti e 4 i tipi; questo modulo le legge/aggiorna e fa
+ * migrazione per tutti i tipi; questo modulo le legge/aggiorna e fa
  * comunque fallback a un default se una riga mancasse.
  */
 
@@ -25,6 +26,11 @@ const DEFAULT_RULE = {
   planApprovalMinEffort: null,
   maxCostUsd: null,
 } as const;
+
+// `review` nasce con auto-fix spento anche nel fallback (anti-loop): la riga
+// seedata dalla migrazione lo garantisce già, questo copre il DB pre-seed.
+const defaultRuleFor = (type: TicketType): Omit<AutomationRule, "type"> =>
+  type === "review" ? { ...DEFAULT_RULE, autoFix: false } : DEFAULT_RULE;
 
 const automationRuleSchema = z.object({
   type: ticketTypeSchema,
@@ -41,14 +47,25 @@ const automationRuleSchema = z.object({
   maxCostUsd: z.number().nonnegative().nullable().default(null),
 });
 
+// Automazione PR Review d'istanza (singleton instance_settings): se attiva, il
+// worker recensisce le PR esterne dei progetti abilitati.
+const prReviewSettingsSchema = z.object({
+  enabled: z.boolean(),
+  // Tetto di costo per-review (USD). null = nessun tetto. Colonna numeric(12,6)
+  // in drizzle → stringa; l'API la espone come number.
+  maxCostUsd: z.number().nonnegative().nullable().default(null),
+});
+
 const automationSettingsSchema = z.object({
   rules: z.array(automationRuleSchema),
+  prReview: prReviewSettingsSchema,
 });
 
 const updateAutomationBodySchema = z.object({
   // Almeno una regola; ogni tipo al più una volta è una garanzia debole qui
   // (l'upsert è idempotente), ma lo schema valida tipo/effort di ciascuna.
   rules: z.array(automationRuleSchema).min(1),
+  prReview: prReviewSettingsSchema,
 });
 
 type AutomationRule = z.infer<typeof automationRuleSchema>;
@@ -71,6 +88,7 @@ const notificationSettingsResponseSchema = z.object({
   notifyJobHeld: z.boolean(),
   notifyPlanReview: z.boolean(),
   notifyBudgetHeld: z.boolean(),
+  notifyReviewCompleted: z.boolean(),
   notifyJobFailed: z.boolean(),
 });
 
@@ -98,6 +116,9 @@ const updateNotificationsBodySchema = z.object({
   // Default true: i client esistenti che non inviano il campo conservano il
   // comportamento "notifica i job messi in hold per superamento budget".
   notifyBudgetHeld: z.boolean().default(true),
+  // Default true: i client esistenti che non inviano il campo conservano il
+  // comportamento "notifica le review AI delle PR completate".
+  notifyReviewCompleted: z.boolean().default(true),
   notifyJobFailed: z.boolean(),
 });
 
@@ -176,6 +197,7 @@ async function loadNotificationSettings(
       notifyJobHeld: true,
       notifyPlanReview: true,
       notifyBudgetHeld: true,
+      notifyReviewCompleted: true,
       notifyJobFailed: true,
     };
   }
@@ -189,6 +211,7 @@ async function loadNotificationSettings(
     notifyJobHeld: row.notifyJobHeld,
     notifyPlanReview: row.notifyPlanReview,
     notifyBudgetHeld: row.notifyBudgetHeld,
+    notifyReviewCompleted: row.notifyReviewCompleted,
     notifyJobFailed: row.notifyJobFailed,
   };
 }
@@ -234,24 +257,41 @@ async function loadInstanceSettings(
 }
 
 /**
- * Restituisce le regole per TUTTI e 4 i tipi, riempiendo con il default
- * quelle eventualmente assenti nel DB: la UI mostra sempre 4 righe coerenti.
+ * Restituisce le regole per TUTTI i tipi di ticket (i 5 di ticketTypeSchema),
+ * riempiendo con il default quelle eventualmente assenti nel DB: la UI mostra
+ * sempre una riga coerente per ogni tipo.
  */
 async function loadAllRules(db: Db): Promise<AutomationRule[]> {
   const rows = await db.select().from(automationRules);
   const byType = new Map(rows.map((r) => [r.type, r]));
   return ticketTypeSchema.options.map((type: TicketType) => {
     const row = byType.get(type);
+    const fallback = defaultRuleFor(type);
     return {
       type,
-      autoFix: row?.autoFix ?? DEFAULT_RULE.autoFix,
-      maxEffort: row?.maxEffort ?? DEFAULT_RULE.maxEffort,
-      planApprovalMinEffort: row?.planApprovalMinEffort ?? DEFAULT_RULE.planApprovalMinEffort,
+      autoFix: row?.autoFix ?? fallback.autoFix,
+      maxEffort: row?.maxEffort ?? fallback.maxEffort,
+      planApprovalMinEffort: row?.planApprovalMinEffort ?? fallback.planApprovalMinEffort,
       // numeric → stringa lato driver: converto a number, null resta null.
-      maxCostUsd:
-        row?.maxCostUsd != null ? Number(row.maxCostUsd) : DEFAULT_RULE.maxCostUsd,
+      maxCostUsd: row?.maxCostUsd != null ? Number(row.maxCostUsd) : fallback.maxCostUsd,
     };
   });
+}
+
+/** Impostazioni PR Review dal singleton instance_settings (default: spenta). */
+async function loadPrReviewSettings(db: Db): Promise<z.infer<typeof prReviewSettingsSchema>> {
+  const [row] = await db
+    .select({
+      enabled: instanceSettings.prReviewEnabled,
+      maxCostUsd: instanceSettings.prReviewMaxCostUsd,
+    })
+    .from(instanceSettings)
+    .where(eq(instanceSettings.id, 1));
+  return {
+    enabled: row?.enabled ?? false,
+    // numeric → stringa lato driver: converto a number, null resta null.
+    maxCostUsd: row?.maxCostUsd != null ? Number(row.maxCostUsd) : null,
+  };
 }
 
 /**
@@ -270,7 +310,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async () => {
-      return { rules: await loadAllRules(app.db) };
+      return { rules: await loadAllRules(app.db), prReview: await loadPrReviewSettings(app.db) };
     },
   );
 
@@ -309,8 +349,28 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
               },
             });
         }
+        // Impostazioni PR Review sul singleton instance_settings (id=1): la
+        // migrazione seeda la riga, onConflict la rende idempotente comunque.
+        // numeric(12,6): drizzle scrive una STRINGA. number → stringa, null resta null.
+        const maxCost = request.body.prReview.maxCostUsd;
+        await tx
+          .insert(instanceSettings)
+          .values({
+            id: 1,
+            prReviewEnabled: request.body.prReview.enabled,
+            prReviewMaxCostUsd: maxCost != null ? String(maxCost) : null,
+          })
+          .onConflictDoUpdate({
+            target: instanceSettings.id,
+            set: {
+              prReviewEnabled: request.body.prReview.enabled,
+              prReviewMaxCostUsd: maxCost != null ? String(maxCost) : null,
+              // Il $onUpdate di drizzle NON scatta su onConflictDoUpdate.
+              updatedAt: new Date(),
+            },
+          });
       });
-      return { rules: await loadAllRules(app.db) };
+      return { rules: await loadAllRules(app.db), prReview: await loadPrReviewSettings(app.db) };
     },
   );
 
@@ -345,7 +405,8 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
       // Stringa vuota → null: "nessun webhook configurato".
       const webhookUrl = body.webhookUrl === "" ? null : body.webhookUrl;
       // Upsert sul singleton (id=1): la migrazione seeda la riga, ma onConflict
-      // la rende idempotente anche se mancasse. updatedAt è gestito da $onUpdate.
+      // la rende idempotente anche se mancasse. updatedAt va impostato a mano
+      // nel `set`: il $onUpdate di drizzle NON scatta su onConflictDoUpdate.
       await app.db
         .insert(notificationSettings)
         .values({
@@ -359,6 +420,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
           notifyJobHeld: body.notifyJobHeld,
           notifyPlanReview: body.notifyPlanReview,
           notifyBudgetHeld: body.notifyBudgetHeld,
+          notifyReviewCompleted: body.notifyReviewCompleted,
           notifyJobFailed: body.notifyJobFailed,
         })
         .onConflictDoUpdate({
@@ -373,7 +435,9 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
             notifyJobHeld: body.notifyJobHeld,
             notifyPlanReview: body.notifyPlanReview,
             notifyBudgetHeld: body.notifyBudgetHeld,
+            notifyReviewCompleted: body.notifyReviewCompleted,
             notifyJobFailed: body.notifyJobFailed,
+            updatedAt: new Date(),
           },
         });
       return loadNotificationSettings(app.db);
@@ -425,7 +489,8 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
     async (request) => {
       const body = request.body;
       // Upsert sul singleton (id=1): la migrazione seeda la riga, ma onConflict
-      // la rende idempotente anche se mancasse. updatedAt è gestito da $onUpdate.
+      // la rende idempotente anche se mancasse. updatedAt va impostato a mano
+      // nel `set`: il $onUpdate di drizzle NON scatta su onConflictDoUpdate.
       // numeric(12,6): drizzle scrive una STRINGA. number → stringa, null resta null.
       const monthlyBudgetUsd = body.monthlyBudgetUsd != null ? String(body.monthlyBudgetUsd) : null;
 
@@ -462,7 +527,12 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
         .values({ id: 1, contentLanguage: body.contentLanguage, monthlyBudgetUsd, ...s3Set })
         .onConflictDoUpdate({
           target: instanceSettings.id,
-          set: { contentLanguage: body.contentLanguage, monthlyBudgetUsd, ...s3Set },
+          set: {
+            contentLanguage: body.contentLanguage,
+            monthlyBudgetUsd,
+            ...s3Set,
+            updatedAt: new Date(),
+          },
         });
       return loadInstanceSettings(app.db, app.encryptionKey);
     },

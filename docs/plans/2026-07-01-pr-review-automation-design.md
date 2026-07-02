@@ -1,6 +1,6 @@
 # PR Review — automazione di review delle pull request
 
-Data: 2026-07-01 · Stato: design validato
+Data: 2026-07-01 · Stato: implementato (branch feat/pr-review; vedi 2026-07-01-pr-review-implementation.md)
 
 ## Obiettivo
 

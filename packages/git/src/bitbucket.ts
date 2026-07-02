@@ -14,6 +14,7 @@ import {
   type FetchLike,
   type GitProvider,
   type GitProviderOptions,
+  type PrActivityEvent,
   type ProjectGitConfig,
   type PushWebhookEvent,
   type RepoSummary,
@@ -61,22 +62,10 @@ export class BitbucketProvider implements GitProvider {
     pr: { branch: string; title: string; body: string }
   ): Promise<{ url: string }> {
     const { owner, repo } = parseRepoUrl(p.repoUrl);
-    // REST identity: Bitbucket API tokens authenticate on api.bitbucket.org as
-    // the Atlassian EMAIL (not the git username). Legacy app passwords have no
-    // email and authenticate as the username, so we fall back to it.
-    const { email, username, token } = p.credentials;
-    const restUser = email ?? username;
-    if (!restUser) {
-      throw new GitProviderError(
-        "Bitbucket REST credentials require an email (API tokens) or a username (legacy app passwords)",
-        0,
-        ""
-      );
-    }
     const response = await this.fetchImpl(`${API_BASE}/repositories/${owner}/${repo}/pullrequests`, {
       method: "POST",
       headers: {
-        Authorization: `Basic ${Buffer.from(`${restUser}:${token}`).toString("base64")}`,
+        Authorization: this.projectRestAuthHeader(p),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
@@ -99,6 +88,66 @@ export class BitbucketProvider implements GitProvider {
     return { url };
   }
 
+  /** Stato attuale della PR via REST: OPEN → 'open'; MERGED/DECLINED/SUPERSEDED → 'closed'. */
+  async getPullRequestState(
+    p: ProjectGitConfig,
+    prNumber: number,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<"open" | "closed"> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const auth = this.projectRestAuthHeader(p);
+    const response = await fetchImpl(
+      `${API_BASE}/repositories/${owner}/${repo}/pullrequests/${prNumber}`,
+      { method: "GET", headers: { Authorization: auth } }
+    );
+    await ensureOkResponse(response, "Bitbucket");
+    const data = (await readJsonResponse(response, "Bitbucket")) as { state?: unknown };
+    return data.state === "OPEN" ? "open" : "closed";
+  }
+
+  /**
+   * Commento "sticky" della review: cerca tra i commenti della PR quello che
+   * contiene `marker` in content.raw e lo aggiorna (PUT), altrimenti ne crea
+   * uno (POST). Una pagina da 100 basta: il commento sticky è tra i primi.
+   */
+  async upsertPrComment(
+    p: ProjectGitConfig,
+    prNumber: number,
+    marker: string,
+    body: string,
+    opts: { fetchImpl?: FetchLike } = {}
+  ): Promise<void> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    const { owner, repo } = parseRepoUrl(p.repoUrl);
+    const auth = this.projectRestAuthHeader(p);
+    const base = `${API_BASE}/repositories/${owner}/${repo}/pullrequests/${prNumber}/comments`;
+    const listResponse = await fetchImpl(`${base}?pagelen=100`, {
+      method: "GET",
+      headers: { Authorization: auth },
+    });
+    await ensureOkResponse(listResponse, "Bitbucket");
+    const list = (await readJsonResponse(listResponse, "Bitbucket")) as {
+      values?: { id?: unknown; deleted?: unknown; content?: { raw?: unknown } }[];
+    };
+    const values = Array.isArray(list.values) ? list.values : [];
+    // Bitbucket include anche i commenti cancellati (deleted: true): un PUT su
+    // quelli fallirebbe, quindi li ignoriamo e ricreiamo il commento (self-healing).
+    const existing = values.find(
+      (c) => c.deleted !== true && typeof c.content?.raw === "string" && c.content.raw.includes(marker)
+    );
+    const target =
+      existing && typeof existing.id === "number"
+        ? { url: `${base}/${existing.id}`, method: "PUT" }
+        : { url: base, method: "POST" };
+    const response = await fetchImpl(target.url, {
+      method: target.method,
+      headers: { Authorization: auth, "Content-Type": "application/json" },
+      body: JSON.stringify({ content: { raw: body } }),
+    });
+    await ensureOkResponse(response, "Bitbucket");
+  }
+
   parseWebhook(headers: Record<string, string>, body: unknown): WebhookEvent | null {
     const eventKey = getHeader(headers, "x-event-key");
     const kind =
@@ -112,13 +161,71 @@ export class BitbucketProvider implements GitProvider {
     const pullrequest = (body as { pullrequest?: unknown }).pullrequest;
     if (typeof pullrequest !== "object" || pullrequest === null) return null;
     const pr = pullrequest as {
+      id?: unknown;
       source?: { branch?: { name?: unknown } };
       links?: { html?: { href?: unknown } };
     };
     const branch = pr.source?.branch?.name;
     const prUrl = pr.links?.html?.href;
     if (typeof branch !== "string" || typeof prUrl !== "string") return null;
-    return { kind, provider: "bitbucket", branch, prUrl };
+    // Id mancante o malformato: l'evento di chiusura resta valido (serve alla
+    // chiusura del ticket via branch), solo il cleanup review lo salta.
+    const prNumber = typeof pr.id === "number" ? pr.id : null;
+    return { kind, provider: "bitbucket", branch, prUrl, prNumber };
+  }
+
+  /**
+   * Eventi PR created/updated per l'automazione PR Review: pullrequest:created
+   * diventa `opened`, pullrequest:updated diventa `updated` (Bitbucket lo emette
+   * anche su edit di titolo/descrizione: il debounce a valle assorbe il rumore).
+   * L'hash del commit sorgente è abbreviato (~12 char): va bene, git lo risolve
+   * nel mirror. Ogni body malformato restituisce null, senza mai lanciare.
+   */
+  parsePrEvent(headers: Record<string, string>, body: unknown): PrActivityEvent | null {
+    const eventKey = getHeader(headers, "x-event-key");
+    const kind =
+      eventKey === "pullrequest:created"
+        ? "opened"
+        : eventKey === "pullrequest:updated"
+          ? "updated"
+          : null;
+    if (kind === null) return null;
+    if (typeof body !== "object" || body === null) return null;
+    const pullrequest = (body as { pullrequest?: unknown }).pullrequest;
+    if (typeof pullrequest !== "object" || pullrequest === null) return null;
+    const pr = pullrequest as {
+      id?: unknown;
+      title?: unknown;
+      description?: unknown;
+      source?: { branch?: { name?: unknown }; commit?: { hash?: unknown } };
+      destination?: { branch?: { name?: unknown } };
+      links?: { html?: { href?: unknown } };
+    };
+    const sourceBranch = pr.source?.branch?.name;
+    const headSha = pr.source?.commit?.hash;
+    const targetBranch = pr.destination?.branch?.name;
+    const prUrl = pr.links?.html?.href;
+    if (
+      typeof pr.id !== "number" ||
+      typeof pr.title !== "string" ||
+      typeof sourceBranch !== "string" ||
+      typeof headSha !== "string" ||
+      typeof targetBranch !== "string" ||
+      typeof prUrl !== "string"
+    ) {
+      return null;
+    }
+    return {
+      kind,
+      provider: "bitbucket",
+      prNumber: pr.id,
+      title: pr.title,
+      description: typeof pr.description === "string" ? pr.description : "",
+      sourceBranch,
+      targetBranch,
+      headSha,
+      prUrl,
+    };
   }
 
   parsePushEvent(headers: Record<string, string>, body: unknown): PushWebhookEvent | null {
@@ -392,7 +499,16 @@ export class BitbucketProvider implements GitProvider {
       description: "Stubwise",
       url: hook.url,
       active: true,
-      events: ["pullrequest:fulfilled", "pullrequest:rejected", "repo:push"],
+      // created/updated alimentano l'automazione PR Review; fulfilled/rejected
+      // e repo:push servono al tracking dei fix. I webhook già configurati vanno
+      // riallineati con "Configura webhook" dalla UI (ensureWebhook è idempotente).
+      events: [
+        "pullrequest:created",
+        "pullrequest:updated",
+        "pullrequest:fulfilled",
+        "pullrequest:rejected",
+        "repo:push",
+      ],
       secret: hook.secret,
     };
 
@@ -541,6 +657,24 @@ export class BitbucketProvider implements GitProvider {
       );
     }
     return basicAuthHeader(restUser, creds.credentials.token);
+  }
+
+  /**
+   * Header Basic per la REST API a partire dalla config di progetto: identità
+   * = email Atlassian (API token) o, in fallback, username (app password
+   * legacy). Stessa regola di openPullRequest/restAuthHeader; lancia se
+   * mancano entrambe, prima di qualsiasi richiesta.
+   */
+  private projectRestAuthHeader(p: ProjectGitConfig): string {
+    const restUser = p.credentials.email ?? p.credentials.username;
+    if (!restUser) {
+      throw new GitProviderError(
+        "Bitbucket REST credentials require an email (API tokens) or a username (legacy app passwords)",
+        0,
+        ""
+      );
+    }
+    return basicAuthHeader(restUser, p.credentials.token);
   }
 
   /**

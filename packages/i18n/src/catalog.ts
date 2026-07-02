@@ -36,6 +36,12 @@ export const en: Catalog = {
     "Cost budget exceeded ({scope}): spent ${spent} of ${limit}. The fix is on hold; start it manually to override.",
   "comment.providersLimitHeld":
     "All AI providers reached their rate/usage limit. The job will need to be retried after the limit resets.",
+  // Verdetti della PR Review automatica postati come commento AI (niente
+  // emoji DI VERDETTO ✅/⚠️ nel testo, convenzione condivisa con
+  // notify.verdict.*; il 🔎 è il prefisso neutro della feature, non un verdetto).
+  "comment.reviewVerdict.approve": "🔎 **PR Review** — approval suggested ({url})",
+  "comment.reviewVerdict.requestChanges": "🔎 **PR Review** — changes requested ({url})",
+  "comment.reviewTicketBody": "Automatic review of pull request {url} (branch `{branch}`).",
 
   // --- effort.* — etichette della scala di sforzo 1–5 (allineate alle label
   // della web UI, namespace `badges.effort`). Usate nei commenti AI del triage.
@@ -63,9 +69,14 @@ export const en: Catalog = {
   "notify.jobFailed": "AI fix failed on {ref} — {ticketTitle}: {error}. {link}",
   "notify.budgetHeld":
     "Budget exceeded ({scope}) — {ref} {ticketTitle} ({projectName}): spent ${spent} of ${limit} limit. Job on hold; start it manually to override. {link}",
+  "notify.reviewCompleted":
+    "PR review completed for {ref} — {ticketTitle} ({projectName}): {verdict}. {link}",
   // Etichette dello scope del budget (interpolate in `notify.budgetHeld`).
   "notify.scopeTicket": "ticket",
   "notify.scopeMonthly": "monthly",
+  // Verdetti della review PR (interpolati in `notify.reviewCompleted`).
+  "notify.verdict.approve": "approval suggested",
+  "notify.verdict.requestChanges": "changes requested",
   // Suffisso costo (anteposto allo spazio: la frase ha già lo spazio prima).
   "notify.costSuffix": " (cost ${cost})",
   // Etichette dei link (rese nel markup del formato attorno all'URL).
@@ -110,6 +121,10 @@ export const it: Catalog = {
     "Budget di costo superato ({scope}): spesi ${spent} sul limite di ${limit}. Il fix è in pausa; avvialo manualmente per forzare.",
   "comment.providersLimitHeld":
     "Tutti i provider AI hanno raggiunto il limite di rate/usage. Il job dovrà essere ritentato dopo il reset del limite.",
+  // Verdetti della PR Review automatica (vedi nota in `en`).
+  "comment.reviewVerdict.approve": "🔎 **PR Review** — approvazione suggerita ({url})",
+  "comment.reviewVerdict.requestChanges": "🔎 **PR Review** — modifiche richieste ({url})",
+  "comment.reviewTicketBody": "Review automatica della pull request {url} (branch `{branch}`).",
 
   // --- effort.* (etichette italiane della scala di sforzo, = EFFORT_LABELS) ---
   "effort.1": "Banale",
@@ -131,8 +146,12 @@ export const it: Catalog = {
   "notify.jobFailed": "Fix AI fallito su {ref} — {ticketTitle}: {error}. {link}",
   "notify.budgetHeld":
     "Budget superato ({scope}) — {ref} {ticketTitle} ({projectName}): spesi ${spent} sul limite di ${limit}. Job in pausa; avvialo manualmente per forzare. {link}",
+  "notify.reviewCompleted":
+    "Review della PR completata per {ref} — {ticketTitle} ({projectName}): {verdict}. {link}",
   "notify.scopeTicket": "ticket",
   "notify.scopeMonthly": "mensile",
+  "notify.verdict.approve": "approvazione suggerita",
+  "notify.verdict.requestChanges": "modifiche richieste",
   "notify.costSuffix": " (costo ${cost})",
   "notify.linkOpen": "Apri",
   "notify.linkReview": "Rivedi",
