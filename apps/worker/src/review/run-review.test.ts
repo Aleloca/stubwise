@@ -5,6 +5,7 @@ import {
   encrypt,
   gitAccounts,
   instanceSettings,
+  prReviewJobs,
   prReviews,
   projects,
   repositories,
@@ -536,16 +537,20 @@ describe("runPrReview", () => {
     expect(fakes.upsertPrComment).not.toHaveBeenCalled();
   });
 
-  it("limite del provider (exit non-zero con marcatore): riga failed", async () => {
-    const { repositoryId } = await createRepository(testDb.db);
+  it("limite del provider: riga failed con errore esplicito E job riaccodato in pr_review_jobs con notBefore ~+30'", async () => {
+    const { projectId, repositoryId } = await createRepository(testDb.db);
     await enableReview(testDb.db);
     const fakes = makeFakes();
     fakes.runner.run.mockResolvedValue(
       makeRunResult({ output: "API error: rate limit reached", exitCode: 1 }),
     );
+    const job = makeJob(repositoryId);
 
-    await runPrReview(fakes.deps, makeJob(repositoryId));
+    const before = Date.now();
+    await runPrReview(fakes.deps, job);
+    const after = Date.now();
 
+    // Riga failed con errore esplicito che segnala il riaccodo.
     const reviews = await testDb.db
       .select()
       .from(prReviews)
@@ -553,7 +558,76 @@ describe("runPrReview", () => {
     expect(reviews).toHaveLength(1);
     expect(reviews[0]!.status).toBe("failed");
     expect(reviews[0]!.error).toMatch(/limite/i);
+    expect(reviews[0]!.error).toContain("riaccodata");
+
+    // Job riaccodato con TUTTI i campi del job originale e notBefore ~+30'.
+    const jobs = await testDb.db
+      .select()
+      .from(prReviewJobs)
+      .where(eq(prReviewJobs.repositoryId, repositoryId));
+    expect(jobs).toHaveLength(1);
+    const requeued = jobs[0]!;
+    expect(requeued.prNumber).toBe(job.prNumber);
+    expect(requeued.prUrl).toBe(job.prUrl);
+    expect(requeued.prTitle).toBe(job.prTitle);
+    expect(requeued.prBody).toBe(job.prBody);
+    expect(requeued.sourceBranch).toBe(job.sourceBranch);
+    expect(requeued.targetBranch).toBe(job.targetBranch);
+    expect(requeued.headSha).toBe(job.headSha);
+    expect(requeued.notBefore.getTime()).toBeGreaterThanOrEqual(before + 29 * 60 * 1000);
+    expect(requeued.notBefore.getTime()).toBeLessThanOrEqual(after + 31 * 60 * 1000);
+
+    // Nessun ticket, nessun commento, nessuna notifica, nessuno sticky sulla PR.
+    const projectTickets = await testDb.db
+      .select()
+      .from(tickets)
+      .where(eq(tickets.projectId, projectId));
+    expect(projectTickets).toHaveLength(0);
     expect(fakes.upsertPrComment).not.toHaveBeenCalled();
+    expect(fakes.dispatched).toHaveLength(0);
+  });
+
+  it("riaccodo su limite con job già presente in coda (webhook ha ri-upsertato un push più nuovo): aggiorna SOLO notBefore, i metadati del webhook vincono", async () => {
+    const { repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db);
+    const fakes = makeFakes();
+    fakes.runner.run.mockResolvedValue(
+      makeRunResult({ output: "API error: rate limit reached", exitCode: 1 }),
+    );
+    const job = makeJob(repositoryId);
+
+    // Mentre la review girava, un webhook ha ri-upsertato il job con un push
+    // più nuovo (head e metadati diversi) e la sua finestra di debounce.
+    const newerHeadSha = "b".repeat(40);
+    await testDb.db.insert(prReviewJobs).values({
+      repositoryId,
+      prNumber: job.prNumber,
+      prUrl: job.prUrl,
+      prTitle: "Fix login flow (v2)",
+      prBody: "Push più nuovo.",
+      sourceBranch: job.sourceBranch,
+      targetBranch: job.targetBranch,
+      headSha: newerHeadSha,
+      notBefore: new Date(),
+    });
+
+    const before = Date.now();
+    await runPrReview(fakes.deps, job);
+    const after = Date.now();
+
+    // Un solo job per (repo, PR): i metadati del webhook restano intatti,
+    // il riaccodo ha spostato SOLO la finestra notBefore oltre il cooldown.
+    const jobs = await testDb.db
+      .select()
+      .from(prReviewJobs)
+      .where(eq(prReviewJobs.repositoryId, repositoryId));
+    expect(jobs).toHaveLength(1);
+    const requeued = jobs[0]!;
+    expect(requeued.headSha).toBe(newerHeadSha);
+    expect(requeued.prTitle).toBe("Fix login flow (v2)");
+    expect(requeued.prBody).toBe("Push più nuovo.");
+    expect(requeued.notBefore.getTime()).toBeGreaterThanOrEqual(before + 29 * 60 * 1000);
+    expect(requeued.notBefore.getTime()).toBeLessThanOrEqual(after + 31 * 60 * 1000);
   });
 
   it("run crashato (exit non-zero SENZA marcatore) con JSON valido nell'output: riga failed, NIENTE pubblicazione", async () => {

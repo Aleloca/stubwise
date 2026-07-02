@@ -5,6 +5,7 @@ import {
   gitAccounts,
   instanceSettings,
   monthlyCostUsd,
+  prReviewJobs,
   prReviews,
   projects,
   repositories,
@@ -36,7 +37,8 @@ import { buildReviewPrompt, parseReviewOutput } from "./prompts.js";
  * `runPrReview` — come `runAutoUpdate` per l'auto-update dei Docs, il job è già
  * stato consumato: qui è tutto BEST-EFFORT, nessun errore risale al chiamante e
  * nessun percorso rimette il pending in coda (il prossimo push sulla PR ne
- * ricreerà uno).
+ * ricreerà uno) — UNICA eccezione il limite di rate/usage del provider, che
+ * riaccoda il job con un cooldown (vedi requeueReviewJob).
  *
  * Flusso (l'ORDINE è parte del contratto, vedi i test):
  *  1. contesto: repository→account git→progetto, credenziali decifrate;
@@ -53,7 +55,8 @@ import { buildReviewPrompt, parseReviewOutput } from "./prompts.js";
  *  7. diff dal mirror + agente read-only (plan) nel worktree alla head;
  *  8. registrazione consumi in `agent_runs` (phase "review") — PRIMA di cap e
  *     parse: i costi sono reali anche se l'output è inusabile; poi GUARDIE sul
- *     run: limite di rate/usage del provider → `failed`; exit ≠ 0 → `failed`
+ *     run: limite di rate/usage del provider → `failed` + job RIACCODATO con
+ *     cooldown; exit ≠ 0 → `failed`
  *     (mai un verdetto da un run crashato, anche se l'output parziale parsasse);
  *  9. cap per-review: sforato → `failed`, NESSUNA pubblicazione;
  * 10. parse dell'output: non parsabile → `failed` (mai un verdetto inventato);
@@ -252,6 +255,29 @@ async function failRunningReview(db: Db, reviewId: string, error: string): Promi
     console.error(
       `[stubwise-worker] pr-review: update failed della review ${reviewId} fallito (${errText(err)})`,
     );
+  }
+}
+
+/** Cooldown del riaccodo su limite provider (fallback a tempo, come da design). */
+const LIMIT_REQUEUE_COOLDOWN_MS = 30 * 60 * 1000;
+
+/**
+ * Ri-upserta il job della review con notBefore oltre il cooldown (best-effort).
+ * Su conflitto NON tocca head/metadati: se un webhook ha già ri-upsertato un
+ * push più nuovo, i suoi dati vincono — qui si sposta solo la finestra.
+ */
+async function requeueReviewJob(db: Db, job: PrReviewJobRow): Promise<void> {
+  try {
+    const notBefore = new Date(Date.now() + LIMIT_REQUEUE_COOLDOWN_MS);
+    await db
+      .insert(prReviewJobs)
+      .values({ ...job, notBefore })
+      .onConflictDoUpdate({
+        target: [prReviewJobs.repositoryId, prReviewJobs.prNumber],
+        set: { notBefore },
+      });
+  } catch (err) {
+    console.error(`[stubwise-worker] pr-review: riaccodo su limite fallito (${errText(err)})`);
   }
 }
 
@@ -553,14 +579,17 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
     // è inusabile o oltre il tetto (la spesa è comunque avvenuta).
     await recordReviewRun(deps.db, reviewId, result.usage);
 
-    // Limite di rate/usage del provider: la review è terminale (nessuna catena
-    // di failover come il fix), quindi failed con messaggio esplicito.
+    // Limite di rate/usage: la review non ha failover di catena, ma la sua
+    // coda è già temporizzata — si riaccoda con un cooldown. Se il limite
+    // persiste al prossimo claim, si ri-accoda di nuovo: un run sonda ogni
+    // cooldown, autolimitante. La chiusura della PR pulisce la coda.
     if (isLimitError(result)) {
       await failRunningReview(
         deps.db,
         reviewId,
-        "provider AI al limite di rate/usage: review non eseguita",
+        "provider AI al limite di rate/usage: review riaccodata",
       );
+      await requeueReviewJob(deps.db, job);
       return;
     }
 
