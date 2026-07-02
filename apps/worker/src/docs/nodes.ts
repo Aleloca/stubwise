@@ -1,4 +1,4 @@
-import { docNodes, type Db } from "@stubwise/db";
+import { docGenerations, docNodes, type Db } from "@stubwise/db";
 import { slugForNode } from "@stubwise/docs-engine";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
@@ -47,6 +47,12 @@ export interface ClaimedNode {
  * (fase synthesize). Un CASE lato DB sceglie il nuovo stato in modo che la
  * transizione resti atomica con la selezione. L'ORDER BY created_at + il filtro
  * su status sfruttano doc_nodes_claimable_idx. Mirror di claimNextDocJob.
+ *
+ * Le generazioni `paused` sono ESCLUSE a monte (non "saltate"): un solo segnale
+ * di limite provider ferma l'intero DAG senza bruciare run sugli altri nodi
+ * della stessa generazione, e il claim ordina comunque tra i nodi delle
+ * generazioni ancora attive. Alla ripresa (resumeGeneration) i pending tornano
+ * claimabili così come sono, senza stati intermedi.
  */
 export async function claimNextNode(db: DbOrTx): Promise<ClaimedNode | null> {
   const [node] = await db
@@ -58,7 +64,10 @@ export async function claimNextNode(db: DbOrTx): Promise<ClaimedNode | null> {
     .where(
       eq(
         docNodes.id,
-        sql`(SELECT id FROM doc_nodes WHERE status IN ('pending', 'ready_to_synthesize') ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED)`,
+        sql`(SELECT id FROM doc_nodes
+          WHERE status IN ('pending', 'ready_to_synthesize')
+            AND generation_id NOT IN (SELECT id FROM doc_generations WHERE status = 'paused')
+          ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED)`,
       ),
     )
     .returning();
@@ -83,17 +92,21 @@ export async function touchNode(db: DbOrTx, nodeId: string): Promise<void> {
 }
 
 /**
- * Persiste il costo (USD) del nodo: la somma dei run dell'agente
- * (explore/synthesize) di QUESTO nodo. Scritto al termine del dispatch del nodo,
- * così la finalizzazione (M6) lo somma in `doc_generations.cost` (Σ node.cost +
- * costo dell'orientamento). NON è status-guarded: il costo è una metrica
- * additiva e va registrata anche se nel frattempo la ownership del nodo è
- * cambiata (il lavoro è comunque costato). Numeric a 6 decimali come la colonna.
+ * ACCUMULA il costo (USD) del nodo: ogni chiamata SOMMA al valore esistente,
+ * così `doc_nodes.cost` è davvero la somma dei run dell'agente di QUESTO nodo.
+ * L'accumulo (e non la sovrascrittura) copre due casi reali: un nodo branch è
+ * dispatchato due volte (prima explore, poi synthesize) e il re-run dopo una
+ * pausa al limite non deve cancellare il costo del run parziale. Scritto al
+ * termine del dispatch del nodo, così la finalizzazione (M6) lo somma in
+ * `doc_generations.cost` (Σ node.cost + costo dell'orientamento). NON è
+ * status-guarded: il costo è una metrica additiva e va registrata anche se nel
+ * frattempo la ownership del nodo è cambiata (il lavoro è comunque costato).
+ * Numeric a 6 decimali come la colonna.
  */
 export async function recordNodeCost(db: DbOrTx, nodeId: string, costUsd: number): Promise<void> {
   await db
     .update(docNodes)
-    .set({ cost: costUsd.toFixed(6) })
+    .set({ cost: sql`coalesce(${docNodes.cost}, 0) + ${costUsd.toFixed(6)}` })
     .where(eq(docNodes.id, nodeId));
 }
 
@@ -317,4 +330,62 @@ export async function requeueStaleNodes(db: DbOrTx, staleMinutes: number): Promi
     )
     .returning({ id: docNodes.id });
   return requeued.length;
+}
+
+/**
+ * Rimette in coda UN nodo attivo (limite provider rilevato): `exploring →
+ * pending`, `synthesizing → ready_to_synthesize` (stesse transizioni di
+ * requeueStaleNodes, ma mirate). A differenza di failNode NON tocca il join del
+ * padre: il nodo non è concluso, verrà rieseguito alla ripresa della
+ * generazione e joinerà solo allora. Status-guarded su `exploring|synthesizing`:
+ * se la ownership è persa (nodo già chiuso o già riaccodato) restituisce false
+ * e non tocca nulla.
+ */
+export async function requeueNode(db: DbOrTx, nodeId: string): Promise<boolean> {
+  const updated = await db
+    .update(docNodes)
+    .set({
+      status: sql`CASE WHEN ${docNodes.status} = 'exploring' THEN 'pending'::doc_node_status ELSE 'ready_to_synthesize'::doc_node_status END`,
+      lastActivityAt: sql`now()`,
+    })
+    .where(and(eq(docNodes.id, nodeId), inArray(docNodes.status, [...ACTIVE_STATUSES])))
+    .returning({ id: docNodes.id });
+  return updated.length > 0;
+}
+
+/**
+ * Mette in pausa una generazione `running` (limite di utilizzo del provider):
+ * un solo segnale ferma l'intero DAG, perché claimNextNode esclude a monte i
+ * nodi delle generazioni `paused`. Status-guarded su `running`: il secondo
+ * segnale concorrente (due nodi che urtano il limite insieme) è un no-op e non
+ * sovrascrive pausedAt/pauseReason del primo. Restituisce true solo per la
+ * transizione che è effettivamente avvenuta.
+ */
+export async function pauseGeneration(
+  db: DbOrTx,
+  generationId: string,
+  reason: string,
+): Promise<boolean> {
+  const updated = await db
+    .update(docGenerations)
+    .set({ status: "paused", pausedAt: sql`now()`, pauseReason: reason })
+    .where(and(eq(docGenerations.id, generationId), eq(docGenerations.status, "running")))
+    .returning({ id: docGenerations.id });
+  return updated.length > 0;
+}
+
+/**
+ * Riprende una generazione `paused`: torna `running` e azzera
+ * pausedAt/pauseReason, così i nodi pending/ready_to_synthesize ridiventano
+ * claimabili senza alcuno stato intermedio. Status-guarded su `paused`: un
+ * resume concorrente (poller + "Riprendi ora" dell'utente) è un no-op per il
+ * secondo arrivato, e su una generazione non in pausa non fa nulla.
+ */
+export async function resumeGeneration(db: DbOrTx, generationId: string): Promise<boolean> {
+  const updated = await db
+    .update(docGenerations)
+    .set({ status: "running", pausedAt: null, pauseReason: null })
+    .where(and(eq(docGenerations.id, generationId), eq(docGenerations.status, "paused")))
+    .returning({ id: docGenerations.id });
+  return updated.length > 0;
 }

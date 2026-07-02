@@ -1,0 +1,1 @@
+ALTER TABLE "notification_settings" ADD COLUMN "notify_docs_limit_paused" boolean DEFAULT true NOT NULL;

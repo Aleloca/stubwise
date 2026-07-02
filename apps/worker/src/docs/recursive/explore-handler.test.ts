@@ -275,6 +275,41 @@ describe("runExplore", () => {
     expect(parent.pendingChildren).toBe(1);
   });
 
+  it("run al limite del provider: outcome 'limit', UN solo run (retry non consumato), nodo NON failed", async () => {
+    const { db } = testDb;
+    const root = await insertNode(db, {
+      title: "Root",
+      status: "awaiting_children",
+      pendingChildren: 1,
+      depth: 0,
+    });
+    await insertNode(db, { parentId: root.id, title: "Limited", unitRef: "src/x", depth: 1 });
+    const node = await claim(db);
+
+    const runner = new FakeAgentRunner({
+      script: () => ({
+        output: "API Error: usage limit reached",
+        exitCode: 1,
+        usage: { totalCostUsd: 0.01, models: [] },
+      }),
+    });
+
+    const result = await runExplore(baseDeps(db, runner), node);
+    expect(result.outcome).toBe("limit");
+    // Il costo del run parziale è comunque riportato al chiamante.
+    expect(result.costUsd).toBeCloseTo(0.01, 6);
+    // Il limite NON consuma il retry: ogni retry sarebbe un run bruciato.
+    expect(runner.calls).toHaveLength(1);
+
+    // Il nodo NON è failed: resta in lavorazione (il dispatcher lo riaccoderà).
+    const after = await getNode(db, node.id);
+    expect(after.status).toBe("exploring");
+    // Nessun join sul padre: il nodo non è concluso.
+    const parent = await getNode(db, root.id);
+    expect(parent.pendingChildren).toBe(1);
+    expect(parent.status).toBe("awaiting_children");
+  });
+
   it("cap di profondità: a DOC_MAX_DEPTH i figli proposti sono ignorati → foglia", async () => {
     const { db } = testDb;
     // maxDepth=3: un nodo a depth 2 avrebbe figli a depth 3 = maxDepth → foglia.

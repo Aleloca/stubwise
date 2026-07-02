@@ -36,6 +36,7 @@ const DEFAULT_NOTIFICATIONS = {
   notifyBudgetHeld: true,
   notifyReviewCompleted: true,
   notifyJobFailed: true,
+  notifyDocsLimitPaused: true,
 };
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -383,6 +384,29 @@ describe("impostazioni: /settings/notifications (admin)", () => {
     expect(scope.getByLabelText("Budget exceeded (job held)")).toBeChecked();
     expect(scope.getByLabelText("PR review completed")).toBeChecked();
     expect(scope.getByLabelText("Fix failed")).toBeChecked();
+    expect(scope.getByLabelText("Docs generation paused (usage limit)")).toBeChecked();
+  });
+
+  it("toggle notifica docs.limit_paused presente e incluso nel PUT", async () => {
+    let putBody: unknown = null;
+    mockApi({
+      ...adminBase(),
+      "PUT /api/settings/notifications": (_url, init) => {
+        putBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, { ...DEFAULT_NOTIFICATIONS, notifyDocsLimitPaused: false });
+      },
+    });
+    renderAt("/settings/notifications");
+
+    await screen.findByRole("heading", { name: "Notifications" });
+    const scope = within(notificationsSection());
+    await userEvent.click(scope.getByLabelText("Docs generation paused (usage limit)"));
+    await userEvent.click(scope.getByRole("button", { name: "Save" }));
+
+    // Il server ha default true su questo campo: il PUT deve inviarlo SEMPRE
+    // esplicitamente, altrimenti disattivarlo sarebbe impossibile.
+    await waitFor(() => expect(putBody).not.toBeNull());
+    expect((putBody as { notifyDocsLimitPaused: boolean }).notifyDocsLimitPaused).toBe(false);
   });
 
   it("salva via PUT con i valori del form", async () => {

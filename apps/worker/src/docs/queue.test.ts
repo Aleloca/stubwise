@@ -150,19 +150,39 @@ describe("transizioni di stato", () => {
     expect(persisted.finishedAt).not.toBeNull();
   });
 
-  it("holdDocJob marca held registrando la ragione nell'errore e nel log, con finishedAt", async () => {
+  it("holdDocJob marca held registrando ragione, held_reason, errore e log, con finishedAt", async () => {
     const { db } = testDb;
     const job = await enqueueDocJob(db);
     await claimNextDocJob(db);
 
-    const updated = await holdDocJob(db, job.id, { reason: "budget mensile superato" });
+    const updated = await holdDocJob(db, job.id, {
+      reason: "budget mensile superato",
+      heldReason: "budget",
+    });
 
     expect(updated).toBe(true);
     const persisted = await getDocJob(db, job.id);
     expect(persisted.status).toBe("held");
     expect(persisted.error).toBe("budget mensile superato");
+    expect(persisted.heldReason).toBe("budget");
     expect(persisted.log).toContain("budget mensile superato");
     expect(persisted.finishedAt).not.toBeNull();
+  });
+
+  it("holdDocJob scrive held_reason 'limit' (provider al limite: riaccodabile dal resume poller)", async () => {
+    const { db } = testDb;
+    const job = await enqueueDocJob(db);
+    await claimNextDocJob(db);
+
+    const updated = await holdDocJob(db, job.id, {
+      reason: "provider AI al limite di rate/usage",
+      heldReason: "limit",
+    });
+
+    expect(updated).toBe(true);
+    const persisted = await getDocJob(db, job.id);
+    expect(persisted.status).toBe("held");
+    expect(persisted.heldReason).toBe("limit");
   });
 
   it("le transizioni su un job non in lavorazione restituiscono false e non toccano la riga", async () => {
@@ -171,12 +191,13 @@ describe("transizioni di stato", () => {
 
     expect(await completeDocJob(db, job.id, { log: "tardivo" })).toBe(false);
     expect(await failDocJob(db, job.id, { log: "tardivo", error: "boom" })).toBe(false);
-    expect(await holdDocJob(db, job.id, { reason: "tardivo" })).toBe(false);
+    expect(await holdDocJob(db, job.id, { reason: "tardivo", heldReason: "other" })).toBe(false);
 
     const persisted = await getDocJob(db, job.id);
     expect(persisted.status).toBe("queued");
     expect(persisted.log).toBe("");
     expect(persisted.error).toBeNull();
+    expect(persisted.heldReason).toBeNull();
     expect(persisted.finishedAt).toBeNull();
   });
 
@@ -200,7 +221,7 @@ describe("transizioni di stato", () => {
     // A si risveglia e prova a chiudere a sua volta: deve ricevere false
     // e la riga (esito di B) non deve essere toccata.
     expect(await failDocJob(db, job.id, { log: "esito tardivo di A", error: "boom" })).toBe(false);
-    expect(await holdDocJob(db, job.id, { reason: "tardivo di A" })).toBe(false);
+    expect(await holdDocJob(db, job.id, { reason: "tardivo di A", heldReason: "other" })).toBe(false);
 
     const persisted = await getDocJob(db, job.id);
     expect(persisted.status).toBe("succeeded");

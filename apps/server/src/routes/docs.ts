@@ -290,6 +290,66 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
   );
 
   /**
+   * Ripresa manuale di una generazione in pausa per limite (override del
+   * resume poller: l'admin sa che il limite è rientrato e non vuole aspettare
+   * il prossimo tick). Agisce solo sulla generazione più recente in stato
+   * `paused`; se non ce n'è, 409. L'update è status-guarded su `paused`, come
+   * resumeGeneration del worker: una corsa col poller è un no-op per il
+   * secondo arrivato (ritenta e trova la generazione già running → 409).
+   */
+  app.post(
+    "/repositories/:repositoryId/docs/resume",
+    {
+      preHandler: requireAdmin,
+      schema: {
+        params: repositoryIdParamsSchema,
+        response: {
+          200: generationSchema,
+          404: errorSchema,
+          409: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { repositoryId } = request.params;
+
+      const [repository] = await app.db
+        .select({ id: repositories.id })
+        .from(repositories)
+        .where(eq(repositories.id, repositoryId));
+      if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
+
+      const [paused] = await app.db
+        .select({ id: docGenerations.id })
+        .from(docGenerations)
+        .where(
+          and(
+            eq(docGenerations.repositoryId, repositoryId),
+            eq(docGenerations.status, "paused"),
+          ),
+        )
+        .orderBy(desc(docGenerations.createdAt))
+        .limit(1);
+      if (!paused) {
+        return apiError(reply, 409, "generation_not_paused", "No paused generation to resume");
+      }
+
+      const [resumed] = await app.db
+        .update(docGenerations)
+        .set({ status: "running", pausedAt: null, pauseReason: null })
+        .where(and(eq(docGenerations.id, paused.id), eq(docGenerations.status, "paused")))
+        .returning();
+      if (!resumed) {
+        // Il poller (o un altro admin) l'ha ripresa tra select e update.
+        return apiError(reply, 409, "generation_not_paused", "No paused generation to resume");
+      }
+
+      return toGeneration(resumed);
+    },
+  );
+
+  /**
    * Stato della documentazione del progetto: la generazione corrente (se c'è)
    * e l'ultimo job (qualunque stato). Null-safe quando non c'è ancora nulla.
    */
@@ -330,6 +390,27 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
           .where(eq(docGenerations.id, repository.currentDocGenerationId));
         generation = gen ? toGeneration(gen) : null;
         pinnedProviderId = gen?.pinnedProviderId ?? null;
+      }
+
+      // Una generazione in pausa per limite non è mai quella "corrente"
+      // (currentDocGenerationId avanza solo alla finalize): va esposta
+      // esplicitamente, altrimenti il pannello web non potrebbe mai mostrare
+      // "in pausa" / "Riprendi ora". Stessa selezione del POST /docs/resume:
+      // la più recente in stato paused prevale sulla corrente.
+      const [pausedGen] = await app.db
+        .select()
+        .from(docGenerations)
+        .where(
+          and(
+            eq(docGenerations.repositoryId, repositoryId),
+            eq(docGenerations.status, "paused"),
+          ),
+        )
+        .orderBy(desc(docGenerations.createdAt))
+        .limit(1);
+      if (pausedGen) {
+        generation = toGeneration(pausedGen);
+        pinnedProviderId = pausedGen.pinnedProviderId ?? null;
       }
 
       const [job] = await app.db

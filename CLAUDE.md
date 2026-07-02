@@ -51,7 +51,10 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
 
 - **Worker fail-on-restart:** un riavvio del worker fallisce le generazioni Docs
   in corso (lavoro perso). Riavvia il worker solo quando NON ci sono generazioni
-  attive: `select id from doc_generations where status='running';` deve essere vuoto.
+  attive: `select id from doc_generations where status in ('running','paused');`
+  deve essere vuoto. Le `paused` contano: una pausa per limite del provider è
+  comunque una generazione viva (worktree registrato in-memoria) e può restarci
+  per ore.
 - **Concorrenza:** `WORKER_CONCURRENCY` (default 2) e `DATABASE_POOL_MAX` (default
   10, alzalo in proporzione) sono env. In prod attuale: 5 e 20.
 - **`WORKER_STALE_MINUTES`** va tenuto coerente in 3 punti (config.ts, compose,

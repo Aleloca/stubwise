@@ -159,6 +159,36 @@ describe("runSynthesize", () => {
     expect(grandparent.status).toBe("ready_to_synthesize");
   });
 
+  it("run al limite del provider: outcome 'limit', NESSUNA pagina fallback scritta, nodo NON done", async () => {
+    const { db } = testDb;
+    const { node, grandparentId } = await seedTree(db);
+
+    const runner = new FakeAgentRunner({
+      script: () => ({
+        output: "API Error: usage limit reached",
+        exitCode: 1,
+        usage: { totalCostUsd: 0.01, models: [] },
+      }),
+    });
+
+    const result = await runSynthesize(baseDeps(db, runner), node);
+    expect(result.outcome).toBe("limit");
+    // Il costo del run parziale è comunque riportato al chiamante.
+    expect(result.costUsd).toBeCloseTo(0.01, 6);
+    // Il limite NON consuma il retry: un solo run.
+    expect(runner.calls).toHaveLength(1);
+
+    // Nodo NON done e body INVARIATO: il fallback nasconderebbe una pagina degradata.
+    const after = await getNode(db, node.id);
+    expect(after.status).toBe("synthesizing");
+    expect(after.body).toBe(node.body);
+
+    // Join sul nonno NON avanzato: il nodo non è concluso.
+    const grandparent = await getNode(db, grandparentId);
+    expect(grandparent.pendingChildren).toBe(1);
+    expect(grandparent.status).toBe("awaiting_children");
+  });
+
   it("output di sintesi invalido → overview di fallback (figli non persi) → nodo done", async () => {
     const { db } = testDb;
     const { node, grandparentId } = await seedTree(db);

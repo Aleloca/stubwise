@@ -536,7 +536,8 @@
       "planReview": "AI plan awaiting approval",
       "budgetHeld": "Budget exceeded (job held)",
       "reviewCompleted": "PR review completed",
-      "jobFailed": "Fix failed"
+      "jobFailed": "Fix failed",
+      "docsLimitPaused": "Docs generation paused (usage limit)"
     },
     "samples": {
       "ticketCreated": "New ticket",
@@ -545,7 +546,8 @@
       "jobHeld": "On hold",
       "planReview": "Plan pending",
       "reviewCompleted": "PR review",
-      "jobFailed": "Fix failed"
+      "jobFailed": "Fix failed",
+      "docsLimitPaused": "Docs paused"
     },
     "slack": {
       "step1Prefix": "Go to",
@@ -1033,7 +1035,11 @@
       "jobFailed": "Last generation failed.",
       "jobReason": "Reason: {{reason}}",
       "providerPinned": "Provider: {{label}}",
-      "error": "Could not start generation."
+      "error": "Could not start generation.",
+      "paused": "Generation paused: provider usage limit reached. It will resume automatically.",
+      "resume": "Resume now",
+      "resuming": "Resuming…",
+      "resumeError": "Could not resume the generation."
     },
     "search": {
       "kindTechnical": "technical",

@@ -324,6 +324,52 @@ describe("runOrientation", () => {
     expect(jobAfter?.status).toBe("failed");
   });
 
+  it("orientamento su run al limite: trigger held con held_reason 'limit', generazione failed con messaggio esplicito, UN solo run", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const repositoryId = await createRepository(db, upstream.url);
+    const job = await enqueueTrigger(db, repositoryId);
+
+    // Run al limite di rate/usage del provider (exit non-zero + marcatore).
+    const runner = new FakeAgentRunner({
+      script: () => ({ output: "API Error: usage limit reached", exitCode: 1, usage: USAGE }),
+    });
+    const registry = createGenerationWorktreeRegistry();
+    const outcome = await runOrientation({ ...baseDeps(db, mirrors, runner), registry }, job);
+    expect(outcome).toBe("held");
+
+    // UN solo run: il limite NON consuma il retry (sarebbe un run bruciato).
+    expect(runner.calls).toHaveLength(1);
+
+    // La generazione FALLISCE con un messaggio esplicito (il DAG non esiste ancora:
+    // niente pausa — alla ripresa il job riaccodato ne crea una FRESCA).
+    const [gen] = await db
+      .select()
+      .from(docGenerations)
+      .where(eq(docGenerations.repositoryId, repositoryId));
+    expect(gen?.status).toBe("failed");
+    expect(gen?.error).toMatch(/limite di rate\/usage/i);
+    expect(gen?.finishedAt).not.toBeNull();
+    const nodes = await db.select().from(docNodes).where(eq(docNodes.generationId, gen!.id));
+    expect(nodes).toHaveLength(0);
+
+    // Il trigger è HELD (non failed) con held_reason 'limit': il resume poller
+    // lo riaccoderà al reset del limite.
+    const [jobAfter] = await db
+      .select()
+      .from(docGenerationJobs)
+      .where(eq(docGenerationJobs.id, job.id));
+    expect(jobAfter?.status).toBe("held");
+    expect(jobAfter?.heldReason).toBe("limit");
+    expect(jobAfter?.error).toMatch(/limite/i);
+    expect(jobAfter?.finishedAt).not.toBeNull();
+
+    // Worktree CHIUSO e NON registrato (nessun leak).
+    expect(registry.has(gen!.id)).toBe(false);
+    expect(registry.activeRepositoryIds().size).toBe(0);
+  });
+
   it("radice senza figli (child-list vuota) → done con pendingChildren=0 (caso degenere)", async () => {
     const { db } = testDb;
     const upstream = await makeUpstream();

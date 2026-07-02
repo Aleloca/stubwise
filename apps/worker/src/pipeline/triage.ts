@@ -334,6 +334,9 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
       });
       const held = await holdJob(db, job.id, {
         log: `[triage] decisione: fix, ma automazione in attesa (tipo=${decision.type}, effort=${decision.effort}/5, soglia=${effectiveRule.maxEffort}, auto-fix=${effectiveRule.autoFix})`,
+        // "other": gate di automazione (auto-fix off o effort sopra soglia),
+        // serve un avvio umano — non è né un limite né un budget.
+        heldReason: "other",
       });
       if (!held) {
         await appendLog(db, job.id, "[triage] ownership persa dopo il hold");

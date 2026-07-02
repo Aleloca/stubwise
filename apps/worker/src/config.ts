@@ -316,6 +316,45 @@ const envSchema = z.object({
       .min(1, "deve essere un intero ≥ 1 (es. 50)")
       .default(50),
   ),
+  // Intervallo in minuti del RESUME POLLER dei limiti provider (task separato
+  // dal loop dei job, vedi providers/limit-resume-poller.ts): riprende le
+  // generazioni Docs `paused` e riaccoda i job `held` con held_reason "limit"
+  // quando il provider ha di nuovo headroom (snapshot /usage fresco) o dopo un
+  // cooldown a tempo. È BEST-EFFORT e non tocca i timeout dei job.
+  // 0 = disabilitato. Default 5'.
+  LIMIT_RESUME_POLL_MINUTES: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 0 in minuti (es. 5; 0 = disabilitato)" })
+      .int("deve essere un intero ≥ 0 in minuti (es. 5; 0 = disabilitato)")
+      .min(0, "deve essere un intero ≥ 0 in minuti (es. 5; 0 = disabilitato)")
+      .default(5),
+  ),
+  // Soglia di headroom del resume poller: una credenziale `account` è
+  // considerata di nuovo utilizzabile quando la sessione usata (dall'ultimo
+  // snapshot /usage fresco) è SOTTO questa percentuale (e la weekly < 100%).
+  // Default 95: si riparte con almeno il 5% di sessione libera.
+  LIMIT_RESUME_HEADROOM_PERCENT: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero tra 1 e 100 (es. 95)" })
+      .int("deve essere un intero tra 1 e 100 (es. 95)")
+      .min(1, "deve essere un intero tra 1 e 100 (es. 95)")
+      .max(100, "deve essere un intero tra 1 e 100 (es. 95)")
+      .default(95),
+  ),
+  // Cooldown (MINUTI) del fallback A TEMPO del resume poller: per le credenziali
+  // `api_key` (nessuno snapshot /usage) o con snapshot stantio/assente/non
+  // parsato, la ripresa avviene quando la pausa dura da più di questo tempo.
+  // Garantisce che nulla resti fermo per sempre. Default 60'.
+  LIMIT_RESUME_API_KEY_COOLDOWN_MINUTES: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 in minuti (es. 60)" })
+      .int("deve essere un intero ≥ 1 in minuti (es. 60)")
+      .min(1, "deve essere un intero ≥ 1 in minuti (es. 60)")
+      .default(60),
+  ),
   // Timeout (MINUTI) del run dell'agente di review. Default 15': una review
   // appesa fallisce lì e la riga pr_reviews viene chiusa failed. VINCOLO da
   // tenere: deve restare SOTTO WORKER_STALE_MINUTES (default 150) — il recovery
@@ -410,6 +449,15 @@ export interface WorkerConfig {
   /** Timeout del run di review in ms (da PR_REVIEW_TIMEOUT_MINUTES, default
    * 15' = 900000). Deve restare sotto staleAfterMinutes (vedi config sopra). */
   prReviewTimeoutMs: number;
+  /** Intervallo in minuti del resume poller dei limiti provider (default 5;
+   * 0 = disabilitato). */
+  limitResumePollMinutes: number;
+  /** Soglia di headroom (% di sessione usata) sotto cui una credenziale
+   * `account` è di nuovo utilizzabile (default 95). */
+  limitResumeHeadroomPercent: number;
+  /** Cooldown del fallback a tempo del resume poller in ms (da
+   * LIMIT_RESUME_API_KEY_COOLDOWN_MINUTES, default 60' = 3600000). */
+  limitResumeCooldownMs: number;
 }
 
 /**
@@ -464,5 +512,9 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     prReviewMaxTurns: parsed.PR_REVIEW_MAX_TURNS,
     // Minuti → ms: il runner dell'agente vuole millisecondi.
     prReviewTimeoutMs: parsed.PR_REVIEW_TIMEOUT_MINUTES * 60_000,
+    limitResumePollMinutes: parsed.LIMIT_RESUME_POLL_MINUTES,
+    limitResumeHeadroomPercent: parsed.LIMIT_RESUME_HEADROOM_PERCENT,
+    // Minuti → ms: il poller confronta età della pausa in millisecondi.
+    limitResumeCooldownMs: parsed.LIMIT_RESUME_API_KEY_COOLDOWN_MINUTES * 60_000,
   };
 }

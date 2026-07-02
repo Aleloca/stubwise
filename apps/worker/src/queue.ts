@@ -1,4 +1,5 @@
 import { agentRuns, aiJobs, type Db } from "@stubwise/db";
+import type { HeldReason } from "@stubwise/shared";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { AgentRunUsage } from "./agent/runner.js";
 import {
@@ -227,21 +228,29 @@ export async function markFixing(db: Db, jobId: string): Promise<boolean> {
 
 export interface HoldJobInput {
   log: string;
+  /**
+   * Classificazione del hold, OBBLIGATORIA (ogni call-site dichiara il perché):
+   * "limit" = provider AI al limite di rate/usage (il resume poller riaccoderà
+   * il job automaticamente al reset); "budget" = tetto di spesa superato;
+   * "other" = gate di automazione o altra causa che richiede un umano.
+   */
+  heldReason: HeldReason;
 }
 
 /**
- * Transizione triage → held: il triage ha deciso "fix" ma il gate di
- * automazione non lo consente (auto-fix off per il tipo, oppure effort sopra
- * soglia) e il job non è stato avviato manualmente. Il job resta in attesa di
- * un avvio umano (POST /run-ai). Status-guarded come markFixing: restituisce
- * false se la ownership è persa (job requeued e reclamato altrove) e in quel
- * caso il chiamante non deve toccare nulla.
+ * Transizione verso `held`: il job è in pausa per una ragione non-errore (gate
+ * di automazione, budget superato, provider al limite) e attende uno sblocco —
+ * umano (POST /run-ai) o automatico (resume poller, solo held_reason "limit").
+ * Status-guarded come markFixing: restituisce false se la ownership è persa
+ * (job requeued e reclamato altrove) e in quel caso il chiamante non deve
+ * toccare nulla.
  */
 export async function holdJob(db: Db, jobId: string, input: HoldJobInput): Promise<boolean> {
   const updated = await db
     .update(aiJobs)
     .set({
       status: "held",
+      heldReason: input.heldReason,
       log: sql`${aiJobs.log} || ${`${input.log}\n`}`,
       finishedAt: sql`now()`,
       lastActivityAt: sql`now()`,

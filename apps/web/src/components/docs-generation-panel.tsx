@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { meQueryOptions } from "../lib/auth";
-import { generateDocs } from "../lib/docs-api";
+import { generateDocs, resumeDocs } from "../lib/docs-api";
+import type { DocStatus } from "../lib/docs-api";
 import type { DocJobStatus } from "@stubwise/shared";
 import { formatRelativeTime } from "../lib/format";
 import { docsKeys, docStatusQueryOptions } from "../lib/queries";
@@ -12,14 +13,35 @@ import { docsKeys, docStatusQueryOptions } from "../lib/queries";
  * SOLO per gli admin, il bottone "Genera documentazione".
  *
  * Polling: la query dello stato (`docStatusQueryOptions`) abilita un
- * `refetchInterval` di 4s finché c'è un job attivo (queued/running) così la UI
- * riflette l'avanzamento senza websocket; appena il job termina il refetch si
- * ferma. Al click invalidiamo subito lo stato per partire dal job appena
- * accodato. Approccio volutamente semplice (no streaming).
+ * `refetchInterval` adattivo (vedi `statusRefetchInterval`) finché c'è un job
+ * attivo (queued/running) così la UI riflette l'avanzamento senza websocket;
+ * appena il job termina il refetch si ferma. Al click invalidiamo subito lo
+ * stato per partire dal job appena accodato. Approccio volutamente semplice
+ * (no streaming).
  */
 
 /** Stati di job "attivi": finché uno è in corso, la status query fa polling. */
 const ACTIVE_JOB_STATUSES: DocJobStatus[] = ["queued", "running"];
+
+/**
+ * Intervallo di polling della status query in base allo stato corrente.
+ * Adattivo: 4s finché un job è attivo (queued/running); con la generazione
+ * in pausa (limite del provider) la pausa può durare ORE → si rallenta a 60s,
+ * anche a job già terminato (vedi sotto).
+ * Niente spegnimento totale in pausa: `refetchOnWindowFocus` è disattivato
+ * globalmente, quindi senza polling il badge resterebbe stantio per sempre
+ * dopo che il resume poller riprende la generazione. Con i 60s il badge si
+ * auto-corregge entro un minuto dalla ripresa e, tornata la generazione
+ * "running", si rientra da soli nel polling a 4s. Job terminato → stop.
+ */
+export function statusRefetchInterval(data: DocStatus | undefined): number | false {
+  // Pausa: può coesistere con un trigger job già `succeeded` (il trigger si
+  // chiude al seeding del DAG): il check viene PRIMA del gate sul job. 60s
+  // bastano perché il badge si auto-corregga dopo la ripresa del poller.
+  if (data?.generation?.status === "paused") return 60_000;
+  if (!data?.latestJob || !ACTIVE_JOB_STATUSES.includes(data.latestJob.status)) return false;
+  return 4000;
+}
 
 const JOB_STATUS_KEY: Record<DocJobStatus, string> = {
   queued: "docs:generation.statusQueued",
@@ -37,12 +59,7 @@ export function DocsGenerationPanel({ projectId }: { projectId: string }) {
 
   const { data: status } = useQuery({
     ...docStatusQueryOptions(projectId),
-    // Polling adattivo: ricarica ogni 4s solo se un job è ancora attivo.
-    refetchInterval: (query) =>
-      query.state.data?.latestJob &&
-      ACTIVE_JOB_STATUSES.includes(query.state.data.latestJob.status)
-        ? 4000
-        : false,
+    refetchInterval: (query) => statusRefetchInterval(query.state.data),
   });
 
   const generation = useMutation({
@@ -53,10 +70,21 @@ export function DocsGenerationPanel({ projectId }: { projectId: string }) {
     },
   });
 
+  const resume = useMutation({
+    mutationFn: () => resumeDocs(projectId),
+    // Invalida anche in errore: un 409 generation_not_paused = il resume
+    // poller (o un altro admin) l'ha già ripresa: lo stato in cache è
+    // stantio, va rinfrescato comunque.
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: docsKeys.status(projectId) });
+    },
+  });
+
   const job = status?.latestJob ?? null;
   const gen = status?.generation ?? null;
   const pinnedProvider = status?.pinnedProvider ?? null;
   const jobActive = job !== null && ACTIVE_JOB_STATUSES.includes(job.status);
+  const isPaused = gen?.status === "paused";
 
   return (
     <section className="mb-4 rounded-sm border border-line bg-ink-900 p-3">
@@ -97,10 +125,36 @@ export function DocsGenerationPanel({ projectId }: { projectId: string }) {
         )}
       </dl>
 
-      {jobActive && (
+      {jobActive && !isPaused && (
         <p className="mt-2 font-mono text-[11px] text-signal" role="status">
           {t("docs:generation.jobRunning")}
         </p>
+      )}
+      {isPaused && (
+        <>
+          <p className="mt-2 font-mono text-[11px] text-signal" role="status">
+            {t("docs:generation.paused")}
+          </p>
+          {isAdmin && (
+            <button
+              type="button"
+              disabled={resume.isPending}
+              onClick={() => resume.mutate()}
+              className="mt-3 w-full rounded-sm bg-signal px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.06em] text-ink-950 uppercase transition-colors hover:bg-signal-bright disabled:cursor-not-allowed disabled:bg-signal-dim"
+            >
+              {resume.isPending ? t("docs:generation.resuming") : t("docs:generation.resume")}
+            </button>
+          )}
+          {resume.isError && (
+            // Resume fallito (es. 500): senza feedback il bottone tornerebbe
+            // cliccabile col badge fermo. Nel caso 409 "già ripresa"
+            // l'invalidazione fa uscire dallo stato paused e l'alert sparisce
+            // con tutto il blocco.
+            <p className="mt-2 font-mono text-[11px] text-danger" role="alert">
+              {t("docs:generation.resumeError")}
+            </p>
+          )}
+        </>
       )}
       {job?.status === "failed" && !jobActive && (
         <p className="mt-2 font-mono text-[11px] text-danger" role="status">

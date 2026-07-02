@@ -468,6 +468,9 @@ describe("runTriage", () => {
     expect(outcome).toBe("held");
     const after = await getJob(db, job.id);
     expect(after.status).toBe("held");
+    // Gate di automazione: held_reason 'other' (serve un avvio umano, non il
+    // reset di un limite).
+    expect(after.heldReason).toBe("other");
     expect(after.finishedAt).not.toBeNull();
 
     // Ticket riportato a "triaged" con tipo+effort registrati.

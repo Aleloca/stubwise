@@ -29,6 +29,7 @@ const BASE_ROW: NotificationSettingsRow = {
   notifyPrClosed: true,
   notifyBudgetHeld: true,
   notifyReviewCompleted: true,
+  notifyDocsLimitPaused: true,
 };
 
 /**
@@ -133,6 +134,14 @@ const REVIEW_COMPLETED: NotificationEvent = {
   prUrl: "https://github.com/o/r/pull/7",
   ticketUrl: "https://app.example.com/tickets/t1",
   verdict: "approve",
+};
+
+const DOCS_LIMIT_PAUSED: NotificationEvent = {
+  kind: "docs.limit_paused",
+  projectName: "webapp",
+  repositoryName: "webapp-api",
+  docsUrl: "https://app.example.com/docs/repo-1",
+  reason: "limite di rate/usage del provider AI",
 };
 
 function okFetch() {
@@ -241,6 +250,25 @@ describe("dispatchNotification — gating", () => {
     const fetchImpl = okFetch();
     await dispatchNotification(fakeDb(BASE_ROW), REVIEW_COMPLETED, { fetchImpl });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("notifyDocsLimitPaused off blocca docs.limit_paused", async () => {
+    const fetchImpl = okFetch();
+    await dispatchNotification(
+      fakeDb({ ...BASE_ROW, notifyDocsLimitPaused: false }),
+      DOCS_LIMIT_PAUSED,
+      { fetchImpl },
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("notifyDocsLimitPaused on posta docs.limit_paused (e non blocca gli altri eventi)", async () => {
+    const fetchImpl = okFetch();
+    await dispatchNotification(fakeDb(BASE_ROW), DOCS_LIMIT_PAUSED, { fetchImpl });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const body = (await bodyOf(fetchImpl)) as { text: string };
+    expect(body.text).toContain("Docs generation paused for webapp-api (webapp)");
+    expect(body.text).toContain("<https://app.example.com/docs/repo-1|Docs>");
   });
 
   it("posta all'URL configurato con POST e content-type JSON", async () => {

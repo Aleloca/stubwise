@@ -1,12 +1,19 @@
-import { docGenerations, type Db } from "@stubwise/db";
+import { docGenerations, projects, repositories, type Db } from "@stubwise/db";
 import { eq } from "drizzle-orm";
 import type { AgentRunner } from "../../agent/runner.js";
+import { notify, type DispatchFn } from "../../pipeline/notify.js";
 import {
   loadProviderById,
   loadProviderChain,
   type ResolvedProvider,
 } from "../../providers/chain.js";
-import { claimNextNode, recordNodeCost, type ClaimedNode } from "../nodes.js";
+import {
+  claimNextNode,
+  pauseGeneration,
+  recordNodeCost,
+  requeueNode,
+  type ClaimedNode,
+} from "../nodes.js";
 import { runExplore, type RunExploreDeps } from "./explore-handler.js";
 import { runSynthesize, type RunSynthesizeDeps } from "./synthesize-handler.js";
 import {
@@ -53,6 +60,13 @@ import type { GenerationWorktreeRegistry } from "./registry.js";
  */
 
 /**
+ * Reason della pausa per limite provider: UNA const per `pause_reason` nel DB
+ * (pauseGeneration) e per il payload della notifica `docs.limit_paused`, così
+ * i due non possono divergere.
+ */
+const LIMIT_PAUSE_REASON = "limite di rate/usage del provider AI";
+
+/**
  * Il provider BLOCCATO della generazione non è più risolvibile al run di un nodo
  * (disabilitato/cancellato/segreto non decifrabile dopo il seed). Lanciata da
  * `resolveProvider` per far FALLIRE la generazione invece di ripiegare su chain[0]:
@@ -95,6 +109,11 @@ export interface DispatchNodeDeps {
   ) => Promise<ResolvedProvider | null>;
   /** Chiave AES-256 per la catena di provider (stessa del fix/orientamento). */
   encryptionKey: Buffer;
+  /** URL pubblico dell'istanza (PUBLIC_URL, senza slash finali) per i link
+   * delle notifiche; assente/vuoto = il link alla pagina Docs è il solo path. */
+  publicUrl?: string;
+  /** Dispatch delle notifiche (iniettabile nei test). Default: dispatchNotification. */
+  dispatch?: DispatchFn;
 }
 
 /**
@@ -202,6 +221,7 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
   }
 
   let costUsd = 0;
+  let outcome: "ok" | "limit" = "ok";
   try {
     if (phase === "explore") {
       const exploreDeps: RunExploreDeps = {
@@ -215,7 +235,9 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
         maxNodes: deps.maxNodes,
         ...(provider !== undefined ? { provider } : {}),
       };
-      costUsd = (await runExplore(exploreDeps, node)).costUsd;
+      const r = await runExplore(exploreDeps, node);
+      costUsd = r.costUsd;
+      if (r.outcome === "limit") outcome = "limit";
     } else {
       const synthDeps: RunSynthesizeDeps = {
         db,
@@ -226,7 +248,9 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
         maxTurns: deps.maxTurns,
         ...(provider !== undefined ? { provider } : {}),
       };
-      costUsd = (await runSynthesize(synthDeps, node)).costUsd;
+      const r = await runSynthesize(synthDeps, node);
+      costUsd = r.costUsd;
+      if (r.outcome === "limit") outcome = "limit";
     }
   } catch (error) {
     // Un throw inatteso dell'handler (oltre i suoi percorsi best-effort): loggato. Il
@@ -238,7 +262,8 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
   }
 
   // Persiste il costo del nodo (Σ dei run dell'agente di questo nodo) così la
-  // finalizzazione (M6) lo somma in doc_generations.cost. Best-effort: un fallimento
+  // finalizzazione (M6) lo somma in doc_generations.cost. Anche sul ramo LIMIT: il
+  // run parziale è comunque stato pagato e va contato. Best-effort: un fallimento
   // qui non deve impedire la finalizzazione (al più il costo aggregato è sottostimato).
   try {
     await recordNodeCost(db, node.id, costUsd);
@@ -248,9 +273,72 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
     );
   }
 
+  if (outcome === "limit") {
+    // Pausa a livello di GENERAZIONE: il nodo torna claimabile (pending) ma
+    // il claim salta le generazioni paused — un solo segnale ferma il DAG.
+    // Ordine: prima il requeue del nodo, poi la pausa (se il processo muore
+    // in mezzo, un nodo pending su generazione running è semplicemente
+    // rieseguito). La ripresa è del resume poller (o del pulsante admin).
+    // Best-effort come il resto del background work: su un errore DB il nodo
+    // resta in lavorazione e torna allo stale-requeue.
+    try {
+      await requeueNode(db, node.id);
+      const paused = await pauseGeneration(db, node.generationId, LIMIT_PAUSE_REASON);
+      if (paused) {
+        console.error(
+          `[stubwise-worker] docs: generazione ${node.generationId} in pausa per limite provider`,
+        );
+        // Notifica best-effort: il momento in cui l'operatore può voler agire
+        // (piano, credenziali). projectName/repositoryName/docsUrl da una select.
+        await notifyLimitPaused(deps, node.repositoryId);
+      }
+    } catch (error) {
+      console.error(
+        `[stubwise-worker] requeue/pausa per limite del nodo ${node.id} fallita: ${describe(error)} — il nodo torna allo stale-requeue`,
+      );
+    }
+    return;
+  }
+
   // Il nodo è ora `done`/`failed` (l'handler ha già fatto il join sul padre). Se
   // l'intero DAG è chiuso (tutte le radici `done`), finalizza ESATTAMENTE UNA VOLTA.
   await maybeFinalize(deps, node.generationId);
+}
+
+/**
+ * Notifica best-effort `docs.limit_paused` (l'UNICO evento senza ticket): emessa
+ * DOPO che la pausa è committata, così riflette realtà persistita. Nome del
+ * repository e del progetto da una select (repositories → projects); il link è
+ * la pagina Docs del repository della SPA (`/docs/:repositoryId`). Mai lancia:
+ * una notifica mancata non deve alterare l'esito del ramo limit (il wrapper
+ * `notify` inghiotte già, qui si difende anche la select).
+ */
+async function notifyLimitPaused(deps: DispatchNodeDeps, repositoryId: string): Promise<void> {
+  const { db } = deps;
+  try {
+    const [row] = await db
+      .select({ repositoryName: repositories.name, projectName: projects.name })
+      .from(repositories)
+      .innerJoin(projects, eq(projects.id, repositories.projectId))
+      .where(eq(repositories.id, repositoryId));
+    if (!row) return;
+    const base = (deps.publicUrl ?? "").replace(/\/+$/, "");
+    await notify(
+      { ...(deps.dispatch !== undefined ? { dispatch: deps.dispatch } : {}) },
+      db,
+      {
+        kind: "docs.limit_paused",
+        projectName: row.projectName,
+        repositoryName: row.repositoryName,
+        docsUrl: `${base}/docs/${repositoryId}`,
+        reason: LIMIT_PAUSE_REASON,
+      },
+    );
+  } catch (error) {
+    console.error(
+      `[stubwise-worker] notifica docs.limit_paused per il repository ${repositoryId} fallita: ${describe(error)}`,
+    );
+  }
 }
 
 /**

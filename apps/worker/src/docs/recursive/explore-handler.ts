@@ -9,6 +9,7 @@ import {
 import { eq, sql } from "drizzle-orm";
 import type { AgentRunner } from "../../agent/runner.js";
 import type { ResolvedProvider } from "../../providers/chain.js";
+import { isLimitError } from "../../providers/limit.js";
 import {
   completeNode,
   createChildren,
@@ -66,7 +67,7 @@ export interface RunExploreDeps {
   provider?: ResolvedProvider;
 }
 
-export type ExploreOutcome = "branch" | "leaf" | "failed";
+export type ExploreOutcome = "branch" | "leaf" | "failed" | "limit";
 
 /** Costo aggregato + esito di un explore (il costo è sommato nella generazione alla M6). */
 export interface ExploreResult {
@@ -129,14 +130,15 @@ async function loadNodeContext(db: Db, node: DocNode): Promise<NodeContext> {
 /**
  * Esegue l'agente di explore e ne parsa l'output, con UN retry su output invalido
  * (body/blocchi mancanti) prima del fallback. Ritorna l'output valido + il costo
- * aggregato, oppure `null` (entrambi i tentativi invalidi). Ogni run è read-only e
- * batte l'heartbeat al termine.
+ * aggregato, oppure `{limit: true}` (run al limite di rate/usage del provider),
+ * oppure `null` (entrambi i tentativi invalidi). Ogni run è read-only e batte
+ * l'heartbeat al termine.
  */
 async function runExploreAgent(
   deps: RunExploreDeps,
   node: DocNode,
   prompt: string,
-): Promise<{ explore: ExploreOutput; costUsd: number } | null> {
+): Promise<{ explore: ExploreOutput; costUsd: number } | { limit: true; costUsd: number } | null> {
   const providerOpt = deps.provider !== undefined ? { provider: deps.provider } : {};
   let costUsd = 0;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -151,6 +153,11 @@ async function runExploreAgent(
     });
     costUsd += result.usage?.totalCostUsd ?? 0;
     await touchNode(deps.db, node.id);
+    // Limite di rate/usage del provider: NON è un output invalido — non
+    // consuma il retry e non fallisce il nodo. Il chiamante mette in pausa
+    // l'intera generazione (i run al limite tornano output degradato: ogni
+    // retry qui sarebbe un run bruciato).
+    if (isLimitError(result)) return { limit: true, costUsd };
     const parsed = parseExploreOutput(result.output);
     if (!("reason" in parsed)) return { explore: parsed, costUsd };
     // Output invalido (`reason`): si ritenta una volta, poi fallback (failNode).
@@ -245,6 +252,11 @@ export async function runExplore(deps: RunExploreDeps, node: DocNode): Promise<E
   });
 
   const run = await runExploreAgent(deps, node, prompt);
+  // Run al limite del provider: il nodo NON è failed (resta in lavorazione, sarà il
+  // dispatcher a riaccodarlo e a mettere in pausa la generazione).
+  if (run && "limit" in run) {
+    return { outcome: "limit", costUsd: run.costUsd };
+  }
   if (!run) {
     await failNode(
       db,

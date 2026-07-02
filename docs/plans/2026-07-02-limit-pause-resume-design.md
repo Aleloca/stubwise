@@ -1,6 +1,6 @@
 # Pausa/ripresa sul limite di utilizzo — design
 
-Data: 2026-07-02 · Stato: design validato
+Data: 2026-07-02 · Stato: implementato (branch feat/limit-pause-resume; vedi 2026-07-02-limit-pause-resume-implementation.md)
 
 ## Problema
 
@@ -124,3 +124,26 @@ best-effort, mai crash). Ogni tick (default 5', allineato al poll dell'usage):
   riavvio-safe è un cambio profondo al cuore del DAG, rimandato.
 - `held_reason` invece di un nuovo stato: riusa la semantica `held` esistente
   e la UI che già la mostra.
+
+## Scostamenti in implementazione
+
+1. **Notifica solo per le generazioni Docs** (`docs.limit_paused`): il fix
+   held-limit era già coperto dal kind `job.held` esistente — nessun nuovo
+   evento per quel caso.
+2. **Orientamento al limite** → il trigger va `held` (reason "limit") e la
+   generazione va `failed` con messaggio esplicito: "pausa" non è definita
+   senza un DAG già seminato (non c'è nulla da riprendere).
+3. **Sintesi al limite** → nessuna pagina di fallback: il nodo torna `pending`
+   come per l'explore (la sintesi ripartirà da capo alla ripresa).
+4. **`GET /docs/status` espone la generazione `paused` con precedenza sulla
+   `current`**: senza questa precedenza il badge "in pausa" non sarebbe mai
+   apparso (la selezione della current avrebbe continuato a mostrare l'ultimo
+   stato terminale).
+5. **`recordNodeCost` ora accumula** (`coalesce(cost,0) + costUsd`) invece di
+   sovrascrivere: bug pre-esistente scoperto durante la review — con più run
+   per nodo (retry, ripresa dopo pausa) il costo veniva perso.
+6. **Durante una pausa il worktree resta registrato** nel registry in-memoria:
+   i fix dello stesso progetto restano esclusi dal claim per tutta la durata
+   della pausa (anche ore). È coerente con la mutua esclusione fix↔generazione
+   già prevista, ma la finestra di esclusione si allunga rispetto a una
+   generazione che corre senza pause.

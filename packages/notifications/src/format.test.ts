@@ -91,6 +91,14 @@ const REVIEW_COMPLETED: NotificationEvent = {
   verdict: "approve",
 };
 
+const DOCS_LIMIT_PAUSED: NotificationEvent = {
+  kind: "docs.limit_paused",
+  projectName: "webapp",
+  repositoryName: "webapp-api",
+  docsUrl: "https://app.example.com/docs/repo-1",
+  reason: "limite di rate/usage del provider AI",
+};
+
 const BUDGET_HELD_MONTHLY: NotificationEvent = {
   kind: "job.budget_held",
   ticketNumber: 42,
@@ -197,6 +205,18 @@ describe("formatNotification — slack (lingua default en)", () => {
     expect(text).toContain("changes requested");
     expect(text).not.toContain("approval suggested");
   });
+
+  it("docs.limit_paused → repository, progetto, link Docs; nessun riferimento #n", () => {
+    const text = (formatNotification(DOCS_LIMIT_PAUSED, "slack").body as { text: string }).text;
+    expect(text).toContain("⏸️");
+    expect(text).toContain("Docs generation paused for webapp-api (webapp)");
+    expect(text).toContain("provider usage limit reached");
+    expect(text).toContain("It will resume automatically");
+    expect(text).toContain("<https://app.example.com/docs/repo-1|Docs>");
+    // Non c'è un ticket: nessun residuo di {ref} né riferimenti #n.
+    expect(text).not.toContain("#");
+    expect(text).not.toContain("{ref}");
+  });
 });
 
 describe("formatNotification — slack (lingua it)", () => {
@@ -256,6 +276,15 @@ describe("formatNotification — slack (lingua it)", () => {
         .body as { text: string }
     ).text;
     expect(text).toContain("modifiche richieste");
+  });
+
+  it("docs.limit_paused it → testo italiano e label Docs", () => {
+    const text = (formatNotification(DOCS_LIMIT_PAUSED, "slack", "it").body as { text: string })
+      .text;
+    expect(text).toContain("Generazione Docs in pausa per webapp-api (webapp)");
+    expect(text).toContain("limite di utilizzo del provider raggiunto");
+    expect(text).toContain("Riprenderà da sola");
+    expect(text).toContain("<https://app.example.com/docs/repo-1|Docs>");
   });
 });
 
@@ -327,6 +356,14 @@ describe("formatNotification — discord", () => {
     expect(content).toContain("approval suggested");
     expect(content).toContain("[View PR](https://github.com/o/r/pull/7)");
     expect(content).toContain("[Ticket](https://app.example.com/tickets/42)");
+  });
+
+  it("docs.limit_paused: link Docs in stile markdown, nessun riferimento #n (en)", () => {
+    const content = (formatNotification(DOCS_LIMIT_PAUSED, "discord").body as { content: string })
+      .content;
+    expect(content).toContain("Docs generation paused for webapp-api (webapp)");
+    expect(content).toContain("[Docs](https://app.example.com/docs/repo-1)");
+    expect(content).not.toContain("#");
   });
 });
 
@@ -435,6 +472,33 @@ describe("formatNotification — generic", () => {
     expect(body.message as string).toContain("changes requested");
   });
 
+  it("docs.limit_paused → payload piatto con repositoryName/docsUrl/reason, senza campi ticket", () => {
+    const body = formatNotification(DOCS_LIMIT_PAUSED, "generic").body as Record<string, unknown>;
+    expect(body.event).toBe("docs.limit_paused");
+    expect(body.projectName).toBe("webapp");
+    expect(body.repositoryName).toBe("webapp-api");
+    expect(body.docsUrl).toBe("https://app.example.com/docs/repo-1");
+    expect(body.reason).toBe("limite di rate/usage del provider AI");
+    // Nessun campo di ticket: è il primo evento della union senza ticket.
+    expect(body).not.toHaveProperty("ticketNumber");
+    expect(body).not.toHaveProperty("title");
+    expect(body).not.toHaveProperty("ticketUrl");
+    const message = body.message as string;
+    expect(message).toBe(
+      "Docs generation paused for webapp-api (webapp): provider usage limit reached. It will resume automatically.",
+    );
+  });
+
+  it("docs.limit_paused it → message italiano senza markup", () => {
+    const body = formatNotification(DOCS_LIMIT_PAUSED, "generic", "it").body as Record<
+      string,
+      unknown
+    >;
+    expect(body.message as string).toBe(
+      "Generazione Docs in pausa per webapp-api (webapp): limite di utilizzo del provider raggiunto. Riprenderà da sola.",
+    );
+  });
+
   it("message → frase senza markup né link, niente emoji né spazio finale (en)", () => {
     const body = formatNotification(TICKET_CREATED, "generic").body as Record<string, unknown>;
     const message = body.message as string;
@@ -479,9 +543,15 @@ describe("sampleEvents", () => {
       "job.budget_held",
       "job.failed",
       "review.completed",
+      "docs.limit_paused",
     ]);
     for (const event of events) {
-      expect(event.ticketUrl.startsWith("https://app.example.com/tickets/")).toBe(true);
+      // docs.limit_paused è l'unico kind senza ticket: il link è la pagina Docs.
+      if (event.kind === "docs.limit_paused") {
+        expect(event.docsUrl.startsWith("https://app.example.com/docs/")).toBe(true);
+      } else {
+        expect(event.ticketUrl.startsWith("https://app.example.com/tickets/")).toBe(true);
+      }
     }
   });
 

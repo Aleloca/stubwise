@@ -1,4 +1,5 @@
 import { docGenerationJobs, type Db } from "@stubwise/db";
+import type { HeldReason } from "@stubwise/shared";
 import { and, eq, sql } from "drizzle-orm";
 
 export type DocJob = typeof docGenerationJobs.$inferSelect;
@@ -127,6 +128,12 @@ export async function failDocJob(db: Db, jobId: string, input: FailDocJobInput):
 export interface HoldDocJobInput {
   /** Ragione del blocco (es. cap di costo superato): salvata in error e log. */
   reason: string;
+  /**
+   * Classificazione del hold, OBBLIGATORIA: "limit" = provider AI al limite di
+   * rate/usage (il resume poller riaccoderà il trigger automaticamente al
+   * reset); "budget" = tetto di spesa superato; "other" = altra causa umana.
+   */
+  heldReason: HeldReason;
 }
 
 /**
@@ -142,6 +149,7 @@ export async function holdDocJob(db: Db, jobId: string, input: HoldDocJobInput):
     .update(docGenerationJobs)
     .set({
       status: "held",
+      heldReason: input.heldReason,
       error: input.reason,
       log: sql`${docGenerationJobs.log} || ${`[stubwise] generazione sospesa: ${input.reason}\n`}`,
       finishedAt: sql`now()`,

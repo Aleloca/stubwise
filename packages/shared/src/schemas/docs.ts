@@ -18,15 +18,22 @@ export type DocPageKind = z.infer<typeof docPageKindSchema>;
 
 /**
  * Stato di una generazione di documentazione: "pending" (creata, non ancora
- * avviata), "running" (in corso), "succeeded" / "failed" (terminali).
+ * avviata), "running" (in corso), "paused" (sospesa per limite di utilizzo del
+ * provider, ripresa automatica dal resume poller), "succeeded" / "failed"
+ * (terminali).
  */
 export const docGenerationStatusSchema = z.enum([
   "pending",
   "running",
+  "paused",
   "succeeded",
   "failed",
 ]);
 export type DocGenerationStatus = z.infer<typeof docGenerationStatusSchema>;
+
+/** Motivo per cui un job è in `held`: solo `limit` è auto-ripristinabile. */
+export const heldReasonSchema = z.enum(["limit", "budget", "other"]);
+export type HeldReason = z.infer<typeof heldReasonSchema>;
 
 /**
  * Origine di una generazione: "manual" (avviata da un umano) o "push"

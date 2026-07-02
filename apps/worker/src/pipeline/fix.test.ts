@@ -1777,9 +1777,11 @@ describe("runFix — budget di costo (Task 6)", () => {
     expect(provider.openPullRequest).not.toHaveBeenCalled();
     const branches = await git(["branch", "--list", `stubwise/ticket-${ticket.number}`], fixture.upstreamDir);
     expect(branches).toBe("");
-    // Job held.
+    // Job held con held_reason 'budget': decisione umana, NON riaccodato dal
+    // resume poller dei limiti.
     const jobAfter = await getJob(db, job.id);
     expect(jobAfter.status).toBe("held");
+    expect(jobAfter.heldReason).toBe("budget");
     expect(jobAfter.finishedAt).not.toBeNull();
     // Commento AI budgetHeld con scope tradotto (en: "monthly") e cifre.
     const ticketComments = await db.select().from(comments).where(eq(comments.ticketId, ticket.id));
@@ -1826,6 +1828,7 @@ describe("runFix — budget di costo (Task 6)", () => {
     expect(provider.openPullRequest).not.toHaveBeenCalled();
     const jobAfter = await getJob(db, job.id);
     expect(jobAfter.status).toBe("held");
+    expect(jobAfter.heldReason).toBe("budget");
     const ticketComments = await db.select().from(comments).where(eq(comments.ticketId, ticket.id));
     expect(ticketComments[0]?.body).toContain("ticket");
     expect(calls).toHaveLength(1);
@@ -1921,6 +1924,7 @@ describe("runFix — budget di costo (Task 6)", () => {
     expect(outcome).toBe("held");
     const jobAfter = await getJob(db, job.id);
     expect(jobAfter.status).toBe("held");
+    expect(jobAfter.heldReason).toBe("budget");
     // Run agente: plan + execute + SOLO 1 riparazione (la 2ª non parte). = 3.
     expect(runner.calls).toHaveLength(3);
     // I consumi dei run eseguiti sono persistiti anche sul percorso held

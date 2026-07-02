@@ -89,6 +89,7 @@ const notificationSettingsResponseSchema = z.object({
   notifyPlanReview: z.boolean(),
   notifyBudgetHeld: z.boolean(),
   notifyReviewCompleted: z.boolean(),
+  notifyDocsLimitPaused: z.boolean(),
   notifyJobFailed: z.boolean(),
 });
 
@@ -119,6 +120,9 @@ const updateNotificationsBodySchema = z.object({
   // Default true: i client esistenti che non inviano il campo conservano il
   // comportamento "notifica le review AI delle PR completate".
   notifyReviewCompleted: z.boolean().default(true),
+  // Default true: i client esistenti che non inviano il campo conservano il
+  // comportamento "notifica le generazioni Docs in pausa per limite provider".
+  notifyDocsLimitPaused: z.boolean().default(true),
   notifyJobFailed: z.boolean(),
 });
 
@@ -198,6 +202,7 @@ async function loadNotificationSettings(
       notifyPlanReview: true,
       notifyBudgetHeld: true,
       notifyReviewCompleted: true,
+      notifyDocsLimitPaused: true,
       notifyJobFailed: true,
     };
   }
@@ -212,6 +217,7 @@ async function loadNotificationSettings(
     notifyPlanReview: row.notifyPlanReview,
     notifyBudgetHeld: row.notifyBudgetHeld,
     notifyReviewCompleted: row.notifyReviewCompleted,
+    notifyDocsLimitPaused: row.notifyDocsLimitPaused,
     notifyJobFailed: row.notifyJobFailed,
   };
 }
@@ -421,6 +427,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
           notifyPlanReview: body.notifyPlanReview,
           notifyBudgetHeld: body.notifyBudgetHeld,
           notifyReviewCompleted: body.notifyReviewCompleted,
+          notifyDocsLimitPaused: body.notifyDocsLimitPaused,
           notifyJobFailed: body.notifyJobFailed,
         })
         .onConflictDoUpdate({
@@ -436,6 +443,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
             notifyPlanReview: body.notifyPlanReview,
             notifyBudgetHeld: body.notifyBudgetHeld,
             notifyReviewCompleted: body.notifyReviewCompleted,
+            notifyDocsLimitPaused: body.notifyDocsLimitPaused,
             notifyJobFailed: body.notifyJobFailed,
             updatedAt: new Date(),
           },

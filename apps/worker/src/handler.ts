@@ -1,5 +1,6 @@
 import { comments, projects, tickets, type Db } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
+import type { HeldReason } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -146,8 +147,13 @@ async function runJobWithProvider(
  * avviene: si logga best-effort. NON failed: il job va ritentato (avvio manuale
  * o re-run) dopo che la causa del hold è rientrata.
  */
-async function holdJobWithReason(deps: HandlerDeps, job: AiJob, log: string): Promise<void> {
-  const held = await holdJob(deps.db, job.id, { log });
+async function holdJobWithReason(
+  deps: HandlerDeps,
+  job: AiJob,
+  log: string,
+  heldReason: HeldReason,
+): Promise<void> {
+  const held = await holdJob(deps.db, job.id, { log, heldReason });
   if (!held) {
     await appendLog(deps.db, job.id, "[stubwise] ownership persa dopo il hold");
   }
@@ -177,6 +183,7 @@ async function holdAllProvidersLimited(
     deps,
     job,
     "[stubwise] tutti i provider AI al limite di rate/usage → job in pausa (held), ritenta dopo il reset",
+    "limit",
   );
 }
 
@@ -203,10 +210,13 @@ async function processJob(
     const loadById = deps.loadProviderByIdFn ?? loadProviderById;
     const provider = await loadById(deps.db, deps.encryptionKey, aiProviderId);
     if (provider === null) {
+      // "other", NON "limit": un provider disabilitato/cancellato non si
+      // sblocca col reset di un limite, serve un intervento umano.
       await holdJobWithReason(
         deps,
         job,
         "[stubwise] provider AI del progetto non disponibile (disabilitato/cancellato) → job in pausa, riprende dopo averlo riabilitato",
+        "other",
       );
       return;
     }
@@ -216,6 +226,7 @@ async function processJob(
         deps,
         job,
         "[stubwise] provider AI del progetto al limite di rate/usage → job in pausa, ritenta dopo il reset",
+        "limit",
       );
     }
     return;

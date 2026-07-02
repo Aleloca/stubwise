@@ -356,6 +356,7 @@ interface NotificationSettings {
   notifyPlanReview: boolean;
   notifyBudgetHeld: boolean;
   notifyReviewCompleted: boolean;
+  notifyDocsLimitPaused: boolean;
   notifyJobFailed: boolean;
 }
 
@@ -380,6 +381,7 @@ describe("GET /api/settings/notifications", () => {
     expect(body.notifyPlanReview).toBe(true);
     expect(body.notifyBudgetHeld).toBe(true);
     expect(body.notifyReviewCompleted).toBe(true);
+    expect(body.notifyDocsLimitPaused).toBe(true);
     expect(body.notifyJobFailed).toBe(true);
   });
 });
@@ -414,6 +416,7 @@ describe("PUT /api/settings/notifications", () => {
         notifyPlanReview: false,
         notifyBudgetHeld: false,
         notifyReviewCompleted: false,
+        notifyDocsLimitPaused: false,
         notifyJobFailed: true,
       },
       users.adminCookie,
@@ -428,6 +431,7 @@ describe("PUT /api/settings/notifications", () => {
     expect(body.notifyPlanReview).toBe(false);
     expect(body.notifyBudgetHeld).toBe(false);
     expect(body.notifyReviewCompleted).toBe(false);
+    expect(body.notifyDocsLimitPaused).toBe(false);
 
     // Persistito: una sola riga (id=1) e la GET la riflette.
     const rows = await testDb.db.select().from(notificationSettings);
@@ -439,6 +443,7 @@ describe("PUT /api/settings/notifications", () => {
     expect(after.notifyPlanReview).toBe(false);
     expect(after.notifyBudgetHeld).toBe(false);
     expect(after.notifyReviewCompleted).toBe(false);
+    expect(after.notifyDocsLimitPaused).toBe(false);
   });
 
   it("admin: notifyPrClosed omesso → default true (compatibilità client legacy)", async () => {
@@ -517,6 +522,28 @@ describe("PUT /api/settings/notifications", () => {
     );
     expect(res.statusCode).toBe(200);
     expect((res.json() as NotificationSettings).notifyReviewCompleted).toBe(true);
+  });
+
+  it("admin: notifyDocsLimitPaused omesso → default true (compatibilità client legacy)", async () => {
+    const res = await putNotifications(
+      {
+        webhookUrl: "https://hooks.example.com/legacy-docs-limit",
+        format: "slack",
+        enabled: true,
+        notifyTicketCreated: true,
+        notifyPrOpened: true,
+        notifyPrClosed: true,
+        notifyJobHeld: true,
+        notifyPlanReview: true,
+        notifyBudgetHeld: true,
+        notifyReviewCompleted: true,
+        // notifyDocsLimitPaused volutamente assente: deve defaultare a true.
+        notifyJobFailed: true,
+      },
+      users.adminCookie,
+    );
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as NotificationSettings).notifyDocsLimitPaused).toBe(true);
   });
 
   it("webhookUrl vuoto è ammesso (disattiva il webhook) e salvato come null", async () => {

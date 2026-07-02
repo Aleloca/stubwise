@@ -536,7 +536,8 @@
       "planReview": "Piano AI in attesa di approvazione",
       "budgetHeld": "Budget superato (job in attesa)",
       "reviewCompleted": "Review PR completata",
-      "jobFailed": "Fix fallito"
+      "jobFailed": "Fix fallito",
+      "docsLimitPaused": "Generazione Docs in pausa (limite di utilizzo)"
     },
     "samples": {
       "ticketCreated": "Nuovo ticket",
@@ -545,7 +546,8 @@
       "jobHeld": "In attesa",
       "planReview": "Piano in attesa",
       "reviewCompleted": "Review PR",
-      "jobFailed": "Fix fallito"
+      "jobFailed": "Fix fallito",
+      "docsLimitPaused": "Docs in pausa"
     },
     "slack": {
       "step1Prefix": "Vai su",
@@ -1033,7 +1035,11 @@
       "jobFailed": "L'ultima generazione è fallita.",
       "jobReason": "Motivo: {{reason}}",
       "providerPinned": "Provider: {{label}}",
-      "error": "Impossibile avviare la generazione."
+      "error": "Impossibile avviare la generazione.",
+      "paused": "Generazione in pausa: limite di utilizzo del provider raggiunto. Riprende da sola al reset.",
+      "resume": "Riprendi ora",
+      "resuming": "Ripresa…",
+      "resumeError": "Impossibile riprendere la generazione."
     },
     "search": {
       "kindTechnical": "tecnico",

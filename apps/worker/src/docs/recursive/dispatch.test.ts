@@ -13,6 +13,7 @@ import {
 } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
+import type { NotificationEvent } from "@stubwise/notifications";
 import {
   EXPLORE_BODY_END_MARKER,
   EXPLORE_BODY_START_MARKER,
@@ -473,6 +474,180 @@ describe("dispatch del DAG (M7.1)", () => {
 
     // Il progetto NON resta escluso dal claim (il worktree non è registrato).
     expect(registry.activeRepositoryIds().size).toBe(0);
+  });
+});
+
+// LIMITE del provider su un job-nodo: il nodo torna claimabile (requeue) e l'INTERA
+// generazione va in pausa (claimNextNode esclude le generazioni paused). Nessun
+// failNode, nessuna finalizzazione: la ripresa è del resume poller / pulsante admin.
+describe("limite del provider nel dispatch dei nodi", () => {
+  /** Runner che risponde SEMPRE con un esito-limite (exit non-zero + marcatore). */
+  function limitRunner(): FakeAgentRunner {
+    return new FakeAgentRunner({
+      script: () => ({
+        output: "API Error: usage limit reached",
+        exitCode: 1,
+        usage: { totalCostUsd: 0.01, models: [] },
+      }),
+    });
+  }
+
+  interface LimitFixture {
+    generationId: string;
+    repositoryId: string;
+    nodeIds: string[];
+    registry: ReturnType<typeof createGenerationWorktreeRegistry>;
+    runner: FakeAgentRunner;
+    dispatch: (track: (work: Promise<void>) => void) => Promise<boolean>;
+    /** Eventi di notifica dispatchati (dispatch iniettato nei deps). */
+    notified: NotificationEvent[];
+  }
+
+  /** Generazione `running` + N nodi explore claimabili + worktree fittizio registrato. */
+  async function seedLimitFixture(db: Db, nodeCount: number): Promise<LimitFixture> {
+    const repositoryId = await createRepository(db, "https://github.com/acme/x");
+    const [gen] = await db
+      .insert(docGenerations)
+      .values({ repositoryId, status: "running", model: "opus" })
+      .returning();
+    const nodeIds: string[] = [];
+    for (let i = 0; i < nodeCount; i++) {
+      const [node] = await db
+        .insert(docNodes)
+        .values({
+          generationId: gen!.id,
+          repositoryId,
+          tree: "technical",
+          status: "pending",
+          depth: 1,
+          position: i,
+          title: `Leaf ${i}`,
+          slug: `leaf-limit-${uniq}-${i}`,
+          sourcePaths: [`src/leaf-${i}`],
+        })
+        .returning();
+      nodeIds.push(node!.id);
+    }
+
+    const registry = createGenerationWorktreeRegistry();
+    const fakeDir = await mkdtemp(join(tmpdir(), "stubwise-limit-wt-"));
+    cleanups.push(() => rm(fakeDir, { recursive: true, force: true }));
+    registry.register(gen!.id, repositoryId, await projectIdOf(db, repositoryId), {
+      dir: fakeDir,
+      commitSha: "0".repeat(40),
+      close: async () => {},
+    } as never);
+
+    const runner = limitRunner();
+    const embeddingClient = createFakeEmbeddingClient();
+    const notified: NotificationEvent[] = [];
+    const dispatch = (track: (work: Promise<void>) => void): Promise<boolean> =>
+      dispatchNode(
+        {
+          db,
+          runner,
+          registry,
+          finalize: { embeddingClient },
+          model: "opus",
+          agentTimeoutMs: 600_000,
+          maxTurns: 30,
+          maxDepth: 6,
+          maxNodes: 400,
+          encryptionKey: ENCRYPTION_KEY,
+          loadProviderChainFn: async () => [],
+          publicUrl: "https://stubwise.example.com",
+          dispatch: async (_db, event) => {
+            notified.push(event);
+          },
+        },
+        track,
+      );
+    return { generationId: gen!.id, repositoryId, nodeIds, registry, runner, dispatch, notified };
+  }
+
+  it("outcome limit: nodo tornato pending, generazione paused con reason, costo registrato, niente finalizzazione", async () => {
+    const { db } = testDb;
+    const { generationId, repositoryId, nodeIds, registry, runner, dispatch, notified } =
+      await seedLimitFixture(db, 1);
+
+    const dispatched: Promise<void>[] = [];
+    const claimed = await dispatch((work) => dispatched.push(work));
+    expect(claimed).toBe(true);
+    await Promise.all(dispatched);
+
+    // UN solo run (il limite non consuma il retry dell'handler).
+    expect(runner.calls).toHaveLength(1);
+
+    // Il nodo è tornato claimabile (pending), NON failed.
+    const [nodeAfter] = await db.select().from(docNodes).where(eq(docNodes.id, nodeIds[0]!));
+    expect(nodeAfter?.status).toBe("pending");
+    // Il costo del run parziale è comunque registrato sul nodo.
+    expect(Number(nodeAfter?.cost)).toBeCloseTo(0.01, 6);
+
+    // La generazione è in pausa con la reason del limite (non failed, non succeeded).
+    const [genAfter] = await db
+      .select()
+      .from(docGenerations)
+      .where(eq(docGenerations.id, generationId));
+    expect(genAfter?.status).toBe("paused");
+    expect(genAfter?.pauseReason).toMatch(/limite/i);
+    expect(genAfter?.pausedAt).not.toBeNull();
+
+    // maybeFinalize NON chiamata: il worktree è ancora registrato (nessuna chiusura).
+    expect(registry.has(generationId)).toBe(true);
+
+    // Notifica docs.limit_paused dispatchata (best-effort, dispatch iniettato):
+    // repositoryName/projectName dalla select, docsUrl = publicUrl + /docs/:repositoryId.
+    const [repo] = await db
+      .select({ name: repositories.name })
+      .from(repositories)
+      .where(eq(repositories.id, repositoryId));
+    expect(notified).toHaveLength(1);
+    const event = notified[0]!;
+    expect(event.kind).toBe("docs.limit_paused");
+    if (event.kind === "docs.limit_paused") {
+      expect(event.repositoryName).toBe(repo!.name);
+      expect(event.docsUrl).toBe(`https://stubwise.example.com/docs/${repositoryId}`);
+      expect(event.reason).toMatch(/limite/i);
+    }
+
+    // Generazione paused → il nodo pending NON è più claimabile finché non si riprende.
+    const reclaim = await dispatch((work) => dispatched.push(work));
+    expect(reclaim).toBe(false);
+  });
+
+  it("secondo limite concorrente: pauseGeneration no-op, reason preservata, nessun errore", async () => {
+    const { db } = testDb;
+    const { generationId, nodeIds, dispatch, notified } = await seedLimitFixture(db, 2);
+
+    // Entrambi i nodi vengono RECLAMATI prima che uno dei due metta in pausa (il claim
+    // avviene nel dispatch, il limite nel lavoro in background): è la corsa reale di due
+    // job-nodo concorrenti che urtano il limite insieme.
+    const dispatched: Promise<void>[] = [];
+    expect(await dispatch((work) => dispatched.push(work))).toBe(true);
+    expect(await dispatch((work) => dispatched.push(work))).toBe(true);
+    await Promise.all(dispatched);
+
+    // Entrambi i nodi riaccodati, nessuno failed.
+    const nodesAfter = await db
+      .select()
+      .from(docNodes)
+      .where(eq(docNodes.generationId, generationId));
+    expect(nodesAfter.map((n) => n.status).sort()).toEqual(["pending", "pending"]);
+    expect(nodeIds).toHaveLength(2);
+
+    // Una sola pausa effettiva: la seconda è un no-op (status-guard su running) e la
+    // reason della prima resta.
+    const [genAfter] = await db
+      .select()
+      .from(docGenerations)
+      .where(eq(docGenerations.id, generationId));
+    expect(genAfter?.status).toBe("paused");
+    expect(genAfter?.pauseReason).toMatch(/limite/i);
+
+    // UNA sola notifica: solo il vincitore della pausa (paused=true) notifica.
+    expect(notified).toHaveLength(1);
+    expect(notified[0]!.kind).toBe("docs.limit_paused");
   });
 });
 

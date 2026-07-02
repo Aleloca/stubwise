@@ -44,6 +44,7 @@ export interface NotificationSettingsRow {
   notifyPrClosed: boolean;
   notifyBudgetHeld: boolean;
   notifyReviewCompleted: boolean;
+  notifyDocsLimitPaused: boolean;
 }
 
 /**
@@ -73,6 +74,7 @@ const TOGGLE_FOR_KIND: Record<NotificationKind, keyof NotificationSettingsRow> =
   "job.failed": "notifyJobFailed",
   "job.pr_closed": "notifyPrClosed",
   "review.completed": "notifyReviewCompleted",
+  "docs.limit_paused": "notifyDocsLimitPaused",
 };
 
 /**
@@ -94,6 +96,7 @@ async function loadSettings(db: Db): Promise<NotificationSettingsRow | null> {
       notifyPrClosed: notificationSettings.notifyPrClosed,
       notifyBudgetHeld: notificationSettings.notifyBudgetHeld,
       notifyReviewCompleted: notificationSettings.notifyReviewCompleted,
+      notifyDocsLimitPaused: notificationSettings.notifyDocsLimitPaused,
     })
     .from(notificationSettings)
     .limit(1);
