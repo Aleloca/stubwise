@@ -1768,12 +1768,14 @@ describe("schema: fix multi-repo (progetto: ingestion/numerazione, error_groups,
 });
 
 /**
- * Verifica le migrazioni dell'automazione PR Review (0037 + 0038): in
- * particolare il seed della regola di automazione per il tipo `review`, che
- * DEVE nascere con auto_fix spento (anti-loop: il ticket creato da una review
- * non deve innescare la pipeline di fix). Il seed vive in una migrazione
- * separata (0038) perché Postgres vieta l'uso di un valore enum aggiunto
- * nella stessa transazione della ALTER TYPE.
+ * Verifica il bootstrap dell'automazione PR Review: il seed della regola di
+ * automazione per il tipo `review`, che DEVE nascere con auto_fix spento
+ * (anti-loop: il ticket creato da una review non deve innescare la pipeline
+ * di fix). Il seed NON è una migrazione ma vive in `runMigrations`
+ * (client.ts), DOPO il migratore: drizzle esegue tutte le migrazioni pendenti
+ * in un'unica transazione, e Postgres vieta l'uso di un valore enum aggiunto
+ * con ALTER TYPE nella stessa transazione quando l'enum pre-esiste (il primo
+ * deploy su un DB vivo fallirebbe, come accaduto con la ex-0038).
  */
 describe("schema: automazione PR Review (seed automation_rules)", () => {
   let testDb: TestDb;
@@ -1788,7 +1790,7 @@ describe("schema: automazione PR Review (seed automation_rules)", () => {
     await testDb.stop();
   });
 
-  it("la migrazione seeda automation_rules per 'review' con auto_fix=false", async () => {
+  it("il bootstrap seeda automation_rules per 'review' con auto_fix=false", async () => {
     const [row] = await db.select().from(automationRules).where(eq(automationRules.type, "review"));
     expect(row).toBeDefined();
     expect(row!.autoFix).toBe(false);
