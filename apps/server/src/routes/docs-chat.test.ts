@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
 import { buildApp } from "../app.js";
 import type { ChatAvailability, ChatLlm, ChatLlmInput } from "./chat-llm.js";
@@ -197,11 +197,17 @@ describe("POST /api/repositories/:projectId/docs/chat", () => {
     // multi-turn (riusa la stessa sessione nei turni successivi).
     expect(done!.sessionId).toBe(sessions[0]!.id);
 
-    const messages = await testDb.db
-      .select()
-      .from(docChatMessages)
-      .where(eq(docChatMessages.sessionId, sessions[0]!.id));
-    expect(messages.length).toBe(2);
+    // L'insert del messaggio assistant avviene DOPO la chiusura dello stream
+    // (vedi docs-chat-core.ts): app.inject risolve alla chiusura, quindi su una
+    // macchina lenta questa lettura può correre con l'insert. Si attende.
+    const messages = await vi.waitFor(async () => {
+      const rows = await testDb.db
+        .select()
+        .from(docChatMessages)
+        .where(eq(docChatMessages.sessionId, sessions[0]!.id));
+      expect(rows.length).toBe(2);
+      return rows;
+    });
     const user = messages.find((m) => m.role === "user");
     const assistant = messages.find((m) => m.role === "assistant");
     expect(user?.content).toBe(question);
@@ -296,11 +302,14 @@ describe("POST /api/repositories/:projectId/docs/chat", () => {
       .where(eq(docChatSessions.repositoryId, project.id));
     expect(sessions.length).toBe(1);
 
-    const messages = await testDb.db
-      .select()
-      .from(docChatMessages)
-      .where(eq(docChatMessages.sessionId, session!.id));
-    expect(messages.length).toBe(4);
+    // Come sopra: l'insert dell'assistant segue la chiusura dello stream.
+    await vi.waitFor(async () => {
+      const messages = await testDb.db
+        .select()
+        .from(docChatMessages)
+        .where(eq(docChatMessages.sessionId, session!.id));
+      expect(messages.length).toBe(4);
+    });
   });
 
   it("sessionId di un altro utente: 404 (ownership verificata)", async () => {
@@ -461,15 +470,20 @@ describe("POST /api/repositories/:projectId/docs/chat", () => {
       .select()
       .from(docChatSessions)
       .where(eq(docChatSessions.repositoryId, project.id));
-    const messages = await testDb.db
-      .select()
-      .from(docChatMessages)
-      .where(eq(docChatMessages.sessionId, session!.id));
-    const assistant = messages.find((m) => m.role === "assistant");
-    expect(assistant).toBeDefined();
-    expect(assistant!.content.startsWith(partial)).toBe(true);
-    expect(assistant!.content).toContain("[risposta interrotta]");
-    expect(assistant!.citations).toBeNull();
+    // L'insert del parziale avviene DOPO reply.raw.end() (docs-chat-core.ts):
+    // senza attesa questa lettura è una race persa sui runner lenti (flake CI).
+    const assistant = await vi.waitFor(async () => {
+      const messages = await testDb.db
+        .select()
+        .from(docChatMessages)
+        .where(eq(docChatMessages.sessionId, session!.id));
+      const row = messages.find((m) => m.role === "assistant");
+      expect(row).toBeDefined();
+      return row!;
+    });
+    expect(assistant.content.startsWith(partial)).toBe(true);
+    expect(assistant.content).toContain("[risposta interrotta]");
+    expect(assistant.citations).toBeNull();
     // La pagina era recuperabile (citazioni esistono), ma NON sono attaccate al parziale.
     expect(page.slug).toBeTruthy();
   });
