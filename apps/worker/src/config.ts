@@ -282,6 +282,54 @@ const envSchema = z.object({
       .min(0, "deve essere un intero ≥ 0 (es. 10; 0 = disabilita la rigenerazione)")
       .default(10),
   ),
+  // Intervallo di poll (secondi) del poller dell'automazione PR Review (task
+  // separato dal loop dei job, vedi review/poller.ts): reclama i pending di
+  // pr_review_jobs scaduti (debounce dei push sulla PR) ed esegue l'agente di
+  // review — READ-ONLY, in plan mode: legge diff e worktree e produce
+  // verdetto+analisi, non modifica nulla. È BEST-EFFORT e non tocca i timeout
+  // dei job. 0 = disabilitato. Default 60".
+  PR_REVIEW_POLL_SECONDS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 0 in secondi (es. 60; 0 = disabilitato)" })
+      .int("deve essere un intero ≥ 0 in secondi (es. 60; 0 = disabilitato)")
+      .min(0, "deve essere un intero ≥ 0 in secondi (es. 60; 0 = disabilitato)")
+      .default(60),
+  ),
+  // Modello dell'agente di PR Review. Economico per default ("sonnet", come
+  // FIX_EXECUTE_MODEL): la review gira ad ogni push su ogni PR aperta e il run
+  // è di sola analisi sul diff.
+  PR_REVIEW_MODEL: z.preprocess(
+    emptyAsUndefined,
+    z
+      .string({ error: "deve essere il nome di un modello (es. sonnet)" })
+      .min(1)
+      .default("sonnet"),
+  ),
+  // Turni massimi del run di review: limita esplorazione/iterazioni dell'agente
+  // (costo e durata per review).
+  PR_REVIEW_MAX_TURNS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 (es. 50)" })
+      .int("deve essere un intero ≥ 1 (es. 50)")
+      .min(1, "deve essere un intero ≥ 1 (es. 50)")
+      .default(50),
+  ),
+  // Timeout (MINUTI) del run dell'agente di review. Default 15': una review
+  // appesa fallisce lì e la riga pr_reviews viene chiusa failed. VINCOLO da
+  // tenere: deve restare SOTTO WORKER_STALE_MINUTES (default 150) — il recovery
+  // del poller (review/poller.ts) chiude failed le righe `running` senza
+  // heartbeat da staleAfterMinutes; se mai questo timeout superasse lo stale,
+  // il recovery marcherebbe failed una review ancora viva.
+  PR_REVIEW_TIMEOUT_MINUTES: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 in minuti (es. 15)" })
+      .int("deve essere un intero ≥ 1 in minuti (es. 15)")
+      .min(1, "deve essere un intero ≥ 1 in minuti (es. 15)")
+      .default(15),
+  ),
 });
 
 export interface WorkerConfig {
@@ -352,6 +400,16 @@ export interface WorkerConfig {
   /** Tetto alle pagine rigenerate in-place per push dall'auto-update (Fase 2; default
    * 10; 0 = solo la entry release, niente rigenerazione mirata). */
   docsAutoUpdateMaxPages: number;
+  /** Intervallo in secondi del poller dell'automazione PR Review (default 60;
+   * 0 = disabilitato). */
+  prReviewPollSeconds: number;
+  /** Modello dell'agente di PR Review, read-only in plan mode (default "sonnet"). */
+  prReviewModel: string;
+  /** Turni massimi del run di review (default 50). */
+  prReviewMaxTurns: number;
+  /** Timeout del run di review in ms (da PR_REVIEW_TIMEOUT_MINUTES, default
+   * 15' = 900000). Deve restare sotto staleAfterMinutes (vedi config sopra). */
+  prReviewTimeoutMs: number;
 }
 
 /**
@@ -401,5 +459,10 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     embeddingApiKey: parsed.EMBEDDING_API_KEY,
     docsAutoUpdatePollSeconds: parsed.DOCS_AUTOUPDATE_POLL_SECONDS,
     docsAutoUpdateMaxPages: parsed.DOCS_AUTOUPDATE_MAX_PAGES,
+    prReviewPollSeconds: parsed.PR_REVIEW_POLL_SECONDS,
+    prReviewModel: parsed.PR_REVIEW_MODEL,
+    prReviewMaxTurns: parsed.PR_REVIEW_MAX_TURNS,
+    // Minuti → ms: il runner dell'agente vuole millisecondi.
+    prReviewTimeoutMs: parsed.PR_REVIEW_TIMEOUT_MINUTES * 60_000,
   };
 }
