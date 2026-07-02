@@ -392,6 +392,27 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         pinnedProviderId = gen?.pinnedProviderId ?? null;
       }
 
+      // Una generazione in pausa per limite non è mai quella "corrente"
+      // (currentDocGenerationId avanza solo alla finalize): va esposta
+      // esplicitamente, altrimenti il pannello web non potrebbe mai mostrare
+      // "in pausa" / "Riprendi ora". Stessa selezione del POST /docs/resume:
+      // la più recente in stato paused prevale sulla corrente.
+      const [pausedGen] = await app.db
+        .select()
+        .from(docGenerations)
+        .where(
+          and(
+            eq(docGenerations.repositoryId, repositoryId),
+            eq(docGenerations.status, "paused"),
+          ),
+        )
+        .orderBy(desc(docGenerations.createdAt))
+        .limit(1);
+      if (pausedGen) {
+        generation = toGeneration(pausedGen);
+        pinnedProviderId = pausedGen.pinnedProviderId ?? null;
+      }
+
       const [job] = await app.db
         .select()
         .from(docGenerationJobs)

@@ -391,6 +391,35 @@ describe("GET /api/repositories/:projectId/docs/status", () => {
     });
   });
 
+  it("con generazione paused: la espone come generation al posto della corrente", async () => {
+    // La generazione in pausa non è mai la "corrente" (currentDocGenerationId
+    // avanza solo alla finalize): lo status la deve esporre esplicitamente,
+    // altrimenti il pannello web non potrebbe mai mostrare "in pausa"/"Riprendi ora".
+    const project = await insertProject(testDb.db);
+    await seedSucceededGeneration(testDb.db, project.id, { commitSha: "oldgen01" });
+    const [paused] = await testDb.db
+      .insert(docGenerations)
+      .values({
+        repositoryId: project.id,
+        status: "paused",
+        trigger: "manual",
+        startedAt: new Date(),
+        pausedAt: new Date(),
+        pauseReason: "provider_limit",
+      })
+      .returning();
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/repositories/${project.id}/docs/status`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { generation: { id: string; status: string } | null };
+    expect(body.generation!.id).toBe(paused!.id);
+    expect(body.generation!.status).toBe("paused");
+  });
+
   it("progetto inesistente: 404", async () => {
     const res = await app.inject({
       method: "GET",

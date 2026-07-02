@@ -1398,6 +1398,8 @@ export interface NotificationSettings {
   /** La review AI di una PR è stata completata (verdetto pubblicato). */
   notifyReviewCompleted: boolean;
   notifyJobFailed: boolean;
+  /** Generazione Docs in pausa per limite di utilizzo del provider. */
+  notifyDocsLimitPaused: boolean;
 }
 
 /** Esito dell'invio di una notifica di test (lo restituisce l'endpoint /test). */
@@ -1431,6 +1433,8 @@ export function putNotificationSettings(
     // esplicitamente per non resettare la scelta dell'utente.
     notifyReviewCompleted: settings.notifyReviewCompleted,
     notifyJobFailed: settings.notifyJobFailed,
+    // Anche qui il default server è true: inviarlo sempre esplicitamente.
+    notifyDocsLimitPaused: settings.notifyDocsLimitPaused,
   });
 }
 

@@ -165,6 +165,16 @@ export function generateDocs(repositoryId: string): Promise<DocGenerationJob> {
   return api.post(`/api/repositories/${encodeURIComponent(repositoryId)}/docs/generate`);
 }
 
+/**
+ * Riprende subito una generazione in pausa per limite del provider (solo
+ * admin), senza aspettare il resume poller. 409 `generation_not_paused` se non
+ * c'è nulla in pausa (o il poller l'ha già ripresa): lo stato reale va
+ * comunque rinfrescato.
+ */
+export function resumeDocs(repositoryId: string): Promise<DocGeneration> {
+  return api.post(`/api/repositories/${encodeURIComponent(repositoryId)}/docs/resume`);
+}
+
 // --- Pagine manuali (CRUD) ---
 
 /** Dati di creazione di una pagina manuale: slug opzionale (derivato dal titolo). */

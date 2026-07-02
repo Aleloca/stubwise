@@ -382,6 +382,93 @@ describe("trigger generazione + stato (M7.4)", () => {
     expect(posted).toBeNull();
   });
 
+  // --- Pausa sul limite del provider (badge + "Riprendi ora") ---
+
+  /** Stato con generazione in pausa per limite (job ancora "running"). */
+  function pausedStatus() {
+    return {
+      generation: {
+        id: "g-paused",
+        status: "paused",
+        commitSha: null,
+        model: null,
+        cost: null,
+        stats: null,
+        startedAt: "2026-07-02T10:00:00.000Z",
+        finishedAt: null,
+        createdAt: "2026-07-02T10:00:00.000Z",
+      },
+      latestJob: {
+        id: "j-run",
+        status: "running",
+        trigger: "manual",
+        error: null,
+        createdAt: "2026-07-02T10:00:00.000Z",
+        startedAt: "2026-07-02T10:00:00.000Z",
+        finishedAt: null,
+      },
+      pinnedProvider: null,
+    };
+  }
+
+  it("generazione paused: avviso 'in pausa' e pulsante Riprendi ora per l'admin", async () => {
+    mockApi({
+      ...baseHandlers("admin"),
+      [`GET /api/repositories/${PROJECT_ID}/docs/status`]: () => jsonResponse(200, pausedStatus()),
+    });
+    renderApp(`/docs/${PROJECT_ID}`);
+
+    expect(
+      await screen.findByText(/Generation paused: provider usage limit reached/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Resume now" })).toBeInTheDocument();
+    // Il messaggio generico "in corso" non compare: la pausa lo sostituisce.
+    expect(screen.queryByText("A generation is in progress…")).not.toBeInTheDocument();
+  });
+
+  it("click su Riprendi ora → POST /docs/resume e invalidazione dello status", async () => {
+    let resumed = false;
+    mockApi({
+      ...baseHandlers("admin"),
+      [`GET /api/repositories/${PROJECT_ID}/docs/status`]: () =>
+        // Dopo il resume lo stato riflette la generazione tornata running.
+        resumed
+          ? jsonResponse(200, {
+              ...pausedStatus(),
+              generation: { ...pausedStatus().generation, status: "running" },
+            })
+          : jsonResponse(200, pausedStatus()),
+      [`POST /api/repositories/${PROJECT_ID}/docs/resume`]: () => {
+        resumed = true;
+        return jsonResponse(200, { ...pausedStatus().generation, status: "running" });
+      },
+    });
+    renderApp(`/docs/${PROJECT_ID}`);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Resume now" }));
+
+    // La mutation invalida lo status: il refetch fa sparire l'avviso di pausa.
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/Generation paused: provider usage limit reached/),
+      ).not.toBeInTheDocument(),
+    );
+    expect(resumed).toBe(true);
+  });
+
+  it("member: avviso di pausa visibile ma NIENTE pulsante Riprendi ora", async () => {
+    mockApi({
+      ...baseHandlers("member"),
+      [`GET /api/repositories/${PROJECT_ID}/docs/status`]: () => jsonResponse(200, pausedStatus()),
+    });
+    renderApp(`/docs/${PROJECT_ID}`);
+
+    expect(
+      await screen.findByText(/Generation paused: provider usage limit reached/),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Resume now" })).not.toBeInTheDocument();
+  });
+
   it("mostra il provider bloccato della generazione corrente", async () => {
     mockApi({
       ...baseHandlers("admin"),

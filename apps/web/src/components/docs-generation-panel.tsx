@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { meQueryOptions } from "../lib/auth";
-import { generateDocs } from "../lib/docs-api";
+import { generateDocs, resumeDocs } from "../lib/docs-api";
 import type { DocJobStatus } from "@stubwise/shared";
 import { formatRelativeTime } from "../lib/format";
 import { docsKeys, docStatusQueryOptions } from "../lib/queries";
@@ -37,10 +37,14 @@ export function DocsGenerationPanel({ projectId }: { projectId: string }) {
 
   const { data: status } = useQuery({
     ...docStatusQueryOptions(projectId),
-    // Polling adattivo: ricarica ogni 4s solo se un job è ancora attivo.
+    // Polling adattivo: ricarica ogni 4s solo se un job è ancora attivo. Con
+    // la generazione in pausa (limite del provider) il job resta "running" ma
+    // la pausa può durare ORE: niente polling — al resume ci pensano
+    // l'invalidazione del bottone "Riprendi ora" o il refetch al focus.
     refetchInterval: (query) =>
       query.state.data?.latestJob &&
-      ACTIVE_JOB_STATUSES.includes(query.state.data.latestJob.status)
+      ACTIVE_JOB_STATUSES.includes(query.state.data.latestJob.status) &&
+      query.state.data.generation?.status !== "paused"
         ? 4000
         : false,
   });
@@ -53,10 +57,23 @@ export function DocsGenerationPanel({ projectId }: { projectId: string }) {
     },
   });
 
+  const resume = useMutation({
+    mutationFn: () => resumeDocs(projectId),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: docsKeys.status(projectId) });
+    },
+    onError: async () => {
+      // 409 generation_not_paused = il resume poller (o un altro admin) l'ha
+      // già ripresa: lo stato in cache è stantio, va rinfrescato comunque.
+      await queryClient.invalidateQueries({ queryKey: docsKeys.status(projectId) });
+    },
+  });
+
   const job = status?.latestJob ?? null;
   const gen = status?.generation ?? null;
   const pinnedProvider = status?.pinnedProvider ?? null;
   const jobActive = job !== null && ACTIVE_JOB_STATUSES.includes(job.status);
+  const isPaused = gen?.status === "paused";
 
   return (
     <section className="mb-4 rounded-sm border border-line bg-ink-900 p-3">
@@ -97,10 +114,27 @@ export function DocsGenerationPanel({ projectId }: { projectId: string }) {
         )}
       </dl>
 
-      {jobActive && (
+      {jobActive && !isPaused && (
         <p className="mt-2 font-mono text-[11px] text-signal" role="status">
           {t("docs:generation.jobRunning")}
         </p>
+      )}
+      {isPaused && (
+        <>
+          <p className="mt-2 font-mono text-[11px] text-signal" role="status">
+            {t("docs:generation.paused")}
+          </p>
+          {isAdmin && (
+            <button
+              type="button"
+              disabled={resume.isPending}
+              onClick={() => resume.mutate()}
+              className="mt-3 w-full rounded-sm bg-signal px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.06em] text-ink-950 uppercase transition-colors hover:bg-signal-bright disabled:cursor-not-allowed disabled:bg-signal-dim"
+            >
+              {resume.isPending ? t("docs:generation.resuming") : t("docs:generation.resume")}
+            </button>
+          )}
+        </>
       )}
       {job?.status === "failed" && !jobActive && (
         <p className="mt-2 font-mono text-[11px] text-danger" role="status">
