@@ -132,6 +132,59 @@ re-analyzing the modules touched by a commit) are planned for a later version;
 the schema already records the `commit` and `source path` to support it.
 :::
 
+## Pause on usage limit
+
+A long generation can hit the **rate/usage limit** of the AI provider mid-way.
+When that happens, Stubwise does **not** waste the work done so far:
+
+- The run that hit the limit **doesn't fail its page** and **doesn't burn a
+  retry**: the page goes back to the queue exactly as it was.
+- The whole generation switches to **paused**. The space shows a *"Generation
+  paused: provider usage limit reached. It will resume automatically."* badge
+  in place of the usual progress.
+- The generation **resumes on its own** once the provider has headroom again,
+  and picks up **from where it stopped** — pages already produced are kept.
+
+The automatic resume is driven by a worker poller (every
+`LIMIT_RESUME_POLL_MINUTES`, default 5 minutes; `0` disables it):
+
+- For **`account`** providers with a fresh usage snapshot, the generation
+  resumes when the session usage drops **below
+  `LIMIT_RESUME_HEADROOM_PERCENT`** (default 95, i.e. at least 5% of the
+  session free) and the weekly window isn't exhausted. The fresh snapshot is
+  authoritative: if it still says "at the limit", Stubwise keeps waiting.
+- For **`api_key`** providers (which have no usage snapshot), or when the
+  snapshot is stale, the resume falls back to **time**: the generation resumes
+  after the pause has lasted more than
+  `LIMIT_RESUME_API_KEY_COOLDOWN_MINUTES` (default 60 minutes).
+
+An **admin** can also skip the wait: next to the paused badge there is a
+**Resume now** button that resumes the generation immediately — useful when you
+know the limit has already reset (e.g. you raised the plan or the session window
+rolled over).
+
+The same poller un-blocks everything else that stopped for the limit:
+
+- **AI fix jobs** held for the limit are **requeued automatically** (an AI
+  comment on the ticket records the resume).
+- [PR reviews](/docs/ai-pipeline/automation/#pr-review) that hit the limit are
+  requeued with a **30-minute cooldown** and re-run on their own.
+
+:::caution[Don't restart the worker during a pause]
+A paused generation survives the wait, but **not a worker restart**: the
+generation's worktree lives in the worker's memory, so after a restart the
+generation **fails cleanly** instead of resuming (same fail-on-restart rule as a
+running generation) and must be re-triggered. If you need to restart the
+worker, prefer doing it when no generation is running **or paused**.
+:::
+
+To be alerted when a generation pauses, turn on the **"Docs generation paused
+(usage limit)"** event in **Settings → Notifications**: the
+[`docs.limit_paused`](/docs/notifications/) notification links straight to the
+repository's Docs page. See the
+[configuration reference](/docs/reference/configuration/) for the three
+`LIMIT_RESUME_*` variables.
+
 ## Browsing, searching and asking
 
 Inside a project's space:
