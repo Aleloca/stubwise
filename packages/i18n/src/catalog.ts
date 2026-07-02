@@ -36,6 +36,8 @@ export const en: Catalog = {
     "Cost budget exceeded ({scope}): spent ${spent} of ${limit}. The fix is on hold; start it manually to override.",
   "comment.providersLimitHeld":
     "All AI providers reached their rate/usage limit. The job will need to be retried after the limit resets.",
+  "comment.limitResumed":
+    "The provider usage limit has reset: the job was requeued automatically.",
   // Verdetti della PR Review automatica postati come commento AI (niente
   // emoji DI VERDETTO ✅/⚠️ nel testo, convenzione condivisa con
   // notify.verdict.*; il 🔎 è il prefisso neutro della feature, non un verdetto).
@@ -121,6 +123,8 @@ export const it: Catalog = {
     "Budget di costo superato ({scope}): spesi ${spent} sul limite di ${limit}. Il fix è in pausa; avvialo manualmente per forzare.",
   "comment.providersLimitHeld":
     "Tutti i provider AI hanno raggiunto il limite di rate/usage. Il job dovrà essere ritentato dopo il reset del limite.",
+  "comment.limitResumed":
+    "Il limite di utilizzo del provider è rientrato: il job è stato riaccodato automaticamente.",
   // Verdetti della PR Review automatica (vedi nota in `en`).
   "comment.reviewVerdict.approve": "🔎 **PR Review** — approvazione suggerita ({url})",
   "comment.reviewVerdict.requestChanges": "🔎 **PR Review** — modifiche richieste ({url})",

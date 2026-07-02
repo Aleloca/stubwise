@@ -46,6 +46,53 @@ describe("loadWorkerConfig", () => {
     expect(config.prReviewModel).toBe("sonnet");
     expect(config.prReviewMaxTurns).toBe(50);
     expect(config.prReviewTimeoutMs).toBe(900_000);
+    // Resume poller dei limiti: default 5', soglia 95%, cooldown 60'.
+    expect(config.limitResumePollMinutes).toBe(5);
+    expect(config.limitResumeHeadroomPercent).toBe(95);
+    expect(config.limitResumeCooldownMs).toBe(3_600_000);
+  });
+
+  it("rispetta LIMIT_RESUME_POLL_MINUTES esplicito e 0 = disabilitato", () => {
+    expect(
+      loadWorkerConfig({ ...VALID, LIMIT_RESUME_POLL_MINUTES: "10" }).limitResumePollMinutes,
+    ).toBe(10);
+    expect(
+      loadWorkerConfig({ ...VALID, LIMIT_RESUME_POLL_MINUTES: "0" }).limitResumePollMinutes,
+    ).toBe(0);
+    // Vuoto (es. da .env.example) usa il default 5.
+    expect(
+      loadWorkerConfig({ ...VALID, LIMIT_RESUME_POLL_MINUTES: "" }).limitResumePollMinutes,
+    ).toBe(5);
+    expect(() => loadWorkerConfig({ ...VALID, LIMIT_RESUME_POLL_MINUTES: "-1" })).toThrow(
+      /LIMIT_RESUME_POLL_MINUTES/,
+    );
+  });
+
+  it("rispetta headroom e cooldown del resume poller (minuti → ms) e rifiuta i fuori range", () => {
+    const config = loadWorkerConfig({
+      ...VALID,
+      LIMIT_RESUME_HEADROOM_PERCENT: "80",
+      LIMIT_RESUME_API_KEY_COOLDOWN_MINUTES: "30",
+    });
+    expect(config.limitResumeHeadroomPercent).toBe(80);
+    expect(config.limitResumeCooldownMs).toBe(1_800_000);
+    // Vuoti (es. da .env.example) usano i default.
+    const defaults = loadWorkerConfig({
+      ...VALID,
+      LIMIT_RESUME_HEADROOM_PERCENT: "",
+      LIMIT_RESUME_API_KEY_COOLDOWN_MINUTES: "",
+    });
+    expect(defaults.limitResumeHeadroomPercent).toBe(95);
+    expect(defaults.limitResumeCooldownMs).toBe(3_600_000);
+    expect(() => loadWorkerConfig({ ...VALID, LIMIT_RESUME_HEADROOM_PERCENT: "0" })).toThrow(
+      /LIMIT_RESUME_HEADROOM_PERCENT/,
+    );
+    expect(() => loadWorkerConfig({ ...VALID, LIMIT_RESUME_HEADROOM_PERCENT: "101" })).toThrow(
+      /LIMIT_RESUME_HEADROOM_PERCENT/,
+    );
+    expect(() =>
+      loadWorkerConfig({ ...VALID, LIMIT_RESUME_API_KEY_COOLDOWN_MINUTES: "0" }),
+    ).toThrow(/LIMIT_RESUME_API_KEY_COOLDOWN_MINUTES/);
   });
 
   it("rispetta PR_REVIEW_POLL_SECONDS esplicito e 0 = disabilitato", () => {
