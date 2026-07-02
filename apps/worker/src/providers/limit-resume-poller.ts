@@ -37,9 +37,13 @@ import { loadProviderById, loadProviderChain, type ResolvedProvider } from "./ch
  *  - credenziale `api_key` (nessuno snapshot: /usage esiste solo per gli
  *    account) o snapshot stantio/assente/non parsato → FALLBACK A TEMPO: si
  *    riprende quando la pausa dura da più del cooldown. Il fallback garantisce
- *    che nulla resti fermo per sempre, anche con il poll usage disabilitato
- *    (USAGE_POLL_MINUTES=0: tutti gli snapshot invecchiano e si degrada sempre
- *    al tempo).
+ *    che nulla resti fermo per sempre FINCHÉ un provider è risolvibile, anche
+ *    con il poll usage disabilitato (USAGE_POLL_MINUTES=0: tutti gli snapshot
+ *    invecchiano e si degrada sempre al tempo). Restano fermi BY DESIGN i casi
+ *    senza provider su cui decidere: pin strict non risolvibile
+ *    (disabilitato/cancellato) e catena vuota senza pin — riaccodarli sarebbe
+ *    inutile, il run li ri-holderebbe subito (con reason "other"); serve
+ *    l'intervento umano (riabilitare il provider o run manuale).
  *
  * VINCOLI (come gli altri poller): NON fa MAI crashare il worker (ogni item in
  * try/catch isolato, l'intero tick a sua volta in try/catch), NON tocca il
@@ -133,7 +137,9 @@ async function buildSnapshotIndex(db: Db): Promise<Map<string, LatestSnapshot>> 
  *    autoritativo in ENTRAMBE le direzioni (niente fallback a tempo se dice
  *    "ancora al limite").
  *  - altrimenti (api_key, snapshot stantio/assente/non parsato/jsonb malformato):
- *    fallback A TEMPO — la pausa dura da più del cooldown. Mai eterno.
+ *    fallback A TEMPO — la pausa dura da più del cooldown. Mai eterno PER UN
+ *    PROVIDER RISOLTO: i casi in cui non si arriva nemmeno qui (pin non
+ *    risolvibile, catena vuota) restano fermi, vedi il docblock del modulo.
  */
 function hasHeadroom(
   provider: ResolvedProvider,
@@ -272,7 +278,13 @@ async function tick(deps: LimitResumeDeps): Promise<number> {
       let ok: boolean;
       if (row.aiProviderId) {
         const pinned = await loadById(db, deps.encryptionKey, row.aiProviderId);
-        ok = pinned !== null && hasHeadroom(pinned, snapshots, deps, pausedSince, now);
+        if (!pinned) {
+          console.error(
+            `[stubwise-worker] limit-resume: fix job ${job.id} saltato: provider strict del progetto non risolvibile (disabilitato/cancellato)`,
+          );
+          continue;
+        }
+        ok = hasHeadroom(pinned, snapshots, deps, pausedSince, now);
       } else {
         ok = chain.some((p) => hasHeadroom(p, snapshots, deps, pausedSince, now));
       }
