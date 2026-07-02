@@ -6,7 +6,13 @@ import {
   loadProviderChain,
   type ResolvedProvider,
 } from "../../providers/chain.js";
-import { claimNextNode, recordNodeCost, type ClaimedNode } from "../nodes.js";
+import {
+  claimNextNode,
+  pauseGeneration,
+  recordNodeCost,
+  requeueNode,
+  type ClaimedNode,
+} from "../nodes.js";
 import { runExplore, type RunExploreDeps } from "./explore-handler.js";
 import { runSynthesize, type RunSynthesizeDeps } from "./synthesize-handler.js";
 import {
@@ -202,6 +208,7 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
   }
 
   let costUsd = 0;
+  let outcome: "ok" | "limit" = "ok";
   try {
     if (phase === "explore") {
       const exploreDeps: RunExploreDeps = {
@@ -215,7 +222,9 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
         maxNodes: deps.maxNodes,
         ...(provider !== undefined ? { provider } : {}),
       };
-      costUsd = (await runExplore(exploreDeps, node)).costUsd;
+      const r = await runExplore(exploreDeps, node);
+      costUsd = r.costUsd;
+      if (r.outcome === "limit") outcome = "limit";
     } else {
       const synthDeps: RunSynthesizeDeps = {
         db,
@@ -226,7 +235,9 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
         maxTurns: deps.maxTurns,
         ...(provider !== undefined ? { provider } : {}),
       };
-      costUsd = (await runSynthesize(synthDeps, node)).costUsd;
+      const r = await runSynthesize(synthDeps, node);
+      costUsd = r.costUsd;
+      if (r.outcome === "limit") outcome = "limit";
     }
   } catch (error) {
     // Un throw inatteso dell'handler (oltre i suoi percorsi best-effort): loggato. Il
@@ -238,7 +249,8 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
   }
 
   // Persiste il costo del nodo (Σ dei run dell'agente di questo nodo) così la
-  // finalizzazione (M6) lo somma in doc_generations.cost. Best-effort: un fallimento
+  // finalizzazione (M6) lo somma in doc_generations.cost. Anche sul ramo LIMIT: il
+  // run parziale è comunque stato pagato e va contato. Best-effort: un fallimento
   // qui non deve impedire la finalizzazione (al più il costo aggregato è sottostimato).
   try {
     await recordNodeCost(db, node.id, costUsd);
@@ -246,6 +258,35 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
     console.error(
       `[stubwise-worker] persistenza del costo del nodo ${node.id} fallita: ${describe(error)}`,
     );
+  }
+
+  if (outcome === "limit") {
+    // Pausa a livello di GENERAZIONE: il nodo torna claimabile (pending) ma
+    // il claim salta le generazioni paused — un solo segnale ferma il DAG.
+    // Ordine: prima il requeue del nodo, poi la pausa (se il processo muore
+    // in mezzo, un nodo pending su generazione running è semplicemente
+    // rieseguito). La ripresa è del resume poller (o del pulsante admin).
+    // Best-effort come il resto del background work: su un errore DB il nodo
+    // resta in lavorazione e torna allo stale-requeue.
+    try {
+      await requeueNode(db, node.id);
+      const paused = await pauseGeneration(
+        db,
+        node.generationId,
+        "limite di rate/usage del provider AI",
+      );
+      if (paused) {
+        console.error(
+          `[stubwise-worker] docs: generazione ${node.generationId} in pausa per limite provider`,
+        );
+        // TODO(Task 7): notifica best-effort docs.limit_paused — punto di aggancio.
+      }
+    } catch (error) {
+      console.error(
+        `[stubwise-worker] requeue/pausa per limite del nodo ${node.id} fallita: ${describe(error)} — il nodo torna allo stale-requeue`,
+      );
+    }
+    return;
   }
 
   // Il nodo è ora `done`/`failed` (l'handler ha già fatto il join sul padre). Se

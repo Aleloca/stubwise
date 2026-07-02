@@ -7,6 +7,7 @@ import {
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { AgentRunner } from "../../agent/runner.js";
 import type { ResolvedProvider } from "../../providers/chain.js";
+import { isLimitError } from "../../providers/limit.js";
 import { completeNode, touchNode, type DocNode } from "../nodes.js";
 
 /**
@@ -50,7 +51,7 @@ export interface RunSynthesizeDeps {
   provider?: ResolvedProvider;
 }
 
-export type SynthesizeOutcome = "synthesized" | "fallback";
+export type SynthesizeOutcome = "synthesized" | "fallback" | "limit";
 
 /** Costo aggregato + esito di una sintesi (il costo è sommato nella generazione alla M6). */
 export interface SynthesizeResult {
@@ -93,7 +94,8 @@ async function loadDoneChildren(db: Db, nodeId: string): Promise<ChildSummary[]>
 
 /**
  * Esegue l'agente di sintesi e ne parsa l'output, con UN retry su output invalido
- * prima del fallback. Ritorna il body valido + il costo aggregato, oppure `null` col
+ * prima del fallback. Ritorna il body valido + il costo aggregato, oppure
+ * `{limit: true}` (run al limite di rate/usage del provider), oppure `null` col
  * solo costo (entrambi i tentativi invalidi → il chiamante usa il fallback). Ogni run
  * batte l'heartbeat al termine.
  */
@@ -101,7 +103,11 @@ async function runSynthesizeAgent(
   deps: RunSynthesizeDeps,
   node: DocNode,
   prompt: string,
-): Promise<{ body: string; costUsd: number } | { body: null; costUsd: number }> {
+): Promise<
+  | { body: string; costUsd: number }
+  | { body: null; costUsd: number }
+  | { limit: true; costUsd: number }
+> {
   const providerOpt = deps.provider !== undefined ? { provider: deps.provider } : {};
   let costUsd = 0;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -116,6 +122,11 @@ async function runSynthesizeAgent(
     });
     costUsd += result.usage?.totalCostUsd ?? 0;
     await touchNode(deps.db, node.id);
+    // Limite di rate/usage del provider: NON è un output invalido — non
+    // consuma il retry e non degrada al fallback. Il chiamante mette in pausa
+    // l'intera generazione (i run al limite tornano output degradato: ogni
+    // retry qui sarebbe un run bruciato).
+    if (isLimitError(result)) return { limit: true, costUsd };
     const parsed = parseSynthesisOutput(result.output);
     if ("body" in parsed) return { body: parsed.body, costUsd };
     // Output invalido (`reason`): si ritenta una volta, poi fallback.
@@ -163,6 +174,12 @@ export async function runSynthesize(
   });
 
   const run = await runSynthesizeAgent(deps, node, prompt);
+  // Run al limite del provider: NIENTE overview di fallback (nasconderebbe una pagina
+  // degradata dietro un esito "done") e il nodo NON è completato — resta in
+  // lavorazione, sarà il dispatcher a riaccodarlo e a mettere in pausa la generazione.
+  if ("limit" in run) {
+    return { outcome: "limit", costUsd: run.costUsd };
+  }
   const body = run.body ?? buildFallbackOverview(intro, children);
   const outcome: SynthesizeOutcome = run.body ? "synthesized" : "fallback";
   if (run.body === null) {
