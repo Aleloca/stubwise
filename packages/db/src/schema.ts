@@ -806,6 +806,9 @@ export const notificationSettings = pgTable("notification_settings", {
   notifyBudgetHeld: boolean("notify_budget_held").notNull().default(true),
   // Notifica al completamento di una PR Review automatica.
   notifyReviewCompleted: boolean("notify_review_completed").notNull().default(true),
+  // Notifica quando una generazione Docs va in pausa per limite di utilizzo del
+  // provider AI (unico evento senza ticket).
+  notifyDocsLimitPaused: boolean("notify_docs_limit_paused").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()

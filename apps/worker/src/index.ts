@@ -187,6 +187,7 @@ const dispatchNodeFn = (track: (work: Promise<void>) => void): Promise<boolean> 
       maxDepth: config.docMaxDepth,
       maxNodes: config.docMaxNodes,
       encryptionKey: config.encryptionKey,
+      publicUrl: config.publicUrl,
     },
     track,
   );

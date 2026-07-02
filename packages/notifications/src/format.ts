@@ -116,6 +116,16 @@ export interface JobFailedEvent {
   ticketUrl: string;
 }
 
+/** Generazione Docs in pausa per limite di utilizzo del provider (nessun ticket). */
+export interface DocsLimitPausedEvent {
+  kind: "docs.limit_paused";
+  projectName: string;
+  repositoryName: string;
+  /** URL della pagina Docs del repository (al posto del ticketUrl). */
+  docsUrl: string;
+  reason: string;
+}
+
 /** Unione tipata di tutti gli eventi che generano una notifica. */
 export type NotificationEvent =
   | TicketCreatedEvent
@@ -125,7 +135,20 @@ export type NotificationEvent =
   | JobPlanReviewEvent
   | JobBudgetHeldEvent
   | ReviewCompletedEvent
-  | JobFailedEvent;
+  | JobFailedEvent
+  | DocsLimitPausedEvent;
+
+/**
+ * Eventi ANCORATI A UN TICKET (tutti tranne `docs.limit_paused`): hanno
+ * `ticketNumber`/`ticketTitle`/`ticketUrl`. Il narrowing per-kind dei punti
+ * comuni (ref `#n`, base del payload generico) passa da {@link hasTicket}.
+ */
+type TicketedEvent = Exclude<NotificationEvent, DocsLimitPausedEvent>;
+
+/** Type guard: l'evento è ancorato a un ticket (ha `ticketNumber` & co.). */
+function hasTicket(event: NotificationEvent): event is TicketedEvent {
+  return event.kind !== "docs.limit_paused";
+}
 
 /** Tipo dei `kind` degli eventi, per mappare evento → toggle. */
 export type NotificationKind = NotificationEvent["kind"];
@@ -162,6 +185,7 @@ const EMOJI: Record<NotificationKind, string> = {
   "job.budget_held": "💸",
   "review.completed": "🔎",
   "job.failed": "❌",
+  "docs.limit_paused": "⏸️",
 };
 
 /** Rende un link nel markup del formato (mai chiamato per `generic`). */
@@ -218,6 +242,9 @@ function linkParam(
       return renderLink(format, event.ticketUrl, t(lang, "notify.linkOpen"));
     case "job.failed":
       return renderLink(format, event.ticketUrl, t(lang, "notify.linkOpen"));
+    case "docs.limit_paused":
+      // Nessun ticket: il link porta alla pagina Docs del repository.
+      return renderLink(format, event.docsUrl, t(lang, "notify.linkDocs"));
   }
 }
 
@@ -231,6 +258,7 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   "job.budget_held": "notify.budgetHeld",
   "review.completed": "notify.reviewCompleted",
   "job.failed": "notify.jobFailed",
+  "docs.limit_paused": "notify.docsLimitPaused",
 };
 
 /** Params (oltre a ref/link/cost) specifici per evento, passati a `t()`. */
@@ -238,6 +266,14 @@ function textParams(
   event: NotificationEvent,
   lang: Language,
 ): Record<string, string | number> {
+  // Unico evento senza ticket: parametri propri, niente base ticketTitle.
+  if (!hasTicket(event)) {
+    return {
+      repositoryName: event.repositoryName,
+      projectName: event.projectName,
+      reason: event.reason,
+    };
+  }
   const base: Record<string, string | number> = {
     ticketTitle: event.ticketTitle,
     projectName: event.projectName,
@@ -286,7 +322,8 @@ function renderText(
   const cost = event.kind === "job.pr_opened" ? costParam(lang, event.costUsd) : "";
   const sentence = t(lang, KEY_FOR_KIND[event.kind], {
     ...textParams(event, lang),
-    ref: refParam(format, event.ticketNumber),
+    // `{ref}` esiste solo per gli eventi ancorati a un ticket.
+    ...(hasTicket(event) ? { ref: refParam(format, event.ticketNumber) } : {}),
     cost,
     link: linkParam(format, lang, event),
   });
@@ -313,7 +350,7 @@ function plainMessage(event: NotificationEvent, lang: Language): string {
   const cost = event.kind === "job.pr_opened" ? costParam(lang, event.costUsd) : "";
   return t(lang, KEY_FOR_KIND[event.kind], {
     ...textParams(event, lang),
-    ref: refParam("generic", event.ticketNumber),
+    ...(hasTicket(event) ? { ref: refParam("generic", event.ticketNumber) } : {}),
     cost,
     link: "",
   }).trim();
@@ -321,6 +358,18 @@ function plainMessage(event: NotificationEvent, lang: Language): string {
 
 /** Payload generico machine-readable: campi piatti, niente markup. */
 function formatGeneric(event: NotificationEvent, lang: Language): Record<string, unknown> {
+  // Unico evento senza ticket: base propria (repositoryName/docsUrl al posto di
+  // ticketNumber/title/ticketUrl). Gli eventi con ticket restano INVARIATI.
+  if (!hasTicket(event)) {
+    return {
+      event: event.kind,
+      projectName: event.projectName,
+      repositoryName: event.repositoryName,
+      message: plainMessage(event, lang),
+      docsUrl: event.docsUrl,
+      reason: event.reason,
+    };
+  }
   const base = {
     event: event.kind,
     ticketNumber: event.ticketNumber,
@@ -451,6 +500,13 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       prUrl: "https://github.com/acme/negozio-web/pull/351",
       ticketUrl: `${base}/tickets/133`,
       verdict: "approve",
+    },
+    {
+      kind: "docs.limit_paused",
+      projectName: "negozio-web",
+      repositoryName: "negozio-web-api",
+      docsUrl: `${base}/docs/8b1f6c2e-1111-4222-8333-444455556666`,
+      reason: "limite di rate/usage del provider AI",
     },
   ];
 }

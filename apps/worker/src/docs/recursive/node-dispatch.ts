@@ -1,6 +1,7 @@
-import { docGenerations, type Db } from "@stubwise/db";
+import { docGenerations, projects, repositories, type Db } from "@stubwise/db";
 import { eq } from "drizzle-orm";
 import type { AgentRunner } from "../../agent/runner.js";
+import { notify, type DispatchFn } from "../../pipeline/notify.js";
 import {
   loadProviderById,
   loadProviderChain,
@@ -101,6 +102,11 @@ export interface DispatchNodeDeps {
   ) => Promise<ResolvedProvider | null>;
   /** Chiave AES-256 per la catena di provider (stessa del fix/orientamento). */
   encryptionKey: Buffer;
+  /** URL pubblico dell'istanza (PUBLIC_URL, senza slash finali) per i link
+   * delle notifiche; assente/vuoto = il link alla pagina Docs è il solo path. */
+  publicUrl?: string;
+  /** Dispatch delle notifiche (iniettabile nei test). Default: dispatchNotification. */
+  dispatch?: DispatchFn;
 }
 
 /**
@@ -279,7 +285,9 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
         console.error(
           `[stubwise-worker] docs: generazione ${node.generationId} in pausa per limite provider`,
         );
-        // TODO(Task 7): notifica best-effort docs.limit_paused — punto di aggancio.
+        // Notifica best-effort: il momento in cui l'operatore può voler agire
+        // (piano, credenziali). projectName/repositoryName/docsUrl da una select.
+        await notifyLimitPaused(deps, node.repositoryId);
       }
     } catch (error) {
       console.error(
@@ -292,6 +300,42 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
   // Il nodo è ora `done`/`failed` (l'handler ha già fatto il join sul padre). Se
   // l'intero DAG è chiuso (tutte le radici `done`), finalizza ESATTAMENTE UNA VOLTA.
   await maybeFinalize(deps, node.generationId);
+}
+
+/**
+ * Notifica best-effort `docs.limit_paused` (l'UNICO evento senza ticket): emessa
+ * DOPO che la pausa è committata, così riflette realtà persistita. Nome del
+ * repository e del progetto da una select (repositories → projects); il link è
+ * la pagina Docs del repository della SPA (`/docs/:repositoryId`). Mai lancia:
+ * una notifica mancata non deve alterare l'esito del ramo limit (il wrapper
+ * `notify` inghiotte già, qui si difende anche la select).
+ */
+async function notifyLimitPaused(deps: DispatchNodeDeps, repositoryId: string): Promise<void> {
+  const { db } = deps;
+  try {
+    const [row] = await db
+      .select({ repositoryName: repositories.name, projectName: projects.name })
+      .from(repositories)
+      .innerJoin(projects, eq(projects.id, repositories.projectId))
+      .where(eq(repositories.id, repositoryId));
+    if (!row) return;
+    const base = (deps.publicUrl ?? "").replace(/\/+$/, "");
+    await notify(
+      { ...(deps.dispatch !== undefined ? { dispatch: deps.dispatch } : {}) },
+      db,
+      {
+        kind: "docs.limit_paused",
+        projectName: row.projectName,
+        repositoryName: row.repositoryName,
+        docsUrl: `${base}/docs/${repositoryId}`,
+        reason: "limite di rate/usage del provider AI",
+      },
+    );
+  } catch (error) {
+    console.error(
+      `[stubwise-worker] notifica docs.limit_paused per il repository ${repositoryId} fallita: ${describe(error)}`,
+    );
+  }
 }
 
 /**

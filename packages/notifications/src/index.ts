@@ -11,6 +11,7 @@ export {
 export {
   formatNotification,
   sampleEvents,
+  type DocsLimitPausedEvent,
   type FormattedNotification,
   type JobFailedEvent,
   type JobHeldEvent,
