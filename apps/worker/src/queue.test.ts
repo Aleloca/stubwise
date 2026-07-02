@@ -208,17 +208,34 @@ describe("transizioni di stato", () => {
     expect(persisted.lastActivityAt.getTime()).toBeGreaterThan(Date.now() - 60_000);
   });
 
-  it("holdJob porta il job da triaging a held, registra finishedAt e accoda il log", async () => {
+  it("holdJob porta il job da triaging a held, registra finishedAt, held_reason e accoda il log", async () => {
     const { db } = testDb;
     const job = await enqueueJob(db);
     await claimNextJob(db);
 
-    expect(await holdJob(db, job.id, { log: "[triage] in attesa" })).toBe(true);
+    expect(await holdJob(db, job.id, { log: "[triage] in attesa", heldReason: "other" })).toBe(
+      true,
+    );
 
     const persisted = await getJob(db, job.id);
     expect(persisted.status).toBe("held");
     expect(persisted.finishedAt).not.toBeNull();
     expect(persisted.log).toContain("[triage] in attesa");
+    expect(persisted.heldReason).toBe("other");
+  });
+
+  it("holdJob scrive held_reason 'limit' (riaccodabile dal resume poller)", async () => {
+    const { db } = testDb;
+    const job = await enqueueJob(db);
+    await claimNextJob(db);
+
+    expect(
+      await holdJob(db, job.id, { log: "[stubwise] provider al limite", heldReason: "limit" }),
+    ).toBe(true);
+
+    const persisted = await getJob(db, job.id);
+    expect(persisted.status).toBe("held");
+    expect(persisted.heldReason).toBe("limit");
   });
 
   it("parkForPlanApproval porta il job da fixing a awaiting_plan_approval, salva planText e accoda il log SENZA finishedAt", async () => {
@@ -261,7 +278,7 @@ describe("transizioni di stato", () => {
     expect(await completeJob(db, job.id, { status: "skipped", log: "tardivo" })).toBe(false);
     expect(await failJob(db, job.id, { log: "tardivo", error: "boom" })).toBe(false);
     expect(await markFixing(db, job.id)).toBe(false);
-    expect(await holdJob(db, job.id, { log: "tardivo" })).toBe(false);
+    expect(await holdJob(db, job.id, { log: "tardivo", heldReason: "other" })).toBe(false);
 
     const persisted = await getJob(db, job.id);
     expect(persisted.status).toBe("queued");

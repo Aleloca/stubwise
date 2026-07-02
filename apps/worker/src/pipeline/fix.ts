@@ -562,6 +562,9 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     });
     const held = await holdJob(db, job.id, {
       log: `[fix] budget di costo superato (${scope}): spesi $${fmtUsd(spentUsd)} sul limite di $${fmtUsd(limitUsd)} → job in pausa (held), avvio manuale per forzare`,
+      // "budget": tetto di spesa superato, decisione umana (il resume poller
+      // dei limiti NON lo riaccoda).
+      heldReason: "budget",
     });
     if (!held) {
       await appendLog(db, job.id, "[fix] ownership persa dopo il hold per budget");

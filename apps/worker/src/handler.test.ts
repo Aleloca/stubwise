@@ -601,6 +601,8 @@ describe("createHandler", () => {
 
     const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
     expect(jobAfter?.status).toBe("held");
+    // held_reason 'limit': il resume poller riaccoderà il job al reset del limite.
+    expect(jobAfter?.heldReason).toBe("limit");
     // Commento di sistema sul ticket che spiega il limite di tutti i provider.
     const ticketComments = await db.select().from(comments).where(eq(comments.ticketId, ticketId));
     expect(ticketComments.some((c) => /limit/i.test(c.body))).toBe(true);
@@ -629,6 +631,7 @@ describe("createHandler", () => {
     expect(runner.calls[0]?.provider?.secret).toBe("sk-solo");
     const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
     expect(jobAfter?.status).toBe("held");
+    expect(jobAfter?.heldReason).toBe("limit");
   });
 
   it("errore NON-limite (output triage invalido): NESSUN failover, comportamento attuale", async () => {
@@ -778,6 +781,7 @@ describe("createHandler", () => {
     expect(runner.calls.every((c) => c.provider?.secret === "sk-progetto")).toBe(true);
     const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
     expect(jobAfter?.status).toBe("held");
+    expect(jobAfter?.heldReason).toBe("limit");
     expect(jobAfter?.log).toContain("provider AI del progetto al limite");
   });
 
@@ -822,6 +826,9 @@ describe("createHandler", () => {
     expect(loadProviderChainFn).not.toHaveBeenCalled();
     const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
     expect(jobAfter?.status).toBe("held");
+    // NON 'limit': un provider disabilitato/cancellato non si sblocca col reset
+    // del limite, serve un intervento umano.
+    expect(jobAfter?.heldReason).toBe("other");
     expect(jobAfter?.log).toContain("provider AI del progetto non disponibile");
   });
 

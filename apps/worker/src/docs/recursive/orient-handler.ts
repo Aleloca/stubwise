@@ -19,8 +19,9 @@ import { z } from "zod";
 import type { AgentRunner } from "../../agent/runner.js";
 import { MirrorManager, type MirrorProject } from "../../git/mirrors.js";
 import type { ResolvedProvider } from "../../providers/chain.js";
+import { isLimitError } from "../../providers/limit.js";
 import { openGenerationWorktree, type GenerationWorktree } from "../generation-worktree.js";
-import { completeDocJob, failDocJob, touchDocJob, type DocJob } from "../queue.js";
+import { completeDocJob, failDocJob, holdDocJob, touchDocJob, type DocJob } from "../queue.js";
 import { createWorktreeReader } from "../reader.js";
 import type { GenerationWorktreeRegistry } from "./registry.js";
 
@@ -88,7 +89,7 @@ export interface RunOrientationDeps {
   registry?: GenerationWorktreeRegistry;
 }
 
-export type OrientationOutcome = "seeded" | "failed" | "skipped";
+export type OrientationOutcome = "seeded" | "failed" | "skipped" | "held";
 
 /**
  * GUARDIA DB nuova-generazione (sopravvive al riavvio del worker): true se il repository
@@ -278,15 +279,18 @@ const FUNCTIONAL_ROOT_TITLE = "Capability Map";
 /**
  * Esegue l'agente di orientamento e ne parsa il piano, con UN retry su output
  * invalido (mancano i marcatori) prima del fallback. Ritorna il piano valido + il
- * costo aggregato dei run, oppure `null` (entrambi i tentativi invalidi). Ogni run è
- * read-only (`permissionMode:"plan"`) e batte l'heartbeat al termine.
+ * costo aggregato dei run, `{limit: true}` se il run ha toccato il LIMITE di
+ * rate/usage del provider (rilevato PRIMA del parse e senza consumare il retry:
+ * ogni tentativo in più sarebbe un run bruciato contro lo stesso limite), oppure
+ * `null` (entrambi i tentativi invalidi). Ogni run è read-only
+ * (`permissionMode:"plan"`) e batte l'heartbeat al termine.
  */
 async function runOrientAgent(
   deps: RunOrientationDeps,
   job: DocJob,
   dir: string,
   prompt: string,
-): Promise<{ plan: OrientPlan; costUsd: number } | null> {
+): Promise<{ plan: OrientPlan; costUsd: number } | { limit: true; costUsd: number } | null> {
   const providerOpt = deps.provider !== undefined ? { provider: deps.provider } : {};
   let costUsd = 0;
   // Un tentativo iniziale + un retry: due chance di un output ben formato.
@@ -302,6 +306,9 @@ async function runOrientAgent(
     });
     costUsd += result.usage?.totalCostUsd ?? 0;
     await touchDocJob(deps.db, job.id);
+    // Limite del provider: esce SUBITO (niente retry — tornerebbe un altro
+    // output degradato) e lascia la classificazione al chiamante.
+    if (isLimitError(result)) return { limit: true, costUsd };
     const plan = parseOrientPlan(result.output);
     if (plan) return { plan, costUsd };
     // Output invalido: si ritenta una volta (best-effort, poi fallback).
@@ -405,7 +412,10 @@ async function failOrientation(
  *    `doc_generations`, non sul trigger);
  *  - "failed": generazione + trigger `failed` (orientamento invalido, piano vuoto, errore);
  *  - "skipped": il repository ha già una generazione `running` (guard DB) → trigger
- *    `succeeded`-skip, nessuna seconda generazione avviata.
+ *    `succeeded`-skip, nessuna seconda generazione avviata;
+ *  - "held": run al LIMITE di rate/usage del provider → generazione `failed` (con
+ *    messaggio esplicito) e trigger `held` con held_reason "limit": il resume poller
+ *    lo riaccoderà al reset del limite e il nuovo run creerà una generazione fresca.
  * Il worktree di generazione viene CHIUSO qui SOLO su fallimento; su successo resta
  * APERTO per i job-nodo del DAG e sarà chiuso dalla finalizzazione.
  */
@@ -454,6 +464,33 @@ export async function runOrientation(
     const prompt = buildOrientPrompt(survey);
 
     const orient = await runOrientAgent(deps, job, worktree.dir, prompt);
+    // LIMITE del provider durante l'orientamento: il DAG non esiste ancora,
+    // quindi la "pausa" della generazione non è definita qui (nessun nodo da
+    // riprendere). Il trigger va HELD con held_reason "limit" (il resume poller
+    // lo riaccoderà al reset del limite) e la generazione FALLISCE con un
+    // messaggio esplicito: alla ripresa il job riaccodato ne crea una FRESCA
+    // (si perde solo questo run di orientamento). NB: NON si usa
+    // failOrientation, che chiuderebbe anche il trigger `failed` — qui le due
+    // transizioni sono deliberatamente diverse (generazione failed, job held).
+    if (orient && "limit" in orient) {
+      await worktree.close();
+      await db
+        .update(docGenerations)
+        .set({
+          status: "failed",
+          error:
+            "provider AI al limite di rate/usage durante l'orientamento: la generazione verrà ritentata automaticamente al reset del limite",
+          cost: orient.costUsd.toFixed(6),
+          finishedAt: sql`now()`,
+        })
+        .where(eq(docGenerations.id, ctx.generationId));
+      await holdDocJob(db, job.id, {
+        reason:
+          "provider AI al limite di rate/usage durante l'orientamento: generazione sospesa, verrà ritentata al reset del limite",
+        heldReason: "limit",
+      });
+      return "held";
+    }
     if (!orient) {
       await worktree.close();
       await failOrientation(
