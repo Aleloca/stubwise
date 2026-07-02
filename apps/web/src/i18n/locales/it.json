@@ -1038,7 +1038,8 @@
       "error": "Impossibile avviare la generazione.",
       "paused": "Generazione in pausa: limite di utilizzo del provider raggiunto. Riprende da sola al reset.",
       "resume": "Riprendi ora",
-      "resuming": "Ripresa…"
+      "resuming": "Ripresa…",
+      "resumeError": "Impossibile riprendere la generazione."
     },
     "search": {
       "kindTechnical": "tecnico",

@@ -25,8 +25,9 @@ const ACTIVE_JOB_STATUSES: DocJobStatus[] = ["queued", "running"];
 
 /**
  * Intervallo di polling della status query in base allo stato corrente.
- * Adattivo: 4s finché un job è attivo (queued/running), MA con la generazione
- * in pausa (limite del provider) la pausa può durare ORE → si rallenta a 60s.
+ * Adattivo: 4s finché un job è attivo (queued/running); con la generazione
+ * in pausa (limite del provider) la pausa può durare ORE → si rallenta a 60s,
+ * anche a job già terminato (vedi sotto).
  * Niente spegnimento totale in pausa: `refetchOnWindowFocus` è disattivato
  * globalmente, quindi senza polling il badge resterebbe stantio per sempre
  * dopo che il resume poller riprende la generazione. Con i 60s il badge si
@@ -34,8 +35,12 @@ const ACTIVE_JOB_STATUSES: DocJobStatus[] = ["queued", "running"];
  * "running", si rientra da soli nel polling a 4s. Job terminato → stop.
  */
 export function statusRefetchInterval(data: DocStatus | undefined): number | false {
+  // Pausa: può coesistere con un trigger job già `succeeded` (il trigger si
+  // chiude al seeding del DAG): il check viene PRIMA del gate sul job. 60s
+  // bastano perché il badge si auto-corregga dopo la ripresa del poller.
+  if (data?.generation?.status === "paused") return 60_000;
   if (!data?.latestJob || !ACTIVE_JOB_STATUSES.includes(data.latestJob.status)) return false;
-  return data.generation?.status === "paused" ? 60_000 : 4000;
+  return 4000;
 }
 
 const JOB_STATUS_KEY: Record<DocJobStatus, string> = {
@@ -146,7 +151,7 @@ export function DocsGenerationPanel({ projectId }: { projectId: string }) {
             // l'invalidazione fa uscire dallo stato paused e l'alert sparisce
             // con tutto il blocco.
             <p className="mt-2 font-mono text-[11px] text-danger" role="alert">
-              {t("docs:generation.error")}
+              {t("docs:generation.resumeError")}
             </p>
           )}
         </>

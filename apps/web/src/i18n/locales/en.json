@@ -1038,7 +1038,8 @@
       "error": "Could not start generation.",
       "paused": "Generation paused: provider usage limit reached. It will resume automatically.",
       "resume": "Resume now",
-      "resuming": "Resuming…"
+      "resuming": "Resuming…",
+      "resumeError": "Could not resume the generation."
     },
     "search": {
       "kindTechnical": "technical",

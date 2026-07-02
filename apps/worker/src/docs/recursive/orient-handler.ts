@@ -100,6 +100,8 @@ export type OrientationOutcome = "seeded" | "failed" | "skipped" | "held";
  * del DB persiste tra i riavvii: se un riavvio ha perso il worktree ma `doc_generations`
  * ha ancora una riga `running`, un nuovo trigger NON parte (la vecchia generazione sarà
  * fatta fallire dal fail-on-restart del dispatch quando i suoi nodi vengono reclamati).
+ * Le `paused` NON servono qui: in-processo il registro copre già il repository/progetto
+ * per tutta la pausa; dopo un riavvio la paused è comunque destinata al fail-on-restart.
  */
 async function hasRunningGeneration(db: Db, repositoryId: string): Promise<boolean> {
   const [row] = await db

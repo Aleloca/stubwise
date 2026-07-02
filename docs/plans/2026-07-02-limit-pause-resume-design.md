@@ -142,3 +142,8 @@ best-effort, mai crash). Ogni tick (default 5', allineato al poll dell'usage):
 5. **`recordNodeCost` ora accumula** (`coalesce(cost,0) + costUsd`) invece di
    sovrascrivere: bug pre-esistente scoperto durante la review — con più run
    per nodo (retry, ripresa dopo pausa) il costo veniva perso.
+6. **Durante una pausa il worktree resta registrato** nel registry in-memoria:
+   i fix dello stesso progetto restano esclusi dal claim per tutta la durata
+   della pausa (anche ore). È coerente con la mutua esclusione fix↔generazione
+   già prevista, ma la finestra di esclusione si allunga rispetto a una
+   generazione che corre senza pause.

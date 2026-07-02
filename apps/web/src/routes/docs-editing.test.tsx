@@ -385,7 +385,11 @@ describe("trigger generazione + stato (M7.4)", () => {
 
   // --- Pausa sul limite del provider (badge + "Riprendi ora") ---
 
-  /** Stato con generazione in pausa per limite (job ancora "running"). */
+  /**
+   * Stato con generazione in pausa per limite. Il trigger job è `succeeded`:
+   * è la combinazione reale, perché il job si chiude al seeding del DAG e la
+   * pausa arriva dopo, durante l'esecuzione dei nodi.
+   */
   function pausedStatus() {
     return {
       generation: {
@@ -401,12 +405,12 @@ describe("trigger generazione + stato (M7.4)", () => {
       },
       latestJob: {
         id: "j-run",
-        status: "running",
+        status: "succeeded",
         trigger: "manual",
         error: null,
         createdAt: "2026-07-02T10:00:00.000Z",
         startedAt: "2026-07-02T10:00:00.000Z",
-        finishedAt: null,
+        finishedAt: "2026-07-02T10:01:00.000Z",
       },
       pinnedProvider: null,
     };
@@ -473,20 +477,24 @@ describe("trigger generazione + stato (M7.4)", () => {
   it("polling: in pausa rallenta a 60s ma NON si spegne (refetchOnWindowFocus è off globale)", () => {
     // Il badge deve auto-correggersi dopo che il resume poller riprende la
     // generazione: con l'intervallo spento resterebbe stantio per sempre.
+    // Combinazione reale: paused convive col trigger job già `succeeded`
+    // (il job si chiude al seeding del DAG) → il polling a 60s deve scattare
+    // comunque, senza gate sul job attivo.
     const paused = pausedStatus() as DocStatus;
     expect(statusRefetchInterval(paused)).toBe(60_000);
-    // Job attivo non in pausa → polling fitto a 4s.
+    // Job attivo con generazione non in pausa → polling fitto a 4s.
     expect(
       statusRefetchInterval({
         ...paused,
         generation: { ...paused.generation!, status: "running" },
+        latestJob: { ...paused.latestJob!, status: "running", finishedAt: null },
       }),
     ).toBe(4000);
-    // Job terminato → polling spento, anche se la generazione risulta paused.
+    // Generazione non paused + job terminato → polling spento.
     expect(
       statusRefetchInterval({
         ...paused,
-        latestJob: { ...paused.latestJob!, status: "failed" },
+        generation: { ...paused.generation!, status: "running" },
       }),
     ).toBe(false);
     expect(statusRefetchInterval(undefined)).toBe(false);
@@ -503,7 +511,9 @@ describe("trigger generazione + stato (M7.4)", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: "Resume now" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Could not start generation.");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not resume the generation.",
+    );
     // Lo stato resta paused: badge fermo ma con feedback, bottone ritentabile.
     expect(
       screen.getByText(/Generation paused: provider usage limit reached/),
