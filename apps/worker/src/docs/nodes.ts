@@ -92,17 +92,21 @@ export async function touchNode(db: DbOrTx, nodeId: string): Promise<void> {
 }
 
 /**
- * Persiste il costo (USD) del nodo: la somma dei run dell'agente
- * (explore/synthesize) di QUESTO nodo. Scritto al termine del dispatch del nodo,
- * così la finalizzazione (M6) lo somma in `doc_generations.cost` (Σ node.cost +
- * costo dell'orientamento). NON è status-guarded: il costo è una metrica
- * additiva e va registrata anche se nel frattempo la ownership del nodo è
- * cambiata (il lavoro è comunque costato). Numeric a 6 decimali come la colonna.
+ * ACCUMULA il costo (USD) del nodo: ogni chiamata SOMMA al valore esistente,
+ * così `doc_nodes.cost` è davvero la somma dei run dell'agente di QUESTO nodo.
+ * L'accumulo (e non la sovrascrittura) copre due casi reali: un nodo branch è
+ * dispatchato due volte (prima explore, poi synthesize) e il re-run dopo una
+ * pausa al limite non deve cancellare il costo del run parziale. Scritto al
+ * termine del dispatch del nodo, così la finalizzazione (M6) lo somma in
+ * `doc_generations.cost` (Σ node.cost + costo dell'orientamento). NON è
+ * status-guarded: il costo è una metrica additiva e va registrata anche se nel
+ * frattempo la ownership del nodo è cambiata (il lavoro è comunque costato).
+ * Numeric a 6 decimali come la colonna.
  */
 export async function recordNodeCost(db: DbOrTx, nodeId: string, costUsd: number): Promise<void> {
   await db
     .update(docNodes)
-    .set({ cost: costUsd.toFixed(6) })
+    .set({ cost: sql`coalesce(${docNodes.cost}, 0) + ${costUsd.toFixed(6)}` })
     .where(eq(docNodes.id, nodeId));
 }
 

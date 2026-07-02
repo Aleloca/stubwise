@@ -8,6 +8,7 @@ import {
   createChildren,
   failNode,
   pauseGeneration,
+  recordNodeCost,
   requeueNode,
   requeueStaleNodes,
   resumeGeneration,
@@ -198,6 +199,18 @@ describe("writeExploreResult", () => {
 
     expect(ok).toBe(false);
     expect((await getNode(db, node.id)).body).toBe("");
+  });
+});
+
+describe("recordNodeCost", () => {
+  it("accumula il costo su più chiamate (explore + synthesize, re-run post-pausa)", async () => {
+    const { db } = testDb;
+    const node = await insertNode(db, { status: "exploring" });
+
+    await recordNodeCost(db, node.id, 0.01);
+    await recordNodeCost(db, node.id, 0.02);
+
+    expect(Number((await getNode(db, node.id)).cost)).toBeCloseTo(0.03, 6);
   });
 });
 
