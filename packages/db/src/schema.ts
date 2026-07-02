@@ -6,6 +6,7 @@ import {
   docPageKindSchema,
   docTreeSchema,
   gitProviderKindSchema,
+  heldReasonSchema,
   languageSchema,
   prStateSchema,
   searchEntityTypeSchema,
@@ -130,6 +131,11 @@ export const aiJobStatus = pgEnum("ai_job_status", [
 ]);
 // Le fasi AI di cui tracciamo i consumi (token + costo): triage, fix e review.
 export const agentRunPhase = pgEnum("agent_run_phase", ["triage", "fix", "review"]);
+
+// Motivo per cui un job è parcheggiato in "held": i valori derivano da
+// `heldReasonSchema` (shared = unica fonte di verità). Solo "limit" (limite di
+// utilizzo del provider) è auto-ripristinabile dal resume poller.
+export const heldReason = pgEnum("held_reason", enumValues(heldReasonSchema));
 
 // Modalità di ripresa di un job rimesso in coda da un intervento umano:
 //  null     → job normale: triage → (gate) → fix;
@@ -583,6 +589,10 @@ export const aiJobs = pgTable(
     log: text("log").notNull().default(""),
     prUrl: text("pr_url"),
     error: text("error"),
+    // Motivo dell'ultimo `held`: SOLO `limit` viene riaccodato automaticamente
+    // dal resume poller; budget/gate restano decisioni umane. Null per gli
+    // held storici (mai riaccodati: conservativo).
+    heldReason: heldReason("held_reason"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp("started_at", { withTimezone: true }),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
@@ -1010,6 +1020,13 @@ export const docGenerations = pgTable(
     // Breakdown libero (per-modulo, token, durate) in jsonb.
     stats: jsonb("stats"),
     error: text("error"),
+    // Pausa per limite di utilizzo del provider: la generazione resta viva (i
+    // nodi tornano pending, il claim li salta) e il resume poller la rimette
+    // running quando l'utilizzo si libera. Il worktree è in-memoria: un
+    // riavvio del worker durante la pausa la fallisce (fail-on-restart,
+    // rischio accettato dal design).
+    pausedAt: timestamp("paused_at", { withTimezone: true }),
+    pauseReason: text("pause_reason"),
     startedAt: timestamp("started_at", { withTimezone: true }),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -1253,6 +1270,10 @@ export const docGenerationJobs = pgTable(
     trigger: docGenerationTrigger("trigger").notNull().default("manual"),
     log: text("log").notNull().default(""),
     error: text("error"),
+    // Motivo dell'ultimo `held`: SOLO `limit` viene riaccodato automaticamente
+    // dal resume poller; budget/gate restano decisioni umane. Null per gli
+    // held storici (mai riaccodati: conservativo).
+    heldReason: heldReason("held_reason"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp("started_at", { withTimezone: true }),
     finishedAt: timestamp("finished_at", { withTimezone: true }),

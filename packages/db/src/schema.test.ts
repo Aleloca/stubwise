@@ -9,6 +9,8 @@ import {
   attachments,
   automationRules,
   comments,
+  docGenerationJobs,
+  docGenerations,
   errorGroups,
   instanceSettings,
   invites,
@@ -1794,5 +1796,69 @@ describe("schema: automazione PR Review (seed automation_rules)", () => {
     const [row] = await db.select().from(automationRules).where(eq(automationRules.type, "review"));
     expect(row).toBeDefined();
     expect(row!.autoFix).toBe(false);
+  });
+});
+
+/**
+ * Verifica la migrazione "pausa sul limite di utilizzo": il nuovo valore
+ * `paused` di doc_generation_status (con paused_at/pause_reason) e la colonna
+ * held_reason su ai_jobs e doc_generation_jobs. La migrazione aggiunge il
+ * valore enum ma NON lo usa (nessun seed/UPDATE): questi test coprono il primo
+ * uso runtime dopo il commit del migratore.
+ */
+describe("schema: pausa sul limite (paused + held_reason)", () => {
+  let testDb: TestDb;
+  let db: Db;
+
+  beforeAll(async () => {
+    testDb = await startTestDb();
+    db = testDb.db;
+  });
+
+  afterAll(async () => {
+    await testDb.stop();
+  });
+
+  it("doc_generations accetta status paused con pausedAt/pauseReason", async () => {
+    const { repositoryId } = await seedRepository(db);
+    const pausedAt = new Date();
+    const [inserted] = await db
+      .insert(docGenerations)
+      .values({ repositoryId, status: "paused", pausedAt, pauseReason: "limite di utilizzo" })
+      .returning();
+    if (!inserted) throw new Error("insert della generazione non ha restituito la riga");
+
+    const [read] = await db
+      .select()
+      .from(docGenerations)
+      .where(eq(docGenerations.id, inserted.id));
+    expect(read?.status).toBe("paused");
+    expect(read?.pausedAt?.getTime()).toBe(pausedAt.getTime());
+    expect(read?.pauseReason).toBe("limite di utilizzo");
+  });
+
+  it("ai_jobs e doc_generation_jobs accettano held_reason (null di default)", async () => {
+    const { ticketId, repositoryId } = await seedTicketRow(db);
+    const [aiJob] = await db
+      .insert(aiJobs)
+      .values({ ticketId, status: "held", heldReason: "limit" })
+      .returning();
+    const [docJob] = await db
+      .insert(docGenerationJobs)
+      .values({ repositoryId, status: "held", heldReason: "limit" })
+      .returning();
+    if (!aiJob || !docJob) throw new Error("insert dei job non ha restituito la riga");
+
+    const [aiRead] = await db.select().from(aiJobs).where(eq(aiJobs.id, aiJob.id));
+    const [docRead] = await db
+      .select()
+      .from(docGenerationJobs)
+      .where(eq(docGenerationJobs.id, docJob.id));
+    expect(aiRead?.heldReason).toBe("limit");
+    expect(docRead?.heldReason).toBe("limit");
+
+    // Gli held storici (pre-migrazione) restano null: mai riaccodati.
+    const [legacy] = await db.insert(aiJobs).values({ ticketId, status: "held" }).returning();
+    expect(legacy?.heldReason).toBeNull();
   });
 });
