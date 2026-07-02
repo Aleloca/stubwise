@@ -3,7 +3,8 @@ import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DocPage, DocTreeNode } from "../lib/docs-api";
+import { statusRefetchInterval } from "../components/docs-generation-panel";
+import type { DocPage, DocStatus, DocTreeNode } from "../lib/docs-api";
 import { createAppRouter } from "../router";
 import { setMatchMedia } from "../test/setup";
 
@@ -467,6 +468,47 @@ describe("trigger generazione + stato (M7.4)", () => {
       await screen.findByText(/Generation paused: provider usage limit reached/),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Resume now" })).not.toBeInTheDocument();
+  });
+
+  it("polling: in pausa rallenta a 60s ma NON si spegne (refetchOnWindowFocus è off globale)", () => {
+    // Il badge deve auto-correggersi dopo che il resume poller riprende la
+    // generazione: con l'intervallo spento resterebbe stantio per sempre.
+    const paused = pausedStatus() as DocStatus;
+    expect(statusRefetchInterval(paused)).toBe(60_000);
+    // Job attivo non in pausa → polling fitto a 4s.
+    expect(
+      statusRefetchInterval({
+        ...paused,
+        generation: { ...paused.generation!, status: "running" },
+      }),
+    ).toBe(4000);
+    // Job terminato → polling spento, anche se la generazione risulta paused.
+    expect(
+      statusRefetchInterval({
+        ...paused,
+        latestJob: { ...paused.latestJob!, status: "failed" },
+      }),
+    ).toBe(false);
+    expect(statusRefetchInterval(undefined)).toBe(false);
+  });
+
+  it("resume fallito (500): alert d'errore visibile e bottone di nuovo cliccabile", async () => {
+    mockApi({
+      ...baseHandlers("admin"),
+      [`GET /api/repositories/${PROJECT_ID}/docs/status`]: () => jsonResponse(200, pausedStatus()),
+      [`POST /api/repositories/${PROJECT_ID}/docs/resume`]: () =>
+        jsonResponse(500, { message: "boom" }),
+    });
+    renderApp(`/docs/${PROJECT_ID}`);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Resume now" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not start generation.");
+    // Lo stato resta paused: badge fermo ma con feedback, bottone ritentabile.
+    expect(
+      screen.getByText(/Generation paused: provider usage limit reached/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Resume now" })).toBeEnabled();
   });
 
   it("mostra il provider bloccato della generazione corrente", async () => {
