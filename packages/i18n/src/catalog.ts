@@ -36,6 +36,12 @@ export const en: Catalog = {
     "Cost budget exceeded ({scope}): spent ${spent} of ${limit}. The fix is on hold; start it manually to override.",
   "comment.providersLimitHeld":
     "All AI providers reached their rate/usage limit. The job will need to be retried after the limit resets.",
+  // Verdetti della PR Review automatica postati come commento AI (niente
+  // emoji ✅/⚠️ nel testo: convenzione dei verdetti "senza emoji" condivisa
+  // con notify.verdict.*).
+  "comment.reviewVerdict.approve": "🔎 **PR Review** — approval suggested ({url})",
+  "comment.reviewVerdict.requestChanges": "🔎 **PR Review** — changes requested ({url})",
+  "comment.reviewTicketBody": "Automatic review of pull request {url} (branch `{branch}`).",
 
   // --- effort.* — etichette della scala di sforzo 1–5 (allineate alle label
   // della web UI, namespace `badges.effort`). Usate nei commenti AI del triage.
@@ -115,6 +121,10 @@ export const it: Catalog = {
     "Budget di costo superato ({scope}): spesi ${spent} sul limite di ${limit}. Il fix è in pausa; avvialo manualmente per forzare.",
   "comment.providersLimitHeld":
     "Tutti i provider AI hanno raggiunto il limite di rate/usage. Il job dovrà essere ritentato dopo il reset del limite.",
+  // Verdetti della PR Review automatica (vedi nota in `en`).
+  "comment.reviewVerdict.approve": "🔎 **PR Review** — approvazione suggerita ({url})",
+  "comment.reviewVerdict.requestChanges": "🔎 **PR Review** — modifiche richieste ({url})",
+  "comment.reviewTicketBody": "Review automatica della pull request {url} (branch `{branch}`).",
 
   // --- effort.* (etichette italiane della scala di sforzo, = EFFORT_LABELS) ---
   "effort.1": "Banale",
