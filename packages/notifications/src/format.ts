@@ -267,11 +267,12 @@ function textParams(
   lang: Language,
 ): Record<string, string | number> {
   // Unico evento senza ticket: parametri propri, niente base ticketTitle.
+  // Niente `reason`: i template docsLimitPaused non lo interpolano (resta nel
+  // payload generic via formatGeneric).
   if (!hasTicket(event)) {
     return {
       repositoryName: event.repositoryName,
       projectName: event.projectName,
-      reason: event.reason,
     };
   }
   const base: Record<string, string | number> = {

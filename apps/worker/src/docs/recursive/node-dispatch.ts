@@ -60,6 +60,13 @@ import type { GenerationWorktreeRegistry } from "./registry.js";
  */
 
 /**
+ * Reason della pausa per limite provider: UNA const per `pause_reason` nel DB
+ * (pauseGeneration) e per il payload della notifica `docs.limit_paused`, così
+ * i due non possono divergere.
+ */
+const LIMIT_PAUSE_REASON = "limite di rate/usage del provider AI";
+
+/**
  * Il provider BLOCCATO della generazione non è più risolvibile al run di un nodo
  * (disabilitato/cancellato/segreto non decifrabile dopo il seed). Lanciata da
  * `resolveProvider` per far FALLIRE la generazione invece di ripiegare su chain[0]:
@@ -276,11 +283,7 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
     // resta in lavorazione e torna allo stale-requeue.
     try {
       await requeueNode(db, node.id);
-      const paused = await pauseGeneration(
-        db,
-        node.generationId,
-        "limite di rate/usage del provider AI",
-      );
+      const paused = await pauseGeneration(db, node.generationId, LIMIT_PAUSE_REASON);
       if (paused) {
         console.error(
           `[stubwise-worker] docs: generazione ${node.generationId} in pausa per limite provider`,
@@ -328,7 +331,7 @@ async function notifyLimitPaused(deps: DispatchNodeDeps, repositoryId: string): 
         projectName: row.projectName,
         repositoryName: row.repositoryName,
         docsUrl: `${base}/docs/${repositoryId}`,
-        reason: "limite di rate/usage del provider AI",
+        reason: LIMIT_PAUSE_REASON,
       },
     );
   } catch (error) {
