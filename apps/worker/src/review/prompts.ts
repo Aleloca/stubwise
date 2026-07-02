@@ -23,7 +23,9 @@ export type ReviewOutput = z.infer<typeof reviewOutputSchema>;
 
 /**
  * Estrae e valida il JSON finale dell'agente: prova il testo intero, poi il
- * primo fence ```json, poi la prima {...} bilanciata. Ritorna `null` se
+ * primo fence ```json, poi la sottostringa dal primo `{` all'ultimo `}`
+ * (niente bilanciamento: se c'è una `{` spuria prima del JSON vero il
+ * candidato è invalido e si fallisce chiusi). Ritorna `null` se
  * nessun candidato è un JSON valido secondo lo schema (output inusabile:
  * la review fallisce con errore esplicito, MAI un verdetto inventato).
  * Non lancia mai: ogni candidato rotto passa al tentativo successivo.
@@ -55,9 +57,11 @@ const PR_TITLE_MAX_CHARS = 300;
 const PR_BODY_MAX_CHARS = 6000;
 
 /**
- * Neutralizza il delimitatore `pr_description` dentro il body non fidato:
- * un body che contiene il letterale `</pr_description>` chiuderebbe il blocco
- * e farebbe leggere al modello il resto come testo "fidato". Stessa tecnica di
+ * Neutralizza il delimitatore `pr_description` dentro il testo non fidato
+ * (body E titolo): un body che contiene il letterale `</pr_description>`
+ * chiuderebbe il blocco e farebbe leggere al modello il resto come testo
+ * "fidato"; un titolo che lo contiene inline fabbricherebbe un blocco
+ * delimitato fasullo prima di quello vero. Stessa tecnica di
  * `defangDelimiters` del triage (che copre solo i tag del triage, quindi qui
  * si replica il minimo per questo tag): il `<` di apertura diventa `[`, così
  * il tag iniettato non è più un tag. Va applicata DOPO il troncamento.
@@ -85,17 +89,21 @@ export interface ReviewPromptInput {
  * `{verdict, summary}` (vedi `parseReviewOutput`).
  *
  * Titolo e body sono scritti dall'autore della PR (non fidato): il titolo è
- * costretto su una riga e cappato (un newline fabbricherebbe righe che
- * sembrano struttura del prompt), il body è troncato e delimitato da
- * <pr_description> con defang del tag di chiusura — stessa disciplina di
- * `buildTriagePrompt` per il contenuto del ticket.
+ * costretto su una riga, cappato e defangato (un newline fabbricherebbe righe
+ * che sembrano struttura del prompt; un tag `pr_description` inline
+ * fabbricherebbe un blocco delimitato fasullo prima di quello vero), il body è
+ * troncato e delimitato da <pr_description> con defang del tag di chiusura —
+ * stessa disciplina di `buildTriagePrompt` per il contenuto del ticket.
+ * Il diff invece NON richiede defang del fence: in un git diff ogni riga di
+ * contenuto porta un prefisso (+/-/spazio/@@), quindi un ``` non può mai
+ * trovarsi a inizio riga e chiudere il fence ```diff.
  */
 export function buildReviewPrompt(input: ReviewPromptInput): string {
   return [
     `You are a senior code reviewer. Review the following pull request critically.`,
     ``,
     `## Pull request`,
-    `Title: ${toSingleLine(input.prTitle, PR_TITLE_MAX_CHARS)}`,
+    `Title: ${defangPrDescription(toSingleLine(input.prTitle, PR_TITLE_MAX_CHARS))}`,
     `Source branch: ${input.sourceBranch} → target: ${input.targetBranch}`,
     input.prBody
       ? `Description:\n<pr_description>\n${defangPrDescription(truncate(input.prBody, PR_BODY_MAX_CHARS))}\n</pr_description>`
