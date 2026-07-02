@@ -40,7 +40,8 @@ import { completeDocJob, failDocJob, type DocJob } from "./queue.js";
  * il trigger è `succeeded`-skip (nessun errore: una generazione è già in corso).
  *
  * runOrientation chiude da sé il trigger in OGNI esito (`succeeded` per seeded/skipped,
- * `failed` per orientamento invalido/piano vuoto/errore). L'handler intercetta solo un
+ * `failed` per orientamento invalido/piano vuoto/errore, `held` per provider al limite:
+ * il trigger resta riaccodabile dal resume poller). L'handler intercetta solo un
  * throw inatteso (fuori dai percorsi gestiti) per marcare il job `failed`.
  */
 export interface DocHandlerDeps {
@@ -144,7 +145,8 @@ export function createDocHandler(
       }
 
       // runOrientation chiude da sé il trigger in OGNI esito: `succeeded` (seeded o
-      // skipped per guard DB) o `failed`. Niente da fare qui dopo il ritorno.
+      // skipped per guard DB), `failed`, o `held` (provider al limite: il trigger resta
+      // riaccodabile dal resume poller). Niente da fare qui dopo il ritorno.
       await runOrientation(
         {
           db: deps.db,
