@@ -376,6 +376,13 @@ export async function widgetRoutes(
       if (!settings) {
         return apiError(reply, 404, "widget_disabled", "Widget not available");
       }
+      // Nessun repo esposto = chat non servibile (il config dichiara chatEnabled=false):
+      // qui lo IMPONIAMO, così un client che ignora il config non brucia budget LLM su
+      // risposte prive di documentazione. 404 widget_disabled coerente, PRIMA del cap e
+      // di ogni insert.
+      if (settings.enabledRepositoryIds.length === 0) {
+        return apiError(reply, 404, "widget_disabled", "Widget not available");
+      }
       const { conversationId } = request.params;
       const { content, userId } = request.body;
 
@@ -414,6 +421,9 @@ export async function widgetRoutes(
             gte(widgetMessages.createdAt, dayStart),
           ),
         );
+      // Race benigna e deliberata: due richieste concorrenti possono leggere lo
+      // stesso count e superare insieme il cap; l'overshoot è limitato dalla
+      // concorrenza e non giustifica un lock sul conteggio del giorno.
       if ((capRow?.value ?? 0) >= opts.dailyMessageCap) {
         return apiError(reply, 429, "widget_chat_cap_reached", "Daily message limit reached");
       }
@@ -470,6 +480,10 @@ export async function widgetRoutes(
         .reverse()
         .filter((m) => m.role === "user" || m.role === "assistant")
         .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+      // Se la finestra (limit fisso) taglia a metà di una coppia, il primo elemento
+      // può essere un `assistant`: l'API Messages di Anthropic esige che il primo
+      // messaggio sia `user` (400 altrimenti). Si scartano i non-user in testa.
+      while (history.length > 0 && history[0]!.role !== "user") history.shift();
 
       await streamWidgetChatResponse({
         db: app.db,

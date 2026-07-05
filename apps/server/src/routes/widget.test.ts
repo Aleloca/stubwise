@@ -669,6 +669,67 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
     );
   });
 
+  it("history oltre la finestra: il primo messaggio passato all'LLM è sempre `user` (no 400 Anthropic)", async () => {
+    // Regressione: la finestra è limit(WIDGET_HISTORY_PAIRS*2) in DESC + reverse.
+    // Con uno storico dispari (post-insert del nuovo user) il primo elemento della
+    // finestra sarebbe un `assistant` → l'API Messages richiede il primo `user`.
+    const { project, conversationId } = await setupChat(testDb.db);
+    // 11 coppie già persistite (22 messaggi): oltre la finestra di 10 coppie.
+    const seed: { conversationId: string; role: string; content: string; createdAt: Date }[] = [];
+    for (let i = 0; i < 11; i++) {
+      const base = new Date(`2026-07-01T10:00:00Z`).getTime() + i * 2000;
+      seed.push({ conversationId, role: "user", content: `domanda ${i}`, createdAt: new Date(base) });
+      seed.push({
+        conversationId,
+        role: "assistant",
+        content: `risposta ${i}`,
+        createdAt: new Date(base + 1000),
+      });
+    }
+    await testDb.db.insert(widgetMessages).values(seed);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${conversationId}/messages`,
+      headers: { "x-stubwise-key": project.ingestionKey },
+      payload: { content: "nuova domanda", userId: "visitor-1" },
+    });
+    expect(res.statusCode).toBe(200);
+    // Il nuovo user + i 22 seed = storico dispari a monte: senza il fix il primo
+    // elemento della finestra sarebbe un `assistant`.
+    expect(lastChatInput!.messages[0]!.role).toBe("user");
+    // L'ultimo resta il messaggio corrente.
+    expect(lastChatInput!.messages.at(-1)).toEqual({ role: "user", content: "nuova domanda" });
+  });
+
+  it("widget abilitato ma senza repo esposti → 404 widget_disabled, nessun messaggio persistito", async () => {
+    // Il config dichiara chatEnabled=false con enabledRepositoryIds vuoto; il POST
+    // deve IMPORLO (un client che ignora il config non deve bruciare budget LLM).
+    const project = await seedProjectWithKey(testDb.db);
+    await testDb.db.insert(widgetSettings).values({
+      projectId: project.projectId,
+      enabled: true,
+      enabledRepositoryIds: [],
+    });
+    const [conv] = await testDb.db
+      .insert(widgetConversations)
+      .values({ projectId: project.projectId, externalUserId: "visitor-1" })
+      .returning();
+    const res = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${conv!.id}/messages`,
+      headers: { "x-stubwise-key": project.ingestionKey },
+      payload: { content: "ciao", userId: "visitor-1" },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ code: "widget_disabled" });
+    const rows = await testDb.db
+      .select()
+      .from(widgetMessages)
+      .where(eq(widgetMessages.conversationId, conv!.id));
+    expect(rows.length).toBe(0);
+  });
+
   it("sentinel SPEZZATO su più delta → i delta non contengono mai il marker; ticket_proposal col JSON; content = solo visible", async () => {
     const { project, conversationId, genId } = await seedChatWithoutContext(testDb.db);
     void genId;
