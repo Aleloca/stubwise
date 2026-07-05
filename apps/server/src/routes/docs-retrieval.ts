@@ -16,7 +16,7 @@
  * tutti i consumatori la importano senza duplicarla.
  */
 
-import { and, eq, isNull, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { EmbeddingClient } from "@stubwise/embeddings";
 import { docChunks, docPages, repositories } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
@@ -98,17 +98,93 @@ interface RepoInfo {
  * `doc_chunks (repository_id, generation_id)` copre la forma di ciascuna coppia.
  * I repo senza generazione corrente contribuiscono solo con le righe manuali.
  */
-function crossRepoScopePredicate(repos: RepoInfo[]) {
+function crossRepoScopePredicate(
+  repos: RepoInfo[],
+  repositoryFilters?: Record<string, { paths: string[]; slugs: string[] }>,
+) {
   return (table: ScopableTable) => {
     const perRepo = repos.map((r) => {
       const genFilter = r.currentDocGenerationId
         ? or(eq(table.generationId, r.currentDocGenerationId), isNull(table.generationId))
         : isNull(table.generationId);
-      return and(eq(table.repositoryId, r.id), genFilter);
+      const base = and(eq(table.repositoryId, r.id), genFilter);
+      // Filtro FINE per-repo (paths/slugs). Solo per i repo con entry nel filtro:
+      // gli altri restano invariati (passa tutto il repo).
+      const filter = repositoryFilters?.[r.id];
+      if (!filter) return base;
+      return and(base, pageMembershipPredicate(table, r, filter));
     });
     // or(...) con un solo elemento è quel predicato; con più, l'unione cross-repo.
     return perRepo.length === 1 ? perRepo[0] : or(...perRepo);
   };
+}
+
+/**
+ * Carattere di escape per il `LIKE` dei prefissi path. Con `ESCAPE '\'` i
+ * metacaratteri `%`/`_` (e lo stesso `\`) sono trattati LITERAL: un `sourcePath`
+ * filtro che contiene `%`/`_` non fa mai wildcard match.
+ */
+const LIKE_ESCAPE = "\\";
+
+/**
+ * Escapa un prefisso path perché sia LITERAL dentro un `LIKE ... ESCAPE '\'`:
+ * `\`, `%`, `_` diventano `\\`, `\%`, `\_`. L'ordine conta (prima il backslash).
+ */
+function escapeLikePrefix(prefix: string): string {
+  return prefix.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
+
+/**
+ * Predicato di APPARTENENZA di una pagina al filtro fine di UN repo, come
+ * `<pageId|id> IN (SELECT id FROM doc_pages WHERE <visibilità> AND (<paths> OR <slugs>))`.
+ *
+ * La subquery replica ESATTAMENTE la visibilità dello scope corrente del repo
+ * (generazione corrente O manuale/`generationId IS NULL`), così le pagine
+ * manuali restano raggiungibili come lo sono dallo scope. La colonna della gamba
+ * differisce: `doc_chunks.page_id` (semantica) o `doc_pages.id` (full-text) —
+ * distinta via `ScopableTable`.
+ *
+ * FAIL-CLOSED: se paths e slugs sono entrambi vuoti la condizione interna è
+ * `sql\`false\``, quindi la subquery è vuota e NESSUNA pagina del repo passa.
+ */
+function pageMembershipPredicate(
+  table: ScopableTable,
+  repo: RepoInfo,
+  filter: { paths: string[]; slugs: string[] },
+) {
+  // Condizione di visibilità della pagina, identica allo scope del repo.
+  const genVisibility = repo.currentDocGenerationId
+    ? or(
+        eq(docPages.generationId, repo.currentDocGenerationId),
+        isNull(docPages.generationId),
+      )
+    : isNull(docPages.generationId);
+
+  // Match sui prefissi path: esatto (`source_path = p`) O sotto la directory
+  // (`source_path LIKE p_escaped || '/%' ESCAPE '\'`), col confine `/`.
+  const pathClauses = filter.paths.map((p) => {
+    const escaped = escapeLikePrefix(p);
+    return or(
+      eq(docPages.sourcePath, p),
+      sql`${docPages.sourcePath} LIKE ${`${escaped}/%`} ESCAPE ${LIKE_ESCAPE}`,
+    );
+  });
+  // Match sugli slug espliciti (pagine senza path / manuali).
+  const slugClause = filter.slugs.length > 0 ? inArray(docPages.slug, filter.slugs) : undefined;
+
+  const selectors = [...pathClauses, ...(slugClause ? [slugClause] : [])];
+  // Nessun selettore (paths+slugs vuoti) → fail-closed: nessuna pagina passa.
+  const membership = selectors.length > 0 ? or(...selectors) : sql`false`;
+
+  const subquery = sql`(SELECT ${docPages.id} FROM ${docPages} WHERE ${and(
+    eq(docPages.repositoryId, repo.id),
+    genVisibility,
+    membership,
+  )})`;
+
+  // La colonna della gamba: page_id sui chunk, id sulle pagine.
+  const column = table === docChunks ? docChunks.pageId : docPages.id;
+  return inArray(column, subquery);
 }
 
 /** Logger minimale (sottoinsieme di pino/`request.log`) per i warning del retrieval. */
@@ -135,6 +211,22 @@ export interface RetrieveChunksOptions {
    * del progetto), comportamento invariato per gli altri chiamanti.
    */
   repositoryIds?: string[];
+  /**
+   * Filtro FINE per-repo (widget path filter): per ogni `repositoryId` una
+   * whitelist di prefissi `sourcePath` (`paths`) e/o `slugs` espliciti. Solo le
+   * pagine il cui `sourcePath` combacia con un prefisso (match esatto O sotto la
+   * directory, confine `/`) OPPURE il cui `slug` è elencato passano da quel repo.
+   *
+   * Semantica per repository della whitelist (`repositoryIds`):
+   *  - repo CON entry e paths/slugs non entrambi vuoti: filtrato;
+   *  - repo CON entry ma paths+slugs vuoti: FAIL-CLOSED, niente da quel repo;
+   *  - repo SENZA entry: nessun filtro fine, passa tutto (come oggi).
+   *
+   * I prefissi sono trattati come LITERAL nel `LIKE` (escape di `\`, `%`, `_`):
+   * un path con `%`/`_` non fa mai wildcard match. Assente: nessun filtro fine
+   * (identico al comportamento odierno), usato solo dal widget di assistenza.
+   */
+  repositoryFilters?: Record<string, { paths: string[]; slugs: string[] }>;
 }
 
 /**
@@ -276,7 +368,7 @@ export async function retrieveChunksForProject(
   return retrieveWithScope(db, embeddingClient, query, {
     k,
     logger: options.logger,
-    scope: crossRepoScopePredicate(repos),
+    scope: crossRepoScopePredicate(repos, options.repositoryFilters),
     logContext: { projectId },
   });
 }

@@ -108,7 +108,7 @@ let pageSeq = 0;
 async function seedPageWithChunk(
   repositoryId: string,
   generationId: string | null,
-  page: { title: string; body: string; chunkContent: string },
+  page: { title: string; body: string; chunkContent: string; sourcePath?: string; slug?: string },
 ): Promise<string> {
   pageSeq++;
   const [row] = await db
@@ -117,9 +117,10 @@ async function seedPageWithChunk(
       repositoryId,
       generationId,
       kind: generationId === null ? "manual" : "technical",
-      slug: `page-${pageSeq}`,
+      slug: page.slug ?? `page-${pageSeq}`,
       title: page.title,
       body: page.body,
+      sourcePath: page.sourcePath ?? null,
       isManual: generationId === null,
     })
     .returning();
@@ -311,6 +312,176 @@ describe("retrieveChunksForProject (cross-repo)", () => {
     const projectId = await seedProject();
     const res = await retrieveChunksForProject(db, embeddingClient, projectId, "qualunque query");
     expect(res).toEqual([]);
+  });
+});
+
+describe("retrieveChunksForProject (filtro paths/slugs per-repo)", () => {
+  it("paths: prefisso di directory (confine /), esatto sì, sibling e prefisso-di-nome no", async () => {
+    const projectId = await seedProject();
+    const repoA = await seedRepoInProject(projectId, "Repo Alfa");
+    const genA = await seedGeneration(repoA.id);
+    // Token comune così il full-text tocca ogni pagina indipendentemente dal path.
+    const token = `pftok${randomUUID().slice(0, 8)}`;
+    const mk = async (sourcePath: string) =>
+      seedPageWithChunk(repoA.id, genA, {
+        title: sourcePath,
+        body: `Contenuto ${token} di ${sourcePath}.`,
+        chunkContent: `Contenuto ${token} di ${sourcePath}.`,
+        sourcePath,
+      });
+    const inside = await mk("apps/webapp/router.ts"); // sotto la dir → sì
+    const exact = await mk("apps/webapp"); // il path esatto → sì
+    const sibling = await mk("apps/admin/index.ts"); // altra dir → no
+    const namePrefix = await mk("apps/webapp-admin/x.ts"); // confine / non rispettato → no
+
+    const res = await retrieveChunksForProject(db, embeddingClient, projectId, token, {
+      repositoryFilters: { [repoA.id]: { paths: ["apps/webapp"], slugs: [] } },
+    });
+    const slugs = new Set(res.map((r) => r.slug));
+    expect(slugs.has(inside)).toBe(true);
+    expect(slugs.has(exact)).toBe(true);
+    expect(slugs.has(sibling)).toBe(false);
+    expect(slugs.has(namePrefix)).toBe(false);
+  });
+
+  it("slugs: seleziona pagine manuali (sourcePath null) per slug esplicito", async () => {
+    const projectId = await seedProject();
+    const repoA = await seedRepoInProject(projectId, "Repo Alfa");
+    await seedGeneration(repoA.id);
+    const token = `sltok${randomUUID().slice(0, 8)}`;
+    const faqSlug = `faq-${randomUUID().slice(0, 8)}`;
+    await seedPageWithChunk(repoA.id, null, {
+      title: "FAQ",
+      body: `Contenuto ${token} della faq.`,
+      chunkContent: `Contenuto ${token} della faq.`,
+      slug: faqSlug,
+    });
+    const otherSlug = `other-${randomUUID().slice(0, 8)}`;
+    await seedPageWithChunk(repoA.id, null, {
+      title: "Altro",
+      body: `Contenuto ${token} di un'altra pagina manuale.`,
+      chunkContent: `Contenuto ${token} di un'altra pagina manuale.`,
+      slug: otherSlug,
+    });
+
+    const res = await retrieveChunksForProject(db, embeddingClient, projectId, token, {
+      repositoryFilters: { [repoA.id]: { paths: [], slugs: [faqSlug] } },
+    });
+    const slugs = new Set(res.map((r) => r.slug));
+    expect(slugs.has(faqSlug)).toBe(true);
+    expect(slugs.has(otherSlug)).toBe(false);
+  });
+
+  it("entry vuota (paths+slugs []) → fail-closed: niente da quel repo", async () => {
+    const projectId = await seedProject();
+    const repoA = await seedRepoInProject(projectId, "Repo Alfa");
+    const genA = await seedGeneration(repoA.id);
+    const token = `emptytok${randomUUID().slice(0, 8)}`;
+    await seedPageWithChunk(repoA.id, genA, {
+      title: "Pagina",
+      body: `Contenuto ${token} qualunque.`,
+      chunkContent: `Contenuto ${token} qualunque.`,
+      sourcePath: "apps/webapp/x.ts",
+    });
+
+    const res = await retrieveChunksForProject(db, embeddingClient, projectId, token, {
+      repositoryFilters: { [repoA.id]: { paths: [], slugs: [] } },
+    });
+    expect(res).toEqual([]);
+  });
+
+  it("repo in whitelist SENZA entry nel filtro → tutto quel repo passa come prima", async () => {
+    const projectId = await seedProject();
+    const repoA = await seedRepoInProject(projectId, "Repo Alfa");
+    const repoB = await seedRepoInProject(projectId, "Repo Beta");
+    const genA = await seedGeneration(repoA.id);
+    const genB = await seedGeneration(repoB.id);
+    const token = `mixtok${randomUUID().slice(0, 8)}`;
+    // repoA filtrato su apps/webapp; repoB senza entry → nessun filtro path.
+    const aInside = await seedPageWithChunk(repoA.id, genA, {
+      title: "A inside",
+      body: `Contenuto ${token} di A dentro.`,
+      chunkContent: `Contenuto ${token} di A dentro.`,
+      sourcePath: "apps/webapp/x.ts",
+    });
+    const aOutside = await seedPageWithChunk(repoA.id, genA, {
+      title: "A outside",
+      body: `Contenuto ${token} di A fuori.`,
+      chunkContent: `Contenuto ${token} di A fuori.`,
+      sourcePath: "apps/admin/x.ts",
+    });
+    const bAny = await seedPageWithChunk(repoB.id, genB, {
+      title: "B any",
+      body: `Contenuto ${token} di B qualunque.`,
+      chunkContent: `Contenuto ${token} di B qualunque.`,
+      sourcePath: "packages/whatever/y.ts",
+    });
+
+    const res = await retrieveChunksForProject(db, embeddingClient, projectId, token, {
+      repositoryFilters: { [repoA.id]: { paths: ["apps/webapp"], slugs: [] } },
+    });
+    const slugs = new Set(res.map((r) => r.slug));
+    expect(slugs.has(aInside)).toBe(true);
+    expect(slugs.has(aOutside)).toBe(false);
+    expect(slugs.has(bAny)).toBe(true); // B senza entry → passa tutto
+  });
+
+  it("opzione assente → identico a oggi (nessun filtro path/slug)", async () => {
+    const projectId = await seedProject();
+    const repoA = await seedRepoInProject(projectId, "Repo Alfa");
+    const genA = await seedGeneration(repoA.id);
+    const token = `notok${randomUUID().slice(0, 8)}`;
+    const s1 = await seedPageWithChunk(repoA.id, genA, {
+      title: "P1",
+      body: `Contenuto ${token} uno.`,
+      chunkContent: `Contenuto ${token} uno.`,
+      sourcePath: "apps/webapp/x.ts",
+    });
+    const s2 = await seedPageWithChunk(repoA.id, genA, {
+      title: "P2",
+      body: `Contenuto ${token} due.`,
+      chunkContent: `Contenuto ${token} due.`,
+      sourcePath: "apps/admin/x.ts",
+    });
+
+    const res = await retrieveChunksForProject(db, embeddingClient, projectId, token);
+    const slugs = new Set(res.map((r) => r.slug));
+    expect(slugs.has(s1)).toBe(true);
+    expect(slugs.has(s2)).toBe(true);
+  });
+
+  it("escape LIKE: `_` e `%` nel prefisso sono trattati come literal", async () => {
+    const projectId = await seedProject();
+    const repoA = await seedRepoInProject(projectId, "Repo Alfa");
+    const genA = await seedGeneration(repoA.id);
+    const token = `esctok${randomUUID().slice(0, 8)}`;
+    const mk = async (sourcePath: string) =>
+      seedPageWithChunk(repoA.id, genA, {
+        title: sourcePath,
+        body: `Contenuto ${token} di ${sourcePath}.`,
+        chunkContent: `Contenuto ${token} di ${sourcePath}.`,
+        sourcePath,
+      });
+    // `_` literal: `apps/we_bapp` deve matchare solo se stesso, non `apps/webbapp`.
+    const literalUnderscore = await mk("apps/we_bapp/x.ts");
+    const wouldWildcardUnderscore = await mk("apps/webbapp/x.ts");
+    // `%` literal: un filtro `apps/we%` NON deve matchare `apps/webapp`.
+    const percentSibling = await mk("apps/webapp/x.ts");
+
+    const resUnderscore = await retrieveChunksForProject(db, embeddingClient, projectId, token, {
+      repositoryFilters: { [repoA.id]: { paths: ["apps/we_bapp"], slugs: [] } },
+    });
+    const underSlugs = new Set(resUnderscore.map((r) => r.slug));
+    expect(underSlugs.has(literalUnderscore)).toBe(true);
+    expect(underSlugs.has(wouldWildcardUnderscore)).toBe(false);
+
+    const resPercent = await retrieveChunksForProject(db, embeddingClient, projectId, token, {
+      repositoryFilters: { [repoA.id]: { paths: ["apps/we%"], slugs: [] } },
+    });
+    const pctSlugs = new Set(resPercent.map((r) => r.slug));
+    // `apps/we%` literal: non è prefisso-dir di nulla di seedato → niente match wildcard.
+    expect(pctSlugs.has(percentSibling)).toBe(false);
+    expect(pctSlugs.has(literalUnderscore)).toBe(false);
   });
 });
 
