@@ -37,6 +37,7 @@
     "plan_not_pending": "Nessun piano in attesa di approvazione",
     "webhook_unauthorized": "Webhook non autorizzato",
     "invalid_ingestion_key": "Chiave di ingestione non valida",
+    "invalid_repository": "Uno o più repository selezionati non appartengono a questo progetto",
     "credentials_undecryptable": "Impossibile decifrare le credenziali dell'account git",
     "git_account_in_use": "Account git in uso da uno o più progetti: scollegalo prima di eliminarlo",
     "git_provider_error": "Errore del provider git",
@@ -1108,5 +1109,27 @@
       "repo": "Questa documentazione",
       "all": "Tutto"
     }
+  },
+  "widget": {
+    "title": "Widget di assistenza",
+    "subtitle": "Una chat incorporabile che risponde dai Docs di questo progetto e può aprire un ticket.",
+    "enabled": "Abilita il widget",
+    "sources": "Fonti di conoscenza",
+    "sourcesHint": "Solo i Docs dei repository selezionati alimentano la chat.",
+    "noRepositories": "Questo progetto non ha ancora repository.",
+    "emptySourcesWarning": "Nessuna fonte selezionata: il widget risponderà di non avere informazioni.",
+    "displayTitle": "Titolo",
+    "welcomeMessage": "Messaggio di benvenuto",
+    "accentColor": "Colore d'accento",
+    "language": "Lingua",
+    "languageItalian": "Italiano",
+    "languageEnglish": "Inglese",
+    "save": "Salva",
+    "saving": "Salvataggio…",
+    "saved": "Salvato",
+    "readOnlyHint": "Solo gli amministratori possono modificare queste impostazioni.",
+    "snippet": "Snippet di integrazione",
+    "copySnippet": "Copia snippet",
+    "snippetHint": "// incolla prima di </body>: carica il widget e lo avvia con l'utente corrente."
   }
 }

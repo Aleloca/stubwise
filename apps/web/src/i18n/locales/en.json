@@ -37,6 +37,7 @@
     "plan_not_pending": "No plan pending approval",
     "webhook_unauthorized": "Webhook unauthorized",
     "invalid_ingestion_key": "Invalid ingestion key",
+    "invalid_repository": "One or more selected repositories do not belong to this project",
     "credentials_undecryptable": "Git account credentials cannot be decrypted",
     "git_account_in_use": "Git account in use by one or more projects: unlink it before deleting",
     "git_provider_error": "Git provider error",
@@ -1108,5 +1109,27 @@
       "repo": "This documentation",
       "all": "Everything"
     }
+  },
+  "widget": {
+    "title": "Support widget",
+    "subtitle": "An embeddable chat that answers from this project's docs and can open a ticket.",
+    "enabled": "Enable the widget",
+    "sources": "Knowledge sources",
+    "sourcesHint": "Only the docs of the selected repositories feed the chat.",
+    "noRepositories": "This project has no repositories yet.",
+    "emptySourcesWarning": "No source selected: the widget will reply that it has no information.",
+    "displayTitle": "Title",
+    "welcomeMessage": "Welcome message",
+    "accentColor": "Accent color",
+    "language": "Language",
+    "languageItalian": "Italian",
+    "languageEnglish": "English",
+    "save": "Save",
+    "saving": "Saving…",
+    "saved": "Saved",
+    "readOnlyHint": "Only administrators can change these settings.",
+    "snippet": "Embed snippet",
+    "copySnippet": "Copy snippet",
+    "snippetHint": "// paste before </body>: loads the widget and boots it with the current user."
   }
 }

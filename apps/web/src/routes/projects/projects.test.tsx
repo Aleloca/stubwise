@@ -36,6 +36,17 @@ type Handler = (url: URL, init?: RequestInit) => Response;
 function mockApi(handlers: Record<string, Handler>) {
   const withDefaults: Record<string, Handler> = {
     "GET /api/ai-providers": () => jsonResponse(200, []),
+    // La sezione Widget del dettaglio progetto legge le sue impostazioni: default
+    // ai valori di schema (il PUT vive nei test dedicati del componente widget).
+    [`GET /api/projects/${PROJECT_ID}/widget-settings`]: () =>
+      jsonResponse(200, {
+        enabled: false,
+        enabledRepositoryIds: [],
+        title: "Assistenza",
+        welcomeMessage: "Ciao! Come posso aiutarti?",
+        accentColor: "#22c55e",
+        language: "it",
+      }),
     ...handlers,
   };
   fetchMock.mockImplementation((input, init) => {

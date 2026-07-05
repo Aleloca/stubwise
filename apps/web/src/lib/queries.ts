@@ -23,6 +23,7 @@ import {
   getTicketLinks,
   getTicketUsage,
   getUsers,
+  getWidgetSettings,
   listAiProviders,
   listMilestones,
   listSavedViews,
@@ -358,6 +359,19 @@ export function projectQueryOptions(projectId: string) {
     queryKey: ["projects", "detail", projectId],
     queryFn: () => getProject(projectId),
     staleTime: 60_000,
+  });
+}
+
+/**
+ * Impostazioni del widget di assistenza di un progetto. Lettura per ogni utente
+ * autenticato (il PUT è solo admin, arbitrato dal server). Chiave figlia del
+ * progetto: un salvataggio la riconcilia via `setQueryData`.
+ */
+export function widgetSettingsQueryOptions(projectId: string) {
+  return queryOptions({
+    queryKey: ["projects", "detail", projectId, "widget-settings"],
+    queryFn: () => getWidgetSettings(projectId),
+    staleTime: 30_000,
   });
 }
 

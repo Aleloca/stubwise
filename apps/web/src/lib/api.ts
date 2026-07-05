@@ -11,9 +11,10 @@ import type {
   TicketSource,
   TicketStatus,
   TicketType,
+  WidgetSettings,
 } from "@stubwise/shared";
 
-export type { PrState } from "@stubwise/shared";
+export type { PrState, WidgetSettings } from "@stubwise/shared";
 
 /**
  * Wrapper fetch tipizzato per l'API di Stubwise.
@@ -1713,4 +1714,30 @@ export function deleteSearchHistoryEntry(
 /** Svuota tutta la cronologia dell'utente corrente: ritorna 204. */
 export function deleteSearchHistory(): Promise<void> {
   return request("DELETE", "/api/search/history");
+}
+
+// --- Widget di assistenza (impostazioni di progetto) ---
+
+/**
+ * Impostazioni del widget di assistenza di un progetto (gemello di
+ * `widgetSettingsSchema` di @stubwise/shared). `enabledRepositoryIds` è la
+ * whitelist dei repository i cui Docs alimentano il retrieval della chat: vuota
+ * = nessuna fonte (il widget risponderà di non avere informazioni). Lettura per
+ * ogni utente autenticato; PUT solo admin.
+ */
+export function getWidgetSettings(projectId: string): Promise<WidgetSettings> {
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/widget-settings`);
+}
+
+/**
+ * Upsert completo delle impostazioni widget (solo admin). Il PUT del server è
+ * completo: si invia sempre lo stato intero. 422 `invalid_repository` se un id in
+ * `enabledRepositoryIds` non è un repository di questo progetto. Ritorna lo
+ * stato aggiornato.
+ */
+export function putWidgetSettings(
+  projectId: string,
+  settings: WidgetSettings,
+): Promise<WidgetSettings> {
+  return api.put(`/api/projects/${encodeURIComponent(projectId)}/widget-settings`, settings);
 }

@@ -6,6 +6,7 @@ import { ProviderBadge } from "../../components/badges";
 import { IntegrationPanel } from "../../components/integration-panel";
 import { MilestoneManager } from "../../components/milestone-manager";
 import { ProjectForm } from "../../components/project-form";
+import { WidgetSettingsSection } from "../../components/widget-settings-section";
 import { deleteProject, patchProject, type ProjectPatch } from "../../lib/api";
 import { meQueryOptions } from "../../lib/auth";
 import { formatDateTime } from "../../lib/format";
@@ -172,6 +173,22 @@ export function ProjectDetailPage() {
       >
         <h2 className={sectionTitleClass}>{t("integration:title")}</h2>
         <IntegrationPanel ingestionKey={project.ingestionKey} slug={project.slug} />
+      </section>
+
+      {/*
+        Widget di assistenza (Fase widget): chat incorporabile che risponde dai
+        Docs del progetto e può aprire un ticket. Lettura per tutti; il salvataggio
+        è solo admin (il server arbitra i permessi, la UI nasconde il submit).
+      */}
+      <section aria-label={t("widget:title")} className="mt-8 border-t border-line pt-6">
+        <h2 className={sectionTitleClass}>{t("widget:title")}</h2>
+        <WidgetSettingsSection
+          projectId={project.id}
+          repositories={project.repositories}
+          ingestionKey={project.ingestionKey}
+          slug={project.slug}
+          isAdmin={isAdmin}
+        />
       </section>
 
       {/*
