@@ -413,9 +413,11 @@ export async function widgetRoutes(
       // CAP giornaliero (UTC) dei messaggi utente DEL WIDGET, PRIMA di
       // hijackare/consumare token. Il cap è l'override sulla riga del widget
       // (dailyMessageCap) o, se null, il default d'istanza (opts). La JOIN filtra
-      // per widget_id e conserva `last_message_at >= inizio giornata` per l'indice
-      // (project_id, last_message_at): si contano solo le conversazioni del widget
-      // toccate oggi, non l'intero storico né gli altri widget del progetto.
+      // per project_id + `last_message_at >= inizio giornata` (colpisce l'indice
+      // composito (project_id, last_message_at): niente seq scan su endpoint
+      // pubblico); widget_id resta come filtro residuo per contare solo le
+      // conversazioni di QUESTO widget toccate oggi, non l'intero storico né gli
+      // altri widget del progetto.
       const messageCap = widget.dailyMessageCap ?? opts.dailyMessageCap;
       const dayStart = startOfUtcDay(new Date());
       const [capRow] = await app.db
@@ -427,6 +429,7 @@ export async function widgetRoutes(
         )
         .where(
           and(
+            eq(widgetConversations.projectId, widget.projectId),
             eq(widgetConversations.widgetId, widget.id),
             gte(widgetConversations.lastMessageAt, dayStart),
             eq(widgetMessages.role, "user"),
@@ -581,6 +584,9 @@ export async function widgetRoutes(
       // messaggio con ticketId), già collegata al widget. Race benigna come il
       // cap chat: due richieste concorrenti possono superare insieme il cap,
       // overshoot limitato dalla concorrenza.
+      // Nota: cancellare una conversazione/ticket fa scendere il conteggio del
+      // giorno (il messaggio di conferma sparisce col cascade). Accettato: oggi
+      // è teorico (nessuna cancellazione sulla superficie pubblica).
       const ticketCap = widget.dailyTicketCap ?? opts.dailyTicketCap;
       const dayStart = startOfUtcDay(new Date());
       const [capRow] = await app.db
@@ -693,7 +699,10 @@ function composeWidgetTicketBody(input: {
   if (identity.email) identityLines.push(`- ${labels.email}: ${identity.email}`);
   identityLines.push(`- ${labels.id}: ${identity.id}`);
   // Nome del widget d'origine: "Widget" è un label universale (uguale in it/en).
-  identityLines.push(`- Widget: ${widgetName}`);
+  // Nome admin-controlled ma lo schema non vieta newline: si collassano in spazio
+  // per non spezzare la riga markdown.
+  const safeWidgetName = widgetName.replace(/\s*\n+\s*/g, " ");
+  identityLines.push(`- Widget: ${safeWidgetName}`);
   const identitySection = identityLines.join("\n");
 
   const truncate = (s: string): string =>
