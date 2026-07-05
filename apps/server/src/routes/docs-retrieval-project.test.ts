@@ -232,6 +232,73 @@ describe("retrieveChunksForProject (cross-repo)", () => {
     expect(hit!.repositoryId).toBe(repoA.id);
   });
 
+  it("repositoryIds: restringe alla whitelist, i chunk provengono SOLO dal repo abilitato", async () => {
+    const projectId = await seedProject();
+    const repoA = await seedRepoInProject(projectId, "Repo Alfa");
+    const repoB = await seedRepoInProject(projectId, "Repo Beta");
+    const genA = await seedGeneration(repoA.id);
+    const genB = await seedGeneration(repoB.id);
+
+    // Token comune ai due chunk: senza filtro il full-text li trova entrambi.
+    const token = `wltok${randomUUID().slice(0, 8)}`;
+    const contentA = `Il ${token} di Alfa gestisce l'autenticazione.`;
+    const contentB = `Il ${token} di Beta gestisce la fatturazione.`;
+    const slugA = await seedPageWithChunk(repoA.id, genA, {
+      title: "Alfa",
+      body: contentA,
+      chunkContent: contentA,
+    });
+    const slugB = await seedPageWithChunk(repoB.id, genB, {
+      title: "Beta",
+      body: contentB,
+      chunkContent: contentB,
+    });
+
+    // Whitelist su solo repoA: i risultati NON includono mai il repo B.
+    const res = await retrieveChunksForProject(db, embeddingClient, projectId, token, {
+      repositoryIds: [repoA.id],
+    });
+    expect(res.some((r) => r.slug === slugA)).toBe(true);
+    expect(res.some((r) => r.slug === slugB)).toBe(false);
+    expect(res.every((r) => r.repositoryId === repoA.id)).toBe(true);
+  });
+
+  it("repositoryIds con id STALE (inesistente) è tollerato: intersezione, nessun errore", async () => {
+    const projectId = await seedProject();
+    const repoA = await seedRepoInProject(projectId, "Repo Alfa");
+    const genA = await seedGeneration(repoA.id);
+    const content = `Contenuto ${randomUUID().slice(0, 8)} di Alfa.`;
+    const slugA = await seedPageWithChunk(repoA.id, genA, {
+      title: "Alfa",
+      body: content,
+      chunkContent: content,
+    });
+
+    // Whitelist = repoA valido + un id che non esiste più: l'intersezione tiene A.
+    const res = await retrieveChunksForProject(db, embeddingClient, projectId, content, {
+      repositoryIds: [repoA.id, randomUUID()],
+    });
+    expect(res.some((r) => r.slug === slugA)).toBe(true);
+    expect(res.every((r) => r.repositoryId === repoA.id)).toBe(true);
+  });
+
+  it("repositoryIds vuoto → [] (nessun repo abilitato)", async () => {
+    const projectId = await seedProject();
+    const repoA = await seedRepoInProject(projectId, "Repo Alfa");
+    const genA = await seedGeneration(repoA.id);
+    const content = `Contenuto ${randomUUID().slice(0, 8)} di Alfa.`;
+    await seedPageWithChunk(repoA.id, genA, {
+      title: "Alfa",
+      body: content,
+      chunkContent: content,
+    });
+
+    const res = await retrieveChunksForProject(db, embeddingClient, projectId, content, {
+      repositoryIds: [],
+    });
+    expect(res).toEqual([]);
+  });
+
   it("progetto senza repo documentati → []", async () => {
     // Progetto con un repo MA senza alcuna generazione corrente né pagina manuale.
     const projectId = await seedProject();

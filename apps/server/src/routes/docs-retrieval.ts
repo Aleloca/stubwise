@@ -125,6 +125,16 @@ export interface RetrieveChunksOptions {
    * non è disponibile (Ollama down/timeout/non-200).
    */
   logger?: RetrievalLogger;
+  /**
+   * Whitelist di repository su cui restringere il retrieval cross-repo di
+   * PROGETTO (usata dal widget di assistenza: solo i repo esposti al pubblico).
+   * Quando presente, dalla lista dei repo del progetto si tengono SOLO quelli il
+   * cui id compare qui — per INTERSEZIONE, così id stale (repo cancellati o non
+   * più nel progetto) sono tollerati naturalmente senza dover esistere. Lista
+   * vuota → nessun repo → retrieval vuoto. Assente → nessun filtro (tutti i repo
+   * del progetto), comportamento invariato per gli altri chiamanti.
+   */
+  repositoryIds?: string[];
 }
 
 /**
@@ -230,7 +240,7 @@ export async function retrieveChunksForProject(
   options: RetrieveChunksOptions = {},
 ): Promise<RetrievedChunk[]> {
   // Tutti i repo del progetto, con la rispettiva generazione corrente.
-  const repos = await db
+  const allRepos = await db
     .select({
       id: repositories.id,
       slug: repositories.slug,
@@ -240,7 +250,15 @@ export async function retrieveChunksForProject(
     .from(repositories)
     .where(eq(repositories.projectId, projectId));
 
-  // Nessun repo nel progetto → niente da recuperare.
+  // Whitelist opzionale (widget): intersezione con i repo del progetto. Gli id
+  // nella whitelist possono essere STALE (repo cancellato/spostato): l'intersezione
+  // li scarta senza assumere che esistano. Assente → tutti i repo del progetto.
+  const repos = options.repositoryIds
+    ? allRepos.filter((r) => options.repositoryIds!.includes(r.id))
+    : allRepos;
+
+  // Nessun repo (progetto vuoto o whitelist che non interseca nulla) → niente da
+  // recuperare.
   if (repos.length === 0) return [];
 
   // `k` proporzionale al numero di repo DOCUMENTATI: hanno una generazione
