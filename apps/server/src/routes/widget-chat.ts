@@ -20,7 +20,7 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { eq } from "drizzle-orm";
 import {
-  widgetTicketConfirmBodySchema,
+  widgetTicketProposalSchema,
   type WidgetLanguage,
 } from "@stubwise/shared";
 import { widgetConversations, widgetMessages } from "@stubwise/db";
@@ -70,7 +70,8 @@ export function safeForwardLength(full: string): number {
  *  - Marcatore di apertura senza chiusura (stream troncato) → visible = testo
  *    fino all'apertura, proposal null (il JSON è incompleto/inaffidabile).
  *  - Apertura + chiusura → JSON tra i due marcatori, `JSON.parse` +
- *    `widgetTicketConfirmBodySchema.safeParse`. Malformato o type/campi invalidi
+ *    `widgetTicketProposalSchema.safeParse` (solo title/body/type, senza userId).
+ *    Malformato o type/campi invalidi
  *    → proposal null; il visible è comunque il testo che precede l'apertura.
  *  - Il testo DOPO la chiusura è sempre scartato (non è né visibile né proposta).
  */
@@ -100,7 +101,7 @@ export function extractProposal(full: string): {
     return { visible, proposal: null };
   }
 
-  const result = widgetTicketConfirmBodySchema.safeParse(parsed);
+  const result = widgetTicketProposalSchema.safeParse(parsed);
   if (!result.success) {
     return { visible, proposal: null };
   }

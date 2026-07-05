@@ -34,11 +34,19 @@ export const widgetChatMessageBodySchema = z.object({
   userId: z.string().min(1).max(200),
 });
 
-export const widgetTicketConfirmBodySchema = z.object({
+// PROPOSTA di ticket emessa dall'LLM nel sentinel della chat widget: solo il
+// contenuto del ticket (title/body/type), SENZA identità utente.
+export const widgetTicketProposalSchema = z.object({
   title: z.string().min(1).max(300),
   body: z.string().max(20_000),
   type: widgetTicketTypeSchema,
-  // Identità DICHIARATA dal sito ospite (non autenticata): verifica che la
-  // conversazione appartenga a questo utente, come per chat e storico.
+});
+export type WidgetTicketProposal = z.infer<typeof widgetTicketProposalSchema>;
+
+// CONFERMA del ticket dall'endpoint: la proposta + l'identità DICHIARATA dal
+// sito ospite (non autenticata), per verificare che la conversazione appartenga
+// a questo utente, come per chat e storico.
+export const widgetTicketConfirmBodySchema = widgetTicketProposalSchema.extend({
   userId: z.string().min(1).max(200),
 });
+export type WidgetTicketConfirmBody = z.infer<typeof widgetTicketConfirmBodySchema>;
