@@ -7,7 +7,7 @@ import { z } from "zod";
 import { projects } from "@stubwise/db";
 import { processEvents } from "../ingest/processor.js";
 import { keysMatch, publicUrlOrUndefined } from "../ingest/shared.js";
-import { errorSchema } from "./shared.js";
+import { errorSchema, unprocessableEntityFormatter } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
 import { apiError } from "../errors.js";
 
@@ -86,15 +86,8 @@ export async function ingestRoutes(
         }
         request.ingestProject = { id: project.id, name: project.name };
       },
-      schemaErrorFormatter: (errors, dataVar) => {
-        const error = new Error(
-          `${dataVar} non valido: ${errors.map((e) => `${e.instancePath} ${e.message ?? e.keyword}`.trim()).join("; ")}`,
-        ) as Error & { statusCode: number };
-        // Fastify usa 400 solo se statusCode non è già impostato: qui il
-        // contratto con gli SDK prevede 422.
-        error.statusCode = 422;
-        return error;
-      },
+      // Contratto con gli SDK: body non valido → 422, non 400 (default Fastify).
+      schemaErrorFormatter: unprocessableEntityFormatter,
       schema: {
         params: z.object({ slug: z.string().min(1) }),
         body: ingestBatchSchema,

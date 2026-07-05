@@ -21,6 +21,26 @@ export function generateIngestionKey(): string {
 export const errorSchema = z.object({ code: z.string().optional(), message: z.string() });
 
 /**
+ * `schemaErrorFormatter` per-route che alza a 422 lo statusCode dell'errore di
+ * validazione Zod (Fastify default-a 400 solo se non è già impostato). Serve
+ * alle superfici pubbliche (ingestion SDK, widget) il cui contratto col client
+ * prevede 422 (Unprocessable Entity) su body malformato, non 400. Da passare
+ * come `schemaErrorFormatter` nelle opzioni della route.
+ */
+export function unprocessableEntityFormatter(
+  errors: Array<{ instancePath: string; message?: string; keyword: string }>,
+  dataVar: string,
+): Error & { statusCode: number } {
+  const error = new Error(
+    `${dataVar} non valido: ${errors
+      .map((e) => `${e.instancePath} ${e.message ?? e.keyword}`.trim())
+      .join("; ")}`,
+  ) as Error & { statusCode: number };
+  error.statusCode = 422;
+  return error;
+}
+
+/**
  * Configurazione di un limite di rate per @fastify/rate-limit: quante
  * richieste (`max`) per finestra (`timeWindow`, es. "1 minute").
  */

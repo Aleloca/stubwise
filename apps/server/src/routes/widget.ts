@@ -1,18 +1,45 @@
 import fastifyCors from "@fastify/cors";
-import { widgetSettingsSchema } from "@stubwise/shared";
-import { eq } from "drizzle-orm";
+import { widgetConversationCreateBodySchema, widgetSettingsSchema } from "@stubwise/shared";
+import { and, asc, eq } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { projects, widgetSettings } from "@stubwise/db";
+import {
+  projects,
+  widgetConversations,
+  widgetMessages,
+  widgetSettings,
+} from "@stubwise/db";
+import type { Db } from "@stubwise/db";
 import { keysMatch } from "../ingest/shared.js";
-import { errorSchema } from "./shared.js";
+import { errorSchema, unprocessableEntityFormatter } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
 import { apiError } from "../errors.js";
 
 export interface WidgetRoutesOptions {
   /** Limite di richieste per chiave del progetto (default 300/min). */
   rateLimit: RateLimitConfig;
+}
+
+/** Riga dei settings del widget, per il tipo di ritorno di loadEnabledSettings. */
+type WidgetSettingsRow = typeof widgetSettings.$inferSelect;
+
+/**
+ * Carica i settings del widget di un progetto solo se il widget è ATTIVO
+ * (riga presente ed `enabled = true`); altrimenti null. Helper riusato dalle
+ * route pubbliche che richiedono un widget montabile (conversazioni, chat,
+ * ticket): il chiamante risponde 404 `widget_disabled` uniforme su null, senza
+ * esporre se manchino i settings o siano solo spenti.
+ */
+async function loadEnabledSettings(
+  db: Db,
+  projectId: string,
+): Promise<WidgetSettingsRow | null> {
+  const [row] = await db
+    .select()
+    .from(widgetSettings)
+    .where(eq(widgetSettings.projectId, projectId));
+  return row && row.enabled ? row : null;
 }
 
 /**
@@ -154,6 +181,135 @@ export async function widgetRoutes(
         accentColor: row.accentColor,
         language: language.success ? language.data : ("it" as const),
         chatEnabled,
+      };
+    },
+  );
+
+  /**
+   * Apertura (o ripresa) di una conversazione: crea una riga in
+   * widget_conversations con l'identità DICHIARATA dal sito ospite (non
+   * autenticata). Ritorna il solo conversationId: il client lo persiste per
+   * riagganciare lo storico. Richiede un widget attivo (404 widget_disabled
+   * altrimenti). Body invalido → 422 (contratto col client widget).
+   */
+  app.post(
+    "/:slug/conversations",
+    {
+      config: { rateLimit },
+      preValidation: authenticateWidget,
+      schemaErrorFormatter: unprocessableEntityFormatter,
+      schema: {
+        params: z.object({ slug: z.string().min(1) }),
+        body: widgetConversationCreateBodySchema,
+        response: {
+          200: z.object({ conversationId: z.uuid() }),
+          401: errorSchema,
+          404: errorSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const project = request.widgetProject!;
+      const settings = await loadEnabledSettings(app.db, project.id);
+      if (!settings) {
+        return apiError(reply, 404, "widget_disabled", "Widget not available");
+      }
+      const { user } = request.body;
+      const [conversation] = await app.db
+        .insert(widgetConversations)
+        .values({
+          projectId: project.id,
+          externalUserId: user.id,
+          externalUserEmail: user.email ?? null,
+          externalUserName: user.name ?? null,
+        })
+        .returning({ id: widgetConversations.id });
+      return { conversationId: conversation!.id };
+    },
+  );
+
+  const messageSchema = z.object({
+    id: z.uuid(),
+    role: z.string(),
+    content: z.string(),
+    // I riferimenti Docs della risposta RAG: forma libera (jsonb), può essere null.
+    citations: z.unknown().nullable(),
+    ticketId: z.uuid().nullable(),
+    createdAt: z.iso.datetime(),
+  });
+
+  /**
+   * Storico dei messaggi di una conversazione, in ordine cronologico. Richiede
+   * il widget attivo (404 widget_disabled) e un doppio controllo di
+   * appartenenza: la conversazione deve essere del progetto autenticato E il
+   * suo external_user_id deve combaciare col `userId` in query. Così un
+   * conversationId rubato (è nel client) non permette a un altro utente di
+   * leggere lo storico altrui: 404 indistinguibile in tutti i casi negativi.
+   */
+  app.get(
+    "/:slug/conversations/:conversationId/messages",
+    {
+      config: { rateLimit },
+      preValidation: authenticateWidget,
+      schema: {
+        params: z.object({
+          slug: z.string().min(1),
+          conversationId: z.uuid(),
+        }),
+        querystring: z.object({ userId: z.string().min(1) }),
+        response: {
+          200: z.object({ messages: z.array(messageSchema) }),
+          401: errorSchema,
+          404: errorSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const project = request.widgetProject!;
+      const settings = await loadEnabledSettings(app.db, project.id);
+      if (!settings) {
+        return apiError(reply, 404, "widget_disabled", "Widget not available");
+      }
+      const { conversationId } = request.params;
+      const { userId } = request.query;
+
+      const [conversation] = await app.db
+        .select({ externalUserId: widgetConversations.externalUserId })
+        .from(widgetConversations)
+        .where(
+          and(
+            eq(widgetConversations.id, conversationId),
+            eq(widgetConversations.projectId, project.id),
+          ),
+        );
+      // Conversazione inesistente, di un altro progetto, o di un altro utente:
+      // 404 indistinguibile (anti-lettura cross-utente con id conversazione rubato).
+      if (!conversation || conversation.externalUserId !== userId) {
+        return apiError(reply, 404, "conversation_not_found", "Conversation not found");
+      }
+
+      const rows = await app.db
+        .select({
+          id: widgetMessages.id,
+          role: widgetMessages.role,
+          content: widgetMessages.content,
+          citations: widgetMessages.citations,
+          ticketId: widgetMessages.ticketId,
+          createdAt: widgetMessages.createdAt,
+        })
+        .from(widgetMessages)
+        .where(eq(widgetMessages.conversationId, conversationId))
+        .orderBy(asc(widgetMessages.createdAt));
+
+      return {
+        messages: rows.map((m) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          citations: m.citations ?? null,
+          ticketId: m.ticketId,
+          createdAt: m.createdAt.toISOString(),
+        })),
       };
     },
   );
