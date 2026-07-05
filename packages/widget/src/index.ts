@@ -24,37 +24,63 @@ export interface InitWidgetOptions {
   user: WidgetUser;
 }
 
-/** Flag di montaggio: la seconda `initWidget` è un no-op (evita host doppi). */
-let mounted = false;
+/**
+ * Flag di init: la seconda `initWidget` è un no-op (evita host doppi). Settato
+ * SUBITO all'ingresso — PRIMA del `await fetchConfig` — per chiudere la race di
+ * due init concorrenti: senza questo, entrambe passerebbero la guardia durante il
+ * fetch e monterebbero due host. Semantica: doppia init = no-op SEMPRE, anche se
+ * la prima non ha montato (config `disabled`/errore); il reset avviene solo se il
+ * mount viene rimandato per `document.body` assente (vedi sotto).
+ */
+let initStarted = false;
 
 /**
- * Reset del flag di montaggio. USO SOLO NEI TEST: isola i casi che chiamano
+ * Reset del flag di init. USO SOLO NEI TEST: isola i casi che chiamano
  * `initWidget` (la guardia è un modulo-singleton, altrimenti persisterebbe tra
  * test). Non fa teardown del DOM: quello lo fa il test.
  */
 export function __resetWidgetForTests(): void {
-  mounted = false;
+  initStarted = false;
+}
+
+/**
+ * Esegue `cb` quando `document.body` è disponibile. Se il body c'è già (script
+ * con `defer` o in fondo al `<body>`) chiama subito; altrimenti (script nel
+ * `<head>` senza `defer`) rimanda a `DOMContentLoaded` una sola volta. Estratta
+ * per essere testabile in isolamento (simulare `document.body` null in happy-dom
+ * non è praticabile).
+ */
+export function whenBodyReady(cb: () => void): void {
+  if (typeof document === "undefined") return;
+  if (document.body) {
+    cb();
+    return;
+  }
+  document.addEventListener("DOMContentLoaded", cb, { once: true });
 }
 
 /**
  * Inizializza il widget. Robusto per costruzione: NON lancia MAI (è embeddato in
  * siti terzi e non deve mai romperli). Su qualunque errore — DSN malformato,
  * fetch della config fallito, `enabled: false` — non monta nulla e al più logga
- * un `console.warn`. Doppia chiamata → no-op (guardia `mounted`).
+ * un `console.warn`. Doppia chiamata → no-op (guardia `initStarted`).
  */
 export async function initWidget(options: InitWidgetOptions): Promise<void> {
   try {
-    if (mounted) return;
     if (typeof document === "undefined") return;
+    // Prenotiamo lo slot PRIMA del fetch: un secondo init concorrente non deve
+    // superare la guardia mentre la config è in volo (altrimenti due host).
+    if (initStarted) return;
+    initStarted = true;
 
     const base = parseWidgetDsn(options.dsn);
     const config = await fetchConfig(base);
     if (!config.enabled) return;
 
-    // Prenotiamo lo slot PRIMA del mount: un secondo init concorrente non deve
-    // creare un secondo host neppure in caso di race sul fetch.
-    mounted = true;
-    mountWidget(base, config, options.user);
+    // Se lo script gira nel `<head>` senza `defer`, `document.body` può ancora
+    // non esistere: rimandiamo il mount a DOMContentLoaded invece di far lanciare
+    // `appendChild` (che perderebbe il widget lasciando `initStarted` a true).
+    whenBodyReady(() => mountWidget(base, config, options.user));
   } catch (err) {
     console.warn("[stubwise] widget init non riuscito:", err);
   }

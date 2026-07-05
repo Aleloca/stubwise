@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { __resetWidgetForTests, initWidget } from "../index.js";
+import { __resetWidgetForTests, initWidget, whenBodyReady } from "../index.js";
 
 /**
  * Test della UI del widget in happy-dom. Il render avviene DENTRO uno shadow
@@ -125,6 +125,53 @@ describe("initWidget mounting", () => {
     await initWidget({ dsn: DSN, user: USER });
     await flush();
     expect(document.querySelectorAll("[data-stubwise-widget]").length).toBe(1);
+  });
+
+  it("due init CONCORRENTI (fetch lento) montano un solo host", async () => {
+    // fetch della config che risolve dopo 10ms: senza la guardia settata PRIMA
+    // del fetch, entrambe le init supererebbero il controllo mentre la config è
+    // in volo e monterebbero due host (race verificata empiricamente).
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) =>
+            setTimeout(() => resolve(jsonResponse(200, activeConfig())), 10),
+          ),
+      ),
+    );
+    await Promise.all([
+      initWidget({ dsn: DSN, user: USER }),
+      initWidget({ dsn: DSN, user: USER }),
+    ]);
+    await flush();
+    expect(document.querySelectorAll("[data-stubwise-widget]").length).toBe(1);
+  });
+});
+
+describe("whenBodyReady", () => {
+  it("body già presente → chiama subito il callback", () => {
+    const cb = vi.fn();
+    whenBodyReady(cb);
+    expect(cb).toHaveBeenCalledTimes(1);
+  });
+
+  it("body assente → rimanda a DOMContentLoaded (once)", () => {
+    // Simuliamo body null intercettando il getter (in happy-dom body è sempre
+    // presente): la funzione deve registrare un listener DOMContentLoaded once.
+    const bodyDesc = Object.getOwnPropertyDescriptor(Document.prototype, "body");
+    Object.defineProperty(document, "body", { configurable: true, get: () => null });
+    const addSpy = vi.spyOn(document, "addEventListener");
+    const cb = vi.fn();
+    try {
+      whenBodyReady(cb);
+      expect(cb).not.toHaveBeenCalled();
+      expect(addSpy).toHaveBeenCalledWith("DOMContentLoaded", cb, { once: true });
+    } finally {
+      addSpy.mockRestore();
+      if (bodyDesc) Object.defineProperty(document, "body", bodyDesc);
+      else delete (document as unknown as { body?: unknown }).body;
+    }
   });
 });
 
@@ -252,6 +299,74 @@ describe("ticket card", () => {
       userId: "u1",
     });
     expect(shadow().querySelector(".sw-card-confirmed")?.textContent).toContain("#128");
+  });
+});
+
+describe("history", () => {
+  it("storico con 0 messaggi → mostra il welcome fittizio", async () => {
+    localStorage.setItem("stubwise-widget:acme:conversation", "conv-empty");
+    installFetch({
+      "GET /config": jsonResponse(200, activeConfig()),
+      "GET /conversations/conv-empty/messages": jsonResponse(200, { messages: [] }),
+    });
+    await initWidget({ dsn: DSN, user: USER });
+    await flush();
+    shadow().querySelector<HTMLButtonElement>(".sw-bubble")!.click();
+    await flush(6);
+
+    expect(shadow().textContent).toContain("Benvenuto!");
+  });
+});
+
+describe("stream abort on unmount", () => {
+  it("chiusura pannello a stream attivo → il fetch riceve l'abort, nessun errore mostrato", async () => {
+    let capturedSignal: AbortSignal | undefined;
+    // Lo stream non si chiude da solo: resta appeso finché non arriva l'abort.
+    const pendingSse = new Response(
+      new ReadableStream<Uint8Array>({
+        start() {
+          /* nessun enqueue, nessun close: pende */
+        },
+      }),
+      { status: 200 },
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string, init: RequestInit = {}) => {
+        if (input.endsWith("/config")) return Promise.resolve(jsonResponse(200, activeConfig()));
+        if (input.endsWith("/conversations"))
+          return Promise.resolve(jsonResponse(200, { conversationId: "conv-x" }));
+        if (input.endsWith("/conversations/conv-x/messages")) {
+          capturedSignal = init.signal ?? undefined;
+          return Promise.resolve(pendingSse);
+        }
+        return Promise.reject(new Error(`no route for ${input}`));
+      }),
+    );
+
+    await initWidget({ dsn: DSN, user: USER });
+    await flush();
+    shadow().querySelector<HTMLButtonElement>(".sw-bubble")!.click();
+    await flush();
+
+    const input = shadow().querySelector<HTMLTextAreaElement>(".sw-composer-input")!;
+    input.value = "domanda";
+    input.dispatchEvent(new Event("input"));
+    await flush();
+    shadow().querySelector<HTMLButtonElement>(".sw-composer .sw-btn")!.click();
+    await flush();
+
+    // Il signal è stato propagato ed è ancora attivo (stream in corso).
+    expect(capturedSignal).toBeInstanceOf(AbortSignal);
+    expect(capturedSignal!.aborted).toBe(false);
+
+    // Chiudo il pannello (smonta Chat) → il cleanup aborta lo stream.
+    shadow().querySelector<HTMLButtonElement>(".sw-bubble")!.click();
+    await flush(6);
+
+    expect(capturedSignal!.aborted).toBe(true);
+    // Nessun messaggio d'errore lasciato in giro (l'abort è silenzioso).
+    expect(shadow().textContent).not.toContain("Si è verificato un errore");
   });
 });
 

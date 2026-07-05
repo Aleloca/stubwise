@@ -66,6 +66,16 @@ export function Chat({
   const [streaming, setStreaming] = useState(false);
   const conversationId = useRef<string | null>(initialConversationId);
   const messagesRef = useRef<HTMLDivElement>(null);
+  // Controller dell'invio in corso: alla chiusura del pannello (smontaggio del
+  // componente) abortiamo il fetch/stream così la lettura non prosegue a vuoto.
+  const abortRef = useRef<AbortController | null>(null);
+
+  // Abort dell'eventuale stream attivo allo smontaggio (chiusura del pannello).
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
 
   // Carica lo storico se c'è un id salvato; altrimenti mostra il welcome fittizio.
   // 404 → la conversazione è stata persa/purgata lato server: la si dimentica e
@@ -81,6 +91,12 @@ export function Chat({
       try {
         const { messages } = await fetchMessages(base, id, user.id);
         if (cancelled) return;
+        // Conversazione salvata ma senza messaggi (creata e mai usata, o storico
+        // svuotato lato server): mostriamo comunque il welcome, non una lista vuota.
+        if (messages.length === 0) {
+          setItems([{ kind: "assistant", id: nextId(), text: welcomeMessage, citations: [] }]);
+          return;
+        }
         setItems(
           messages.map((m) =>
             m.role === "user"
@@ -148,9 +164,17 @@ export function Chat({
       );
     }
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
       const id = await ensureConversation();
-      const response = await sendMessage(base, id, { content: text, userId: user.id });
+      const response = await sendMessage(
+        base,
+        id,
+        { content: text, userId: user.id },
+        controller.signal,
+      );
       await parseSseStream(response, (event) => {
         if (event.type === "delta") {
           patchAssistant((a) => ({ ...a, text: a.text + event.text }));
@@ -166,6 +190,9 @@ export function Chat({
         }
       });
     } catch (err) {
+      // Abort volontario (pannello chiuso a stream attivo): nessun messaggio
+      // d'errore, il componente si sta smontando e lo stato è già inutile.
+      if (err instanceof DOMException && err.name === "AbortError") return;
       // Cap giornaliero raggiunto (429 widget_chat_cap_reached) → messaggio
       // dedicato; qualunque altro errore (HTTP o rete) → messaggio generico.
       const capReached =
@@ -176,6 +203,7 @@ export function Chat({
         text: capReached ? strings.errorCapReached : strings.errorGeneric,
       }));
     } finally {
+      if (abortRef.current === controller) abortRef.current = null;
       setStreaming(false);
     }
   }
@@ -245,6 +273,7 @@ export function Chat({
             rows={1}
             value={draft}
             placeholder={strings.composerPlaceholder}
+            aria-label={strings.composerPlaceholder}
             disabled={streaming}
             onInput={(e) => setDraft((e.target as HTMLTextAreaElement).value)}
             onKeyDown={(e) => {

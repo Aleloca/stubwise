@@ -129,6 +129,13 @@ describe("sendMessage", () => {
     expect(err).toBeInstanceOf(WidgetApiError);
     expect((err as WidgetApiError).status).toBe(429);
   });
+
+  it("propaga l'AbortSignal al fetch (per l'abort dello stream)", async () => {
+    mockFetch(200, {});
+    const controller = new AbortController();
+    await sendMessage(base, "c1", { content: "hi", userId: "u1" }, controller.signal);
+    expect(lastCall?.init.signal).toBe(controller.signal);
+  });
 });
 
 describe("confirmTicket", () => {

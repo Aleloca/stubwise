@@ -159,11 +159,13 @@ export async function sendMessage(
   base: WidgetApiBase,
   conversationId: string,
   input: { content: string; userId: string },
+  signal?: AbortSignal,
 ): Promise<Response> {
   const response = await fetch(url(base, `/conversations/${conversationId}/messages`), {
     method: "POST",
     headers: headers(base, true),
     body: JSON.stringify(input),
+    signal,
   });
   if (!response.ok) await throwApiError(response);
   return response;

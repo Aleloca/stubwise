@@ -10,9 +10,13 @@
  * @param accentColor colore d'accento del progetto (bolla, header, bottoni).
  */
 export function widgetStyles(accentColor: string): string {
+  // Sanitizzazione difensiva: la config viene dal server, ma il colore finisce
+  // interpolato grezzo dentro un `<style>` — accettiamo solo un hex, altrimenti
+  // ripieghiamo sul default (nessuna iniezione di CSS arbitrario).
+  const accent = /^#[0-9a-fA-F]{3,8}$/.test(accentColor) ? accentColor : "#3b82f6";
   return `
 :host {
-  --sw-accent: ${accentColor};
+  --sw-accent: ${accent};
   --sw-bg: #ffffff;
   --sw-fg: #1a1a1a;
   --sw-muted: #6b7280;
