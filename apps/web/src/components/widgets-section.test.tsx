@@ -29,6 +29,14 @@ vi.mock("../lib/api", async (importOriginal) => {
   };
 });
 
+// Il filtro fine per-repo (WidgetSectionFilter) carica l'albero Docs on-demand;
+// qui basta una foresta minima per il repo A (nodo con sourcePath).
+const getDocTree = vi.fn();
+vi.mock("../lib/docs-api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/docs-api")>();
+  return { ...actual, getDocTree: (...args: unknown[]) => getDocTree(...args) };
+});
+
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 const REPO_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const REPO_B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -46,6 +54,7 @@ function makeWidget(overrides: Partial<Widget> = {}): Widget {
     key: "wkey-abc-123",
     enabled: true,
     enabledRepositoryIds: [REPO_A],
+    repositoryFilters: {},
     title: "Assistenza",
     welcomeMessage: "Ciao!",
     accentColor: "#22c55e",
@@ -79,6 +88,7 @@ afterEach(() => {
   createWidget.mockReset();
   updateWidget.mockReset();
   deleteWidget.mockReset();
+  getDocTree.mockReset();
 });
 
 describe("WidgetsSection", () => {
@@ -221,6 +231,63 @@ describe("WidgetsSection", () => {
     expect(
       await screen.findByText("One or more selected repositories do not belong to this project"),
     ).toBeInTheDocument();
+  });
+
+  it("il submit include repositoryFilters (di default vuoto)", async () => {
+    const user = userEvent.setup();
+    createWidget.mockResolvedValue({ widget: makeWidget({ name: "Landing" }) });
+    renderSection([]);
+
+    await user.click(await screen.findByRole("button", { name: "New widget" }));
+    await user.type(screen.getByLabelText("Name"), "Landing");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(createWidget).toHaveBeenCalledTimes(1));
+    expect(createWidget).toHaveBeenCalledWith(
+      PROJECT_ID,
+      expect.objectContaining({ repositoryFilters: {} }),
+    );
+  });
+
+  it("un widget CON filtri salvati precompila il form e il PUT li conserva (no wipe)", async () => {
+    const user = userEvent.setup();
+    updateWidget.mockResolvedValue({ widget: makeWidget() });
+    const savedFilters = { [REPO_A]: { paths: ["apps/webapp"], slugs: ["faq"] } };
+    renderSection([
+      makeWidget({ enabledRepositoryIds: [REPO_A], repositoryFilters: savedFilters }),
+    ]);
+
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    // Salva SENZA toccare il filtro: i filtri salvati devono sopravvivere al PUT.
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(updateWidget).toHaveBeenCalledTimes(1));
+    expect(updateWidget).toHaveBeenCalledWith(
+      PROJECT_ID,
+      WIDGET_ID,
+      expect.objectContaining({ repositoryFilters: savedFilters }),
+    );
+  });
+
+  it("deselezionare un repo scarta la sua entry dai repositoryFilters del payload", async () => {
+    const user = userEvent.setup();
+    updateWidget.mockResolvedValue({ widget: makeWidget() });
+    const savedFilters = { [REPO_A]: { paths: ["apps/webapp"], slugs: [] } };
+    renderSection([
+      makeWidget({ enabledRepositoryIds: [REPO_A], repositoryFilters: savedFilters }),
+    ]);
+
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    // Deseleziona REPO_A: la sua entry di filtro deve sparire (server 422 altrimenti).
+    await user.click(screen.getByLabelText("web"));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(updateWidget).toHaveBeenCalledTimes(1));
+    expect(updateWidget).toHaveBeenCalledWith(
+      PROJECT_ID,
+      WIDGET_ID,
+      expect.objectContaining({ enabledRepositoryIds: [], repositoryFilters: {} }),
+    );
   });
 
   it("ai member la sezione è in sola lettura: nessun New widget, editor disabilitato", async () => {

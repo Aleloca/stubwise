@@ -6,6 +6,7 @@ import { createWidget, deleteWidget, updateWidget, type Widget } from "../lib/ap
 import { widgetsQueryOptions } from "../lib/queries";
 import { translateApiError } from "../lib/translate-api-error";
 import { CopyButton } from "./copy-button";
+import { WidgetSectionFilter } from "./widget-section-filter";
 
 /** Riepilogo di un repository del progetto, per la checklist delle fonti. */
 interface RepositoryOption {
@@ -41,6 +42,11 @@ const NEW_WIDGET_FORM: WidgetUpsertBody = {
   repositoryFilters: {},
 };
 
+/** Copia di un record senza la chiave data (immutabile). */
+function omitKey<V>(record: Record<string, V>, key: string): Record<string, V> {
+  return Object.fromEntries(Object.entries(record).filter(([k]) => k !== key));
+}
+
 /** Proiezione di un widget salvato verso il form dell'editor (scarta i campi di sola lettura). */
 function widgetToForm(widget: Widget): WidgetUpsertBody {
   return {
@@ -53,7 +59,9 @@ function widgetToForm(widget: Widget): WidgetUpsertBody {
     language: widget.language,
     dailyMessageCap: widget.dailyMessageCap,
     dailyTicketCap: widget.dailyTicketCap,
-    repositoryFilters: {},
+    // FIX CRITICO: mappa i filtri REALI salvati sul widget. Se restasse `{}`
+    // ogni PUT azzererebbe i filtri fini salvati (regressione del wipe).
+    repositoryFilters: widget.repositoryFilters,
   };
 }
 
@@ -222,12 +230,34 @@ function WidgetEditor({
   };
 
   const toggleRepository = (id: string, checked: boolean): void => {
-    update(
-      "enabledRepositoryIds",
-      checked
-        ? [...form.enabledRepositoryIds, id]
-        : form.enabledRepositoryIds.filter((existing) => existing !== id),
-    );
+    setForm((current) => {
+      const enabledRepositoryIds = checked
+        ? [...current.enabledRepositoryIds, id]
+        : current.enabledRepositoryIds.filter((existing) => existing !== id);
+      // Deselezionare un repo scarta il suo filtro fine: la chiave DEVE restare
+      // ⊆ enabledRepositoryIds (il server risponde 422 altrimenti).
+      const repositoryFilters =
+        !checked && id in current.repositoryFilters
+          ? omitKey(current.repositoryFilters, id)
+          : current.repositoryFilters;
+      return { ...current, enabledRepositoryIds, repositoryFilters };
+    });
+    if (saveMutation.isError) saveMutation.reset();
+  };
+
+  // Aggiorna (o rimuove) il filtro fine di un repo. `undefined` = repo intero.
+  const setRepositoryFilter = (
+    id: string,
+    filter: { paths: string[]; slugs: string[] } | undefined,
+  ): void => {
+    setForm((current) => {
+      if (filter === undefined) {
+        if (!(id in current.repositoryFilters)) return current;
+        return { ...current, repositoryFilters: omitKey(current.repositoryFilters, id) };
+      }
+      return { ...current, repositoryFilters: { ...current.repositoryFilters, [id]: filter } };
+    });
+    if (saveMutation.isError) saveMutation.reset();
   };
 
   // Cap: input vuoto → null (default d'istanza); un numero valido → intero.
@@ -286,23 +316,34 @@ function WidgetEditor({
         {repositories.length === 0 ? (
           <p className="font-mono text-[12px] text-fg-faint">{t("widget:noRepositories")}</p>
         ) : (
-          repositories.map((repository) => (
-            <label
-              key={repository.id}
-              className="flex items-center gap-2 font-mono text-[12px] text-fg-muted"
-            >
-              <input
-                type="checkbox"
-                checked={form.enabledRepositoryIds.includes(repository.id)}
-                disabled={disabled}
-                onChange={(event) => toggleRepository(repository.id, event.target.checked)}
-                className="size-4 accent-signal"
-                aria-label={repository.name}
-              />
-              <span className="text-fg">{repository.name}</span>
-              <span className="text-fg-faint">{repository.slug}</span>
-            </label>
-          ))
+          repositories.map((repository) => {
+            const checked = form.enabledRepositoryIds.includes(repository.id);
+            return (
+              <div key={repository.id} className="flex flex-col gap-1.5">
+                <label className="flex items-center gap-2 font-mono text-[12px] text-fg-muted">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={disabled}
+                    onChange={(event) => toggleRepository(repository.id, event.target.checked)}
+                    className="size-4 accent-signal"
+                    aria-label={repository.name}
+                  />
+                  <span className="text-fg">{repository.name}</span>
+                  <span className="text-fg-faint">{repository.slug}</span>
+                </label>
+                {checked && (
+                  <WidgetSectionFilter
+                    repositoryId={repository.id}
+                    repositoryName={repository.name}
+                    value={form.repositoryFilters[repository.id]}
+                    onChange={(filter) => setRepositoryFilter(repository.id, filter)}
+                    disabled={disabled}
+                  />
+                )}
+              </div>
+            );
+          })
         )}
         <span className="font-mono text-[11px] text-fg-faint">{t("widget:sourcesHint")}</span>
         {showEmptyWarning && (

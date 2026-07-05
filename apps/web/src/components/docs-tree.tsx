@@ -32,7 +32,7 @@ const GROUP_LABEL_KEY: Record<DocPageKind, string> = {
 };
 
 /** Nodo dell'albero con i figli già risolti (gerarchia + ordinamento). */
-interface TreeItem extends DocTreeNode {
+export interface TreeItem extends DocTreeNode {
   children: TreeItem[];
 }
 
@@ -42,7 +42,7 @@ interface TreeItem extends DocTreeNode {
  * ordina ogni livello per `position` poi per `title` (tie-break stabile). I
  * nodi con `parentId` fuori dal gruppo (o assente) sono radici.
  */
-function buildForest(nodes: DocTreeNode[]): TreeItem[] {
+export function buildForest(nodes: DocTreeNode[]): TreeItem[] {
   const byId = new Map<string, TreeItem>();
   for (const node of nodes) byId.set(node.id, { ...node, children: [] });
 

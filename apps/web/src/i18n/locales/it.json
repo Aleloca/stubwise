@@ -1149,6 +1149,15 @@
     "snippet": "Snippet di integrazione",
     "copySnippet": "Copia snippet",
     "snippetHint": "// incolla prima di </body>: carica il widget e lo avvia con l'utente corrente.",
+    "filter": {
+      "toggle": "Limita alle sezioni",
+      "summary": "({{sections}} sezioni, {{pages}} pagine)",
+      "loading": "Caricamento documentazione…",
+      "noDocs": "Nessuna documentazione generata per questo repository.",
+      "coveredBy": "Coperto dalla sezione selezionata \"{{path}}\"",
+      "remove": "Rimuovi filtro",
+      "emptyWarning": "Il widget non esporrà nulla di {{repository}}: seleziona almeno una sezione o pagina."
+    },
     "conversations": {
       "link": "Conversazioni widget",
       "title": "Conversazioni widget",

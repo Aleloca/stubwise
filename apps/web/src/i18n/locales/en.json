@@ -1149,6 +1149,15 @@
     "snippet": "Embed snippet",
     "copySnippet": "Copy snippet",
     "snippetHint": "// paste before </body>: loads the widget and boots it with the current user.",
+    "filter": {
+      "toggle": "Limit to sections",
+      "summary": "({{sections}} sections, {{pages}} pages)",
+      "loading": "Loading documentation…",
+      "noDocs": "No documentation generated for this repository yet.",
+      "coveredBy": "Covered by the selected section \"{{path}}\"",
+      "remove": "Remove filter",
+      "emptyWarning": "The widget will expose nothing from {{repository}}: select at least one section or page."
+    },
     "conversations": {
       "link": "Widget conversations",
       "title": "Widget conversations",

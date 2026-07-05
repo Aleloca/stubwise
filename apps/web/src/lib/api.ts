@@ -1732,6 +1732,13 @@ export function deleteSearchHistory(): Promise<void> {
 export interface Widget extends WidgetSettings {
   id: string;
   name: string;
+  /**
+   * Filtro FINE per-repo (path filter): per ogni repository esposto, i prefissi
+   * di `sourcePath` e/o gli `slugs` espliciti a cui limitare il retrieval della
+   * chat. Le chiavi sono un sottoinsieme di `enabledRepositoryIds` (garantito in
+   * scrittura). Round-trip completo verso la SPA; `{}` = nessun filtro fine.
+   */
+  repositoryFilters: Record<string, { paths: string[]; slugs: string[] }>;
   /** Chiave immutabile del widget: entra nel DSN dello snippet (al posto della ingestionKey). */
   key: string;
   /** Cap giornaliero di messaggi; null = usa il default d'istanza (env). */
