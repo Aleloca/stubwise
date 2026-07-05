@@ -76,6 +76,11 @@ services:
       EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-http://ollama:11434/v1}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-bge-m3}
       EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      # Tetti giornalieri per progetto del widget customer service (anti-abuso/
+      # costo): messaggi di chat e segnalazioni. Tunabili solo qui, non dal
+      # pannello impostazioni del progetto.
+      WIDGET_DAILY_MESSAGE_CAP: ${WIDGET_DAILY_MESSAGE_CAP:-200}
+      WIDGET_DAILY_TICKET_CAP: ${WIDGET_DAILY_TICKET_CAP:-50}
     logging: *default-logging
     # Il server applica le migrazioni all'avvio (runMigrations): worker e Caddy
     # lo aspettano sano. Healthcheck definito nell'immagine (hit /health).

@@ -76,6 +76,26 @@ const envSchema = z.object({
     (value) => (value === "" ? undefined : value),
     z.string().min(1).optional(),
   ),
+  // Tetto giornaliero per progetto dei messaggi di chat del widget customer
+  // service (anti-abuso/costo). Tunabile solo al deploy. Default 200.
+  WIDGET_DAILY_MESSAGE_CAP: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.coerce
+      .number({ error: "deve essere un numero intero positivo (es. 200)" })
+      .int("deve essere un numero intero positivo (es. 200)")
+      .min(1, "deve essere un numero intero positivo (es. 200)")
+      .default(200),
+  ),
+  // Tetto giornaliero per progetto delle segnalazioni (ticket) create dal
+  // widget customer service. Tunabile solo al deploy. Default 50.
+  WIDGET_DAILY_TICKET_CAP: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.coerce
+      .number({ error: "deve essere un numero intero positivo (es. 50)" })
+      .int("deve essere un numero intero positivo (es. 50)")
+      .min(1, "deve essere un numero intero positivo (es. 50)")
+      .default(50),
+  ),
 });
 
 export interface Config {
@@ -92,6 +112,10 @@ export interface Config {
   embeddingModel: string;
   /** API key opzionale per l'endpoint di embedding. */
   embeddingApiKey?: string;
+  /** Tetto giornaliero per progetto dei messaggi di chat del widget (default 200). */
+  widgetDailyMessageCap: number;
+  /** Tetto giornaliero per progetto delle segnalazioni dal widget (default 50). */
+  widgetDailyTicketCap: number;
 }
 
 /**
@@ -124,5 +148,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     embeddingBaseUrl: parsed.EMBEDDING_BASE_URL,
     embeddingModel: parsed.EMBEDDING_MODEL,
     embeddingApiKey: parsed.EMBEDDING_API_KEY,
+    widgetDailyMessageCap: parsed.WIDGET_DAILY_MESSAGE_CAP,
+    widgetDailyTicketCap: parsed.WIDGET_DAILY_TICKET_CAP,
   };
 }

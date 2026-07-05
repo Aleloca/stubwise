@@ -23,7 +23,26 @@ describe("loadConfig", () => {
       embeddingBaseUrl: "http://ollama:11434/v1",
       embeddingModel: "bge-m3",
       embeddingApiKey: undefined,
+      // Default dei tetti giornalieri del widget.
+      widgetDailyMessageCap: 200,
+      widgetDailyTicketCap: 50,
     });
+  });
+
+  it("legge WIDGET_DAILY_*_CAP dall'env quando presenti", () => {
+    const config = loadConfig({
+      ...validEnv,
+      WIDGET_DAILY_MESSAGE_CAP: "500",
+      WIDGET_DAILY_TICKET_CAP: "25",
+    });
+    expect(config.widgetDailyMessageCap).toBe(500);
+    expect(config.widgetDailyTicketCap).toBe(25);
+  });
+
+  it("usa i default dei tetti widget (200 messaggi, 50 ticket)", () => {
+    const config = loadConfig(validEnv);
+    expect(config.widgetDailyMessageCap).toBe(200);
+    expect(config.widgetDailyTicketCap).toBe(50);
   });
 
   it("legge EMBEDDING_* dall'env quando presenti", () => {

@@ -45,7 +45,8 @@ widget customer service, proxata al server.
 Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
 `docker compose up -d --build <servizio>`. Variabili in `/opt/stubwise/.env`.
 
-- Modifica al **frontend** (`apps/web` o `apps/docs`) → ribuilda **`caddy`**.
+- Modifica al **frontend** (`apps/web`, `apps/docs` o `packages/widget`) →
+  ribuilda **`caddy`**.
 - Modifica al **backend** → ribuilda `server` e/o `worker`.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.

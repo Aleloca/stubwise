@@ -544,6 +544,7 @@ export async function widgetRoutes(
           200: z.object({ ticketId: z.uuid(), number: z.number().int() }),
           401: errorSchema,
           404: errorSchema,
+          429: errorSchema,
         },
       },
     },

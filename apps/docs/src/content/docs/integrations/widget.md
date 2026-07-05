@@ -18,8 +18,9 @@ identifies the project.
 
 - **Grounded chat** — the widget retrieves the most relevant chunks from the
   **repositories you selected** for the project and answers **only from that
-  context**, returning clickable **citations** to the pages it used. When the
-  docs don't cover the question, it says so rather than inventing an answer.
+  context**, listing the pages it used as textual **citations** (shown as
+  `source: <page title>`, not clickable links). When the docs don't cover the
+  question, it says so rather than inventing an answer.
 - **Report creation** — when the conversation surfaces a bug or a suggestion,
   the widget **proposes a report**. The user reviews and edits it, and on confirm
   it becomes a ticket in Stubwise with **source `widget`**, the user's declared
@@ -138,10 +139,13 @@ don't rely on the widget's identity for anything security-sensitive.
 - **Daily caps per project** — to bound cost and abuse, each project has a daily
   cap on **chat messages** and on **reports** created through the widget. The
   defaults are **200 chat messages/day** and **50 reports/day**; they're tunable
-  only at deploy time via server options, not from the project settings.
+  only at deploy time via the `WIDGET_DAILY_MESSAGE_CAP` and
+  `WIDGET_DAILY_TICKET_CAP` server environment variables, not from the project
+  settings.
 - **Tickets from the widget** — reports arrive as tickets with **source
-  `widget`**, carrying the user's declared identity and the **full chat
-  transcript**, so the team has the context that led to the report.
+  `widget`**, carrying the user's declared identity and a **transcript of the
+  conversation** — the **last 10 messages**, each truncated to 500 characters —
+  so the team has the context that led to the report.
 - **Conversations** — every widget conversation is stored and readable by the
   team in the project's **Conversations** page, transcript and citations
   included.

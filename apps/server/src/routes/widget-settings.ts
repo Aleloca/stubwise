@@ -28,13 +28,17 @@ type WidgetSettingsRow = typeof widgetSettings.$inferSelect;
  * `widgetSettingsSchema` di @stubwise/shared, la forma attesa dal form della SPA.
  */
 function toPublicSettings(row: WidgetSettingsRow): z.infer<typeof widgetSettingsSchema> {
+  // safeParse con fallback come la superficie pubblica (/widget/:slug/config):
+  // un `language` corrotto a DB non deve rompere la lettura del pannello (il
+  // default del progetto è l'italiano).
+  const language = widgetSettingsSchema.shape.language.safeParse(row.language);
   return {
     enabled: row.enabled,
     enabledRepositoryIds: row.enabledRepositoryIds,
     title: row.title,
     welcomeMessage: row.welcomeMessage,
     accentColor: row.accentColor,
-    language: widgetSettingsSchema.shape.language.parse(row.language),
+    language: language.success ? language.data : ("it" as const),
   };
 }
 

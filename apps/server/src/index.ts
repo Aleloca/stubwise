@@ -31,6 +31,8 @@ const app = buildApp({
   embeddingBaseUrl: config.embeddingBaseUrl,
   embeddingModel: config.embeddingModel,
   ...(config.embeddingApiKey !== undefined ? { embeddingApiKey: config.embeddingApiKey } : {}),
+  widgetDailyMessageCap: config.widgetDailyMessageCap,
+  widgetDailyTicketCap: config.widgetDailyTicketCap,
 });
 
 try {
