@@ -14,9 +14,10 @@ import {
   tickets,
   widgetConversations,
   widgetMessages,
-  widgetSettings,
+  widgets,
 } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
+import { generateIngestionKey } from "./shared.js";
 import type { TestDb } from "@stubwise/db/testing";
 import {
   seedRepository,
@@ -66,21 +67,44 @@ let capApp: FastifyInstance;
 /** Istanza col cap giornaliero ticket = 1 (test del limite ticket). */
 let ticketCapApp: FastifyInstance;
 
-/** Seed di un progetto (+ repo) e lettura di slug/ingestionKey della superficie pubblica. */
+/** Seed di un progetto (+ repo) e lettura dello slug della superficie pubblica. */
 async function seedProjectWithKey(
   db: Db,
-): Promise<{ projectId: string; repositoryId: string; slug: string; ingestionKey: string }> {
+): Promise<{ projectId: string; repositoryId: string; slug: string }> {
   const { projectId, repositoryId } = await seedRepository(db);
   const [project] = await db
-    .select({ slug: projects.slug, ingestionKey: projects.ingestionKey })
+    .select({ slug: projects.slug })
     .from(projects)
     .where(eq(projects.id, projectId));
   return {
     projectId,
     repositoryId,
     slug: project!.slug,
-    ingestionKey: project!.ingestionKey,
   };
+}
+
+/** Riga della tabella widgets. */
+type WidgetRow = typeof widgets.$inferSelect;
+
+/**
+ * Inserisce un widget nel progetto (name default "Test", key random) e ritorna
+ * la riga completa. La `key` è l'header X-Stubwise-Key della superficie pubblica.
+ */
+async function seedWidget(
+  db: Db,
+  projectId: string,
+  overrides: Partial<typeof widgets.$inferInsert> = {},
+): Promise<WidgetRow> {
+  const [row] = await db
+    .insert(widgets)
+    .values({
+      projectId,
+      name: "Test",
+      key: generateIngestionKey(),
+      ...overrides,
+    })
+    .returning();
+  return row!;
 }
 
 /** Generazione succeeded + impostata come corrente del repo. Ritorna il gen id. */
@@ -221,38 +245,43 @@ describe("GET /widget/:slug/config", () => {
     expect(res.json()).toMatchObject({ code: "invalid_ingestion_key" });
   });
 
-  it("chiave giusta, settings assenti → { enabled: false }", async () => {
+  it("ingestionKey del progetto sulla superficie widget → 401 (breaking intenzionale)", async () => {
+    // La chiave del progetto NON è più valida sulla superficie widget: solo la
+    // key di un widget autentica. Regressione: prima passava.
     const project = await seedProjectWithKey(testDb.db);
+    await seedWidget(testDb.db, project.projectId, { enabled: true });
+    const [row] = await testDb.db
+      .select({ ingestionKey: projects.ingestionKey })
+      .from(projects)
+      .where(eq(projects.id, project.projectId));
     const res = await app.inject({
       method: "GET",
       url: `/widget/${project.slug}/config`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": row!.ingestionKey },
     });
-    expect(res.statusCode).toBe(200);
-    expect(res.headers["cache-control"]).toBe("no-store");
-    expect(res.json()).toEqual({ enabled: false });
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toMatchObject({ code: "invalid_ingestion_key" });
   });
 
-  it("settings disabilitati (enabled=false) → { enabled: false }", async () => {
+  it("widget disabilitato (enabled=false) → { enabled: false }", async () => {
     const project = await seedProjectWithKey(testDb.db);
-    await testDb.db.insert(widgetSettings).values({
-      projectId: project.projectId,
+    const widget = await seedWidget(testDb.db, project.projectId, {
       enabled: false,
       enabledRepositoryIds: [project.repositoryId],
     });
     const res = await app.inject({
       method: "GET",
       url: `/widget/${project.slug}/config`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
     });
     expect(res.statusCode).toBe(200);
+    expect(res.headers["cache-control"]).toBe("no-store");
     expect(res.json()).toEqual({ enabled: false });
   });
 
-  it("settings enabled con 1 repo → enabled: true + campi + chatEnabled: true", async () => {
+  it("widget enabled con 1 repo → enabled: true + campi + chatEnabled: true", async () => {
     const project = await seedProjectWithKey(testDb.db);
-    await testDb.db.insert(widgetSettings).values({
-      projectId: project.projectId,
+    const widget = await seedWidget(testDb.db, project.projectId, {
       enabled: true,
       enabledRepositoryIds: [project.repositoryId],
       title: "Supporto Acme",
@@ -263,7 +292,7 @@ describe("GET /widget/:slug/config", () => {
     const res = await app.inject({
       method: "GET",
       url: `/widget/${project.slug}/config`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
     });
     expect(res.statusCode).toBe(200);
     expect(res.headers["cache-control"]).toBe("no-store");
@@ -277,26 +306,63 @@ describe("GET /widget/:slug/config", () => {
     });
   });
 
-  it("settings enabled ma enabledRepositoryIds vuoto → chatEnabled: false", async () => {
+  it("due widget nello stesso progetto: config con chiave A ≠ config con chiave B", async () => {
     const project = await seedProjectWithKey(testDb.db);
-    await testDb.db.insert(widgetSettings).values({
-      projectId: project.projectId,
+    const widgetA = await seedWidget(testDb.db, project.projectId, {
+      enabled: true,
+      enabledRepositoryIds: [project.repositoryId],
+      title: "Widget A",
+    });
+    const widgetB = await seedWidget(testDb.db, project.projectId, {
+      enabled: true,
+      enabledRepositoryIds: [project.repositoryId],
+      title: "Widget B",
+    });
+    const resA = await app.inject({
+      method: "GET",
+      url: `/widget/${project.slug}/config`,
+      headers: { "x-stubwise-key": widgetA.key },
+    });
+    const resB = await app.inject({
+      method: "GET",
+      url: `/widget/${project.slug}/config`,
+      headers: { "x-stubwise-key": widgetB.key },
+    });
+    expect(resA.json()).toMatchObject({ title: "Widget A" });
+    expect(resB.json()).toMatchObject({ title: "Widget B" });
+  });
+
+  it("chiave di un widget eliminato → 401", async () => {
+    const project = await seedProjectWithKey(testDb.db);
+    const widget = await seedWidget(testDb.db, project.projectId, { enabled: true });
+    await testDb.db.delete(widgets).where(eq(widgets.id, widget.id));
+    const res = await app.inject({
+      method: "GET",
+      url: `/widget/${project.slug}/config`,
+      headers: { "x-stubwise-key": widget.key },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(res.json()).toMatchObject({ code: "invalid_ingestion_key" });
+  });
+
+  it("widget enabled ma enabledRepositoryIds vuoto → chatEnabled: false", async () => {
+    const project = await seedProjectWithKey(testDb.db);
+    const widget = await seedWidget(testDb.db, project.projectId, {
       enabled: true,
       enabledRepositoryIds: [],
     });
     const res = await app.inject({
       method: "GET",
       url: `/widget/${project.slug}/config`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ enabled: true, chatEnabled: false });
   });
 
-  it("settings enabled ma chat non disponibile (nessun provider) → chatEnabled: false", async () => {
+  it("widget enabled ma chat non disponibile (nessun provider) → chatEnabled: false", async () => {
     const project = await seedProjectWithKey(testDb.db);
-    await testDb.db.insert(widgetSettings).values({
-      projectId: project.projectId,
+    const widget = await seedWidget(testDb.db, project.projectId, {
       enabled: true,
       enabledRepositoryIds: [project.repositoryId],
     });
@@ -304,16 +370,15 @@ describe("GET /widget/:slug/config", () => {
     const res = await app.inject({
       method: "GET",
       url: `/widget/${project.slug}/config`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ enabled: true, chatEnabled: false });
   });
 
-  it("settings enabled ma isAvailable LANCIA → 200 con chatEnabled: false (endpoint pubblico resiliente)", async () => {
+  it("widget enabled ma isAvailable LANCIA → 200 con chatEnabled: false (endpoint pubblico resiliente)", async () => {
     const project = await seedProjectWithKey(testDb.db);
-    await testDb.db.insert(widgetSettings).values({
-      projectId: project.projectId,
+    const widget = await seedWidget(testDb.db, project.projectId, {
       enabled: true,
       enabledRepositoryIds: [project.repositoryId],
     });
@@ -321,7 +386,7 @@ describe("GET /widget/:slug/config", () => {
     const res = await app.inject({
       method: "GET",
       url: `/widget/${project.slug}/config`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ enabled: true, chatEnabled: false });
@@ -329,19 +394,23 @@ describe("GET /widget/:slug/config", () => {
 
   it("risposta include header CORS access-control-allow-origin: *", async () => {
     const project = await seedProjectWithKey(testDb.db);
+    const widget = await seedWidget(testDb.db, project.projectId, { enabled: true });
     const res = await app.inject({
       method: "GET",
       url: `/widget/${project.slug}/config`,
-      headers: { "x-stubwise-key": project.ingestionKey, origin: "https://sito-cliente.example" },
+      headers: { "x-stubwise-key": widget.key, origin: "https://sito-cliente.example" },
     });
     expect(res.headers["access-control-allow-origin"]).toBe("*");
   });
 });
 
-/** Abilita il widget per un progetto (settings enabled) col repo dato. */
-async function enableWidget(db: Db, projectId: string, repositoryId: string): Promise<void> {
-  await db.insert(widgetSettings).values({
-    projectId,
+/** Crea un widget ABILITATO col repo dato e ritorna la riga (con la key). */
+async function enableWidget(
+  db: Db,
+  projectId: string,
+  repositoryId: string,
+): Promise<WidgetRow> {
+  return seedWidget(db, projectId, {
     enabled: true,
     enabledRepositoryIds: [repositoryId],
   });
@@ -350,26 +419,27 @@ async function enableWidget(db: Db, projectId: string, repositoryId: string): Pr
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 describe("POST /widget/:slug/conversations", () => {
-  it("widget abilitato → 200 con conversationId uuid", async () => {
+  it("widget abilitato → 200 con conversationId uuid, persistita col widgetId", async () => {
     const project = await seedProjectWithKey(testDb.db);
-    await enableWidget(testDb.db, project.projectId, project.repositoryId);
+    const widget = await enableWidget(testDb.db, project.projectId, project.repositoryId);
     const res = await app.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { user: { id: "visitor-1", email: "v1@example.com", name: "Visitor Uno" } },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.conversationId).toMatch(UUID_RE);
 
-    // La riga è persistita col progetto e l'identità dichiarata.
+    // La riga è persistita col progetto, il widget e l'identità dichiarata.
     const [row] = await testDb.db
       .select()
       .from(widgetConversations)
       .where(eq(widgetConversations.id, body.conversationId));
     expect(row).toMatchObject({
       projectId: project.projectId,
+      widgetId: widget.id,
       externalUserId: "visitor-1",
       externalUserEmail: "v1@example.com",
       externalUserName: "Visitor Uno",
@@ -378,11 +448,11 @@ describe("POST /widget/:slug/conversations", () => {
 
   it("solo user.id (email/name assenti) → 200", async () => {
     const project = await seedProjectWithKey(testDb.db);
-    await enableWidget(testDb.db, project.projectId, project.repositoryId);
+    const widget = await enableWidget(testDb.db, project.projectId, project.repositoryId);
     const res = await app.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { user: { id: "visitor-2" } },
     });
     expect(res.statusCode).toBe(200);
@@ -399,11 +469,11 @@ describe("POST /widget/:slug/conversations", () => {
 
   it("body invalido (user.id vuoto) → 422", async () => {
     const project = await seedProjectWithKey(testDb.db);
-    await enableWidget(testDb.db, project.projectId, project.repositoryId);
+    const widget = await enableWidget(testDb.db, project.projectId, project.repositoryId);
     const res = await app.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { user: { id: "" } },
     });
     expect(res.statusCode).toBe(422);
@@ -411,27 +481,14 @@ describe("POST /widget/:slug/conversations", () => {
 
   it("widget disabilitato (enabled=false) → 404 widget_disabled", async () => {
     const project = await seedProjectWithKey(testDb.db);
-    await testDb.db.insert(widgetSettings).values({
-      projectId: project.projectId,
+    const widget = await seedWidget(testDb.db, project.projectId, {
       enabled: false,
       enabledRepositoryIds: [project.repositoryId],
     });
     const res = await app.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations`,
-      headers: { "x-stubwise-key": project.ingestionKey },
-      payload: { user: { id: "visitor-1" } },
-    });
-    expect(res.statusCode).toBe(404);
-    expect(res.json()).toMatchObject({ code: "widget_disabled" });
-  });
-
-  it("settings assenti → 404 widget_disabled", async () => {
-    const project = await seedProjectWithKey(testDb.db);
-    const res = await app.inject({
-      method: "POST",
-      url: `/widget/${project.slug}/conversations`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { user: { id: "visitor-1" } },
     });
     expect(res.statusCode).toBe(404);
@@ -453,18 +510,18 @@ describe("POST /widget/:slug/conversations", () => {
 describe("GET /widget/:slug/conversations/:conversationId/messages", () => {
   it("storico vuoto subito dopo la creazione → { messages: [] }", async () => {
     const project = await seedProjectWithKey(testDb.db);
-    await enableWidget(testDb.db, project.projectId, project.repositoryId);
+    const widget = await enableWidget(testDb.db, project.projectId, project.repositoryId);
     const created = await app.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { user: { id: "visitor-1" } },
     });
     const { conversationId } = created.json();
     const res = await app.inject({
       method: "GET",
       url: `/widget/${project.slug}/conversations/${conversationId}/messages?userId=visitor-1`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ messages: [] });
@@ -472,14 +529,14 @@ describe("GET /widget/:slug/conversations/:conversationId/messages", () => {
 
   it("storico con messaggi → in ordine cronologico con shape completa", async () => {
     const project = await seedProjectWithKey(testDb.db);
-    await enableWidget(testDb.db, project.projectId, project.repositoryId);
+    const widget = await enableWidget(testDb.db, project.projectId, project.repositoryId);
     const { ticketId } = await seedTicket(testDb.db, {
       projectId: project.projectId,
       repositoryId: project.repositoryId,
     });
     const [conv] = await testDb.db
       .insert(widgetConversations)
-      .values({ projectId: project.projectId, externalUserId: "visitor-1" })
+      .values({ projectId: project.projectId, widgetId: widget.id, externalUserId: "visitor-1" })
       .returning();
     const citations = [{ pageId: "p1", title: "Doc" }];
     await testDb.db.insert(widgetMessages).values([
@@ -502,7 +559,7 @@ describe("GET /widget/:slug/conversations/:conversationId/messages", () => {
     const res = await app.inject({
       method: "GET",
       url: `/widget/${project.slug}/conversations/${conv!.id}/messages?userId=visitor-1`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
     });
     expect(res.statusCode).toBe(200);
     const { messages } = res.json();
@@ -526,53 +583,89 @@ describe("GET /widget/:slug/conversations/:conversationId/messages", () => {
 
   it("userId sbagliato → 404 (anti-lettura cross-utente)", async () => {
     const project = await seedProjectWithKey(testDb.db);
-    await enableWidget(testDb.db, project.projectId, project.repositoryId);
+    const widget = await enableWidget(testDb.db, project.projectId, project.repositoryId);
     const [conv] = await testDb.db
       .insert(widgetConversations)
-      .values({ projectId: project.projectId, externalUserId: "visitor-1" })
+      .values({ projectId: project.projectId, widgetId: widget.id, externalUserId: "visitor-1" })
       .returning();
     const res = await app.inject({
       method: "GET",
       url: `/widget/${project.slug}/conversations/${conv!.id}/messages?userId=visitor-2`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
     });
     expect(res.statusCode).toBe(404);
   });
 
   it("conversazione di un altro progetto → 404", async () => {
     const project = await seedProjectWithKey(testDb.db);
-    await enableWidget(testDb.db, project.projectId, project.repositoryId);
+    const widget = await enableWidget(testDb.db, project.projectId, project.repositoryId);
     const other = await seedProjectWithKey(testDb.db);
+    const otherWidget = await enableWidget(testDb.db, other.projectId, other.repositoryId);
     const [conv] = await testDb.db
       .insert(widgetConversations)
-      .values({ projectId: other.projectId, externalUserId: "visitor-1" })
+      .values({ projectId: other.projectId, widgetId: otherWidget.id, externalUserId: "visitor-1" })
       .returning();
     // La chiave/slug è del PRIMO progetto, la conversazione del secondo.
     const res = await app.inject({
       method: "GET",
       url: `/widget/${project.slug}/conversations/${conv!.id}/messages?userId=visitor-1`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("chiave di un altro widget dello stesso progetto → 404 (cross-widget)", async () => {
+    // Due widget nello stesso progetto: la conversazione è di A, la si legge con
+    // la chiave di B → 404 indistinguibile (ownership per-widget).
+    const project = await seedProjectWithKey(testDb.db);
+    const widgetA = await enableWidget(testDb.db, project.projectId, project.repositoryId);
+    const widgetB = await enableWidget(testDb.db, project.projectId, project.repositoryId);
+    const [conv] = await testDb.db
+      .insert(widgetConversations)
+      .values({ projectId: project.projectId, widgetId: widgetA.id, externalUserId: "visitor-1" })
+      .returning();
+    const res = await app.inject({
+      method: "GET",
+      url: `/widget/${project.slug}/conversations/${conv!.id}/messages?userId=visitor-1`,
+      headers: { "x-stubwise-key": widgetB.key },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("conversazione orfana (widgetId null) → 404 con qualsiasi chiave", async () => {
+    // Conversazione di un widget eliminato (widgetId SET NULL): non è più leggibile
+    // da nessuna chiave, perché l'ownership richiede widgetId === request.widget.id.
+    const project = await seedProjectWithKey(testDb.db);
+    const widget = await enableWidget(testDb.db, project.projectId, project.repositoryId);
+    const [conv] = await testDb.db
+      .insert(widgetConversations)
+      .values({ projectId: project.projectId, widgetId: null, externalUserId: "visitor-1" })
+      .returning();
+    const res = await app.inject({
+      method: "GET",
+      url: `/widget/${project.slug}/conversations/${conv!.id}/messages?userId=visitor-1`,
+      headers: { "x-stubwise-key": widget.key },
     });
     expect(res.statusCode).toBe(404);
   });
 
   it("conversationId inesistente → 404", async () => {
     const project = await seedProjectWithKey(testDb.db);
-    await enableWidget(testDb.db, project.projectId, project.repositoryId);
+    const widget = await enableWidget(testDb.db, project.projectId, project.repositoryId);
     const res = await app.inject({
       method: "GET",
       url: `/widget/${project.slug}/conversations/00000000-0000-0000-0000-000000000000/messages?userId=visitor-1`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
     });
     expect(res.statusCode).toBe(404);
   });
 
   it("senza header chiave → 401 (auth prima di tutto)", async () => {
     const project = await seedProjectWithKey(testDb.db);
-    await enableWidget(testDb.db, project.projectId, project.repositoryId);
+    const widget = await enableWidget(testDb.db, project.projectId, project.repositoryId);
     const [conv] = await testDb.db
       .insert(widgetConversations)
-      .values({ projectId: project.projectId, externalUserId: "visitor-1" })
+      .values({ projectId: project.projectId, widgetId: widget.id, externalUserId: "visitor-1" })
       .returning();
     const res = await app.inject({
       method: "GET",
@@ -584,19 +677,19 @@ describe("GET /widget/:slug/conversations/:conversationId/messages", () => {
   it("widget disabilitato (enabled=false) → 404 widget_disabled", async () => {
     const project = await seedProjectWithKey(testDb.db);
     // Prima abilito per creare la conversazione, poi disabilito.
-    await enableWidget(testDb.db, project.projectId, project.repositoryId);
+    const widget = await enableWidget(testDb.db, project.projectId, project.repositoryId);
     const [conv] = await testDb.db
       .insert(widgetConversations)
-      .values({ projectId: project.projectId, externalUserId: "visitor-1" })
+      .values({ projectId: project.projectId, widgetId: widget.id, externalUserId: "visitor-1" })
       .returning();
     await testDb.db
-      .update(widgetSettings)
+      .update(widgets)
       .set({ enabled: false })
-      .where(eq(widgetSettings.projectId, project.projectId));
+      .where(eq(widgets.id, widget.id));
     const res = await app.inject({
       method: "GET",
       url: `/widget/${project.slug}/conversations/${conv!.id}/messages?userId=visitor-1`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
     });
     expect(res.statusCode).toBe(404);
     expect(res.json()).toMatchObject({ code: "widget_disabled" });
@@ -610,21 +703,26 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
     opts: { userId?: string } = {},
   ): Promise<{
     project: Awaited<ReturnType<typeof seedProjectWithKey>>;
+    widget: WidgetRow;
     conversationId: string;
     genId: string;
   }> {
     const project = await seedProjectWithKey(db);
-    await enableWidget(db, project.projectId, project.repositoryId);
+    const widget = await enableWidget(db, project.projectId, project.repositoryId);
     const genId = await seedCurrentGeneration(db, project.repositoryId);
     const [conv] = await db
       .insert(widgetConversations)
-      .values({ projectId: project.projectId, externalUserId: opts.userId ?? "visitor-1" })
+      .values({
+        projectId: project.projectId,
+        widgetId: widget.id,
+        externalUserId: opts.userId ?? "visitor-1",
+      })
       .returning();
-    return { project, conversationId: conv!.id, genId };
+    return { project, widget, conversationId: conv!.id, genId };
   }
 
   it("stream normale → delta + done con citazioni; user+assistant persistiti; lastMessageAt aggiornato", async () => {
-    const { project, conversationId, genId } = await setupChat(testDb.db);
+    const { project, widget, conversationId, genId } = await setupChat(testDb.db);
     const question = "Come attivo le notifiche via email?";
     const page = await seedPageWithChunk(testDb.db, project.repositoryId, genId, {
       title: "Notifiche email",
@@ -639,7 +737,7 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
     const res = await app.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations/${conversationId}/messages`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { content: question, userId: "visitor-1" },
     });
     expect(res.statusCode).toBe(200);
@@ -687,7 +785,7 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
     // Regressione: la finestra è limit(WIDGET_HISTORY_PAIRS*2) in DESC + reverse.
     // Con uno storico dispari (post-insert del nuovo user) il primo elemento della
     // finestra sarebbe un `assistant` → l'API Messages richiede il primo `user`.
-    const { project, conversationId } = await setupChat(testDb.db);
+    const { project, widget, conversationId } = await setupChat(testDb.db);
     // 11 coppie già persistite (22 messaggi): oltre la finestra di 10 coppie.
     const seed: { conversationId: string; role: string; content: string; createdAt: Date }[] = [];
     for (let i = 0; i < 11; i++) {
@@ -705,7 +803,7 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
     const res = await app.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations/${conversationId}/messages`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { content: "nuova domanda", userId: "visitor-1" },
     });
     expect(res.statusCode).toBe(200);
@@ -720,19 +818,18 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
     // Il config dichiara chatEnabled=false con enabledRepositoryIds vuoto; il POST
     // deve IMPORLO (un client che ignora il config non deve bruciare budget LLM).
     const project = await seedProjectWithKey(testDb.db);
-    await testDb.db.insert(widgetSettings).values({
-      projectId: project.projectId,
+    const widget = await seedWidget(testDb.db, project.projectId, {
       enabled: true,
       enabledRepositoryIds: [],
     });
     const [conv] = await testDb.db
       .insert(widgetConversations)
-      .values({ projectId: project.projectId, externalUserId: "visitor-1" })
+      .values({ projectId: project.projectId, widgetId: widget.id, externalUserId: "visitor-1" })
       .returning();
     const res = await app.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations/${conv!.id}/messages`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { content: "ciao", userId: "visitor-1" },
     });
     expect(res.statusCode).toBe(404);
@@ -745,7 +842,7 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
   });
 
   it("sentinel SPEZZATO su più delta → i delta non contengono mai il marker; ticket_proposal col JSON; content = solo visible", async () => {
-    const { project, conversationId, genId } = await seedChatWithoutContext(testDb.db);
+    const { project, widget, conversationId, genId } = await seedChatWithoutContext(testDb.db);
     void genId;
     // Stream che emette testo + il blocco sentinel spezzato a metà marker.
     const proposalJson = '{"title":"Bug login","body":"Non funziona","type":"bug"}';
@@ -761,7 +858,7 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
     const res = await app.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations/${conversationId}/messages`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { content: "Il login non va", userId: "visitor-1" },
     });
     expect(res.statusCode).toBe(200);
@@ -797,7 +894,7 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
   });
 
   it("sentinel con JSON malformato → nessun ticket_proposal, ma done regolare", async () => {
-    const { project, conversationId } = await seedChatWithoutContext(testDb.db);
+    const { project, widget, conversationId } = await seedChatWithoutContext(testDb.db);
     streamOverride = async function* (): AsyncIterable<string> {
       yield "Risposta. ";
       yield "\n\n<<<TICKET_PROPOSAL\n{non valido\nTICKET_PROPOSAL>>>";
@@ -806,7 +903,7 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
     const res = await app.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations/${conversationId}/messages`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { content: "domanda", userId: "visitor-1" },
     });
     expect(res.statusCode).toBe(200);
@@ -818,7 +915,7 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
   });
 
   it("stream che LANCIA a metà (con inizio sentinel) → evento error; parziale persistito col marker, senza frammento sentinel; delta senza marker", async () => {
-    const { project, conversationId } = await seedChatWithoutContext(testDb.db);
+    const { project, widget, conversationId } = await seedChatWithoutContext(testDb.db);
     // Lo stream emette del testo visibile, POI l'inizio (parziale) del marcatore
     // sentinel, e infine LANCIA: è il caso peggiore, l'interruzione cade dove il
     // marcatore sta per aprirsi.
@@ -832,7 +929,7 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
     const res = await app.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations/${conversationId}/messages`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { content: "il login non va", userId: "visitor-1" },
     });
     expect(res.statusCode).toBe(200);
@@ -863,12 +960,12 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
 
   it("cap giornaliero: secondo messaggio → 429 widget_chat_cap_reached", async () => {
     // capApp ha widgetDailyMessageCap = 1: il primo passa, il secondo è respinto.
-    const { project, conversationId, genId } = await setupChat(testDb.db);
+    const { project, widget, conversationId, genId } = await setupChat(testDb.db);
     void genId;
     const first = await capApp.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations/${conversationId}/messages`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { content: "primo", userId: "visitor-1" },
     });
     expect(first.statusCode).toBe(200);
@@ -884,7 +981,7 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
     const second = await capApp.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations/${conversationId}/messages`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { content: "secondo", userId: "visitor-1" },
     });
     expect(second.statusCode).toBe(429);
@@ -892,26 +989,26 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
   });
 
   it("conversazione di un altro utente (userId sbagliato) → 404", async () => {
-    const { project, conversationId } = await setupChat(testDb.db);
+    const { project, widget, conversationId } = await setupChat(testDb.db);
     const res = await app.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations/${conversationId}/messages`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { content: "intrusione", userId: "visitor-altro" },
     });
     expect(res.statusCode).toBe(404);
   });
 
   it("widget disabilitato → 404 widget_disabled", async () => {
-    const { project, conversationId } = await setupChat(testDb.db);
+    const { project, widget, conversationId } = await setupChat(testDb.db);
     await testDb.db
-      .update(widgetSettings)
+      .update(widgets)
       .set({ enabled: false })
-      .where(eq(widgetSettings.projectId, project.projectId));
+      .where(eq(widgets.id, widget.id));
     const res = await app.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations/${conversationId}/messages`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { content: "ciao", userId: "visitor-1" },
     });
     expect(res.statusCode).toBe(404);
@@ -919,12 +1016,12 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
   });
 
   it("chat non disponibile → 503 chat_unavailable, nessun messaggio persistito", async () => {
-    const { project, conversationId } = await setupChat(testDb.db);
+    const { project, widget, conversationId } = await setupChat(testDb.db);
     availabilityOverride = { available: false, reason: "no_api_key_provider" };
     const res = await app.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations/${conversationId}/messages`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { content: "ciao", userId: "visitor-1" },
     });
     expect(res.statusCode).toBe(503);
@@ -937,11 +1034,11 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
   });
 
   it("body invalido (userId mancante) → 422", async () => {
-    const { project, conversationId } = await setupChat(testDb.db);
+    const { project, widget, conversationId } = await setupChat(testDb.db);
     const res = await app.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations/${conversationId}/messages`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { content: "ciao" },
     });
     expect(res.statusCode).toBe(422);
@@ -962,8 +1059,7 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
     const project = await seedProjectWithKey(testDb.db);
     const repoA = project.repositoryId;
     const repoB = await seedRepositoryInProject(testDb.db, project.projectId);
-    await testDb.db.insert(widgetSettings).values({
-      projectId: project.projectId,
+    const widget = await seedWidget(testDb.db, project.projectId, {
       enabled: true,
       enabledRepositoryIds: [repoA], // solo A
     });
@@ -982,13 +1078,13 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
     });
     const [conv] = await testDb.db
       .insert(widgetConversations)
-      .values({ projectId: project.projectId, externalUserId: "visitor-1" })
+      .values({ projectId: project.projectId, widgetId: widget.id, externalUserId: "visitor-1" })
       .returning();
 
     const res = await app.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations/${conv!.id}/messages`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { content: token, userId: "visitor-1" },
     });
     expect(res.statusCode).toBe(200);
@@ -1013,11 +1109,11 @@ describe("POST /widget/:slug/conversations/:conversationId/tickets", () => {
     } = {},
   ): Promise<{
     project: Awaited<ReturnType<typeof seedProjectWithKey>>;
+    widget: WidgetRow;
     conversationId: string;
   }> {
     const project = await seedProjectWithKey(db);
-    await db.insert(widgetSettings).values({
-      projectId: project.projectId,
+    const widget = await seedWidget(db, project.projectId, {
       enabled: true,
       enabledRepositoryIds: opts.enabledRepositoryIds ?? [project.repositoryId],
       language: opts.language ?? "it",
@@ -1026,16 +1122,17 @@ describe("POST /widget/:slug/conversations/:conversationId/tickets", () => {
       .insert(widgetConversations)
       .values({
         projectId: project.projectId,
+        widgetId: widget.id,
         externalUserId: opts.userId ?? "visitor-1",
         externalUserEmail: opts.email ?? null,
         externalUserName: opts.name ?? null,
       })
       .returning();
-    return { project, conversationId: conv!.id };
+    return { project, widget, conversationId: conv!.id };
   }
 
   it("creazione felice: ticket in DB (source widget), body con proposta+identità+trascrizione, messaggio assistant collegato (it), lastMessageAt avanzato", async () => {
-    const { project, conversationId } = await setupTicketConversation(testDb.db, {
+    const { project, widget, conversationId } = await setupTicketConversation(testDb.db, {
       email: "mario@example.com",
       name: "Mario Rossi",
       language: "it",
@@ -1063,7 +1160,7 @@ describe("POST /widget/:slug/conversations/:conversationId/tickets", () => {
     const res = await app.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: {
         title: "Login rotto",
         body: "Non riesco ad autenticarmi.",
@@ -1119,17 +1216,17 @@ describe("POST /widget/:slug/conversations/:conversationId/tickets", () => {
   });
 
   it("il numero ticket incrementa next_ticket_number (secondo ticket → number successivo)", async () => {
-    const { project, conversationId } = await setupTicketConversation(testDb.db);
+    const { project, widget, conversationId } = await setupTicketConversation(testDb.db);
     const first = await app.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { title: "Uno", body: "primo", type: "bug", userId: "visitor-1" },
     });
     const second = await app.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { title: "Due", body: "secondo", type: "feedback", userId: "visitor-1" },
     });
     expect(first.statusCode).toBe(200);
@@ -1138,13 +1235,13 @@ describe("POST /widget/:slug/conversations/:conversationId/tickets", () => {
   });
 
   it("conferma in inglese → content assistant in inglese", async () => {
-    const { project, conversationId } = await setupTicketConversation(testDb.db, {
+    const { project, widget, conversationId } = await setupTicketConversation(testDb.db, {
       language: "en",
     });
     const res = await app.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { title: "Broken", body: "It fails", type: "bug", userId: "visitor-1" },
     });
     expect(res.statusCode).toBe(200);
@@ -1157,13 +1254,13 @@ describe("POST /widget/:slug/conversations/:conversationId/tickets", () => {
   });
 
   it("funziona a chat spenta (enabledRepositoryIds vuoto) → ticket creato lo stesso", async () => {
-    const { project, conversationId } = await setupTicketConversation(testDb.db, {
+    const { project, widget, conversationId } = await setupTicketConversation(testDb.db, {
       enabledRepositoryIds: [],
     });
     const res = await app.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { title: "Segnalazione", body: "problema", type: "bug", userId: "visitor-1" },
     });
     expect(res.statusCode).toBe(200);
@@ -1171,26 +1268,26 @@ describe("POST /widget/:slug/conversations/:conversationId/tickets", () => {
   });
 
   it("userId sbagliato → 404 (anti cross-utente)", async () => {
-    const { project, conversationId } = await setupTicketConversation(testDb.db);
+    const { project, widget, conversationId } = await setupTicketConversation(testDb.db);
     const res = await app.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { title: "T", body: "b", type: "bug", userId: "visitor-altro" },
     });
     expect(res.statusCode).toBe(404);
   });
 
   it("widget disabilitato → 404 widget_disabled", async () => {
-    const { project, conversationId } = await setupTicketConversation(testDb.db);
+    const { project, widget, conversationId } = await setupTicketConversation(testDb.db);
     await testDb.db
-      .update(widgetSettings)
+      .update(widgets)
       .set({ enabled: false })
-      .where(eq(widgetSettings.projectId, project.projectId));
+      .where(eq(widgets.id, widget.id));
     const res = await app.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { title: "T", body: "b", type: "bug", userId: "visitor-1" },
     });
     expect(res.statusCode).toBe(404);
@@ -1198,11 +1295,11 @@ describe("POST /widget/:slug/conversations/:conversationId/tickets", () => {
   });
 
   it("type non ammesso (task) → 422", async () => {
-    const { project, conversationId } = await setupTicketConversation(testDb.db);
+    const { project, widget, conversationId } = await setupTicketConversation(testDb.db);
     const res = await app.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { title: "T", body: "b", type: "task", userId: "visitor-1" },
     });
     expect(res.statusCode).toBe(422);
@@ -1221,11 +1318,11 @@ describe("POST /widget/:slug/conversations/:conversationId/tickets", () => {
   it("cap giornaliero ticket: secondo ticket → 429 widget_ticket_cap_reached", async () => {
     // ticketCapApp ha widgetDailyTicketCap = 1: il primo passa, il secondo è
     // respinto PRIMA di creare qualsiasi cosa (istanza separata, stesso db).
-    const { project, conversationId } = await setupTicketConversation(testDb.db);
+    const { project, widget, conversationId } = await setupTicketConversation(testDb.db);
     const first = await ticketCapApp.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { title: "Uno", body: "primo", type: "bug", userId: "visitor-1" },
     });
     expect(first.statusCode).toBe(200);
@@ -1233,7 +1330,7 @@ describe("POST /widget/:slug/conversations/:conversationId/tickets", () => {
     const second = await ticketCapApp.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { title: "Due", body: "secondo", type: "bug", userId: "visitor-1" },
     });
     expect(second.statusCode).toBe(429);
@@ -1250,7 +1347,7 @@ describe("POST /widget/:slug/conversations/:conversationId/tickets", () => {
   it("trascrizione vuota + identità null → body con solo ID esterno, sezione trascrizione omessa", async () => {
     // Nessun messaggio prima della conferma e name/email null: il blocco identità
     // mostra solo l'ID esterno e la sezione trascrizione non compare.
-    const { project, conversationId } = await setupTicketConversation(testDb.db, {
+    const { project, widget, conversationId } = await setupTicketConversation(testDb.db, {
       userId: "solo-id",
       email: null,
       name: null,
@@ -1259,7 +1356,7 @@ describe("POST /widget/:slug/conversations/:conversationId/tickets", () => {
     const res = await app.inject({
       method: "POST",
       url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
-      headers: { "x-stubwise-key": project.ingestionKey },
+      headers: { "x-stubwise-key": widget.key },
       payload: { title: "Segnalazione", body: "corpo proposta", type: "bug", userId: "solo-id" },
     });
     expect(res.statusCode).toBe(200);
@@ -1283,13 +1380,18 @@ describe("POST /widget/:slug/conversations/:conversationId/tickets", () => {
 /** Come setupChat ma senza pagine documentate: usato dai test sentinel/error. */
 async function seedChatWithoutContext(
   db: Db,
-): Promise<{ project: Awaited<ReturnType<typeof seedProjectWithKey>>; conversationId: string; genId: string }> {
+): Promise<{
+  project: Awaited<ReturnType<typeof seedProjectWithKey>>;
+  widget: WidgetRow;
+  conversationId: string;
+  genId: string;
+}> {
   const project = await seedProjectWithKey(db);
-  await enableWidget(db, project.projectId, project.repositoryId);
+  const widget = await enableWidget(db, project.projectId, project.repositoryId);
   const genId = await seedCurrentGeneration(db, project.repositoryId);
   const [conv] = await db
     .insert(widgetConversations)
-    .values({ projectId: project.projectId, externalUserId: "visitor-1" })
+    .values({ projectId: project.projectId, widgetId: widget.id, externalUserId: "visitor-1" })
     .returning();
-  return { project, conversationId: conv!.id, genId };
+  return { project, widget, conversationId: conv!.id, genId };
 }

@@ -14,9 +14,8 @@ import {
   tickets,
   widgetConversations,
   widgetMessages,
-  widgetSettings,
+  widgets,
 } from "@stubwise/db";
-import type { Db } from "@stubwise/db";
 import { keysMatch } from "../ingest/shared.js";
 import { createTicket } from "../db/tickets.js";
 import { errorSchema, unprocessableEntityFormatter } from "./shared.js";
@@ -60,26 +59,8 @@ function startOfUtcDay(now: Date): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 }
 
-/** Riga dei settings del widget, per il tipo di ritorno di loadEnabledSettings. */
-type WidgetSettingsRow = typeof widgetSettings.$inferSelect;
-
-/**
- * Carica i settings del widget di un progetto solo se il widget è ATTIVO
- * (riga presente ed `enabled = true`); altrimenti null. Helper riusato dalle
- * route pubbliche che richiedono un widget montabile (conversazioni, chat,
- * ticket): il chiamante risponde 404 `widget_disabled` uniforme su null, senza
- * esporre se manchino i settings o siano solo spenti.
- */
-async function loadEnabledSettings(
-  db: Db,
-  projectId: string,
-): Promise<WidgetSettingsRow | null> {
-  const [row] = await db
-    .select()
-    .from(widgetSettings)
-    .where(eq(widgetSettings.projectId, projectId));
-  return row && row.enabled ? row : null;
-}
+/** Riga completa del widget autenticato, decorata su request.widget. */
+type WidgetRow = typeof widgets.$inferSelect;
 
 /**
  * Superficie PUBBLICA cross-origin del widget di assistenza: GET/POST
@@ -88,13 +69,14 @@ async function loadEnabledSettings(
  * ricevono header CORS).
  *
  * Autenticazione: header X-Stubwise-Key confrontato (tempo costante) con la
- * ingestionKey del progetto individuato dallo slug. La chiave è visibile nel
- * sorgente della pagina ospite, per design (stesso modello dell'ingestion SDK):
- * autentica il progetto, non l'utente. Slug sconosciuto e chiave errata
- * producono la stessa 401 (niente enumerazione degli slug). Il controllo sta in
- * preValidation, condiviso da tutte le route del plugin (config e — nei task
- * successivi — conversazioni, messaggi, ticket): una richiesta non autenticata
- * riceve 401 anche con payload malformato.
+ * `key` di UNO dei widget del progetto individuato dallo slug. La chiave è
+ * visibile nel sorgente della pagina ospite, per design (stesso modello
+ * dell'ingestion SDK): autentica il widget (e con esso il progetto), non
+ * l'utente. Slug sconosciuto, header assente e chiave che non combacia con
+ * alcun widget producono la stessa 401 (niente enumerazione degli slug né dei
+ * widget). Il controllo sta in preValidation, condiviso da tutte le route del
+ * plugin (config, conversazioni, messaggi, ticket): una richiesta non
+ * autenticata riceve 401 anche con payload malformato.
  *
  * Validazione: come l'ingestion, un payload non valido risponde 422 (contratto
  * col client widget), via schemaErrorFormatter per-route.
@@ -114,10 +96,15 @@ export async function widgetRoutes(
   });
 
   /**
-   * preValidation condivisa da tutte le route del plugin: autentica il progetto
-   * dallo slug + X-Stubwise-Key (tempo costante) e decora request.widgetProject.
-   * Ramo unico di rifiuto: header assente, slug sconosciuto e chiave errata sono
-   * indistinguibili dal client.
+   * preValidation condivisa da tutte le route del plugin: autentica il widget
+   * dallo slug del progetto + X-Stubwise-Key e decora request.widget (la riga
+   * completa) e request.widgetProject (id/nome del progetto, comodo per i log).
+   *
+   * La chiave si confronta con quella di OGNI widget del progetto: keysMatch è
+   * timing-safe sul singolo confronto e l'iterazione è bounded (pochi widget per
+   * progetto). Ramo unico di rifiuto: header assente, slug sconosciuto e chiave
+   * che non combacia con alcun widget sono indistinguibili dal client (stessa
+   * 401 `invalid_ingestion_key`).
    */
   const authenticateWidget = async (
     request: FastifyRequest,
@@ -126,21 +113,23 @@ export async function widgetRoutes(
     const provided = request.headers["x-stubwise-key"];
     const { slug } = request.params as { slug: string };
     const [project] = await app.db
-      .select({
-        id: projects.id,
-        name: projects.name,
-        ingestionKey: projects.ingestionKey,
-      })
+      .select({ id: projects.id, name: projects.name })
       .from(projects)
       .where(eq(projects.slug, slug));
-    if (
-      typeof provided !== "string" ||
-      !project ||
-      !keysMatch(provided, project.ingestionKey)
-    ) {
+
+    let matched: WidgetRow | undefined;
+    if (typeof provided === "string" && project) {
+      const rows = await app.db
+        .select()
+        .from(widgets)
+        .where(eq(widgets.projectId, project.id));
+      matched = rows.find((w) => keysMatch(provided, w.key));
+    }
+    if (!project || !matched) {
       await apiError(reply, 401, "invalid_ingestion_key", "Invalid ingestion key");
       return;
     }
+    request.widget = matched;
     request.widgetProject = { id: project.id, name: project.name };
   };
 
@@ -179,19 +168,14 @@ export async function widgetRoutes(
       },
     },
     async (request, reply) => {
-      const project = request.widgetProject!;
+      const widget = request.widget!;
       // Superficie pubblica: mai 500 su un errore interno (badge di caricamento
       // rotto nel sito del cliente). La config è per-richiesta e riflette lo stato
-      // dei settings/provider al momento: niente cache lato browser/proxy.
+      // del widget/provider al momento: niente cache lato browser/proxy.
       reply.header("cache-control", "no-store");
 
-      const [row] = await app.db
-        .select()
-        .from(widgetSettings)
-        .where(eq(widgetSettings.projectId, project.id));
-
-      // Assente o spento: il widget non si monta. Non si espone alcun dettaglio.
-      if (!row || !row.enabled) {
+      // Widget spento: non si monta. Non si espone alcun dettaglio.
+      if (!widget.enabled) {
         return { enabled: false as const };
       }
 
@@ -207,17 +191,17 @@ export async function widgetRoutes(
         request.log.warn({ err }, "widget config: controllo disponibilità chat fallito, chat disabilitata");
         llmAvailable = false;
       }
-      const chatEnabled = llmAvailable && row.enabledRepositoryIds.length > 0;
+      const chatEnabled = llmAvailable && widget.enabledRepositoryIds.length > 0;
 
       // safeParse con fallback: un `language` corrotto a DB non deve 500-are la
       // superficie pubblica (il default del progetto è l'italiano).
-      const language = widgetSettingsSchema.shape.language.safeParse(row.language);
+      const language = widgetSettingsSchema.shape.language.safeParse(widget.language);
 
       return {
         enabled: true as const,
-        title: row.title,
-        welcomeMessage: row.welcomeMessage,
-        accentColor: row.accentColor,
+        title: widget.title,
+        welcomeMessage: widget.welcomeMessage,
+        accentColor: widget.accentColor,
         language: language.success ? language.data : ("it" as const),
         chatEnabled,
       };
@@ -248,16 +232,16 @@ export async function widgetRoutes(
       },
     },
     async (request, reply) => {
-      const project = request.widgetProject!;
-      const settings = await loadEnabledSettings(app.db, project.id);
-      if (!settings) {
+      const widget = request.widget!;
+      if (!widget.enabled) {
         return apiError(reply, 404, "widget_disabled", "Widget not available");
       }
       const { user } = request.body;
       const [conversation] = await app.db
         .insert(widgetConversations)
         .values({
-          projectId: project.id,
+          projectId: widget.projectId,
+          widgetId: widget.id,
           externalUserId: user.id,
           externalUserEmail: user.email ?? null,
           externalUserName: user.name ?? null,
@@ -279,11 +263,12 @@ export async function widgetRoutes(
 
   /**
    * Storico dei messaggi di una conversazione, in ordine cronologico. Richiede
-   * il widget attivo (404 widget_disabled) e un doppio controllo di
-   * appartenenza: la conversazione deve essere del progetto autenticato E il
-   * suo external_user_id deve combaciare col `userId` in query. Così un
-   * conversationId rubato (è nel client) non permette a un altro utente di
-   * leggere lo storico altrui: 404 indistinguibile in tutti i casi negativi.
+   * il widget attivo (404 widget_disabled) e un triplo controllo di
+   * appartenenza: la conversazione deve essere del progetto autenticato, del
+   * widget autenticato (widget_id) E il suo external_user_id deve combaciare col
+   * `userId` in query. Così un conversationId rubato (è nel client) o la chiave
+   * di un ALTRO widget dello stesso progetto non permettono di leggere lo storico
+   * altrui: 404 indistinguibile in tutti i casi negativi.
    */
   app.get(
     "/:slug/conversations/:conversationId/messages",
@@ -304,9 +289,8 @@ export async function widgetRoutes(
       },
     },
     async (request, reply) => {
-      const project = request.widgetProject!;
-      const settings = await loadEnabledSettings(app.db, project.id);
-      if (!settings) {
+      const widget = request.widget!;
+      if (!widget.enabled) {
         return apiError(reply, 404, "widget_disabled", "Widget not available");
       }
       const { conversationId } = request.params;
@@ -318,11 +302,13 @@ export async function widgetRoutes(
         .where(
           and(
             eq(widgetConversations.id, conversationId),
-            eq(widgetConversations.projectId, project.id),
+            eq(widgetConversations.projectId, widget.projectId),
+            eq(widgetConversations.widgetId, widget.id),
           ),
         );
-      // Conversazione inesistente, di un altro progetto, o di un altro utente:
-      // 404 indistinguibile (anti-lettura cross-utente con id conversazione rubato).
+      // Conversazione inesistente, di un altro progetto/widget, o di un altro
+      // utente: 404 indistinguibile (anti-lettura cross-utente/cross-widget con
+      // id conversazione rubato).
       if (!conversation || conversation.externalUserId !== userId) {
         return apiError(reply, 404, "conversation_not_found", "Conversation not found");
       }
@@ -389,30 +375,32 @@ export async function widgetRoutes(
       },
     },
     async (request, reply) => {
+      const widget = request.widget!;
       const project = request.widgetProject!;
-      const settings = await loadEnabledSettings(app.db, project.id);
-      if (!settings) {
+      if (!widget.enabled) {
         return apiError(reply, 404, "widget_disabled", "Widget not available");
       }
       // Nessun repo esposto = chat non servibile (il config dichiara chatEnabled=false):
       // qui lo IMPONIAMO, così un client che ignora il config non brucia budget LLM su
       // risposte prive di documentazione. 404 widget_disabled coerente, PRIMA del cap e
       // di ogni insert.
-      if (settings.enabledRepositoryIds.length === 0) {
+      if (widget.enabledRepositoryIds.length === 0) {
         return apiError(reply, 404, "widget_disabled", "Widget not available");
       }
       const { conversationId } = request.params;
       const { content, userId } = request.body;
 
-      // Ownership: la conversazione deve essere del progetto autenticato E del
-      // `userId` dichiarato (id conversazione rubato → 404 indistinguibile).
+      // Ownership: la conversazione deve essere del progetto e del widget
+      // autenticati E del `userId` dichiarato (id conversazione rubato o chiave di
+      // un altro widget → 404 indistinguibile).
       const [conversation] = await app.db
         .select({ externalUserId: widgetConversations.externalUserId })
         .from(widgetConversations)
         .where(
           and(
             eq(widgetConversations.id, conversationId),
-            eq(widgetConversations.projectId, project.id),
+            eq(widgetConversations.projectId, widget.projectId),
+            eq(widgetConversations.widgetId, widget.id),
           ),
         );
       if (!conversation || conversation.externalUserId !== userId) {
@@ -476,11 +464,11 @@ export async function widgetRoutes(
       // (enabledRepositoryIds). Se l'embedding è down fa fallback full-text.
       const chunks = await retrieveChunksForProject(app.db, app.embeddingClient, project.id, content, {
         k: CHAT_RETRIEVAL_K,
-        repositoryIds: settings.enabledRepositoryIds,
+        repositoryIds: widget.enabledRepositoryIds,
         logger: request.log,
       });
       const citations = buildCitations(chunks);
-      const language = widgetSettingsSchema.shape.language.safeParse(settings.language);
+      const language = widgetSettingsSchema.shape.language.safeParse(widget.language);
       const system = buildWidgetSystemPrompt(chunks, {
         language: language.success ? language.data : "it",
       });
@@ -549,16 +537,17 @@ export async function widgetRoutes(
       },
     },
     async (request, reply) => {
+      const widget = request.widget!;
       const project = request.widgetProject!;
-      const settings = await loadEnabledSettings(app.db, project.id);
-      if (!settings) {
+      if (!widget.enabled) {
         return apiError(reply, 404, "widget_disabled", "Widget not available");
       }
       const { conversationId } = request.params;
       const { title, body: proposalBody, type, userId } = request.body;
 
-      // Ownership: la conversazione deve essere del progetto autenticato E del
-      // `userId` dichiarato (id conversazione rubato → 404 indistinguibile).
+      // Ownership: la conversazione deve essere del progetto e del widget
+      // autenticati E del `userId` dichiarato (id conversazione rubato o chiave di
+      // un altro widget → 404 indistinguibile).
       const [conversation] = await app.db
         .select({
           externalUserId: widgetConversations.externalUserId,
@@ -569,7 +558,8 @@ export async function widgetRoutes(
         .where(
           and(
             eq(widgetConversations.id, conversationId),
-            eq(widgetConversations.projectId, project.id),
+            eq(widgetConversations.projectId, widget.projectId),
+            eq(widgetConversations.widgetId, widget.id),
           ),
         );
       if (!conversation || conversation.externalUserId !== userId) {
@@ -596,7 +586,7 @@ export async function widgetRoutes(
         return apiError(reply, 429, "widget_ticket_cap_reached", "Daily ticket limit reached");
       }
 
-      const language = widgetSettingsSchema.shape.language.safeParse(settings.language);
+      const language = widgetSettingsSchema.shape.language.safeParse(widget.language);
       const lang = language.success ? language.data : "it";
 
       // Ultimi N messaggi PRIMA della conferma, in ordine cronologico (DESC +
@@ -734,7 +724,9 @@ function composeWidgetTicketBody(input: {
 
 declare module "fastify" {
   interface FastifyRequest {
-    /** Progetto autenticato dalla preValidation della superficie widget. */
+    /** Widget autenticato (riga completa) dalla preValidation della superficie widget. */
+    widget?: WidgetRow;
+    /** Progetto del widget autenticato (id/nome, comodo per i log). */
     widgetProject?: { id: string; name: string };
   }
 }
