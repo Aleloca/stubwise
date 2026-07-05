@@ -83,14 +83,22 @@ export function WidgetConversationsPage() {
   const widgets = widgetsData.widgets;
 
   // Selezione: con `?ticketId` si auto-seleziona la conversazione trovata (la
-  // lista è già ristretta a quella); altrimenti resta a scelta dell'utente. La
-  // dipendenza sull'elenco riallinea la selezione se il filtro/l'elenco cambia.
+  // lista è già ristretta a quella); altrimenti resta a scelta dell'utente.
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined);
   useEffect(() => {
     if (ticketId && conversations.length > 0) {
       setSelectedId(conversations[0]!.id);
     }
   }, [ticketId, conversations]);
+
+  // Riallineamento del filtro: quando l'elenco cambia (es. cambio del filtro
+  // widget) e la conversazione selezionata non c'è più, la selezione si azzera
+  // così il pannello non mostra un filo che non è più in lista.
+  useEffect(() => {
+    if (selectedId && !conversations.some((c) => c.id === selectedId)) {
+      setSelectedId(undefined);
+    }
+  }, [conversations, selectedId]);
 
   return (
     <div className="page">
@@ -118,6 +126,9 @@ export function WidgetConversationsPage() {
                   to: "/projects/$projectId/conversations",
                   params: { projectId },
                   search: (prev) => ({ ...prev, widgetId: next }),
+                  // I filtri non intasano la history: cambiare widget non lascia
+                  // una voce indietro per ogni combinazione provata.
+                  replace: true,
                 });
               }}
               className="rounded-sm border border-line-strong bg-ink-900 px-2 py-1.5 text-[12px] tracking-normal text-fg normal-case"

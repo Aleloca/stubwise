@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "../../router";
@@ -189,10 +189,11 @@ describe("viewer conversazioni widget", () => {
     expect(screen.getByText("1 ticket")).toBeInTheDocument();
     // La seconda non ha ticket: nessun badge ticket per lei.
     expect(screen.getByText("2 messages")).toBeInTheDocument();
-    // Badge del widget d'origine sulla prima (compare anche come opzione del
-    // filtro, quindi >= 1 occorrenza); "deleted widget" sulla orfana.
-    expect(screen.getAllByText("Support").length).toBeGreaterThan(0);
-    expect(screen.getByText("deleted widget")).toBeInTheDocument();
+    // Badge del widget d'origine sulla prima: scopato alla lista così l'assert
+    // non passa per l'opzione della select (che ha lo stesso testo "Support").
+    const list = screen.getByRole("list");
+    expect(within(list).getByText("Support")).toBeInTheDocument();
+    expect(within(list).getByText("deleted widget")).toBeInTheDocument();
   });
 
   it("selezione: carica il filo, mostra i ruoli, la citazione e il link al ticket", async () => {

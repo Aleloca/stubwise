@@ -38,6 +38,7 @@ import {
   ticketUsageQueryOptions,
   usersQueryOptions,
   widgetConversationsQueryOptions,
+  widgetsQueryOptions,
 } from "./lib/queries";
 import { boardSearchSchema, BoardPage } from "./routes/board";
 import {
@@ -224,7 +225,8 @@ const projectDetailRoute = createRoute({
  * Viewer read-only delle conversazioni del widget di un progetto: lista +
  * pannello dettaglio. `?ticketId` (link "Vedi conversazione" dal ticket) filtra
  * la lista e auto-seleziona la conversazione. Prefetch best-effort dell'elenco
- * (con l'eventuale filtro) e del progetto (nome nell'header) prima del render.
+ * (con l'eventuale filtro), dei widget (select del filtro) e del progetto (nome
+ * nell'header) prima del render.
  */
 const widgetConversationsRoute = createRoute({
   getParentRoute: () => authedRoute,
@@ -234,6 +236,9 @@ const widgetConversationsRoute = createRoute({
   loader: async ({ context, params, deps }) => {
     await Promise.all([
       context.queryClient.ensureQueryData(projectQueryOptions(params.projectId)),
+      context.queryClient
+        .ensureQueryData(widgetsQueryOptions(params.projectId))
+        .catch(() => undefined),
       context.queryClient
         .ensureQueryData(
           widgetConversationsQueryOptions(params.projectId, {
