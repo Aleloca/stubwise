@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { ApiError } from "../lib/api";
 import type { DocTreeNode } from "../lib/docs-api";
 import { docTreeQueryOptions } from "../lib/queries";
 import { buildForest, type TreeItem } from "./docs-tree";
@@ -61,7 +62,9 @@ export function WidgetSectionFilter({
   const [open, setOpen] = useState(value !== undefined);
 
   // Albero on-demand: caricato solo quando il blocco è aperto. `retry: false` per
-  // non ritentare sui 404 (repo senza docs): l'errore → messaggio "nessuna doc".
+  // non ritentare inutilmente in caso d'errore. Un repo senza docs NON è un errore:
+  // il server ritorna 200 + `[]` (albero vuoto → messaggio "nessuna doc"). Solo un
+  // 404 (repository inesistente) o un errore reale (rete/500) prendono il ramo error.
   const treeQuery = useQuery({ ...docTreeQueryOptions(repositoryId), enabled: open, retry: false });
   const nodes = treeQuery.data;
 
@@ -107,7 +110,13 @@ export function WidgetSectionFilter({
 
   const isEmptyFilter = value !== undefined && paths.length === 0 && slugs.length === 0;
   const treeIsEmpty = treeQuery.isSuccess && (nodes?.length ?? 0) === 0;
-  const treeErrored = treeQuery.isError;
+  // Un 404 (repository senza pagine/inesistente) è equivalente a un albero vuoto:
+  // «nessuna documentazione». Ogni altro errore (rete = status 0, 500, …) è un
+  // guasto reale e va segnalato come tale, distinto da «nessuna doc».
+  const error = treeQuery.error;
+  const treeMissing = error instanceof ApiError && error.status === 404;
+  const treeLoadFailed = treeQuery.isError && !treeMissing;
+  const showNoDocs = treeIsEmpty || treeMissing;
 
   return (
     <div className="ml-6 flex flex-col gap-2 border-l border-line pl-3">
@@ -134,8 +143,14 @@ export function WidgetSectionFilter({
             <p className="font-mono text-[11px] text-fg-faint">{t("widget:filter.loading")}</p>
           )}
 
-          {(treeIsEmpty || treeErrored) && (
+          {showNoDocs && (
             <p className="font-mono text-[11px] text-fg-faint">{t("widget:filter.noDocs")}</p>
+          )}
+
+          {treeLoadFailed && (
+            <p role="alert" className="font-mono text-[11px] text-danger">
+              {t("widget:filter.loadError")}
+            </p>
           )}
 
           {treeQuery.isSuccess && !treeIsEmpty && (

@@ -1154,6 +1154,7 @@
       "summary": "({{sections}} sezioni, {{pages}} pagine)",
       "loading": "Caricamento documentazione…",
       "noDocs": "Nessuna documentazione generata per questo repository.",
+      "loadError": "Impossibile caricare l'albero della documentazione. Riprova tra un momento.",
       "coveredBy": "Coperto dalla sezione selezionata \"{{path}}\"",
       "remove": "Rimuovi filtro",
       "emptyWarning": "Il widget non esporrà nulla di {{repository}}: seleziona almeno una sezione o pagina."

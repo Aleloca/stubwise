@@ -110,6 +110,31 @@ describe("WidgetSectionFilter", () => {
     expect(onChange).toHaveBeenLastCalledWith({ paths: [], slugs: [] });
   });
 
+  it("spuntare l'antenato pota i discendenti già selezionati (paths ridondanti rimossi)", async () => {
+    const user = userEvent.setup();
+    getDocTree.mockResolvedValue([
+      node({ id: "root", title: "Apps", sourcePath: "apps" }),
+      node({ id: "child", parentId: "root", title: "Webapp", sourcePath: "apps/webapp" }),
+    ]);
+    // apps/webapp già selezionato: spuntare `apps` lo pota (è coperto).
+    const { onChange } = renderFilter({ value: { paths: ["apps/webapp"], slugs: [] } });
+
+    await user.click(await screen.findByLabelText("Apps"));
+    expect(onChange).toHaveBeenLastCalledWith({ paths: ["apps"], slugs: [] });
+  });
+
+  it("il nodo antenato è indeterminate quando solo un discendente è selezionato", async () => {
+    getDocTree.mockResolvedValue([
+      node({ id: "root", title: "Apps", sourcePath: "apps" }),
+      node({ id: "child", parentId: "root", title: "Webapp", sourcePath: "apps/webapp" }),
+    ]);
+    renderFilter({ value: { paths: ["apps/webapp"], slugs: [] } });
+
+    const parent = (await screen.findByLabelText("Apps")) as HTMLInputElement;
+    expect(parent.indeterminate).toBe(true);
+    expect(parent.checked).toBe(false);
+  });
+
   it("un nodo coperto da un ANTENATO selezionato è checked + disabilitato", async () => {
     getDocTree.mockResolvedValue([
       node({ id: "root", title: "Webapp", sourcePath: "apps/webapp" }),
@@ -159,5 +184,26 @@ describe("WidgetSectionFilter", () => {
         screen.getByText(/No documentation generated for this repository/i),
       ).toBeInTheDocument(),
     );
+  });
+
+  it("errore generico (500) → messaggio d'errore distinto, non «nessuna doc»", async () => {
+    getDocTree.mockRejectedValue(new ApiError(500, "boom", "internal_error"));
+    renderFilter({ value: { paths: [], slugs: [] } });
+
+    expect(
+      await screen.findByText(/Could not load the documentation tree/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/No documentation generated for this repository/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("errore di rete (status 0) → messaggio d'errore distinto", async () => {
+    getDocTree.mockRejectedValue(new ApiError(0, "network"));
+    renderFilter({ value: { paths: [], slugs: [] } });
+
+    expect(
+      await screen.findByText(/Could not load the documentation tree/i),
+    ).toBeInTheDocument();
   });
 });
