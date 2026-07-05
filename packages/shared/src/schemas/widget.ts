@@ -43,6 +43,12 @@ export const widgetRepositoryFilterSchema = z.object({
 });
 export type WidgetRepositoryFilter = z.infer<typeof widgetRepositoryFilterSchema>;
 
+/**
+ * Mappa repositoryId → filtro. ⚠️ Il default `{}` = "nessun filtro, repo interi":
+ * un PUT che OMETTE il campo azzera i filtri salvati (full-replacement, unica
+ * direzione fail-open della feature). I client devono sempre inviare il campo
+ * completo — la SPA lo fa (test anti-wipe in widgets-section.test.tsx).
+ */
 export const widgetRepositoryFiltersSchema = z
   .record(z.uuid(), widgetRepositoryFilterSchema)
   .default({});
