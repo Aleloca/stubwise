@@ -265,6 +265,9 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
     externalUserId: z.string(),
     externalUserEmail: z.string().nullable(),
     externalUserName: z.string().nullable(),
+    // Widget di origine; null se il widget è stato eliminato (FK SET NULL).
+    widgetId: z.uuid().nullable(),
+    widgetName: z.string().nullable(),
     createdAt: z.iso.datetime(),
     lastMessageAt: z.iso.datetime(),
     messageCount: z.number().int(),
@@ -293,6 +296,7 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
             .max(CONVERSATIONS_LIMIT_MAX)
             .default(CONVERSATIONS_LIMIT_DEFAULT),
           ticketId: z.uuid().optional(),
+          widgetId: z.uuid().optional(),
         }),
         response: {
           200: z.object({ conversations: z.array(conversationSummarySchema) }),
@@ -303,7 +307,7 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
     },
     async (request, reply) => {
       const { projectId } = request.params;
-      const { limit, ticketId } = request.query;
+      const { limit, ticketId, widgetId } = request.query;
 
       const [project] = await app.db
         .select({ id: projects.id })
@@ -328,12 +332,19 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
           )
         : undefined;
 
+      // Filtro per widget: conversazioni con quel `widgetId` (uno inesistente
+      // dà semplicemente lista vuota). Componibile con `ticketFilter`.
+      const widgetFilter = widgetId ? eq(widgetConversations.widgetId, widgetId) : undefined;
+
       const rows = await app.db
         .select({
           id: widgetConversations.id,
           externalUserId: widgetConversations.externalUserId,
           externalUserEmail: widgetConversations.externalUserEmail,
           externalUserName: widgetConversations.externalUserName,
+          // LEFT JOIN sul widget: conversazione orfana (widget eliminato) → null.
+          widgetId: widgets.id,
+          widgetName: widgets.name,
           createdAt: widgetConversations.createdAt,
           lastMessageAt: widgetConversations.lastMessageAt,
           messageCount: sql<number>`count(${widgetMessages.id})::int`,
@@ -342,8 +353,12 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
         .from(widgetConversations)
         // LEFT JOIN: le conversazioni senza messaggi restano in elenco (count 0).
         .leftJoin(widgetMessages, eq(widgetMessages.conversationId, widgetConversations.id))
-        .where(and(eq(widgetConversations.projectId, projectId), ticketFilter))
-        .groupBy(widgetConversations.id)
+        // LEFT JOIN sul widget di origine (orfana → widgetId/widgetName null).
+        .leftJoin(widgets, eq(widgets.id, widgetConversations.widgetId))
+        .where(and(eq(widgetConversations.projectId, projectId), ticketFilter, widgetFilter))
+        // GROUP BY anche su widgets.id: le colonne del widget joinate sono
+        // funzionalmente dipendenti dalla sua PK (widgets.name è determinata).
+        .groupBy(widgetConversations.id, widgets.id)
         // Tiebreaker sull'id: ordine stabile al bordo del limit a parità di lastMessageAt.
         .orderBy(desc(widgetConversations.lastMessageAt), desc(widgetConversations.id))
         .limit(limit);
@@ -354,6 +369,8 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
           externalUserId: r.externalUserId,
           externalUserEmail: r.externalUserEmail,
           externalUserName: r.externalUserName,
+          widgetId: r.widgetId,
+          widgetName: r.widgetName,
           createdAt: r.createdAt.toISOString(),
           lastMessageAt: r.lastMessageAt.toISOString(),
           messageCount: r.messageCount,
@@ -392,6 +409,8 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
               externalUserId: z.string(),
               externalUserEmail: z.string().nullable(),
               externalUserName: z.string().nullable(),
+              // null se il widget di origine è stato eliminato (FK SET NULL).
+              widgetName: z.string().nullable(),
               createdAt: z.iso.datetime(),
             }),
             messages: z.array(conversationMessageSchema),
@@ -410,9 +429,12 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
           externalUserId: widgetConversations.externalUserId,
           externalUserEmail: widgetConversations.externalUserEmail,
           externalUserName: widgetConversations.externalUserName,
+          // LEFT JOIN sul widget: orfana (widget eliminato) → widgetName null.
+          widgetName: widgets.name,
           createdAt: widgetConversations.createdAt,
         })
         .from(widgetConversations)
+        .leftJoin(widgets, eq(widgets.id, widgetConversations.widgetId))
         .where(
           and(
             eq(widgetConversations.id, conversationId),
@@ -445,6 +467,7 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
           externalUserId: conversation.externalUserId,
           externalUserEmail: conversation.externalUserEmail,
           externalUserName: conversation.externalUserName,
+          widgetName: conversation.widgetName,
           createdAt: conversation.createdAt.toISOString(),
         },
         messages: rows.map((m) => ({

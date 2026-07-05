@@ -575,6 +575,151 @@ describe("GET /api/projects/:projectId/widget/conversations", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().conversations).toHaveLength(2);
   });
+
+  it("widgetId/widgetName: conversazioni di due widget diversi hanno il nome giusto", async () => {
+    const { projectId } = await seedRepository(testDb.db);
+    const [wa] = await testDb.db
+      .insert(widgets)
+      .values({ projectId, name: "Widget A", key: randomBytes(16).toString("hex") })
+      .returning({ id: widgets.id });
+    const [wb] = await testDb.db
+      .insert(widgets)
+      .values({ projectId, name: "Widget B", key: randomBytes(16).toString("hex") })
+      .returning({ id: widgets.id });
+
+    const convA = await seedConversation(testDb.db, {
+      projectId,
+      widgetId: wa!.id,
+      externalUserId: "user-a",
+      lastMessageAt: new Date("2026-07-02T10:00:00Z"),
+      messages: [{ role: "user", content: "ciao a" }],
+    });
+    const convB = await seedConversation(testDb.db, {
+      projectId,
+      widgetId: wb!.id,
+      externalUserId: "user-b",
+      lastMessageAt: new Date("2026-07-01T10:00:00Z"),
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/widget/conversations`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const { conversations } = res.json();
+    expect(conversations).toHaveLength(2);
+    // Ordinate per lastMessageAt desc: convA (widget A) prima.
+    expect(conversations[0].id).toBe(convA);
+    expect(conversations[0].widgetId).toBe(wa!.id);
+    expect(conversations[0].widgetName).toBe("Widget A");
+    expect(conversations[0].messageCount).toBe(1);
+    expect(conversations[1].id).toBe(convB);
+    expect(conversations[1].widgetId).toBe(wb!.id);
+    expect(conversations[1].widgetName).toBe("Widget B");
+  });
+
+  it("filtro widgetId: solo le conversazioni di quel widget", async () => {
+    const { projectId } = await seedRepository(testDb.db);
+    const [wa] = await testDb.db
+      .insert(widgets)
+      .values({ projectId, name: "Widget A", key: randomBytes(16).toString("hex") })
+      .returning({ id: widgets.id });
+    const [wb] = await testDb.db
+      .insert(widgets)
+      .values({ projectId, name: "Widget B", key: randomBytes(16).toString("hex") })
+      .returning({ id: widgets.id });
+    const convA = await seedConversation(testDb.db, { projectId, widgetId: wa!.id });
+    await seedConversation(testDb.db, { projectId, widgetId: wb!.id });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/widget/conversations?widgetId=${wa!.id}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const { conversations } = res.json();
+    expect(conversations).toHaveLength(1);
+    expect(conversations[0].id).toBe(convA);
+    expect(conversations[0].widgetName).toBe("Widget A");
+  });
+
+  it("filtro widgetId inesistente: lista vuota", async () => {
+    const { projectId } = await seedRepository(testDb.db);
+    const [wa] = await testDb.db
+      .insert(widgets)
+      .values({ projectId, name: "Widget A", key: randomBytes(16).toString("hex") })
+      .returning({ id: widgets.id });
+    await seedConversation(testDb.db, { projectId, widgetId: wa!.id });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/widget/conversations?widgetId=00000000-0000-0000-0000-000000000000`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().conversations).toEqual([]);
+  });
+
+  it("conversazione orfana (widget eliminato): widgetId/widgetName null", async () => {
+    const { projectId } = await seedRepository(testDb.db);
+    // widgetId null simula una conversazione il cui widget è stato eliminato (SET NULL).
+    const orphan = await seedConversation(testDb.db, { projectId, externalUserId: "orfana" });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/widget/conversations`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const { conversations } = res.json();
+    expect(conversations).toHaveLength(1);
+    expect(conversations[0].id).toBe(orphan);
+    expect(conversations[0].widgetId).toBeNull();
+    expect(conversations[0].widgetName).toBeNull();
+  });
+
+  it("filtro widgetId + ticketId combinati", async () => {
+    const { projectId } = await seedRepository(testDb.db);
+    const { ticketId } = await seedTicket(testDb.db, { projectId });
+    const [wa] = await testDb.db
+      .insert(widgets)
+      .values({ projectId, name: "Widget A", key: randomBytes(16).toString("hex") })
+      .returning({ id: widgets.id });
+    const [wb] = await testDb.db
+      .insert(widgets)
+      .values({ projectId, name: "Widget B", key: randomBytes(16).toString("hex") })
+      .returning({ id: widgets.id });
+
+    // Conversazione target: widget A + messaggio con quel ticket.
+    const target = await seedConversation(testDb.db, {
+      projectId,
+      widgetId: wa!.id,
+      messages: [{ role: "assistant", content: "segnalato", ticketId }],
+    });
+    // Stesso ticket ma widget B: escluso dal filtro widgetId.
+    await seedConversation(testDb.db, {
+      projectId,
+      widgetId: wb!.id,
+      messages: [{ role: "assistant", content: "altro", ticketId }],
+    });
+    // Stesso widget A ma senza quel ticket: escluso dal filtro ticketId.
+    await seedConversation(testDb.db, {
+      projectId,
+      widgetId: wa!.id,
+      messages: [{ role: "user", content: "niente ticket" }],
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/widget/conversations?widgetId=${wa!.id}&ticketId=${ticketId}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const { conversations } = res.json();
+    expect(conversations).toHaveLength(1);
+    expect(conversations[0].id).toBe(target);
+  });
 });
 
 describe("GET /api/projects/:projectId/widget/conversations/:conversationId/messages", () => {
@@ -652,5 +797,42 @@ describe("GET /api/projects/:projectId/widget/conversations/:conversationId/mess
     ]);
     expect(body.messages[0]).toMatchObject({ role: "user", ticketId: null });
     expect(body.messages[2]).toMatchObject({ role: "assistant", ticketId });
+  });
+
+  it("conversazione di un widget: widgetName nell'oggetto conversation", async () => {
+    const { projectId } = await seedRepository(testDb.db);
+    const [wa] = await testDb.db
+      .insert(widgets)
+      .values({ projectId, name: "Widget Nome", key: randomBytes(16).toString("hex") })
+      .returning({ id: widgets.id });
+    const conversationId = await seedConversation(testDb.db, {
+      projectId,
+      widgetId: wa!.id,
+      messages: [{ role: "user", content: "ciao" }],
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/widget/conversations/${conversationId}/messages`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().conversation).toMatchObject({
+      id: conversationId,
+      widgetName: "Widget Nome",
+    });
+  });
+
+  it("conversazione orfana (widget eliminato): widgetName null nel dettaglio", async () => {
+    const { projectId } = await seedRepository(testDb.db);
+    const conversationId = await seedConversation(testDb.db, { projectId });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/widget/conversations/${conversationId}/messages`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().conversation.widgetName).toBeNull();
   });
 });
