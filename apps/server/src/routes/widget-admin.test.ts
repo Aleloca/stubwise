@@ -1,8 +1,9 @@
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
 import { buildApp } from "../app.js";
-import { widgetConversations, widgetMessages } from "@stubwise/db";
+import { widgetConversations, widgetMessages, widgets } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import {
@@ -37,182 +38,346 @@ afterAll(async () => {
   await testDb.stop();
 });
 
-describe("GET /api/projects/:projectId/widget-settings", () => {
+/** Corpo `widgetUpsertBodySchema` completo, con override opzionali. */
+function upsertBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    name: "Widget",
+    enabled: true,
+    enabledRepositoryIds: [],
+    title: "Supporto",
+    welcomeMessage: "Benvenuto!",
+    accentColor: "#3366ff",
+    language: "it",
+    dailyMessageCap: null,
+    dailyTicketCap: null,
+    ...overrides,
+  };
+}
+
+describe("GET /api/projects/:projectId/widgets", () => {
   it("senza sessione: 401", async () => {
     const { projectId } = await seedRepository(testDb.db);
-    const res = await app.inject({
-      method: "GET",
-      url: `/api/projects/${projectId}/widget-settings`,
-    });
+    const res = await app.inject({ method: "GET", url: `/api/projects/${projectId}/widgets` });
     expect(res.statusCode).toBe(401);
   });
 
   it("progetto inesistente: 404", async () => {
     const res = await app.inject({
       method: "GET",
-      url: "/api/projects/00000000-0000-0000-0000-000000000000/widget-settings",
+      url: "/api/projects/00000000-0000-0000-0000-000000000000/widgets",
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(404);
   });
 
-  it("progetto vergine: 200 con i default dello schema, senza creare la riga", async () => {
+  it("progetto vergine: lista vuota", async () => {
     const { projectId } = await seedRepository(testDb.db);
     const res = await app.inject({
       method: "GET",
-      url: `/api/projects/${projectId}/widget-settings`,
+      url: `/api/projects/${projectId}/widgets`,
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({
+    expect(res.json()).toEqual({ widgets: [] });
+  });
+
+  it("conversationCount: aggregato corretto per widget", async () => {
+    const { projectId } = await seedRepository(testDb.db);
+    // Due widget: al primo lego 2 conversazioni, al secondo nessuna.
+    const [withConv] = await testDb.db
+      .insert(widgets)
+      .values({ projectId, name: "Con conversazioni", key: randomBytes(16).toString("hex") })
+      .returning({ id: widgets.id });
+    await testDb.db
+      .insert(widgets)
+      .values({ projectId, name: "Vuoto", key: randomBytes(16).toString("hex") });
+    await seedConversation(testDb.db, { projectId, widgetId: withConv!.id });
+    await seedConversation(testDb.db, { projectId, widgetId: withConv!.id });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/widgets`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const { widgets: list } = res.json();
+    expect(list).toHaveLength(2);
+    // Ordinati per createdAt asc: "Con conversazioni" prima.
+    expect(list[0].name).toBe("Con conversazioni");
+    expect(list[0].conversationCount).toBe(2);
+    expect(list[0].key).toMatch(/^[0-9a-f]{32}$/);
+    expect(list[1].name).toBe("Vuoto");
+    expect(list[1].conversationCount).toBe(0);
+  });
+});
+
+describe("POST /api/projects/:projectId/widgets", () => {
+  it("da member (non admin): 403", async () => {
+    const { projectId } = await seedRepository(testDb.db);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/widgets`,
+      headers: { cookie: memberCookie },
+      payload: upsertBody(),
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("progetto inesistente: 404", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/projects/00000000-0000-0000-0000-000000000000/widgets",
+      headers: { cookie: adminCookie },
+      payload: upsertBody(),
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("solo name: widget coi default dello schema + key 32 hex, conversationCount 0", async () => {
+    const { projectId } = await seedRepository(testDb.db);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/widgets`,
+      headers: { cookie: adminCookie },
+      payload: { name: "Solo nome" },
+    });
+    expect(res.statusCode).toBe(200);
+    const { widget } = res.json();
+    expect(widget).toMatchObject({
+      name: "Solo nome",
       enabled: false,
       enabledRepositoryIds: [],
       title: "Assistenza",
       welcomeMessage: "Ciao! Come posso aiutarti?",
       accentColor: "#22c55e",
       language: "it",
+      dailyMessageCap: null,
+      dailyTicketCap: null,
+      conversationCount: 0,
     });
+    expect(widget.key).toMatch(/^[0-9a-f]{32}$/);
+    expect(widget.id).toMatch(/^[0-9a-f-]{36}$/);
   });
-});
 
-describe("PUT /api/projects/:projectId/widget-settings", () => {
-  it("admin con un repo del progetto: 200 e la GET riflette i valori", async () => {
+  it("config completa incl. cap: riflessa nel widget creato", async () => {
     const { projectId, repositoryId } = await seedRepository(testDb.db);
-    const payload = {
+    const payload = upsertBody({
+      name: "Completo",
       enabled: true,
       enabledRepositoryIds: [repositoryId],
       title: "Supporto",
       welcomeMessage: "Benvenuto nel supporto!",
       accentColor: "#3366ff",
       language: "en",
-    };
-
-    const put = await app.inject({
-      method: "PUT",
-      url: `/api/projects/${projectId}/widget-settings`,
+      dailyMessageCap: 500,
+      dailyTicketCap: 20,
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/widgets`,
       headers: { cookie: adminCookie },
       payload,
     });
-    expect(put.statusCode).toBe(200);
-    expect(put.json()).toMatchObject(payload);
-
-    const get = await app.inject({
-      method: "GET",
-      url: `/api/projects/${projectId}/widget-settings`,
-      headers: { cookie: memberCookie },
-    });
-    expect(get.statusCode).toBe(200);
-    expect(get.json()).toMatchObject(payload);
-  });
-
-  it("upsert: una seconda PUT aggiorna la riga esistente", async () => {
-    const { projectId } = await seedRepository(testDb.db);
-    const base = {
+    expect(res.statusCode).toBe(200);
+    expect(res.json().widget).toMatchObject({
+      name: "Completo",
       enabled: true,
-      enabledRepositoryIds: [],
-      title: "Primo",
-      welcomeMessage: "Prima versione",
-      accentColor: "#111111",
-      language: "it",
-    };
-    const first = await app.inject({
-      method: "PUT",
-      url: `/api/projects/${projectId}/widget-settings`,
-      headers: { cookie: adminCookie },
-      payload: base,
+      enabledRepositoryIds: [repositoryId],
+      title: "Supporto",
+      welcomeMessage: "Benvenuto nel supporto!",
+      accentColor: "#3366ff",
+      language: "en",
+      dailyMessageCap: 500,
+      dailyTicketCap: 20,
     });
-    expect(first.statusCode).toBe(200);
-
-    const second = await app.inject({
-      method: "PUT",
-      url: `/api/projects/${projectId}/widget-settings`,
-      headers: { cookie: adminCookie },
-      payload: { ...base, title: "Secondo", enabled: false },
-    });
-    expect(second.statusCode).toBe(200);
-    expect(second.json()).toMatchObject({ title: "Secondo", enabled: false });
-
-    const get = await app.inject({
-      method: "GET",
-      url: `/api/projects/${projectId}/widget-settings`,
-      headers: { cookie: memberCookie },
-    });
-    expect(get.json()).toMatchObject({ title: "Secondo", enabled: false });
-  });
-
-  it("repositoryId di un ALTRO progetto: 422", async () => {
-    const { projectId } = await seedRepository(testDb.db);
-    const other = await seedRepository(testDb.db);
-
-    const put = await app.inject({
-      method: "PUT",
-      url: `/api/projects/${projectId}/widget-settings`,
-      headers: { cookie: adminCookie },
-      payload: {
-        enabled: true,
-        enabledRepositoryIds: [other.repositoryId],
-        title: "Supporto",
-        welcomeMessage: "Benvenuto!",
-        accentColor: "#3366ff",
-        language: "it",
-      },
-    });
-    expect(put.statusCode).toBe(422);
   });
 
   it("più repo dello stesso progetto: 200", async () => {
     const { projectId, repositoryId } = await seedRepository(testDb.db);
     const secondRepo = await seedRepositoryInProject(testDb.db, projectId);
-
-    const put = await app.inject({
-      method: "PUT",
-      url: `/api/projects/${projectId}/widget-settings`,
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/widgets`,
       headers: { cookie: adminCookie },
-      payload: {
-        enabled: true,
-        enabledRepositoryIds: [repositoryId, secondRepo],
-        title: "Supporto",
-        welcomeMessage: "Benvenuto!",
-        accentColor: "#3366ff",
-        language: "it",
-      },
+      payload: upsertBody({ enabledRepositoryIds: [repositoryId, secondRepo] }),
     });
-    expect(put.statusCode).toBe(200);
+    expect(res.statusCode).toBe(200);
   });
 
-  it("progetto inesistente: 404", async () => {
-    const put = await app.inject({
-      method: "PUT",
-      url: "/api/projects/00000000-0000-0000-0000-000000000000/widget-settings",
+  it("repositoryId di un ALTRO progetto: 422", async () => {
+    const { projectId } = await seedRepository(testDb.db);
+    const other = await seedRepository(testDb.db);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/widgets`,
       headers: { cookie: adminCookie },
-      payload: {
-        enabled: false,
-        enabledRepositoryIds: [],
-        title: "Assistenza",
-        welcomeMessage: "Ciao!",
-        accentColor: "#22c55e",
-        language: "it",
-      },
+      payload: upsertBody({ enabledRepositoryIds: [other.repositoryId] }),
     });
-    expect(put.statusCode).toBe(404);
+    expect(res.statusCode).toBe(422);
   });
+});
+
+describe("PUT /api/projects/:projectId/widgets/:widgetId", () => {
+  /** Crea un widget via POST e ne restituisce l'id. */
+  async function createWidget(projectId: string, name = "Base"): Promise<string> {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/widgets`,
+      headers: { cookie: adminCookie },
+      payload: { name },
+    });
+    return res.json().widget.id as string;
+  }
 
   it("da member (non admin): 403", async () => {
     const { projectId } = await seedRepository(testDb.db);
+    const widgetId = await createWidget(projectId);
+    const res = await app.inject({
+      method: "PUT",
+      url: `/api/projects/${projectId}/widgets/${widgetId}`,
+      headers: { cookie: memberCookie },
+      payload: upsertBody(),
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("admin: 200 e la GET riflette i valori aggiornati (config completa incl. cap)", async () => {
+    const { projectId, repositoryId } = await seedRepository(testDb.db);
+    const widgetId = await createWidget(projectId);
+    const payload = upsertBody({
+      name: "Aggiornato",
+      enabled: true,
+      enabledRepositoryIds: [repositoryId],
+      title: "Nuovo titolo",
+      welcomeMessage: "Nuovo messaggio",
+      accentColor: "#123456",
+      language: "en",
+      dailyMessageCap: 1000,
+      dailyTicketCap: 50,
+    });
     const put = await app.inject({
       method: "PUT",
-      url: `/api/projects/${projectId}/widget-settings`,
-      headers: { cookie: memberCookie },
-      payload: {
-        enabled: true,
-        enabledRepositoryIds: [],
-        title: "Supporto",
-        welcomeMessage: "Benvenuto!",
-        accentColor: "#3366ff",
-        language: "it",
-      },
+      url: `/api/projects/${projectId}/widgets/${widgetId}`,
+      headers: { cookie: adminCookie },
+      payload,
     });
-    expect(put.statusCode).toBe(403);
+    expect(put.statusCode).toBe(200);
+    expect(put.json().widget).toMatchObject({ id: widgetId, ...payload });
+
+    const get = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/widgets`,
+      headers: { cookie: memberCookie },
+    });
+    const found = get.json().widgets.find((w: { id: string }) => w.id === widgetId);
+    expect(found).toMatchObject(payload);
+  });
+
+  it("la key NON è modificabile dalla PUT", async () => {
+    const { projectId } = await seedRepository(testDb.db);
+    const widgetId = await createWidget(projectId);
+    const before = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/widgets`,
+      headers: { cookie: memberCookie },
+    });
+    const originalKey = before.json().widgets[0].key as string;
+
+    const put = await app.inject({
+      method: "PUT",
+      url: `/api/projects/${projectId}/widgets/${widgetId}`,
+      headers: { cookie: adminCookie },
+      // `key` nel body è ignorata (non è nello schema): la key resta invariata.
+      payload: upsertBody({ name: "Rinominato", key: "0".repeat(32) }),
+    });
+    expect(put.statusCode).toBe(200);
+    expect(put.json().widget.key).toBe(originalKey);
+  });
+
+  it("repositoryId di un ALTRO progetto: 422", async () => {
+    const { projectId } = await seedRepository(testDb.db);
+    const other = await seedRepository(testDb.db);
+    const widgetId = await createWidget(projectId);
+    const res = await app.inject({
+      method: "PUT",
+      url: `/api/projects/${projectId}/widgets/${widgetId}`,
+      headers: { cookie: adminCookie },
+      payload: upsertBody({ enabledRepositoryIds: [other.repositoryId] }),
+    });
+    expect(res.statusCode).toBe(422);
+  });
+
+  it("widget di un altro progetto: 404", async () => {
+    const { projectId } = await seedRepository(testDb.db);
+    const other = await seedRepository(testDb.db);
+    const widgetId = await createWidget(other.projectId);
+    const res = await app.inject({
+      method: "PUT",
+      url: `/api/projects/${projectId}/widgets/${widgetId}`,
+      headers: { cookie: adminCookie },
+      payload: upsertBody(),
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("DELETE /api/projects/:projectId/widgets/:widgetId", () => {
+  async function createWidget(projectId: string): Promise<string> {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/widgets`,
+      headers: { cookie: adminCookie },
+      payload: { name: "Da eliminare" },
+    });
+    return res.json().widget.id as string;
+  }
+
+  it("da member (non admin): 403", async () => {
+    const { projectId } = await seedRepository(testDb.db);
+    const widgetId = await createWidget(projectId);
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/projects/${projectId}/widgets/${widgetId}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("widget di un altro progetto: 404", async () => {
+    const { projectId } = await seedRepository(testDb.db);
+    const other = await seedRepository(testDb.db);
+    const widgetId = await createWidget(other.projectId);
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/projects/${projectId}/widgets/${widgetId}`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("admin: 204 e le conversazioni collegate hanno widgetId null (FK SET NULL)", async () => {
+    const { projectId } = await seedRepository(testDb.db);
+    const widgetId = await createWidget(projectId);
+    const conversationId = await seedConversation(testDb.db, { projectId, widgetId });
+
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/projects/${projectId}/widgets/${widgetId}`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(204);
+
+    // Il widget è sparito; la conversazione resta con widgetId null.
+    const remaining = await testDb.db
+      .select({ id: widgets.id })
+      .from(widgets)
+      .where(eq(widgets.id, widgetId));
+    expect(remaining).toHaveLength(0);
+    const [conv] = await testDb.db
+      .select({ widgetId: widgetConversations.widgetId })
+      .from(widgetConversations)
+      .where(eq(widgetConversations.id, conversationId));
+    expect(conv?.widgetId).toBeNull();
   });
 });
 
@@ -225,6 +390,7 @@ async function seedConversation(
   db: Db,
   opts: {
     projectId: string;
+    widgetId?: string;
     externalUserId?: string;
     externalUserEmail?: string | null;
     externalUserName?: string | null;
@@ -237,6 +403,7 @@ async function seedConversation(
     .insert(widgetConversations)
     .values({
       projectId: opts.projectId,
+      widgetId: opts.widgetId ?? null,
       externalUserId: opts.externalUserId ?? "ext-user",
       externalUserEmail: opts.externalUserEmail ?? null,
       externalUserName: opts.externalUserName ?? null,
