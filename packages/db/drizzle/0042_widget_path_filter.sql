@@ -1,0 +1,1 @@
+ALTER TABLE "widgets" ADD COLUMN "repository_filters" jsonb DEFAULT '{}'::jsonb NOT NULL;

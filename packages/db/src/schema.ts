@@ -1488,6 +1488,14 @@ export const widgets = pgTable(
     language: text("language").notNull().default("it"),
     dailyMessageCap: integer("daily_message_cap"),
     dailyTicketCap: integer("daily_ticket_cap"),
+    // Raffinamento opzionale di `enabled_repository_ids`: per i repo che hanno
+    // un'entry qui, la ricerca passa solo ciò che matcha `paths` (prefissi su
+    // `sourcePath`) o `slugs`; fail-closed (entry vuota = niente passa). Le
+    // chiavi sono `repositoryId`. I repo senza entry restano interamente esposti.
+    repositoryFilters: jsonb("repository_filters")
+      .$type<Record<string, { paths: string[]; slugs: string[] }>>()
+      .notNull()
+      .default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   // Elenco dei widget di un progetto.

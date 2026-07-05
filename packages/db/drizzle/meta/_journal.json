@@ -295,6 +295,13 @@
       "when": 1783257531436,
       "tag": "0041_multi_widget",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1783282183431,
+      "tag": "0042_widget_path_filter",
+      "breakpoints": true
     }
   ]
 }

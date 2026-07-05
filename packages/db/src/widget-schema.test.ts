@@ -6,9 +6,10 @@ import { tickets, widgetConversations, widgetMessages, widgets } from "./schema.
 describe("widget tables", () => {
   let testDb: TestDb;
   let projectId: string;
+  let repositoryId: string;
   beforeAll(async () => {
     testDb = await startTestDb();
-    ({ projectId } = await seedRepository(testDb.db));
+    ({ projectId, repositoryId } = await seedRepository(testDb.db));
   }, 120_000);
   afterAll(() => testDb.stop());
 
@@ -43,6 +44,26 @@ describe("widget tables", () => {
       .from(widgetMessages)
       .where(eq(widgetMessages.conversationId, conv!.id));
     expect(msgs).toHaveLength(1);
+  });
+
+  it("repositoryFilters: round-trip per repo, default {} se omesso", async () => {
+    const [conFiltri] = await testDb.db
+      .insert(widgets)
+      .values({
+        projectId,
+        name: "Filtrato",
+        key: "k_filter_" + crypto.randomUUID(),
+        repositoryFilters: { [repositoryId]: { paths: ["apps/webapp"], slugs: [] } },
+      })
+      .returning();
+    const [rf] = await testDb.db.select().from(widgets).where(eq(widgets.id, conFiltri!.id));
+    expect(rf!.repositoryFilters).toEqual({ [repositoryId]: { paths: ["apps/webapp"], slugs: [] } });
+
+    const [senzaFiltri] = await testDb.db
+      .insert(widgets)
+      .values({ projectId, name: "Aperto", key: "k_nofilter_" + crypto.randomUUID() })
+      .returning();
+    expect(senzaFiltri!.repositoryFilters).toEqual({});
   });
 
   it("key duplicata → throw (unique)", async () => {
