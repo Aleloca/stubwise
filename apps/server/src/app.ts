@@ -168,6 +168,13 @@ export interface BuildAppOptions {
    * (cap basso) e per la config di deploy.
    */
   widgetDailyMessageCap?: number;
+  /**
+   * Tetto GIORNALIERO (UTC) di ticket (segnalazioni) creati dal widget, per
+   * progetto: come il cap dei messaggi, la superficie è pubblica e ogni ticket
+   * crea una riga permanente, quindi si limita l'abuso. Default 50. Override
+   * pensato per i test (cap basso) e per la config di deploy.
+   */
+  widgetDailyTicketCap?: number;
 }
 
 /**
@@ -398,6 +405,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     prefix: "/widget",
     rateLimit: opts.ingestRateLimit ?? { max: 300, timeWindow: "1 minute" },
     dailyMessageCap: opts.widgetDailyMessageCap ?? 200,
+    dailyTicketCap: opts.widgetDailyTicketCap ?? 50,
   });
   // Webhook generico per chiamanti esterni: POST /api/inbound/:slug/ticket.
   // Stessa autenticazione/CORS/rate-limit dell'ingestion SDK, ma crea un

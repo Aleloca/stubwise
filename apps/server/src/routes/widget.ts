@@ -11,6 +11,7 @@ import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import {
   projects,
+  tickets,
   widgetConversations,
   widgetMessages,
   widgetSettings,
@@ -34,6 +35,12 @@ export interface WidgetRoutesOptions {
    * l'abuso. Da {@link ../app.ts#BuildAppOptions.widgetDailyMessageCap} (default 200).
    */
   dailyMessageCap: number;
+  /**
+   * Tetto GIORNALIERO (UTC) di ticket (source='widget') per progetto.
+   * Superficie pubblica: ogni ticket crea una riga permanente, quindi si limita
+   * l'abuso. Da {@link ../app.ts#BuildAppOptions.widgetDailyTicketCap} (default 50).
+   */
+  dailyTicketCap: number;
 }
 
 /** Numero massimo di coppie (user+assistant) di storico passate all'LLM. */
@@ -568,6 +575,26 @@ export async function widgetRoutes(
         return apiError(reply, 404, "conversation_not_found", "Conversation not found");
       }
 
+      // CAP giornaliero (UTC) dei ticket widget del progetto, PRIMA di creare
+      // qualsiasi cosa. Conta i `tickets` con source='widget' e createdAt >=
+      // inizio giornata: ogni ticket è una riga permanente, la superficie è
+      // pubblica. Race benigna come il cap chat: due richieste concorrenti
+      // possono superare insieme il cap, overshoot limitato dalla concorrenza.
+      const dayStart = startOfUtcDay(new Date());
+      const [capRow] = await app.db
+        .select({ value: count() })
+        .from(tickets)
+        .where(
+          and(
+            eq(tickets.projectId, project.id),
+            eq(tickets.source, "widget"),
+            gte(tickets.createdAt, dayStart),
+          ),
+        );
+      if ((capRow?.value ?? 0) >= opts.dailyTicketCap) {
+        return apiError(reply, 429, "widget_ticket_cap_reached", "Daily ticket limit reached");
+      }
+
       const language = widgetSettingsSchema.shape.language.safeParse(settings.language);
       const lang = language.success ? language.data : "it";
 
@@ -592,31 +619,38 @@ export async function widgetRoutes(
         language: lang,
       });
 
-      const ticket = await createTicket(app.db, {
-        projectId: project.id,
-        title,
-        body,
-        type,
-        priority: "medium",
-        source: "widget",
-      });
+      // Transazione unica: createTicket (che apre già una sua transazione,
+      // annidata da drizzle come savepoint) + insert del messaggio di conferma +
+      // avanzamento di lastMessageAt. Così un fallimento a metà non lascia un
+      // ticket senza messaggio o un lastMessageAt disallineato.
+      const ticket = await app.db.transaction(async (tx) => {
+        const created = await createTicket(tx, {
+          projectId: project.id,
+          title,
+          body,
+          type,
+          priority: "medium",
+          source: "widget",
+        });
 
-      // Messaggio di conferma nella lingua dei settings, collegato al ticket, +
-      // avanzamento di lastMessageAt (ordina l'elenco viewer).
-      const confirmation =
-        lang === "en"
-          ? `Report submitted: #${ticket.number}`
-          : `Segnalazione registrata: #${ticket.number}`;
-      await app.db.insert(widgetMessages).values({
-        conversationId,
-        role: "assistant",
-        content: confirmation,
-        ticketId: ticket.id,
+        // Messaggio di conferma nella lingua dei settings, collegato al ticket, +
+        // avanzamento di lastMessageAt (ordina l'elenco viewer).
+        const confirmation =
+          lang === "en"
+            ? `Report submitted: #${created.number}`
+            : `Segnalazione registrata: #${created.number}`;
+        await tx.insert(widgetMessages).values({
+          conversationId,
+          role: "assistant",
+          content: confirmation,
+          ticketId: created.id,
+        });
+        await tx
+          .update(widgetConversations)
+          .set({ lastMessageAt: new Date() })
+          .where(eq(widgetConversations.id, conversationId));
+        return created;
       });
-      await app.db
-        .update(widgetConversations)
-        .set({ lastMessageAt: new Date() })
-        .where(eq(widgetConversations.id, conversationId));
 
       return { ticketId: ticket.id, number: ticket.number };
     },
@@ -624,10 +658,15 @@ export async function widgetRoutes(
 }
 
 /**
- * Compone il body del ticket widget: PROPOSTA + separatore + blocco identità +
- * trascrizione (ultimi messaggi, ognuno troncato). Ogni riga della trascrizione
- * è un blockquote markdown col ruolo tradotto. Il risultato è troncato al limite
- * del campo body del ticket per non eccedere il max del DB.
+ * Compone il body del ticket widget: blocco IDENTITÀ + separatore + PROPOSTA
+ * (con heading) + trascrizione (ultimi messaggi, ognuno troncato). Ogni riga
+ * della trascrizione è un blockquote markdown col ruolo tradotto.
+ *
+ * Budget di troncamento: identità e trascrizione sono contenuto GENERATO da noi
+ * e sempre entro il cap; la proposta è testo libero dell'LLM e potenzialmente
+ * enorme. Quindi si tronca SOLO la proposta, calcolando lo spazio residuo dopo
+ * identità+trascrizione, così che identità e trascrizione non vengano MAI
+ * tagliate per colpa di una proposta gigante e il body resti sotto TICKET_BODY_MAXLEN.
  */
 function composeWidgetTicketBody(input: {
   proposalBody: string;
@@ -638,13 +677,14 @@ function composeWidgetTicketBody(input: {
   const { proposalBody, identity, transcript, language } = input;
   const labels =
     language === "en"
-      ? { header: "Reporter", name: "Name", email: "Email", id: "External ID", transcript: "Conversation transcript", user: "user", assistant: "assistant" }
-      : { header: "Segnalato da", name: "Nome", email: "Email", id: "ID esterno", transcript: "Trascrizione della conversazione", user: "utente", assistant: "assistente" };
+      ? { header: "Reporter", proposal: "Report", name: "Name", email: "Email", id: "External ID", transcript: "Conversation transcript", user: "user", assistant: "assistant" }
+      : { header: "Segnalato da", proposal: "Segnalazione", name: "Nome", email: "Email", id: "ID esterno", transcript: "Trascrizione della conversazione", user: "utente", assistant: "assistente" };
 
   const identityLines = [`**${labels.header}**`];
   if (identity.name) identityLines.push(`- ${labels.name}: ${identity.name}`);
   if (identity.email) identityLines.push(`- ${labels.email}: ${identity.email}`);
   identityLines.push(`- ${labels.id}: ${identity.id}`);
+  const identitySection = identityLines.join("\n");
 
   const truncate = (s: string): string =>
     s.length > WIDGET_TICKET_MESSAGE_MAXLEN
@@ -656,12 +696,36 @@ function composeWidgetTicketBody(input: {
     // Newline interni collassati: un blockquote su una riga sola per messaggio.
     (m) => `> **${roleLabel(m.role)}:** ${truncate(m.content).replace(/\s*\n+\s*/g, " ")}`,
   );
+  const transcriptSection =
+    transcriptLines.length > 0
+      ? `**${labels.transcript}**\n\n${transcriptLines.join("\n")}`
+      : null;
 
-  const sections = [proposalBody, identityLines.join("\n")];
-  if (transcriptLines.length > 0) {
-    sections.push(`**${labels.transcript}**\n\n${transcriptLines.join("\n")}`);
-  }
-  const composed = sections.join("\n\n---\n\n");
+  // Separatore fra sezioni; il join finale ne inserisce uno fra ogni coppia.
+  const SEP = "\n\n---\n\n";
+  const proposalHeading = `**${labels.proposal}**\n\n`;
+
+  // Spazio riservato a identità + trascrizione + separatori + heading proposta:
+  // ciò che resta è il budget massimo per il corpo della proposta. Se la
+  // proposta non entra, tronca SOLO lei (identità e trascrizione restano intere).
+  const fixedSections = [identitySection];
+  if (transcriptSection) fixedSections.push(transcriptSection);
+  const fixedLength =
+    fixedSections.join(SEP).length +
+    // separatore fra identità e la sezione proposta + heading della proposta.
+    SEP.length +
+    proposalHeading.length;
+  const proposalBudget = Math.max(0, TICKET_BODY_MAXLEN - fixedLength);
+  const trimmedProposal =
+    proposalBody.length > proposalBudget
+      ? proposalBody.slice(0, proposalBudget)
+      : proposalBody;
+
+  const sections = [identitySection, `${proposalHeading}${trimmedProposal}`];
+  if (transcriptSection) sections.push(transcriptSection);
+  const composed = sections.join(SEP);
+  // Cintura di sicurezza: il budget garantisce già il limite, ma se per un
+  // arrotondamento si sforasse, si taglia comunque al massimo del campo body.
   return composed.length > TICKET_BODY_MAXLEN
     ? composed.slice(0, TICKET_BODY_MAXLEN)
     : composed;

@@ -63,6 +63,8 @@ let testDb: TestDb;
 let app: FastifyInstance;
 /** Cap alto (build separata sotto per il test del cap basso). */
 let capApp: FastifyInstance;
+/** Istanza col cap giornaliero ticket = 1 (test del limite ticket). */
+let ticketCapApp: FastifyInstance;
 
 /** Seed di un progetto (+ repo) e lettura di slug/ingestionKey della superficie pubblica. */
 async function seedProjectWithKey(
@@ -162,11 +164,22 @@ beforeAll(async () => {
     chatLlm: fakeChatLlm,
     widgetDailyMessageCap: 1,
   });
+  // Terza istanza con cap giornaliero ticket = 1 per il test del limite ticket.
+  ticketCapApp = buildApp({
+    db: testDb.db,
+    sessionSecret: SESSION_SECRET,
+    encryptionKey: ENCRYPTION_KEY.toString("base64"),
+    publicUrl: "https://stubwise.example.com",
+    embeddingClient,
+    chatLlm: fakeChatLlm,
+    widgetDailyTicketCap: 1,
+  });
 }, 120_000);
 
 afterAll(async () => {
   await app.close();
   await capApp.close();
+  await ticketCapApp.close();
   await testDb.stop();
 });
 
@@ -1203,6 +1216,67 @@ describe("POST /widget/:slug/conversations/:conversationId/tickets", () => {
       payload: { title: "T", body: "b", type: "bug", userId: "visitor-1" },
     });
     expect(res.statusCode).toBe(401);
+  });
+
+  it("cap giornaliero ticket: secondo ticket → 429 widget_ticket_cap_reached", async () => {
+    // ticketCapApp ha widgetDailyTicketCap = 1: il primo passa, il secondo è
+    // respinto PRIMA di creare qualsiasi cosa (istanza separata, stesso db).
+    const { project, conversationId } = await setupTicketConversation(testDb.db);
+    const first = await ticketCapApp.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
+      headers: { "x-stubwise-key": project.ingestionKey },
+      payload: { title: "Uno", body: "primo", type: "bug", userId: "visitor-1" },
+    });
+    expect(first.statusCode).toBe(200);
+
+    const second = await ticketCapApp.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
+      headers: { "x-stubwise-key": project.ingestionKey },
+      payload: { title: "Due", body: "secondo", type: "bug", userId: "visitor-1" },
+    });
+    expect(second.statusCode).toBe(429);
+    expect(second.json()).toMatchObject({ code: "widget_ticket_cap_reached" });
+
+    // Il secondo ticket NON è stato creato: un solo ticket widget per il progetto.
+    const rows = await testDb.db
+      .select()
+      .from(tickets)
+      .where(eq(tickets.projectId, project.projectId));
+    expect(rows).toHaveLength(1);
+  });
+
+  it("trascrizione vuota + identità null → body con solo ID esterno, sezione trascrizione omessa", async () => {
+    // Nessun messaggio prima della conferma e name/email null: il blocco identità
+    // mostra solo l'ID esterno e la sezione trascrizione non compare.
+    const { project, conversationId } = await setupTicketConversation(testDb.db, {
+      userId: "solo-id",
+      email: null,
+      name: null,
+      language: "it",
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
+      headers: { "x-stubwise-key": project.ingestionKey },
+      payload: { title: "Segnalazione", body: "corpo proposta", type: "bug", userId: "solo-id" },
+    });
+    expect(res.statusCode).toBe(200);
+    const [ticket] = await testDb.db
+      .select()
+      .from(tickets)
+      .where(eq(tickets.id, res.json().ticketId));
+    const body = ticket!.body!;
+    // Identità: solo l'ID esterno, niente Nome/Email.
+    expect(body).toContain("**Segnalato da**");
+    expect(body).toContain("ID esterno: solo-id");
+    expect(body).not.toContain("Nome:");
+    expect(body).not.toContain("Email:");
+    // Sezione trascrizione omessa (nessun messaggio) e proposta presente col heading.
+    expect(body).not.toContain("Trascrizione della conversazione");
+    expect(body).toContain("**Segnalazione**");
+    expect(body).toContain("corpo proposta");
   });
 });
 
