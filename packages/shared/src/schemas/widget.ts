@@ -19,6 +19,17 @@ export const widgetSettingsSchema = z.object({
 });
 export type WidgetSettings = z.infer<typeof widgetSettingsSchema>;
 
+/** Cap giornaliero per-widget: null = usa il default d'istanza (env). */
+const dailyCapSchema = z.number().int().min(1).max(100_000).nullable().default(null);
+
+/** Body di create/update di un widget (API interna). Estende la config con identità e cap. */
+export const widgetUpsertBodySchema = widgetSettingsSchema.extend({
+  name: z.string().min(1).max(80),
+  dailyMessageCap: dailyCapSchema,
+  dailyTicketCap: dailyCapSchema,
+});
+export type WidgetUpsertBody = z.infer<typeof widgetUpsertBodySchema>;
+
 export const widgetConversationCreateBodySchema = z.object({
   user: z.object({
     id: z.string().min(1).max(200),

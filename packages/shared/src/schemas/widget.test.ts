@@ -5,6 +5,7 @@ import {
   widgetConversationCreateBodySchema,
   widgetSettingsSchema,
   widgetTicketConfirmBodySchema,
+  widgetUpsertBodySchema,
 } from "./widget.js";
 
 describe("widget schemas", () => {
@@ -59,5 +60,18 @@ describe("widget schemas", () => {
   it("widget settings rifiuta accentColor e repo id non validi", () => {
     expect(() => widgetSettingsSchema.parse({ accentColor: "#fff" })).toThrow();
     expect(() => widgetSettingsSchema.parse({ enabledRepositoryIds: ["non-uuid"] })).toThrow();
+  });
+
+  it("widget upsert richiede il nome e accetta cap nullable", () => {
+    const parsed = widgetUpsertBodySchema.parse({ name: "Webapp" });
+    expect(parsed.name).toBe("Webapp");
+    expect(parsed.dailyMessageCap).toBeNull();
+    expect(parsed.dailyTicketCap).toBeNull();
+    expect(parsed.enabled).toBe(false); // eredita i default di widgetSettingsSchema
+    expect(() => widgetUpsertBodySchema.parse({})).toThrow(); // name mancante
+    expect(() => widgetUpsertBodySchema.parse({ name: "x", dailyMessageCap: 0 })).toThrow(); // min 1
+    expect(widgetUpsertBodySchema.parse({ name: "x", dailyMessageCap: 500 }).dailyMessageCap).toBe(
+      500,
+    );
   });
 });
