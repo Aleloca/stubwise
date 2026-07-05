@@ -22,11 +22,35 @@ export type WidgetSettings = z.infer<typeof widgetSettingsSchema>;
 /** Cap giornaliero per-widget: null = usa il default d'istanza (env). */
 const dailyCapSchema = z.number().int().min(1).max(100_000).nullable().default(null);
 
+/**
+ * Percorso relativo normalizzato dentro il repo: niente slash iniziale/finale,
+ * niente `..` (fail-closed: un path malformato è un errore, non un filtro vuoto).
+ */
+const repoPathSchema = z
+  .string()
+  .min(1)
+  .max(500)
+  .refine((p) => !p.startsWith("/") && !p.endsWith("/"), "path non normalizzato")
+  .refine((p) => !p.split("/").includes("..") && !p.split("/").includes("."), "path traversal");
+
+/** Filtro per-repo: prefissi di sourcePath e/o slug espliciti (pagine senza percorso). */
+export const widgetRepositoryFilterSchema = z.object({
+  paths: z.array(repoPathSchema).max(50).default([]),
+  slugs: z.array(z.string().min(1).max(300)).max(100).default([]),
+});
+export type WidgetRepositoryFilter = z.infer<typeof widgetRepositoryFilterSchema>;
+
+export const widgetRepositoryFiltersSchema = z
+  .record(z.uuid(), widgetRepositoryFilterSchema)
+  .default({});
+export type WidgetRepositoryFilters = z.infer<typeof widgetRepositoryFiltersSchema>;
+
 /** Body di create/update di un widget (API interna). Estende la config con identità e cap. */
 export const widgetUpsertBodySchema = widgetSettingsSchema.extend({
   name: z.string().min(1).max(80),
   dailyMessageCap: dailyCapSchema,
   dailyTicketCap: dailyCapSchema,
+  repositoryFilters: widgetRepositoryFiltersSchema,
 });
 export type WidgetUpsertBody = z.infer<typeof widgetUpsertBodySchema>;
 

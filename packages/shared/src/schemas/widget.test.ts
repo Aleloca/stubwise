@@ -74,4 +74,35 @@ describe("widget schemas", () => {
       500,
     );
   });
+
+  it("repositoryFilters valida paths e slugs", () => {
+    expect(widgetUpsertBodySchema.parse({ name: "x" }).repositoryFilters).toEqual({});
+    const repoId = "0b7e5b7e-0000-4000-8000-000000000001";
+    const ok = widgetUpsertBodySchema.parse({
+      name: "x",
+      repositoryFilters: { [repoId]: { paths: ["apps/webapp"], slugs: ["faq"] } },
+    });
+    expect(ok.repositoryFilters[repoId]).toEqual({ paths: ["apps/webapp"], slugs: ["faq"] });
+    expect(() =>
+      widgetUpsertBodySchema.parse({ name: "x", repositoryFilters: { nope: { paths: [], slugs: [] } } }),
+    ).toThrow();
+    expect(() =>
+      widgetUpsertBodySchema.parse({
+        name: "x",
+        repositoryFilters: { [repoId]: { paths: ["../secrets"], slugs: [] } },
+      }),
+    ).toThrow();
+    expect(() =>
+      widgetUpsertBodySchema.parse({
+        name: "x",
+        repositoryFilters: { [repoId]: { paths: ["/apps/"], slugs: [] } },
+      }),
+    ).toThrow();
+    expect(() =>
+      widgetUpsertBodySchema.parse({
+        name: "x",
+        repositoryFilters: { [repoId]: { paths: [""], slugs: [] } },
+      }),
+    ).toThrow();
+  });
 });

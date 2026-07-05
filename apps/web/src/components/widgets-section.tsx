@@ -38,6 +38,7 @@ const NEW_WIDGET_FORM: WidgetUpsertBody = {
   language: "it",
   dailyMessageCap: null,
   dailyTicketCap: null,
+  repositoryFilters: {},
 };
 
 /** Proiezione di un widget salvato verso il form dell'editor (scarta i campi di sola lettura). */
@@ -52,6 +53,7 @@ function widgetToForm(widget: Widget): WidgetUpsertBody {
     language: widget.language,
     dailyMessageCap: widget.dailyMessageCap,
     dailyTicketCap: widget.dailyTicketCap,
+    repositoryFilters: {},
   };
 }
 
