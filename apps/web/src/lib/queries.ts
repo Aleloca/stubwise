@@ -25,7 +25,7 @@ import {
   getUsers,
   getWidgetConversationMessages,
   getWidgetConversations,
-  getWidgetSettings,
+  getWidgets,
   listAiProviders,
   listMilestones,
   listSavedViews,
@@ -365,14 +365,14 @@ export function projectQueryOptions(projectId: string) {
 }
 
 /**
- * Impostazioni del widget di assistenza di un progetto. Lettura per ogni utente
- * autenticato (il PUT è solo admin, arbitrato dal server). Chiave figlia del
- * progetto: un salvataggio la riconcilia via `setQueryData`.
+ * Elenco dei widget di assistenza di un progetto. Lettura per ogni utente
+ * autenticato (create/update/delete sono solo admin, arbitrati dal server).
+ * Chiave figlia del progetto: le mutazioni la invalidano/riconciliano.
  */
-export function widgetSettingsQueryOptions(projectId: string) {
+export function widgetsQueryOptions(projectId: string) {
   return queryOptions({
-    queryKey: ["projects", "detail", projectId, "widget-settings"],
-    queryFn: () => getWidgetSettings(projectId),
+    queryKey: ["projects", "detail", projectId, "widgets"],
+    queryFn: () => getWidgets(projectId),
     staleTime: 30_000,
   });
 }

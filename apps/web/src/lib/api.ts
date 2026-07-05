@@ -12,9 +12,10 @@ import type {
   TicketStatus,
   TicketType,
   WidgetSettings,
+  WidgetUpsertBody,
 } from "@stubwise/shared";
 
-export type { PrState, WidgetSettings } from "@stubwise/shared";
+export type { PrState, WidgetSettings, WidgetUpsertBody } from "@stubwise/shared";
 
 /**
  * Wrapper fetch tipizzato per l'API di Stubwise.
@@ -1716,30 +1717,76 @@ export function deleteSearchHistory(): Promise<void> {
   return request("DELETE", "/api/search/history");
 }
 
-// --- Widget di assistenza (impostazioni di progetto) ---
+// --- Widget di assistenza (CRUD per-progetto) ---
 
 /**
- * Impostazioni del widget di assistenza di un progetto (gemello di
- * `widgetSettingsSchema` di @stubwise/shared). `enabledRepositoryIds` è la
- * whitelist dei repository i cui Docs alimentano il retrieval della chat: vuota
- * = nessuna fonte (il widget risponderà di non avere informazioni). Lettura per
- * ogni utente autenticato; PUT solo admin.
+ * Un widget di assistenza di un progetto, come lo espone la lista
+ * `/api/projects/:projectId/widgets`. Estende la config (gemella di
+ * `widgetSettingsSchema` di @stubwise/shared) con l'identità (`name`), la
+ * `key` (chiave immutabile che entra nel DSN dello snippet), i cap giornalieri
+ * per-widget (`null` = default d'istanza) e i conteggi (`conversationCount`).
+ * `enabledRepositoryIds` è la whitelist dei repository i cui Docs alimentano il
+ * retrieval della chat: vuota = nessuna fonte (il widget risponderà di non
+ * avere informazioni).
  */
-export function getWidgetSettings(projectId: string): Promise<WidgetSettings> {
-  return api.get(`/api/projects/${encodeURIComponent(projectId)}/widget-settings`);
+export interface Widget extends WidgetSettings {
+  id: string;
+  name: string;
+  /** Chiave immutabile del widget: entra nel DSN dello snippet (al posto della ingestionKey). */
+  key: string;
+  /** Cap giornaliero di messaggi; null = usa il default d'istanza (env). */
+  dailyMessageCap: number | null;
+  /** Cap giornaliero di ticket; null = usa il default d'istanza (env). */
+  dailyTicketCap: number | null;
+  createdAt: string;
+  /** Numero di conversazioni collegate a questo widget. */
+  conversationCount: number;
 }
 
 /**
- * Upsert completo delle impostazioni widget (solo admin). Il PUT del server è
- * completo: si invia sempre lo stato intero. 422 `invalid_repository` se un id in
- * `enabledRepositoryIds` non è un repository di questo progetto. Ritorna lo
- * stato aggiornato.
+ * Lista dei widget di un progetto, ordinata per createdAt asc. Lettura per ogni
+ * utente autenticato; le scritture (create/update/delete) sono solo admin.
  */
-export function putWidgetSettings(
+export function getWidgets(projectId: string): Promise<{ widgets: Widget[] }> {
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/widgets`);
+}
+
+/**
+ * Crea un widget (solo admin). 422 `invalid_repository` se un id in
+ * `enabledRepositoryIds` non è un repository di questo progetto. Ritorna il
+ * widget creato (con la sua `key` appena generata).
+ */
+export function createWidget(
   projectId: string,
-  settings: WidgetSettings,
-): Promise<WidgetSettings> {
-  return api.put(`/api/projects/${encodeURIComponent(projectId)}/widget-settings`, settings);
+  body: WidgetUpsertBody,
+): Promise<{ widget: Widget }> {
+  return api.post(`/api/projects/${encodeURIComponent(projectId)}/widgets`, body);
+}
+
+/**
+ * Aggiorna un widget esistente (solo admin). Il PUT è completo: si invia sempre
+ * lo stato intero (la `key` è immutabile e non fa parte del body). 422
+ * `invalid_repository` come in create. Ritorna il widget aggiornato.
+ */
+export function updateWidget(
+  projectId: string,
+  widgetId: string,
+  body: WidgetUpsertBody,
+): Promise<{ widget: Widget }> {
+  return api.put(
+    `/api/projects/${encodeURIComponent(projectId)}/widgets/${encodeURIComponent(widgetId)}`,
+    body,
+  );
+}
+
+/**
+ * Elimina un widget (solo admin). Le conversazioni restano (widgetId nullato);
+ * lo snippet installato con la sua `key` smette di funzionare. 204 No Content.
+ */
+export function deleteWidget(projectId: string, widgetId: string): Promise<void> {
+  return api.delete(
+    `/api/projects/${encodeURIComponent(projectId)}/widgets/${encodeURIComponent(widgetId)}`,
+  );
 }
 
 // --- Widget: viewer conversazioni (superficie SPA read-only) ---

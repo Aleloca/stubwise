@@ -6,7 +6,7 @@ import { ProviderBadge } from "../../components/badges";
 import { IntegrationPanel } from "../../components/integration-panel";
 import { MilestoneManager } from "../../components/milestone-manager";
 import { ProjectForm } from "../../components/project-form";
-import { WidgetSettingsSection } from "../../components/widget-settings-section";
+import { WidgetsSection } from "../../components/widgets-section";
 import { deleteProject, patchProject, type ProjectPatch } from "../../lib/api";
 import { meQueryOptions } from "../../lib/auth";
 import { formatDateTime } from "../../lib/format";
@@ -191,10 +191,9 @@ export function ProjectDetailPage() {
             {t("widget:conversations.link")}
           </Link>
         </div>
-        <WidgetSettingsSection
+        <WidgetsSection
           projectId={project.id}
           repositories={project.repositories}
-          ingestionKey={project.ingestionKey}
           slug={project.slug}
           isAdmin={isAdmin}
         />
