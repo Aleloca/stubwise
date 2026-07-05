@@ -100,4 +100,33 @@ describe("parseSseStream", () => {
     await parseSseStream(new Response(null), (ev) => events.push(ev));
     expect(events).toEqual([]);
   });
+
+  it("cancella il reader e ri-propaga se onEvent lancia", async () => {
+    let cancelled = false;
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"type":"delta","text":"a"}\n\n'));
+        // NON chiudiamo: verifichiamo che il finally cancelli il reader.
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const boom = new Error("consumer boom");
+    await expect(
+      parseSseStream(new Response(stream), () => {
+        throw boom;
+      }),
+    ).rejects.toBe(boom);
+    expect(cancelled).toBe(true);
+  });
+
+  it("emette error e interrompe se il buffer supera il cap senza terminatore", async () => {
+    // Un unico chunk oltre 1MB senza mai un "\n\n": deve tagliare con un error
+    // sintetico e non processare l'evento delta valido che segue.
+    const huge = "data: " + "x".repeat(1_000_001);
+    const events = await collect([huge, '\n\ndata: {"type":"delta","text":"tardi"}\n\n']);
+    expect(events).toEqual([{ type: "error", message: "stream buffer overflow" }]);
+  });
 });

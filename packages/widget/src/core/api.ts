@@ -5,8 +5,16 @@
  * Ogni richiesta porta l'header `X-Stubwise-Key` (autentica il PROGETTO, non
  * l'utente: la chiave è pubblica nel sorgente della pagina ospite, come l'SDK di
  * ingestion). Le shape di risposta sono allineate ai contratti Zod del server.
+ *
+ * Modello d'errore (uniforme su tutte le funzioni):
+ *  - errore di RETE (fetch rigetta con `TypeError`: host irraggiungibile, CORS,
+ *    connessione caduta) → l'errore PROPAGA GREZZO, non viene incapsulato. Il
+ *    chiamante (la UI) lo cattura come "generico".
+ *  - errore HTTP (risposta con status non-2xx) → diventa un {@link WidgetApiError}
+ *    con `status` e (best effort) `code`/`message` dal body.
  */
 import type { WidgetDsn } from "./dsn.js";
+import type { WidgetCitation } from "./sse.js";
 
 /** Base di chiamata: coordinate del backend risolte dal DSN. */
 export type WidgetApiBase = WidgetDsn;
@@ -35,8 +43,12 @@ export interface WidgetMessage {
   id: string;
   role: string;
   content: string;
-  /** Riferimenti Docs della risposta RAG: forma libera (jsonb), può essere null. */
-  citations: unknown;
+  /**
+   * Riferimenti Docs della risposta RAG. Stesso tipo OPACO dello stream
+   * ({@link WidgetCitation}, allineato al contratto server `unknown`/jsonb):
+   * array di record generici o `null` se il messaggio non ne ha.
+   */
+  citations: WidgetCitation[] | null;
   ticketId: string | null;
   createdAt: string;
 }
