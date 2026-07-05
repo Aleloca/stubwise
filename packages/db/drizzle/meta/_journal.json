@@ -281,6 +281,13 @@
       "when": 1782997200706,
       "tag": "0039_docs_limit_paused_toggle",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1783244971505,
+      "tag": "0040_widget",
+      "breakpoints": true
     }
   ]
 }

@@ -1458,3 +1458,72 @@ export const searchHistory = pgTable(
     ),
   ],
 );
+
+/**
+ * Impostazioni del widget di assistenza per progetto (1:1: la PK è il
+ * `project_id`). Governa aspetto e comportamento del widget embeddabile sul
+ * sito del cliente: `enabled` accende la superficie pubblica,
+ * `enabled_repository_ids` restringe il retrieval RAG ai soli repo scelti
+ * (jsonb array di uuid; vuoto = tutti i repo del progetto), gli altri campi
+ * sono presentazione (titolo, messaggio di benvenuto, colore accento, lingua).
+ * Cascata col progetto.
+ */
+export const widgetSettings = pgTable("widget_settings", {
+  projectId: uuid("project_id")
+    .primaryKey()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").notNull().default(false),
+  enabledRepositoryIds: jsonb("enabled_repository_ids").$type<string[]>().notNull().default([]),
+  title: text("title").notNull().default("Assistenza"),
+  welcomeMessage: text("welcome_message").notNull().default("Ciao! Come posso aiutarti?"),
+  accentColor: text("accent_color").notNull().default("#22c55e"),
+  language: text("language").notNull().default("it"),
+});
+
+/**
+ * Conversazione di un utente esterno (visitatore del sito ospite) col widget di
+ * un progetto. L'identità è *dichiarata* dal sito ospite, non autenticata:
+ * `external_user_id` è obbligatorio, email/nome opzionali. `last_message_at`
+ * ordina l'elenco delle conversazioni (lato viewer interno). Cascata col progetto.
+ */
+export const widgetConversations = pgTable(
+  "widget_conversations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    externalUserId: text("external_user_id").notNull(),
+    externalUserEmail: text("external_user_email"),
+    externalUserName: text("external_user_name"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastMessageAt: timestamp("last_message_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  // Elenco delle conversazioni di un progetto, le più recenti prima.
+  (table) => [index("widget_conversations_project_idx").on(table.projectId, table.lastMessageAt)],
+);
+
+/**
+ * Messaggio di una conversazione widget: `role` "user" | "assistant",
+ * `citations` jsonb porta i riferimenti ai chunk/pagine Docs usati nella
+ * risposta RAG, `ticket_id` (opzionale) collega il messaggio al ticket
+ * eventualmente creato dalla conversazione (set null se il ticket viene
+ * eliminato). Cascata con la conversazione.
+ */
+export const widgetMessages = pgTable(
+  "widget_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => widgetConversations.id, { onDelete: "cascade" }),
+    // "user" | "assistant": registro libero (non enum) per estensibilità futura.
+    role: text("role").notNull(),
+    content: text("content").notNull(),
+    citations: jsonb("citations"),
+    ticketId: uuid("ticket_id").references(() => tickets.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  // I messaggi si caricano sempre per conversazione, in ordine cronologico.
+  (table) => [index("widget_messages_conversation_idx").on(table.conversationId)],
+);
