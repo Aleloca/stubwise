@@ -104,5 +104,12 @@ describe("widget schemas", () => {
         repositoryFilters: { [repoId]: { paths: [""], slugs: [] } },
       }),
     ).toThrow();
+    // Segmento vuoto in mezzo (a//b): non normalizzato, rifiutato.
+    expect(() =>
+      widgetUpsertBodySchema.parse({
+        name: "x",
+        repositoryFilters: { [repoId]: { paths: ["apps//webapp"], slugs: [] } },
+      }),
+    ).toThrow();
   });
 });

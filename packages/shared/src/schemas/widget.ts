@@ -30,8 +30,11 @@ const repoPathSchema = z
   .string()
   .min(1)
   .max(500)
-  .refine((p) => !p.startsWith("/") && !p.endsWith("/"), "path non normalizzato")
-  .refine((p) => !p.split("/").includes("..") && !p.split("/").includes("."), "path traversal");
+  // Un segmento vuoto copre anche slash iniziale/finale e doppio slash (a//b).
+  .refine((p) => {
+    const segments = p.split("/");
+    return segments.every((s) => s !== "" && s !== "." && s !== "..");
+  }, "path non normalizzato o traversal");
 
 /** Filtro per-repo: prefissi di sourcePath e/o slug espliciti (pagine senza percorso). */
 export const widgetRepositoryFilterSchema = z.object({
