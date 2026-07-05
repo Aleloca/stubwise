@@ -240,21 +240,26 @@ export async function streamWidgetChatResponse(
   // come ultimo delta prima del done.
   let visible = full;
   let proposal: TicketProposal | null = null;
-  if (completed) {
-    ({ visible, proposal } = extractProposal(full));
-    if (!clientGone) {
-      if (visible.length > forwarded) {
-        writeSseEvent(reply, { type: "delta", text: visible.slice(forwarded) });
+  try {
+    if (completed) {
+      ({ visible, proposal } = extractProposal(full));
+      if (!clientGone) {
+        if (visible.length > forwarded) {
+          writeSseEvent(reply, { type: "delta", text: visible.slice(forwarded) });
+        }
+        if (proposal) {
+          writeSseEvent(reply, { type: "ticket_proposal", proposal });
+        }
+        writeSseEvent(reply, { type: "done", conversationId, citations });
       }
-      if (proposal) {
-        writeSseEvent(reply, { type: "ticket_proposal", proposal });
-      }
-      writeSseEvent(reply, { type: "done", conversationId, citations });
     }
-  }
-
-  if (!clientGone) {
-    reply.raw.end();
+  } finally {
+    // Lo stream HTTP grezzo va SEMPRE chiuso, anche su throw inatteso dopo
+    // hijack() (es. extractProposal): senza questo il socket resterebbe appeso.
+    // Su disconnessione del client la connessione è già chiusa, non chiudiamo.
+    if (!clientGone) {
+      reply.raw.end();
+    }
   }
 
   // Persistenza dell'assistant: completo (content = visible + citazioni) oppure
@@ -271,10 +276,16 @@ export async function streamWidgetChatResponse(
       .set({ lastMessageAt: new Date() })
       .where(eq(widgetConversations.id, conversationId));
   } else if (full.length > 0) {
+    // Il testo accumulato può contenere un blocco sentinel parziale/completo (il
+    // marcatore sta in coda alla risposta, esattamente dove cadono le
+    // interruzioni): persistere `full` verbatim lo esporrebbe nello storico GET.
+    // Persistiamo solo la parte sicuramente inoltrabile (mai oltre
+    // safeForwardLength), che per costruzione non include un frammento sentinel.
+    const safe = full.slice(0, safeForwardLength(full));
     await db.insert(widgetMessages).values({
       conversationId,
       role: "assistant",
-      content: full + TRUNCATION_MARKER,
+      content: safe + TRUNCATION_MARKER,
       citations: null,
     });
     await db

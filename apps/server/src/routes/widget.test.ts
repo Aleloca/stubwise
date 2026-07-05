@@ -742,6 +742,50 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
     expect(deltaText).not.toContain("TICKET_PROPOSAL");
   });
 
+  it("stream che LANCIA a metà (con inizio sentinel) → evento error; parziale persistito col marker, senza frammento sentinel; delta senza marker", async () => {
+    const { project, conversationId } = await seedChatWithoutContext(testDb.db);
+    // Lo stream emette del testo visibile, POI l'inizio (parziale) del marcatore
+    // sentinel, e infine LANCIA: è il caso peggiore, l'interruzione cade dove il
+    // marcatore sta per aprirsi.
+    streamOverride = async function* (): AsyncIterable<string> {
+      yield "Sto verificando";
+      yield " il problema.";
+      yield "\n\n<<<TICKET_PROP"; // marcatore parziale, mai completato
+      throw new Error("LLM esploso a metà stream");
+    };
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${conversationId}/messages`,
+      headers: { "x-stubwise-key": project.ingestionKey },
+      payload: { content: "il login non va", userId: "visitor-1" },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const events = parseSse(res.payload);
+    // L'endpoint segnala l'errore con un evento SSE `error`.
+    expect(events.some((e) => e.type === "error")).toBe(true);
+    // I delta inoltrati non contengono mai il frammento del marcatore.
+    const deltaText = events.filter((e) => e.type === "delta").map((e) => e.text).join("");
+    expect(deltaText).not.toContain("<<<");
+    expect(deltaText).not.toContain("TICKET_PROP");
+
+    // Il parziale persistito ha il marcatore di troncamento e NON contiene il
+    // frammento sentinel (che sarebbe finito nello storico GET verbatim).
+    const assistant = await vi.waitFor(async () => {
+      const rows = await testDb.db
+        .select()
+        .from(widgetMessages)
+        .where(eq(widgetMessages.conversationId, conversationId));
+      const row = rows.find((m) => m.role === "assistant");
+      expect(row).toBeDefined();
+      return row!;
+    });
+    expect(assistant.content).toContain("_[risposta interrotta]_");
+    expect(assistant.content).not.toContain("<<<TICKET_PROP");
+    expect(assistant.content).toContain("Sto verificando il problema.");
+  });
+
   it("cap giornaliero: secondo messaggio → 429 widget_chat_cap_reached", async () => {
     // capApp ha widgetDailyMessageCap = 1: il primo passa, il secondo è respinto.
     const { project, conversationId, genId } = await setupChat(testDb.db);
