@@ -7,7 +7,7 @@ export const widgetLanguageSchema = z.enum(["it", "en"]);
 
 export const widgetSettingsSchema = z.object({
   enabled: z.boolean().default(false),
-  enabledRepositoryIds: z.array(z.uuid()).default([]),
+  enabledRepositoryIds: z.array(z.uuid()).max(200).default([]),
   title: z.string().min(1).max(80).default("Assistenza"),
   welcomeMessage: z.string().min(1).max(500).default("Ciao! Come posso aiutarti?"),
   accentColor: z

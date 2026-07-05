@@ -1464,7 +1464,7 @@ export const searchHistory = pgTable(
  * `project_id`). Governa aspetto e comportamento del widget embeddabile sul
  * sito del cliente: `enabled` accende la superficie pubblica,
  * `enabled_repository_ids` restringe il retrieval RAG ai soli repo scelti
- * (jsonb array di uuid; vuoto = tutti i repo del progetto), gli altri campi
+ * (jsonb array di uuid; vuoto = chat disabilitata, nessun repo esposto), gli altri campi
  * sono presentazione (titolo, messaggio di benvenuto, colore accento, lingua).
  * Cascata col progetto.
  */

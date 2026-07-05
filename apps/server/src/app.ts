@@ -32,6 +32,7 @@ import { docsRoutes } from "./routes/docs.js";
 import { gitAccountRoutes } from "./routes/git-accounts.js";
 import { inboundRoutes } from "./routes/inbound.js";
 import { ingestRoutes } from "./routes/ingest.js";
+import { widgetRoutes } from "./routes/widget.js";
 import { milestoneRoutes } from "./routes/milestones.js";
 import { projectDocsRoutes } from "./routes/project-docs.js";
 import { projectEnvFileRoutes } from "./routes/project-env-files.js";
@@ -380,6 +381,14 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // (registrato dentro il plugin), autenticazione via X-Stubwise-Key.
   void app.register(ingestRoutes, {
     prefix: "/ingest",
+    rateLimit: opts.ingestRateLimit ?? { max: 300, timeWindow: "1 minute" },
+  });
+  // Superficie pubblica del widget di assistenza embeddato nei siti dei clienti:
+  // fuori da /api, CORS aperto solo qui (registrato dentro il plugin),
+  // autenticazione via X-Stubwise-Key (ingestionKey del progetto). Riusa il
+  // rate-limit dell'ingestion (stessa natura pubblica per-chiave).
+  void app.register(widgetRoutes, {
+    prefix: "/widget",
     rateLimit: opts.ingestRateLimit ?? { max: 300, timeWindow: "1 minute" },
   });
   // Webhook generico per chiamanti esterni: POST /api/inbound/:slug/ticket.
