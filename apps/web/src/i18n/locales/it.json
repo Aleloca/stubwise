@@ -1130,6 +1130,27 @@
     "readOnlyHint": "Solo gli amministratori possono modificare queste impostazioni.",
     "snippet": "Snippet di integrazione",
     "copySnippet": "Copia snippet",
-    "snippetHint": "// incolla prima di </body>: carica il widget e lo avvia con l'utente corrente."
+    "snippetHint": "// incolla prima di </body>: carica il widget e lo avvia con l'utente corrente.",
+    "conversations": {
+      "link": "Conversazioni widget",
+      "title": "Conversazioni widget",
+      "back": "← Torna al progetto",
+      "empty": "Nessuna conversazione",
+      "selectHint": "Seleziona una conversazione",
+      "loading": "Caricamento conversazione…",
+      "loadError": "Impossibile caricare la conversazione.",
+      "noMessages": "Nessun messaggio in questa conversazione.",
+      "email": "Email",
+      "externalId": "ID esterno",
+      "roleUser": "Utente",
+      "roleAssistant": "Assistente",
+      "source": "fonte: {{title}}",
+      "viewTicket": "Vedi ticket",
+      "viewConversation": "Vedi conversazione",
+      "messageCount_one": "{{count}} messaggio",
+      "messageCount_other": "{{count}} messaggi",
+      "ticketCount_one": "{{count}} ticket",
+      "ticketCount_other": "{{count}} ticket"
+    }
   }
 }

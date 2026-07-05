@@ -1741,3 +1741,81 @@ export function putWidgetSettings(
 ): Promise<WidgetSettings> {
   return api.put(`/api/projects/${encodeURIComponent(projectId)}/widget-settings`, settings);
 }
+
+// --- Widget: viewer conversazioni (superficie SPA read-only) ---
+
+/**
+ * Riepilogo di una conversazione widget nel viewer interno: identità
+ * dell'utente esterno (name/email/id, name ed email possono mancare), istanti
+ * di creazione e ultimo messaggio, più i conteggi aggregati di messaggi e di
+ * messaggi che hanno aperto un ticket. Ordinato dal server per lastMessageAt desc.
+ */
+export interface WidgetConversationSummary {
+  id: string;
+  externalUserId: string;
+  externalUserEmail: string | null;
+  externalUserName: string | null;
+  createdAt: string;
+  lastMessageAt: string;
+  messageCount: number;
+  ticketCount: number;
+}
+
+/**
+ * Un messaggio nel filo di una conversazione widget. `citations` è jsonb a forma
+ * libera (le fonti Docs della risposta RAG), tipato `unknown`: la UI lo legge con
+ * un type guard. `ticketId` non nullo = il messaggio ha aperto un ticket.
+ */
+export interface WidgetConversationMessage {
+  id: string;
+  role: string;
+  content: string;
+  citations: unknown;
+  ticketId: string | null;
+  createdAt: string;
+}
+
+/** Identità dell'utente esterno di una conversazione (header del dettaglio). */
+export interface WidgetConversationIdentity {
+  id: string;
+  externalUserId: string;
+  externalUserEmail: string | null;
+  externalUserName: string | null;
+  createdAt: string;
+}
+
+/** Filo completo di una conversazione: identità + messaggi in ordine cronologico. */
+export interface WidgetConversationThread {
+  conversation: WidgetConversationIdentity;
+  messages: WidgetConversationMessage[];
+}
+
+/**
+ * Elenco delle conversazioni widget di un progetto per il viewer interno,
+ * ordinate lastMessageAt desc. Con `ticketId` si restringe alla sola
+ * conversazione che contiene un messaggio con quel ticket (link "Vedi
+ * conversazione" dal dettaglio ticket).
+ */
+export function getWidgetConversations(
+  projectId: string,
+  opts?: { limit?: number; ticketId?: string },
+): Promise<{ conversations: WidgetConversationSummary[] }> {
+  const params = new URLSearchParams();
+  if (opts?.limit !== undefined) params.set("limit", String(opts.limit));
+  if (opts?.ticketId) params.set("ticketId", opts.ticketId);
+  const qs = params.toString();
+  return api.get(
+    `/api/projects/${encodeURIComponent(projectId)}/widget/conversations${qs ? `?${qs}` : ""}`,
+  );
+}
+
+/** Filo completo di una conversazione widget (identità + messaggi). 404 se la
+ * conversazione non appartiene al progetto. */
+export function getWidgetConversationMessages(
+  projectId: string,
+  conversationId: string,
+): Promise<WidgetConversationThread> {
+  return api.get(
+    `/api/projects/${encodeURIComponent(projectId)}/widget/conversations/${encodeURIComponent(conversationId)}/messages`,
+  );
+}

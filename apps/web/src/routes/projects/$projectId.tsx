@@ -181,7 +181,16 @@ export function ProjectDetailPage() {
         è solo admin (il server arbitra i permessi, la UI nasconde il submit).
       */}
       <section aria-label={t("widget:title")} className="mt-8 border-t border-line pt-6">
-        <h2 className={sectionTitleClass}>{t("widget:title")}</h2>
+        <div className="mb-3 flex items-baseline justify-between gap-3">
+          <h2 className={sectionTitleClass + " mb-0"}>{t("widget:title")}</h2>
+          <Link
+            to="/projects/$projectId/conversations"
+            params={{ projectId: project.id }}
+            className="rounded-sm border border-line-strong px-3 py-1.5 font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-signal-dim hover:text-fg"
+          >
+            {t("widget:conversations.link")}
+          </Link>
+        </div>
         <WidgetSettingsSection
           projectId={project.id}
           repositories={project.repositories}

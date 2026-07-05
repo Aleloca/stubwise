@@ -23,6 +23,8 @@ import {
   getTicketLinks,
   getTicketUsage,
   getUsers,
+  getWidgetConversationMessages,
+  getWidgetConversations,
   getWidgetSettings,
   listAiProviders,
   listMilestones,
@@ -372,6 +374,38 @@ export function widgetSettingsQueryOptions(projectId: string) {
     queryKey: ["projects", "detail", projectId, "widget-settings"],
     queryFn: () => getWidgetSettings(projectId),
     staleTime: 30_000,
+  });
+}
+
+/**
+ * Elenco delle conversazioni widget di un progetto (viewer interno), ordinate
+ * lastMessageAt desc. Chiave figlia del progetto, gemella di widget-settings:
+ * il `ticketId` (link dal ticket) entra nella chiave così la lista filtrata e
+ * quella intera sono cache distinte. `staleTime` breve: nuove conversazioni
+ * arrivano di continuo.
+ */
+export function widgetConversationsQueryOptions(projectId: string, ticketId?: string) {
+  return queryOptions({
+    queryKey: ["projects", "detail", projectId, "widget-conversations", ticketId ?? null],
+    queryFn: () => getWidgetConversations(projectId, ticketId ? { ticketId } : undefined),
+    staleTime: 10_000,
+  });
+}
+
+/**
+ * Filo completo di una conversazione widget (identità + messaggi). Chiave figlia
+ * della conversazione, sotto il sotto-albero widget del progetto. `enabled` sul
+ * conversationId: il pannello dettaglio la interroga solo a selezione fatta.
+ */
+export function widgetConversationMessagesQueryOptions(
+  projectId: string,
+  conversationId: string | undefined,
+) {
+  return queryOptions({
+    queryKey: ["projects", "detail", projectId, "widget-conversation", conversationId ?? null],
+    queryFn: () => getWidgetConversationMessages(projectId, conversationId!),
+    enabled: conversationId !== undefined,
+    staleTime: 10_000,
   });
 }
 

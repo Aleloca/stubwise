@@ -37,6 +37,7 @@ import {
   ticketsInfiniteQueryOptions,
   ticketUsageQueryOptions,
   usersQueryOptions,
+  widgetConversationsQueryOptions,
 } from "./lib/queries";
 import { boardSearchSchema, BoardPage } from "./routes/board";
 import {
@@ -50,6 +51,10 @@ import { ProjectDocsLanding } from "./routes/docs/project.$projectId";
 import { LoginPage } from "./routes/login";
 import { ProjectDetailPage } from "./routes/projects/$projectId";
 import { ProjectsPage } from "./routes/projects/index";
+import {
+  widgetConversationsSearchSchema,
+  WidgetConversationsPage,
+} from "./routes/projects/widget-conversations";
 import { RepositoryDetailPage } from "./routes/repositories/$slug";
 import { RepositoriesListPage } from "./routes/repositories/index";
 import { NewRepositoryPage } from "./routes/repositories/new";
@@ -213,6 +218,28 @@ const projectDetailRoute = createRoute({
     await context.queryClient.ensureQueryData(milestonesQueryOptions(project.id));
   },
   component: ProjectDetailPage,
+});
+
+/**
+ * Viewer read-only delle conversazioni del widget di un progetto: lista +
+ * pannello dettaglio. `?ticketId` (link "Vedi conversazione" dal ticket) filtra
+ * la lista e auto-seleziona la conversazione. Prefetch best-effort dell'elenco
+ * (con l'eventuale filtro) e del progetto (nome nell'header) prima del render.
+ */
+const widgetConversationsRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/projects/$projectId/conversations",
+  validateSearch: (search) => widgetConversationsSearchSchema.parse(search),
+  loaderDeps: ({ search }) => ({ ticketId: search.ticketId }),
+  loader: async ({ context, params, deps }) => {
+    await Promise.all([
+      context.queryClient.ensureQueryData(projectQueryOptions(params.projectId)),
+      context.queryClient
+        .ensureQueryData(widgetConversationsQueryOptions(params.projectId, deps.ticketId))
+        .catch(() => undefined),
+    ]);
+  },
+  component: WidgetConversationsPage,
 });
 
 const repositoryNewRoute = createRoute({
@@ -483,6 +510,7 @@ const routeTree = rootRoute.addChildren([
     boardRoute,
     projectsRoute,
     projectDetailRoute,
+    widgetConversationsRoute,
     repositoryNewRoute,
     repositoriesIndexRoute,
     repositoryStandaloneNewRoute,

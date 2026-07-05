@@ -216,6 +216,16 @@ export function TicketDetailPage() {
             </span>
           )}
           <SourceBadge source={ticket.source} />
+          {ticket.source === "widget" && (
+            <Link
+              to="/projects/$projectId/conversations"
+              params={{ projectId: ticket.projectId }}
+              search={{ ticketId: ticket.id }}
+              className="font-mono text-[11px] tracking-[0.08em] text-signal uppercase transition-colors hover:text-signal-bright"
+            >
+              {t("widget:conversations.viewConversation")}
+            </Link>
+          )}
           <span className="font-mono text-[11px] text-fg-muted">{projectName}</span>
           {currentMilestoneName && (
             <span

@@ -1130,6 +1130,27 @@
     "readOnlyHint": "Only administrators can change these settings.",
     "snippet": "Embed snippet",
     "copySnippet": "Copy snippet",
-    "snippetHint": "// paste before </body>: loads the widget and boots it with the current user."
+    "snippetHint": "// paste before </body>: loads the widget and boots it with the current user.",
+    "conversations": {
+      "link": "Widget conversations",
+      "title": "Widget conversations",
+      "back": "← Back to project",
+      "empty": "No conversations yet",
+      "selectHint": "Select a conversation",
+      "loading": "Loading conversation…",
+      "loadError": "Could not load the conversation.",
+      "noMessages": "No messages in this conversation.",
+      "email": "Email",
+      "externalId": "External ID",
+      "roleUser": "User",
+      "roleAssistant": "Assistant",
+      "source": "source: {{title}}",
+      "viewTicket": "View ticket",
+      "viewConversation": "View conversation",
+      "messageCount_one": "{{count}} message",
+      "messageCount_other": "{{count}} messages",
+      "ticketCount_one": "{{count}} ticket",
+      "ticketCount_other": "{{count}} tickets"
+    }
   }
 }
