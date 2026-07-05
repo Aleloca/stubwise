@@ -36,4 +36,9 @@ describe("widget schemas", () => {
     expect(s.enabledRepositoryIds).toEqual([]);
     expect(s.language).toBe("it");
   });
+
+  it("widget settings rifiuta accentColor e repo id non validi", () => {
+    expect(() => widgetSettingsSchema.parse({ accentColor: "#fff" })).toThrow();
+    expect(() => widgetSettingsSchema.parse({ enabledRepositoryIds: ["non-uuid"] })).toThrow();
+  });
 });

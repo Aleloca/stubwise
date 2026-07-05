@@ -660,7 +660,8 @@
       "sdk_feedback": "SDK",
       "api": "API",
       "slack": "Slack",
-      "webhook": "Webhook"
+      "webhook": "Webhook",
+      "widget": "Widget"
     },
     "effort": {
       "1": "Trivial",

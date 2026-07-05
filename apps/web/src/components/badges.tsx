@@ -81,6 +81,7 @@ export const SOURCE_LABEL_KEYS: Record<TicketSource, string> = {
   api: "badges:source.api",
   slack: "badges:source.slack",
   webhook: "badges:source.webhook",
+  widget: "badges:source.widget",
 };
 
 const badgeBase =
