@@ -23,6 +23,7 @@ export const ticketSourceSchema = z.enum([
   "api",
   "slack",
   "webhook",
+  "widget",
 ]);
 export type TicketSource = z.infer<typeof ticketSourceSchema>;
 
