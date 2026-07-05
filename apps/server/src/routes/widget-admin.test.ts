@@ -215,6 +215,56 @@ describe("POST /api/projects/:projectId/widgets", () => {
     });
     expect(res.statusCode).toBe(422);
   });
+
+  it("repositoryFilters per un repo abilitato → 200 e round-trip del filtro", async () => {
+    const { projectId, repositoryId } = await seedRepository(testDb.db);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/widgets`,
+      headers: { cookie: adminCookie },
+      payload: upsertBody({
+        enabledRepositoryIds: [repositoryId],
+        repositoryFilters: { [repositoryId]: { paths: ["apps/webapp"], slugs: ["faq"] } },
+      }),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().widget.repositoryFilters).toEqual({
+      [repositoryId]: { paths: ["apps/webapp"], slugs: ["faq"] },
+    });
+  });
+
+  it("repositoryFilters con chiave NON in enabledRepositoryIds → 422 invalid_repository_filter", async () => {
+    const { projectId, repositoryId } = await seedRepository(testDb.db);
+    const secondRepo = await seedRepositoryInProject(testDb.db, projectId);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/widgets`,
+      headers: { cookie: adminCookie },
+      // secondRepo è dello stesso progetto ma NON è tra gli abilitati.
+      payload: upsertBody({
+        enabledRepositoryIds: [repositoryId],
+        repositoryFilters: { [secondRepo]: { paths: ["apps/webapp"], slugs: [] } },
+      }),
+    });
+    expect(res.statusCode).toBe(422);
+    expect(res.json()).toMatchObject({ code: "invalid_repository_filter" });
+  });
+
+  it("repositoryFilters per un repo di un ALTRO progetto → 422 invalid_repository_filter", async () => {
+    const { projectId, repositoryId } = await seedRepository(testDb.db);
+    const other = await seedRepository(testDb.db);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/widgets`,
+      headers: { cookie: adminCookie },
+      payload: upsertBody({
+        enabledRepositoryIds: [repositoryId],
+        repositoryFilters: { [other.repositoryId]: { paths: ["apps/webapp"], slugs: [] } },
+      }),
+    });
+    expect(res.statusCode).toBe(422);
+    expect(res.json()).toMatchObject({ code: "invalid_repository_filter" });
+  });
 });
 
 describe("PUT /api/projects/:projectId/widgets/:widgetId", () => {
@@ -318,6 +368,69 @@ describe("PUT /api/projects/:projectId/widgets/:widgetId", () => {
       payload: upsertBody(),
     });
     expect(res.statusCode).toBe(404);
+  });
+
+  it("repositoryFilters per un repo abilitato → 200 e round-trip del filtro", async () => {
+    const { projectId, repositoryId } = await seedRepository(testDb.db);
+    const widgetId = await createWidget(projectId);
+    const put = await app.inject({
+      method: "PUT",
+      url: `/api/projects/${projectId}/widgets/${widgetId}`,
+      headers: { cookie: adminCookie },
+      payload: upsertBody({
+        enabledRepositoryIds: [repositoryId],
+        repositoryFilters: { [repositoryId]: { paths: ["apps/webapp"], slugs: [] } },
+      }),
+    });
+    expect(put.statusCode).toBe(200);
+    expect(put.json().widget.repositoryFilters).toEqual({
+      [repositoryId]: { paths: ["apps/webapp"], slugs: [] },
+    });
+
+    // La GET riflette il filtro persistito.
+    const get = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/widgets`,
+      headers: { cookie: memberCookie },
+    });
+    const found = get.json().widgets.find((w: { id: string }) => w.id === widgetId);
+    expect(found.repositoryFilters).toEqual({
+      [repositoryId]: { paths: ["apps/webapp"], slugs: [] },
+    });
+  });
+
+  it("repositoryFilters con chiave NON in enabledRepositoryIds → 422 invalid_repository_filter", async () => {
+    const { projectId, repositoryId } = await seedRepository(testDb.db);
+    const secondRepo = await seedRepositoryInProject(testDb.db, projectId);
+    const widgetId = await createWidget(projectId);
+    const res = await app.inject({
+      method: "PUT",
+      url: `/api/projects/${projectId}/widgets/${widgetId}`,
+      headers: { cookie: adminCookie },
+      payload: upsertBody({
+        enabledRepositoryIds: [repositoryId],
+        repositoryFilters: { [secondRepo]: { paths: ["apps/webapp"], slugs: [] } },
+      }),
+    });
+    expect(res.statusCode).toBe(422);
+    expect(res.json()).toMatchObject({ code: "invalid_repository_filter" });
+  });
+
+  it("repositoryFilters per un repo di un ALTRO progetto → 422 invalid_repository_filter", async () => {
+    const { projectId, repositoryId } = await seedRepository(testDb.db);
+    const other = await seedRepository(testDb.db);
+    const widgetId = await createWidget(projectId);
+    const res = await app.inject({
+      method: "PUT",
+      url: `/api/projects/${projectId}/widgets/${widgetId}`,
+      headers: { cookie: adminCookie },
+      payload: upsertBody({
+        enabledRepositoryIds: [repositoryId],
+        repositoryFilters: { [other.repositoryId]: { paths: ["apps/webapp"], slugs: [] } },
+      }),
+    });
+    expect(res.statusCode).toBe(422);
+    expect(res.json()).toMatchObject({ code: "invalid_repository_filter" });
   });
 });
 

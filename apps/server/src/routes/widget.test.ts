@@ -134,7 +134,7 @@ async function seedPageWithChunk(
   db: Db,
   repositoryId: string,
   generationId: string,
-  page: { title: string; chunkContent: string },
+  page: { title: string; chunkContent: string; sourcePath?: string },
 ): Promise<{ slug: string; title: string }> {
   widgetPageSeq++;
   const [row] = await db
@@ -146,6 +146,7 @@ async function seedPageWithChunk(
       slug: `widget-page-${widgetPageSeq}`,
       title: page.title,
       body: page.chunkContent,
+      sourcePath: page.sourcePath ?? null,
       isManual: false,
     })
     .returning();
@@ -390,6 +391,22 @@ describe("GET /widget/:slug/config", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ enabled: true, chatEnabled: false });
+  });
+
+  it("config NON espone repositoryFilters (filtro interno, mai al client pubblico)", async () => {
+    const project = await seedProjectWithKey(testDb.db);
+    const widget = await seedWidget(testDb.db, project.projectId, {
+      enabled: true,
+      enabledRepositoryIds: [project.repositoryId],
+      repositoryFilters: { [project.repositoryId]: { paths: ["apps/webapp"], slugs: [] } },
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: `/widget/${project.slug}/config`,
+      headers: { "x-stubwise-key": widget.key },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).not.toHaveProperty("repositoryFilters");
   });
 
   it("risposta include header CORS access-control-allow-origin: *", async () => {
@@ -1213,6 +1230,128 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
     expect(citA.some((c) => c.slug === pageB.slug)).toBe(false);
     expect(citB.some((c) => c.slug === pageB.slug)).toBe(true);
     expect(citB.some((c) => c.slug === pageA.slug)).toBe(false);
+  });
+
+  it("repositoryFilters (path filter): widget con paths=['apps/webapp'] → cita solo la pagina webapp, non admin", async () => {
+    // Un solo repo con due pagine di sezioni diverse (apps/webapp vs apps/admin).
+    // Il widget filtra su apps/webapp: la chat deve citare SOLO la pagina webapp.
+    const project = await seedProjectWithKey(testDb.db);
+    const genId = await seedCurrentGeneration(testDb.db, project.repositoryId);
+    const token = `pathtok${randomBytes(4).toString("hex")}`;
+    const webappPage = await seedPageWithChunk(testDb.db, project.repositoryId, genId, {
+      title: "Webapp doc",
+      chunkContent: `Il ${token} della webapp gestisce le notifiche.`,
+      sourcePath: "apps/webapp/notifiche.ts",
+    });
+    const adminPage = await seedPageWithChunk(testDb.db, project.repositoryId, genId, {
+      title: "Admin doc",
+      chunkContent: `Il ${token} dell'admin gestisce gli utenti.`,
+      sourcePath: "apps/admin/utenti.ts",
+    });
+    const widget = await seedWidget(testDb.db, project.projectId, {
+      enabled: true,
+      enabledRepositoryIds: [project.repositoryId],
+      repositoryFilters: { [project.repositoryId]: { paths: ["apps/webapp"], slugs: [] } },
+    });
+    const [conv] = await testDb.db
+      .insert(widgetConversations)
+      .values({ projectId: project.projectId, widgetId: widget.id, externalUserId: "visitor-1" })
+      .returning();
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${conv!.id}/messages`,
+      headers: { "x-stubwise-key": widget.key },
+      payload: { content: token, userId: "visitor-1" },
+    });
+    expect(res.statusCode).toBe(200);
+    const citations =
+      (parseSse(res.payload).find((e) => e.type === "done")!.citations as { slug: string }[]) ?? [];
+    expect(citations.some((c) => c.slug === webappPage.slug)).toBe(true);
+    expect(citations.some((c) => c.slug === adminPage.slug)).toBe(false);
+  });
+
+  it("senza repositoryFilters: entrambe le pagine (webapp e admin) sono citabili", async () => {
+    // Stesso setup ma senza filtro fine: nessuna restrizione per-sezione.
+    const project = await seedProjectWithKey(testDb.db);
+    const genId = await seedCurrentGeneration(testDb.db, project.repositoryId);
+    const token = `nofilttok${randomBytes(4).toString("hex")}`;
+    const webappPage = await seedPageWithChunk(testDb.db, project.repositoryId, genId, {
+      title: "Webapp doc",
+      chunkContent: `Il ${token} della webapp gestisce le notifiche.`,
+      sourcePath: "apps/webapp/notifiche.ts",
+    });
+    const adminPage = await seedPageWithChunk(testDb.db, project.repositoryId, genId, {
+      title: "Admin doc",
+      chunkContent: `Il ${token} dell'admin gestisce gli utenti.`,
+      sourcePath: "apps/admin/utenti.ts",
+    });
+    const widget = await seedWidget(testDb.db, project.projectId, {
+      enabled: true,
+      enabledRepositoryIds: [project.repositoryId],
+      // repositoryFilters default {} → nessun filtro fine.
+    });
+    const [conv] = await testDb.db
+      .insert(widgetConversations)
+      .values({ projectId: project.projectId, widgetId: widget.id, externalUserId: "visitor-1" })
+      .returning();
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${conv!.id}/messages`,
+      headers: { "x-stubwise-key": widget.key },
+      payload: { content: token, userId: "visitor-1" },
+    });
+    expect(res.statusCode).toBe(200);
+    const citations =
+      (parseSse(res.payload).find((e) => e.type === "done")!.citations as { slug: string }[]) ?? [];
+    expect(citations.some((c) => c.slug === webappPage.slug)).toBe(true);
+    expect(citations.some((c) => c.slug === adminPage.slug)).toBe(true);
+  });
+
+  it("repositoryFilters per un repo FUORI whitelist (seed diretto) NON allarga la superficie", async () => {
+    // Il CRUD rifiuta un filtro per un repo non abilitato (422); qui seminiamo il
+    // widget DIRETTAMENTE in DB con un filtro per un repo NON in
+    // enabledRepositoryIds e verifichiamo che la chat non esponga quel repo: il
+    // filtro fine non allarga MAI la whitelist repositoryIds.
+    const project = await seedProjectWithKey(testDb.db);
+    const repoA = project.repositoryId;
+    const repoB = await seedRepositoryInProject(testDb.db, project.projectId);
+    const genA = await seedCurrentGeneration(testDb.db, repoA);
+    const genB = await seedCurrentGeneration(testDb.db, repoB);
+    const token = `outtok${randomBytes(4).toString("hex")}`;
+    const pageA = await seedPageWithChunk(testDb.db, repoA, genA, {
+      title: "A doc",
+      chunkContent: `Il ${token} di A gestisce le notifiche.`,
+    });
+    const pageB = await seedPageWithChunk(testDb.db, repoB, genB, {
+      title: "B doc",
+      chunkContent: `Il ${token} di B gestisce i pagamenti.`,
+    });
+    // Widget esposto SOLO su repoA, ma con un filtro fine per repoB (fuori whitelist).
+    const widget = await seedWidget(testDb.db, project.projectId, {
+      enabled: true,
+      enabledRepositoryIds: [repoA],
+      repositoryFilters: { [repoB]: { paths: [], slugs: [] } },
+    });
+    const [conv] = await testDb.db
+      .insert(widgetConversations)
+      .values({ projectId: project.projectId, widgetId: widget.id, externalUserId: "visitor-1" })
+      .returning();
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${conv!.id}/messages`,
+      headers: { "x-stubwise-key": widget.key },
+      payload: { content: token, userId: "visitor-1" },
+    });
+    expect(res.statusCode).toBe(200);
+    const citations =
+      (parseSse(res.payload).find((e) => e.type === "done")!.citations as { slug: string }[]) ?? [];
+    // repoA passa (nella whitelist, senza entry di filtro → tutto esposto).
+    expect(citations.some((c) => c.slug === pageA.slug)).toBe(true);
+    // repoB resta escluso: il filtro per un repo fuori whitelist è inerte.
+    expect(citations.some((c) => c.slug === pageB.slug)).toBe(false);
   });
 });
 

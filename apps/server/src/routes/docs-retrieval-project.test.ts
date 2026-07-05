@@ -483,6 +483,36 @@ describe("retrieveChunksForProject (filtro paths/slugs per-repo)", () => {
     expect(pctSlugs.has(percentSibling)).toBe(false);
     expect(pctSlugs.has(literalUnderscore)).toBe(false);
   });
+
+  it("escape LIKE: un `%` LITERAL nel sourcePath è matchato dal prefisso corrispondente", async () => {
+    const projectId = await seedProject();
+    const repoA = await seedRepoInProject(projectId, "Repo Alfa");
+    const genA = await seedGeneration(repoA.id);
+    const token = `pctlit${randomUUID().slice(0, 8)}`;
+    // Pagina il cui sourcePath contiene un `%` letterale: il prefisso `apps/we%d`
+    // deve matcharla (match esatto O sotto la dir), col `%` trattato come literal.
+    const withPercent = await seedPageWithChunk(repoA.id, genA, {
+      title: "con percento",
+      body: `Contenuto ${token} con percento.`,
+      chunkContent: `Contenuto ${token} con percento.`,
+      sourcePath: "apps/we%d/router.ts",
+    });
+    // Sibling SENZA `%`: se il filtro trattasse `%` come wildcard, questa
+    // matcherebbe pure — deve restare fuori.
+    const wouldWildcard = await seedPageWithChunk(repoA.id, genA, {
+      title: "senza percento",
+      body: `Contenuto ${token} senza percento.`,
+      chunkContent: `Contenuto ${token} senza percento.`,
+      sourcePath: "apps/webad/router.ts",
+    });
+
+    const res = await retrieveChunksForProject(db, embeddingClient, projectId, token, {
+      repositoryFilters: { [repoA.id]: { paths: ["apps/we%d"], slugs: [] } },
+    });
+    const slugs = new Set(res.map((r) => r.slug));
+    expect(slugs.has(withPercent)).toBe(true);
+    expect(slugs.has(wouldWildcard)).toBe(false);
+  });
 });
 
 describe("retrieveChunksAll (cross-repo GLOBALE)", () => {
@@ -511,7 +541,10 @@ describe("retrieveChunksAll (cross-repo GLOBALE)", () => {
       chunkContent: contentB,
     });
 
-    const res = await retrieveChunksAll(db, embeddingClient, token);
+    // `k` esplicito ampio: il DB testcontainer è condiviso e accumula chunk da
+    // tutti i test; con il `k` di default un match full-text a basso score può
+    // essere troncato via da match semantici (fake embedding) di corpus estraneo.
+    const res = await retrieveChunksAll(db, embeddingClient, token, { k: 200 });
     const hitA = res.find((r) => r.slug === slugA);
     const hitB = res.find((r) => r.slug === slugB);
     expect(hitA).toBeDefined();
@@ -558,7 +591,9 @@ describe("retrieveChunksAll (cross-repo GLOBALE)", () => {
       chunkContent: manualContent,
     });
 
-    const res = await retrieveChunksAll(db, embeddingClient, token);
+    // `k` esplicito ampio (vedi nota sopra): evita che il match full-text a basso
+    // score sia troncato via dal corpus semantico estraneo del DB condiviso.
+    const res = await retrieveChunksAll(db, embeddingClient, token, { k: 200 });
     const hit = res.find((r) => r.slug === manualSlug);
     expect(hit).toBeDefined();
     expect(hit!.repositoryId).toBe(repoA.id);

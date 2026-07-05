@@ -152,13 +152,10 @@ function pageMembershipPredicate(
   repo: RepoInfo,
   filter: { paths: string[]; slugs: string[] },
 ) {
-  // Condizione di visibilità della pagina, identica allo scope del repo.
-  const genVisibility = repo.currentDocGenerationId
-    ? or(
-        eq(docPages.generationId, repo.currentDocGenerationId),
-        isNull(docPages.generationId),
-      )
-    : isNull(docPages.generationId);
+  // Visibilità della pagina identica allo scope del repo (stessa generazione
+  // corrente O manuale): RIUSA repoScopePredicate su doc_pages invece di
+  // replicare la condizione — identica per costruzione, un solo punto di verità.
+  const visibility = repoScopePredicate(repo.id, repo.currentDocGenerationId)(docPages);
 
   // Match sui prefissi path: esatto (`source_path = p`) O sotto la directory
   // (`source_path LIKE p_escaped || '/%' ESCAPE '\'`), col confine `/`.
@@ -176,9 +173,10 @@ function pageMembershipPredicate(
   // Nessun selettore (paths+slugs vuoti) → fail-closed: nessuna pagina passa.
   const membership = selectors.length > 0 ? or(...selectors) : sql`false`;
 
+  // `visibility` include già `repository_id = repo.id`: la subquery è le pagine
+  // del repo, nello scope corrente, che soddisfano il filtro fine.
   const subquery = sql`(SELECT ${docPages.id} FROM ${docPages} WHERE ${and(
-    eq(docPages.repositoryId, repo.id),
-    genVisibility,
+    visibility,
     membership,
   )})`;
 

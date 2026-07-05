@@ -1,4 +1,4 @@
-import { widgetUpsertBodySchema } from "@stubwise/shared";
+import { widgetRepositoryFiltersSchema, widgetUpsertBodySchema } from "@stubwise/shared";
 import { and, asc, desc, eq, exists, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -33,6 +33,9 @@ const widgetSchema = z.object({
   key: z.string(),
   enabled: z.boolean(),
   enabledRepositoryIds: z.array(z.uuid()),
+  // Filtro FINE per-repo (path filter): chiavi ⊆ enabledRepositoryIds (garantito
+  // in scrittura). Round-trip completo verso la SPA.
+  repositoryFilters: widgetRepositoryFiltersSchema,
   title: z.string(),
   welcomeMessage: z.string(),
   accentColor: z.string(),
@@ -53,6 +56,7 @@ function toPublicWidget(row: WidgetRow, conversationCount: number): z.infer<type
     key: row.key,
     enabled: row.enabled,
     enabledRepositoryIds: row.enabledRepositoryIds,
+    repositoryFilters: row.repositoryFilters,
     title: row.title,
     welcomeMessage: row.welcomeMessage,
     accentColor: row.accentColor,
@@ -94,6 +98,22 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
       );
     const valid = new Set(rows.map((r) => r.id));
     return enabledRepositoryIds.every((id) => valid.has(id));
+  }
+
+  /**
+   * Ogni chiave di `repositoryFilters` deve essere un repo ESPOSTO dal widget
+   * (⊆ `enabledRepositoryIds`): un filtro fine per un repo non abilitato non
+   * retrieverebbe mai nulla e allargherebbe implicitamente la superficie. Poiché
+   * `enabledRepositoryIds` è già validato (repo di questo progetto), la
+   * sottoinsieme-relazione copre anche i repo di altri progetti. Restituisce
+   * `true` se tutte le chiavi sono ⊆ (o filtro vuoto).
+   */
+  function filtersSubsetOfEnabled(
+    enabledRepositoryIds: string[],
+    repositoryFilters: Record<string, unknown>,
+  ): boolean {
+    const enabled = new Set(enabledRepositoryIds);
+    return Object.keys(repositoryFilters).every((id) => enabled.has(id));
   }
 
   app.get(
@@ -169,6 +189,15 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
         );
       }
 
+      if (!filtersSubsetOfEnabled(body.enabledRepositoryIds, body.repositoryFilters)) {
+        return apiError(
+          reply,
+          422,
+          "invalid_repository_filter",
+          "repositoryFilters keys must be a subset of enabledRepositoryIds",
+        );
+      }
+
       const [row] = await app.db
         .insert(widgets)
         // body per primo: projectId e key non devono mai essere sovrascrivibili
@@ -214,6 +243,15 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
           422,
           "invalid_repository",
           "enabledRepositoryIds must reference repositories of this project",
+        );
+      }
+
+      if (!filtersSubsetOfEnabled(body.enabledRepositoryIds, body.repositoryFilters)) {
+        return apiError(
+          reply,
+          422,
+          "invalid_repository_filter",
+          "repositoryFilters keys must be a subset of enabledRepositoryIds",
         );
       }
 

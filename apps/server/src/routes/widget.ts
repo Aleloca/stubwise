@@ -474,6 +474,10 @@ export async function widgetRoutes(
       const chunks = await retrieveChunksForProject(app.db, app.embeddingClient, project.id, content, {
         k: CHAT_RETRIEVAL_K,
         repositoryIds: widget.enabledRepositoryIds,
+        // Filtro FINE per-repo (path filter): restringe alle sole sezioni esposte
+        // dal widget. Il filtro non ALLARGA mai la whitelist repositoryIds (una
+        // entry per un repo fuori whitelist è inerte: quel repo è già escluso).
+        repositoryFilters: widget.repositoryFilters,
         logger: request.log,
       });
       const citations = buildCitations(chunks);
