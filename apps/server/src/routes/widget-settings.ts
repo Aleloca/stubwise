@@ -225,7 +225,8 @@ export async function widgetSettingsRoutes(instance: FastifyInstance): Promise<v
         .leftJoin(widgetMessages, eq(widgetMessages.conversationId, widgetConversations.id))
         .where(and(eq(widgetConversations.projectId, projectId), ticketFilter))
         .groupBy(widgetConversations.id)
-        .orderBy(desc(widgetConversations.lastMessageAt))
+        // Tiebreaker sull'id: ordine stabile al bordo del limit a parità di lastMessageAt.
+        .orderBy(desc(widgetConversations.lastMessageAt), desc(widgetConversations.id))
         .limit(limit);
 
       return {
