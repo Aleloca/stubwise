@@ -11,6 +11,7 @@ const target = process.env.STUBWISE_API_TARGET ?? "http://localhost:3000";
 const proxy = {
   "/api": target,
   "/ingest": target,
+  "/widget": target,
 };
 
 export default defineConfig({

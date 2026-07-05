@@ -8,6 +8,9 @@
 #
 # Caddy serve:
 #   - /api/*, /ingest/*, /webhooks/*  -> reverse proxy al server Fastify.
+#   - /widget/*                       -> reverse proxy al server (API pubblica
+#                                        del widget customer service).
+#   - /widget.js                      -> bundle IIFE embeddabile (da /srv/widget).
 #   - /guide/*                        -> statici della documentazione utente
 #                                        (sito Starlight). NB: NON /docs/*, che è
 #                                        una sezione della SPA (documentazione
@@ -32,9 +35,23 @@
 	# e X-Forwarded-For: il server con TRUST_PROXY=true li onora (cookie Secure).
 	# Dentro un `handle` (mutuamente esclusivo con gli altri handle sotto) così
 	# ha la precedenza sul file_server della SPA.
-	@backend path /api/* /ingest/* /webhooks/*
+	@backend path /api/* /ingest/* /webhooks/* /widget/*
 	handle @backend {
 		reverse_proxy {$SERVER_UPSTREAM:server:3000}
+	}
+
+	# Bundle IIFE del widget embeddabile, servito come /widget.js dal file
+	# statico stubwise-widget.iife.js (in /srv/widget). Deve stare PRIMA del
+	# blocco SPA `handle` (i `handle` sono valutati in ordine e mutuamente
+	# esclusivi). NB: il matcher @backend usa /widget/* (richiede un segmento
+	# dopo /widget/) e NON intercetta /widget.js; in più questo handle viene
+	# comunque prima del fallback SPA. Cache moderata: i siti clienti non
+	# riscaricano il bundle a ogni pageview, ma gli update arrivano in 5 minuti.
+	handle /widget.js {
+		root * /srv/widget
+		rewrite * /stubwise-widget.iife.js
+		header Cache-Control "public, max-age=300"
+		file_server
 	}
 
 	# Documentazione utente statica (sito Starlight buildato in /srv/docs),

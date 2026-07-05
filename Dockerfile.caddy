@@ -31,6 +31,7 @@ COPY packages/git/package.json packages/git/package.json
 COPY packages/sdk/package.json packages/sdk/package.json
 COPY packages/notifications/package.json packages/notifications/package.json
 COPY packages/i18n/package.json packages/i18n/package.json
+COPY packages/widget/package.json packages/widget/package.json
 
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile
@@ -39,6 +40,11 @@ COPY tsconfig.base.json ./
 COPY packages packages
 COPY apps/web apps/web
 RUN pnpm --filter @stubwise/web... build
+
+# Bundle del widget embeddabile (dist/stubwise-widget.iife.js). Non dipende da
+# altri package del workspace (solo preact, già installato dall'install radice),
+# quindi basta il suo filter senza `...`. I sorgenti arrivano da `COPY packages`.
+RUN pnpm --filter @stubwise/widget build
 
 # La documentazione: il prebuild di @stubwise/docs genera la spec OpenAPI
 # importando buildApp() dai sorgenti del server (nessun db, nessuna istanza in
@@ -62,4 +68,6 @@ COPY --from=web-build /repo/apps/web/dist /srv/web
 # interni — già prefissati /guide — ripassano per lo stesso handle. Coerente.
 # NB: /docs (non /guide) è la sezione "Docs" della SPA: sta sul fallback web.
 COPY --from=web-build /repo/apps/docs/dist /srv/docs
+# Bundle IIFE del widget embeddabile, servito come /widget.js (vedi Caddyfile).
+COPY --from=web-build /repo/packages/widget/dist /srv/widget
 COPY Caddyfile /etc/caddy/Caddyfile

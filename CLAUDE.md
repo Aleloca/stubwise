@@ -14,7 +14,8 @@ repo, ricerca vettoriale e chat RAG.
   "terminal", test in happy-dom). **Servita da caddy** (vedi sotto), non dal server.
 - `apps/docs` — sito Starlight (guida utente), buildato e servito su `/guide`.
 - `packages/*` — `db` (Drizzle + Postgres/pgvector), `docs-engine`, `embeddings`,
-  `git`, `i18n`, `notifications`, `sdk`, `shared`.
+  `git`, `i18n`, `notifications`, `sdk`, `shared`, `widget` (bundle embeddabile
+  del customer service, servito come `/widget.js` da caddy).
 
 ## Comandi (dalla radice)
 
@@ -35,6 +36,9 @@ Servizi: `postgres` (pgvector/pgvector:pg17), `ollama` (embedding bge-m3,
 serve gli statici: SPA da `/srv/web` (root) e Starlight da `/srv/docs` (`/guide`).
 Entrambi i bundle sono buildati dentro l'immagine caddy (`Dockerfile.caddy`).
 `/docs` (non `/guide`) è la sezione Docs della SPA, sul fallback web.
+Caddy serve anche `/widget.js` (bundle IIFE embeddabile da `/srv/widget`,
+buildato in `Dockerfile.caddy`); `/widget/*` è la superficie API pubblica del
+widget customer service, proxata al server.
 
 ## Deploy (prod)
 
