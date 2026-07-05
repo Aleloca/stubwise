@@ -47,6 +47,7 @@ import type { SlackClientFactory } from "./slack/creds.js";
 import { ticketRoutes } from "./routes/tickets.js";
 import { userRoutes } from "./routes/users.js";
 import { webhookRoutes } from "./routes/webhooks.js";
+import { widgetSettingsRoutes } from "./routes/widget-settings.js";
 import { getActiveStorage, type ObjectStorage, type StorageFactory } from "./storage/index.js";
 
 // Versione letta dal package.json (accanto a src/ e a dist/, quindi il
@@ -325,6 +326,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Progetti (gruppi): CRUD del raggruppamento product-level (ticket/milestone)
   // con le impostazioni di prodotto (provider AI, auto-update docs).
   void app.register(projectRoutes, { prefix: "/api/projects" });
+  // Impostazioni del widget di assistenza, per progetto (API interna della SPA,
+  // distinta dalla superficie pubblica /widget). Sotto /api/projects/:projectId.
+  void app.register(widgetSettingsRoutes, { prefix: "/api/projects" });
   // Repository: il singolo repo git (ex "progetto") con setup git, branch,
   // webhook, ingestion, docs. Appartiene sempre a un progetto.
   void app.register(repositoryRoutes, { prefix: "/api/repositories" });
