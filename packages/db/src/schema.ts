@@ -1467,7 +1467,8 @@ export const searchHistory = pgTable(
  * restringe il retrieval RAG ai soli repo scelti (jsonb array di uuid; vuoto =
  * chat disabilitata, nessun repo esposto); gli altri campi sono presentazione
  * (titolo, messaggio di benvenuto, colore accento, lingua). `daily_message_cap`
- * e `daily_ticket_cap` (opzionali, null = illimitato) mettono un tetto giornaliero
+ * e `daily_ticket_cap` (null = vale il default d'istanza dalle env
+ * WIDGET_DAILY_MESSAGE_CAP/WIDGET_DAILY_TICKET_CAP) mettono un tetto giornaliero
  * per-widget. Cascata col progetto.
  */
 export const widgets = pgTable(

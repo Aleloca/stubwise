@@ -171,7 +171,9 @@ export async function widgetAdminRoutes(instance: FastifyInstance): Promise<void
 
       const [row] = await app.db
         .insert(widgets)
-        .values({ projectId, key: generateIngestionKey(), ...body })
+        // body per primo: projectId e key non devono mai essere sovrascrivibili
+        // dal client, nemmeno se lo schema diventasse passthrough.
+        .values({ ...body, projectId, key: generateIngestionKey() })
         .returning();
       if (!row) throw new Error("insert del widget non ha restituito la riga");
       // Widget appena creato: nessuna conversazione ancora collegata.
