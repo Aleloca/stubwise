@@ -3,6 +3,7 @@ import {
   widgetChatMessageBodySchema,
   widgetConversationCreateBodySchema,
   widgetSettingsSchema,
+  widgetTicketConfirmBodySchema,
 } from "@stubwise/shared";
 import { and, asc, count, desc, eq, gte } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -16,6 +17,7 @@ import {
 } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import { keysMatch } from "../ingest/shared.js";
+import { createTicket } from "../db/tickets.js";
 import { errorSchema, unprocessableEntityFormatter } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
 import { apiError } from "../errors.js";
@@ -36,6 +38,15 @@ export interface WidgetRoutesOptions {
 
 /** Numero massimo di coppie (user+assistant) di storico passate all'LLM. */
 const WIDGET_HISTORY_PAIRS = 10;
+
+/** Numero di messaggi della conversazione inclusi nella trascrizione del ticket. */
+const WIDGET_TICKET_TRANSCRIPT_MESSAGES = 10;
+
+/** Troncamento di ogni messaggio nella trascrizione, per non gonfiare il body. */
+const WIDGET_TICKET_MESSAGE_MAXLEN = 500;
+
+/** Limite del campo `body` di un ticket (allineato allo schema/DB). */
+const TICKET_BODY_MAXLEN = 20_000;
 
 /** Inizio della giornata corrente in UTC (per il cap giornaliero e l'indice). */
 function startOfUtcDay(now: Date): Date {
@@ -498,6 +509,162 @@ export async function widgetRoutes(
       });
     },
   );
+
+  /**
+   * Conferma di una segnalazione (ticket) dal widget: crea un ticket nel
+   * progetto a partire dalla PROPOSTA (title/body/type) e ne appende identità e
+   * trascrizione della conversazione. NON passa dalla pipeline AI (niente
+   * createExternalTicket): in v1 i ticket widget sono solo registrati.
+   *
+   * Ownership come la chat (progetto + userId dichiarato → 404 indistinguibile).
+   * Il widget deve essere ATTIVO (404 widget_disabled) ma la segnalazione resta
+   * possibile anche a chat spenta: NON si richiede `enabledRepositoryIds.length`.
+   * Body invalido → 422.
+   */
+  app.post(
+    "/:slug/conversations/:conversationId/tickets",
+    {
+      config: { rateLimit },
+      preValidation: authenticateWidget,
+      schemaErrorFormatter: unprocessableEntityFormatter,
+      schema: {
+        params: z.object({
+          slug: z.string().min(1),
+          conversationId: z.uuid(),
+        }),
+        body: widgetTicketConfirmBodySchema,
+        response: {
+          200: z.object({ ticketId: z.uuid(), number: z.number().int() }),
+          401: errorSchema,
+          404: errorSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const project = request.widgetProject!;
+      const settings = await loadEnabledSettings(app.db, project.id);
+      if (!settings) {
+        return apiError(reply, 404, "widget_disabled", "Widget not available");
+      }
+      const { conversationId } = request.params;
+      const { title, body: proposalBody, type, userId } = request.body;
+
+      // Ownership: la conversazione deve essere del progetto autenticato E del
+      // `userId` dichiarato (id conversazione rubato → 404 indistinguibile).
+      const [conversation] = await app.db
+        .select({
+          externalUserId: widgetConversations.externalUserId,
+          externalUserEmail: widgetConversations.externalUserEmail,
+          externalUserName: widgetConversations.externalUserName,
+        })
+        .from(widgetConversations)
+        .where(
+          and(
+            eq(widgetConversations.id, conversationId),
+            eq(widgetConversations.projectId, project.id),
+          ),
+        );
+      if (!conversation || conversation.externalUserId !== userId) {
+        return apiError(reply, 404, "conversation_not_found", "Conversation not found");
+      }
+
+      const language = widgetSettingsSchema.shape.language.safeParse(settings.language);
+      const lang = language.success ? language.data : "it";
+
+      // Ultimi N messaggi PRIMA della conferma, in ordine cronologico (DESC +
+      // reverse per l'indice, tiebreaker su id come lo storico).
+      const recent = await app.db
+        .select({ role: widgetMessages.role, content: widgetMessages.content })
+        .from(widgetMessages)
+        .where(eq(widgetMessages.conversationId, conversationId))
+        .orderBy(desc(widgetMessages.createdAt), desc(widgetMessages.id))
+        .limit(WIDGET_TICKET_TRANSCRIPT_MESSAGES);
+      const transcript = recent.reverse();
+
+      const body = composeWidgetTicketBody({
+        proposalBody,
+        identity: {
+          id: conversation.externalUserId,
+          email: conversation.externalUserEmail,
+          name: conversation.externalUserName,
+        },
+        transcript,
+        language: lang,
+      });
+
+      const ticket = await createTicket(app.db, {
+        projectId: project.id,
+        title,
+        body,
+        type,
+        priority: "medium",
+        source: "widget",
+      });
+
+      // Messaggio di conferma nella lingua dei settings, collegato al ticket, +
+      // avanzamento di lastMessageAt (ordina l'elenco viewer).
+      const confirmation =
+        lang === "en"
+          ? `Report submitted: #${ticket.number}`
+          : `Segnalazione registrata: #${ticket.number}`;
+      await app.db.insert(widgetMessages).values({
+        conversationId,
+        role: "assistant",
+        content: confirmation,
+        ticketId: ticket.id,
+      });
+      await app.db
+        .update(widgetConversations)
+        .set({ lastMessageAt: new Date() })
+        .where(eq(widgetConversations.id, conversationId));
+
+      return { ticketId: ticket.id, number: ticket.number };
+    },
+  );
+}
+
+/**
+ * Compone il body del ticket widget: PROPOSTA + separatore + blocco identità +
+ * trascrizione (ultimi messaggi, ognuno troncato). Ogni riga della trascrizione
+ * è un blockquote markdown col ruolo tradotto. Il risultato è troncato al limite
+ * del campo body del ticket per non eccedere il max del DB.
+ */
+function composeWidgetTicketBody(input: {
+  proposalBody: string;
+  identity: { id: string; email: string | null; name: string | null };
+  transcript: { role: string; content: string }[];
+  language: "it" | "en";
+}): string {
+  const { proposalBody, identity, transcript, language } = input;
+  const labels =
+    language === "en"
+      ? { header: "Reporter", name: "Name", email: "Email", id: "External ID", transcript: "Conversation transcript", user: "user", assistant: "assistant" }
+      : { header: "Segnalato da", name: "Nome", email: "Email", id: "ID esterno", transcript: "Trascrizione della conversazione", user: "utente", assistant: "assistente" };
+
+  const identityLines = [`**${labels.header}**`];
+  if (identity.name) identityLines.push(`- ${labels.name}: ${identity.name}`);
+  if (identity.email) identityLines.push(`- ${labels.email}: ${identity.email}`);
+  identityLines.push(`- ${labels.id}: ${identity.id}`);
+
+  const truncate = (s: string): string =>
+    s.length > WIDGET_TICKET_MESSAGE_MAXLEN
+      ? `${s.slice(0, WIDGET_TICKET_MESSAGE_MAXLEN)}…`
+      : s;
+  const roleLabel = (role: string): string =>
+    role === "assistant" ? labels.assistant : labels.user;
+  const transcriptLines = transcript.map(
+    // Newline interni collassati: un blockquote su una riga sola per messaggio.
+    (m) => `> **${roleLabel(m.role)}:** ${truncate(m.content).replace(/\s*\n+\s*/g, " ")}`,
+  );
+
+  const sections = [proposalBody, identityLines.join("\n")];
+  if (transcriptLines.length > 0) {
+    sections.push(`**${labels.transcript}**\n\n${transcriptLines.join("\n")}`);
+  }
+  const composed = sections.join("\n\n---\n\n");
+  return composed.length > TICKET_BODY_MAXLEN
+    ? composed.slice(0, TICKET_BODY_MAXLEN)
+    : composed;
 }
 
 declare module "fastify" {

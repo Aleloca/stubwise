@@ -11,6 +11,7 @@ import {
   docPages,
   projects,
   repositories,
+  tickets,
   widgetConversations,
   widgetMessages,
   widgetSettings,
@@ -983,6 +984,225 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
     const citations = (done!.citations as { slug: string }[]) ?? [];
     expect(citations.some((c) => c.slug === pageA.slug)).toBe(true);
     expect(citations.some((c) => c.slug === pageB.slug)).toBe(false);
+  });
+});
+
+describe("POST /widget/:slug/conversations/:conversationId/tickets", () => {
+  /** Progetto abilitato + una conversazione con identità e alcuni messaggi. */
+  async function setupTicketConversation(
+    db: Db,
+    opts: {
+      userId?: string;
+      email?: string | null;
+      name?: string | null;
+      language?: "it" | "en";
+      enabledRepositoryIds?: string[];
+    } = {},
+  ): Promise<{
+    project: Awaited<ReturnType<typeof seedProjectWithKey>>;
+    conversationId: string;
+  }> {
+    const project = await seedProjectWithKey(db);
+    await db.insert(widgetSettings).values({
+      projectId: project.projectId,
+      enabled: true,
+      enabledRepositoryIds: opts.enabledRepositoryIds ?? [project.repositoryId],
+      language: opts.language ?? "it",
+    });
+    const [conv] = await db
+      .insert(widgetConversations)
+      .values({
+        projectId: project.projectId,
+        externalUserId: opts.userId ?? "visitor-1",
+        externalUserEmail: opts.email ?? null,
+        externalUserName: opts.name ?? null,
+      })
+      .returning();
+    return { project, conversationId: conv!.id };
+  }
+
+  it("creazione felice: ticket in DB (source widget), body con proposta+identità+trascrizione, messaggio assistant collegato (it), lastMessageAt avanzato", async () => {
+    const { project, conversationId } = await setupTicketConversation(testDb.db, {
+      email: "mario@example.com",
+      name: "Mario Rossi",
+      language: "it",
+    });
+    // Trascrizione: due messaggi utente/assistente prima della conferma.
+    await testDb.db.insert(widgetMessages).values([
+      {
+        conversationId,
+        role: "user",
+        content: "Il login non funziona",
+        createdAt: new Date("2026-07-01T10:00:00Z"),
+      },
+      {
+        conversationId,
+        role: "assistant",
+        content: "Mi dispiace, verifico.",
+        createdAt: new Date("2026-07-01T10:00:05Z"),
+      },
+    ]);
+    const before = await testDb.db
+      .select({ lastMessageAt: widgetConversations.lastMessageAt })
+      .from(widgetConversations)
+      .where(eq(widgetConversations.id, conversationId));
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
+      headers: { "x-stubwise-key": project.ingestionKey },
+      payload: {
+        title: "Login rotto",
+        body: "Non riesco ad autenticarmi.",
+        type: "bug",
+        userId: "visitor-1",
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const out = res.json();
+    expect(out.ticketId).toMatch(UUID_RE);
+    expect(typeof out.number).toBe("number");
+
+    // Ticket persistito col progetto e source widget.
+    const [ticket] = await testDb.db
+      .select()
+      .from(tickets)
+      .where(eq(tickets.id, out.ticketId));
+    expect(ticket).toMatchObject({
+      projectId: project.projectId,
+      title: "Login rotto",
+      type: "bug",
+      priority: "medium",
+      source: "widget",
+      number: out.number,
+    });
+    // Body = proposta + separatore + identità + trascrizione.
+    expect(ticket!.body).toContain("Non riesco ad autenticarmi.");
+    expect(ticket!.body).toContain("\n\n---\n\n");
+    expect(ticket!.body).toContain("mario@example.com");
+    expect(ticket!.body).toContain("Mario Rossi");
+    expect(ticket!.body).toContain("visitor-1");
+    expect(ticket!.body).toContain("Il login non funziona");
+    expect(ticket!.body).toContain("Mi dispiace, verifico.");
+
+    // Messaggio assistant di conferma, collegato al ticket, in italiano.
+    const rows = await testDb.db
+      .select()
+      .from(widgetMessages)
+      .where(eq(widgetMessages.conversationId, conversationId));
+    const confirm = rows.find((m) => m.ticketId === out.ticketId);
+    expect(confirm).toBeDefined();
+    expect(confirm!.role).toBe("assistant");
+    expect(confirm!.content).toBe(`Segnalazione registrata: #${out.number}`);
+
+    // lastMessageAt avanzato.
+    const after = await testDb.db
+      .select({ lastMessageAt: widgetConversations.lastMessageAt })
+      .from(widgetConversations)
+      .where(eq(widgetConversations.id, conversationId));
+    expect(after[0]!.lastMessageAt.getTime()).toBeGreaterThanOrEqual(
+      before[0]!.lastMessageAt.getTime(),
+    );
+  });
+
+  it("il numero ticket incrementa next_ticket_number (secondo ticket → number successivo)", async () => {
+    const { project, conversationId } = await setupTicketConversation(testDb.db);
+    const first = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
+      headers: { "x-stubwise-key": project.ingestionKey },
+      payload: { title: "Uno", body: "primo", type: "bug", userId: "visitor-1" },
+    });
+    const second = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
+      headers: { "x-stubwise-key": project.ingestionKey },
+      payload: { title: "Due", body: "secondo", type: "feedback", userId: "visitor-1" },
+    });
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    expect(second.json().number).toBe(first.json().number + 1);
+  });
+
+  it("conferma in inglese → content assistant in inglese", async () => {
+    const { project, conversationId } = await setupTicketConversation(testDb.db, {
+      language: "en",
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
+      headers: { "x-stubwise-key": project.ingestionKey },
+      payload: { title: "Broken", body: "It fails", type: "bug", userId: "visitor-1" },
+    });
+    expect(res.statusCode).toBe(200);
+    const rows = await testDb.db
+      .select()
+      .from(widgetMessages)
+      .where(eq(widgetMessages.conversationId, conversationId));
+    const confirm = rows.find((m) => m.ticketId === res.json().ticketId);
+    expect(confirm!.content).toBe(`Report submitted: #${res.json().number}`);
+  });
+
+  it("funziona a chat spenta (enabledRepositoryIds vuoto) → ticket creato lo stesso", async () => {
+    const { project, conversationId } = await setupTicketConversation(testDb.db, {
+      enabledRepositoryIds: [],
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
+      headers: { "x-stubwise-key": project.ingestionKey },
+      payload: { title: "Segnalazione", body: "problema", type: "bug", userId: "visitor-1" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ticketId).toMatch(UUID_RE);
+  });
+
+  it("userId sbagliato → 404 (anti cross-utente)", async () => {
+    const { project, conversationId } = await setupTicketConversation(testDb.db);
+    const res = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
+      headers: { "x-stubwise-key": project.ingestionKey },
+      payload: { title: "T", body: "b", type: "bug", userId: "visitor-altro" },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("widget disabilitato → 404 widget_disabled", async () => {
+    const { project, conversationId } = await setupTicketConversation(testDb.db);
+    await testDb.db
+      .update(widgetSettings)
+      .set({ enabled: false })
+      .where(eq(widgetSettings.projectId, project.projectId));
+    const res = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
+      headers: { "x-stubwise-key": project.ingestionKey },
+      payload: { title: "T", body: "b", type: "bug", userId: "visitor-1" },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toMatchObject({ code: "widget_disabled" });
+  });
+
+  it("type non ammesso (task) → 422", async () => {
+    const { project, conversationId } = await setupTicketConversation(testDb.db);
+    const res = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
+      headers: { "x-stubwise-key": project.ingestionKey },
+      payload: { title: "T", body: "b", type: "task", userId: "visitor-1" },
+    });
+    expect(res.statusCode).toBe(422);
+  });
+
+  it("senza header chiave → 401", async () => {
+    const { project, conversationId } = await setupTicketConversation(testDb.db);
+    const res = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
+      payload: { title: "T", body: "b", type: "bug", userId: "visitor-1" },
+    });
+    expect(res.statusCode).toBe(401);
   });
 });
 

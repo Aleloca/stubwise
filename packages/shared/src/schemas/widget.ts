@@ -38,4 +38,7 @@ export const widgetTicketConfirmBodySchema = z.object({
   title: z.string().min(1).max(300),
   body: z.string().max(20_000),
   type: widgetTicketTypeSchema,
+  // Identità DICHIARATA dal sito ospite (non autenticata): verifica che la
+  // conversazione appartenga a questo utente, come per chat e storico.
+  userId: z.string().min(1).max(200),
 });

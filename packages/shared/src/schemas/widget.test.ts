@@ -31,9 +31,22 @@ describe("widget schemas", () => {
     expect(parsed.userId).toBe("u_1");
   });
 
-  it("limita i tipi ticket confermabili", () => {
-    expect(() => widgetTicketConfirmBodySchema.parse({ title: "t", body: "b", type: "task" })).toThrow();
-    expect(widgetTicketConfirmBodySchema.parse({ title: "t", body: "b", type: "bug" }).type).toBe("bug");
+  it("limita i tipi ticket confermabili e richiede userId", () => {
+    expect(() =>
+      widgetTicketConfirmBodySchema.parse({ title: "t", body: "b", type: "task", userId: "u_1" }),
+    ).toThrow();
+    // userId obbligatorio: assente → invalido (come chat/storico).
+    expect(() =>
+      widgetTicketConfirmBodySchema.parse({ title: "t", body: "b", type: "bug" }),
+    ).toThrow();
+    const parsed = widgetTicketConfirmBodySchema.parse({
+      title: "t",
+      body: "b",
+      type: "bug",
+      userId: "u_1",
+    });
+    expect(parsed.type).toBe("bug");
+    expect(parsed.userId).toBe("u_1");
   });
 
   it("widget settings con default", () => {
