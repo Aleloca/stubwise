@@ -112,8 +112,13 @@ export async function widgetRoutes(
         },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const project = request.widgetProject!;
+      // Superficie pubblica: mai 500 su un errore interno (badge di caricamento
+      // rotto nel sito del cliente). La config è per-richiesta e riflette lo stato
+      // dei settings/provider al momento: niente cache lato browser/proxy.
+      reply.header("cache-control", "no-store");
+
       const [row] = await app.db
         .select()
         .from(widgetSettings)
@@ -126,16 +131,28 @@ export async function widgetRoutes(
 
       // La chat è servibile solo se esiste un provider LLM utilizzabile E almeno
       // un repo è esposto al retrieval (lista vuota = chat disabilitata). Se
-      // isAvailable non è implementato, si assume disponibile.
-      const llmAvailable = (await app.chatLlm.isAvailable?.())?.available ?? true;
+      // isAvailable non è implementato, si assume disponibile. Se LANCIA (provider
+      // misconfigurato, errore DB) non si abbatte l'endpoint pubblico: si degrada
+      // a chat spenta e si logga, il widget si monta comunque.
+      let llmAvailable = true;
+      try {
+        llmAvailable = (await app.chatLlm.isAvailable?.())?.available ?? true;
+      } catch (err) {
+        request.log.warn({ err }, "widget config: controllo disponibilità chat fallito, chat disabilitata");
+        llmAvailable = false;
+      }
       const chatEnabled = llmAvailable && row.enabledRepositoryIds.length > 0;
+
+      // safeParse con fallback: un `language` corrotto a DB non deve 500-are la
+      // superficie pubblica (il default del progetto è l'italiano).
+      const language = widgetSettingsSchema.shape.language.safeParse(row.language);
 
       return {
         enabled: true as const,
         title: row.title,
         welcomeMessage: row.welcomeMessage,
         accentColor: row.accentColor,
-        language: widgetSettingsSchema.shape.language.parse(row.language),
+        language: language.success ? language.data : ("it" as const),
         chatEnabled,
       };
     },

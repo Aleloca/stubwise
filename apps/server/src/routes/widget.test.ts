@@ -13,8 +13,10 @@ const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
 
 // Fake ChatLlm: il config endpoint usa solo isAvailable(); lo stream non è
-// esercitato in questo task. `availabilityOverride` esercita il ramo chat off.
+// esercitato in questo task. `availabilityOverride` esercita il ramo chat off,
+// `availabilityThrows` esercita il ramo resiliente (isAvailable che lancia).
 let availabilityOverride: ChatAvailability | null = null;
+let availabilityThrows = false;
 
 const fakeChatLlm: ChatLlm = {
   stream(): AsyncIterable<string> {
@@ -22,6 +24,9 @@ const fakeChatLlm: ChatLlm = {
     throw new Error("stream non usato nel config endpoint");
   },
   async isAvailable(): Promise<ChatAvailability> {
+    if (availabilityThrows) {
+      throw new Error("provider LLM misconfigurato");
+    }
     return availabilityOverride ?? { available: true };
   },
 };
@@ -64,6 +69,7 @@ afterAll(async () => {
 
 beforeEach(() => {
   availabilityOverride = null;
+  availabilityThrows = false;
 });
 
 describe("GET /widget/:slug/config", () => {
@@ -105,6 +111,7 @@ describe("GET /widget/:slug/config", () => {
       headers: { "x-stubwise-key": project.ingestionKey },
     });
     expect(res.statusCode).toBe(200);
+    expect(res.headers["cache-control"]).toBe("no-store");
     expect(res.json()).toEqual({ enabled: false });
   });
 
@@ -141,6 +148,7 @@ describe("GET /widget/:slug/config", () => {
       headers: { "x-stubwise-key": project.ingestionKey },
     });
     expect(res.statusCode).toBe(200);
+    expect(res.headers["cache-control"]).toBe("no-store");
     expect(res.json()).toEqual({
       enabled: true,
       title: "Supporto Acme",
@@ -175,6 +183,23 @@ describe("GET /widget/:slug/config", () => {
       enabledRepositoryIds: [project.repositoryId],
     });
     availabilityOverride = { available: false, reason: "no_api_key_provider" };
+    const res = await app.inject({
+      method: "GET",
+      url: `/widget/${project.slug}/config`,
+      headers: { "x-stubwise-key": project.ingestionKey },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ enabled: true, chatEnabled: false });
+  });
+
+  it("settings enabled ma isAvailable LANCIA → 200 con chatEnabled: false (endpoint pubblico resiliente)", async () => {
+    const project = await seedProjectWithKey(testDb.db);
+    await testDb.db.insert(widgetSettings).values({
+      projectId: project.projectId,
+      enabled: true,
+      enabledRepositoryIds: [project.repositoryId],
+    });
+    availabilityThrows = true;
     const res = await app.inject({
       method: "GET",
       url: `/widget/${project.slug}/config`,
