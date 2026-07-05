@@ -1,6 +1,10 @@
 import fastifyCors from "@fastify/cors";
-import { widgetConversationCreateBodySchema, widgetSettingsSchema } from "@stubwise/shared";
-import { and, asc, eq } from "drizzle-orm";
+import {
+  widgetChatMessageBodySchema,
+  widgetConversationCreateBodySchema,
+  widgetSettingsSchema,
+} from "@stubwise/shared";
+import { and, asc, count, desc, eq, gte } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -15,10 +19,27 @@ import { keysMatch } from "../ingest/shared.js";
 import { errorSchema, unprocessableEntityFormatter } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
 import { apiError } from "../errors.js";
+import { retrieveChunksForProject } from "./docs-retrieval.js";
+import { buildCitations, CHAT_RETRIEVAL_K } from "./docs-rag.js";
+import { buildWidgetSystemPrompt, streamWidgetChatResponse } from "./widget-chat.js";
 
 export interface WidgetRoutesOptions {
   /** Limite di richieste per chiave del progetto (default 300/min). */
   rateLimit: RateLimitConfig;
+  /**
+   * Tetto GIORNALIERO (UTC) di messaggi utente della chat widget, per progetto.
+   * Superficie pubblica: ogni messaggio consuma token LLM, quindi si limita
+   * l'abuso. Da {@link ../app.ts#BuildAppOptions.widgetDailyMessageCap} (default 200).
+   */
+  dailyMessageCap: number;
+}
+
+/** Numero massimo di coppie (user+assistant) di storico passate all'LLM. */
+const WIDGET_HISTORY_PAIRS = 10;
+
+/** Inizio della giornata corrente in UTC (per il cap giornaliero e l'indice). */
+function startOfUtcDay(now: Date): Date {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 }
 
 /** Riga dei settings del widget, per il tipo di ritorno di loadEnabledSettings. */
@@ -299,7 +320,9 @@ export async function widgetRoutes(
         })
         .from(widgetMessages)
         .where(eq(widgetMessages.conversationId, conversationId))
-        .orderBy(asc(widgetMessages.createdAt));
+        // Tiebreaker su `id`: due messaggi con lo stesso createdAt (user+assistant
+        // ravvicinati) devono avere un ordine stabile e deterministico.
+        .orderBy(asc(widgetMessages.createdAt), asc(widgetMessages.id));
 
       return {
         messages: rows.map((m) => ({
@@ -311,6 +334,154 @@ export async function widgetRoutes(
           createdAt: m.createdAt.toISOString(),
         })),
       };
+    },
+  );
+
+  /**
+   * Invio di un messaggio utente in una conversazione: RETRIEVAL cross-repo
+   * FILTRATO ai repo esposti dal widget → chat RAG in streaming SSE (registro
+   * customer service) con eventuale PROPOSTA di ticket via sentinel. Bypassa lo
+   * schema di risposta Zod come la chat interna (stream grezzo su reply.raw).
+   *
+   * Ordine dei controlli (side-effect-free finché non serve): auth (preValidation)
+   * → widget attivo → ownership conversazione → CAP giornaliero → pre-flight LLM →
+   * insert del messaggio utente → retrieval → streaming. Il cap e il pre-flight
+   * precedono qualunque insert/hijack.
+   */
+  app.post(
+    "/:slug/conversations/:conversationId/messages",
+    {
+      config: { rateLimit },
+      preValidation: authenticateWidget,
+      schemaErrorFormatter: unprocessableEntityFormatter,
+      schema: {
+        params: z.object({
+          slug: z.string().min(1),
+          conversationId: z.uuid(),
+        }),
+        body: widgetChatMessageBodySchema,
+        // Nessuno schema 200: la risposta è uno stream SSE grezzo (reply.hijack).
+        // Restano gli errori PRIMA dello stream (401/404/429/503), path normale.
+        response: {
+          401: errorSchema,
+          404: errorSchema,
+          429: errorSchema,
+          503: errorSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const project = request.widgetProject!;
+      const settings = await loadEnabledSettings(app.db, project.id);
+      if (!settings) {
+        return apiError(reply, 404, "widget_disabled", "Widget not available");
+      }
+      const { conversationId } = request.params;
+      const { content, userId } = request.body;
+
+      // Ownership: la conversazione deve essere del progetto autenticato E del
+      // `userId` dichiarato (id conversazione rubato → 404 indistinguibile).
+      const [conversation] = await app.db
+        .select({ externalUserId: widgetConversations.externalUserId })
+        .from(widgetConversations)
+        .where(
+          and(
+            eq(widgetConversations.id, conversationId),
+            eq(widgetConversations.projectId, project.id),
+          ),
+        );
+      if (!conversation || conversation.externalUserId !== userId) {
+        return apiError(reply, 404, "conversation_not_found", "Conversation not found");
+      }
+
+      // CAP giornaliero (UTC) dei messaggi utente del progetto, PRIMA di
+      // hijackare/consumare token. La JOIN filtra `last_message_at >= inizio
+      // giornata` per sfruttare l'indice composito (project_id, last_message_at):
+      // così si contano solo le conversazioni toccate oggi, non l'intero storico.
+      const dayStart = startOfUtcDay(new Date());
+      const [capRow] = await app.db
+        .select({ value: count() })
+        .from(widgetMessages)
+        .innerJoin(
+          widgetConversations,
+          eq(widgetMessages.conversationId, widgetConversations.id),
+        )
+        .where(
+          and(
+            eq(widgetConversations.projectId, project.id),
+            gte(widgetConversations.lastMessageAt, dayStart),
+            eq(widgetMessages.role, "user"),
+            gte(widgetMessages.createdAt, dayStart),
+          ),
+        );
+      if ((capRow?.value ?? 0) >= opts.dailyMessageCap) {
+        return apiError(reply, 429, "widget_chat_cap_reached", "Daily message limit reached");
+      }
+
+      // PRE-FLIGHT disponibilità chat: BEFORE l'hijack. Guard con try/catch come
+      // il config endpoint: la superficie pubblica non deve 500-are su un provider
+      // misconfigurato — un 503 pulito è l'errore corretto e mappabile dalla UI.
+      let llmAvailable = true;
+      try {
+        llmAvailable = (await app.chatLlm.isAvailable?.())?.available ?? true;
+      } catch (err) {
+        request.log.warn({ err }, "widget chat: controllo disponibilità fallito");
+        llmAvailable = false;
+      }
+      if (!llmAvailable) {
+        return apiError(reply, 503, "chat_unavailable", "Chat is not available");
+      }
+
+      // Persiste il messaggio utente PRIMA del retrieval/streaming, aggiorna il
+      // last_message_at (ordina l'elenco viewer + alimenta il cap del giorno).
+      await app.db.insert(widgetMessages).values({
+        conversationId,
+        role: "user",
+        content,
+      });
+      await app.db
+        .update(widgetConversations)
+        .set({ lastMessageAt: new Date() })
+        .where(eq(widgetConversations.id, conversationId));
+
+      // RETRIEVAL cross-repo FILTRATO ai soli repo esposti dal widget
+      // (enabledRepositoryIds). Se l'embedding è down fa fallback full-text.
+      const chunks = await retrieveChunksForProject(app.db, app.embeddingClient, project.id, content, {
+        k: CHAT_RETRIEVAL_K,
+        repositoryIds: settings.enabledRepositoryIds,
+        logger: request.log,
+      });
+      const citations = buildCitations(chunks);
+      const language = widgetSettingsSchema.shape.language.safeParse(settings.language);
+      const system = buildWidgetSystemPrompt(chunks, {
+        language: language.success ? language.data : "it",
+      });
+
+      // History: ultime WIDGET_HISTORY_PAIRS coppie (20 messaggi) in ordine
+      // cronologico, col messaggio utente corrente già in coda (appena inserito).
+      // Si prendono gli ultimi N in DESC (per l'indice) e si riordinano ASC.
+      const recent = await app.db
+        .select({ role: widgetMessages.role, content: widgetMessages.content })
+        .from(widgetMessages)
+        .where(eq(widgetMessages.conversationId, conversationId))
+        .orderBy(desc(widgetMessages.createdAt), desc(widgetMessages.id))
+        .limit(WIDGET_HISTORY_PAIRS * 2);
+      const history = recent
+        .reverse()
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+
+      await streamWidgetChatResponse({
+        db: app.db,
+        chatLlm: app.chatLlm,
+        request,
+        reply,
+        conversationId,
+        system,
+        history,
+        citations,
+        logContext: { projectId: project.id, conversationId },
+      });
     },
   );
 }

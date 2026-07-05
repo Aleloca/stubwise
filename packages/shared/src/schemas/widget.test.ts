@@ -20,9 +20,15 @@ describe("widget schemas", () => {
     expect(widgetConversationCreateBodySchema.parse({ user: { id: "x" } }).user.email).toBeUndefined();
   });
 
-  it("limita il messaggio a 2000 caratteri", () => {
-    expect(() => widgetChatMessageBodySchema.parse({ content: "a".repeat(2001) })).toThrow();
-    expect(widgetChatMessageBodySchema.parse({ content: "ciao" }).content).toBe("ciao");
+  it("limita il messaggio a 2000 caratteri e richiede userId", () => {
+    expect(() =>
+      widgetChatMessageBodySchema.parse({ content: "a".repeat(2001), userId: "u_1" }),
+    ).toThrow();
+    // userId obbligatorio: assente → invalido.
+    expect(() => widgetChatMessageBodySchema.parse({ content: "ciao" })).toThrow();
+    const parsed = widgetChatMessageBodySchema.parse({ content: "ciao", userId: "u_1" });
+    expect(parsed.content).toBe("ciao");
+    expect(parsed.userId).toBe("u_1");
   });
 
   it("limita i tipi ticket confermabili", () => {

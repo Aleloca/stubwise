@@ -161,6 +161,13 @@ export interface BuildAppOptions {
    * toccare la rete né richiedere credenziali.
    */
   chatLlm?: ChatLlm;
+  /**
+   * Tetto GIORNALIERO (UTC) di messaggi utente della chat widget, per progetto:
+   * il widget è pubblico (chiave nel sorgente ospite) e ogni messaggio consuma
+   * token LLM, quindi si limita l'abuso. Default 200. Override pensato per i test
+   * (cap basso) e per la config di deploy.
+   */
+  widgetDailyMessageCap?: number;
 }
 
 /**
@@ -390,6 +397,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(widgetRoutes, {
     prefix: "/widget",
     rateLimit: opts.ingestRateLimit ?? { max: 300, timeWindow: "1 minute" },
+    dailyMessageCap: opts.widgetDailyMessageCap ?? 200,
   });
   // Webhook generico per chiamanti esterni: POST /api/inbound/:slug/ticket.
   // Stessa autenticazione/CORS/rate-limit dell'ingestion SDK, ma crea un

@@ -4,6 +4,7 @@ export const widgetTicketTypeSchema = z.enum(["bug", "feedback", "feature"]);
 export type WidgetTicketType = z.infer<typeof widgetTicketTypeSchema>;
 
 export const widgetLanguageSchema = z.enum(["it", "en"]);
+export type WidgetLanguage = z.infer<typeof widgetLanguageSchema>;
 
 export const widgetSettingsSchema = z.object({
   enabled: z.boolean().default(false),
@@ -28,6 +29,9 @@ export const widgetConversationCreateBodySchema = z.object({
 
 export const widgetChatMessageBodySchema = z.object({
   content: z.string().min(1).max(2000),
+  // Identità DICHIARATA dal sito ospite (non autenticata): serve a verificare
+  // che la conversazione appartenga a questo utente, come per il GET storico.
+  userId: z.string().min(1).max(200),
 });
 
 export const widgetTicketConfirmBodySchema = z.object({

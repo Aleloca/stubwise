@@ -40,4 +40,30 @@ describe("widget tables", () => {
       .returning();
     expect(t!.source).toBe("widget");
   });
+
+  it("delete del ticket → widget_messages.ticket_id set null (FK on delete set null)", async () => {
+    const [conv] = await testDb.db
+      .insert(widgetConversations)
+      .values({ projectId, externalUserId: "u_2" })
+      .returning();
+    const [ticket] = await testDb.db
+      .insert(tickets)
+      .values({ projectId, number: 901, title: "t", type: "bug", priority: "medium", source: "widget" })
+      .returning();
+    const [msg] = await testDb.db
+      .insert(widgetMessages)
+      .values({ conversationId: conv!.id, role: "assistant", content: "risposta", ticketId: ticket!.id })
+      .returning();
+    expect(msg!.ticketId).toBe(ticket!.id);
+
+    // Eliminato il ticket, la FK set-null azzera il riferimento senza cancellare
+    // il messaggio (lo storico della conversazione resta integro).
+    await testDb.db.delete(tickets).where(eq(tickets.id, ticket!.id));
+    const [after] = await testDb.db
+      .select()
+      .from(widgetMessages)
+      .where(eq(widgetMessages.id, msg!.id));
+    expect(after).toBeDefined();
+    expect(after!.ticketId).toBeNull();
+  });
 });
