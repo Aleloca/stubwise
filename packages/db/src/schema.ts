@@ -1460,25 +1460,38 @@ export const searchHistory = pgTable(
 );
 
 /**
- * Impostazioni del widget di assistenza per progetto (1:1: la PK è il
- * `project_id`). Governa aspetto e comportamento del widget embeddabile sul
- * sito del cliente: `enabled` accende la superficie pubblica,
- * `enabled_repository_ids` restringe il retrieval RAG ai soli repo scelti
- * (jsonb array di uuid; vuoto = chat disabilitata, nessun repo esposto), gli altri campi
- * sono presentazione (titolo, messaggio di benvenuto, colore accento, lingua).
- * Cascata col progetto.
+ * Widget di assistenza embeddabile: N per progetto (molti a uno), ciascuno con
+ * la propria `key` univoca (identifica il widget nella superficie pubblica e
+ * negli snippet di embed). Governa aspetto e comportamento del widget sul sito
+ * del cliente: `enabled` accende la superficie pubblica, `enabled_repository_ids`
+ * restringe il retrieval RAG ai soli repo scelti (jsonb array di uuid; vuoto =
+ * chat disabilitata, nessun repo esposto); gli altri campi sono presentazione
+ * (titolo, messaggio di benvenuto, colore accento, lingua). `daily_message_cap`
+ * e `daily_ticket_cap` (opzionali, null = illimitato) mettono un tetto giornaliero
+ * per-widget. Cascata col progetto.
  */
-export const widgetSettings = pgTable("widget_settings", {
-  projectId: uuid("project_id")
-    .primaryKey()
-    .references(() => projects.id, { onDelete: "cascade" }),
-  enabled: boolean("enabled").notNull().default(false),
-  enabledRepositoryIds: jsonb("enabled_repository_ids").$type<string[]>().notNull().default([]),
-  title: text("title").notNull().default("Assistenza"),
-  welcomeMessage: text("welcome_message").notNull().default("Ciao! Come posso aiutarti?"),
-  accentColor: text("accent_color").notNull().default("#22c55e"),
-  language: text("language").notNull().default("it"),
-});
+export const widgets = pgTable(
+  "widgets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    key: text("key").notNull().unique(),
+    enabled: boolean("enabled").notNull().default(false),
+    enabledRepositoryIds: jsonb("enabled_repository_ids").$type<string[]>().notNull().default([]),
+    title: text("title").notNull().default("Assistenza"),
+    welcomeMessage: text("welcome_message").notNull().default("Ciao! Come posso aiutarti?"),
+    accentColor: text("accent_color").notNull().default("#22c55e"),
+    language: text("language").notNull().default("it"),
+    dailyMessageCap: integer("daily_message_cap"),
+    dailyTicketCap: integer("daily_ticket_cap"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  // Elenco dei widget di un progetto.
+  (t) => [index("widgets_project_idx").on(t.projectId)],
+);
 
 /**
  * Conversazione di un utente esterno (visitatore del sito ospite) col widget di
@@ -1496,6 +1509,9 @@ export const widgetConversations = pgTable(
     externalUserId: text("external_user_id").notNull(),
     externalUserEmail: text("external_user_email"),
     externalUserName: text("external_user_name"),
+    // Widget da cui è nata la conversazione. SET NULL alla cancellazione del
+    // widget: lo storico resta consultabile come "widget eliminato".
+    widgetId: uuid("widget_id").references(() => widgets.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     lastMessageAt: timestamp("last_message_at", { withTimezone: true }).notNull().defaultNow(),
   },
