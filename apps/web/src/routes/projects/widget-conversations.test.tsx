@@ -47,6 +47,7 @@ const PROJECT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const CONV_A = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const CONV_B = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const TICKET_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+const WIDGET_ID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
 
 function meHandler(role: "admin" | "member" = "admin"): Handler {
   return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role } });
@@ -69,6 +70,26 @@ function projectDetail() {
 
 const NOW = "2026-07-05T10:00:00.000Z";
 
+function widgets() {
+  return {
+    widgets: [
+      {
+        id: WIDGET_ID,
+        name: "Support",
+        key: "wgt_support",
+        greeting: null,
+        primaryColor: null,
+        position: "right",
+        enabledRepositoryIds: [],
+        dailyMessageCap: null,
+        dailyTicketCap: null,
+        createdAt: NOW,
+        conversationCount: 1,
+      },
+    ],
+  };
+}
+
 function conversations() {
   return {
     conversations: [
@@ -77,6 +98,8 @@ function conversations() {
         externalUserId: "ext-a",
         externalUserEmail: "user-a@example.com",
         externalUserName: "Alice",
+        widgetId: WIDGET_ID,
+        widgetName: "Support",
         createdAt: NOW,
         lastMessageAt: NOW,
         messageCount: 4,
@@ -87,6 +110,8 @@ function conversations() {
         externalUserId: "ext-b",
         externalUserEmail: null,
         externalUserName: null,
+        widgetId: null,
+        widgetName: null,
         createdAt: NOW,
         lastMessageAt: NOW,
         messageCount: 2,
@@ -103,6 +128,7 @@ function threadA() {
       externalUserId: "ext-a",
       externalUserEmail: "user-a@example.com",
       externalUserName: "Alice",
+      widgetName: "Support",
       createdAt: NOW,
     },
     messages: [
@@ -141,10 +167,11 @@ function renderApp(initialPath: string) {
 }
 
 describe("viewer conversazioni widget", () => {
-  it("mostra la lista con 2 conversazioni, nome/fallback id e badge ticket", async () => {
+  it("mostra la lista con 2 conversazioni, nome/fallback id, badge ticket e widget", async () => {
     mockApi({
       "GET /api/auth/me": meHandler(),
       [`GET /api/projects/${PROJECT_ID}`]: () => jsonResponse(200, projectDetail()),
+      [`GET /api/projects/${PROJECT_ID}/widgets`]: () => jsonResponse(200, widgets()),
       [`GET /api/projects/${PROJECT_ID}/widget/conversations`]: () =>
         jsonResponse(200, conversations()),
     });
@@ -162,6 +189,10 @@ describe("viewer conversazioni widget", () => {
     expect(screen.getByText("1 ticket")).toBeInTheDocument();
     // La seconda non ha ticket: nessun badge ticket per lei.
     expect(screen.getByText("2 messages")).toBeInTheDocument();
+    // Badge del widget d'origine sulla prima (compare anche come opzione del
+    // filtro, quindi >= 1 occorrenza); "deleted widget" sulla orfana.
+    expect(screen.getAllByText("Support").length).toBeGreaterThan(0);
+    expect(screen.getByText("deleted widget")).toBeInTheDocument();
   });
 
   it("selezione: carica il filo, mostra i ruoli, la citazione e il link al ticket", async () => {
@@ -169,6 +200,7 @@ describe("viewer conversazioni widget", () => {
     mockApi({
       "GET /api/auth/me": meHandler(),
       [`GET /api/projects/${PROJECT_ID}`]: () => jsonResponse(200, projectDetail()),
+      [`GET /api/projects/${PROJECT_ID}/widgets`]: () => jsonResponse(200, widgets()),
       [`GET /api/projects/${PROJECT_ID}/widget/conversations`]: () =>
         jsonResponse(200, conversations()),
       [`GET /api/projects/${PROJECT_ID}/widget/conversations/${CONV_A}/messages`]: () =>
@@ -189,6 +221,9 @@ describe("viewer conversazioni widget", () => {
       "href",
       `/tickets/${TICKET_ID}`,
     );
+    // Nome del widget nell'header del dettaglio (badge nella lista + header +
+    // opzione del filtro → più occorrenze).
+    expect(screen.getAllByText("Support").length).toBeGreaterThan(1);
   });
 
   it("con ?ticketId: filtra la lista e auto-seleziona la conversazione trovata", async () => {
@@ -196,6 +231,7 @@ describe("viewer conversazioni widget", () => {
     mockApi({
       "GET /api/auth/me": meHandler(),
       [`GET /api/projects/${PROJECT_ID}`]: () => jsonResponse(200, projectDetail()),
+      [`GET /api/projects/${PROJECT_ID}/widgets`]: () => jsonResponse(200, widgets()),
       [`GET /api/projects/${PROJECT_ID}/widget/conversations`]: (url) => {
         convRequestUrl = url;
         return jsonResponse(200, { conversations: conversations().conversations.slice(0, 1) });
@@ -216,6 +252,7 @@ describe("viewer conversazioni widget", () => {
     mockApi({
       "GET /api/auth/me": meHandler(),
       [`GET /api/projects/${PROJECT_ID}`]: () => jsonResponse(200, projectDetail()),
+      [`GET /api/projects/${PROJECT_ID}/widgets`]: () => jsonResponse(200, widgets()),
       [`GET /api/projects/${PROJECT_ID}/widget/conversations`]: () =>
         jsonResponse(200, { conversations: [] }),
     });
@@ -223,6 +260,40 @@ describe("viewer conversazioni widget", () => {
     renderApp(`/projects/${PROJECT_ID}/conversations`);
 
     expect(await screen.findByText("No conversations yet")).toBeInTheDocument();
+  });
+
+  it("select filtro widget: naviga con ?widgetId e rifetcha con quel filtro", async () => {
+    const user = userEvent.setup();
+    const convRequestUrls: URL[] = [];
+    mockApi({
+      "GET /api/auth/me": meHandler(),
+      [`GET /api/projects/${PROJECT_ID}`]: () => jsonResponse(200, projectDetail()),
+      [`GET /api/projects/${PROJECT_ID}/widgets`]: () => jsonResponse(200, widgets()),
+      [`GET /api/projects/${PROJECT_ID}/widget/conversations`]: (url) => {
+        convRequestUrls.push(url);
+        const filtered = url.searchParams.get("widgetId")
+          ? conversations().conversations.slice(0, 1)
+          : conversations().conversations;
+        return jsonResponse(200, { conversations: filtered });
+      },
+    });
+
+    const router = renderApp(`/projects/${PROJECT_ID}/conversations`);
+
+    // Prima fetch senza filtro widget.
+    await screen.findByText("Alice");
+    expect(convRequestUrls[0]?.searchParams.get("widgetId")).toBeNull();
+
+    // Selezione del widget dal filtro → nuova fetch con widgetId nell'URL.
+    await user.selectOptions(await screen.findByRole("combobox"), WIDGET_ID);
+
+    await waitFor(() =>
+      expect(convRequestUrls.some((u) => u.searchParams.get("widgetId") === WIDGET_ID)).toBe(true),
+    );
+    // Il search param finisce anche nell'URL della route.
+    await waitFor(() =>
+      expect(router.state.location.search).toEqual(expect.objectContaining({ widgetId: WIDGET_ID })),
+    );
   });
 });
 

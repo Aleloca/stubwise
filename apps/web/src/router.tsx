@@ -230,12 +230,17 @@ const widgetConversationsRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/projects/$projectId/conversations",
   validateSearch: (search) => widgetConversationsSearchSchema.parse(search),
-  loaderDeps: ({ search }) => ({ ticketId: search.ticketId }),
+  loaderDeps: ({ search }) => ({ ticketId: search.ticketId, widgetId: search.widgetId }),
   loader: async ({ context, params, deps }) => {
     await Promise.all([
       context.queryClient.ensureQueryData(projectQueryOptions(params.projectId)),
       context.queryClient
-        .ensureQueryData(widgetConversationsQueryOptions(params.projectId, deps.ticketId))
+        .ensureQueryData(
+          widgetConversationsQueryOptions(params.projectId, {
+            ticketId: deps.ticketId,
+            widgetId: deps.widgetId,
+          }),
+        )
         .catch(() => undefined),
     ]);
   },

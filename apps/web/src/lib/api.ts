@@ -1795,13 +1795,17 @@ export function deleteWidget(projectId: string, widgetId: string): Promise<void>
  * Riepilogo di una conversazione widget nel viewer interno: identità
  * dell'utente esterno (name/email/id, name ed email possono mancare), istanti
  * di creazione e ultimo messaggio, più i conteggi aggregati di messaggi e di
- * messaggi che hanno aperto un ticket. Ordinato dal server per lastMessageAt desc.
+ * messaggi che hanno aperto un ticket. `widgetId`/`widgetName` identificano il
+ * widget d'origine e sono null per le conversazioni orfane (widget eliminato).
+ * Ordinato dal server per lastMessageAt desc.
  */
 export interface WidgetConversationSummary {
   id: string;
   externalUserId: string;
   externalUserEmail: string | null;
   externalUserName: string | null;
+  widgetId: string | null;
+  widgetName: string | null;
   createdAt: string;
   lastMessageAt: string;
   messageCount: number;
@@ -1822,12 +1826,17 @@ export interface WidgetConversationMessage {
   createdAt: string;
 }
 
-/** Identità dell'utente esterno di una conversazione (header del dettaglio). */
+/**
+ * Identità dell'utente esterno di una conversazione (header del dettaglio).
+ * `widgetName` è il nome del widget d'origine, null per le conversazioni orfane
+ * (widget eliminato).
+ */
 export interface WidgetConversationIdentity {
   id: string;
   externalUserId: string;
   externalUserEmail: string | null;
   externalUserName: string | null;
+  widgetName: string | null;
   createdAt: string;
 }
 
@@ -1841,15 +1850,17 @@ export interface WidgetConversationThread {
  * Elenco delle conversazioni widget di un progetto per il viewer interno,
  * ordinate lastMessageAt desc. Con `ticketId` si restringe alla sola
  * conversazione che contiene un messaggio con quel ticket (link "Vedi
- * conversazione" dal dettaglio ticket).
+ * conversazione" dal dettaglio ticket). Con `widgetId` si filtra al singolo
+ * widget d'origine; i due filtri sono componibili.
  */
 export function getWidgetConversations(
   projectId: string,
-  opts?: { limit?: number; ticketId?: string },
+  opts?: { limit?: number; ticketId?: string; widgetId?: string },
 ): Promise<{ conversations: WidgetConversationSummary[] }> {
   const params = new URLSearchParams();
   if (opts?.limit !== undefined) params.set("limit", String(opts.limit));
   if (opts?.ticketId) params.set("ticketId", opts.ticketId);
+  if (opts?.widgetId) params.set("widgetId", opts.widgetId);
   const qs = params.toString();
   return api.get(
     `/api/projects/${encodeURIComponent(projectId)}/widget/conversations${qs ? `?${qs}` : ""}`,

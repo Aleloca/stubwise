@@ -1,5 +1,5 @@
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
-import { getRouteApi, Link } from "@tanstack/react-router";
+import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
@@ -13,15 +13,18 @@ import {
   projectQueryOptions,
   widgetConversationMessagesQueryOptions,
   widgetConversationsQueryOptions,
+  widgetsQueryOptions,
 } from "../../lib/queries";
 
 /**
- * Search param della pagina Conversazioni: `ticketId` opzionale (link "Vedi
- * conversazione" dal dettaglio ticket). `.catch(undefined)` scarta un URL
- * scritto a mano malformato invece di mandare la route in errore.
+ * Search param della pagina Conversazioni: `ticketId` (link "Vedi conversazione"
+ * dal dettaglio ticket) e `widgetId` (select di filtro in testa alla lista),
+ * entrambi opzionali e componibili. `.catch(undefined)` scarta un URL scritto a
+ * mano malformato invece di mandare la route in errore.
  */
 export const widgetConversationsSearchSchema = z.object({
   ticketId: z.uuid().optional().catch(undefined),
+  widgetId: z.uuid().optional().catch(undefined),
 });
 
 // L'id della route include il layout autenticato (id "authed").
@@ -67,12 +70,17 @@ function displayName(conv: {
  */
 export function WidgetConversationsPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { projectId } = route.useParams();
-  const { ticketId } = route.useSearch();
+  const { ticketId, widgetId } = route.useSearch();
 
   const { data: project } = useSuspenseQuery(projectQueryOptions(projectId));
-  const { data } = useSuspenseQuery(widgetConversationsQueryOptions(projectId, ticketId));
+  const { data } = useSuspenseQuery(
+    widgetConversationsQueryOptions(projectId, { ticketId, widgetId }),
+  );
+  const { data: widgetsData } = useSuspenseQuery(widgetsQueryOptions(projectId));
   const conversations = data.conversations;
+  const widgets = widgetsData.widgets;
 
   // Selezione: con `?ticketId` si auto-seleziona la conversazione trovata (la
   // lista è già ristretta a quella); altrimenti resta a scelta dell'utente. La
@@ -94,9 +102,35 @@ export function WidgetConversationsPage() {
         {t("widget:conversations.back")}
       </Link>
 
-      <header className="mt-3 border-b border-line pb-5">
-        <h1 className="text-xl font-semibold">{t("widget:conversations.title")}</h1>
-        <p className="mt-2 font-mono text-[12px] text-fg-muted">{project.name}</p>
+      <header className="mt-3 flex flex-wrap items-end justify-between gap-4 border-b border-line pb-5">
+        <div>
+          <h1 className="text-xl font-semibold">{t("widget:conversations.title")}</h1>
+          <p className="mt-2 font-mono text-[12px] text-fg-muted">{project.name}</p>
+        </div>
+        {widgets.length > 0 && (
+          <label className="flex flex-col gap-1.5 font-mono text-[11px] tracking-[0.14em] text-fg-faint uppercase">
+            {t("widget:conversations.filterLabel")}
+            <select
+              value={widgetId ?? ""}
+              onChange={(event) => {
+                const next = event.target.value || undefined;
+                void navigate({
+                  to: "/projects/$projectId/conversations",
+                  params: { projectId },
+                  search: (prev) => ({ ...prev, widgetId: next }),
+                });
+              }}
+              className="rounded-sm border border-line-strong bg-ink-900 px-2 py-1.5 text-[12px] tracking-normal text-fg normal-case"
+            >
+              <option value="">{t("widget:conversations.filterAll")}</option>
+              {widgets.map((widget) => (
+                <option key={widget.id} value={widget.id}>
+                  {widget.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
       </header>
 
       {conversations.length === 0 ? (
@@ -123,6 +157,15 @@ export function WidgetConversationsPage() {
                   </span>
                   <span className="flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] text-fg-faint">
                     <span>{formatRelativeTime(conv.lastMessageAt)}</span>
+                    <span
+                      className={`rounded-sm border px-1.5 py-px ${
+                        conv.widgetName
+                          ? "border-line-strong text-fg-muted"
+                          : "border-danger/40 text-danger"
+                      }`}
+                    >
+                      {conv.widgetName ?? t("widget:conversations.widgetDeleted")}
+                    </span>
                     <span className="rounded-sm border border-line-strong px-1.5 py-px">
                       {t("widget:conversations.messageCount", { count: conv.messageCount })}
                     </span>
@@ -200,7 +243,18 @@ function ConversationDetail({
   return (
     <section className="rounded-sm border border-line bg-ink-900">
       <header className="border-b border-line px-4 py-3">
-        <h2 className="text-sm font-semibold text-fg">{name}</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-sm font-semibold text-fg">{name}</h2>
+          <span
+            className={`rounded-sm border px-1.5 py-px font-mono text-[11px] ${
+              conversation.widgetName
+                ? "border-line-strong text-fg-muted"
+                : "border-danger/40 text-danger"
+            }`}
+          >
+            {conversation.widgetName ?? t("widget:conversations.widgetDeleted")}
+          </span>
+        </div>
         <dl className="mt-1.5 space-y-0.5">
           {showEmail && (
             <div className="flex gap-2 font-mono text-[11px] text-fg-muted">

@@ -379,15 +379,31 @@ export function widgetsQueryOptions(projectId: string) {
 
 /**
  * Elenco delle conversazioni widget di un progetto (viewer interno), ordinate
- * lastMessageAt desc. Chiave figlia del progetto, gemella di widget-settings:
- * il `ticketId` (link dal ticket) entra nella chiave così la lista filtrata e
- * quella intera sono cache distinte. `staleTime` breve: nuove conversazioni
- * arrivano di continuo.
+ * lastMessageAt desc. Chiave figlia del progetto: i filtri `ticketId` (link dal
+ * ticket) e `widgetId` (select in testa alla lista) entrano nella chiave così
+ * ogni combinazione filtrata e la lista intera sono cache distinte. `staleTime`
+ * breve: nuove conversazioni arrivano di continuo.
  */
-export function widgetConversationsQueryOptions(projectId: string, ticketId?: string) {
+export function widgetConversationsQueryOptions(
+  projectId: string,
+  filters?: { ticketId?: string; widgetId?: string },
+) {
+  const ticketId = filters?.ticketId;
+  const widgetId = filters?.widgetId;
   return queryOptions({
-    queryKey: ["projects", "detail", projectId, "widget-conversations", ticketId ?? null],
-    queryFn: () => getWidgetConversations(projectId, ticketId ? { ticketId } : undefined),
+    queryKey: [
+      "projects",
+      "detail",
+      projectId,
+      "widget-conversations",
+      ticketId ?? null,
+      widgetId ?? null,
+    ],
+    queryFn: () =>
+      getWidgetConversations(
+        projectId,
+        ticketId || widgetId ? { ticketId, widgetId } : undefined,
+      ),
     staleTime: 10_000,
   });
 }
