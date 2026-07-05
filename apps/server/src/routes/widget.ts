@@ -5,13 +5,12 @@ import {
   widgetSettingsSchema,
   widgetTicketConfirmBodySchema,
 } from "@stubwise/shared";
-import { and, asc, count, desc, eq, gte } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, isNotNull } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import {
   projects,
-  tickets,
   widgetConversations,
   widgetMessages,
   widgets,
@@ -29,15 +28,19 @@ export interface WidgetRoutesOptions {
   /** Limite di richieste per chiave del progetto (default 300/min). */
   rateLimit: RateLimitConfig;
   /**
-   * Tetto GIORNALIERO (UTC) di messaggi utente della chat widget, per progetto.
-   * Superficie pubblica: ogni messaggio consuma token LLM, quindi si limita
-   * l'abuso. Da {@link ../app.ts#BuildAppOptions.widgetDailyMessageCap} (default 200).
+   * DEFAULT d'istanza del tetto GIORNALIERO (UTC) di messaggi utente della chat,
+   * PER WIDGET: usato quando la riga del widget non ha un override
+   * (`dailyMessageCap` null). Superficie pubblica: ogni messaggio consuma token
+   * LLM, quindi si limita l'abuso. Da
+   * {@link ../app.ts#BuildAppOptions.widgetDailyMessageCap} (default 200).
    */
   dailyMessageCap: number;
   /**
-   * Tetto GIORNALIERO (UTC) di ticket (source='widget') per progetto.
-   * Superficie pubblica: ogni ticket crea una riga permanente, quindi si limita
-   * l'abuso. Da {@link ../app.ts#BuildAppOptions.widgetDailyTicketCap} (default 50).
+   * DEFAULT d'istanza del tetto GIORNALIERO (UTC) di ticket (source='widget'),
+   * PER WIDGET: usato quando la riga del widget non ha un override
+   * (`dailyTicketCap` null). Superficie pubblica: ogni ticket crea una riga
+   * permanente, quindi si limita l'abuso. Da
+   * {@link ../app.ts#BuildAppOptions.widgetDailyTicketCap} (default 50).
    */
   dailyTicketCap: number;
 }
@@ -407,10 +410,13 @@ export async function widgetRoutes(
         return apiError(reply, 404, "conversation_not_found", "Conversation not found");
       }
 
-      // CAP giornaliero (UTC) dei messaggi utente del progetto, PRIMA di
-      // hijackare/consumare token. La JOIN filtra `last_message_at >= inizio
-      // giornata` per sfruttare l'indice composito (project_id, last_message_at):
-      // così si contano solo le conversazioni toccate oggi, non l'intero storico.
+      // CAP giornaliero (UTC) dei messaggi utente DEL WIDGET, PRIMA di
+      // hijackare/consumare token. Il cap è l'override sulla riga del widget
+      // (dailyMessageCap) o, se null, il default d'istanza (opts). La JOIN filtra
+      // per widget_id e conserva `last_message_at >= inizio giornata` per l'indice
+      // (project_id, last_message_at): si contano solo le conversazioni del widget
+      // toccate oggi, non l'intero storico né gli altri widget del progetto.
+      const messageCap = widget.dailyMessageCap ?? opts.dailyMessageCap;
       const dayStart = startOfUtcDay(new Date());
       const [capRow] = await app.db
         .select({ value: count() })
@@ -421,7 +427,7 @@ export async function widgetRoutes(
         )
         .where(
           and(
-            eq(widgetConversations.projectId, project.id),
+            eq(widgetConversations.widgetId, widget.id),
             gte(widgetConversations.lastMessageAt, dayStart),
             eq(widgetMessages.role, "user"),
             gte(widgetMessages.createdAt, dayStart),
@@ -430,7 +436,7 @@ export async function widgetRoutes(
       // Race benigna e deliberata: due richieste concorrenti possono leggere lo
       // stesso count e superare insieme il cap; l'overshoot è limitato dalla
       // concorrenza e non giustifica un lock sul conteggio del giorno.
-      if ((capRow?.value ?? 0) >= opts.dailyMessageCap) {
+      if ((capRow?.value ?? 0) >= messageCap) {
         return apiError(reply, 429, "widget_chat_cap_reached", "Daily message limit reached");
       }
 
@@ -566,23 +572,32 @@ export async function widgetRoutes(
         return apiError(reply, 404, "conversation_not_found", "Conversation not found");
       }
 
-      // CAP giornaliero (UTC) dei ticket widget del progetto, PRIMA di creare
-      // qualsiasi cosa. Conta i `tickets` con source='widget' e createdAt >=
-      // inizio giornata: ogni ticket è una riga permanente, la superficie è
-      // pubblica. Race benigna come il cap chat: due richieste concorrenti
-      // possono superare insieme il cap, overshoot limitato dalla concorrenza.
+      // CAP giornaliero (UTC) dei ticket DEL WIDGET, PRIMA di creare qualsiasi
+      // cosa. Il cap è l'override sulla riga del widget (dailyTicketCap) o, se
+      // null, il default d'istanza (opts). I ticket non hanno widget_id, quindi
+      // si contano i MESSAGGI DI CONFERMA di oggi (widget_messages con ticketId
+      // non-null e createdAt >= inizio giornata) JOIN sulle conversazioni del
+      // widget: stessa informazione (ogni conferma inserisce esattamente un
+      // messaggio con ticketId), già collegata al widget. Race benigna come il
+      // cap chat: due richieste concorrenti possono superare insieme il cap,
+      // overshoot limitato dalla concorrenza.
+      const ticketCap = widget.dailyTicketCap ?? opts.dailyTicketCap;
       const dayStart = startOfUtcDay(new Date());
       const [capRow] = await app.db
         .select({ value: count() })
-        .from(tickets)
+        .from(widgetMessages)
+        .innerJoin(
+          widgetConversations,
+          eq(widgetMessages.conversationId, widgetConversations.id),
+        )
         .where(
           and(
-            eq(tickets.projectId, project.id),
-            eq(tickets.source, "widget"),
-            gte(tickets.createdAt, dayStart),
+            eq(widgetConversations.widgetId, widget.id),
+            isNotNull(widgetMessages.ticketId),
+            gte(widgetMessages.createdAt, dayStart),
           ),
         );
-      if ((capRow?.value ?? 0) >= opts.dailyTicketCap) {
+      if ((capRow?.value ?? 0) >= ticketCap) {
         return apiError(reply, 429, "widget_ticket_cap_reached", "Daily ticket limit reached");
       }
 
@@ -601,6 +616,7 @@ export async function widgetRoutes(
 
       const body = composeWidgetTicketBody({
         proposalBody,
+        widgetName: widget.name,
         identity: {
           id: conversation.externalUserId,
           email: conversation.externalUserEmail,
@@ -661,11 +677,12 @@ export async function widgetRoutes(
  */
 function composeWidgetTicketBody(input: {
   proposalBody: string;
+  widgetName: string;
   identity: { id: string; email: string | null; name: string | null };
   transcript: { role: string; content: string }[];
   language: "it" | "en";
 }): string {
-  const { proposalBody, identity, transcript, language } = input;
+  const { proposalBody, widgetName, identity, transcript, language } = input;
   const labels =
     language === "en"
       ? { header: "Reporter", proposal: "Report", name: "Name", email: "Email", id: "External ID", transcript: "Conversation transcript", user: "user", assistant: "assistant" }
@@ -675,6 +692,8 @@ function composeWidgetTicketBody(input: {
   if (identity.name) identityLines.push(`- ${labels.name}: ${identity.name}`);
   if (identity.email) identityLines.push(`- ${labels.email}: ${identity.email}`);
   identityLines.push(`- ${labels.id}: ${identity.id}`);
+  // Nome del widget d'origine: "Widget" è un label universale (uguale in it/en).
+  identityLines.push(`- Widget: ${widgetName}`);
   const identitySection = identityLines.join("\n");
 
   const truncate = (s: string): string =>

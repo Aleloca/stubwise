@@ -988,6 +988,69 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
     expect(second.json()).toMatchObject({ code: "widget_chat_cap_reached" });
   });
 
+  it("cap PER-WIDGET (override riga): 2° messaggio del widget capped → 429; un ALTRO widget dello stesso progetto (cap null) risponde", async () => {
+    // widget con dailyMessageCap = 1 (override sulla riga): dopo il primo user
+    // message il suo cap è raggiunto. Un secondo widget dello stesso progetto ha
+    // cap null → default d'istanza (200) → continua a rispondere: il conteggio è
+    // isolato per widget, non per progetto.
+    const project = await seedProjectWithKey(testDb.db);
+    const genId = await seedCurrentGeneration(testDb.db, project.repositoryId);
+    void genId;
+    const capped = await seedWidget(testDb.db, project.projectId, {
+      enabled: true,
+      enabledRepositoryIds: [project.repositoryId],
+      dailyMessageCap: 1,
+    });
+    const other = await seedWidget(testDb.db, project.projectId, {
+      enabled: true,
+      enabledRepositoryIds: [project.repositoryId],
+      // dailyMessageCap null → default d'istanza.
+    });
+    const [convCapped] = await testDb.db
+      .insert(widgetConversations)
+      .values({ projectId: project.projectId, widgetId: capped.id, externalUserId: "visitor-1" })
+      .returning();
+    const [convOther] = await testDb.db
+      .insert(widgetConversations)
+      .values({ projectId: project.projectId, widgetId: other.id, externalUserId: "visitor-2" })
+      .returning();
+
+    // Primo messaggio sul widget capped → ok.
+    const first = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${convCapped!.id}/messages`,
+      headers: { "x-stubwise-key": capped.key },
+      payload: { content: "primo", userId: "visitor-1" },
+    });
+    expect(first.statusCode).toBe(200);
+    await vi.waitFor(async () => {
+      const rows = await testDb.db
+        .select()
+        .from(widgetMessages)
+        .where(eq(widgetMessages.conversationId, convCapped!.id));
+      expect(rows.some((m) => m.role === "user")).toBe(true);
+    });
+
+    // Secondo messaggio sul widget capped → 429 (il suo override è 1).
+    const second = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${convCapped!.id}/messages`,
+      headers: { "x-stubwise-key": capped.key },
+      payload: { content: "secondo", userId: "visitor-1" },
+    });
+    expect(second.statusCode).toBe(429);
+    expect(second.json()).toMatchObject({ code: "widget_chat_cap_reached" });
+
+    // L'altro widget (cap null → default 200) risponde: conteggio isolato.
+    const otherRes = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${convOther!.id}/messages`,
+      headers: { "x-stubwise-key": other.key },
+      payload: { content: "primo dell'altro", userId: "visitor-2" },
+    });
+    expect(otherRes.statusCode).toBe(200);
+  });
+
   it("conversazione di un altro utente (userId sbagliato) → 404", async () => {
     const { project, widget, conversationId } = await setupChat(testDb.db);
     const res = await app.inject({
@@ -1093,6 +1156,63 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
     const citations = (done!.citations as { slug: string }[]) ?? [];
     expect(citations.some((c) => c.slug === pageA.slug)).toBe(true);
     expect(citations.some((c) => c.slug === pageB.slug)).toBe(false);
+  });
+
+  it("retrieval PER-WIDGET: due widget con whitelist diverse (repo A vs repo B) → citazioni della whitelist del widget che chiede", async () => {
+    // Stesso progetto, due repo documentati; widgetA espone SOLO A, widgetB SOLO B.
+    // La stessa query dà citazioni di A con la chiave di A e di B con la chiave di B.
+    const project = await seedProjectWithKey(testDb.db);
+    const repoA = project.repositoryId;
+    const repoB = await seedRepositoryInProject(testDb.db, project.projectId);
+    const widgetA = await seedWidget(testDb.db, project.projectId, {
+      enabled: true,
+      enabledRepositoryIds: [repoA],
+    });
+    const widgetB = await seedWidget(testDb.db, project.projectId, {
+      enabled: true,
+      enabledRepositoryIds: [repoB],
+    });
+    const genA = await seedCurrentGeneration(testDb.db, repoA);
+    const genB = await seedCurrentGeneration(testDb.db, repoB);
+    const token = `twowtok${randomBytes(4).toString("hex")}`;
+    const pageA = await seedPageWithChunk(testDb.db, repoA, genA, {
+      title: "A doc",
+      chunkContent: `Il ${token} di A gestisce le notifiche.`,
+    });
+    const pageB = await seedPageWithChunk(testDb.db, repoB, genB, {
+      title: "B doc",
+      chunkContent: `Il ${token} di B gestisce i pagamenti.`,
+    });
+    const [convA] = await testDb.db
+      .insert(widgetConversations)
+      .values({ projectId: project.projectId, widgetId: widgetA.id, externalUserId: "visitor-a" })
+      .returning();
+    const [convB] = await testDb.db
+      .insert(widgetConversations)
+      .values({ projectId: project.projectId, widgetId: widgetB.id, externalUserId: "visitor-b" })
+      .returning();
+
+    const resA = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${convA!.id}/messages`,
+      headers: { "x-stubwise-key": widgetA.key },
+      payload: { content: token, userId: "visitor-a" },
+    });
+    const resB = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${convB!.id}/messages`,
+      headers: { "x-stubwise-key": widgetB.key },
+      payload: { content: token, userId: "visitor-b" },
+    });
+    expect(resA.statusCode).toBe(200);
+    expect(resB.statusCode).toBe(200);
+
+    const citA = (parseSse(resA.payload).find((e) => e.type === "done")!.citations as { slug: string }[]) ?? [];
+    const citB = (parseSse(resB.payload).find((e) => e.type === "done")!.citations as { slug: string }[]) ?? [];
+    expect(citA.some((c) => c.slug === pageA.slug)).toBe(true);
+    expect(citA.some((c) => c.slug === pageB.slug)).toBe(false);
+    expect(citB.some((c) => c.slug === pageB.slug)).toBe(true);
+    expect(citB.some((c) => c.slug === pageA.slug)).toBe(false);
   });
 });
 
@@ -1342,6 +1462,95 @@ describe("POST /widget/:slug/conversations/:conversationId/tickets", () => {
       .from(tickets)
       .where(eq(tickets.projectId, project.projectId));
     expect(rows).toHaveLength(1);
+  });
+
+  it("cap ticket PER-WIDGET (override riga, conteggio via messaggi di conferma): 2° ticket capped → 429; un ALTRO widget del progetto (cap null) crea; ticket di IERI non conta", async () => {
+    // Il widget capped ha dailyTicketCap = 1 (override). Il conteggio usa i
+    // messaggi di conferma di OGGI (widget_messages con ticketId, createdAt >=
+    // dayStart) JOIN sulle conversazioni del widget — non i tickets del progetto.
+    const project = await seedProjectWithKey(testDb.db);
+    const capped = await seedWidget(testDb.db, project.projectId, {
+      enabled: true,
+      enabledRepositoryIds: [project.repositoryId],
+      dailyTicketCap: 1,
+    });
+    const other = await seedWidget(testDb.db, project.projectId, {
+      enabled: true,
+      enabledRepositoryIds: [project.repositoryId],
+      // dailyTicketCap null → default d'istanza.
+    });
+    const [convCapped] = await testDb.db
+      .insert(widgetConversations)
+      .values({ projectId: project.projectId, widgetId: capped.id, externalUserId: "visitor-1" })
+      .returning();
+    const [convOther] = await testDb.db
+      .insert(widgetConversations)
+      .values({ projectId: project.projectId, widgetId: other.id, externalUserId: "visitor-2" })
+      .returning();
+
+    // Un ticket "di IERI" sul widget capped: creato via API (numera dal counter
+    // del progetto, evita collisioni), poi il suo messaggio di conferma viene
+    // retrodatato a ieri. NON deve contare (fuori dalla finestra di oggi).
+    const yesterdayRes = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${convCapped!.id}/tickets`,
+      headers: { "x-stubwise-key": capped.key },
+      payload: { title: "Ieri", body: "vecchio", type: "bug", userId: "visitor-1" },
+    });
+    expect(yesterdayRes.statusCode).toBe(200);
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    await testDb.db
+      .update(widgetMessages)
+      .set({ createdAt: yesterday })
+      .where(eq(widgetMessages.ticketId, yesterdayRes.json().ticketId));
+
+    // Primo ticket di oggi sul widget capped → ok nonostante quello di ieri.
+    const first = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${convCapped!.id}/tickets`,
+      headers: { "x-stubwise-key": capped.key },
+      payload: { title: "Oggi uno", body: "primo", type: "bug", userId: "visitor-1" },
+    });
+    expect(first.statusCode).toBe(200);
+
+    // Secondo ticket di oggi sul widget capped → 429 (il suo override è 1).
+    const second = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${convCapped!.id}/tickets`,
+      headers: { "x-stubwise-key": capped.key },
+      payload: { title: "Oggi due", body: "secondo", type: "bug", userId: "visitor-1" },
+    });
+    expect(second.statusCode).toBe(429);
+    expect(second.json()).toMatchObject({ code: "widget_ticket_cap_reached" });
+
+    // L'altro widget (cap null → default) crea comunque: conteggio isolato.
+    const otherRes = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${convOther!.id}/tickets`,
+      headers: { "x-stubwise-key": other.key },
+      payload: { title: "Altro widget", body: "corpo", type: "bug", userId: "visitor-2" },
+    });
+    expect(otherRes.statusCode).toBe(200);
+  });
+
+  it("body ticket contiene la riga col nome del widget: `Widget: <nome>`", async () => {
+    const { project, widget, conversationId } = await setupTicketConversation(testDb.db);
+    await testDb.db
+      .update(widgets)
+      .set({ name: "Widget Vendite" })
+      .where(eq(widgets.id, widget.id));
+    const res = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
+      headers: { "x-stubwise-key": widget.key },
+      payload: { title: "T", body: "corpo", type: "bug", userId: "visitor-1" },
+    });
+    expect(res.statusCode).toBe(200);
+    const [ticket] = await testDb.db
+      .select()
+      .from(tickets)
+      .where(eq(tickets.id, res.json().ticketId));
+    expect(ticket!.body).toContain("Widget: Widget Vendite");
   });
 
   it("trascrizione vuota + identità null → body con solo ID esterno, sezione trascrizione omessa", async () => {
