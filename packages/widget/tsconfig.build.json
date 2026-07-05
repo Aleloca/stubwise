@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // Solo i .d.ts: il .js lo produce Vite (build.lib). Da qui NON emettiamo
+    // sourcemap/js (declaration only via --emitDeclarationOnly nel comando build).
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "dist"
+  },
+  // vite.config.ts fuori dall'emit dei tipi del pacchetto pubblicato.
+  "include": ["src"],
+  "exclude": ["dist", "src/**/*.test.ts", "src/**/*.test.tsx"]
+}
