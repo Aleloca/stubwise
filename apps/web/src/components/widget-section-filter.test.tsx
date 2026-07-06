@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../lib/api";
 import type { DocTreeNode } from "../lib/docs-api";
@@ -290,6 +291,58 @@ describe("WidgetSectionFilter", () => {
     const header = (await screen.findByLabelText("Functional")) as HTMLInputElement;
     expect(header.checked).toBe(false);
     expect(header.indeterminate).toBe(true);
+  });
+
+  it("nodo indeterminate → spunta del gruppo → l'indeterminate DOM viene resettato (checked, non trattino)", async () => {
+    const user = userEvent.setup();
+    getDocTree.mockResolvedValue([
+      node({ id: "root", title: "Apps", kind: "technical", sourcePath: "apps" }),
+      node({ id: "child", parentId: "root", title: "Webapp", sourcePath: "apps/webapp" }),
+    ]);
+    // Il componente è controllato: uso un wrapper con stato per rialimentare
+    // il valore emesso dal click sul gruppo e osservare il re-render del nodo.
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    function Harness() {
+      const [value, setValue] = useState<Filter | undefined>({
+        paths: ["apps/webapp"],
+        slugs: [],
+        kinds: [],
+      });
+      return (
+        <WidgetSectionFilter
+          repositoryId={REPO_ID}
+          repositoryName="web"
+          value={value}
+          onChange={setValue}
+        />
+      );
+    }
+    render(
+      <QueryClientProvider client={client}>
+        <Harness />
+      </QueryClientProvider>,
+    );
+
+    // Solo il discendente selezionato → il padre "Apps" parte indeterminate.
+    const parent = (await screen.findByLabelText("Apps")) as HTMLInputElement;
+    expect(parent.indeterminate).toBe(true);
+
+    // Spunto il GRUPPO (kind technical) → i nodi sono coperti dal gruppo.
+    await user.click(await screen.findByLabelText("Technical"));
+
+    const coveredParent = (await screen.findByLabelText("Apps")) as HTMLInputElement;
+    expect(coveredParent.checked).toBe(true);
+    expect(coveredParent.indeterminate).toBe(false);
+  });
+
+  it("kinds pieni ma paths/slugs vuoti → NESSUN warning di entry vuota", async () => {
+    getDocTree.mockResolvedValue([
+      node({ id: "root", title: "Webapp", kind: "technical", sourcePath: "apps/webapp" }),
+    ]);
+    renderFilter({ value: { paths: [], slugs: [], kinds: ["technical"] } });
+
+    await screen.findByLabelText("Technical");
+    expect(screen.queryByText(/The widget will expose nothing from web/i)).not.toBeInTheDocument();
   });
 
   it("header checked quando il kind è nel filtro in ingresso (rendering da salvato)", async () => {

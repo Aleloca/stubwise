@@ -534,8 +534,9 @@ function FilterNodes({
                   aria-label={item.title}
                   checked={checked}
                   ref={(el) => {
-                    if (el && item.sourcePath && !coveredByGroup)
-                      el.indeterminate = state === "indeterminate";
+                    if (el)
+                      el.indeterminate =
+                        Boolean(item.sourcePath) && !coveredByGroup && state === "indeterminate";
                   }}
                   disabled={disabled || covered}
                   title={title}
