@@ -269,6 +269,49 @@ describe("WidgetsSection", () => {
     );
   });
 
+  it("editare un path conserva i kinds salvati (anti-wipe del contratto completo)", async () => {
+    const user = userEvent.setup();
+    updateWidget.mockResolvedValue({ widget: makeWidget() });
+    // Foresta del repo A: un nodo technical con sourcePath. Il filtro salvato ha
+    // kinds=["functional"] e nessun path: aggiungere il path NON deve azzerare i kinds.
+    getDocTree.mockResolvedValue([
+      {
+        id: "root",
+        slug: "root",
+        title: "Webapp",
+        kind: "technical",
+        parentId: null,
+        position: 0,
+        sourcePath: "apps/webapp",
+        isManual: false,
+      },
+    ]);
+    const savedFilters = {
+      [REPO_A]: { paths: [], slugs: [], kinds: ["functional" as const] },
+    };
+    renderSection([
+      makeWidget({ enabledRepositoryIds: [REPO_A], repositoryFilters: savedFilters }),
+    ]);
+
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    // Il blocco filtro è aperto (filtro esistente). Espando il gruppo Technical e
+    // spunto il nodo → deve aggiungere il path e PRESERVARE kinds=["functional"].
+    await user.click(await screen.findByRole("button", { name: /expand.*technical/i }));
+    await user.click(await screen.findByLabelText("Webapp"));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(updateWidget).toHaveBeenCalledTimes(1));
+    expect(updateWidget).toHaveBeenCalledWith(
+      PROJECT_ID,
+      WIDGET_ID,
+      expect.objectContaining({
+        repositoryFilters: {
+          [REPO_A]: { paths: ["apps/webapp"], slugs: [], kinds: ["functional"] },
+        },
+      }),
+    );
+  });
+
   it("deselezionare un repo scarta la sua entry dai repositoryFilters del payload", async () => {
     const user = userEvent.setup();
     updateWidget.mockResolvedValue({ widget: makeWidget() });

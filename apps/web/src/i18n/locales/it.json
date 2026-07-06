@@ -1151,11 +1151,17 @@
     "snippetHint": "// incolla prima di </body>: carica il widget e lo avvia con l'utente corrente.",
     "filter": {
       "toggle": "Limita alle sezioni",
-      "summary": "({{sections}} sezioni, {{pages}} pagine)",
+      "summaryGroups_one": "{{count}} gruppo",
+      "summaryGroups_other": "{{count}} gruppi",
+      "summarySections_one": "{{count}} sezione",
+      "summarySections_other": "{{count}} sezioni",
+      "summaryPages_one": "{{count}} pagina",
+      "summaryPages_other": "{{count}} pagine",
       "loading": "Caricamento documentazione…",
       "noDocs": "Nessuna documentazione generata per questo repository.",
       "loadError": "Impossibile caricare l'albero della documentazione. Riprova tra un momento.",
       "coveredBy": "Coperto dalla sezione selezionata \"{{path}}\"",
+      "coveredByGroup": "Coperto dal gruppo {{group}}",
       "remove": "Rimuovi filtro",
       "emptyWarning": "Il widget non esporrà nulla di {{repository}}: seleziona almeno una sezione o pagina."
     },

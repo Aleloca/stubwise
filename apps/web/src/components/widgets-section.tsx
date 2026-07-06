@@ -246,24 +246,15 @@ function WidgetEditor({
   };
 
   // Aggiorna (o rimuove) il filtro fine di un repo. `undefined` = repo intero.
-  // NB (parte 2): l'UI dei `kinds` non è ancora cablata qui — materializziamo
-  // `kinds: []` per soddisfare lo schema; la selezione dei gruppi arriva nel
-  // rework UI della parte 2.
-  const setRepositoryFilter = (
-    id: string,
-    filter: { paths: string[]; slugs: string[]; kinds?: WidgetRepositoryFilter["kinds"] } | undefined,
-  ): void => {
+  // Il componente emette il contratto COMPLETO `{paths, slugs, kinds}`: nessun
+  // default temporaneo qui (azzererebbe i kinds salvati a ogni edit).
+  const setRepositoryFilter = (id: string, filter: WidgetRepositoryFilter | undefined): void => {
     setForm((current) => {
       if (filter === undefined) {
         if (!(id in current.repositoryFilters)) return current;
         return { ...current, repositoryFilters: omitKey(current.repositoryFilters, id) };
       }
-      const entry: WidgetRepositoryFilter = {
-        paths: filter.paths,
-        slugs: filter.slugs,
-        kinds: filter.kinds ?? [],
-      };
-      return { ...current, repositoryFilters: { ...current.repositoryFilters, [id]: entry } };
+      return { ...current, repositoryFilters: { ...current.repositoryFilters, [id]: filter } };
     });
     if (saveMutation.isError) saveMutation.reset();
   };

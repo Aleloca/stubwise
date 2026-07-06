@@ -1151,11 +1151,17 @@
     "snippetHint": "// paste before </body>: loads the widget and boots it with the current user.",
     "filter": {
       "toggle": "Limit to sections",
-      "summary": "({{sections}} sections, {{pages}} pages)",
+      "summaryGroups_one": "{{count}} group",
+      "summaryGroups_other": "{{count}} groups",
+      "summarySections_one": "{{count}} section",
+      "summarySections_other": "{{count}} sections",
+      "summaryPages_one": "{{count}} page",
+      "summaryPages_other": "{{count}} pages",
       "loading": "Loading documentation…",
       "noDocs": "No documentation generated for this repository yet.",
       "loadError": "Could not load the documentation tree. Retry in a moment.",
       "coveredBy": "Covered by the selected section \"{{path}}\"",
+      "coveredByGroup": "Covered by the {{group}} group",
       "remove": "Remove filter",
       "emptyWarning": "The widget will expose nothing from {{repository}}: select at least one section or page."
     },
