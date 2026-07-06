@@ -12,6 +12,12 @@ import {
 } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import {
+  EXPLORE_BODY_END_MARKER,
+  EXPLORE_BODY_START_MARKER,
+  EXPLORE_CHILDREN_END_MARKER,
+  EXPLORE_CHILDREN_START_MARKER,
+  GROW_PROPOSAL_END_MARKER,
+  GROW_PROPOSAL_START_MARKER,
   REFRESH_NO_CHANGE_MARKER,
   REFRESH_UPDATED_END_MARKER,
   REFRESH_UPDATED_START_MARKER,
@@ -21,9 +27,11 @@ import {
   RELEASE_SLUGS_END_MARKER,
   RELEASE_SLUGS_START_MARKER,
   RELEASE_START_MARKER,
+  SOURCE_PATHS_END_MARKER,
+  SOURCE_PATHS_START_MARKER,
 } from "@stubwise/docs-engine";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import { execa } from "execa";
 import { randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -32,6 +40,7 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeAgentRunner } from "../agent/fake.js";
+import type { AgentRunResult } from "../agent/runner.js";
 import { createProjectSerializer } from "../handler.js";
 import { MirrorManager } from "../git/mirrors.js";
 import { isNoise, runAutoUpdate, type RunAutoUpdateDeps } from "./auto-update.js";
@@ -278,6 +287,53 @@ function isRefreshPrompt(prompt: string): boolean {
   return prompt.includes(REFRESH_UPDATED_START_MARKER);
 }
 
+// ── Helper Fase 3 (mini-orient + explore) ─────────────────────────────────────
+
+/** Costruisce un blocco proposta del mini-orient. */
+function growProposal(opts: {
+  title: string;
+  kind: "technical" | "functional";
+  parent?: string;
+  paths?: string;
+}): string {
+  return [
+    GROW_PROPOSAL_START_MARKER,
+    `title: ${opts.title}`,
+    `kind: ${opts.kind}`,
+    `parent: ${opts.parent ?? ""}`,
+    `paths: ${opts.paths ?? ""}`,
+    GROW_PROPOSAL_END_MARKER,
+  ].join("\n");
+}
+
+/** Un corpo explore valido (≥ MIN_BODY_CHARS, non-meta) + blocco children (foglia) + paths. */
+function exploreOutput(opts: { body?: string; paths?: string[] } = {}): string {
+  const body =
+    opts.body ??
+    "### Cosa fa\nQuesta area gestisce la fatturazione: creazione fatture, righe, totali e stato di pagamento. Documenta in dettaglio ogni operazione disponibile per l'utente.";
+  const pathsLines = (opts.paths ?? []).map((p) => `- ${p}`);
+  return [
+    EXPLORE_BODY_START_MARKER,
+    body,
+    EXPLORE_BODY_END_MARKER,
+    EXPLORE_CHILDREN_START_MARKER,
+    EXPLORE_CHILDREN_END_MARKER,
+    SOURCE_PATHS_START_MARKER,
+    ...pathsLines,
+    SOURCE_PATHS_END_MARKER,
+  ].join("\n");
+}
+
+/** true se il prompt è quello del mini-orient Fase 3. */
+function isGrowOrientPrompt(prompt: string): boolean {
+  return prompt.includes(GROW_PROPOSAL_START_MARKER);
+}
+
+/** true se il prompt è quello di explore Fase 3. */
+function isExplorePrompt(prompt: string): boolean {
+  return prompt.includes(EXPLORE_BODY_START_MARKER);
+}
+
 /**
  * Script che instrada per tipo di prompt: l'agente di refresh ritorna `refresh`, l'agente
  * release ritorna `release`. Così un singolo runner serve sia la rigenerazione mirata sia
@@ -294,7 +350,7 @@ function baseDeps(
   db: Db,
   mirrors: MirrorManager,
   runner: FakeAgentRunner,
-  opts: { maxRefreshPages?: number } = {},
+  opts: { maxRefreshPages?: number; maxNewPages?: number } = {},
 ): RunAutoUpdateDeps {
   return {
     db,
@@ -308,6 +364,9 @@ function baseDeps(
     // Default 0 = rigenerazione mirata disattivata (comportamento Fase 1): i test Fase 1
     // restano invariati. I test Fase 2 passano esplicitamente un maxRefreshPages > 0.
     maxRefreshPages: opts.maxRefreshPages ?? 0,
+    // Default 0 = creazione incrementale (Fase 3) disattivata. I test Fase 3 passano
+    // esplicitamente un maxNewPages > 0.
+    maxNewPages: opts.maxNewPages ?? 0,
     // Catena vuota di default: provider undefined (auth storica). I test che vogliono
     // un provider bloccato passano aiProviderId + un loadProviderByIdFn fake.
     loadProviderChainFn: async () => [],
@@ -700,6 +759,424 @@ describe("runAutoUpdate — rigenerazione mirata (Fase 2)", () => {
       .from(docPages)
       .where(and(eq(docPages.repositoryId, repositoryId), eq(docPages.kind, "releases")));
     expect(releases).toHaveLength(1);
+  });
+});
+
+describe("runAutoUpdate — creazione incrementale (Fase 3)", () => {
+  /**
+   * Script Fase 3: instrada per tipo di prompt. mini-orient → `orient`, explore →
+   * `explore` (può dipendere dal titolo citato nel prompt), release → `release`, refresh
+   * → `refresh`.
+   */
+  function growScript(opts: {
+    orient: string;
+    explore: string | ((prompt: string) => AgentRunResult);
+    release?: string;
+    refresh?: string;
+  }) {
+    return (call: { prompt: string }): AgentRunResult => {
+      if (isGrowOrientPrompt(call.prompt)) return { output: opts.orient, exitCode: 0 };
+      if (isExplorePrompt(call.prompt)) {
+        return typeof opts.explore === "function"
+          ? opts.explore(call.prompt)
+          : { output: opts.explore, exitCode: 0 };
+      }
+      if (isRefreshPrompt(call.prompt)) {
+        return { output: opts.refresh ?? REFRESH_NO_CHANGE_OUTPUT, exitCode: 0 };
+      }
+      return { output: opts.release ?? SIGNIFICANT_OUTPUT, exitCode: 0 };
+    };
+  }
+
+  it("area nuova → pagina creata nella generazione corrente (slug/kind/parentId/position/sourcePath/chunks) e visibile dal retrieval", async () => {
+    const { db } = testDb;
+    // app.ts coperto da `src`; billing/* è un'area nuova non coperta da alcuna pagina.
+    const upstream = await makeUpstream({
+      extraFiles: {
+        "billing/invoice.ts": "export const inv = 1;\n",
+        "billing/payment.ts": "export const pay = 2;\n",
+      },
+    });
+    const mirrors = await makeMirrors();
+    const repositoryId = await createRepository(db, upstream.url);
+    const { generationId, pageIds } = await seedGenerationWithPages(
+      db,
+      repositoryId,
+      upstream.fromSha,
+      [{ slug: "app-module", title: "App Module", sourcePath: "src", body: "Pagina app." }],
+    );
+
+    const runner = new FakeAgentRunner({
+      script: growScript({
+        orient: growProposal({
+          title: "Fatturazione",
+          kind: "functional",
+          parent: "app-module",
+          paths: "billing",
+        }),
+        explore: exploreOutput({ paths: ["billing"] }),
+      }),
+    });
+    await runAutoUpdate(baseDeps(db, mirrors, runner, { maxNewPages: 5 }), {
+      id: "job-g1",
+      repositoryId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    // La pagina creata esiste nella generazione corrente.
+    const [page] = await db
+      .select()
+      .from(docPages)
+      .where(and(eq(docPages.generationId, generationId), eq(docPages.slug, "fatturazione")));
+    expect(page).toBeDefined();
+    expect(page?.kind).toBe("functional");
+    expect(page?.title).toBe("Fatturazione");
+    expect(page?.parentId).toBe(pageIds["app-module"]); // parentId dal parentSlug
+    expect(page?.sourcePath).toBe("billing");
+    expect(page?.generationId).toBe(generationId);
+    // position in coda (> della pagina esistente app-module, che è 0).
+    expect(page?.position).toBeGreaterThan(0);
+
+    // Chunk embeddati per la pagina.
+    const chunks = await db.select().from(docChunks).where(eq(docChunks.pageId, page!.id));
+    expect(chunks.length).toBeGreaterThan(0);
+    expect(chunks.every((c) => c.generationId === generationId)).toBe(true);
+
+    // Visibile dal predicato del retrieval (generation_id = corrente OR IS NULL).
+    const visible = await db
+      .select({ id: docPages.id })
+      .from(docPages)
+      .where(
+        and(
+          eq(docPages.repositoryId, repositoryId),
+          eq(docPages.slug, "fatturazione"),
+          or(eq(docPages.generationId, generationId), isNull(docPages.generationId)),
+        ),
+      );
+    expect(visible).toHaveLength(1);
+  });
+
+  it("slug collidente col titolo di una pagina esistente → suffisso -2", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream({
+      extraFiles: { "billing/a.ts": "export const a = 1;\n", "billing/b.ts": "export const b = 2;\n" },
+    });
+    const mirrors = await makeMirrors();
+    const repositoryId = await createRepository(db, upstream.url);
+    const { generationId } = await seedGenerationWithPages(db, repositoryId, upstream.fromSha, [
+      { slug: "app-module", title: "App Module", sourcePath: "src", body: "Pagina app." },
+      // Pagina esistente con slug "fatturazione": la nuova col titolo "Fatturazione" collide.
+      { slug: "fatturazione", title: "Vecchia Fatturazione", sourcePath: "old", body: "Vecchia." },
+    ]);
+
+    const runner = new FakeAgentRunner({
+      script: growScript({
+        orient: growProposal({ title: "Fatturazione", kind: "technical", paths: "billing" }),
+        explore: exploreOutput({ paths: ["billing"] }),
+      }),
+    });
+    await runAutoUpdate(baseDeps(db, mirrors, runner, { maxNewPages: 5 }), {
+      id: "job-g2",
+      repositoryId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    const created = await db
+      .select()
+      .from(docPages)
+      .where(and(eq(docPages.generationId, generationId), eq(docPages.slug, "fatturazione-2")));
+    expect(created).toHaveLength(1);
+    expect(created[0]?.title).toBe("Fatturazione");
+  });
+
+  it("body vuoto dall'explore → nessuna pagina creata, area nel residuo (segnalata nella entry)", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream({
+      extraFiles: { "billing/a.ts": "export const a = 1;\n", "billing/b.ts": "export const b = 2;\n" },
+    });
+    const mirrors = await makeMirrors();
+    const repositoryId = await createRepository(db, upstream.url);
+    const { generationId } = await seedGenerationWithPages(db, repositoryId, upstream.fromSha, [
+      { slug: "app-module", title: "App Module", sourcePath: "src", body: "Pagina app." },
+    ]);
+
+    // Explore restituisce marcatori vuoti → parseExploreOutput scarta (body too-short).
+    const emptyExplore = [
+      EXPLORE_BODY_START_MARKER,
+      "",
+      EXPLORE_BODY_END_MARKER,
+      EXPLORE_CHILDREN_START_MARKER,
+      EXPLORE_CHILDREN_END_MARKER,
+      SOURCE_PATHS_START_MARKER,
+      SOURCE_PATHS_END_MARKER,
+    ].join("\n");
+    const runner = new FakeAgentRunner({
+      script: growScript({
+        orient: growProposal({ title: "Fatturazione", kind: "technical", paths: "billing" }),
+        explore: emptyExplore,
+      }),
+    });
+    await runAutoUpdate(baseDeps(db, mirrors, runner, { maxNewPages: 5 }), {
+      id: "job-g3",
+      repositoryId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    // Nessuna pagina technical creata (solo app-module esistente).
+    const nonRelease = await db
+      .select()
+      .from(docPages)
+      .where(and(eq(docPages.generationId, generationId)));
+    expect(nonRelease).toHaveLength(1); // solo app-module
+    // La entry release segnala l'area residua billing.
+    const [release] = await db
+      .select()
+      .from(docPages)
+      .where(and(eq(docPages.repositoryId, repositoryId), eq(docPages.kind, "releases")));
+    expect(release?.body).toContain("Aree nuove non documentate");
+    expect(release?.body).toContain("billing");
+  });
+
+  it("tetto maxNewPages 1 con 2 proposte → 1 pagina creata, 1 residuo", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream({
+      extraFiles: {
+        "billing/a.ts": "export const a = 1;\n",
+        "reports/r.ts": "export const r = 1;\n",
+      },
+    });
+    const mirrors = await makeMirrors();
+    const repositoryId = await createRepository(db, upstream.url);
+    const { generationId } = await seedGenerationWithPages(db, repositoryId, upstream.fromSha, [
+      { slug: "app-module", title: "App Module", sourcePath: "src", body: "Pagina app." },
+    ]);
+
+    const twoProposals = [
+      growProposal({ title: "Fatturazione", kind: "functional", paths: "billing" }),
+      growProposal({ title: "Report", kind: "functional", paths: "reports" }),
+    ].join("\n\n");
+    const runner = new FakeAgentRunner({
+      script: growScript({ orient: twoProposals, explore: exploreOutput() }),
+    });
+    await runAutoUpdate(baseDeps(db, mirrors, runner, { maxNewPages: 1 }), {
+      id: "job-g4",
+      repositoryId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    // Una sola pagina creata (oltre app-module).
+    const created = await db
+      .select()
+      .from(docPages)
+      .where(and(eq(docPages.generationId, generationId)));
+    expect(created).toHaveLength(2); // app-module + 1 creata
+    // Un solo run di explore (tetto rispettato: la 2ª proposta non è esplorata).
+    const exploreCalls = runner.calls.filter((c) => isExplorePrompt(c.prompt));
+    expect(exploreCalls).toHaveLength(1);
+  });
+
+  it("maxNewPages 0 → Fase 3 spenta (nessun mini-orient/explore)", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream({
+      extraFiles: { "billing/a.ts": "export const a = 1;\n", "billing/b.ts": "export const b = 2;\n" },
+    });
+    const mirrors = await makeMirrors();
+    const repositoryId = await createRepository(db, upstream.url);
+    await seedGenerationWithPages(db, repositoryId, upstream.fromSha, [
+      { slug: "app-module", title: "App Module", sourcePath: "src", body: "Pagina app." },
+    ]);
+
+    const runner = new FakeAgentRunner({
+      script: growScript({
+        orient: growProposal({ title: "Fatturazione", kind: "technical", paths: "billing" }),
+        explore: exploreOutput(),
+      }),
+    });
+    await runAutoUpdate(baseDeps(db, mirrors, runner, { maxNewPages: 0, maxRefreshPages: 0 }), {
+      id: "job-g5",
+      repositoryId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    expect(runner.calls.some((c) => isGrowOrientPrompt(c.prompt))).toBe(false);
+    expect(runner.calls.some((c) => isExplorePrompt(c.prompt))).toBe(false);
+    // Solo l'agente release.
+    expect(runner.calls).toHaveLength(1);
+  });
+
+  it("Fase 3 attiva con maxRefreshPages 0 → newAreas calcolate e pagina creata (gate fixato)", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream({
+      extraFiles: { "billing/a.ts": "export const a = 1;\n", "billing/b.ts": "export const b = 2;\n" },
+    });
+    const mirrors = await makeMirrors();
+    const repositoryId = await createRepository(db, upstream.url);
+    const { generationId, pageIds } = await seedGenerationWithPages(
+      db,
+      repositoryId,
+      upstream.fromSha,
+      [{ slug: "app-module", title: "App Module", sourcePath: "src", body: "Pagina app." }],
+    );
+
+    const runner = new FakeAgentRunner({
+      script: growScript({
+        orient: growProposal({ title: "Fatturazione", kind: "functional", paths: "billing" }),
+        explore: exploreOutput({ paths: ["billing"] }),
+      }),
+    });
+    await runAutoUpdate(baseDeps(db, mirrors, runner, { maxRefreshPages: 0, maxNewPages: 5 }), {
+      id: "job-g6",
+      repositoryId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    // La pagina è stata creata (la Fase 3 gira anche con refresh spento).
+    const created = await db
+      .select()
+      .from(docPages)
+      .where(and(eq(docPages.generationId, generationId), eq(docPages.slug, "fatturazione")));
+    expect(created).toHaveLength(1);
+    // La pagina esistente NON è stata rigenerata (refresh spento): resta col corpo originale.
+    const [app] = await db.select().from(docPages).where(eq(docPages.id, pageIds["app-module"]!));
+    expect(app?.body).toBe("Pagina app.");
+    // Nessun run di refresh.
+    expect(runner.calls.some((c) => isRefreshPrompt(c.prompt))).toBe(false);
+  });
+
+  it("stats/cost della generazione aggiornati con l'esito della Fase 3", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream({
+      extraFiles: { "billing/a.ts": "export const a = 1;\n", "billing/b.ts": "export const b = 2;\n" },
+    });
+    const mirrors = await makeMirrors();
+    const repositoryId = await createRepository(db, upstream.url);
+    // Genera con stats iniziali note e cost noto.
+    const [gen] = await db
+      .insert(docGenerations)
+      .values({
+        repositoryId,
+        status: "succeeded",
+        model: "opus",
+        commitSha: upstream.fromSha,
+        cost: "1.500000",
+        stats: { nodes: 3, doneNodes: 3, failedNodes: 0, maxDepth: 1, pages: 1, chunks: 4 },
+      })
+      .returning();
+    const generationId = gen!.id;
+    await db.insert(docPages).values({
+      repositoryId,
+      generationId,
+      kind: "technical",
+      slug: "app-module",
+      title: "App Module",
+      sourcePath: "src",
+      body: "Pagina app.",
+    });
+    await db
+      .update(repositories)
+      .set({ currentDocGenerationId: generationId })
+      .where(eq(repositories.id, repositoryId));
+
+    const runner = new FakeAgentRunner({
+      script: (call: { prompt: string }): AgentRunResult => {
+        if (isGrowOrientPrompt(call.prompt)) {
+          return {
+            output: growProposal({ title: "Fatturazione", kind: "functional", paths: "billing" }),
+            exitCode: 0,
+            usage: { totalCostUsd: 0.2, models: [] },
+          };
+        }
+        if (isExplorePrompt(call.prompt)) {
+          return {
+            output: exploreOutput({ paths: ["billing"] }),
+            exitCode: 0,
+            usage: { totalCostUsd: 0.3, models: [] },
+          };
+        }
+        return { output: SIGNIFICANT_OUTPUT, exitCode: 0 };
+      },
+    });
+    await runAutoUpdate(baseDeps(db, mirrors, runner, { maxNewPages: 5 }), {
+      id: "job-g7",
+      repositoryId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    const [updated] = await db
+      .select()
+      .from(docGenerations)
+      .where(eq(docGenerations.id, generationId));
+    const stats = updated?.stats as { pages: number; chunks: number };
+    // pages incrementata di 1 (una pagina creata).
+    expect(stats.pages).toBe(2);
+    // chunks incrementati (>4: il body genera almeno un chunk).
+    expect(stats.chunks).toBeGreaterThan(4);
+    // cost = 1.5 (base) + 0.2 (orient) + 0.3 (explore) = 2.0.
+    expect(Number(updated?.cost)).toBeCloseTo(2.0, 5);
+  });
+
+  it("release note: blocco pagine create presente + cross-link della entry include la pagina creata", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream({
+      extraFiles: { "billing/a.ts": "export const a = 1;\n", "billing/b.ts": "export const b = 2;\n" },
+    });
+    const mirrors = await makeMirrors();
+    const repositoryId = await createRepository(db, upstream.url);
+    await seedGenerationWithPages(db, repositoryId, upstream.fromSha, [
+      { slug: "app-module", title: "App Module", sourcePath: "src", body: "Pagina app." },
+    ]);
+
+    // La release cita lo slug creato tra gli AFFECTED SLUGS: deve risultare cross-linkato
+    // (il lookup è esteso alle pagine create).
+    const releaseCitingCreated = [
+      RELEASE_START_MARKER,
+      "SIGNIFICANT: true",
+      "TITLE: Novità fatturazione",
+      RELEASE_SLUGS_START_MARKER,
+      "- fatturazione",
+      RELEASE_SLUGS_END_MARKER,
+      RELEASE_BODY_START_MARKER,
+      "## Aggiunto\n- nuova sezione fatturazione",
+      RELEASE_BODY_END_MARKER,
+      RELEASE_END_MARKER,
+    ].join("\n");
+
+    let releasePrompt = "";
+    const runner = new FakeAgentRunner({
+      script: (call: { prompt: string }): AgentRunResult => {
+        if (isGrowOrientPrompt(call.prompt)) {
+          return { output: growProposal({ title: "Fatturazione", kind: "functional", paths: "billing" }), exitCode: 0 };
+        }
+        if (isExplorePrompt(call.prompt)) return { output: exploreOutput({ paths: ["billing"] }), exitCode: 0 };
+        releasePrompt = call.prompt;
+        return { output: releaseCitingCreated, exitCode: 0 };
+      },
+    });
+    await runAutoUpdate(baseDeps(db, mirrors, runner, { maxNewPages: 5 }), {
+      id: "job-g8",
+      repositoryId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    // Il prompt release ha ricevuto il blocco delle pagine create.
+    expect(releasePrompt).toContain("DOCUMENTATION PAGES CREATED FOR NEW AREAS");
+    expect(releasePrompt).toContain("fatturazione :: Fatturazione");
+
+    // La entry release ha il cross-link verso la pagina creata.
+    const [release] = await db
+      .select()
+      .from(docPages)
+      .where(and(eq(docPages.repositoryId, repositoryId), eq(docPages.kind, "releases")));
+    const links = (release?.links ?? []) as { type: string; slug: string; title: string }[];
+    expect(links.some((l) => l.slug === "fatturazione" && l.title === "Fatturazione")).toBe(true);
   });
 });
 

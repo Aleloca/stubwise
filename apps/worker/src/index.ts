@@ -244,6 +244,9 @@ startAutoUpdatePoller({
   // embeddingClient della finalize; il cap limita costo/tempo per push, 0 = solo entry).
   embeddingClient,
   maxRefreshPages: config.docsAutoUpdateMaxPages,
+  // Fase 3: creazione incrementale di pagine per le aree non documentate (mini-orient +
+  // explore nello stesso worktree effimero; il cap limita costo/tempo, 0 = disattivata).
+  maxNewPages: config.docsAutoUpdateMaxNewPages,
   serializer,
   intervalSeconds: config.docsAutoUpdatePollSeconds,
   signal: controller.signal,

@@ -9,17 +9,25 @@ import {
   type Db,
 } from "@stubwise/db";
 import {
+  aggregateNewAreas,
+  buildExplorePrompt,
+  buildGrowOrientPrompt,
   buildRefreshPagePrompt,
   buildReleasePrompt,
   mapAffectedPages,
+  parseExploreOutput,
+  parseGrowOrientOutput,
   parseRefreshedPage,
   parseReleaseNotes,
+  slugForNode,
   type ExistingPage,
+  type GrowExistingPage,
+  type GrowProposal,
   type PageRef,
   type ReleaseNotes,
 } from "@stubwise/docs-engine";
 import type { EmbeddingClient } from "@stubwise/embeddings";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { AgentRunner } from "../agent/runner.js";
 import type { MirrorManager, MirrorProject } from "../git/mirrors.js";
@@ -109,6 +117,9 @@ export interface RunAutoUpdateDeps {
   /** Tetto alle pagine rigenerate in-place per push (config.docsAutoUpdateMaxPages).
    * 0 = niente rigenerazione mirata, solo la entry release (comportamento Fase 1). */
   maxRefreshPages: number;
+  /** Tetto alle pagine NUOVE create per aree non documentate per push
+   * (config.docsAutoUpdateMaxNewPages). 0 = niente creazione incrementale (Fase 3 off). */
+  maxNewPages: number;
   /** Risolutore di UN provider per id (iniettabile nei test). Default: loadProviderById. */
   loadProviderByIdFn?: (
     db: Db,
@@ -371,35 +382,333 @@ function buildRelatedLinks(
   return links;
 }
 
-/** Branch effimero (stabile) del worktree di refresh: vive solo per il run, poi rimosso. */
+/** Branch effimero (stabile) del worktree di refresh/grow: vive solo per il run, poi rimosso. */
 const REFRESH_BRANCH = "stubwise/docs-autoupdate";
 
-/** Esito della rigenerazione mirata: cosa segnalare nella entry release. */
+/** Esito combinato di rigenerazione mirata (Fase 2) e creazione incrementale (Fase 3). */
 interface RefreshResult {
   /** Slug delle pagine effettivamente aggiornate (per i cross-link e il prompt release). */
   updatedSlugs: string[];
   /** Pagine aggiornate con titolo (passate al prompt release, additivo). */
   refreshedPages: { slug: string; title: string }[];
-  /** Aree (path) cambiate non coperte da alcuna pagina (dal mapping). */
+  /** Pagine NUOVE create per le aree non documentate (Fase 3): slug + titolo. */
+  createdPages: { slug: string; title: string }[];
+  /** Aree (path) cambiate NON coperte da alcuna pagina e non documentate in questo ciclo
+   * (residuo Fase 3: aggregate scartate/fallite/oltre il tetto). Elencate nella entry. */
   newAreas: string[];
   /** Pagine impattate scartate per il tetto `maxRefreshPages`. */
   truncated: number;
 }
 
+/** Contesto albero passato al mini-orient (radici + primo livello della generazione). */
+async function loadGrowTreeContext(
+  db: Db,
+  generationId: string,
+): Promise<GrowExistingPage[]> {
+  // Radici (parentId IS NULL) + i loro figli DIRETTI: uno spaccato compatto dell'albero
+  // (slug/title/kind) tra cui il mini-orient sceglie il genitore, senza sommergere il
+  // prompt con l'intera generazione.
+  const roots = await db
+    .select({ id: docPages.id, slug: docPages.slug, title: docPages.title, kind: docPages.kind })
+    .from(docPages)
+    .where(and(eq(docPages.generationId, generationId), isNull(docPages.parentId)));
+  const rootIds = roots.map((r) => r.id);
+  const children =
+    rootIds.length > 0
+      ? await db
+          .select({ slug: docPages.slug, title: docPages.title, kind: docPages.kind })
+          .from(docPages)
+          .where(
+            and(
+              eq(docPages.generationId, generationId),
+              inArray(docPages.parentId, rootIds),
+            ),
+          )
+      : [];
+  return [
+    ...roots.map((r) => ({ slug: r.slug, title: r.title, kind: r.kind })),
+    ...children.map((c) => ({ slug: c.slug, title: c.title, kind: c.kind })),
+  ];
+}
+
 /**
- * RIGENERAZIONE MIRATA (Fase 2). Mappa i file `material` alle pagine esistenti
- * (`mapAffectedPages`), apre UN worktree effimero al default branch (toSha del mirror) e
- * per ogni pagina impattata fa girare l'agente di refresh, aggiornando in-place il body e
- * RI-EMBEDDANDO i chunk (update + delete + embedAndStoreChunks). I tre statement della
- * SINGOLA pagina girano in UNA transazione: nessun percorso lascia il DB in stato
- * incoerente — un embed fallito dopo il delete rollbacka anche update+delete, lasciando la
- * pagina nello stato VECCHIO coerente (body vecchio + chunk vecchi). Tutto BEST-EFFORT per
- * pagina: un refresh fallito (agente o embed) logga e prosegue, non aborta il resto.
- *
- * Non lancia: ritorna sempre un RefreshResult (in caso di problema, updatedSlugs vuoto ma
- * newAreas/truncated dal mapping). Il chiamante arricchisce la entry release con l'esito.
+ * RIGENERAZIONE MIRATA (Fase 2). Per ogni pagina impattata dal diff fa girare l'agente di
+ * refresh nel worktree GIÀ APERTO `dir`, aggiornando in-place il body e RI-EMBEDDANDO i
+ * chunk (update + delete + embedAndStoreChunks) in UNA transazione per-pagina: un embed
+ * fallito dopo il delete rollbacka anche update+delete, lasciando la pagina nello stato
+ * VECCHIO coerente. Tutto BEST-EFFORT per pagina: un fallimento logga e prosegue.
  */
-async function refreshAffectedPages(
+async function refreshAffectedPagesInWorktree(
+  deps: RunAutoUpdateDeps,
+  dir: string,
+  generationId: string,
+  affected: PageRef[],
+  material: string[],
+  commitSubjects: string[],
+  provider: ResolvedProvider | undefined,
+  repositoryId: string,
+): Promise<{ updatedSlugs: string[]; refreshedPages: { slug: string; title: string }[] }> {
+  const updatedSlugs: string[] = [];
+  const refreshedPages: { slug: string; title: string }[] = [];
+  // Sequenziale: l'agente è read-only nello stesso worktree, un solo run alla volta.
+  for (const page of affected) {
+    try {
+      const pageBody = await loadPageBody(deps.db, page.id);
+      if (pageBody === null) continue; // pagina sparita nel frattempo: salta.
+
+      const prompt = buildRefreshPagePrompt({
+        title: page.title,
+        sourcePath: page.sourcePath,
+        currentBody: pageBody.body,
+        // Passiamo tutti i file materiali come contesto: l'agente filtra leggendo il
+        // codice sotto sourcePath (il prompt lo istruisce a leggere ciò che conta).
+        changedFiles: material,
+        commitSubjects,
+      });
+      const result = await deps.runner.run({
+        cwd: dir,
+        prompt,
+        model: deps.model,
+        permissionMode: "plan",
+        maxTurns: deps.maxTurns,
+        timeoutMs: deps.agentTimeoutMs,
+        ...(provider !== undefined ? { provider } : {}),
+      });
+      const parsed = parseRefreshedPage(result.output);
+      if (parsed.kind !== "updated") continue; // no-op/ambiguo: niente da fare.
+
+      const newBody = parsed.body;
+      // Update in-place del solo BODY: `doc_pages` non ha una colonna commitSha per-pagina
+      // (la staleness è tracciata a livello di GENERAZIONE, e doc_generations.commitSha
+      // viene avanzato a toSha in coda a runAutoUpdate).
+      //
+      // TRANSAZIONE per-pagina: update body + delete chunk vecchi + re-embed dei chunk
+      // nuovi sono atomici. Se l'embed lancia DOPO il delete, il rollback ripristina anche
+      // update+delete: la pagina resta nello stato VECCHIO coerente. L'errore risale al
+      // try/catch best-effort esterno, che logga e prosegue con le altre pagine.
+      await deps.db.transaction(async (tx) => {
+        await tx.update(docPages).set({ body: newBody }).where(eq(docPages.id, page.id));
+        await tx.delete(docChunks).where(eq(docChunks.pageId, page.id));
+        await embedAndStoreChunks(tx, deps.embeddingClient, {
+          repositoryId,
+          generationId,
+          pages: [
+            { id: page.id, body: newBody, kind: pageBody.kind, sourcePath: pageBody.sourcePath },
+          ],
+          batchSize: EMBED_BATCH_SIZE,
+        });
+      });
+      updatedSlugs.push(page.slug);
+      refreshedPages.push({ slug: page.slug, title: page.title });
+    } catch (err) {
+      // BEST-EFFORT per pagina: un refresh fallito (agente o embed) non blocca le altre né
+      // l'intero auto-update.
+      console.error(
+        `[stubwise-worker] auto-update: refresh della pagina '${page.slug}' (repository ${repositoryId}) fallito (${errText(err)}), proseguo`,
+      );
+    }
+  }
+  return { updatedSlugs, refreshedPages };
+}
+
+/** Esito della creazione incrementale (Fase 3). */
+interface GrowResult {
+  createdPages: { slug: string; title: string }[];
+  /** Costo (USD) sommato dei run Fase 3 (mini-orient + explore). */
+  cost: number;
+  /** Numero totale di chunk embeddati per le pagine create (per lo stats update). */
+  chunkCount: number;
+  /** Aree (path) rimaste NON documentate (proposte scartate/fallite/oltre il tetto). */
+  residualAreas: string[];
+}
+
+/**
+ * CREAZIONE INCREMENTALE (Fase 3). Le AREE NUOVE (file non coperti da alcuna pagina) sono
+ * aggregate deterministicamente; un MINI-ORIENT (1 run read-only) propone fino a
+ * `maxNewPages` pagine; per ogni proposta un run explore-style scrive il body (SOLO il
+ * body, i figli sono ignorati) e la pagina è inserita nella GENERAZIONE CORRENTE (slug
+ * dedupato, parentId dal parentSlug, position in coda, chunk embeddati) in una transazione
+ * per-pagina. Best-effort: ogni proposta scartata/fallita finisce nel `residualAreas`.
+ * Gira nel worktree GIÀ APERTO `dir`. Non lancia: ritorna sempre un GrowResult.
+ */
+async function growNewAreaPages(
+  deps: RunAutoUpdateDeps,
+  dir: string,
+  generationId: string,
+  newAreaFiles: string[],
+  treeContext: GrowExistingPage[],
+  commitSubjects: string[],
+  provider: ResolvedProvider | undefined,
+  repositoryId: string,
+): Promise<GrowResult> {
+  const empty: GrowResult = { createdPages: [], cost: 0, chunkCount: 0, residualAreas: [] };
+  const areas = aggregateNewAreas(newAreaFiles);
+  if (areas.length === 0) return empty;
+
+  const createdPages: { slug: string; title: string }[] = [];
+  let cost = 0;
+  let chunkCount = 0;
+  // Residuo di default: tutte le aree, rimosse man mano che una proposta le documenta.
+  const residual = new Set(areas.map((a) => a.path));
+
+  // Slug reali della generazione per SANIFICARE i parentSlug proposti dall'agente.
+  const validParentSlugs = new Set(treeContext.map((p) => p.slug));
+
+  // 1) MINI-ORIENT: un solo run read-only decide le proposte.
+  let proposals: GrowProposal[];
+  try {
+    const orientPrompt = buildGrowOrientPrompt({
+      areas,
+      existingPages: treeContext,
+      maxPages: deps.maxNewPages,
+      commitSubjects,
+    });
+    const orientRun = await deps.runner.run({
+      cwd: dir,
+      prompt: orientPrompt,
+      model: deps.model,
+      permissionMode: "plan",
+      maxTurns: deps.maxTurns,
+      timeoutMs: deps.agentTimeoutMs,
+      ...(provider !== undefined ? { provider } : {}),
+    });
+    cost += orientRun.usage?.totalCostUsd ?? 0;
+    proposals = parseGrowOrientOutput(orientRun.output).slice(0, deps.maxNewPages);
+  } catch (err) {
+    console.error(
+      `[stubwise-worker] auto-update: mini-orient Fase 3 del repository ${repositoryId} fallito (${errText(err)}), nessuna pagina nuova`,
+    );
+    return { createdPages, cost, chunkCount, residualAreas: Array.from(residual).sort() };
+  }
+
+  // 2) Un run EXPLORE per proposta (cap già applicato): SOLO il body, i figli ignorati.
+  for (const proposal of proposals) {
+    // Sanificazione: sourcePaths validi (già normalizzati dal parser); parentSlug tra gli
+    // slug reali, altrimenti radice (null). unitRef = primo path (o path dell'area se
+    // l'agente non ha specificato i path). Copre l'area col primo dei suoi sourcePaths.
+    const sourcePaths = proposal.sourcePaths;
+    const parentSlug =
+      proposal.parentSlug !== null && validParentSlugs.has(proposal.parentSlug)
+        ? proposal.parentSlug
+        : null;
+    const parentPage = parentSlug !== null ? treeContext.find((p) => p.slug === parentSlug) : undefined;
+    const unitRef = sourcePaths[0] ?? "";
+
+    try {
+      const explorePrompt = buildExplorePrompt({
+        tree: proposal.kind,
+        unitRef,
+        title: proposal.title,
+        parentContext: parentPage
+          ? `${parentPage.title} (${parentPage.slug})`
+          : "root",
+      });
+      const exploreRun = await deps.runner.run({
+        cwd: dir,
+        prompt: explorePrompt,
+        model: deps.model,
+        permissionMode: "plan",
+        maxTurns: deps.maxTurns,
+        timeoutMs: deps.agentTimeoutMs,
+        ...(provider !== undefined ? { provider } : {}),
+      });
+      cost += exploreRun.usage?.totalCostUsd ?? 0;
+
+      const parsed = parseExploreOutput(exploreRun.output);
+      // Body invalido (vuoto / troppo corto / meta-summary) o contratto rotto: scarto,
+      // l'area resta nel residuo (già in `residual`).
+      if ("reason" in parsed) continue;
+      const body = parsed.body;
+
+      // sourcePath della pagina: primo dei path raffinati dall'explore, poi quelli della
+      // proposta. Null se davvero nessuno.
+      const pageSourcePath = parsed.sourcePaths[0] ?? sourcePaths[0] ?? null;
+
+      // 3) INSERT in transazione: slug dedupato (slug FRESCHI della generazione), parentId
+      // dal parentSlug, position = max(position)+1 della generazione, chunk embeddati.
+      const inserted = await deps.db.transaction(async (tx) => {
+        const usedRows = await tx
+          .select({ slug: docPages.slug })
+          .from(docPages)
+          .where(eq(docPages.generationId, generationId));
+        const used = new Set(usedRows.map((r) => r.slug));
+        const slug = slugForNode(proposal.title, used);
+
+        const parentId =
+          parentSlug !== null
+            ? (
+                await tx
+                  .select({ id: docPages.id })
+                  .from(docPages)
+                  .where(
+                    and(
+                      eq(docPages.generationId, generationId),
+                      eq(docPages.slug, parentSlug),
+                    ),
+                  )
+              )[0]?.id ?? null
+            : null;
+
+        const [maxRow] = await tx
+          .select({ position: docPages.position })
+          .from(docPages)
+          .where(eq(docPages.generationId, generationId))
+          .orderBy(desc(docPages.position))
+          .limit(1);
+        const position = (maxRow?.position ?? -1) + 1;
+
+        const [row] = await tx
+          .insert(docPages)
+          .values({
+            repositoryId,
+            generationId,
+            kind: proposal.kind,
+            slug,
+            title: proposal.title,
+            parentId,
+            position,
+            sourcePath: pageSourcePath,
+            body,
+          })
+          .returning({ id: docPages.id });
+        if (!row) throw new Error("insert della pagina Fase 3 non ha restituito la riga");
+
+        const { chunkCount: pageChunks } = await embedAndStoreChunks(tx, deps.embeddingClient, {
+          repositoryId,
+          generationId,
+          pages: [{ id: row.id, body, kind: proposal.kind, sourcePath: pageSourcePath }],
+          batchSize: EMBED_BATCH_SIZE,
+        });
+        return { slug, chunks: pageChunks };
+      });
+
+      createdPages.push({ slug: inserted.slug, title: proposal.title });
+      chunkCount += inserted.chunks;
+      // L'area documentata esce dal residuo: rimuovi le aree i cui path sono coperti da
+      // uno dei sourcePaths della pagina.
+      for (const area of areas) {
+        if (sourcePaths.some((sp) => area.path === sp || area.path.startsWith(`${sp}/`) || sp.startsWith(`${area.path}/`))) {
+          residual.delete(area.path);
+        }
+      }
+    } catch (err) {
+      console.error(
+        `[stubwise-worker] auto-update: creazione pagina Fase 3 '${proposal.title}' (repository ${repositoryId}) fallita (${errText(err)}), proseguo`,
+      );
+    }
+  }
+
+  return { createdPages, cost, chunkCount, residualAreas: Array.from(residual).sort() };
+}
+
+/**
+ * Orchestratore Fase 2 + Fase 3: apre UN worktree effimero al default branch e vi esegue,
+ * in sequenza, la rigenerazione mirata (se `maxRefreshPages > 0`) e la creazione
+ * incrementale (se `maxNewPages > 0`). `mapAffectedPages` gira sempre (con `maxRefreshPages`
+ * come tetto per il refresh) per calcolare le aree nuove. Non lancia: ritorna sempre un
+ * RefreshResult (worktree non apribile → esito con solo il mapping deterministico).
+ */
+async function refreshAndGrowPages(
   deps: RunAutoUpdateDeps,
   ctx: ProjectContext,
   generationId: string,
@@ -409,107 +718,115 @@ async function refreshAffectedPages(
   provider: ResolvedProvider | undefined,
   repositoryId: string,
 ): Promise<RefreshResult> {
+  // Mapping deterministico: il tetto del refresh è `maxRefreshPages` (0 = niente refresh,
+  // ma le newAreas sono comunque calcolate per la Fase 3 e la entry).
   const { affected, newAreas, truncated } = mapAffectedPages(
     material,
     pagesWithRefs,
     deps.maxRefreshPages,
   );
-  const updatedSlugs: string[] = [];
-  const refreshedPages: { slug: string; title: string }[] = [];
 
-  if (affected.length === 0) {
-    return { updatedSlugs, refreshedPages, newAreas, truncated };
+  let updatedSlugs: string[] = [];
+  let refreshedPages: { slug: string; title: string }[] = [];
+  let createdPages: { slug: string; title: string }[] = [];
+  // Residuo Fase 3: parte dalle newAreas del mapping; la Fase 3, se attiva, lo raffina.
+  let residualAreas = newAreas;
+
+  const runRefresh = deps.maxRefreshPages > 0 && affected.length > 0;
+  const runGrow = deps.maxNewPages > 0 && newAreas.length > 0;
+  if (!runRefresh && !runGrow) {
+    return { updatedSlugs, refreshedPages, createdPages, newAreas: residualAreas, truncated };
   }
+
+  const treeContext = runGrow ? await loadGrowTreeContext(deps.db, generationId) : [];
 
   try {
     // withWorktree fa checkout dell'HEAD CORRENTE del default branch (dopo ensureMirror/
-    // fetch), NON di job.toSha: doc_pages non tiene uno sha per-pagina e il refresh legge
-    // codice reale dal worktree. Nel caso comune l'HEAD coincide con toSha; se un push più
-    // recente è atterrato durante il debounce, l'HEAD è un po' avanti rispetto a toSha.
-    // Accettato: l'agente legge comunque codice reale e il push successivo (che ricreerà un
-    // pending col proprio range) riconcilia la documentazione. Non è un bug.
+    // fetch), NON di job.toSha: doc_pages non tiene uno sha per-pagina e gli agenti leggono
+    // codice reale dal worktree. UN SOLO worktree per entrambe le fasi.
     await deps.mirrors.withWorktree(ctx.mirrorProject, REFRESH_BRANCH, async (dir) => {
-      // Sequenziale: l'agente è read-only nello stesso worktree, un solo run alla volta.
-      for (const page of affected) {
-        try {
-          const pageBody = await loadPageBody(deps.db, page.id);
-          if (pageBody === null) continue; // pagina sparita nel frattempo: salta.
-
-          const prompt = buildRefreshPagePrompt({
-            title: page.title,
-            sourcePath: page.sourcePath,
-            currentBody: pageBody.body,
-            // Passiamo tutti i file materiali come contesto: l'agente filtra leggendo il
-            // codice sotto sourcePath (il prompt lo istruisce a leggere ciò che conta).
-            changedFiles: material,
-            commitSubjects,
-          });
-          const result = await deps.runner.run({
-            cwd: dir,
-            prompt,
-            model: deps.model,
-            permissionMode: "plan",
-            maxTurns: deps.maxTurns,
-            timeoutMs: deps.agentTimeoutMs,
-            ...(provider !== undefined ? { provider } : {}),
-          });
-          const parsed = parseRefreshedPage(result.output);
-          if (parsed.kind !== "updated") continue; // no-op/ambiguo: niente da fare.
-
-          const newBody = parsed.body;
-          // Update in-place del solo BODY: `doc_pages` non ha una colonna commitSha
-          // per-pagina (la staleness è tracciata a livello di GENERAZIONE, e
-          // doc_generations.commitSha viene avanzato a toSha in coda a runAutoUpdate).
-          // Vedi nota nel doc-header: niente commitSha per-pagina da aggiornare qui.
-          //
-          // TRANSAZIONE per-pagina: update body + delete chunk vecchi + re-embed dei
-          // chunk nuovi sono atomici. Se l'embed lancia DOPO il delete, il rollback
-          // ripristina anche update+delete: la pagina resta nello stato VECCHIO coerente
-          // (body vecchio + chunk vecchi), mai col body nuovo e zero chunk (sparita dalla
-          // ricerca vettoriale). L'errore risale al try/catch best-effort esterno, che
-          // logga e prosegue con le altre pagine.
-          await deps.db.transaction(async (tx) => {
-            await tx
-              .update(docPages)
-              .set({ body: newBody })
-              .where(eq(docPages.id, page.id));
-            // RE-EMBED: i chunk vecchi della pagina vanno rimossi e ricalcolati dal nuovo
-            // body, così la ricerca semantica resta allineata.
-            await tx.delete(docChunks).where(eq(docChunks.pageId, page.id));
-            await embedAndStoreChunks(tx, deps.embeddingClient, {
-              repositoryId,
-              generationId,
-              pages: [
-                {
-                  id: page.id,
-                  body: newBody,
-                  kind: pageBody.kind,
-                  sourcePath: pageBody.sourcePath,
-                },
-              ],
-              batchSize: EMBED_BATCH_SIZE,
-            });
-          });
-          updatedSlugs.push(page.slug);
-          refreshedPages.push({ slug: page.slug, title: page.title });
-        } catch (err) {
-          // BEST-EFFORT per pagina: un refresh fallito (agente o embed) non blocca le
-          // altre né l'intero auto-update.
-          console.error(
-            `[stubwise-worker] auto-update: refresh della pagina '${page.slug}' (repository ${repositoryId}) fallito (${errText(err)}), proseguo`,
-          );
-        }
+      if (runRefresh) {
+        const r = await refreshAffectedPagesInWorktree(
+          deps,
+          dir,
+          generationId,
+          affected,
+          material,
+          commitSubjects,
+          provider,
+          repositoryId,
+        );
+        updatedSlugs = r.updatedSlugs;
+        refreshedPages = r.refreshedPages;
+      }
+      if (runGrow) {
+        const g = await growNewAreaPages(
+          deps,
+          dir,
+          generationId,
+          newAreas,
+          treeContext,
+          commitSubjects,
+          provider,
+          repositoryId,
+        );
+        createdPages = g.createdPages;
+        residualAreas = g.residualAreas;
+        // Aggiorna stats/cost della generazione con l'esito della Fase 3.
+        await applyGrowStats(deps.db, generationId, g, repositoryId);
       }
     });
   } catch (err) {
-    // Apertura del worktree fallita (es. mirror non raggiungibile): niente rigenerazione,
-    // ma l'auto-update prosegue con la sola entry release (best-effort).
+    // Apertura del worktree fallita (es. mirror non raggiungibile): niente refresh/grow, ma
+    // l'auto-update prosegue con la sola entry release (best-effort).
     console.error(
-      `[stubwise-worker] auto-update: worktree di refresh del repository ${repositoryId} non apribile (${errText(err)}), solo entry release`,
+      `[stubwise-worker] auto-update: worktree di refresh/grow del repository ${repositoryId} non apribile (${errText(err)}), solo entry release`,
     );
   }
 
-  return { updatedSlugs, refreshedPages, newAreas, truncated };
+  return { updatedSlugs, refreshedPages, createdPages, newAreas: residualAreas, truncated };
+}
+
+/** Forma delle stats jsonb della generazione a cui la Fase 3 incrementa pages/chunks. */
+interface GenerationStats {
+  pages?: number;
+  chunks?: number;
+  [k: string]: unknown;
+}
+
+/**
+ * Incrementa `doc_generations.stats` (pages/chunks) e `cost` con l'esito della Fase 3. Le
+ * stats sono scritte SOLO alla finalize della generazione: qui vanno aggiornate a mano.
+ * Best-effort: un errore logga e prosegue (le pagine sono già inserite).
+ */
+async function applyGrowStats(
+  db: Db,
+  generationId: string,
+  grow: GrowResult,
+  repositoryId: string,
+): Promise<void> {
+  if (grow.createdPages.length === 0) return;
+  try {
+    const [gen] = await db
+      .select({ stats: docGenerations.stats, cost: docGenerations.cost })
+      .from(docGenerations)
+      .where(eq(docGenerations.id, generationId));
+    const stats = (gen?.stats as GenerationStats | null) ?? {};
+    const nextStats: GenerationStats = {
+      ...stats,
+      pages: (stats.pages ?? 0) + grow.createdPages.length,
+      chunks: (stats.chunks ?? 0) + grow.chunkCount,
+    };
+    const nextCost = (Number(gen?.cost ?? 0) + grow.cost).toFixed(6);
+    await db
+      .update(docGenerations)
+      .set({ stats: nextStats, cost: nextCost })
+      .where(eq(docGenerations.id, generationId));
+  } catch (err) {
+    console.error(
+      `[stubwise-worker] auto-update: aggiornamento stats/cost Fase 3 della generazione ${generationId} (repository ${repositoryId}) fallito (${errText(err)})`,
+    );
+  }
 }
 
 /** Sezione markdown DETERMINISTICA appesa alla entry quando ci sono aree nuove/troncate. */
@@ -586,20 +903,24 @@ export async function runAutoUpdate(deps: RunAutoUpdateDeps, job: AutoUpdateJob)
 
   const existingPages = await loadExistingPages(deps.db, ctx.currentDocGenerationId);
 
-  // RIGENERAZIONE MIRATA (Fase 2): PRIMA dell'agente release rigeneriamo in-place le
-  // pagine toccate dal diff (e ri-embeddiamo i loro chunk). Solo se abilitata
-  // (maxRefreshPages > 0) e c'è una generazione corrente su cui agire. Best-effort:
-  // ritorna sempre un esito (eventuali fallimenti per-pagina sono già loggati e assorbiti).
-  // maxRefreshPages = 0 o nessuna pagina impattata → comportamento Fase 1 (solo la entry).
+  // RIGENERAZIONE MIRATA (Fase 2) + CREAZIONE INCREMENTALE (Fase 3): PRIMA dell'agente
+  // release aggiorniamo/creiamo le pagine nel worktree effimero. Abilitate indipendentemente
+  // dai loro tetti (maxRefreshPages / maxNewPages > 0), ma solo se c'è una generazione
+  // corrente su cui agire. Best-effort: ritorna sempre un esito (fallimenti per-pagina già
+  // loggati e assorbiti). Entrambi i tetti a 0 → comportamento Fase 1 (solo la entry).
   let refresh: RefreshResult = {
     updatedSlugs: [],
     refreshedPages: [],
+    createdPages: [],
     newAreas: [],
     truncated: 0,
   };
-  if (deps.maxRefreshPages > 0 && ctx.currentDocGenerationId !== null) {
+  if (
+    (deps.maxRefreshPages > 0 || deps.maxNewPages > 0) &&
+    ctx.currentDocGenerationId !== null
+  ) {
     const pagesWithRefs = await loadPagesWithRefs(deps.db, ctx.currentDocGenerationId);
-    refresh = await refreshAffectedPages(
+    refresh = await refreshAndGrowPages(
       deps,
       ctx,
       ctx.currentDocGenerationId,
@@ -612,13 +933,14 @@ export async function runAutoUpdate(deps: RunAutoUpdateDeps, job: AutoUpdateJob)
   }
 
   // Agente di analisi: 1 run, contesto TESTUALE (niente worktree per la entry). plan =
-  // read-only (l'agente non scrive nulla, produce solo l'output marcato). In Fase 2 il
-  // prompt riceve ANCHE le pagine già rigenerate e le aree nuove (campi opzionali).
+  // read-only (l'agente non scrive nulla, produce solo l'output marcato). Il prompt riceve
+  // ANCHE le pagine rigenerate (Fase 2), quelle create (Fase 3) e il residuo di aree nuove.
   const prompt = buildReleasePrompt({
     changedFiles: material,
     commitSubjects,
     existingPages,
     refreshedPages: refresh.refreshedPages,
+    createdPages: refresh.createdPages,
     newAreas: refresh.newAreas,
   });
   let notes: ReleaseNotes | null;
@@ -652,12 +974,22 @@ export async function runAutoUpdate(deps: RunAutoUpdateDeps, job: AutoUpdateJob)
   const now = new Date();
   const slug = await uniqueReleaseSlug(deps.db, job.repositoryId, job.toSha, now);
   const title = notes.significant ? notes.title : `[minore] ${notes.title}`;
-  // Cross-link related = unione DETERMINISTICA degli slug aggiornati in-place (Fase 2) e
-  // degli affectedSlugs dell'agente, filtrati alle pagine esistenti (buildRelatedLinks
-  // deduplica e scarta gli slug inventati). Gli slug aggiornati hanno la precedenza.
+  // Cross-link related = unione DETERMINISTICA degli slug aggiornati in-place (Fase 2), degli
+  // slug delle pagine CREATE (Fase 3) e degli affectedSlugs dell'agente, filtrati alle pagine
+  // note (buildRelatedLinks deduplica e scarta gli slug inventati). Le pagine create NON sono
+  // in `existingPages` (caricate PRIMA della Fase 3): il lookup va esteso con esse, altrimenti
+  // il loro cross-link verrebbe scartato come "slug inventato".
+  const linkablePages: ExistingPage[] = [
+    ...existingPages,
+    ...refresh.createdPages.map((p) => ({ slug: p.slug, title: p.title, sourcePath: null })),
+  ];
   const links = buildRelatedLinks(
-    [...refresh.updatedSlugs, ...notes.affectedSlugs],
-    existingPages,
+    [
+      ...refresh.updatedSlugs,
+      ...refresh.createdPages.map((p) => p.slug),
+      ...notes.affectedSlugs,
+    ],
+    linkablePages,
   );
   // Garanzia DETERMINISTICA: se ci sono aree nuove non documentate (o pagine impattate
   // troncate dal tetto) la entry lo segnala sempre, anche se l'agente lo omette.
