@@ -814,7 +814,10 @@ describe("runAutoUpdate — creazione incrementale (Fase 3)", () => {
           parent: "app-module",
           paths: "billing",
         }),
-        explore: exploreOutput({ paths: ["billing"] }),
+        // L'explore raffina un sourcePath PIÙ STRETTO (un singolo file) della proposta:
+        // la pagina deve comunque persistere il path folder-level della proposta (`billing`),
+        // altrimenti i fratelli dell'area tornano scoperti in newAreas → duplicati.
+        explore: exploreOutput({ paths: ["billing/invoice.ts"] }),
       }),
     });
     await runAutoUpdate(baseDeps(db, mirrors, runner, { maxNewPages: 5 }), {
@@ -833,6 +836,7 @@ describe("runAutoUpdate — creazione incrementale (Fase 3)", () => {
     expect(page?.kind).toBe("functional");
     expect(page?.title).toBe("Fatturazione");
     expect(page?.parentId).toBe(pageIds["app-module"]); // parentId dal parentSlug
+    // Path folder-level della proposta, NON quello (più stretto) raffinato dall'explore.
     expect(page?.sourcePath).toBe("billing");
     expect(page?.generationId).toBe(generationId);
     // position in coda (> della pagina esistente app-module, che è 0).
@@ -932,6 +936,49 @@ describe("runAutoUpdate — creazione incrementale (Fase 3)", () => {
       .where(and(eq(docPages.generationId, generationId)));
     expect(nonRelease).toHaveLength(1); // solo app-module
     // La entry release segnala l'area residua billing.
+    const [release] = await db
+      .select()
+      .from(docPages)
+      .where(and(eq(docPages.repositoryId, repositoryId), eq(docPages.kind, "releases")));
+    expect(release?.body).toContain("Aree nuove non documentate");
+    expect(release?.body).toContain("billing");
+  });
+
+  it("proposta senza sourcePaths → scartata (niente pagina), area nel residuo", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream({
+      extraFiles: { "billing/a.ts": "export const a = 1;\n", "billing/b.ts": "export const b = 2;\n" },
+    });
+    const mirrors = await makeMirrors();
+    const repositoryId = await createRepository(db, upstream.url);
+    const { generationId } = await seedGenerationWithPages(db, repositoryId, upstream.fromSha, [
+      { slug: "app-module", title: "App Module", sourcePath: "src", body: "Pagina app." },
+    ]);
+
+    // Proposta senza `paths`: nessun fallback su un'area — la proposta è scartata prima
+    // dell'explore (che quindi non è mai chiamato).
+    const runner = new FakeAgentRunner({
+      script: growScript({
+        orient: growProposal({ title: "Fatturazione", kind: "technical", paths: "" }),
+        explore: exploreOutput({ paths: ["billing"] }),
+      }),
+    });
+    await runAutoUpdate(baseDeps(db, mirrors, runner, { maxNewPages: 5 }), {
+      id: "job-g3b",
+      repositoryId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    // Nessuna pagina creata oltre app-module esistente.
+    const nonRelease = await db
+      .select()
+      .from(docPages)
+      .where(and(eq(docPages.generationId, generationId)));
+    expect(nonRelease).toHaveLength(1); // solo app-module
+    // L'explore non è mai stato invocato (proposta scartata a monte).
+    expect(runner.calls.filter((c) => isExplorePrompt(c.prompt))).toHaveLength(0);
+    // L'area billing resta nel residuo, segnalata nella entry release.
     const [release] = await db
       .select()
       .from(docPages)

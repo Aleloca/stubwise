@@ -130,7 +130,7 @@ pages with a fresh set; manual pages are left untouched.
 
 Beyond the on-demand full generation, Stubwise keeps a space **up to date on
 each push** without re-analyzing the whole project. When a repository advertises
-new commits, a worker poller diffs the pushed range and, for every commit:
+new commits, a worker poller diffs the pushed range and, for each pushed range:
 
 - Writes a **release note** page summarizing what changed for readers of the
   docs, cross-linked to the pages it touches.

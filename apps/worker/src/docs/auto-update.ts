@@ -584,16 +584,17 @@ async function growNewAreaPages(
   // 2) Un run EXPLORE per proposta (cap già applicato): SOLO il body, i figli ignorati.
   for (const proposal of proposals) {
     // Sanificazione: sourcePaths validi (già normalizzati dal parser); parentSlug tra gli
-    // slug reali, altrimenti radice (null). unitRef = primo path della proposta, o — se
-    // l'agente non ne ha specificato nessuno — il path della PRIMA area nuova (un path reale
-    // del repo, più utile all'explore di una stringa vuota). Copre l'area col primo path.
+    // slug reali, altrimenti radice (null). Una proposta senza sourcePaths è SCARTATA: non
+    // ripieghiamo su `areas[0]?.path` perché per la 2ª+ proposta sarebbe l'area SBAGLIATA e
+    // la pagina finirebbe a coprire file altrui. L'area resta nel residuo (già in `residual`).
     const sourcePaths = proposal.sourcePaths;
     const parentSlug =
       proposal.parentSlug !== null && validParentSlugs.has(proposal.parentSlug)
         ? proposal.parentSlug
         : null;
     const parentPage = parentSlug !== null ? treeContext.find((p) => p.slug === parentSlug) : undefined;
-    const unitRef = sourcePaths[0] ?? areas[0]?.path ?? "";
+    const unitRef = sourcePaths[0];
+    if (unitRef === undefined) continue;
 
     try {
       const explorePrompt = buildExplorePrompt({
@@ -621,9 +622,13 @@ async function growNewAreaPages(
       if ("reason" in parsed) continue;
       const body = parsed.body;
 
-      // sourcePath della pagina: primo dei path raffinati dall'explore, poi quelli della
-      // proposta. Null se davvero nessuno.
-      const pageSourcePath = parsed.sourcePaths[0] ?? sourcePaths[0] ?? null;
+      // sourcePath della pagina: il path folder-level della PROPOSTA, e solo in sua assenza
+      // quello (potenzialmente più stretto) dell'explore. È un loop di feedback sulla
+      // copertura: il sourcePath persistito determina quali file futuri l'area considera già
+      // coperti. Un path dell'explore ristretto a un singolo file lascerebbe scoperti i
+      // fratelli dell'area → tornerebbero in newAreas e il mini-orient (che vede solo
+      // radici + primo livello) ripropone la stessa pagina → duplicati `-2` accumulati.
+      const pageSourcePath = sourcePaths[0] ?? parsed.sourcePaths[0] ?? null;
 
       // 3) INSERT in transazione: slug dedupato (slug FRESCHI della generazione), parentId
       // dal parentSlug, position = max(position)+1 della generazione, chunk embeddati.
