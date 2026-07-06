@@ -57,6 +57,7 @@ function makeWidget(overrides: Partial<Widget> = {}): Widget {
     repositoryFilters: {},
     title: "Assistenza",
     welcomeMessage: "Ciao!",
+    instructions: "",
     accentColor: "#22c55e",
     language: "it",
     dailyMessageCap: null,
@@ -165,6 +166,29 @@ describe("WidgetsSection", () => {
         dailyMessageCap: 500,
         dailyTicketCap: null,
       }),
+    );
+  });
+
+  it("le istruzioni precompilano dall'esistente e finiscono nel payload della PUT", async () => {
+    const user = userEvent.setup();
+    updateWidget.mockResolvedValue({ widget: makeWidget() });
+    renderSection([
+      makeWidget({ name: "Landing", instructions: "Tono formale, cita il piano Pro." }),
+    ]);
+
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+
+    const field = screen.getByLabelText("Assistant instructions");
+    expect(field).toHaveValue("Tono formale, cita il piano Pro.");
+    await user.clear(field);
+    await user.type(field, "Dai priorità alla fatturazione.");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(updateWidget).toHaveBeenCalledTimes(1));
+    expect(updateWidget).toHaveBeenCalledWith(
+      PROJECT_ID,
+      WIDGET_ID,
+      expect.objectContaining({ instructions: "Dai priorità alla fatturazione." }),
     );
   });
 

@@ -1,0 +1,1 @@
+ALTER TABLE "widgets" ADD COLUMN "instructions" text DEFAULT '' NOT NULL;

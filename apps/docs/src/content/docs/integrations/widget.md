@@ -48,9 +48,12 @@ Two things must be in place before the widget can do anything useful:
    **create a widget** (a project can hold several). Give it a **name**, turn it
    **on**, and pick the **repositories** whose docs that widget's chat is allowed
    to draw from. In the same editor you set its **title**, **welcome message**,
-   **accent color**, **language** (`it` / `en`) and, optionally, its **daily
-   caps** (see [Operational notes](#operational-notes)); once saved, you copy the
-   ready-made embed snippet carrying that widget's own key.
+   optional **assistant instructions** (free text added to the chat's system
+   prompt to steer tone, priorities and what to suggest — not visible to users,
+   and they never override the grounding rules), **accent color**, **language**
+   (`it` / `en`) and, optionally, its **daily caps** (see
+   [Operational notes](#operational-notes)); once saved, you copy the ready-made
+   embed snippet carrying that widget's own key.
 
 ## Exposing only part of a monorepo
 

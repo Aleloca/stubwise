@@ -19,6 +19,7 @@ function makeWidget(overrides: Partial<Widget> = {}): Widget {
     repositoryFilters: {},
     title: "Assistenza",
     welcomeMessage: "Ciao!",
+    instructions: "",
     accentColor: "#22c55e",
     language: "it",
     dailyMessageCap: null,

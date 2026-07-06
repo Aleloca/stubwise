@@ -117,7 +117,7 @@ export function extractProposal(full: string): {
  */
 export function buildWidgetSystemPrompt(
   chunks: RetrievedChunk[],
-  settings: { language: WidgetLanguage },
+  settings: { language: WidgetLanguage; instructions?: string },
 ): string {
   const languageName = settings.language === "en" ? "English" : "Italian (italiano)";
 
@@ -139,8 +139,24 @@ export function buildWidgetSystemPrompt(
     "",
     `The "type" MUST be one of: bug, feedback, feature. Write "title" and "body" in ${languageName} (the user's language): a short title and a body that summarizes the user's report or request. Include the block ONLY when a ticket is warranted; for a normal answer fully covered by the documentation, do NOT include it.`,
     "",
-    "--- DOCUMENTATION CONTEXT ---",
   ];
+
+  // Istruzioni aggiuntive dell'admin (opzionali): sezione delimitata inserita
+  // DOPO le regole di grounding/sentinel e PRIMA del contesto docs, così l'ordine
+  // non indebolisce le regole base. Vuote/solo spazi → nessuna sezione.
+  const instructions = settings.instructions?.trim();
+  if (instructions) {
+    header.push(
+      "## Additional instructions from the project team",
+      "",
+      instructions,
+      "",
+      "These instructions complement the rules above; the grounding rules (answer only from the documentation) and the ticket proposal format ALWAYS apply and take precedence.",
+      "",
+    );
+  }
+
+  header.push("--- DOCUMENTATION CONTEXT ---");
 
   if (chunks.length === 0) {
     header.push("(no relevant documentation page was found for this question)");

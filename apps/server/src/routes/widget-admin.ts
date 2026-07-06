@@ -38,6 +38,9 @@ const widgetSchema = z.object({
   repositoryFilters: widgetRepositoryFiltersSchema,
   title: z.string(),
   welcomeMessage: z.string(),
+  // Istruzioni aggiuntive per il system prompt della chat (interne: non esposte
+  // sulla superficie pubblica del widget, solo su questa superficie SPA admin).
+  instructions: z.string(),
   accentColor: z.string(),
   language: z.string(),
   dailyMessageCap: z.number().int().nullable(),
@@ -65,6 +68,7 @@ function toPublicWidget(row: WidgetRow, conversationCount: number): z.infer<type
     repositoryFilters: widgetRepositoryFiltersSchema.parse(row.repositoryFilters),
     title: row.title,
     welcomeMessage: row.welcomeMessage,
+    instructions: row.instructions,
     accentColor: row.accentColor,
     language: row.language,
     dailyMessageCap: row.dailyMessageCap,

@@ -43,6 +43,7 @@ const NEW_WIDGET_FORM: WidgetUpsertBody = {
   enabledRepositoryIds: [],
   title: "Assistenza",
   welcomeMessage: "Ciao! Come posso aiutarti?",
+  instructions: "",
   accentColor: "#22c55e",
   language: "it",
   dailyMessageCap: null,
@@ -63,6 +64,7 @@ function widgetToForm(widget: Widget): WidgetUpsertBody {
     enabledRepositoryIds: widget.enabledRepositoryIds,
     title: widget.title,
     welcomeMessage: widget.welcomeMessage,
+    instructions: widget.instructions,
     accentColor: widget.accentColor,
     language: widget.language,
     dailyMessageCap: widget.dailyMessageCap,
@@ -441,6 +443,24 @@ function WidgetEditor({
           aria-label={t("widget:welcomeMessage")}
           className="rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1.5 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim disabled:cursor-not-allowed disabled:opacity-60"
         />
+      </label>
+
+      <label className="flex flex-col gap-1">
+        <span className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
+          {t("widget:instructions")}
+        </span>
+        <textarea
+          value={form.instructions}
+          disabled={disabled}
+          rows={4}
+          maxLength={4000}
+          onChange={(event) => update("instructions", event.target.value)}
+          aria-label={t("widget:instructions")}
+          className="rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1.5 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim disabled:cursor-not-allowed disabled:opacity-60"
+        />
+        <span className="font-mono text-[10px] text-fg-faint">
+          {t("widget:instructionsHint")}
+        </span>
       </label>
 
       <div className="flex flex-col gap-1">

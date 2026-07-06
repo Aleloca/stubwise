@@ -484,6 +484,7 @@ export async function widgetRoutes(
       const language = widgetSettingsSchema.shape.language.safeParse(widget.language);
       const system = buildWidgetSystemPrompt(chunks, {
         language: language.success ? language.data : "it",
+        instructions: widget.instructions,
       });
 
       // History: ultime WIDGET_HISTORY_PAIRS coppie (20 messaggi) in ordine

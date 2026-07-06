@@ -12,6 +12,9 @@ export const widgetSettingsSchema = z.object({
   enabledRepositoryIds: z.array(z.uuid()).max(200).default([]),
   title: z.string().min(1).max(80).default("Assistenza"),
   welcomeMessage: z.string().min(1).max(500).default("Ciao! Come posso aiutarti?"),
+  // Istruzioni aggiuntive (testo libero, opzionale) iniettate nel system prompt
+  // della chat per indirizzare le risposte; stringa vuota = nessuna istruzione.
+  instructions: z.string().max(4000).default(""),
   accentColor: z
     .string()
     .regex(/^#[0-9a-fA-F]{6}$/)

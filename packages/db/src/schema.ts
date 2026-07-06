@@ -1484,6 +1484,8 @@ export const widgets = pgTable(
     enabledRepositoryIds: jsonb("enabled_repository_ids").$type<string[]>().notNull().default([]),
     title: text("title").notNull().default("Assistenza"),
     welcomeMessage: text("welcome_message").notNull().default("Ciao! Come posso aiutarti?"),
+    /** Istruzioni aggiuntive dell'admin iniettate nel system prompt della chat; "" = nessuna. */
+    instructions: text("instructions").notNull().default(""),
     accentColor: text("accent_color").notNull().default("#22c55e"),
     language: text("language").notNull().default("it"),
     dailyMessageCap: integer("daily_message_cap"),

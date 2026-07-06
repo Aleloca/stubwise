@@ -66,6 +66,25 @@ describe("widget tables", () => {
     expect(senzaFiltri!.repositoryFilters).toEqual({});
   });
 
+  it("instructions: round-trip, default \"\" se omesso", async () => {
+    const [conIstruzioni] = await testDb.db
+      .insert(widgets)
+      .values({
+        projectId,
+        name: "Istruito",
+        key: "k_instr_" + crypto.randomUUID(),
+        instructions: "Sii sintetico e suggerisci il piano Pro.",
+      })
+      .returning();
+    expect(conIstruzioni!.instructions).toBe("Sii sintetico e suggerisci il piano Pro.");
+
+    const [senzaIstruzioni] = await testDb.db
+      .insert(widgets)
+      .values({ projectId, name: "Muto", key: "k_noinstr_" + crypto.randomUUID() })
+      .returning();
+    expect(senzaIstruzioni!.instructions).toBe("");
+  });
+
   it("key duplicata → throw (unique)", async () => {
     const key = "k_dup_" + crypto.randomUUID();
     await testDb.db.insert(widgets).values({ projectId, name: "Primo", key });

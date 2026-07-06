@@ -1142,6 +1142,8 @@
     "emptySourcesWarning": "No source selected: the widget will reply that it has no information.",
     "displayTitle": "Title",
     "welcomeMessage": "Welcome message",
+    "instructions": "Assistant instructions",
+    "instructionsHint": "They steer the chat's replies (tone, priorities, what to suggest); they are not visible to users.",
     "accentColor": "Accent color",
     "language": "Language",
     "languageItalian": "Italian",

@@ -801,6 +801,49 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
     );
   });
 
+  it("widget con instructions → il system prompt le contiene; il config NON le espone", async () => {
+    const project = await seedProjectWithKey(testDb.db);
+    const instructions = "Dai priorità ai problemi di fatturazione e resta conciso.";
+    const widget = await seedWidget(testDb.db, project.projectId, {
+      enabled: true,
+      enabledRepositoryIds: [project.repositoryId],
+      instructions,
+    });
+    const genId = await seedCurrentGeneration(testDb.db, project.repositoryId);
+    const [conv] = await testDb.db
+      .insert(widgetConversations)
+      .values({ projectId: project.projectId, widgetId: widget.id, externalUserId: "visitor-1" })
+      .returning();
+    const question = "Come cambio metodo di pagamento?";
+    await seedPageWithChunk(testDb.db, project.repositoryId, genId, {
+      title: "Pagamenti",
+      chunkContent: question,
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${conv!.id}/messages`,
+      headers: { "x-stubwise-key": widget.key },
+      payload: { content: question, userId: "visitor-1" },
+    });
+    expect(res.statusCode).toBe(200);
+    // Le istruzioni dell'admin sono iniettate nel system prompt della chat.
+    expect(lastChatInput!.system).toContain(instructions);
+    expect(lastChatInput!.system).toContain("Additional instructions from the project team");
+    // Le regole base restano nel prompt.
+    expect(lastChatInput!.system).toContain("GROUND YOUR ANSWERS ONLY");
+
+    // Il config pubblico NON espone le istruzioni (sono interne).
+    const config = await app.inject({
+      method: "GET",
+      url: `/widget/${project.slug}/config`,
+      headers: { "x-stubwise-key": widget.key },
+    });
+    expect(config.statusCode).toBe(200);
+    expect(config.json()).not.toHaveProperty("instructions");
+    expect(config.payload).not.toContain(instructions);
+  });
+
   it("history oltre la finestra: il primo messaggio passato all'LLM è sempre `user` (no 400 Anthropic)", async () => {
     // Regressione: la finestra è limit(WIDGET_HISTORY_PAIRS*2) in DESC + reverse.
     // Con uno storico dispari (post-insert del nuovo user) il primo elemento della

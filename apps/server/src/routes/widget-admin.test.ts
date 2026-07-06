@@ -192,6 +192,31 @@ describe("POST /api/projects/:projectId/widgets", () => {
     });
   });
 
+  it("instructions: round-trip nel widget creato; default \"\" se omesse", async () => {
+    const { projectId } = await seedRepository(testDb.db);
+    const withInstr = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/widgets`,
+      headers: { cookie: adminCookie },
+      payload: upsertBody({ name: "Istruito", instructions: "Sii sintetico e cita il piano Pro." }),
+    });
+    expect(withInstr.statusCode).toBe(200);
+    expect(withInstr.json().widget).toMatchObject({
+      name: "Istruito",
+      instructions: "Sii sintetico e cita il piano Pro.",
+    });
+
+    // Omesse nel body → default "" dello schema.
+    const withoutInstr = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/widgets`,
+      headers: { cookie: adminCookie },
+      payload: upsertBody({ name: "Muto" }),
+    });
+    expect(withoutInstr.statusCode).toBe(200);
+    expect(withoutInstr.json().widget.instructions).toBe("");
+  });
+
   it("più repo dello stesso progetto: 200", async () => {
     const { projectId, repositoryId } = await seedRepository(testDb.db);
     const secondRepo = await seedRepositoryInProject(testDb.db, projectId);
@@ -344,6 +369,7 @@ describe("PUT /api/projects/:projectId/widgets/:widgetId", () => {
       enabledRepositoryIds: [repositoryId],
       title: "Nuovo titolo",
       welcomeMessage: "Nuovo messaggio",
+      instructions: "Dai priorità ai problemi di fatturazione.",
       accentColor: "#123456",
       language: "en",
       dailyMessageCap: 1000,

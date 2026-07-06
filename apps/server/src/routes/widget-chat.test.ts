@@ -5,7 +5,11 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { extractProposal, safeForwardLength } from "./widget-chat.js";
+import {
+  buildWidgetSystemPrompt,
+  extractProposal,
+  safeForwardLength,
+} from "./widget-chat.js";
 
 const START = "<<<TICKET_PROPOSAL";
 const END = "TICKET_PROPOSAL>>>";
@@ -56,6 +60,49 @@ describe("safeForwardLength", () => {
 
   it("stringa vuota → 0", () => {
     expect(safeForwardLength("")).toBe(0);
+  });
+});
+
+describe("buildWidgetSystemPrompt", () => {
+  /** Marcatore usato dal prompt per delimitare le istruzioni dell'admin. */
+  const INSTR_HEADING = "Additional instructions from the project team";
+
+  it("con istruzioni: il prompt le contiene nella sezione dedicata, dopo le regole base", () => {
+    const instructions = "Sii sintetico e suggerisci il piano Pro quando pertinente.";
+    const prompt = buildWidgetSystemPrompt([], { language: "it", instructions });
+
+    // Sezione delimitata presente col testo esatto.
+    expect(prompt).toContain(INSTR_HEADING);
+    expect(prompt).toContain(instructions);
+    // Regole base ancora presenti.
+    expect(prompt).toContain("GROUND YOUR ANSWERS ONLY IN THE DOCUMENTATION");
+    expect(prompt).toContain("TICKET PROPOSAL");
+
+    // Ordine: le istruzioni cadono DOPO le regole di grounding/sentinel e PRIMA
+    // del contesto docs, così l'ordine non indebolisce le regole base.
+    const groundingIdx = prompt.indexOf("GROUND YOUR ANSWERS ONLY");
+    const sentinelIdx = prompt.indexOf("TICKET PROPOSAL");
+    const instrIdx = prompt.indexOf(INSTR_HEADING);
+    const contextIdx = prompt.indexOf("--- DOCUMENTATION CONTEXT ---");
+    expect(instrIdx).toBeGreaterThan(groundingIdx);
+    expect(instrIdx).toBeGreaterThan(sentinelIdx);
+    expect(instrIdx).toBeLessThan(contextIdx);
+  });
+
+  it("istruzioni vuote o solo spazi: nessuna sezione, regole base intatte", () => {
+    for (const instructions of ["", "   \n  \t "]) {
+      const prompt = buildWidgetSystemPrompt([], { language: "it", instructions });
+      expect(prompt).not.toContain(INSTR_HEADING);
+      // Regole base sempre presenti.
+      expect(prompt).toContain("GROUND YOUR ANSWERS ONLY IN THE DOCUMENTATION");
+      expect(prompt).toContain("TICKET PROPOSAL");
+    }
+  });
+
+  it("campo instructions assente (retrocompat): nessuna sezione", () => {
+    const prompt = buildWidgetSystemPrompt([], { language: "en" });
+    expect(prompt).not.toContain(INSTR_HEADING);
+    expect(prompt).toContain("GROUND YOUR ANSWERS ONLY IN THE DOCUMENTATION");
   });
 });
 

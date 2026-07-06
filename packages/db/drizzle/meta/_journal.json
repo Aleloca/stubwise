@@ -302,6 +302,13 @@
       "when": 1783282183431,
       "tag": "0042_widget_path_filter",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1783357587241,
+      "tag": "0043_widget_instructions",
+      "breakpoints": true
     }
   ]
 }

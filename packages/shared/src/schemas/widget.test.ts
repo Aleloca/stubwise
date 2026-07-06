@@ -75,6 +75,25 @@ describe("widget schemas", () => {
     );
   });
 
+  it("instructions: default \"\", round-trip, > 4000 → throw", () => {
+    // Default: stringa vuota (nessuna istruzione aggiuntiva).
+    expect(widgetUpsertBodySchema.parse({ name: "x" }).instructions).toBe("");
+    // Round-trip di un testo libero.
+    const parsed = widgetUpsertBodySchema.parse({
+      name: "x",
+      instructions: "Sii sintetico e suggerisci il piano Pro.",
+    });
+    expect(parsed.instructions).toBe("Sii sintetico e suggerisci il piano Pro.");
+    // Oltre il cap di 4000 caratteri → throw.
+    expect(() =>
+      widgetUpsertBodySchema.parse({ name: "x", instructions: "a".repeat(4001) }),
+    ).toThrow();
+    // Esattamente 4000 → ok.
+    expect(
+      widgetUpsertBodySchema.parse({ name: "x", instructions: "a".repeat(4000) }).instructions,
+    ).toHaveLength(4000);
+  });
+
   it("repositoryFilters valida paths e slugs", () => {
     expect(widgetUpsertBodySchema.parse({ name: "x" }).repositoryFilters).toEqual({});
     const repoId = "0b7e5b7e-0000-4000-8000-000000000001";
