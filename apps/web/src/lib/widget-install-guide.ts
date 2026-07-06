@@ -68,6 +68,17 @@ export function buildWidgetInstallGuide(input: WidgetInstallGuideInput): string 
     "```",
   ].join("\n");
 
+  const npmSnippet = [
+    "```ts",
+    'import { initWidget } from "@stubwise/widget";',
+    "",
+    "initWidget({",
+    `  dsn: "${dsn}",`,
+    '  user: { id: "REPLACE_USER_ID", email: "REPLACE_EMAIL", name: "REPLACE_NAME" },',
+    "});",
+    "```",
+  ].join("\n");
+
   return `# Install the "${widgetName}" support widget
 
 This installs a Stubwise customer-service widget on a target website: a
@@ -87,13 +98,26 @@ required.
 - Bundle URL (script tag): ${bundleUrl}
 - User guide (reference only): ${guideUrl}
 
-## Installation (script tag)
+## Option A — script tag (any website, recommended)
 
 Add this to the page(s) where the widget should appear. Loading \`/widget.js\`
 publishes \`window.Stubwise\` and fires the \`stubwise:ready\` event; initialize
 inside that listener so \`Stubwise.initWidget\` is guaranteed to exist.
 
 ${scriptSnippet}
+
+## Option B — npm package (sites with a build step)
+
+\`\`\`bash
+npm install @stubwise/widget
+\`\`\`
+
+${npmSnippet}
+
+Importing the package registers \`window.Stubwise\` and fires \`stubwise:ready\`
+as a side effect too, but with a bundler you can call \`initWidget\` directly.
+Prefer Option A when unsure — it needs no build step and always matches the
+Stubwise instance version.
 
 ## The \`user\` parameter
 

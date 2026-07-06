@@ -64,9 +64,9 @@ describe("buildWidgetInstallGuide", () => {
     expect(md).toContain("http://wkey-abc-123@localhost:5173/p/acme-shop");
   });
 
-  it("Installazione: script tag con /widget.js, listener stubwise:ready e DSN interpolato", () => {
+  it("Option A: script tag con /widget.js, listener stubwise:ready e DSN interpolato", () => {
     const md = buildWidgetInstallGuide(input);
-    expect(md).toContain("Installation (script tag)");
+    expect(md).toContain("Option A");
     expect(md).toContain('<script src="https://support.example.com/widget.js" defer></script>');
     expect(md).toContain('window.addEventListener("stubwise:ready"');
     expect(md).toContain("Stubwise.initWidget({");
@@ -74,11 +74,13 @@ describe("buildWidgetInstallGuide", () => {
     expect(md).toContain('user: { id: "REPLACE_USER_ID", email: "REPLACE_EMAIL", name: "REPLACE_NAME" }');
   });
 
-  it("non menziona il pacchetto npm (non pubblicato): solo lo script tag", () => {
+  it("Option B: npm install + import initWidget + stessa chiamata col DSN reale", () => {
     const md = buildWidgetInstallGuide(input);
-    expect(md).not.toContain("npm install");
-    expect(md).not.toContain("@stubwise/widget");
-    expect(md).not.toContain("initWidget }");
+    expect(md).toContain("Option B");
+    expect(md).toContain("npm install @stubwise/widget");
+    expect(md).toContain('import { initWidget } from "@stubwise/widget"');
+    expect(md).toContain(`dsn: "${dsn}"`);
+    expect(md).toContain('user: { id: "REPLACE_USER_ID", email: "REPLACE_EMAIL", name: "REPLACE_NAME" }');
   });
 
   it("sanitizza il nome del widget con newline nel titolo e nei key facts", () => {
