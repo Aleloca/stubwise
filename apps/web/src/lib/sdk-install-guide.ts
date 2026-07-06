@@ -146,8 +146,8 @@ setup:
 - automatic **breadcrumbs** attached to every captured error: **clicks**
   (\`tag#id\` / \`tag.class\`, identical repeats throttled), **navigations**
   (\`pushState\`/\`replaceState\`, \`popstate\`, \`hashchange\`) and **failed
-  fetches** (only responses \`>= 400\` or network errors; POSTs to the ingestion
-  endpoint itself are excluded to avoid loops);
+  fetches** (only responses \`>= 400\` or network errors; requests to the
+  ingestion endpoint itself are excluded to avoid loops);
 - a **flush with \`keepalive\`** on \`pagehide\` and when the page becomes hidden
   (\`visibilitychange\`), so the last events aren't lost when the page unloads.
 
@@ -225,7 +225,9 @@ The ingestion key is **publishable**: it is meant to live in client-side code an
 only allows *sending* events to this project — never reading its tickets (the
 read APIs require authentication). It is **scoped to this one project**. Unlike
 the customer-service widget (which has a key per widget), a project has exactly
-**one ingestion key** shared by every site and service you instrument for it. If
-it leaks, rotate it from the project's Integration settings in Stubwise.
+**one ingestion key** shared by every site and service you instrument for it.
+There is currently no self-service key rotation; a leaked key only allows
+submitting events (which are rate-limited), so treat a leak as low impact and
+contact the Stubwise instance administrator if it needs to be replaced.
 `;
 }
