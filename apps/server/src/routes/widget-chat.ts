@@ -198,6 +198,11 @@ export async function streamWidgetChatResponse(
     "Cache-Control": "no-cache, no-transform",
     Connection: "keep-alive",
     "X-Accel-Buffering": "no",
+    // hijack() bypassa i hook di @fastify/cors: senza questo header il browser
+    // del sito ospite (cross-origin per definizione) blocca la lettura dello
+    // stream — il server completa nei buffer ma il widget mostra errore.
+    // Coerente con la config CORS del plugin (origin: "*").
+    "Access-Control-Allow-Origin": "*",
   });
 
   const controller = new AbortController();

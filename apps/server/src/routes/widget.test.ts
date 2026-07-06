@@ -759,6 +759,9 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-type"]).toContain("text/event-stream");
+    // Regressione prod: la risposta hijacked bypassa fastify-cors — senza
+    // questo header il browser del sito ospite (cross-origin) blocca lo stream.
+    expect(res.headers["access-control-allow-origin"]).toBe("*");
 
     const events = parseSse(res.payload);
     const deltas = events.filter((e) => e.type === "delta");
