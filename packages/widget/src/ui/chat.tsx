@@ -21,6 +21,7 @@ import {
 import { parseSseStream, type WidgetCitation, type WidgetTicketProposal } from "../core/sse.js";
 import { clearConversationId, setConversationId } from "../core/storage.js";
 import type { WidgetStrings } from "../i18n.js";
+import { renderMarkdown } from "./markdown.js";
 import { TicketCard } from "./ticket-card.js";
 
 /** Un elemento della timeline della chat. */
@@ -252,7 +253,7 @@ export function Chat({
           }
           return (
             <div key={it.id}>
-              <div class="sw-msg sw-msg-assistant">{it.text}</div>
+              <div class="sw-msg sw-msg-assistant">{renderMarkdown(it.text)}</div>
               {it.citations.map((c, i) => {
                 const title = citationTitle(c);
                 return title ? (

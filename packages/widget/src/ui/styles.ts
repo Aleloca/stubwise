@@ -77,9 +77,28 @@ export function widgetStyles(accentColor: string): string {
   color: #fff;
   padding: 14px 16px;
   flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
 }
+.sw-header-text { flex: 1 1 auto; min-width: 0; }
 .sw-header-title { font-size: 15px; font-weight: 600; }
 .sw-header-note { font-size: 12px; opacity: 0.85; margin-top: 2px; }
+/* X di chiusura nell'header: leva primaria su mobile fullscreen (la bolla è
+   nascosta), sempre presente anche su desktop. */
+.sw-header-close {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  padding: 0 2px;
+  margin: -2px -4px 0 0;
+  opacity: 0.9;
+}
+.sw-header-close:hover { opacity: 1; }
 
 .sw-messages {
   flex: 1 1 auto;
@@ -111,6 +130,43 @@ export function widgetStyles(accentColor: string): string {
   color: var(--sw-fg);
   border: 1px solid var(--sw-border);
   border-bottom-left-radius: 4px;
+}
+
+/* Markdown renderizzato dentro un messaggio assistant. Spaziatura sobria: i
+   blocchi non devono introdurre margini a inizio/fine bolla. */
+.sw-msg-assistant .sw-md-p,
+.sw-msg-assistant .sw-md-heading,
+.sw-msg-assistant .sw-md-list,
+.sw-msg-assistant .sw-md-pre { margin: 0 0 8px; }
+.sw-msg-assistant > .sw-md-p:last-child,
+.sw-msg-assistant > .sw-md-heading:last-child,
+.sw-msg-assistant > .sw-md-list:last-child,
+.sw-msg-assistant > .sw-md-pre:last-child { margin-bottom: 0; }
+.sw-msg-assistant .sw-md-heading { font-size: 14px; }
+.sw-msg-assistant .sw-md-list { padding-left: 20px; }
+.sw-msg-assistant .sw-md-list li { margin: 2px 0; }
+.sw-msg-assistant code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+.sw-msg-assistant .sw-md-pre {
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 8px;
+  padding: 8px 10px;
+  overflow-x: auto;
+}
+.sw-msg-assistant .sw-md-pre code {
+  background: none;
+  padding: 0;
+  white-space: pre;
+}
+.sw-msg-assistant a {
+  color: var(--sw-accent);
+  text-decoration: underline;
+  word-break: break-all;
 }
 .sw-citation {
   font-size: 11px;
@@ -146,7 +202,9 @@ export function widgetStyles(accentColor: string): string {
   border: 1px solid var(--sw-border);
   border-radius: 8px;
   padding: 8px 10px;
-  font-size: 14px;
+  /* 16px: sotto i 16px iOS Safari zooma la pagina al focus (non controlliamo il
+     viewport meta della pagina ospite: il font-size è l'unica leva affidabile). */
+  font-size: 16px;
   color: var(--sw-fg);
   background: #fff;
 }
@@ -163,13 +221,16 @@ export function widgetStyles(accentColor: string): string {
   display: flex;
   gap: 8px;
   align-items: flex-end;
+  /* Riduce il delay del tap su mobile (no double-tap-to-zoom sul composer). */
+  touch-action: manipulation;
 }
 .sw-composer-input {
   flex: 1 1 auto;
   border: 1px solid var(--sw-border);
   border-radius: 8px;
   padding: 8px 10px;
-  font-size: 14px;
+  /* 16px per evitare l'auto-zoom di iOS Safari al focus (vedi .sw-input). */
+  font-size: 16px;
   resize: none;
   max-height: 96px;
   color: var(--sw-fg);
@@ -209,6 +270,10 @@ export function widgetStyles(accentColor: string): string {
     border-radius: 0;
     border: none;
   }
+  /* Col pannello fullscreen aperto, la bolla flottante (che diventa "X") si
+     sovrapporrebbe al bottone d'invio del composer (entrambi bottom-right): la
+     nascondiamo e la chiusura passa dalla X nell'header. */
+  .sw-bubble--hidden { display: none; }
 }
 `;
 }

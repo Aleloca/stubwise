@@ -194,6 +194,32 @@ describe("panel", () => {
     expect(shadow().textContent).toContain("Benvenuto!");
     expect(shadow().textContent).toContain("Risponde l'assistente AI");
   });
+
+  it("l'header contiene un bottone di chiusura che chiude il pannello", async () => {
+    installFetch({ "GET /config": jsonResponse(200, activeConfig()) });
+    await initWidget({ dsn: DSN, user: USER });
+    await flush();
+    shadow().querySelector<HTMLButtonElement>(".sw-bubble")!.click();
+    await flush();
+
+    const close = shadow().querySelector<HTMLButtonElement>(".sw-header-close");
+    expect(close).not.toBeNull();
+    expect(close!.getAttribute("aria-label")).toBe("Chiudi la chat");
+
+    close!.click();
+    await flush();
+    expect(shadow().querySelector(".sw-panel")).toBeNull();
+  });
+
+  it("con pannello aperto la bolla flottante ha la classe che la nasconde su mobile", async () => {
+    installFetch({ "GET /config": jsonResponse(200, activeConfig()) });
+    await initWidget({ dsn: DSN, user: USER });
+    await flush();
+    shadow().querySelector<HTMLButtonElement>(".sw-bubble")!.click();
+    await flush();
+
+    expect(shadow().querySelector(".sw-bubble--hidden")).not.toBeNull();
+  });
 });
 
 describe("chat streaming", () => {
@@ -224,6 +250,37 @@ describe("chat streaming", () => {
     // Conversazione creata lazy e id persistito.
     expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/conversations"))).toBe(true);
     expect(localStorage.getItem("stubwise-widget:acme:conversation")).toBe("conv-99");
+  });
+
+  it("risposta assistant con **grassetto** → il DOM del messaggio contiene <strong>", async () => {
+    installFetch({
+      "GET /config": jsonResponse(200, activeConfig()),
+      "POST /conversations": jsonResponse(200, { conversationId: "conv-md" }),
+      "POST /conversations/conv-md/messages": sseResponse([
+        'data: {"type":"delta","text":"ecco **grassetto** e "}\n\n',
+        'data: {"type":"delta","text":"`codice`"}\n\n',
+        'data: {"type":"done","conversationId":"conv-md","citations":[]}\n\n',
+      ]),
+    });
+    await initWidget({ dsn: DSN, user: USER });
+    await flush();
+    shadow().querySelector<HTMLButtonElement>(".sw-bubble")!.click();
+    await flush();
+
+    const input = shadow().querySelector<HTMLTextAreaElement>(".sw-composer-input")!;
+    input.value = "domanda";
+    input.dispatchEvent(new Event("input"));
+    await flush();
+    shadow().querySelector<HTMLButtonElement>(".sw-composer .sw-btn")!.click();
+    await flush(6);
+
+    const assistants = shadow().querySelectorAll(".sw-msg-assistant");
+    const assistant = assistants[assistants.length - 1]!;
+    expect(assistant.querySelector("strong")?.textContent).toBe("grassetto");
+    expect(assistant.querySelector("code")?.textContent).toBe("codice");
+    // Il testo grezzo dei marcatori non è visibile.
+    expect(assistant.textContent).not.toContain("**");
+    expect(assistant.textContent).not.toContain("`");
   });
 
   it("429 cap → messaggio dedicato", async () => {

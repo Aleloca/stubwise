@@ -34,8 +34,17 @@ export function WidgetRoot({ base, config, user }: WidgetRootProps) {
       {open ? (
         <div class="sw-panel" role="dialog" aria-label={config.title}>
           <div class="sw-header">
-            <div class="sw-header-title">{config.title}</div>
-            <div class="sw-header-note">{strings.assistantNote}</div>
+            <div class="sw-header-text">
+              <div class="sw-header-title">{config.title}</div>
+              <div class="sw-header-note">{strings.assistantNote}</div>
+            </div>
+            <button
+              class="sw-header-close"
+              aria-label={strings.closeLabel}
+              onClick={() => setOpen(false)}
+            >
+              ✕
+            </button>
           </div>
           <Chat
             base={base}
@@ -48,7 +57,7 @@ export function WidgetRoot({ base, config, user }: WidgetRootProps) {
         </div>
       ) : null}
       <button
-        class="sw-bubble"
+        class={open ? "sw-bubble sw-bubble--hidden" : "sw-bubble"}
         aria-label={open ? strings.closeLabel : strings.openLabel}
         onClick={() => setOpen((v) => !v)}
       >
