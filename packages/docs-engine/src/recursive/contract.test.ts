@@ -140,6 +140,11 @@ describe("parsePathList", () => {
   it("returns an empty array for an empty block", () => {
     expect(parsePathList("")).toEqual([]);
   });
+
+  it("drops paths with a `..` segment (traversal), keeps the rest", () => {
+    const body = ["- a/x.ts", "../etc/passwd", "a/../secret", "..", "b/y.ts"].join("\n");
+    expect(parsePathList(body)).toEqual(["a/x.ts", "b/y.ts"]);
+  });
 });
 
 describe("extractBlock", () => {

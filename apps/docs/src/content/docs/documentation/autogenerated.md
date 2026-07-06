@@ -126,11 +126,36 @@ The space shows the status of the last generation — commit, date, cost, stats 
 anything that was skipped. **Regenerating** from here replaces the generated
 pages with a fresh set; manual pages are left untouched.
 
-:::note[Incremental updates are future work]
-v1 regenerates the whole project on demand. Push-based incremental updates (only
-re-analyzing the modules touched by a commit) are planned for a later version;
-the schema already records the `commit` and `source path` to support it.
-:::
+## Incremental updates on push
+
+Beyond the on-demand full generation, Stubwise keeps a space **up to date on
+each push** without re-analyzing the whole project. When a repository advertises
+new commits, a worker poller diffs the pushed range and, for every commit:
+
+- Writes a **release note** page summarizing what changed for readers of the
+  docs, cross-linked to the pages it touches.
+- **Refreshes in place** the existing pages whose source paths the diff touched
+  (up to `DOCS_AUTOUPDATE_MAX_PAGES`, default 10; `0` disables the refresh),
+  re-embedding only what changed.
+
+### New pages for new areas
+
+A push can also introduce **whole areas** that no existing page covers (a new
+top-level folder, a new module). Stubwise aggregates those uncovered files into
+coherent areas and, in one read-only mini-orient pass, proposes up to
+**`DOCS_AUTOUPDATE_MAX_NEW_PAGES`** new pages; each proposal is then explored and
+written as a page **added to the current generation**, embedded like any other.
+
+- The default is **5** new pages per push; set it to **`0`** to turn incremental
+  page creation **off** (existing pages are still refreshed, but no new page is
+  created).
+- Any area left over — proposals that were dropped, that failed, or that fell
+  **beyond the cap** — is **not lost**: it's listed under an *"Aree nuove non
+  documentate"* section in the push's release note, with an invitation to run a
+  **full regeneration** to cover it.
+
+This keeps the space current on day-to-day changes while leaving a clear,
+actionable trail for the larger gaps a full regeneration should close.
 
 ## Pause on usage limit
 

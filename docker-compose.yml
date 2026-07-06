@@ -139,6 +139,12 @@ services:
       - EMBEDDING_BASE_URL=${EMBEDDING_BASE_URL:-http://ollama:11434/v1}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-bge-m3}
       - EMBEDDING_API_KEY
+      # --- Auto-update Docs: creazione incrementale (Fase 3) ---
+      # Ad ogni push, per le AREE del repo non ancora coperte da alcuna pagina, un
+      # mini-orient propone fino a questo numero di pagine NUOVE e le crea nella
+      # generazione corrente. 0 = disabilita (le aree nuove restano solo segnalate
+      # nella entry release, con invito alla rigenerazione completa). Default 5.
+      - DOCS_AUTOUPDATE_MAX_NEW_PAGES=${DOCS_AUTOUPDATE_MAX_NEW_PAGES:-5}
       # --- Auth del CLI claude ---
       # Metodo raccomandato: gestisci le credenziali in Settings -> AI providers
       # (catena cifrata nel DB, con failover). Le due righe pass-through qui sotto

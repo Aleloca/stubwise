@@ -584,15 +584,16 @@ async function growNewAreaPages(
   // 2) Un run EXPLORE per proposta (cap già applicato): SOLO il body, i figli ignorati.
   for (const proposal of proposals) {
     // Sanificazione: sourcePaths validi (già normalizzati dal parser); parentSlug tra gli
-    // slug reali, altrimenti radice (null). unitRef = primo path (o path dell'area se
-    // l'agente non ha specificato i path). Copre l'area col primo dei suoi sourcePaths.
+    // slug reali, altrimenti radice (null). unitRef = primo path della proposta, o — se
+    // l'agente non ne ha specificato nessuno — il path della PRIMA area nuova (un path reale
+    // del repo, più utile all'explore di una stringa vuota). Copre l'area col primo path.
     const sourcePaths = proposal.sourcePaths;
     const parentSlug =
       proposal.parentSlug !== null && validParentSlugs.has(proposal.parentSlug)
         ? proposal.parentSlug
         : null;
     const parentPage = parentSlug !== null ? treeContext.find((p) => p.slug === parentSlug) : undefined;
-    const unitRef = sourcePaths[0] ?? "";
+    const unitRef = sourcePaths[0] ?? areas[0]?.path ?? "";
 
     try {
       const explorePrompt = buildExplorePrompt({

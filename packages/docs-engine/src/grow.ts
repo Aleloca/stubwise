@@ -315,13 +315,15 @@ export function buildGrowOrientPrompt(input: GrowOrientInput): string {
   ].join("\n");
 }
 
-/** Normalizza un path di source: trim, slash iniziali/finali rimossi, collassati. */
-function normalizeSourcePath(p: string): string {
-  return p
-    .trim()
-    .split("/")
-    .filter((seg) => seg !== "")
-    .join("/");
+/**
+ * Normalizza un path di source: trim, slash iniziali/finali rimossi, collassati.
+ * Ritorna `null` per un path vuoto o che contiene un segmento `..` (traversal): il
+ * chiamante lo scarta. Nessun path legittimo del repo ha segmenti `..`.
+ */
+function normalizeSourcePath(p: string): string | null {
+  const segs = p.trim().split("/").filter((seg) => seg !== "");
+  if (segs.length === 0 || segs.includes("..")) return null;
+  return segs.join("/");
 }
 
 /**
@@ -332,7 +334,8 @@ function normalizeSourcePath(p: string): string {
  *  - una proposta senza `title` o con `kind` non ∈ {technical, functional} è SCARTATA;
  *  - `parent` vuoto/mancante → `parentSlug: null`;
  *  - `paths` splittati su virgola, normalizzati (trim, senza slash iniziali/finali),
- *    i vuoti scartati; assente → `sourcePaths: []` (proposta comunque valida);
+ *    i vuoti e quelli con segmenti `..` (traversal) scartati; assente →
+ *    `sourcePaths: []` (proposta comunque valida);
  *  - troncato a un cap difensivo alto (`MAX_PROPOSALS_CAP` = 20); il tetto "logico"
  *    (`maxPages`) lo applica il CHIAMANTE.
  */
@@ -392,7 +395,7 @@ function parseProposalBlock(blockLines: string[]): GrowProposal | null {
   const sourcePaths = pathsRaw
     .split(",")
     .map(normalizeSourcePath)
-    .filter((p) => p !== "");
+    .filter((p): p is string => p !== null);
 
   return { title, kind, parentSlug, sourcePaths };
 }

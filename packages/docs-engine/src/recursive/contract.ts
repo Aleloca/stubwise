@@ -166,6 +166,8 @@ export function parseChildBlock(
 /**
  * Parsa una LISTA di source-path delimitata: una riga per path, `- ` iniziale opzionale.
  * Righe vuote ignorate; deduplica preservando l'ordine. Ritorna `[]` per blocco vuoto.
+ * I path con un segmento `..` (traversal) sono scartati: nessun path legittimo del repo
+ * ne ha, il filtro è solo un safeguard.
  */
 export function parsePathList(body: string): string[] {
   const seen = new Set<string>();
@@ -173,6 +175,7 @@ export function parsePathList(body: string): string[] {
   for (const raw of body.split("\n")) {
     const path = raw.trim().replace(/^[-*]\s+/, "").trim();
     if (path === "" || seen.has(path)) continue;
+    if (path.split("/").includes("..")) continue;
     seen.add(path);
     paths.push(path);
   }

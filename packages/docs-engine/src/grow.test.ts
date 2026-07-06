@@ -284,6 +284,16 @@ describe("parseGrowOrientOutput", () => {
     expect(proposals[0]?.sourcePaths).toEqual([]);
   });
 
+  it("scarta i path con un segmento `..` (traversal), tiene gli altri", () => {
+    const out = proposal({
+      title: "X",
+      kind: "technical",
+      paths: "src/a, ../etc/passwd, src/../secret, ..",
+    });
+    // Solo `src/a` sopravvive: gli altri hanno un segmento `..`.
+    expect(parseGrowOrientOutput(out)[0]?.sourcePaths).toEqual(["src/a"]);
+  });
+
   it("kind case-insensitive e con spazi extra", () => {
     const out = proposal({ title: "X", kind: "  Functional  ", paths: "src/x" });
     expect(parseGrowOrientOutput(out)[0]?.kind).toBe("functional");

@@ -977,6 +977,123 @@ describe("runAutoUpdate — creazione incrementale (Fase 3)", () => {
     // Un solo run di explore (tetto rispettato: la 2ª proposta non è esplorata).
     const exploreCalls = runner.calls.filter((c) => isExplorePrompt(c.prompt));
     expect(exploreCalls).toHaveLength(1);
+    // L'area oltre il tetto (reports) resta nel residuo → segnalata nella entry release.
+    const [release] = await db
+      .select()
+      .from(docPages)
+      .where(and(eq(docPages.repositoryId, repositoryId), eq(docPages.kind, "releases")));
+    expect(release?.body).toContain("Aree nuove non documentate");
+    expect(release?.body).toContain("reports");
+  });
+
+  it("2 proposte valide nella stessa run → 2 pagine con slug distinti e position incrementali", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream({
+      extraFiles: {
+        "billing/a.ts": "export const a = 1;\n",
+        "reports/r.ts": "export const r = 1;\n",
+      },
+    });
+    const mirrors = await makeMirrors();
+    const repositoryId = await createRepository(db, upstream.url);
+    const { generationId } = await seedGenerationWithPages(db, repositoryId, upstream.fromSha, [
+      { slug: "app-module", title: "App Module", sourcePath: "src", body: "Pagina app." },
+    ]);
+
+    const twoProposals = [
+      growProposal({ title: "Fatturazione", kind: "functional", paths: "billing" }),
+      growProposal({ title: "Report", kind: "functional", paths: "reports" }),
+    ].join("\n\n");
+    const runner = new FakeAgentRunner({
+      script: growScript({
+        orient: twoProposals,
+        // Un explore diverso per proposta (path coerenti col titolo citato nel prompt).
+        explore: (prompt) =>
+          prompt.includes("Report")
+            ? { output: exploreOutput({ paths: ["reports"] }), exitCode: 0 }
+            : { output: exploreOutput({ paths: ["billing"] }), exitCode: 0 },
+      }),
+    });
+    await runAutoUpdate(baseDeps(db, mirrors, runner, { maxNewPages: 5 }), {
+      id: "job-g4b",
+      repositoryId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    // Due pagine create (oltre app-module), con slug distinti.
+    const created = await db
+      .select()
+      .from(docPages)
+      .where(and(eq(docPages.generationId, generationId)));
+    const bySlug = new Map(created.map((p) => [p.slug, p]));
+    expect(bySlug.has("fatturazione")).toBe(true);
+    expect(bySlug.has("report")).toBe(true);
+    // Slug distinti (nessuna collisione).
+    const slugs = created.map((p) => p.slug);
+    expect(new Set(slugs).size).toBe(slugs.length);
+    // Position incrementali: entrambe > 0 (app-module è 0) e distinte tra loro.
+    const posFatt = bySlug.get("fatturazione")!.position;
+    const posRep = bySlug.get("report")!.position;
+    expect(posFatt).toBeGreaterThan(0);
+    expect(posRep).toBeGreaterThan(0);
+    expect(posFatt).not.toBe(posRep);
+  });
+
+  it("explore che lancia per una proposta → l'altra è creata comunque, l'area fallita resta nel residuo", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream({
+      extraFiles: {
+        "billing/a.ts": "export const a = 1;\n",
+        "reports/r.ts": "export const r = 1;\n",
+      },
+    });
+    const mirrors = await makeMirrors();
+    const repositoryId = await createRepository(db, upstream.url);
+    const { generationId } = await seedGenerationWithPages(db, repositoryId, upstream.fromSha, [
+      { slug: "app-module", title: "App Module", sourcePath: "src", body: "Pagina app." },
+    ]);
+
+    const twoProposals = [
+      growProposal({ title: "Fatturazione", kind: "functional", paths: "billing" }),
+      growProposal({ title: "Report", kind: "functional", paths: "reports" }),
+    ].join("\n\n");
+    const runner = new FakeAgentRunner({
+      script: growScript({
+        orient: twoProposals,
+        // L'explore per "Report" LANCIA; quello per "Fatturazione" riesce.
+        explore: (prompt) => {
+          if (prompt.includes("Report")) throw new Error("boom: explore reports fallito");
+          return { output: exploreOutput({ paths: ["billing"] }), exitCode: 0 };
+        },
+      }),
+    });
+    await runAutoUpdate(baseDeps(db, mirrors, runner, { maxNewPages: 5 }), {
+      id: "job-g4c",
+      repositoryId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    // La proposta buona è creata; la fallita no.
+    const created = await db
+      .select()
+      .from(docPages)
+      .where(and(eq(docPages.generationId, generationId)));
+    const slugs = new Set(created.map((p) => p.slug));
+    expect(slugs.has("fatturazione")).toBe(true);
+    expect(slugs.has("report")).toBe(false);
+    expect(created).toHaveLength(2); // app-module + fatturazione
+
+    // L'area fallita (reports) resta nel residuo → segnalata nella entry release;
+    // billing (documentata) NO.
+    const [release] = await db
+      .select()
+      .from(docPages)
+      .where(and(eq(docPages.repositoryId, repositoryId), eq(docPages.kind, "releases")));
+    expect(release?.body).toContain("Aree nuove non documentate");
+    expect(release?.body).toContain("reports");
+    expect(release?.body).not.toContain("billing");
   });
 
   it("maxNewPages 0 → Fase 3 spenta (nessun mini-orient/explore)", async () => {

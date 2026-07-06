@@ -41,6 +41,8 @@ describe("loadWorkerConfig", () => {
     expect(config.docsAutoUpdatePollSeconds).toBe(60);
     // Rigenerazione mirata: default 10 pagine per push.
     expect(config.docsAutoUpdateMaxPages).toBe(10);
+    // Creazione incrementale (Fase 3): default 5 pagine nuove per push.
+    expect(config.docsAutoUpdateMaxNewPages).toBe(5);
     // Poller PR Review: default 60 secondi, sonnet, 50 turni, timeout 15'.
     expect(config.prReviewPollSeconds).toBe(60);
     expect(config.prReviewModel).toBe("sonnet");
@@ -162,6 +164,19 @@ describe("loadWorkerConfig", () => {
     expect(
       loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_MAX_PAGES: "" }).docsAutoUpdateMaxPages,
     ).toBe(10);
+  });
+
+  it("rispetta DOCS_AUTOUPDATE_MAX_NEW_PAGES esplicito e 0 = disabilita la creazione incrementale", () => {
+    expect(
+      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_MAX_NEW_PAGES: "3" }).docsAutoUpdateMaxNewPages,
+    ).toBe(3);
+    expect(
+      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_MAX_NEW_PAGES: "0" }).docsAutoUpdateMaxNewPages,
+    ).toBe(0);
+    // Vuoto (es. da .env.example) usa il default 5.
+    expect(
+      loadWorkerConfig({ ...VALID, DOCS_AUTOUPDATE_MAX_NEW_PAGES: "" }).docsAutoUpdateMaxNewPages,
+    ).toBe(5);
   });
 
   it("rispetta DOC_AGENT_TIMEOUT_MS esplicito e rifiuta valori non positivi", () => {
