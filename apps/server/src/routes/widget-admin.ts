@@ -48,7 +48,13 @@ const widgetSchema = z.object({
 
 type WidgetRow = typeof widgets.$inferSelect;
 
-/** Proiezione di una riga widget + conteggio conversazioni verso lo schema pubblico. */
+/**
+ * Proiezione di una riga widget + conteggio conversazioni verso lo schema
+ * pubblico. `repositoryFilters` è ri-parsato con `widgetRepositoryFiltersSchema`:
+ * le entry VECCHIE (salvate prima della feature `kinds`) non hanno il campo, e
+ * il `.default([])` dello schema lo materializza a `kinds: []` — così una riga
+ * legacy serializza senza errori e la SPA riceve sempre la forma completa.
+ */
 function toPublicWidget(row: WidgetRow, conversationCount: number): z.infer<typeof widgetSchema> {
   return {
     id: row.id,
@@ -56,7 +62,7 @@ function toPublicWidget(row: WidgetRow, conversationCount: number): z.infer<type
     key: row.key,
     enabled: row.enabled,
     enabledRepositoryIds: row.enabledRepositoryIds,
-    repositoryFilters: row.repositoryFilters,
+    repositoryFilters: widgetRepositoryFiltersSchema.parse(row.repositoryFilters),
     title: row.title,
     welcomeMessage: row.welcomeMessage,
     accentColor: row.accentColor,

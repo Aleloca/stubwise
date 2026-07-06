@@ -252,7 +252,7 @@ describe("WidgetsSection", () => {
   it("un widget CON filtri salvati precompila il form e il PUT li conserva (no wipe)", async () => {
     const user = userEvent.setup();
     updateWidget.mockResolvedValue({ widget: makeWidget() });
-    const savedFilters = { [REPO_A]: { paths: ["apps/webapp"], slugs: ["faq"] } };
+    const savedFilters = { [REPO_A]: { paths: ["apps/webapp"], slugs: ["faq"], kinds: [] } };
     renderSection([
       makeWidget({ enabledRepositoryIds: [REPO_A], repositoryFilters: savedFilters }),
     ]);
@@ -272,7 +272,7 @@ describe("WidgetsSection", () => {
   it("deselezionare un repo scarta la sua entry dai repositoryFilters del payload", async () => {
     const user = userEvent.setup();
     updateWidget.mockResolvedValue({ widget: makeWidget() });
-    const savedFilters = { [REPO_A]: { paths: ["apps/webapp"], slugs: [] } };
+    const savedFilters = { [REPO_A]: { paths: ["apps/webapp"], slugs: [], kinds: [] } };
     renderSection([
       makeWidget({ enabledRepositoryIds: [REPO_A], repositoryFilters: savedFilters }),
     ]);

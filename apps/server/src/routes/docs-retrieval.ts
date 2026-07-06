@@ -81,6 +81,18 @@ function repoScopePredicate(repositoryId: string, currentGenerationId: string | 
   };
 }
 
+/**
+ * Filtro FINE per-repo (widget). `kinds` è OPZIONALE: le entry jsonb salvate
+ * PRIMA di questa feature non lo hanno — il codice usa sempre `filter.kinds ?? []`,
+ * mai assumendone la presenza. `kinds` seleziona interi GRUPPI per `doc_pages.kind`
+ * (semantica viva: prende anche le pagine future di quel kind).
+ */
+interface RepositoryFilter {
+  paths: string[];
+  slugs: string[];
+  kinds?: string[];
+}
+
 /** Info di un repository per arricchire le citazioni (id/slug/name della fonte). */
 interface RepoInfo {
   id: string;
@@ -100,7 +112,7 @@ interface RepoInfo {
  */
 function crossRepoScopePredicate(
   repos: RepoInfo[],
-  repositoryFilters?: Record<string, { paths: string[]; slugs: string[] }>,
+  repositoryFilters?: Record<string, RepositoryFilter>,
 ) {
   return (table: ScopableTable) => {
     const perRepo = repos.map((r) => {
@@ -136,7 +148,7 @@ function escapeLikePrefix(prefix: string): string {
 
 /**
  * Predicato di APPARTENENZA di una pagina al filtro fine di UN repo, come
- * `<pageId|id> IN (SELECT id FROM doc_pages WHERE <visibilità> AND (<paths> OR <slugs>))`.
+ * `<pageId|id> IN (SELECT id FROM doc_pages WHERE <visibilità> AND (<paths> OR <slugs> OR <kinds>))`.
  *
  * La subquery replica ESATTAMENTE la visibilità dello scope corrente del repo
  * (generazione corrente O manuale/`generationId IS NULL`), così le pagine
@@ -144,13 +156,21 @@ function escapeLikePrefix(prefix: string): string {
  * differisce: `doc_chunks.page_id` (semantica) o `doc_pages.id` (full-text) —
  * distinta via `ScopableTable`.
  *
- * FAIL-CLOSED: se paths e slugs sono entrambi vuoti la condizione interna è
+ * Le tre gambe sono in OR: una pagina passa se combacia con un prefisso `paths`
+ * OPPURE è tra gli `slugs` OPPURE è di uno dei `kinds` selezionati. I `kinds`
+ * hanno semantica VIVA (interi gruppi `doc_pages.kind`): includono anche le
+ * pagine future di quel kind, prodotte dalle rigenerazioni.
+ *
+ * RETROCOMPATIBILITÀ: `filter.kinds` può essere assente sulle entry vecchie →
+ * si legge sempre come `filter.kinds ?? []`.
+ *
+ * FAIL-CLOSED: se paths, slugs E kinds sono tutti vuoti la condizione interna è
  * `sql\`false\``, quindi la subquery è vuota e NESSUNA pagina del repo passa.
  */
 function pageMembershipPredicate(
   table: ScopableTable,
   repo: RepoInfo,
-  filter: { paths: string[]; slugs: string[] },
+  filter: RepositoryFilter,
 ) {
   // Visibilità della pagina identica allo scope del repo (stessa generazione
   // corrente O manuale): RIUSA repoScopePredicate su doc_pages invece di
@@ -168,9 +188,20 @@ function pageMembershipPredicate(
   });
   // Match sugli slug espliciti (pagine senza path / manuali).
   const slugClause = filter.slugs.length > 0 ? inArray(docPages.slug, filter.slugs) : undefined;
+  // Match sui GRUPPI interi per kind (semantica viva). `kinds` può mancare sulle
+  // entry vecchie → `?? []`: assente = nessuna gamba kind (comportamento invariato).
+  // Cast al tipo dell'enum della colonna: i valori sono già validati dallo schema
+  // Zod (`docPageKindSchema`) in scrittura; qui arrivano come `string[]` grezzi
+  // dal jsonb, quindi li allineiamo al tipo della colonna per `inArray`.
+  const kinds = (filter.kinds ?? []) as (typeof docPages.$inferSelect.kind)[];
+  const kindClause = kinds.length > 0 ? inArray(docPages.kind, kinds) : undefined;
 
-  const selectors = [...pathClauses, ...(slugClause ? [slugClause] : [])];
-  // Nessun selettore (paths+slugs vuoti) → fail-closed: nessuna pagina passa.
+  const selectors = [
+    ...pathClauses,
+    ...(slugClause ? [slugClause] : []),
+    ...(kindClause ? [kindClause] : []),
+  ];
+  // Nessun selettore (paths+slugs+kinds vuoti) → fail-closed: nessuna pagina passa.
   const membership = selectors.length > 0 ? or(...selectors) : sql`false`;
 
   // `visibility` include già `repository_id = repo.id`: la subquery è le pagine
@@ -211,20 +242,26 @@ export interface RetrieveChunksOptions {
   repositoryIds?: string[];
   /**
    * Filtro FINE per-repo (widget path filter): per ogni `repositoryId` una
-   * whitelist di prefissi `sourcePath` (`paths`) e/o `slugs` espliciti. Solo le
-   * pagine il cui `sourcePath` combacia con un prefisso (match esatto O sotto la
-   * directory, confine `/`) OPPURE il cui `slug` è elencato passano da quel repo.
+   * whitelist di prefissi `sourcePath` (`paths`), `slugs` espliciti e/o `kinds`
+   * (interi gruppi `doc_pages.kind`). Le tre gambe sono in OR: passa la pagina il
+   * cui `sourcePath` combacia con un prefisso (match esatto O sotto la directory,
+   * confine `/`) OPPURE il cui `slug` è elencato OPPURE il cui `kind` è tra i
+   * `kinds`. I `kinds` hanno semantica VIVA: coprono anche le pagine future di
+   * quel kind (rigenerazioni).
    *
    * Semantica per repository della whitelist (`repositoryIds`):
-   *  - repo CON entry e paths/slugs non entrambi vuoti: filtrato;
-   *  - repo CON entry ma paths+slugs vuoti: FAIL-CLOSED, niente da quel repo;
+   *  - repo CON entry e paths/slugs/kinds non tutti vuoti: filtrato;
+   *  - repo CON entry ma paths+slugs+kinds vuoti: FAIL-CLOSED, niente da quel repo;
    *  - repo SENZA entry: nessun filtro fine, passa tutto (come oggi).
    *
-   * I prefissi sono trattati come LITERAL nel `LIKE` (escape di `\`, `%`, `_`):
-   * un path con `%`/`_` non fa mai wildcard match. Assente: nessun filtro fine
-   * (identico al comportamento odierno), usato solo dal widget di assistenza.
+   * `kinds` è OPZIONALE: le entry jsonb salvate prima di questa feature non lo
+   * hanno — il retrieval lo legge come `?? []` (assenza = nessuna gamba kind,
+   * comportamento invariato). I prefissi sono trattati come LITERAL nel `LIKE`
+   * (escape di `\`, `%`, `_`): un path con `%`/`_` non fa mai wildcard match.
+   * Assente: nessun filtro fine (identico al comportamento odierno), usato solo
+   * dal widget di assistenza.
    */
-  repositoryFilters?: Record<string, { paths: string[]; slugs: string[] }>;
+  repositoryFilters?: Record<string, RepositoryFilter>;
 }
 
 /**

@@ -1,4 +1,4 @@
-import type { WidgetUpsertBody } from "@stubwise/shared";
+import type { WidgetRepositoryFilter, WidgetUpsertBody } from "@stubwise/shared";
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -246,16 +246,24 @@ function WidgetEditor({
   };
 
   // Aggiorna (o rimuove) il filtro fine di un repo. `undefined` = repo intero.
+  // NB (parte 2): l'UI dei `kinds` non è ancora cablata qui — materializziamo
+  // `kinds: []` per soddisfare lo schema; la selezione dei gruppi arriva nel
+  // rework UI della parte 2.
   const setRepositoryFilter = (
     id: string,
-    filter: { paths: string[]; slugs: string[] } | undefined,
+    filter: { paths: string[]; slugs: string[]; kinds?: WidgetRepositoryFilter["kinds"] } | undefined,
   ): void => {
     setForm((current) => {
       if (filter === undefined) {
         if (!(id in current.repositoryFilters)) return current;
         return { ...current, repositoryFilters: omitKey(current.repositoryFilters, id) };
       }
-      return { ...current, repositoryFilters: { ...current.repositoryFilters, [id]: filter } };
+      const entry: WidgetRepositoryFilter = {
+        paths: filter.paths,
+        slugs: filter.slugs,
+        kinds: filter.kinds ?? [],
+      };
+      return { ...current, repositoryFilters: { ...current.repositoryFilters, [id]: entry } };
     });
     if (saveMutation.isError) saveMutation.reset();
   };

@@ -108,7 +108,14 @@ let pageSeq = 0;
 async function seedPageWithChunk(
   repositoryId: string,
   generationId: string | null,
-  page: { title: string; body: string; chunkContent: string; sourcePath?: string; slug?: string },
+  page: {
+    title: string;
+    body: string;
+    chunkContent: string;
+    sourcePath?: string;
+    slug?: string;
+    kind?: "technical" | "functional" | "manual" | "releases";
+  },
 ): Promise<string> {
   pageSeq++;
   const [row] = await db
@@ -116,7 +123,7 @@ async function seedPageWithChunk(
     .values({
       repositoryId,
       generationId,
-      kind: generationId === null ? "manual" : "technical",
+      kind: page.kind ?? (generationId === null ? "manual" : "technical"),
       slug: page.slug ?? `page-${pageSeq}`,
       title: page.title,
       body: page.body,
@@ -555,6 +562,106 @@ describe("retrieveChunksForProject (filtro paths/slugs per-repo)", () => {
     const slugs = new Set(res.map((r) => r.slug));
     expect(slugs.has(withPercent)).toBe(true);
     expect(slugs.has(wouldWildcard)).toBe(false);
+  });
+
+  it("kinds: seleziona l'intero gruppo del kind, gli altri kind restano fuori", async () => {
+    const projectId = await seedProject();
+    const repoA = await seedRepoInProject(projectId, "Repo Alfa");
+    const genA = await seedGeneration(repoA.id);
+    const token = `kindtok${randomUUID().slice(0, 8)}`;
+    const functionalSlug = await seedPageWithChunk(repoA.id, genA, {
+      title: "Funzionale",
+      body: `Contenuto ${token} funzionale.`,
+      chunkContent: `Contenuto ${token} funzionale.`,
+      sourcePath: "apps/webapp/f.ts",
+      kind: "functional",
+    });
+    const technicalSlug = await seedPageWithChunk(repoA.id, genA, {
+      title: "Tecnica",
+      body: `Contenuto ${token} tecnica.`,
+      chunkContent: `Contenuto ${token} tecnica.`,
+      sourcePath: "apps/webapp/t.ts",
+      kind: "technical",
+    });
+
+    const res = await retrieveChunksForProject(db, embeddingClient, projectId, token, {
+      repositoryFilters: { [repoA.id]: { paths: [], slugs: [], kinds: ["functional"] } },
+    });
+    const slugs = new Set(res.map((r) => r.slug));
+    // Il gruppo functional passa PER INTERO, indipendentemente dal path; technical no.
+    expect(slugs.has(functionalSlug)).toBe(true);
+    expect(slugs.has(technicalSlug)).toBe(false);
+  });
+
+  it("kinds in OR con paths: una pagina FUORI dal path ma del kind giusto passa", async () => {
+    const projectId = await seedProject();
+    const repoA = await seedRepoInProject(projectId, "Repo Alfa");
+    const genA = await seedGeneration(repoA.id);
+    const token = `orkind${randomUUID().slice(0, 8)}`;
+    // Dentro il path, kind technical: passa via paths.
+    const insidePath = await seedPageWithChunk(repoA.id, genA, {
+      title: "Dentro path",
+      body: `Contenuto ${token} dentro path.`,
+      chunkContent: `Contenuto ${token} dentro path.`,
+      sourcePath: "apps/webapp/x.ts",
+      kind: "technical",
+    });
+    // FUORI dal path ma kind functional: deve passare via kinds (OR).
+    const outsideButKind = await seedPageWithChunk(repoA.id, genA, {
+      title: "Fuori path ma functional",
+      body: `Contenuto ${token} fuori path.`,
+      chunkContent: `Contenuto ${token} fuori path.`,
+      sourcePath: "packages/altro/y.ts",
+      kind: "functional",
+    });
+    // FUORI dal path E kind technical (non selezionato): deve restare fuori.
+    const outsideAndOtherKind = await seedPageWithChunk(repoA.id, genA, {
+      title: "Fuori path e technical",
+      body: `Contenuto ${token} fuori e technical.`,
+      chunkContent: `Contenuto ${token} fuori e technical.`,
+      sourcePath: "packages/altro/z.ts",
+      kind: "technical",
+    });
+
+    const res = await retrieveChunksForProject(db, embeddingClient, projectId, token, {
+      repositoryFilters: {
+        [repoA.id]: { paths: ["apps/webapp"], slugs: [], kinds: ["functional"] },
+      },
+    });
+    const slugs = new Set(res.map((r) => r.slug));
+    expect(slugs.has(insidePath)).toBe(true); // via paths
+    expect(slugs.has(outsideButKind)).toBe(true); // via kinds (OR)
+    expect(slugs.has(outsideAndOtherKind)).toBe(false); // né path né kind
+  });
+
+  it("entry vecchia forma {paths,slugs} SENZA kinds → comportamento invariato", async () => {
+    const projectId = await seedProject();
+    const repoA = await seedRepoInProject(projectId, "Repo Alfa");
+    const genA = await seedGeneration(repoA.id);
+    const token = `legacytok${randomUUID().slice(0, 8)}`;
+    const inside = await seedPageWithChunk(repoA.id, genA, {
+      title: "Dentro",
+      body: `Contenuto ${token} dentro.`,
+      chunkContent: `Contenuto ${token} dentro.`,
+      sourcePath: "apps/webapp/x.ts",
+      kind: "functional",
+    });
+    const outside = await seedPageWithChunk(repoA.id, genA, {
+      title: "Fuori",
+      body: `Contenuto ${token} fuori.`,
+      chunkContent: `Contenuto ${token} fuori.`,
+      sourcePath: "apps/admin/x.ts",
+      kind: "functional",
+    });
+
+    // Entry nella forma vecchia: NESSUN campo `kinds` (retrocompatibilità del jsonb).
+    const res = await retrieveChunksForProject(db, embeddingClient, projectId, token, {
+      repositoryFilters: { [repoA.id]: { paths: ["apps/webapp"], slugs: [] } },
+    });
+    const slugs = new Set(res.map((r) => r.slug));
+    // Solo il match path resta: la gamba kinds assente non allarga nulla.
+    expect(slugs.has(inside)).toBe(true);
+    expect(slugs.has(outside)).toBe(false);
   });
 });
 

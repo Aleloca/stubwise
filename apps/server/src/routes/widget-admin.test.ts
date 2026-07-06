@@ -228,8 +228,28 @@ describe("POST /api/projects/:projectId/widgets", () => {
       }),
     });
     expect(res.statusCode).toBe(200);
+    // `kinds: []` è materializzato dal default dello schema anche se il body lo omette.
     expect(res.json().widget.repositoryFilters).toEqual({
-      [repositoryId]: { paths: ["apps/webapp"], slugs: ["faq"] },
+      [repositoryId]: { paths: ["apps/webapp"], slugs: ["faq"], kinds: [] },
+    });
+  });
+
+  it("repositoryFilters con kinds → 200 e round-trip del gruppo", async () => {
+    const { projectId, repositoryId } = await seedRepository(testDb.db);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/widgets`,
+      headers: { cookie: adminCookie },
+      payload: upsertBody({
+        enabledRepositoryIds: [repositoryId],
+        repositoryFilters: {
+          [repositoryId]: { paths: [], slugs: [], kinds: ["functional", "manual"] },
+        },
+      }),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().widget.repositoryFilters).toEqual({
+      [repositoryId]: { paths: [], slugs: [], kinds: ["functional", "manual"] },
     });
   });
 
@@ -248,6 +268,30 @@ describe("POST /api/projects/:projectId/widgets", () => {
     });
     expect(res.statusCode).toBe(422);
     expect(res.json()).toMatchObject({ code: "invalid_repository_filter" });
+  });
+
+  it("riga LEGACY con entry {paths,slugs} SENZA kinds: GET lista serializza 200 e kinds []", async () => {
+    const { projectId, repositoryId } = await seedRepository(testDb.db);
+    // Insert diretto in DB nella forma vecchia del jsonb (nessun campo `kinds`),
+    // come le righe già in prod salvate prima della feature.
+    await testDb.db.insert(widgets).values({
+      projectId,
+      name: "Legacy",
+      key: randomBytes(16).toString("hex"),
+      enabledRepositoryIds: [repositoryId],
+      repositoryFilters: { [repositoryId]: { paths: ["apps/webapp"], slugs: [] } },
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/widgets`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const legacy = res.json().widgets.find((w: { name: string }) => w.name === "Legacy");
+    expect(legacy.repositoryFilters).toEqual({
+      [repositoryId]: { paths: ["apps/webapp"], slugs: [], kinds: [] },
+    });
   });
 
   it("repositoryFilters per un repo di un ALTRO progetto → 422 invalid_repository_filter", async () => {
@@ -384,7 +428,7 @@ describe("PUT /api/projects/:projectId/widgets/:widgetId", () => {
     });
     expect(put.statusCode).toBe(200);
     expect(put.json().widget.repositoryFilters).toEqual({
-      [repositoryId]: { paths: ["apps/webapp"], slugs: [] },
+      [repositoryId]: { paths: ["apps/webapp"], slugs: [], kinds: [] },
     });
 
     // La GET riflette il filtro persistito.
@@ -395,7 +439,7 @@ describe("PUT /api/projects/:projectId/widgets/:widgetId", () => {
     });
     const found = get.json().widgets.find((w: { id: string }) => w.id === widgetId);
     expect(found.repositoryFilters).toEqual({
-      [repositoryId]: { paths: ["apps/webapp"], slugs: [] },
+      [repositoryId]: { paths: ["apps/webapp"], slugs: [], kinds: [] },
     });
   });
 

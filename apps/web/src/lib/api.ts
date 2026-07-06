@@ -11,6 +11,7 @@ import type {
   TicketSource,
   TicketStatus,
   TicketType,
+  WidgetRepositoryFilters,
   WidgetSettings,
   WidgetUpsertBody,
 } from "@stubwise/shared";
@@ -1734,11 +1735,12 @@ export interface Widget extends WidgetSettings {
   name: string;
   /**
    * Filtro FINE per-repo (path filter): per ogni repository esposto, i prefissi
-   * di `sourcePath` e/o gli `slugs` espliciti a cui limitare il retrieval della
-   * chat. Le chiavi sono un sottoinsieme di `enabledRepositoryIds` (garantito in
+   * di `sourcePath`, gli `slugs` espliciti e/o i `kinds` (interi gruppi
+   * doc_page_kind, semantica viva) a cui limitare il retrieval della chat. Le
+   * chiavi sono un sottoinsieme di `enabledRepositoryIds` (garantito in
    * scrittura). Round-trip completo verso la SPA; `{}` = nessun filtro fine.
    */
-  repositoryFilters: Record<string, { paths: string[]; slugs: string[] }>;
+  repositoryFilters: WidgetRepositoryFilters;
   /** Chiave immutabile del widget: entra nel DSN dello snippet (al posto della ingestionKey). */
   key: string;
   /** Cap giornaliero di messaggi; null = usa il default d'istanza (env). */

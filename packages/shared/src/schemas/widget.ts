@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { docPageKindSchema } from "./docs.js";
 
 export const widgetTicketTypeSchema = z.enum(["bug", "feedback", "feature"]);
 export type WidgetTicketType = z.infer<typeof widgetTicketTypeSchema>;
@@ -36,10 +37,24 @@ const repoPathSchema = z
     return segments.every((s) => s !== "" && s !== "." && s !== "..");
   }, "path non normalizzato o traversal");
 
-/** Filtro per-repo: prefissi di sourcePath e/o slug espliciti (pagine senza percorso). */
+/**
+ * Filtro per-repo: prefissi di sourcePath, slug espliciti (pagine senza
+ * percorso) e/o GRUPPI interi per `kind` (technical/functional/manual/releases).
+ *
+ * I `kinds` hanno semantica VIVA: selezionano un intero gruppo di pagine di
+ * quel kind, incluse quelle FUTURE prodotte dalle rigenerazioni (a differenza di
+ * `paths`/`slugs`, che sono liste esplicite congelate al momento della scelta).
+ * Il match delle tre gambe è in OR (vedi retrieval): una pagina passa se combacia
+ * con un prefisso path OPPURE è tra gli slug OPPURE è di uno dei kind selezionati.
+ *
+ * ⚠️ RETROCOMPATIBILITÀ: le entry jsonb già salvate NON hanno `kinds`. Il
+ * `.default([])` copre il parse in lettura; il codice di retrieval usa comunque
+ * `filter.kinds ?? []` per non assumerne la presenza sulle righe grezze.
+ */
 export const widgetRepositoryFilterSchema = z.object({
   paths: z.array(repoPathSchema).max(50).default([]),
   slugs: z.array(z.string().min(1).max(300)).max(100).default([]),
+  kinds: z.array(docPageKindSchema).max(4).default([]),
 });
 export type WidgetRepositoryFilter = z.infer<typeof widgetRepositoryFilterSchema>;
 

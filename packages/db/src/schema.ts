@@ -1490,10 +1490,13 @@ export const widgets = pgTable(
     dailyTicketCap: integer("daily_ticket_cap"),
     // Raffinamento opzionale di `enabled_repository_ids`: per i repo che hanno
     // un'entry qui, la ricerca passa solo ciò che matcha `paths` (prefissi su
-    // `sourcePath`) o `slugs`; fail-closed (entry vuota = niente passa). Le
-    // chiavi sono `repositoryId`. I repo senza entry restano interamente esposti.
+    // `sourcePath`), `slugs` o `kinds` (interi gruppi doc_page_kind, semantica
+    // viva); fail-closed (entry con tutte e tre vuote = niente passa). Le chiavi
+    // sono `repositoryId`. I repo senza entry restano interamente esposti.
+    // `kinds` è OPZIONALE nel tipo: le righe già salvate NON lo hanno (nessuna
+    // migrazione, jsonb) — il codice deve trattarne l'assenza come `[]`.
     repositoryFilters: jsonb("repository_filters")
-      .$type<Record<string, { paths: string[]; slugs: string[] }>>()
+      .$type<Record<string, { paths: string[]; slugs: string[]; kinds?: string[] }>>()
       .notNull()
       .default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

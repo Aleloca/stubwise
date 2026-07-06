@@ -82,7 +82,11 @@ describe("widget schemas", () => {
       name: "x",
       repositoryFilters: { [repoId]: { paths: ["apps/webapp"], slugs: ["faq"] } },
     });
-    expect(ok.repositoryFilters[repoId]).toEqual({ paths: ["apps/webapp"], slugs: ["faq"] });
+    expect(ok.repositoryFilters[repoId]).toEqual({
+      paths: ["apps/webapp"],
+      slugs: ["faq"],
+      kinds: [],
+    });
     expect(() =>
       widgetUpsertBodySchema.parse({ name: "x", repositoryFilters: { nope: { paths: [], slugs: [] } } }),
     ).toThrow();
@@ -109,6 +113,37 @@ describe("widget schemas", () => {
       widgetUpsertBodySchema.parse({
         name: "x",
         repositoryFilters: { [repoId]: { paths: ["apps//webapp"], slugs: [] } },
+      }),
+    ).toThrow();
+  });
+
+  it("repositoryFilters: kinds default [], round-trip e kind invalido throw", () => {
+    const repoId = "0b7e5b7e-0000-4000-8000-000000000001";
+    // kinds omesso (forma vecchia {paths,slugs}) → default [].
+    const legacy = widgetUpsertBodySchema.parse({
+      name: "x",
+      repositoryFilters: { [repoId]: { paths: ["apps/webapp"], slugs: [] } },
+    });
+    expect(legacy.repositoryFilters[repoId]!.kinds).toEqual([]);
+
+    // Round-trip con kinds validi.
+    const ok = widgetUpsertBodySchema.parse({
+      name: "x",
+      repositoryFilters: {
+        [repoId]: { paths: [], slugs: [], kinds: ["functional", "manual"] },
+      },
+    });
+    expect(ok.repositoryFilters[repoId]).toEqual({
+      paths: [],
+      slugs: [],
+      kinds: ["functional", "manual"],
+    });
+
+    // Kind inesistente → throw.
+    expect(() =>
+      widgetUpsertBodySchema.parse({
+        name: "x",
+        repositoryFilters: { [repoId]: { paths: [], slugs: [], kinds: ["nope"] } },
       }),
     ).toThrow();
   });
