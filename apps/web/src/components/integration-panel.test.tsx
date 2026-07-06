@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { IntegrationPanel } from "./integration-panel";
 
 /**
@@ -14,6 +14,7 @@ import { IntegrationPanel } from "./integration-panel";
 const props = {
   ingestionKey: "abc123def456",
   slug: "demo-shop",
+  projectName: "Demo Shop",
   origin: "https://track.example.com",
 };
 
@@ -79,5 +80,42 @@ describe("IntegrationPanel", () => {
     expect(payload.textContent).toContain('"type": "bug"');
     expect(payload.textContent).toContain('"priority": "medium"');
     expect(payload.textContent).toContain('"reporterEmail"');
+  });
+
+  it("copia la guida SDK con DSN, ingestion key e npm reali", async () => {
+    const user = userEvent.setup();
+    render(<IntegrationPanel {...props} />);
+
+    await user.click(screen.getByRole("button", { name: "Copy SDK install guide" }));
+
+    const copied = await navigator.clipboard.readText();
+    expect(copied).toContain('# Install Stubwise error tracking in "Demo Shop"');
+    expect(copied).toContain("https://abc123def456@track.example.com/p/demo-shop");
+    expect(copied).toContain("abc123def456");
+    expect(copied).toContain("npm install @stubwise/sdk");
+    expect(copied).toContain('import { init } from "@stubwise/sdk/browser"');
+  });
+
+  it("il bottone scarica genera un .md con filename derivato dallo slug", async () => {
+    const user = userEvent.setup();
+    const createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:mock-url");
+    const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL").mockReturnValue(undefined);
+    // L'anchor è rimosso subito dopo il click: leggiamo `download` dentro il mock.
+    let downloadAttr: string | null = null;
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(function (this: HTMLAnchorElement) {
+        downloadAttr = this.download;
+      });
+    render(<IntegrationPanel {...props} />);
+
+    await user.click(screen.getByRole("button", { name: "Download SDK install guide (.md)" }));
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(downloadAttr).toBe("stubwise-sdk-demo-shop.md");
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:mock-url");
+    clickSpy.mockRestore();
+    createObjectURL.mockRestore();
+    revokeObjectURL.mockRestore();
   });
 });

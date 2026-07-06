@@ -1,29 +1,18 @@
 import type { Widget } from "./api";
+import { buildDsn, toFileSlug } from "./install-guide-shared";
 
 /**
- * Costruisce il DSN di un widget: `<protocol>//<key>@<host>/p/<slug>`. Il
- * protocol/host derivano dall'origin (così http locale resta http). La chiave è
- * quella DEL WIDGET (non la ingestionKey del progetto). Unica sorgente di verità
- * della costruzione DSN, condivisa da snippet dell'editor e guida di install.
+ * Costruisce il DSN di un widget. La chiave è quella DEL WIDGET (non la
+ * ingestionKey del progetto). Ri-esporta la utility condivisa `buildDsn` per non
+ * cambiare i chiamanti esistenti (snippet dell'editor e guida di install).
  */
 export function buildWidgetDsn(key: string, slug: string, origin: string): string {
-  const url = new URL(origin);
-  return `${url.protocol}//${key}@${url.host}/p/${slug}`;
-}
-
-/** Slug filesystem-safe per il nome file della guida scaricata. */
-function toFileSlug(value: string): string {
-  return (
-    value
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "widget"
-  );
+  return buildDsn(key, slug, origin);
 }
 
 /** Nome file suggerito per il download della guida di un widget. */
 export function widgetGuideFilename(widgetName: string): string {
-  return `stubwise-widget-${toFileSlug(widgetName)}.md`;
+  return `stubwise-widget-${toFileSlug(widgetName, "widget")}.md`;
 }
 
 interface WidgetInstallGuideInput {

@@ -1,4 +1,6 @@
 import { useTranslation } from "react-i18next";
+import { downloadTextFile } from "../lib/install-guide-shared";
+import { buildSdkInstallGuide, sdkGuideFilename } from "../lib/sdk-install-guide";
 import { CopyButton } from "./copy-button";
 
 interface IntegrationPanelProps {
@@ -10,6 +12,8 @@ interface IntegrationPanelProps {
    * slug di progetto, non più di repository.
    */
   slug: string;
+  /** Nome del PROGETTO: solo per la guida di installazione dell'SDK. */
+  projectName: string;
   /** Origin dell'istanza; di default quello della pagina corrente. */
   origin?: string;
 }
@@ -21,10 +25,11 @@ interface IntegrationPanelProps {
  * la chiave e gli endpoint valgono per tutti i repository del gruppo. Visibile
  * anche ai member: integrare l'SDK non richiede privilegi admin.
  */
-export function IntegrationPanel({ ingestionKey, slug, origin }: IntegrationPanelProps) {
+export function IntegrationPanel({ ingestionKey, slug, projectName, origin }: IntegrationPanelProps) {
   const { t } = useTranslation();
 
-  const url = new URL(origin ?? window.location.origin);
+  const resolvedOrigin = origin ?? window.location.origin;
+  const url = new URL(resolvedOrigin);
   const dsn = `${url.protocol}//${ingestionKey}@${url.host}/p/${slug}`;
   // Webhook generico in ingresso: stesso schema URL del DSN (origin corrente),
   // crea un ticket a ogni chiamata. La chiave non si ri-espone qui: l'header
@@ -86,6 +91,13 @@ export function IntegrationPanel({ ingestionKey, slug, origin }: IntegrationPane
               {t("integration:snippetHint")}
             </p>
           </div>
+
+          <SdkGuideActions
+            ingestionKey={ingestionKey}
+            slug={slug}
+            projectName={projectName}
+            origin={resolvedOrigin}
+          />
         </div>
 
         <div
@@ -128,6 +140,54 @@ export function IntegrationPanel({ ingestionKey, slug, origin }: IntegrationPane
         </div>
       </div>
     </section>
+  );
+}
+
+/**
+ * Azioni "guida di installazione SDK": copia negli appunti e scarica come `.md`
+ * un documento autocontenuto (DSN, ingestion key, snippet browser/Node, verifica)
+ * da incollare a un agent AI sul servizio di destinazione. La guida è generata al
+ * click sull'origin corrente (funzione PURA `buildSdkInstallGuide`). Speculare a
+ * `WidgetGuideActions`, ma per l'SDK di error tracking del progetto.
+ */
+function SdkGuideActions({
+  ingestionKey,
+  slug,
+  projectName,
+  origin,
+}: {
+  ingestionKey: string;
+  slug: string;
+  projectName: string;
+  origin: string;
+}) {
+  const { t } = useTranslation();
+
+  const buildGuide = (): string =>
+    buildSdkInstallGuide({ projectSlug: slug, projectName, ingestionKey, origin });
+
+  const handleDownload = (): void => {
+    downloadTextFile(buildGuide(), sdkGuideFilename(slug));
+  };
+
+  return (
+    <div className="flex items-center gap-2 border-t border-line pt-3">
+      <span className="mr-auto font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
+        {t("integration:guideSection")}
+      </span>
+      {/* CopyButton genera il testo una volta al render; è economico e i dati
+          del progetto sono stabili. */}
+      <CopyButton text={buildGuide()} label={t("integration:copyGuide")} />
+      <button
+        type="button"
+        onClick={handleDownload}
+        aria-label={t("integration:downloadGuide")}
+        title={t("integration:downloadGuide")}
+        className="tap shrink-0 rounded-sm border border-line-strong px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase transition-colors hover:border-signal-dim hover:text-fg"
+      >
+        {t("integration:downloadGuideShort")}
+      </button>
+    </div>
   );
 }
 

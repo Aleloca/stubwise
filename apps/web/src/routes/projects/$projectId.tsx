@@ -172,7 +172,11 @@ export function ProjectDetailPage() {
         className="mt-8 border-t border-line pt-6"
       >
         <h2 className={sectionTitleClass}>{t("integration:title")}</h2>
-        <IntegrationPanel ingestionKey={project.ingestionKey} slug={project.slug} />
+        <IntegrationPanel
+          ingestionKey={project.ingestionKey}
+          slug={project.slug}
+          projectName={project.name}
+        />
       </section>
 
       {/*

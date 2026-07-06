@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { createWidget, deleteWidget, updateWidget, type Widget } from "../lib/api";
 import { widgetsQueryOptions } from "../lib/queries";
+import { downloadTextFile } from "../lib/install-guide-shared";
 import { translateApiError } from "../lib/translate-api-error";
 import {
   buildWidgetDsn,
@@ -214,15 +215,7 @@ function WidgetGuideActions({
     });
 
   const handleDownload = (): void => {
-    const blob = new Blob([buildGuide()], { type: "text/markdown;charset=utf-8" });
-    const href = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = href;
-    anchor.download = widgetGuideFilename(widget.name);
-    document.body.appendChild(anchor);
-    anchor.click();
-    anchor.remove();
-    URL.revokeObjectURL(href);
+    downloadTextFile(buildGuide(), widgetGuideFilename(widget.name));
   };
 
   return (
