@@ -106,6 +106,33 @@ export function aggregateNewAreas(files: string[], opts?: AggregateOptions): New
 
   // 3. Fusione delle aree annidate: se un path copre un altro (prefisso di cartella),
   //    i file confluiscono nell'ANTENATO più corto, così le aree sono DISGIUNTE.
+  let merged = mergeNested(groups);
+
+  // 4. Consolidamento dei frammenti piccoli: aree SORELLE (stesso genitore di cartella)
+  //    ciascuna con MENO di `minGroup` file vengono fuse nel genitore comune — evita una
+  //    proliferazione di micro-pagine da un file. Un frammento isolato (senza sorelle
+  //    piccole sotto lo stesso genitore) resta autonomo. Non tocca le aree "file in radice".
+  consolidateSmallSiblings(merged, minGroup);
+
+  // 4b. La consolidazione può aver creato un nuovo genitore che ora COPRE un'area
+  //     preesistente non-sorella (es. p/a + p/b fusi in `p`, mentre p/c/x resta a sé):
+  //     ri-applica la fusione delle annidate così le aree tornano DISGIUNTE anche con
+  //     `maxDepth` alto. È idempotente su input già disgiunti (nessuna coppia annidata).
+  merged = mergeNested(merged);
+
+  // 5. Materializza aree ordinate; file ordinati e dedupati.
+  return Array.from(merged.entries())
+    .map(([path, fileSet]) => ({ path, files: Array.from(fileSet).sort() }))
+    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+}
+
+/**
+ * Fonde le aree ANNIDATE: se un path copre un altro (prefisso di cartella), i file
+ * confluiscono nell'ANTENATO più corto, così le aree restano DISGIUNTE. Pura: costruisce
+ * una nuova mappa senza mutare l'input. Chiamabile più volte (idempotente su input già
+ * disgiunti) — serve sia sui gruppi iniziali sia dopo la consolidazione delle sorelle.
+ */
+function mergeNested(groups: Map<string, Iterable<string>>): Map<string, Set<string>> {
   const paths = Array.from(groups.keys()).sort();
   const merged = new Map<string, Set<string>>();
   for (const p of paths) {
@@ -118,17 +145,7 @@ export function aggregateNewAreas(files: string[], opts?: AggregateOptions): New
     }
     for (const f of groups.get(p) ?? []) set.add(f);
   }
-
-  // 4. Consolidamento dei frammenti piccoli: aree SORELLE (stesso genitore di cartella)
-  //    ciascuna con MENO di `minGroup` file vengono fuse nel genitore comune — evita una
-  //    proliferazione di micro-pagine da un file. Un frammento isolato (senza sorelle
-  //    piccole sotto lo stesso genitore) resta autonomo. Non tocca le aree "file in radice".
-  consolidateSmallSiblings(merged, minGroup);
-
-  // 5. Materializza aree ordinate; file ordinati e dedupati.
-  return Array.from(merged.entries())
-    .map(([path, fileSet]) => ({ path, files: Array.from(fileSet).sort() }))
-    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  return merged;
 }
 
 /**

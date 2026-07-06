@@ -125,6 +125,27 @@ describe("aggregateNewAreas", () => {
     expect(areas).toHaveLength(1);
     expect(areas[0]?.path).toBe("src");
   });
+
+  it("la consolidazione delle sorelle piccole non produce aree annidate (maxDepth alto)", () => {
+    // Con maxDepth 3: p/a e p/b (1 file ciascuna, < minGroup) sono sorelle sotto `p` e
+    // vengono fuse in `p`; ma esiste anche p/c/x (da p/c/x/y/1.ts, non sorella) che `p`
+    // ora COPRE. La fusione delle annidate va RIPETUTA dopo la consolidazione: l'area
+    // p/c/x deve confluire in `p`, così le aree restano DISGIUNTE (una sola area `p`).
+    const areas = aggregateNewAreas(
+      ["p/a/1.ts", "p/b/1.ts", "p/c/x/y/1.ts"],
+      { maxDepth: 3 },
+    );
+    // Nessuna area contenuta in un'altra.
+    for (const outer of areas) {
+      for (const inner of areas) {
+        if (outer === inner) continue;
+        expect(inner.path.startsWith(`${outer.path}/`)).toBe(false);
+      }
+    }
+    expect(areas).toHaveLength(1);
+    expect(areas[0]?.path).toBe("p");
+    expect(areas[0]?.files).toEqual(["p/a/1.ts", "p/b/1.ts", "p/c/x/y/1.ts"]);
+  });
 });
 
 describe("buildGrowOrientPrompt", () => {
