@@ -195,6 +195,7 @@ export function ProjectDetailPage() {
           projectId={project.id}
           repositories={project.repositories}
           slug={project.slug}
+          projectName={project.name}
           isAdmin={isAdmin}
         />
       </section>

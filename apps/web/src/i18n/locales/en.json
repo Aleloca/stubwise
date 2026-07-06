@@ -1188,6 +1188,9 @@
       "messageCount_other": "{{count}} messages",
       "ticketCount_one": "{{count}} ticket",
       "ticketCount_other": "{{count}} tickets"
-    }
+    },
+    "copyGuide": "Copy install guide",
+    "downloadGuide": "Download install guide (.md)",
+    "downloadGuideShort": ".md"
   }
 }

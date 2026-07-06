@@ -5,6 +5,11 @@ import { useTranslation } from "react-i18next";
 import { createWidget, deleteWidget, updateWidget, type Widget } from "../lib/api";
 import { widgetsQueryOptions } from "../lib/queries";
 import { translateApiError } from "../lib/translate-api-error";
+import {
+  buildWidgetDsn,
+  buildWidgetInstallGuide,
+  widgetGuideFilename,
+} from "../lib/widget-install-guide";
 import { CopyButton } from "./copy-button";
 import { WidgetSectionFilter } from "./widget-section-filter";
 
@@ -21,6 +26,8 @@ interface WidgetsSectionProps {
   repositories: RepositoryOption[];
   /** Slug del progetto: entra nel DSN (`…@host/p/<slug>`). */
   slug: string;
+  /** Nome del progetto: entra nei key facts della guida di installazione. */
+  projectName: string;
   /** Le scritture sono solo admin: ai member la sezione è in sola lettura. */
   isAdmin: boolean;
 }
@@ -94,7 +101,13 @@ function buildSnippet(dsn: string, origin: string): string {
  * lettura (lista visibile, editor coi campi disabilitati e senza bottoni di
  * scrittura).
  */
-export function WidgetsSection({ projectId, repositories, slug, isAdmin }: WidgetsSectionProps) {
+export function WidgetsSection({
+  projectId,
+  repositories,
+  slug,
+  projectName,
+  isAdmin,
+}: WidgetsSectionProps) {
   const { t } = useTranslation();
   const { data } = useSuspenseQuery(widgetsQueryOptions(projectId));
   const widgets = data.widgets;
@@ -144,13 +157,16 @@ export function WidgetsSection({ projectId, repositories, slug, isAdmin }: Widge
                   {t("widget:conversationCount", { count: widget.conversationCount })}
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={() => setEditing({ widget })}
-                className="rounded-sm border border-line-strong px-3 py-1.5 font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-signal-dim hover:text-fg"
-              >
-                {t("widget:edit")}
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <WidgetGuideActions widget={widget} slug={slug} projectName={projectName} />
+                <button
+                  type="button"
+                  onClick={() => setEditing({ widget })}
+                  className="rounded-sm border border-line-strong px-3 py-1.5 font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-signal-dim hover:text-fg"
+                >
+                  {t("widget:edit")}
+                </button>
+              </div>
             </div>
           ))
         )}
@@ -168,6 +184,62 @@ export function WidgetsSection({ projectId, repositories, slug, isAdmin }: Widge
         )}
       </div>
     </section>
+  );
+}
+
+/**
+ * Azioni "guida di installazione" accanto a un widget nella lista: copia negli
+ * appunti e scarica come `.md` un documento autocontenuto (DSN, chiave, snippet,
+ * verifica) da incollare a un agent AI sul progetto di destinazione. Visibili
+ * anche ai member: la chiave è già esposta dalla GET della lista. La guida è
+ * generata al click sull'origin corrente (funzione PURA `buildWidgetInstallGuide`).
+ */
+function WidgetGuideActions({
+  widget,
+  slug,
+  projectName,
+}: {
+  widget: Widget;
+  slug: string;
+  projectName: string;
+}) {
+  const { t } = useTranslation();
+
+  const buildGuide = (): string =>
+    buildWidgetInstallGuide({
+      widget,
+      projectSlug: slug,
+      projectName,
+      origin: window.location.origin,
+    });
+
+  const handleDownload = (): void => {
+    const blob = new Blob([buildGuide()], { type: "text/markdown;charset=utf-8" });
+    const href = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = href;
+    anchor.download = widgetGuideFilename(widget.name);
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(href);
+  };
+
+  return (
+    <>
+      {/* CopyButton genera il testo una volta al render della lista; è economico
+          e il widget è stabile finché la lista non si re-fetcha. */}
+      <CopyButton text={buildGuide()} label={t("widget:copyGuide")} />
+      <button
+        type="button"
+        onClick={handleDownload}
+        aria-label={t("widget:downloadGuide")}
+        title={t("widget:downloadGuide")}
+        className="tap shrink-0 rounded-sm border border-line-strong px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase transition-colors hover:border-signal-dim hover:text-fg"
+      >
+        {t("widget:downloadGuideShort")}
+      </button>
+    </>
   );
 }
 
@@ -275,10 +347,8 @@ function WidgetEditor({
   const showEmptyWarning = form.enabled && form.enabledRepositoryIds.length === 0;
 
   // Lo snippet appare solo per un widget già salvato (serve la sua `key`).
-  const url = new URL(window.location.origin);
-  const snippet = widget
-    ? buildSnippet(`${url.protocol}//${widget.key}@${url.host}/p/${slug}`, url.origin)
-    : null;
+  const origin = window.location.origin;
+  const snippet = widget ? buildSnippet(buildWidgetDsn(widget.key, slug, origin), origin) : null;
 
   return (
     <div className="space-y-4 rounded-sm border border-line-strong bg-ink-950/50 px-4 py-4">

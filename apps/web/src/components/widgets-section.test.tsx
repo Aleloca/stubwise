@@ -77,6 +77,7 @@ function renderSection(widgets: Widget[], isAdmin = true) {
           projectId={PROJECT_ID}
           repositories={repositories}
           slug="acme"
+          projectName="Acme"
           isAdmin={isAdmin}
         />
       </Suspense>
@@ -331,6 +332,57 @@ describe("WidgetsSection", () => {
       WIDGET_ID,
       expect.objectContaining({ enabledRepositoryIds: [], repositoryFilters: {} }),
     );
+  });
+
+  it("«Copy guide» copia la guida markdown con il DSN del widget giusto", async () => {
+    const user = userEvent.setup();
+    // window.location.origin in happy-dom è http://localhost:3000 di default.
+    renderSection([makeWidget({ name: "Landing", key: "widgetkey123" })]);
+
+    await user.click(await screen.findByRole("button", { name: "Copy install guide" }));
+
+    const copied = await navigator.clipboard.readText();
+    expect(copied).toContain('# Install the "Landing" support widget');
+    expect(copied).toContain("widgetkey123@localhost:3000/p/acme");
+    expect(copied).toContain("Option A");
+    expect(copied).toContain("Option B");
+    expect(copied).not.toContain("undefined");
+  });
+
+  it("il bottone «Download .md» crea un Blob e un anchor con il filename atteso", async () => {
+    const user = userEvent.setup();
+    const createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:mock-url");
+    const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL").mockReturnValue(undefined);
+    // Il click sull'anchor in happy-dom tenterebbe una navigazione al blob URL
+    // (corrompe window.location per i test successivi): lo neutralizziamo e ne
+    // catturiamo l'attributo `download` per verificare il filename atteso.
+    let downloadAttr: string | null = null;
+    const clickSpy = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(function (this: HTMLAnchorElement) {
+        downloadAttr = this.download;
+      });
+    renderSection([makeWidget({ name: "Landing Help" })]);
+
+    await user.click(await screen.findByRole("button", { name: "Download install guide (.md)" }));
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(downloadAttr).toBe("stubwise-widget-landing-help.md");
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:mock-url");
+    clickSpy.mockRestore();
+    createObjectURL.mockRestore();
+    revokeObjectURL.mockRestore();
+  });
+
+  it("guida copia/scarica visibili anche ai member (la key è già esposta)", async () => {
+    renderSection([makeWidget({ name: "Landing" })], false);
+
+    expect(
+      await screen.findByRole("button", { name: "Copy install guide" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Download install guide (.md)" }),
+    ).toBeInTheDocument();
   });
 
   it("ai member la sezione è in sola lettura: nessun New widget, editor disabilitato", async () => {
