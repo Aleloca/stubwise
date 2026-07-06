@@ -206,4 +206,81 @@ describe("WidgetSectionFilter", () => {
       await screen.findByText(/Could not load the documentation tree/i),
     ).toBeInTheDocument();
   });
+
+  // --- Normalizzazione dei sourcePath con slash finale ---
+  // Il docs-engine produce sourcePath di directory in modo INCOERENTE: alcune
+  // radici/directory arrivano con slash finale (es. "audin-api/src/controllers/")
+  // altre senza. Con lo slash finale grezzo `pathCovers` si romperebbe
+  // (startsWith("a/b//")) e il prefisso salvato verrebbe respinto dallo schema.
+  // Il componente normalizza il path al confine di lettura del nodo.
+
+  it("spunta un padre-directory con slash finale → onChange con path normalizzato, figli coperti", async () => {
+    const user = userEvent.setup();
+    getDocTree.mockResolvedValue([
+      node({ id: "ctrl", title: "Controllers", sourcePath: "audin-api/src/controllers/" }),
+      node({
+        id: "accounts",
+        parentId: "ctrl",
+        title: "accounts",
+        sourcePath: "audin-api/src/controllers/accounts.controller.ts",
+      }),
+      node({
+        id: "campaigns",
+        parentId: "ctrl",
+        title: "campaigns",
+        sourcePath: "audin-api/src/controllers/campaigns.controller.ts",
+      }),
+    ]);
+    const { onChange } = renderFilter({ value: { paths: [], slugs: [] } });
+
+    await user.click(await screen.findByLabelText("Controllers"));
+    // Il path emesso è normalizzato (senza slash finale): sarebbe accettato dallo schema.
+    expect(onChange).toHaveBeenLastCalledWith({
+      paths: ["audin-api/src/controllers"],
+      slugs: [],
+    });
+  });
+
+  it("padre-directory con slash finale coperto da filtro salvato normalizzato → checked, figli coperti+disabled", async () => {
+    getDocTree.mockResolvedValue([
+      node({ id: "ctrl", title: "Controllers", sourcePath: "audin-api/src/controllers/" }),
+      node({
+        id: "accounts",
+        parentId: "ctrl",
+        title: "accounts",
+        sourcePath: "audin-api/src/controllers/accounts.controller.ts",
+      }),
+    ]);
+    renderFilter({ value: { paths: ["audin-api/src/controllers"], slugs: [] } });
+
+    const parent = (await screen.findByLabelText("Controllers")) as HTMLInputElement;
+    expect(parent.checked).toBe(true);
+
+    const child = await screen.findByLabelText("accounts");
+    expect(child).toBeChecked();
+    expect(child).toBeDisabled();
+  });
+
+  it("potatura mista: figlio già selezionato, spunta del padre-con-slash → solo il padre normalizzato", async () => {
+    const user = userEvent.setup();
+    getDocTree.mockResolvedValue([
+      node({ id: "ctrl", title: "Controllers", sourcePath: "audin-api/src/controllers/" }),
+      node({
+        id: "accounts",
+        parentId: "ctrl",
+        title: "accounts",
+        sourcePath: "audin-api/src/controllers/accounts.controller.ts",
+      }),
+    ]);
+    // Il figlio è già selezionato singolarmente: spuntare il padre lo pota.
+    const { onChange } = renderFilter({
+      value: { paths: ["audin-api/src/controllers/accounts.controller.ts"], slugs: [] },
+    });
+
+    await user.click(await screen.findByLabelText("Controllers"));
+    expect(onChange).toHaveBeenLastCalledWith({
+      paths: ["audin-api/src/controllers"],
+      slugs: [],
+    });
+  });
 });

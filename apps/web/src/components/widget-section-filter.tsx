@@ -39,6 +39,36 @@ interface WidgetSectionFilterProps {
 }
 
 /**
+ * Rimuove gli slash FINALI da un sourcePath. Il docs-engine li produce in modo
+ * INCOERENTE: alcune directory/radici arrivano con slash finale (es.
+ * `audin-api/src/controllers/`, `audin-operator-sdk/`), altre senza
+ * (`audin-api/src/services`). Senza normalizzazione `pathCovers` si rompe
+ * (`startsWith("a/b//")` → i figli non risultano MAI coperti dal padre) e il
+ * prefisso salvato con slash finale verrebbe respinto da `repoPathSchema`
+ * (@stubwise/shared) → 422. Normalizziamo qui, all'UNICO confine di lettura del
+ * nodo, così `pathCovers`, lo stato del checkbox, il toggle e il valore emesso
+ * usano tutti il path senza slash. Un sourcePath fatto solo di slash (`/`)
+ * diventa `""` → trattato come "senza sourcePath" (selezione per slug).
+ */
+function normalizeSourcePath(p: string): string {
+  return p.replace(/\/+$/, "");
+}
+
+/**
+ * Normalizza i sourcePath dell'albero al confine di lettura: uno slug/dir con
+ * slash finale (o solo slash → `null`) è appiattito così che tutta la logica a
+ * valle veda path normalizzati.
+ */
+function normalizeNodes(nodes: DocTreeNode[]): DocTreeNode[] {
+  return nodes.map((node) => {
+    if (!node.sourcePath) return node;
+    const normalized = normalizeSourcePath(node.sourcePath);
+    // Solo slash (o vuoto) → nessun sourcePath: il nodo si seleziona per slug.
+    return { ...node, sourcePath: normalized === "" ? null : normalized };
+  });
+}
+
+/**
  * Vero se `prefix` (un path selezionato) copre `path`: uguaglianza o `path`
  * discendente diretto/indiretto di `prefix` (stesso confine di segmento, così
  * `apps/web` NON copre `apps/webapp`).
@@ -106,7 +136,7 @@ export function WidgetSectionFilter({
     emit(paths, checked ? [...slugs, slug] : slugs.filter((s) => s !== slug));
   };
 
-  const forest = useMemo(() => buildForest(nodes ?? []), [nodes]);
+  const forest = useMemo(() => buildForest(normalizeNodes(nodes ?? [])), [nodes]);
 
   const isEmptyFilter = value !== undefined && paths.length === 0 && slugs.length === 0;
   const treeIsEmpty = treeQuery.isSuccess && (nodes?.length ?? 0) === 0;

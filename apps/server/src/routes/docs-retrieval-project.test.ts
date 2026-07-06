@@ -484,6 +484,49 @@ describe("retrieveChunksForProject (filtro paths/slugs per-repo)", () => {
     expect(pctSlugs.has(literalUnderscore)).toBe(false);
   });
 
+  it("sourcePath di directory con slash finale NEL DB → coperto dal prefisso normalizzato", async () => {
+    // Il docs-engine produce sourcePath di directory/radici con slash finale
+    // (es. "audin-operator-sdk/"). Il client normalizza il prefisso salvato
+    // (senza slash), quindi il DB riceve `paths: ["audin-operator-sdk"]`. Il
+    // match `source_path LIKE p || '/%'` deve coprire ANCHE la riga directory
+    // stessa "audin-operator-sdk/" (LIKE 'audin-operator-sdk/%').
+    const projectId = await seedProject();
+    const repoA = await seedRepoInProject(projectId, "Repo Alfa");
+    const genA = await seedGeneration(repoA.id);
+    const token = `slashdir${randomUUID().slice(0, 8)}`;
+    const dirPage = await seedPageWithChunk(repoA.id, genA, {
+      title: "SDK root",
+      body: `Contenuto ${token} della radice sdk.`,
+      chunkContent: `Contenuto ${token} della radice sdk.`,
+      sourcePath: "audin-operator-sdk/",
+    });
+
+    const res = await retrieveChunksForProject(db, embeddingClient, projectId, token, {
+      repositoryFilters: { [repoA.id]: { paths: ["audin-operator-sdk"], slugs: [] } },
+    });
+    const slugs = new Set(res.map((r) => r.slug));
+    expect(slugs.has(dirPage)).toBe(true);
+  });
+
+  it("pagina figlia sotto la directory → coperta dal prefisso normalizzato senza slash", async () => {
+    const projectId = await seedProject();
+    const repoA = await seedRepoInProject(projectId, "Repo Alfa");
+    const genA = await seedGeneration(repoA.id);
+    const token = `slashchild${randomUUID().slice(0, 8)}`;
+    const childPage = await seedPageWithChunk(repoA.id, genA, {
+      title: "x controller",
+      body: `Contenuto ${token} del controller x.`,
+      chunkContent: `Contenuto ${token} del controller x.`,
+      sourcePath: "audin-api/src/controllers/x.ts",
+    });
+
+    const res = await retrieveChunksForProject(db, embeddingClient, projectId, token, {
+      repositoryFilters: { [repoA.id]: { paths: ["audin-api/src/controllers"], slugs: [] } },
+    });
+    const slugs = new Set(res.map((r) => r.slug));
+    expect(slugs.has(childPage)).toBe(true);
+  });
+
   it("escape LIKE: un `%` LITERAL nel sourcePath è matchato dal prefisso corrispondente", async () => {
     const projectId = await seedProject();
     const repoA = await seedRepoInProject(projectId, "Repo Alfa");
