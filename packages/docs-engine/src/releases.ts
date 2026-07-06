@@ -70,6 +70,12 @@ export interface ReleaseInput {
    */
   refreshedPages?: { slug: string; title: string }[];
   /**
+   * (Fase 3, opzionale) Pagine di documentazione NUOVE create in questo push per le aree
+   * prima non documentate: l'agente le menziona ("nuova doc") e può cross-linkarne gli
+   * slug. Additivo: assente/vuoto → il prompt non cambia.
+   */
+  createdPages?: { slug: string; title: string }[];
+  /**
    * (Fase 2, opzionale) Aree (path) cambiate ma NON coperte da alcuna pagina esistente:
    * l'agente può segnalarle come non documentate. Additivo: assente/vuoto → invariato.
    */
@@ -128,6 +134,16 @@ export function buildReleasePrompt(input: ReleaseInput): string {
           ...refreshed.slice(0, MAX_PAGES).map((p) => `- ${p.slug} :: ${p.title}`),
         ]
       : [];
+  const created = input.createdPages ?? [];
+  const createdBlock =
+    created.length > 0
+      ? [
+          "",
+          "DOCUMENTATION PAGES CREATED FOR NEW AREAS in this push (slug :: title) — brand-new",
+          "documentation now covers these areas; you may mention this and cross-link them:",
+          ...created.slice(0, MAX_PAGES).map((p) => `- ${p.slug} :: ${p.title}`),
+        ]
+      : [];
   const newAreas = input.newAreas ?? [];
   const newAreasBlock =
     newAreas.length > 0
@@ -154,6 +170,7 @@ export function buildReleasePrompt(input: ReleaseInput): string {
     "EXISTING DOCUMENTATION PAGES (slug :: title :: source path):",
     pages,
     ...refreshedBlock,
+    ...createdBlock,
     ...newAreasBlock,
     "",
     "DO THREE THINGS:",

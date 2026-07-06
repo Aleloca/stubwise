@@ -44,6 +44,26 @@ describe("buildReleasePrompt", () => {
     expect(prompt).toContain(RELEASE_START_MARKER);
   });
 
+  it("con createdPages → blocco 'PAGES CREATED FOR NEW AREAS' presente", () => {
+    const prompt = buildReleasePrompt({
+      changedFiles: ["admin-app/src/billing/a.ts"],
+      commitSubjects: ["feat: billing"],
+      existingPages: [],
+      createdPages: [{ slug: "billing", title: "Billing" }],
+    });
+    expect(prompt).toContain("DOCUMENTATION PAGES CREATED FOR NEW AREAS");
+    expect(prompt).toContain("billing :: Billing");
+  });
+
+  it("senza createdPages → blocco 'PAGES CREATED FOR NEW AREAS' assente", () => {
+    const prompt = buildReleasePrompt({
+      changedFiles: ["apps/web/src/x.ts"],
+      commitSubjects: [],
+      existingPages: [],
+    });
+    expect(prompt).not.toContain("DOCUMENTATION PAGES CREATED FOR NEW AREAS");
+  });
+
   it("gestisce liste vuote senza rompersi", () => {
     const prompt = buildReleasePrompt({ changedFiles: [], commitSubjects: [], existingPages: [] });
     expect(prompt).toContain("(nessun file)");

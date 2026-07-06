@@ -118,3 +118,20 @@ export {
   REFRESH_UPDATED_END_MARKER,
 } from "./refresh-page.js";
 export type { RefreshPageInput, RefreshedPage } from "./refresh-page.js";
+
+// ── Auto-aggiornamento Docs (Fase 3): aggregazione aree nuove + mini-orient ───────────
+export {
+  aggregateNewAreas,
+  buildGrowOrientPrompt,
+  parseGrowOrientOutput,
+  GROW_PROPOSAL_START_MARKER,
+  GROW_PROPOSAL_END_MARKER,
+} from "./grow.js";
+export type {
+  NewArea,
+  AggregateOptions,
+  GrowKind,
+  GrowProposal,
+  GrowExistingPage,
+  GrowOrientInput,
+} from "./grow.js";
