@@ -46,6 +46,9 @@ interface WidgetInstallGuideInput {
  */
 export function buildWidgetInstallGuide(input: WidgetInstallGuideInput): string {
   const { widget, projectSlug, projectName, origin } = input;
+  // Il nome può contenere newline: appiattiscilo prima di interpolarlo nel
+  // markdown (titolo e key facts), come fa il server nel body del ticket.
+  const widgetName = widget.name.replace(/\s*\n+\s*/g, " ");
   const dsn = buildWidgetDsn(widget.key, projectSlug, origin);
   const bundleUrl = `${origin}/widget.js`;
   const guideUrl = `${origin}/guide/integrations/widget/`;
@@ -65,18 +68,7 @@ export function buildWidgetInstallGuide(input: WidgetInstallGuideInput): string 
     "```",
   ].join("\n");
 
-  const npmSnippet = [
-    "```js",
-    'import { initWidget } from "@stubwise/widget";',
-    "",
-    "initWidget({",
-    `  dsn: "${dsn}",`,
-    '  user: { id: "REPLACE_USER_ID", email: "REPLACE_EMAIL", name: "REPLACE_NAME" },',
-    "});",
-    "```",
-  ].join("\n");
-
-  return `# Install the "${widget.name}" support widget
+  return `# Install the "${widgetName}" support widget
 
 This installs a Stubwise customer-service widget on a target website: a
 docs-grounded chat assistant plus a form that turns bug reports and feedback
@@ -88,34 +80,20 @@ required.
 - Stubwise instance URL: ${origin}
 - Project name: ${projectName}
 - Project slug: ${projectSlug}
-- Widget name: ${widget.name}
+- Widget name: ${widgetName}
 - Widget id: ${widget.id}
 - Widget key (publishable): ${widget.key}
 - DSN (connects the widget to this project): ${dsn}
 - Bundle URL (script tag): ${bundleUrl}
 - User guide (reference only): ${guideUrl}
 
-## Option A — script tag (any website, no build step)
+## Installation (script tag)
 
 Add this to the page(s) where the widget should appear. Loading \`/widget.js\`
 publishes \`window.Stubwise\` and fires the \`stubwise:ready\` event; initialize
 inside that listener so \`Stubwise.initWidget\` is guaranteed to exist.
 
 ${scriptSnippet}
-
-## Option B — npm (bundler / framework)
-
-${npmSnippet}
-
-Install the package first:
-
-\`\`\`sh
-npm install @stubwise/widget
-\`\`\`
-
-Importing the package also publishes \`window.Stubwise\` and fires
-\`stubwise:ready\` as a side effect, but with a bundler you can call
-\`initWidget\` directly.
 
 ## The \`user\` parameter
 
@@ -154,9 +132,9 @@ areas where you already know who the user is.
 curl -H "X-Stubwise-Key: ${widget.key}" ${configUrl}
 \`\`\`
 
-     A healthy response looks like \`{"enabled":true, ...}\`. If it returns
-     \`{"enabled":false}\` the widget is disabled; a \`401\` means the key is
-     wrong for this project's slug.
+A healthy response looks like \`{"enabled":true, ...}\`. If it returns
+\`{"enabled":false}\` the widget is disabled; a \`401\` means the key is wrong for
+this project's slug.
 
 ## Security note
 

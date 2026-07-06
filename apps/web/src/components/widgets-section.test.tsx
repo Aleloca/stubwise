@@ -344,8 +344,7 @@ describe("WidgetsSection", () => {
     const copied = await navigator.clipboard.readText();
     expect(copied).toContain('# Install the "Landing" support widget');
     expect(copied).toContain("widgetkey123@localhost:3000/p/acme");
-    expect(copied).toContain("Option A");
-    expect(copied).toContain("Option B");
+    expect(copied).toContain("Installation (script tag)");
     expect(copied).not.toContain("undefined");
   });
 

@@ -155,6 +155,14 @@ widget opens, so your team knows who they're talking to.
 
 ## Integration: npm
 
+:::caution[Not published on the public npm registry yet]
+The `@stubwise/widget` package is **not yet published** to the public npm
+registry, so `npm install @stubwise/widget` will fail. The supported way to
+embed the widget today is the **[script tag](#integration-script-tag)** above.
+The snippet below documents the bundler-based API for when the package becomes
+available.
+:::
+
 If you bundle your frontend, you can install the package instead of loading the
 script:
 
