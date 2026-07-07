@@ -5,7 +5,7 @@ import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../lib/api";
 import type { DocTreeNode } from "../lib/docs-api";
-import { WidgetSectionFilter } from "./widget-section-filter";
+import { filterExposesInternalDocs, WidgetSectionFilter } from "./widget-section-filter";
 
 /**
  * Filtro FINE per-repo nell'editor widget: albero Docs on-demand RAGGRUPPATO per
@@ -501,5 +501,15 @@ describe("WidgetSectionFilter", () => {
     });
     // Toggle mostra il riepilogo: 1 group, 2 sections, 1 page.
     expect(await screen.findByText(/1 group, 2 sections, 1 page/i)).toBeInTheDocument();
+  });
+});
+
+describe("filterExposesInternalDocs", () => {
+  it("kinds:['releases'] → true (release notes auto-generate, non verificate)", () => {
+    expect(filterExposesInternalDocs({ paths: [], slugs: [], kinds: ["releases"] })).toBe(true);
+  });
+
+  it("kinds:['manual'] → false (pagine curate a mano, accettate come pubbliche)", () => {
+    expect(filterExposesInternalDocs({ paths: [], slugs: [], kinds: ["manual"] })).toBe(false);
   });
 });

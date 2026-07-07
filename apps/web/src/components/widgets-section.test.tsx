@@ -415,7 +415,7 @@ describe("WidgetsSection", () => {
     await user.click(await screen.findByRole("button", { name: "Edit" }));
 
     expect(
-      screen.getByText(/This widget exposes internal documentation/i),
+      screen.getByText(/This widget exposes internal or unverified documentation/i),
     ).toBeInTheDocument();
   });
 
@@ -431,7 +431,7 @@ describe("WidgetsSection", () => {
     await user.click(await screen.findByRole("button", { name: "Edit" }));
 
     expect(
-      screen.getByText(/This widget exposes internal documentation/i),
+      screen.getByText(/This widget exposes internal or unverified documentation/i),
     ).toBeInTheDocument();
   });
 
@@ -445,7 +445,7 @@ describe("WidgetsSection", () => {
     await user.click(await screen.findByRole("button", { name: "Edit" }));
 
     expect(
-      screen.getByText(/This widget exposes internal documentation/i),
+      screen.getByText(/This widget exposes internal or unverified documentation/i),
     ).toBeInTheDocument();
   });
 
@@ -461,7 +461,7 @@ describe("WidgetsSection", () => {
     await user.click(await screen.findByRole("button", { name: "Edit" }));
 
     expect(
-      screen.queryByText(/This widget exposes internal documentation/i),
+      screen.queryByText(/This widget exposes internal or unverified documentation/i),
     ).not.toBeInTheDocument();
   });
 

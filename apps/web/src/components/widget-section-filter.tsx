@@ -53,12 +53,21 @@ const GROUP_LABEL_KEY: Record<DocPageKind, string> = {
 /** Filtro di un repo: gemello di `widgetRepositoryFilterSchema`. */
 type RepositoryFilter = { paths: string[]; slugs: string[]; kinds: DocPageKind[] };
 
-/** Kind di documentazione INTERNA: know-how dev e operativo (margini, admin). */
-const INTERNAL_KINDS: DocPageKind[] = ["technical", "functional"];
+/**
+ * Kind di documentazione NON pubblica: technical/functional sono know-how dev e
+ * operativo (margini, admin); `releases` è incluso perché le release notes sono
+ * AUTO-GENERATE dai diff e NON passano dal verificatore segreti — possono quindi
+ * citare file interni o aree non pubbliche. `manual` NON è qui: sono pagine
+ * curate a mano dall'admin, che sceglie deliberatamente cosa scrivere, quindi
+ * sono accettate come pubbliche.
+ */
+const INTERNAL_KINDS: DocPageKind[] = ["technical", "functional", "releases"];
 
 /**
  * Vero se la selezione EFFETTIVA di un repo abilitato espone documentazione
- * INTERNA (technical/functional). Un widget pubblico deve esporre solo `product`.
+ * INTERNA o non verificata (technical/functional/releases). Un widget pubblico
+ * deve esporre solo `product` (ed eventualmente `manual` se curato per il
+ * pubblico).
  * Espone interno quando:
  * - `value === undefined` (repo INTERO, nessun filtro → TUTTI i kind, interni inclusi);
  * - i `kinds` includono un kind interno;
@@ -252,9 +261,9 @@ export function WidgetSectionFilter({
     .join(", ");
 
   // Avviso "documentazione interna": la selezione EFFETTIVA del repo espone kind
-  // interni (repo intero, kinds technical/functional, o selezione fine per
-  // paths/slugs). Sempre visibile (anche a blocco chiuso), così l'admin lo vede
-  // senza aprire il filtro.
+  // interni o non verificati (repo intero, kinds technical/functional/releases, o
+  // selezione fine per paths/slugs). Sempre visibile (anche a blocco chiuso), così
+  // l'admin lo vede senza aprire il filtro.
   const exposesInternal = filterExposesInternalDocs(value);
 
   return (

@@ -1202,7 +1202,7 @@
       "coveredByGroup": "Coperto dal gruppo {{group}}",
       "remove": "Rimuovi filtro",
       "emptyWarning": "Il widget non esporrà nulla di {{repository}}: seleziona almeno una sezione o pagina.",
-      "internalWarning": "Questo widget espone documentazione interna (technical/functional): contiene know-how e possibili dati riservati. Per un widget pubblico usa solo il gruppo Product."
+      "internalWarning": "Questo widget espone documentazione interna o non verificata (technical/functional/releases): può contenere know-how, dati riservati o riferimenti ad aree non pubbliche. Per un widget pubblico usa i gruppi Product (e Manual solo se curato per il pubblico)."
     },
     "conversations": {
       "link": "Conversazioni widget",
