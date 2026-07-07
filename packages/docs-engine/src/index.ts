@@ -169,3 +169,19 @@ export type {
   BuildBriefPromptInput,
   BriefContextOptions,
 } from "./brief.js";
+
+// ── Brief + product (Fase B): contratti delle verticali product ───────────────────────
+export {
+  buildProductRootPrompt,
+  buildProductGuidePrompt,
+  buildProductFaqPrompt,
+  parseProductPageOutput,
+  parseProductGuideOutput,
+  PRODUCT_PAGE_START_MARKER,
+  PRODUCT_PAGE_END_MARKER,
+  PRODUCT_SKIP_MARKER,
+} from "./product.js";
+export type {
+  ProductPromptInput,
+  ProductGuideRejection,
+} from "./product.js";
