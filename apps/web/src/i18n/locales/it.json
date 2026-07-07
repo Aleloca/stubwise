@@ -1116,7 +1116,7 @@
       "generatedAt": "Generato {{date}}",
       "commit": "commit",
       "sectionExclusions": "Pagine escluse dalla documentazione pubblica",
-      "exclusionsNote": "Il verificatore dei segreti ha bloccato queste pagine product: dopo una riscrittura lasciavano ancora trapelare un fatto riservato, quindi non sono state pubblicate.",
+      "exclusionsNote": "Il verificatore dei segreti ha bloccato queste pagine product: o dopo una riscrittura contenevano ancora (o potevano rivelare) un fatto riservato, oppure la verifica stessa non è riuscita. In entrambi i casi non sono state pubblicate.",
       "exclusionReason": "Motivo"
     }
   },

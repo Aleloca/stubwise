@@ -27,8 +27,11 @@ import {
   RELEASE_SLUGS_END_MARKER,
   RELEASE_SLUGS_START_MARKER,
   RELEASE_START_MARKER,
+  SECRETS_DETAIL_MARKER,
+  SECRETS_VERDICT_MARKER,
   SOURCE_PATHS_END_MARKER,
   SOURCE_PATHS_START_MARKER,
+  type ProjectBrief,
 } from "@stubwise/docs-engine";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
 import { and, eq, isNull, or } from "drizzle-orm";
@@ -285,6 +288,129 @@ const REFRESH_NO_CHANGE_OUTPUT = REFRESH_NO_CHANGE_MARKER;
 /** true se il prompt è quello dell'agente di refresh-pagina (non la entry release). */
 function isRefreshPrompt(prompt: string): boolean {
   return prompt.includes(REFRESH_UPDATED_START_MARKER);
+}
+
+// ── Helper guard product del refresh (nota review C2 / Task D2) ────────────────
+
+/** Un fatto riservato per il brief dei test del guard product. */
+const SECRET_FACT = {
+  fact: "18% markup on every top-up",
+  reason: "pricing strategy",
+  source: "src/pricing.ts",
+  avoid: "never state a percentage margin",
+} as const;
+
+/** Brief minimo con un fatto riservato (persistito su doc_generations.brief). */
+function briefWithSecret(): ProjectBrief {
+  return {
+    identity: "A demo product.",
+    actors: [{ name: "Customer", description: "buys", internal: false }],
+    surfaces: [
+      { name: "Web", type: "web app", rootPath: "src", audience: "customers", internal: false },
+    ],
+    glossary: [],
+    invariants: [],
+    confidentialFacts: [SECRET_FACT],
+    journeys: [],
+    existingSources: [],
+  };
+}
+
+/** true se il prompt è quello del verificatore segreti (red-teamer, Fase C). */
+function isAuditPrompt(prompt: string): boolean {
+  return prompt.includes("You are a RED-TEAMER");
+}
+
+/** Output di audit `CLEAN` (nessuna violazione). */
+const AUDIT_CLEAN = [SECRETS_VERDICT_MARKER, "CLEAN", SECRETS_DETAIL_MARKER, ""].join("\n");
+
+/** Output di audit `VIOLATION` col detail. */
+const AUDIT_VIOLATION = [
+  SECRETS_VERDICT_MARKER,
+  "VIOLATION",
+  SECRETS_DETAIL_MARKER,
+  "Fact: 18% markup. Passage: 'a 18% margin is added'.",
+].join("\n");
+
+/**
+ * Body di una GUIDA product VALIDO: cinque sezioni `###` obbligatorie + un passo numerato in
+ * `### Steps` con un ancoraggio `NAV:` (soddisfa `parseProductGuideOutput`). L'agente di
+ * refresh lo restituisce tra i marcatori REFRESH_UPDATED, il guard lo ri-valida.
+ */
+const VALID_GUIDE_BODY = [
+  "### Goal",
+  "Learn to buy a top-up.",
+  "### Prerequisites",
+  "An account.",
+  "### Steps",
+  "1. Open the app. NAV: Menu → Top-up [/topup]",
+  "### Expected result",
+  "Credit is added.",
+  "### Common issues",
+  "None.",
+].join("\n");
+
+/** Body di guida SENZA ancoraggi di navigazione: `parseProductGuideOutput` → reason. */
+const GUIDE_BODY_NO_NAV = [
+  "### Goal",
+  "Learn to buy a top-up.",
+  "### Prerequisites",
+  "An account.",
+  "### Steps",
+  "1. Open the app.",
+  "### Expected result",
+  "Credit is added.",
+  "### Common issues",
+  "None.",
+].join("\n");
+
+/** Costruisce l'output dell'agente di refresh (marcatori UPDATED) attorno a un body. */
+function refreshUpdated(body: string): string {
+  return [REFRESH_UPDATED_START_MARKER, body, REFRESH_UPDATED_END_MARKER].join("\n");
+}
+
+/**
+ * Semina una generazione corrente con UNA pagina (kind arbitrario, sourcePath arbitrario) e,
+ * opzionalmente, un brief. Ritorna generationId + pageId. Serve al guard del refresh product:
+ * la pagina product è seminata con sourcePath NON null per SIMULARE il caso futuro in cui il
+ * mapping diff→pagine la selezionerebbe (oggi le product hanno sourcePath null e non entrano
+ * mai nel refresh — vedi la nota della guardia).
+ */
+async function seedGenerationWithOnePage(
+  db: Db,
+  repositoryId: string,
+  commitSha: string,
+  page: {
+    kind: "product" | "functional" | "technical";
+    slug: string;
+    title: string;
+    sourcePath: string | null;
+    body: string;
+  },
+  brief: ProjectBrief | null,
+): Promise<{ generationId: string; pageId: string }> {
+  const [gen] = await db
+    .insert(docGenerations)
+    .values({ repositoryId, status: "succeeded", model: "opus", commitSha, brief })
+    .returning();
+  const generationId = gen!.id;
+  const [row] = await db
+    .insert(docPages)
+    .values({
+      repositoryId,
+      generationId,
+      kind: page.kind,
+      slug: page.slug,
+      title: page.title,
+      sourcePath: page.sourcePath,
+      body: page.body,
+    })
+    .returning({ id: docPages.id });
+  await db
+    .update(repositories)
+    .set({ currentDocGenerationId: generationId })
+    .where(eq(repositories.id, repositoryId));
+  return { generationId, pageId: row!.id };
 }
 
 // ── Helper Fase 3 (mini-orient + explore) ─────────────────────────────────────
@@ -759,6 +885,150 @@ describe("runAutoUpdate — rigenerazione mirata (Fase 2)", () => {
       .from(docPages)
       .where(and(eq(docPages.repositoryId, repositoryId), eq(docPages.kind, "releases")));
     expect(releases).toHaveLength(1);
+  });
+});
+
+describe("runAutoUpdate — guard refresh pagine product (Task D2)", () => {
+  it("pagina product con facts, audit CLEAN → body aggiornato", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream(); // cambia src/app.ts
+    const mirrors = await makeMirrors();
+    const repositoryId = await createRepository(db, upstream.url);
+    // Pagina product seminata con sourcePath "src" (NON null) per simulare il caso futuro.
+    const { pageId } = await seedGenerationWithOnePage(
+      db,
+      repositoryId,
+      upstream.fromSha,
+      { kind: "product", slug: "web-guide", title: "Web guide", sourcePath: "src", body: "Vecchio corpo product." },
+      briefWithSecret(),
+    );
+
+    const runner = new FakeAgentRunner({
+      script: (opts): AgentRunResult => {
+        if (isAuditPrompt(opts.prompt)) return { output: AUDIT_CLEAN, exitCode: 0 };
+        if (isRefreshPrompt(opts.prompt)) return { output: refreshUpdated("Nuovo corpo product pulito."), exitCode: 0 };
+        return { output: SIGNIFICANT_OUTPUT, exitCode: 0 };
+      },
+    });
+    await runAutoUpdate(baseDeps(db, mirrors, runner, { maxRefreshPages: 10 }), {
+      id: "job-d2-1",
+      repositoryId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    // L'audit è stato eseguito e il body è stato aggiornato.
+    expect(runner.calls.some((c) => isAuditPrompt(c.prompt))).toBe(true);
+    const [page] = await db.select().from(docPages).where(eq(docPages.id, pageId));
+    expect(page?.body).toBe("Nuovo corpo product pulito.");
+  });
+
+  it("pagina product con facts, audit VIOLATION → body NON aggiornato (resta il vecchio)", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const repositoryId = await createRepository(db, upstream.url);
+    const { pageId } = await seedGenerationWithOnePage(
+      db,
+      repositoryId,
+      upstream.fromSha,
+      { kind: "product", slug: "web-guide", title: "Web guide", sourcePath: "src", body: "Vecchio corpo verificato." },
+      briefWithSecret(),
+    );
+
+    const runner = new FakeAgentRunner({
+      script: (opts): AgentRunResult => {
+        if (isAuditPrompt(opts.prompt)) return { output: AUDIT_VIOLATION, exitCode: 0 };
+        if (isRefreshPrompt(opts.prompt)) return { output: refreshUpdated("Corpo che rivela il 18% di margine."), exitCode: 0 };
+        return { output: SIGNIFICANT_OUTPUT, exitCode: 0 };
+      },
+    });
+    await runAutoUpdate(baseDeps(db, mirrors, runner, { maxRefreshPages: 10 }), {
+      id: "job-d2-2",
+      repositoryId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    // Audit eseguito, body INVARIATO (la vecchia pagina già verificata resta).
+    expect(runner.calls.some((c) => isAuditPrompt(c.prompt))).toBe(true);
+    const [page] = await db.select().from(docPages).where(eq(docPages.id, pageId));
+    expect(page?.body).toBe("Vecchio corpo verificato.");
+  });
+
+  it("guida product senza ancoraggi NAV nel body rinfrescato → NON aggiornata", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const repositoryId = await createRepository(db, upstream.url);
+    const { pageId } = await seedGenerationWithOnePage(
+      db,
+      repositoryId,
+      upstream.fromSha,
+      { kind: "product", slug: "web-guide", title: "Web guide", sourcePath: "src", body: VALID_GUIDE_BODY },
+      briefWithSecret(),
+    );
+
+    let auditRuns = 0;
+    const runner = new FakeAgentRunner({
+      script: (opts): AgentRunResult => {
+        if (isAuditPrompt(opts.prompt)) {
+          auditRuns += 1;
+          return { output: AUDIT_CLEAN, exitCode: 0 };
+        }
+        // Il refresh restituisce una guida SENZA NAV → la ri-validazione NAV fallisce.
+        if (isRefreshPrompt(opts.prompt)) return { output: refreshUpdated(GUIDE_BODY_NO_NAV), exitCode: 0 };
+        return { output: SIGNIFICANT_OUTPUT, exitCode: 0 };
+      },
+    });
+    await runAutoUpdate(baseDeps(db, mirrors, runner, { maxRefreshPages: 10 }), {
+      id: "job-d2-3",
+      repositoryId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    // La ri-validazione NAV blocca PRIMA dell'audit: body invariato, audit non eseguito.
+    const [page] = await db.select().from(docPages).where(eq(docPages.id, pageId));
+    expect(page?.body).toBe(VALID_GUIDE_BODY);
+    expect(auditRuns).toBe(0);
+  });
+
+  it("pagina functional → NESSUN audit (il guard non scatta), body aggiornato", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const repositoryId = await createRepository(db, upstream.url);
+    const { pageId } = await seedGenerationWithOnePage(
+      db,
+      repositoryId,
+      upstream.fromSha,
+      { kind: "functional", slug: "app-fn", title: "App", sourcePath: "src", body: "Vecchio functional." },
+      briefWithSecret(),
+    );
+
+    let auditRuns = 0;
+    const runner = new FakeAgentRunner({
+      script: (opts): AgentRunResult => {
+        if (isAuditPrompt(opts.prompt)) {
+          auditRuns += 1;
+          return { output: AUDIT_CLEAN, exitCode: 0 };
+        }
+        if (isRefreshPrompt(opts.prompt)) return { output: refreshUpdated("Nuovo functional."), exitCode: 0 };
+        return { output: SIGNIFICANT_OUTPUT, exitCode: 0 };
+      },
+    });
+    await runAutoUpdate(baseDeps(db, mirrors, runner, { maxRefreshPages: 10 }), {
+      id: "job-d2-4",
+      repositoryId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    // Nessun audit per una pagina functional; body aggiornato normalmente.
+    expect(auditRuns).toBe(0);
+    const [page] = await db.select().from(docPages).where(eq(docPages.id, pageId));
+    expect(page?.body).toBe("Nuovo functional.");
   });
 });
 

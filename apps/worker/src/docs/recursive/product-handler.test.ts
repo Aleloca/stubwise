@@ -734,6 +734,39 @@ describe("runProductPhase", () => {
     expect(nodes.length).toBe(0);
   });
 
+  it("audit che LANCIA (errore/limite) → pagina esclusa fail-closed, nodo NON creato", async () => {
+    const { db } = testDb;
+    // Un brief con la sola radice (nessun journey): il run audit sulla radice LANCIA. La
+    // pipeline non deve pubblicare ciò che non ha potuto verificare → esclusione fail-closed.
+    const generationId = await newGeneration(
+      db,
+      briefFixture({ confidentialFacts: [SECRET_FACT], journeys: [] }),
+    );
+
+    let auditRuns = 0;
+    const runner = new FakeAgentRunner({
+      script: (opts): AgentRunResult => {
+        const kind = promptKind(opts);
+        if (kind === "audit") {
+          auditRuns += 1;
+          throw new Error("boom: audit non eseguibile");
+        }
+        return { output: validPageBody("Root with a leak"), exitCode: 0, usage: USAGE };
+      },
+    });
+
+    const result = await runProductPhase(baseDeps(db, runner), generationId);
+    // La radice è esclusa (audit fallito) → verticale scartata, nessun nodo.
+    expect(result.pagesCreated).toBe(0);
+    expect(result.productExclusions.length).toBe(1);
+    expect(result.productExclusions[0]?.title).toBe("Customer Web App guide");
+    expect(result.productExclusions[0]?.fact).toContain("secrets audit failed");
+    // Un solo tentativo di audit (che ha lanciato): nessuna riscrittura, nessun ri-audit.
+    expect(auditRuns).toBe(1);
+    const nodes = await productNodes(db, generationId);
+    expect(nodes.length).toBe(0);
+  });
+
   it("le esclusioni sopravvivono alla finalize: doc_generations.stats.productExclusions", async () => {
     const { db } = testDb;
     // Due superfici pubbliche: la PRIMA pulita (nodi creati), la SECONDA con violazione

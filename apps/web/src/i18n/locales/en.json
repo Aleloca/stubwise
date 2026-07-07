@@ -1116,7 +1116,7 @@
       "generatedAt": "Generated {{date}}",
       "commit": "commit",
       "sectionExclusions": "Pages excluded from public documentation",
-      "exclusionsNote": "The confidentiality checker blocked these product pages: they still leaked a confidential fact after one rewrite, so they were not published.",
+      "exclusionsNote": "The confidentiality checker blocked these product pages: either they still contained or could reveal a confidential fact after one rewrite, or the check itself could not be completed. Either way they were not published.",
       "exclusionReason": "Reason"
     }
   },

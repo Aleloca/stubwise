@@ -14,16 +14,23 @@ import {
   buildGrowOrientPrompt,
   buildRefreshPagePrompt,
   buildReleasePrompt,
+  buildSecretsAuditPrompt,
   mapAffectedPages,
   parseExploreOutput,
   parseGrowOrientOutput,
+  parseProductGuideOutput,
   parseRefreshedPage,
   parseReleaseNotes,
+  parseSecretsAuditOutput,
   slugForNode,
+  PRODUCT_PAGE_END_MARKER,
+  PRODUCT_PAGE_START_MARKER,
+  type BriefConfidentialFact,
   type ExistingPage,
   type GrowExistingPage,
   type GrowProposal,
   type PageRef,
+  type ProjectBrief,
   type ReleaseNotes,
 } from "@stubwise/docs-engine";
 import type { EmbeddingClient } from "@stubwise/embeddings";
@@ -303,6 +310,131 @@ async function loadPageBody(db: Db, pageId: string): Promise<PageBody | null> {
 }
 
 /**
+ * Carica i FATTI RISERVATI del brief della generazione corrente (colonna
+ * `doc_generations.brief`, jsonb nullable). Il refresh di una pagina product deve poter
+ * ri-auditare il body rinfrescato contro questi fatti (Fase C). Ritorna `[]` (con log a
+ * carico del chiamante quando serve) se la generazione non ha brief o non ha fatti — nel
+ * qual caso l'audit del refresh è saltato (fail-open dichiarato, come nel product handler:
+ * senza una lista di fatti non c'è violazione DEFINIBILE). Best-effort: un errore DB
+ * ritorna `[]` (il refresh non deve rompersi per il brief).
+ */
+async function loadConfidentialFacts(
+  db: Db,
+  generationId: string,
+): Promise<BriefConfidentialFact[]> {
+  try {
+    const [row] = await db
+      .select({ brief: docGenerations.brief })
+      .from(docGenerations)
+      .where(eq(docGenerations.id, generationId));
+    const brief = (row?.brief ?? null) as ProjectBrief | null;
+    return brief?.confidentialFacts ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Euristica "è una GUIDA product": il body ha le due sezioni cardine della guida a struttura
+ * imposta (`### Goal` e `### Steps`, vedi `product.ts`/`parseProductGuideOutput`). Le radici e
+ * le FAQ product NON le hanno, quindi non passano dalla ri-validazione NAV.
+ */
+function looksLikeProductGuide(body: string): boolean {
+  const lines = body.split("\n");
+  const has = (heading: string): boolean => lines.some((l) => l.trim() === heading);
+  return has("### Goal") && has("### Steps");
+}
+
+/**
+ * GUARD del refresh di una pagina `product` (nota review C2). Oggi le pagine product hanno
+ * `sourcePath` null (nodi con sourcePaths []), quindi il mapping diff→pagine NON le seleziona
+ * MAI: le verticali seguono i journey del brief, non i file, e si arricchiscono solo a una
+ * rigenerazione COMPLETA. Questo guard è una difesa in profondità per il caso in cui una
+ * pagina product entrasse comunque nel giro di refresh (dati futuri/manuali). NON riscrive
+ * mai: nel refresh la violazione = si SALTA l'update (la vecchia pagina, già verificata alla
+ * generazione, resta pubblicata).
+ *
+ * Due controlli, entrambi bloccanti (ritorno `false` = NON aggiornare):
+ *  (b) se il body rinfrescato è una GUIDA (euristica `looksLikeProductGuide`), lo si ri-valida
+ *      con `parseProductGuideOutput` (ancoraggi di navigazione): fallito → non aggiornare
+ *      (una riscrittura non deve degradare gli ancoraggi NAV validati alla generazione);
+ *  (a) se ci sono fatti riservati, si AUDITA il body rinfrescato (Fase C, red-teamer): una
+ *      VIOLATION → non aggiornare. Senza fatti (brief/facts assenti) l'audit è saltato ma si
+ *      LOGGA (una pagina product rinfrescata senza verifica non dovrebbe accadere oggi).
+ *
+ * Ritorna `true` se il body può essere persistito, `false` se l'update va SALTATO. Non lancia:
+ * un errore dell'audit (agente/parse) è trattato fail-closed (→ `false`, non aggiornare).
+ */
+async function guardRefreshedProductBody(
+  deps: RunAutoUpdateDeps,
+  dir: string,
+  page: PageRef,
+  newBody: string,
+  confidentialFacts: BriefConfidentialFact[],
+  provider: ResolvedProvider | undefined,
+  repositoryId: string,
+): Promise<boolean> {
+  // (b) Ri-validazione NAV se è una guida: il body va ri-avvolto nei marcatori product,
+  // perché `parseProductGuideOutput` si aspetta l'output marcato (`===PAGE===`…`===END PAGE===`).
+  if (looksLikeProductGuide(newBody)) {
+    const wrapped = [PRODUCT_PAGE_START_MARKER, newBody, PRODUCT_PAGE_END_MARKER].join("\n");
+    const parsed = parseProductGuideOutput(wrapped);
+    if (!("body" in parsed)) {
+      console.error(
+        `[stubwise-worker] auto-update: refresh della guida product '${page.slug}' (repository ` +
+          `${repositoryId}) invalida (ancoraggi di navigazione insufficienti) → NON aggiornata`,
+      );
+      return false;
+    }
+  }
+
+  // (a) Audit segreti sul body rinfrescato. Senza fatti riservati non c'è violazione
+  // definibile → audit saltato, ma LOGGATO (product rinfrescata senza verifica: anomalo oggi).
+  if (confidentialFacts.length === 0) {
+    console.error(
+      `[stubwise-worker] auto-update: pagina product '${page.slug}' (repository ${repositoryId}) ` +
+        "rinfrescata SENZA verifica segreti (nessun fatto riservato nel brief) — non dovrebbe accadere",
+    );
+    return true;
+  }
+
+  const providerOpt = provider !== undefined ? { provider } : {};
+  let output: string;
+  try {
+    const result = await deps.runner.run({
+      cwd: dir,
+      prompt: buildSecretsAuditPrompt({
+        pageTitle: page.title,
+        body: newBody,
+        confidentialFacts,
+      }),
+      model: deps.model,
+      permissionMode: "plan",
+      maxTurns: deps.maxTurns,
+      timeoutMs: deps.agentTimeoutMs,
+      ...providerOpt,
+    });
+    output = result.output;
+  } catch (err) {
+    // Audit non eseguibile → fail-closed: non aggiorniamo ciò che non abbiamo potuto verificare.
+    console.error(
+      `[stubwise-worker] auto-update: audit segreti del refresh della pagina product '${page.slug}' ` +
+        `(repository ${repositoryId}) fallito (${errText(err)}) → NON aggiornata (fail-closed)`,
+    );
+    return false;
+  }
+  const verdict = parseSecretsAuditOutput(output);
+  if (verdict.verdict !== "clean") {
+    console.error(
+      `[stubwise-worker] auto-update: refresh della pagina product '${page.slug}' (repository ` +
+        `${repositoryId}) BOCCIATO dal verificatore segreti (${verdict.detail}) → NON aggiornata`,
+    );
+    return false;
+  }
+  return true;
+}
+
+/**
  * Risolve il provider AI dell'auto-update:
  *  - con `aiProviderId`: SOLO quel provider (provider "bloccato"). Se non è
  *    risolvibile (disabilitato/cancellato/segreto non decifrabile) ritorna
@@ -447,6 +579,7 @@ async function refreshAffectedPagesInWorktree(
   commitSubjects: string[],
   provider: ResolvedProvider | undefined,
   repositoryId: string,
+  confidentialFacts: BriefConfidentialFact[],
 ): Promise<{ updatedSlugs: string[]; refreshedPages: { slug: string; title: string }[] }> {
   const updatedSlugs: string[] = [];
   const refreshedPages: { slug: string; title: string }[] = [];
@@ -478,6 +611,25 @@ async function refreshAffectedPagesInWorktree(
       if (parsed.kind !== "updated") continue; // no-op/ambiguo: niente da fare.
 
       const newBody = parsed.body;
+
+      // GUARD product (nota review C2): se la pagina è `product`, il body rinfrescato passa
+      // dall'audit segreti (e, se guida, dalla ri-validazione NAV) PRIMA di persistere. Nel
+      // refresh NON si riscrive: violazione/guida invalida = si SALTA l'update (la vecchia
+      // pagina, già verificata alla generazione, resta pubblicata). Oggi le product hanno
+      // sourcePath null e non entrano mai in `affected`: questo è difesa in profondità.
+      if (pageBody.kind === "product") {
+        const ok = await guardRefreshedProductBody(
+          deps,
+          dir,
+          page,
+          newBody,
+          confidentialFacts,
+          provider,
+          repositoryId,
+        );
+        if (!ok) continue; // non aggiornata: guard bocciata (già loggato).
+      }
+
       // Update in-place del solo BODY: `doc_pages` non ha una colonna commitSha per-pagina
       // (la staleness è tracciata a livello di GENERAZIONE, e doc_generations.commitSha
       // viene avanzato a toSha in coda a runAutoUpdate).
@@ -723,6 +875,7 @@ async function refreshAndGrowPages(
   commitSubjects: string[],
   provider: ResolvedProvider | undefined,
   repositoryId: string,
+  confidentialFacts: BriefConfidentialFact[],
 ): Promise<RefreshResult> {
   // Mapping deterministico: il tetto del refresh è `maxRefreshPages` (0 = niente refresh,
   // ma le newAreas sono comunque calcolate per la Fase 3 e la entry).
@@ -761,6 +914,7 @@ async function refreshAndGrowPages(
           commitSubjects,
           provider,
           repositoryId,
+          confidentialFacts,
         );
         updatedSlugs = r.updatedSlugs;
         refreshedPages = r.refreshedPages;
@@ -926,6 +1080,9 @@ export async function runAutoUpdate(deps: RunAutoUpdateDeps, job: AutoUpdateJob)
     ctx.currentDocGenerationId !== null
   ) {
     const pagesWithRefs = await loadPagesWithRefs(deps.db, ctx.currentDocGenerationId);
+    // Fatti riservati del brief della generazione corrente: servono al guard del refresh di
+    // pagine product (audit del body rinfrescato prima di persistere). Caricati una volta.
+    const confidentialFacts = await loadConfidentialFacts(deps.db, ctx.currentDocGenerationId);
     refresh = await refreshAndGrowPages(
       deps,
       ctx,
@@ -935,6 +1092,7 @@ export async function runAutoUpdate(deps: RunAutoUpdateDeps, job: AutoUpdateJob)
       commitSubjects,
       resolved.provider,
       job.repositoryId,
+      confidentialFacts,
     );
   }
 

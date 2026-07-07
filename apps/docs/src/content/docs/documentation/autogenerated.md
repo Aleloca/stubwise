@@ -30,12 +30,34 @@ sub-area into finer ones, going **as deep as the area's importance warrants**.
 The depth is decided **automatically**, area by area: a central, complex part of
 the codebase grows a deep sub-tree, a thin one stays shallow.
 
-Each project gets **two parallel trees** built this way:
+Before it explores, an agent first writes a **project brief** (see
+[Project brief](#project-brief)) — the shared understanding of the product that
+grounds every page it then produces.
+
+Each project gets documentation in **three classes**, two internal and one
+public:
 
 - **Technical** — organized by **code structure** (architecture → areas →
   modules), describing how the system is built and how the pieces fit together.
+  For **developers**; **internal**.
 - **Functional** — organized by **capability**, in non-technical language,
-  describing what the product can do.
+  describing what the product can do. For **business / product** people;
+  **internal**.
+- **Product** — one **public, end-user guide per surface** of the product (each
+  public UI the brief identifies). Written in the second person with the **real
+  UI names and URLs**, it is the class you can safely expose outside the team —
+  it is the default for the [embeddable widget](/docs/integrations/widget/).
+  Every step in a product guide carries a **navigation path** (which menu, which
+  button, which URL) so a reader can actually follow it. See
+  [Product guides](#product-guides).
+
+The technical and functional trees are built by the recursive exploration above.
+The product guides are generated **after** those two trees are complete, one
+**vertical** per public surface (a landing page, one how-to guide per relevant
+user journey, and an FAQ). Product guides **do not** track individual source
+files the way technical/functional pages do — they follow the **user journeys**
+from the brief, and are refreshed only on a **full regeneration**, not on the
+per-push incremental updates.
 
 A **Manual** space sits alongside them for pages humans write by hand (see
 [Manual pages](#manual-pages)).
@@ -51,6 +73,90 @@ related pages, so you can jump between *how it's built* and *what it does*:
 Each **generated** page carries badges showing the **source path** it documents
 and the **commit** it was generated at, so you can always trace a statement back
 to the code.
+
+## Project brief
+
+Every generation starts by having an agent read the repository and write a
+**project brief** — a structured, one-page understanding of the product that all
+later pages are grounded in. It captures:
+
+- the product **identity** (what it is, in one paragraph);
+- the **actors** (who uses it) and which of them are **internal** (staff / back
+  office) vs external;
+- the **surfaces** (each UI or API), with its real **root path** in the repo and
+  whether it is **internal** or **public**;
+- a **glossary** of the product's own terms and the **invariants** that always
+  hold, so every page uses consistent terminology;
+- the main **user journeys** per actor;
+- the **existing sources** it found (README, ADRs, schema, contracts);
+- any **confidential facts** it detected (see [Confidentiality](#confidentiality)).
+
+The brief drives the rest of the generation: the glossary and invariants are fed
+into the technical/functional prompts for consistency, the **public surfaces**
+decide which product guides to write, and the **journeys** decide which how-to
+guides each surface gets.
+
+You can read the brief in the web app: open the project's Docs space and switch
+to the **Brief** tab. It is **read-only** and shows every section above,
+including the detected confidential facts (kept here for auditing — they never
+reach the public documentation) and the list of any pages that were
+[excluded](#confidentiality). If no generation of the project has a brief yet,
+the tab tells you to (re)generate the documentation.
+
+## Product guides
+
+For each **public** surface in the brief, Stubwise writes a small **vertical** of
+end-user documentation:
+
+- a **landing / getting-started** page for the surface;
+- one **how-to guide per relevant user journey** — with an imposed structure
+  (Goal → Prerequisites → numbered Steps → Expected result → Common issues);
+- an **FAQ** built from the "what it can't do" limitations of the underlying
+  functional pages.
+
+The defining trait of a product guide is that **every actionable step names the
+navigation path** — the menu, the item, the button and, where there is one, the
+URL — so a non-technical reader can follow it in the real UI. A guide that comes
+back without enough of those navigation anchors is regenerated once and otherwise
+dropped, so a published guide is always actually followable.
+
+Because product guides are written for the **outside world**, they are the
+**default class exposed by the embeddable widget**, and they go through the
+confidentiality check below before they are ever stored.
+
+## Confidentiality
+
+Public product guides must never leak business secrets. Stubwise handles this in
+two stages, both **automatic**:
+
+1. **Detection.** While writing the brief, the agent flags **confidential
+   facts** on its own — margins, markups, pricing, wholesale costs, rates,
+   confidential suppliers or competitors, admin-only surfaces — each with *why*
+   it is confidential and *how it must not appear*. There is no list to maintain
+   by hand.
+2. **Fail-closed verification.** Every product page, once written, is audited by
+   a separate **red-teamer** agent against those facts *before* it is published.
+   If the page states, implies or would let a reader **infer** a confidential
+   fact, it is **rewritten once** to remove the offending passage and
+   **re-audited**. If it still doesn't pass — or if the check itself can't be
+   completed — the page is **excluded** rather than published. When in doubt, the
+   page is **blocked**: the pipeline errs on the side of not publishing.
+
+Excluded pages are **visible** in the **Brief** tab (with the reason), so a
+blocked guide is never silent — you can see what was held back and why.
+
+The same red-teamer guards the **incremental refresh**: on the rare occasion a
+product page is refreshed on push, the refreshed body is re-audited (and, for a
+guide, its navigation anchors re-validated) before it replaces the old one — a
+body that fails the check is discarded and the previously verified page stays
+put.
+
+:::caution[Confidentiality detection is best-effort]
+The detector is a strong safety net, not a guarantee. It runs on the AI's
+judgment of what looks confidential; review the **confidential facts** and the
+**published product guides** for a product with real business secrets before you
+expose them publicly (for example through the widget).
+:::
 
 ## Requirements
 
