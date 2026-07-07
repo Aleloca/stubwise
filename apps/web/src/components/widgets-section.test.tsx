@@ -358,6 +358,113 @@ describe("WidgetsSection", () => {
     );
   });
 
+  it("abilitare un repo su un widget NUOVO nasce col filtro kinds=[\"product\"] (default sicuro)", async () => {
+    const user = userEvent.setup();
+    createWidget.mockResolvedValue({ widget: makeWidget({ name: "Landing" }) });
+    renderSection([]);
+
+    await user.click(await screen.findByRole("button", { name: "New widget" }));
+    await user.type(screen.getByLabelText("Name"), "Landing");
+    // Abilita il repo A: l'entry di filtro deve nascere orientata al product.
+    await user.click(screen.getByLabelText("web"));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(createWidget).toHaveBeenCalledTimes(1));
+    expect(createWidget).toHaveBeenCalledWith(
+      PROJECT_ID,
+      expect.objectContaining({
+        enabledRepositoryIds: [REPO_A],
+        repositoryFilters: { [REPO_A]: { paths: [], slugs: [], kinds: ["product"] } },
+      }),
+    );
+  });
+
+  it("abilitare un repo che non aveva entry usa il default product anche su widget esistente", async () => {
+    const user = userEvent.setup();
+    updateWidget.mockResolvedValue({ widget: makeWidget() });
+    // Widget con REPO_A abilitato e un filtro salvato; REPO_B non ha entry.
+    const savedFilters = { [REPO_A]: { paths: [], slugs: [], kinds: ["product" as const] } };
+    renderSection([
+      makeWidget({ enabledRepositoryIds: [REPO_A], repositoryFilters: savedFilters }),
+    ]);
+
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    // Abilita REPO_B (nuovo repo, senza entry): default product.
+    await user.click(screen.getByLabelText("api"));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(updateWidget).toHaveBeenCalledTimes(1));
+    expect(updateWidget).toHaveBeenCalledWith(
+      PROJECT_ID,
+      WIDGET_ID,
+      expect.objectContaining({
+        enabledRepositoryIds: [REPO_A, REPO_B],
+        repositoryFilters: {
+          [REPO_A]: { paths: [], slugs: [], kinds: ["product"] },
+          [REPO_B]: { paths: [], slugs: [], kinds: ["product"] },
+        },
+      }),
+    );
+  });
+
+  it("il warning documentazione interna appare per un repo INTERO (nessun filtro)", async () => {
+    const user = userEvent.setup();
+    // Widget esistente con REPO_A abilitato e NESSUN filtro (repo intero) → interno.
+    renderSection([makeWidget({ enabledRepositoryIds: [REPO_A], repositoryFilters: {} })]);
+
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+
+    expect(
+      screen.getByText(/This widget exposes internal documentation/i),
+    ).toBeInTheDocument();
+  });
+
+  it("il warning appare quando i kinds includono functional", async () => {
+    const user = userEvent.setup();
+    const savedFilters = {
+      [REPO_A]: { paths: [], slugs: [], kinds: ["functional" as const] },
+    };
+    renderSection([
+      makeWidget({ enabledRepositoryIds: [REPO_A], repositoryFilters: savedFilters }),
+    ]);
+
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+
+    expect(
+      screen.getByText(/This widget exposes internal documentation/i),
+    ).toBeInTheDocument();
+  });
+
+  it("il warning appare quando c'è una selezione fine per paths (ignora il kind)", async () => {
+    const user = userEvent.setup();
+    const savedFilters = { [REPO_A]: { paths: ["apps/webapp"], slugs: [], kinds: [] } };
+    renderSection([
+      makeWidget({ enabledRepositoryIds: [REPO_A], repositoryFilters: savedFilters }),
+    ]);
+
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+
+    expect(
+      screen.getByText(/This widget exposes internal documentation/i),
+    ).toBeInTheDocument();
+  });
+
+  it("NESSUN warning quando l'entry è solo kinds=[\"product\"]", async () => {
+    const user = userEvent.setup();
+    const savedFilters = {
+      [REPO_A]: { paths: [], slugs: [], kinds: ["product" as const] },
+    };
+    renderSection([
+      makeWidget({ enabledRepositoryIds: [REPO_A], repositoryFilters: savedFilters }),
+    ]);
+
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+
+    expect(
+      screen.queryByText(/This widget exposes internal documentation/i),
+    ).not.toBeInTheDocument();
+  });
+
   it("«Copy guide» copia la guida markdown con il DSN del widget giusto", async () => {
     const user = userEvent.setup();
     // window.location.origin in happy-dom è http://localhost:3000 di default.

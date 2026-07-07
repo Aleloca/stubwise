@@ -53,6 +53,26 @@ const GROUP_LABEL_KEY: Record<DocPageKind, string> = {
 /** Filtro di un repo: gemello di `widgetRepositoryFilterSchema`. */
 type RepositoryFilter = { paths: string[]; slugs: string[]; kinds: DocPageKind[] };
 
+/** Kind di documentazione INTERNA: know-how dev e operativo (margini, admin). */
+const INTERNAL_KINDS: DocPageKind[] = ["technical", "functional"];
+
+/**
+ * Vero se la selezione EFFETTIVA di un repo abilitato espone documentazione
+ * INTERNA (technical/functional). Un widget pubblico deve esporre solo `product`.
+ * Espone interno quando:
+ * - `value === undefined` (repo INTERO, nessun filtro → TUTTI i kind, interni inclusi);
+ * - i `kinds` includono un kind interno;
+ * - c'è una selezione FINE per `paths`/`slugs`: ignora il kind e può pescare
+ *   pagine interne (una pagina technical selezionata per path resta interna).
+ * NON espone interno solo quando l'entry è esclusivamente kind pubblici
+ * (es. `kinds: ["product"]`) senza selezione fine.
+ */
+export function filterExposesInternalDocs(value: RepositoryFilter | undefined): boolean {
+  if (value === undefined) return true;
+  if (value.paths.length > 0 || value.slugs.length > 0) return true;
+  return value.kinds.some((kind) => INTERNAL_KINDS.includes(kind));
+}
+
 interface WidgetSectionFilterProps {
   repositoryId: string;
   repositoryName: string;
@@ -231,6 +251,12 @@ export function WidgetSectionFilter({
     .filter((part): part is string => part !== null)
     .join(", ");
 
+  // Avviso "documentazione interna": la selezione EFFETTIVA del repo espone kind
+  // interni (repo intero, kinds technical/functional, o selezione fine per
+  // paths/slugs). Sempre visibile (anche a blocco chiuso), così l'admin lo vede
+  // senza aprire il filtro.
+  const exposesInternal = filterExposesInternalDocs(value);
+
   return (
     <div className="ml-6 flex flex-col gap-2 border-l border-line pl-3">
       <button
@@ -245,6 +271,18 @@ export function WidgetSectionFilter({
         {t("widget:filter.toggle")}
         {value !== undefined && summary && <span className="text-signal-dim">({summary})</span>}
       </button>
+
+      {exposesInternal && (
+        <p
+          role="alert"
+          className="flex items-start gap-1.5 rounded-sm border border-signal/30 bg-signal/10 px-2 py-1.5 font-mono text-[11px] text-signal"
+        >
+          <span aria-hidden className="leading-none">
+            ⚠
+          </span>
+          <span>{t("widget:filter.internalWarning")}</span>
+        </p>
+      )}
 
       {open && (
         <div className="flex flex-col gap-2">
@@ -404,9 +442,7 @@ function FilterGroup({
               if (el) el.indeterminate = !kindChecked && hasFineSelection;
             }}
             disabled={disabled}
-            onChange={(event) =>
-              onToggleKind(kind, event.target.checked, groupPaths, groupSlugs)
-            }
+            onChange={(event) => onToggleKind(kind, event.target.checked, groupPaths, groupSlugs)}
           />
           <span className={disabled ? "text-fg-faint" : "text-fg-muted"}>{label}</span>
           <span className="text-fg-faint">{count}</span>
@@ -471,9 +507,7 @@ function FilterNodes({
 
   // Livello 0 a filo; i livelli annidati hanno una guida verticale (rail).
   const listClass =
-    depth === 0
-      ? "flex flex-col gap-0.5"
-      : "ml-2 flex flex-col gap-0.5 border-l border-line pl-2";
+    depth === 0 ? "flex flex-col gap-0.5" : "ml-2 flex flex-col gap-0.5 border-l border-line pl-2";
 
   return (
     <ul className={listClass}>

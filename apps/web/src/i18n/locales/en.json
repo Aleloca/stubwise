@@ -1201,7 +1201,8 @@
       "coveredBy": "Covered by the selected section \"{{path}}\"",
       "coveredByGroup": "Covered by the {{group}} group",
       "remove": "Remove filter",
-      "emptyWarning": "The widget will expose nothing from {{repository}}: select at least one section or page."
+      "emptyWarning": "The widget will expose nothing from {{repository}}: select at least one section or page.",
+      "internalWarning": "This widget exposes internal documentation (technical/functional): it contains know-how and possibly confidential data. For a public widget use only the Product group."
     },
     "conversations": {
       "link": "Widget conversations",

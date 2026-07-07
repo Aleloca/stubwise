@@ -301,12 +301,20 @@ function WidgetEditor({
       const enabledRepositoryIds = checked
         ? [...current.enabledRepositoryIds, id]
         : current.enabledRepositoryIds.filter((existing) => existing !== id);
-      // Deselezionare un repo scarta il suo filtro fine: la chiave DEVE restare
-      // ⊆ enabledRepositoryIds (il server risponde 422 altrimenti).
-      const repositoryFilters =
-        !checked && id in current.repositoryFilters
-          ? omitKey(current.repositoryFilters, id)
-          : current.repositoryFilters;
+      let repositoryFilters = current.repositoryFilters;
+      if (!checked && id in current.repositoryFilters) {
+        // Deselezionare un repo scarta il suo filtro fine: la chiave DEVE restare
+        // ⊆ enabledRepositoryIds (il server risponde 422 altrimenti).
+        repositoryFilters = omitKey(current.repositoryFilters, id);
+      } else if (checked && !(id in current.repositoryFilters)) {
+        // DEFAULT SICURO: un repo ABILITATO ex novo (senza entry) nasce orientato
+        // al product, non "repo intero" (che esporrebbe anche technical/functional
+        // interni). L'admin può poi allargare la selezione: il default è pubblico.
+        repositoryFilters = {
+          ...current.repositoryFilters,
+          [id]: { paths: [], slugs: [], kinds: ["product"] },
+        };
+      }
       return { ...current, enabledRepositoryIds, repositoryFilters };
     });
     if (saveMutation.isError) saveMutation.reset();
@@ -458,9 +466,7 @@ function WidgetEditor({
           aria-label={t("widget:instructions")}
           className="rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1.5 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim disabled:cursor-not-allowed disabled:opacity-60"
         />
-        <span className="font-mono text-[10px] text-fg-faint">
-          {t("widget:instructionsHint")}
-        </span>
+        <span className="font-mono text-[10px] text-fg-faint">{t("widget:instructionsHint")}</span>
       </label>
 
       <div className="flex flex-col gap-1">
