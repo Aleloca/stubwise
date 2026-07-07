@@ -568,6 +568,13 @@ export async function runProductPhase(
     // Budget PER VERTICALE: ogni superficie riparte col suo tetto pieno, così le superfici
     // successive non restano affamate quando le prime esauriscono il budget.
     let verticalPages = 0;
+    // Tetto sui RUN (non solo sulle pagine): il guide-loop tenta un journey per volta, ma
+    // skip/fallimenti non creano una pagina pur costando run (fino a 2 con retry). Senza questo
+    // contatore una verticale con molti journey che skippano non è limitata dal budget pagine
+    // → run worst-case non bounded. Ogni journey TENTATO (qualunque esito) incrementa; il tetto
+    // = maxProductPages * 2 tentativi (il x2 lascia spazio a skip/fallimenti senza esplodere).
+    let verticalAttempts = 0;
+    const maxVerticalAttempts = deps.maxProductPages * 2;
 
     // Fonti della verticale: nodi functional pertinenti (con difesa passiva), usati sia per
     // i summaries sia per le limitations della FAQ.
@@ -630,6 +637,13 @@ export async function runProductPhase(
     // ── GUIDE (una per journey pertinente) ──────────────────────────────────────────────
     for (const journey of journeys) {
       if (verticalPages >= deps.maxProductPages) break;
+      if (verticalAttempts >= maxVerticalAttempts) {
+        console.error(
+          `[stubwise-worker] docs product: tetto tentativi (${maxVerticalAttempts}) raggiunto per "${surface.name}" → guide-loop interrotto`,
+        );
+        break;
+      }
+      verticalAttempts += 1;
       const guidePrompt = buildProductGuidePrompt({
         surface,
         briefContext,

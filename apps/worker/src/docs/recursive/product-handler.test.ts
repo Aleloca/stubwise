@@ -439,6 +439,51 @@ describe("runProductPhase", () => {
     expect(nodes.length).toBe(2);
   });
 
+  it("tetto TENTATIVI per verticale: molti journey che skippano → i run guida si fermano al tetto (maxProductPages*2)", async () => {
+    const { db } = testDb;
+    // Una sola superficie pubblica, ma MOLTI journey esterni che l'agente salta TUTTI. Uno
+    // skip non crea una pagina (verticalPages resta fermo) ma costa un run: senza il tetto
+    // sui tentativi il guide-loop girerebbe per tutti gli 8 journey. Con maxProductPages=2 il
+    // tetto è 2*2=4 tentativi → il loop si ferma dopo 4 run guida.
+    const brief = briefFixture({
+      journeys: Array.from({ length: 8 }, (_, i) => ({
+        actor: "Customer",
+        title: `Journey ${i}`,
+        summary: "an external flow",
+      })),
+    });
+    const generationId = await newGeneration(db, brief);
+    await insertFunctional(db, generationId, { sourcePaths: ["apps/web/x"] });
+
+    let guideRuns = 0;
+    const runner = new FakeAgentRunner({
+      script: (opts): AgentRunResult => {
+        const kind = promptKind(opts);
+        if (kind === "guide") {
+          guideRuns += 1;
+          return {
+            output: `${PRODUCT_SKIP_MARKER}\nthis journey belongs to another surface`,
+            exitCode: 0,
+            usage: USAGE,
+          };
+        }
+        return { output: validPageBody("P"), exitCode: 0, usage: USAGE };
+      },
+    });
+
+    const result = await runProductPhase(
+      baseDeps(db, runner, { maxProductPages: 2 }),
+      generationId,
+    );
+    // 4 tentativi (2*2), tutti skip: nessuna guida creata; i run guida si fermano a 4 e NON
+    // proseguono per gli 8 journey.
+    expect(guideRuns).toBe(4);
+    const nodes = await productNodes(db, generationId);
+    // Nessun nodo guida creato; resta la radice (la FAQ può saltare per assenza di limitazioni).
+    expect(nodes.every((n) => !n.title.startsWith("Journey "))).toBe(true);
+    expect(result.pagesCreated).toBeGreaterThanOrEqual(1);
+  });
+
   it("budget PER VERTICALE: 2 superfici con tetto 2 → ciascuna fino a 2, la seconda NON affamata", async () => {
     const { db } = testDb;
     // Due superfici pubbliche UI eleggibili → due verticali. Col budget PER VERTICALE

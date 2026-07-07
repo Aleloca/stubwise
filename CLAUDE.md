@@ -59,7 +59,10 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   attive: `select id from doc_generations where status in ('running','paused');`
   deve essere vuoto. Le `paused` contano: una pausa per limite del provider è
   comunque una generazione viva (worktree registrato in-memoria) e può restarci
-  per ore.
+  per ore. La fase **product** allunga la finestra di finalize (decine di run): un
+  crash del worker DENTRO product/finalize lascia la generazione `running` per
+  sempre (nessun nodo claimabile) → recovery manuale: `update doc_generations set
+  status='failed', error='worker crash during finalize' where id=...`.
 - **Concorrenza:** `WORKER_CONCURRENCY` (default 2) e `DATABASE_POOL_MAX` (default
   10, alzalo in proporzione) sono env. In prod attuale: 5 e 20.
 - **`WORKER_STALE_MINUTES`** va tenuto coerente in 3 punti (config.ts, compose,
