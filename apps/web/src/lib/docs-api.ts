@@ -3,6 +3,7 @@ import type {
   DocGenerationTrigger,
   DocJobStatus,
   DocPageKind,
+  ProductExclusion,
   ProjectBrief,
 } from "@stubwise/shared";
 import { ApiError, api } from "./api";
@@ -178,16 +179,34 @@ export function resumeDocs(repositoryId: string): Promise<DocGeneration> {
 
 // --- Project brief (GET /api/repositories/:repositoryId/docs/brief) ---
 
-export type { ProjectBrief } from "@stubwise/shared";
+export type { ProjectBrief, ProductExclusion } from "@stubwise/shared";
+
+/** Metadati della generazione da cui provengono brief ed esclusioni (coerenza A3). */
+export interface DocBriefGeneration {
+  createdAt: string;
+  commitSha: string | null;
+}
+
+/**
+ * Risposta della route brief: il brief della generazione corrente, i metadati di
+ * quella generazione (data/commit) e le pagine product ESCLUSE dal verificatore
+ * segreti (Fase C) della STESSA generazione.
+ */
+export interface DocBriefResponse {
+  brief: ProjectBrief;
+  generation: DocBriefGeneration;
+  productExclusions: ProductExclusion[];
+}
 
 /**
  * Project brief della generazione corrente del repository: le "domande fondanti"
  * del prodotto (identità, attori, superfici, glossario, invarianti, journey e
  * fatti riservati) prodotte nel primo step dell'orientamento. Superficie interna
  * autenticata: include i `confidentialFacts` (per l'audit — NON entrano mai nella
- * documentazione pubblica). 404 se nessuna generazione del repo ha un brief.
+ * documentazione pubblica) e le `productExclusions` del verificatore segreti. 404
+ * se nessuna generazione del repo ha un brief.
  */
-export function getDocBrief(repositoryId: string): Promise<{ brief: ProjectBrief }> {
+export function getDocBrief(repositoryId: string): Promise<DocBriefResponse> {
   return api.get(`/api/repositories/${encodeURIComponent(repositoryId)}/docs/brief`);
 }
 

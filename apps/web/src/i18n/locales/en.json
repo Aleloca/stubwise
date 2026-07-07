@@ -1113,7 +1113,11 @@
       "confidentialAvoid": "Must not appear as",
       "surfaceAudience": "audience: {{audience}}",
       "journeyBy": "by {{actor}}",
-      "sectionEmpty": "// none"
+      "generatedAt": "Generated {{date}}",
+      "commit": "commit",
+      "sectionExclusions": "Pages excluded from public documentation",
+      "exclusionsNote": "The confidentiality checker blocked these product pages: they still leaked a confidential fact after one rewrite, so they were not published.",
+      "exclusionReason": "Reason"
     }
   },
   "search": {

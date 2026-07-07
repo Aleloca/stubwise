@@ -1113,7 +1113,11 @@
       "confidentialAvoid": "Non deve apparire come",
       "surfaceAudience": "pubblico: {{audience}}",
       "journeyBy": "di {{actor}}",
-      "sectionEmpty": "// nessuno"
+      "generatedAt": "Generato {{date}}",
+      "commit": "commit",
+      "sectionExclusions": "Pagine escluse dalla documentazione pubblica",
+      "exclusionsNote": "Il verificatore dei segreti ha bloccato queste pagine product: dopo una riscrittura lasciavano ancora trapelare un fatto riservato, quindi non sono state pubblicate.",
+      "exclusionReason": "Motivo"
     }
   },
   "search": {

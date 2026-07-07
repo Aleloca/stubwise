@@ -387,8 +387,13 @@ async function maybeFinalize(deps: DispatchNodeDeps, generationId: string): Prom
   // entrano nella finalize come gli altri (proiettati/embeddati/contati). È interamente
   // best-effort e additiva: brief assente / zero superfici pubbliche / budget 0 → salto
   // pulito, generazione invariata; un fallimento non deve MAI impedire la finalizzazione.
+  // Le esclusioni del verificatore segreti (Fase C) prodotte dalla fase product: la fase
+  // gira PRIMA della finalize, che sovrascrive `doc_generations.stats`; quindi le esclusioni
+  // NON possono essere scritte dalla fase product e vanno INOLTRATE alla finalize, che le
+  // compone nelle stats definitive. Vuoto se la fase product fallisce/è disattiva.
+  let productExclusions: Awaited<ReturnType<typeof runProductPhase>>["productExclusions"] = [];
   try {
-    await runProductPhase(
+    const productResult = await runProductPhase(
       {
         db,
         runner: deps.runner,
@@ -401,6 +406,7 @@ async function maybeFinalize(deps: DispatchNodeDeps, generationId: string): Prom
       },
       generationId,
     );
+    productExclusions = productResult.productExclusions;
   } catch (error) {
     console.error(
       `[stubwise-worker] fase product della generazione ${generationId} fallita (best-effort): ${describe(error)}`,
@@ -409,7 +415,7 @@ async function maybeFinalize(deps: DispatchNodeDeps, generationId: string): Prom
 
   let outcome: "succeeded" | "failed";
   try {
-    outcome = await finalizeGeneration({ db, ...deps.finalize }, generationId);
+    outcome = await finalizeGeneration({ db, ...deps.finalize }, generationId, productExclusions);
   } catch (error) {
     console.error(
       `[stubwise-worker] finalizzazione della generazione ${generationId} fallita: ${describe(error)}`,

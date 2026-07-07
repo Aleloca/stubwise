@@ -102,6 +102,18 @@ export interface FinalizeGenerationDeps {
 
 export type FinalizeOutcome = "succeeded" | "failed";
 
+/**
+ * Una pagina product ESCLUSA dal verificatore segreti (Fase C, fail-closed), riportata nelle
+ * stats per l'ispezionabilità (tab brief SPA). Rispecchia `ProductExclusion` del product
+ * handler; qui è locale (finalize non dipende dal worker product handler).
+ */
+interface ProductExclusionStat {
+  /** Titolo della pagina esclusa. */
+  title: string;
+  /** Il fatto/passaggio incriminato (già troncato dal product handler). */
+  fact: string;
+}
+
 /** Statistiche della generazione del DAG salvate in `doc_generations.stats` (jsonb). */
 interface DagGenerationStats {
   /** Nodi totali della generazione. */
@@ -116,6 +128,14 @@ interface DagGenerationStats {
   pages: number;
   /** Chunk con embedding inseriti. */
   chunks: number;
+  /**
+   * Pagine product ESCLUSE dal verificatore segreti (Fase C). Presente SOLO se non vuoto: le
+   * generazioni senza esclusioni (o pre-Fase-C) non hanno il campo. La fase product gira
+   * PRIMA della finalize (che sovrascrive `stats`), quindi le esclusioni NON possono essere
+   * scritte dal product handler: sono passate qui da node-dispatch (parametro
+   * `productExclusions`) e composte nelle stats definitive.
+   */
+  productExclusions?: ProductExclusionStat[];
 }
 
 /**
@@ -278,6 +298,13 @@ async function projectPages(
 export async function finalizeGeneration(
   deps: FinalizeGenerationDeps,
   generationId: string,
+  /**
+   * Pagine product escluse dal verificatore segreti (Fase C), passate DALLA fase product
+   * (node-dispatch le raccoglie da `runProductPhase` e le inoltra qui): la finalize le
+   * compone nelle `stats` definitive, che altrimenti sovrascriverebbero qualsiasi cosa la
+   * fase product avesse scritto. Default: nessuna esclusione.
+   */
+  productExclusions: readonly ProductExclusionStat[] = [],
 ): Promise<FinalizeOutcome> {
   const { db, embeddingClient } = deps;
 
@@ -377,6 +404,11 @@ export async function finalizeGeneration(
         maxDepth: allNodes.reduce((m, n) => Math.max(m, n.depth), 0),
         pages: projected.length,
         chunks: embedded.chunkCount,
+        // Le esclusioni del verificatore segreti (Fase C) entrano SOLO se presenti: campo
+        // assente quando la fase product non ne ha prodotte (o è disattiva).
+        ...(productExclusions.length > 0
+          ? { productExclusions: [...productExclusions] }
+          : {}),
       } satisfies DagGenerationStats;
     });
   } catch (error) {

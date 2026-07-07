@@ -133,3 +133,16 @@ export const projectBriefSchema = z.object({
   existingSources: z.array(z.string()),
 });
 export type ProjectBrief = z.infer<typeof projectBriefSchema>;
+
+/**
+ * Una pagina `product` ESCLUSA dal verificatore segreti (Fase C, fail-closed): dopo la
+ * riscrittura mirata ha ancora fatto passare (o non era più parsabile) un fatto riservato,
+ * quindi NON è stata pubblicata. Persistita in `doc_generations.stats.productExclusions` dal
+ * worker (finalize) ed esposta dalla route `GET .../docs/brief` alla tab Brief della SPA per
+ * l'ispezionabilità (title = pagina esclusa, fact = fatto/passaggio incriminato troncato).
+ */
+export const productExclusionSchema = z.object({
+  title: z.string(),
+  fact: z.string(),
+});
+export type ProductExclusion = z.infer<typeof productExclusionSchema>;

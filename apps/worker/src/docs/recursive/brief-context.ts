@@ -30,7 +30,11 @@ const cache = new Map<string, string | null>();
  * Carica il contesto del brief per la generazione, cache per-processo. Ritorna la stringa
  * da passare a `buildExplorePrompt`/`buildSynthesizePrompt` come `briefContext`, oppure
  * `undefined` se la generazione non ha brief (→ prompt byte-identici a prima). Best-effort:
- * un errore DB ritorna `undefined` (la generazione non si rompe mai per il brief).
+ * un errore DB ritorna `undefined` (la generazione non si rompe mai per il brief) MA NON
+ * cachea nulla: un errore transitorio (DB momentaneamente irraggiungibile) non deve
+ * "avvelenare" la cache con un null permanente — il caricamento successivo deve poter
+ * ritentare e trovare il brief. Solo un ESITO valido (brief presente o assente per davvero)
+ * viene cacheato.
  */
 export async function loadBriefContext(
   db: Db,
@@ -39,7 +43,7 @@ export async function loadBriefContext(
   if (cache.has(generationId)) {
     return cache.get(generationId) ?? undefined;
   }
-  let context: string | null = null;
+  let context: string | null;
   try {
     const [row] = await db
       .select({ brief: docGenerations.brief })
@@ -50,7 +54,10 @@ export async function loadBriefContext(
     // prompt che genera testo pubblico.
     context = brief !== null ? briefPromptContext(brief) : null;
   } catch {
-    context = null;
+    // Errore DB (potenzialmente transitorio): NON cacheare — ritorna undefined e lascia
+    // che il prossimo caricamento ritenti. Cacheare null qui renderebbe il brief invisibile
+    // per tutta la vita del processo anche dopo il ripristino del DB (nota A3).
+    return undefined;
   }
   cache.set(generationId, context);
   return context ?? undefined;

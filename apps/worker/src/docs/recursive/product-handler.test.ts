@@ -11,6 +11,8 @@ import {
   PRODUCT_PAGE_END_MARKER,
   PRODUCT_PAGE_START_MARKER,
   PRODUCT_SKIP_MARKER,
+  SECRETS_DETAIL_MARKER,
+  SECRETS_VERDICT_MARKER,
   type ProjectBrief,
 } from "@stubwise/docs-engine";
 import { and, eq } from "drizzle-orm";
@@ -49,7 +51,20 @@ afterAll(async () => {
   await testDb.stop();
 });
 
-/** Brief con una superficie pubblica UI, una interna, un'API, + due journey esterni. */
+/** Un fatto riservato pronto all'uso (per i test del verificatore segreti). */
+const SECRET_FACT = {
+  fact: "18% markup on every top-up",
+  reason: "pricing strategy",
+  source: "apps/admin/pricing.ts",
+  avoid: "never state a percentage margin or wholesale price",
+} as const;
+
+/**
+ * Brief con una superficie pubblica UI, una interna, un'API, + due journey esterni. Di
+ * DEFAULT `confidentialFacts` è VUOTO: così il verificatore segreti (Fase C) è SALTATO
+ * (fail-open dichiarato) e questi test restano identici al comportamento B3 (nessun run
+ * audit). I test del verificatore passano `confidentialFacts: [SECRET_FACT]` esplicitamente.
+ */
 function briefFixture(overrides: Partial<ProjectBrief> = {}): ProjectBrief {
   return {
     identity: "A top-up product for prepaid accounts.",
@@ -75,14 +90,7 @@ function briefFixture(overrides: Partial<ProjectBrief> = {}): ProjectBrief {
     ],
     glossary: [{ term: "Top-up", definition: "adding credit to an account" }],
     invariants: ["A top-up always has an amount"],
-    confidentialFacts: [
-      {
-        fact: "18% markup on every top-up",
-        reason: "pricing strategy",
-        source: "apps/admin/pricing.ts",
-        avoid: "never state a percentage margin or wholesale price",
-      },
-    ],
+    confidentialFacts: [],
     journeys: [
       { actor: "Customer", title: "Buy a top-up", summary: "purchase credit" },
       { actor: "Customer", title: "Check your balance", summary: "see remaining credit" },
@@ -203,13 +211,31 @@ function baseDeps(
   };
 }
 
-/** Classifica un prompt product (root/guide/faq) dal suo contenuto testuale. */
-function promptKind(opts: AgentRunOptions): "root" | "guide" | "faq" | "other" {
+/**
+ * Classifica un prompt (generazione product root/guide/faq, oppure verificatore segreti
+ * audit/rewrite) dal suo contenuto testuale. `audit` = prompt del red-teamer; `rewrite` =
+ * prompt della riscrittura mirata dopo una violazione.
+ */
+function promptKind(
+  opts: AgentRunOptions,
+): "root" | "guide" | "faq" | "audit" | "rewrite" | "other" {
   const p = opts.prompt;
+  if (p.includes("You are a RED-TEAMER")) return "audit";
+  if (p.includes("A confidentiality audit flagged a leak")) return "rewrite";
   if (p.includes("WRITE THE ROOT PAGE")) return "root";
   if (p.includes("WRITE A STEP-BY-STEP HOW-TO GUIDE")) return "guide";
   if (p.includes("WRITE THE FAQ PAGE")) return "faq";
   return "other";
+}
+
+/** Un output di audit `CLEAN` (nessuna violazione). */
+function auditClean(): string {
+  return [SECRETS_VERDICT_MARKER, "CLEAN", SECRETS_DETAIL_MARKER, ""].join("\n");
+}
+
+/** Un output di audit `VIOLATION` col detail (il passaggio incriminato). */
+function auditViolation(detail = "Fact: 18% markup. Passage: 'a 18% margin is added'."): string {
+  return [SECRETS_VERDICT_MARKER, "VIOLATION", SECRETS_DETAIL_MARKER, detail].join("\n");
 }
 
 async function productNodes(db: Db, generationId: string): Promise<DocNode[]> {
@@ -464,22 +490,28 @@ describe("runProductPhase", () => {
 
   it("il prompt product contiene la sezione NEVER-disclose dei segreti del brief", async () => {
     const { db } = testDb;
-    const generationId = await newGeneration(db, briefFixture());
+    const generationId = await newGeneration(
+      db,
+      briefFixture({ confidentialFacts: [SECRET_FACT] }),
+    );
     const runner = new FakeAgentRunner({
       script: (opts): AgentRunResult => {
         const kind = promptKind(opts);
+        if (kind === "audit") return { output: auditClean(), exitCode: 0, usage: USAGE };
         const output = kind === "guide" ? validGuideBody() : validPageBody("P");
         return { output, exitCode: 0, usage: USAGE };
       },
     });
     await runProductPhase(baseDeps(db, runner), generationId);
-    // Ogni run product deve portare la sezione NEVER-disclose col divieto categorico.
-    expect(runner.calls.length).toBeGreaterThan(0);
-    for (const call of runner.calls) {
+    // Solo i prompt di GENERAZIONE (root/guide/faq): l'audit invece riceve di proposito i
+    // fatti letterali (è il red-teamer) e va escluso da questa asserzione.
+    const genCalls = runner.calls.filter((c) => promptKind(c) !== "audit" && promptKind(c) !== "rewrite");
+    expect(genCalls.length).toBeGreaterThan(0);
+    for (const call of genCalls) {
       expect(call.prompt).toContain("NEVER disclose");
       expect(call.prompt).toContain("never state a percentage margin");
       // Asserzione NEGATIVA end-to-end: il valore letterale riservato del brief (la
-      // percentuale di markup) NON deve MAI comparire nel prompt product.
+      // percentuale di markup) NON deve MAI comparire nel prompt di GENERAZIONE product.
       expect(call.prompt).not.toContain("18%");
     }
   });
@@ -538,5 +570,235 @@ describe("runProductPhase", () => {
       .from(docChunks)
       .where(eq(docChunks.generationId, generationId));
     expect(chunks.some((c) => pageIds.has(c.pageId))).toBe(true);
+  });
+
+  // ── FASE C — verificatore segreti fail-closed ─────────────────────────────────────────
+
+  /**
+   * Un brief con UN fatto riservato, UNA superficie pubblica e UN solo journey: root + 1
+   * guida (la FAQ è saltata perché la fonte functional non ha heading di limitazione). Così
+   * il conteggio dei run audit è deterministico (2 pagine × 1 audit ciascuna nel caso pulito).
+   */
+  function secretsBrief(): ProjectBrief {
+    return briefFixture({
+      confidentialFacts: [SECRET_FACT],
+      journeys: [{ actor: "Customer", title: "Buy a top-up", summary: "purchase credit" }],
+    });
+  }
+
+  it("pagina pulita: audit CLEAN → nodo creato (explore + audit)", async () => {
+    const { db } = testDb;
+    const generationId = await newGeneration(db, secretsBrief());
+    await insertFunctional(db, generationId, { sourcePaths: ["apps/web/x"] });
+
+    let auditRuns = 0;
+    const runner = new FakeAgentRunner({
+      script: (opts): AgentRunResult => {
+        const kind = promptKind(opts);
+        if (kind === "audit") {
+          auditRuns += 1;
+          return { output: auditClean(), exitCode: 0, usage: USAGE };
+        }
+        const output = kind === "guide" ? validGuideBody() : validPageBody("P");
+        return { output, exitCode: 0, usage: USAGE };
+      },
+    });
+
+    const result = await runProductPhase(baseDeps(db, runner), generationId);
+    // root + 1 guida = 2 pagine, ciascuna con UN audit clean.
+    expect(result.pagesCreated).toBe(2);
+    expect(auditRuns).toBe(2);
+    expect(result.productExclusions).toEqual([]);
+    const nodes = await productNodes(db, generationId);
+    expect(nodes.length).toBe(2);
+  });
+
+  it("violazione → riscrittura → secondo audit CLEAN → nodo col body riscritto (4 run, nessuna esclusione)", async () => {
+    const { db } = testDb;
+    // Isolo la RADICE: un brief senza journey → solo la radice (no guide, no FAQ) così i 4
+    // run (explore + audit(violation) + rewrite + audit(clean)) sono tutti e soli della radice.
+    const generationId = await newGeneration(
+      db,
+      briefFixture({ confidentialFacts: [SECRET_FACT], journeys: [] }),
+    );
+
+    const rewrittenBody = validPageBody("Rewritten clean landing");
+    let auditRuns = 0;
+    const runner = new FakeAgentRunner({
+      script: (opts): AgentRunResult => {
+        const kind = promptKind(opts);
+        if (kind === "audit") {
+          auditRuns += 1;
+          // Primo audit → VIOLATION; secondo (sul body riscritto) → CLEAN.
+          return {
+            output: auditRuns === 1 ? auditViolation() : auditClean(),
+            exitCode: 0,
+            usage: USAGE,
+          };
+        }
+        if (kind === "rewrite") return { output: rewrittenBody, exitCode: 0, usage: USAGE };
+        return { output: validPageBody("Original with a 18% margin"), exitCode: 0, usage: USAGE };
+      },
+    });
+
+    const result = await runProductPhase(baseDeps(db, runner), generationId);
+    expect(result.pagesCreated).toBe(1);
+    expect(result.productExclusions).toEqual([]);
+    // 4 run per la radice: explore + audit + rewrite + audit.
+    expect(runner.calls.length).toBe(4);
+    expect(auditRuns).toBe(2);
+    // Il nodo porta il body RISCRITTO, non l'originale.
+    const nodes = await productNodes(db, generationId);
+    expect(nodes.length).toBe(1);
+    expect(nodes[0]?.body).toContain("Rewritten clean landing");
+    expect(nodes[0]?.body).not.toContain("Original with a 18% margin");
+  });
+
+  it("violazione persistente → pagina esclusa: stats.productExclusions con title+fact, nodo NON creato", async () => {
+    const { db } = testDb;
+    const generationId = await newGeneration(
+      db,
+      briefFixture({ confidentialFacts: [SECRET_FACT], journeys: [] }),
+    );
+
+    const runner = new FakeAgentRunner({
+      script: (opts): AgentRunResult => {
+        const kind = promptKind(opts);
+        // L'audit boccia SEMPRE (anche dopo la riscrittura) → esclusione fail-closed.
+        if (kind === "audit") {
+          return { output: auditViolation("Fact: 18% markup leaked here"), exitCode: 0, usage: USAGE };
+        }
+        if (kind === "rewrite") return { output: validPageBody("Still leaky"), exitCode: 0, usage: USAGE };
+        return { output: validPageBody("Root with a leak"), exitCode: 0, usage: USAGE };
+      },
+    });
+
+    const result = await runProductPhase(baseDeps(db, runner), generationId);
+    expect(result.pagesCreated).toBe(0);
+    expect(result.productExclusions.length).toBe(1);
+    expect(result.productExclusions[0]?.title).toBe("Customer Web App guide");
+    expect(result.productExclusions[0]?.fact).toContain("18% markup leaked here");
+    // Nessun nodo product creato (la radice è stata esclusa → verticale scartata).
+    const nodes = await productNodes(db, generationId);
+    expect(nodes.length).toBe(0);
+  });
+
+  it("confidentialFacts vuoto → nessun run audit (conteggio invariato rispetto a B3)", async () => {
+    const { db } = testDb;
+    // Default fixture: confidentialFacts vuoto → audit SALTATO (fail-open dichiarato).
+    const generationId = await newGeneration(db, briefFixture({ journeys: [] }));
+
+    let auditRuns = 0;
+    const runner = new FakeAgentRunner({
+      script: (opts): AgentRunResult => {
+        if (promptKind(opts) === "audit") auditRuns += 1;
+        return { output: validPageBody("Root"), exitCode: 0, usage: USAGE };
+      },
+    });
+
+    const result = await runProductPhase(baseDeps(db, runner), generationId);
+    expect(result.pagesCreated).toBe(1); // solo la radice (nessun journey)
+    expect(auditRuns).toBe(0); // NESSUN audit senza fatti riservati
+    // Un solo run: l'explore della radice (nessun audit) — invariato rispetto a B3.
+    expect(runner.calls.length).toBe(1);
+    expect(result.productExclusions).toEqual([]);
+  });
+
+  it("riscrittura non parsabile → pagina esclusa (fail-closed)", async () => {
+    const { db } = testDb;
+    const generationId = await newGeneration(
+      db,
+      briefFixture({ confidentialFacts: [SECRET_FACT], journeys: [] }),
+    );
+
+    let auditRuns = 0;
+    const runner = new FakeAgentRunner({
+      script: (opts): AgentRunResult => {
+        const kind = promptKind(opts);
+        if (kind === "audit") {
+          auditRuns += 1;
+          return { output: auditViolation(), exitCode: 0, usage: USAGE };
+        }
+        // La riscrittura NON emette i marcatori ===PAGE=== → parseProductPageOutput fallisce.
+        if (kind === "rewrite") return { output: "sorry, I cannot help with that", exitCode: 0, usage: USAGE };
+        return { output: validPageBody("Root with a leak"), exitCode: 0, usage: USAGE };
+      },
+    });
+
+    const result = await runProductPhase(baseDeps(db, runner), generationId);
+    expect(result.pagesCreated).toBe(0);
+    expect(result.productExclusions.length).toBe(1);
+    // Un solo audit: dopo la riscrittura non parsabile NON si ri-audita (fail-closed diretto).
+    expect(auditRuns).toBe(1);
+    const nodes = await productNodes(db, generationId);
+    expect(nodes.length).toBe(0);
+  });
+
+  it("le esclusioni sopravvivono alla finalize: doc_generations.stats.productExclusions", async () => {
+    const { db } = testDb;
+    // Due superfici pubbliche: la PRIMA pulita (nodi creati), la SECONDA con violazione
+    // persistente (esclusa). Così la generazione finalizza `succeeded` E porta l'esclusione.
+    const brief = briefFixture({
+      confidentialFacts: [SECRET_FACT],
+      journeys: [{ actor: "Customer", title: "Buy a top-up", summary: "purchase credit" }],
+      surfaces: [
+        {
+          name: "Customer Web App",
+          type: "web app",
+          rootPath: "apps/web",
+          audience: "customers",
+          internal: false,
+        },
+        {
+          name: "Partner Portal",
+          type: "web app",
+          rootPath: "apps/partner",
+          audience: "partners",
+          internal: false,
+        },
+      ],
+    });
+    const generationId = await newGeneration(db, brief);
+    await insertFunctional(db, generationId, { sourcePaths: ["apps/web/x"] });
+    await insertFunctional(db, generationId, { sourcePaths: ["apps/partner/y"] });
+
+    const runner = new FakeAgentRunner({
+      script: (opts): AgentRunResult => {
+        const kind = promptKind(opts);
+        if (kind === "audit") {
+          // La superficie "Partner Portal" perde: il suo body contiene il marcatore di leak.
+          const isPartner = opts.prompt.includes("Partner Portal");
+          return {
+            output: isPartner ? auditViolation("partner leak") : auditClean(),
+            exitCode: 0,
+            usage: USAGE,
+          };
+        }
+        if (kind === "rewrite") return { output: validPageBody("Still leaky partner"), exitCode: 0, usage: USAGE };
+        const output = kind === "guide" ? validGuideBody() : validPageBody("Landing");
+        return { output, exitCode: 0, usage: USAGE };
+      },
+    });
+
+    const productResult = await runProductPhase(baseDeps(db, runner), generationId);
+    expect(productResult.productExclusions.length).toBe(1);
+    expect(productResult.productExclusions[0]?.title).toBe("Partner Portal guide");
+
+    // La finalize riceve le esclusioni (come da node-dispatch) e le compone nelle stats.
+    const outcome = await finalizeGeneration(
+      { db, embeddingClient: createFakeEmbeddingClient() },
+      generationId,
+      productResult.productExclusions,
+    );
+    expect(outcome).toBe("succeeded");
+
+    const [gen] = await db
+      .select({ stats: docGenerations.stats })
+      .from(docGenerations)
+      .where(eq(docGenerations.id, generationId));
+    const stats = gen?.stats as { productExclusions?: { title: string; fact: string }[] };
+    expect(stats.productExclusions?.length).toBe(1);
+    expect(stats.productExclusions?.[0]?.title).toBe("Partner Portal guide");
+    expect(stats.productExclusions?.[0]?.fact).toContain("partner leak");
   });
 });

@@ -3,6 +3,7 @@ import {
   docGenerationTriggerSchema,
   docJobStatusSchema,
   docPageKindSchema,
+  productExclusionSchema,
   projectBriefSchema,
 } from "@stubwise/shared";
 import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
@@ -90,6 +91,18 @@ function toGeneration(row: DocGenerationRow): z.infer<typeof generationSchema> {
     finishedAt: row.finishedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
   };
+}
+
+/**
+ * Estrae in modo best-effort le esclusioni del verificatore segreti (Fase C) da
+ * `doc_generations.stats` (jsonb libero). `stats.productExclusions` è opzionale: assente
+ * (generazioni pre-Fase-C o senza esclusioni), legacy o corrotto → lista vuota (mai un 500).
+ */
+function productExclusionsFromStats(stats: unknown): z.infer<typeof productExclusionSchema>[] {
+  if (typeof stats !== "object" || stats === null) return [];
+  const raw = (stats as { productExclusions?: unknown }).productExclusions;
+  const parsed = z.array(productExclusionSchema).safeParse(raw);
+  return parsed.success ? parsed.data : [];
 }
 
 /** Nodo dell'albero/sidebar: quanto basta per renderizzare la navigazione. */
@@ -444,10 +457,17 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
    * rilevato. Il brief è prodotto nel primo step dell'orientamento e persistito su
    * `doc_generations.brief`; è nullable (run brief fallito/non parsabile → assente).
    *
-   * Selezione: la generazione PIÙ RECENTE del repository che abbia un brief non nullo
-   * (la `currentDocGenerationId` può essere ancora null prima della prima finalize,
-   * mentre una generazione running/paused può già aver persistito il brief). 404 se il
-   * repository non esiste O se nessuna generazione ha un brief.
+   * Selezione COERENTE (nota A3): si preferisce la generazione CORRENTE
+   * (`repositories.currentDocGenerationId`) — quella effettivamente proiettata nelle
+   * pagine visibili — così brief, esclusioni del verificatore segreti e metadati
+   * (data/commit) provengono TUTTI dalla stessa generazione. Fallback: la generazione
+   * PIÙ RECENTE con un brief non nullo (la `currentDocGenerationId` può essere ancora
+   * null PRIMA della prima finalize, mentre una running/paused ha già persistito il
+   * brief). 404 se il repository non esiste O se nessuna generazione ha un brief.
+   *
+   * Risposta: `{ brief, generation: { createdAt, commitSha }, productExclusions }` —
+   * le esclusioni escono da `doc_generations.stats.productExclusions` della STESSA
+   * generazione (fail-closed della Fase C, per l'ispezionabilità).
    */
   app.get(
     "/repositories/:repositoryId/docs/brief",
@@ -456,7 +476,14 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       schema: {
         params: repositoryIdParamsSchema,
         response: {
-          200: z.object({ brief: projectBriefSchema }),
+          200: z.object({
+            brief: projectBriefSchema,
+            generation: z.object({
+              createdAt: z.string(),
+              commitSha: z.string().nullable(),
+            }),
+            productExclusions: z.array(productExclusionSchema),
+          }),
           404: errorSchema,
           ...authErrorResponses,
         },
@@ -466,22 +493,53 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       const { repositoryId } = request.params;
 
       const [repository] = await app.db
-        .select({ id: repositories.id })
+        .select({
+          id: repositories.id,
+          currentDocGenerationId: repositories.currentDocGenerationId,
+        })
         .from(repositories)
         .where(eq(repositories.id, repositoryId));
       if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
 
-      const [gen] = await app.db
-        .select({ brief: docGenerations.brief })
-        .from(docGenerations)
-        .where(
-          and(
-            eq(docGenerations.repositoryId, repositoryId),
-            sql`${docGenerations.brief} is not null`,
-          ),
-        )
-        .orderBy(desc(docGenerations.createdAt))
-        .limit(1);
+      const cols = {
+        brief: docGenerations.brief,
+        stats: docGenerations.stats,
+        createdAt: docGenerations.createdAt,
+        commitSha: docGenerations.commitSha,
+      };
+
+      // Preferenza: la generazione CORRENTE (se ha un brief). Fallback: la più recente con
+      // un brief non nullo (caso pre-finalize: currentDocGenerationId ancora null).
+      let gen: {
+        brief: unknown;
+        stats: unknown;
+        createdAt: Date;
+        commitSha: string | null;
+      } | undefined;
+      if (repository.currentDocGenerationId) {
+        [gen] = await app.db
+          .select(cols)
+          .from(docGenerations)
+          .where(
+            and(
+              eq(docGenerations.id, repository.currentDocGenerationId),
+              sql`${docGenerations.brief} is not null`,
+            ),
+          );
+      }
+      if (!gen) {
+        [gen] = await app.db
+          .select(cols)
+          .from(docGenerations)
+          .where(
+            and(
+              eq(docGenerations.repositoryId, repositoryId),
+              sql`${docGenerations.brief} is not null`,
+            ),
+          )
+          .orderBy(desc(docGenerations.createdAt))
+          .limit(1);
+      }
       if (!gen?.brief) {
         return apiError(reply, 404, "brief_not_found", "No project brief available");
       }
@@ -493,7 +551,19 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       if (!parsed.success) {
         return apiError(reply, 404, "brief_not_found", "No project brief available");
       }
-      return { brief: parsed.data };
+
+      // Esclusioni del verificatore segreti dalla STESSA generazione: campo opzionale di
+      // stats, validato best-effort (assente/legacy/corrotto → lista vuota, mai un 500).
+      const exclusions = productExclusionsFromStats(gen.stats);
+
+      return {
+        brief: parsed.data,
+        generation: {
+          createdAt: gen.createdAt.toISOString(),
+          commitSha: gen.commitSha,
+        },
+        productExclusions: exclusions,
+      };
     },
   );
 

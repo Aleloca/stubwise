@@ -458,6 +458,7 @@ describe("GET /api/repositories/:repositoryId/docs/brief", () => {
   async function seedGenerationWithBrief(
     projectId: string,
     brief: unknown,
+    extra: { commitSha?: string; stats?: unknown } = {},
   ): Promise<string> {
     const [gen] = await testDb.db
       .insert(docGenerations)
@@ -466,6 +467,8 @@ describe("GET /api/repositories/:repositoryId/docs/brief", () => {
         status: "succeeded",
         trigger: "manual",
         brief,
+        commitSha: extra.commitSha ?? null,
+        stats: extra.stats ?? null,
         startedAt: new Date(),
         finishedAt: new Date(),
       })
@@ -473,9 +476,9 @@ describe("GET /api/repositories/:repositoryId/docs/brief", () => {
     return gen!.id;
   }
 
-  it("con brief: 200 col brief INTERO incluso confidentialFacts", async () => {
+  it("con brief: 200 col brief INTERO incluso confidentialFacts + metadati generazione", async () => {
     const project = await insertProject(testDb.db);
-    await seedGenerationWithBrief(project.id, BRIEF);
+    await seedGenerationWithBrief(project.id, BRIEF, { commitSha: "deadbeef1234" });
 
     const res = await app.inject({
       method: "GET",
@@ -483,10 +486,78 @@ describe("GET /api/repositories/:repositoryId/docs/brief", () => {
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(200);
-    const body = res.json() as { brief: typeof BRIEF };
+    const body = res.json() as {
+      brief: typeof BRIEF;
+      generation: { createdAt: string; commitSha: string | null };
+      productExclusions: { title: string; fact: string }[];
+    };
     expect(body.brief).toEqual(BRIEF);
     // La superficie interna autenticata ESPONE i fatti riservati (per l'audit).
     expect(body.brief.confidentialFacts[0]!.fact).toBe("18% markup");
+    // Metadati della generazione da cui proviene il brief (coerenza A3).
+    expect(typeof body.generation.createdAt).toBe("string");
+    expect(body.generation.commitSha).toBe("deadbeef1234");
+    // Nessuna esclusione (stats null) → lista vuota, mai 500.
+    expect(body.productExclusions).toEqual([]);
+  });
+
+  it("preferisce la generazione CORRENTE (currentDocGenerationId) alla più recente con brief", async () => {
+    const project = await insertProject(testDb.db);
+    // Una generazione CORRENTE (più vecchia) e una più recente NON corrente: la route deve
+    // restituire la CORRENTE (coerenza con le pagine effettivamente proiettate).
+    const currentId = await seedGenerationWithBrief(
+      project.id,
+      { ...BRIEF, identity: "CURRENT generation brief" },
+      { commitSha: "aaaaaaaa1111" },
+    );
+    await new Promise((r) => setTimeout(r, 5));
+    await seedGenerationWithBrief(
+      project.id,
+      { ...BRIEF, identity: "NEWER non-current brief" },
+      { commitSha: "bbbbbbbb2222" },
+    );
+    await testDb.db
+      .update(repositories)
+      .set({ currentDocGenerationId: currentId })
+      .where(eq(repositories.id, project.id));
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/repositories/${project.id}/docs/brief`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      brief: { identity: string };
+      generation: { commitSha: string | null };
+    };
+    expect(body.brief.identity).toBe("CURRENT generation brief");
+    expect(body.generation.commitSha).toBe("aaaaaaaa1111");
+  });
+
+  it("espone productExclusions da stats.productExclusions della stessa generazione", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await seedGenerationWithBrief(project.id, BRIEF, {
+      stats: {
+        pages: 3,
+        productExclusions: [{ title: "Pricing guide", fact: "leaked the 18% markup" }],
+      },
+    });
+    await testDb.db
+      .update(repositories)
+      .set({ currentDocGenerationId: genId })
+      .where(eq(repositories.id, project.id));
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/repositories/${project.id}/docs/brief`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { productExclusions: { title: string; fact: string }[] };
+    expect(body.productExclusions).toEqual([
+      { title: "Pricing guide", fact: "leaked the 18% markup" },
+    ]);
   });
 
   it("brief assente (nessuna generazione con brief): 404", async () => {

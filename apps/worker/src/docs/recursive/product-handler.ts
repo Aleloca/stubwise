@@ -4,10 +4,14 @@ import {
   buildProductFaqPrompt,
   buildProductGuidePrompt,
   buildProductRootPrompt,
+  buildSecretsAuditPrompt,
+  buildSecretsRewritePrompt,
   parseProductGuideOutput,
   parseProductPageOutput,
+  parseSecretsAuditOutput,
   pathCovers,
   slugForNode,
+  type BriefConfidentialFact,
   type BriefJourney,
   type BriefSurface,
   type ProjectBrief,
@@ -92,10 +96,33 @@ export interface RunProductPhaseDeps {
   provider?: ResolvedProvider;
 }
 
-/** Esito della fase product: quante pagine sono state create (per il log del chiamante). */
+/**
+ * Una pagina product ESCLUSA dal verificatore segreti (Fase C): dopo la riscrittura mirata
+ * ha ancora fatto passare (o non è più parsabile) un fatto riservato → non pubblicata. Serve
+ * all'ispezionabilità (stats + tab brief SPA): titolo della pagina e motivo (il detail
+ * dell'audit, troncato).
+ */
+export interface ProductExclusion {
+  /** Titolo della pagina esclusa. */
+  title: string;
+  /** Il fatto/passaggio incriminato dall'audit, troncato a 200 char per stats/UI. */
+  fact: string;
+}
+
+/** Detail di un'esclusione troncato per stats/UI (evita jsonb/log gonfiati). */
+const EXCLUSION_FACT_MAX = 200;
+
+/** Esito della fase product: pagine create + esclusioni del verificatore segreti. */
 export interface ProductPhaseResult {
   /** Pagine product create (radici + guide + FAQ) ed effettivamente `done` nel DAG. */
   pagesCreated: number;
+  /**
+   * Pagine ESCLUSE dal verificatore segreti (Fase C, fail-closed): la finalize le riporta in
+   * `doc_generations.stats.productExclusions` (vedi node-dispatch, che le passa alla
+   * finalize DOPO questa fase — la finalize sovrascrive `stats`, quindi le esclusioni non
+   * possono essere scritte qui direttamente).
+   */
+  productExclusions: ProductExclusion[];
 }
 
 /**
@@ -286,6 +313,136 @@ async function runProductPage(
   return { kind: "failed", costUsd };
 }
 
+/** Esito di un run singolo dell'agente (audit/riscrittura): output crudo o fallimento. */
+type SingleRun = { ok: true; output: string; costUsd: number } | { ok: false; costUsd: number };
+
+/**
+ * Esegue UN run dell'agente per un prompt e ne ritorna l'output CRUDO (nessun parse, nessun
+ * retry): usato dal verificatore segreti (audit e riscrittura), che gestisce da sé la logica
+ * di verdetto/riscrittura. Un errore o un limite del provider → `{ ok: false }` (il chiamante
+ * decide, fail-closed). Il costo è sempre riportato.
+ */
+async function runAgentOnce(deps: RunProductPhaseDeps, prompt: string): Promise<SingleRun> {
+  const providerOpt = deps.provider !== undefined ? { provider: deps.provider } : {};
+  try {
+    const result = await deps.runner.run({
+      cwd: deps.worktreeDir,
+      prompt,
+      model: deps.model,
+      permissionMode: "plan",
+      maxTurns: deps.maxTurns,
+      timeoutMs: deps.agentTimeoutMs,
+      ...providerOpt,
+    });
+    const costUsd = result.usage?.totalCostUsd ?? 0;
+    if (isLimitError(result)) return { ok: false, costUsd };
+    return { ok: true, output: result.output, costUsd };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[stubwise-worker] docs product: audit/riscrittura fallita (${message})`);
+    return { ok: false, costUsd: 0 };
+  }
+}
+
+/**
+ * Esito del VERIFICATORE segreti (Fase C) su una pagina product già generata:
+ *  - `keep`: la pagina è pubblicabile — `body` è quello DEFINITIVO (originale se `clean` al
+ *    primo audit, oppure il body RISCRITTO se una violazione è stata neutralizzata e il
+ *    secondo audit è `clean`). `costUsd` è il costo aggiuntivo di audit+riscrittura.
+ *  - `exclude`: la pagina è ESCLUSA (fail-closed) — resta in violazione dopo una riscrittura,
+ *    o la riscrittura non è parsabile, o l'audit è fallito. `detail` è il motivo (per stats).
+ */
+type AuditResult =
+  | { verdict: "keep"; body: string; costUsd: number }
+  | { verdict: "exclude"; detail: string; costUsd: number };
+
+/**
+ * VERIFICATORE SEGRETI (Fase C, fail-closed) di UNA pagina product già generata, PRIMA di
+ * creare il nodo. Vedi `packages/docs-engine/src/secrets.ts` per i contratti.
+ *
+ * ── FAIL-OPEN DICHIARATO (unico caso limite) ─────────────────────────────────────────────
+ * Se `confidentialFacts` è VUOTO l'audit è SALTATO e la pagina è tenuta com'è: senza una
+ * lista di fatti riservati non esiste alcuna violazione DEFINIBILE (l'auditor non avrebbe
+ * nulla contro cui verificare). È l'unico punto in cui la pipeline è fail-OPEN, ed è
+ * intenzionale e documentato (design Fase C).
+ *
+ * ── ALTRIMENTI (fail-closed) ─────────────────────────────────────────────────────────────
+ *  1) audit del body → `clean`  → keep (body originale);
+ *  2) `violation`               → UNA riscrittura mirata (`buildSecretsRewritePrompt` col
+ *     detail) → parse con `parseProductPageOutput`:
+ *       - non parsabile / riscrittura fallita → exclude;
+ *       - parsabile → SECONDO audit sul body riscritto:
+ *           - `clean`     → keep (body RISCRITTO);
+ *           - `violation` → exclude.
+ * Un audit fallito (errore/limite provider) → exclude (fail-closed: in dubbio non si
+ * pubblica). Il costo di TUTTI i run (audit + eventuale riscrittura + secondo audit) è
+ * aggregato in `costUsd`.
+ */
+async function auditPageBody(
+  deps: RunProductPhaseDeps,
+  title: string,
+  body: string,
+  confidentialFacts: BriefConfidentialFact[],
+): Promise<AuditResult> {
+  // FAIL-OPEN dichiarato: nessun fatto riservato ⇒ nessuna violazione definibile ⇒ audit
+  // saltato, pagina tenuta com'è (unico caso fail-open, per design).
+  if (confidentialFacts.length === 0) {
+    return { verdict: "keep", body, costUsd: 0 };
+  }
+
+  let costUsd = 0;
+
+  // 1) Primo audit sul body originale.
+  const audit = await runAgentOnce(
+    deps,
+    buildSecretsAuditPrompt({ pageTitle: title, body, confidentialFacts }),
+  );
+  costUsd += audit.costUsd;
+  if (!audit.ok) {
+    // Audit non eseguibile: fail-closed (non pubblichiamo ciò che non abbiamo potuto verificare).
+    return { verdict: "exclude", detail: "secrets audit failed", costUsd };
+  }
+  const verdict = parseSecretsAuditOutput(audit.output);
+  if (verdict.verdict === "clean") {
+    return { verdict: "keep", body, costUsd };
+  }
+
+  // 2) Violazione → UNA riscrittura mirata col passaggio incriminato come istruzione.
+  const rewrite = await runAgentOnce(
+    deps,
+    buildSecretsRewritePrompt({ pageTitle: title, body, detail: verdict.detail }),
+  );
+  costUsd += rewrite.costUsd;
+  if (!rewrite.ok) {
+    return { verdict: "exclude", detail: verdict.detail, costUsd };
+  }
+  const rewritten = parseProductPageOutput(rewrite.output);
+  if (!("body" in rewritten)) {
+    // Riscrittura non parsabile → esclusa (fail-closed).
+    return { verdict: "exclude", detail: verdict.detail, costUsd };
+  }
+
+  // 3) Secondo audit sul body RISCRITTO: unica seconda chance, poi fail-closed.
+  const reaudit = await runAgentOnce(
+    deps,
+    buildSecretsAuditPrompt({
+      pageTitle: title,
+      body: rewritten.body,
+      confidentialFacts,
+    }),
+  );
+  costUsd += reaudit.costUsd;
+  if (!reaudit.ok) {
+    return { verdict: "exclude", detail: verdict.detail, costUsd };
+  }
+  const reverdict = parseSecretsAuditOutput(reaudit.output);
+  if (reverdict.verdict === "clean") {
+    return { verdict: "keep", body: rewritten.body, costUsd };
+  }
+  // Ancora in violazione dopo la riscrittura → esclusa.
+  return { verdict: "exclude", detail: reverdict.detail, costUsd };
+}
+
 /** Inserisce un nodo product `done` (body valorizzato) col suo slug univoco e costo. */
 async function insertProductNode(
   db: Db,
@@ -337,7 +494,7 @@ export async function runProductPhase(
     console.error(
       `[stubwise-worker] docs product: fase disabilitata (DOC_PRODUCT_MAX_PAGES=0) per la generazione ${generationId}`,
     );
-    return { pagesCreated: 0 };
+    return { pagesCreated: 0, productExclusions: [] };
   }
 
   // GATE 2 — brief presente.
@@ -350,7 +507,7 @@ export async function runProductPhase(
     console.error(
       `[stubwise-worker] docs product: nessun brief per la generazione ${generationId}, fase saltata`,
     );
-    return { pagesCreated: 0 };
+    return { pagesCreated: 0, productExclusions: [] };
   }
   const repositoryId = gen.repositoryId;
 
@@ -360,11 +517,20 @@ export async function runProductPhase(
     console.error(
       `[stubwise-worker] docs product: nessuna superficie pubblica UI nel brief della generazione ${generationId}, fase saltata`,
     );
-    return { pagesCreated: 0 };
+    return { pagesCreated: 0, productExclusions: [] };
   }
 
   // Il contesto del brief CON segreti (la sezione NEVER-disclose) per TUTTI i run product.
   const briefContext = briefPromptContext(brief, { includeSecrets: true });
+
+  // I fatti riservati COMPLETI per il verificatore segreti (Fase C): l'auditor deve
+  // conoscerne il valore letterale (a differenza dei prompt di generazione). Vuoto ⇒ audit
+  // saltato (fail-open dichiarato, vedi `auditPageBody`).
+  const confidentialFacts = brief.confidentialFacts;
+
+  // Esclusioni del verificatore accumulate SU TUTTE le verticali: la finalize (chiamata DOPO
+  // questa fase da node-dispatch) le scrive in `doc_generations.stats.productExclusions`.
+  const productExclusions: ProductExclusion[] = [];
 
   // Nodi functional `done` della generazione (fonti dei summaries/limitations) + gli slug
   // già usati (per generare slug product univoci nell'insieme della generazione).
@@ -424,6 +590,24 @@ export async function runProductPhase(
       continue;
     }
     const rootTitle = `${surface.name} guide`;
+
+    // Verificatore segreti (Fase C) sulla radice PRIMA di creare il nodo. Esclusa ⇒ la
+    // verticale intera non ha un genitore: si scarta (come una radice non prodotta). Il costo
+    // dell'audit senza nodo su cui accumularlo → doc_generations.cost.
+    const rootAudit = await auditPageBody(deps, rootTitle, rootOutcome.body, confidentialFacts);
+    const rootTotalCost = rootOutcome.costUsd + rootAudit.costUsd;
+    if (rootAudit.verdict === "exclude") {
+      console.error(
+        `[stubwise-worker] docs product: radice della superficie "${surface.name}" ESCLUSA dal ` +
+          `verificatore segreti → verticale scartata (${rootAudit.detail})`,
+      );
+      productExclusions.push({
+        title: rootTitle,
+        fact: rootAudit.detail.slice(0, EXCLUSION_FACT_MAX),
+      });
+      if (rootTotalCost > 0) await bumpGenerationCost(db, generationId, rootTotalCost);
+      continue;
+    }
     const rootSlug = slugForNode(rootTitle, usedSlugs);
     const rootId = await insertProductNode(
       db,
@@ -434,8 +618,8 @@ export async function runProductPhase(
       position,
       rootTitle,
       rootSlug,
-      rootOutcome.body,
-      rootOutcome.costUsd,
+      rootAudit.body,
+      rootTotalCost,
     );
     position += 1;
     pagesCreated += 1;
@@ -468,6 +652,22 @@ export async function runProductPhase(
         if (outcome.costUsd > 0) await bumpNodeCost(db, rootId, outcome.costUsd);
         continue;
       }
+      // Verificatore segreti (Fase C) sulla guida PRIMA di creare il nodo. Esclusa ⇒ nessun
+      // nodo; il costo dell'audit si accumula sulla radice (la guida non ha un nodo proprio).
+      const guideAudit = await auditPageBody(deps, journey.title, outcome.body, confidentialFacts);
+      if (guideAudit.verdict === "exclude") {
+        console.error(
+          `[stubwise-worker] docs product: guida "${journey.title}" su "${surface.name}" ESCLUSA dal ` +
+            `verificatore segreti (${guideAudit.detail})`,
+        );
+        productExclusions.push({
+          title: journey.title,
+          fact: guideAudit.detail.slice(0, EXCLUSION_FACT_MAX),
+        });
+        const cost = outcome.costUsd + guideAudit.costUsd;
+        if (cost > 0) await bumpNodeCost(db, rootId, cost);
+        continue;
+      }
       const guideSlug = slugForNode(journey.title, usedSlugs);
       await insertProductNode(
         db,
@@ -478,8 +678,8 @@ export async function runProductPhase(
         childPosition,
         journey.title,
         guideSlug,
-        outcome.body,
-        outcome.costUsd,
+        guideAudit.body,
+        outcome.costUsd + guideAudit.costUsd,
       );
       childPosition += 1;
       pagesCreated += 1;
@@ -503,22 +703,37 @@ export async function runProductPhase(
         const outcome = await runProductPage(deps, faqPrompt, parseProductPageOutput);
         if (outcome.kind === "body") {
           const faqTitle = `${surface.name} FAQ`;
-          const faqSlug = slugForNode(faqTitle, usedSlugs);
-          await insertProductNode(
-            db,
-            generationId,
-            repositoryId,
-            rootId,
-            1,
-            childPosition,
-            faqTitle,
-            faqSlug,
-            outcome.body,
-            outcome.costUsd,
-          );
-          childPosition += 1;
-          pagesCreated += 1;
-          verticalPages += 1;
+          // Verificatore segreti (Fase C) sulla FAQ PRIMA di creare il nodo.
+          const faqAudit = await auditPageBody(deps, faqTitle, outcome.body, confidentialFacts);
+          if (faqAudit.verdict === "exclude") {
+            console.error(
+              `[stubwise-worker] docs product: FAQ di "${surface.name}" ESCLUSA dal verificatore ` +
+                `segreti (${faqAudit.detail})`,
+            );
+            productExclusions.push({
+              title: faqTitle,
+              fact: faqAudit.detail.slice(0, EXCLUSION_FACT_MAX),
+            });
+            const cost = outcome.costUsd + faqAudit.costUsd;
+            if (cost > 0) await bumpNodeCost(db, rootId, cost);
+          } else {
+            const faqSlug = slugForNode(faqTitle, usedSlugs);
+            await insertProductNode(
+              db,
+              generationId,
+              repositoryId,
+              rootId,
+              1,
+              childPosition,
+              faqTitle,
+              faqSlug,
+              faqAudit.body,
+              outcome.costUsd + faqAudit.costUsd,
+            );
+            childPosition += 1;
+            pagesCreated += 1;
+            verticalPages += 1;
+          }
         } else {
           console.error(
             `[stubwise-worker] docs product: FAQ di "${surface.name}" non prodotta (esito ${outcome.kind})`,
@@ -530,9 +745,12 @@ export async function runProductPhase(
   }
 
   console.error(
-    `[stubwise-worker] docs product: generazione ${generationId} — ${pagesCreated} pagine product create`,
+    `[stubwise-worker] docs product: generazione ${generationId} — ${pagesCreated} pagine product create` +
+      (productExclusions.length > 0
+        ? `, ${productExclusions.length} escluse dal verificatore segreti`
+        : ""),
   );
-  return { pagesCreated };
+  return { pagesCreated, productExclusions };
 }
 
 /** Accumula un costo (di uno skip/retry/fallimento senza nodo proprio) su un nodo esistente. */

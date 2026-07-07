@@ -3,7 +3,7 @@ import { useParams } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { ApiError } from "../../lib/api";
-import type { ProjectBrief } from "../../lib/docs-api";
+import type { DocBriefResponse, ProductExclusion, ProjectBrief } from "../../lib/docs-api";
 import { docBriefQueryOptions } from "../../lib/queries";
 
 /**
@@ -40,6 +40,7 @@ export function DocsBriefView() {
       <header className="border-b border-line pb-4">
         <h1 className="text-xl font-semibold">{t("docs:brief.title")}</h1>
         <p className="mt-2 text-sm text-fg-muted">{t("docs:brief.subtitle")}</p>
+        <GenerationMeta generation={data.generation} />
       </header>
 
       <div className="mt-8 flex flex-col gap-10">
@@ -56,8 +57,64 @@ export function DocsBriefView() {
         <JourneysSection brief={brief} />
         <SourcesSection brief={brief} />
         <ConfidentialSection brief={brief} />
+        <ExclusionsSection exclusions={data.productExclusions} />
       </div>
     </article>
+  );
+}
+
+/**
+ * Riga di metadati sotto il titolo: data della generazione da cui provengono brief ed
+ * esclusioni + (se noto) il commit documentato. Ancora il tutto a una precisa generazione,
+ * così l'utente sa a quale snapshot il brief si riferisce (coerenza A3).
+ */
+function GenerationMeta({ generation }: { generation: DocBriefResponse["generation"] }) {
+  const { t } = useTranslation();
+  const date = new Date(generation.createdAt);
+  const dateLabel = Number.isNaN(date.getTime()) ? generation.createdAt : date.toLocaleString();
+  return (
+    <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-fg-faint">
+      <span>{t("docs:brief.generatedAt", { date: dateLabel })}</span>
+      {generation.commitSha !== null && generation.commitSha !== "" && (
+        <span>
+          {t("docs:brief.commit")}{" "}
+          <code className="text-fg-muted">{generation.commitSha.slice(0, 10)}</code>
+        </span>
+      )}
+    </p>
+  );
+}
+
+/**
+ * Pagine ESCLUSE dalla documentazione pubblica dal verificatore segreti (Fase C, fail-closed):
+ * per ciascuna il titolo e il motivo (il fatto/passaggio incriminato). Visibile SOLO se ce
+ * n'è almeno una — così una generazione pulita non mostra la sezione.
+ */
+function ExclusionsSection({ exclusions }: { exclusions: ProductExclusion[] }) {
+  const { t } = useTranslation();
+  if (exclusions.length === 0) return null;
+  return (
+    <section
+      className="rounded-sm border border-signal/30 bg-signal/5 p-4"
+      aria-label={t("docs:brief.sectionExclusions")}
+    >
+      <h2 className="font-mono text-[11px] tracking-[0.14em] text-signal uppercase">
+        {t("docs:brief.sectionExclusions")}
+      </h2>
+      <p className="mt-1 text-[12px] text-fg-muted">{t("docs:brief.exclusionsNote")}</p>
+      <ul className="mt-4 flex flex-col gap-3">
+        {exclusions.map((exclusion, i) => (
+          <li key={i} className="border-t border-signal/20 pt-3 first:border-t-0 first:pt-0">
+            <p className="text-sm font-medium text-fg">{exclusion.title}</p>
+            {exclusion.fact.trim() !== "" && (
+              <p className="mt-0.5 text-[12px] text-fg-muted">
+                {t("docs:brief.exclusionReason")}: {exclusion.fact}
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

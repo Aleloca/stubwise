@@ -9,7 +9,7 @@ import {
 import { render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "../../lib/api";
-import type { ProjectBrief } from "../../lib/docs-api";
+import type { DocBriefResponse, ProjectBrief } from "../../lib/docs-api";
 import { DocsBriefView } from "./brief.$projectId";
 
 // Test isolato della tab "Brief": render con un brief mock completo (tutte le
@@ -50,6 +50,16 @@ const FULL_BRIEF: ProjectBrief = {
   existingSources: ["README.md"],
 };
 
+/** Risposta completa della route brief (brief + metadati generazione + esclusioni). */
+function response(overrides: Partial<DocBriefResponse> = {}): DocBriefResponse {
+  return {
+    brief: FULL_BRIEF,
+    generation: { createdAt: "2026-07-07T10:00:00.000Z", commitSha: "abcdef1234567890" },
+    productExclusions: [],
+    ...overrides,
+  };
+}
+
 function renderBrief() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const rootRoute = createRootRoute();
@@ -82,7 +92,7 @@ afterEach(() => {
 
 describe("DocsBriefView", () => {
   it("rende tutte le sezioni del brief, incluso il blocco fatti riservati con la nota", async () => {
-    getDocBrief.mockResolvedValue({ brief: FULL_BRIEF });
+    getDocBrief.mockResolvedValue(response());
     renderBrief();
 
     // Identità + sezioni principali.
@@ -108,6 +118,37 @@ describe("DocsBriefView", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("18% markup on tokens")).toBeInTheDocument();
     expect(screen.getByText("never state a percentage margin")).toBeInTheDocument();
+
+    // Metadati della generazione (data + commit troncato) nell'header.
+    expect(screen.getByText(/Generated/)).toBeInTheDocument();
+    expect(screen.getByText("abcdef1234")).toBeInTheDocument();
+  });
+
+  it("mostra la sezione esclusioni con title e motivo quando presenti", async () => {
+    getDocBrief.mockResolvedValue(
+      response({
+        productExclusions: [
+          { title: "Pricing guide", fact: "leaked the 18% markup in a table" },
+        ],
+      }),
+    );
+    renderBrief();
+
+    expect(
+      await screen.findByText("Pages excluded from public documentation"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Pricing guide")).toBeInTheDocument();
+    expect(screen.getByText(/leaked the 18% markup in a table/)).toBeInTheDocument();
+  });
+
+  it("nasconde la sezione esclusioni quando la lista è vuota", async () => {
+    getDocBrief.mockResolvedValue(response({ productExclusions: [] }));
+    renderBrief();
+
+    expect(await screen.findByText("A ticketing product for support teams.")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Pages excluded from public documentation"),
+    ).not.toBeInTheDocument();
   });
 
   it("brief assente (404): messaggio 'nessun brief, rigenera la documentazione'", async () => {
@@ -121,9 +162,7 @@ describe("DocsBriefView", () => {
   });
 
   it("nasconde il blocco fatti riservati quando non ce ne sono", async () => {
-    getDocBrief.mockResolvedValue({
-      brief: { ...FULL_BRIEF, confidentialFacts: [] },
-    });
+    getDocBrief.mockResolvedValue(response({ brief: { ...FULL_BRIEF, confidentialFacts: [] } }));
     renderBrief();
 
     expect(await screen.findByText("A ticketing product for support teams.")).toBeInTheDocument();
