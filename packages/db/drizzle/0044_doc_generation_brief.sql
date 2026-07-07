@@ -1,0 +1,1 @@
+ALTER TABLE "doc_generations" ADD COLUMN "brief" jsonb;

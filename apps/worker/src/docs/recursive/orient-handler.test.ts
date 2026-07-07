@@ -11,6 +11,22 @@ import {
 } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import {
+  BRIEF_ACTORS_END_MARKER,
+  BRIEF_ACTORS_START_MARKER,
+  BRIEF_CONFIDENTIAL_END_MARKER,
+  BRIEF_CONFIDENTIAL_START_MARKER,
+  BRIEF_GLOSSARY_END_MARKER,
+  BRIEF_GLOSSARY_START_MARKER,
+  BRIEF_IDENTITY_END_MARKER,
+  BRIEF_IDENTITY_START_MARKER,
+  BRIEF_INVARIANTS_END_MARKER,
+  BRIEF_INVARIANTS_START_MARKER,
+  BRIEF_JOURNEYS_END_MARKER,
+  BRIEF_JOURNEYS_START_MARKER,
+  BRIEF_SOURCES_END_MARKER,
+  BRIEF_SOURCES_START_MARKER,
+  BRIEF_SURFACES_END_MARKER,
+  BRIEF_SURFACES_START_MARKER,
   ORIENT_END_MARKER,
   ORIENT_FUNCTIONAL_END_MARKER,
   ORIENT_FUNCTIONAL_START_MARKER,
@@ -151,7 +167,54 @@ const VALID_PLAN = [
   ORIENT_END_MARKER,
 ].join("\n");
 
+/** Output ben formato del "documentarista": brief valido (campi a campione). */
+const VALID_BRIEF = [
+  BRIEF_IDENTITY_START_MARKER,
+  "Un marketplace demo: i clienti comprano, i venditori vendono.",
+  BRIEF_IDENTITY_END_MARKER,
+  BRIEF_ACTORS_START_MARKER,
+  "Cliente :: compra prodotti :: false",
+  "Operatore :: gestisce il back office :: true",
+  BRIEF_ACTORS_END_MARKER,
+  BRIEF_SURFACES_START_MARKER,
+  "Storefront :: web :: src/api :: clienti :: false",
+  "Admin :: web :: src/core :: staff :: true",
+  BRIEF_SURFACES_END_MARKER,
+  BRIEF_GLOSSARY_START_MARKER,
+  "Ordine :: una richiesta d'acquisto confermata",
+  "Wallet :: saldo prepagato del cliente",
+  BRIEF_GLOSSARY_END_MARKER,
+  BRIEF_INVARIANTS_START_MARKER,
+  "Un ordine ha sempre almeno una riga",
+  BRIEF_INVARIANTS_END_MARKER,
+  BRIEF_CONFIDENTIAL_START_MARKER,
+  "markup del fornitore :: economico :: src/core :: mai citare percentuali di margine",
+  BRIEF_CONFIDENTIAL_END_MARKER,
+  BRIEF_JOURNEYS_START_MARKER,
+  "Cliente :: Comprare :: sceglie un prodotto e paga col wallet",
+  BRIEF_JOURNEYS_END_MARKER,
+  BRIEF_SOURCES_START_MARKER,
+  "README.md",
+  BRIEF_SOURCES_END_MARKER,
+].join("\n");
+
 const USAGE: AgentRunUsage = { totalCostUsd: 0.02, models: [] };
+
+/**
+ * L'orientamento fa DUE run in sequenza: PRIMA il project brief (prompt del
+ * "documentarista"), POI l'orientamento vero e proprio (prompt con i marcatori del
+ * PIANO). Questo script instrada per contenuto del prompt: `briefOut` alla prima
+ * chiamata (prompt del brief), `orientOut` alla seconda (prompt di orientamento).
+ */
+function scriptBriefThenOrient(
+  briefOut: string,
+  orientOut: string,
+): (opts: { prompt: string }) => { output: string; exitCode: number; usage: AgentRunUsage } {
+  return (opts) => {
+    const isOrient = opts.prompt.includes(ORIENT_START_MARKER);
+    return { output: isOrient ? orientOut : briefOut, exitCode: 0, usage: USAGE };
+  };
+}
 
 function baseDeps(db: Db, mirrors: MirrorManager, runner: FakeAgentRunner): RunOrientationDeps {
   return {
@@ -174,23 +237,47 @@ describe("runOrientation", () => {
     const job = await enqueueTrigger(db, repositoryId);
 
     const runner = new FakeAgentRunner({
-      script: () => ({ output: VALID_PLAN, exitCode: 0, usage: USAGE }),
+      script: scriptBriefThenOrient(VALID_BRIEF, VALID_PLAN),
     });
     const outcome = await runOrientation(baseDeps(db, mirrors, runner), job);
     expect(outcome).toBe("seeded");
 
-    // L'agente è stato chiamato read-only col modello giusto.
-    expect(runner.calls).toHaveLength(1);
-    expect(runner.calls[0]?.permissionMode).toBe("plan");
-    expect(runner.calls[0]?.model).toBe("opus");
-    // Il survey è arrivato nel prompt (manifest letto).
-    expect(runner.calls[0]?.prompt).toContain("package.json");
+    // DUE run read-only col modello giusto: brief (step 1) poi orientamento (step 2).
+    expect(runner.calls).toHaveLength(2);
+    for (const call of runner.calls) {
+      expect(call.permissionMode).toBe("plan");
+      expect(call.model).toBe("opus");
+    }
+    // Il primo run è il brief del "documentarista"; il secondo è l'orientamento.
+    const briefCall = runner.calls[0];
+    const orientCall = runner.calls[1];
+    expect(briefCall?.prompt.toLowerCase()).toContain("documentarian");
+    // Il survey è arrivato nel prompt di orientamento (manifest letto).
+    expect(orientCall?.prompt).toContain("package.json");
+    // Il contesto del brief (glossario) è iniettato nel prompt di orientamento.
+    expect(orientCall?.prompt).toContain("PROJECT CONTEXT");
+    expect(orientCall?.prompt).toContain("Ordine");
 
-    // Generazione running + commitSha + costo aggregato dell'orientamento.
+    // Generazione running + commitSha + brief persistito + costo aggregato (brief+orient).
     const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.repositoryId, repositoryId));
     expect(gen?.status).toBe("running");
     expect(gen?.commitSha).toMatch(/^[0-9a-f]{40}$/);
-    expect(Number(gen?.cost)).toBeCloseTo(0.02, 6);
+    // Costo = run brief (0.02) + run orient (0.02) = 0.04.
+    expect(Number(gen?.cost)).toBeCloseTo(0.04, 6);
+
+    // Il brief è persistito su doc_generations.brief (campi a campione, admin escluso? no:
+    // il brief conserva TUTTE le superfici; l'esclusione delle interne è a valle, Fase B).
+    const persistedBrief = gen?.brief as {
+      identity: string;
+      glossary: { term: string }[];
+      surfaces: { name: string; internal: boolean }[];
+      confidentialFacts: { fact: string }[];
+    } | null;
+    expect(persistedBrief).not.toBeNull();
+    expect(persistedBrief?.identity).toContain("marketplace");
+    expect(persistedBrief?.glossary.map((g) => g.term)).toContain("Ordine");
+    expect(persistedBrief?.surfaces.find((s) => s.name === "Admin")?.internal).toBe(true);
+    expect(persistedBrief?.confidentialFacts).toHaveLength(1);
 
     // Due radici, depth 0, parentId null, awaiting_children, pendingChildren=2.
     const nodes = await db.select().from(docNodes).where(eq(docNodes.generationId, gen!.id));
@@ -256,7 +343,7 @@ describe("runOrientation", () => {
       .returning();
 
     const runner = new FakeAgentRunner({
-      script: () => ({ output: VALID_PLAN, exitCode: 0, usage: USAGE }),
+      script: scriptBriefThenOrient(VALID_BRIEF, VALID_PLAN),
     });
     const outcome = await runOrientation(
       { ...baseDeps(db, mirrors, runner), pinnedProviderId: provider!.id },
@@ -280,7 +367,7 @@ describe("runOrientation", () => {
     const job = await enqueueTrigger(db, repositoryId);
 
     const runner = new FakeAgentRunner({
-      script: () => ({ output: VALID_PLAN, exitCode: 0, usage: USAGE }),
+      script: scriptBriefThenOrient(VALID_BRIEF, VALID_PLAN),
     });
     const outcome = await runOrientation(baseDeps(db, mirrors, runner), job);
     expect(outcome).toBe("seeded");
@@ -290,6 +377,45 @@ describe("runOrientation", () => {
       .from(docGenerations)
       .where(eq(docGenerations.repositoryId, repositoryId));
     expect(gen?.pinnedProviderId).toBeNull();
+  });
+
+  it("brief non parsabile (prosa) → brief null, l'orientamento procede normalmente (regressione)", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const repositoryId = await createRepository(db, upstream.url);
+    const job = await enqueueTrigger(db, repositoryId);
+
+    // Il run del brief risponde con prosa non parsabile; l'orientamento risponde bene.
+    const runner = new FakeAgentRunner({
+      script: scriptBriefThenOrient(
+        "Non ho capito la domanda, ecco delle riflessioni libere sul repo.",
+        VALID_PLAN,
+      ),
+    });
+    const outcome = await runOrientation(baseDeps(db, mirrors, runner), job);
+    // Il brief fallito NON rompe la generazione: si semina comunque.
+    expect(outcome).toBe("seeded");
+    expect(runner.calls).toHaveLength(2);
+
+    const [gen] = await db
+      .select()
+      .from(docGenerations)
+      .where(eq(docGenerations.repositoryId, repositoryId));
+    // Brief null (non parsabile), ma la generazione è viva e ha seminato il DAG.
+    expect(gen?.status).toBe("running");
+    expect(gen?.brief).toBeNull();
+    // Costo comunque sommato (brief 0.02 + orient 0.02).
+    expect(Number(gen?.cost)).toBeCloseTo(0.04, 6);
+
+    // Senza brief l'orientamento NON riceve il blocco PROJECT CONTEXT (prompt come prima).
+    const orientCall = runner.calls[1];
+    expect(orientCall?.prompt).not.toContain("PROJECT CONTEXT");
+
+    // Le due radici + i quattro figli sono seminati come nel percorso nominale.
+    const nodes = await db.select().from(docNodes).where(eq(docNodes.generationId, gen!.id));
+    expect(nodes.filter((n) => n.parentId === null)).toHaveLength(2);
+    expect(nodes.filter((n) => n.parentId !== null)).toHaveLength(4);
   });
 
   it("output invalido (niente marcatori) → retry → fallback: generazione failed, trigger failed", async () => {
@@ -309,12 +435,15 @@ describe("runOrientation", () => {
     const outcome = await runOrientation(baseDeps(db, mirrors, runner), job);
     expect(outcome).toBe("failed");
 
-    // Retry: l'agente è stato invocato DUE volte prima del fallback.
-    expect(runner.calls).toHaveLength(2);
+    // TRE run: 1 brief (prosa non parsabile → nessun brief, si prosegue) + 2 tentativi
+    // di orientamento (retry prima del fallback). Il brief non rompe la generazione: è
+    // l'orientamento invalido a farla fallire.
+    expect(runner.calls).toHaveLength(3);
 
-    // Generazione failed, nessun nodo seminato.
+    // Generazione failed, brief null (non parsabile), nessun nodo seminato.
     const [gen] = await db.select().from(docGenerations).where(eq(docGenerations.repositoryId, repositoryId));
     expect(gen?.status).toBe("failed");
+    expect(gen?.brief).toBeNull();
     expect(gen?.error).toMatch(/orientamento|marcatori|non valido/i);
     const nodes = await db.select().from(docNodes).where(eq(docNodes.generationId, gen!.id));
     expect(nodes).toHaveLength(0);
@@ -324,7 +453,7 @@ describe("runOrientation", () => {
     expect(jobAfter?.status).toBe("failed");
   });
 
-  it("orientamento su run al limite: trigger held con held_reason 'limit', generazione failed con messaggio esplicito, UN solo run", async () => {
+  it("orientamento su run al limite: trigger held con held_reason 'limit', generazione failed con messaggio esplicito", async () => {
     const { db } = testDb;
     const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
@@ -339,8 +468,9 @@ describe("runOrientation", () => {
     const outcome = await runOrientation({ ...baseDeps(db, mirrors, runner), registry }, job);
     expect(outcome).toBe("held");
 
-    // UN solo run: il limite NON consuma il retry (sarebbe un run bruciato).
-    expect(runner.calls).toHaveLength(1);
+    // DUE run: il brief tocca il limite (nessun brief, si prosegue senza retry) e poi
+    // anche l'orientamento lo tocca (che NON consuma il retry: sarebbe un run bruciato).
+    expect(runner.calls).toHaveLength(2);
 
     // La generazione FALLISCE con un messaggio esplicito (il DAG non esiste ancora:
     // niente pausa — alla ripresa il job riaccodato ne crea una FRESCA).

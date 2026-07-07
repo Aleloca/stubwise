@@ -1837,6 +1837,43 @@ describe("schema: pausa sul limite (paused + held_reason)", () => {
     expect(read?.pauseReason).toBe("limite di utilizzo");
   });
 
+  it("doc_generations.brief è null di default e persiste un oggetto jsonb", async () => {
+    const { repositoryId } = await seedRepository(db);
+
+    // Default: nessun brief (il run del documentarista non è ancora avvenuto o è fallito).
+    const [noBrief] = await db
+      .insert(docGenerations)
+      .values({ repositoryId, status: "running" })
+      .returning();
+    if (!noBrief) throw new Error("insert della generazione non ha restituito la riga");
+    expect(noBrief.brief).toBeNull();
+
+    // Con brief: l'oggetto jsonb round-trippa integralmente.
+    const brief = {
+      identity: "Un prodotto demo.",
+      actors: [{ name: "Cliente", description: "compra", internal: false }],
+      surfaces: [
+        { name: "Webapp", type: "web", rootPath: "apps/web", audience: "clienti", internal: false },
+      ],
+      glossary: [{ term: "Ordine", definition: "una richiesta d'acquisto" }],
+      invariants: ["Un ordine ha almeno una riga"],
+      confidentialFacts: [],
+      journeys: [{ actor: "Cliente", title: "Compra", summary: "sceglie e paga" }],
+      existingSources: ["README.md"],
+    };
+    const [withBrief] = await db
+      .insert(docGenerations)
+      .values({ repositoryId, status: "running", brief })
+      .returning();
+    if (!withBrief) throw new Error("insert della generazione non ha restituito la riga");
+
+    const [read] = await db
+      .select()
+      .from(docGenerations)
+      .where(eq(docGenerations.id, withBrief.id));
+    expect(read?.brief).toEqual(brief);
+  });
+
   it("ai_jobs e doc_generation_jobs accettano held_reason (null di default)", async () => {
     const { ticketId, repositoryId } = await seedTicketRow(db);
     const [aiJob] = await db

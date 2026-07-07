@@ -36,19 +36,29 @@ import {
 
 /**
  * Costruisce il prompt di orientamento. `survey` è una descrizione compatta del repo
- * (entry top-level + manifest chiave) preparata dal chiamante. Il prompt istruisce a:
+ * (entry top-level + manifest chiave) preparata dal chiamante. `briefContext` è la
+ * porzione compatta del PROJECT BRIEF (`briefPromptContext`) prodotto dal documentarista
+ * nel primo step dell'orientamento — opzionale: senza brief il prompt è identico a prima
+ * (retrocompatibilità). Il prompt istruisce a:
  * (1) rilevare lo stack/framework e ragionare sulle sue convenzioni;
- * (2) classificare le cartelle top-level ARCHITETTURA vs RUMORE-DI-CONTESTO, SPIEGANDO;
+ * (2) classificare le cartelle top-level ARCHITETTURA vs RUMORE-DI-PROCESSO, SPIEGANDO
+ *     (la documentazione scritta dagli sviluppatori — README, ADR, docs/ — NON è rumore:
+ *     è una FONTE da considerare; solo gli artefatti di processo tipo plans/ vanno esclusi);
  * (3) produrre il piano con le due child-list nel formato del contratto, niente prosa
  *     fuori dai marcatori.
  */
-export function buildOrientPrompt(survey: string): string {
+export function buildOrientPrompt(survey: string, briefContext?: string): string {
+  const briefBlock =
+    briefContext && briefContext.trim() !== ""
+      ? [briefContext.trim(), ""]
+      : [];
   return [
     "You are ORIENTING yourself in a software repository to plan its documentation.",
     "You are running READ-ONLY in the repository working directory: inspect files as",
     "needed (manifests, config, entry points, folder structure) to ground your plan in",
     "what the repository ACTUALLY is. Do not invent structure that is not there.",
     "",
+    ...briefBlock,
     "Below is a compact survey of the repository (top-level entries + key manifests).",
     "Use it as a starting point, then read further as needed.",
     "",
@@ -62,13 +72,14 @@ export function buildOrientPrompt(survey: string): string {
     "   (e.g. a Next.js app-router app keeps user-facing code under its routes folder; a",
     "   monorepo keeps deployable units under apps/ and shared code under packages/).",
     "",
-    "2. CLASSIFY the top-level folders as ARCHITECTURE vs CONTEXT-NOISE, and EXPLAIN each",
-    "   classification briefly (this is auditable). CONTEXT-NOISE = session/process",
-    "   artifacts that are NOT product architecture and MUST be excluded from the",
-    "   technical documentation: planning notes, design docs, manuals, guides, scratch",
-    "   (e.g. folders like plans/, docs/, manual/, guides/). ARCHITECTURE = the code that",
-    "   is the actual product/system. Only ARCHITECTURE folders may appear as technical",
-    "   units.",
+    "2. CLASSIFY the top-level folders as ARCHITECTURE vs PROCESS-NOISE, and EXPLAIN each",
+    "   classification briefly (this is auditable). PROCESS-NOISE = session/process",
+    "   scratch artifacts that are NOT product architecture and MUST be excluded from the",
+    "   technical documentation: planning notes and scratch dirs (e.g. folders like",
+    "   plans/, scratch/). Documentation WRITTEN BY DEVELOPERS about the product — README",
+    "   files, ADRs, hand-written docs/ pages — is NOT noise: it is a SOURCE to consider",
+    "   when planning the pages. ARCHITECTURE = the code that is the actual product/system.",
+    "   Only ARCHITECTURE folders may appear as technical units.",
     "",
     "3. PRODUCE THE PLAN as TWO child-lists:",
     "   - TECHNICAL UNITS: the first-level units of the codebase that each deserve their",

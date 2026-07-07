@@ -1022,6 +1022,12 @@ export const docGenerations = pgTable(
     cost: numeric("cost", { precision: 12, scale: 6 }),
     // Breakdown libero (per-modulo, token, durate) in jsonb.
     stats: jsonb("stats"),
+    // PROJECT BRIEF del "documentarista": identità/attori/superfici/glossario/
+    // invarianti/fatti riservati/journey/fonti (ProjectBrief di @stubwise/docs-engine).
+    // Nullable: prodotto nel primo step dell'orientamento; se il run brief fallisce o
+    // l'output non è parsabile resta null e la generazione prosegue senza brief. Tipo
+    // libero (come `stats`): il db non dipende da docs-engine, il tipo vive lì.
+    brief: jsonb("brief"),
     error: text("error"),
     // Pausa per limite di utilizzo del provider: la generazione resta viva (i
     // nodi tornano pending, il claim li salta) e il resume poller la rimette

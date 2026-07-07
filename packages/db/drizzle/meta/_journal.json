@@ -309,6 +309,13 @@
       "when": 1783357587241,
       "tag": "0043_widget_instructions",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1783416131504,
+      "tag": "0044_doc_generation_brief",
+      "breakpoints": true
     }
   ]
 }

@@ -8,11 +8,15 @@ import {
   type Db,
 } from "@stubwise/db";
 import {
+  briefPromptContext,
+  buildBriefPrompt,
   buildOrientPrompt,
+  parseBriefOutput,
   parseOrientPlan,
   slugForNode,
   type ChildSpec as EngineChildSpec,
   type OrientPlan,
+  type ProjectBrief,
 } from "@stubwise/docs-engine";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -279,6 +283,61 @@ const TECHNICAL_ROOT_TITLE = "Architecture Overview";
 const FUNCTIONAL_ROOT_TITLE = "Capability Map";
 
 /**
+ * PROJECT BRIEF — primo step dell'orientamento (Fase A). Esegue UN run agente read-only
+ * (`permissionMode:"plan"`, stesso modello/timeout/maxTurns dell'orientamento) col prompt
+ * del "documentarista" e ne parsa l'output. Ritorna sempre `{ brief, costUsd }`:
+ *  - `brief` = `ProjectBrief` se l'output è parsabile;
+ *  - `brief` = `null` se il run è al LIMITE del provider, se `parseBriefOutput` ritorna
+ *    `{ reason }` (output non parsabile), o su qualsiasi errore del run.
+ * Il brief NON deve MAI far fallire la generazione: è additivo. Il costo del run è sempre
+ * sommato (anche quando il brief è null) e va accumulato nella generazione dal chiamante.
+ * Nessun retry: un brief mancante è tollerato, non vale un secondo run.
+ */
+async function runBriefAgent(
+  deps: RunOrientationDeps,
+  job: DocJob,
+  dir: string,
+): Promise<{ brief: ProjectBrief | null; costUsd: number }> {
+  const providerOpt = deps.provider !== undefined ? { provider: deps.provider } : {};
+  try {
+    const result = await deps.runner.run({
+      cwd: dir,
+      prompt: buildBriefPrompt({}),
+      model: deps.model,
+      permissionMode: "plan",
+      maxTurns: deps.maxTurns,
+      timeoutMs: deps.agentTimeoutMs,
+      ...providerOpt,
+    });
+    await touchDocJob(deps.db, job.id);
+    const costUsd = result.usage?.totalCostUsd ?? 0;
+    // Limite del provider → nessun brief, si prosegue (la generazione non deve mai
+    // rompersi per il brief; l'eventuale limite verrà comunque colpito dall'orient).
+    if (isLimitError(result)) {
+      console.warn(
+        `[stubwise-worker] run del project brief al limite del provider per il job ${job.id}: si prosegue senza brief`,
+      );
+      return { brief: null, costUsd };
+    }
+    const parsed = parseBriefOutput(result.output);
+    if ("reason" in parsed) {
+      console.warn(
+        `[stubwise-worker] project brief non parsabile (${parsed.reason}) per il job ${job.id}: si prosegue senza brief`,
+      );
+      return { brief: null, costUsd };
+    }
+    return { brief: parsed, costUsd };
+  } catch (error) {
+    // Qualunque errore del run brief è NON-fatale: log e si prosegue senza brief.
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn(
+      `[stubwise-worker] run del project brief fallito (${message}) per il job ${job.id}: si prosegue senza brief`,
+    );
+    return { brief: null, costUsd: 0 };
+  }
+}
+
+/**
  * Esegue l'agente di orientamento e ne parsa il piano, con UN retry su output
  * invalido (mancano i marcatori) prima del fallback. Ritorna il piano valido + il
  * costo aggregato dei run, `{limit: true}` se il run ha toccato il LIMITE di
@@ -461,9 +520,27 @@ export async function runOrientation(
       .where(eq(docGenerations.id, ctx.generationId));
     await touchDocJob(db, job.id);
 
+    // STEP 1 — PROJECT BRIEF (Fase A): un run del "documentarista" PRIMA della semina.
+    // Best-effort e NON-fatale: se produce un brief valido lo persistiamo su
+    // doc_generations.brief e lo iniettiamo nel contesto dell'orientamento; se fallisce/
+    // non è parsabile si prosegue con brief null (la generazione non si rompe mai per il
+    // brief). Il suo costo va accumulato con quello dell'orientamento.
+    const briefRun = await runBriefAgent(deps, job, worktree.dir);
+    const briefCostUsd = briefRun.costUsd;
+    if (briefRun.brief !== null) {
+      await db
+        .update(docGenerations)
+        .set({ brief: briefRun.brief })
+        .where(eq(docGenerations.id, ctx.generationId));
+    }
+
     const reader = createWorktreeReader(worktree.dir);
     const survey = await buildRepoSurvey(reader);
-    const prompt = buildOrientPrompt(survey);
+    // Il contesto del brief (glossario/attori/invarianti) entra nel prompt di semina;
+    // senza brief `briefPromptContext` non viene chiamato e il prompt è identico a prima.
+    const briefContext =
+      briefRun.brief !== null ? briefPromptContext(briefRun.brief) : undefined;
+    const prompt = buildOrientPrompt(survey, briefContext);
 
     const orient = await runOrientAgent(deps, job, worktree.dir, prompt);
     // LIMITE del provider durante l'orientamento: il DAG non esiste ancora,
@@ -482,7 +559,7 @@ export async function runOrientation(
           status: "failed",
           error:
             "provider AI al limite di rate/usage durante l'orientamento: la generazione verrà ritentata automaticamente al reset del limite",
-          cost: orient.costUsd.toFixed(6),
+          cost: (briefCostUsd + orient.costUsd).toFixed(6),
           finishedAt: sql`now()`,
         })
         .where(eq(docGenerations.id, ctx.generationId));
@@ -523,11 +600,11 @@ export async function runOrientation(
       return "failed";
     }
 
-    // Costo dell'orientamento aggregato nella generazione (gli explore/synthesize
-    // lo sommeranno alla finalizzazione, M6).
+    // Costo dell'orientamento aggregato nella generazione: run del brief + run
+    // dell'orientamento (gli explore/synthesize lo sommeranno alla finalizzazione, M6).
     await db
       .update(docGenerations)
-      .set({ cost: orient.costUsd.toFixed(6) })
+      .set({ cost: (briefCostUsd + orient.costUsd).toFixed(6) })
       .where(eq(docGenerations.id, ctx.generationId));
 
     await seedDag(db, ctx, orient.plan);

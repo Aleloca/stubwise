@@ -46,7 +46,9 @@ describe("buildOrientPrompt", () => {
     expect(lower).toContain("architecture");
     expect(lower).toMatch(/noise/);
     expect(lower).toMatch(/explain/);
-    expect(lower).toMatch(/plans|docs|manual|guides/);
+    expect(lower).toMatch(/plans/);
+    // developer-written docs (README/ADR/docs) are now a SOURCE, no longer excluded as noise
+    expect(lower).toMatch(/readme|adr|source/);
     // both lists requested
     expect(prompt).toContain(ORIENT_TECHNICAL_START_MARKER);
     expect(prompt).toContain(ORIENT_FUNCTIONAL_START_MARKER);
@@ -55,6 +57,21 @@ describe("buildOrientPrompt", () => {
     // no free prose outside markers + anti-meta
     expect(lower).toMatch(/no free prose outside the markers|nothing outside/);
     expect(lower).toMatch(/read-only/);
+  });
+
+  it("without briefContext the prompt has no PROJECT CONTEXT block (regression)", () => {
+    const prompt = buildOrientPrompt("apps/\npackage.json");
+    expect(prompt).not.toContain("PROJECT CONTEXT");
+  });
+
+  it("with briefContext injects the brief block into the prompt", () => {
+    const briefContext =
+      "PROJECT CONTEXT — use this glossary and terminology consistently:\n\nGlossary (use these exact terms):\n- Wallet: prepaid balance";
+    const prompt = buildOrientPrompt("apps/\npackage.json", briefContext);
+    expect(prompt).toContain("PROJECT CONTEXT");
+    expect(prompt).toContain("Wallet: prepaid balance");
+    // The survey still follows the brief block.
+    expect(prompt).toContain("REPOSITORY SURVEY:");
   });
 });
 

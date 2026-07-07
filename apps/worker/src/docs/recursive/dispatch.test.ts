@@ -15,6 +15,10 @@ import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
 import type { NotificationEvent } from "@stubwise/notifications";
 import {
+  BRIEF_GLOSSARY_END_MARKER,
+  BRIEF_GLOSSARY_START_MARKER,
+  BRIEF_IDENTITY_END_MARKER,
+  BRIEF_IDENTITY_START_MARKER,
   EXPLORE_BODY_END_MARKER,
   EXPLORE_BODY_START_MARKER,
   EXPLORE_CHILDREN_END_MARKER,
@@ -202,6 +206,16 @@ const ORIENT_PLAN = [
   ORIENT_END_MARKER,
 ].join("\n");
 
+/** Project brief minimo ma valido: identità + un termine di glossario. */
+const BRIEF_OUTPUT = [
+  BRIEF_IDENTITY_START_MARKER,
+  "Un piccolo sistema demo.",
+  BRIEF_IDENTITY_END_MARKER,
+  BRIEF_GLOSSARY_START_MARKER,
+  "Modulo :: unità del sistema",
+  BRIEF_GLOSSARY_END_MARKER,
+].join("\n");
+
 const LONG_BODY =
   "This area of the system is described here in plain language with enough words to be a real page and to chunk into at least one markdown chunk for embedding.";
 
@@ -257,6 +271,11 @@ function scriptedRunner(): FakeAgentRunner {
   const script = (opts: AgentRunOptions): AgentRunResult => {
     const p = opts.prompt;
     const usage = { totalCostUsd: 0.01, models: [] };
+    // Il primo run dell'orientamento è il PROJECT BRIEF (prompt del documentarista):
+    // lo riconosciamo dal marcatore IDENTITY (assente in orient/explore/synth).
+    if (p.includes(BRIEF_IDENTITY_START_MARKER)) {
+      return { output: BRIEF_OUTPUT, exitCode: 0, usage };
+    }
     if (p.includes(ORIENT_TECHNICAL_START_MARKER)) {
       return { output: ORIENT_PLAN, exitCode: 0, usage };
     }
@@ -381,9 +400,13 @@ describe("dispatch del DAG (M7.1)", () => {
     // e il costo aggregato della generazione (orient + Σ nodi) supera il solo orientamento.
     const nodeCosts = nodes.reduce((sum, n) => sum + Number(n.cost ?? 0), 0);
     expect(nodeCosts).toBeGreaterThan(0);
-    // 1 run di orientamento (0.01) + i run dei nodi → costo totale > del solo orientamento.
-    expect(Number(gen?.cost)).toBeGreaterThan(0.01);
-    expect(Number(gen?.cost)).toBeCloseTo(0.01 + nodeCosts, 6);
+    // Orientamento = 2 run (brief 0.01 + orient 0.01) + i run dei nodi → costo totale.
+    expect(Number(gen?.cost)).toBeGreaterThan(0.02);
+    expect(Number(gen?.cost)).toBeCloseTo(0.02 + nodeCosts, 6);
+
+    // Il project brief è stato prodotto e persistito end-to-end.
+    const persistedBrief = gen?.brief as { identity: string } | null;
+    expect(persistedBrief?.identity).toContain("demo");
 
     // doc_pages annidate (≥3 livelli): root → child → grandchild.
     const pages = await db.select().from(docPages).where(eq(docPages.generationId, gen!.id));
