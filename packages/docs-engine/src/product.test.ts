@@ -138,6 +138,19 @@ describe("buildProductGuidePrompt", () => {
     expect(prompt).toContain("DOMAIN KNOWLEDGE");
     expect(prompt).toContain("You can top up any prepaid line you manage.");
   });
+
+  it("preserves blank separator lines even when actor/summary are absent", () => {
+    const bare = buildProductGuidePrompt({
+      ...INPUT,
+      journey: { title: "Do a thing", actor: "", summary: "" },
+    });
+    // Optional actor/summary lines are dropped, but the structural blank separators must
+    // remain (no collapsing of every empty line).
+    expect(bare).not.toContain("- Actor:");
+    expect(bare).not.toContain("- Summary:");
+    expect(bare).toContain("\n\n");
+    expect(bare).toContain("- Journey: Do a thing\n\n");
+  });
 });
 
 // ── Prompt: FAQ ───────────────────────────────────────────────────────────────
@@ -292,6 +305,85 @@ Nothing unusual is expected to happen during this particular walkthrough today.
 ===END PAGE===`;
     const res = parseProductGuideOutput(out);
     expect(res).toEqual({ reason: "insufficient navigation anchors" });
+  });
+
+  it("counts steps/NAV only in the Steps section (numbered list elsewhere is ignored)", () => {
+    // Two numbered steps WITH NAV in ### Steps + a 4-item numbered list in Common issues.
+    // If counting were body-wide, the list would inflate steps to 6 (need >=3 NAV) and the
+    // 2 NAV would fail the threshold — a false positive. Scoped to Steps: 2 steps, 2 NAV → OK.
+    const out = `===PAGE===
+### Goal
+Do the thing.
+
+### Prerequisites
+You are signed in and ready to proceed with this walkthrough right away.
+
+### Steps
+1. Open the form.
+   NAV: Menu → One [/one]
+2. Confirm the action.
+   NAV: Menu → Two [/two]
+
+### Expected result
+Everything works out and you land on a clear confirmation screen at the end.
+
+### Common issues
+Here are things that can go wrong:
+1. The button is disabled — top up your wallet first.
+2. The page does not load — refresh and try again in a moment.
+3. The amount is rejected — enter a value above the minimum.
+4. The receipt is missing — check your email after a short delay.
+===END PAGE===`;
+    const res = parseProductGuideOutput(out);
+    expect("body" in res).toBe(true);
+    if ("body" in res) expect(res.navAnchors).toBe(2);
+  });
+
+  it("does not count NAV lines outside the Steps section as anchors", () => {
+    // Four numbered steps in ### Steps with NO NAV; two NAV lines in Common issues.
+    // Body-wide counting would see 2 anchors; scoped to Steps there are 0 → rejected.
+    const out = `===PAGE===
+### Goal
+Do the thing.
+
+### Prerequisites
+You are signed in and ready to proceed with this walkthrough right away.
+
+### Steps
+1. First step of the flow you follow closely here today.
+2. Second step of the flow you follow closely here today.
+3. Third step of the flow you follow closely here today.
+4. Fourth step of the flow you follow closely here today.
+
+### Expected result
+Everything works out and you land on a clear confirmation screen at the end.
+
+### Common issues
+If you get stuck, here is where the relevant screens live:
+   NAV: Menu → One [/one]
+   NAV: Menu → Two [/two]
+===END PAGE===`;
+    const res = parseProductGuideOutput(out);
+    expect(res).toEqual({ reason: "no navigation anchors" });
+  });
+
+  it("truncates a mid-body ===SKIP=== reason at the next marker line", () => {
+    // ===SKIP=== appears inside a body; the reason must stop at the next `===` line
+    // (===END PAGE=== here), not swallow the rest of the body.
+    const out = `===PAGE===
+### Goal
+Something.
+===SKIP===
+This belongs to the admin app.
+===END PAGE===`;
+    const res = parseProductGuideOutput(out);
+    expect(res).toEqual({ skip: "This belongs to the admin app." });
+  });
+
+  it("caps a runaway skip reason at 300 characters", () => {
+    const long = "x".repeat(500);
+    const res = parseProductGuideOutput(`===SKIP===\n${long}`);
+    expect(res).toEqual({ skip: "x".repeat(300) });
   });
 
   it("rejects a guide with no body block", () => {

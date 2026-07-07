@@ -35,9 +35,12 @@
  * opzionale ma raccomandato quando esiste una route. `parseProductGuideOutput` VALIDA:
  *  - le cinque sezioni richieste sono presenti (### Goal / Prerequisites / Steps /
  *    Expected result / Common issues) → altrimenti `{ reason: "missing-sections" }`;
- *  - almeno UN `NAV:` esiste → altrimenti `{ reason: "no navigation anchors" }`;
- *  - i `NAV:` coprono ALMENO METÀ dei passi numerati (soglia documentata: `nav >=
- *    ceil(steps/2)`) → altrimenti `{ reason: "insufficient navigation anchors" }`.
+ *  - almeno UN `NAV:` esiste NELLA sezione `### Steps` → altrimenti `{ reason: "no
+ *    navigation anchors" }`;
+ *  - i `NAV:` coprono ALMENO METÀ dei passi numerati DELLA sezione `### Steps` (soglia
+ *    documentata: `nav >= ceil(steps/2)`, contati SOLO in Steps così che liste numerate in
+ *    altre sezioni non falsino il conteggio) → altrimenti `{ reason: "insufficient
+ *    navigation anchors" }`.
  * Se l'agente emette `===SKIP===` (journey non realizzabile) → `{ skip: <motivo> }`.
  * Il parser NON lancia MAI: input spazzatura → `{ reason }`.
  *
@@ -196,8 +199,8 @@ export function buildProductGuidePrompt(
     "",
     "WRITE A STEP-BY-STEP HOW-TO GUIDE for this user journey:",
     `- Journey: ${j.title}`,
-    j.actor ? `- Actor: ${j.actor}` : "",
-    j.summary ? `- Summary: ${j.summary}` : "",
+    ...(j.actor ? [`- Actor: ${j.actor}`] : []),
+    ...(j.summary ? [`- Summary: ${j.summary}`] : []),
     "",
     "The guide MUST follow this EXACT structure — five `###` sections, in this order:",
     ...GUIDE_SECTIONS.map((h) => `  ${h}`),
@@ -228,9 +231,7 @@ export function buildProductGuidePrompt(
     "Start the body DIRECTLY with `### Goal`; do NOT begin with a `#`/`##` page title. Do not",
     "wrap the body in a code fence. Do NOT save anything to any file and add NO",
     "meta-commentary, preamble or closing remarks.",
-  ]
-    .filter((l) => l !== "")
-    .join("\n");
+  ].join("\n");
 }
 
 // ── Prompt: FAQ ──────────────────────────────────────────────────────────────────────────
@@ -297,13 +298,27 @@ const NUMBERED_STEP_RE = /^\s*\d+\.\s+/;
 const NAV_ANCHOR_RE = /^\s*NAV:\s*\S/;
 
 /**
+ * Estrae le righe della sola sezione `### Steps`: da DOPO la riga `### Steps` fino
+ * (esclusa) al prossimo heading `###` o alla fine del body. Se `### Steps` non c'è (non
+ * dovrebbe, il chiamante ha già validato le sezioni), ritorna un array vuoto.
+ */
+function stepsSectionLines(bodyLines: string[]): string[] {
+  const start = bodyLines.findIndex((l) => l.trim() === "### Steps");
+  if (start === -1) return [];
+  const rest = bodyLines.slice(start + 1);
+  const end = rest.findIndex((l) => l.trim().startsWith("### "));
+  return end === -1 ? rest : rest.slice(0, end);
+}
+
+/**
  * Parsa e VALIDA l'output di una GUIDA how-to. Tre esiti (mai throw):
  *  - `{ skip }`   — l'agente ha emesso `===SKIP===` (journey non realizzabile); il motivo
  *    è il resto del blocco, stringa vuota se assente;
  *  - `{ reason }` — output invalido: body non estraibile/troppo corto/meta (`BodyRejection`),
  *    una delle cinque sezioni mancante (`missing-sections`), oppure ancoraggi insufficienti
- *    (`no navigation anchors` se ZERO `NAV:`; `insufficient navigation anchors` se i `NAV:`
- *    sono meno della metà dei passi numerati, soglia `nav >= ceil(steps/2)`);
+ *    (`no navigation anchors` se ZERO `NAV:` nella sezione `### Steps`; `insufficient
+ *    navigation anchors` se i `NAV:` in Steps sono meno della metà dei passi numerati di
+ *    Steps, soglia `nav >= ceil(steps/2)`);
  *  - `{ body, navAnchors }` — guida valida, col conteggio degli ancoraggi trovati.
  *
  * Precedenza: lo SKIP è controllato PRIMA del body (uno skip legittimo non ha body).
@@ -315,10 +330,15 @@ export function parseProductGuideOutput(
   const lines = output.split("\n");
   const skipLine = lines.findIndex((l) => l.trim() === PRODUCT_SKIP_MARKER);
   if (skipLine !== -1) {
-    const reason = lines
-      .slice(skipLine + 1)
+    // Il motivo è ciò che segue lo SKIP, ma tronca alla prima riga-marcatore (`===…`):
+    // se `===SKIP===` compare DENTRO un body, i resti del body (`===END PAGE===` incluso)
+    // non devono finire nel motivo. Cap a 300 char.
+    const after = lines.slice(skipLine + 1);
+    const stop = after.findIndex((l) => l.trimStart().startsWith("==="));
+    const reason = (stop === -1 ? after : after.slice(0, stop))
       .join("\n")
-      .trim();
+      .trim()
+      .slice(0, 300);
     return { skip: reason };
   }
 
@@ -332,13 +352,17 @@ export function parseProductGuideOutput(
     bodyLines.some((l) => l.trim() === heading);
   if (!GUIDE_SECTIONS.every(hasSection)) return { reason: "missing-sections" };
 
-  // Conta i passi numerati e gli ancoraggi NAV nell'INTERO body (semplice e robusto: i
-  // NAV vivono comunque solo sotto `### Steps`).
-  const steps = bodyLines.filter((l) => NUMBERED_STEP_RE.test(l)).length;
-  const navAnchors = bodyLines.filter((l) => NAV_ANCHOR_RE.test(l)).length;
+  // Conta passi numerati e ancoraggi NAV SOLO nella sezione `### Steps` (dalla riga
+  // `### Steps` fino all'heading `###` successivo, o fine body): una lista numerata in
+  // `### Common issues` NON deve gonfiare i passi, né i NAV fuori da Steps contare come
+  // ancoraggi.
+  const stepsLines = stepsSectionLines(bodyLines);
+  const steps = stepsLines.filter((l) => NUMBERED_STEP_RE.test(l)).length;
+  const navAnchors = stepsLines.filter((l) => NAV_ANCHOR_RE.test(l)).length;
 
   if (navAnchors === 0) return { reason: "no navigation anchors" };
-  // Soglia documentata: almeno la METÀ dei passi (arrotondata per eccesso) ha un NAV.
+  // Soglia documentata: almeno la METÀ dei passi in `### Steps` (arrotondata per eccesso)
+  // ha un NAV.
   const required = Math.ceil(steps / 2);
   if (navAnchors < required) return { reason: "insufficient navigation anchors" };
 
