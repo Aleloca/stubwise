@@ -40,11 +40,12 @@ import { buildForest, type TreeItem } from "./docs-tree";
  * Ordine dei gruppi = quello della sidebar Docs (`docs-tree.tsx`): tecnico →
  * funzionale → manuale → release.
  */
-const GROUP_ORDER: DocPageKind[] = ["technical", "functional", "manual", "releases"];
+const GROUP_ORDER: DocPageKind[] = ["technical", "functional", "product", "manual", "releases"];
 
 const GROUP_LABEL_KEY: Record<DocPageKind, string> = {
   technical: "docs:space.groupTechnical",
   functional: "docs:space.groupFunctional",
+  product: "docs:space.groupProduct",
   manual: "docs:space.groupManual",
   releases: "docs:space.groupReleases",
 };

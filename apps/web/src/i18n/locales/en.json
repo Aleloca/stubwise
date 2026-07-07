@@ -976,6 +976,7 @@
       "back": "Documentation",
       "groupTechnical": "Technical",
       "groupFunctional": "Functional",
+      "groupProduct": "Product",
       "groupManual": "Manual",
       "groupReleases": "Releases",
       "groupEmpty": "// empty",
@@ -1050,6 +1051,7 @@
     "search": {
       "kindTechnical": "technical",
       "kindFunctional": "functional",
+      "kindProduct": "product",
       "kindManual": "manual",
       "kindReleases": "release"
     },

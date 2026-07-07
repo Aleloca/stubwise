@@ -401,6 +401,7 @@ function ChatBubble({
 const KIND_LABEL_KEY: Record<DocPageKind, string> = {
   technical: "docs:search.kindTechnical",
   functional: "docs:search.kindFunctional",
+  product: "docs:search.kindProduct",
   manual: "docs:search.kindManual",
   releases: "docs:search.kindReleases",
 };

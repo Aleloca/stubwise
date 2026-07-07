@@ -1,0 +1,1 @@
+ALTER TYPE "public"."doc_tree" ADD VALUE 'product';

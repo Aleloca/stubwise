@@ -3,14 +3,17 @@ import { z } from "zod";
 /**
  * Tipo di pagina di documentazione: "technical" (registro tecnico/dev),
  * "functional" (registro funzionale/business) — entrambi autogenerati —,
- * "manual" (pagina curata a mano, non toccata dalla rigenerazione) o
- * "releases" (changelog/note di rilascio aggiornate in automatico ai push).
- * Fonte di verità condivisa tra db (enum `doc_page_kind`), server
- * (validazione) e web.
+ * "product" (verticali PUBBLICHE per superficie: getting-started, guide di
+ * journey e FAQ generate dopo la chiusura dei due alberi, seconda persona e
+ * zero interni), "manual" (pagina curata a mano, non toccata dalla
+ * rigenerazione) o "releases" (changelog/note di rilascio aggiornate in
+ * automatico ai push). Fonte di verità condivisa tra db (enum `doc_page_kind`),
+ * server (validazione) e web.
  */
 export const docPageKindSchema = z.enum([
   "technical",
   "functional",
+  "product",
   "manual",
   "releases",
 ]);
@@ -75,10 +78,16 @@ export type DocNodeStatus = z.infer<typeof docNodeStatusSchema>;
 
 /**
  * Albero di appartenenza di un nodo di documentazione: "technical" (registro
- * tecnico/dev) o "functional" (registro funzionale/business). Fonte di verità
- * condivisa tra db (enum `doc_tree`) e worker.
+ * tecnico/dev), "functional" (registro funzionale/business) o "product"
+ * (verticali pubbliche per superficie, generate dopo la chiusura dei due alberi
+ * interni). Fonte di verità condivisa tra db (enum `doc_tree`) e worker: la
+ * finalize mappa `doc_nodes.tree` → `doc_pages.kind`, quindi i nodi product
+ * hanno `tree = 'product'` per proiettare `kind = 'product'`. Nota: gli explore
+ * e synthesize ricorsivi operano SOLO su technical/functional (il loro
+ * `DocTree` in docs-engine resta ai due alberi interni); i nodi product sono
+ * creati e chiusi dall'handler product dedicato, non dal DAG explore/synthesize.
  */
-export const docTreeSchema = z.enum(["technical", "functional"]);
+export const docTreeSchema = z.enum(["technical", "functional", "product"]);
 export type DocTree = z.infer<typeof docTreeSchema>;
 
 /**

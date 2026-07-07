@@ -170,9 +170,14 @@ export async function runSynthesize(
   // Contesto del brief (glossario/attori/invarianti, senza segreti), cache per-processo.
   // Assente → undefined = prompt byte-identico a prima.
   const briefContext = await loadBriefContext(db, node.generationId);
+  // Il DAG explore/synthesize opera SOLO sui due alberi interni (technical/functional);
+  // i nodi `product` sono generati e chiusi dall'handler product dedicato e non
+  // raggiungono questo path. Difesa in profondità: un tree fuori dai due alberi
+  // ricade su "functional" per la scelta della variante di prompt.
+  const tree = node.tree === "technical" ? "technical" : "functional";
   const prompt = buildSynthesizePrompt(
     {
-      tree: node.tree,
+      tree,
       title: node.title,
       intro,
       children,

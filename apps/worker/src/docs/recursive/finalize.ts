@@ -309,14 +309,20 @@ export async function finalizeGeneration(
   const baseCost = Number(generation.cost ?? 0);
   const costUsd = baseCost + nodesCost;
 
-  // 1) Cross-link implements (path-anchored, bidirezionale) su tutti i nodi `done`.
-  const linkable: LinkableNode[] = doneNodes.map((n) => ({
-    id: n.id,
-    tree: n.tree,
-    slug: n.slug,
-    title: n.title,
-    sourcePaths: nodeSourcePaths(n),
-  }));
+  // 1) Cross-link implements (path-anchored, bidirezionale) sui nodi `done` dei DUE
+  // alberi interni: `implements`/`implemented_by` collegano SOLO funzionale↔tecnico
+  // (vedi `resolveImplementsLinks`). I nodi `product` sono verticali pubbliche
+  // stand-alone: non partecipano al cross-linking, quindi restano fuori dalla
+  // proiezione linkable (`LinkableNode.tree` resta il `NodeTree` tecnico/funzionale).
+  const linkable: LinkableNode[] = doneNodes
+    .filter((n): n is typeof n & { tree: LinkableNode["tree"] } => n.tree !== "product")
+    .map((n) => ({
+      id: n.id,
+      tree: n.tree,
+      slug: n.slug,
+      title: n.title,
+      sourcePaths: nodeSourcePaths(n),
+    }));
   const implementsLinks = resolveImplementsLinks(linkable);
 
   let stats: DagGenerationStats;

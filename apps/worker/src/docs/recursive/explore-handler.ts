@@ -247,9 +247,13 @@ export async function runExplore(deps: RunExploreDeps, node: DocNode): Promise<E
   // Contesto del brief (glossario/attori/invarianti, senza segreti), cache per-processo.
   // Assente → undefined = prompt byte-identico a prima.
   const briefContext = await loadBriefContext(db, node.generationId);
+  // Il DAG explore opera SOLO sui due alberi interni (technical/functional); i nodi
+  // `product` sono generati dall'handler product dedicato e non raggiungono questo
+  // path. Difesa in profondità: un tree fuori dai due alberi ricade su "functional".
+  const tree = node.tree === "technical" ? "technical" : "functional";
   const prompt = buildExplorePrompt(
     {
-      tree: node.tree,
+      tree,
       unitRef: node.unitRef ?? "",
       title: node.title,
       parentContext: ctx.parentContext,

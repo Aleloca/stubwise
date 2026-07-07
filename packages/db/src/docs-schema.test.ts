@@ -6,6 +6,7 @@ import {
   docChatSessions,
   docChunks,
   docGenerations,
+  docNodes,
   docPages,
   searchHistory,
   users,
@@ -72,6 +73,37 @@ describe("schema: dominio Docs", () => {
     expect(read?.isManual).toBe(true);
     expect(read?.kind).toBe("manual");
     expect(gen.status).toBe("pending");
+  });
+
+  it("round-trip di una pagina e di un nodo kind/tree 'product'", async () => {
+    const repositoryId = await seedProject();
+    const [gen] = await db.insert(docGenerations).values({ repositoryId }).returning();
+    if (!gen) throw new Error("insert della generazione non ha restituito la riga");
+
+    // Nodo product: la finalize mappa `doc_nodes.tree` → `doc_pages.kind`, quindi
+    // il valore 'product' deve essere accettato da entrambi gli enum (doc_tree,
+    // doc_page_kind) dopo le migrazioni 0045/0046.
+    const [node] = await db
+      .insert(docNodes)
+      .values({ generationId: gen.id, repositoryId, tree: "product", title: "Guida Portale" })
+      .returning();
+    if (!node) throw new Error("insert del nodo non ha restituito la riga");
+    expect(node.tree).toBe("product");
+
+    const [page] = await db
+      .insert(docPages)
+      .values({
+        repositoryId,
+        generationId: gen.id,
+        kind: "product",
+        slug: "guida-portale",
+        title: "Guida Portale",
+      })
+      .returning();
+    if (!page) throw new Error("insert della pagina non ha restituito la riga");
+
+    const [read] = await db.select().from(docPages).where(eq(docPages.id, page.id));
+    expect(read?.kind).toBe("product");
   });
 
   it("permette lo stesso slug a generazioni diverse ma lo vieta dentro una generazione", async () => {

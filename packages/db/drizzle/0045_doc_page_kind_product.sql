@@ -1,0 +1,1 @@
+ALTER TYPE "public"."doc_page_kind" ADD VALUE 'product' BEFORE 'manual';

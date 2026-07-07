@@ -18,15 +18,17 @@ import { CollapsibleSection } from "./collapsible-section";
  */
 
 /**
- * Ordine dei gruppi nella sidebar (registri tecnico → funzionale → manuale →
- * release). Le release stanno in coda: changelog/note di rilascio aggiornate in
+ * Ordine dei gruppi nella sidebar (registri tecnico → funzionale → product →
+ * manuale → release). Product è la classe PUBBLICA (verticali per superficie);
+ * le release stanno in coda: changelog/note di rilascio aggiornate in
  * automatico ai push.
  */
-const GROUP_ORDER: DocPageKind[] = ["technical", "functional", "manual", "releases"];
+const GROUP_ORDER: DocPageKind[] = ["technical", "functional", "product", "manual", "releases"];
 
 const GROUP_LABEL_KEY: Record<DocPageKind, string> = {
   technical: "docs:space.groupTechnical",
   functional: "docs:space.groupFunctional",
+  product: "docs:space.groupProduct",
   manual: "docs:space.groupManual",
   releases: "docs:space.groupReleases",
 };
