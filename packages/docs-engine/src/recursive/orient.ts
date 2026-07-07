@@ -2,8 +2,9 @@
  * ORIENTAMENTO — primo stadio del motore ricorsivo a DAG.
  *
  * Un agente perlustra il repo (read-only), rileva lo stack/framework, separa
- * ARCHITETTURA da RUMORE (`plans`/`docs`/`manual`/`guides` = artefatti di sessione,
- * esclusi dal tecnico) e produce un PIANO strutturato con due child-list: le unità
+ * ARCHITETTURA da PROCESS-NOISE (`plans`/`scratch` = artefatti di processo); la
+ * documentazione scritta dagli sviluppatori (README/ADR/docs) è una FONTE da
+ * considerare ma mai un'unità. Produce un PIANO strutturato con due child-list: le unità
  * TECNICHE di 1° livello e le capability FUNZIONALI di 1° livello. Il piano è
  * machine-parsed col contratto a marcatori (`buildOrientPrompt`/`parseOrientPlan`) — mai
  * formato libero. Logica pura: il survey del repo lo fornisce il chiamante (worker).
@@ -78,13 +79,15 @@ export function buildOrientPrompt(survey: string, briefContext?: string): string
     "   technical documentation: planning notes and scratch dirs (e.g. folders like",
     "   plans/, scratch/). Documentation WRITTEN BY DEVELOPERS about the product — README",
     "   files, ADRs, hand-written docs/ pages — is NOT noise: it is a SOURCE to consider",
-    "   when planning the pages. ARCHITECTURE = the code that is the actual product/system.",
+    "   when planning the pages. However, such documentation is a SOURCE, not",
+    "   ARCHITECTURE: it must NOT itself appear as a technical unit or capability.",
+    "   ARCHITECTURE = the code that is the actual product/system.",
     "   Only ARCHITECTURE folders may appear as technical units.",
     "",
     "3. PRODUCE THE PLAN as TWO child-lists:",
     "   - TECHNICAL UNITS: the first-level units of the codebase that each deserve their",
-    "     own page (the natural top-level decomposition of the ARCHITECTURE — NOT the",
-    "     context-noise). One per line.",
+    "     own page (the natural top-level decomposition of the ARCHITECTURE — never the",
+    "     PROCESS-NOISE nor the developer-written documentation). One per line.",
     "   - FUNCTIONAL CAPABILITIES: the first-level product capabilities (what the product",
     "     lets users do), described from the user's point of view. One per line.",
     "",
