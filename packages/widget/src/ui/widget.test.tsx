@@ -367,7 +367,9 @@ describe("history", () => {
     localStorage.setItem("stubwise-widget:acme:conversation", "conv-empty");
     installFetch({
       "GET /config": jsonResponse(200, activeConfig()),
-      "GET /conversations/conv-empty/messages": jsonResponse(200, { messages: [] }),
+      // La query ?userId fa parte dell'URL reale: senza, la route non aggancia e
+      // il welcome apparirebbe dal ramo d'errore, non da messages.length === 0.
+      "GET /conversations/conv-empty/messages?userId=u1": jsonResponse(200, { messages: [] }),
     });
     await initWidget({ dsn: DSN, user: USER });
     await flush();
