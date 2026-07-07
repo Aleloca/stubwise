@@ -15,6 +15,7 @@ import {
   type ClaimedNode,
 } from "../nodes.js";
 import { runExplore, type RunExploreDeps } from "./explore-handler.js";
+import { runProductPhase } from "./product-handler.js";
 import { runSynthesize, type RunSynthesizeDeps } from "./synthesize-handler.js";
 import {
   allRootsDone,
@@ -96,6 +97,13 @@ export interface DispatchNodeDeps {
   maxDepth: number;
   /** Tetto al numero totale di nodi della generazione (DOC_MAX_NODES). */
   maxNodes: number;
+  /**
+   * Tetto al numero di pagine product create dalla FASE product (DOC_PRODUCT_MAX_PAGES;
+   * default 12, 0 = fase spenta). Budget SEPARATO da `maxNodes`. La fase product gira in
+   * `maybeFinalize` DOPO la chiusura dei due alberi interni e PRIMA della finalizzazione,
+   * così i nodi product entrano nella finalize come gli altri.
+   */
+  maxProductPages: number;
   /** Caricatore della catena di provider AI (iniettabile nei test). Default:
    * loadProviderChain. La PRIMA voce è la credenziale usata dagli agenti del nodo. */
   loadProviderChainFn?: (db: Db, encryptionKey: Buffer) => Promise<ResolvedProvider[]>;
@@ -373,6 +381,32 @@ async function maybeFinalize(deps: DispatchNodeDeps, generationId: string): Prom
   const worktree = registry.claimForFinalize(generationId);
   if (!worktree) return;
 
+  // FASE PRODUCT (Fase B): il vincitore del CAS — l'unico con il worktree ancora vivo e la
+  // garanzia di girare una sola volta per generazione — genera le verticali product PRIMA
+  // della finalizzazione, così i nodi product (tree='product', `done`, body valorizzato)
+  // entrano nella finalize come gli altri (proiettati/embeddati/contati). È interamente
+  // best-effort e additiva: brief assente / zero superfici pubbliche / budget 0 → salto
+  // pulito, generazione invariata; un fallimento non deve MAI impedire la finalizzazione.
+  try {
+    await runProductPhase(
+      {
+        db,
+        runner: deps.runner,
+        worktreeDir: worktree.dir,
+        model: deps.model,
+        agentTimeoutMs: deps.agentTimeoutMs,
+        maxTurns: deps.maxTurns,
+        maxProductPages: deps.maxProductPages,
+        ...(await resolveProductProvider(deps, generationId)),
+      },
+      generationId,
+    );
+  } catch (error) {
+    console.error(
+      `[stubwise-worker] fase product della generazione ${generationId} fallita (best-effort): ${describe(error)}`,
+    );
+  }
+
   let outcome: "succeeded" | "failed";
   try {
     outcome = await finalizeGeneration({ db, ...deps.finalize }, generationId);
@@ -420,6 +454,25 @@ async function resolveProvider(
     return chain[0];
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * Risolve la credenziale AI per i run della FASE product. Riusa `resolveProvider` (stesso
+ * pin/chain dei nodi) ma è FAIL-SOFT: qualsiasi errore (pin non risolvibile incluso) →
+ * nessun provider (auth storica). La fase product è additiva e best-effort, non deve far
+ * fallire la generazione per un provider non risolvibile — a questo punto il DAG interno è
+ * già chiuso con successo. Ritorna un oggetto spread-friendly (`{ provider }` o `{}`).
+ */
+async function resolveProductProvider(
+  deps: DispatchNodeDeps,
+  generationId: string,
+): Promise<{ provider?: ResolvedProvider }> {
+  try {
+    const provider = await resolveProvider(deps, generationId);
+    return provider !== undefined ? { provider } : {};
+  } catch {
+    return {};
   }
 }
 

@@ -67,8 +67,12 @@ const CHILD_SUMMARY_CHARS = 400;
  * Estrae un riassunto breve dal body markdown di un figlio: il primo paragrafo di
  * prosa (saltando heading vuoti / righe `###`), troncato. Best-effort: un body vuoto
  * o tutto-heading degrada a stringa vuota (il prompt lo segna "(no summary)").
+ *
+ * Esportato: l'handler `product` lo riusa per i `functionalSummaries` (titolo + primo
+ * paragrafo delle pagine functional pertinenti a una superficie) — stessa nozione di
+ * "riassunto di una pagina", un solo punto di verità.
  */
-function summarizeBody(body: string): string {
+export function summarizeBody(body: string): string {
   for (const rawBlock of body.split(/\n\s*\n/)) {
     const block = rawBlock.trim();
     if (block === "") continue;

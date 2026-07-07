@@ -295,6 +295,20 @@ const envSchema = z.object({
       .min(0, "deve essere un intero ≥ 0 (es. 5; 0 = disabilita la creazione)")
       .default(5),
   ),
+  // Tetto al numero di pagine di documentazione PRODUCT create per la FASE product
+  // (Fase B, vedi docs/recursive/product-handler.ts): dopo la chiusura dei due alberi
+  // interni, per ogni superficie PUBBLICA UI del brief si genera una verticale (radice +
+  // guide per journey + FAQ) fino a questo tetto TOTALE. Budget SEPARATO da DOC_MAX_NODES.
+  // 0 = fase product spenta (nessuna verticale pubblica; retrocompatibilità totale).
+  // Default 12.
+  DOC_PRODUCT_MAX_PAGES: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 0 (es. 12; 0 = fase product disattivata)" })
+      .int("deve essere un intero ≥ 0 (es. 12; 0 = fase product disattivata)")
+      .min(0, "deve essere un intero ≥ 0 (es. 12; 0 = fase product disattivata)")
+      .default(12),
+  ),
   // Intervallo di poll (secondi) del poller dell'automazione PR Review (task
   // separato dal loop dei job, vedi review/poller.ts): reclama i pending di
   // pr_review_jobs scaduti (debounce dei push sulla PR) ed esegue l'agente di
@@ -439,6 +453,9 @@ export interface WorkerConfig {
   /** Tetto al numero totale di nodi del DAG per generazione: la creazione dei
    * figli che lo supererebbe viene tagliata e loggata (default 400). */
   docMaxNodes: number;
+  /** Tetto alle pagine PRODUCT create dalla fase product per generazione (Fase B;
+   * budget separato da docMaxNodes; default 12; 0 = fase product disattivata). */
+  docProductMaxPages: number;
   /** Endpoint /v1 OpenAI-compatibile per gli embedding dei Docs
    * (default "http://ollama:11434/v1"). */
   embeddingBaseUrl: string;
@@ -518,6 +535,7 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     docModuleMaxTurns: parsed.DOC_MODULE_MAX_TURNS,
     docMaxDepth: parsed.DOC_MAX_DEPTH,
     docMaxNodes: parsed.DOC_MAX_NODES,
+    docProductMaxPages: parsed.DOC_PRODUCT_MAX_PAGES,
     embeddingBaseUrl: parsed.EMBEDDING_BASE_URL,
     embeddingModel: parsed.EMBEDDING_MODEL,
     embeddingApiKey: parsed.EMBEDDING_API_KEY,

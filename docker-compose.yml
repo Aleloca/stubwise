@@ -145,6 +145,12 @@ services:
       # generazione corrente. 0 = disabilita (le aree nuove restano solo segnalate
       # nella entry release, con invito alla rigenerazione completa). Default 5.
       - DOCS_AUTOUPDATE_MAX_NEW_PAGES=${DOCS_AUTOUPDATE_MAX_NEW_PAGES:-5}
+      # --- Docs: classe product (Fase B) ---
+      # Dopo la chiusura dei due alberi interni, per ogni superficie PUBBLICA UI del brief
+      # si genera una verticale pubblica (radice + guide per journey + FAQ), fino a questo
+      # tetto TOTALE di pagine product per generazione. Budget SEPARATO da DOC_MAX_NODES.
+      # 0 = fase product disattivata (nessuna verticale pubblica). Default 12.
+      - DOC_PRODUCT_MAX_PAGES=${DOC_PRODUCT_MAX_PAGES:-12}
       # --- Auth del CLI claude ---
       # Metodo raccomandato: gestisci le credenziali in Settings -> AI providers
       # (catena cifrata nel DB, con failover). Le due righe pass-through qui sotto

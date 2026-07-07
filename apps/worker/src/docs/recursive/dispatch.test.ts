@@ -338,6 +338,10 @@ describe("dispatch del DAG (M7.1)", () => {
           maxTurns: 30,
           maxDepth: 6,
           maxNodes: 400,
+          // Fase product spenta in questi test del dispatch (nessun brief seminato):
+          // la regressione verifica la generazione INVARIATA. La fase product ha test
+          // dedicati (product-handler.test.ts).
+          maxProductPages: 0,
           encryptionKey: ENCRYPTION_KEY,
           loadProviderChainFn: async () => [],
         },
@@ -476,6 +480,7 @@ describe("dispatch del DAG (M7.1)", () => {
         maxTurns: 30,
         maxDepth: 6,
         maxNodes: 400,
+        maxProductPages: 0,
         encryptionKey: ENCRYPTION_KEY,
         loadProviderChainFn: async () => [],
       },
@@ -576,6 +581,10 @@ describe("limite del provider nel dispatch dei nodi", () => {
           maxTurns: 30,
           maxDepth: 6,
           maxNodes: 400,
+          // Fase product spenta in questi test del dispatch (nessun brief seminato):
+          // la regressione verifica la generazione INVARIATA. La fase product ha test
+          // dedicati (product-handler.test.ts).
+          maxProductPages: 0,
           encryptionKey: ENCRYPTION_KEY,
           loadProviderChainFn: async () => [],
           publicUrl: "https://stubwise.example.com",
@@ -918,6 +927,7 @@ describe("provider bloccato (project.aiProviderId)", () => {
         maxTurns: 30,
         maxDepth: 6,
         maxNodes: 400,
+        maxProductPages: 0,
         encryptionKey: ENCRYPTION_KEY,
         loadProviderChainFn: async () => {
           chainCalled = true;
@@ -989,6 +999,7 @@ describe("provider bloccato (project.aiProviderId)", () => {
         maxTurns: 30,
         maxDepth: 6,
         maxNodes: 400,
+        maxProductPages: 0,
         encryptionKey: ENCRYPTION_KEY,
         loadProviderChainFn: async () => {
           chainCalled = true;
@@ -1070,6 +1081,7 @@ describe("provider bloccato (project.aiProviderId)", () => {
         maxTurns: 30,
         maxDepth: 6,
         maxNodes: 400,
+        maxProductPages: 0,
         encryptionKey: ENCRYPTION_KEY,
         loadProviderChainFn: async () => [chainProvider],
         loadProviderByIdFn: async () => {
