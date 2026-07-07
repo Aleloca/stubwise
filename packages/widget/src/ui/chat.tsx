@@ -40,12 +40,12 @@ export interface ChatProps {
   chatEnabled: boolean;
   /** conversationId iniziale da storage (o null: nuova conversazione lazy). */
   initialConversationId: string | null;
-}
-
-/** Titolo di una citazione, o null se il campo manca/non è stringa. */
-function citationTitle(c: WidgetCitation): string | null {
-  const t = c["title"];
-  return typeof t === "string" ? t : null;
+  /**
+   * Slot mutabile in cui Chat pubblica la sua funzione di reset ("nuova
+   * conversazione"): il bottone vive nell'header (WidgetRoot), fuori da questo
+   * componente, e lo invoca tramite questo ref. `null` finché non montato.
+   */
+  resetRef?: { current: (() => void) | null };
 }
 
 let idCounter = 0;
@@ -61,6 +61,7 @@ export function Chat({
   welcomeMessage,
   chatEnabled,
   initialConversationId,
+  resetRef,
 }: ChatProps) {
   const [items, setItems] = useState<ChatItem[]>([]);
   const [draft, setDraft] = useState("");
@@ -77,6 +78,35 @@ export function Chat({
       abortRef.current?.abort();
     };
   }, []);
+
+  /**
+   * "Nuova conversazione": dimentica l'id salvato e riporta il componente allo
+   * stato iniziale "senza conversazione" (welcome fittizio). La conversazione
+   * NUOVA si ricrea lazy al primo invio (via `ensureConversation`, che vede
+   * `conversationId.current === null`).
+   *
+   * Volutamente NON disabilitato durante lo streaming: deve poter INTERROMPERE
+   * un filo indesiderato → abortiamo lo stream in corso (lo stesso controller
+   * usato dallo smontaggio) e ripartiamo puliti. L'abort volontario è già
+   * gestito in `send` (ramo AbortError) senza lasciare messaggi d'errore.
+   */
+  function resetConversation() {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setStreaming(false);
+    conversationId.current = null;
+    clearConversationId(base.slug);
+    setItems([{ kind: "assistant", id: nextId(), text: welcomeMessage, citations: [] }]);
+  }
+
+  // Pubblica il reset nello slot dell'header (bottone "nuova conversazione").
+  useEffect(() => {
+    if (!resetRef) return;
+    resetRef.current = resetConversation;
+    return () => {
+      resetRef.current = null;
+    };
+  });
 
   // Carica lo storico se c'è un id salvato; altrimenti mostra il welcome fittizio.
   // 404 → la conversazione è stata persa/purgata lato server: la si dimentica e
@@ -251,17 +281,11 @@ export function Chat({
               </div>
             );
           }
+          // Le citazioni restano nel modello (il server le manda/persiste e il
+          // viewer del team le usa) ma NON sono renderizzate nel widget.
           return (
-            <div key={it.id}>
-              <div class="sw-msg sw-msg-assistant">{renderMarkdown(it.text)}</div>
-              {it.citations.map((c, i) => {
-                const title = citationTitle(c);
-                return title ? (
-                  <div key={i} class="sw-citation">
-                    {strings.sourcePrefix} {title}
-                  </div>
-                ) : null;
-              })}
+            <div key={it.id} class="sw-msg sw-msg-assistant">
+              {renderMarkdown(it.text)}
             </div>
           );
         })}

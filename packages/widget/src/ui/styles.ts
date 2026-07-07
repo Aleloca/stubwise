@@ -84,6 +84,27 @@ export function widgetStyles(accentColor: string): string {
 .sw-header-text { flex: 1 1 auto; min-width: 0; }
 .sw-header-title { font-size: 15px; font-weight: 600; }
 .sw-header-note { font-size: 12px; opacity: 0.85; margin-top: 2px; }
+/* "Nuova conversazione" nell'header (accanto alla X): conferma inline two-step,
+   nello stato armato ("?") si evidenzia. */
+.sw-header-newchat {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 4px;
+  margin-top: -1px;
+  opacity: 0.9;
+}
+.sw-header-newchat:hover { opacity: 1; }
+.sw-header-newchat--confirm {
+  opacity: 1;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 6px;
+}
 /* X di chiusura nell'header: leva primaria su mobile fullscreen (la bolla è
    nascosta), sempre presente anche su desktop. */
 .sw-header-close {
@@ -167,12 +188,6 @@ export function widgetStyles(accentColor: string): string {
   color: var(--sw-accent);
   text-decoration: underline;
   word-break: break-all;
-}
-.sw-citation {
-  font-size: 11px;
-  color: var(--sw-muted);
-  margin-top: 2px;
-  align-self: flex-start;
 }
 
 /* Card ticket. */

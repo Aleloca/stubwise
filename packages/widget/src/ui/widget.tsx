@@ -9,12 +9,15 @@
  * server, nessuno stato appeso).
  */
 import { render } from "preact";
-import { useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import type { WidgetApiBase, WidgetConfig, WidgetUser } from "../core/api.js";
 import { getConversationId } from "../core/storage.js";
 import { getStrings } from "../i18n.js";
 import { Chat } from "./chat.js";
 import { widgetStyles } from "./styles.js";
+
+/** Timeout (ms) dopo cui la conferma inline "nuova conversazione" si annulla. */
+const NEW_CHAT_CONFIRM_MS = 3000;
 
 /** Config nella variante ATTIVA (l'unica per cui si monta la UI). */
 type ActiveConfig = Extract<WidgetConfig, { enabled: true }>;
@@ -27,7 +30,50 @@ export interface WidgetRootProps {
 
 export function WidgetRoot({ base, config, user }: WidgetRootProps) {
   const [open, setOpen] = useState(false);
+  // Conferma inline two-step del bottone "nuova conversazione": un primo click
+  // arma la conferma (il bottone diventa "confermi?"), il secondo resetta. Un
+  // tap accidentale non butta il filo. Timeout di sicurezza a NEW_CHAT_CONFIRM_MS.
+  const [confirmingNewChat, setConfirmingNewChat] = useState(false);
+  const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Slot in cui Chat pubblica la sua funzione di reset (vive in un altro nodo
+  // del DOM: il bottone è nell'header, il reset dentro Chat).
+  const resetRef = useRef<(() => void) | null>(null);
   const strings = getStrings(config.language);
+
+  /** Annulla il timer di conferma pendente (se presente). */
+  function clearConfirmTimer() {
+    if (confirmTimer.current !== null) {
+      clearTimeout(confirmTimer.current);
+      confirmTimer.current = null;
+    }
+  }
+
+  // Pulizia del timer allo smontaggio e alla chiusura del pannello (che smonta
+  // Chat): la conferma non deve sopravvivere a una riapertura.
+  useEffect(() => {
+    if (!open) {
+      clearConfirmTimer();
+      setConfirmingNewChat(false);
+    }
+    return clearConfirmTimer;
+  }, [open]);
+
+  function onNewChatClick() {
+    if (!confirmingNewChat) {
+      // Primo click: arma la conferma e programma l'auto-annullamento.
+      setConfirmingNewChat(true);
+      clearConfirmTimer();
+      confirmTimer.current = setTimeout(() => {
+        confirmTimer.current = null;
+        setConfirmingNewChat(false);
+      }, NEW_CHAT_CONFIRM_MS);
+      return;
+    }
+    // Secondo click: conferma → reset della conversazione.
+    clearConfirmTimer();
+    setConfirmingNewChat(false);
+    resetRef.current?.();
+  }
 
   return (
     <div class="sw-root">
@@ -38,6 +84,16 @@ export function WidgetRoot({ base, config, user }: WidgetRootProps) {
               <div class="sw-header-title">{config.title}</div>
               <div class="sw-header-note">{strings.assistantNote}</div>
             </div>
+            <button
+              class={
+                confirmingNewChat ? "sw-header-newchat sw-header-newchat--confirm" : "sw-header-newchat"
+              }
+              aria-label={confirmingNewChat ? strings.newChatConfirm : strings.newChat}
+              title={confirmingNewChat ? strings.newChatConfirm : strings.newChat}
+              onClick={onNewChatClick}
+            >
+              {confirmingNewChat ? "?" : "⟳"}
+            </button>
             <button
               class="sw-header-close"
               aria-label={strings.closeLabel}
@@ -53,6 +109,7 @@ export function WidgetRoot({ base, config, user }: WidgetRootProps) {
             welcomeMessage={config.welcomeMessage || strings.welcomeFallback}
             chatEnabled={config.chatEnabled}
             initialConversationId={getConversationId(base.slug)}
+            resetRef={resetRef}
           />
         </div>
       ) : null}

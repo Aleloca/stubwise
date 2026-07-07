@@ -223,7 +223,7 @@ describe("panel", () => {
 });
 
 describe("chat streaming", () => {
-  it("invio con delta+done → testo assistant + citazione; conversazione creata lazy e salvata", async () => {
+  it("invio con delta+done → testo assistant; citazioni NON renderizzate; conversazione creata lazy e salvata", async () => {
     const { calls } = installFetch({
       "GET /config": jsonResponse(200, activeConfig()),
       "POST /conversations": jsonResponse(200, { conversationId: "conv-99" }),
@@ -246,7 +246,10 @@ describe("chat streaming", () => {
     await flush(6);
 
     expect(shadow().textContent).toContain("Ciao mondo");
-    expect(shadow().textContent).toContain("fonte: Guida X");
+    // Le citazioni arrivano nel `done` ma NON vengono mostrate nel widget.
+    expect(shadow().textContent).not.toContain("Guida X");
+    expect(shadow().textContent).not.toContain("fonte");
+    expect(shadow().querySelector(".sw-citation")).toBeNull();
     // Conversazione creata lazy e id persistito.
     expect(calls.some((c) => c.method === "POST" && c.url.endsWith("/conversations"))).toBe(true);
     expect(localStorage.getItem("stubwise-widget:acme:conversation")).toBe("conv-99");
@@ -423,6 +426,147 @@ describe("stream abort on unmount", () => {
 
     expect(capturedSignal!.aborted).toBe(true);
     // Nessun messaggio d'errore lasciato in giro (l'abort è silenzioso).
+    expect(shadow().textContent).not.toContain("Si è verificato un errore");
+  });
+});
+
+describe("new conversation button", () => {
+  /** Apre il pannello con una conversazione salvata e storico non vuoto. */
+  async function openWithHistory(routes: Record<string, Response | (() => Response)> = {}) {
+    localStorage.setItem("stubwise-widget:acme:conversation", "conv-old");
+    const fx = installFetch({
+      "GET /config": () => jsonResponse(200, activeConfig()),
+      // NB: l'URL dei messaggi porta `?userId=…`, quindi la chiave del router
+      // (matcha per endsWith) DEVE includere la query, altrimenti non aggancia.
+      "GET /conversations/conv-old/messages?userId=u1": () =>
+        jsonResponse(200, {
+          messages: [
+            { id: "m1", role: "user", content: "vecchia domanda", citations: null },
+            { id: "m2", role: "assistant", content: "vecchia risposta", citations: [] },
+          ],
+        }),
+      ...routes,
+    });
+    await initWidget({ dsn: DSN, user: USER });
+    await flush();
+    shadow().querySelector<HTMLButtonElement>(".sw-bubble")!.click();
+    await flush(6);
+    return fx;
+  }
+
+  it("il bottone è presente nell'header con aria-label i18n", async () => {
+    await openWithHistory();
+    const btn = shadow().querySelector<HTMLButtonElement>(".sw-header-newchat");
+    expect(btn).not.toBeNull();
+    expect(btn!.getAttribute("aria-label")).toBe("Nuova conversazione");
+  });
+
+  it("primo click → stato conferma; secondo click → storage pulito e timeline al welcome", async () => {
+    await openWithHistory();
+    expect(shadow().textContent).toContain("vecchia risposta");
+
+    const btn = shadow().querySelector<HTMLButtonElement>(".sw-header-newchat")!;
+    // Primo click: conferma armata (nessun reset ancora).
+    btn.click();
+    await flush();
+    expect(
+      shadow().querySelector<HTMLButtonElement>(".sw-header-newchat")!.getAttribute("aria-label"),
+    ).toBe("Confermi? Ricomincia da capo");
+    expect(shadow().querySelector(".sw-header-newchat--confirm")).not.toBeNull();
+    expect(localStorage.getItem("stubwise-widget:acme:conversation")).toBe("conv-old");
+
+    // Secondo click: reset.
+    shadow().querySelector<HTMLButtonElement>(".sw-header-newchat")!.click();
+    await flush(6);
+
+    expect(localStorage.getItem("stubwise-widget:acme:conversation")).toBeNull();
+    expect(shadow().textContent).not.toContain("vecchia risposta");
+    expect(shadow().textContent).not.toContain("vecchia domanda");
+    expect(shadow().textContent).toContain("Benvenuto!");
+    // La conferma è rientrata.
+    expect(shadow().querySelector(".sw-header-newchat--confirm")).toBeNull();
+  });
+
+  it("dopo il reset l'invio ricrea la conversazione (createConversation di nuovo chiamato)", async () => {
+    const { calls } = await openWithHistory({
+      "POST /conversations": () => jsonResponse(200, { conversationId: "conv-new" }),
+      "POST /conversations/conv-new/messages": () =>
+        sseResponse([
+          'data: {"type":"delta","text":"nuova risposta"}\n\n',
+          'data: {"type":"done","conversationId":"conv-new","citations":[]}\n\n',
+        ]),
+    });
+
+    const btn = shadow().querySelector<HTMLButtonElement>(".sw-header-newchat")!;
+    btn.click();
+    await flush();
+    shadow().querySelector<HTMLButtonElement>(".sw-header-newchat")!.click();
+    await flush(6);
+
+    // Invio dopo il reset: deve creare una NUOVA conversazione.
+    const input = shadow().querySelector<HTMLTextAreaElement>(".sw-composer-input")!;
+    input.value = "domanda nuova";
+    input.dispatchEvent(new Event("input"));
+    await flush();
+    shadow().querySelector<HTMLButtonElement>(".sw-composer .sw-btn")!.click();
+    await flush(6);
+
+    expect(calls.filter((c) => c.method === "POST" && c.url.endsWith("/conversations")).length).toBe(
+      1,
+    );
+    expect(localStorage.getItem("stubwise-widget:acme:conversation")).toBe("conv-new");
+    expect(shadow().textContent).toContain("nuova risposta");
+  });
+
+  it("reset DURANTE lo stream → il fetch riceve l'abort e la timeline torna al welcome", async () => {
+    let capturedSignal: AbortSignal | undefined;
+    const pendingSse = new Response(
+      new ReadableStream<Uint8Array>({
+        start() {
+          /* pende finché non arriva l'abort */
+        },
+      }),
+      { status: 200 },
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: string, init: RequestInit = {}) => {
+        if (input.endsWith("/config")) return Promise.resolve(jsonResponse(200, activeConfig()));
+        if (input.endsWith("/conversations"))
+          return Promise.resolve(jsonResponse(200, { conversationId: "conv-s" }));
+        if (input.endsWith("/conversations/conv-s/messages")) {
+          capturedSignal = init.signal ?? undefined;
+          return Promise.resolve(pendingSse);
+        }
+        return Promise.reject(new Error(`no route for ${input}`));
+      }),
+    );
+
+    await initWidget({ dsn: DSN, user: USER });
+    await flush();
+    shadow().querySelector<HTMLButtonElement>(".sw-bubble")!.click();
+    await flush();
+
+    const input = shadow().querySelector<HTMLTextAreaElement>(".sw-composer-input")!;
+    input.value = "domanda";
+    input.dispatchEvent(new Event("input"));
+    await flush();
+    shadow().querySelector<HTMLButtonElement>(".sw-composer .sw-btn")!.click();
+    await flush();
+
+    expect(capturedSignal).toBeInstanceOf(AbortSignal);
+    expect(capturedSignal!.aborted).toBe(false);
+
+    // Reset a stream attivo: due click sul bottone (conferma + azione).
+    const btn = shadow().querySelector<HTMLButtonElement>(".sw-header-newchat")!;
+    btn.click();
+    await flush();
+    shadow().querySelector<HTMLButtonElement>(".sw-header-newchat")!.click();
+    await flush(6);
+
+    // Lo stream è stato interrotto e la timeline è tornata pulita.
+    expect(capturedSignal!.aborted).toBe(true);
+    expect(shadow().textContent).toContain("Benvenuto!");
     expect(shadow().textContent).not.toContain("Si è verificato un errore");
   });
 });

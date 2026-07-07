@@ -5,8 +5,8 @@
  * del prodotto ospite.
  *
  * Volutamente minimale (nessun ICU / plurali / interpolazione): le poche
- * stringhe dinamiche (numero ticket, titolo fonte) sono composte a mano nel
- * punto d'uso. Niente dipendenze da `@stubwise/i18n` (il widget è standalone).
+ * stringhe dinamiche (numero ticket) sono composte a mano nel punto d'uso.
+ * Niente dipendenze da `@stubwise/i18n` (il widget è standalone).
  */
 
 /** Chiavi delle stringhe UI (stesse per ogni lingua). */
@@ -20,14 +20,16 @@ export interface WidgetStrings {
   /** aria-label della bolla/bottone di chiusura. */
   openLabel: string;
   closeLabel: string;
+  /** aria-label del bottone "nuova conversazione" (stato iniziale). */
+  newChat: string;
+  /** aria-label del bottone "nuova conversazione" nello stato di conferma. */
+  newChatConfirm: string;
   /** Nota sotto il titolo del pannello. */
   assistantNote: string;
   /** Messaggio di cortesia su errore generico dello stream/HTTP. */
   errorGeneric: string;
   /** Messaggio dedicato al cap giornaliero della chat (429). */
   errorCapReached: string;
-  /** Prefisso di una citazione ("fonte: <title>"). */
-  sourcePrefix: string;
   /** Nota quando la chat è disabilitata (storico leggibile, composer spento). */
   chatDisabledNote: string;
   /** Card ticket. */
@@ -50,11 +52,12 @@ const it: WidgetStrings = {
   send: "Invia",
   openLabel: "Apri la chat di assistenza",
   closeLabel: "Chiudi la chat",
+  newChat: "Nuova conversazione",
+  newChatConfirm: "Confermi? Ricomincia da capo",
   assistantNote: "Risponde l'assistente AI",
   errorGeneric: "Si è verificato un errore. Riprova tra poco.",
   errorCapReached:
     "L'assistente non è disponibile oggi. Puoi comunque inviare una segnalazione descrivendo il problema.",
-  sourcePrefix: "fonte:",
   chatDisabledNote: "La chat non è al momento disponibile.",
   ticketBug: "bug",
   ticketFeedback: "feedback",
@@ -74,11 +77,12 @@ const en: WidgetStrings = {
   send: "Send",
   openLabel: "Open support chat",
   closeLabel: "Close chat",
+  newChat: "New conversation",
+  newChatConfirm: "Confirm? This starts over",
   assistantNote: "You are chatting with the AI assistant",
   errorGeneric: "Something went wrong. Please try again shortly.",
   errorCapReached:
     "The assistant is unavailable today. You can still send a report describing the problem.",
-  sourcePrefix: "source:",
   chatDisabledNote: "Chat is currently unavailable.",
   ticketBug: "bug",
   ticketFeedback: "feedback",
