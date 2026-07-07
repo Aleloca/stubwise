@@ -135,3 +135,37 @@ export type {
   GrowExistingPage,
   GrowOrientInput,
 } from "./grow.js";
+
+// ── Brief + product (Fase A): contratto del project brief ─────────────────────────────
+export {
+  buildBriefPrompt,
+  parseBriefOutput,
+  briefPromptContext,
+  BRIEF_IDENTITY_START_MARKER,
+  BRIEF_IDENTITY_END_MARKER,
+  BRIEF_ACTORS_START_MARKER,
+  BRIEF_ACTORS_END_MARKER,
+  BRIEF_SURFACES_START_MARKER,
+  BRIEF_SURFACES_END_MARKER,
+  BRIEF_GLOSSARY_START_MARKER,
+  BRIEF_GLOSSARY_END_MARKER,
+  BRIEF_INVARIANTS_START_MARKER,
+  BRIEF_INVARIANTS_END_MARKER,
+  BRIEF_CONFIDENTIAL_START_MARKER,
+  BRIEF_CONFIDENTIAL_END_MARKER,
+  BRIEF_JOURNEYS_START_MARKER,
+  BRIEF_JOURNEYS_END_MARKER,
+  BRIEF_SOURCES_START_MARKER,
+  BRIEF_SOURCES_END_MARKER,
+  BRIEF_FIELD_SEP,
+} from "./brief.js";
+export type {
+  ProjectBrief,
+  BriefActor,
+  BriefSurface,
+  BriefGlossaryEntry,
+  BriefConfidentialFact,
+  BriefJourney,
+  BuildBriefPromptInput,
+  BriefContextOptions,
+} from "./brief.js";
