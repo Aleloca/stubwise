@@ -244,6 +244,68 @@ A product.
     expect(b.actors).toHaveLength(10);
   });
 
+  it("surface: ` :: ` spurio nell'audience sposta i campi → superficie SCARTATA (fail-closed)", () => {
+    // Un ` :: ` di troppo nell'audience: l'ultimo campo diventa "external" (parte
+    // dell'audience), NON un booleano internal riconoscibile → superficie scartata,
+    // MAI un ADMIN silenziosamente classificato pubblico.
+    const out = `
+===SURFACES===
+- Admin :: admin app :: apps/admin :: staff :: only :: internal
+- Shifted :: web :: apps/x :: some :: audience with extra sep
+- Good :: web :: apps/portal :: users :: false
+===END SURFACES===
+`;
+    const b = parseBriefOutput(out) as ProjectBrief;
+    // "Admin" finisce con "internal" (booleano) → tenuta, internal=true.
+    // "Shifted" finisce con "audience with extra sep" → non booleano → scartata.
+    expect(b.surfaces.map((s) => s.name)).toEqual(["Admin", "Good"]);
+    expect(b.surfaces[0]).toEqual({
+      name: "Admin",
+      type: "admin app",
+      rootPath: "apps/admin",
+      audience: "staff",
+      internal: true,
+    });
+  });
+
+  it("actor: ultimo campo non-booleano (shift) → internal=true (fail-closed verso interno)", () => {
+    const out = `
+===ACTORS===
+- Operator :: staff :: with :: extra
+- Reseller :: resells :: false
+===END ACTORS===
+`;
+    const b = parseBriefOutput(out) as ProjectBrief;
+    // "Operator": ultimo campo "extra" non booleano → internal=true (fail-closed).
+    expect(b.actors[0]).toEqual({ name: "Operator", description: "staff", internal: true });
+    expect(b.actors[1]).toEqual({ name: "Reseller", description: "resells", internal: false });
+  });
+
+  it("glossario: ` :: ` dentro la definizione → rejoin corretto", () => {
+    const out = `
+===GLOSSARY===
+- Ratio :: cost :: revenue, expressed as a fraction
+===END GLOSSARY===
+`;
+    const b = parseBriefOutput(out) as ProjectBrief;
+    expect(b.glossary).toEqual([
+      { term: "Ratio", definition: "cost :: revenue, expressed as a fraction" },
+    ]);
+  });
+
+  it("blocco duplicato → vince il primo", () => {
+    const out = `
+===GLOSSARY===
+- First :: the first block wins
+===END GLOSSARY===
+===GLOSSARY===
+- Second :: the second block is ignored
+===END GLOSSARY===
+`;
+    const b = parseBriefOutput(out) as ProjectBrief;
+    expect(b.glossary).toEqual([{ term: "First", definition: "the first block wins" }]);
+  });
+
   it("output tutto-prosa (nessun marcatore) → {reason}", () => {
     const res = parseBriefOutput("Just some prose, no markers at all.\nMore prose.");
     expect("reason" in res).toBe(true);
@@ -287,12 +349,30 @@ describe("briefPromptContext", () => {
     expect(ctx).not.toContain("NEVER disclose");
   });
 
-  it("con includeSecrets: aggiunge la sezione NEVER-disclose coi fatti + avoid", () => {
+  it("con includeSecrets: rende SOLO il divieto categorico, MAI il valore sensibile", () => {
     const ctx = briefPromptContext(brief, { includeSecrets: true });
     expect(ctx).toContain("NEVER disclose");
-    expect(ctx).toContain("Markup is 18%");
-    expect(ctx).toContain("no percentage margins");
+    // Con `avoid` presente si rende SOLO il divieto: il valore letterale non deve mai
+    // finire in un prompt che PRODUCE testo pubblico (potrebbe riecheggiarlo).
+    expect(ctx).toContain("Never: no percentage margins");
+    expect(ctx).not.toContain("Markup is 18%");
+    expect(ctx).not.toContain("18%");
     expect(ctx).toMatch(/neither confirm nor deny/i);
+  });
+
+  it("con includeSecrets ma avoid mancante: fallback sul fact letterale", () => {
+    const ctx = briefPromptContext(
+      {
+        ...brief,
+        confidentialFacts: [
+          { fact: "Supplier X gives 5% rebate", reason: "terms", source: "s.ts", avoid: "" },
+        ],
+      },
+      { includeSecrets: true },
+    );
+    // Senza `avoid` non c'è alternativa categorica: si rende il fact come divieto minimo.
+    expect(ctx).toContain("- Supplier X gives 5% rebate");
+    expect(ctx).not.toContain("Never:");
   });
 
   it("glossario presente reso come `term: definition`", () => {

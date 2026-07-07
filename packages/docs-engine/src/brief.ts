@@ -35,7 +35,8 @@
  *
  * Il PARSER è best-effort PER SEZIONE: una sezione mancante/malformata → array vuoto
  * (stringa vuota per identity), MAI throw; `{ reason }` solo se NESSUNA sezione è
- * parsabile. Il flag `internal` è parsato in modo robusto (true/yes/internal → true).
+ * parsabile. Il flag `internal` è letto dall'ULTIMO campo della riga (fail-closed: per le
+ * surfaces un ultimo campo non-booleano SCARTA la superficie, per gli actors → internal).
  */
 
 import { extractBlock } from "./recursive/contract.js";
@@ -84,6 +85,9 @@ const CAP_SOURCES = 60;
 
 /** Lunghezza massima di una definizione di glossario resa in `briefPromptContext`. */
 const CONTEXT_DEF_MAX = 200;
+
+/** Cap dedicato per l'identity nel contesto: è prosa (2-3 frasi), sta più larga. */
+const CONTEXT_IDENTITY_MAX = 450;
 
 // ── Tipi ──────────────────────────────────────────────────────────────────────────────
 
@@ -208,7 +212,8 @@ export function buildBriefPrompt(input: BuildBriefPromptInput): string {
     "   reference to competitors; and ANYTHING visible ONLY from an INTERNAL surface (admin",
     "   / back office) or from code that computes economic figures. For EACH fact give:",
     "   what it is, WHY it is confidential, WHERE in the code it is visible, and HOW it must",
-    "   NOT appear in a public document.",
+    `   NOT appear in a public document (e.g. "never state a percentage margin or a`,
+    `   wholesale price").`,
     "",
     "7. JOURNEYS. The 5 to 10 main user flows, one per line, attributed to an actor: a",
     "   short title and a one-line summary of the flow.",
@@ -262,10 +267,21 @@ function splitFields(line: string): string[] {
   return stripped.split(BRIEF_FIELD_SEP).map((f) => f.trim());
 }
 
-/** Parse robusto di un flag internal: true/yes/internal (case-insensitive) → true. */
-function parseInternal(raw: string): boolean {
+/** Token che significano INTERNO (true). */
+const INTERNAL_TRUE = new Set(["true", "yes", "y", "internal", "staff", "admin"]);
+/** Token che significano ESTERNO/PUBBLICO (false). */
+const INTERNAL_FALSE = new Set(["false", "no", "n", "external", "public"]);
+
+/**
+ * Interpreta un token booleano `internal`. Ritorna `true`/`false` se riconosciuto,
+ * `null` se NON è un booleano riconoscibile: chi chiama decide cosa fare del null
+ * (SCARTA la superficie / attore interno), MAI silenziosamente false → pubblico.
+ */
+function parseInternalToken(raw: string): boolean | null {
   const v = raw.trim().toLowerCase();
-  return v === "true" || v === "yes" || v === "internal" || v === "y";
+  if (INTERNAL_TRUE.has(v)) return true;
+  if (INTERNAL_FALSE.has(v)) return false;
+  return null;
 }
 
 /**
@@ -292,9 +308,13 @@ function parseActors(output: string): BriefActor[] {
   if (inner === null) return [];
   const actors: BriefActor[] = [];
   for (const line of nonEmptyLines(inner)) {
-    const [name = "", description = "", internal = ""] = splitFields(line);
+    const fields = splitFields(line);
+    const [name = "", description = ""] = fields;
     if (name === "") continue;
-    actors.push({ name, description, internal: parseInternal(internal) });
+    // `internal` è l'ULTIMO campo: un ` :: ` spurio nella description non lo sposta.
+    // Ultimo campo non riconoscibile come booleano → fail-closed verso INTERNO (true).
+    const internal = parseInternalToken(fields[fields.length - 1] ?? "") ?? true;
+    actors.push({ name, description, internal });
     if (actors.length >= CAP_ACTORS) break;
   }
   return actors;
@@ -305,13 +325,18 @@ function parseSurfaces(output: string): BriefSurface[] {
   if (inner === null) return [];
   const surfaces: BriefSurface[] = [];
   for (const line of nonEmptyLines(inner)) {
-    const [name = "", type = "", rootPathRaw = "", audience = "", internal = ""] =
-      splitFields(line);
+    const fields = splitFields(line);
+    const [name = "", type = "", rootPathRaw = "", audience = ""] = fields;
     if (name === "") continue;
     const rootPath = normalizeRootPath(rootPathRaw);
     // rootPath assente/traversal → superficie SCARTATA (senza radice reale è inutile).
     if (rootPath === null) continue;
-    surfaces.push({ name, type, rootPath, audience, internal: parseInternal(internal) });
+    // `internal` è l'ULTIMO campo: un ` :: ` spurio nell'audience lo sposterebbe. Se
+    // l'ultimo campo NON è un booleano riconoscibile → SCARTA la superficie (direzione
+    // pericolosa: un ADMIN classificato pubblico si porta dietro una verticale pubblica).
+    const internal = parseInternalToken(fields[fields.length - 1] ?? "");
+    if (internal === null) continue;
+    surfaces.push({ name, type, rootPath, audience, internal });
     if (surfaces.length >= CAP_SURFACES) break;
   }
   return surfaces;
@@ -455,9 +480,11 @@ function truncate(text: string, max: number): string {
 /**
  * Rende il brief in un BLOCCO COMPATTO da iniettare nei prompt downstream: identity (1
  * riga), attori (nome + internal), glossario (term: definition), invarianti. Con
- * `includeSecrets` aggiunge la sezione NEVER-disclose (fact + come non deve apparire) —
- * di default i segreti NON sono inclusi (solo la pipeline product li vede). Progettato per
- * restare sotto ~1500 parole anche a cap pieni (definizioni troncate a 200 char).
+ * `includeSecrets` aggiunge la sezione NEVER-disclose. Per NON far riecheggiare il valore
+ * sensibile a un agente che PRODUCE testo pubblico, si rende SOLO il divieto categorico
+ * (`Never: <avoid>`); il fact letterale è il fallback solo quando `avoid` manca. Di default
+ * i segreti NON sono inclusi (solo la pipeline product li vede). Progettato per restare
+ * sotto ~1500 parole anche a cap pieni (definizioni troncate a 200 char).
  */
 export function briefPromptContext(
   brief: ProjectBrief,
@@ -466,7 +493,7 @@ export function briefPromptContext(
   const lines: string[] = ["PROJECT CONTEXT — use this glossary and terminology consistently:"];
 
   if (brief.identity !== "") {
-    lines.push("", `Identity: ${truncate(brief.identity, CONTEXT_DEF_MAX)}`);
+    lines.push("", `Identity: ${truncate(brief.identity, CONTEXT_IDENTITY_MAX)}`);
   }
 
   if (brief.actors.length > 0) {
@@ -497,8 +524,16 @@ export function briefPromptContext(
       "let them be inferred; if asked, neither confirm nor deny:",
     );
     for (const f of brief.confidentialFacts) {
-      const avoid = f.avoid.trim() !== "" ? ` — must not appear as: ${truncate(f.avoid, CONTEXT_DEF_MAX)}` : "";
-      lines.push(`- ${truncate(f.fact, CONTEXT_DEF_MAX)}${avoid}`);
+      // Il valore letterale (es. "markup 18%") NON deve finire in un prompt che PRODUCE
+      // testo pubblico: potrebbe riecheggiarlo. Quando c'è un `avoid` categorico lo usiamo
+      // come solo divieto; il fact letterale è il fallback solo se avoid manca. Il valore
+      // integrale resta nei dati del brief per l'auditor della Fase C.
+      const avoid = f.avoid.trim();
+      const rule =
+        avoid !== ""
+          ? `Never: ${truncate(avoid, CONTEXT_DEF_MAX)}`
+          : truncate(f.fact, CONTEXT_DEF_MAX);
+      lines.push(`- ${rule}`);
     }
   }
 
