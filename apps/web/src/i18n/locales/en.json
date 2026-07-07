@@ -1086,6 +1086,32 @@
       "error": "Something went wrong generating the answer.",
       "unavailable": "Docs chat needs an API-key AI provider. Ask an admin to add one in settings (account/OAuth providers don't work here).",
       "newChat": "New chat"
+    },
+    "brief": {
+      "link": "Project brief",
+      "title": "Project brief",
+      "subtitle": "The product's founding facts, detected from the code at the last generation.",
+      "empty": "No brief yet",
+      "emptyHint": "Regenerate the documentation to produce a project brief.",
+      "error": "Could not load the project brief.",
+      "internalBadge": "internal",
+      "externalBadge": "external",
+      "sectionIdentity": "Identity",
+      "sectionActors": "Actors",
+      "sectionSurfaces": "Surfaces",
+      "sectionGlossary": "Glossary",
+      "sectionInvariants": "Business invariants",
+      "sectionJourneys": "User journeys",
+      "sectionSources": "Existing sources",
+      "sectionConfidential": "Confidential facts detected",
+      "confidentialNote": "Not included in the public documentation — shown here for audit only.",
+      "confidentialFact": "Fact",
+      "confidentialReason": "Why confidential",
+      "confidentialSource": "Where in the code",
+      "confidentialAvoid": "Must not appear as",
+      "surfaceAudience": "audience: {{audience}}",
+      "journeyBy": "by {{actor}}",
+      "sectionEmpty": "// none"
     }
   },
   "search": {

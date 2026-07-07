@@ -87,6 +87,26 @@ export const CHILD_FIELD_SEP = " :: ";
  */
 export const MIN_BODY_CHARS = 80;
 
+/**
+ * Rende il PROJECT CONTEXT (glossario/attori/invarianti del brief, già formattati da
+ * `briefPromptContext`) come sezione da anteporre a un prompt downstream (explore /
+ * synthesize). Restituisce le righe da mettere PRIMA delle istruzioni specifiche, seguite
+ * da una riga vuota di separazione. `briefContext` assente/vuoto → NESSUNA riga (i prompt
+ * restano byte-identici a com'erano senza brief). La cornice ricorda all'agente di usare
+ * il glossario in modo coerente e di mantenere i nomi canonici.
+ */
+export function briefContextSection(briefContext?: string): string[] {
+  const ctx = briefContext?.trim();
+  if (!ctx) return [];
+  return [
+    "PROJECT CONTEXT — use this glossary and terminology consistently; keep names canonical",
+    "(prefer the official terms below over synonyms):",
+    "",
+    ctx,
+    "",
+  ];
+}
+
 // ── ChildSpec + parser di child-list ─────────────────────────────────────────────────
 
 /**

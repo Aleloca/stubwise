@@ -1,11 +1,16 @@
 import { docGenerations, docNodes, type Db } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
-import { SYNTH_BODY_END_MARKER, SYNTH_BODY_START_MARKER } from "@stubwise/docs-engine";
+import {
+  SYNTH_BODY_END_MARKER,
+  SYNTH_BODY_START_MARKER,
+  type ProjectBrief,
+} from "@stubwise/docs-engine";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeAgentRunner } from "../../agent/fake.js";
 import type { AgentRunUsage } from "../../agent/runner.js";
 import { claimNextNode, type DocNode } from "../nodes.js";
+import { clearBriefContextCache } from "./brief-context.js";
 import { runSynthesize, type RunSynthesizeDeps } from "./synthesize-handler.js";
 
 // Test del handler di sintesi (M5.4): un nodo-ramo `ready_to_synthesize` con 2 figli
@@ -30,7 +35,28 @@ beforeAll(async () => {
 
 afterEach(async () => {
   await testDb.db.delete(docNodes);
+  await testDb.db
+    .update(docGenerations)
+    .set({ brief: null })
+    .where(eq(docGenerations.id, generationId));
+  clearBriefContextCache();
 });
+
+/** Brief minimale con un termine di glossario riconoscibile, per i test di propagazione. */
+function briefFixture(): ProjectBrief {
+  return {
+    identity: "A ticketing product for support teams.",
+    actors: [{ name: "Agent", description: "handles tickets", internal: true }],
+    surfaces: [],
+    glossary: [{ term: "Wibble", definition: "the canonical unit of work" }],
+    invariants: ["A ticket always has an owner"],
+    confidentialFacts: [
+      { fact: "18% markup", reason: "pricing", source: "billing.ts", avoid: "never state a margin" },
+    ],
+    journeys: [],
+    existingSources: [],
+  };
+}
 
 afterAll(async () => {
   await testDb.stop();
@@ -213,5 +239,42 @@ describe("runSynthesize", () => {
     const grandparent = await getNode(db, grandparentId);
     expect(grandparent.pendingChildren).toBe(0);
     expect(grandparent.status).toBe("ready_to_synthesize");
+  });
+
+  it("brief seminato: il prompt di sintesi contiene il glossario ma NON i segreti", async () => {
+    const { db } = testDb;
+    await db
+      .update(docGenerations)
+      .set({ brief: briefFixture() })
+      .where(eq(docGenerations.id, generationId));
+    const { node } = await seedTree(db);
+
+    const overview = "### Panoramica dell'area\nPresenta le sottoaree.\n\n### Login\nVai qui.\n\n### Logout\nVai qui.";
+    const runner = new FakeAgentRunner({
+      script: () => ({ output: synthOutput(overview), exitCode: 0, usage: USAGE }),
+    });
+    await runSynthesize(baseDeps(db, runner), node);
+
+    const prompt = runner.calls[0]?.prompt ?? "";
+    expect(prompt).toContain("PROJECT CONTEXT");
+    expect(prompt).toContain("Wibble");
+    expect(prompt).toContain("A ticket always has an owner");
+    expect(prompt).not.toContain("18% markup");
+    expect(prompt).not.toContain("never state a margin");
+  });
+
+  it("senza brief: il prompt di sintesi NON contiene la sezione PROJECT CONTEXT (regressione)", async () => {
+    const { db } = testDb;
+    const { node } = await seedTree(db);
+
+    const overview = "### Panoramica dell'area\nPresenta le sottoaree.\n\n### Login\nVai qui.\n\n### Logout\nVai qui.";
+    const runner = new FakeAgentRunner({
+      script: () => ({ output: synthOutput(overview), exitCode: 0, usage: USAGE }),
+    });
+    await runSynthesize(baseDeps(db, runner), node);
+
+    const prompt = runner.calls[0]?.prompt ?? "";
+    expect(prompt).not.toContain("PROJECT CONTEXT");
+    expect(prompt.startsWith("You are writing the OVERVIEW")).toBe(true);
   });
 });

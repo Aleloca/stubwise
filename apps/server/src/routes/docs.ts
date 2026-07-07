@@ -3,6 +3,7 @@ import {
   docGenerationTriggerSchema,
   docJobStatusSchema,
   docPageKindSchema,
+  projectBriefSchema,
 } from "@stubwise/shared";
 import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -432,6 +433,67 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       }
 
       return { generation, latestJob: job ? toJob(job) : null, pinnedProvider };
+    },
+  );
+
+  /**
+   * PROJECT BRIEF della generazione corrente del repository (superficie INTERNA
+   * autenticata: la tab "Brief" della SPA, per l'audit). Restituisce il brief
+   * INTERO — inclusi i `confidentialFacts`, che NON entrano mai nella documentazione
+   * pubblica ma che qui servono proprio a verificare cosa il documentarista ha
+   * rilevato. Il brief è prodotto nel primo step dell'orientamento e persistito su
+   * `doc_generations.brief`; è nullable (run brief fallito/non parsabile → assente).
+   *
+   * Selezione: la generazione PIÙ RECENTE del repository che abbia un brief non nullo
+   * (la `currentDocGenerationId` può essere ancora null prima della prima finalize,
+   * mentre una generazione running/paused può già aver persistito il brief). 404 se il
+   * repository non esiste O se nessuna generazione ha un brief.
+   */
+  app.get(
+    "/repositories/:repositoryId/docs/brief",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: repositoryIdParamsSchema,
+        response: {
+          200: z.object({ brief: projectBriefSchema }),
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { repositoryId } = request.params;
+
+      const [repository] = await app.db
+        .select({ id: repositories.id })
+        .from(repositories)
+        .where(eq(repositories.id, repositoryId));
+      if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
+
+      const [gen] = await app.db
+        .select({ brief: docGenerations.brief })
+        .from(docGenerations)
+        .where(
+          and(
+            eq(docGenerations.repositoryId, repositoryId),
+            sql`${docGenerations.brief} is not null`,
+          ),
+        )
+        .orderBy(desc(docGenerations.createdAt))
+        .limit(1);
+      if (!gen?.brief) {
+        return apiError(reply, 404, "brief_not_found", "No project brief available");
+      }
+
+      // Il brief è jsonb best-effort del worker: validato dallo schema condiviso prima
+      // di esporlo. Un jsonb legacy/corrotto → 404 (nessun brief utilizzabile) invece
+      // di un 500 con payload non conforme.
+      const parsed = projectBriefSchema.safeParse(gen.brief);
+      if (!parsed.success) {
+        return apiError(reply, 404, "brief_not_found", "No project brief available");
+      }
+      return { brief: parsed.data };
     },
   );
 

@@ -9,6 +9,7 @@ import type { AgentRunner } from "../../agent/runner.js";
 import type { ResolvedProvider } from "../../providers/chain.js";
 import { isLimitError } from "../../providers/limit.js";
 import { completeNode, touchNode, type DocNode } from "../nodes.js";
+import { loadBriefContext } from "./brief-context.js";
 
 /**
  * SYNTHESIZE HANDLER — esegue la FASE di sintesi di un nodo-ramo (M5.4).
@@ -166,12 +167,18 @@ export async function runSynthesize(
   const intro = node.body ?? "";
 
   const children = await loadDoneChildren(db, node.id);
-  const prompt = buildSynthesizePrompt({
-    tree: node.tree,
-    title: node.title,
-    intro,
-    children,
-  });
+  // Contesto del brief (glossario/attori/invarianti, senza segreti), cache per-processo.
+  // Assente → undefined = prompt byte-identico a prima.
+  const briefContext = await loadBriefContext(db, node.generationId);
+  const prompt = buildSynthesizePrompt(
+    {
+      tree: node.tree,
+      title: node.title,
+      intro,
+      children,
+    },
+    briefContext,
+  );
 
   const run = await runSynthesizeAgent(deps, node, prompt);
   // Run al limite del provider: NIENTE overview di fallback (nasconderebbe una pagina

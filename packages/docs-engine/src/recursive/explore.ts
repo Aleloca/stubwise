@@ -33,6 +33,7 @@ import {
   EXPLORE_CHILDREN_START_MARKER,
   SOURCE_PATHS_END_MARKER,
   SOURCE_PATHS_START_MARKER,
+  briefContextSection,
   extractBlock,
   parseChildList,
   parsePathList,
@@ -105,13 +106,22 @@ function contextLines(input: ExploreInput): string[] {
 /**
  * Costruisce il prompt di explore. Sceglie la variante tecnica o funzionale in base a
  * `input.tree`. Entrambe terminano con lo stesso contratto di output a tre blocchi.
+ *
+ * `briefContext` (opzionale, prodotto da `briefPromptContext`) è anteposto come sezione
+ * PROJECT CONTEXT PRIMA delle istruzioni specifiche, così l'agente usa glossario/attori/
+ * invarianti del prodotto in modo coerente. Assente/vuoto → prompt byte-identico a prima.
  */
-export function buildExplorePrompt(input: ExploreInput): string {
+export function buildExplorePrompt(input: ExploreInput, briefContext?: string): string {
   const head =
     input.tree === "technical"
       ? technicalLines(input)
       : functionalLines(input);
-  return [...head, "", ...outputContractLines()].join("\n");
+  return [
+    ...briefContextSection(briefContext),
+    ...head,
+    "",
+    ...outputContractLines(),
+  ].join("\n");
 }
 
 /** Variante TECNICA: documenta a fondo l'unità di codice, ancorata al codice. */

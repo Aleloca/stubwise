@@ -80,3 +80,47 @@ export type DocNodeStatus = z.infer<typeof docNodeStatusSchema>;
  */
 export const docTreeSchema = z.enum(["technical", "functional"]);
 export type DocTree = z.infer<typeof docTreeSchema>;
+
+/**
+ * PROJECT BRIEF — le "domande fondanti" del prodotto prodotte nel primo step
+ * dell'orientamento e persistite su `doc_generations.brief` (jsonb). Rispecchia
+ * `ProjectBrief` di `@stubwise/docs-engine` (fonte di verità del parser); qui vive
+ * lo schema di VALIDAZIONE per la route server `GET .../docs/brief` e per il tipo
+ * consumato dalla SPA (tab Brief). Superficie INTERNA autenticata: include i
+ * `confidentialFacts` (che NON entrano mai nella documentazione pubblica — la tab
+ * serve proprio all'audit).
+ */
+export const projectBriefSchema = z.object({
+  identity: z.string(),
+  actors: z.array(
+    z.object({
+      name: z.string(),
+      description: z.string(),
+      internal: z.boolean(),
+    }),
+  ),
+  surfaces: z.array(
+    z.object({
+      name: z.string(),
+      type: z.string(),
+      rootPath: z.string(),
+      audience: z.string(),
+      internal: z.boolean(),
+    }),
+  ),
+  glossary: z.array(z.object({ term: z.string(), definition: z.string() })),
+  invariants: z.array(z.string()),
+  confidentialFacts: z.array(
+    z.object({
+      fact: z.string(),
+      reason: z.string(),
+      source: z.string(),
+      avoid: z.string(),
+    }),
+  ),
+  journeys: z.array(
+    z.object({ actor: z.string(), title: z.string(), summary: z.string() }),
+  ),
+  existingSources: z.array(z.string()),
+});
+export type ProjectBrief = z.infer<typeof projectBriefSchema>;

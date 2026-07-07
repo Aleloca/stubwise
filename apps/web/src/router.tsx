@@ -47,6 +47,7 @@ import {
   DocsSpaceIndex,
   DocsSpaceLayout,
 } from "./routes/docs/$projectId";
+import { DocsBriefView } from "./routes/docs/brief.$projectId";
 import { DocsPage } from "./routes/docs/index";
 import { ProjectDocsLanding } from "./routes/docs/project.$projectId";
 import { LoginPage } from "./routes/login";
@@ -379,6 +380,17 @@ const docsManualNewRoute = createRoute({
 });
 
 /**
+ * Tab "Brief" dello spazio (`/docs/$projectId/brief`): pannello sola-lettura del
+ * project brief. Rotta statica, ha priorità sul segmento dinamico `$slug`
+ * (nessuna pagina può avere slug "brief").
+ */
+const docsBriefRoute = createRoute({
+  getParentRoute: () => docsSpaceRoute,
+  path: "/brief",
+  component: DocsBriefView,
+});
+
+/**
  * Pagina singola dello spazio: render markdown + badge sorgente/commit.
  * Prefetch best-effort della pagina (un 404 — pagina rimossa da una
  * rigenerazione — lo gestisce il componente inline, non il pannello d'errore).
@@ -527,7 +539,12 @@ const routeTree = rootRoute.addChildren([
     repositoryDetailRoute,
     docsRoute,
     projectDocsRoute,
-    docsSpaceRoute.addChildren([docsSpaceIndexRoute, docsManualNewRoute, docsPageRoute]),
+    docsSpaceRoute.addChildren([
+      docsSpaceIndexRoute,
+      docsManualNewRoute,
+      docsBriefRoute,
+      docsPageRoute,
+    ]),
     teamRoute,
     settingsRoute.addChildren([
       settingsIndexRoute,

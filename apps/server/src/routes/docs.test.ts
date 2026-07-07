@@ -439,6 +439,86 @@ describe("GET /api/repositories/:projectId/docs/status", () => {
   });
 });
 
+describe("GET /api/repositories/:repositoryId/docs/brief", () => {
+  const BRIEF = {
+    identity: "A ticketing product for support teams.",
+    actors: [{ name: "Agent", description: "handles tickets", internal: true }],
+    surfaces: [
+      { name: "Web app", type: "webapp", rootPath: "apps/web", audience: "customers", internal: false },
+    ],
+    glossary: [{ term: "Ticket", definition: "a unit of work" }],
+    invariants: ["A ticket always has an owner"],
+    confidentialFacts: [
+      { fact: "18% markup", reason: "pricing", source: "billing.ts", avoid: "never state a margin" },
+    ],
+    journeys: [{ actor: "Agent", title: "Resolve a ticket", summary: "open, work, close" }],
+    existingSources: ["README.md"],
+  };
+
+  async function seedGenerationWithBrief(
+    projectId: string,
+    brief: unknown,
+  ): Promise<string> {
+    const [gen] = await testDb.db
+      .insert(docGenerations)
+      .values({
+        repositoryId: projectId,
+        status: "succeeded",
+        trigger: "manual",
+        brief,
+        startedAt: new Date(),
+        finishedAt: new Date(),
+      })
+      .returning();
+    return gen!.id;
+  }
+
+  it("con brief: 200 col brief INTERO incluso confidentialFacts", async () => {
+    const project = await insertProject(testDb.db);
+    await seedGenerationWithBrief(project.id, BRIEF);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/repositories/${project.id}/docs/brief`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { brief: typeof BRIEF };
+    expect(body.brief).toEqual(BRIEF);
+    // La superficie interna autenticata ESPONE i fatti riservati (per l'audit).
+    expect(body.brief.confidentialFacts[0]!.fact).toBe("18% markup");
+  });
+
+  it("brief assente (nessuna generazione con brief): 404", async () => {
+    const project = await insertProject(testDb.db);
+    await seedSucceededGeneration(testDb.db, project.id); // generazione senza brief
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/repositories/${project.id}/docs/brief`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("repository inesistente: 404", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/repositories/00000000-0000-0000-0000-000000000000/docs/brief",
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("senza sessione: 401", async () => {
+    const project = await insertProject(testDb.db);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/repositories/${project.id}/docs/brief`,
+    });
+    expect(res.statusCode).toBe(401);
+  });
+});
+
 describe("GET /api/docs/spaces", () => {
   it("elenca tutti i progetti come spazi, anche quelli senza documentazione", async () => {
     const withDocs = await insertProject(testDb.db);

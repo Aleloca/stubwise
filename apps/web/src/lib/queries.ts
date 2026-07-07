@@ -33,6 +33,7 @@ import {
   type TicketFilters,
 } from "./api";
 import {
+  getDocBrief,
   getDocPage,
   getDocSpaces,
   getDocStatus,
@@ -487,6 +488,7 @@ export const docsKeys = {
   page: (repositoryId: string, slug: string) =>
     [...docsKeys.space(repositoryId), "page", slug] as const,
   status: (repositoryId: string) => [...docsKeys.space(repositoryId), "status"] as const,
+  brief: (repositoryId: string) => [...docsKeys.space(repositoryId), "brief"] as const,
   // Sotto-albero della documentazione di PROGETTO (Fase 2): scoped al projectId,
   // distinto dallo spazio per-repository sopra.
   project: (projectId: string) => [...docsKeys.all, "project", projectId] as const,
@@ -551,5 +553,19 @@ export function docStatusQueryOptions(repositoryId: string) {
     queryKey: docsKeys.status(repositoryId),
     queryFn: () => getDocStatus(repositoryId),
     staleTime: 10_000,
+  });
+}
+
+/**
+ * Project brief della generazione corrente del repository (tab "Brief"): sola
+ * lettura, cambia solo a una nuova generazione → `staleTime` largo. Un 404
+ * (nessun brief) è un esito atteso, gestito dal componente senza retry.
+ */
+export function docBriefQueryOptions(repositoryId: string) {
+  return queryOptions({
+    queryKey: docsKeys.brief(repositoryId),
+    queryFn: () => getDocBrief(repositoryId),
+    staleTime: 60_000,
+    retry: false,
   });
 }

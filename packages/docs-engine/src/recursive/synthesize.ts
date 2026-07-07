@@ -16,6 +16,7 @@
 import {
   SYNTH_BODY_END_MARKER,
   SYNTH_BODY_START_MARKER,
+  briefContextSection,
   validateBody,
   type BodyRejection,
 } from "./contract.js";
@@ -45,8 +46,15 @@ const MAX_CHILD_SUMMARY_CHARS = 600;
  * Costruisce il prompt di sintesi: scrivi l'OVERVIEW dell'area che presenta e LINKA i
  * figli (un indice ragionato), nel registro coerente con l'albero. Stesso contratto a
  * marcatori + anti-meta degli altri output.
+ *
+ * `briefContext` (opzionale, prodotto da `briefPromptContext`) è anteposto come sezione
+ * PROJECT CONTEXT PRIMA delle istruzioni dell'overview, per la coerenza di glossario e
+ * nomi canonici. Assente/vuoto → prompt byte-identico a prima.
  */
-export function buildSynthesizePrompt(input: SynthesizeInput): string {
+export function buildSynthesizePrompt(
+  input: SynthesizeInput,
+  briefContext?: string,
+): string {
   const register =
     input.tree === "technical"
       ? [
@@ -63,6 +71,7 @@ export function buildSynthesizePrompt(input: SynthesizeInput): string {
   });
 
   return [
+    ...briefContextSection(briefContext),
     "You are writing the OVERVIEW page of a documentation area: an INDEX that introduces",
     "the area and presents its sub-pages (its children) as a coherent table of contents,",
     "so a reader understands what the area covers and where to go next.",

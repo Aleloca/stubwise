@@ -78,6 +78,39 @@ describe("buildExplorePrompt (technical)", () => {
   });
 });
 
+describe("buildExplorePrompt (briefContext)", () => {
+  const BRIEF = "PROJECT CONTEXT — use this glossary and terminology consistently:\nGlossary:\n- Ticket: a unit of work.";
+
+  it("prepends the brief context BEFORE the unit-specific instructions", () => {
+    const withBrief = buildExplorePrompt(input(), BRIEF);
+    expect(withBrief).toContain(BRIEF);
+    // the brief block is rendered before the head instructions
+    expect(withBrief.indexOf(BRIEF)).toBeLessThan(
+      withBrief.indexOf("Unit reference:"),
+    );
+    // keep names canonical guidance is present
+    expect(withBrief).toContain("keep names canonical");
+  });
+
+  it("without briefContext the prompt starts with the head and has no context block (technical)", () => {
+    const prompt = buildExplorePrompt(input());
+    // regression: the very first line is the unchanged head instruction, not a context block
+    expect(prompt.startsWith("You are writing ONE deep page of TECHNICAL")).toBe(true);
+    expect(prompt).not.toContain("PROJECT CONTEXT");
+    expect(prompt).not.toContain("keep names canonical");
+    // undefined arg is identical to omitting it
+    expect(buildExplorePrompt(input(), undefined)).toBe(prompt);
+  });
+
+  it("without briefContext the prompt starts with the head and has no context block (functional)", () => {
+    const fnInput = input({ tree: "functional", unitRef: "Search", title: "Search" });
+    const prompt = buildExplorePrompt(fnInput);
+    expect(prompt.startsWith("You are writing ONE complete, DEEP page of FUNCTIONAL")).toBe(true);
+    expect(prompt).not.toContain("PROJECT CONTEXT");
+    expect(buildExplorePrompt(fnInput, undefined)).toBe(prompt);
+  });
+});
+
 describe("buildExplorePrompt (functional)", () => {
   it("mirrors the strong plain-language / exhaustive / grounding instructions", () => {
     const prompt = buildExplorePrompt(

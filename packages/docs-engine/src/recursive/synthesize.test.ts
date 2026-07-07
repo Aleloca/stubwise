@@ -63,6 +63,27 @@ describe("buildSynthesizePrompt", () => {
   });
 });
 
+describe("buildSynthesizePrompt (briefContext)", () => {
+  const BRIEF = "PROJECT CONTEXT — use this glossary and terminology consistently:\nGlossary:\n- Ticket: a unit of work.";
+
+  it("prepends the brief context BEFORE the overview instructions", () => {
+    const prompt = buildSynthesizePrompt(input(), BRIEF);
+    expect(prompt).toContain(BRIEF);
+    expect(prompt.indexOf(BRIEF)).toBeLessThan(
+      prompt.indexOf("You are writing the OVERVIEW"),
+    );
+    expect(prompt).toContain("keep names canonical");
+  });
+
+  it("without briefContext the prompt is unchanged and has no context block", () => {
+    const prompt = buildSynthesizePrompt(input());
+    expect(prompt.startsWith("You are writing the OVERVIEW")).toBe(true);
+    expect(prompt).not.toContain("PROJECT CONTEXT");
+    expect(prompt).not.toContain("keep names canonical");
+    expect(buildSynthesizePrompt(input(), undefined)).toBe(prompt);
+  });
+});
+
 describe("parseSynthesisOutput", () => {
   it("parses the overview body between the markers, stripping outside text", () => {
     const out = [

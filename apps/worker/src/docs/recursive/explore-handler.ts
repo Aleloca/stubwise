@@ -19,6 +19,7 @@ import {
   type ChildSpec as NodeChildSpec,
   type DocNode,
 } from "../nodes.js";
+import { loadBriefContext } from "./brief-context.js";
 
 /**
  * EXPLORE HANDLER — esegue la FASE di esplorazione di un nodo del DAG (M5.3).
@@ -243,13 +244,19 @@ export async function runExplore(deps: RunExploreDeps, node: DocNode): Promise<E
   const { db } = deps;
 
   const ctx = await loadNodeContext(db, node);
-  const prompt = buildExplorePrompt({
-    tree: node.tree,
-    unitRef: node.unitRef ?? "",
-    title: node.title,
-    parentContext: ctx.parentContext,
-    ancestorTitles: ctx.ancestorTitles,
-  });
+  // Contesto del brief (glossario/attori/invarianti, senza segreti), cache per-processo.
+  // Assente → undefined = prompt byte-identico a prima.
+  const briefContext = await loadBriefContext(db, node.generationId);
+  const prompt = buildExplorePrompt(
+    {
+      tree: node.tree,
+      unitRef: node.unitRef ?? "",
+      title: node.title,
+      parentContext: ctx.parentContext,
+      ancestorTitles: ctx.ancestorTitles,
+    },
+    briefContext,
+  );
 
   const run = await runExploreAgent(deps, node, prompt);
   // Run al limite del provider: il nodo NON è failed (resta in lavorazione, sarà il

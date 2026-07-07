@@ -41,6 +41,15 @@ export function DocsSidebar({
       </Link>
       <DocsGenerationPanel projectId={projectId} />
       <DocsSearchTrigger onOpen={onOpenSearch} />
+      <Link
+        to="/docs/$projectId/brief"
+        params={{ projectId }}
+        onClick={onNavigate}
+        activeProps={{ "data-active": "true" }}
+        className="mb-3 block rounded-sm border border-line px-2 py-1.5 text-center font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg data-[active=true]:border-signal/40 data-[active=true]:text-signal"
+      >
+        {t("docs:brief.link")}
+      </Link>
       <DocsTree projectId={projectId} nodes={tree} onNavigate={onNavigate} />
       <Link
         to="/docs/$projectId/new"

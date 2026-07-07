@@ -12,7 +12,9 @@ import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeAgentRunner } from "../../agent/fake.js";
 import type { AgentRunUsage } from "../../agent/runner.js";
+import type { ProjectBrief } from "@stubwise/docs-engine";
 import { claimNextNode, type DocNode } from "../nodes.js";
+import { clearBriefContextCache } from "./brief-context.js";
 import { runExplore, type RunExploreDeps } from "./explore-handler.js";
 
 // Test del handler di esplorazione (M5.3): nodi inseriti direttamente in doc_nodes
@@ -40,7 +42,30 @@ beforeAll(async () => {
 
 afterEach(async () => {
   await testDb.db.delete(docNodes);
+  // Il brief e la sua cache per-processo sono per-generazione: azzerati tra i test così
+  // i casi con/senza brief non si contaminano.
+  await testDb.db
+    .update(docGenerations)
+    .set({ brief: null })
+    .where(eq(docGenerations.id, generationId));
+  clearBriefContextCache();
 });
+
+/** Brief minimale con un termine di glossario riconoscibile, per i test di propagazione. */
+function briefFixture(): ProjectBrief {
+  return {
+    identity: "A ticketing product for support teams.",
+    actors: [{ name: "Agent", description: "handles tickets", internal: true }],
+    surfaces: [],
+    glossary: [{ term: "Wibble", definition: "the canonical unit of work" }],
+    invariants: ["A ticket always has an owner"],
+    confidentialFacts: [
+      { fact: "18% markup", reason: "pricing", source: "billing.ts", avoid: "never state a margin" },
+    ],
+    journeys: [],
+    existingSources: [],
+  };
+}
 
 afterAll(async () => {
   await testDb.stop();
@@ -343,5 +368,43 @@ describe("runExplore", () => {
     expect(leaf.status).toBe("done");
     // Il body è comunque stato scritto (la pagina esiste, solo non si decompone).
     expect(leaf.body).toContain("Panoramica");
+  });
+
+  it("brief seminato: il prompt di explore contiene il glossario ma NON i segreti", async () => {
+    const { db } = testDb;
+    await db
+      .update(docGenerations)
+      .set({ brief: briefFixture() })
+      .where(eq(docGenerations.id, generationId));
+    await insertNode(db, { title: "Core", unitRef: "src/core", depth: 1 });
+    const node = await claim(db);
+
+    const runner = new FakeAgentRunner({
+      script: () => ({ output: exploreOutput({ children: [], paths: ["src/core"] }), exitCode: 0, usage: USAGE }),
+    });
+    await runExplore(baseDeps(db, runner), node);
+
+    const prompt = runner.calls[0]?.prompt ?? "";
+    expect(prompt).toContain("PROJECT CONTEXT");
+    expect(prompt).toContain("Wibble");
+    expect(prompt).toContain("A ticket always has an owner");
+    // Segreti MAI in un prompt che genera testo pubblico (includeSecrets false).
+    expect(prompt).not.toContain("18% markup");
+    expect(prompt).not.toContain("never state a margin");
+  });
+
+  it("senza brief: il prompt di explore NON contiene la sezione PROJECT CONTEXT (regressione)", async () => {
+    const { db } = testDb;
+    await insertNode(db, { title: "Core", unitRef: "src/core", depth: 1 });
+    const node = await claim(db);
+
+    const runner = new FakeAgentRunner({
+      script: () => ({ output: exploreOutput({ children: [], paths: ["src/core"] }), exitCode: 0, usage: USAGE }),
+    });
+    await runExplore(baseDeps(db, runner), node);
+
+    const prompt = runner.calls[0]?.prompt ?? "";
+    expect(prompt).not.toContain("PROJECT CONTEXT");
+    expect(prompt.startsWith("You are writing ONE deep page of TECHNICAL")).toBe(true);
   });
 });

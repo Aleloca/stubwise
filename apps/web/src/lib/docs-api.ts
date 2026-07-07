@@ -3,6 +3,7 @@ import type {
   DocGenerationTrigger,
   DocJobStatus,
   DocPageKind,
+  ProjectBrief,
 } from "@stubwise/shared";
 import { ApiError, api } from "./api";
 
@@ -173,6 +174,21 @@ export function generateDocs(repositoryId: string): Promise<DocGenerationJob> {
  */
 export function resumeDocs(repositoryId: string): Promise<DocGeneration> {
   return api.post(`/api/repositories/${encodeURIComponent(repositoryId)}/docs/resume`);
+}
+
+// --- Project brief (GET /api/repositories/:repositoryId/docs/brief) ---
+
+export type { ProjectBrief } from "@stubwise/shared";
+
+/**
+ * Project brief della generazione corrente del repository: le "domande fondanti"
+ * del prodotto (identità, attori, superfici, glossario, invarianti, journey e
+ * fatti riservati) prodotte nel primo step dell'orientamento. Superficie interna
+ * autenticata: include i `confidentialFacts` (per l'audit — NON entrano mai nella
+ * documentazione pubblica). 404 se nessuna generazione del repo ha un brief.
+ */
+export function getDocBrief(repositoryId: string): Promise<{ brief: ProjectBrief }> {
+  return api.get(`/api/repositories/${encodeURIComponent(repositoryId)}/docs/brief`);
 }
 
 // --- Pagine manuali (CRUD) ---
