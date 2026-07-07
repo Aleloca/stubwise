@@ -185,3 +185,17 @@ export type {
   ProductPromptInput,
   ProductGuideRejection,
 } from "./product.js";
+
+// ── Brief + product (Fase C): verificatore segreti fail-closed ────────────────────────
+export {
+  buildSecretsAuditPrompt,
+  parseSecretsAuditOutput,
+  buildSecretsRewritePrompt,
+  SECRETS_VERDICT_MARKER,
+  SECRETS_DETAIL_MARKER,
+} from "./secrets.js";
+export type {
+  SecretsAuditInput,
+  SecretsAuditResult,
+  SecretsRewriteInput,
+} from "./secrets.js";
