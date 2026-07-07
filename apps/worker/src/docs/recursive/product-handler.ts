@@ -54,9 +54,11 @@ import { summarizeBody } from "./synthesize-handler.js";
  *
  * ── BUDGET ───────────────────────────────────────────────────────────────────────────
  * `maxProductPages` (DOC_PRODUCT_MAX_PAGES, default 12; 0 = fase spenta) è il tetto al
- * numero TOTALE di pagine product create dalla fase. NON consuma `DOC_MAX_NODES` (budget
- * separato dagli alberi interni). Al raggiungimento del tetto la fase si interrompe
- * (log); le stats della finalize riflettono i nodi effettivamente creati.
+ * numero di pagine product create PER VERTICALE: OGNI superficie riparte col suo budget
+ * pieno, così le superfici successive non restano affamate quando le prime esauriscono il
+ * tetto. NON consuma `DOC_MAX_NODES` (budget separato dagli alberi interni). Al
+ * raggiungimento del tetto DI UNA VERTICALE si passa alla successiva (log); le stats della
+ * finalize riflettono i nodi effettivamente creati.
  *
  * ── COSTI ────────────────────────────────────────────────────────────────────────────
  * Ogni run product aggrega il suo costo su `doc_nodes.cost` del nodo che sta producendo
@@ -81,7 +83,8 @@ export interface RunProductPhaseDeps {
   /** Turni massimi di ogni run dell'agente. */
   maxTurns: number;
   /**
-   * Tetto al numero TOTALE di pagine product create dalla fase (DOC_PRODUCT_MAX_PAGES).
+   * Tetto al numero di pagine product create PER VERTICALE/superficie
+   * (DOC_PRODUCT_MAX_PAGES): ogni verticale riparte col suo budget pieno.
    * 0 = fase spenta (salto pulito). Budget SEPARATO da DOC_MAX_NODES.
    */
   maxProductPages: number;
@@ -159,32 +162,49 @@ function relevantJourneys(brief: ProjectBrief): BriefJourney[] {
 }
 
 /**
- * `functionalSummaries` per una superficie: titolo + primo paragrafo (`summarizeBody`)
- * delle pagine/nodi functional `done` della generazione la cui fonte cade SOTTO
- * `surface.rootPath` (pathCovers). Difesa passiva: ESCLUDE i nodi la cui fonte cade sotto
- * il rootPath di una superficie INTERNA (mai contesto interno in una pagina pubblica).
+ * Predicato UNICO delle fonti di una verticale (usato sia per i `functionalSummaries` sia
+ * per le `limitations`): il nodo functional `done` è PERTINENTE alla superficie se almeno
+ * una sua fonte cade SOTTO `surface.rootPath` (pathCovers) e NESSUNA cade sotto il
+ * rootPath di una superficie INTERNA (difesa passiva: mai contesto interno in una pagina
+ * pubblica). Un nodo senza fonti è escluso.
  */
-function functionalSummariesFor(
+function functionalNodeCovers(
+  surface: BriefSurface,
+  node: DocNode,
+  internalRootPaths: string[],
+): boolean {
+  const paths = (node.sourcePaths as string[] | null) ?? [];
+  if (paths.length === 0) return false;
+  if (!paths.some((p) => pathCovers(surface.rootPath, p))) return false;
+  // Difesa passiva: se una qualsiasi fonte cade sotto una superficie interna, escludi.
+  return !paths.some((p) => internalRootPaths.some((root) => pathCovers(root, p)));
+}
+
+/**
+ * I nodi functional `done` PERTINENTI a una superficie (`functionalNodeCovers`): fonti sia
+ * dei `functionalSummaries` sia delle `limitations`. Preserva l'ordine d'ingresso.
+ */
+function functionalNodesFor(
   surface: BriefSurface,
   functionalNodes: DocNode[],
   internalRootPaths: string[],
+): DocNode[] {
+  return functionalNodes.filter((node) =>
+    functionalNodeCovers(surface, node, internalRootPaths),
+  );
+}
+
+/**
+ * `functionalSummaries` per una superficie: titolo + primo paragrafo (`summarizeBody`)
+ * dei nodi functional pertinenti (`functionalNodesFor`, difesa passiva inclusa).
+ */
+function functionalSummariesFor(
+  summaryNodes: DocNode[],
 ): { title: string; summary: string }[] {
-  const out: { title: string; summary: string }[] = [];
-  for (const node of functionalNodes) {
-    const paths = (node.sourcePaths as string[] | null) ?? [];
-    if (paths.length === 0) continue;
-    // Sotto la superficie corrente?
-    const underSurface = paths.some((p) => pathCovers(surface.rootPath, p));
-    if (!underSurface) continue;
-    // Difesa passiva: se una qualsiasi fonte cade sotto una superficie interna, escludi.
-    const underInternal = paths.some((p) =>
-      internalRootPaths.some((root) => pathCovers(root, p)),
-    );
-    if (underInternal) continue;
-    const summary = summarizeBody(node.body ?? "");
-    out.push({ title: node.title, summary });
-  }
-  return out;
+  return summaryNodes.map((node) => ({
+    title: node.title,
+    summary: summarizeBody(node.body ?? ""),
+  }));
 }
 
 /**
@@ -379,35 +399,28 @@ export async function runProductPhase(
   let position = 0; // posizione tra le radici product (dopo le radici interne).
 
   for (const surface of surfaces) {
-    if (pagesCreated >= deps.maxProductPages) {
-      console.error(
-        `[stubwise-worker] docs product: budget di ${deps.maxProductPages} pagine raggiunto, superfici rimanenti saltate`,
-      );
-      break;
-    }
+    // Budget PER VERTICALE: ogni superficie riparte col suo tetto pieno, così le superfici
+    // successive non restano affamate quando le prime esauriscono il budget.
+    let verticalPages = 0;
 
-    // Fonti della verticale: functional summaries pertinenti (con difesa passiva).
-    const summaryNodes = functionalNodes.filter((node) => {
-      const paths = (node.sourcePaths as string[] | null) ?? [];
-      if (paths.length === 0) return false;
-      if (!paths.some((p) => pathCovers(surface.rootPath, p))) return false;
-      return !paths.some((p) => internalRootPaths.some((root) => pathCovers(root, p)));
-    });
-    const functionalSummaries = functionalSummariesFor(
-      surface,
-      functionalNodes,
-      internalRootPaths,
-    );
+    // Fonti della verticale: nodi functional pertinenti (con difesa passiva), usati sia per
+    // i summaries sia per le limitations della FAQ.
+    const summaryNodes = functionalNodesFor(surface, functionalNodes, internalRootPaths);
+    const functionalSummaries = functionalSummariesFor(summaryNodes);
 
     // ── RADICE della verticale ──────────────────────────────────────────────────────────
     const rootPrompt = buildProductRootPrompt({ surface, briefContext, functionalSummaries });
     const rootOutcome = await runProductPage(deps, rootPrompt, parseProductPageOutput);
     if (rootOutcome.kind !== "body") {
-      // Senza radice le guide non avrebbero un genitore: si scarta la verticale INTERA.
+      // Senza radice le guide non avrebbero un genitore: si scarta la verticale INTERA. Il
+      // costo del run fallito NON va perso: senza un nodo su cui accumularlo (nessun nodo
+      // creato) lo sommiamo ADDITIVAMENTE su doc_generations.cost (come orient somma il suo
+      // costo alla generazione); la finalize aggiunge poi Σ node.cost a questa base.
       console.error(
         `[stubwise-worker] docs product: radice della superficie "${surface.name}" non prodotta ` +
           `(esito ${rootOutcome.kind}) → verticale scartata`,
       );
+      if (rootOutcome.costUsd > 0) await bumpGenerationCost(db, generationId, rootOutcome.costUsd);
       continue;
     }
     const rootTitle = `${surface.name} guide`;
@@ -426,12 +439,13 @@ export async function runProductPhase(
     );
     position += 1;
     pagesCreated += 1;
+    verticalPages += 1;
 
     let childPosition = 0;
 
     // ── GUIDE (una per journey pertinente) ──────────────────────────────────────────────
     for (const journey of journeys) {
-      if (pagesCreated >= deps.maxProductPages) break;
+      if (verticalPages >= deps.maxProductPages) break;
       const guidePrompt = buildProductGuidePrompt({
         surface,
         briefContext,
@@ -469,10 +483,11 @@ export async function runProductPhase(
       );
       childPosition += 1;
       pagesCreated += 1;
+      verticalPages += 1;
     }
 
     // ── FAQ della verticale ─────────────────────────────────────────────────────────────
-    if (pagesCreated < deps.maxProductPages) {
+    if (verticalPages < deps.maxProductPages) {
       const limitations = limitationsFor(summaryNodes);
       if (limitations.length === 0) {
         console.error(
@@ -503,6 +518,7 @@ export async function runProductPhase(
           );
           childPosition += 1;
           pagesCreated += 1;
+          verticalPages += 1;
         } else {
           console.error(
             `[stubwise-worker] docs product: FAQ di "${surface.name}" non prodotta (esito ${outcome.kind})`,
@@ -525,4 +541,17 @@ async function bumpNodeCost(db: Db, nodeId: string, costUsd: number): Promise<vo
     .update(docNodes)
     .set({ cost: sql`coalesce(${docNodes.cost}, 0) + ${costUsd.toFixed(6)}` })
     .where(eq(docNodes.id, nodeId));
+}
+
+/**
+ * Accumula ADDITIVAMENTE un costo su `doc_generations.cost` (come orient somma il suo
+ * costo alla generazione). Usato quando la RADICE di una verticale fallisce: nessun nodo
+ * viene creato, quindi il costo del run non avrebbe altrimenti dove essere aggregato. La
+ * finalize sommerà poi Σ node.cost a questa base (vedi finalize.ts, baseCost + nodesCost).
+ */
+async function bumpGenerationCost(db: Db, generationId: string, costUsd: number): Promise<void> {
+  await db
+    .update(docGenerations)
+    .set({ cost: sql`coalesce(${docGenerations.cost}, 0) + ${costUsd.toFixed(6)}` })
+    .where(eq(docGenerations.id, generationId));
 }

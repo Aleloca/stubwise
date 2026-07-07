@@ -148,8 +148,8 @@ services:
       # --- Docs: classe product (Fase B) ---
       # Dopo la chiusura dei due alberi interni, per ogni superficie PUBBLICA UI del brief
       # si genera una verticale pubblica (radice + guide per journey + FAQ), fino a questo
-      # tetto TOTALE di pagine product per generazione. Budget SEPARATO da DOC_MAX_NODES.
-      # 0 = fase product disattivata (nessuna verticale pubblica). Default 12.
+      # tetto PER VERTICALE (ogni superficie riparte col suo budget). Budget SEPARATO da
+      # DOC_MAX_NODES. 0 = fase product disattivata (nessuna verticale pubblica). Default 12.
       - DOC_PRODUCT_MAX_PAGES=${DOC_PRODUCT_MAX_PAGES:-12}
       # --- Auth del CLI claude ---
       # Metodo raccomandato: gestisci le credenziali in Settings -> AI providers

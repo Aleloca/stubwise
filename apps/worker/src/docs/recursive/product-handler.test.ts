@@ -386,8 +386,11 @@ describe("runProductPhase", () => {
     expect(runner.calls.length).toBe(0);
   });
 
-  it("rispetta il budget: tetto 2 con 3 pagine potenziali → solo 2 create", async () => {
+  it("budget PER VERTICALE: tetto 2 con 3 pagine potenziali nella STESSA verticale → solo 2 create", async () => {
     const { db } = testDb;
+    // Una sola superficie pubblica → una sola verticale: il tetto per verticale (2) taglia
+    // la terza pagina potenziale (radice + 1 guida = 2, poi stop) esattamente come un tetto
+    // totale, perché qui c'è una sola verticale.
     const brief = briefFixture();
     const generationId = await newGeneration(db, brief);
     await insertFunctional(db, generationId, { sourcePaths: ["apps/web/x"] });
@@ -410,6 +413,55 @@ describe("runProductPhase", () => {
     expect(nodes.length).toBe(2);
   });
 
+  it("budget PER VERTICALE: 2 superfici con tetto 2 → ciascuna fino a 2, la seconda NON affamata", async () => {
+    const { db } = testDb;
+    // Due superfici pubbliche UI eleggibili → due verticali. Col budget PER VERTICALE
+    // ciascuna riparte col suo tetto (2): la seconda superficie NON resta a zero (come
+    // sarebbe stato con un tetto TOTALE, esaurito già dalla prima verticale).
+    const brief = briefFixture({
+      surfaces: [
+        {
+          name: "Customer Web App",
+          type: "web app",
+          rootPath: "apps/web",
+          audience: "customers",
+          internal: false,
+        },
+        {
+          name: "Partner Portal",
+          type: "web app",
+          rootPath: "apps/partner",
+          audience: "partners",
+          internal: false,
+        },
+      ],
+    });
+    const generationId = await newGeneration(db, brief);
+    // Una fonte functional per ciascuna superficie (per abilitare guide/summaries).
+    await insertFunctional(db, generationId, { sourcePaths: ["apps/web/x"] });
+    await insertFunctional(db, generationId, { sourcePaths: ["apps/partner/y"] });
+
+    const runner = new FakeAgentRunner({
+      script: (opts): AgentRunResult => {
+        const kind = promptKind(opts);
+        const output = kind === "guide" ? validGuideBody() : validPageBody("P");
+        return { output, exitCode: 0, usage: USAGE };
+      },
+    });
+
+    const result = await runProductPhase(
+      baseDeps(db, runner, { maxProductPages: 2 }),
+      generationId,
+    );
+    // 2 verticali × 2 pagine (radice + 1 guida ciascuna) = 4 totali.
+    expect(result.pagesCreated).toBe(4);
+    const nodes = await productNodes(db, generationId);
+    expect(nodes.length).toBe(4);
+    // Due radici (una per superficie): la SECONDA verticale è stata prodotta (non affamata).
+    const roots = nodes.filter((n) => n.parentId === null);
+    expect(roots.length).toBe(2);
+  });
+
   it("il prompt product contiene la sezione NEVER-disclose dei segreti del brief", async () => {
     const { db } = testDb;
     const generationId = await newGeneration(db, briefFixture());
@@ -426,6 +478,9 @@ describe("runProductPhase", () => {
     for (const call of runner.calls) {
       expect(call.prompt).toContain("NEVER disclose");
       expect(call.prompt).toContain("never state a percentage margin");
+      // Asserzione NEGATIVA end-to-end: il valore letterale riservato del brief (la
+      // percentuale di markup) NON deve MAI comparire nel prompt product.
+      expect(call.prompt).not.toContain("18%");
     }
   });
 

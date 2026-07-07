@@ -295,10 +295,11 @@ const envSchema = z.object({
       .min(0, "deve essere un intero ≥ 0 (es. 5; 0 = disabilita la creazione)")
       .default(5),
   ),
-  // Tetto al numero di pagine di documentazione PRODUCT create per la FASE product
-  // (Fase B, vedi docs/recursive/product-handler.ts): dopo la chiusura dei due alberi
-  // interni, per ogni superficie PUBBLICA UI del brief si genera una verticale (radice +
-  // guide per journey + FAQ) fino a questo tetto TOTALE. Budget SEPARATO da DOC_MAX_NODES.
+  // Tetto al numero di pagine di documentazione PRODUCT create PER VERTICALE dalla FASE
+  // product (Fase B, vedi docs/recursive/product-handler.ts): dopo la chiusura dei due
+  // alberi interni, per ogni superficie PUBBLICA UI del brief si genera una verticale
+  // (radice + guide per journey + FAQ) fino a questo tetto PER SUPERFICIE (ogni verticale
+  // riparte col suo budget). Budget SEPARATO da DOC_MAX_NODES.
   // 0 = fase product spenta (nessuna verticale pubblica; retrocompatibilità totale).
   // Default 12.
   DOC_PRODUCT_MAX_PAGES: z.preprocess(
@@ -453,8 +454,8 @@ export interface WorkerConfig {
   /** Tetto al numero totale di nodi del DAG per generazione: la creazione dei
    * figli che lo supererebbe viene tagliata e loggata (default 400). */
   docMaxNodes: number;
-  /** Tetto alle pagine PRODUCT create dalla fase product per generazione (Fase B;
-   * budget separato da docMaxNodes; default 12; 0 = fase product disattivata). */
+  /** Tetto alle pagine PRODUCT create dalla fase product PER VERTICALE/superficie (Fase B;
+   * ogni verticale riparte col suo budget; separato da docMaxNodes; default 12; 0 = spenta). */
   docProductMaxPages: number;
   /** Endpoint /v1 OpenAI-compatibile per gli embedding dei Docs
    * (default "http://ollama:11434/v1"). */
