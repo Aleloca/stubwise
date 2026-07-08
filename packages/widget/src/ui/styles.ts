@@ -100,14 +100,16 @@ export function widgetStyles(accentColor: string): string {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   border: none;
   border-radius: 8px;
   background: transparent;
   color: #fff;
   cursor: pointer;
-  font-size: 18px;
+  /* Il glifo ⟳ ha metriche più piccole della ✕: font-size maggiorato sulla
+     base (usata dal reset) e ridotto sulla close per pareggiare la resa. */
+  font-size: 22px;
   line-height: 1;
   padding: 0;
   opacity: 0.9;
@@ -120,8 +122,9 @@ export function widgetStyles(accentColor: string): string {
   font-weight: 700;
   background: rgba(255, 255, 255, 0.22);
 }
-/* X di chiusura: glifo leggermente più grande, leva primaria su mobile
-   fullscreen (la bolla è nascosta), sempre presente anche su desktop. */
+/* X di chiusura: leva primaria su mobile fullscreen (la bolla è nascosta),
+   sempre presente anche su desktop. Font-size più basso della base: la ✕
+   rende otticamente più grande del ⟳ a parità di corpo. */
 .sw-header-close { font-size: 20px; }
 
 .sw-messages {
@@ -292,9 +295,11 @@ export function widgetStyles(accentColor: string): string {
      sovrapporrebbe al bottone d'invio del composer (entrambi bottom-right): la
      nascondiamo e la chiusura passa dalla X nell'header. */
   .sw-bubble--hidden { display: none; }
-  /* Touch target più generosi su mobile: >= 40x40px, glifo proporzionato. */
-  .sw-header-btn { width: 40px; height: 40px; font-size: 20px; }
-  .sw-header-close { font-size: 22px; }
+  /* Touch target generosi su mobile (44x44, standard iOS): il ⟳ prende il
+     corpo maggiorato della base, la ✕ resta un filo sotto per pareggiare la
+     resa ottica dei due glifi. */
+  .sw-header-btn { width: 44px; height: 44px; font-size: 26px; }
+  .sw-header-close { font-size: 24px; }
   .sw-header-actions { gap: 4px; }
 }
 `;
