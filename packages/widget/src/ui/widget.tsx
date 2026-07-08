@@ -84,23 +84,25 @@ export function WidgetRoot({ base, config, user }: WidgetRootProps) {
               <div class="sw-header-title">{config.title}</div>
               <div class="sw-header-note">{strings.assistantNote}</div>
             </div>
-            <button
-              class={
-                confirmingNewChat ? "sw-header-newchat sw-header-newchat--confirm" : "sw-header-newchat"
-              }
-              aria-label={confirmingNewChat ? strings.newChatConfirm : strings.newChat}
-              title={confirmingNewChat ? strings.newChatConfirm : strings.newChat}
-              onClick={onNewChatClick}
-            >
-              {confirmingNewChat ? "?" : "⟳"}
-            </button>
-            <button
-              class="sw-header-close"
-              aria-label={strings.closeLabel}
-              onClick={() => setOpen(false)}
-            >
-              ✕
-            </button>
+            <div class="sw-header-actions">
+              <button
+                class={
+                  confirmingNewChat ? "sw-header-btn sw-header-newchat sw-header-newchat--confirm" : "sw-header-btn sw-header-newchat"
+                }
+                aria-label={confirmingNewChat ? strings.newChatConfirm : strings.newChat}
+                title={confirmingNewChat ? strings.newChatConfirm : strings.newChat}
+                onClick={onNewChatClick}
+              >
+                {confirmingNewChat ? "?" : "⟳"}
+              </button>
+              <button
+                class="sw-header-btn sw-header-close"
+                aria-label={strings.closeLabel}
+                onClick={() => setOpen(false)}
+              >
+                ✕
+              </button>
+            </div>
           </div>
           <Chat
             base={base}

@@ -75,51 +75,54 @@ export function widgetStyles(accentColor: string): string {
 .sw-header {
   background: var(--sw-accent);
   color: #fff;
-  padding: 14px 16px;
+  padding: 12px 14px;
   flex: 0 0 auto;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
 }
 .sw-header-text { flex: 1 1 auto; min-width: 0; }
 .sw-header-title { font-size: 15px; font-weight: 600; }
 .sw-header-note { font-size: 12px; opacity: 0.85; margin-top: 2px; }
-/* "Nuova conversazione" nell'header (accanto alla X): conferma inline two-step,
-   nello stato armato ("?") si evidenzia. */
-.sw-header-newchat {
+/* Contenitore dei bottoni header: li tiene sulla stessa riga, centrati tra loro
+   e (via align-items:center sul .sw-header) rispetto al blocco titolo. */
+.sw-header-actions {
   flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: -4px;
+}
+/* Base comune ai bottoni header: touch target quadrato, glifo centrato dentro
+   il bottone (flex center → niente offset da line-height). */
+.sw-header-btn {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
   border: none;
+  border-radius: 8px;
   background: transparent;
   color: #fff;
   cursor: pointer;
   font-size: 18px;
   line-height: 1;
-  padding: 0 4px;
-  margin-top: -1px;
+  padding: 0;
   opacity: 0.9;
 }
-.sw-header-newchat:hover { opacity: 1; }
+.sw-header-btn:hover { opacity: 1; background: rgba(255, 255, 255, 0.14); }
+/* "Nuova conversazione": conferma inline two-step, nello stato armato ("?") si
+   evidenzia. */
 .sw-header-newchat--confirm {
   opacity: 1;
   font-weight: 700;
   background: rgba(255, 255, 255, 0.22);
-  border-radius: 6px;
 }
-/* X di chiusura nell'header: leva primaria su mobile fullscreen (la bolla è
-   nascosta), sempre presente anche su desktop. */
-.sw-header-close {
-  flex: 0 0 auto;
-  border: none;
-  background: transparent;
-  color: #fff;
-  cursor: pointer;
-  font-size: 20px;
-  line-height: 1;
-  padding: 0 2px;
-  margin: -2px -4px 0 0;
-  opacity: 0.9;
-}
-.sw-header-close:hover { opacity: 1; }
+/* X di chiusura: glifo leggermente più grande, leva primaria su mobile
+   fullscreen (la bolla è nascosta), sempre presente anche su desktop. */
+.sw-header-close { font-size: 20px; }
 
 .sw-messages {
   flex: 1 1 auto;
@@ -289,6 +292,10 @@ export function widgetStyles(accentColor: string): string {
      sovrapporrebbe al bottone d'invio del composer (entrambi bottom-right): la
      nascondiamo e la chiusura passa dalla X nell'header. */
   .sw-bubble--hidden { display: none; }
+  /* Touch target più generosi su mobile: >= 40x40px, glifo proporzionato. */
+  .sw-header-btn { width: 40px; height: 40px; font-size: 20px; }
+  .sw-header-close { font-size: 22px; }
+  .sw-header-actions { gap: 4px; }
 }
 `;
 }
