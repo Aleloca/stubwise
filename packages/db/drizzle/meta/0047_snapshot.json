@@ -1,5 +1,5 @@
 {
-  "id": "04f27023-5e8e-448f-acc8-103e50ce6e00",
+  "id": "819fe6de-94cb-4174-be5e-8ef148fdd878",
   "prevId": "1770786e-fda9-4e17-a708-d567223f597b",
   "version": "7",
   "dialect": "postgresql",
@@ -792,6 +792,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "check_samples_ts_idx": {
+          "name": "check_samples_ts_idx",
+          "columns": [
+            {
+              "expression": "ts",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -881,6 +896,21 @@
             }
           ],
           "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "check_samples_rollup_ts_idx": {
+          "name": "check_samples_rollup_ts_idx",
+          "columns": [
+            {
+              "expression": "ts",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -3836,6 +3866,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "server_metrics_ts_idx": {
+          "name": "server_metrics_ts_idx",
+          "columns": [
+            {
+              "expression": "ts",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -3973,6 +4018,21 @@
             }
           ],
           "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "server_metrics_rollup_ts_idx": {
+          "name": "server_metrics_rollup_ts_idx",
+          "columns": [
+            {
+              "expression": "ts",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}

@@ -101,9 +101,13 @@ ALTER TABLE "server_projects" ADD CONSTRAINT "server_projects_server_id_servers_
 ALTER TABLE "server_projects" ADD CONSTRAINT "server_projects_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "service_checks" ADD CONSTRAINT "service_checks_server_id_servers_id_fk" FOREIGN KEY ("server_id") REFERENCES "public"."servers"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE UNIQUE INDEX "check_samples_check_ts_unique" ON "check_samples" USING btree ("check_id","ts");--> statement-breakpoint
+CREATE INDEX "check_samples_ts_idx" ON "check_samples" USING btree ("ts");--> statement-breakpoint
 CREATE UNIQUE INDEX "check_samples_rollup_check_ts_unique" ON "check_samples_rollup" USING btree ("check_id","ts");--> statement-breakpoint
+CREATE INDEX "check_samples_rollup_ts_idx" ON "check_samples_rollup" USING btree ("ts");--> statement-breakpoint
 CREATE UNIQUE INDEX "server_metrics_server_ts_unique" ON "server_metrics" USING btree ("server_id","ts");--> statement-breakpoint
+CREATE INDEX "server_metrics_ts_idx" ON "server_metrics" USING btree ("ts");--> statement-breakpoint
 CREATE UNIQUE INDEX "server_metrics_rollup_server_ts_unique" ON "server_metrics_rollup" USING btree ("server_id","ts");--> statement-breakpoint
+CREATE INDEX "server_metrics_rollup_ts_idx" ON "server_metrics_rollup" USING btree ("ts");--> statement-breakpoint
 CREATE UNIQUE INDEX "server_projects_server_id_project_id_unique" ON "server_projects" USING btree ("server_id","project_id");--> statement-breakpoint
 CREATE INDEX "server_projects_project_id_idx" ON "server_projects" USING btree ("project_id");--> statement-breakpoint
 CREATE INDEX "service_checks_server_id_idx" ON "service_checks" USING btree ("server_id");

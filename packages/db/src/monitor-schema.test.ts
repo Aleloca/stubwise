@@ -3,7 +3,9 @@ import { eq } from "drizzle-orm";
 import { startTestDb, seedRepository, type TestDb } from "./testing.js";
 import {
   checkSamples,
+  checkSamplesRollup,
   serverMetrics,
+  serverMetricsRollup,
   serverProjects,
   servers,
   serviceChecks,
@@ -136,6 +138,60 @@ describe("monitor tables", () => {
     await expect(
       testDb.db.insert(checkSamples).values({ checkId: check!.id, ts, status: "down" }),
     ).rejects.toThrow();
+  });
+
+  it("rollup: insert su entrambe le tabelle, unique su (server|check, ts)", async () => {
+    const [srv] = await testDb.db
+      .insert(servers)
+      .values({ name: "rollup-srv", keyHash: "hash_" + crypto.randomUUID() })
+      .returning();
+    const ts = new Date("2026-07-13T10:00:00.000Z");
+    const metricRollup = {
+      serverId: srv!.id,
+      ts,
+      cpuPctAvg: 10.5,
+      cpuPctMax: 80,
+      load1mAvg: 0.3,
+      load1mMax: 2.1,
+      memUsedBytesAvg: 7_000_000_000,
+      memUsedBytesMax: 9_000_000_000,
+      memTotalBytes: 16_000_000_000,
+      diskUsedBytesAvg: 40_000_000_000,
+      diskUsedBytesMax: 45_000_000_000,
+      diskTotalBytes: 100_000_000_000,
+      netRxBytesSum: 123_456,
+      netTxBytesSum: 654_321,
+    };
+    await testDb.db.insert(serverMetricsRollup).values(metricRollup);
+    const [mr] = await testDb.db
+      .select()
+      .from(serverMetricsRollup)
+      .where(eq(serverMetricsRollup.serverId, srv!.id));
+    expect(mr!.memUsedBytesAvg).toBe(7_000_000_000);
+    expect(mr!.cpuPctAvg).toBeCloseTo(10.5);
+    // Un solo bucket per (server, ts): il ri-rollup fa upsert, non append.
+    await expect(testDb.db.insert(serverMetricsRollup).values(metricRollup)).rejects.toThrow();
+
+    const [check] = await testDb.db
+      .insert(serviceChecks)
+      .values({ serverId: srv!.id, type: "postgres", name: "db", dsnEncrypted: "blob" })
+      .returning();
+    const sampleRollup = {
+      checkId: check!.id,
+      ts,
+      upCount: 58,
+      downCount: 2,
+      latencyMsAvg: 12.5,
+      latencyMsMax: 300,
+    };
+    await testDb.db.insert(checkSamplesRollup).values(sampleRollup);
+    const [cr] = await testDb.db
+      .select()
+      .from(checkSamplesRollup)
+      .where(eq(checkSamplesRollup.checkId, check!.id));
+    expect(cr!.upCount).toBe(58);
+    expect(cr!.latencyMsAvg).toBeCloseTo(12.5);
+    await expect(testDb.db.insert(checkSamplesRollup).values(sampleRollup)).rejects.toThrow();
   });
 
   it("delete server → cascade su join, metriche, check e sample", async () => {

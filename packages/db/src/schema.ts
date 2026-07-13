@@ -1660,6 +1660,9 @@ export const serverMetrics = pgTable(
   (t) => [
     // Idempotenza dell'ingest: un solo campione per (server, ts).
     uniqueIndex("server_metrics_server_ts_unique").on(t.serverId, t.ts),
+    // Rollup/retention filtrano per solo-ts (`ts < cutoff`, senza server_id):
+    // l'unique composita (server_id, ts) non serve quei predicati → indice dedicato.
+    index("server_metrics_ts_idx").on(t.ts),
   ],
 );
 
@@ -1692,6 +1695,8 @@ export const serverMetricsRollup = pgTable(
   },
   (t) => [
     uniqueIndex("server_metrics_rollup_server_ts_unique").on(t.serverId, t.ts),
+    // Retention per solo-ts (vedi server_metrics).
+    index("server_metrics_rollup_ts_idx").on(t.ts),
   ],
 );
 
@@ -1743,7 +1748,11 @@ export const checkSamples = pgTable(
     latencyMs: integer("latency_ms"),
     metrics: jsonb("metrics").$type<Record<string, number>>(),
   },
-  (t) => [uniqueIndex("check_samples_check_ts_unique").on(t.checkId, t.ts)],
+  (t) => [
+    uniqueIndex("check_samples_check_ts_unique").on(t.checkId, t.ts),
+    // Retention per solo-ts (vedi server_metrics).
+    index("check_samples_ts_idx").on(t.ts),
+  ],
 );
 
 /**
@@ -1763,5 +1772,9 @@ export const checkSamplesRollup = pgTable(
     latencyMsAvg: real("latency_ms_avg"),
     latencyMsMax: integer("latency_ms_max"),
   },
-  (t) => [uniqueIndex("check_samples_rollup_check_ts_unique").on(t.checkId, t.ts)],
+  (t) => [
+    uniqueIndex("check_samples_rollup_check_ts_unique").on(t.checkId, t.ts),
+    // Retention per solo-ts (vedi server_metrics).
+    index("check_samples_rollup_ts_idx").on(t.ts),
+  ],
 );
