@@ -292,6 +292,44 @@ describe("evaluateMonitorAlertsOnce — soglie sostenute", () => {
     expect((await readActiveAlerts(db, serverId)).cpu).toBeUndefined();
   });
 
+  it("alert cpu attivo + campioni radi nella finestra → NESSUN recovered, la chiave resta", async () => {
+    const { db } = testDb;
+    const serverId = await seedServer(db);
+    await seedWindow(db, serverId, 6, { cpuPct: 97 });
+    await evaluateMonitorAlertsOnce({ db, dispatch: collector().dispatch, publicUrl: PUBLIC_URL }, NOW);
+    expect((await readActiveAlerts(db, serverId)).cpu).toBeDefined();
+
+    // Finestra con evidenza insufficiente: 2 campioni sotto soglia (< 50% dei
+    // 10 attesi). Nessun recovered per pura assenza di dati.
+    await db.delete(serverMetrics).where(eq(serverMetrics.serverId, serverId));
+    await seedWindow(db, serverId, 2, { cpuPct: 20 });
+
+    const c = collector();
+    await evaluateMonitorAlertsOnce({ db, dispatch: c.dispatch, publicUrl: PUBLIC_URL }, NOW);
+    expect(c.events).toHaveLength(0);
+    expect((await readActiveAlerts(db, serverId)).cpu).toBeDefined();
+  });
+
+  it("alert cpu attivo + soglia portata a null → chiave rimossa SENZA eventi", async () => {
+    const { db } = testDb;
+    const serverId = await seedServer(db);
+    await seedWindow(db, serverId, 6, { cpuPct: 97 });
+    await evaluateMonitorAlertsOnce({ db, dispatch: collector().dispatch, publicUrl: PUBLIC_URL }, NOW);
+    expect((await readActiveAlerts(db, serverId)).cpu).toBeDefined();
+
+    // L'utente disattiva la soglia cpu mentre l'alert è attivo.
+    await db
+      .update(servers)
+      .set({ alertThresholds: { cpuPct: null, memPct: 90, diskPct: 90, sustainedMinutes: 5 } })
+      .where(eq(servers.id, serverId));
+
+    const c = collector();
+    await evaluateMonitorAlertsOnce({ db, dispatch: c.dispatch, publicUrl: PUBLIC_URL }, NOW);
+    // Nessun recovered (disattivare una soglia non è un rientro) e chiave pulita.
+    expect(c.events).toHaveLength(0);
+    expect((await readActiveAlerts(db, serverId)).cpu).toBeUndefined();
+  });
+
   it("offline non valuta le soglie: un alert cpu attivo resta finché il server non torna online", async () => {
     const { db } = testDb;
     const serverId = await seedServer(db);
@@ -405,15 +443,21 @@ describe("evaluateMonitorAlertsOnce — robustezza", () => {
     expect(offline!.url).toBe(`${PUBLIC_URL}/monitor/servers/${goodId}`);
   });
 
-  it("un dispatch che lancia non propaga (best-effort)", async () => {
+  it("un dispatch che lancia non propaga e lo stato anti-spam risulta comunque persistito", async () => {
     const { db } = testDb;
-    await seedServer(db, { lastSeenAt: new Date(NOW.getTime() - 4 * INTERVAL * 1000) });
+    const serverId = await seedServer(db, {
+      lastSeenAt: new Date(NOW.getTime() - 4 * INTERVAL * 1000),
+    });
     const throwing = async (): Promise<void> => {
       throw new Error("boom");
     };
     await expect(
       evaluateMonitorAlertsOnce({ db, dispatch: throwing, publicUrl: PUBLIC_URL }, NOW),
     ).resolves.toBeUndefined();
+    // Persist-before-notify: activeAlerts è scritto PRIMA del dispatch, quindi
+    // anche con la notifica fallita l'anti-spam riflette realtà committata
+    // (meglio una notifica persa di un doppio alert).
+    expect((await readActiveAlerts(db, serverId)).offline).toBeDefined();
   });
 });
 

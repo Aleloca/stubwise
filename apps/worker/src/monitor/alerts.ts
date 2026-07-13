@@ -151,9 +151,12 @@ async function evaluateServerStatus(
 
   /** Entra in allarme (una volta sola) o resta silente (anti-spam). */
   const enter = (key: string, condition: MonitorCondition, detail: string): void => {
-    const existing = active[key];
-    if (existing && existing.notifiedAt !== null) return; // già notificato
-    active[key] = { since: existing?.since ?? nowIso, notifiedAt: nowIso };
+    // Chiave presente = già notificato: questo evaluator (unico scrittore di
+    // activeAlerts) scrive SEMPRE since e notifiedAt insieme, quindi non
+    // esiste lo stato "attivo ma non notificato" (notifiedAt null resta nel
+    // tipo jsonb solo come possibilità futura).
+    if (active[key]) return;
+    active[key] = { since: nowIso, notifiedAt: nowIso };
     changed = true;
     pending.push({ kind: "monitor.alert", serverName: server.name, condition, detail, url });
   };
@@ -209,10 +212,23 @@ async function evaluateServerStatus(
     ];
 
     for (const cond of conds) {
-      // Soglia null = condizione disattivata: non allarma e non risolve.
-      if (cond.threshold === null) continue;
+      // Soglia null = condizione disattivata: non allarma e non risolve. Una
+      // chiave attiva lasciata da quando la soglia era abilitata va però
+      // rimossa SILENZIOSAMENTE (nessun recovered: disattivare una soglia non
+      // è un rientro), altrimenti resta orfana per sempre e il suo anti-spam
+      // sopprimerebbe la ri-notifica alla riabilitazione.
+      if (cond.threshold === null) {
+        if (active[cond.key]) {
+          delete active[cond.key];
+          changed = true;
+        }
+        continue;
+      }
       const threshold = cond.threshold;
       const enough = window.length > 0 && window.length >= minSamples;
+      // NOTA: confronto STRICT (>): con soglia 100 la condizione non scatta mai
+      // (cpuPct è clampato a 100 dallo schema di ingest). Vale anche per la UI
+      // (E4): una soglia a 100 equivale di fatto a disattivare l'alert.
       const allBreach = enough && window.every((s) => {
         const v = cond.value(s);
         return v !== null && v > threshold;
@@ -225,7 +241,11 @@ async function evaluateServerStatus(
           cond.key,
           `${cond.label} al ${cur}% da ${thresholds.sustainedMinutes} minuti (soglia ${threshold}%)`,
         );
-      } else {
+      } else if (enough) {
+        // Si esce SOLO con evidenza (stesso principio dell'offline): con
+        // campioni radi (enough=false) non sappiamo se la condizione è
+        // rientrata — un recovered per pura assenza di dati sarebbe spurio e
+        // farebbe flapping alla riconnessione. La chiave resta.
         exit(cond.key, cond.key, `${cond.label} rientrata sotto la soglia (${threshold}%)`);
       }
     }
@@ -276,6 +296,12 @@ async function loadWindowSamples(
  * lo scrive/azzera SOLO questo evaluator.
  *  - enabled && down && downNotifiedAt null → alert + scrivi downNotifiedAt;
  *  - (up | unknown) && downNotifiedAt valorizzato → recovered + azzera.
+ *
+ * SCELTA DELIBERATA: un check DISABILITATO mentre era down+notificato non
+ * genera recovered finché resta disabilitato (lastStatus rimane "down": nessuna
+ * evidenza di risalita). Alla riabilitazione, il primo esito up dell'agente
+ * farà scattare il recovered; se invece torna down, l'anti-spam (downNotifiedAt
+ * ancora valorizzato) evita un secondo alert.
  */
 async function evaluateCheck(
   db: Db,
