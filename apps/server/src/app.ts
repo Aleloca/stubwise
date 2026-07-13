@@ -33,6 +33,7 @@ import { gitAccountRoutes } from "./routes/git-accounts.js";
 import { inboundRoutes } from "./routes/inbound.js";
 import { ingestRoutes } from "./routes/ingest.js";
 import { widgetRoutes } from "./routes/widget.js";
+import { monitorRoutes } from "./routes/monitor.js";
 import { milestoneRoutes } from "./routes/milestones.js";
 import { projectDocsRoutes } from "./routes/project-docs.js";
 import { projectEnvFileRoutes } from "./routes/project-env-files.js";
@@ -175,6 +176,12 @@ export interface BuildAppOptions {
    * pensato per i test (cap basso) e per la config di deploy.
    */
   widgetDailyTicketCap?: number;
+  /**
+   * Limite di rate della superficie pubblica /monitor (ingest + config), contato
+   * per chiave del server. Server-to-server con batch periodici: cap alto.
+   * Override pensato per i test; default 600 richieste al minuto.
+   */
+  monitorRateLimit?: RateLimitConfig;
 }
 
 /**
@@ -407,6 +414,14 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     rateLimit: opts.ingestRateLimit ?? { max: 300, timeWindow: "1 minute" },
     dailyMessageCap: opts.widgetDailyMessageCap ?? 200,
     dailyTicketCap: opts.widgetDailyTicketCap ?? 50,
+  });
+  // Superficie pubblica del monitoraggio server: fuori da /api, niente CORS
+  // (server-to-server, nessun browser), autenticazione via X-Stubwise-Server-Key
+  // (sha256 → key_hash). L'agente installato sull'host fa ingest e scarica la
+  // config. Cap di rate alto: batch periodici da molti server.
+  void app.register(monitorRoutes, {
+    prefix: "/monitor",
+    rateLimit: opts.monitorRateLimit ?? { max: 600, timeWindow: "1 minute" },
   });
   // Webhook generico per chiamanti esterni: POST /api/inbound/:slug/ticket.
   // Stessa autenticazione/CORS/rate-limit dell'ingestion SDK, ma crea un

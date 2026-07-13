@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 
 /**
@@ -10,6 +10,26 @@ import { z } from "zod";
  */
 export function generateIngestionKey(): string {
   return randomBytes(16).toString("hex");
+}
+
+/**
+ * Genera la chiave dell'agente di monitoraggio server (`sk_` + 48 hex, 24 byte
+ * casuali). È l'unica volta che la chiave esiste in chiaro: si mostra all'admin
+ * alla registrazione del server, poi si persiste solo il suo hash
+ * ({@link hashServerKey}). L'agente la invia nell'header X-Stubwise-Server-Key.
+ */
+export function generateServerKey(): string {
+  return `sk_${randomBytes(24).toString("hex")}`;
+}
+
+/**
+ * Hash sha256 (hex) della chiave dell'agente: è ciò che si persiste in
+ * `servers.key_hash`. All'ingest si ri-hasha la chiave ricevuta e si cerca la
+ * riga sulla colonna unique — nessun confronto in tempo variabile utile a un
+ * attaccante e nessuna chiave in chiaro a riposo.
+ */
+export function hashServerKey(key: string): string {
+  return createHash("sha256").update(key).digest("hex");
 }
 
 /**

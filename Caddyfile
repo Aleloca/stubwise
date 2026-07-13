@@ -35,7 +35,7 @@
 	# e X-Forwarded-For: il server con TRUST_PROXY=true li onora (cookie Secure).
 	# Dentro un `handle` (mutuamente esclusivo con gli altri handle sotto) così
 	# ha la precedenza sul file_server della SPA.
-	@backend path /api/* /ingest/* /webhooks/* /widget/*
+	@backend path /api/* /ingest/* /webhooks/* /widget/* /monitor/*
 	handle @backend {
 		reverse_proxy {$SERVER_UPSTREAM:server:3000}
 	}
