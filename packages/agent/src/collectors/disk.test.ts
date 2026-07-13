@@ -15,9 +15,11 @@ describe("collectDisks", () => {
 
   beforeAll(async () => {
     rootPath = await mkdtemp(join(tmpdir(), "sw-disk-"));
-    // The fixture declares a real extra mount at host path "/data": create the
-    // corresponding directory under the fake root so its statfs succeeds.
+    // The fixture declares real extra mounts at host paths "/data" and
+    // "/mnt/my disk" (octal-escaped as /mnt/my\040disk in /proc/mounts): create
+    // the corresponding directories under the fake root so statfs succeeds.
     await mkdir(join(rootPath, "data"));
+    await mkdir(join(rootPath, "mnt", "my disk"), { recursive: true });
   });
 
   it('reports the primary filesystem as "/" with a real, sane usage', async () => {
@@ -51,7 +53,17 @@ describe("collectDisks", () => {
     const disks = await collectDisks({ rootPath, procMountsPath: mountsFixture });
     // /dev/sda1 is mounted at both "/" and "/mnt/root-bind"; only "/" is kept.
     expect(disks.map((d) => d.mount)).not.toContain("/mnt/root-bind");
-    expect(disks).toHaveLength(2); // "/" and "/data"
+    expect(disks).toHaveLength(3); // "/", "/data" and "/mnt/my disk"
+  });
+
+  it("decodes octal escapes in mountpoints (\\040 = space)", async () => {
+    const disks = await collectDisks({ rootPath, procMountsPath: mountsFixture });
+    // The fixture line is "/dev/sdc1 /mnt/my\040disk ext4 ...": the mountpoint
+    // must come out unescaped and its statfs must resolve under the real
+    // "my disk" directory.
+    const escaped = disks.find((d) => d.mount === "/mnt/my disk");
+    expect(escaped).toBeDefined();
+    expect(escaped!.totalBytes).toBeGreaterThan(0);
   });
 
   it('returns only "/" when the mounts file is missing (no throw)', async () => {

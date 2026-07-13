@@ -82,6 +82,90 @@ describe("collectPm2Services", () => {
     expect(services.map((s) => s.name)).not.toContain("node");
   });
 
+  it("collects children of MULTIPLE God Daemons (root + deploy user)", async () => {
+    const procRoot = await makeProcRoot();
+
+    // Root daemon (pid 100) and deploy-user daemon (pid 110).
+    await writeProc(procRoot, 100, {
+      cmdline: `PM2 v5.3.0: God Daemon (/root/.pm2)${NUL}`,
+      stat: "100 (PM2 v5.3.0: G) S 1 100 100 0 -1 4194560 0 0 0 0 0 0",
+    });
+    await writeProc(procRoot, 110, {
+      cmdline: `PM2 v5.3.0: God Daemon (/home/deploy/.pm2)${NUL}`,
+      stat: "110 (PM2 v5.3.0: G) S 1 110 110 0 -1 4194560 0 0 0 0 0 0",
+    });
+
+    // One child each.
+    await writeProc(procRoot, 200, {
+      stat: "200 (node) S 100 200 200 0 -1 4194304 0 0 0 0 0 0",
+      environ: `name=root-app${NUL}`,
+      status: "VmRSS:\t 1024 kB\n",
+    });
+    await writeProc(procRoot, 210, {
+      stat: "210 (node) S 110 210 210 0 -1 4194304 0 0 0 0 0 0",
+      environ: `name=deploy-app${NUL}`,
+      status: "VmRSS:\t 2048 kB\n",
+    });
+
+    const services = await collectPm2Services({ procRoot });
+    expect(services.map((s) => s.name).sort()).toEqual(["deploy-app", "root-app"]);
+  });
+
+  it("skips zombie children (state Z in stat)", async () => {
+    const procRoot = await makeProcRoot();
+    await writeProc(procRoot, 100, {
+      cmdline: `PM2 v5.3.0: God Daemon (/home/deploy/.pm2)${NUL}`,
+      stat: "100 (PM2 v5.3.0: G) S 1 100 100 0 -1 4194560 0 0 0 0 0 0",
+    });
+    // Zombie child: already dead, not yet reaped → must not be listed "online".
+    await writeProc(procRoot, 200, {
+      stat: "200 (node) Z 100 200 200 0 -1 4194304 0 0 0 0 0 0",
+      environ: `name=dead-app${NUL}`,
+    });
+    // Live sibling still shows up.
+    await writeProc(procRoot, 201, {
+      stat: "201 (node) S 100 201 201 0 -1 4194304 0 0 0 0 0 0",
+      environ: `name=live-app${NUL}`,
+    });
+
+    const services = await collectPm2Services({ procRoot });
+    expect(services.map((s) => s.name)).toEqual(["live-app"]);
+  });
+
+  it("falls back to the script basename when argv0 is a JS runtime", async () => {
+    const procRoot = await makeProcRoot();
+    await writeProc(procRoot, 100, {
+      cmdline: `PM2 v5.3.0: God Daemon (/home/deploy/.pm2)${NUL}`,
+      stat: "100 (PM2 v5.3.0: G) S 1 100 100 0 -1 4194560 0 0 0 0 0 0",
+    });
+    // No environ: name comes from cmdline. argv0 basename is "node" (useless)
+    // → use the script argv[1] basename "server.js".
+    await writeProc(procRoot, 200, {
+      stat: "200 (node) S 100 200 200 0 -1 4194304 0 0 0 0 0 0",
+      cmdline: `/usr/bin/node${NUL}/app/dist/server.js${NUL}--port=3000${NUL}`,
+    });
+
+    const services = await collectPm2Services({ procRoot });
+    expect(services.map((s) => s.name)).toEqual(["server.js"]);
+  });
+
+  it("truncates names longer than the 200-char ingest contract", async () => {
+    const procRoot = await makeProcRoot();
+    await writeProc(procRoot, 100, {
+      cmdline: `PM2 v5.3.0: God Daemon (/home/deploy/.pm2)${NUL}`,
+      stat: "100 (PM2 v5.3.0: G) S 1 100 100 0 -1 4194560 0 0 0 0 0 0",
+    });
+    const longName = "x".repeat(250);
+    await writeProc(procRoot, 200, {
+      stat: "200 (node) S 100 200 200 0 -1 4194304 0 0 0 0 0 0",
+      environ: `name=${longName}${NUL}`,
+    });
+
+    const services = await collectPm2Services({ procRoot });
+    expect(services).toHaveLength(1);
+    expect(services[0]!.name).toBe("x".repeat(200));
+  });
+
   it("returns [] when there is no PM2 God Daemon", async () => {
     const procRoot = await makeProcRoot();
     await writeProc(procRoot, 200, {

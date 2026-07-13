@@ -8,4 +8,5 @@ cgroup2 /sys/fs/cgroup cgroup2 rw,nosuid,nodev,noexec,relatime 0 0
 /dev/sda1 /mnt/root-bind ext4 rw,relatime 0 0
 overlay /var/lib/docker/overlay2/abc123/merged overlay rw,relatime 0 0
 /dev/sdb1 /var/lib/docker/volumes ext4 rw,relatime 0 0
+/dev/sdc1 /mnt/my\040disk ext4 rw,relatime 0 0
 tmpfs /dev/shm tmpfs rw,nosuid,nodev 0 0

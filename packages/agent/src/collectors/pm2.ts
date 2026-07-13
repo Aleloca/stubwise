@@ -1,7 +1,8 @@
 /**
  * PM2 service discovery by scanning the (host) `/proc` tree — no `pm2` library
- * and no PM2 socket. We locate the PM2 "God Daemon" process, then enumerate its
- * child processes (the managed apps) and read their name and RSS from `/proc`.
+ * and no PM2 socket. We locate every PM2 "God Daemon" process (there can be one
+ * per user, e.g. root + deploy), then enumerate their child processes (the
+ * managed apps) and read each child's name and RSS from `/proc`.
  *
  * Fail-soft by design: no daemon → []; any per-pid read/parse error skips that
  * pid; the collector never throws.
@@ -25,6 +26,15 @@ export interface CollectPm2Options {
  */
 const PAGE_SIZE_BYTES = 4096;
 
+/** Max service name length accepted by the ingest contract (discoveredServiceSchema). */
+const MAX_NAME_LENGTH = 200;
+
+/**
+ * Interpreter executables whose basename is useless as an app name: fall back
+ * to the script argument instead ("node /app/server.js" → "server.js").
+ */
+const INTERPRETER_BASENAMES = new Set(["node", "bun", "deno"]);
+
 async function readFileSafe(path: string): Promise<string | null> {
   try {
     return await readFile(path, "utf8");
@@ -33,7 +43,7 @@ async function readFileSafe(path: string): Promise<string | null> {
   }
 }
 
-/** List the numeric (pid) entries directly under `procRoot`. */
+/** List the numeric (pid) entries directly under `procRoot`, ascending. */
 async function listPids(procRoot: string): Promise<number[]> {
   let entries: string[];
   try {
@@ -45,7 +55,7 @@ async function listPids(procRoot: string): Promise<number[]> {
   for (const name of entries) {
     if (/^\d+$/.test(name)) pids.push(Number(name));
   }
-  return pids;
+  return pids.sort((a, b) => a - b);
 }
 
 /** The `/proc/<pid>/cmdline` is NUL-separated; join the args with spaces. */
@@ -54,7 +64,7 @@ function cmdlineToString(raw: string): string {
 }
 
 /**
- * Recognise the PM2 God Daemon by its process title, e.g.
+ * Recognise a PM2 God Daemon by its process title, e.g.
  * "PM2 v5.3.0: God Daemon (/home/deploy/.pm2)".
  */
 function isGodDaemon(cmdline: string): boolean {
@@ -62,18 +72,19 @@ function isGodDaemon(cmdline: string): boolean {
 }
 
 /**
- * Parse the parent pid from `/proc/<pid>/stat`. Format:
+ * Parse the process state and parent pid from `/proc/<pid>/stat`. Format:
  *   pid (comm) state ppid ...
  * `comm` may contain spaces and parentheses, so we split after the LAST ")":
  * the remaining fields are `state ppid ...`.
  */
-function parsePpid(stat: string): number | null {
+function parseStat(stat: string): { state: string; ppid: number } | null {
   const close = stat.lastIndexOf(")");
   if (close === -1) return null;
   const fields = stat.slice(close + 1).trim().split(/\s+/);
-  // fields[0] = state, fields[1] = ppid
+  const state = fields[0];
   const ppid = Number(fields[1]);
-  return Number.isFinite(ppid) ? ppid : null;
+  if (!state || !Number.isFinite(ppid)) return null;
+  return { state, ppid };
 }
 
 /** `/proc/<pid>/environ` is NUL-separated KEY=VALUE; return the map. */
@@ -88,12 +99,23 @@ function parseEnviron(raw: string): Map<string, string> {
   return map;
 }
 
-/** basename of the first cmdline argument, used as a name fallback. */
-function cmdlineBasename(raw: string): string | null {
-  const argv0 = raw.split("\0").find((s) => s.length > 0);
-  if (!argv0) return null;
-  const base = argv0.split("/").pop();
+function basename(path: string): string | null {
+  const base = path.split("/").pop();
   return base && base.length > 0 ? base : null;
+}
+
+/**
+ * Name fallback from cmdline: basename of argv[0], but when argv[0] is a bare
+ * JS runtime (node/bun/deno) that name is useless — use the basename of the
+ * script argument (argv[1]) instead.
+ */
+function cmdlineName(raw: string): string | null {
+  const argv = raw.split("\0").filter((s) => s.length > 0);
+  const first = argv[0] ? basename(argv[0]) : null;
+  if (first && INTERPRETER_BASENAMES.has(first) && argv[1]) {
+    return basename(argv[1]) ?? first;
+  }
+  return first;
 }
 
 /** RSS in bytes from `/proc/<pid>/status` (VmRSS, kB → bytes). */
@@ -109,8 +131,8 @@ function parseStatmRss(statm: string): number | null {
 }
 
 /**
- * Discover PM2-managed apps. Returns [] if no PM2 God Daemon is running under
- * `procRoot`.
+ * Discover PM2-managed apps across ALL running God Daemons. Returns [] if no
+ * PM2 God Daemon is running under `procRoot`.
  */
 export async function collectPm2Services(
   options: CollectPm2Options,
@@ -119,35 +141,39 @@ export async function collectPm2Services(
   const pids = await listPids(procRoot);
   if (pids.length === 0) return [];
 
-  // Locate the God Daemon.
-  let daemonPid: number | null = null;
-  for (const pid of pids.sort((a, b) => a - b)) {
+  // Locate every God Daemon (one per user is common: root + deploy user).
+  const daemonPids = new Set<number>();
+  for (const pid of pids) {
     const cmdline = await readFileSafe(join(procRoot, String(pid), "cmdline"));
-    if (cmdline && isGodDaemon(cmdlineToString(cmdline))) {
-      daemonPid = pid;
-      break;
-    }
+    if (cmdline && isGodDaemon(cmdlineToString(cmdline))) daemonPids.add(pid);
   }
-  if (daemonPid === null) return [];
+  if (daemonPids.size === 0) return [];
 
   const services: DiscoveredService[] = [];
-  for (const pid of pids.sort((a, b) => a - b)) {
-    if (pid === daemonPid) continue;
+  for (const pid of pids) {
+    if (daemonPids.has(pid)) continue;
 
-    const stat = await readFileSafe(join(procRoot, String(pid), "stat"));
-    if (!stat) continue;
-    const ppid = parsePpid(stat);
-    if (ppid !== daemonPid) continue; // not a child of the daemon
+    const statRaw = await readFileSafe(join(procRoot, String(pid), "stat"));
+    if (!statRaw) continue;
+    const stat = parseStat(statRaw);
+    if (!stat || !daemonPids.has(stat.ppid)) continue; // not a child of a daemon
+    // A zombie is already dead — PM2 just hasn't reaped it yet. Reporting it as
+    // "online" would be a lie and its /proc metrics are meaningless → skip it;
+    // the restarted replacement (a live child) will be picked up instead.
+    if (stat.state === "Z") continue;
 
-    // Name: PM2 injects a `name` env var; fall back to the executable basename.
+    // Name: PM2 injects a `name` env var; fall back to the cmdline-derived name.
     let name: string | null = null;
     const environ = await readFileSafe(join(procRoot, String(pid), "environ"));
     if (environ) name = parseEnviron(environ).get("name") ?? null;
     if (!name) {
       const cmdline = await readFileSafe(join(procRoot, String(pid), "cmdline"));
-      if (cmdline) name = cmdlineBasename(cmdline);
+      if (cmdline) name = cmdlineName(cmdline);
     }
     if (!name) continue; // no usable name → skip
+    // Cap at 200 chars: the ingest contract (discoveredServiceSchema) rejects
+    // longer names and one oversized name would fail the whole payload.
+    name = name.slice(0, MAX_NAME_LENGTH);
 
     // Memory: prefer VmRSS from status, fall back to statm.
     let memBytes: number | null = null;
@@ -161,7 +187,7 @@ export async function collectPm2Services(
     services.push({
       source: "pm2",
       name,
-      state: "online", // the process exists under the daemon
+      state: "online", // alive (non-zombie) child of a running daemon
       // CPU% would need two /proc reads an interval apart; not worth it here (YAGNI).
       cpuPct: null,
       memBytes,

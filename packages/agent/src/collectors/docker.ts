@@ -8,7 +8,7 @@
  * fail stays in the list with null cpu/mem.
  */
 
-import { Client } from "undici";
+import { Pool } from "undici";
 
 import type { DiscoveredService } from "@stubwise/shared";
 
@@ -18,6 +18,17 @@ export interface CollectDockerOptions {
   /** Per-request timeout in ms (default 5000). */
   timeoutMs?: number;
 }
+
+/**
+ * How many stats requests run in parallel. Each `stream=false` stats call costs
+ * ~1-1.5s (the daemon takes two internal reads one interval apart), so serial
+ * collection on a 30-container host would take 30-45s and overrun the sampling
+ * interval. The daemon comfortably handles 8-16 concurrent stats reads.
+ */
+const STATS_CONCURRENCY = 8;
+
+/** Max service name length accepted by the ingest contract (discoveredServiceSchema). */
+const MAX_NAME_LENGTH = 200;
 
 interface ContainerSummary {
   Id?: string;
@@ -42,11 +53,11 @@ interface CpuStats {
 
 /** Perform a GET against the Docker Engine API and parse the JSON body. */
 async function dockerGetJson(
-  client: Client,
+  pool: Pool,
   path: string,
   timeoutMs: number,
 ): Promise<unknown> {
-  const { statusCode, body } = await client.request({
+  const { statusCode, body } = await pool.request({
     method: "GET",
     path,
     signal: AbortSignal.timeout(timeoutMs),
@@ -118,55 +129,68 @@ function isFiniteNumber(n: unknown): n is number {
   return typeof n === "number" && Number.isFinite(n);
 }
 
-/** Strip Docker's leading slash from a container name ("/api" → "api"). */
+/**
+ * Strip Docker's leading slash from a container name ("/api" → "api") and cap
+ * it at 200 chars: the ingest contract (`discoveredServiceSchema`) rejects
+ * longer names, and one oversized name would fail the whole payload.
+ */
 function normalizeName(names: string[] | undefined): string | null {
   const raw = names?.[0];
   if (!raw) return null;
-  const trimmed = raw.replace(/^\//, "");
+  const trimmed = raw.replace(/^\//, "").slice(0, MAX_NAME_LENGTH);
   return trimmed.length > 0 ? trimmed : null;
 }
 
 /**
  * Discover running Docker containers with a CPU/RAM sample each. Returns [] on
  * any top-level failure (socket missing, list request failed, malformed list).
+ * Stats are fetched STATS_CONCURRENCY at a time (see the constant's doc).
  */
 export async function collectDockerServices(
   options: CollectDockerOptions,
 ): Promise<DiscoveredService[]> {
   const { socketPath, timeoutMs = 5000 } = options;
-  const client = new Client("http://localhost", { socketPath });
+  const pool = new Pool("http://localhost", {
+    socketPath,
+    connections: STATS_CONCURRENCY,
+  });
 
   try {
-    const list = await dockerGetJson(client, "/containers/json", timeoutMs);
+    const list = await dockerGetJson(pool, "/containers/json", timeoutMs);
     if (!Array.isArray(list)) return [];
 
-    const services: DiscoveredService[] = [];
-    for (const raw of list as ContainerSummary[]) {
+    const containers = (list as ContainerSummary[]).flatMap((raw) => {
       const name = normalizeName(raw.Names);
       const id = raw.Id;
-      if (!name || !id) continue; // unusable entry
+      if (!name || !id) return []; // unusable entry
+      return [
+        { id, name, state: typeof raw.State === "string" ? raw.State : "running" },
+      ];
+    });
 
-      let cpuPct: number | null = null;
-      let memBytes: number | null = null;
-      try {
-        const stats = (await dockerGetJson(
-          client,
-          `/containers/${id}/stats?stream=false`,
-          timeoutMs,
-        )) as DockerStats;
-        cpuPct = computeCpuPct(stats);
-        memBytes = computeMemBytes(stats);
-      } catch {
-        // Stats failed for this container → keep it listed with null metrics.
-      }
-
-      services.push({
-        source: "docker",
-        name,
-        state: typeof raw.State === "string" ? raw.State : "running",
-        cpuPct,
-        memBytes,
-        restarts: null, // Docker does not expose a restart count here
+    // Fetch stats in batches of STATS_CONCURRENCY: the Pool caps the sockets,
+    // the batching caps the in-flight promises. A failed stats request keeps
+    // the container in the list with null metrics.
+    const services: DiscoveredService[] = [];
+    for (let i = 0; i < containers.length; i += STATS_CONCURRENCY) {
+      const batch = containers.slice(i, i + STATS_CONCURRENCY);
+      const settled = await Promise.allSettled(
+        batch.map((c) =>
+          dockerGetJson(pool, `/containers/${c.id}/stats?stream=false`, timeoutMs),
+        ),
+      );
+      batch.forEach((container, j) => {
+        const outcome = settled[j];
+        const stats =
+          outcome?.status === "fulfilled" ? (outcome.value as DockerStats) : null;
+        services.push({
+          source: "docker",
+          name: container.name,
+          state: container.state,
+          cpuPct: stats ? computeCpuPct(stats) : null,
+          memBytes: stats ? computeMemBytes(stats) : null,
+          restarts: null, // Docker does not expose a restart count here
+        });
       });
     }
     return services;
@@ -174,6 +198,8 @@ export async function collectDockerServices(
     // Socket absent / list request failed / malformed JSON → nothing to report.
     return [];
   } finally {
-    void client.close().catch(() => {});
+    // Awaited so the sockets are really released before the collector resolves;
+    // a close error must never mask the result.
+    await pool.close().catch(() => {});
   }
 }

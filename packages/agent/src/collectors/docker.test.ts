@@ -18,10 +18,11 @@ const statsServerJson = fixture("stats-server.json");
 
 /**
  * Fake Docker Engine on a temporary Unix socket. `/containers/json` returns the
- * two-container fixture; the first container's stats resolve to the fixture, the
- * second's return HTTP 500 to exercise the null-metrics path.
+ * fixture body (overridable to exercise the malformed-list path); the first
+ * container's stats resolve to the fixture, the second's return HTTP 500 to
+ * exercise the null-metrics path, anything else 404s.
  */
-function startFakeDocker(): {
+function startFakeDocker(listBody: string = containersJson): {
   socketPath: string;
   ready: Promise<void>;
   close: () => Promise<void>;
@@ -32,7 +33,7 @@ function startFakeDocker(): {
     const url = req.url ?? "";
     if (url === "/containers/json") {
       res.writeHead(200, { "content-type": "application/json" });
-      res.end(containersJson);
+      res.end(listBody);
     } else if (url.startsWith("/containers/aaaa1111/stats")) {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(statsServerJson);
@@ -70,7 +71,7 @@ describe("collectDockerServices", () => {
 
     const services = await collectDockerServices({ socketPath: fake.socketPath });
 
-    expect(services).toHaveLength(2);
+    expect(services).toHaveLength(3);
 
     const srv = services.find((s) => s.name === "stubwise-server");
     expect(srv).toBeDefined();
@@ -92,9 +93,33 @@ describe("collectDockerServices", () => {
     expect(worker!.state).toBe("running");
   });
 
+  it("truncates names longer than the 200-char ingest contract", async () => {
+    const fake = startFakeDocker();
+    cleanup = fake.close;
+    await fake.ready;
+
+    const services = await collectDockerServices({ socketPath: fake.socketPath });
+
+    // Fixture container cccc3333 has a 250-char name (25× "0123456789"):
+    // it must survive truncated to the first 200 chars.
+    const long = services.find((s) => s.name.startsWith("0123456789"));
+    expect(long).toBeDefined();
+    expect(long!.name).toHaveLength(200);
+    expect(long!.name).toBe("0123456789".repeat(20));
+  });
+
   it("returns [] when the socket does not exist (no throw)", async () => {
     const socketPath = join(tmpdir(), "sw-dk-nonexistent.sock");
     const services = await collectDockerServices({ socketPath, timeoutMs: 1000 });
+    expect(services).toEqual([]);
+  });
+
+  it("returns [] when the container list is 200 but not an array", async () => {
+    const fake = startFakeDocker('{"message":"not a list"}');
+    cleanup = fake.close;
+    await fake.ready;
+
+    const services = await collectDockerServices({ socketPath: fake.socketPath });
     expect(services).toEqual([]);
   });
 });
