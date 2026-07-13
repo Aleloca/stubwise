@@ -5,4 +5,5 @@ export * from "./schemas/widget.js";
 export * from "./schemas/language.js";
 export * from "./schemas/docs.js";
 export * from "./schemas/search.js";
+export * from "./schemas/server.js";
 export * from "./env/dotenv.js";
