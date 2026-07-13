@@ -20,6 +20,8 @@ const ENCRYPTION_KEY = randomBytes(32);
 
 let testDb: TestDb;
 let app: FastifyInstance;
+/** Istanza con monitorRateLimit max=1 (test del 429; store in-memory per-app). */
+let rateLimitedApp: FastifyInstance;
 
 /** Registra un server (keyHash della chiave in chiaro) e ritorna riga + chiave. */
 async function seedServer(
@@ -82,10 +84,19 @@ beforeAll(async () => {
     encryptionKey: ENCRYPTION_KEY.toString("base64"),
     publicUrl: "https://stubwise.example.com",
   });
+  // Seconda istanza con rate limit a 1/min per il test del 429 (stesso db).
+  rateLimitedApp = buildApp({
+    db: testDb.db,
+    sessionSecret: SESSION_SECRET,
+    encryptionKey: ENCRYPTION_KEY.toString("base64"),
+    publicUrl: "https://stubwise.example.com",
+    monitorRateLimit: { max: 1, timeWindow: "1 minute" },
+  });
 }, 120_000);
 
 afterAll(async () => {
   await app.close();
+  await rateLimitedApp.close();
   await testDb.stop();
 });
 
@@ -313,7 +324,7 @@ describe("POST /monitor/ingest — checkResults", () => {
     expect(c!.downNotifiedAt?.toISOString()).toBe(notified.toISOString());
   });
 
-  it("più risultati per lo stesso check: vince il ts più recente", async () => {
+  it("più risultati per lo stesso check: vince il ts più recente, non l'ordine dell'array", async () => {
     const { server, key } = await seedServer(testDb.db);
     const check = await seedCheck(testDb.db, server.id);
     await app.inject({
@@ -324,21 +335,23 @@ describe("POST /monitor/ingest — checkResults", () => {
         hostname: "h",
         agentVersion: "1",
         samples: [sample("2026-07-13T14:00:00.000Z")],
+        // Ordine INVERTITO di proposito: il più recente (up @14:01) sta PRIMA
+        // nell'array — se vincesse l'ordine di arrivo, lo stato sarebbe down.
         checkResults: [
-          {
-            checkId: check.id,
-            ts: "2026-07-13T14:00:00.000Z",
-            status: "down",
-            latencyMs: 999,
-            error: "old",
-            metrics: null,
-          },
           {
             checkId: check.id,
             ts: "2026-07-13T14:01:00.000Z",
             status: "up",
             latencyMs: 12,
             error: null,
+            metrics: null,
+          },
+          {
+            checkId: check.id,
+            ts: "2026-07-13T14:00:00.000Z",
+            status: "down",
+            latencyMs: 999,
+            error: "old",
             metrics: null,
           },
         ],
@@ -351,6 +364,109 @@ describe("POST /monitor/ingest — checkResults", () => {
     // Lo stato corrente riflette il risultato con ts più recente (up @14:01).
     expect(c!.lastStatus).toBe("up");
     expect(c!.lastLatencyMs).toBe(12);
+    expect(c!.downSince).toBeNull();
+  });
+
+  it("batch STALE arrivato dopo un batch più nuovo → lo stato non regredisce", async () => {
+    const { server, key } = await seedServer(testDb.db);
+    const check = await seedCheck(testDb.db, server.id);
+    // Prima il batch NUOVO: up @15:10.
+    await app.inject({
+      method: "POST",
+      url: "/monitor/ingest",
+      headers: { "x-stubwise-server-key": key },
+      payload: {
+        hostname: "h",
+        agentVersion: "1",
+        samples: [sample("2026-07-13T15:10:00.000Z")],
+        checkResults: [
+          {
+            checkId: check.id,
+            ts: "2026-07-13T15:10:00.000Z",
+            status: "up",
+            latencyMs: 8,
+            error: null,
+            metrics: null,
+          },
+        ],
+      },
+    });
+    // Poi il batch STALE (retry in ritardo / out-of-order): down @15:00, PRIMA
+    // del risultato già registrato.
+    const res = await app.inject({
+      method: "POST",
+      url: "/monitor/ingest",
+      headers: { "x-stubwise-server-key": key },
+      payload: {
+        hostname: "h",
+        agentVersion: "1",
+        samples: [sample("2026-07-13T15:00:00.000Z")],
+        checkResults: [
+          {
+            checkId: check.id,
+            ts: "2026-07-13T15:00:00.000Z",
+            status: "down",
+            latencyMs: null,
+            error: "timeout",
+            metrics: null,
+          },
+        ],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const [c] = await testDb.db
+      .select()
+      .from(serviceChecks)
+      .where(eq(serviceChecks.id, check.id));
+    // Lo stato corrente NON regredisce: niente lastStatus=down né downSince spurio.
+    expect(c!.lastStatus).toBe("up");
+    expect(c!.downSince).toBeNull();
+    expect(c!.lastCheckedAt?.toISOString()).toBe("2026-07-13T15:10:00.000Z");
+    // Il sample stale resta comunque nello storico grezzo.
+    const rows = await testDb.db
+      .select()
+      .from(checkSamples)
+      .where(eq(checkSamples.checkId, check.id));
+    expect(rows).toHaveLength(2);
+  });
+
+  it("stesso batch di checkResults rispedito → nessun duplicato in check_samples", async () => {
+    const { server, key } = await seedServer(testDb.db);
+    const check = await seedCheck(testDb.db, server.id);
+    const payload = {
+      hostname: "h",
+      agentVersion: "1",
+      samples: [sample("2026-07-13T16:00:00.000Z")],
+      checkResults: [
+        {
+          checkId: check.id,
+          ts: "2026-07-13T16:00:00.000Z",
+          status: "up",
+          latencyMs: 7,
+          error: null,
+          metrics: null,
+        },
+      ],
+    };
+    const first = await app.inject({
+      method: "POST",
+      url: "/monitor/ingest",
+      headers: { "x-stubwise-server-key": key },
+      payload,
+    });
+    const second = await app.inject({
+      method: "POST",
+      url: "/monitor/ingest",
+      headers: { "x-stubwise-server-key": key },
+      payload,
+    });
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    const rows = await testDb.db
+      .select()
+      .from(checkSamples)
+      .where(eq(checkSamples.checkId, check.id));
+    expect(rows).toHaveLength(1);
   });
 });
 
@@ -428,5 +544,23 @@ describe("GET /monitor/config", () => {
     const res = await app.inject({ method: "GET", url: "/monitor/config" });
     expect(res.statusCode).toBe(401);
     expect(res.json()).toMatchObject({ code: "invalid_server_key" });
+  });
+});
+
+describe("rate limit /monitor", () => {
+  it("monitorRateLimit max=1: la seconda richiesta con la stessa chiave → 429", async () => {
+    const { key } = await seedServer(testDb.db);
+    const first = await rateLimitedApp.inject({
+      method: "GET",
+      url: "/monitor/config",
+      headers: { "x-stubwise-server-key": key },
+    });
+    const second = await rateLimitedApp.inject({
+      method: "GET",
+      url: "/monitor/config",
+      headers: { "x-stubwise-server-key": key },
+    });
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(429);
   });
 });

@@ -65,6 +65,10 @@ export async function monitorRoutes(
 
   // Bucket per chiave del server (fallback IP per le richieste senza header): un
   // server loquace non consuma il budget degli altri. Riusato da ingest e config.
+  // NB: il bucket è calcolato PRE-auth (il rate limit gira prima della
+  // preValidation, sull'header così com'è, non ancora autenticato): un chiamante
+  // può scegliersi il bucket inventando chiavi, ma ogni bucket resta limitato e
+  // l'auth respinge comunque le chiavi false. Stesso tradeoff di widget.ts.
   const rateLimit = {
     ...opts.rateLimit,
     keyGenerator: (request: FastifyRequest) =>
@@ -128,21 +132,34 @@ export async function monitorRoutes(
 
       let checkResultsAccepted = 0;
       if (checkResults.length > 0) {
-        // Filtro preventivo: teniamo solo i risultati dei check che appartengono
-        // a QUESTO server (un checkId di un altro server è scartato in silenzio).
-        const batchCheckIds = [...new Set(checkResults.map((r) => r.checkId))];
-        const ownChecks = await app.db
-          .select({ id: serviceChecks.id, lastStatus: serviceChecks.lastStatus })
-          .from(serviceChecks)
-          .where(
-            and(eq(serviceChecks.serverId, server.id), inArray(serviceChecks.id, batchCheckIds)),
-          );
-        const prevStatus = new Map(ownChecks.map((c) => [c.id, c.lastStatus]));
-        const accepted = checkResults.filter((r) => prevStatus.has(r.checkId));
+        // Insert dei sample + update dello stato corrente in UN'UNICA transazione,
+        // con lock (FOR UPDATE) sui check coinvolti: due batch concorrenti (retry,
+        // agente duplicato con la stessa chiave) serializzano il read-modify-write
+        // dello stato, e un fallimento a metà non lascia sample senza stato (o
+        // viceversa).
+        checkResultsAccepted = await app.db.transaction(async (tx) => {
+          // Filtro preventivo: teniamo solo i risultati dei check che appartengono
+          // a QUESTO server (un checkId di un altro server è scartato in silenzio).
+          // Il SELECT ... FOR UPDATE blocca le righe fino a fine transazione: il
+          // prevStatus su cui si calcola la transizione down è quello lockato.
+          const batchCheckIds = [...new Set(checkResults.map((r) => r.checkId))];
+          const ownChecks = await tx
+            .select({
+              id: serviceChecks.id,
+              lastStatus: serviceChecks.lastStatus,
+              lastCheckedAt: serviceChecks.lastCheckedAt,
+            })
+            .from(serviceChecks)
+            .where(
+              and(eq(serviceChecks.serverId, server.id), inArray(serviceChecks.id, batchCheckIds)),
+            )
+            .for("update");
+          const prevByCheck = new Map(ownChecks.map((c) => [c.id, c]));
+          const accepted = checkResults.filter((r) => prevByCheck.has(r.checkId));
+          if (accepted.length === 0) return 0;
 
-        if (accepted.length > 0) {
           // Sample grezzi: idempotenti su (check_id, ts) come le metriche host.
-          await app.db
+          await tx
             .insert(checkSamples)
             .values(
               accepted.map((r) => ({
@@ -154,7 +171,6 @@ export async function monitorRoutes(
               })),
             )
             .onConflictDoNothing({ target: [checkSamples.checkId, checkSamples.ts] });
-          checkResultsAccepted = accepted.length;
 
           // Stato corrente per check: vince il risultato con ts più recente del
           // batch (l'agente può accumulare più esiti prima di spedire).
@@ -165,7 +181,14 @@ export async function monitorRoutes(
           }
 
           for (const [checkId, r] of latestByCheck) {
+            const prev = prevByCheck.get(checkId)!;
             const ts = new Date(r.ts);
+            // Update MONOTONO sul tempo: un batch stale/out-of-order (retry in
+            // ritardo, buffer riordinato) non deve regredire lo stato corrente né
+            // valorizzare un downSince spurio. Si applica solo se più recente
+            // dell'ultimo risultato già registrato. (I sample grezzi sopra restano
+            // comunque inseriti: lo storico non perde nulla.)
+            if (prev.lastCheckedAt && prev.lastCheckedAt >= ts) continue;
             const patch: Partial<typeof serviceChecks.$inferInsert> = {
               lastStatus: r.status,
               lastCheckedAt: ts,
@@ -173,17 +196,22 @@ export async function monitorRoutes(
               lastError: r.error,
             };
             // down_since marca l'INIZIO della finestra di down: si valorizza solo
-            // alla transizione up→down (non si sovrascrive se già down), si azzera
-            // alla risalita. down_notified_at NON si tocca MAI qui: lo scrive/azzera
-            // solo il worker (evaluator alert / recovered).
-            if (r.status === "down" && prevStatus.get(checkId) !== "down") {
+            // alla transizione verso down (non si sovrascrive se già down), si
+            // azzera alla risalita. Semantica DELIBERATA di down→unknown→down: il
+            // passaggio per unknown interrompe l'evidenza di down (lastStatus non
+            // è più "down"), quindi il ritorno a down apre una NUOVA finestra
+            // (downSince = ts del nuovo down). down_notified_at NON si tocca MAI
+            // qui: lo scrive/azzera solo il worker (evaluator alert / recovered).
+            if (r.status === "down" && prev.lastStatus !== "down") {
               patch.downSince = ts;
             } else if (r.status === "up") {
               patch.downSince = null;
             }
-            await app.db.update(serviceChecks).set(patch).where(eq(serviceChecks.id, checkId));
+            await tx.update(serviceChecks).set(patch).where(eq(serviceChecks.id, checkId));
           }
-        }
+
+          return accepted.length;
+        });
       }
 
       return { accepted: samples.length, checkResultsAccepted };
