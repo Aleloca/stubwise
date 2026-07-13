@@ -102,9 +102,24 @@ function parseNetCounters(text: string): Map<string, { rx: number; tx: number }>
 }
 
 /**
- * Sum of rx/tx byte deltas across all NON-loopback interfaces between two
- * /proc/net/dev reads. A counter that decreased (interface reset / reboot) yields
- * a 0 delta for that interface — never negative.
+ * Interfaces excluded from the traffic totals: loopback plus the Docker-created
+ * virtual interfaces (bridge `docker0`, per-container `veth*`, user-network
+ * bridges `br-*`). On a Docker host the same container byte crosses veth, the
+ * bridge AND the physical NIC — counting them all would inflate traffic 2-3x.
+ */
+function isExcludedInterface(name: string): boolean {
+  return (
+    name === "lo" ||
+    name === "docker0" ||
+    name.startsWith("veth") ||
+    name.startsWith("br-")
+  );
+}
+
+/**
+ * Sum of rx/tx byte deltas across all non-loopback, non-virtual interfaces
+ * between two /proc/net/dev reads. A counter that decreased (interface reset /
+ * reboot) yields a 0 delta for that interface — never negative.
  */
 export function parseNetDev(
   prev: string,
@@ -115,7 +130,7 @@ export function parseNetDev(
   let rxBytes = 0;
   let txBytes = 0;
   for (const [name, now] of after) {
-    if (name === "lo") continue;
+    if (isExcludedInterface(name)) continue;
     const then = before.get(name);
     if (!then) continue; // interface appeared this interval — no baseline delta
     rxBytes += Math.max(0, now.rx - then.rx);

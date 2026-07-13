@@ -20,7 +20,7 @@ i canali di notifica esistenti (niente ticket automatici in v1).
 | Agente | **Container Docker** (`packages/agent`, TS bundlato con esbuild, immagine `node:22-alpine`, `Dockerfile.agent`); stateless, config-driven |
 | Auth agente | **Chiave per-server** generata alla registrazione, mostrata una volta, salvata hashata (pattern chiave per-widget); rigenerabile |
 | Modello dati | **Server → N progetti** (entità di primo livello + join `server_projects`); ogni progetto vede i suoi server |
-| Scope servizi | Auto-discovery **container Docker** (docker.sock) e **app PM2** (PM2 home montata, fallback scan `/host/proc`) + check espliciti da UI: `http`, `tcp`, `process`, `postgres`, `mysql` |
+| Scope servizi | Auto-discovery **container Docker** (docker.sock) e **app PM2** (scan di `/host/proc`, unico meccanismo — vedi sezione agente) + check espliciti da UI: `http`, `tcp`, `process`, `postgres`, `mysql` |
 | Retention | Campioni fini (~30s) per 48h, rollup a 5 minuti (avg+max) per 90 giorni, su Postgres |
 | Alerting | **Solo notifiche** (`packages/notifications`): soglie per-server (jsonb, default sensati es. disco 90%), condizione sostenuta N minuti, notifica su ingresso allarme e recovery, flag anti-spam. Niente ticket automatici (fase 2) |
 | Grafici SPA | **uPlot** (~45KB, time-series dense, zero dipendenze) |
@@ -33,7 +33,7 @@ server monitorato                          Stubwise
 │ stubwise-agent (Docker) │──ingest──▶ │ caddy /monitor/* → server    │
 │  /host/proc /host/sys   │◀─config──  │  Fastify: ingest + config    │
 │  /host/root docker.sock │            │  Postgres: metrics + rollup  │
-│  /host/pm2              │            │ worker: rollup, alert eval   │
+│                         │            │ worker: rollup, alert eval   │
 └─────────────────────────┘            │ SPA: sezione Monitor         │
                                        └──────────────────────────────┘
 ```
@@ -50,7 +50,6 @@ Install one-liner mostrato alla registrazione:
 docker run -d --name stubwise-agent --restart unless-stopped \
   -v /proc:/host/proc:ro -v /sys:/host/sys:ro -v /:/host/root:ro \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
-  -v /home/<utente>/.pm2:/host/pm2 \
   -e STUBWISE_URL=https://... -e STUBWISE_SERVER_KEY=sk_... \
   stubwise/agent
 ```
@@ -64,10 +63,14 @@ Raccolta (ogni `sample_interval_seconds`, default 30):
   calcolati dall'agente (mai contatori grezzi in DB).
 - **Container**: Docker Engine API su docker.sock (lista + stats one-shot
   CPU/RAM per container). Niente CLI.
-- **PM2**: client `pm2` bundlato con `PM2_HOME=/host/pm2` → lista app con
-  stato, restart count, CPU/RAM. Path PM2 home configurabile via env.
-  **Degrado senza errori**: socket assente o protocollo incompatibile → scan
-  di `/host/proc` (figli del demone PM2, senza restart count).
+- **PM2**: **solo scansione di `/host/proc`** (unico meccanismo): si
+  individuano i figli del PM2 God Daemon e per ciascuno nome app (da
+  `/proc/<pid>/environ` o cmdline), stato, CPU/RAM da `/proc/<pid>/stat` e
+  `status`; `source: "pm2"`. NIENTE lib `pm2`: il bundling esbuild è
+  impossibile (require dinamici di blessed/term.js, fsevents), `pm2.connect()`
+  rischia di spawnare un demone dentro il container ed è fragile rispetto alla
+  versione PM2 dell'host. Si rinuncia al restart count (`restarts: null`);
+  il valore enum `pm2_fallback` resta riservato/inutilizzato.
 - **Check espliciti** (da config): `http` (fetch con timeout, up se 2xx/3xx),
   `tcp` (connect con timeout), `process` (match su cmdline in `/host/proc`,
   riporta CPU/RAM del processo), `postgres`/`mysql` (connessione locale:
@@ -140,8 +143,7 @@ tabella eventi dedicata).
   (container + PM2 auto-scoperti con CPU/RAM, poi check espliciti con stato,
   latenza a grafico, metriche DB); pannello soglie alert.
 - **Registrazione** (Impostazioni → Server): comando `docker run` completo di
-  chiave (visibile solo lì), varianti mount PM2; editor check; associazione
-  progetti.
+  chiave (visibile solo lì); editor check; associazione progetti.
 - **Vista progetto**: tab **Server** con le card dei soli server associati
   (componente card riusato).
 

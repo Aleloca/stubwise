@@ -28,6 +28,10 @@ describe("parseCpu", () => {
     const s = fixture("stat1.txt");
     expect(parseCpu(s, s)).toBe(0);
   });
+
+  it("returns 0 on empty/degraded input", () => {
+    expect(parseCpu("", "")).toBe(0);
+  });
 });
 
 describe("parseMeminfo", () => {
@@ -53,11 +57,23 @@ describe("parseMeminfo", () => {
       swapUsedBytes: 512000000,
     });
   });
+
+  it("returns all zeros on empty/degraded input", () => {
+    expect(parseMeminfo("")).toEqual({
+      memUsedBytes: 0,
+      memTotalBytes: 0,
+      swapUsedBytes: 0,
+    });
+  });
 });
 
 describe("parseLoadavg", () => {
   it("returns the 1-minute load average", () => {
     expect(parseLoadavg(fixture("loadavg.txt"))).toBeCloseTo(0.52, 6);
+  });
+
+  it("returns 0 on empty/degraded input", () => {
+    expect(parseLoadavg("")).toBe(0);
   });
 });
 
@@ -83,5 +99,22 @@ describe("parseNetDev", () => {
     expect(result.txBytes).toBe(0);
     expect(result.rxBytes).toBeGreaterThanOrEqual(0);
     expect(result.txBytes).toBeGreaterThanOrEqual(0);
+  });
+
+  it("excludes docker0, veth* and br-* virtual interfaces", () => {
+    // Only eth0 must count. Between netdev-virtual1 and netdev-virtual2:
+    //   eth0 rx 100000 -> 140000 = +40000 ; tx 50000 -> 75000 = +25000
+    // docker0 (+200000/+200000), veth1a2b3c (+100000/+100000) and
+    // br-9f8e7d6c5b4a (+100000/+100000) carry container traffic already counted
+    // on the physical NIC and must be excluded, like lo.
+    expect(
+      parseNetDev(fixture("netdev-virtual1.txt"), fixture("netdev-virtual2.txt")),
+    ).toEqual({ rxBytes: 40000, txBytes: 25000 });
+  });
+
+  it("returns 0/0 on header-only or empty input", () => {
+    const headerOnly = fixture("netdev-header-only.txt");
+    expect(parseNetDev(headerOnly, headerOnly)).toEqual({ rxBytes: 0, txBytes: 0 });
+    expect(parseNetDev("", "")).toEqual({ rxBytes: 0, txBytes: 0 });
   });
 });

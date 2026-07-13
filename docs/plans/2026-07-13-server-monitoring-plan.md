@@ -6,7 +6,7 @@
 
 **Architecture:** Push dall'agente (`packages/agent`, TS bundlato esbuild) verso una superficie pubblica `/monitor/*` sul Fastify esistente (auth chiave per-server hashata sha256, pattern widget); rollup e valutazione alert come poller nel worker (pattern `startLimitResumePoller`); UI TanStack Router/Query + uPlot.
 
-**Tech Stack:** Drizzle/Postgres, Fastify+Zod, undici (docker.sock), pm2 client, postgres-js + mysql2 (check DB), esbuild, uPlot.
+**Tech Stack:** Drizzle/Postgres, Fastify+Zod, undici (docker.sock), postgres-js + mysql2 (check DB), esbuild, uPlot.
 
 **Design di riferimento:** `docs/plans/2026-07-13-server-monitoring-design.md` — LEGGERLO PRIMA. Le decisioni (retention 48h/90g, soglie jsonb, alert solo notifiche, server→N progetti) sono lì e non si ridiscutono.
 
@@ -352,9 +352,9 @@ Poi `startMonitorRollupPoller` fotocopia strutturale di `startLimitResumePoller`
 
 ## Fase D — Agente (`packages/agent`)
 
-Package nuovo. Setup: `package.json` (`name: "@stubwise/agent"`, deps: `undici`, `pm2`, `postgres`, `mysql2`, `zod`, `@stubwise/shared` workspace; devDeps `esbuild`, `vitest`, `typescript`), `tsconfig.json` come gli altri package, build: `esbuild src/index.ts --bundle --platform=node --target=node22 --outfile=dist/agent.cjs --format=cjs` + typecheck script. Vitest config standard (niente testcontainers).
+Package nuovo. Setup: `package.json` (`name: "@stubwise/agent"`, deps: `undici`, `postgres`, `mysql2`, `zod`, `@stubwise/shared` workspace — NIENTE lib `pm2`, vedi D2; devDeps `esbuild`, `vitest`, `typescript`), `tsconfig.json` come gli altri package, build: `esbuild src/index.ts --bundle --platform=node --target=node22 --outfile=dist/agent.cjs --format=cjs` + typecheck script. Vitest config standard (niente testcontainers).
 
-**Principio test:** ogni collector legge da una ROOT configurabile (`/host` in prod, directory fixture nei test) e i client esterni (docker, pm2, ingest) sono iniettati — tutto testabile senza Docker/PM2 veri.
+**Principio test:** ogni collector legge da una ROOT configurabile (`/host` in prod, directory fixture nei test) e i client esterni (docker, ingest) sono iniettati — tutto testabile senza Docker/PM2 veri.
 
 ### Task D1: Scaffold + parser /proc
 
@@ -384,7 +384,7 @@ const client = new Client("http://localhost", { socketPath });
 ```
 CPU pct dai delta `cpu_stats` vs `precpu_stats` (formula standard Docker: `(cpuDelta/systemDelta)*onlineCpus*100`), mem da `memory_stats.usage`. Test: server HTTP fake su unix socket temporaneo (undici lo permette) con risposte JSON registrate → `DiscoveredService[]` con `source: "docker"`. Errore socket → ritorna `[]` e segnala (mai throw).
 
-**PM2:** `collectPm2({ pm2Home, procRoot })`: prova `pm2` lib (`PM2_HOME` puntato al mount, `pm2.connect` con timeout 3s → `pm2.list` → map a `DiscoveredService` con `source: "pm2"`, restarts da `pm2_env.restart_time`); su QUALSIASI errore/timeout → fallback: scan `procRoot` per processi con `PM2` nella cmdline del parent (God Daemon) → figli con nome/cpu/rss da `/proc/<pid>/stat` e `status`, `source: "pm2_fallback"`, restarts null. Test: solo il fallback su fixture proc finte + un test che verifica che l'errore della lib non propaga (mock del modulo pm2 che lancia).
+**PM2:** `collectPm2({ procRoot })`: SOLO scansione di `procRoot` (unico meccanismo — niente lib `pm2`, niente mount/RPC `PM2_HOME`; resta il mount di `/host/proc` che c'è già). Motivo: la lib `pm2` non è bundlabile con esbuild (require dinamici di blessed/term.js, fsevents) e `pm2.connect()` rischia di spawnare un demone dentro il container. Scan: individua il processo con `PM2` nella cmdline (God Daemon) → figli con nome app da `/proc/<pid>/environ` o cmdline, stato/cpu/rss da `/proc/<pid>/stat` e `status`, `source: "pm2"`, `restarts: null` (si rinuncia al restart count; l'enum `pm2_fallback` resta riservato/inutilizzato). Test: scan su fixture proc finte.
 
 **Step 5:** commit `feat(agent): collector disco, docker e pm2 con fallback`.
 
@@ -414,7 +414,9 @@ CPU pct dai delta `cpu_stats` vs `precpu_stats` (formula standard Docker: `(cpuD
 - `fetchConfig` → parse con `agentConfigSchema`; risposta invalida → mantiene la config precedente.
 - `mainLoop` con clock/collectors iniettati (fake timers vitest): a ogni tick raccoglie, accoda, invia; ogni 10 tick rilegge la config; i check girano sul PROPRIO `intervalSeconds` (scheduler semplice: `nextRunAt` per check).
 
-**Step 3:** `index.ts` legge env `STUBWISE_URL`, `STUBWISE_SERVER_KEY` (obbligatorie, exit 1 con messaggio se mancano), `HOST_ROOT=/host`, `PM2_HOME=/host/pm2`, `DOCKER_SOCKET=/var/run/docker.sock`, `AGENT_VERSION` (iniettata al build). Graceful shutdown su SIGTERM (flush finale best-effort).
+**Step 3:** `index.ts` legge env `STUBWISE_URL`, `STUBWISE_SERVER_KEY` (obbligatorie, exit 1 con messaggio se mancano), `HOST_ROOT=/host`, `DOCKER_SOCKET=/var/run/docker.sock`, `AGENT_VERSION` (iniettata al build). Graceful shutdown su SIGTERM (flush finale best-effort).
+
+Nota: un campione che non passa `metricSampleSchema` (es. `memTotalBytes` 0 da meminfo illeggibile) va scartato con log, mai inviato.
 
 **Step 5:** commit `feat(agent): loop principale con buffer e retry`.
 
@@ -428,6 +430,8 @@ CPU pct dai delta `cpu_stats` vs `precpu_stats` (formula standard Docker: `(cpuD
 **Step 1: test fallente** — `integration.test.ts` (testcontainers, gira nei limiti maxForks? è in packages/agent che non ha vitest maxForks: aggiungilo, `maxForks: 1`): avvia `startTestDb()` + `buildApp()` reale del server su porta effimera (`app.listen({ port: 0 })`), registra un server via route admin, lancia il mainLoop dell'agente con collectors fake per 2 tick → le metriche compaiono in `server_metrics`; check postgres puntato al testcontainer stesso → metrics con `numbackends` ecc. (Se importare `apps/server` da `packages/agent` crea un ciclo di workspace, sposta questo test in `apps/server/src/routes/monitor-agent.integration.test.ts` importando il mainLoop da `@stubwise/agent` — direzione di dipendenza server→agent solo nei devDeps, accettabile.)
 
 **Step 3:** `Dockerfile.agent` multi-stage (pattern del Dockerfile worker, MOLTO più piccolo): stage build con pnpm install filtrato `@stubwise/agent...` + esbuild bundle; runtime `node:22-alpine`, utente non-root, `CMD ["node", "/app/agent.cjs"]`. Build di verifica locale: `docker build -f Dockerfile.agent -t stubwise/agent .` (solo build, il run è manuale in prod).
+
+Nota: aggiungere `main`/`exports` a `packages/agent/package.json` quando il test d'integrazione importerà il mainLoop.
 
 **Step 5:** commit `feat(agent): integrazione end-to-end + Dockerfile.agent`.
 
@@ -476,7 +480,7 @@ Pattern: funzioni in `apps/web/src/lib/api.ts` → `queryOptions` in `lib/querie
 - Create: `apps/web/src/routes/settings/servers.tsx` + test (pattern delle altre pagine settings)
 - Modify: router + nav interna settings
 
-**Step 1: test fallenti** — lista server in settings; "nuovo server" → dialog con nome → mostra UNA volta il comando `docker run` completo (chiave inclusa, bottone copia, varianti con/senza mount PM2 — testo multiriga preformattato); rigenerazione chiave con conferma; associazione progetti (multi-select dai progetti esistenti); editor check (form per tipo: url per http, host:porta per tcp, pattern per process, DSN per postgres/mysql con nota "salvato cifrato"); delete con conferma. **Step 5:** commit `feat(web): registrazione server e gestione check`.
+**Step 1: test fallenti** — lista server in settings; "nuovo server" → dialog con nome → mostra UNA volta il comando `docker run` completo (chiave inclusa, bottone copia — testo multiriga preformattato; niente mount PM2, basta `/host/proc`); rigenerazione chiave con conferma; associazione progetti (multi-select dai progetti esistenti); editor check (form per tipo: url per http, host:porta per tcp, pattern per process, DSN per postgres/mysql con nota "salvato cifrato"); delete con conferma. **Step 5:** commit `feat(web): registrazione server e gestione check`.
 
 Esporre il toggle `notifyMonitor` in GET/PUT /api/settings/notifications e come checkbox nella sezione notifiche della SPA (gap rilevato in C1-review).
 
