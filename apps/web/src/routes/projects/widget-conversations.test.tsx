@@ -194,6 +194,9 @@ describe("viewer conversazioni widget", () => {
     const list = screen.getByRole("list");
     expect(within(list).getByText("Support")).toBeInTheDocument();
     expect(within(list).getByText("deleted widget")).toBeInTheDocument();
+    // Da lg la lista è sticky con scroll interno: scorrendo il filo della
+    // conversazione l'elenco resta fisso in vista.
+    expect(list).toHaveClass("lg:sticky", "lg:overflow-y-auto");
   });
 
   it("selezione: carica il filo, mostra i ruoli, la citazione e il link al ticket", async () => {

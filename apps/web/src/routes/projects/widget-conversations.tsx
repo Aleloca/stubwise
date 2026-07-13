@@ -152,7 +152,12 @@ export function WidgetConversationsPage() {
         </div>
       ) : (
         <div className="mt-6 grid items-start gap-8 lg:grid-cols-[20rem_minmax(0,1fr)]">
-          <ul className="rounded-sm border border-line bg-ink-900">
+          {/* Da `lg` la lista è sticky con scroll interno: scorrendo il filo a
+           * destra l'elenco resta in vista, e se è più lungo del viewport
+           * scorre per conto suo. `top`/`max-h` compensano il padding di
+           * pagina (`lg:p-8` = 2rem per lato). Sotto `lg` le colonne sono
+           * impilate e vale lo scroll di pagina normale. */}
+          <ul className="rounded-sm border border-line bg-ink-900 lg:sticky lg:top-8 lg:max-h-[calc(100vh-4rem)] lg:overflow-y-auto">
             {conversations.map((conv) => (
               <li key={conv.id} className="border-b border-line last:border-b-0">
                 <button
