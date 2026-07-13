@@ -250,6 +250,78 @@ describe("GET /api/servers/:id", () => {
     expect(body).not.toHaveProperty("keyHash");
   });
 
+  it("con campioni: services/disks/metricsAt dall'ULTIMO campione", async () => {
+    const { id } = await createServerReturning("dettaglio-servizi");
+    const oldTs = new Date(Date.now() - 60_000);
+    const newTs = new Date();
+    const baseSample = {
+      serverId: id,
+      cpuPct: 10,
+      load1m: 0.5,
+      memUsedBytes: 100,
+      memTotalBytes: 1000,
+      swapUsedBytes: 0,
+      diskUsedBytes: 100,
+      diskTotalBytes: 1000,
+      netRxBytes: 0,
+      netTxBytes: 0,
+    };
+    const newServices = [
+      {
+        source: "docker" as const,
+        name: "caddy",
+        state: "running",
+        cpuPct: 1.5,
+        memBytes: 1024,
+        restarts: null,
+      },
+    ];
+    const newDisks = [{ mount: "/", usedBytes: 100, totalBytes: 1000 }];
+    await testDb.db.insert(serverMetrics).values([
+      {
+        ...baseSample,
+        ts: oldTs,
+        services: [
+          {
+            source: "pm2" as const,
+            name: "vecchio",
+            state: "online",
+            cpuPct: 9,
+            memBytes: 1,
+            restarts: 0,
+          },
+        ],
+        disks: [{ mount: "/vecchio", usedBytes: 1, totalBytes: 2 }],
+      },
+      { ...baseSample, ts: newTs, services: newServices, disks: newDisks },
+    ]);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/servers/${id}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as Record<string, unknown>;
+    expect(body.services).toEqual(newServices);
+    expect(body.disks).toEqual(newDisks);
+    expect(body.metricsAt).toBe(newTs.toISOString());
+  });
+
+  it("senza campioni: services/disks vuoti e metricsAt null", async () => {
+    const { id } = await createServerReturning("dettaglio-senza-campioni");
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/servers/${id}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as Record<string, unknown>;
+    expect(body.services).toEqual([]);
+    expect(body.disks).toEqual([]);
+    expect(body.metricsAt).toBeNull();
+  });
+
   it("server inesistente: 404", async () => {
     const res = await app.inject({
       method: "GET",

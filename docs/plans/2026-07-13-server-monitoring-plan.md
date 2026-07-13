@@ -250,6 +250,8 @@ Aggiungi `monitorRateLimit?` a `BuildAppOptions`. Nel Caddyfile: `@backend path 
 
 **Step 2:** vitest run → FAIL. **Step 3:** implementazione con `requireAuth`/`requireAdmin` in `preHandler`, `authErrorResponses` nelle response, `apiError` per 404. **Step 4:** PASS. **Step 5:** commit `feat(server): CRUD /api/servers con chiave one-shot`.
 
+> Nota: `GET /:id` espone anche `services`/`disks`/`metricsAt` correnti dall'ultimo campione di `server_metrics` (aggiunto in B3-fix; solo dettaglio, non la lista).
+
 ### Task B3: CRUD check + metriche per i grafici
 
 **Files:**
@@ -457,6 +459,8 @@ Pattern: funzioni in `apps/web/src/lib/api.ts` → `queryOptions` in `lib/querie
 **Step 1: test fallenti** — render con metriche mock: 4 pannelli (CPU+load, RAM+swap, disco, rete), selettore range `1h/24h/7g/30g/90g` che cambia `from` nella query; tabella servizi auto-scoperti (docker+pm2, badge source) e check espliciti con stato/latenza/errore; per check DB le metriche interne; pannello soglie (form PATCH thresholds). uPlot nei test happy-dom: mockare il modulo (`vi.mock("uplot")`) — il wrapper si testa solo per mount/unmount senza crash.
 
 **Step 3:** implementazione. Percentuali RAM/disco calcolate client-side da used/total. **Step 5:** commit `feat(web): dettaglio server con grafici e servizi`.
+
+> Nota: range 30g/90g: il rollup 5m sfora `METRICS_POINT_LIMIT` → decidere downsampling server-side (bucket orari via `date_trunc`) o riduzione client-side; il flag `truncated` della response lo segnala.
 
 ### Task E4: Registrazione server + editor check (Impostazioni)
 

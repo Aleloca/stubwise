@@ -2,6 +2,7 @@ import {
   alertThresholdsSchema,
   computeServerStatus,
   createServerSchema,
+  discoveredServiceSchema,
   serverStatusSchema,
   updateServerSchema,
 } from "@stubwise/shared";
@@ -65,6 +66,20 @@ type ServerView = z.infer<typeof serverViewSchema>;
 
 /** Risposta con la chiave in chiaro: creazione e rigenerazione, una sola volta. */
 const serverWithKeySchema = serverViewSchema.extend({ key: z.string() });
+
+/**
+ * Dettaglio (solo GET /:id, non la lista): aggiunge lo snapshot corrente
+ * dall'ULTIMO campione di server_metrics — servizi auto-scoperti (docker/pm2),
+ * dischi per mount e il ts del campione (`metricsAt`, per marcare in UI i dati
+ * stantii). Vuoti/null se il server non ha mai inviato campioni.
+ */
+const serverDetailSchema = serverViewSchema.extend({
+  services: z.array(discoveredServiceSchema),
+  disks: z.array(
+    z.object({ mount: z.string(), usedBytes: z.number(), totalBytes: z.number() }),
+  ),
+  metricsAt: z.string().nullable(),
+});
 
 /** Dati aggregati per un server, da unire alla riga base nella proiezione. */
 interface ServerAggregates {
@@ -237,7 +252,7 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
       preHandler: requireAuth,
       schema: {
         params: idParamsSchema,
-        response: { 200: serverViewSchema, 404: errorSchema, ...authErrorResponses },
+        response: { 200: serverDetailSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
@@ -245,7 +260,23 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
       const [row] = await app.db.select().from(servers).where(eq(servers.id, request.params.id));
       if (!row) return apiError(reply, 404, "server_not_found", "Server not found");
       const agg = await loadAggregates(app, [row.id]);
-      return toServerView(row, agg.get(row.id)!, now);
+      // Snapshot corrente dall'ultimo campione: servizi scoperti, dischi e ts.
+      const [latest] = await app.db
+        .select({
+          ts: serverMetrics.ts,
+          services: serverMetrics.services,
+          disks: serverMetrics.disks,
+        })
+        .from(serverMetrics)
+        .where(eq(serverMetrics.serverId, row.id))
+        .orderBy(desc(serverMetrics.ts))
+        .limit(1);
+      return {
+        ...toServerView(row, agg.get(row.id)!, now),
+        services: latest?.services ?? [],
+        disks: latest?.disks ?? [],
+        metricsAt: latest ? latest.ts.toISOString() : null,
+      };
     },
   );
 
