@@ -35,7 +35,11 @@
 	# e X-Forwarded-For: il server con TRUST_PROXY=true li onora (cookie Secure).
 	# Dentro un `handle` (mutuamente esclusivo con gli altri handle sotto) così
 	# ha la precedenza sul file_server della SPA.
-	@backend path /api/* /ingest/* /webhooks/* /widget/* /monitor/*
+	# NB: di /monitor si proxano SOLO i due path API della superficie agente
+	# (esatti, niente wildcard): le route SPA sotto /monitor (lista e dettaglio
+	# server) devono cadere sul fallback SPA qui sotto. Gli id server sono uuid,
+	# quindi /monitor/servers/<uuid> non collide mai con ingest/config.
+	@backend path /api/* /ingest/* /webhooks/* /widget/* /monitor/ingest /monitor/config
 	handle @backend {
 		reverse_proxy {$SERVER_UPSTREAM:server:3000}
 	}

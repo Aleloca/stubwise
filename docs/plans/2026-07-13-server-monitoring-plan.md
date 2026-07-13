@@ -451,16 +451,18 @@ Pattern: funzioni in `apps/web/src/lib/api.ts` → `queryOptions` in `lib/querie
 **Files:**
 - Create: `apps/web/src/routes/monitor/index.tsx` (+ `server-card.tsx` componente riusabile)
 - Create: `apps/web/src/routes/monitor/index.test.tsx`
-- Modify: `apps/web/src/router.tsx` (route `/monitor` + figlia `/monitor/$serverId`, in `authedRoute.addChildren`)
+- Modify: `apps/web/src/router.tsx` (route DEFINITIVE: lista `/monitor` + dettaglio `/monitor/servers/$serverId`, in `authedRoute.addChildren` — allineate ai link già emessi dalle notifiche C1/C3: `${publicUrl}/monitor/servers/${id}`, NESSUNA modifica a alerts.ts/format.ts necessaria)
 - Modify: `apps/web/src/components/app-layout.tsx` (`NAV_ITEMS`: `{ to: "/monitor", labelKey: "common:nav.monitor", code: "MON" }`)
 - Modify: i18n (`nav.monitor`, chiavi sezione monitor)
 
 **Step 1: test fallente** — render lista con 2 server mockati (online/offline): pallino stato, nome, CPU/RAM/disco correnti, conteggio servizi; server offline con classe di evidenza. **Step 3:** `ServerCard` stile terminal coerente con le card esistenti; sparkline = piccolo SVG inline (polyline su ultime N misure della lista — l'endpoint lista include `recentCpu: number[]` — aggiungilo in B2 se non c'è: 20 punti dal fine). **Step 5:** commit `feat(web): sezione monitor con card server`.
 
+> Nota: il matcher Caddy `@backend` è già ristretto a `/monitor/ingest` e `/monitor/config` (fix C4): le route SPA sotto `/monitor` cadono correttamente sul fallback SPA.
+
 ### Task E3: Dettaglio server con grafici uPlot
 
 **Files:**
-- Create: `apps/web/src/routes/monitor/server-detail.tsx` + test + `apps/web/src/components/uplot-chart.tsx` (wrapper React: crea/distrugge uPlot in useEffect, resize via ResizeObserver, tema da CSS variables)
+- Create: `apps/web/src/routes/monitor/server-detail.tsx` (route DEFINITIVA `/monitor/servers/$serverId`, coerente con i link delle notifiche C1/C3) + test + `apps/web/src/components/uplot-chart.tsx` (wrapper React: crea/distrugge uPlot in useEffect, resize via ResizeObserver, tema da CSS variables)
 
 **Step 1: test fallenti** — render con metriche mock: 4 pannelli (CPU+load, RAM+swap, disco, rete), selettore range `1h/24h/7g/30g/90g` che cambia `from` nella query; tabella servizi auto-scoperti (docker+pm2, badge source) e check espliciti con stato/latenza/errore; per check DB le metriche interne; pannello soglie (form PATCH thresholds). uPlot nei test happy-dom: mockare il modulo (`vi.mock("uplot")`) — il wrapper si testa solo per mount/unmount senza crash.
 
