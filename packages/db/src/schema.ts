@@ -1,4 +1,8 @@
 import {
+  type AlertThresholds,
+  type DiscoveredService,
+  checkStatusSchema,
+  checkTypeSchema,
   docGenerationStatusSchema,
   docGenerationTriggerSchema,
   docJobStatusSchema,
@@ -17,6 +21,7 @@ import {
 } from "@stubwise/shared";
 import { type SQL, sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   check,
   customType,
@@ -26,6 +31,7 @@ import {
   numeric,
   pgEnum,
   pgTable,
+  real,
   text,
   timestamp,
   uniqueIndex,
@@ -1562,4 +1568,200 @@ export const widgetMessages = pgTable(
   },
   // I messaggi si caricano sempre per conversazione, in ordine cronologico.
   (table) => [index("widget_messages_conversation_idx").on(table.conversationId)],
+);
+
+// ---------------------------------------------------------------------------
+// Monitoraggio server (agente → metriche host + check di servizio)
+// ---------------------------------------------------------------------------
+
+export const checkType = pgEnum("check_type", enumValues(checkTypeSchema));
+export const checkStatus = pgEnum("check_status", enumValues(checkStatusSchema));
+
+/**
+ * Un server monitorato. La chiave dell'agente (`sk_…`) non è persistita in
+ * chiaro: si salva solo `key_hash` (sha256 hex), confrontato all'ingest. Non
+ * c'è colonna `status`: lo stato online/offline si deriva da `last_seen_at` e
+ * `sample_interval_seconds`. `active_alerts` è lo stato anti-spam degli alert.
+ */
+export const servers = pgTable("servers", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  hostname: text("hostname"),
+  keyHash: text("key_hash").notNull().unique(), // sha256 hex della chiave sk_…
+  sampleIntervalSeconds: integer("sample_interval_seconds").notNull().default(30),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+  agentVersion: text("agent_version"),
+  alertThresholds: jsonb("alert_thresholds")
+    .$type<AlertThresholds>()
+    .notNull()
+    .default({ cpuPct: 95, memPct: 90, diskPct: 90, sustainedMinutes: 5 }),
+  // Stato anti-spam degli alert: chiavi "offline"|"cpu"|"mem"|"disk", valore
+  // { since, notifiedAt } — evita ri-notifiche mentre l'allarme resta attivo.
+  activeAlerts: jsonb("active_alerts")
+    .$type<Record<string, { since: string; notifiedAt: string | null }>>()
+    .notNull()
+    .default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Legame N:M server↔progetto: un server può essere condiviso tra più progetti,
+ * un progetto può avere più server. Cascata da entrambi i lati.
+ */
+export const serverProjects = pgTable(
+  "server_projects",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // Un solo legame per (server, progetto).
+    uniqueIndex("server_projects_server_id_project_id_unique").on(t.serverId, t.projectId),
+    // I server di un progetto si leggono per progetto.
+    index("server_projects_project_id_idx").on(t.projectId),
+  ],
+);
+
+/**
+ * Campione di metriche host a un istante `ts` (generato dall'agente, UTC). I
+ * byte sono `bigint` in modalità `number` (JS number regge fino a 2^53).
+ * `net_rx_bytes`/`net_tx_bytes` sono DELTA nell'intervallo, non contatori.
+ * L'unique su (server_id, ts) rende l'ingest idempotente (upsert on conflict).
+ */
+export const serverMetrics = pgTable(
+  "server_metrics",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+    ts: timestamp("ts", { withTimezone: true }).notNull(),
+    cpuPct: real("cpu_pct").notNull(),
+    load1m: real("load_1m").notNull(),
+    memUsedBytes: bigint("mem_used_bytes", { mode: "number" }).notNull(),
+    memTotalBytes: bigint("mem_total_bytes", { mode: "number" }).notNull(),
+    swapUsedBytes: bigint("swap_used_bytes", { mode: "number" }).notNull(),
+    diskUsedBytes: bigint("disk_used_bytes", { mode: "number" }).notNull(),
+    diskTotalBytes: bigint("disk_total_bytes", { mode: "number" }).notNull(),
+    netRxBytes: bigint("net_rx_bytes", { mode: "number" }).notNull(),
+    netTxBytes: bigint("net_tx_bytes", { mode: "number" }).notNull(),
+    disks: jsonb("disks")
+      .$type<{ mount: string; usedBytes: number; totalBytes: number }[]>()
+      .notNull()
+      .default([]),
+    services: jsonb("services").$type<DiscoveredService[]>().notNull().default([]),
+  },
+  (t) => [
+    // Idempotenza dell'ingest: un solo campione per (server, ts).
+    uniqueIndex("server_metrics_server_ts_unique").on(t.serverId, t.ts),
+  ],
+);
+
+/**
+ * Rollup aggregato delle metriche host (bucket per `ts`): coppie avg/max delle
+ * misure istantanee e somme dei delta di rete. Niente jsonb (né disks né
+ * services): il rollup è solo numerico. Sostituisce i campioni grezzi in
+ * retention lunga.
+ */
+export const serverMetricsRollup = pgTable(
+  "server_metrics_rollup",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+    ts: timestamp("ts", { withTimezone: true }).notNull(),
+    cpuPctAvg: real("cpu_pct_avg").notNull(),
+    cpuPctMax: real("cpu_pct_max").notNull(),
+    load1mAvg: real("load_1m_avg").notNull(),
+    load1mMax: real("load_1m_max").notNull(),
+    memUsedBytesAvg: bigint("mem_used_bytes_avg", { mode: "number" }).notNull(),
+    memUsedBytesMax: bigint("mem_used_bytes_max", { mode: "number" }).notNull(),
+    memTotalBytes: bigint("mem_total_bytes", { mode: "number" }).notNull(),
+    diskUsedBytesAvg: bigint("disk_used_bytes_avg", { mode: "number" }).notNull(),
+    diskUsedBytesMax: bigint("disk_used_bytes_max", { mode: "number" }).notNull(),
+    diskTotalBytes: bigint("disk_total_bytes", { mode: "number" }).notNull(),
+    netRxBytesSum: bigint("net_rx_bytes_sum", { mode: "number" }).notNull(),
+    netTxBytesSum: bigint("net_tx_bytes_sum", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("server_metrics_rollup_server_ts_unique").on(t.serverId, t.ts),
+  ],
+);
+
+/**
+ * Check periodico di servizio (HTTP/TCP/process/DB) su un server. `target` è
+ * l'URL/host:porta/pattern per http/tcp/process; per postgres/mysql resta vuoto
+ * e il DSN cifrato vive in `dsn_encrypted`. I campi `last_*` e `down_*` tengono
+ * lo stato corrente e la finestra di down per l'anti-spam delle notifiche.
+ */
+export const serviceChecks = pgTable(
+  "service_checks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    serverId: uuid("server_id")
+      .notNull()
+      .references(() => servers.id, { onDelete: "cascade" }),
+    type: checkType("type").notNull(),
+    name: text("name").notNull(),
+    // http/tcp/process; per postgres/mysql resta "" (il DSN sta in dsn_encrypted).
+    target: text("target").notNull().default(""),
+    dsnEncrypted: text("dsn_encrypted"),
+    intervalSeconds: integer("interval_seconds").notNull().default(60),
+    enabled: boolean("enabled").notNull().default(true),
+    lastStatus: checkStatus("last_status").notNull().default("unknown"),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    lastLatencyMs: integer("last_latency_ms"),
+    lastError: text("last_error"),
+    downSince: timestamp("down_since", { withTimezone: true }),
+    downNotifiedAt: timestamp("down_notified_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("service_checks_server_id_idx").on(t.serverId)],
+);
+
+/**
+ * Esito di un check a un istante `ts`. `metrics` porta le metriche specifiche
+ * del check (connessioni DB, cpu/mem del processo…), null quando non ne produce.
+ * Unique su (check_id, ts) per l'idempotenza dell'ingest.
+ */
+export const checkSamples = pgTable(
+  "check_samples",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    checkId: uuid("check_id")
+      .notNull()
+      .references(() => serviceChecks.id, { onDelete: "cascade" }),
+    ts: timestamp("ts", { withTimezone: true }).notNull(),
+    status: checkStatus("status").notNull(),
+    latencyMs: integer("latency_ms"),
+    metrics: jsonb("metrics").$type<Record<string, number>>(),
+  },
+  (t) => [uniqueIndex("check_samples_check_ts_unique").on(t.checkId, t.ts)],
+);
+
+/**
+ * Rollup aggregato degli esiti di un check (bucket per `ts`): conteggi up/down
+ * e statistiche di latenza. Sostituisce i sample grezzi in retention lunga.
+ */
+export const checkSamplesRollup = pgTable(
+  "check_samples_rollup",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    checkId: uuid("check_id")
+      .notNull()
+      .references(() => serviceChecks.id, { onDelete: "cascade" }),
+    ts: timestamp("ts", { withTimezone: true }).notNull(),
+    upCount: integer("up_count").notNull(),
+    downCount: integer("down_count").notNull(),
+    latencyMsAvg: real("latency_ms_avg"),
+    latencyMsMax: integer("latency_ms_max"),
+  },
+  (t) => [uniqueIndex("check_samples_rollup_check_ts_unique").on(t.checkId, t.ts)],
 );
