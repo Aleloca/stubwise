@@ -40,6 +40,7 @@ import { projectEnvFileRoutes } from "./routes/project-env-files.js";
 import { projectRoutes } from "./routes/projects.js";
 import { repositoryRoutes } from "./routes/repositories.js";
 import { serverRoutes } from "./routes/servers.js";
+import { serverCheckRoutes } from "./routes/servers-checks.js";
 import { savedViewRoutes } from "./routes/saved-views.js";
 import { searchRoutes } from "./routes/search.js";
 import { settingsRoutes } from "./routes/settings.js";
@@ -363,6 +364,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // one-shot, associazione N:M ai progetti, soglie alert). API della SPA,
   // distinta dalla superficie pubblica /monitor usata dall'agente.
   void app.register(serverRoutes, { prefix: "/api/servers" });
+  // Check di servizio e metriche time-series di un server: secondo plugin sullo
+  // stesso prefix (i DSN dei check DB restano cifrati, mai in risposta).
+  void app.register(serverCheckRoutes, { prefix: "/api/servers" });
   void app.register(ticketRoutes, { prefix: "/api/tickets" });
   // Documentazione (non-chat): trigger/stato generazione, hub spazi, albero,
   // pagina, CRUD pagine manuali. Path interni completi (es.
