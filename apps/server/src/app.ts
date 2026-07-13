@@ -39,6 +39,7 @@ import { projectDocsRoutes } from "./routes/project-docs.js";
 import { projectEnvFileRoutes } from "./routes/project-env-files.js";
 import { projectRoutes } from "./routes/projects.js";
 import { repositoryRoutes } from "./routes/repositories.js";
+import { serverRoutes } from "./routes/servers.js";
 import { savedViewRoutes } from "./routes/saved-views.js";
 import { searchRoutes } from "./routes/search.js";
 import { settingsRoutes } from "./routes/settings.js";
@@ -358,6 +359,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // File d'ambiente, materializzati nel worktree del repo: sono repository-level
   // (il parametro :id dell'URL è il repositoryId).
   void app.register(projectEnvFileRoutes, { prefix: "/api/repositories" });
+  // Monitoraggio server: CRUD interno dei server monitorati (chiave agente
+  // one-shot, associazione N:M ai progetti, soglie alert). API della SPA,
+  // distinta dalla superficie pubblica /monitor usata dall'agente.
+  void app.register(serverRoutes, { prefix: "/api/servers" });
   void app.register(ticketRoutes, { prefix: "/api/tickets" });
   // Documentazione (non-chat): trigger/stato generazione, hub spazi, albero,
   // pagina, CRUD pagine manuali. Path interni completi (es.
