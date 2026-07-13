@@ -45,6 +45,7 @@ export interface NotificationSettingsRow {
   notifyBudgetHeld: boolean;
   notifyReviewCompleted: boolean;
   notifyDocsLimitPaused: boolean;
+  notifyMonitor: boolean;
 }
 
 /**
@@ -75,6 +76,9 @@ const TOGGLE_FOR_KIND: Record<NotificationKind, keyof NotificationSettingsRow> =
   "job.pr_closed": "notifyPrClosed",
   "review.completed": "notifyReviewCompleted",
   "docs.limit_paused": "notifyDocsLimitPaused",
+  // Un unico toggle governa entrambi i kind del monitoraggio (alert e recovered).
+  "monitor.alert": "notifyMonitor",
+  "monitor.recovered": "notifyMonitor",
 };
 
 /**
@@ -97,6 +101,7 @@ async function loadSettings(db: Db): Promise<NotificationSettingsRow | null> {
       notifyBudgetHeld: notificationSettings.notifyBudgetHeld,
       notifyReviewCompleted: notificationSettings.notifyReviewCompleted,
       notifyDocsLimitPaused: notificationSettings.notifyDocsLimitPaused,
+      notifyMonitor: notificationSettings.notifyMonitor,
     })
     .from(notificationSettings)
     .limit(1);

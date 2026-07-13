@@ -76,6 +76,19 @@ export const en: Catalog = {
   // Unico evento SENZA ticket: niente {ref}, il {link} porta alla pagina Docs.
   "notify.docsLimitPaused":
     "Docs generation paused for {repositoryName} ({projectName}): provider usage limit reached. It will resume automatically. {link}",
+  // Monitoraggio server: eventi SENZA ticket; il {link} porta alla pagina del
+  // server. `{condition}` è l'etichetta localizzata della condizione (vedi
+  // notify.monitorCondition.*), `{detail}` la descrizione già leggibile.
+  "notify.monitorAlert":
+    "Server alert on {serverName} ({condition}): {detail}. {link}",
+  "notify.monitorRecovered":
+    "{serverName} recovered ({condition}): {detail}. {link}",
+  // Etichette delle condizioni di monitoraggio (interpolate in notify.monitor*).
+  "notify.monitorCondition.offline": "offline",
+  "notify.monitorCondition.cpu": "CPU",
+  "notify.monitorCondition.mem": "memory",
+  "notify.monitorCondition.disk": "disk",
+  "notify.monitorCondition.checkDown": "check down",
   // Etichette dello scope del budget (interpolate in `notify.budgetHeld`).
   "notify.scopeTicket": "ticket",
   "notify.scopeMonthly": "monthly",
@@ -90,6 +103,7 @@ export const en: Catalog = {
   "notify.linkPr": "View PR",
   "notify.linkTicket": "Ticket",
   "notify.linkDocs": "Docs",
+  "notify.linkServer": "Server",
 
   // --- report.* — header delle sezioni del report ---
   "report.investigation": "Investigation process",
@@ -159,6 +173,15 @@ export const it: Catalog = {
   // Unico evento SENZA ticket: niente {ref}, il {link} porta alla pagina Docs.
   "notify.docsLimitPaused":
     "Generazione Docs in pausa per {repositoryName} ({projectName}): limite di utilizzo del provider raggiunto. Riprenderà da sola. {link}",
+  "notify.monitorAlert":
+    "Alert sul server {serverName} ({condition}): {detail}. {link}",
+  "notify.monitorRecovered":
+    "{serverName} tornato su ({condition}): {detail}. {link}",
+  "notify.monitorCondition.offline": "offline",
+  "notify.monitorCondition.cpu": "CPU",
+  "notify.monitorCondition.mem": "memoria",
+  "notify.monitorCondition.disk": "disco",
+  "notify.monitorCondition.checkDown": "check down",
   "notify.scopeTicket": "ticket",
   "notify.scopeMonthly": "mensile",
   "notify.verdict.approve": "approvazione suggerita",
@@ -169,6 +192,7 @@ export const it: Catalog = {
   "notify.linkPr": "Vedi PR",
   "notify.linkTicket": "Ticket",
   "notify.linkDocs": "Docs",
+  "notify.linkServer": "Server",
 
   // --- report.* ---
   "report.investigation": "Processo di indagine",

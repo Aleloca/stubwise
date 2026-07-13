@@ -337,6 +337,13 @@
       "when": 1783945912896,
       "tag": "0047_server_monitoring",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1783950815801,
+      "tag": "0048_notification_monitor_toggle",
+      "breakpoints": true
     }
   ]
 }

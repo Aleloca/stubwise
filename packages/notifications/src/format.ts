@@ -126,6 +126,35 @@ export interface DocsLimitPausedEvent {
   reason: string;
 }
 
+/** Condizione che ha scatenato un alert di monitoraggio (o il suo rientro). */
+export type MonitorCondition = "offline" | "cpu" | "mem" | "disk" | "check_down";
+
+/**
+ * Un server monitorato ha superato una soglia (CPU/memoria/disco), è andato
+ * offline o un suo check è caduto. Evento SENZA ticket: il link porta alla
+ * pagina del server nella SPA.
+ */
+export interface MonitorAlertEvent {
+  kind: "monitor.alert";
+  serverName: string;
+  condition: MonitorCondition;
+  /** Descrizione già leggibile, es. "disco al 93% (soglia 90%)". */
+  detail: string;
+  /** Link alla pagina del server nella SPA (al posto del ticketUrl). */
+  url: string;
+}
+
+/** Il server (o il suo check) è rientrato entro le soglie: alert risolto. */
+export interface MonitorRecoveredEvent {
+  kind: "monitor.recovered";
+  serverName: string;
+  condition: MonitorCondition;
+  /** Descrizione già leggibile, es. "disco rientrato al 72%". */
+  detail: string;
+  /** Link alla pagina del server nella SPA (al posto del ticketUrl). */
+  url: string;
+}
+
 /** Unione tipata di tutti gli eventi che generano una notifica. */
 export type NotificationEvent =
   | TicketCreatedEvent
@@ -136,19 +165,40 @@ export type NotificationEvent =
   | JobBudgetHeldEvent
   | ReviewCompletedEvent
   | JobFailedEvent
-  | DocsLimitPausedEvent;
+  | DocsLimitPausedEvent
+  | MonitorAlertEvent
+  | MonitorRecoveredEvent;
 
 /**
- * Eventi ANCORATI A UN TICKET (tutti tranne `docs.limit_paused`): hanno
- * `ticketNumber`/`ticketTitle`/`ticketUrl`. Il narrowing per-kind dei punti
- * comuni (ref `#n`, base del payload generico) passa da {@link hasTicket}.
+ * Eventi SENZA ticket (`docs.limit_paused`, `monitor.*`): non hanno
+ * `ticketNumber`/`ticketTitle`/`ticketUrl`, portano una superficie propria.
  */
-type TicketedEvent = Exclude<NotificationEvent, DocsLimitPausedEvent>;
+type NonTicketedEvent = DocsLimitPausedEvent | MonitorAlertEvent | MonitorRecoveredEvent;
+
+/**
+ * Eventi ANCORATI A UN TICKET: hanno `ticketNumber`/`ticketTitle`/`ticketUrl`.
+ * Il narrowing per-kind dei punti comuni (ref `#n`, base del payload generico)
+ * passa da {@link hasTicket}.
+ */
+type TicketedEvent = Exclude<NotificationEvent, NonTicketedEvent>;
 
 /** Type guard: l'evento è ancorato a un ticket (ha `ticketNumber` & co.). */
 function hasTicket(event: NotificationEvent): event is TicketedEvent {
-  return event.kind !== "docs.limit_paused";
+  return (
+    event.kind !== "docs.limit_paused" &&
+    event.kind !== "monitor.alert" &&
+    event.kind !== "monitor.recovered"
+  );
 }
+
+/** Chiave catalogo dell'etichetta condizione per il monitoraggio. */
+const MONITOR_CONDITION_KEY: Record<MonitorCondition, string> = {
+  offline: "notify.monitorCondition.offline",
+  cpu: "notify.monitorCondition.cpu",
+  mem: "notify.monitorCondition.mem",
+  disk: "notify.monitorCondition.disk",
+  check_down: "notify.monitorCondition.checkDown",
+};
 
 /** Tipo dei `kind` degli eventi, per mappare evento → toggle. */
 export type NotificationKind = NotificationEvent["kind"];
@@ -186,6 +236,8 @@ const EMOJI: Record<NotificationKind, string> = {
   "review.completed": "🔎",
   "job.failed": "❌",
   "docs.limit_paused": "⏸️",
+  "monitor.alert": "🔴",
+  "monitor.recovered": "🟢",
 };
 
 /** Rende un link nel markup del formato (mai chiamato per `generic`). */
@@ -245,6 +297,10 @@ function linkParam(
     case "docs.limit_paused":
       // Nessun ticket: il link porta alla pagina Docs del repository.
       return renderLink(format, event.docsUrl, t(lang, "notify.linkDocs"));
+    case "monitor.alert":
+    case "monitor.recovered":
+      // Nessun ticket: il link porta alla pagina del server nella SPA.
+      return renderLink(format, event.url, t(lang, "notify.linkServer"));
   }
 }
 
@@ -259,6 +315,8 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   "review.completed": "notify.reviewCompleted",
   "job.failed": "notify.jobFailed",
   "docs.limit_paused": "notify.docsLimitPaused",
+  "monitor.alert": "notify.monitorAlert",
+  "monitor.recovered": "notify.monitorRecovered",
 };
 
 /** Params (oltre a ref/link/cost) specifici per evento, passati a `t()`. */
@@ -266,13 +324,22 @@ function textParams(
   event: NotificationEvent,
   lang: Language,
 ): Record<string, string | number> {
-  // Unico evento senza ticket: parametri propri, niente base ticketTitle.
-  // Niente `reason`: i template docsLimitPaused non lo interpolano (resta nel
-  // payload generic via formatGeneric).
+  // Eventi senza ticket: parametri propri, niente base ticketTitle.
   if (!hasTicket(event)) {
+    // Niente `reason`: i template docsLimitPaused non lo interpolano (resta nel
+    // payload generic via formatGeneric).
+    if (event.kind === "docs.limit_paused") {
+      return {
+        repositoryName: event.repositoryName,
+        projectName: event.projectName,
+      };
+    }
+    // monitor.alert | monitor.recovered: la condizione è resa come etichetta
+    // localizzata; il detail è già una frase leggibile.
     return {
-      repositoryName: event.repositoryName,
-      projectName: event.projectName,
+      serverName: event.serverName,
+      condition: t(lang, MONITOR_CONDITION_KEY[event.condition]),
+      detail: event.detail,
     };
   }
   const base: Record<string, string | number> = {
@@ -359,16 +426,28 @@ function plainMessage(event: NotificationEvent, lang: Language): string {
 
 /** Payload generico machine-readable: campi piatti, niente markup. */
 function formatGeneric(event: NotificationEvent, lang: Language): Record<string, unknown> {
-  // Unico evento senza ticket: base propria (repositoryName/docsUrl al posto di
+  // Eventi senza ticket: base propria (superficie dedicata al posto di
   // ticketNumber/title/ticketUrl). Gli eventi con ticket restano INVARIATI.
   if (!hasTicket(event)) {
+    if (event.kind === "docs.limit_paused") {
+      return {
+        event: event.kind,
+        projectName: event.projectName,
+        repositoryName: event.repositoryName,
+        message: plainMessage(event, lang),
+        docsUrl: event.docsUrl,
+        reason: event.reason,
+      };
+    }
+    // monitor.alert | monitor.recovered: la `condition` resta l'enum grezzo
+    // (machine-readable), il `detail` la descrizione, `url` la pagina server.
     return {
       event: event.kind,
-      projectName: event.projectName,
-      repositoryName: event.repositoryName,
+      serverName: event.serverName,
+      condition: event.condition,
+      detail: event.detail,
       message: plainMessage(event, lang),
-      docsUrl: event.docsUrl,
-      reason: event.reason,
+      url: event.url,
     };
   }
   const base = {
@@ -508,6 +587,20 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       repositoryName: "negozio-web-api",
       docsUrl: `${base}/docs/8b1f6c2e-1111-4222-8333-444455556666`,
       reason: "limite di rate/usage del provider AI",
+    },
+    {
+      kind: "monitor.alert",
+      serverName: "web-prod-1",
+      condition: "disk",
+      detail: "disco al 93% (soglia 90%)",
+      url: `${base}/monitor/servers/9c2f7d3a-2222-4333-8444-555566667777`,
+    },
+    {
+      kind: "monitor.recovered",
+      serverName: "web-prod-1",
+      condition: "disk",
+      detail: "disco rientrato al 72%",
+      url: `${base}/monitor/servers/9c2f7d3a-2222-4333-8444-555566667777`,
     },
   ];
 }

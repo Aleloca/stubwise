@@ -110,6 +110,30 @@ const BUDGET_HELD_MONTHLY: NotificationEvent = {
   ticketUrl: "https://app.example.com/tickets/42",
 };
 
+const MONITOR_ALERT: NotificationEvent = {
+  kind: "monitor.alert",
+  serverName: "web-prod-1",
+  condition: "disk",
+  detail: "disco al 93% (soglia 90%)",
+  url: "https://app.example.com/monitor/servers/s1",
+};
+
+const MONITOR_RECOVERED: NotificationEvent = {
+  kind: "monitor.recovered",
+  serverName: "web-prod-1",
+  condition: "disk",
+  detail: "disco rientrato al 72%",
+  url: "https://app.example.com/monitor/servers/s1",
+};
+
+const MONITOR_CHECK_DOWN: NotificationEvent = {
+  kind: "monitor.alert",
+  serverName: "web-prod-1",
+  condition: "check_down",
+  detail: "check api-health down: timeout",
+  url: "https://app.example.com/monitor/servers/s1",
+};
+
 describe("formatNotification — contratto", () => {
   it("ogni formato dichiara content-type application/json", () => {
     for (const format of ["slack", "discord", "generic"] as NotificationFormat[]) {
@@ -216,6 +240,34 @@ describe("formatNotification — slack (lingua default en)", () => {
     // Non c'è un ticket: nessun residuo di {ref} né riferimenti #n.
     expect(text).not.toContain("#");
     expect(text).not.toContain("{ref}");
+  });
+
+  it("monitor.alert → nome server, condizione, dettaglio e link; nessun riferimento #n", () => {
+    const text = (formatNotification(MONITOR_ALERT, "slack").body as { text: string }).text;
+    expect(text).toContain("🔴");
+    expect(text).toContain("web-prod-1");
+    expect(text).toContain("(disk)");
+    expect(text).toContain("disco al 93% (soglia 90%)");
+    expect(text).toContain("<https://app.example.com/monitor/servers/s1|Server>");
+    // Non c'è un ticket: nessun residuo di {ref} né riferimenti #n.
+    expect(text).not.toContain("#");
+    expect(text).not.toContain("{ref}");
+  });
+
+  it("monitor.alert (check_down) → etichetta condizione 'check down'", () => {
+    const text = (formatNotification(MONITOR_CHECK_DOWN, "slack").body as { text: string }).text;
+    expect(text).toContain("(check down)");
+    expect(text).toContain("check api-health down: timeout");
+  });
+
+  it("monitor.recovered → server rientrato, condizione, dettaglio e link", () => {
+    const text = (formatNotification(MONITOR_RECOVERED, "slack").body as { text: string }).text;
+    expect(text).toContain("🟢");
+    expect(text).toContain("web-prod-1");
+    expect(text).toContain("recovered");
+    expect(text).toContain("(disk)");
+    expect(text).toContain("disco rientrato al 72%");
+    expect(text).toContain("<https://app.example.com/monitor/servers/s1|Server>");
   });
 });
 
@@ -365,6 +417,23 @@ describe("formatNotification — discord", () => {
     expect(content).toContain("[Docs](https://app.example.com/docs/repo-1)");
     expect(content).not.toContain("#");
   });
+
+  it("monitor.alert: link Server in stile markdown, nessun riferimento #n (en)", () => {
+    const content = (formatNotification(MONITOR_ALERT, "discord").body as { content: string })
+      .content;
+    expect(content).toContain("🔴");
+    expect(content).toContain("web-prod-1");
+    expect(content).toContain("(disk)");
+    expect(content).toContain("[Server](https://app.example.com/monitor/servers/s1)");
+    expect(content).not.toContain("#");
+  });
+
+  it("monitor.recovered: server rientrato, link Server in stile markdown (en)", () => {
+    const content = (formatNotification(MONITOR_RECOVERED, "discord").body as { content: string })
+      .content;
+    expect(content).toContain("recovered");
+    expect(content).toContain("[Server](https://app.example.com/monitor/servers/s1)");
+  });
 });
 
 describe("formatNotification — generic", () => {
@@ -499,6 +568,33 @@ describe("formatNotification — generic", () => {
     );
   });
 
+  it("monitor.alert → payload piatto con serverName/condition/detail/url, senza campi ticket", () => {
+    const body = formatNotification(MONITOR_ALERT, "generic").body as Record<string, unknown>;
+    expect(body.event).toBe("monitor.alert");
+    expect(body.serverName).toBe("web-prod-1");
+    // La condizione grezza (machine-readable) resta l'enum, non l'etichetta.
+    expect(body.condition).toBe("disk");
+    expect(body.detail).toBe("disco al 93% (soglia 90%)");
+    expect(body.url).toBe("https://app.example.com/monitor/servers/s1");
+    expect(body).not.toHaveProperty("ticketNumber");
+    expect(body).not.toHaveProperty("title");
+    expect(body).not.toHaveProperty("ticketUrl");
+    const message = body.message as string;
+    expect(message).toContain("web-prod-1");
+    expect(message).toContain("(disk)");
+    expect(message).toContain("disco al 93% (soglia 90%)");
+    // Payload machine-readable: niente emoji né markup.
+    expect(message).not.toContain("🔴");
+    expect(message).not.toContain("[");
+  });
+
+  it("monitor.recovered → event grezzo e message di ripristino", () => {
+    const body = formatNotification(MONITOR_RECOVERED, "generic").body as Record<string, unknown>;
+    expect(body.event).toBe("monitor.recovered");
+    expect(body.condition).toBe("disk");
+    expect(body.message as string).toContain("recovered");
+  });
+
   it("message → frase senza markup né link, niente emoji né spazio finale (en)", () => {
     const body = formatNotification(TICKET_CREATED, "generic").body as Record<string, unknown>;
     const message = body.message as string;
@@ -544,11 +640,15 @@ describe("sampleEvents", () => {
       "job.failed",
       "review.completed",
       "docs.limit_paused",
+      "monitor.alert",
+      "monitor.recovered",
     ]);
     for (const event of events) {
-      // docs.limit_paused è l'unico kind senza ticket: il link è la pagina Docs.
+      // Eventi senza ticket: il link non è un ticketUrl ma la superficie propria.
       if (event.kind === "docs.limit_paused") {
         expect(event.docsUrl.startsWith("https://app.example.com/docs/")).toBe(true);
+      } else if (event.kind === "monitor.alert" || event.kind === "monitor.recovered") {
+        expect(event.url.startsWith("https://app.example.com/monitor/")).toBe(true);
       } else {
         expect(event.ticketUrl.startsWith("https://app.example.com/tickets/")).toBe(true);
       }

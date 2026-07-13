@@ -815,6 +815,9 @@ export const notificationSettings = pgTable("notification_settings", {
   // Notifica quando una generazione Docs va in pausa per limite di utilizzo del
   // provider AI (unico evento senza ticket).
   notifyDocsLimitPaused: boolean("notify_docs_limit_paused").notNull().default(true),
+  // Notifica alert/ripristino del monitoraggio server (unico toggle per entrambi
+  // gli eventi monitor.alert e monitor.recovered).
+  notifyMonitor: boolean("notify_monitor").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()

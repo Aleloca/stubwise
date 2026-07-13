@@ -1,0 +1,1 @@
+ALTER TABLE "notification_settings" ADD COLUMN "notify_monitor" boolean DEFAULT true NOT NULL;

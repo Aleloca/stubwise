@@ -30,6 +30,7 @@ const BASE_ROW: NotificationSettingsRow = {
   notifyBudgetHeld: true,
   notifyReviewCompleted: true,
   notifyDocsLimitPaused: true,
+  notifyMonitor: true,
 };
 
 /**
@@ -142,6 +143,22 @@ const DOCS_LIMIT_PAUSED: NotificationEvent = {
   repositoryName: "webapp-api",
   docsUrl: "https://app.example.com/docs/repo-1",
   reason: "limite di rate/usage del provider AI",
+};
+
+const MONITOR_ALERT: NotificationEvent = {
+  kind: "monitor.alert",
+  serverName: "web-prod-1",
+  condition: "disk",
+  detail: "disco al 93% (soglia 90%)",
+  url: "https://app.example.com/monitor/servers/s1",
+};
+
+const MONITOR_RECOVERED: NotificationEvent = {
+  kind: "monitor.recovered",
+  serverName: "web-prod-1",
+  condition: "disk",
+  detail: "disco rientrato al 72%",
+  url: "https://app.example.com/monitor/servers/s1",
 };
 
 function okFetch() {
@@ -269,6 +286,37 @@ describe("dispatchNotification — gating", () => {
     const body = (await bodyOf(fetchImpl)) as { text: string };
     expect(body.text).toContain("Docs generation paused for webapp-api (webapp)");
     expect(body.text).toContain("<https://app.example.com/docs/repo-1|Docs>");
+  });
+
+  it("notifyMonitor off blocca monitor.alert", async () => {
+    const fetchImpl = okFetch();
+    await dispatchNotification(fakeDb({ ...BASE_ROW, notifyMonitor: false }), MONITOR_ALERT, {
+      fetchImpl,
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("notifyMonitor off blocca anche monitor.recovered (toggle unico per entrambi)", async () => {
+    const fetchImpl = okFetch();
+    await dispatchNotification(fakeDb({ ...BASE_ROW, notifyMonitor: false }), MONITOR_RECOVERED, {
+      fetchImpl,
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("notifyMonitor on posta monitor.alert col nome server e link", async () => {
+    const fetchImpl = okFetch();
+    await dispatchNotification(fakeDb(BASE_ROW), MONITOR_ALERT, { fetchImpl });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const body = (await bodyOf(fetchImpl)) as { text: string };
+    expect(body.text).toContain("web-prod-1");
+    expect(body.text).toContain("<https://app.example.com/monitor/servers/s1|Server>");
+  });
+
+  it("notifyMonitor on posta monitor.recovered", async () => {
+    const fetchImpl = okFetch();
+    await dispatchNotification(fakeDb(BASE_ROW), MONITOR_RECOVERED, { fetchImpl });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it("posta all'URL configurato con POST e content-type JSON", async () => {
