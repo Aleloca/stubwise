@@ -162,6 +162,33 @@ describe("rollupMonitorOnce — server_metrics", () => {
     expect(fineTs).toEqual([CUTOFF_48H.getTime(), RECENT_TS.getTime()].sort());
   });
 
+  it("con now non allineato al bucket, il bucket a cavallo del cutoff resta intatto nei fini", async () => {
+    const { db } = testDb;
+    const serverId = await seedServer(db);
+    // now = 12:02:30Z → cutoff grezzo 48h = 2026-07-11T12:02:30Z, in MEZZO al
+    // bucket [12:00, 12:05). Il cutoff effettivo deve scendere al confine di
+    // bucket (12:00): niente aggregazioni parziali del bucket a cavallo.
+    const unalignedNow = new Date("2026-07-13T12:02:30Z");
+    const straddleA = new Date("2026-07-11T12:00:30Z"); // < cutoff grezzo, bucket a cavallo
+    const straddleB = new Date("2026-07-11T12:02:00Z"); // < cutoff grezzo, bucket a cavallo
+    const fullyOld = new Date("2026-07-11T11:50:10Z"); // bucket [11:50, 11:55) interamente oltre
+    await seedMetric(db, serverId, straddleA, { cpuPct: 10 });
+    await seedMetric(db, serverId, straddleB, { cpuPct: 20 });
+    await seedMetric(db, serverId, fullyOld, { cpuPct: 30 });
+
+    await rollupMonitorOnce(db, unalignedNow);
+
+    // Solo il bucket completo è stato aggregato…
+    const rollups = await db.select().from(serverMetricsRollup);
+    expect(rollups).toHaveLength(1);
+    expect(rollups[0]!.ts.getTime()).toBe(new Date("2026-07-11T11:50:00Z").getTime());
+    expect(rollups[0]!.cpuPctAvg).toBeCloseTo(30);
+    // …e il bucket a cavallo è INTATTO nei fini (nessuna cancellazione parziale).
+    const fine = await db.select({ ts: serverMetrics.ts }).from(serverMetrics);
+    const fineTs = fine.map((r) => r.ts.getTime()).sort();
+    expect(fineTs).toEqual([straddleA.getTime(), straddleB.getTime()].sort());
+  });
+
   it("cancella i rollup più vecchi di 90 giorni e tiene quelli più recenti", async () => {
     const { db } = testDb;
     const serverId = await seedServer(db);

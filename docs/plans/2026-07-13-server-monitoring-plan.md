@@ -301,6 +301,12 @@ Toggle: aggiungi `monitor.alert` / `monitor.recovered` alla mappa kind→colonna
 
 **Step 3:** implementazione SQL-first (una INSERT…SELECT per efficienza):
 ```ts
+// Il cutoff fine va ALLINEATO al confine di bucket (floor sui 5 min), MAI il
+// cutoff grezzo now-48h: un cutoff in mezzo a un bucket aggrega il bucket a
+// cavallo in modo parziale e il run successivo (on conflict do nothing) cancella
+// i campioni restanti senza che contribuiscano → avg/max/somme distorti.
+const bucketMs = 300 * 1000;
+const cutoff48h = new Date(Math.floor((now.getTime() - 48 * 3600_000) / bucketMs) * bucketMs);
 await db.execute(sql`
   insert into server_metrics_rollup (server_id, ts, cpu_pct_avg, cpu_pct_max, …)
   select server_id,

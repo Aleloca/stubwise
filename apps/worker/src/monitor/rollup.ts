@@ -30,7 +30,14 @@ function errText(err: unknown): string {
  * scartato con il DELETE: accettabile, l'ingest è quasi-realtime).
  */
 export async function rollupMonitorOnce(db: Db, now: Date = new Date()): Promise<void> {
-  const fineCutoff = new Date(now.getTime() - FINE_RETENTION_MS);
+  // Cutoff fine ALLINEATO al confine di bucket (floor): si aggregano/cancellano
+  // solo bucket COMPLETI. Con il cutoff grezzo il bucket a cavallo delle 48h
+  // verrebbe aggregato in modo parziale al primo run e i campioni rimanenti
+  // cancellati al run successivo senza contribuire (on conflict do nothing) →
+  // avg/max distorti e somme/conteggi sottostimati. Il costo è tenere i fini
+  // fino a 48h + max 5 minuti: irrilevante.
+  const bucketMs = BUCKET_SECONDS * 1000;
+  const fineCutoff = new Date(Math.floor((now.getTime() - FINE_RETENTION_MS) / bucketMs) * bucketMs);
   const rollupCutoff = new Date(now.getTime() - ROLLUP_RETENTION_MS);
 
   await db.transaction(async (tx) => {
