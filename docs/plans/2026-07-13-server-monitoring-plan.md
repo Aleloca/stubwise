@@ -470,6 +470,8 @@ Pattern: funzioni in `apps/web/src/lib/api.ts` → `queryOptions` in `lib/querie
 
 **Step 1: test fallenti** — lista server in settings; "nuovo server" → dialog con nome → mostra UNA volta il comando `docker run` completo (chiave inclusa, bottone copia, varianti con/senza mount PM2 — testo multiriga preformattato); rigenerazione chiave con conferma; associazione progetti (multi-select dai progetti esistenti); editor check (form per tipo: url per http, host:porta per tcp, pattern per process, DSN per postgres/mysql con nota "salvato cifrato"); delete con conferma. **Step 5:** commit `feat(web): registrazione server e gestione check`.
 
+Esporre il toggle `notifyMonitor` in GET/PUT /api/settings/notifications e come checkbox nella sezione notifiche della SPA (gap rilevato in C1-review).
+
 ### Task E5: Tab Server nel progetto
 
 **Files:**

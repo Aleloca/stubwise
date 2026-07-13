@@ -338,6 +338,25 @@ describe("formatNotification — slack (lingua it)", () => {
     expect(text).toContain("Riprenderà da sola");
     expect(text).toContain("<https://app.example.com/docs/repo-1|Docs>");
   });
+
+  it("monitor.alert it (mem) → testo italiano con etichetta 'memoria' e label Server", () => {
+    const text = (
+      formatNotification({ ...MONITOR_ALERT, condition: "mem" }, "slack", "it").body as {
+        text: string;
+      }
+    ).text;
+    expect(text).toContain("Alert sul server web-prod-1 (memoria)");
+    expect(text).toContain("disco al 93% (soglia 90%)");
+    expect(text).toContain("<https://app.example.com/monitor/servers/s1|Server>");
+  });
+
+  it("monitor.recovered it → 'tornato su' con etichetta condizione italiana", () => {
+    const text = (formatNotification(MONITOR_RECOVERED, "slack", "it").body as { text: string })
+      .text;
+    expect(text).toContain("web-prod-1 tornato su (disco)");
+    expect(text).toContain("disco rientrato al 72%");
+    expect(text).toContain("<https://app.example.com/monitor/servers/s1|Server>");
+  });
 });
 
 describe("formatNotification — discord", () => {
@@ -568,14 +587,16 @@ describe("formatNotification — generic", () => {
     );
   });
 
-  it("monitor.alert → payload piatto con serverName/condition/detail/url, senza campi ticket", () => {
+  it("monitor.alert → payload piatto con serverName/condition/detail/serverUrl, senza campi ticket", () => {
     const body = formatNotification(MONITOR_ALERT, "generic").body as Record<string, unknown>;
     expect(body.event).toBe("monitor.alert");
     expect(body.serverName).toBe("web-prod-1");
     // La condizione grezza (machine-readable) resta l'enum, non l'etichetta.
     expect(body.condition).toBe("disk");
     expect(body.detail).toBe("disco al 93% (soglia 90%)");
-    expect(body.url).toBe("https://app.example.com/monitor/servers/s1");
+    // `serverUrl`, uniforme a ticketUrl/docsUrl degli altri eventi.
+    expect(body.serverUrl).toBe("https://app.example.com/monitor/servers/s1");
+    expect(body).not.toHaveProperty("url");
     expect(body).not.toHaveProperty("ticketNumber");
     expect(body).not.toHaveProperty("title");
     expect(body).not.toHaveProperty("ticketUrl");

@@ -440,14 +440,15 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
       };
     }
     // monitor.alert | monitor.recovered: la `condition` resta l'enum grezzo
-    // (machine-readable), il `detail` la descrizione, `url` la pagina server.
+    // (machine-readable), il `detail` la descrizione, `serverUrl` la pagina
+    // server (uniforme a ticketUrl/docsUrl degli altri eventi).
     return {
       event: event.kind,
       serverName: event.serverName,
       condition: event.condition,
       detail: event.detail,
       message: plainMessage(event, lang),
-      url: event.url,
+      serverUrl: event.url,
     };
   }
   const base = {
