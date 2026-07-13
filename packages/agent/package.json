@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --platform=node --target=node22 --outfile=dist/agent.cjs --format=cjs",
+    "build": "esbuild src/bin.ts --bundle --platform=node --target=node22 --outfile=dist/agent.cjs --format=cjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

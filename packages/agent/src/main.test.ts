@@ -225,4 +225,96 @@ describe("runAgentLoop", () => {
     await vi.advanceTimersByTimeAsync(120_000);
     expect(collectSample.mock.calls.length).toBe(collectsBefore);
   });
+
+  it("does not duplicate a check's schedule when its interval changes mid-run", async () => {
+    // Regression for the scheduler race: check A's interval changes (10s → 30s)
+    // via a config refresh WHILE a run of A is still in flight. The old chain
+    // must die on completion; with the bug, both chains kept firing forever.
+    const client = makeFakeClient();
+    // The refresh (anticipated to tick 1 by configPending) delivers interval 30.
+    client.fetchConfigResult = { sampleIntervalSeconds: 12, checks: [check(CHECK_A, 30)] };
+    const runCheck = vi.fn(async (c: AgentCheckConfig) => {
+      // Each run takes 5s (faked timer), so the t=12s refresh lands inside the
+      // t=10..15s run of the old 10s chain.
+      await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
+      return checkResult(c.id);
+    });
+    const controller = runAgentLoop(
+      {
+        collectSample: async () => null,
+        runCheck,
+        client,
+        pruneCheckState: vi.fn(),
+        log: silentLog,
+      },
+      {
+        initialConfig: { sampleIntervalSeconds: 12, checks: [check(CHECK_A, 10)] },
+        configPending: true,
+      },
+    );
+
+    // Timeline: run 1 at t=10 (old chain, completes 15, must NOT reschedule);
+    // new 30s chain runs at t=42 (completes 47) and t=77 (completes 82).
+    // With the duplication bug the dead chain would add runs at t=45, t=80, ...
+    await vi.advanceTimersByTimeAsync(100_000);
+    expect(runCheck).toHaveBeenCalledTimes(3);
+
+    await controller.stop();
+  });
+
+  it("keeps the current config when fetchConfig returns null", async () => {
+    const client = makeFakeClient();
+    client.fetchConfigResult = null;
+    const collectSample = vi.fn(async () => validSample());
+    const runCheck = vi.fn(async (c: AgentCheckConfig) => checkResult(c.id));
+    const controller = runAgentLoop(
+      { collectSample, runCheck, client, pruneCheckState: vi.fn(), log: silentLog },
+      { initialConfig: { sampleIntervalSeconds: 10, checks: [check(CHECK_A, 10)] } },
+    );
+
+    await vi.advanceTimersByTimeAsync(100_000); // 10 ticks → one (failed) refresh
+    expect(client.fetchConfigCalls).toBe(1);
+    // Cadence unchanged: sampling still every 10s, check A still scheduled.
+    expect(collectSample).toHaveBeenCalledTimes(10);
+    const checkRunsAt100 = runCheck.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(collectSample).toHaveBeenCalledTimes(11);
+    expect(runCheck.mock.calls.length).toBeGreaterThan(checkRunsAt100);
+
+    await controller.stop();
+  });
+
+  it("restores the batch when sendBatch throws", async () => {
+    let shouldThrow = true;
+    const calls: { samples: MetricSample[] }[] = [];
+    const client: IngestTransport = {
+      async sendBatch(samples) {
+        calls.push({ samples });
+        if (shouldThrow) throw new Error("boom");
+        return { ok: true, discard: false };
+      },
+      async fetchConfig() {
+        return null;
+      },
+    };
+    const controller = runAgentLoop(
+      {
+        collectSample: async () => validSample(),
+        runCheck: vi.fn(),
+        client,
+        pruneCheckState: vi.fn(),
+        log: silentLog,
+      },
+      { initialConfig: { sampleIntervalSeconds: 30, checks: [] } },
+    );
+
+    await vi.advanceTimersByTimeAsync(30_000); // tick 1: send throws → restored
+    expect(calls).toHaveLength(1);
+    shouldThrow = false;
+    await vi.advanceTimersByTimeAsync(30_000); // tick 2: both samples sent
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.samples).toHaveLength(2);
+
+    await controller.stop();
+  });
 });

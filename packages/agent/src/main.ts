@@ -57,6 +57,12 @@ export interface AgentLoopOptions {
   initialConfig: AgentConfig;
   /** Aborting stops the loop and runs a final best-effort flush. */
   signal?: AbortSignal;
+  /**
+   * Set when `initialConfig` is a fallback (the startup `fetchConfig` failed):
+   * the loop then retries the config fetch on EVERY tick until one succeeds,
+   * instead of waiting for the 10-tick refresh cadence.
+   */
+  configPending?: boolean;
   /** Injectable timers (tests). */
   timers?: LoopTimers;
 }
@@ -68,7 +74,8 @@ export interface AgentLoopController {
 
 interface ScheduledCheck {
   config: AgentCheckConfig;
-  handle: TimerHandle;
+  /** Pending timer; undefined only in the instant between run start and reschedule. */
+  handle: TimerHandle | undefined;
 }
 
 export function runAgentLoop(
@@ -81,6 +88,9 @@ export function runAgentLoop(
   let running = true;
   let sampleIntervalSeconds = opts.initialConfig.sampleIntervalSeconds;
   let tickCount = 0;
+  let configPending = opts.configPending ?? false;
+  /** The currently-running sample tick, awaited by `stop()` before the final flush. */
+  let inFlightTick: Promise<void> | null = null;
 
   const sampleBuffer = new RingBuffer<MetricSample>(
     Math.ceil(BUFFER_WINDOW_SECONDS / sampleIntervalSeconds),
@@ -117,6 +127,7 @@ export function runAgentLoop(
   async function refreshConfig(): Promise<void> {
     const config = await deps.client.fetchConfig();
     if (!config) return; // keep the previous config
+    configPending = false; // a real config arrived; back to the 10-tick cadence
 
     if (config.sampleIntervalSeconds !== sampleIntervalSeconds) {
       sampleIntervalSeconds = config.sampleIntervalSeconds;
@@ -130,10 +141,16 @@ export function runAgentLoop(
   // ---- check scheduler ---------------------------------------------------
 
   function scheduleCheck(config: AgentCheckConfig): void {
+    // The scheduling chain is bound to THIS entry object. A config refresh that
+    // changes the interval replaces the map entry with a new one (with its own
+    // timer chain); if that happens while a run of the OLD chain is in flight,
+    // the old chain must die instead of rescheduling — otherwise both chains
+    // would keep firing forever. The identity checks below enforce that.
+    const entry: ScheduledCheck = { config, handle: undefined };
     const runAndReschedule = () => {
       void (async () => {
-        const entry = scheduledChecks.get(config.id);
-        if (!entry || !running) return;
+        if (!running || scheduledChecks.get(config.id) !== entry) return;
+        entry.handle = undefined; // the timer that got us here has fired
         try {
           const result = await deps.runCheck(entry.config);
           checkBuffer.push(result);
@@ -144,18 +161,18 @@ export function runAgentLoop(
             error: err instanceof Error ? err.message : String(err),
           });
         }
-        if (!running) return;
-        const stillScheduled = scheduledChecks.get(config.id);
-        if (!stillScheduled) return; // removed while running
+        // Re-verify identity AFTER the await: the entry may have been replaced
+        // (interval change) or removed while the check was running.
+        if (!running || scheduledChecks.get(config.id) !== entry) return;
         // Reschedule from completion so runs never overlap.
-        stillScheduled.handle = timers.setTimeout(
+        entry.handle = timers.setTimeout(
           runAndReschedule,
-          stillScheduled.config.intervalSeconds * 1000,
+          entry.config.intervalSeconds * 1000,
         );
       })();
     };
-    const handle = timers.setTimeout(runAndReschedule, config.intervalSeconds * 1000);
-    scheduledChecks.set(config.id, { config, handle });
+    entry.handle = timers.setTimeout(runAndReschedule, config.intervalSeconds * 1000);
+    scheduledChecks.set(config.id, entry);
   }
 
   function applyChecks(checks: AgentCheckConfig[]): void {
@@ -163,7 +180,7 @@ export function runAgentLoop(
     // Remove checks no longer present.
     for (const [id, entry] of [...scheduledChecks]) {
       if (!next.has(id)) {
-        timers.clearTimeout(entry.handle);
+        if (entry.handle !== undefined) timers.clearTimeout(entry.handle);
         scheduledChecks.delete(id);
       }
     }
@@ -173,8 +190,9 @@ export function runAgentLoop(
       if (!existing) {
         scheduleCheck(config);
       } else if (existing.config.intervalSeconds !== config.intervalSeconds) {
-        // Interval changed → reschedule with the new cadence.
-        timers.clearTimeout(existing.handle);
+        // Interval changed → reschedule with the new cadence. If a run of the
+        // old chain is in flight, its identity check kills it on completion.
+        if (existing.handle !== undefined) timers.clearTimeout(existing.handle);
         scheduledChecks.delete(config.id);
         scheduleCheck(config);
       } else {
@@ -186,14 +204,27 @@ export function runAgentLoop(
 
   // ---- sampling loop -----------------------------------------------------
 
-  function scheduleSample(): void {
+  function scheduleSample(delayMs: number): void {
     sampleTimer = timers.setTimeout(() => {
       void (async () => {
         if (!running) return;
-        await sampleTick();
-        if (running) scheduleSample();
+        const startedAt = Date.now();
+        inFlightTick = sampleTick();
+        try {
+          await inFlightTick;
+        } finally {
+          inFlightTick = null;
+        }
+        if (!running) return;
+        // Drift compensation: subtract the tick's own duration from the next
+        // delay so the sampling CADENCE stays at one sample per interval even
+        // when a tick is slow (e.g. ingest timing out during a server outage).
+        // Without this, a 10s-slow tick on a 30s interval would thin the sample
+        // density by a third. Ticks still never overlap (schedule-after-await).
+        const elapsedMs = Date.now() - startedAt;
+        scheduleSample(Math.max(0, sampleIntervalSeconds * 1000 - elapsedMs));
       })();
-    }, sampleIntervalSeconds * 1000);
+    }, delayMs);
   }
 
   async function sampleTick(): Promise<void> {
@@ -205,14 +236,19 @@ export function runAgentLoop(
       } else {
         // A sample that fails the contract (e.g. memTotalBytes 0 from an
         // unreadable meminfo) is dropped, never sent.
-        log.warn("dropping invalid sample", { issues: parsed.error.issues.length });
+        log.warn("dropping invalid sample", {
+          firstIssue: parsed.error.issues[0]?.path.join("."),
+          issues: parsed.error.issues.length,
+        });
       }
     }
 
     await flush();
 
     tickCount += 1;
-    if (tickCount % CONFIG_REFRESH_EVERY_TICKS === 0) {
+    // `configPending` (initial fetch failed at startup) anticipates the refresh
+    // to every tick until a config is obtained, instead of waiting 10 ticks.
+    if (configPending || tickCount % CONFIG_REFRESH_EVERY_TICKS === 0) {
       await refreshConfig();
     }
   }
@@ -223,8 +259,13 @@ export function runAgentLoop(
     if (!running) return;
     running = false;
     if (sampleTimer !== undefined) timers.clearTimeout(sampleTimer);
-    for (const entry of scheduledChecks.values()) timers.clearTimeout(entry.handle);
+    for (const entry of scheduledChecks.values()) {
+      if (entry.handle !== undefined) timers.clearTimeout(entry.handle);
+    }
     scheduledChecks.clear();
+    // Wait for a tick that is mid-flight so its sample/flush lands in the
+    // buffers first — otherwise the "final" flush below could miss it.
+    if (inFlightTick) await inFlightTick.catch(() => {});
     // Final best-effort flush of whatever is still buffered.
     try {
       await flush();
@@ -235,7 +276,7 @@ export function runAgentLoop(
 
   // Kick everything off.
   applyChecks(opts.initialConfig.checks);
-  scheduleSample();
+  scheduleSample(sampleIntervalSeconds * 1000);
 
   if (opts.signal) {
     if (opts.signal.aborted) void stop();

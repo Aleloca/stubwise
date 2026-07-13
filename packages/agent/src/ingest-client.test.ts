@@ -187,17 +187,30 @@ describe("IngestClient.sendBatch", () => {
     expect(result).toEqual({ ok: false, discard: false });
   });
 
-  it("splits more than 300 samples into multiple requests", async () => {
+  it("splits more than 300 samples into multiple requests without duplicating check results", async () => {
     server = await startTestServer();
     const client = makeClient();
     const samples = Array.from({ length: 301 }, () => makeSample());
-    const result = await client.sendBatch(samples, []);
+    // Distinguishable check results (unique latencyMs) so we can assert each
+    // appears EXACTLY once across the split requests.
+    const checkResults = Array.from({ length: 5 }, (_, i) => ({
+      ...makeCheckResult(),
+      latencyMs: i,
+    }));
+    const result = await client.sendBatch(samples, checkResults);
     expect(result).toEqual({ ok: true, discard: false });
 
     const ingest = server.requests.filter((r) => r.url === "/monitor/ingest");
     expect(ingest).toHaveLength(2);
     const counts = ingest.map((r) => (r.body as { samples: unknown[] }).samples.length);
     expect(counts).toEqual([300, 1]);
+
+    const sentLatencies = ingest.flatMap((r) =>
+      ((r.body as { checkResults: { latencyMs: number }[] }).checkResults ?? []).map(
+        (c) => c.latencyMs,
+      ),
+    );
+    expect(sentLatencies.slice().sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4]);
   });
 
   it("is a no-op with no samples and no check results", async () => {
