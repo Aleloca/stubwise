@@ -50,6 +50,38 @@ export function resetCheckState(): void {
   deltaState.clear();
 }
 
+/**
+ * Drop delta entries for checks no longer in the config, so state for deleted
+ * checks doesn't accumulate forever. The main loop (D4) calls this with the
+ * active check ids on every config refresh.
+ */
+export function pruneCheckState(activeIds: Set<string>): void {
+  for (const id of deltaState.keys()) {
+    if (!activeIds.has(id)) deltaState.delete(id);
+  }
+}
+
+/**
+ * Deadline for the DB executors: the whole connect+query block is raced against
+ * this so `runCheck` always settles within ~timeoutMs even when the server
+ * accepts the connection and then stalls (the driver-level connect timeouts get
+ * headroom so THIS deadline is the authoritative one → deterministic "timeout").
+ */
+class DeadlineError extends Error {
+  constructor() {
+    super("timeout");
+    this.name = "DeadlineError";
+  }
+}
+
+function deadline(ms: number): { promise: Promise<never>; cancel: () => void } {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const promise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new DeadlineError()), ms);
+  });
+  return { promise, cancel: () => clearTimeout(timer) };
+}
+
 /** Truncate to the schema's `error` cap and never return an empty string. */
 function truncateError(message: string): string {
   const trimmed = message.length > 0 ? message : "unknown_error";
@@ -160,10 +192,11 @@ async function runHttp(
       return down(config, ts, null, "timeout");
     }
     // Network/DNS errors: fetch wraps the real cause (e.g. ECONNREFUSED) under
-    // `.cause`, which carries the useful message.
+    // `.cause`, which carries the useful message. Sanitize against the target
+    // too: an http URL can embed basic-auth credentials.
     const cause = (err as { cause?: unknown }).cause;
     const message = cause instanceof Error ? cause.message : errorMessage(err);
-    return down(config, ts, null, truncateError(message));
+    return down(config, ts, null, sanitizeError(message, config.target));
   }
 }
 
@@ -190,8 +223,10 @@ function parseHostPort(target: string): { host: string; port: number } | null {
     host = target.slice(0, idx);
     portStr = target.slice(idx + 1);
   }
+  // Digits only: rejects "", "80abc", "0x50", " 80" (Number() would coerce some).
+  if (!/^\d+$/.test(portStr)) return null;
   const port = Number(portStr);
-  if (!host || !Number.isInteger(port) || port < 1 || port > 65_535) return null;
+  if (!host || port < 1 || port > 65_535) return null;
   return { host, port };
 }
 
@@ -293,9 +328,9 @@ async function runProcess(
  * Compute the per-second rate of a monotonic counter since this check's last
  * run and record the new reading. Returns `null` on the first run (nothing to
  * diff), on a counter reset (server restarted → negative delta), or on a non-
- * positive time delta.
+ * positive time delta. Exported (pure aside from the module Map) for tests.
  */
-function computeRate(checkId: string, counter: number, tsMs: number): number | null {
+export function computeRate(checkId: string, counter: number, tsMs: number): number | null {
   const prev = deltaState.get(checkId);
   deltaState.set(checkId, { counter, tsMs });
   if (!prev) return null;
@@ -326,18 +361,30 @@ async function runPostgres(
   // Dynamic import so the (heavy) driver is only loaded when a DB check runs.
   const { default: postgres } = await import("postgres");
   const start = performance.now();
+  // connect_timeout gets +1s of headroom over our own deadline: the race below
+  // is the single authoritative budget, so a stall (accepted connection that
+  // never answers) yields a deterministic "timeout" instead of a driver message.
   const sql = postgres(config.target, {
     max: 1,
-    connect_timeout: Math.max(1, Math.ceil(timeoutMs / 1000)),
+    connect_timeout: Math.ceil(timeoutMs / 1000) + 1,
     prepare: false,
     idle_timeout: 1,
     onnotice: () => {},
   });
+  let timedOut = false;
+  const dl = deadline(timeoutMs);
   try {
-    const [statRows, sizeRows, maxRows] = await Promise.all([
-      sql`select numbackends, xact_commit, blks_hit, blks_read from pg_stat_database where datname = current_database()`,
-      sql`select pg_database_size(current_database()) as size`,
-      sql`show max_connections`,
+    // postgres-js connects lazily on the first query, so racing the query block
+    // bounds connection AND queries: runCheck settles within ~timeoutMs even if
+    // the server accepts the socket and then never replies. The losing branch's
+    // eventual rejection is absorbed by Promise.race (a handler stays attached).
+    const [statRows, sizeRows, maxRows] = await Promise.race([
+      Promise.all([
+        sql`select numbackends, xact_commit, blks_hit, blks_read from pg_stat_database where datname = current_database()`,
+        sql`select pg_database_size(current_database()) as size`,
+        sql`show max_connections`,
+      ]),
+      dl.promise,
     ]);
     const latency = performance.now() - start;
 
@@ -369,11 +416,18 @@ async function runPostgres(
 
     return up(config, ts, latency, metrics);
   } catch (err) {
+    if (err instanceof DeadlineError) {
+      timedOut = true;
+      return down(config, ts, null, "timeout");
+    }
     return down(config, ts, null, sanitizeError(errorMessage(err), config.target));
   } finally {
-    // Always close the pool; never let a lingering connection leak.
+    dl.cancel();
+    // Always close the pool; never let a lingering connection leak. On timeout
+    // force-destroy the sockets NOW (timeout: 0) — waiting for the stalled
+    // query would blow the runCheck budget.
     try {
-      await sql.end({ timeout: 5 });
+      await sql.end({ timeout: timedOut ? 0 : 5 });
     } catch {
       /* ignore close errors */
     }
@@ -392,17 +446,42 @@ async function runMysql(
 ): Promise<CheckResult> {
   const mysql = await import("mysql2/promise");
   const start = performance.now();
-  let conn: Awaited<ReturnType<typeof mysql.createConnection>> | null = null;
-  try {
-    conn = await mysql.createConnection({ uri: config.target, connectTimeout: timeoutMs });
-
-    const [statusRows] = await conn.query(
+  // Holder object (not a bare `let`): the connection is assigned inside the
+  // raced closure, and TS's flow analysis would otherwise narrow a plain local
+  // back to null in the finally below.
+  const state: {
+    conn: Awaited<ReturnType<typeof mysql.createConnection>> | null;
+    timedOut: boolean;
+  } = { conn: null, timedOut: false };
+  const dl = deadline(timeoutMs);
+  // Connect + queries as one block raced against the deadline, so runCheck
+  // settles within ~timeoutMs even if the server accepts the socket and then
+  // stalls mid-handshake or mid-query. connectTimeout gets +1s of headroom so
+  // OUR deadline wins deterministically ("timeout", not "connect ETIMEDOUT").
+  const queryBlock = async () => {
+    const c = await mysql.createConnection({
+      uri: config.target,
+      connectTimeout: timeoutMs + 1000,
+    });
+    if (state.timedOut) {
+      // The deadline fired while we were connecting: this late connection
+      // would leak (the outer finally already ran) — kill it here.
+      c.destroy();
+      throw new DeadlineError();
+    }
+    state.conn = c;
+    const [statusRows] = await c.query(
       "SHOW GLOBAL STATUS WHERE Variable_name IN ('Threads_connected','Questions')",
     );
-    const [sizeRows] = await conn.query(
+    const [sizeRows] = await c.query(
       "SELECT SUM(data_length + index_length) AS size FROM information_schema.tables",
     );
-    const [maxRows] = await conn.query("SHOW VARIABLES LIKE 'max_connections'");
+    const [maxRows] = await c.query("SHOW VARIABLES LIKE 'max_connections'");
+    return { statusRows, sizeRows, maxRows };
+  };
+  try {
+    // The losing branch's eventual rejection is absorbed by Promise.race.
+    const { statusRows, sizeRows, maxRows } = await Promise.race([queryBlock(), dl.promise]);
     const latency = performance.now() - start;
 
     const status = rowsToMap(statusRows);
@@ -426,16 +505,27 @@ async function runMysql(
 
     return up(config, ts, latency, metrics);
   } catch (err) {
+    if (err instanceof DeadlineError) {
+      state.timedOut = true;
+      return down(config, ts, null, "timeout");
+    }
     return down(config, ts, null, sanitizeError(errorMessage(err), config.target));
   } finally {
-    if (conn) {
-      try {
-        await conn.end();
-      } catch {
+    dl.cancel();
+    if (state.conn) {
+      if (state.timedOut) {
+        // conn.end() sends COM_QUIT and waits for the server — on a stalled
+        // server it can hang too. On timeout, tear the socket down abruptly.
+        state.conn.destroy();
+      } else {
         try {
-          conn.destroy();
+          await state.conn.end();
         } catch {
-          /* ignore */
+          try {
+            state.conn.destroy();
+          } catch {
+            /* ignore */
+          }
         }
       }
     }

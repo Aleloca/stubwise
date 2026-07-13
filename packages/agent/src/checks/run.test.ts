@@ -1,5 +1,9 @@
 import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
-import { createServer as createNetServer, type Server as NetServer } from "node:net";
+import {
+  createServer as createNetServer,
+  type Server as NetServer,
+  type Socket,
+} from "node:net";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +11,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { AgentCheckConfig } from "@stubwise/shared";
 
-import { resetCheckState, runCheck } from "./run.js";
+import { computeRate, pruneCheckState, resetCheckState, runCheck } from "./run.js";
 
 const NUL = "\0";
 const UUID = "11111111-1111-1111-1111-111111111111";
@@ -45,6 +49,27 @@ async function closedPort(): Promise<number> {
   const port = await listen(s);
   await close(s);
   return port;
+}
+
+/**
+ * TCP server that ACCEPTS connections but never sends a byte: simulates a DB
+ * server that stalls after the TCP handshake (the worst case for the check
+ * budget — the connect succeeds so connect-timeouts never fire).
+ */
+async function withStallServer(fn: (port: number) => Promise<void>): Promise<void> {
+  const sockets: Socket[] = [];
+  const server = createNetServer((socket) => {
+    sockets.push(socket);
+    // Swallow errors from abrupt client destroys (ECONNRESET) — irrelevant here.
+    socket.on("error", () => {});
+  });
+  const port = await listen(server, "127.0.0.1");
+  try {
+    await fn(port);
+  } finally {
+    for (const socket of sockets) socket.destroy();
+    await close(server);
+  }
 }
 
 describe("runCheck http", () => {
@@ -138,6 +163,14 @@ describe("runCheck tcp", () => {
     expect(res.error).not.toBeNull();
   });
 
+  it("returns down invalid_target for a malformed target", async () => {
+    for (const target of ["no-port-here", "host:", "host:80abc", "[::1", "[::1]80"]) {
+      const res = await runCheck(makeConfig({ type: "tcp", target }), {});
+      expect(res.status).toBe("down");
+      expect(res.error).toBe("invalid_target");
+    }
+  });
+
   it("handles IPv6 bracket notation", async () => {
     const server = createNetServer();
     servers.push(server);
@@ -225,6 +258,65 @@ describe("runCheck db error branch", () => {
     expect(res.error).not.toContain("supersecret");
     expect(res.error).not.toContain(dsn);
   });
+
+  it("postgres: server accepts then stalls → down timeout within the budget", async () => {
+    await withStallServer(async (port) => {
+      const start = Date.now();
+      const res = await runCheck(
+        makeConfig({ type: "postgres", target: `postgres://u:p@127.0.0.1:${port}/db` }),
+        { timeoutMs: 300 },
+      );
+      expect(res.status).toBe("down");
+      expect(res.error).toBe("timeout");
+      // Must settle around timeoutMs, NOT hang on the stalled query/connection.
+      expect(Date.now() - start).toBeLessThan(2_000);
+    });
+  });
+
+  it("mysql: server accepts then stalls → down timeout within the budget", async () => {
+    await withStallServer(async (port) => {
+      const start = Date.now();
+      const res = await runCheck(
+        makeConfig({ type: "mysql", target: `mysql://u:p@127.0.0.1:${port}/db` }),
+        { timeoutMs: 300 },
+      );
+      expect(res.status).toBe("down");
+      expect(res.error).toBe("timeout");
+      expect(Date.now() - start).toBeLessThan(2_000);
+    });
+  });
+});
+
+describe("computeRate", () => {
+  afterEach(() => resetCheckState());
+
+  it("returns null on the first run, the per-second rate after", () => {
+    expect(computeRate("id-1", 100, 1_000)).toBeNull();
+    expect(computeRate("id-1", 110, 4_000)).toBe(3.33); // 10 / 3s, 2 decimals
+  });
+
+  it("returns null on a counter reset (server restart) then resumes", () => {
+    expect(computeRate("id-2", 100, 1_000)).toBeNull();
+    expect(computeRate("id-2", 50, 2_000)).toBeNull(); // negative delta
+    expect(computeRate("id-2", 53, 3_000)).toBe(3);
+  });
+
+  it("returns null on a non-positive time delta", () => {
+    expect(computeRate("id-3", 100, 1_000)).toBeNull();
+    expect(computeRate("id-3", 200, 1_000)).toBeNull();
+  });
+});
+
+describe("pruneCheckState", () => {
+  afterEach(() => resetCheckState());
+
+  it("drops state for checks not in the active set", () => {
+    computeRate("keep", 10, 1_000);
+    computeRate("drop", 10, 1_000);
+    pruneCheckState(new Set(["keep"]));
+    expect(computeRate("keep", 20, 2_000)).toBe(10); // state survived
+    expect(computeRate("drop", 20, 2_000)).toBeNull(); // state pruned → first run
+  });
 });
 
 describe("runCheck misc", () => {
@@ -237,6 +329,20 @@ describe("runCheck misc", () => {
     );
     expect(res.status).toBe("down");
     expect(res.error).toBe("unsupported_check_type");
+  });
+
+  it("truncates the error message to 500 chars", async () => {
+    // A nonexistent procRoot with a very long path: the ENOENT message echoes
+    // the full path, producing an error well over the 500-char schema cap.
+    const procRoot = join(tmpdir(), "sw-missing", "x".repeat(600));
+    const res = await runCheck(
+      makeConfig({ type: "process", target: "anything" }),
+      { procRoot },
+    );
+    expect(res.status).toBe("down");
+    expect(res.error).not.toBeNull();
+    expect(res.error!.length).toBeLessThanOrEqual(500);
+    expect(res.error).toContain("ENOENT");
   });
 
   it("uses the injected clock for ts", async () => {

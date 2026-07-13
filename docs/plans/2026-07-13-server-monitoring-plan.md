@@ -413,6 +413,7 @@ CPU pct dai delta `cpu_stats` vs `precpu_stats` (formula standard Docker: `(cpuD
 - `IngestClient` contro un Fastify/`http.createServer` di test: POST con header `x-stubwise-server-key`; risposta 500/rete giù → i campioni restano nel buffer; risposta 200 → buffer svuotato; al recupero manda TUTTO il buffer in un batch (max 300 per request, spezzato).
 - `fetchConfig` → parse con `agentConfigSchema`; risposta invalida → mantiene la config precedente.
 - `mainLoop` con clock/collectors iniettati (fake timers vitest): a ogni tick raccoglie, accoda, invia; ogni 10 tick rilegge la config; i check girano sul PROPRIO `intervalSeconds` (scheduler semplice: `nextRunAt` per check).
+- Al refresh della config chiamare `pruneCheckState(new Set(ids attivi))` (da `checks/run.js`) per potare lo stato dei delta tps/qps dei check cancellati.
 
 **Step 3:** `index.ts` legge env `STUBWISE_URL`, `STUBWISE_SERVER_KEY` (obbligatorie, exit 1 con messaggio se mancano), `HOST_ROOT=/host`, `DOCKER_SOCKET=/var/run/docker.sock`, `AGENT_VERSION` (iniettata al build). Graceful shutdown su SIGTERM (flush finale best-effort).
 

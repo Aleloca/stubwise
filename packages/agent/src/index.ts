@@ -12,4 +12,9 @@ export {
   type CollectDockerOptions,
 } from "./collectors/docker.js";
 export { collectPm2Services, type CollectPm2Options } from "./collectors/pm2.js";
-export { runCheck, resetCheckState, type CheckContext } from "./checks/run.js";
+export {
+  runCheck,
+  resetCheckState,
+  pruneCheckState,
+  type CheckContext,
+} from "./checks/run.js";
