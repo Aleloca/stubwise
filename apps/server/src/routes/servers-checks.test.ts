@@ -10,7 +10,8 @@ import {
   serverMetricsRollup,
   serviceChecks,
 } from "@stubwise/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+import { METRICS_POINT_LIMIT } from "./servers-checks.js";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { seedUsers } from "../test/fixtures.js";
@@ -504,8 +505,13 @@ describe("GET /api/servers/:id/metrics", () => {
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(200);
-    const body = res.json() as { resolution: string; points: Array<Record<string, unknown>> };
+    const body = res.json() as {
+      resolution: string;
+      truncated: boolean;
+      points: Array<Record<string, unknown>>;
+    };
     expect(body.resolution).toBe("raw");
+    expect(body.truncated).toBe(false);
     expect(body.points).toHaveLength(1);
     const p = body.points[0]!;
     expect(p.cpuPct).toBe(42.5);
@@ -531,8 +537,13 @@ describe("GET /api/servers/:id/metrics", () => {
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(200);
-    const body = res.json() as { resolution: string; points: Array<Record<string, unknown>> };
+    const body = res.json() as {
+      resolution: string;
+      truncated: boolean;
+      points: Array<Record<string, unknown>>;
+    };
     expect(body.resolution).toBe("5m");
+    expect(body.truncated).toBe(false);
     expect(body.points).toHaveLength(1);
     const p = body.points[0]!;
     expect(p.cpuPctAvg).toBe(40);
@@ -552,6 +563,43 @@ describe("GET /api/servers/:id/metrics", () => {
     });
     expect(res.statusCode).toBe(200);
     expect((res.json() as { resolution: string }).resolution).toBe("raw");
+  });
+
+  it("oltre METRICS_POINT_LIMIT punti nel range: tiene i più RECENTI e truncated true", async () => {
+    const { id } = await createServerReturning("metrics-trunc");
+    // LIMIT+1 campioni a 1 secondo di distanza, dentro un range corto (raw).
+    const base = new Date(Date.now() - 3 * 3600_000);
+    await testDb.db.execute(sql`
+      insert into server_metrics
+        (server_id, ts, cpu_pct, load_1m, mem_used_bytes, mem_total_bytes,
+         swap_used_bytes, disk_used_bytes, disk_total_bytes, net_rx_bytes, net_tx_bytes)
+      select ${id}::uuid, ${base.toISOString()}::timestamptz + make_interval(secs => i),
+             i, 0.5, 100, 1000, 0, 100, 1000, 0, 0
+      from generate_series(0, ${METRICS_POINT_LIMIT}) as i
+    `);
+
+    const from = new Date(base.getTime() - 60_000).toISOString();
+    const to = new Date().toISOString();
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/servers/${id}/metrics?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      truncated: boolean;
+      points: Array<{ ts: string; cpuPct: number }>;
+    };
+    expect(body.truncated).toBe(true);
+    expect(body.points).toHaveLength(METRICS_POINT_LIMIT);
+    // Ordine ts ascendente e finestra ancorata ai punti più RECENTI: il primo
+    // campione (i=0) è l'unico scartato, l'ultimo (i=LIMIT) è presente.
+    const first = body.points[0]!;
+    const last = body.points.at(-1)!;
+    expect(first.cpuPct).toBe(1);
+    expect(last.cpuPct).toBe(METRICS_POINT_LIMIT);
+    expect(new Date(last.ts).getTime()).toBe(base.getTime() + METRICS_POINT_LIMIT * 1000);
+    expect(new Date(first.ts).getTime()).toBeLessThan(new Date(last.ts).getTime());
   });
 
   it("checkId opzionale: aggiunge checkPoints (raw: status+latencyMs)", async () => {

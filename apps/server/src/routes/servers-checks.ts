@@ -13,7 +13,7 @@ import {
   servers,
   serviceChecks,
 } from "@stubwise/db";
-import { and, asc, eq, gte, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lte } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -23,8 +23,13 @@ import { authErrorResponses, errorSchema } from "./shared.js";
 
 /** Oltre questo intervallo (incluso il boundary) si legge il rollup 5m. */
 const RAW_RESOLUTION_MAX_MS = 48 * 60 * 60 * 1000;
-/** Tetto di sicurezza sui punti restituiti per una singola query. */
-const METRICS_POINT_LIMIT = 6000;
+/**
+ * Tetto di sicurezza sui punti restituiti per una singola query. Le query
+ * ordinano per ts DISCENDENTE con questo limit e poi rovesciano: su un range
+ * più fitto del tetto si tengono i punti più RECENTI (la coda del grafico) e la
+ * risposta segnala il taglio con `truncated: true`.
+ */
+export const METRICS_POINT_LIMIT = 6000;
 
 const idParamsSchema = z.object({ id: z.uuid() });
 const checkParamsSchema = z.object({ id: z.uuid(), checkId: z.uuid() });
@@ -138,6 +143,9 @@ const metricsQuerySchema = z.object({
 
 const metricsResponseSchema = z.object({
   resolution: z.enum(["raw", "5m"]),
+  // True se almeno una serie ha saturato METRICS_POINT_LIMIT: il client sa che
+  // la finestra mostrata è la coda più recente del range richiesto, non tutto.
+  truncated: z.boolean(),
   points: z.array(z.union([rawPointSchema, rollupPointSchema])),
   checkPoints: z.array(z.union([rawCheckPointSchema, rollupCheckPointSchema])).optional(),
 });
@@ -343,6 +351,11 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
       // Boundary incluso: range <= 48h legge i campioni fini, oltre il rollup 5m.
       const raw = to.getTime() - from.getTime() <= RAW_RESOLUTION_MAX_MS;
 
+      // Ogni serie: ts DISCENDENTE + limit per ancorare la finestra ai punti più
+      // recenti, poi reverse per riconsegnare in ordine ascendente. `truncated`
+      // scatta quando una serie satura il limit (righe scartate in testa).
+      let truncated = false;
+
       if (raw) {
         const rows = await app.db
           .select()
@@ -354,8 +367,10 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
               lte(serverMetrics.ts, to),
             ),
           )
-          .orderBy(asc(serverMetrics.ts))
+          .orderBy(desc(serverMetrics.ts))
           .limit(METRICS_POINT_LIMIT);
+        truncated ||= rows.length === METRICS_POINT_LIMIT;
+        rows.reverse();
         const points = rows.map((r) => ({
           ts: r.ts.toISOString(),
           cpuPct: r.cpuPct,
@@ -369,7 +384,7 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
           netTxBytes: r.netTxBytes,
         }));
 
-        if (checkId === undefined) return { resolution: "raw" as const, points };
+        if (checkId === undefined) return { resolution: "raw" as const, truncated, points };
 
         const sampleRows = await app.db
           .select()
@@ -381,14 +396,16 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
               lte(checkSamples.ts, to),
             ),
           )
-          .orderBy(asc(checkSamples.ts))
+          .orderBy(desc(checkSamples.ts))
           .limit(METRICS_POINT_LIMIT);
+        truncated ||= sampleRows.length === METRICS_POINT_LIMIT;
+        sampleRows.reverse();
         const checkPoints = sampleRows.map((s) => ({
           ts: s.ts.toISOString(),
           status: s.status,
           latencyMs: s.latencyMs,
         }));
-        return { resolution: "raw" as const, points, checkPoints };
+        return { resolution: "raw" as const, truncated, points, checkPoints };
       }
 
       const rows = await app.db
@@ -401,8 +418,10 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
             lte(serverMetricsRollup.ts, to),
           ),
         )
-        .orderBy(asc(serverMetricsRollup.ts))
+        .orderBy(desc(serverMetricsRollup.ts))
         .limit(METRICS_POINT_LIMIT);
+      truncated ||= rows.length === METRICS_POINT_LIMIT;
+      rows.reverse();
       const points = rows.map((r) => ({
         ts: r.ts.toISOString(),
         cpuPctAvg: r.cpuPctAvg,
@@ -419,7 +438,7 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
         netTxBytesSum: r.netTxBytesSum,
       }));
 
-      if (checkId === undefined) return { resolution: "5m" as const, points };
+      if (checkId === undefined) return { resolution: "5m" as const, truncated, points };
 
       const rollupRows = await app.db
         .select()
@@ -431,8 +450,10 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
             lte(checkSamplesRollup.ts, to),
           ),
         )
-        .orderBy(asc(checkSamplesRollup.ts))
+        .orderBy(desc(checkSamplesRollup.ts))
         .limit(METRICS_POINT_LIMIT);
+      truncated ||= rollupRows.length === METRICS_POINT_LIMIT;
+      rollupRows.reverse();
       const checkPoints = rollupRows.map((r) => ({
         ts: r.ts.toISOString(),
         upCount: r.upCount,
@@ -440,7 +461,7 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
         latencyMsAvg: r.latencyMsAvg,
         latencyMsMax: r.latencyMsMax,
       }));
-      return { resolution: "5m" as const, points, checkPoints };
+      return { resolution: "5m" as const, truncated, points, checkPoints };
     },
   );
 }
