@@ -264,6 +264,17 @@ export async function serverCheckRoutes(instance: FastifyInstance): Promise<void
       if (!existing) return apiError(reply, 404, "check_not_found", "Check not found");
 
       const { type, name, target, intervalSeconds, enabled } = request.body;
+      // Un cambio di type invalida il target/DSN esistente (semantica diversa:
+      // URL vs host:porta vs pattern vs DSN): senza un nuovo target il check
+      // resterebbe incoerente → 400 esplicito, nessuna modifica applicata.
+      if (type !== undefined && type !== existing.type && target === undefined) {
+        return apiError(
+          reply,
+          400,
+          "target_required_for_type_change",
+          "Changing the check type requires a new `target`",
+        );
+      }
       const updates: Partial<typeof serviceChecks.$inferInsert> = {};
       if (type !== undefined) updates.type = type;
       if (name !== undefined) updates.name = name;

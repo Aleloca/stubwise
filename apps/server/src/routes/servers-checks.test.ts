@@ -247,6 +247,110 @@ describe("PUT /api/servers/:id/checks/:checkId", () => {
     expect(row!.target).toBe("");
   });
 
+  it("cambio type senza target: 400 in entrambe le direzioni (db→http e http→db)", async () => {
+    const { id } = await createServerReturning("put-type-no-target");
+    const pg = await postCheck(id, {
+      type: "postgres",
+      name: "pg",
+      target: "postgres://u:pw@h:5432/a",
+      intervalSeconds: 60,
+      enabled: true,
+    });
+    const pgId = (pg.json() as { id: string }).id;
+    const res1 = await app.inject({
+      method: "PUT",
+      url: `/api/servers/${id}/checks/${pgId}`,
+      headers: { cookie: adminCookie },
+      payload: { type: "http" },
+    });
+    expect(res1.statusCode).toBe(400);
+    expect((res1.json() as { code: string }).code).toBe("target_required_for_type_change");
+
+    const http = await postCheck(id, {
+      type: "http",
+      name: "h",
+      target: "http://h",
+      intervalSeconds: 30,
+      enabled: true,
+    });
+    const httpId = (http.json() as { id: string }).id;
+    const res2 = await app.inject({
+      method: "PUT",
+      url: `/api/servers/${id}/checks/${httpId}`,
+      headers: { cookie: adminCookie },
+      payload: { type: "postgres" },
+    });
+    expect(res2.statusCode).toBe(400);
+    expect((res2.json() as { code: string }).code).toBe("target_required_for_type_change");
+
+    // Nessuna modifica applicata: i due check restano com'erano.
+    const [pgRow] = await testDb.db.select().from(serviceChecks).where(eq(serviceChecks.id, pgId));
+    expect(pgRow!.type).toBe("postgres");
+    const [httpRow] = await testDb.db
+      .select()
+      .from(serviceChecks)
+      .where(eq(serviceChecks.id, httpId));
+    expect(httpRow!.type).toBe("http");
+    expect(httpRow!.target).toBe("http://h");
+  });
+
+  it("cambio type CON target: postgres→http azzera il DSN, http→postgres cifra e azzera target", async () => {
+    const { id } = await createServerReturning("put-type-with-target");
+
+    // postgres → http: dsnEncrypted azzerato, target in chiaro.
+    const pg = await postCheck(id, {
+      type: "postgres",
+      name: "pg",
+      target: "postgres://u:oldpw@h:5432/a",
+      intervalSeconds: 60,
+      enabled: true,
+    });
+    const pgId = (pg.json() as { id: string }).id;
+    const res1 = await app.inject({
+      method: "PUT",
+      url: `/api/servers/${id}/checks/${pgId}`,
+      headers: { cookie: adminCookie },
+      payload: { type: "http", target: "http://nuovo" },
+    });
+    expect(res1.statusCode).toBe(200);
+    const body1 = res1.json() as Record<string, unknown>;
+    expect(body1.type).toBe("http");
+    expect(body1.target).toBe("http://nuovo");
+    expect(body1.hasDsn).toBe(false);
+    const [pgRow] = await testDb.db.select().from(serviceChecks).where(eq(serviceChecks.id, pgId));
+    expect(pgRow!.dsnEncrypted).toBeNull();
+    expect(pgRow!.target).toBe("http://nuovo");
+
+    // http → postgres: DSN cifrato, target vuoto, mai il DSN in risposta.
+    const http = await postCheck(id, {
+      type: "http",
+      name: "h",
+      target: "http://h",
+      intervalSeconds: 30,
+      enabled: true,
+    });
+    const httpId = (http.json() as { id: string }).id;
+    const dsn = "postgres://u:newpw@h:5432/b";
+    const res2 = await app.inject({
+      method: "PUT",
+      url: `/api/servers/${id}/checks/${httpId}`,
+      headers: { cookie: adminCookie },
+      payload: { type: "postgres", target: dsn },
+    });
+    expect(res2.statusCode).toBe(200);
+    const body2 = res2.json() as Record<string, unknown>;
+    expect(JSON.stringify(body2)).not.toContain("newpw");
+    expect(body2.type).toBe("postgres");
+    expect(body2.target).toBe("");
+    expect(body2.hasDsn).toBe(true);
+    const [httpRow] = await testDb.db
+      .select()
+      .from(serviceChecks)
+      .where(eq(serviceChecks.id, httpId));
+    expect(httpRow!.target).toBe("");
+    expect(decrypt(httpRow!.dsnEncrypted!, ENCRYPTION_KEY)).toBe(dsn);
+  });
+
   it("check di un altro server (mismatch :id/:checkId): 404", async () => {
     const { id: serverA } = await createServerReturning("put-owner-a");
     const { id: serverB } = await createServerReturning("put-owner-b");
