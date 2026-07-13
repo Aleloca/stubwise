@@ -11,6 +11,8 @@ import { dispatchNode } from "./docs/recursive/node-dispatch.js";
 import { createGenerationWorktreeRegistry } from "./docs/recursive/registry.js";
 import { MirrorManager } from "./git/mirrors.js";
 import { createHandler, createProjectSerializer } from "./handler.js";
+import { startMonitorAlertPoller } from "./monitor/alerts.js";
+import { startMonitorRollupPoller } from "./monitor/rollup.js";
 import { startLimitResumePoller } from "./providers/limit-resume-poller.js";
 import { DEFAULT_FIX_PLAN_TIMEOUT_MS, DEFAULT_FIX_TIMEOUT_MS } from "./pipeline/fix.js";
 import { DEFAULT_TRIAGE_TIMEOUT_MS } from "./pipeline/triage.js";
@@ -290,13 +292,39 @@ startLimitResumePoller({
   signal: controller.signal,
 });
 
+// Poller di ROLLUP + retention delle metriche di monitoraggio: task SEPARATO
+// dal loop dei job, sul proprio intervallo. Aggrega i campioni fini oltre le
+// 48h in bucket da 5' e applica la retention (tutto in una transazione con
+// rollback su errore). È BEST-EFFORT (non fa mai crashare il worker) e NON tocca
+// il lock/heartbeat né i timeout dei job. Si ferma sullo stesso AbortSignal.
+startMonitorRollupPoller({
+  db,
+  intervalMinutes: config.monitorRollupIntervalMinutes,
+  signal: controller.signal,
+});
+
+// Poller di VALUTAZIONE ALERT del monitoraggio: task SEPARATO dal loop dei job,
+// sul proprio intervallo (più frequente del rollup: allarmi reattivi). Per ogni
+// server valuta offline/soglie sostenute/check down con isteresi ed emette
+// monitor.alert/recovered via il dispatch di default. publicUrl dalla config (i
+// link nei payload). È BEST-EFFORT (non lancia mai) e NON tocca il
+// lock/heartbeat né i timeout dei job. Si ferma sullo stesso AbortSignal.
+startMonitorAlertPoller({
+  db,
+  publicUrl: config.publicUrl,
+  intervalMinutes: config.monitorAlertIntervalMinutes,
+  signal: controller.signal,
+});
+
 console.error(
   `[stubwise-worker] avviato (concurrency ${config.concurrency}, db-pool ${config.databasePoolMax}, mirrors in ${config.mirrorsDir}` +
     `, usage-poll ${config.usagePollMinutes > 0 ? `ogni ${config.usagePollMinutes}'` : "disabilitato"}` +
     `, credential-test ${config.credentialTestPollSeconds > 0 ? `ogni ${config.credentialTestPollSeconds}"` : "disabilitato"}` +
     `, docs-auto-update ${config.docsAutoUpdatePollSeconds > 0 ? `ogni ${config.docsAutoUpdatePollSeconds}"` : "disabilitato"}` +
     `, pr-review ${config.prReviewPollSeconds > 0 ? `ogni ${config.prReviewPollSeconds}"` : "disabilitato"}` +
-    `, limit-resume ${config.limitResumePollMinutes > 0 ? `ogni ${config.limitResumePollMinutes}'` : "disabilitato"})`,
+    `, limit-resume ${config.limitResumePollMinutes > 0 ? `ogni ${config.limitResumePollMinutes}'` : "disabilitato"}` +
+    `, monitor-rollup ${config.monitorRollupIntervalMinutes > 0 ? `ogni ${config.monitorRollupIntervalMinutes}'` : "disabilitato"}` +
+    `, monitor-alert ${config.monitorAlertIntervalMinutes > 0 ? `ogni ${config.monitorAlertIntervalMinutes}'` : "disabilitato"})`,
 );
 // POLITICA DI PRIORITÀ doc vs fix (Task 5.4): i fix hanno la precedenza. Il
 // loop satura la concorrenza con i fix in coda; reclama UN doc-job per tick solo

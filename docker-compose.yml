@@ -151,6 +151,15 @@ services:
       # tetto PER VERTICALE (ogni superficie riparte col suo budget). Budget SEPARATO da
       # DOC_MAX_NODES. 0 = fase product disattivata (nessuna verticale pubblica). Default 12.
       - DOC_PRODUCT_MAX_PAGES=${DOC_PRODUCT_MAX_PAGES:-12}
+      # --- Monitoraggio server (poller separati dal loop dei job) ---
+      # Rollup + retention delle metriche: aggrega i campioni fini oltre le 48h in
+      # bucket da 5' e applica la retention (90gg sui rollup). 0 = disabilitato.
+      # Default 5'. Max 1440 (un giorno).
+      - MONITOR_ROLLUP_INTERVAL_MINUTES=${MONITOR_ROLLUP_INTERVAL_MINUTES:-5}
+      # Valutazione alert (offline/soglie sostenute/check down con isteresi ed
+      # emissione monitor.alert/recovered). Più frequente del rollup: allarmi
+      # reattivi. 0 = disabilitato. Default 1'. Max 60.
+      - MONITOR_ALERT_INTERVAL_MINUTES=${MONITOR_ALERT_INTERVAL_MINUTES:-1}
       # --- Auth del CLI claude ---
       # Metodo raccomandato: gestisci le credenziali in Settings -> AI providers
       # (catena cifrata nel DB, con failover). Le due righe pass-through qui sotto

@@ -54,6 +54,59 @@ describe("loadWorkerConfig", () => {
     expect(config.limitResumePollMinutes).toBe(5);
     expect(config.limitResumeHeadroomPercent).toBe(95);
     expect(config.limitResumeCooldownMs).toBe(3_600_000);
+    // Poller monitor: rollup ogni 5', valutazione alert ogni 1'.
+    expect(config.monitorRollupIntervalMinutes).toBe(5);
+    expect(config.monitorAlertIntervalMinutes).toBe(1);
+  });
+
+  it("rispetta MONITOR_ROLLUP_INTERVAL_MINUTES esplicito, 0 = disabilitato e rifiuta i fuori range", () => {
+    expect(
+      loadWorkerConfig({ ...VALID, MONITOR_ROLLUP_INTERVAL_MINUTES: "15" })
+        .monitorRollupIntervalMinutes,
+    ).toBe(15);
+    expect(
+      loadWorkerConfig({ ...VALID, MONITOR_ROLLUP_INTERVAL_MINUTES: "0" })
+        .monitorRollupIntervalMinutes,
+    ).toBe(0);
+    // Vuoto (es. da .env.example) usa il default 5.
+    expect(
+      loadWorkerConfig({ ...VALID, MONITOR_ROLLUP_INTERVAL_MINUTES: "" })
+        .monitorRollupIntervalMinutes,
+    ).toBe(5);
+    expect(() => loadWorkerConfig({ ...VALID, MONITOR_ROLLUP_INTERVAL_MINUTES: "abc" })).toThrow(
+      /MONITOR_ROLLUP_INTERVAL_MINUTES/,
+    );
+    expect(() => loadWorkerConfig({ ...VALID, MONITOR_ROLLUP_INTERVAL_MINUTES: "-1" })).toThrow(
+      /MONITOR_ROLLUP_INTERVAL_MINUTES/,
+    );
+    expect(() => loadWorkerConfig({ ...VALID, MONITOR_ROLLUP_INTERVAL_MINUTES: "1441" })).toThrow(
+      /MONITOR_ROLLUP_INTERVAL_MINUTES/,
+    );
+  });
+
+  it("rispetta MONITOR_ALERT_INTERVAL_MINUTES esplicito, 0 = disabilitato e rifiuta i fuori range", () => {
+    expect(
+      loadWorkerConfig({ ...VALID, MONITOR_ALERT_INTERVAL_MINUTES: "5" })
+        .monitorAlertIntervalMinutes,
+    ).toBe(5);
+    expect(
+      loadWorkerConfig({ ...VALID, MONITOR_ALERT_INTERVAL_MINUTES: "0" })
+        .monitorAlertIntervalMinutes,
+    ).toBe(0);
+    // Vuoto (es. da .env.example) usa il default 1.
+    expect(
+      loadWorkerConfig({ ...VALID, MONITOR_ALERT_INTERVAL_MINUTES: "" })
+        .monitorAlertIntervalMinutes,
+    ).toBe(1);
+    expect(() => loadWorkerConfig({ ...VALID, MONITOR_ALERT_INTERVAL_MINUTES: "abc" })).toThrow(
+      /MONITOR_ALERT_INTERVAL_MINUTES/,
+    );
+    expect(() => loadWorkerConfig({ ...VALID, MONITOR_ALERT_INTERVAL_MINUTES: "-1" })).toThrow(
+      /MONITOR_ALERT_INTERVAL_MINUTES/,
+    );
+    expect(() => loadWorkerConfig({ ...VALID, MONITOR_ALERT_INTERVAL_MINUTES: "61" })).toThrow(
+      /MONITOR_ALERT_INTERVAL_MINUTES/,
+    );
   });
 
   it("rispetta LIMIT_RESUME_POLL_MINUTES esplicito e 0 = disabilitato", () => {

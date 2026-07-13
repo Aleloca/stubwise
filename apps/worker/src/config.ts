@@ -397,6 +397,35 @@ const envSchema = z.object({
       .min(1, "deve essere un intero ≥ 1 in minuti (es. 15)")
       .default(15),
   ),
+  // Intervallo in minuti del poller di ROLLUP + retention delle metriche di
+  // monitoraggio (task separato dal loop dei job, vedi monitor/rollup.ts):
+  // aggrega i campioni fini oltre le 48h in bucket da 5' e applica la retention.
+  // È BEST-EFFORT (transazione con rollback su errore) e non tocca i timeout dei
+  // job. 0 = disabilitato. Default 5'.
+  MONITOR_ROLLUP_INTERVAL_MINUTES: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero tra 0 e 1440 in minuti (es. 5; 0 = disabilitato)" })
+      .int("deve essere un intero tra 0 e 1440 in minuti (es. 5; 0 = disabilitato)")
+      .min(0, "deve essere un intero tra 0 e 1440 in minuti (es. 5; 0 = disabilitato)")
+      .max(1440, "deve essere un intero tra 0 e 1440 in minuti (es. 5; 0 = disabilitato)")
+      .default(5),
+  ),
+  // Intervallo in minuti del poller di VALUTAZIONE ALERT del monitoraggio (task
+  // separato dal loop dei job, vedi monitor/alerts.ts): per ogni server valuta
+  // offline/soglie sostenute/check down con isteresi ed emette
+  // monitor.alert/recovered. È BEST-EFFORT (non lancia mai) e non tocca i timeout
+  // dei job. Più frequente del rollup (allarmi reattivi). 0 = disabilitato.
+  // Default 1'.
+  MONITOR_ALERT_INTERVAL_MINUTES: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero tra 0 e 60 in minuti (es. 1; 0 = disabilitato)" })
+      .int("deve essere un intero tra 0 e 60 in minuti (es. 1; 0 = disabilitato)")
+      .min(0, "deve essere un intero tra 0 e 60 in minuti (es. 1; 0 = disabilitato)")
+      .max(60, "deve essere un intero tra 0 e 60 in minuti (es. 1; 0 = disabilitato)")
+      .default(1),
+  ),
 });
 
 export interface WorkerConfig {
@@ -492,6 +521,12 @@ export interface WorkerConfig {
   /** Cooldown del fallback a tempo del resume poller in ms (da
    * LIMIT_RESUME_API_KEY_COOLDOWN_MINUTES, default 60' = 3600000). */
   limitResumeCooldownMs: number;
+  /** Intervallo in minuti del poller di rollup + retention delle metriche di
+   * monitoraggio (default 5; 0 = disabilitato). */
+  monitorRollupIntervalMinutes: number;
+  /** Intervallo in minuti del poller di valutazione alert del monitoraggio
+   * (default 1; 0 = disabilitato). */
+  monitorAlertIntervalMinutes: number;
 }
 
 /**
@@ -552,5 +587,7 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     limitResumeHeadroomPercent: parsed.LIMIT_RESUME_HEADROOM_PERCENT,
     // Minuti → ms: il poller confronta età della pausa in millisecondi.
     limitResumeCooldownMs: parsed.LIMIT_RESUME_API_KEY_COOLDOWN_MINUTES * 60_000,
+    monitorRollupIntervalMinutes: parsed.MONITOR_ROLLUP_INTERVAL_MINUTES,
+    monitorAlertIntervalMinutes: parsed.MONITOR_ALERT_INTERVAL_MINUTES,
   };
 }
