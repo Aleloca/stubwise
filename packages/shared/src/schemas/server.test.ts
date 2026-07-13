@@ -71,6 +71,12 @@ describe("ingestBodySchema", () => {
     ).toThrow();
   });
 
+  it("rifiuta un agentVersion vuoto", () => {
+    expect(() =>
+      ingestBodySchema.parse({ hostname: "vps-01", agentVersion: "", samples: [validSample] }),
+    ).toThrow();
+  });
+
   it("accetta esattamente 300 samples", () => {
     const samples = Array.from({ length: 300 }, () => validSample);
     const parsed = ingestBodySchema.parse({
@@ -122,6 +128,21 @@ describe("metricSampleSchema", () => {
   it("rifiuta un ts non ISO", () => {
     expect(() => metricSampleSchema.parse({ ...validSample, ts: "not-a-date" })).toThrow();
   });
+
+  it("rifiuta un ts con offset di fuso orario (contratto: solo UTC Z)", () => {
+    expect(() =>
+      metricSampleSchema.parse({ ...validSample, ts: "2026-07-13T12:00:00+02:00" }),
+    ).toThrow();
+  });
+
+  it("rifiuta un mount vuoto nei disks", () => {
+    expect(() =>
+      metricSampleSchema.parse({
+        ...validSample,
+        disks: [{ mount: "", usedBytes: 1, totalBytes: 2 }],
+      }),
+    ).toThrow();
+  });
 });
 
 describe("discoveredServiceSchema", () => {
@@ -163,6 +184,12 @@ describe("checkResultSchema", () => {
 
   it("rifiuta un checkId non uuid", () => {
     expect(() => checkResultSchema.parse({ ...validCheckResult, checkId: "abc" })).toThrow();
+  });
+
+  it("rifiuta una chiave di metrics oltre 100 caratteri", () => {
+    expect(() =>
+      checkResultSchema.parse({ ...validCheckResult, metrics: { ["k".repeat(101)]: 1 } }),
+    ).toThrow();
   });
 });
 
@@ -238,6 +265,16 @@ describe("createServerSchema / updateServerSchema", () => {
 
   it("updateServerSchema accetta un oggetto vuoto", () => {
     expect(updateServerSchema.parse({})).toEqual({});
+  });
+
+  it("alertThresholds è full-replacement: i campi omessi tornano ai default", () => {
+    const parsed = updateServerSchema.parse({ alertThresholds: { cpuPct: 80 } });
+    expect(parsed.alertThresholds).toEqual({
+      cpuPct: 80,
+      memPct: 90,
+      diskPct: 90,
+      sustainedMinutes: 5,
+    });
   });
 });
 

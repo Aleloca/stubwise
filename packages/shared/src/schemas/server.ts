@@ -17,6 +17,16 @@ export const serviceSourceSchema = z.enum(["docker", "pm2", "pm2_fallback"]);
 export type ServiceSource = z.infer<typeof serviceSourceSchema>;
 
 // ---------------------------------------------------------------------------
+// Intervalli (riusati tra config agente e schemi admin)
+// ---------------------------------------------------------------------------
+
+/** Intervallo di esecuzione di un check, in secondi (10s–1h). */
+export const checkIntervalSecondsSchema = z.number().int().min(10).max(3600);
+
+/** Intervallo di campionamento delle metriche host, in secondi (10s–5m). */
+export const sampleIntervalSecondsSchema = z.number().int().min(10).max(300);
+
+// ---------------------------------------------------------------------------
 // Payload di ingest (agente → server, superficie pubblica /monitor)
 // ---------------------------------------------------------------------------
 
@@ -52,7 +62,7 @@ export const metricSampleSchema = z.object({
   disks: z
     .array(
       z.object({
-        mount: z.string(),
+        mount: z.string().min(1).max(500),
         usedBytes: z.number().int().min(0),
         totalBytes: z.number().int().min(1),
       }),
@@ -76,7 +86,7 @@ export const checkResultSchema = z.object({
   status: checkStatusSchema,
   latencyMs: z.number().int().min(0).nullable(),
   error: z.string().max(500).nullable(),
-  metrics: z.record(z.string(), z.number()).nullable(), // metriche DB / cpu-mem process
+  metrics: z.record(z.string().max(100), z.number()).nullable(), // metriche DB / cpu-mem process
 });
 export type CheckResult = z.infer<typeof checkResultSchema>;
 
@@ -86,7 +96,7 @@ export type CheckResult = z.infer<typeof checkResultSchema>;
  */
 export const ingestBodySchema = z.object({
   hostname: z.string().min(1).max(255),
-  agentVersion: z.string().max(50),
+  agentVersion: z.string().min(1).max(50),
   samples: z.array(metricSampleSchema).min(1).max(300), // buffer 2h @30s ≈ 240
   checkResults: z.array(checkResultSchema).max(2000).default([]),
 });
@@ -103,14 +113,14 @@ export type IngestBody = z.infer<typeof ingestBodySchema>;
 export const agentCheckConfigSchema = z.object({
   id: z.uuid(),
   type: checkTypeSchema,
-  name: z.string(),
-  target: z.string(), // URL / host:porta / pattern / DSN (decifrato)
-  intervalSeconds: z.number().int().min(10).max(3600),
+  name: z.string().min(1).max(200),
+  target: z.string().min(1), // URL / host:porta / pattern / DSN (decifrato)
+  intervalSeconds: checkIntervalSecondsSchema,
 });
 export type AgentCheckConfig = z.infer<typeof agentCheckConfigSchema>;
 
 export const agentConfigSchema = z.object({
-  sampleIntervalSeconds: z.number().int().min(10).max(300),
+  sampleIntervalSeconds: sampleIntervalSecondsSchema,
   checks: z.array(agentCheckConfigSchema),
 });
 export type AgentConfig = z.infer<typeof agentConfigSchema>;
@@ -147,8 +157,12 @@ export type CreateServerInput = z.infer<typeof createServerSchema>;
  */
 export const updateServerSchema = z.object({
   name: z.string().min(1).max(255).optional(),
-  sampleIntervalSeconds: z.number().int().min(10).max(300).optional(),
+  sampleIntervalSeconds: sampleIntervalSecondsSchema.optional(),
   projectIds: z.array(z.uuid()).optional(),
+  // ATTENZIONE: full-replacement, non merge. I default interni dello schema
+  // valorizzano i campi omessi: mandare `{ cpuPct: 80 }` resetta memPct/diskPct/
+  // sustainedMinutes ai default (90/90/5). I client devono mandare l'oggetto
+  // completo delle soglie correnti.
   alertThresholds: alertThresholdsSchema.optional(),
 });
 export type UpdateServerInput = z.infer<typeof updateServerSchema>;
@@ -161,7 +175,7 @@ export const createCheckSchema = z.object({
   type: checkTypeSchema,
   name: z.string().min(1).max(200),
   target: z.string().min(1),
-  intervalSeconds: z.number().int().min(10).max(3600),
+  intervalSeconds: checkIntervalSecondsSchema,
   enabled: z.boolean(),
 });
 export type CreateCheckInput = z.infer<typeof createCheckSchema>;
@@ -171,7 +185,7 @@ export const updateCheckSchema = z.object({
   type: checkTypeSchema.optional(),
   name: z.string().min(1).max(200).optional(),
   target: z.string().min(1).optional(),
-  intervalSeconds: z.number().int().min(10).max(3600).optional(),
+  intervalSeconds: checkIntervalSecondsSchema.optional(),
   enabled: z.boolean().optional(),
 });
 export type UpdateCheckInput = z.infer<typeof updateCheckSchema>;
