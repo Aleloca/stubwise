@@ -1,0 +1,15 @@
+{
+  "cpu_stats": {
+    "cpu_usage": { "total_usage": 200000000, "percpu_usage": [50000000, 50000000, 50000000, 50000000] },
+    "system_cpu_usage": 2000000000,
+    "online_cpus": 4
+  },
+  "precpu_stats": {
+    "cpu_usage": { "total_usage": 100000000 },
+    "system_cpu_usage": 1000000000
+  },
+  "memory_stats": {
+    "usage": 1073741824,
+    "stats": { "inactive_file": 73741824 }
+  }
+}

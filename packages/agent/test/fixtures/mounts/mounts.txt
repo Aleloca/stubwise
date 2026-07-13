@@ -1,0 +1,11 @@
+sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0
+proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0
+udev /dev devtmpfs rw,nosuid,relatime,size=8117000k,nr_inodes=2029250,mode=755 0 0
+tmpfs /run tmpfs rw,nosuid,nodev,noexec,relatime,size=1626804k,mode=755 0 0
+/dev/sda1 / ext4 rw,relatime 0 0
+cgroup2 /sys/fs/cgroup cgroup2 rw,nosuid,nodev,noexec,relatime 0 0
+/dev/sda2 /data ext4 rw,relatime 0 0
+/dev/sda1 /mnt/root-bind ext4 rw,relatime 0 0
+overlay /var/lib/docker/overlay2/abc123/merged overlay rw,relatime 0 0
+/dev/sdb1 /var/lib/docker/volumes ext4 rw,relatime 0 0
+tmpfs /dev/shm tmpfs rw,nosuid,nodev 0 0

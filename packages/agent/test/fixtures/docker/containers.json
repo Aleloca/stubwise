@@ -1,0 +1,12 @@
+[
+  {
+    "Id": "aaaa1111",
+    "Names": ["/stubwise-server"],
+    "State": "running"
+  },
+  {
+    "Id": "bbbb2222",
+    "Names": ["/stubwise-worker"],
+    "State": "running"
+  }
+]
