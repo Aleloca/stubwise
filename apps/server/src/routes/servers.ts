@@ -1,10 +1,10 @@
 import {
   alertThresholdsSchema,
+  computeServerStatus,
   createServerSchema,
   serverStatusSchema,
   updateServerSchema,
 } from "@stubwise/shared";
-import type { ServerStatus } from "@stubwise/shared";
 import {
   projects,
   serverMetrics,
@@ -35,23 +35,6 @@ const idParamsSchema = z.object({ id: z.uuid() });
 const listQuerySchema = z.object({ projectId: z.uuid().optional() });
 
 type ServerRow = typeof servers.$inferSelect;
-
-/**
- * Determina lo stato di un server dal suo ultimo heartbeat. Esportato: lo
- * riusano i poller del worker (rollup/alert) e la UI non deve duplicare la
- * regola. `never_connected` se non ha mai fatto ingest; `offline` se l'ultimo
- * campione è più vecchio di 3× l'intervallo di campionamento (margine per un
- * ciclo perso senza allarmare); altrimenti `online`.
- */
-export function computeServerStatus(
-  lastSeenAt: Date | null,
-  sampleIntervalSeconds: number,
-  now: Date,
-): ServerStatus {
-  if (!lastSeenAt) return "never_connected";
-  const offlineThresholdMs = 3 * sampleIntervalSeconds * 1000;
-  return now.getTime() - lastSeenAt.getTime() > offlineThresholdMs ? "offline" : "online";
-}
 
 /** Progetto associato, ridotto ai campi che servono alla UI (id + nome). */
 const serverProjectSummarySchema = z.object({ id: z.uuid(), name: z.string() });
@@ -164,7 +147,7 @@ async function loadAggregates(
   }
 
   // CPU recente: una query per server (i server monitorati sono pochi). Prendo
-  // gli ultimi N in ordine decrescente e li ri-orifano dal più vecchio.
+  // gli ultimi N in ordine decrescente e li riordino dal più vecchio.
   for (const id of serverIds) {
     const cpuRows = await app.db
       .select({ cpuPct: serverMetrics.cpuPct })
@@ -303,13 +286,16 @@ export async function serverRoutes(instance: FastifyInstance): Promise<void> {
               : await tx.select().from(servers).where(eq(servers.id, request.params.id));
           if (!row) return undefined;
 
-          // projectIds assente → associazioni intatte; presente → replace completo.
+          // projectIds assente → associazioni intatte; presente → replace
+          // completo. Dedup preventivo: un duplicato nel body violerebbe
+          // l'unique (server_id, project_id) → 500, non la FK.
           if (projectIds !== undefined) {
+            const uniqueProjectIds = [...new Set(projectIds)];
             await tx.delete(serverProjects).where(eq(serverProjects.serverId, row.id));
-            if (projectIds.length > 0) {
+            if (uniqueProjectIds.length > 0) {
               await tx
                 .insert(serverProjects)
-                .values(projectIds.map((projectId) => ({ serverId: row.id, projectId })));
+                .values(uniqueProjectIds.map((projectId) => ({ serverId: row.id, projectId })));
             }
           }
           return row;

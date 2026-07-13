@@ -13,6 +13,23 @@ export type CheckStatus = z.infer<typeof checkStatusSchema>;
 export const serverStatusSchema = z.enum(["online", "offline", "never_connected"]);
 export type ServerStatus = z.infer<typeof serverStatusSchema>;
 
+/**
+ * Determina lo stato di un server dal suo ultimo heartbeat. Unica fonte della
+ * regola, condivisa da API (/api/servers), worker (evaluator alert) e UI:
+ * `never_connected` se non ha mai fatto ingest; `offline` se l'ultimo campione
+ * è più vecchio di 3× l'intervallo di campionamento (margine per un ciclo perso
+ * senza allarmare); altrimenti `online`.
+ */
+export function computeServerStatus(
+  lastSeenAt: Date | null,
+  sampleIntervalSeconds: number,
+  now: Date,
+): ServerStatus {
+  if (!lastSeenAt) return "never_connected";
+  const offlineThresholdMs = 3 * sampleIntervalSeconds * 1000;
+  return now.getTime() - lastSeenAt.getTime() > offlineThresholdMs ? "offline" : "online";
+}
+
 export const serviceSourceSchema = z.enum(["docker", "pm2", "pm2_fallback"]);
 export type ServiceSource = z.infer<typeof serviceSourceSchema>;
 

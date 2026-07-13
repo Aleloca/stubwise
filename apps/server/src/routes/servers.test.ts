@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { checkSamples, serverMetrics, servers, serviceChecks } from "@stubwise/db";
+import { checkSamples, serverMetrics, serverProjects, servers, serviceChecks } from "@stubwise/db";
 import { eq } from "drizzle-orm";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
@@ -194,6 +194,29 @@ describe("GET /api/servers", () => {
     expect(list.map((s) => s.id)).toEqual([assocId]);
   });
 
+  it("filtro ?projectId= su un server multi-progetto: la risposta porta ENTRAMBI i progetti", async () => {
+    const { projectId: p1 } = await seedRepository(testDb.db);
+    const { projectId: p2 } = await seedRepository(testDb.db);
+    const { id } = await createServerReturning("multi-progetto");
+    await app.inject({
+      method: "PATCH",
+      url: `/api/servers/${id}`,
+      headers: { cookie: adminCookie },
+      payload: { projectIds: [p1, p2] },
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/servers?projectId=${p1}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const list = res.json() as Array<{ id: string; projects: { id: string }[] }>;
+    expect(list.map((s) => s.id)).toEqual([id]);
+    // Il filtro seleziona i server, non taglia le associazioni: i progetti
+    // restano tutti.
+    expect(list[0]!.projects.map((p) => p.id).sort()).toEqual([p1, p2].sort());
+  });
+
   it("senza sessione: 401", async () => {
     const res = await app.inject({ method: "GET", url: "/api/servers" });
     expect(res.statusCode).toBe(401);
@@ -307,6 +330,42 @@ describe("PATCH /api/servers/:id", () => {
     });
     res = await app.inject({ method: "GET", url: `/api/servers/${id}`, headers: { cookie: adminCookie } });
     expect((res.json() as { projects: unknown[] }).projects).toEqual([]);
+  });
+
+  it("projectIds con duplicati: 200 e una sola riga di associazione", async () => {
+    const { projectId } = await seedRepository(testDb.db);
+    const { id } = await createServerReturning("dedup-progetti");
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/servers/${id}`,
+      headers: { cookie: adminCookie },
+      payload: { projectIds: [projectId, projectId] },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { projects: { id: string }[] }).projects.map((p) => p.id)).toEqual([
+      projectId,
+    ]);
+    const links = await testDb.db
+      .select()
+      .from(serverProjects)
+      .where(eq(serverProjects.serverId, id));
+    expect(links).toHaveLength(1);
+  });
+
+  it("atomicità: name valido + projectId inesistente → 422 e name invariato in DB", async () => {
+    const { id } = await createServerReturning("atomico");
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/servers/${id}`,
+      headers: { cookie: adminCookie },
+      payload: {
+        name: "non-deve-applicarsi",
+        projectIds: ["00000000-0000-0000-0000-000000000000"],
+      },
+    });
+    expect(res.statusCode).toBe(422);
+    const [row] = await testDb.db.select().from(servers).where(eq(servers.id, id));
+    expect(row!.name).toBe("atomico");
   });
 
   it("projectId inesistente: 422", async () => {

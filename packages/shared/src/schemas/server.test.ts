@@ -3,6 +3,7 @@ import {
   agentConfigSchema,
   alertThresholdsSchema,
   checkResultSchema,
+  computeServerStatus,
   createCheckSchema,
   createServerSchema,
   discoveredServiceSchema,
@@ -304,5 +305,32 @@ describe("createCheckSchema / updateCheckSchema", () => {
 
   it("updateCheckSchema è una patch parziale", () => {
     expect(updateCheckSchema.parse({ enabled: false })).toEqual({ enabled: false });
+  });
+});
+
+describe("computeServerStatus", () => {
+  const now = new Date("2026-07-13T12:00:00Z");
+
+  it("lastSeenAt null → never_connected", () => {
+    expect(computeServerStatus(null, 30, now)).toBe("never_connected");
+  });
+
+  it("heartbeat recente → online", () => {
+    expect(computeServerStatus(new Date("2026-07-13T11:59:50Z"), 30, now)).toBe("online");
+  });
+
+  it("bordo: esattamente 3×intervallo fa → ancora online (soglia stretta)", () => {
+    // 3 × 30s = 90s: il confronto è `>`, quindi il bordo è ancora online.
+    expect(computeServerStatus(new Date("2026-07-13T11:58:30Z"), 30, now)).toBe("online");
+  });
+
+  it("oltre 3×intervallo → offline", () => {
+    expect(computeServerStatus(new Date("2026-07-13T11:58:29.999Z"), 30, now)).toBe("offline");
+  });
+
+  it("la soglia scala con sampleIntervalSeconds", () => {
+    const lastSeen = new Date("2026-07-13T11:55:00Z"); // 5 minuti fa
+    expect(computeServerStatus(lastSeen, 30, now)).toBe("offline"); // soglia 90s
+    expect(computeServerStatus(lastSeen, 120, now)).toBe("online"); // soglia 360s
   });
 });
