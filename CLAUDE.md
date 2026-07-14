@@ -53,9 +53,13 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
 - Modifica al **frontend** (`apps/web`, `apps/docs` o `packages/widget`) →
   ribuilda **`caddy`**.
 - Modifica al **backend** → ribuilda `server` e/o `worker`.
-- Modifica all'**agente di monitoraggio** (`packages/agent`) → build/push
-  dell'immagine: `docker build -f Dockerfile.agent -t stubwise/agent .` e
-  redeploy del container sugli host monitorati (non è un servizio del compose).
+- Modifica all'**agente di monitoraggio** (`packages/agent`) → ripubblica
+  l'immagine su Docker Hub pubblico (multi-arch, così gli host la pullano senza
+  clonare il repo): `docker buildx build --platform linux/amd64,linux/arm64 -f
+  Dockerfile.agent -t alelocadev/stubwise-agent:latest --push .` (serve
+  `docker login`); poi redeploy del container sugli host monitorati (non è un
+  servizio del compose). Se cambi anche il comando mostrato dalla UI
+  (`apps/web/.../settings/servers.tsx`), ribuilda pure `caddy`.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
