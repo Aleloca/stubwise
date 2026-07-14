@@ -189,6 +189,35 @@ describe("SettingsServersPage — registrazione", () => {
     await waitFor(() => expect(postBody).toEqual({ name: "web-prod-01" }));
   });
 
+  it("lo step Docker è collassato: lo snippet compare solo dopo il toggle", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      "GET /api/servers": () => jsonResponse(200, []),
+      "GET /api/projects": () => jsonResponse(200, []),
+      "POST /api/servers": () => jsonResponse(201, makeServerWithKey()),
+    });
+
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "New server" }));
+    await user.type(screen.getByLabelText("Name"), "web-prod-01");
+    await user.click(screen.getByRole("button", { name: "Register server" }));
+
+    const dialog = await screen.findByRole("dialog");
+
+    // Chiuso di default: lo snippet Docker non è nel DOM e il toggle è collassato.
+    const toggle = within(dialog).getByRole("button", { name: /don't have docker/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(within(dialog).queryByText(/docker --version/)).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/get\.docker\.com/)).not.toBeInTheDocument();
+
+    // Aperto: aria-expanded=true e lo snippet compare.
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(within(dialog).getByText(/docker --version/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/get\.docker\.com/)).toBeInTheDocument();
+  });
+
   it("il sidepanel chiude col bottone Close ma NON cliccando il backdrop", async () => {
     const user = userEvent.setup();
     mockApi({
