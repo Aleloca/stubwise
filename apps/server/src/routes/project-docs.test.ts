@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
 import { buildApp } from "../app.js";
 import type { ChatAvailability, ChatLlm, ChatLlmInput } from "./chat-llm.js";
@@ -538,14 +538,21 @@ describe("POST /api/projects/:projectId/docs/chat", () => {
       .select()
       .from(docChatSessions)
       .where(eq(docChatSessions.projectId, projectId));
-    const messages = await testDb.db
-      .select()
-      .from(docChatMessages)
-      .where(eq(docChatMessages.sessionId, session!.id));
-    const assistant = messages.find((m) => m.role === "assistant");
-    expect(assistant!.content.startsWith(partial)).toBe(true);
-    expect(assistant!.content).toContain("[risposta interrotta]");
-    expect(assistant!.citations).toBeNull();
+
+    // La persistenza del parziale avviene DOPO `reply.raw.end()`, che è ciò che
+    // sblocca `app.inject`: quando interroghiamo il DB l'insert async può non
+    // essere ancora completato. Attendiamo che il messaggio assistant compaia
+    // (elimina la race — era la causa del flake ricorrente in CI).
+    await vi.waitFor(async () => {
+      const messages = await testDb.db
+        .select()
+        .from(docChatMessages)
+        .where(eq(docChatMessages.sessionId, session!.id));
+      const assistant = messages.find((m) => m.role === "assistant");
+      expect(assistant?.content.startsWith(partial)).toBe(true);
+      expect(assistant?.content).toContain("[risposta interrotta]");
+      expect(assistant?.citations).toBeNull();
+    });
   });
 });
 
