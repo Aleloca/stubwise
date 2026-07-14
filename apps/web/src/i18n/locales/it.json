@@ -423,7 +423,8 @@
         "gitAccounts": "Account Git",
         "storage": "Storage",
         "slack": "Slack",
-        "aiProviders": "Provider AI"
+        "aiProviders": "Provider AI",
+        "servers": "Server"
       }
     },
     "account": {
@@ -606,6 +607,70 @@
       "keepHint": "// lascia vuoto per mantenere quelle salvate.",
       "valid": "Credenziali valide",
       "issues": "Problemi rilevati"
+    },
+    "servers": {
+      "title": "Server",
+      "subtitle": "Host che eseguono l'agente di monitoraggio. Registra un server per ottenerne il comando d'installazione, poi collegalo ai progetti e configura i check.",
+      "newServer": "Nuovo server",
+      "name": "Nome",
+      "namePlaceholder": "Es. web-prod-01",
+      "create": "Registra server",
+      "creating": "Registrazione…",
+      "empty": "// nessun server registrato",
+      "neverConnected": "Mai connesso",
+      "projects": "Progetti",
+      "noProjects": "// nessun progetto",
+      "interval": "Intervallo di campionamento (s)",
+      "edit": "Modifica",
+      "save": "Salva",
+      "saving": "Salvataggio…",
+      "delete": "Elimina",
+      "deleteConfirm": "Conferma",
+      "deleteWarning": "Le metriche e i check di questo server verranno eliminati definitivamente.",
+      "regenerate": "Rigenera chiave",
+      "regenerateConfirm": "Conferma",
+      "regenerateWarning": "La chiave attuale dell'agente smette subito di funzionare; aggiorna l'agente con quella nuova.",
+      "keyTitle": "Comando d'installazione dell'agente",
+      "keyIntro": "Esegui questo sull'host “{{name}}” per installare l'agente di monitoraggio.",
+      "keyWarning": "Questa chiave è mostrata una sola volta e non è più recuperabile — copia ora il comando.",
+      "copy": "Copia comando",
+      "copied": "Copiato",
+      "close": "Chiudi",
+      "checks": "Check",
+      "newCheck": "Nuovo check",
+      "checkEmpty": "// nessun check configurato",
+      "checkName": "Nome",
+      "checkType": "Tipo",
+      "checkInterval": "Intervallo (s)",
+      "checkEnabled": "Attivo",
+      "checkConfirm": "Conferma",
+      "addCheck": "Aggiungi check",
+      "saveCheck": "Salva check",
+      "savingCheck": "Salvataggio…",
+      "encryptedDsn": "DSN cifrato",
+      "disabled": "disattivato",
+      "dsnNote": "Salvato cifrato — non sarà più visibile.",
+      "dsnKeepNote": "Lascia vuoto per mantenere la connection string attuale.",
+      "targetRequiredForTypeChange": "Cambiare il tipo di check richiede un nuovo target.",
+      "checkTypeLabels": {
+        "http": "HTTP",
+        "tcp": "TCP",
+        "process": "Processo",
+        "postgres": "PostgreSQL",
+        "mysql": "MySQL"
+      },
+      "targetLabel": {
+        "http": "URL",
+        "tcp": "Host:porta",
+        "process": "Pattern del processo",
+        "db": "Connection string (DSN)"
+      },
+      "targetPlaceholder": {
+        "http": "https://example.com/health",
+        "tcp": "db.internal:5432",
+        "process": "node dist/index.js",
+        "db": "postgres://user:pass@localhost:5432/db"
+      }
     }
   },
   "notifications": {

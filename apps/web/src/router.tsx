@@ -72,6 +72,7 @@ import { SettingsAutomationPage } from "./routes/settings/automation";
 import { SettingsGitAccountsPage } from "./routes/settings/git-accounts";
 import { SettingsLayout } from "./routes/settings/layout";
 import { SettingsNotificationsPage } from "./routes/settings/notifications";
+import { SettingsServersPage } from "./routes/settings/servers";
 import { SettingsSlackPage } from "./routes/settings/slack";
 import { SettingsStoragePage } from "./routes/settings/storage";
 import { SettingsUsagePage } from "./routes/settings/usage";
@@ -536,6 +537,19 @@ const settingsStorageRoute = createRoute({
   component: SettingsStoragePage,
 });
 
+const settingsServersRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/servers",
+  beforeLoad: ({ context }) => requireAdmin(context.user.role),
+  loader: async ({ context }) => {
+    await Promise.all([
+      context.queryClient.ensureQueryData(serversQueryOptions()).catch(() => undefined),
+      context.queryClient.ensureQueryData(projectsQueryOptions).catch(() => undefined),
+    ]);
+  },
+  component: SettingsServersPage,
+});
+
 const settingsSlackRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/slack",
@@ -591,6 +605,7 @@ const routeTree = rootRoute.addChildren([
       settingsUsageRoute,
       settingsGitAccountsRoute,
       settingsStorageRoute,
+      settingsServersRoute,
       settingsSlackRoute,
       settingsAiProvidersRoute,
     ]),

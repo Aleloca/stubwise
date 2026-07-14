@@ -423,7 +423,8 @@
         "gitAccounts": "Git accounts",
         "storage": "Storage",
         "slack": "Slack",
-        "aiProviders": "AI providers"
+        "aiProviders": "AI providers",
+        "servers": "Servers"
       }
     },
     "account": {
@@ -606,6 +607,70 @@
       "keepHint": "// leave empty to keep the saved ones.",
       "valid": "Valid credentials",
       "issues": "Issues detected"
+    },
+    "servers": {
+      "title": "Servers",
+      "subtitle": "Hosts running the monitoring agent. Register a server to get its install command, then link it to projects and configure checks.",
+      "newServer": "New server",
+      "name": "Name",
+      "namePlaceholder": "E.g. web-prod-01",
+      "create": "Register server",
+      "creating": "Registering…",
+      "empty": "// no servers registered",
+      "neverConnected": "Never connected",
+      "projects": "Projects",
+      "noProjects": "// no projects yet",
+      "interval": "Sample interval (s)",
+      "edit": "Edit",
+      "save": "Save",
+      "saving": "Saving…",
+      "delete": "Delete",
+      "deleteConfirm": "Confirm",
+      "deleteWarning": "Metrics and checks for this server will be permanently deleted.",
+      "regenerate": "Regenerate key",
+      "regenerateConfirm": "Confirm",
+      "regenerateWarning": "The current agent key stops working immediately; update the agent with the new one.",
+      "keyTitle": "Agent install command",
+      "keyIntro": "Run this on the host “{{name}}” to install the monitoring agent.",
+      "keyWarning": "This key is shown only once and cannot be retrieved later — copy the command now.",
+      "copy": "Copy command",
+      "copied": "Copied",
+      "close": "Close",
+      "checks": "Checks",
+      "newCheck": "New check",
+      "checkEmpty": "// no checks configured",
+      "checkName": "Name",
+      "checkType": "Type",
+      "checkInterval": "Interval (s)",
+      "checkEnabled": "Enabled",
+      "checkConfirm": "Confirm",
+      "addCheck": "Add check",
+      "saveCheck": "Save check",
+      "savingCheck": "Saving…",
+      "encryptedDsn": "encrypted DSN",
+      "disabled": "disabled",
+      "dsnNote": "Saved encrypted — it will never be shown again.",
+      "dsnKeepNote": "Leave empty to keep the current connection string.",
+      "targetRequiredForTypeChange": "Changing the check type requires a new target.",
+      "checkTypeLabels": {
+        "http": "HTTP",
+        "tcp": "TCP",
+        "process": "Process",
+        "postgres": "PostgreSQL",
+        "mysql": "MySQL"
+      },
+      "targetLabel": {
+        "http": "URL",
+        "tcp": "Host:port",
+        "process": "Process pattern",
+        "db": "Connection string (DSN)"
+      },
+      "targetPlaceholder": {
+        "http": "https://example.com/health",
+        "tcp": "db.internal:5432",
+        "process": "node dist/index.js",
+        "db": "postgres://user:pass@localhost:5432/db"
+      }
     }
   },
   "notifications": {
