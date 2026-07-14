@@ -1,5 +1,6 @@
 import { checkTypeSchema, type CheckType } from "@stubwise/shared";
-import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -7,7 +8,6 @@ import {
   createServer,
   createServerCheck,
   deleteServer,
-  deleteServerCheck,
   regenerateServerKey,
   updateServer,
   updateServerCheck,
@@ -17,23 +17,30 @@ import {
   type ServerView,
   type ServerWithKey,
 } from "../../lib/api";
-import {
-  projectsQueryOptions,
-  serverChecksQueryOptions,
-  serverKeys,
-  serversQueryOptions,
-} from "../../lib/queries";
+import { serverKeys } from "../../lib/queries";
 import { FormError, SelectField, SubmitButton, TextField } from "../../components/field";
 import { Drawer } from "../../components/drawer";
 
+/**
+ * Componenti di gestione dei server monitorati (solo admin), spostati qui dalla
+ * ex sotto-pagina Impostazioni → Server. Riusati dalla lista Monitor
+ * (registrazione + guida chiave) e dal dettaglio server (editor check, editor
+ * anagrafica, rigenera/elimina). La view resta accessibile a tutti; il gating
+ * admin lo fanno i chiamanti (le route API sono comunque `requireAdmin`).
+ *
+ * SICUREZZA: la chiave dell'agente vive solo nello stato del componente
+ * (rivelata una volta da create/regenerate), mai in cache né rifetchabile; i DSN
+ * dei check DB non escono mai dall'API (flag `hasDsn`), quindi non sono mostrati.
+ */
+
 /** I tipi di check DB: per questi il `target` è una connection string cifrata. */
-const DB_CHECK_TYPES: ReadonlySet<CheckType> = new Set<CheckType>(["postgres", "mysql"]);
+export const DB_CHECK_TYPES: ReadonlySet<CheckType> = new Set<CheckType>(["postgres", "mysql"]);
 
 /**
  * Parsea un intervallo in secondi dall'input; null se non è un intero nel range
  * [min, max]. Niente clamp silenzioso: fuori range → errore inline nel form.
  */
-function parseIntervalSeconds(raw: string, min: number, max: number): number | null {
+export function parseIntervalSeconds(raw: string, min: number, max: number): number | null {
   const n = Math.round(Number(raw.trim()));
   if (!Number.isFinite(n) || n < min || n > max) return null;
   return n;
@@ -45,7 +52,7 @@ function parseIntervalSeconds(raw: string, min: number, max: number): number | n
  * è interpolata così com'è. Mostrato SOLO nel dialog a creazione/rigenerazione:
  * la chiave in chiaro non è mai persistita né rifetchabile dal client.
  */
-function dockerRunCommand(key: string): string {
+export function dockerRunCommand(key: string): string {
   const origin = typeof window !== "undefined" ? window.location.origin : "";
   return [
     "docker run -d --name stubwise-agent --restart unless-stopped \\",
@@ -57,81 +64,8 @@ function dockerRunCommand(key: string): string {
   ].join("\n");
 }
 
-/**
- * Sotto-pagina Impostazioni → Server (solo admin): registrazione dei server
- * monitorati, comando d'installazione dell'agente (chiave one-shot),
- * associazione progetti ed editor dei check di servizio.
- *
- * SICUREZZA: la chiave dell'agente vive solo nello stato del dialog (rivelata
- * una volta da create/regenerate), mai in cache né rifetchabile; i DSN dei check
- * DB non escono mai dall'API (flag `hasDsn`), quindi non vengono mai mostrati.
- */
-export function SettingsServersPage() {
-  const { t } = useTranslation();
-  const { data: servers } = useSuspenseQuery(serversQueryOptions());
-  const { data: projects } = useSuspenseQuery(projectsQueryOptions);
-  const [creating, setCreating] = useState(false);
-  // Chiave rivelata (create/regenerate): mostrata nel dialog, mai persistita.
-  const [revealed, setRevealed] = useState<ServerWithKey | null>(null);
-
-  return (
-    <section className="rounded-sm border border-line bg-ink-900 lg:col-span-2">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
-        <div>
-          <h2 className="font-mono text-[11px] font-medium tracking-[0.16em] text-fg-muted uppercase">
-            {t("settings:servers.title")}
-          </h2>
-          <p className="mt-1 font-mono text-[11px] text-fg-faint">
-            {t("settings:servers.subtitle")}
-          </p>
-        </div>
-        {!creating && (
-          <button
-            type="button"
-            onClick={() => setCreating(true)}
-            className="rounded-sm bg-signal px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright active:bg-signal-dim"
-          >
-            {t("settings:servers.newServer")}
-          </button>
-        )}
-      </header>
-
-      {creating && (
-        <div className="border-b border-line px-4 py-4">
-          <NewServerForm
-            onDone={() => setCreating(false)}
-            onCreated={(server) => {
-              setCreating(false);
-              setRevealed(server);
-            }}
-          />
-        </div>
-      )}
-
-      {servers.length === 0 && !creating ? (
-        <p className="px-4 py-8 text-center font-mono text-[12px] tracking-[0.14em] text-fg-faint uppercase">
-          {t("settings:servers.empty")}
-        </p>
-      ) : (
-        <ul className="divide-y divide-line">
-          {servers.map((server) => (
-            <ServerRow
-              key={server.id}
-              server={server}
-              projects={projects}
-              onRevealKey={setRevealed}
-            />
-          ))}
-        </ul>
-      )}
-
-      {revealed && <KeyPanel server={revealed} onClose={() => setRevealed(null)} />}
-    </section>
-  );
-}
-
 /** Form di registrazione: solo il nome. Sul successo rivela la chiave (dialog). */
-function NewServerForm({
+export function NewServerForm({
   onDone,
   onCreated,
 }: {
@@ -160,16 +94,16 @@ function NewServerForm({
     <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
       <TextField
         id="new-server-name"
-        label={t("settings:servers.name")}
+        label={t("monitor:servers.name")}
         required
-        placeholder={t("settings:servers.namePlaceholder")}
+        placeholder={t("monitor:servers.namePlaceholder")}
         value={name}
         onChange={(event) => setName(event.target.value)}
       />
       <FormError message={mutation.error instanceof Error ? mutation.error.message : null} />
       <div className="flex flex-wrap items-center gap-3">
         <SubmitButton pending={mutation.isPending} disabled={name.trim() === ""}>
-          {mutation.isPending ? t("settings:servers.creating") : t("settings:servers.create")}
+          {mutation.isPending ? t("monitor:servers.creating") : t("monitor:servers.create")}
         </SubmitButton>
         <button
           type="button"
@@ -193,7 +127,7 @@ function NewServerForm({
  * pannello NON si chiude cliccando il backdrop (gesto facile da sbagliare su un
  * dato irreversibile): solo Escape o Chiudi (`dismissOnBackdrop={false}`).
  */
-function KeyPanel({ server, onClose }: { server: ServerWithKey; onClose: () => void }) {
+export function KeyPanel({ server, onClose }: { server: ServerWithKey; onClose: () => void }) {
   const { t } = useTranslation();
   const command = dockerRunCommand(server.key);
   const [copied, setCopied] = useState(false);
@@ -237,12 +171,12 @@ function KeyPanel({ server, onClose }: { server: ServerWithKey; onClose: () => v
       side="right"
       widthClassName="w-[min(92vw,34rem)]"
       dismissOnBackdrop={false}
-      aria-label={t("settings:servers.keyPanelHeading", { name: server.name })}
+      aria-label={t("monitor:servers.keyPanelHeading", { name: server.name })}
     >
       <div className="flex h-full flex-col overflow-y-auto">
         <header className="border-b border-line px-4 py-3">
           <h3 className="font-mono text-[12px] font-medium tracking-[0.14em] text-fg uppercase">
-            {t("settings:servers.keyPanelHeading", { name: server.name })}
+            {t("monitor:servers.keyPanelHeading", { name: server.name })}
           </h3>
         </header>
 
@@ -256,7 +190,7 @@ function KeyPanel({ server, onClose }: { server: ServerWithKey; onClose: () => v
               {command}
             </pre>
             <p role="alert" className="font-mono text-[12px] text-signal">
-              {t("settings:servers.keyWarning")}
+              {t("monitor:servers.keyWarning")}
             </p>
             <div className="flex flex-wrap items-center gap-3">
               <button
@@ -264,12 +198,12 @@ function KeyPanel({ server, onClose }: { server: ServerWithKey; onClose: () => v
                 onClick={copy}
                 className="rounded-sm bg-signal px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright active:bg-signal-dim"
               >
-                {copied ? t("settings:servers.copied") : t("settings:servers.copy")}
+                {copied ? t("monitor:servers.copied") : t("monitor:servers.copy")}
               </button>
             </div>
             {manualHint && (
               <p role="status" className="font-mono text-[12px] text-fg-muted">
-                {t("settings:servers.copyManualHint")}
+                {t("monitor:servers.copyManualHint")}
               </p>
             )}
           </div>
@@ -282,27 +216,27 @@ function KeyPanel({ server, onClose }: { server: ServerWithKey; onClose: () => v
               aria-expanded={dockerOpen}
               className="flex w-full items-center justify-between gap-2 font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase transition-colors hover:text-fg"
             >
-              <span>{t("settings:servers.keyStepDockerTitle")}</span>
+              <span>{t("monitor:servers.keyStepDockerTitle")}</span>
               <span className="text-fg-faint normal-case">
-                {t("settings:servers.keyStepDockerToggle")} {dockerOpen ? "−" : "+"}
+                {t("monitor:servers.keyStepDockerToggle")} {dockerOpen ? "−" : "+"}
               </span>
             </button>
             {dockerOpen && (
               <div className="space-y-2 border-l border-line pl-3">
                 <p className="font-mono text-[11px] text-fg-faint">
-                  {t("settings:servers.keyStepDockerVerify")}
+                  {t("monitor:servers.keyStepDockerVerify")}
                 </p>
                 <pre className="overflow-x-auto rounded-sm border border-line-strong bg-ink-950/70 px-3 py-2 font-mono text-[12px] text-fg">
                   docker --version
                 </pre>
                 <p className="font-mono text-[11px] text-fg-faint">
-                  {t("settings:servers.keyStepDockerInstall")}
+                  {t("monitor:servers.keyStepDockerInstall")}
                 </p>
                 <pre className="overflow-x-auto rounded-sm border border-line-strong bg-ink-950/70 px-3 py-2 font-mono text-[12px] text-fg">
                   curl -fsSL https://get.docker.com | sh
                 </pre>
                 <p className="font-mono text-[11px] text-fg-faint">
-                  {t("settings:servers.keyStepDockerNote")}
+                  {t("monitor:servers.keyStepDockerNote")}
                 </p>
               </div>
             )}
@@ -311,20 +245,20 @@ function KeyPanel({ server, onClose }: { server: ServerWithKey; onClose: () => v
           {/* Step 2 — Run: spiegazione (il comando è già mostrato sopra). */}
           <section className="space-y-2">
             <h4 className="font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase">
-              {t("settings:servers.keyStepRunTitle")}
+              {t("monitor:servers.keyStepRunTitle")}
             </h4>
             <p className="font-mono text-[11px] leading-relaxed text-fg-faint">
-              {t("settings:servers.keyStepRunBody")}
+              {t("monitor:servers.keyStepRunBody")}
             </p>
           </section>
 
           {/* Step 3 — Verify. */}
           <section className="space-y-2">
             <h4 className="font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase">
-              {t("settings:servers.keyStepVerifyTitle")}
+              {t("monitor:servers.keyStepVerifyTitle")}
             </h4>
             <p className="font-mono text-[11px] leading-relaxed text-fg-faint">
-              {t("settings:servers.keyStepVerifyBody")}
+              {t("monitor:servers.keyStepVerifyBody")}
             </p>
             <pre className="overflow-x-auto rounded-sm border border-line-strong bg-ink-950/70 px-3 py-2 font-mono text-[12px] text-fg">
               docker logs -f stubwise-agent
@@ -336,7 +270,7 @@ function KeyPanel({ server, onClose }: { server: ServerWithKey; onClose: () => v
             href="/guide/monitoring/agent-install/"
             className="font-mono text-[12px] text-signal underline-offset-2 hover:underline"
           >
-            {t("settings:servers.keyFullGuide")}
+            {t("monitor:servers.keyFullGuide")}
           </a>
         </div>
 
@@ -346,7 +280,7 @@ function KeyPanel({ server, onClose }: { server: ServerWithKey; onClose: () => v
             onClick={onClose}
             className="rounded-sm border border-line-strong px-3 py-2 font-mono text-[12px] font-medium tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg"
           >
-            {t("settings:servers.close")}
+            {t("monitor:servers.close")}
           </button>
         </footer>
       </div>
@@ -354,147 +288,8 @@ function KeyPanel({ server, onClose }: { server: ServerWithKey; onClose: () => v
   );
 }
 
-/** Riga di un server: anagrafica, stato, progetti e azioni admin. */
-function ServerRow({
-  server,
-  projects,
-  onRevealKey,
-}: {
-  server: ServerView;
-  projects: ProjectListItem[];
-  onRevealKey: (server: ServerWithKey) => void;
-}) {
-  const { t } = useTranslation();
-  const queryClient = useQueryClient();
-  const [editing, setEditing] = useState(false);
-  const [showChecks, setShowChecks] = useState(false);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-  const [confirmingRegen, setConfirmingRegen] = useState(false);
-
-  const deletion = useMutation({
-    mutationFn: () => deleteServer(server.id),
-    onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: serverKeys.lists() });
-    },
-  });
-
-  const regeneration = useMutation({
-    mutationFn: () => regenerateServerKey(server.id),
-    onSuccess: async (revealed) => {
-      setConfirmingRegen(false);
-      await queryClient.invalidateQueries({ queryKey: serverKeys.lists() });
-      onRevealKey(revealed);
-    },
-  });
-
-  return (
-    <li className="px-4 py-3">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <span className="text-[14px] font-medium text-fg">{server.name}</span>
-        <span className="font-mono text-[11px] text-fg-muted">
-          {server.hostname ?? t("settings:servers.neverConnected")}
-        </span>
-        <span
-          className={`font-mono text-[11px] tracking-[0.08em] uppercase ${
-            server.status === "online"
-              ? "text-ok"
-              : server.status === "offline"
-                ? "text-danger"
-                : "text-fg-faint"
-          }`}
-        >
-          {t(`monitor:status.${server.status}`)}
-        </span>
-        {server.projects.length > 0 && (
-          <span className="font-mono text-[11px] text-fg-faint">
-            {server.projects.map((project) => project.name).join(", ")}
-          </span>
-        )}
-
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <RowButton
-            onClick={() => setShowChecks((value) => !value)}
-            label={t("settings:servers.checks")}
-          />
-          <RowButton
-            onClick={() => setEditing((value) => !value)}
-            label={t("settings:servers.edit")}
-          />
-          {confirmingRegen ? (
-            <>
-              <RowButton
-                onClick={() => regeneration.mutate()}
-                disabled={regeneration.isPending}
-                label={t("settings:servers.regenerateConfirm")}
-              />
-              <RowButton onClick={() => setConfirmingRegen(false)} label={t("common:cancel")} />
-            </>
-          ) : (
-            <RowButton
-              onClick={() => setConfirmingRegen(true)}
-              label={t("settings:servers.regenerate")}
-            />
-          )}
-          {confirmingDelete ? (
-            <>
-              <RowButton
-                onClick={() => deletion.mutate()}
-                disabled={deletion.isPending}
-                label={t("settings:servers.deleteConfirm")}
-                danger
-              />
-              <RowButton onClick={() => setConfirmingDelete(false)} label={t("common:cancel")} />
-            </>
-          ) : (
-            <RowButton
-              onClick={() => setConfirmingDelete(true)}
-              label={t("settings:servers.delete")}
-              danger
-            />
-          )}
-        </div>
-      </div>
-
-      {confirmingRegen && (
-        <p className="mt-2 font-mono text-[12px] text-signal">
-          {t("settings:servers.regenerateWarning")}
-        </p>
-      )}
-      {confirmingDelete && (
-        <p role="alert" className="mt-2 font-mono text-[12px] text-danger">
-          {t("settings:servers.deleteWarning")}
-        </p>
-      )}
-      <div className="mt-2 empty:hidden">
-        <FormError
-          message={deletion.error instanceof Error ? deletion.error.message : null}
-        />
-        <FormError
-          message={regeneration.error instanceof Error ? regeneration.error.message : null}
-        />
-      </div>
-
-      {editing && (
-        <div className="mt-3 rounded-sm border border-line bg-ink-950/40 p-4">
-          <EditServerForm
-            server={server}
-            projects={projects}
-            onDone={() => setEditing(false)}
-          />
-        </div>
-      )}
-
-      {showChecks && (
-        <div className="mt-3 rounded-sm border border-line bg-ink-950/40 p-4">
-          <ChecksEditor serverId={server.id} />
-        </div>
-      )}
-    </li>
-  );
-}
-
 /** Form di modifica: nome, intervallo di campionamento e progetti associati. */
-function EditServerForm({
+export function EditServerForm({
   server,
   projects,
   onDone,
@@ -505,9 +300,9 @@ function EditServerForm({
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  // Snapshot dei valori correnti all'apertura, SENZA sync col refetch (le righe
-  // sono keyate per server.id e il form monta on-demand): intenzionale, il
-  // refetch periodico a 30s non deve sovrascrivere ciò che l'utente sta digitando.
+  // Snapshot dei valori correnti all'apertura, SENZA sync col refetch (il form
+  // monta on-demand): intenzionale, il refetch periodico a 30s non deve
+  // sovrascrivere ciò che l'utente sta digitando.
   const [name, setName] = useState(server.name);
   const [interval, setInterval] = useState(String(server.sampleIntervalSeconds));
   const [projectIds, setProjectIds] = useState<string[]>(server.projects.map((p) => p.id));
@@ -521,7 +316,12 @@ function EditServerForm({
         projectIds,
       }),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: serverKeys.lists() });
+      // Lista E dettaglio: dal Monitor l'header del dettaglio (nome/progetti)
+      // deve riflettere subito la modifica, non solo la card della lista.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: serverKeys.lists() }),
+        queryClient.invalidateQueries({ queryKey: serverKeys.details() }),
+      ]);
       onDone();
     },
   });
@@ -537,7 +337,7 @@ function EditServerForm({
     if (name.trim() === "") return;
     const parsed = parseIntervalSeconds(interval, 10, 300);
     if (parsed === null) {
-      setIntervalError(t("settings:servers.intervalRange", { min: 10, max: 300 }));
+      setIntervalError(t("monitor:servers.intervalRange", { min: 10, max: 300 }));
       return;
     }
     setIntervalError(null);
@@ -548,14 +348,14 @@ function EditServerForm({
     <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
       <TextField
         id={`edit-server-name-${server.id}`}
-        label={t("settings:servers.name")}
+        label={t("monitor:servers.name")}
         required
         value={name}
         onChange={(event) => setName(event.target.value)}
       />
       <TextField
         id={`edit-server-interval-${server.id}`}
-        label={t("settings:servers.interval")}
+        label={t("monitor:servers.interval")}
         type="number"
         min={10}
         max={300}
@@ -568,10 +368,10 @@ function EditServerForm({
 
       <fieldset className="rounded-sm border border-line bg-ink-950/40 p-4">
         <legend className="px-1.5 font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase">
-          {t("settings:servers.projects")}
+          {t("monitor:servers.projects")}
         </legend>
         {projects.length === 0 ? (
-          <p className="font-mono text-[11px] text-fg-faint">{t("settings:servers.noProjects")}</p>
+          <p className="font-mono text-[11px] text-fg-faint">{t("monitor:servers.noProjects")}</p>
         ) : (
           <div className="flex flex-col gap-2">
             {projects.map((project) => (
@@ -597,7 +397,7 @@ function EditServerForm({
       />
       <div className="flex flex-wrap items-center gap-3">
         <SubmitButton pending={mutation.isPending} disabled={name.trim() === ""}>
-          {mutation.isPending ? t("settings:servers.saving") : t("settings:servers.save")}
+          {mutation.isPending ? t("monitor:servers.saving") : t("monitor:servers.save")}
         </SubmitButton>
         <button
           type="button"
@@ -611,82 +411,77 @@ function EditServerForm({
   );
 }
 
-/** Editor dei check di un server: lista + form di creazione. */
-function ChecksEditor({ serverId }: { serverId: string }) {
-  const { t } = useTranslation();
-  const { data: checks, isLoading } = useQuery(serverChecksQueryOptions(serverId));
-  const [creating, setCreating] = useState(false);
-
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <h4 className="font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase">
-          {t("settings:servers.checks")}
-        </h4>
-        {!creating && (
-          <RowButton onClick={() => setCreating(true)} label={t("settings:servers.newCheck")} />
-        )}
-      </div>
-
-      {isLoading ? null : checks && checks.length > 0 ? (
-        <ul className="divide-y divide-line rounded-sm border border-line">
-          {checks.map((check) => (
-            <CheckRow key={check.id} serverId={serverId} check={check} />
-          ))}
-        </ul>
-      ) : (
-        <p className="font-mono text-[11px] tracking-[0.12em] text-fg-faint uppercase">
-          {t("settings:servers.checkEmpty")}
-        </p>
-      )}
-
-      {creating && (
-        <div className="rounded-sm border border-line bg-ink-900 p-3">
-          <CheckForm serverId={serverId} onDone={() => setCreating(false)} />
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** Riga di un check: tipo/nome/target-o-DSN/intervallo/stato + azioni. */
-function CheckRow({ serverId, check }: { serverId: string; check: ServerCheck }) {
+/**
+ * Pannello "Impostazioni server" del dettaglio (solo admin): editor anagrafica
+ * (nome/intervallo/progetti), rigenerazione della chiave (riapre la guida) ed
+ * eliminazione del server (conferma + avviso → redirect al Monitor).
+ */
+export function ServerSettingsPanel({
+  server,
+  projects,
+}: {
+  server: ServerView;
+  projects: ProjectListItem[];
+}) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [confirmingRegen, setConfirmingRegen] = useState(false);
+  // Chiave rivelata (regenerate): mostrata nel dialog, mai persistita.
+  const [revealed, setRevealed] = useState<ServerWithKey | null>(null);
 
   const deletion = useMutation({
-    mutationFn: () => deleteServerCheck(serverId, check.id),
+    mutationFn: () => deleteServer(server.id),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: serverKeys.checks(serverId) });
+      await queryClient.invalidateQueries({ queryKey: serverKeys.lists() });
+      // Il server non esiste più: torna alla lista Monitor.
+      await navigate({ to: "/monitor" });
+    },
+  });
+
+  const regeneration = useMutation({
+    mutationFn: () => regenerateServerKey(server.id),
+    onSuccess: async (result) => {
+      setConfirmingRegen(false);
+      await queryClient.invalidateQueries({ queryKey: serverKeys.lists() });
+      setRevealed(result);
     },
   });
 
   return (
-    <li className="px-3 py-2">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[12px]">
-        <span className="text-fg">{check.name}</span>
-        <span className="text-fg-faint uppercase">{t(`settings:servers.checkTypeLabels.${check.type}`)}</span>
-        <span className="text-fg-muted">
-          {check.hasDsn ? (
-            <span className="text-fg-faint italic">{t("settings:servers.encryptedDsn")}</span>
+    <section className="rounded-sm border border-line bg-ink-900">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
+        <h2 className="font-mono text-[11px] font-medium tracking-[0.16em] text-fg-muted uppercase">
+          {t("monitor:servers.settingsPanelTitle")}
+        </h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <RowButton
+            onClick={() => setEditing((value) => !value)}
+            label={t("monitor:servers.edit")}
+          />
+          {confirmingRegen ? (
+            <>
+              <RowButton
+                onClick={() => regeneration.mutate()}
+                disabled={regeneration.isPending}
+                label={t("monitor:servers.regenerateConfirm")}
+              />
+              <RowButton onClick={() => setConfirmingRegen(false)} label={t("common:cancel")} />
+            </>
           ) : (
-            check.target || "—"
+            <RowButton
+              onClick={() => setConfirmingRegen(true)}
+              label={t("monitor:servers.regenerate")}
+            />
           )}
-        </span>
-        <span className="text-fg-faint">{check.intervalSeconds}s</span>
-        {!check.enabled && (
-          <span className="text-fg-faint uppercase">{t("settings:servers.disabled")}</span>
-        )}
-        <div className="ml-auto flex items-center gap-2">
-          <RowButton onClick={() => setEditing((value) => !value)} label={t("settings:servers.edit")} />
           {confirmingDelete ? (
             <>
               <RowButton
                 onClick={() => deletion.mutate()}
                 disabled={deletion.isPending}
-                label={t("settings:servers.checkConfirm")}
+                label={t("monitor:servers.deleteConfirm")}
                 danger
               />
               <RowButton onClick={() => setConfirmingDelete(false)} label={t("common:cancel")} />
@@ -694,19 +489,53 @@ function CheckRow({ serverId, check }: { serverId: string; check: ServerCheck })
           ) : (
             <RowButton
               onClick={() => setConfirmingDelete(true)}
-              label={t("settings:servers.delete")}
+              label={t("monitor:servers.delete")}
               danger
             />
           )}
         </div>
+      </header>
+
+      <div className="px-4 py-4">
+        {confirmingRegen && (
+          <p className="mb-2 font-mono text-[12px] text-signal">
+            {t("monitor:servers.regenerateWarning")}
+          </p>
+        )}
+        {confirmingDelete && (
+          <p role="alert" className="mb-2 font-mono text-[12px] text-danger">
+            {t("monitor:servers.deleteWarning")}
+          </p>
+        )}
+        <div className="empty:hidden">
+          <FormError message={deletion.error instanceof Error ? deletion.error.message : null} />
+          <FormError
+            message={regeneration.error instanceof Error ? regeneration.error.message : null}
+          />
+        </div>
+
+        {editing ? (
+          <EditServerForm server={server} projects={projects} onDone={() => setEditing(false)} />
+        ) : (
+          <dl className="flex flex-wrap gap-x-8 gap-y-2 font-mono text-[12px]">
+            <div>
+              <dt className="text-fg-faint">{t("monitor:servers.interval")}</dt>
+              <dd className="text-fg">{server.sampleIntervalSeconds}s</dd>
+            </div>
+            <div>
+              <dt className="text-fg-faint">{t("monitor:servers.projects")}</dt>
+              <dd className="text-fg">
+                {server.projects.length > 0
+                  ? server.projects.map((project) => project.name).join(", ")
+                  : "—"}
+              </dd>
+            </div>
+          </dl>
+        )}
       </div>
 
-      {editing && (
-        <div className="mt-2 rounded-sm border border-line bg-ink-900 p-3">
-          <CheckForm serverId={serverId} check={check} onDone={() => setEditing(false)} />
-        </div>
-      )}
-    </li>
+      {revealed && <KeyPanel server={revealed} onClose={() => setRevealed(null)} />}
+    </section>
   );
 }
 
@@ -716,7 +545,7 @@ function CheckRow({ serverId, check }: { serverId: string; check: ServerCheck })
  * Cambiare il tipo richiede un nuovo target: il 400
  * `target_required_for_type_change` del server viene mostrato inline.
  */
-function CheckForm({
+export function CheckForm({
   serverId,
   check,
   onDone,
@@ -773,7 +602,7 @@ function CheckForm({
     event.preventDefault();
     const parsed = parseIntervalSeconds(interval, 10, 3600);
     if (parsed === null) {
-      setIntervalError(t("settings:servers.intervalRange", { min: 10, max: 3600 }));
+      setIntervalError(t("monitor:servers.intervalRange", { min: 10, max: 3600 }));
       return;
     }
     setIntervalError(null);
@@ -784,33 +613,33 @@ function CheckForm({
   const errorMessage =
     intervalError ??
     (mutation.error instanceof ApiError && mutation.error.code === "target_required_for_type_change"
-      ? t("settings:servers.targetRequiredForTypeChange")
+      ? t("monitor:servers.targetRequiredForTypeChange")
       : mutation.error instanceof Error
         ? mutation.error.message
         : null);
 
   const targetLabelKey = isDb
-    ? "settings:servers.targetLabel.db"
-    : `settings:servers.targetLabel.${type}`;
+    ? "monitor:servers.targetLabel.db"
+    : `monitor:servers.targetLabel.${type}`;
   const targetPlaceholderKey = isDb
-    ? "settings:servers.targetPlaceholder.db"
-    : `settings:servers.targetPlaceholder.${type}`;
+    ? "monitor:servers.targetPlaceholder.db"
+    : `monitor:servers.targetPlaceholder.${type}`;
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3" noValidate>
       <SelectField
         id={`check-type-${serverId}-${check?.id ?? "new"}`}
-        label={t("settings:servers.checkType")}
+        label={t("monitor:servers.checkType")}
         value={type}
         onChange={(event) => setType(event.target.value as CheckType)}
         options={checkTypeSchema.options.map((option) => ({
           value: option,
-          label: t(`settings:servers.checkTypeLabels.${option}`),
+          label: t(`monitor:servers.checkTypeLabels.${option}`),
         }))}
       />
       <TextField
         id={`check-name-${serverId}-${check?.id ?? "new"}`}
-        label={t("settings:servers.checkName")}
+        label={t("monitor:servers.checkName")}
         required
         value={name}
         onChange={(event) => setName(event.target.value)}
@@ -826,18 +655,18 @@ function CheckForm({
         />
         {isDb && (
           <p className="font-mono text-[11px] text-fg-faint">
-            {isEdit ? t("settings:servers.dsnKeepNote") : t("settings:servers.dsnNote")}
+            {isEdit ? t("monitor:servers.dsnKeepNote") : t("monitor:servers.dsnNote")}
           </p>
         )}
         {typeChanged && (
           <p className="font-mono text-[11px] text-signal">
-            {t("settings:servers.targetRequiredForTypeChange")}
+            {t("monitor:servers.targetRequiredForTypeChange")}
           </p>
         )}
       </div>
       <TextField
         id={`check-interval-${serverId}-${check?.id ?? "new"}`}
-        label={t("settings:servers.checkInterval")}
+        label={t("monitor:servers.checkInterval")}
         type="number"
         min={10}
         max={3600}
@@ -854,17 +683,17 @@ function CheckForm({
           onChange={(event) => setEnabled(event.target.checked)}
           className="size-4 accent-signal"
         />
-        {t("settings:servers.checkEnabled")}
+        {t("monitor:servers.checkEnabled")}
       </label>
 
       <FormError message={errorMessage} />
       <div className="flex flex-wrap items-center gap-3">
         <SubmitButton pending={mutation.isPending}>
           {mutation.isPending
-            ? t("settings:servers.savingCheck")
+            ? t("monitor:servers.savingCheck")
             : isEdit
-              ? t("settings:servers.saveCheck")
-              : t("settings:servers.addCheck")}
+              ? t("monitor:servers.saveCheck")
+              : t("monitor:servers.addCheck")}
         </SubmitButton>
         <button
           type="button"
@@ -878,7 +707,8 @@ function CheckForm({
   );
 }
 
-function RowButton({
+/** Bottone d'azione compatto (stile terminal) per righe e toolbar. */
+export function RowButton({
   onClick,
   label,
   disabled,

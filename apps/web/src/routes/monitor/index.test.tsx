@@ -1,15 +1,17 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ServerView } from "../../lib/api";
+import type { ServerView, ServerWithKey } from "../../lib/api";
 import { createAppRouter } from "../../router";
 
 /**
  * Route lista Monitor (`/monitor`) col router vero (memory history) e fetch
  * mockata: griglia di card server, pallino/etichetta di stato, sparkline CPU,
- * evidenza sui server in allarme e stato vuoto. Verifica anche che nessuna
- * chiave i18n grezza finisca a schermo.
+ * evidenza sui server in allarme e stato vuoto. Copre anche la gestione admin
+ * (registrazione server dall'header → sidepanel guida) e la sua assenza per i
+ * member. Verifica che nessuna chiave i18n grezza finisca a schermo.
  */
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -43,8 +45,12 @@ function mockApi(handlers: Record<string, Handler>) {
   });
 }
 
-function meHandler(): Handler {
-  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" } });
+function meHandler(role: "admin" | "member" = "admin"): Handler {
+  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role } });
+}
+
+function serverWithKey(overrides: Partial<ServerWithKey> = {}): ServerWithKey {
+  return { ...server(), key: "sk_secret_key_value", ...overrides };
 }
 
 function server(overrides: Partial<ServerView> = {}): ServerView {
@@ -189,7 +195,7 @@ describe("sezione Monitor — lista server", () => {
     expect(card.className).toContain("border-danger");
   });
 
-  it("mostra lo stato vuoto con il rimando alle impostazioni quando non ci sono server", async () => {
+  it("stato vuoto: rimanda a registrare il primo server (qui, non nei Settings)", async () => {
     mockApi({
       "GET /api/auth/me": meHandler(),
       "GET /api/servers": () => jsonResponse(200, []),
@@ -198,7 +204,54 @@ describe("sezione Monitor — lista server", () => {
     renderApp("/monitor");
 
     expect(await screen.findByText("// no servers")).toBeInTheDocument();
-    expect(screen.getByText(/Settings → Servers/)).toBeInTheDocument();
+    // Nuovo copy: l'azione è qui nel Monitor, niente più rimando ai Settings.
+    expect(screen.getByText(/register your first server/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Settings → Servers/)).not.toBeInTheDocument();
     expect(document.body.textContent ?? "").not.toMatch(/monitor:/);
+  });
+});
+
+describe("sezione Monitor — gestione (admin vs member)", () => {
+  it("member: nessun bottone 'New server' (view in sola lettura)", async () => {
+    mockApi({
+      "GET /api/auth/me": meHandler("member"),
+      "GET /api/servers": () => jsonResponse(200, []),
+    });
+
+    renderApp("/monitor");
+
+    await screen.findByText("// no servers");
+    expect(screen.queryByRole("button", { name: "New server" })).not.toBeInTheDocument();
+  });
+
+  it("admin: registra un server e apre il sidepanel con la chiave one-shot", async () => {
+    const user = userEvent.setup();
+    let postBody: unknown;
+    mockApi({
+      "GET /api/auth/me": meHandler("admin"),
+      "GET /api/servers": () => jsonResponse(200, []),
+      "POST /api/servers": (_url, init) => {
+        postBody = JSON.parse(String(init?.body));
+        return jsonResponse(201, serverWithKey());
+      },
+    });
+
+    renderApp("/monitor");
+
+    await user.click(await screen.findByRole("button", { name: "New server" }));
+    await user.type(screen.getByLabelText("Name"), "web-prod-01");
+    await user.click(screen.getByRole("button", { name: "Register server" }));
+
+    // Sidepanel guida col comando docker: chiave in chiaro + avviso one-shot.
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/STUBWISE_SERVER_KEY=sk_secret_key_value/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/docker run -d --name stubwise-agent/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/shown only once/i)).toBeInTheDocument();
+    expect(within(dialog).getByRole("link", { name: /full guide/i })).toHaveAttribute(
+      "href",
+      "/guide/monitoring/agent-install/",
+    );
+
+    await waitFor(() => expect(postBody).toEqual({ name: "web-prod-01" }));
   });
 });

@@ -3,8 +3,10 @@ import { getRouteApi, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ServerStatus } from "../../lib/api";
+import { meQueryOptions } from "../../lib/auth";
 import { formatRelativeTime } from "../../lib/format";
 import {
+  projectsQueryOptions,
   serverChecksQueryOptions,
   serverDetailQueryOptions,
   serverMetricsQueryOptions,
@@ -12,6 +14,7 @@ import {
 import { ChecksTable } from "./checks-table";
 import { DisksPanel } from "./disks-panel";
 import { CheckLatencyChart, MetricsCharts } from "./metrics-charts";
+import { ServerSettingsPanel } from "./server-admin";
 import { ServicesTable } from "./services-table";
 import { ThresholdsPanel } from "./thresholds-panel";
 
@@ -53,6 +56,11 @@ export function ServerDetailPage() {
 
   const { data: server } = useSuspenseQuery(serverDetailQueryOptions(serverId));
   const { data: checks } = useSuspenseQuery(serverChecksQueryOptions(serverId));
+  const { data: me } = useSuspenseQuery(meQueryOptions);
+  const isAdmin = me.user.role === "admin";
+  // Progetti per l'editor anagrafica (solo admin): query secondaria non-suspense
+  // così un errore/latenza qui non blocca né abbatte il resto del dettaglio.
+  const { data: projects } = useQuery({ ...projectsQueryOptions, enabled: isAdmin });
 
   const [range, setRange] = useState<RangeKey>("24h");
   const [selectedCheckId, setSelectedCheckId] = useState<string | null>(null);
@@ -179,9 +187,11 @@ export function ServerDetailPage() {
 
       <div className="mt-6 space-y-3">
         <ChecksTable
+          serverId={serverId}
           checks={checks}
           selectedCheckId={selectedCheckId}
           onSelect={(id) => setSelectedCheckId((prev) => (prev === id ? null : id))}
+          isAdmin={isAdmin}
         />
         {selectedCheck && metrics && <CheckLatencyChart metrics={metrics} check={selectedCheck} />}
         {checks.length > 0 && !selectedCheck && (
@@ -194,6 +204,12 @@ export function ServerDetailPage() {
       <div className="mt-6">
         <ThresholdsPanel server={server} />
       </div>
+
+      {isAdmin && (
+        <div className="mt-6">
+          <ServerSettingsPanel server={server} projects={projects ?? []} />
+        </div>
+      )}
     </div>
   );
 }

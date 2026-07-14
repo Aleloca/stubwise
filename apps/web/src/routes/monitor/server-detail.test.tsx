@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ServerCheck, ServerDetail, ServerMetricsResponse } from "../../lib/api";
 import { createAppRouter } from "../../router";
@@ -69,8 +70,8 @@ function mockApi(handlers: Record<string, Handler>) {
   });
 }
 
-function meHandler(): Handler {
-  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "admin" } });
+function meHandler(role: "admin" | "member" = "admin"): Handler {
+  return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role } });
 }
 
 /** Range (from/to in ms, checkId) di ogni chiamata metriche registrata. */
@@ -219,11 +220,15 @@ function standardApi(opts: {
   server?: ServerDetail;
   checks?: ServerCheck[];
   metrics?: ServerMetricsResponse;
+  role?: "admin" | "member";
+  projects?: unknown[];
   onPatch?: (body: unknown) => Response;
 } = {}) {
   const server = opts.server ?? detail();
   mockApi({
-    "GET /api/auth/me": meHandler(),
+    "GET /api/auth/me": meHandler(opts.role ?? "admin"),
+    // Progetti: query secondaria dell'editor anagrafica (pannello admin).
+    "GET /api/projects": () => jsonResponse(200, opts.projects ?? []),
     "GET /api/servers/s-1": () => jsonResponse(200, server),
     "GET /api/servers/s-1/checks": () => jsonResponse(200, opts.checks ?? [check()]),
     "GET /api/servers/s-1/metrics": (url) => {
@@ -259,7 +264,9 @@ describe("dettaglio server — Monitor", () => {
     expect(screen.getByText("web-01")).toBeInTheDocument();
     expect(screen.getByText("Online")).toBeInTheDocument();
     expect(screen.getByText("agent 1.2.0")).toBeInTheDocument();
-    expect(screen.getByText("Acme Platform")).toBeInTheDocument();
+    // Il progetto associato compare nell'header (badge) e nel pannello
+    // impostazioni server (riepilogo admin): almeno una occorrenza.
+    expect(screen.getAllByText("Acme Platform").length).toBeGreaterThan(0);
     // Nota dati stantii visibile.
     expect(screen.getByText(/data may be stale/i)).toBeInTheDocument();
     expect(document.body.textContent ?? "").not.toMatch(/monitor:/);
@@ -306,6 +313,7 @@ describe("dettaglio server — Monitor", () => {
     });
     mockApi({
       "GET /api/auth/me": meHandler(),
+      "GET /api/projects": () => jsonResponse(200, []),
       "GET /api/servers/s-1": () => jsonResponse(200, detail()),
       "GET /api/servers/s-1/checks": () => jsonResponse(200, [check()]),
       "GET /api/servers/s-1/metrics": () => {
@@ -464,5 +472,217 @@ describe("dettaglio server — Monitor", () => {
       alertThresholds: { cpuPct: 80, memPct: 90, diskPct: 90, sustainedMinutes: 5 },
     });
     expect(await screen.findByText("Thresholds saved")).toBeInTheDocument();
+  });
+});
+
+describe("dettaglio server — gestione (admin vs member)", () => {
+  it("member: nessun controllo di gestione (check e server in sola lettura)", async () => {
+    standardApi({ role: "member" });
+
+    renderApp("/monitor/servers/s-1");
+    await screen.findByRole("heading", { name: "Web One" });
+
+    // Nessun editor check né pannello impostazioni server.
+    expect(screen.queryByRole("button", { name: "New check" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Server settings")).not.toBeInTheDocument();
+    // La riga check non espone azioni di modifica/elimina.
+    const row = screen.getByText("API health").closest("tr")!;
+    expect(within(row).queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
+    // Ma la selezione per il grafico latenza resta disponibile a tutti.
+    fireEvent.click(screen.getByText("API health"));
+    await waitFor(() => expect(metricsRanges().some((r) => r.checkId === "c-1")).toBe(true));
+  });
+
+  it("admin: aggiunge un check DB dal sidepanel (target inviato come DSN)", async () => {
+    const user = userEvent.setup();
+    let checkBody: unknown;
+    mockApi({
+      "GET /api/auth/me": meHandler("admin"),
+      "GET /api/projects": () => jsonResponse(200, []),
+      "GET /api/servers/s-1": () => jsonResponse(200, detail()),
+      "GET /api/servers/s-1/checks": () => jsonResponse(200, []),
+      "GET /api/servers/s-1/metrics": () => jsonResponse(200, RAW_METRICS),
+      "POST /api/servers/s-1/checks": (_url, init) => {
+        checkBody = JSON.parse(String(init?.body));
+        return jsonResponse(201, check({ type: "postgres", hasDsn: true, target: "" }));
+      },
+    });
+
+    renderApp("/monitor/servers/s-1");
+    await screen.findByRole("heading", { name: "Web One" });
+
+    await user.click(screen.getByRole("button", { name: "New check" }));
+    const dialog = await screen.findByRole("dialog");
+
+    // Tipo postgres → nota di cifratura del DSN.
+    await user.selectOptions(within(dialog).getByLabelText("Type"), "postgres");
+    expect(within(dialog).getByText(/saved encrypted/i)).toBeInTheDocument();
+
+    await user.type(within(dialog).getByLabelText("Name"), "Primary DB");
+    await user.type(
+      within(dialog).getByLabelText("Connection string (DSN)"),
+      "postgres://u:p@localhost:5432/app",
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Add check" }));
+
+    await waitFor(() =>
+      expect(checkBody).toEqual({
+        type: "postgres",
+        name: "Primary DB",
+        target: "postgres://u:p@localhost:5432/app",
+        intervalSeconds: 60,
+        enabled: true,
+      }),
+    );
+  });
+
+  it("admin: edit di un check DB con target vuoto → il PUT OMETTE target", async () => {
+    const user = userEvent.setup();
+    const dbCheck = check({ type: "postgres", hasDsn: true, target: "", name: "Primary DB" });
+    let putBody: unknown;
+    mockApi({
+      "GET /api/auth/me": meHandler("admin"),
+      "GET /api/projects": () => jsonResponse(200, []),
+      "GET /api/servers/s-1": () => jsonResponse(200, detail()),
+      "GET /api/servers/s-1/checks": () => jsonResponse(200, [dbCheck]),
+      "GET /api/servers/s-1/metrics": () => jsonResponse(200, RAW_METRICS),
+      [`PUT /api/servers/s-1/checks/${dbCheck.id}`]: (_url, init) => {
+        putBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, dbCheck);
+      },
+    });
+
+    renderApp("/monitor/servers/s-1");
+    await screen.findByRole("heading", { name: "Web One" });
+
+    const row = screen.getByText("Primary DB").closest("tr")!;
+    await user.click(within(row).getByRole("button", { name: "Edit" }));
+
+    const dialog = await screen.findByRole("dialog");
+    // Campo DSN vuoto con la nota "lascia vuoto per mantenere".
+    expect(within(dialog).getByLabelText("Connection string (DSN)")).toHaveValue("");
+    expect(within(dialog).getByText(/leave empty to keep/i)).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Save check" }));
+
+    await waitFor(() =>
+      expect(putBody).toEqual({
+        type: "postgres",
+        name: "Primary DB",
+        intervalSeconds: 30,
+        enabled: true,
+      }),
+    );
+    expect(putBody).not.toHaveProperty("target");
+  });
+
+  it("admin: elimina un check con conferma", async () => {
+    const user = userEvent.setup();
+    let deleteCalls = 0;
+    mockApi({
+      "GET /api/auth/me": meHandler("admin"),
+      "GET /api/projects": () => jsonResponse(200, []),
+      "GET /api/servers/s-1": () => jsonResponse(200, detail()),
+      "GET /api/servers/s-1/checks": () => jsonResponse(200, [check()]),
+      "GET /api/servers/s-1/metrics": () => jsonResponse(200, RAW_METRICS),
+      "DELETE /api/servers/s-1/checks/c-1": () => {
+        deleteCalls += 1;
+        return jsonResponse(204, null);
+      },
+    });
+
+    renderApp("/monitor/servers/s-1");
+    await screen.findByRole("heading", { name: "Web One" });
+
+    const row = screen.getByText("API health").closest("tr")!;
+    await user.click(within(row).getByRole("button", { name: "Delete" }));
+    // Conferma richiesta prima della DELETE.
+    await user.click(within(row).getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(deleteCalls).toBe(1));
+  });
+
+  it("admin: il PATCH del server include i projectIds selezionati", async () => {
+    const user = userEvent.setup();
+    let patchBody: unknown;
+    standardApi({
+      projects: [
+        { id: "p-1", name: "Acme Platform", slug: "acme" },
+        { id: "p-2", name: "Beta", slug: "beta" },
+      ],
+      onPatch: (body) => {
+        patchBody = body;
+        return jsonResponse(200, detail());
+      },
+    });
+
+    renderApp("/monitor/servers/s-1");
+    await screen.findByRole("heading", { name: "Web One" });
+
+    const panel = screen.getByText("Server settings").closest("section")!;
+    await user.click(within(panel).getByRole("button", { name: "Edit" }));
+    // Aggiunge "Beta" al server (già associato ad Acme Platform).
+    await user.click(within(panel).getByRole("checkbox", { name: "Beta" }));
+    await user.click(within(panel).getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(patchBody).toEqual({
+        name: "Web One",
+        sampleIntervalSeconds: 30,
+        projectIds: ["p-1", "p-2"],
+      }),
+    );
+  });
+
+  it("admin: rigenera la chiave e riapre il sidepanel guida con la nuova chiave", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      "GET /api/auth/me": meHandler("admin"),
+      "GET /api/projects": () => jsonResponse(200, []),
+      "GET /api/servers/s-1": () => jsonResponse(200, detail()),
+      "GET /api/servers/s-1/checks": () => jsonResponse(200, [check()]),
+      "GET /api/servers/s-1/metrics": () => jsonResponse(200, RAW_METRICS),
+      "POST /api/servers/s-1/regenerate-key": () =>
+        jsonResponse(200, { ...detail(), key: "sk_rotated_key" }),
+    });
+
+    renderApp("/monitor/servers/s-1");
+    await screen.findByRole("heading", { name: "Web One" });
+
+    const panel = screen.getByText("Server settings").closest("section")!;
+    await user.click(within(panel).getByRole("button", { name: "Regenerate key" }));
+    await user.click(within(panel).getByRole("button", { name: "Confirm" }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/STUBWISE_SERVER_KEY=sk_rotated_key/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/shown only once/i)).toBeInTheDocument();
+  });
+
+  it("admin: elimina il server con conferma → redirect al Monitor", async () => {
+    const user = userEvent.setup();
+    let deleteCalls = 0;
+    mockApi({
+      "GET /api/auth/me": meHandler("admin"),
+      "GET /api/projects": () => jsonResponse(200, []),
+      "GET /api/servers/s-1": () => jsonResponse(200, detail()),
+      "GET /api/servers/s-1/checks": () => jsonResponse(200, [check()]),
+      "GET /api/servers/s-1/metrics": () => jsonResponse(200, RAW_METRICS),
+      "DELETE /api/servers/s-1": () => {
+        deleteCalls += 1;
+        return jsonResponse(204, null);
+      },
+      // Dopo il redirect il Monitor carica la lista (vuota qui).
+      "GET /api/servers": () => jsonResponse(200, []),
+    });
+
+    const router = renderApp("/monitor/servers/s-1");
+    await screen.findByRole("heading", { name: "Web One" });
+
+    const panel = screen.getByText("Server settings").closest("section")!;
+    await user.click(within(panel).getByRole("button", { name: "Delete" }));
+    await user.click(within(panel).getByRole("button", { name: "Confirm" }));
+
+    await waitFor(() => expect(deleteCalls).toBe(1));
+    // Redirect alla lista Monitor.
+    await waitFor(() => expect(router.state.location.pathname).toBe("/monitor"));
   });
 });
