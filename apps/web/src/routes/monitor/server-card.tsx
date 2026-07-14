@@ -32,7 +32,10 @@ function CpuSparkline({ values }: { values: number[] }) {
     .map((value, index) => {
       const clamped = Math.max(0, Math.min(100, value));
       const x = index * step;
-      const y = height - (clamped / 100) * height;
+      // y in [1, height-1]: un margine di 1 unità sopra e sotto, così una
+      // linea piatta a 0 o 100 non giace sul bordo del viewBox con metà
+      // stroke clippata.
+      const y = 1 + (1 - clamped / 100) * (height - 2);
       return `${x.toFixed(2)},${y.toFixed(2)}`;
     })
     .join(" ");
@@ -135,12 +138,21 @@ export function ServerCard({ server }: { server: ServerView }) {
 
       {/* Piede: conteggio check up/giù + progetti associati come badge. */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-        <span className="inline-flex items-center gap-1.5 font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase">
+        {/* I glifi ↑/↓ non dicono nulla a uno screen reader: l'aria-label sul
+            contenitore espone i conteggi in forma leggibile ("3 up / 1 down"),
+            i figli visuali sono aria-hidden. */}
+        <span
+          aria-label={t("monitor:card.servicesUpDown", {
+            up: server.checksUp,
+            down: server.checksDown,
+          })}
+          className="inline-flex items-center gap-1.5 font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase"
+        >
           <span aria-hidden>{t("monitor:card.services")}</span>
-          <span className={server.checksUp > 0 ? "text-ok" : "text-fg-faint"}>
+          <span aria-hidden className={server.checksUp > 0 ? "text-ok" : "text-fg-faint"}>
             {server.checksUp}↑
           </span>
-          <span className={server.checksDown > 0 ? "text-danger" : "text-fg-faint"}>
+          <span aria-hidden className={server.checksDown > 0 ? "text-danger" : "text-fg-faint"}>
             {server.checksDown}↓
           </span>
         </span>

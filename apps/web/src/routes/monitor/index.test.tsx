@@ -128,8 +128,65 @@ describe("sezione Monitor — lista server", () => {
     expect(online.querySelector("svg polyline")).not.toBeNull();
     expect(online).toHaveTextContent("Acme Platform");
 
+    // I conteggi servizi sono esposti agli screen reader in forma leggibile
+    // (i glifi ↑/↓ da soli non dicono nulla).
+    expect(online.querySelector('[aria-label="3 up / 0 down"]')).not.toBeNull();
+    expect(offline.querySelector('[aria-label="1 up / 2 down"]')).not.toBeNull();
+
     // Nessuna chiave i18n grezza a schermo.
     expect(document.body.textContent ?? "").not.toMatch(/monitor:/);
+  });
+
+  it("server mai connesso: placeholder senza dati e CPU assente", async () => {
+    mockApi({
+      "GET /api/auth/me": meHandler(),
+      "GET /api/servers": () =>
+        jsonResponse(200, [
+          server({
+            id: "s-3",
+            name: "Fresh Server",
+            hostname: null,
+            status: "never_connected",
+            agentVersion: null,
+            lastSeenAt: null,
+            recentCpu: [],
+          }),
+        ]),
+    });
+
+    renderApp("/monitor");
+
+    const card = await screen.findByRole("link", { name: /Fresh Server/ });
+    expect(card).toHaveTextContent("Never connected");
+    expect(card).toHaveTextContent("No data yet");
+    // Nessun campione CPU → placeholder "—" e niente sparkline.
+    expect(card).toHaveTextContent("—");
+    expect(card.querySelector("svg polyline")).toBeNull();
+    // Mai connesso NON è uno stato d'allarme: niente accento rosso.
+    expect(card.className).not.toContain("border-danger");
+  });
+
+  it("server online ma con check giù: accento d'allarme", async () => {
+    mockApi({
+      "GET /api/auth/me": meHandler(),
+      "GET /api/servers": () =>
+        jsonResponse(200, [
+          server({
+            id: "s-4",
+            name: "Degraded Server",
+            status: "online",
+            checksUp: 2,
+            checksDown: 1,
+            recentCpu: [5, 10, 8],
+          }),
+        ]),
+    });
+
+    renderApp("/monitor");
+
+    const card = await screen.findByRole("link", { name: /Degraded Server/ });
+    expect(card).toHaveTextContent("Online");
+    expect(card.className).toContain("border-danger");
   });
 
   it("mostra lo stato vuoto con il rimando alle impostazioni quando non ci sono server", async () => {
