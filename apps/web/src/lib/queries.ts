@@ -15,6 +15,8 @@ import {
   getRepository,
   getRepositoryWebhook,
   listEnvFiles,
+  getServer,
+  getServerMetrics,
   getSlackWorkspaceUsers,
   getTicket,
   getTicketActivity,
@@ -29,7 +31,10 @@ import {
   listAiProviders,
   listMilestones,
   listSavedViews,
+  listServerChecks,
+  listServers,
   listTickets,
+  type ServerMetricsRange,
   type TicketFilters,
 } from "./api";
 import {
@@ -470,6 +475,78 @@ export function repositoryWebhookQueryOptions(slug: string) {
     queryKey: ["repositories", "detail", slug, "webhook"],
     queryFn: () => getRepositoryWebhook(slug),
     staleTime: 60_000,
+  });
+}
+
+/**
+ * Key factory del dominio Monitor (server): unica fonte delle chiavi, sia per le
+ * queryOptions qui sotto sia per invalidazioni mirate altrove. Gerarchiche:
+ * `lists()` matcha ogni lista (globale o filtrata per progetto), `detail(id)`
+ * ogni dato di un server, e `checks`/`metrics` ne sono figlie così una mutazione
+ * su un server invalida tutto il suo sotto-albero in un colpo solo.
+ */
+export const serverKeys = {
+  all: ["servers"] as const,
+  lists: () => [...serverKeys.all, "list"] as const,
+  list: (projectId?: string) => [...serverKeys.lists(), projectId ?? null] as const,
+  details: () => [...serverKeys.all, "detail"] as const,
+  detail: (id: string) => [...serverKeys.details(), id] as const,
+  checks: (id: string) => [...serverKeys.detail(id), "checks"] as const,
+  metrics: (id: string, range: ServerMetricsRange) =>
+    [...serverKeys.detail(id), "metrics", range] as const,
+};
+
+/**
+ * Lista dei server monitorati, opzionalmente filtrata per progetto associato.
+ * Dati live: `refetchInterval` a 30s tiene aggiornati stato/heartbeat/CPU senza
+ * intervento dell'utente; `staleTime` breve così un rientro nella pagina rinfresca.
+ */
+export function serversQueryOptions(projectId?: string) {
+  return queryOptions({
+    queryKey: serverKeys.list(projectId),
+    queryFn: () => listServers(projectId),
+    staleTime: 10_000,
+    refetchInterval: 30_000,
+  });
+}
+
+/**
+ * Dettaglio di un server (snapshot corrente incluso). Chiave figlia di
+ * ["servers"]: invalidare il prefisso riconcilia lista e dettagli in un colpo
+ * solo. Dati live: `refetchInterval` a 30s.
+ */
+export function serverDetailQueryOptions(id: string) {
+  return queryOptions({
+    queryKey: serverKeys.detail(id),
+    queryFn: () => getServer(id),
+    staleTime: 10_000,
+    refetchInterval: 30_000,
+  });
+}
+
+/**
+ * Check di servizio di un server. Chiave figlia del dettaglio server: ogni
+ * create/update/delete di un check la invalida così la lista resta riconciliata.
+ */
+export function serverChecksQueryOptions(id: string) {
+  return queryOptions({
+    queryKey: serverKeys.checks(id),
+    queryFn: () => listServerChecks(id),
+    staleTime: 10_000,
+  });
+}
+
+/**
+ * Serie temporale delle metriche di un server nel range dato (con eventuale
+ * `checkId`). Il range entra nella chiave: ogni finestra/zoom è una query a sé in
+ * cache. `staleTime` breve: i dati sono storici ma la coda cresce coi nuovi
+ * campioni; il refetch periodico lo gestiscono le query live (lista/dettaglio).
+ */
+export function serverMetricsQueryOptions(id: string, range: ServerMetricsRange) {
+  return queryOptions({
+    queryKey: serverKeys.metrics(id, range),
+    queryFn: () => getServerMetrics(id, range),
+    staleTime: 10_000,
   });
 }
 

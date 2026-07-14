@@ -1,4 +1,9 @@
 import type {
+  AlertThresholds,
+  CheckStatus,
+  CheckType,
+  CreateCheckInput,
+  DiscoveredService,
   GitProviderKind,
   Language,
   PrState,
@@ -7,10 +12,13 @@ import type {
   SearchEntityType,
   SearchHistoryItem,
   SearchResults,
+  ServerStatus,
   TicketPriority,
   TicketSource,
   TicketStatus,
   TicketType,
+  UpdateCheckInput,
+  UpdateServerInput,
   WidgetRepositoryFilters,
   WidgetSettings,
   WidgetUpsertBody,
@@ -1885,4 +1893,265 @@ export function getWidgetConversationMessages(
   return api.get(
     `/api/projects/${encodeURIComponent(projectId)}/widget/conversations/${encodeURIComponent(conversationId)}/messages`,
   );
+}
+
+// --- Server monitoring (sezione Monitor) ---
+
+// Enum e schemi condivisi col server/agente: ri-esportati così i componenti
+// della sezione Monitor importano tutto il dominio da ./api (come i tipi propri).
+export type {
+  AlertThresholds,
+  CheckStatus,
+  CheckType,
+  CreateCheckInput,
+  DiscoveredService,
+  ServerStatus,
+  UpdateCheckInput,
+  UpdateServerInput,
+} from "@stubwise/shared";
+
+/** Progetto associato a un server, ridotto ai campi per la UI (id + nome). */
+export interface ServerProjectSummary {
+  id: string;
+  name: string;
+}
+
+/**
+ * Proiezione pubblica di un server monitorato (lista e base del dettaglio):
+ * anagrafica, stato calcolato dall'heartbeat, progetti associati, conteggi
+ * check e la coda di CPU recente per la sparkline. Non contiene MAI la chiave
+ * dell'agente (esposta solo da {@link ServerWithKey} a creazione/rigenerazione).
+ * Gemella di `serverViewSchema` di apps/server/src/routes/servers.ts.
+ */
+export interface ServerView {
+  id: string;
+  name: string;
+  /** Hostname dichiarato dall'agente al primo ingest; null se mai connesso. */
+  hostname: string | null;
+  status: ServerStatus;
+  sampleIntervalSeconds: number;
+  /** Versione dell'agente all'ultimo ingest; null se mai connesso. */
+  agentVersion: string | null;
+  alertThresholds: AlertThresholds;
+  /** ISO dell'ultimo heartbeat; null se il server non ha mai inviato campioni. */
+  lastSeenAt: string | null;
+  createdAt: string;
+  projects: ServerProjectSummary[];
+  checksUp: number;
+  checksDown: number;
+  /** Ultimi valori di CPU dai campioni fini, dal più vecchio al più recente. */
+  recentCpu: number[];
+}
+
+/**
+ * Server con la chiave dell'agente (`sk_…`) in chiaro: restituito SOLO da
+ * creazione e rigenerazione, una sola volta (in DB vive solo l'hash).
+ */
+export interface ServerWithKey extends ServerView {
+  key: string;
+}
+
+/** Uso di un disco per punto di mount (dettaglio server, ultimo campione). */
+export interface ServerDisk {
+  mount: string;
+  usedBytes: number;
+  totalBytes: number;
+}
+
+/**
+ * Dettaglio di un server (solo GET /:id): la proiezione base più lo snapshot
+ * corrente dall'ultimo campione — servizi auto-scoperti (docker/pm2), dischi per
+ * mount e il ts del campione (`metricsAt`, per marcare dati stantii in UI).
+ * Vuoti/null se il server non ha mai inviato campioni. Gemella di
+ * `serverDetailSchema`.
+ */
+export interface ServerDetail extends ServerView {
+  services: DiscoveredService[];
+  disks: ServerDisk[];
+  metricsAt: string | null;
+}
+
+/**
+ * Proiezione pubblica di un check di servizio. Il DSN dei check DB non esce MAI
+ * dall'API: al suo posto il flag `hasDsn` (per i check DB `target` è sempre
+ * vuoto). Gemella di `checkViewSchema` di apps/server/src/routes/servers-checks.ts.
+ */
+export interface ServerCheck {
+  id: string;
+  serverId: string;
+  type: CheckType;
+  name: string;
+  /** URL/host:porta/pattern in chiaro; vuoto per i check DB (DSN → `hasDsn`). */
+  target: string;
+  hasDsn: boolean;
+  intervalSeconds: number;
+  enabled: boolean;
+  lastStatus: CheckStatus;
+  lastCheckedAt: string | null;
+  lastLatencyMs: number | null;
+  lastError: string | null;
+  downSince: string | null;
+  createdAt: string;
+}
+
+/** Punto metrica a risoluzione piena (campione host grezzo). */
+export interface RawMetricPoint {
+  ts: string;
+  cpuPct: number;
+  load1m: number;
+  memUsedBytes: number;
+  memTotalBytes: number;
+  swapUsedBytes: number;
+  diskUsedBytes: number;
+  diskTotalBytes: number;
+  netRxBytes: number;
+  netTxBytes: number;
+}
+
+/** Punto metrica aggregato a 5 minuti (rollup): coppie avg/max + somme di rete. */
+export interface RollupMetricPoint {
+  ts: string;
+  cpuPctAvg: number;
+  cpuPctMax: number;
+  load1mAvg: number;
+  load1mMax: number;
+  memUsedBytesAvg: number;
+  memUsedBytesMax: number;
+  memTotalBytes: number;
+  diskUsedBytesAvg: number;
+  diskUsedBytesMax: number;
+  diskTotalBytes: number;
+  netRxBytesSum: number;
+  netTxBytesSum: number;
+}
+
+/** Esito di check a risoluzione piena. */
+export interface RawCheckPoint {
+  ts: string;
+  status: CheckStatus;
+  latencyMs: number | null;
+}
+
+/** Esito di check aggregato a 5 minuti (rollup). */
+export interface RollupCheckPoint {
+  ts: string;
+  upCount: number;
+  downCount: number;
+  latencyMsAvg: number | null;
+  latencyMsMax: number | null;
+}
+
+/**
+ * Serie temporale di un server nel range richiesto. La `resolution` è scelta dal
+ * server dall'ampiezza del range (`raw` fino a 48h, `5m` oltre): i punti sono
+ * quindi {@link RawMetricPoint} o {@link RollupMetricPoint} in blocco (mai misti),
+ * discriminati da `resolution`. `checkPoints` è presente solo se la query passa
+ * un `checkId`. `truncated` = una serie ha saturato il tetto di punti e la
+ * finestra mostrata è la coda più recente del range. Gemella di
+ * `metricsResponseSchema`.
+ */
+export interface ServerMetricsResponse {
+  resolution: "raw" | "5m";
+  truncated: boolean;
+  points: RawMetricPoint[] | RollupMetricPoint[];
+  checkPoints?: RawCheckPoint[] | RollupCheckPoint[];
+}
+
+/** Finestra temporale (ISO datetime) di una query metriche, con check opzionale. */
+export interface ServerMetricsRange {
+  from: string;
+  to: string;
+  checkId?: string;
+}
+
+/** Elenca i server monitorati, opzionalmente filtrati per progetto associato. */
+export function listServers(projectId?: string): Promise<ServerView[]> {
+  const qs = projectId ? `?projectId=${encodeURIComponent(projectId)}` : "";
+  return api.get(`/api/servers${qs}`);
+}
+
+/** Dettaglio di un server (snapshot corrente incluso). 404 se inesistente. */
+export function getServer(id: string): Promise<ServerDetail> {
+  return api.get(`/api/servers/${encodeURIComponent(id)}`);
+}
+
+/**
+ * Registra un nuovo server (solo admin): l'utente fornisce solo il nome. La
+ * risposta include la chiave dell'agente in chiaro, mostrata una sola volta.
+ */
+export function createServer(name: string): Promise<ServerWithKey> {
+  return api.post("/api/servers", { name });
+}
+
+/**
+ * Patch parziale di un server (solo admin). ATTENZIONE `alertThresholds`:
+ * full-replacement (i campi omessi tornano ai default), inviare sempre le soglie
+ * complete correnti; `projectIds` sostituisce l'intero insieme di progetti.
+ */
+export function updateServer(id: string, body: UpdateServerInput): Promise<ServerView> {
+  return api.patch(`/api/servers/${encodeURIComponent(id)}`, body);
+}
+
+/** Elimina un server con metriche/check associati (solo admin): 204. */
+export function deleteServer(id: string): Promise<void> {
+  return request("DELETE", `/api/servers/${encodeURIComponent(id)}`);
+}
+
+/**
+ * Rigenera la chiave dell'agente di un server (solo admin): invalida la
+ * precedente e restituisce la nuova in chiaro, una sola volta.
+ */
+export function regenerateServerKey(id: string): Promise<ServerWithKey> {
+  return api.post(`/api/servers/${encodeURIComponent(id)}/regenerate-key`);
+}
+
+/** Elenca i check di servizio di un server. 404 se il server non esiste. */
+export function listServerChecks(id: string): Promise<ServerCheck[]> {
+  return api.get(`/api/servers/${encodeURIComponent(id)}/checks`);
+}
+
+/**
+ * Crea un check su un server (solo admin). Per i tipi `postgres`/`mysql`,
+ * `target` è la connection string in chiaro: il server la cifra e non la
+ * restituisce mai (la proiezione espone solo `hasDsn`).
+ */
+export function createServerCheck(id: string, body: CreateCheckInput): Promise<ServerCheck> {
+  return api.post(`/api/servers/${encodeURIComponent(id)}/checks`, body);
+}
+
+/**
+ * Aggiorna un check (solo admin): patch parziale. Cambiare `type` richiede un
+ * nuovo `target` (400 altrimenti); `target` assente = invariato (DSN incluso).
+ */
+export function updateServerCheck(
+  id: string,
+  checkId: string,
+  body: UpdateCheckInput,
+): Promise<ServerCheck> {
+  return api.put(
+    `/api/servers/${encodeURIComponent(id)}/checks/${encodeURIComponent(checkId)}`,
+    body,
+  );
+}
+
+/** Elimina un check di un server (solo admin): 204. 404 se non appartiene al server. */
+export function deleteServerCheck(id: string, checkId: string): Promise<void> {
+  return request(
+    "DELETE",
+    `/api/servers/${encodeURIComponent(id)}/checks/${encodeURIComponent(checkId)}`,
+  );
+}
+
+/**
+ * Serie temporale delle metriche di un server nel range `[from, to]` (ISO
+ * datetime). Con `checkId` aggiunge la serie di esiti del check (`checkPoints`).
+ * La risoluzione (raw/5m) la sceglie il server dall'ampiezza del range.
+ */
+export function getServerMetrics(
+  id: string,
+  range: ServerMetricsRange,
+): Promise<ServerMetricsResponse> {
+  const params = new URLSearchParams({ from: range.from, to: range.to });
+  if (range.checkId) params.set("checkId", range.checkId);
+  return api.get(`/api/servers/${encodeURIComponent(id)}/metrics?${params.toString()}`);
 }

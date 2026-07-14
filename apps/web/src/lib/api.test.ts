@@ -1,5 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { api, ApiError, getMe, getSetupStatus, postLogin, postLogout, postSetup } from "./api";
+import {
+  api,
+  ApiError,
+  createServer,
+  createServerCheck,
+  getMe,
+  getServerMetrics,
+  getSetupStatus,
+  listServers,
+  postLogin,
+  postLogout,
+  postSetup,
+} from "./api";
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -142,5 +154,72 @@ describe("funzioni auth", () => {
 
     await expect(postLogout()).resolves.toBeUndefined();
     expect(fetchMock.mock.calls[0]![0]).toBe("/api/auth/logout");
+  });
+});
+
+describe("funzioni server monitoring", () => {
+  it("listServers senza progetto: GET /api/servers senza query", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, []));
+
+    await expect(listServers()).resolves.toEqual([]);
+    expect(fetchMock.mock.calls[0]![0]).toBe("/api/servers");
+  });
+
+  it("listServers con progetto: GET /api/servers?projectId=…", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, []));
+
+    await listServers("p1");
+    expect(fetchMock.mock.calls[0]![0]).toBe("/api/servers?projectId=p1");
+  });
+
+  it("createServer: POST /api/servers col solo nome", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(201, { id: "s1", name: "web", key: "sk_x" }));
+
+    await createServer("web");
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/servers");
+    expect(init?.method).toBe("POST");
+    expect(init?.body).toBe(JSON.stringify({ name: "web" }));
+  });
+
+  it("createServerCheck: POST /api/servers/:id/checks col body del check", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(201, { id: "c1" }));
+    const body = {
+      type: "http" as const,
+      name: "api",
+      target: "https://x.test",
+      intervalSeconds: 60,
+      enabled: true,
+    };
+
+    await createServerCheck("s1", body);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/servers/s1/checks");
+    expect(init?.method).toBe("POST");
+    expect(init?.body).toBe(JSON.stringify(body));
+  });
+
+  it("getServerMetrics: mette from/to (e checkId) nella query string", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { resolution: "raw", truncated: false, points: [] }));
+
+    await getServerMetrics("s1", {
+      from: "2026-07-01T00:00:00.000Z",
+      to: "2026-07-02T00:00:00.000Z",
+      checkId: "c1",
+    });
+    const url = fetchMock.mock.calls[0]![0] as string;
+    expect(url.startsWith("/api/servers/s1/metrics?")).toBe(true);
+    const params = new URLSearchParams(url.split("?")[1]);
+    expect(params.get("from")).toBe("2026-07-01T00:00:00.000Z");
+    expect(params.get("to")).toBe("2026-07-02T00:00:00.000Z");
+    expect(params.get("checkId")).toBe("c1");
+  });
+
+  it("getServerMetrics senza checkId: nessun parametro checkId", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { resolution: "5m", truncated: false, points: [] }));
+
+    await getServerMetrics("s1", { from: "2026-07-01T00:00:00.000Z", to: "2026-07-08T00:00:00.000Z" });
+    const url = fetchMock.mock.calls[0]![0] as string;
+    expect(new URLSearchParams(url.split("?")[1]).has("checkId")).toBe(false);
   });
 });
