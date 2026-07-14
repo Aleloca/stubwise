@@ -44,7 +44,12 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 COPY tsconfig.base.json ./
 COPY packages packages
 COPY apps/server apps/server
-RUN pnpm --filter @stubwise/server... build
+# `@stubwise/agent` è un devDependency del server (solo per il test d'integrazione
+# monitor-agent, che gira in CI/locale, non qui) e NON serve al runtime del server.
+# Il `...` lo tirerebbe nel grafo di build, ma il suo package.json non è tra i
+# manifest copiati sopra → le sue deps non sono installate e `tsc` fallirebbe.
+# Lo escludiamo esplicitamente; `deploy --prod` più sotto già lo omette dall'output.
+RUN pnpm --filter "@stubwise/server..." --filter "!@stubwise/agent" build
 
 # node_modules di sola produzione, autoconsistente, per il solo server.
 # --legacy: pnpm 10 senza inject-workspace-packages usa il deploy "legacy"

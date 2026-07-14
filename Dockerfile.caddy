@@ -55,8 +55,11 @@ COPY apps/docs apps/docs
 # buildApp importa @stubwise/db/git/shared dai loro dist/ (esclusi dal context
 # Docker via .dockerignore): vanno buildati prima del prebuild gen:openapi.
 # `@stubwise/server^...` builda le DIPENDENZE del server (db, git, shared) senza
-# il server stesso, che tsx esegue dai sorgenti.
-RUN pnpm --filter @stubwise/server^... build
+# il server stesso, che tsx esegue dai sorgenti. Escludiamo `@stubwise/agent`
+# (devDep del server, solo per i test): il `^...` lo includerebbe, ma il suo
+# package.json non è tra i manifest copiati → build senza deps fallirebbe, e non
+# serve comunque al prebuild della spec OpenAPI.
+RUN pnpm --filter "@stubwise/server^..." --filter "!@stubwise/agent" build
 RUN pnpm --filter @stubwise/docs build
 
 FROM caddy:2-alpine AS runtime
