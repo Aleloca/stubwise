@@ -15,10 +15,20 @@ import { createAppRouter } from "../../router";
  */
 
 // uPlot non funziona in happy-dom: lo si mocka a costruttore no-op con i metodi
-// che il wrapper chiama (destroy in cleanup). L'import del CSS è innocuo.
+// che il wrapper chiama (destroy in cleanup, setSize al resize). Le chiamate al
+// costruttore restano ispezionabili: i test 5m verificano opts/data passati.
 vi.mock("uplot", () => ({
   default: vi.fn(() => ({ destroy: vi.fn(), setData: vi.fn(), setSize: vi.fn() })),
 }));
+// Import DOPO vi.mock (che è comunque hoistato): riceve il costruttore mockato.
+import UPlot from "uplot";
+
+/** Coppie (opts, data) di ogni istanza uPlot creata. */
+function uplotCalls(): { opts: UPlot.Options; data: UPlot.AlignedData }[] {
+  return vi
+    .mocked(UPlot)
+    .mock.calls.map(([opts, data]) => ({ opts, data: data as UPlot.AlignedData }));
+}
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -31,6 +41,7 @@ const fetchMock = vi.fn<typeof fetch>();
 
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
+  vi.mocked(UPlot).mockClear();
 });
 
 afterEach(() => {
@@ -148,6 +159,45 @@ const RAW_METRICS: ServerMetricsResponse = {
   ],
 };
 
+// Rollup 5m con numeri "puliti": le somme di rete divise per 300s e 1024 danno
+// KB/s interi (3_072_000 → 10, 6_144_000 → 20).
+const ROLLUP_METRICS: ServerMetricsResponse = {
+  resolution: "5m",
+  truncated: false,
+  points: [
+    {
+      ts: "2026-07-13T09:50:00.000Z",
+      cpuPctAvg: 20,
+      cpuPctMax: 40,
+      load1mAvg: 0.5,
+      load1mMax: 1.2,
+      memUsedBytesAvg: 2 * 1024 ** 3,
+      memUsedBytesMax: 3 * 1024 ** 3,
+      memTotalBytes: 8 * 1024 ** 3,
+      diskUsedBytesAvg: 40 * 1024 ** 3,
+      diskUsedBytesMax: 41 * 1024 ** 3,
+      diskTotalBytes: 100 * 1024 ** 3,
+      netRxBytesSum: 3_072_000,
+      netTxBytesSum: 1_536_000,
+    },
+    {
+      ts: "2026-07-13T09:55:00.000Z",
+      cpuPctAvg: 30,
+      cpuPctMax: 60,
+      load1mAvg: 0.8,
+      load1mMax: 1.5,
+      memUsedBytesAvg: 2 * 1024 ** 3,
+      memUsedBytesMax: 3 * 1024 ** 3,
+      memTotalBytes: 8 * 1024 ** 3,
+      diskUsedBytesAvg: 40 * 1024 ** 3,
+      diskUsedBytesMax: 41 * 1024 ** 3,
+      diskTotalBytes: 100 * 1024 ** 3,
+      netRxBytesSum: 6_144_000,
+      netTxBytesSum: 3_072_000,
+    },
+  ],
+};
+
 function renderApp(initialPath: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const router = createAppRouter(
@@ -252,7 +302,44 @@ describe("dettaglio server — Monitor", () => {
     renderApp("/monitor/servers/s-1");
     await screen.findByRole("heading", { name: "Web One" });
 
-    expect(await screen.findByText(/trimmed to the 6000 most recent/i)).toBeInTheDocument();
+    // La nota non promette un numero: il tetto è un dettaglio del server.
+    expect(await screen.findByText(/trimmed to the most recent points/i)).toBeInTheDocument();
+  });
+
+  it("response 5m: avg/max nei pannelli, load su scala dedicata e rete divisa per 300s", async () => {
+    standardApi({ metrics: ROLLUP_METRICS });
+
+    renderApp("/monitor/servers/s-1");
+    await screen.findByRole("heading", { name: "Web One" });
+
+    // 4 pannelli montati (istanze uPlot create dal wrapper mockato).
+    await waitFor(() => expect(uplotCalls().length).toBeGreaterThanOrEqual(4));
+    const calls = uplotCalls();
+
+    // Pannello CPU: serie avg + max + load; il load vive sulla scala dedicata.
+    const cpu = calls.find((c) => c.opts.series[2]?.label === "CPU % max");
+    expect(cpu).toBeDefined();
+    expect(cpu!.data[1]).toEqual([20, 30]); // cpuPctAvg
+    expect(cpu!.data[2]).toEqual([40, 60]); // cpuPctMax
+    expect(cpu!.opts.series[3]?.label).toBe("Load 1m");
+    expect(cpu!.opts.series[3]?.scale).toBe("load");
+    expect(cpu!.data[3]).toEqual([0.5, 0.8]); // load1mAvg
+
+    // Pannello rete: somme sul bucket / 300s / 1024 → KB/s medi.
+    const net = calls.find((c) => c.opts.series[1]?.label === "In");
+    expect(net).toBeDefined();
+    expect(net!.data[1]).toEqual([10, 20]); // netRxBytesSum
+    expect(net!.data[2]).toEqual([5, 10]); // netTxBytesSum
+  });
+
+  it("points vuoti → empty state nei pannelli, nessuna istanza uPlot", async () => {
+    standardApi({ metrics: { resolution: "raw", truncated: false, points: [] } });
+
+    renderApp("/monitor/servers/s-1");
+    await screen.findByRole("heading", { name: "Web One" });
+
+    expect(await screen.findAllByText("// no samples in this range")).toHaveLength(4);
+    expect(vi.mocked(UPlot)).not.toHaveBeenCalled();
   });
 
   it("tabella servizi con badge di sorgente e stati colorati", async () => {

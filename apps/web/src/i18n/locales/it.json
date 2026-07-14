@@ -62,7 +62,7 @@
         "30d": "30g",
         "90d": "90g"
       },
-      "truncated": "Serie tagliata ai {{limit}} punti più recenti",
+      "truncated": "Serie tagliata ai punti più recenti per questo intervallo",
       "noData": "// nessun campione in questo intervallo",
       "loading": "Caricamento metriche…",
       "charts": {

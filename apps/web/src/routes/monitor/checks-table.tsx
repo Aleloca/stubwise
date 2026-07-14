@@ -53,11 +53,22 @@ export function ChecksTable({
               {checks.map((check) => {
                 const selected = check.id === selectedCheckId;
                 return (
+                  // Riga interattiva raggiungibile da tastiera: tabIndex 0 +
+                  // Enter/Space attivano la selezione come il click. Lo stato
+                  // selezionato è esposto con `data-state` (aria-selected non è
+                  // valido su una row di table, solo di grid).
                   <tr
                     key={check.id}
+                    tabIndex={0}
+                    data-state={selected ? "selected" : undefined}
                     onClick={() => onSelect(check.id)}
-                    aria-selected={selected}
-                    className={`cursor-pointer transition-colors hover:bg-ink-850 ${
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        onSelect(check.id);
+                      }
+                    }}
+                    className={`cursor-pointer transition-colors hover:bg-ink-850 focus-visible:outline-1 focus-visible:outline-signal-dim ${
                       selected ? "bg-ink-850" : ""
                     } ${check.lastStatus === "down" ? "border-l-2 border-l-danger" : ""}`}
                   >

@@ -35,10 +35,6 @@ const RANGES = {
 type RangeKey = keyof typeof RANGES;
 const RANGE_KEYS = Object.keys(RANGES) as RangeKey[];
 
-// Limite di punti per serie lato server (METRICS_POINT_LIMIT): quando la
-// response è `truncated` mostriamo solo la coda più recente di questo numero.
-const METRICS_POINT_LIMIT = 6000;
-
 /** `now` quantizzato al minuto: chiave cache stabile (vedi vincolo E1). */
 function quantizeToMinute(now: number): number {
   return Math.floor(now / 60_000) * 60_000;
@@ -158,10 +154,11 @@ export function ServerDetailPage() {
         ))}
       </div>
 
-      {/* Nota discreta quando la serie è stata tagliata al tetto di punti. */}
+      {/* Nota discreta quando la serie è stata tagliata al tetto di punti del
+          server (nessun numero hardcoded qui: il tetto è un dettaglio server). */}
       {metrics?.truncated && (
         <p className="mt-3 font-mono text-[10px] text-fg-faint">
-          {t("monitor:detail.truncated", { limit: METRICS_POINT_LIMIT })}
+          {t("monitor:detail.truncated")}
         </p>
       )}
 

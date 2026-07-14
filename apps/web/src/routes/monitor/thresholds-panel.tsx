@@ -23,8 +23,15 @@ function parsePct(raw: string): number | null {
   return Math.min(99, Math.max(1, n));
 }
 
+/**
+ * Stringa dell'input → minuti di superamento continuo. Vuoto o non numerico =
+ * default 5 (Number("") sarebbe 0 e verrebbe clampato a 1 in silenzio);
+ * altrimenti clampato in 1..60 come lo schema server.
+ */
 function parseSustained(raw: string): number {
-  const n = Math.round(Number(raw));
+  const trimmed = raw.trim();
+  if (trimmed === "") return 5;
+  const n = Math.round(Number(trimmed));
   if (!Number.isFinite(n)) return 5;
   return Math.min(60, Math.max(1, n));
 }

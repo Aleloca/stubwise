@@ -62,7 +62,7 @@
         "30d": "30d",
         "90d": "90d"
       },
-      "truncated": "Series trimmed to the {{limit}} most recent points",
+      "truncated": "Series trimmed to the most recent points for this range",
       "noData": "// no samples in this range",
       "loading": "Loading metrics…",
       "charts": {
