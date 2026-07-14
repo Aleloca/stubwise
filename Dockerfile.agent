@@ -7,11 +7,16 @@
 #
 # Build:  docker build -f Dockerfile.agent -t stubwise/agent .
 # Run:    docker run -d --restart unless-stopped \
+#           --group-add "$(stat -c %g /var/run/docker.sock)" \
 #           -e STUBWISE_URL=https://stubwise.example.com \
 #           -e STUBWISE_SERVER_KEY=sk_... \
 #           -v /proc:/host/proc:ro -v /:/host/root:ro \
 #           -v /var/run/docker.sock:/var/run/docker.sock:ro \
 #           stubwise/agent
+#
+# Il --group-add è NECESSARIO: il runtime gira come UID 10001 non-root e senza
+# il gid del socket Docker la connect() fallisce con EACCES → l'agente riporta
+# silenziosamente zero servizi Docker (il collector non fa throw).
 
 FROM node:22-slim AS build
 ENV PNPM_HOME=/pnpm
@@ -31,9 +36,6 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 COPY tsconfig.base.json ./
 COPY packages/shared packages/shared
 COPY packages/agent packages/agent
-
-# La versione dell'agente riportata al server (env letta da bin.ts a runtime).
-ARG AGENT_VERSION=dev
 
 # Build topologica: shared (tsc) prima, poi l'agente (tsc lib + bundle esbuild).
 RUN pnpm --filter @stubwise/agent... build

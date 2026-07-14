@@ -48,11 +48,16 @@ Install one-liner mostrato alla registrazione:
 
 ```
 docker run -d --name stubwise-agent --restart unless-stopped \
+  --group-add "$(stat -c %g /var/run/docker.sock)" \
   -v /proc:/host/proc:ro -v /sys:/host/sys:ro -v /:/host/root:ro \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   -e STUBWISE_URL=https://... -e STUBWISE_SERVER_KEY=sk_... \
   stubwise/agent
 ```
+
+Il `--group-add` con il gid del socket è necessario: il container gira come
+UID 10001 non-root e senza quel gruppo la connect() al socket Docker fallisce
+con EACCES → l'agente riporta silenziosamente zero servizi Docker.
 
 Raccolta (ogni `sample_interval_seconds`, default 30):
 

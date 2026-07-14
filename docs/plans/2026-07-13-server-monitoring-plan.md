@@ -504,7 +504,8 @@ Esporre il toggle `notifyMonitor` in GET/PUT /api/settings/notifications e come 
 3. `pnpm test` → verde (testcontainers: non parallelizzare a mano, lascia fare a maxForks).
 4. E2E Playwright NON girano in `-r test`: per la UI nuova esegui manualmente `pnpm --filter @stubwise/web exec playwright test` se l'ambiente lo consente; altrimenti annota nel PR che vanno verificati in CI.
 5. Aggiorna `CLAUDE.md`: superficie `/monitor` in architettura runtime, immagine `stubwise/agent` nel deploy ("modifica all'agente → build/push immagine agent"), env worker nuove.
-6. Commit `docs: aggiorna CLAUDE.md per il monitoraggio server`.
+6. Primo deploy agente: run manuale del container con un check postgres configurato per validare i driver DB bundlati da esbuild (mai eseguiti dal bundle nei test).
+7. Commit `docs: aggiorna CLAUDE.md per il monitoraggio server`.
 
 ### Task F2: Chiusura branch
 
