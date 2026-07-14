@@ -641,7 +641,8 @@
       "budgetHeld": "Budget exceeded (job held)",
       "reviewCompleted": "PR review completed",
       "jobFailed": "Fix failed",
-      "docsLimitPaused": "Docs generation paused (usage limit)"
+      "docsLimitPaused": "Docs generation paused (usage limit)",
+      "monitor": "Monitoring alerts"
     },
     "samples": {
       "ticketCreated": "New ticket",

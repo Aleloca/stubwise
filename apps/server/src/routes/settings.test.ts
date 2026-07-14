@@ -358,6 +358,7 @@ interface NotificationSettings {
   notifyReviewCompleted: boolean;
   notifyDocsLimitPaused: boolean;
   notifyJobFailed: boolean;
+  notifyMonitor: boolean;
 }
 
 describe("GET /api/settings/notifications", () => {
@@ -383,6 +384,7 @@ describe("GET /api/settings/notifications", () => {
     expect(body.notifyReviewCompleted).toBe(true);
     expect(body.notifyDocsLimitPaused).toBe(true);
     expect(body.notifyJobFailed).toBe(true);
+    expect(body.notifyMonitor).toBe(true);
   });
 });
 
@@ -418,6 +420,7 @@ describe("PUT /api/settings/notifications", () => {
         notifyReviewCompleted: false,
         notifyDocsLimitPaused: false,
         notifyJobFailed: true,
+        notifyMonitor: false,
       },
       users.adminCookie,
     );
@@ -432,6 +435,7 @@ describe("PUT /api/settings/notifications", () => {
     expect(body.notifyBudgetHeld).toBe(false);
     expect(body.notifyReviewCompleted).toBe(false);
     expect(body.notifyDocsLimitPaused).toBe(false);
+    expect(body.notifyMonitor).toBe(false);
 
     // Persistito: una sola riga (id=1) e la GET la riflette.
     const rows = await testDb.db.select().from(notificationSettings);
@@ -544,6 +548,29 @@ describe("PUT /api/settings/notifications", () => {
     );
     expect(res.statusCode).toBe(200);
     expect((res.json() as NotificationSettings).notifyDocsLimitPaused).toBe(true);
+  });
+
+  it("admin: notifyMonitor omesso → default true (compatibilità client legacy)", async () => {
+    const res = await putNotifications(
+      {
+        webhookUrl: "https://hooks.example.com/legacy-monitor",
+        format: "slack",
+        enabled: true,
+        notifyTicketCreated: true,
+        notifyPrOpened: true,
+        notifyPrClosed: true,
+        notifyJobHeld: true,
+        notifyPlanReview: true,
+        notifyBudgetHeld: true,
+        notifyReviewCompleted: true,
+        notifyDocsLimitPaused: true,
+        // notifyMonitor volutamente assente: deve defaultare a true.
+        notifyJobFailed: true,
+      },
+      users.adminCookie,
+    );
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as NotificationSettings).notifyMonitor).toBe(true);
   });
 
   it("webhookUrl vuoto è ammesso (disattiva il webhook) e salvato come null", async () => {

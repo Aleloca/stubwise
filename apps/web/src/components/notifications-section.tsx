@@ -38,6 +38,7 @@ const EVENT_TOGGLES: { key: keyof NotificationSettings; labelKey: string }[] = [
   { key: "notifyReviewCompleted", labelKey: "notifications:toggles.reviewCompleted" },
   { key: "notifyJobFailed", labelKey: "notifications:toggles.jobFailed" },
   { key: "notifyDocsLimitPaused", labelKey: "notifications:toggles.docsLimitPaused" },
+  { key: "notifyMonitor", labelKey: "notifications:toggles.monitor" },
 ];
 
 /** Eventi d'esempio per il selettore d'anteprima; `labelKey` → `notifications:samples.*`. */

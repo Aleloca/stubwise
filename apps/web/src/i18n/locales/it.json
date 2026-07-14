@@ -641,7 +641,8 @@
       "budgetHeld": "Budget superato (job in attesa)",
       "reviewCompleted": "Review PR completata",
       "jobFailed": "Fix fallito",
-      "docsLimitPaused": "Generazione Docs in pausa (limite di utilizzo)"
+      "docsLimitPaused": "Generazione Docs in pausa (limite di utilizzo)",
+      "monitor": "Alert di monitoraggio"
     },
     "samples": {
       "ticketCreated": "Nuovo ticket",

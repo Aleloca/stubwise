@@ -1411,6 +1411,8 @@ export interface NotificationSettings {
   notifyJobFailed: boolean;
   /** Generazione Docs in pausa per limite di utilizzo del provider. */
   notifyDocsLimitPaused: boolean;
+  /** Alert di monitoraggio server (allarme superamento soglia/offline e recovery). */
+  notifyMonitor: boolean;
 }
 
 /** Esito dell'invio di una notifica di test (lo restituisce l'endpoint /test). */
@@ -1446,6 +1448,8 @@ export function putNotificationSettings(
     notifyJobFailed: settings.notifyJobFailed,
     // Anche qui il default server è true: inviarlo sempre esplicitamente.
     notifyDocsLimitPaused: settings.notifyDocsLimitPaused,
+    // Default server true: inviarlo sempre esplicitamente per non resettarlo.
+    notifyMonitor: settings.notifyMonitor,
   });
 }
 
