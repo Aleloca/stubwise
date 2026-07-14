@@ -1,0 +1,70 @@
+name: Agent image (Docker Hub)
+
+# Ripubblica l'immagine dell'agente di monitoraggio (packages/agent) su Docker
+# Hub a ogni modifica che la riguarda, così l'immagine `alelocadev/stubwise-agent`
+# resta sempre allineata al codice su main. Multi-arch (amd64+arm64), così gli
+# host la pullano senza clonare il repo. Il Dockerfile.agent fa install+build
+# internamente: qui basta checkout + buildx + push.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/agent/**"
+      # L'agente valida i contratti di @stubwise/shared (schemi ingest/config):
+      # se cambiano, l'immagine va rifatta.
+      - "packages/shared/**"
+      - "Dockerfile.agent"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/agent-image.yml"
+  workflow_dispatch:
+
+# Una pubblicazione alla volta; non annulliamo un push in corso su un registry.
+concurrency:
+  group: agent-image
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Builda e pubblica (multi-arch)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # QEMU emula l'architettura non-nativa del runner (arm64 su runner amd64).
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login a Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Tag `latest` (mobile) + `sha-<commit>` (immutabile, per rollback/pin).
+      - name: Metadata (tag)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: alelocadev/stubwise-agent
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=sha-,format=short
+
+      - name: Build e push (amd64 + arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.agent
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Cache tra run (build più rapide dopo la prima).
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
