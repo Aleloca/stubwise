@@ -201,9 +201,13 @@ export function ServerDetailPage() {
         )}
       </div>
 
-      <div className="mt-6">
-        <ThresholdsPanel server={server} />
-      </div>
+      {/* Soglie: configurazione, non dato osservabile → solo admin (il submit
+          updateServer è admin-only, altrimenti sarebbe un bottone morto). */}
+      {isAdmin && (
+        <div className="mt-6">
+          <ThresholdsPanel server={server} />
+        </div>
+      )}
 
       {isAdmin && (
         <div className="mt-6">

@@ -593,7 +593,13 @@ export function CheckForm({
       return createServerCheck(serverId, body);
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: serverKeys.checks(serverId) });
+      // Oltre alla lista check: i conteggi checksUp/checksDown vivono su lista
+      // (ServerCard) e dettaglio del server, da riconciliare dopo il CRUD.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: serverKeys.checks(serverId) }),
+        queryClient.invalidateQueries({ queryKey: serverKeys.lists() }),
+        queryClient.invalidateQueries({ queryKey: serverKeys.details() }),
+      ]);
       onDone();
     },
   });

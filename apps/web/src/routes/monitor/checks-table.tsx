@@ -158,7 +158,7 @@ export function ChecksTable({
           <div className="flex h-full flex-col overflow-y-auto">
             <header className="border-b border-line px-4 py-3">
               <h3 className="font-mono text-[12px] font-medium tracking-[0.14em] text-fg uppercase">
-                {form === "new" ? t("monitor:servers.newCheck") : t("monitor:servers.saveCheck")}
+                {form === "new" ? t("monitor:servers.newCheck") : t("monitor:servers.editCheck")}
               </h3>
             </header>
             <div className="px-4 py-4">
@@ -192,7 +192,13 @@ function CheckRowActions({
   const deletion = useMutation({
     mutationFn: () => deleteServerCheck(serverId, check.id),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: serverKeys.checks(serverId) });
+      // Anche lista/dettaglio: i conteggi checksUp/checksDown (ServerCard e
+      // dettaglio) restano stantii senza questa invalidazione.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: serverKeys.checks(serverId) }),
+        queryClient.invalidateQueries({ queryKey: serverKeys.lists() }),
+        queryClient.invalidateQueries({ queryKey: serverKeys.details() }),
+      ]);
     },
   });
 

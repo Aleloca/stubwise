@@ -164,6 +164,7 @@
       "keyStepVerifyBody": "The server turns online within about a minute of the first push. Follow the agent logs:",
       "keyFullGuide": "Full guide & Docker install for all distros →",
       "newCheck": "New check",
+      "editCheck": "Edit check",
       "checkName": "Name",
       "checkType": "Type",
       "checkInterval": "Interval (s)",

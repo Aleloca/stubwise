@@ -164,6 +164,7 @@
       "keyStepVerifyBody": "Il server passa a online entro circa un minuto dal primo invio. Segui i log dell'agente:",
       "keyFullGuide": "Guida completa e installazione Docker per tutte le distro →",
       "newCheck": "Nuovo check",
+      "editCheck": "Modifica check",
       "checkName": "Nome",
       "checkType": "Tipo",
       "checkInterval": "Intervallo (s)",

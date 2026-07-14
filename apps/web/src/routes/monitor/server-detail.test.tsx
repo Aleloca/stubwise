@@ -482,9 +482,11 @@ describe("dettaglio server — gestione (admin vs member)", () => {
     renderApp("/monitor/servers/s-1");
     await screen.findByRole("heading", { name: "Web One" });
 
-    // Nessun editor check né pannello impostazioni server.
+    // Nessun editor check, pannello impostazioni server né soglie (config, non
+    // dato osservabile: il submit updateServer è admin-only).
     expect(screen.queryByRole("button", { name: "New check" })).not.toBeInTheDocument();
     expect(screen.queryByText("Server settings")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save thresholds" })).not.toBeInTheDocument();
     // La riga check non espone azioni di modifica/elimina.
     const row = screen.getByText("API health").closest("tr")!;
     expect(within(row).queryByRole("button", { name: "Edit" })).not.toBeInTheDocument();
