@@ -150,4 +150,23 @@ describe("dettaglio progetto — sezione Server", () => {
     // La query è comunque partita filtrata per progetto.
     expect(serversRequestUrl).toBe(`/api/servers?projectId=${PROJECT_ID}`);
   });
+
+  it("errore di caricamento server: messaggio inline, la pagina progetto NON crasha", async () => {
+    mockApi({
+      "GET /api/servers": () => jsonResponse(500, { error: "boom" }),
+    });
+
+    renderApp(`/projects/${PROJECT_ID}`);
+
+    // La sezione degrada con un messaggio inline (nessun RouteError globale).
+    expect(
+      await screen.findByText("// could not load the servers for this project"),
+    ).toBeInTheDocument();
+    // Il resto della pagina progetto resta renderizzato: l'header col nome del
+    // gruppo e la sezione impostazioni (label "Name") sono ancora presenti.
+    expect(screen.getByRole("heading", { level: 1, name: "Acme Platform" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Name")).toBeInTheDocument();
+    // Nessuna chiave i18n grezza a schermo.
+    expect(document.body.textContent ?? "").not.toMatch(/projects:|monitor:/);
+  });
 });

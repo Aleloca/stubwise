@@ -881,6 +881,8 @@
       "noRepositoriesHintMember": "Chiedi a un amministratore di collegare un repository.",
       "servers": "Server",
       "manageServers": "Gestisci nelle impostazioni",
+      "serversLoading": "// caricamento server…",
+      "serversError": "// impossibile caricare i server di questo progetto",
       "noServers": "// nessun server",
       "noServersHint": "Questo progetto non ha ancora server monitorati.",
       "dangerZone": "Zona pericolosa",

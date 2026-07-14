@@ -881,6 +881,8 @@
       "noRepositoriesHintMember": "Ask an administrator to link a repository.",
       "servers": "Servers",
       "manageServers": "Manage in settings",
+      "serversLoading": "// loading servers…",
+      "serversError": "// could not load the servers for this project",
       "noServers": "// no servers",
       "noServersHint": "This project has no monitored servers yet.",
       "dangerZone": "Danger zone",

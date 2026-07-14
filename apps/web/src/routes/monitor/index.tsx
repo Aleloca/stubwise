@@ -5,7 +5,7 @@ import { ServerCard } from "../../components/server-card";
 
 /**
  * Sezione Monitor: griglia di tutti i server monitorati, ognuno una
- * {@link ServerCard} (riusata dal tab Server di progetto). La query è live
+ * {@link ServerCard} (riusata dalla sezione Server del dettaglio progetto). La query è live
  * (`refetchInterval` 30s): stato, heartbeat e CPU si aggiornano da soli.
  * Stato vuoto con rimando alle impostazioni per registrare il primo server.
  */

@@ -223,11 +223,6 @@ const projectDetailRoute = createRoute({
       projectQueryOptions(params.projectId),
     );
     await context.queryClient.ensureQueryData(milestonesQueryOptions(project.id));
-    // Server associati al progetto (sezione "Server"): prefetch best-effort, la
-    // sezione usa useSuspenseQuery e non deve attendere; un errore non blocca.
-    await context.queryClient
-      .ensureQueryData(serversQueryOptions(project.id))
-      .catch(() => undefined);
   },
   component: ProjectDetailPage,
 });
