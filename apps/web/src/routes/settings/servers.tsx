@@ -52,7 +52,7 @@ function dockerRunCommand(key: string): string {
     "  -v /proc:/host/proc:ro -v /sys:/host/sys:ro -v /:/host/root:ro \\",
     "  -v /var/run/docker.sock:/var/run/docker.sock:ro \\",
     `  -e STUBWISE_URL=${origin} -e STUBWISE_SERVER_KEY=${key} \\`,
-    "  stubwise/agent",
+    "  alelocadev/stubwise-agent",
   ].join("\n");
 }
 

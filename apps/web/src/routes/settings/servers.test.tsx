@@ -175,6 +175,8 @@ describe("SettingsServersPage — registrazione", () => {
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText(/sk_secret_key_value/)).toBeInTheDocument();
     expect(within(dialog).getByText(/docker run -d --name stubwise-agent/)).toBeInTheDocument();
+    // L'immagine pubblicata su Docker Hub (pull senza clonare il repo).
+    expect(within(dialog).getByText(/alelocadev\/stubwise-agent/)).toBeInTheDocument();
     expect(within(dialog).getByText(/STUBWISE_SERVER_KEY=sk_secret_key_value/)).toBeInTheDocument();
     // Avviso "mostrata una sola volta".
     expect(within(dialog).getByText(/shown only once/i)).toBeInTheDocument();

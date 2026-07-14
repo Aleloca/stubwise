@@ -52,7 +52,7 @@ docker run -d --name stubwise-agent --restart unless-stopped \
   -v /proc:/host/proc:ro -v /sys:/host/sys:ro -v /:/host/root:ro \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
   -e STUBWISE_URL=https://... -e STUBWISE_SERVER_KEY=sk_... \
-  stubwise/agent
+  alelocadev/stubwise-agent
 ```
 
 Il `--group-add` con il gid del socket è necessario: il container gira come
@@ -174,6 +174,7 @@ tabella eventi dedicata).
 
 - Nuove env: nessuna obbligatoria (soglie default in codice).
 - Al deploy: ribuildare `server`, `worker`, `caddy` (SPA) e pubblicare
-  l'immagine `stubwise/agent` (build dal monorepo, `Dockerfile.agent`).
+  l'immagine `alelocadev/stubwise-agent` (Docker Hub pubblico, multi-arch
+  amd64+arm64 via `docker buildx ... --push`; build dal monorepo con `Dockerfile.agent`).
 - Migrazione DB: sole tabelle nuove, nessun enum riusato nel batch (niente
   trappola migratore). Backup DB prima del deploy come da prassi.

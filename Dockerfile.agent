@@ -5,14 +5,17 @@
 # runtime non ha bisogno né di node_modules né di pnpm. Stesso schema multi-stage
 # del worker, ma molto più piccolo.
 #
-# Build:  docker build -f Dockerfile.agent -t stubwise/agent .
-# Run:    docker run -d --restart unless-stopped \
+# Pubblicazione (multi-arch amd64+arm64) su Docker Hub:
+#   docker buildx build --platform linux/amd64,linux/arm64 \
+#     -f Dockerfile.agent -t alelocadev/stubwise-agent:latest --push .
+# Run (sull'host da monitorare, immagine pullata da Docker Hub, niente repo da clonare):
+#           docker run -d --restart unless-stopped \
 #           --group-add "$(stat -c %g /var/run/docker.sock)" \
 #           -e STUBWISE_URL=https://stubwise.example.com \
 #           -e STUBWISE_SERVER_KEY=sk_... \
 #           -v /proc:/host/proc:ro -v /:/host/root:ro \
 #           -v /var/run/docker.sock:/var/run/docker.sock:ro \
-#           stubwise/agent
+#           alelocadev/stubwise-agent
 #
 # Il --group-add è NECESSARIO: il runtime gira come UID 10001 non-root e senza
 # il gid del socket Docker la connect() fallisce con EACCES → l'agente riporta
