@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 
@@ -38,11 +38,18 @@ export interface UPlotChartProps {
  * Wrapper React su uPlot: crea l'istanza in un `useLayoutEffect` e la
  * distrugge sempre in cleanup (nessun leak al remount/unmount). Il resize NON
  * ricrea il grafico: un `ResizeObserver` separato chiama `plot.setSize()`
- * sull'istanza corrente. La ricreazione avviene solo quando cambiano dati/
- * serie/opzioni — il chiamante memoizza gli input così succede solo a un vero
- * cambio (refetch al minuto), non a ogni render. La legenda uPlot resta attiva
- * (default): label delle serie + valori al cursore, indispensabile nei pannelli
- * multi-serie; eredita font e colore dal container.
+ * sull'istanza corrente.
+ *
+ * I NUOVI DATI (refetch: nuovo campione) NON ricreano il grafico — vengono
+ * applicati in-place con `plot.setData()`. La ricreazione avviene solo a un
+ * cambio STRUTTURALE (serie/scala/range/altezza), riassunto da `structKey`.
+ * Senza questa separazione il chiamante — che ricalcola `data` E `series` a
+ * ogni refetch — farebbe distruggere/ricreare l'istanza a ogni ping, e il
+ * canvas svuotato per un frame apparirebbe come uno sfarfallio.
+ *
+ * La legenda uPlot resta attiva (default): label delle serie + valori al
+ * cursore, indispensabile nei pannelli multi-serie; eredita font e colore dal
+ * container.
  *
  * Nei test happy-dom il modulo `uplot` è mockato (`vi.mock("uplot")`): qui si
  * verifica solo che mount/unmount non lancino.
@@ -58,6 +65,22 @@ export function UPlotChart({
 }: UPlotChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const plotRef = useRef<uPlot | null>(null);
+  // Dati correnti letti alla creazione senza entrare nelle deps dell'effetto:
+  // gli aggiornamenti passano da `setData` (effetto dedicato sotto).
+  const dataRef = useRef(data);
+  dataRef.current = data;
+
+  // Firma della sola STRUTTURA del grafico (serie, range, asse destro, altezza,
+  // formattatore). Cambia a un vero cambio di configurazione, non quando arriva
+  // un nuovo campione (i valori vivono in `data`, fuori da qui). Le funzioni si
+  // normalizzano perché contano per identità di struttura, non di riferimento.
+  const structKey = useMemo(
+    () =>
+      JSON.stringify({ series, yRange, rightAxis, height, yValues }, (_k, v) =>
+        typeof v === "function" ? "fn" : v,
+      ),
+    [series, yRange, rightAxis, height, yValues],
+  );
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -106,13 +129,23 @@ export function UPlotChart({
       cursor: { points: { size: 4 } },
       padding: [10, 8, 0, 4],
     };
-    const plot = new uPlot(opts, data, el);
+    const plot = new uPlot(opts, dataRef.current, el);
     plotRef.current = plot;
     return () => {
       plot.destroy();
       plotRef.current = null;
     };
-  }, [data, series, height, yValues, yRange, rightAxis]);
+    // Ricrea solo a cambio strutturale: `structKey` riassume series/yRange/
+    // rightAxis/height/yValues; i dati correnti si leggono da `dataRef` e gli
+    // aggiornamenti passano dall'effetto `setData` sotto.
+  }, [structKey]);
+
+  // Nuovi dati (refetch) applicati in-place: nessuna ricreazione, niente
+  // sfarfallio. Un cambio strutturale ricrea già l'istanza sopra con i dati
+  // aggiornati (via dataRef), quindi questo setData è al più ridondante.
+  useLayoutEffect(() => {
+    plotRef.current?.setData(data);
+  }, [data]);
 
   // Resize: segue la larghezza del container con `setSize()` sull'istanza viva
   // (niente destroy/recreate). `ResizeObserver` può mancare (happy-dom): in quel
