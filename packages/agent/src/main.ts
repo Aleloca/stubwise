@@ -384,12 +384,14 @@ export function makeCollectSample(
 }
 
 /**
- * The host's hostname. Prefer the host's `/proc/sys/kernel/hostname` (readable
- * when the host `/proc` is mounted into the container) so we report the HOST's
- * name, not the container's; fall back to `os.hostname()`.
+ * The host's hostname. NB: `/proc/sys/kernel/hostname` is UTS-namespaced — the
+ * kernel resolves it against the READER's UTS namespace, so from inside a
+ * container it returns the container id even when the host `/proc` is mounted.
+ * We instead read the host's real `/etc/hostname` (a plain file on the mounted
+ * root `/`, NOT namespaced), falling back to `os.hostname()` if absent/empty.
  */
 export async function resolveHostname(hostRoot: string): Promise<string> {
-  const fromHost = await readText(`${hostRoot}/proc/sys/kernel/hostname`);
+  const fromHost = await readText(`${hostRoot}/root/etc/hostname`);
   const trimmed = fromHost?.trim();
   if (trimmed) return trimmed.slice(0, 255);
   return osHostname().slice(0, 255) || "unknown-host";

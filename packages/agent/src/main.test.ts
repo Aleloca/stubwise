@@ -1,11 +1,41 @@
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { tmpdir, hostname as osHostname } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentCheckConfig, AgentConfig, CheckResult, MetricSample } from "@stubwise/shared";
 
 import type { IngestTransport, SendResult } from "./ingest-client.js";
-import { runAgentLoop } from "./main.js";
+import { runAgentLoop, resolveHostname } from "./main.js";
 
 const silentLog = { info: () => {}, warn: () => {}, error: () => {} };
+
+describe("resolveHostname", () => {
+  let hostRoot: string;
+
+  beforeEach(async () => {
+    hostRoot = await mkdtemp(join(tmpdir(), "agent-host-"));
+  });
+  afterEach(async () => {
+    await rm(hostRoot, { recursive: true, force: true });
+  });
+
+  it("legge l'hostname reale dell'host da /root/etc/hostname (non namespaced)", async () => {
+    await mkdir(join(hostRoot, "root", "etc"), { recursive: true });
+    // /etc/hostname ha tipicamente un newline finale: va trimmato.
+    await writeFile(join(hostRoot, "root", "etc", "hostname"), "wilco-dashboard\n");
+    expect(await resolveHostname(hostRoot)).toBe("wilco-dashboard");
+  });
+
+  it("torna a os.hostname() se /root/etc/hostname è assente o vuoto", async () => {
+    // File assente → fallback.
+    expect(await resolveHostname(hostRoot)).toBe(osHostname());
+    // File vuoto (solo whitespace) → fallback.
+    await mkdir(join(hostRoot, "root", "etc"), { recursive: true });
+    await writeFile(join(hostRoot, "root", "etc", "hostname"), "  \n");
+    expect(await resolveHostname(hostRoot)).toBe(osHostname());
+  });
+});
 
 function validSample(ts = "2026-07-13T10:00:00.000Z"): MetricSample {
   return {

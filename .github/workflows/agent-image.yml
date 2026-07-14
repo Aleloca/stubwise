@@ -56,6 +56,12 @@ jobs:
             type=raw,value=latest
             type=sha,prefix=sha-,format=short
 
+      # Versione dell'agente = commit corto (finisce in ENV AGENT_VERSION e nei
+      # log/`agent_version` in UI, così sai quale build gira su ogni host).
+      - name: Short SHA
+        id: vars
+        run: echo "version=sha-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
       - name: Build e push (amd64 + arm64)
         uses: docker/build-push-action@v6
         with:
@@ -63,6 +69,8 @@ jobs:
           file: Dockerfile.agent
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: |
+            AGENT_VERSION=${{ steps.vars.outputs.version }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           # Cache tra run (build più rapide dopo la prima).
