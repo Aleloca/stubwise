@@ -47,6 +47,86 @@
       "neverConnected": "Nessun dato",
       "agentVersion": "agente {{version}}",
       "noSparkline": "Nessuno storico CPU"
+    },
+    "detail": {
+      "back": "← Monitoraggio",
+      "projects": "Progetti",
+      "noProjects": "Nessun progetto collegato",
+      "lastSeen": "Visto {{time}}",
+      "staleData": "Dati aggiornati a {{time}} — potrebbero essere stantii",
+      "rangeLabel": "Intervallo",
+      "range": {
+        "1h": "1h",
+        "24h": "24h",
+        "7d": "7g",
+        "30d": "30g",
+        "90d": "90g"
+      },
+      "truncated": "Serie tagliata ai {{limit}} punti più recenti",
+      "noData": "// nessun campione in questo intervallo",
+      "loading": "Caricamento metriche…",
+      "charts": {
+        "cpu": "CPU %",
+        "load": "Load 1m",
+        "cpuMax": "CPU % max",
+        "ram": "RAM (GB)",
+        "ramUsed": "Usata",
+        "ramMax": "Usata max",
+        "ramTotalNote": "{{total}} GB totali",
+        "disk": "Disco (GB)",
+        "diskUsed": "Usato",
+        "diskTotalNote": "{{total}} GB totali",
+        "network": "Rete (KB/s)",
+        "rx": "In",
+        "tx": "Out",
+        "latency": "Latenza (ms)",
+        "latencyMax": "Latenza max"
+      },
+      "services": {
+        "title": "Servizi",
+        "empty": "// nessun servizio scoperto",
+        "name": "Nome",
+        "state": "Stato",
+        "cpu": "CPU",
+        "ram": "RAM",
+        "restarts": "{{count}} riavvii"
+      },
+      "disks": {
+        "title": "Dischi",
+        "empty": "// nessun dato disco",
+        "usage": "{{used}} / {{total}} GB"
+      },
+      "checks": {
+        "title": "Check",
+        "empty": "// nessun check configurato",
+        "name": "Nome",
+        "type": "Tipo",
+        "target": "Target",
+        "status": "Stato",
+        "latency": "Latenza",
+        "downSince": "Giù da {{time}}",
+        "encryptedDsn": "DSN cifrato",
+        "selectHint": "Seleziona un check per vederne lo storico latenza",
+        "latencyTitle": "Latenza — {{name}}"
+      },
+      "checkStatus": {
+        "up": "Su",
+        "down": "Giù",
+        "unknown": "Sconosciuto"
+      },
+      "thresholds": {
+        "title": "Soglie di alert",
+        "subtitle": "Scatta un alert quando una metrica resta sopra la soglia per la finestra continua. Lascia vuoto per disattivare.",
+        "cpu": "CPU %",
+        "mem": "Memoria %",
+        "disk": "Disco %",
+        "sustained": "Continuità (min)",
+        "disabledHint": "Vuoto = nessun alert per questa metrica",
+        "save": "Salva soglie",
+        "saving": "Salvataggio…",
+        "saved": "Soglie salvate",
+        "error": "Impossibile salvare le soglie"
+      }
     }
   },
   "errors": {

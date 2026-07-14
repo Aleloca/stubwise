@@ -30,6 +30,7 @@ import {
   projectsQueryOptions,
   repositoriesQueryOptions,
   repositoryQueryOptions,
+  serverDetailQueryOptions,
   serversQueryOptions,
   ticketAttachmentsQueryOptions,
   ticketJobsQueryOptions,
@@ -425,12 +426,18 @@ const monitorRoute = createRoute({
 /**
  * Dettaglio di un server (`/monitor/servers/$serverId`): route DEFINITIVA,
  * allineata ai link emessi dalle notifiche (`${publicUrl}/monitor/servers/${id}`).
- * Il componente è ora un placeholder — E3 lo sostituisce con i grafici uPlot,
- * i servizi e le soglie; la route esiste già così il `Link` della card è tipato.
+ * Grafici uPlot, servizi/check e soglie. Prefetch best-effort del dettaglio
+ * prima del render, così la `useSuspenseQuery` del componente non attende; un
+ * errore non blocca la pagina (la query lo ripropone col retry/refetch). Le
+ * metriche restano nel componente (dipendono dal range in state locale).
  */
 const serverDetailRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/monitor/servers/$serverId",
+  loader: ({ context, params }) =>
+    context.queryClient
+      .ensureQueryData(serverDetailQueryOptions(params.serverId))
+      .catch(() => undefined),
   component: ServerDetailPage,
 });
 

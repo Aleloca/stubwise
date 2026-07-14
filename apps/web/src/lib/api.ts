@@ -1906,6 +1906,7 @@ export type {
   CreateCheckInput,
   DiscoveredService,
   ServerStatus,
+  ServiceSource,
   UpdateCheckInput,
   UpdateServerInput,
 } from "@stubwise/shared";

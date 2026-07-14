@@ -47,6 +47,86 @@
       "neverConnected": "No data yet",
       "agentVersion": "agent {{version}}",
       "noSparkline": "No CPU history"
+    },
+    "detail": {
+      "back": "← Monitoring",
+      "projects": "Projects",
+      "noProjects": "No linked projects",
+      "lastSeen": "Last seen {{time}}",
+      "staleData": "Snapshot as of {{time}} — data may be stale",
+      "rangeLabel": "Range",
+      "range": {
+        "1h": "1h",
+        "24h": "24h",
+        "7d": "7d",
+        "30d": "30d",
+        "90d": "90d"
+      },
+      "truncated": "Series trimmed to the {{limit}} most recent points",
+      "noData": "// no samples in this range",
+      "loading": "Loading metrics…",
+      "charts": {
+        "cpu": "CPU %",
+        "load": "Load 1m",
+        "cpuMax": "CPU % max",
+        "ram": "RAM (GB)",
+        "ramUsed": "Used",
+        "ramMax": "Used max",
+        "ramTotalNote": "{{total}} GB total",
+        "disk": "Disk (GB)",
+        "diskUsed": "Used",
+        "diskTotalNote": "{{total}} GB total",
+        "network": "Network (KB/s)",
+        "rx": "In",
+        "tx": "Out",
+        "latency": "Latency (ms)",
+        "latencyMax": "Latency max"
+      },
+      "services": {
+        "title": "Services",
+        "empty": "// no services discovered",
+        "name": "Name",
+        "state": "State",
+        "cpu": "CPU",
+        "ram": "RAM",
+        "restarts": "{{count}} restarts"
+      },
+      "disks": {
+        "title": "Disks",
+        "empty": "// no disk data",
+        "usage": "{{used}} / {{total}} GB"
+      },
+      "checks": {
+        "title": "Checks",
+        "empty": "// no checks configured",
+        "name": "Name",
+        "type": "Type",
+        "target": "Target",
+        "status": "Status",
+        "latency": "Latency",
+        "downSince": "Down since {{time}}",
+        "encryptedDsn": "encrypted DSN",
+        "selectHint": "Select a check to see its latency history",
+        "latencyTitle": "Latency — {{name}}"
+      },
+      "checkStatus": {
+        "up": "Up",
+        "down": "Down",
+        "unknown": "Unknown"
+      },
+      "thresholds": {
+        "title": "Alert thresholds",
+        "subtitle": "Fire an alert when a metric stays above its threshold for the sustained window. Leave blank to disable.",
+        "cpu": "CPU %",
+        "mem": "Memory %",
+        "disk": "Disk %",
+        "sustained": "Sustained (min)",
+        "disabledHint": "Blank = no alert for this metric",
+        "save": "Save thresholds",
+        "saving": "Saving…",
+        "saved": "Thresholds saved",
+        "error": "Could not save thresholds"
+      }
     }
   },
   "errors": {
