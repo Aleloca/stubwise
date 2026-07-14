@@ -1,6 +1,6 @@
 import { checkTypeSchema, type CheckType } from "@stubwise/shared";
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ApiError,
@@ -27,6 +27,16 @@ import { FormError, SelectField, SubmitButton, TextField } from "../../component
 
 /** I tipi di check DB: per questi il `target` è una connection string cifrata. */
 const DB_CHECK_TYPES: ReadonlySet<CheckType> = new Set<CheckType>(["postgres", "mysql"]);
+
+/**
+ * Parsea un intervallo in secondi dall'input; null se non è un intero nel range
+ * [min, max]. Niente clamp silenzioso: fuori range → errore inline nel form.
+ */
+function parseIntervalSeconds(raw: string, min: number, max: number): number | null {
+  const n = Math.round(Number(raw.trim()));
+  if (!Number.isFinite(n) || n < min || n > max) return null;
+  return n;
+}
 
 /**
  * Comando `docker run` completo per installare l'agente su un host monitorato.
@@ -175,33 +185,66 @@ function NewServerForm({
 /**
  * Dialog con il comando `docker run` completo di chiave. La chiave è visibile
  * SOLO qui, una volta: un avviso lo ricorda. Bottone per copiare l'intero
- * comando negli appunti.
+ * comando negli appunti; senza Clipboard API (contesto non sicuro, tipico
+ * self-hosted su http) NIENTE falso "Copiato": si seleziona il comando e si
+ * invita a copiarlo a mano. Il dialog NON si chiude cliccando il backdrop
+ * (gesto facile da sbagliare su un dato irreversibile): solo Escape o Chiudi.
  */
 function KeyDialog({ server, onClose }: { server: ServerWithKey; onClose: () => void }) {
   const { t } = useTranslation();
   const command = dockerRunCommand(server.key);
   const [copied, setCopied] = useState(false);
+  const [manualHint, setManualHint] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const preRef = useRef<HTMLPreElement>(null);
+
+  // Focus iniziale sul dialog: Escape funziona subito e il focus non resta
+  // dietro l'overlay.
+  useEffect(() => {
+    dialogRef.current?.focus();
+  }, []);
+
+  /** Seleziona il testo del comando (fallback quando la copia automatica manca). */
+  function selectCommand() {
+    const node = preRef.current;
+    const selection = window.getSelection();
+    if (!node || !selection) return;
+    const range = document.createRange();
+    range.selectNodeContents(node);
+    selection.removeAllRanges();
+    selection.addRange(range);
+  }
 
   async function copy() {
+    // Clipboard API assente: writeText su undefined non lancerebbe con
+    // l'optional chaining e "Copiato" mentirebbe su una chiave one-shot.
+    if (!navigator.clipboard) {
+      selectCommand();
+      setManualHint(true);
+      return;
+    }
     try {
-      await navigator.clipboard?.writeText(command);
+      await navigator.clipboard.writeText(command);
       setCopied(true);
     } catch {
-      // Clipboard non disponibile (contesto non sicuro): l'utente copia a mano.
+      // writeText rifiutata (permessi): stesso fallback manuale.
+      selectCommand();
+      setManualHint(true);
     }
   }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={t("settings:servers.keyTitle")}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/80 p-4"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/80 p-4">
       <div
-        className="w-full max-w-2xl rounded-sm border border-line bg-ink-900 shadow-xl"
-        onClick={(event) => event.stopPropagation()}
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("settings:servers.keyTitle")}
+        tabIndex={-1}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onClose();
+        }}
+        className="w-full max-w-2xl rounded-sm border border-line bg-ink-900 shadow-xl focus:outline-none"
       >
         <header className="border-b border-line px-4 py-3">
           <h3 className="font-mono text-[12px] font-medium tracking-[0.14em] text-fg uppercase">
@@ -213,12 +256,20 @@ function KeyDialog({ server, onClose }: { server: ServerWithKey; onClose: () => 
         </header>
 
         <div className="space-y-3 px-4 py-4">
-          <pre className="overflow-x-auto rounded-sm border border-line-strong bg-ink-950/70 px-3 py-3 font-mono text-[12px] leading-relaxed whitespace-pre text-fg">
+          <pre
+            ref={preRef}
+            className="overflow-x-auto rounded-sm border border-line-strong bg-ink-950/70 px-3 py-3 font-mono text-[12px] leading-relaxed whitespace-pre text-fg"
+          >
             {command}
           </pre>
           <p role="alert" className="font-mono text-[12px] text-signal">
             {t("settings:servers.keyWarning")}
           </p>
+          {manualHint && (
+            <p role="status" className="font-mono text-[12px] text-fg-muted">
+              {t("settings:servers.copyManualHint")}
+            </p>
+          )}
         </div>
 
         <footer className="flex flex-wrap items-center gap-3 border-t border-line px-4 py-3">
@@ -353,16 +404,14 @@ function ServerRow({
           {t("settings:servers.deleteWarning")}
         </p>
       )}
-      {deletion.isError && (
-        <p role="alert" className="mt-2 font-mono text-[12px] text-danger">
-          {deletion.error instanceof Error ? deletion.error.message : ""}
-        </p>
-      )}
-      {regeneration.isError && (
-        <p role="alert" className="mt-2 font-mono text-[12px] text-danger">
-          {regeneration.error instanceof Error ? regeneration.error.message : ""}
-        </p>
-      )}
+      <div className="mt-2 empty:hidden">
+        <FormError
+          message={deletion.error instanceof Error ? deletion.error.message : null}
+        />
+        <FormError
+          message={regeneration.error instanceof Error ? regeneration.error.message : null}
+        />
+      </div>
 
       {editing && (
         <div className="mt-3 rounded-sm border border-line bg-ink-950/40 p-4">
@@ -395,15 +444,19 @@ function EditServerForm({
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  // Snapshot dei valori correnti all'apertura, SENZA sync col refetch (le righe
+  // sono keyate per server.id e il form monta on-demand): intenzionale, il
+  // refetch periodico a 30s non deve sovrascrivere ciò che l'utente sta digitando.
   const [name, setName] = useState(server.name);
   const [interval, setInterval] = useState(String(server.sampleIntervalSeconds));
   const [projectIds, setProjectIds] = useState<string[]>(server.projects.map((p) => p.id));
+  const [intervalError, setIntervalError] = useState<string | null>(null);
 
   const mutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (sampleIntervalSeconds: number) =>
       updateServer(server.id, {
         name: name.trim(),
-        sampleIntervalSeconds: Math.min(300, Math.max(10, Math.round(Number(interval)) || 30)),
+        sampleIntervalSeconds,
         projectIds,
       }),
     onSuccess: async () => {
@@ -420,7 +473,14 @@ function EditServerForm({
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    mutation.mutate();
+    if (name.trim() === "") return;
+    const parsed = parseIntervalSeconds(interval, 10, 300);
+    if (parsed === null) {
+      setIntervalError(t("settings:servers.intervalRange", { min: 10, max: 300 }));
+      return;
+    }
+    setIntervalError(null);
+    mutation.mutate(parsed);
   }
 
   return (
@@ -439,7 +499,10 @@ function EditServerForm({
         min={10}
         max={300}
         value={interval}
-        onChange={(event) => setInterval(event.target.value)}
+        onChange={(event) => {
+          setInterval(event.target.value);
+          setIntervalError(null);
+        }}
       />
 
       <fieldset className="rounded-sm border border-line bg-ink-950/40 p-4">
@@ -468,9 +531,11 @@ function EditServerForm({
         )}
       </fieldset>
 
-      <FormError message={mutation.error instanceof Error ? mutation.error.message : null} />
+      <FormError
+        message={intervalError ?? (mutation.error instanceof Error ? mutation.error.message : null)}
+      />
       <div className="flex flex-wrap items-center gap-3">
-        <SubmitButton pending={mutation.isPending}>
+        <SubmitButton pending={mutation.isPending} disabled={name.trim() === ""}>
           {mutation.isPending ? t("settings:servers.saving") : t("settings:servers.save")}
         </SubmitButton>
         <button
@@ -610,12 +675,13 @@ function CheckForm({
   const [interval, setInterval] = useState(String(check?.intervalSeconds ?? 60));
   const [enabled, setEnabled] = useState(check?.enabled ?? true);
 
+  const [intervalError, setIntervalError] = useState<string | null>(null);
+
   const isDb = DB_CHECK_TYPES.has(type);
   const typeChanged = isEdit && check.type !== type;
 
   const mutation = useMutation({
-    mutationFn: () => {
-      const intervalSeconds = Math.min(3600, Math.max(10, Math.round(Number(interval)) || 60));
+    mutationFn: (intervalSeconds: number) => {
       const trimmedTarget = target.trim();
       if (isEdit) {
         // Patch: `target` inviato solo se valorizzato (vuoto = invariato, DSN incluso).
@@ -644,16 +710,23 @@ function CheckForm({
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    mutation.mutate();
+    const parsed = parseIntervalSeconds(interval, 10, 3600);
+    if (parsed === null) {
+      setIntervalError(t("settings:servers.intervalRange", { min: 10, max: 3600 }));
+      return;
+    }
+    setIntervalError(null);
+    mutation.mutate(parsed);
   }
 
   // Messaggio d'errore: traduce il codice noto del cambio tipo senza target.
   const errorMessage =
-    mutation.error instanceof ApiError && mutation.error.code === "target_required_for_type_change"
+    intervalError ??
+    (mutation.error instanceof ApiError && mutation.error.code === "target_required_for_type_change"
       ? t("settings:servers.targetRequiredForTypeChange")
       : mutation.error instanceof Error
         ? mutation.error.message
-        : null;
+        : null);
 
   const targetLabelKey = isDb
     ? "settings:servers.targetLabel.db"
@@ -665,7 +738,7 @@ function CheckForm({
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3" noValidate>
       <SelectField
-        id={`check-type-${check?.id ?? "new"}`}
+        id={`check-type-${serverId}-${check?.id ?? "new"}`}
         label={t("settings:servers.checkType")}
         value={type}
         onChange={(event) => setType(event.target.value as CheckType)}
@@ -675,7 +748,7 @@ function CheckForm({
         }))}
       />
       <TextField
-        id={`check-name-${check?.id ?? "new"}`}
+        id={`check-name-${serverId}-${check?.id ?? "new"}`}
         label={t("settings:servers.checkName")}
         required
         value={name}
@@ -683,7 +756,7 @@ function CheckForm({
       />
       <div className="flex flex-col gap-1.5">
         <TextField
-          id={`check-target-${check?.id ?? "new"}`}
+          id={`check-target-${serverId}-${check?.id ?? "new"}`}
           label={t(targetLabelKey)}
           required={!isEdit}
           value={target}
@@ -702,13 +775,16 @@ function CheckForm({
         )}
       </div>
       <TextField
-        id={`check-interval-${check?.id ?? "new"}`}
+        id={`check-interval-${serverId}-${check?.id ?? "new"}`}
         label={t("settings:servers.checkInterval")}
         type="number"
         min={10}
         max={3600}
         value={interval}
-        onChange={(event) => setInterval(event.target.value)}
+        onChange={(event) => {
+          setInterval(event.target.value);
+          setIntervalError(null);
+        }}
       />
       <label className="flex items-center gap-2 font-mono text-[12px] text-fg-muted">
         <input

@@ -182,6 +182,35 @@ describe("SettingsServersPage — registrazione", () => {
     await waitFor(() => expect(postBody).toEqual({ name: "web-prod-01" }));
   });
 
+  it("senza Clipboard API niente falso 'Copiato': hint di copia manuale", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      "GET /api/servers": () => jsonResponse(200, []),
+      "GET /api/projects": () => jsonResponse(200, []),
+      "POST /api/servers": () => jsonResponse(201, makeServerWithKey()),
+    });
+
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "New server" }));
+    await user.type(screen.getByLabelText("Name"), "web-prod-01");
+    await user.click(screen.getByRole("button", { name: "Register server" }));
+
+    const dialog = await screen.findByRole("dialog");
+
+    // Contesto non sicuro (http self-hosted): navigator.clipboard è undefined.
+    const original = navigator.clipboard;
+    Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+    try {
+      await user.click(within(dialog).getByRole("button", { name: "Copy command" }));
+      // MAI "Copied" senza copia realmente avvenuta: hint manuale al suo posto.
+      expect(within(dialog).getByText(/copy it manually/i)).toBeInTheDocument();
+      expect(within(dialog).queryByText("Copied")).not.toBeInTheDocument();
+    } finally {
+      Object.defineProperty(navigator, "clipboard", { value: original, configurable: true });
+    }
+  });
+
   it("la rigenerazione chiave mostra di nuovo il comando con la nuova chiave", async () => {
     const user = userEvent.setup();
     mockApi({
@@ -242,6 +271,116 @@ describe("SettingsServersPage — editor check", () => {
         target: "postgres://u:p@localhost:5432/app",
         intervalSeconds: 60,
         enabled: true,
+      }),
+    );
+  });
+
+  it("edit di un check DB con target vuoto → il PUT OMETTE target (DSN invariato)", async () => {
+    const user = userEvent.setup();
+    const dbCheck = makeCheck({ type: "postgres", hasDsn: true, target: "", name: "Primary DB" });
+    let putBody: unknown;
+    mockApi({
+      "GET /api/servers": () => jsonResponse(200, [makeServer()]),
+      "GET /api/projects": () => jsonResponse(200, []),
+      "GET /api/servers/11111111-1111-4111-8111-111111111111/checks": () =>
+        jsonResponse(200, [dbCheck]),
+      [`PUT /api/servers/11111111-1111-4111-8111-111111111111/checks/${dbCheck.id}`]: (
+        _url,
+        init,
+      ) => {
+        putBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, dbCheck);
+      },
+    });
+
+    renderPage();
+
+    const row = (await screen.findByText("web-prod-01")).closest("li") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: "Checks" }));
+    const checkItem = (await within(row).findByText("Primary DB")).closest("li") as HTMLElement;
+    await user.click(within(checkItem).getByRole("button", { name: "Edit" }));
+
+    // Il campo DSN parte vuoto con la nota "lascia vuoto per mantenere".
+    expect(within(checkItem).getByLabelText("Connection string (DSN)")).toHaveValue("");
+    expect(within(checkItem).getByText(/leave empty to keep/i)).toBeInTheDocument();
+
+    await user.click(within(checkItem).getByRole("button", { name: "Save check" }));
+
+    // Contratto PUT: target ASSENTE = DSN invariato.
+    await waitFor(() =>
+      expect(putBody).toEqual({
+        type: "postgres",
+        name: "Primary DB",
+        intervalSeconds: 60,
+        enabled: true,
+      }),
+    );
+    expect(putBody).not.toHaveProperty("target");
+  });
+});
+
+describe("SettingsServersPage — eliminazione server", () => {
+  it("cancel non chiama la DELETE; conferma sì", async () => {
+    const user = userEvent.setup();
+    let deleteCalls = 0;
+    mockApi({
+      "GET /api/servers": () => jsonResponse(200, [makeServer()]),
+      "GET /api/projects": () => jsonResponse(200, []),
+      "DELETE /api/servers/11111111-1111-4111-8111-111111111111": () => {
+        deleteCalls += 1;
+        return jsonResponse(204, null);
+      },
+    });
+
+    renderPage();
+
+    const row = (await screen.findByText("web-prod-01")).closest("li") as HTMLElement;
+
+    // Cancel: l'avviso compare ma nessuna DELETE parte.
+    await user.click(within(row).getByRole("button", { name: "Delete" }));
+    expect(within(row).getByText(/permanently deleted/i)).toBeInTheDocument();
+    await user.click(within(row).getByRole("button", { name: "Cancel" }));
+    expect(deleteCalls).toBe(0);
+
+    // Conferma: DELETE chiamata una volta.
+    await user.click(within(row).getByRole("button", { name: "Delete" }));
+    await user.click(within(row).getByRole("button", { name: "Confirm" }));
+    await waitFor(() => expect(deleteCalls).toBe(1));
+  });
+});
+
+describe("SettingsServersPage — modifica server", () => {
+  it("il PATCH include i projectIds selezionati", async () => {
+    const user = userEvent.setup();
+    const beta = makeProject({
+      id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      name: "Beta",
+      slug: "beta",
+    });
+    let patchBody: unknown;
+    mockApi({
+      "GET /api/servers": () => jsonResponse(200, [makeServer()]),
+      "GET /api/projects": () => jsonResponse(200, [makeProject(), beta]),
+      "PATCH /api/servers/11111111-1111-4111-8111-111111111111": (_url, init) => {
+        patchBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, makeServer());
+      },
+    });
+
+    renderPage();
+
+    const row = (await screen.findByText("web-prod-01")).closest("li") as HTMLElement;
+    await user.click(within(row).getByRole("button", { name: "Edit" }));
+
+    // Seleziona il progetto "Beta" nel multi-select a checkbox.
+    await user.click(within(row).getByRole("checkbox", { name: "Beta" }));
+    await user.click(within(row).getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(patchBody).toEqual({
+        name: "web-prod-01",
+        sampleIntervalSeconds: 30,
+        projectIds: ["bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"],
       }),
     );
   });
