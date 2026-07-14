@@ -24,6 +24,24 @@ function formatValue(value: number | null | undefined, fmt?: (v: number) => stri
   return fmt ? fmt(value) : String(value);
 }
 
+/**
+ * Ultimo valore FINITO di una serie a partire da `fromIdx` andando all'indietro
+ * (`null` a riposo → walk-back). Serve alla legenda a cursore inattivo: una serie
+ * con coda di `null` — es. latenza di un check giù o bucket vuoto — deve mostrare
+ * l'ultima misura reale, non `--`. `null` se la serie è tutta vuota.
+ */
+function lastFiniteValue(
+  values: (number | null)[] | undefined,
+  fromIdx: number,
+): number | null {
+  if (!values) return null;
+  for (let i = Math.min(fromIdx, values.length - 1); i >= 0; i--) {
+    const v = values[i];
+    if (v != null && Number.isFinite(v)) return v;
+  }
+  return null;
+}
+
 /** Asse y secondario (destro) su una scala dedicata (es. load accanto a CPU%). */
 export interface UPlotRightAxis {
   /** Chiave della scala uPlot; le serie che la usano dichiarano `scale` uguale. */
@@ -186,12 +204,16 @@ export function UPlotChart({
     return () => ro.disconnect();
   }, [height]);
 
-  // Indice da mostrare: quello del cursore durante l'hover, l'ultimo campione a
-  // riposo. Ricalcolato a ogni render → segue sia i nuovi `data` sia il cursore.
+  // Regime della legenda: `hoverIdx` è l'indice sotto il cursore (o `null` a
+  // riposo). Il timestamp segue quell'indice durante l'hover e cade sull'ultimo
+  // punto a riposo. Ricalcolato a ogni render → segue sia i nuovi `data` sia il
+  // cursore.
   const xs = data[0] ?? [];
   const lastIdx = xs.length - 1;
-  const idx = cursorIdx != null && cursorIdx >= 0 && cursorIdx < xs.length ? cursorIdx : lastIdx;
-  const xValue = idx >= 0 ? (xs[idx] as number | undefined) : undefined;
+  const hoverIdx =
+    cursorIdx != null && cursorIdx >= 0 && cursorIdx < xs.length ? cursorIdx : null;
+  const xIdx = hoverIdx ?? lastIdx;
+  const xValue = xIdx >= 0 ? (xs[xIdx] as number | undefined) : undefined;
 
   return (
     <div className="w-full">
@@ -203,11 +225,18 @@ export function UPlotChart({
           </span>
           {series.slice(1).map((s, i) => {
             // `series.slice(1)` salta la serie x: la colonna dati corrispondente
-            // è `data[i + 1]`. Il load vive sulla scala destra → formattatore suo.
+            // è `data[i + 1]`.
             const values = data[i + 1] as (number | null)[] | undefined;
-            const value = idx >= 0 ? values?.[idx] : undefined;
+            // Hover: il valore ESATTO sotto il cursore (null → "--": l'utente sta
+            // guardando quel punto). Riposo: l'ultimo valore REALE della serie
+            // (walk-back), non il valore a `lastIdx` che può essere `null`.
+            const value =
+              hoverIdx != null ? values?.[hoverIdx] : lastFiniteValue(values, lastIdx);
+            // Il load vive sulla scala destra → formattatore suo; fallback a
+            // `yValues` se l'asse destro non ne ha uno.
             const fmt =
-              rightAxis && s.scale === rightAxis.scale ? rightAxis.values : yValues;
+              (rightAxis && s.scale === rightAxis.scale ? rightAxis.values : yValues) ??
+              yValues;
             const stroke = typeof s.stroke === "string" ? s.stroke : undefined;
             // `label` uPlot può essere un HTMLElement: nella legenda usiamo solo
             // le label stringa (le nostre serie lo sono sempre).

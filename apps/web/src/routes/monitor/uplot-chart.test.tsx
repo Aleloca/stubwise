@@ -105,4 +105,37 @@ describe("UPlotChart legenda a valore corrente", () => {
     expect(screen.getByText("30%")).toBeInTheDocument();
     expect(screen.queryByText("--")).not.toBeInTheDocument();
   });
+
+  it("hover su un idx con valore null → quella serie mostra --", () => {
+    render(
+      <UPlotChart data={[[1, 2, 3], [10, null, 30]]} series={[{}, line("cpu", "#f5a623")]} />,
+    );
+    // Il punto centrale è un gap reale: l'utente ci sta sopra → "--" onesto.
+    act(() => lastSetCursorHook()({ cursor: { idx: 1 } }));
+    expect(screen.getByText("--")).toBeInTheDocument();
+    expect(screen.queryByText("30")).not.toBeInTheDocument();
+  });
+
+  it("a riposo con l'ultimo valore null → walk-back all'ultimo valore finito", () => {
+    render(
+      <UPlotChart data={[[1, 2, 3], [10, 20, null]]} series={[{}, line("cpu", "#f5a623")]} />,
+    );
+    // Ultimo campione è null (es. latenza di un check giù): a riposo la legenda
+    // mostra l'ultima misura reale (20), non "--".
+    expect(screen.getByText("20")).toBeInTheDocument();
+    expect(screen.queryByText("--")).not.toBeInTheDocument();
+  });
+
+  it("formattatore per scala: serie sull'asse destro usa rightAxis.values, le altre yValues", () => {
+    render(
+      <UPlotChart
+        data={[[1], [42], [7]]}
+        series={[{}, line("cpu", "#f5a623"), { label: "load", stroke: "#98a1ac", scale: "load" }]}
+        yValues={(v) => `${v}%`}
+        rightAxis={{ scale: "load", values: (v) => `${v}L` }}
+      />,
+    );
+    expect(screen.getByText("42%")).toBeInTheDocument(); // cpu → yValues
+    expect(screen.getByText("7L")).toBeInTheDocument(); // load → rightAxis.values
+  });
 });
