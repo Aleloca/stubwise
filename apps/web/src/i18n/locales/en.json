@@ -17,6 +17,7 @@
       "board": "Board",
       "projects": "Projects",
       "repositories": "Repositories",
+      "monitor": "Monitor",
       "team": "Team",
       "settings": "Settings",
       "docs": "Documentation",
@@ -25,6 +26,28 @@
     },
     "on": "on",
     "off": "off"
+  },
+  "monitor": {
+    "list": {
+      "title": "Monitoring",
+      "subtitle": "Hosts and services reporting to Stubwise via the monitoring agent.",
+      "empty": "// no servers",
+      "emptyHint": "Register a server from Settings → Servers to start collecting metrics."
+    },
+    "status": {
+      "online": "Online",
+      "offline": "Offline",
+      "never_connected": "Never connected"
+    },
+    "card": {
+      "cpu": "CPU",
+      "services": "Services",
+      "servicesUpDown": "{{up}} up / {{down}} down",
+      "lastSeen": "Last seen {{time}}",
+      "neverConnected": "No data yet",
+      "agentVersion": "agent {{version}}",
+      "noSparkline": "No CPU history"
+    }
   },
   "errors": {
     "unauthorized": "Authentication required",

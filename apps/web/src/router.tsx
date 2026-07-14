@@ -30,6 +30,7 @@ import {
   projectsQueryOptions,
   repositoriesQueryOptions,
   repositoryQueryOptions,
+  serversQueryOptions,
   ticketAttachmentsQueryOptions,
   ticketJobsQueryOptions,
   ticketLinksQueryOptions,
@@ -51,6 +52,8 @@ import { DocsBriefView } from "./routes/docs/brief.$projectId";
 import { DocsPage } from "./routes/docs/index";
 import { ProjectDocsLanding } from "./routes/docs/project.$projectId";
 import { LoginPage } from "./routes/login";
+import { MonitorListPage } from "./routes/monitor/index";
+import { ServerDetailPage } from "./routes/monitor/server-detail";
 import { ProjectDetailPage } from "./routes/projects/$projectId";
 import { ProjectsPage } from "./routes/projects/index";
 import {
@@ -406,6 +409,31 @@ const docsPageRoute = createRoute({
   component: DocsPageView,
 });
 
+/**
+ * Sezione Monitor: lista dei server monitorati. Prefetch best-effort della lista
+ * prima del render, così la useSuspenseQuery del componente non attende; un
+ * errore non blocca la pagina (la query lo ripropone col retry/refetch).
+ */
+const monitorRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/monitor",
+  loader: ({ context }) =>
+    context.queryClient.ensureQueryData(serversQueryOptions()).catch(() => undefined),
+  component: MonitorListPage,
+});
+
+/**
+ * Dettaglio di un server (`/monitor/servers/$serverId`): route DEFINITIVA,
+ * allineata ai link emessi dalle notifiche (`${publicUrl}/monitor/servers/${id}`).
+ * Il componente è ora un placeholder — E3 lo sostituisce con i grafici uPlot,
+ * i servizi e le soglie; la route esiste già così il `Link` della card è tipato.
+ */
+const serverDetailRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/monitor/servers/$serverId",
+  component: ServerDetailPage,
+});
+
 const teamRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/team",
@@ -545,6 +573,8 @@ const routeTree = rootRoute.addChildren([
       docsBriefRoute,
       docsPageRoute,
     ]),
+    monitorRoute,
+    serverDetailRoute,
     teamRoute,
     settingsRoute.addChildren([
       settingsIndexRoute,

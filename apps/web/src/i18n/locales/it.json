@@ -17,6 +17,7 @@
       "board": "Bacheca",
       "projects": "Progetti",
       "repositories": "Repository",
+      "monitor": "Monitor",
       "team": "Team",
       "settings": "Impostazioni",
       "docs": "Documentazione",
@@ -25,6 +26,28 @@
     },
     "on": "attivo",
     "off": "disattivato"
+  },
+  "monitor": {
+    "list": {
+      "title": "Monitoraggio",
+      "subtitle": "Host e servizi che riportano a Stubwise tramite l'agente di monitoraggio.",
+      "empty": "// nessun server",
+      "emptyHint": "Registra un server da Impostazioni → Server per iniziare a raccogliere metriche."
+    },
+    "status": {
+      "online": "Online",
+      "offline": "Offline",
+      "never_connected": "Mai connesso"
+    },
+    "card": {
+      "cpu": "CPU",
+      "services": "Servizi",
+      "servicesUpDown": "{{up}} su / {{down}} giù",
+      "lastSeen": "Visto {{time}}",
+      "neverConnected": "Nessun dato",
+      "agentVersion": "agente {{version}}",
+      "noSparkline": "Nessuno storico CPU"
+    }
   },
   "errors": {
     "unauthorized": "Autenticazione richiesta",
