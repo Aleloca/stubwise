@@ -492,6 +492,9 @@ export const serverKeys = {
   details: () => [...serverKeys.all, "detail"] as const,
   detail: (id: string) => [...serverKeys.details(), id] as const,
   checks: (id: string) => [...serverKeys.detail(id), "checks"] as const,
+  // Il range entra nella chiave così com'è: il chiamante deve quantizzare `to`
+  // (es. al minuto) per chiavi cache stabili — un toISOString() per render
+  // creerebbe una entry nuova a ogni render.
   metrics: (id: string, range: ServerMetricsRange) =>
     [...serverKeys.detail(id), "metrics", range] as const,
 };
@@ -527,20 +530,25 @@ export function serverDetailQueryOptions(id: string) {
 /**
  * Check di servizio di un server. Chiave figlia del dettaglio server: ogni
  * create/update/delete di un check la invalida così la lista resta riconciliata.
+ * Dati live come lista/dettaglio (`lastStatus`/`downSince` cambiano da soli):
+ * `refetchInterval` a 30s, coerente col dettaglio affiancato in pagina.
  */
 export function serverChecksQueryOptions(id: string) {
   return queryOptions({
     queryKey: serverKeys.checks(id),
     queryFn: () => listServerChecks(id),
     staleTime: 10_000,
+    refetchInterval: 30_000,
   });
 }
 
 /**
  * Serie temporale delle metriche di un server nel range dato (con eventuale
  * `checkId`). Il range entra nella chiave: ogni finestra/zoom è una query a sé in
- * cache. `staleTime` breve: i dati sono storici ma la coda cresce coi nuovi
- * campioni; il refetch periodico lo gestiscono le query live (lista/dettaglio).
+ * cache — il chiamante deve quantizzare `to` (es. al minuto) per chiavi cache
+ * stabili, un toISOString() per render creerebbe una entry nuova a ogni render.
+ * `staleTime` breve: i dati sono storici ma la coda cresce coi nuovi campioni;
+ * il refetch periodico lo gestiscono le query live (lista/dettaglio).
  */
 export function serverMetricsQueryOptions(id: string, range: ServerMetricsRange) {
   return queryOptions({

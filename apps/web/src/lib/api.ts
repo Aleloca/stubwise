@@ -2042,20 +2042,27 @@ export interface RollupCheckPoint {
 }
 
 /**
- * Serie temporale di un server nel range richiesto. La `resolution` è scelta dal
- * server dall'ampiezza del range (`raw` fino a 48h, `5m` oltre): i punti sono
- * quindi {@link RawMetricPoint} o {@link RollupMetricPoint} in blocco (mai misti),
- * discriminati da `resolution`. `checkPoints` è presente solo se la query passa
- * un `checkId`. `truncated` = una serie ha saturato il tetto di punti e la
- * finestra mostrata è la coda più recente del range. Gemella di
- * `metricsResponseSchema`.
+ * Serie temporale di un server nel range richiesto: UNIONE DISCRIMINATA su
+ * `resolution`, scelta dal server dall'ampiezza del range (`raw` fino a 48h,
+ * `5m` oltre). Un `if (res.resolution === "raw")` restringe in blocco sia
+ * `points` sia `checkPoints` alla forma giusta (mai serie miste). `checkPoints`
+ * è presente solo se la query passa un `checkId`. `truncated` = una serie ha
+ * saturato il tetto di punti e la finestra mostrata è la coda più recente del
+ * range. Gemella di `metricsResponseSchema`.
  */
-export interface ServerMetricsResponse {
-  resolution: "raw" | "5m";
-  truncated: boolean;
-  points: RawMetricPoint[] | RollupMetricPoint[];
-  checkPoints?: RawCheckPoint[] | RollupCheckPoint[];
-}
+export type ServerMetricsResponse =
+  | {
+      resolution: "raw";
+      truncated: boolean;
+      points: RawMetricPoint[];
+      checkPoints?: RawCheckPoint[];
+    }
+  | {
+      resolution: "5m";
+      truncated: boolean;
+      points: RollupMetricPoint[];
+      checkPoints?: RollupCheckPoint[];
+    };
 
 /** Finestra temporale (ISO datetime) di una query metriche, con check opzionale. */
 export interface ServerMetricsRange {
