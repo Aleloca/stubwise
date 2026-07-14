@@ -1,4 +1,4 @@
-import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
+import { infiniteQueryOptions, keepPreviousData, queryOptions } from "@tanstack/react-query";
 import {
   getAutomationSettings,
   getAiUsageCosts,
@@ -549,12 +549,19 @@ export function serverChecksQueryOptions(id: string) {
  * stabili, un toISOString() per render creerebbe una entry nuova a ogni render.
  * `staleTime` breve: i dati sono storici ma la coda cresce coi nuovi campioni;
  * il refetch periodico lo gestiscono le query live (lista/dettaglio).
+ *
+ * `placeholderData: keepPreviousData`: quando la chiave cambia (il `to`
+ * quantizzato avanza al minuto, o si cambia range/checkId) i dati precedenti
+ * restano visibili durante il fetch della nuova finestra, invece di tornare a
+ * `undefined`. Senza, la pagina smonterebbe i pannelli (ramo "loading") a ogni
+ * scatto di minuto → sfarfallio; i grafici si aggiornano poi in-place (setData).
  */
 export function serverMetricsQueryOptions(id: string, range: ServerMetricsRange) {
   return queryOptions({
     queryKey: serverKeys.metrics(id, range),
     queryFn: () => getServerMetrics(id, range),
     staleTime: 10_000,
+    placeholderData: keepPreviousData,
   });
 }
 

@@ -49,7 +49,9 @@ afterEach(() => {
   fetchMock.mockReset();
 });
 
-type Handler = (url: URL, init?: RequestInit) => Response;
+// Un handler può ritornare una Promise pendente (per fotografare lo stato
+// "durante il fetch"); `mockApi` fa comunque `Promise.resolve`.
+type Handler = (url: URL, init?: RequestInit) => Response | Promise<Response>;
 
 function urlOf(input: RequestInfo | URL): URL {
   const raw =
@@ -294,6 +296,43 @@ describe("dettaglio server — Monitor", () => {
       const last = metricsRanges().at(-1);
       expect(last!.to - last!.from).toBe(60 * 60 * 1000);
     });
+  });
+
+  it("cambiando range i grafici restano montati mentre arriva il nuovo dato (niente flicker)", async () => {
+    let metricsCalls = 0;
+    let resolveSecond!: (r: Response) => void;
+    const secondPending = new Promise<Response>((res) => {
+      resolveSecond = res;
+    });
+    mockApi({
+      "GET /api/auth/me": meHandler(),
+      "GET /api/servers/s-1": () => jsonResponse(200, detail()),
+      "GET /api/servers/s-1/checks": () => jsonResponse(200, [check()]),
+      "GET /api/servers/s-1/metrics": () => {
+        metricsCalls += 1;
+        // 1ª query (24h) risolve subito; la 2ª (nuovo range) resta pendente, per
+        // fotografare lo stato "durante il fetch della nuova chiave".
+        return metricsCalls === 1 ? jsonResponse(200, RAW_METRICS) : secondPending;
+      },
+    });
+
+    renderApp("/monitor/servers/s-1");
+    await screen.findByRole("heading", { name: "Web One" });
+    // Grafici montati: il wrapper rende un div role="img" per pannello.
+    await waitFor(() => expect(screen.getAllByRole("img").length).toBeGreaterThan(0));
+    const mounted = screen.getAllByRole("img").length;
+
+    // Cambio range → seconda query metriche, lasciata pendente.
+    fireEvent.click(screen.getByRole("button", { name: "1h" }));
+    await waitFor(() => expect(metricsCalls).toBe(2));
+
+    // REGRESSIONE: senza `placeholderData: keepPreviousData` il `data` della
+    // query diventa undefined durante il fetch → il ternario smonta i pannelli
+    // (sostituiti da "loading") → sfarfallio. Con keepPreviousData i dati
+    // precedenti restano e i grafici non spariscono.
+    expect(screen.queryAllByRole("img")).toHaveLength(mounted);
+
+    resolveSecond(jsonResponse(200, RAW_METRICS));
   });
 
   it("mostra la nota discreta quando la serie è truncated", async () => {
