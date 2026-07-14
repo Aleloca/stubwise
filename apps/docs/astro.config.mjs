@@ -150,6 +150,13 @@ export default defineConfig({
           items: [{ label: "Outgoing webhook", slug: "notifications" }],
         },
         {
+          label: "Server monitoring",
+          items: [
+            { label: "Overview", slug: "monitoring" },
+            { label: "Installing the agent", slug: "monitoring/agent-install" },
+          ],
+        },
+        {
           label: "Reference",
           items: [
             { label: "Environment variables", slug: "reference/configuration" },
