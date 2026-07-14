@@ -1,6 +1,6 @@
 import { checkTypeSchema, type CheckType } from "@stubwise/shared";
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ApiError,
@@ -24,6 +24,7 @@ import {
   serversQueryOptions,
 } from "../../lib/queries";
 import { FormError, SelectField, SubmitButton, TextField } from "../../components/field";
+import { Drawer } from "../../components/drawer";
 
 /** I tipi di check DB: per questi il `target` è una connection string cifrata. */
 const DB_CHECK_TYPES: ReadonlySet<CheckType> = new Set<CheckType>(["postgres", "mysql"]);
@@ -124,7 +125,7 @@ export function SettingsServersPage() {
         </ul>
       )}
 
-      {revealed && <KeyDialog server={revealed} onClose={() => setRevealed(null)} />}
+      {revealed && <KeyPanel server={revealed} onClose={() => setRevealed(null)} />}
     </section>
   );
 }
@@ -183,26 +184,22 @@ function NewServerForm({
 }
 
 /**
- * Dialog con il comando `docker run` completo di chiave. La chiave è visibile
- * SOLO qui, una volta: un avviso lo ricorda. Bottone per copiare l'intero
- * comando negli appunti; senza Clipboard API (contesto non sicuro, tipico
- * self-hosted su http) NIENTE falso "Copiato": si seleziona il comando e si
- * invita a copiarlo a mano. Il dialog NON si chiude cliccando il backdrop
- * (gesto facile da sbagliare su un dato irreversibile): solo Escape o Chiudi.
+ * Sidepanel (a destra) con la guida essenziale d'installazione dell'agente: box
+ * della chiave one-shot col comando `docker run` in cima (visibile SOLO qui, una
+ * volta: un avviso lo ricorda), poi tre step guidati (Docker collassabile, avvio,
+ * verifica) e un link alla guida completa. Bottone per copiare l'intero comando;
+ * senza Clipboard API (contesto non sicuro, tipico self-hosted su http) NIENTE
+ * falso "Copiato": si seleziona il comando e si invita a copiarlo a mano. Il
+ * pannello NON si chiude cliccando il backdrop (gesto facile da sbagliare su un
+ * dato irreversibile): solo Escape o Chiudi (`dismissOnBackdrop={false}`).
  */
-function KeyDialog({ server, onClose }: { server: ServerWithKey; onClose: () => void }) {
+function KeyPanel({ server, onClose }: { server: ServerWithKey; onClose: () => void }) {
   const { t } = useTranslation();
   const command = dockerRunCommand(server.key);
   const [copied, setCopied] = useState(false);
   const [manualHint, setManualHint] = useState(false);
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const [dockerOpen, setDockerOpen] = useState(false);
   const preRef = useRef<HTMLPreElement>(null);
-
-  // Focus iniziale sul dialog: Escape funziona subito e il focus non resta
-  // dietro l'overlay.
-  useEffect(() => {
-    dialogRef.current?.focus();
-  }, []);
 
   /** Seleziona il testo del comando (fallback quando la copia automatica manca). */
   function selectCommand() {
@@ -234,52 +231,116 @@ function KeyDialog({ server, onClose }: { server: ServerWithKey; onClose: () => 
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/80 p-4">
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={t("settings:servers.keyTitle")}
-        tabIndex={-1}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") onClose();
-        }}
-        className="w-full max-w-2xl rounded-sm border border-line bg-ink-900 shadow-xl focus:outline-none"
-      >
+    <Drawer
+      open
+      onClose={onClose}
+      side="right"
+      widthClassName="w-[min(92vw,34rem)]"
+      dismissOnBackdrop={false}
+      aria-label={t("settings:servers.keyPanelHeading", { name: server.name })}
+    >
+      <div className="flex h-full flex-col overflow-y-auto">
         <header className="border-b border-line px-4 py-3">
           <h3 className="font-mono text-[12px] font-medium tracking-[0.14em] text-fg uppercase">
-            {t("settings:servers.keyTitle")}
+            {t("settings:servers.keyPanelHeading", { name: server.name })}
           </h3>
-          <p className="mt-1 font-mono text-[11px] text-fg-faint">
-            {t("settings:servers.keyIntro", { name: server.name })}
-          </p>
         </header>
 
-        <div className="space-y-3 px-4 py-4">
-          <pre
-            ref={preRef}
-            className="overflow-x-auto rounded-sm border border-line-strong bg-ink-950/70 px-3 py-3 font-mono text-[12px] leading-relaxed whitespace-pre text-fg"
-          >
-            {command}
-          </pre>
-          <p role="alert" className="font-mono text-[12px] text-signal">
-            {t("settings:servers.keyWarning")}
-          </p>
-          {manualHint && (
-            <p role="status" className="font-mono text-[12px] text-fg-muted">
-              {t("settings:servers.copyManualHint")}
+        <div className="flex flex-col gap-5 px-4 py-4">
+          {/* Chiave one-shot: comando completo + avviso ambra + copia. */}
+          <div className="space-y-3">
+            <pre
+              ref={preRef}
+              className="overflow-x-auto rounded-sm border border-line-strong bg-ink-950/70 px-3 py-3 font-mono text-[12px] leading-relaxed whitespace-pre text-fg"
+            >
+              {command}
+            </pre>
+            <p role="alert" className="font-mono text-[12px] text-signal">
+              {t("settings:servers.keyWarning")}
             </p>
-          )}
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={copy}
+                className="rounded-sm bg-signal px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright active:bg-signal-dim"
+              >
+                {copied ? t("settings:servers.copied") : t("settings:servers.copy")}
+              </button>
+            </div>
+            {manualHint && (
+              <p role="status" className="font-mono text-[12px] text-fg-muted">
+                {t("settings:servers.copyManualHint")}
+              </p>
+            )}
+          </div>
+
+          {/* Step 1 — Docker (collassabile, chiuso di default). */}
+          <section className="space-y-2">
+            <button
+              type="button"
+              onClick={() => setDockerOpen((value) => !value)}
+              aria-expanded={dockerOpen}
+              className="flex w-full items-center justify-between gap-2 font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase transition-colors hover:text-fg"
+            >
+              <span>{t("settings:servers.keyStepDockerTitle")}</span>
+              <span className="text-fg-faint normal-case">
+                {t("settings:servers.keyStepDockerToggle")} {dockerOpen ? "−" : "+"}
+              </span>
+            </button>
+            {dockerOpen && (
+              <div className="space-y-2 border-l border-line pl-3">
+                <p className="font-mono text-[11px] text-fg-faint">
+                  {t("settings:servers.keyStepDockerVerify")}
+                </p>
+                <pre className="overflow-x-auto rounded-sm border border-line-strong bg-ink-950/70 px-3 py-2 font-mono text-[12px] text-fg">
+                  docker --version
+                </pre>
+                <p className="font-mono text-[11px] text-fg-faint">
+                  {t("settings:servers.keyStepDockerInstall")}
+                </p>
+                <pre className="overflow-x-auto rounded-sm border border-line-strong bg-ink-950/70 px-3 py-2 font-mono text-[12px] text-fg">
+                  curl -fsSL https://get.docker.com | sh
+                </pre>
+                <p className="font-mono text-[11px] text-fg-faint">
+                  {t("settings:servers.keyStepDockerNote")}
+                </p>
+              </div>
+            )}
+          </section>
+
+          {/* Step 2 — Run: spiegazione (il comando è già mostrato sopra). */}
+          <section className="space-y-2">
+            <h4 className="font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase">
+              {t("settings:servers.keyStepRunTitle")}
+            </h4>
+            <p className="font-mono text-[11px] leading-relaxed text-fg-faint">
+              {t("settings:servers.keyStepRunBody")}
+            </p>
+          </section>
+
+          {/* Step 3 — Verify. */}
+          <section className="space-y-2">
+            <h4 className="font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase">
+              {t("settings:servers.keyStepVerifyTitle")}
+            </h4>
+            <p className="font-mono text-[11px] leading-relaxed text-fg-faint">
+              {t("settings:servers.keyStepVerifyBody")}
+            </p>
+            <pre className="overflow-x-auto rounded-sm border border-line-strong bg-ink-950/70 px-3 py-2 font-mono text-[12px] text-fg">
+              docker logs -f stubwise-agent
+            </pre>
+          </section>
+
+          {/* Footer: link alla guida completa (naviga fuori dalla SPA). */}
+          <a
+            href="/guide/monitoring/agent-install/"
+            className="font-mono text-[12px] text-signal underline-offset-2 hover:underline"
+          >
+            {t("settings:servers.keyFullGuide")}
+          </a>
         </div>
 
-        <footer className="flex flex-wrap items-center gap-3 border-t border-line px-4 py-3">
-          <button
-            type="button"
-            onClick={copy}
-            className="rounded-sm bg-signal px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright active:bg-signal-dim"
-          >
-            {copied ? t("settings:servers.copied") : t("settings:servers.copy")}
-          </button>
+        <footer className="mt-auto flex flex-wrap items-center gap-3 border-t border-line px-4 py-3">
           <button
             type="button"
             onClick={onClose}
@@ -289,7 +350,7 @@ function KeyDialog({ server, onClose }: { server: ServerWithKey; onClose: () => 
           </button>
         </footer>
       </div>
-    </div>
+    </Drawer>
   );
 }
 

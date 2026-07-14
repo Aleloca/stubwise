@@ -171,7 +171,7 @@ describe("SettingsServersPage — registrazione", () => {
     await user.type(screen.getByLabelText("Name"), "web-prod-01");
     await user.click(screen.getByRole("button", { name: "Register server" }));
 
-    // Dialog con il comando docker run: contiene la chiave in chiaro e l'URL.
+    // Sidepanel con il comando docker run: contiene la chiave in chiaro e l'URL.
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText(/sk_secret_key_value/)).toBeInTheDocument();
     expect(within(dialog).getByText(/docker run -d --name stubwise-agent/)).toBeInTheDocument();
@@ -180,8 +180,40 @@ describe("SettingsServersPage — registrazione", () => {
     expect(within(dialog).getByText(/STUBWISE_SERVER_KEY=sk_secret_key_value/)).toBeInTheDocument();
     // Avviso "mostrata una sola volta".
     expect(within(dialog).getByText(/shown only once/i)).toBeInTheDocument();
+    // Link alla guida completa: naviga fuori dalla SPA (anchor, non router Link).
+    expect(within(dialog).getByRole("link", { name: /full guide/i })).toHaveAttribute(
+      "href",
+      "/guide/monitoring/agent-install/",
+    );
 
     await waitFor(() => expect(postBody).toEqual({ name: "web-prod-01" }));
+  });
+
+  it("il sidepanel chiude col bottone Close ma NON cliccando il backdrop", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      "GET /api/servers": () => jsonResponse(200, []),
+      "GET /api/projects": () => jsonResponse(200, []),
+      "POST /api/servers": () => jsonResponse(201, makeServerWithKey()),
+    });
+
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "New server" }));
+    await user.type(screen.getByLabelText("Name"), "web-prod-01");
+    await user.click(screen.getByRole("button", { name: "Register server" }));
+
+    await screen.findByRole("dialog");
+
+    // Click sul backdrop: la chiave è irreversibile, il pannello NON deve chiudersi.
+    const backdrop = document.querySelector("[data-drawer-backdrop]");
+    expect(backdrop).not.toBeNull();
+    await user.click(backdrop as HTMLElement);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    // Il bottone Close chiude: la chiave sparisce dal DOM.
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByText(/sk_secret_key_value/)).not.toBeInTheDocument());
   });
 
   it("senza Clipboard API niente falso 'Copiato': hint di copia manuale", async () => {
