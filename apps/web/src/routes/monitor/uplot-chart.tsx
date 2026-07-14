@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 
@@ -10,6 +10,19 @@ const GRID_STROKE = "#1d242d"; // --color-line
 // prima del primo resize, e ambiente di test happy-dom dove clientWidth è 0):
 // così il grafico si crea comunque e il ResizeObserver lo corregge al volo.
 const FALLBACK_WIDTH = 600;
+
+/** Orario locale HH:MM:SS dal timestamp unix (x della legenda). */
+function formatTime(seconds: number): string {
+  const d = new Date(seconds * 1000);
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+/** Valore di serie formattato; `null`/gap → `--` (come faceva la legenda uPlot). */
+function formatValue(value: number | null | undefined, fmt?: (v: number) => string): string {
+  if (value == null || !Number.isFinite(value)) return "--";
+  return fmt ? fmt(value) : String(value);
+}
 
 /** Asse y secondario (destro) su una scala dedicata (es. load accanto a CPU%). */
 export interface UPlotRightAxis {
@@ -47,12 +60,16 @@ export interface UPlotChartProps {
  * ogni refetch — farebbe distruggere/ricreare l'istanza a ogni ping, e il
  * canvas svuotato per un frame apparirebbe come uno sfarfallio.
  *
- * La legenda uPlot resta attiva (default): label delle serie + valori al
- * cursore, indispensabile nei pannelli multi-serie; eredita font e colore dal
- * container.
+ * La legenda uPlot NATIVA è disattivata (`legend.show=false`): la sua riga
+ * resta a `--` quando il cursore è fuori dal grafico. Al suo posto renderizziamo
+ * una legenda React sotto il canvas che mostra, per ogni serie, il valore
+ * all'indice del cursore durante l'hover e l'ULTIMO campione a riposo (mouse
+ * fuori) — mai `--`. L'indice del cursore arriva dall'hook uPlot `setCursor`
+ * (`u.cursor.idx`, `null` a riposo); i valori si leggono dai `data` (React
+ * ri-renderizza da sé a ogni nuovo campione, aggiornando l'ultimo valore).
  *
  * Nei test happy-dom il modulo `uplot` è mockato (`vi.mock("uplot")`): qui si
- * verifica solo che mount/unmount non lancino.
+ * verifica solo che mount/unmount non lancino e la legenda a riposo/hover.
  */
 export function UPlotChart({
   data,
@@ -65,6 +82,9 @@ export function UPlotChart({
 }: UPlotChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const plotRef = useRef<uPlot | null>(null);
+  // Indice sotto il cursore: `null` a riposo (mouse fuori) → la legenda cade
+  // sull'ultimo campione. Aggiornato dall'hook `setCursor` di uPlot.
+  const [cursorIdx, setCursorIdx] = useState<number | null>(null);
   // Dati correnti letti alla creazione senza entrare nelle deps dell'effetto:
   // gli aggiornamenti passano da `setData` (effetto dedicato sotto).
   const dataRef = useRef(data);
@@ -127,6 +147,11 @@ export function UPlotChart({
       scales,
       axes,
       cursor: { points: { size: 4 } },
+      // Legenda nativa spenta: la sostituisce quella React sotto (mostra sempre
+      // un valore, anche a riposo). `setCursor` fa da ponte: `u.cursor.idx` è
+      // `null` quando il cursore esce → la legenda ripiega sull'ultimo campione.
+      legend: { show: false },
+      hooks: { setCursor: [(u) => setCursorIdx(u.cursor.idx ?? null)] },
       padding: [10, 8, 0, 4],
     };
     const plot = new uPlot(opts, dataRef.current, el);
@@ -161,12 +186,48 @@ export function UPlotChart({
     return () => ro.disconnect();
   }, [height]);
 
+  // Indice da mostrare: quello del cursore durante l'hover, l'ultimo campione a
+  // riposo. Ricalcolato a ogni render → segue sia i nuovi `data` sia il cursore.
+  const xs = data[0] ?? [];
+  const lastIdx = xs.length - 1;
+  const idx = cursorIdx != null && cursorIdx >= 0 && cursorIdx < xs.length ? cursorIdx : lastIdx;
+  const xValue = idx >= 0 ? (xs[idx] as number | undefined) : undefined;
+
   return (
-    <div
-      ref={containerRef}
-      className="w-full font-mono text-[11px] text-fg-muted"
-      role="img"
-      aria-label={ariaLabel}
-    />
+    <div className="w-full">
+      <div ref={containerRef} className="w-full" role="img" aria-label={ariaLabel} />
+      {lastIdx >= 0 && (
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[11px] text-fg-muted">
+          <span className="text-fg-faint tabular-nums">
+            {xValue != null ? formatTime(xValue) : "--"}
+          </span>
+          {series.slice(1).map((s, i) => {
+            // `series.slice(1)` salta la serie x: la colonna dati corrispondente
+            // è `data[i + 1]`. Il load vive sulla scala destra → formattatore suo.
+            const values = data[i + 1] as (number | null)[] | undefined;
+            const value = idx >= 0 ? values?.[idx] : undefined;
+            const fmt =
+              rightAxis && s.scale === rightAxis.scale ? rightAxis.values : yValues;
+            const stroke = typeof s.stroke === "string" ? s.stroke : undefined;
+            // `label` uPlot può essere un HTMLElement: nella legenda usiamo solo
+            // le label stringa (le nostre serie lo sono sempre).
+            const label = typeof s.label === "string" ? s.label : undefined;
+            return (
+              <span key={label ?? i} className="inline-flex items-center gap-1">
+                <span
+                  className="inline-block h-2 w-2 shrink-0 rounded-[1px]"
+                  style={{ backgroundColor: stroke }}
+                  aria-hidden
+                />
+                {label && <span className="text-fg-faint">{label}</span>}
+                <span className="text-fg-default tabular-nums">
+                  {formatValue(value, fmt)}
+                </span>
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
