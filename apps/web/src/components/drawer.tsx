@@ -6,6 +6,12 @@ interface DrawerProps {
   side?: "left" | "right";
   /** Larghezza del pannello (classe Tailwind). Default: `w-[min(86vw,20rem)]`. */
   widthClassName?: string;
+  /**
+   * Se il click sul backdrop chiude il pannello. Default `true`. Passa `false`
+   * quando il contenuto è irrecuperabile (es. chiave one-shot): chiusura solo
+   * via Escape o bottone, mai per click accidentale sull'overlay.
+   */
+  dismissOnBackdrop?: boolean;
   "aria-label": string;
   /** Inoltrato al pannello (`role="dialog"`): es. target di un `aria-controls`. */
   id?: string;
@@ -23,6 +29,7 @@ export function Drawer({
   onClose,
   side = "left",
   widthClassName = "w-[min(86vw,20rem)]",
+  dismissOnBackdrop = true,
   children,
   ...rest
 }: DrawerProps) {
@@ -54,7 +61,7 @@ export function Drawer({
       <div
         data-drawer-backdrop
         className={`fixed inset-0 z-40 bg-black/60 transition-opacity ${open ? "opacity-100" : "opacity-0"}`}
-        onClick={onClose}
+        onClick={dismissOnBackdrop ? onClose : undefined}
       />
       <div
         ref={panelRef}

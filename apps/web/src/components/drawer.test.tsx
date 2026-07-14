@@ -56,6 +56,30 @@ describe("Drawer", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("dismissOnBackdrop=false: il click sul backdrop NON chiama onClose", () => {
+    const onClose = vi.fn();
+    const { container } = render(
+      <Drawer open onClose={onClose} dismissOnBackdrop={false} aria-label="Nav">
+        <span>x</span>
+      </Drawer>,
+    );
+    const backdrop = container.querySelector("[data-drawer-backdrop]");
+    expect(backdrop).not.toBeNull();
+    fireEvent.click(backdrop!);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("dismissOnBackdrop=false: Escape continua a chiamare onClose", () => {
+    const onClose = vi.fn();
+    render(
+      <Drawer open onClose={onClose} dismissOnBackdrop={false} aria-label="Nav">
+        <span>x</span>
+      </Drawer>,
+    );
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("Escape chiama onClose", () => {
     const onClose = vi.fn();
     render(
