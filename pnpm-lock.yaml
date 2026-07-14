@@ -118,6 +118,9 @@ importers:
         specifier: ^4.1.5
         version: 4.4.3
     devDependencies:
+      '@stubwise/agent':
+        specifier: workspace:*
+        version: link:../../packages/agent
       '@stubwise/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk

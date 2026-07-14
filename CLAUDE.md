@@ -39,6 +39,11 @@ Entrambi i bundle sono buildati dentro l'immagine caddy (`Dockerfile.caddy`).
 Caddy serve anche `/widget.js` (bundle IIFE embeddabile da `/srv/widget`,
 buildato in `Dockerfile.caddy`); `/widget/*` è la superficie API pubblica del
 widget customer service, proxata al server.
+`/monitor/ingest` e `/monitor/config` sono la superficie pubblica degli agenti
+di monitoraggio (auth con chiave per-server `sk_…`), proxate al server; il resto
+di `/monitor` è la sezione SPA. L'agente (`packages/agent`) gira SUGLI host
+monitorati come container a sé (`Dockerfile.agent` → immagine `stubwise/agent`,
+un singolo bundle esbuild), non nel compose di Stubwise.
 
 ## Deploy (prod)
 
@@ -48,6 +53,9 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
 - Modifica al **frontend** (`apps/web`, `apps/docs` o `packages/widget`) →
   ribuilda **`caddy`**.
 - Modifica al **backend** → ribuilda `server` e/o `worker`.
+- Modifica all'**agente di monitoraggio** (`packages/agent`) → build/push
+  dell'immagine: `docker build -f Dockerfile.agent -t stubwise/agent .` e
+  redeploy del container sugli host monitorati (non è un servizio del compose).
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.

@@ -1,0 +1,54 @@
+# syntax=docker/dockerfile:1
+
+# Immagine dell'agente di monitoraggio Stubwise (packages/agent): un singolo
+# bundle esbuild autosufficiente (dist/agent.cjs, driver DB inclusi), quindi il
+# runtime non ha bisogno né di node_modules né di pnpm. Stesso schema multi-stage
+# del worker, ma molto più piccolo.
+#
+# Build:  docker build -f Dockerfile.agent -t stubwise/agent .
+# Run:    docker run -d --restart unless-stopped \
+#           -e STUBWISE_URL=https://stubwise.example.com \
+#           -e STUBWISE_SERVER_KEY=sk_... \
+#           -v /proc:/host/proc:ro -v /:/host/root:ro \
+#           -v /var/run/docker.sock:/var/run/docker.sock:ro \
+#           stubwise/agent
+
+FROM node:22-slim AS build
+ENV PNPM_HOME=/pnpm
+ENV PATH="$PNPM_HOME:$PATH"
+RUN corepack enable
+WORKDIR /repo
+
+# Solo i manifest dei package coinvolti: l'install filtrato risolve l'agente e
+# le sue dipendenze workspace (shared) senza portarsi dietro il resto del repo.
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
+COPY packages/agent/package.json packages/agent/package.json
+COPY packages/shared/package.json packages/shared/package.json
+
+RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
+    pnpm install --frozen-lockfile --filter @stubwise/agent...
+
+COPY tsconfig.base.json ./
+COPY packages/shared packages/shared
+COPY packages/agent packages/agent
+
+# La versione dell'agente riportata al server (env letta da bin.ts a runtime).
+ARG AGENT_VERSION=dev
+
+# Build topologica: shared (tsc) prima, poi l'agente (tsc lib + bundle esbuild).
+RUN pnpm --filter @stubwise/agent... build
+
+FROM node:22-alpine AS runtime
+ENV NODE_ENV=production
+ARG AGENT_VERSION=dev
+ENV AGENT_VERSION=$AGENT_VERSION
+
+# Utente non-root: l'agente legge /host/proc e il socket Docker montati
+# read-only; non scrive nulla su disco.
+RUN addgroup -g 10001 agent && adduser -D -H -u 10001 -G agent agent
+
+WORKDIR /app
+COPY --from=build /repo/packages/agent/dist/agent.cjs /app/agent.cjs
+
+USER agent
+CMD ["node", "/app/agent.cjs"]
