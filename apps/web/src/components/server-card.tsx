@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
-import type { ServerStatus, ServerView } from "../../lib/api";
-import { formatRelativeTime } from "../../lib/format";
+import type { ServerStatus, ServerView } from "../lib/api";
+import { formatRelativeTime } from "../lib/format";
 
 /** Colore del pallino di stato: verde online, rosso offline, grigio mai visto. */
 const STATUS_DOT: Record<ServerStatus, string> = {
@@ -60,8 +60,8 @@ function CpuSparkline({ values }: { values: number[] }) {
 }
 
 /**
- * Card di un server monitorato, riusata dalla lista Monitor e (in E5) dal tab
- * Server di un progetto. Prop unica `server` (proiezione `ServerView` della
+ * Card di un server monitorato, riusata dalla lista Monitor e dalla sezione
+ * Server del dettaglio progetto. Prop unica `server` (proiezione `ServerView` della
  * lista): NON contiene RAM/disco correnti — la lista espone solo `recentCpu`,
  * quindi la card mostra CPU + sparkline, conteggi check e progetti; RAM/disco
  * vivono nel dettaglio. L'intera card linka al dettaglio del server.

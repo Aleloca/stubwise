@@ -1,7 +1,7 @@
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { serversQueryOptions } from "../../lib/queries";
-import { ServerCard } from "./server-card";
+import { ServerCard } from "../../components/server-card";
 
 /**
  * Sezione Monitor: griglia di tutti i server monitorati, ognuno una

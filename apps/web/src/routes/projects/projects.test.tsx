@@ -39,6 +39,9 @@ function mockApi(handlers: Record<string, Handler>) {
     // La sezione Widget del dettaglio progetto legge la lista dei widget del
     // progetto: vuota di default (le mutazioni vivono nei test del componente).
     [`GET /api/projects/${PROJECT_ID}/widgets`]: () => jsonResponse(200, { widgets: [] }),
+    // La sezione Server legge i server associati al progetto: vuota di default
+    // (il riuso della ServerCard e il filtro per progetto vivono in un test a parte).
+    "GET /api/servers": () => jsonResponse(200, []),
     ...handlers,
   };
   fetchMock.mockImplementation((input, init) => {

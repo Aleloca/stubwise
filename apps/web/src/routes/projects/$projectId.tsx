@@ -6,6 +6,7 @@ import { ProviderBadge } from "../../components/badges";
 import { IntegrationPanel } from "../../components/integration-panel";
 import { MilestoneManager } from "../../components/milestone-manager";
 import { ProjectForm } from "../../components/project-form";
+import { ProjectServersSection } from "../../components/project-servers-section";
 import { WidgetsSection } from "../../components/widgets-section";
 import { deleteProject, patchProject, type ProjectPatch } from "../../lib/api";
 import { meQueryOptions } from "../../lib/auth";
@@ -202,6 +203,16 @@ export function ProjectDetailPage() {
           projectName={project.name}
           isAdmin={isAdmin}
         />
+      </section>
+
+      {/*
+        Server monitorati associati al progetto: le stesse ServerCard della
+        sezione Monitor, filtrate per progetto. L'associazione si gestisce in
+        Impostazioni → Server; lo stato vuoto ci rimanda. Lettura per tutti.
+      */}
+      <section aria-label={t("projects:detail.servers")} className="mt-8 border-t border-line pt-6">
+        <h2 className={sectionTitleClass}>{t("projects:detail.servers")}</h2>
+        <ProjectServersSection projectId={project.id} />
       </section>
 
       {/*
