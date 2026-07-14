@@ -207,8 +207,8 @@ export function ProjectDetailPage() {
 
       {/*
         Server monitorati associati al progetto: le stesse ServerCard della
-        sezione Monitor, filtrate per progetto. L'associazione si gestisce in
-        Impostazioni → Server; lo stato vuoto ci rimanda. Lettura per tutti.
+        sezione Monitor, filtrate per progetto. L'associazione si gestisce nel
+        Monitor; lo stato vuoto ci rimanda. Lettura per tutti.
       */}
       <section aria-label={t("projects:detail.servers")} className="mt-8 border-t border-line pt-6">
         <h2 className={sectionTitleClass}>{t("projects:detail.servers")}</h2>

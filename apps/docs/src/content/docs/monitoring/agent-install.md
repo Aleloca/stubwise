@@ -135,8 +135,9 @@ Every mount is **read-only**: the agent observes, it never writes to the host.
 The server key is minted when you **register the server** and is shown **only
 once**:
 
-1. In Stubwise open **Settings → Server** (admin only) and create a server (or,
-   for an existing one, use **Regenerate key**).
+1. In Stubwise open the **Monitor** section (admin only) and create a server with
+   **New server** (or, for an existing one, open its detail and use **Regenerate
+   key**).
 2. A side panel opens with the full `docker run` command, the key already
    interpolated. Copy it now — the key is **not stored in clear and cannot be
    retrieved later**. If you lose it, regenerate the key (which invalidates the
@@ -184,4 +185,5 @@ docker rm -f stubwise-agent
 ```
 
 This leaves no state behind on the host (the agent is stateless). To also stop
-monitoring the server in Stubwise, delete it from **Settings → Server**.
+monitoring the server in Stubwise, delete it from the server's detail page in the
+**Monitor** section.

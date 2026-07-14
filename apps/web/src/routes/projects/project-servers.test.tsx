@@ -8,7 +8,7 @@ import { createAppRouter } from "../../router";
 /**
  * Sezione "Server" del dettaglio progetto col router vero (memory history) e
  * fetch mockata: riuso delle ServerCard filtrate per progetto (`?projectId=`),
- * e stato vuoto con il rimando a Impostazioni → Server. Verifica anche che la
+ * e stato vuoto con il rimando al Monitor. Verifica anche che la
  * sezione sia registrata nella vista progetto (render alla route reale).
  */
 
@@ -136,7 +136,7 @@ describe("dettaglio progetto — sezione Server", () => {
     expect(document.body.textContent ?? "").not.toMatch(/projects:|monitor:/);
   });
 
-  it("progetto senza server: stato vuoto con il rimando a Impostazioni → Server", async () => {
+  it("progetto senza server: stato vuoto con il rimando al Monitor", async () => {
     mockApi({
       "GET /api/servers": () => jsonResponse(200, []),
     });
@@ -144,9 +144,9 @@ describe("dettaglio progetto — sezione Server", () => {
     renderApp(`/projects/${PROJECT_ID}`);
 
     expect(await screen.findByText("// no servers")).toBeInTheDocument();
-    // Rimando reale alla pagina di associazione (settings/servers).
-    const link = screen.getByRole("link", { name: /Manage in settings/i });
-    expect(link).toHaveAttribute("href", "/settings/servers");
+    // Rimando reale al Monitor, dove si registra/associa un server.
+    const link = screen.getByRole("link", { name: /Manage in Monitor/i });
+    expect(link).toHaveAttribute("href", "/monitor");
     // La query è comunque partita filtrata per progetto.
     expect(serversRequestUrl).toBe(`/api/servers?projectId=${PROJECT_ID}`);
   });

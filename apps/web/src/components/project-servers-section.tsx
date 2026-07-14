@@ -9,7 +9,7 @@ import { ServerCard } from "./server-card";
  * ({@link serversQueryOptions} filtra via `?projectId=`), resi con le stesse
  * {@link ServerCard} — e stessa griglia responsive — della sezione Monitor. Le
  * card linkano al dettaglio globale del server. L'associazione server↔progetto
- * si gestisce in Impostazioni → Server: lo stato vuoto ci rimanda con un Link.
+ * si gestisce nel Monitor: lo stato vuoto ci rimanda con un Link.
  *
  * Sezione SECONDARIA: usa `useQuery` (non suspense) e gestisce loading/errore
  * inline, così un suo fallimento degrada solo qui e NON abbatte il resto della
@@ -44,7 +44,7 @@ export function ProjectServersSection({ projectId }: { projectId: string }) {
         </p>
         <p className="mt-2 max-w-md text-center text-sm text-fg-muted">
           {t("projects:detail.noServersHint")}{" "}
-          <Link to="/settings/servers" className="text-signal underline-offset-2 hover:underline">
+          <Link to="/monitor" className="text-signal underline-offset-2 hover:underline">
             {t("projects:detail.manageServers")}
           </Link>
         </p>
