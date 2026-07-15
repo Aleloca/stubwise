@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createAppRouter } from "../router";
@@ -62,6 +62,30 @@ function renderActivity() {
 const ADMIN = { id: "u1", email: "me-admin@corp.example", role: "admin" as const, language: "en" };
 const MEMBER = { id: "u2", email: "me-member@corp.example", role: "member" as const, language: "en" };
 
+// Membri del team per il picker "Link team member" (endpoint /api/users).
+const MEMBERS = [
+  {
+    id: "u1",
+    email: "ada@example.com",
+    role: "admin",
+    avatarUrl: null,
+    slackUserId: null,
+    createdAt: "2026-01-01T10:00:00.000Z",
+    bitbucketUsername: null,
+    gitIdentities: [],
+  },
+  {
+    id: "u9",
+    email: "newdev@corp.example",
+    role: "member",
+    avatarUrl: null,
+    slackUserId: null,
+    createdAt: "2026-01-01T10:00:00.000Z",
+    bitbucketUsername: null,
+    gitIdentities: [],
+  },
+];
+
 const REPOS = [
   {
     id: "r1",
@@ -92,6 +116,7 @@ const REPORT = {
       commits: [
         {
           sha: "abcdef1234567890",
+          authorEmail: "ada@git.example",
           authorName: "Ada Dev",
           resolvedUser: { id: "u1", email: "ada@example.com", avatarUrl: null },
           committedAt: "2026-07-14T09:00:00.000Z",
@@ -102,6 +127,7 @@ const REPORT = {
         },
         {
           sha: "9988776655443322",
+          authorEmail: "ghost@git.example",
           authorName: null,
           resolvedUser: null,
           committedAt: "2026-07-14T10:00:00.000Z",
@@ -212,11 +238,11 @@ describe("sezione attività", () => {
     const code = screen.getByText("login");
     expect(code.tagName).toBe("CODE");
 
-    // Hint "Link in Team" (solo admin) accanto all'autore non risolto.
-    expect(screen.getByRole("link", { name: "Link in Team" })).toBeInTheDocument();
+    // Pulsante "Link team member" (solo admin) accanto all'autore non risolto.
+    expect(screen.getByRole("button", { name: "Link team member" })).toBeInTheDocument();
   });
 
-  it("member: niente hint 'Link in Team' sull'autore non risolto", async () => {
+  it("member: niente pulsante 'Link team member' sull'autore non risolto", async () => {
     mockApi({
       "GET /api/auth/me": () => jsonResponse(200, { user: MEMBER }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
@@ -226,7 +252,70 @@ describe("sezione attività", () => {
     renderActivity();
 
     expect(await screen.findByText("Unknown author")).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Link in Team" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Link team member" })).not.toBeInTheDocument();
+  });
+
+  it("admin: 'Link team member' apre il picker e associa l'email git al membro scelto", async () => {
+    const user = userEvent.setup();
+    let linkBody: unknown = null;
+    let linkedUserId: string | null = null;
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, REPORT),
+      "GET /api/users": () => jsonResponse(200, MEMBERS),
+      "POST /api/users/u9/git-identities": (_url, init) => {
+        linkedUserId = "u9";
+        linkBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, []);
+      },
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    // Apre il picker accanto all'autore non risolto (email git ghost@git.example).
+    await user.click(screen.getByRole("button", { name: "Link team member" }));
+
+    // Il combobox carica i membri (query abilitata all'apertura) e li filtra.
+    const combo = await screen.findByRole("combobox", { name: "Pick a team member" });
+    await user.type(combo, "newdev");
+    const listbox = screen.getByRole("listbox");
+    await user.click(within(listbox).getByRole("option", { name: /newdev@corp\.example/ }));
+
+    // Il POST associa l'email git dell'autore (non l'email del membro) al membro scelto.
+    await waitFor(() => expect(linkBody).toEqual({ email: "ghost@git.example" }));
+    expect(linkedUserId).toBe("u9");
+  });
+
+  it("collapse: il toggle di un blocco nasconde e riespone il contenuto", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, REPORT),
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    // Espanso di default: il contenuto (un commit) è visibile.
+    expect(screen.getByText("Add login form")).toBeInTheDocument();
+
+    const collapse = screen.getByRole("button", { name: "Collapse Apollo" });
+    expect(collapse).toHaveAttribute("aria-expanded", "true");
+    await user.click(collapse);
+
+    // Collassato: il contenuto sparisce, l'header coi numeri resta visibile.
+    expect(screen.queryByText("Add login form")).not.toBeInTheDocument();
+    expect(screen.getByText("2 commits")).toBeInTheDocument();
+
+    const expand = screen.getByRole("button", { name: "Expand Apollo" });
+    expect(expand).toHaveAttribute("aria-expanded", "false");
+    await user.click(expand);
+
+    // Ri-espanso: il contenuto riappare.
+    expect(screen.getByText("Add login form")).toBeInTheDocument();
   });
 
   it("switch alla vista per sviluppatore: mostra i blocchi per-dev coi totali", async () => {

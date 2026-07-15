@@ -72,6 +72,16 @@
     outline: 2px solid --alpha(var(--color-signal) / 70%);
     outline-offset: 2px;
   }
+
+  /* Selettore data dell'Attività: nasconde l'icona calendario nativa di WebKit
+   * (`::-webkit-calendar-picker-indicator`) accanto alla data. L'input resta
+   * digitabile e i bottoni prev/next fanno la navigazione; la scelta è chiedere
+   * la data col controllo nativo senza l'ingombro visivo dell'emoji calendario. */
+  input[type="date"].date-input::-webkit-calendar-picker-indicator {
+    display: none;
+    -webkit-appearance: none;
+    appearance: none;
+  }
 }
 
 @layer components {

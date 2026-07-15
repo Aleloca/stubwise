@@ -1,19 +1,26 @@
-import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
-import { Component, type ReactNode, Suspense, useState } from "react";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  useSuspenseQuery,
+} from "@tanstack/react-query";
+import { Component, type ReactNode, Suspense, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "../components/avatar";
+import { ComboboxPicker } from "../components/combobox-picker";
 import { Markdown } from "../components/markdown";
 import {
   generateActivity,
+  linkGitIdentity,
   type ActivityCommit,
   type ActivityDeveloperView,
   type ActivityProjectView,
   type ActivityResolvedUser,
+  type TeamUser,
 } from "../lib/api";
 import { meQueryOptions } from "../lib/auth";
 import { formatDate, formatTime } from "../lib/format";
-import { activityReportQueryOptions } from "../lib/queries";
+import { activityReportQueryOptions, usersQueryOptions } from "../lib/queries";
 import { translateApiError } from "../lib/translate-api-error";
 
 /**
@@ -192,7 +199,7 @@ function DateSelector({ date, onChange }: { date: string; onChange: (date: strin
           onChange={(event) => {
             if (event.target.value) onChange(event.target.value);
           }}
-          className="rounded-sm border border-line-strong bg-ink-950 px-2 py-1.5 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
+          className="date-input rounded-sm border border-line-strong bg-ink-950 px-2 py-1.5 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
         />
         <button
           type="button"
@@ -309,7 +316,12 @@ function ActivityBody({
     <div className="flex flex-col gap-6">
       {view === "project"
         ? report.projects.map((project) => (
-            <ProjectBlock key={project.project.id} project={project} isAdmin={isAdmin} />
+            <ProjectBlock
+              key={project.project.id}
+              project={project}
+              isAdmin={isAdmin}
+              date={date}
+            />
           ))
         : report.developers.length === 0
           ? <DeveloperEmpty projects={report.projects} />
@@ -318,6 +330,7 @@ function ActivityBody({
                 key={dev.resolvedUser?.id ?? dev.gitEmail ?? `dev-${index}`}
                 dev={dev}
                 isAdmin={isAdmin}
+                date={date}
               />
             ))}
     </div>
@@ -436,16 +449,30 @@ function CommitRow({ commit, author }: { commit: ActivityCommit; author?: ReactN
 function ProjectBlock({
   project,
   isAdmin,
+  date,
 }: {
   project: ActivityProjectView;
   isAdmin: boolean;
+  date: string;
 }) {
   const { t } = useTranslation();
   const { header } = project;
+  const [collapsed, setCollapsed] = useState(false);
+  const panelId = useId();
   return (
     <section className="rounded-sm border border-line bg-ink-900">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
+      <header
+        className={`flex flex-wrap items-center justify-between gap-3 px-4 py-3 ${
+          collapsed ? "" : "border-b border-line"
+        }`}
+      >
         <div className="flex min-w-0 items-center gap-3">
+          <CollapseToggle
+            collapsed={collapsed}
+            onToggle={() => setCollapsed((c) => !c)}
+            panelId={panelId}
+            label={project.project.name}
+          />
           <h2 className="truncate font-mono text-[13px] font-medium text-fg">
             {project.project.name}
           </h2>
@@ -461,30 +488,36 @@ function ProjectBlock({
           </span>
         </div>
       </header>
-      {project.commits.length === 0 ? (
-        <p className="px-4 py-4 font-mono text-[12px] text-fg-faint">
-          {project.status === "queued" || project.status === "running"
-            ? t("activity:inProgress")
-            : t("activity:noActivity")}
-        </p>
-      ) : (
-        <ul className="divide-y divide-line">
-          {project.commits.map((commit) => (
-            <li key={commit.sha} className="px-4 py-3">
-              <CommitRow
-                commit={commit}
-                author={
-                  <AuthorLabel
-                    resolvedUser={commit.resolvedUser ?? null}
-                    gitEmail={null}
-                    authorName={commit.authorName ?? null}
-                    isAdmin={isAdmin}
+      {!collapsed && (
+        <div id={panelId}>
+          {project.commits.length === 0 ? (
+            <p className="px-4 py-4 font-mono text-[12px] text-fg-faint">
+              {project.status === "queued" || project.status === "running"
+                ? t("activity:inProgress")
+                : t("activity:noActivity")}
+            </p>
+          ) : (
+            <ul className="divide-y divide-line">
+              {project.commits.map((commit) => (
+                <li key={commit.sha} className="px-4 py-3">
+                  <CommitRow
+                    commit={commit}
+                    author={
+                      <AuthorLabel
+                        resolvedUser={commit.resolvedUser ?? null}
+                        gitEmail={null}
+                        linkEmail={commit.authorEmail ?? null}
+                        authorName={commit.authorName ?? null}
+                        isAdmin={isAdmin}
+                        date={date}
+                      />
+                    }
                   />
-                }
-              />
-            </li>
-          ))}
-        </ul>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
     </section>
   );
@@ -494,20 +527,45 @@ function ProjectBlock({
  * Blocco vista-dev: header con l'autore e i suoi totali, poi un sotto-blocco per
  * progetto con i relativi commit (l'autore è implicito, non ripetuto per riga).
  */
-function DeveloperBlock({ dev, isAdmin }: { dev: ActivityDeveloperView; isAdmin: boolean }) {
+function DeveloperBlock({
+  dev,
+  isAdmin,
+  date,
+}: {
+  dev: ActivityDeveloperView;
+  isAdmin: boolean;
+  date: string;
+}) {
   const { t } = useTranslation();
   const { header } = dev;
+  const [collapsed, setCollapsed] = useState(false);
+  const panelId = useId();
+  const label = dev.resolvedUser?.email ?? dev.gitEmail ?? dev.authorName ?? t("activity:unknownAuthor");
   return (
     <section className="rounded-sm border border-line bg-ink-900">
-      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
-        <h2 className="flex min-w-0 items-center">
-          <AuthorLabel
-            resolvedUser={dev.resolvedUser}
-            gitEmail={dev.gitEmail}
-            authorName={dev.authorName}
-            isAdmin={isAdmin}
+      <header
+        className={`flex flex-wrap items-center justify-between gap-3 px-4 py-3 ${
+          collapsed ? "" : "border-b border-line"
+        }`}
+      >
+        <div className="flex min-w-0 items-center gap-3">
+          <CollapseToggle
+            collapsed={collapsed}
+            onToggle={() => setCollapsed((c) => !c)}
+            panelId={panelId}
+            label={label}
           />
-        </h2>
+          <h2 className="flex min-w-0 items-center">
+            <AuthorLabel
+              resolvedUser={dev.resolvedUser}
+              gitEmail={dev.gitEmail}
+              linkEmail={dev.gitEmail}
+              authorName={dev.authorName}
+              isAdmin={isAdmin}
+              date={date}
+            />
+          </h2>
+        </div>
         <div className="flex items-center gap-3">
           <span className="font-mono text-[11px] tracking-[0.1em] text-fg-muted uppercase">
             {t("activity:commits", { count: header.commitCount })}
@@ -518,45 +576,86 @@ function DeveloperBlock({ dev, isAdmin }: { dev: ActivityDeveloperView; isAdmin:
           </span>
         </div>
       </header>
-      <ul className="divide-y divide-line">
-        {dev.byProject.map((proj) => (
-          <li key={proj.project.id} className="flex flex-col gap-2 px-4 py-3">
-            <div className="flex flex-wrap items-baseline gap-3">
-              <h3 className="font-mono text-[13px] text-fg">{proj.project.name}</h3>
-              <span className="font-mono text-[11px] tracking-[0.1em] text-fg-muted uppercase">
-                {t("activity:commits", { count: proj.commits.length })}
-              </span>
-            </div>
-            <ul className="flex flex-col gap-2">
-              {proj.commits.map((commit) => (
-                <li key={commit.sha}>
-                  <CommitRow commit={commit} />
-                </li>
-              ))}
-            </ul>
-          </li>
-        ))}
-      </ul>
+      {!collapsed && (
+        <ul id={panelId} className="divide-y divide-line">
+          {dev.byProject.map((proj) => (
+            <li key={proj.project.id} className="flex flex-col gap-2 px-4 py-3">
+              <div className="flex flex-wrap items-baseline gap-3">
+                <h3 className="font-mono text-[13px] text-fg">{proj.project.name}</h3>
+                <span className="font-mono text-[11px] tracking-[0.1em] text-fg-muted uppercase">
+                  {t("activity:commits", { count: proj.commits.length })}
+                </span>
+              </div>
+              <ul className="flex flex-col gap-2">
+                {proj.commits.map((commit) => (
+                  <li key={commit.sha}>
+                    <CommitRow commit={commit} />
+                  </li>
+                ))}
+              </ul>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
 
 /**
+ * Chevron toggle per collassare/espandere un blocco (progetto o sviluppatore).
+ * `▾` espanso, `▸` collassato. `aria-expanded` riflette lo stato e `aria-controls`
+ * punta al pannello del contenuto; l'`aria-label` è localizzata col nome del blocco.
+ */
+function CollapseToggle({
+  collapsed,
+  onToggle,
+  panelId,
+  label,
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+  panelId: string;
+  label: string;
+}) {
+  const { t } = useTranslation();
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={!collapsed}
+      aria-controls={panelId}
+      aria-label={t(collapsed ? "activity:expandBlock" : "activity:collapseBlock", {
+        name: label,
+      })}
+      className="tap shrink-0 font-mono text-[12px] text-fg-faint transition-colors hover:text-signal"
+    >
+      {collapsed ? "▸" : "▾"}
+    </button>
+  );
+}
+
+/**
  * Etichetta autore: il membro Stubwise risolto (avatar + email) o, se l'email
- * git non è associata a nessun membro, l'email grezza in corsivo con un hint
- * "associa in Team" mostrato solo agli admin. In vista-dev l'email può mancare:
- * si ripiega su authorName o su un segnaposto.
+ * git non è associata a nessun membro, l'email grezza in corsivo con un pulsante
+ * "Link team member" (solo admin) che apre un picker per associarla inline (vedi
+ * {@link LinkMemberControl}). In vista-dev l'email può mancare: si ripiega su
+ * authorName o su un segnaposto.
  */
 function AuthorLabel({
   resolvedUser,
   gitEmail,
+  linkEmail,
   authorName,
   isAdmin,
+  date,
 }: {
   resolvedUser: ActivityResolvedUser | null;
   gitEmail: string | null;
+  /** Email git da associare a un membro (link inline, solo admin). */
+  linkEmail: string | null;
   authorName: string | null;
   isAdmin: boolean;
+  date: string;
 }) {
   const { t } = useTranslation();
   if (resolvedUser) {
@@ -569,20 +668,93 @@ function AuthorLabel({
   }
   const raw = gitEmail ?? authorName ?? t("activity:unknownAuthor");
   return (
-    <span className="flex min-w-0 items-center gap-2">
+    <span className="flex min-w-0 flex-wrap items-center gap-2">
       <span
         className="truncate font-mono text-[13px] text-fg-muted italic"
         title={t("activity:unresolvedTitle")}
       >
         {raw}
       </span>
-      {isAdmin && (
-        <Link
-          to="/team"
-          className="shrink-0 font-mono text-[10px] tracking-[0.12em] text-fg-faint uppercase transition-colors hover:text-signal"
-        >
-          {t("activity:linkHint")}
-        </Link>
+      {isAdmin && linkEmail && <LinkMemberControl email={linkEmail} date={date} />}
+    </span>
+  );
+}
+
+/**
+ * Controllo admin per associare l'email git di un autore NON risolto a un membro
+ * del team, inline nella sezione Attività (sostituisce il vecchio link a /team).
+ * Un pulsante apre un combobox con autocomplete sui membri (caricati solo
+ * all'apertura); selezionandone uno si chiama `linkGitIdentity(memberId, email)`.
+ * Al successo si invalida la query del giorno (l'autore si risolve al refetch) e
+ * la lista membri; gli errori (es. 409 `git_identity_taken`) si mostrano inline.
+ */
+function LinkMemberControl({ email, date }: { email: string; date: string }) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const [picking, setPicking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // I membri servono solo a picker aperto: `enabled` evita N fetch quando la
+  // pagina ha molti autori non risolti. Query condivisa (staleTime) con /team.
+  const { data: users } = useQuery({ ...usersQueryOptions, enabled: picking });
+  const members = users ?? [];
+
+  const mutation = useMutation({
+    mutationFn: (memberId: string) => linkGitIdentity(memberId, email),
+    onSuccess: () => {
+      setPicking(false);
+      void queryClient.invalidateQueries({ queryKey: ["activity", date] });
+      void queryClient.invalidateQueries({ queryKey: usersQueryOptions.queryKey });
+    },
+    onError: (cause) => setError(translateApiError(cause, t)),
+  });
+
+  if (!picking) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          setError(null);
+          setPicking(true);
+        }}
+        className="tap shrink-0 rounded-sm border border-line-strong px-2 py-0.5 font-mono text-[10px] tracking-[0.12em] text-fg-muted uppercase transition-colors hover:border-signal-dim/40 hover:text-signal"
+      >
+        {t("activity:linkMember")}
+      </button>
+    );
+  }
+
+  return (
+    <span className="flex flex-col gap-1">
+      <ComboboxPicker<TeamUser>
+        items={members}
+        getKey={(u) => u.id}
+        matches={(u, q) => u.email.toLowerCase().includes(q)}
+        isDisabled={() => false}
+        renderOption={(u) => (
+          <>
+            <Avatar src={u.avatarUrl} label={u.email} size={20} />
+            <span className="min-w-0 truncate text-fg">{u.email}</span>
+          </>
+        )}
+        onPick={(u) => {
+          setError(null);
+          mutation.mutate(u.id);
+        }}
+        pending={mutation.isPending}
+        pendingLabel={t("activity:linking")}
+        onCancel={() => setPicking(false)}
+        labels={{
+          pickerLabel: t("activity:pickMember"),
+          placeholder: t("activity:pickMember"),
+          noResults: t("activity:memberNoResults"),
+          cancel: t("activity:cancel"),
+          moreResults: (count) => t("activity:memberMoreResults", { count }),
+        }}
+      />
+      {error && (
+        <span role="alert" className="text-[11px] text-danger">
+          {error}
+        </span>
       )}
     </span>
   );

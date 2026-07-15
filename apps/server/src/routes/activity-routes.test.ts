@@ -179,6 +179,7 @@ describe("GET /api/activity", () => {
         };
         commits: {
           sha: string;
+          authorEmail: string;
           authorName: string | null;
           resolvedUser: { id: string; email: string; avatarUrl: string | null } | null;
           committedAt: string;
@@ -206,6 +207,8 @@ describe("GET /api/activity", () => {
     expect(view.commits.map((c) => c.sha)).toEqual(["aaa111", "bbb222", "ccc333", "ddd444"]);
 
     const resolved = view.commits.find((c) => c.sha === "aaa111")!;
+    // L'email git dell'autore è esposta nel commit (serve al link inline in /activity).
+    expect(resolved.authorEmail).toBe("dev@member.it");
     expect(resolved.resolvedUser).not.toBeNull();
     expect(resolved.resolvedUser!.id).toBe(memberId);
     expect(resolved.resolvedUser!.email).toBe("member@example.com");
