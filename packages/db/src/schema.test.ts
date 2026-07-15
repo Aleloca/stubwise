@@ -3,6 +3,8 @@ import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "./client.js";
 import {
+  activityReportEntries,
+  activityReports,
   aiJobs,
   aiProviders,
   aiUsageSnapshots,
@@ -12,6 +14,8 @@ import {
   docGenerationJobs,
   docGenerations,
   errorGroups,
+  gitAuthorsSeen,
+  gitIdentities,
   instanceSettings,
   invites,
   milestones,
@@ -108,10 +112,7 @@ describe("schema: loop di feedback AI", () => {
       .update(automationRules)
       .set({ planApprovalMinEffort: 3 })
       .where(eq(automationRules.type, "bug"));
-    const [bug] = await db
-      .select()
-      .from(automationRules)
-      .where(eq(automationRules.type, "bug"));
+    const [bug] = await db.select().from(automationRules).where(eq(automationRules.type, "bug"));
     expect(bug?.planApprovalMinEffort).toBe(3);
   });
 
@@ -196,20 +197,14 @@ describe("schema: ingestion esterna (source slack/webhook + colonne Slack)", () 
       })
       .where(eq(instanceSettings.id, 1));
 
-    const [updated] = await db
-      .select()
-      .from(instanceSettings)
-      .where(eq(instanceSettings.id, 1));
+    const [updated] = await db.select().from(instanceSettings).where(eq(instanceSettings.id, 1));
     expect(updated?.slackSigningSecretEncrypted).toBe("signing-blob-cifrato");
     expect(updated?.slackBotTokenEncrypted).toBe("token-blob-cifrato");
   });
 
   it("lascia le colonne Slack null di default su una riga effimera", async () => {
     // Riga effimera id=3 per non dipendere dallo stato di id=1.
-    const [row] = await db
-      .insert(instanceSettings)
-      .values({ id: 3 })
-      .returning();
+    const [row] = await db.insert(instanceSettings).values({ id: 3 }).returning();
     expect(row?.slackSigningSecretEncrypted).toBeNull();
     expect(row?.slackBotTokenEncrypted).toBeNull();
   });
@@ -259,10 +254,7 @@ describe("schema: i18n (users.language + instance_settings)", () => {
   });
 
   it("seeda instance_settings id=1 con content_language='en' e lo aggiorna a 'it'", async () => {
-    const [seeded] = await db
-      .select()
-      .from(instanceSettings)
-      .where(eq(instanceSettings.id, 1));
+    const [seeded] = await db.select().from(instanceSettings).where(eq(instanceSettings.id, 1));
     expect(seeded?.id).toBe(1);
     expect(seeded?.contentLanguage).toBe("en");
 
@@ -270,10 +262,7 @@ describe("schema: i18n (users.language + instance_settings)", () => {
       .update(instanceSettings)
       .set({ contentLanguage: "it" })
       .where(eq(instanceSettings.id, 1));
-    const [updated] = await db
-      .select()
-      .from(instanceSettings)
-      .where(eq(instanceSettings.id, 1));
+    const [updated] = await db.select().from(instanceSettings).where(eq(instanceSettings.id, 1));
     expect(updated?.contentLanguage).toBe("it");
   });
 });
@@ -357,28 +346,19 @@ describe("schema: self-repair e budget di costo", () => {
       .update(automationRules)
       .set({ maxCostUsd: "0.500000" })
       .where(eq(automationRules.type, "bug"));
-    const [bug] = await db
-      .select()
-      .from(automationRules)
-      .where(eq(automationRules.type, "bug"));
+    const [bug] = await db.select().from(automationRules).where(eq(automationRules.type, "bug"));
     expect(bug?.maxCostUsd).toBe("0.500000");
   });
 
   it("instance_settings.monthly_budget_usd default null e aggiornabile (numeric come stringa)", async () => {
-    const [seeded] = await db
-      .select()
-      .from(instanceSettings)
-      .where(eq(instanceSettings.id, 1));
+    const [seeded] = await db.select().from(instanceSettings).where(eq(instanceSettings.id, 1));
     expect(seeded?.monthlyBudgetUsd).toBeNull();
 
     await db
       .update(instanceSettings)
       .set({ monthlyBudgetUsd: "100.000000" })
       .where(eq(instanceSettings.id, 1));
-    const [updated] = await db
-      .select()
-      .from(instanceSettings)
-      .where(eq(instanceSettings.id, 1));
+    const [updated] = await db.select().from(instanceSettings).where(eq(instanceSettings.id, 1));
     expect(updated?.monthlyBudgetUsd).toBe("100.000000");
   });
 
@@ -441,10 +421,7 @@ describe("schema: ticket_events (audit)", () => {
       .returning();
     if (!inserted) throw new Error("insert dell'evento non ha restituito la riga");
 
-    const [read] = await db
-      .select()
-      .from(ticketEvents)
-      .where(eq(ticketEvents.id, inserted.id));
+    const [read] = await db.select().from(ticketEvents).where(eq(ticketEvents.id, inserted.id));
     expect(read?.ticketId).toBe(ticketId);
     expect(read?.actorId).toBe(actorId);
     expect(read?.kind).toBe("status_changed");
@@ -469,18 +446,12 @@ describe("schema: ticket_events (audit)", () => {
       .insert(ticketEvents)
       .values({ ticketId, kind: "priority_changed", payload: { from: "low", to: "high" } });
 
-    const before = await db
-      .select()
-      .from(ticketEvents)
-      .where(eq(ticketEvents.ticketId, ticketId));
+    const before = await db.select().from(ticketEvents).where(eq(ticketEvents.ticketId, ticketId));
     expect(before.length).toBe(1);
 
     await db.delete(tickets).where(eq(tickets.id, ticketId));
 
-    const after = await db
-      .select()
-      .from(ticketEvents)
-      .where(eq(ticketEvents.ticketId, ticketId));
+    const after = await db.select().from(ticketEvents).where(eq(ticketEvents.ticketId, ticketId));
     expect(after.length).toBe(0);
   });
 });
@@ -593,9 +564,7 @@ describe("schema: ticket_links (relazioni tra ticket)", () => {
     const all = await db
       .select()
       .from(ticketLinks)
-      .where(
-        and(eq(ticketLinks.sourceTicketId, source), eq(ticketLinks.targetTicketId, target)),
-      );
+      .where(and(eq(ticketLinks.sourceTicketId, source), eq(ticketLinks.targetTicketId, target)));
     expect(all.length).toBe(2);
   });
 });
@@ -767,10 +736,7 @@ describe("schema: attachments + colonne S3 (instance_settings)", () => {
       })
       .where(eq(instanceSettings.id, 1));
 
-    const [updated] = await db
-      .select()
-      .from(instanceSettings)
-      .where(eq(instanceSettings.id, 1));
+    const [updated] = await db.select().from(instanceSettings).where(eq(instanceSettings.id, 1));
     expect(updated?.s3Endpoint).toBe("https://s3.example.com");
     expect(updated?.s3Region).toBe("eu-central-1");
     expect(updated?.s3Bucket).toBe("stubwise-attachments");
@@ -781,10 +747,7 @@ describe("schema: attachments + colonne S3 (instance_settings)", () => {
   it("lascia le colonne S3 null di default sulla riga seedata", async () => {
     // Riga effimera id=2 per verificare i default null senza dipendere
     // dallo stato di id=1 (modificato da altri test del file).
-    const [row] = await db
-      .insert(instanceSettings)
-      .values({ id: 2 })
-      .returning();
+    const [row] = await db.insert(instanceSettings).values({ id: 2 }).returning();
     expect(row?.s3Endpoint).toBeNull();
     expect(row?.s3Region).toBeNull();
     expect(row?.s3Bucket).toBeNull();
@@ -997,18 +960,12 @@ describe("schema: milestones + tickets.milestoneId", () => {
     const { projectId, repositoryId } = await seedProject();
     await db.insert(milestones).values({ projectId, repositoryId, name: "da-cancellare" });
 
-    const before = await db
-      .select()
-      .from(milestones)
-      .where(eq(milestones.projectId, projectId));
+    const before = await db.select().from(milestones).where(eq(milestones.projectId, projectId));
     expect(before.length).toBe(1);
 
     await db.delete(projects).where(eq(projects.id, projectId));
 
-    const after = await db
-      .select()
-      .from(milestones)
-      .where(eq(milestones.projectId, projectId));
+    const after = await db.select().from(milestones).where(eq(milestones.projectId, projectId));
     expect(after.length).toBe(0);
   });
 
@@ -1452,10 +1409,7 @@ describe("schema: project_env_files + project_env_vars", () => {
   }
 
   async function seedEnvFile(repositoryId: string, path = ".env"): Promise<string> {
-    const [file] = await db
-      .insert(projectEnvFiles)
-      .values({ repositoryId, path })
-      .returning();
+    const [file] = await db.insert(projectEnvFiles).values({ repositoryId, path }).returning();
     if (!file) throw new Error("insert del file env non ha restituito la riga");
     return file.id;
   }
@@ -1578,9 +1532,7 @@ describe("schema: fix multi-repo (progetto: ingestion/numerazione, error_groups,
 
   it("vieta due progetti con la stessa ingestion_key (unique salita dal repo)", async () => {
     const key = randomUUID();
-    await db
-      .insert(projects)
-      .values({ name: "P1", slug: `p1-${randomUUID()}`, ingestionKey: key });
+    await db.insert(projects).values({ name: "P1", slug: `p1-${randomUUID()}`, ingestionKey: key });
 
     await expect(
       db.insert(projects).values({ name: "P2", slug: `p2-${randomUUID()}`, ingestionKey: key }),
@@ -1611,7 +1563,7 @@ describe("schema: fix multi-repo (progetto: ingestion/numerazione, error_groups,
     const { projectId } = await seedRepository(db);
     const { ticketId } = await seedTicketRow(db, {
       projectId,
-      repositoryId: (await seedRepositoryInProject(db, projectId)),
+      repositoryId: await seedRepositoryInProject(db, projectId),
     });
     const [eg] = await db
       .insert(errorGroups)
@@ -1628,10 +1580,12 @@ describe("schema: fix multi-repo (progetto: ingestion/numerazione, error_groups,
   it("unique del fingerprint è PER PROGETTO: stesso fingerprint in progetti diversi ok, duplicato nello stesso no", async () => {
     const a = await seedRepository(db);
     const b = await seedRepository(db);
-    const ticketA = (await seedTicketRow(db, { projectId: a.projectId, repositoryId: a.repositoryId }))
-      .ticketId;
-    const ticketB = (await seedTicketRow(db, { projectId: b.projectId, repositoryId: b.repositoryId }))
-      .ticketId;
+    const ticketA = (
+      await seedTicketRow(db, { projectId: a.projectId, repositoryId: a.repositoryId })
+    ).ticketId;
+    const ticketB = (
+      await seedTicketRow(db, { projectId: b.projectId, repositoryId: b.repositoryId })
+    ).ticketId;
 
     await db
       .insert(errorGroups)
@@ -1828,10 +1782,7 @@ describe("schema: pausa sul limite (paused + held_reason)", () => {
       .returning();
     if (!inserted) throw new Error("insert della generazione non ha restituito la riga");
 
-    const [read] = await db
-      .select()
-      .from(docGenerations)
-      .where(eq(docGenerations.id, inserted.id));
+    const [read] = await db.select().from(docGenerations).where(eq(docGenerations.id, inserted.id));
     expect(read?.status).toBe("paused");
     expect(read?.pausedAt?.getTime()).toBe(pausedAt.getTime());
     expect(read?.pauseReason).toBe("limite di utilizzo");
@@ -1897,5 +1848,186 @@ describe("schema: pausa sul limite (paused + held_reason)", () => {
     // Gli held storici (pre-migrazione) restano null: mai riaccodati.
     const [legacy] = await db.insert(aiJobs).values({ ticketId, status: "held" }).returning();
     expect(legacy?.heldReason).toBeNull();
+  });
+});
+
+/**
+ * Verifica lo schema del Daily Activity Report: le identità git (email unique,
+ * cascade sul membro), il registro degli autori osservati, i report per
+ * (progetto, giorno) con l'unique che li rende idempotenti, le entry con i
+ * default jsonb/interi e la cascade dal report, oltre a users.bitbucketUsername
+ * (unique, nullable) e projects.dailyReportEnabled (default false).
+ */
+describe("schema: daily activity report", () => {
+  let testDb: TestDb;
+  let db: Db;
+
+  beforeAll(async () => {
+    testDb = await startTestDb();
+    db = testDb.db;
+  });
+
+  afterAll(async () => {
+    await testDb.stop();
+  });
+
+  async function seedUser(): Promise<string> {
+    const [user] = await db
+      .insert(users)
+      .values({ email: `git-${randomUUID()}@x.it`, passwordHash: "x", role: "member" })
+      .returning();
+    if (!user) throw new Error("insert dell'utente non ha restituito la riga");
+    return user.id;
+  }
+
+  async function seedProject(): Promise<string> {
+    const [project] = await db
+      .insert(projects)
+      .values({ name: "P", slug: `p-${randomUUID()}`, ingestionKey: randomUUID() })
+      .returning();
+    if (!project) throw new Error("insert del progetto non ha restituito la riga");
+    return project.id;
+  }
+
+  it("git_identities: email unique, cascade su delete user", async () => {
+    const userId = await seedUser();
+    const email = `dev-${randomUUID()}@x.it`;
+    await db.insert(gitIdentities).values({ userId, email, authorName: "Dev" });
+
+    // Stessa email → viola l'unique (una email mappa a un solo membro).
+    await expect(db.insert(gitIdentities).values({ userId, email })).rejects.toThrow();
+
+    await db.delete(users).where(eq(users.id, userId));
+    const rows = await db.select().from(gitIdentities).where(eq(gitIdentities.userId, userId));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("git_authors_seen: PK email, round-trip di first/last seen", async () => {
+    const email = `seen-${randomUUID()}@x.it`;
+    const [inserted] = await db
+      .insert(gitAuthorsSeen)
+      .values({ email, authorName: "Osservato" })
+      .returning();
+    expect(inserted?.email).toBe(email);
+    expect(inserted?.authorName).toBe("Osservato");
+    expect(inserted?.firstSeenAt).toBeInstanceOf(Date);
+    expect(inserted?.lastSeenAt).toBeInstanceOf(Date);
+
+    // La PK sull'email vieta il duplicato.
+    await expect(db.insert(gitAuthorsSeen).values({ email })).rejects.toThrow();
+  });
+
+  it("activity_reports: (project_id, date) unique e status default queued", async () => {
+    const projectId = await seedProject();
+    const [report] = await db
+      .insert(activityReports)
+      .values({ projectId, date: "2026-07-14" })
+      .returning();
+    expect(report?.status).toBe("queued");
+    expect(report?.error).toBeNull();
+    expect(report?.finishedAt).toBeNull();
+
+    // Stesso (progetto, giorno) → viola l'unique (gate notturno idempotente).
+    await expect(
+      db.insert(activityReports).values({ projectId, date: "2026-07-14" }),
+    ).rejects.toThrow();
+
+    // Stesso progetto, giorno diverso: ammesso.
+    const [other] = await db
+      .insert(activityReports)
+      .values({ projectId, date: "2026-07-15" })
+      .returning();
+    expect(other?.date).toBe("2026-07-15");
+  });
+
+  it("activity_report_entries: default jsonb/interi, round-trip commits e cascade dal report", async () => {
+    const projectId = await seedProject();
+    const [report] = await db
+      .insert(activityReports)
+      .values({ projectId, date: "2026-07-14" })
+      .returning();
+    if (!report) throw new Error("insert del report non ha restituito la riga");
+
+    // Entry minimale: i default (0 e []) devono applicarsi.
+    const [minimal] = await db
+      .insert(activityReportEntries)
+      .values({ reportId: report.id, gitEmail: "dev@x.it" })
+      .returning();
+    expect(minimal?.commitCount).toBe(0);
+    expect(minimal?.additions).toBe(0);
+    expect(minimal?.deletions).toBe(0);
+    expect(minimal?.repoIds).toEqual([]);
+    expect(minimal?.commits).toEqual([]);
+    expect(minimal?.aiSummary).toBeNull();
+
+    // Entry valorizzata: round-trip dei jsonb tipizzati.
+    const repoId = randomUUID();
+    const commits = [{ sha: "abc123", subject: "fix: bug", repoId }];
+    const [full] = await db
+      .insert(activityReportEntries)
+      .values({
+        reportId: report.id,
+        gitEmail: "dev2@x.it",
+        authorName: "Dev Due",
+        commitCount: 3,
+        additions: 42,
+        deletions: 7,
+        repoIds: [repoId],
+        commits,
+        aiSummary: "Ha sistemato un bug",
+      })
+      .returning();
+    expect(full?.repoIds).toEqual([repoId]);
+    expect(full?.commits).toEqual(commits);
+    expect(full?.commitCount).toBe(3);
+
+    // Cascade: eliminando il report spariscono le sue entry.
+    await db.delete(activityReports).where(eq(activityReports.id, report.id));
+    const rows = await db
+      .select()
+      .from(activityReportEntries)
+      .where(eq(activityReportEntries.reportId, report.id));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("users.bitbucketUsername: unique non-null, nullable duplicabile; projects.dailyReportEnabled default false", async () => {
+    const username = `bb-${randomUUID()}`;
+    await db
+      .insert(users)
+      .values({
+        email: `bb1-${randomUUID()}@x.it`,
+        passwordHash: "x",
+        role: "member",
+        bitbucketUsername: username,
+      });
+
+    // Stesso username non-null → viola l'unique.
+    await expect(
+      db
+        .insert(users)
+        .values({
+          email: `bb2-${randomUUID()}@x.it`,
+          passwordHash: "x",
+          role: "member",
+          bitbucketUsername: username,
+        }),
+    ).rejects.toThrow();
+
+    // Più utenti con username null convivono (NULL ignorato dall'unique).
+    const [a] = await db
+      .insert(users)
+      .values({ email: `bbn1-${randomUUID()}@x.it`, passwordHash: "x", role: "member" })
+      .returning();
+    const [b] = await db
+      .insert(users)
+      .values({ email: `bbn2-${randomUUID()}@x.it`, passwordHash: "x", role: "member" })
+      .returning();
+    expect(a?.bitbucketUsername).toBeNull();
+    expect(b?.bitbucketUsername).toBeNull();
+
+    // Il toggle report giornaliero è opt-in: default false.
+    const projectId = await seedProject();
+    const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
+    expect(project?.dailyReportEnabled).toBe(false);
   });
 });

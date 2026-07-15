@@ -344,6 +344,13 @@
       "when": 1783950815801,
       "tag": "0048_notification_monitor_toggle",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1784109436086,
+      "tag": "0049_daily_activity_report",
+      "breakpoints": true
     }
   ]
 }
