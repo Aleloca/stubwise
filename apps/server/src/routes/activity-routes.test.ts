@@ -106,6 +106,18 @@ describe("GET /api/activity", () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it("date ben formata ma impossibile → 400 invalid_date", async () => {
+    for (const bad of ["2026-13-40", "2026-02-30"]) {
+      const res = await app.inject({
+        method: "GET",
+        url: `/api/activity?date=${bad}`,
+        headers: { cookie: memberCookie },
+      });
+      expect(res.statusCode).toBe(400);
+      expect((res.json() as { code: string }).code).toBe("invalid_date");
+    }
+  });
+
   it("giorno senza report → projects e developers vuoti", async () => {
     const res = await app.inject({
       method: "GET",
@@ -276,5 +288,78 @@ describe("GET /api/activity", () => {
     expect(member.totalAdditions).toBe(50);
     expect(member.totalDeletions).toBe(10);
     expect(member.perProject).toHaveLength(2);
+  });
+
+  it("più email dello stesso membro sullo STESSO progetto → perProject una riga", async () => {
+    // Due email git dello stesso membro committano allo stesso progetto nello
+    // stesso giorno (due entry sullo stesso report): perProject deve aggregarle
+    // in UNA sola riga per quel progetto, sommando commitCount e concatenando i
+    // commits (niente header progetto duplicati nella UI).
+    await testDb.db.insert(gitIdentities).values([
+      { userId: memberId, email: "a@member.it" },
+      { userId: memberId, email: "b@member.it" },
+    ]);
+
+    const ins = await testDb.db
+      .insert(activityReports)
+      .values({ projectId, date: DATE, status: "done" })
+      .returning({ id: activityReports.id });
+    const reportId = ins[0]!.id;
+
+    await testDb.db.insert(activityReportEntries).values([
+      {
+        reportId,
+        gitEmail: "a@member.it",
+        authorName: "A",
+        commitCount: 2,
+        additions: 10,
+        deletions: 3,
+        repoIds: ["repo-1"],
+        commits: [{ sha: "a1", subject: "s1", repoId: "repo-1" }],
+        aiSummary: "Sommario A.",
+      },
+      {
+        reportId,
+        gitEmail: "b@member.it",
+        authorName: "B",
+        commitCount: 4,
+        additions: 40,
+        deletions: 7,
+        repoIds: ["repo-1"],
+        commits: [{ sha: "b1", subject: "s2", repoId: "repo-1" }],
+        aiSummary: "Sommario B.",
+      },
+    ]);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/activity?date=${DATE}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      developers: {
+        resolvedUser: { id: string } | null;
+        totalCommits: number;
+        perProject: {
+          projectId: string;
+          commitCount: number;
+          commits: { sha: string }[];
+          aiSummary: string | null;
+        }[];
+      }[];
+    };
+    expect(body.developers).toHaveLength(1);
+    const member = body.developers[0]!;
+    expect(member.resolvedUser!.id).toBe(memberId);
+    expect(member.totalCommits).toBe(6);
+    expect(member.perProject).toHaveLength(1);
+    const row = member.perProject[0]!;
+    expect(row.projectId).toBe(projectId);
+    expect(row.commitCount).toBe(6);
+    expect(row.commits.map((c) => c.sha).sort()).toEqual(["a1", "b1"]);
+    // Ordine di entryRows non garantito (nessun ORDER BY): accettiamo entrambe
+    // le concatenazioni.
+    expect(["Sommario A.\n\nSommario B.", "Sommario B.\n\nSommario A."]).toContain(row.aiSummary);
   });
 });

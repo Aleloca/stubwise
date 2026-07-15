@@ -96,6 +96,13 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
       if (!DATE_RE.test(date)) {
         return apiError(reply, 400, "invalid_date", "date must be in YYYY-MM-DD format");
       }
+      // Il formato è corretto ma potrebbe essere una data impossibile (es.
+      // 2026-13-40, 2026-02-30): la colonna Postgres `date` la rifiuterebbe →
+      // 500. Verifichiamo che sia una data di calendario REALE ricostruendola.
+      const parsed = new Date(`${date}T00:00:00Z`);
+      if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) {
+        return apiError(reply, 400, "invalid_date", "Invalid date");
+      }
 
       // 1) Report del giorno + progetto (join). Ordine stabile per nome progetto.
       const reportRows = await app.db
@@ -145,7 +152,9 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
       const resolve = (gitEmail: string): ResolvedUser | null =>
         userByEmail.get(gitEmail.toLowerCase()) ?? null;
 
-      // Entries raggruppate per report, nell'ordine di inserimento (id asc).
+      // Entries raggruppate per report, ordinate per id: ordine deterministico e
+      // stabile (gli id sono UUID random, quindi NON cronologico) per un output
+      // riproducibile.
       const entriesByReport = new Map<string, typeof entryRows>();
       for (const entry of entryRows) {
         const list = entriesByReport.get(entry.reportId) ?? [];
@@ -216,13 +225,28 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
         dev.totalAdditions += entry.additions;
         dev.totalDeletions += entry.deletions;
         const projectId = reportProjectId.get(entry.reportId)!;
-        dev.perProject.push({
-          projectId,
-          projectName: projectNameById.get(projectId) ?? "",
-          commitCount: entry.commitCount,
-          aiSummary: entry.aiSummary,
-          commits: entry.commits,
-        });
+        // Un dev può avere più email git che committano allo STESSO progetto nel
+        // giorno: aggreghiamo per projectId così `perProject` ha una sola riga
+        // per progetto (evita header duplicati nella UI).
+        const existing = dev.perProject.find((p) => p.projectId === projectId);
+        if (existing) {
+          existing.commitCount += entry.commitCount;
+          existing.commits = existing.commits.concat(entry.commits);
+          if (entry.aiSummary) {
+            existing.aiSummary =
+              existing.aiSummary && existing.aiSummary !== entry.aiSummary
+                ? `${existing.aiSummary}\n\n${entry.aiSummary}`
+                : entry.aiSummary;
+          }
+        } else {
+          dev.perProject.push({
+            projectId,
+            projectName: projectNameById.get(projectId) ?? "",
+            commitCount: entry.commitCount,
+            aiSummary: entry.aiSummary,
+            commits: entry.commits,
+          });
+        }
       }
 
       const developerViews = [...devs.values()].sort((a, b) => b.totalCommits - a.totalCommits);
