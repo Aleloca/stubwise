@@ -1,17 +1,29 @@
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useId, useMemo, useState, type FormEvent, type KeyboardEvent } from "react";
+import {
+  useId,
+  useMemo,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { Avatar } from "../components/avatar";
 import { CopyButton } from "../components/copy-button";
 import { FormError, TextField } from "../components/field";
 import {
   deleteInvite,
+  linkGitIdentity,
+  linkUserBitbucket,
   linkUserSlack,
   postInvite,
+  unlinkGitIdentity,
+  unlinkUserBitbucket,
   unlinkUserSlack,
   updateUserRole,
   type Invite,
+  type ObservedAuthor,
   type PendingInvite,
   type SlackWorkspaceUser,
   type TeamUser,
@@ -20,6 +32,7 @@ import { meQueryOptions } from "../lib/auth";
 import { formatDate } from "../lib/format";
 import {
   invitesQueryOptions,
+  observedAuthorsQueryOptions,
   slackWorkspaceUsersQueryOptions,
   usersQueryOptions,
 } from "../lib/queries";
@@ -109,6 +122,11 @@ function MembersSection({ currentUserId, isAdmin }: { currentUserId: string; isA
   const { t } = useTranslation();
   const { data: users } = useSuspenseQuery(usersQueryOptions);
   const slack = useSlackWorkspace(isAdmin);
+  // Autori git osservati per il picker di link (solo admin). NON suspense e con
+  // degradazione graziosa: l'endpoint è admin-only, un errore/403 lascia la
+  // lista vuota — la pagina resta viva, solo il picker non offre candidati.
+  const observedAuthorsQuery = useQuery({ ...observedAuthorsQueryOptions, enabled: isAdmin });
+  const observedAuthors = observedAuthorsQuery.data ?? [];
 
   // Display name Slack per slackUserId, per arricchire il badge "Linked".
   const slackNameById = useMemo(() => {
@@ -140,6 +158,7 @@ function MembersSection({ currentUserId, isAdmin }: { currentUserId: string; isA
             slackUsers={slack.users}
             slackUnavailable={slack.unavailable}
             slackName={user.slackUserId ? (slackNameById.get(user.slackUserId) ?? null) : null}
+            observedAuthors={observedAuthors}
           />
         ))}
       </ul>
@@ -154,6 +173,7 @@ function MemberRow({
   slackUsers,
   slackUnavailable,
   slackName,
+  observedAuthors,
 }: {
   user: TeamUser;
   isCurrentUser: boolean;
@@ -161,17 +181,37 @@ function MemberRow({
   slackUsers: SlackWorkspaceUser[];
   slackUnavailable: boolean;
   slackName: string | null;
+  observedAuthors: ObservedAuthor[];
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [picking, setPicking] = useState(false);
+  const [pickingGit, setPickingGit] = useState(false);
+  const [editingBitbucket, setEditingBitbucket] = useState(false);
+  const [bitbucketInput, setBitbucketInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const isLinked = user.slackUserId != null;
+
+  const gitCount = user.gitIdentities.length;
+  const gitLinked = gitCount > 0;
+  const bitbucketLinked = user.bitbucketUsername != null;
+
+  // Candidati del picker git: gli autori osservati non ancora aliasati a QUESTO
+  // membro (quelli già suoi hanno linkedUserId === user.id e ricomparirebbero
+  // come "già collegati"). Chi è aliasato a un ALTRO membro resta elencato ma
+  // disabilitato (vedi GitPicker), così l'admin capisce perché non è scegliibile.
+  const linkedEmails = new Set(user.gitIdentities.map((g) => g.email.toLowerCase()));
+  const gitCandidates = observedAuthors.filter(
+    (a) => !linkedEmails.has(a.email.toLowerCase()),
+  );
 
   function invalidate() {
     void queryClient.invalidateQueries({ queryKey: usersQueryOptions.queryKey });
     void queryClient.invalidateQueries({
       queryKey: slackWorkspaceUsersQueryOptions.queryKey,
+    });
+    void queryClient.invalidateQueries({
+      queryKey: observedAuthorsQueryOptions.queryKey,
     });
   }
 
@@ -186,6 +226,40 @@ function MemberRow({
 
   const unlinkMutation = useMutation({
     mutationFn: () => unlinkUserSlack(user.id),
+    onSuccess: invalidate,
+    onError: (cause) => setError(translateApiError(cause, t)),
+  });
+
+  // Git: multi-valore (N email per membro). Il link accetta un'email dal picker
+  // degli autori osservati o digitata a mano; l'unlink è per singola email.
+  const linkGitMutation = useMutation({
+    mutationFn: (email: string) => linkGitIdentity(user.id, email),
+    onSuccess: () => {
+      setPickingGit(false);
+      invalidate();
+    },
+    onError: (cause) => setError(translateApiError(cause, t)),
+  });
+
+  const unlinkGitMutation = useMutation({
+    mutationFn: (email: string) => unlinkGitIdentity(user.id, email),
+    onSuccess: invalidate,
+    onError: (cause) => setError(translateApiError(cause, t)),
+  });
+
+  // Bitbucket: username singolo (users.bitbucketUsername, unique lato server).
+  const linkBitbucketMutation = useMutation({
+    mutationFn: (username: string) => linkUserBitbucket(user.id, username),
+    onSuccess: () => {
+      setEditingBitbucket(false);
+      setBitbucketInput("");
+      invalidate();
+    },
+    onError: (cause) => setError(translateApiError(cause, t)),
+  });
+
+  const unlinkBitbucketMutation = useMutation({
+    mutationFn: () => unlinkUserBitbucket(user.id),
     onSuccess: invalidate,
     onError: (cause) => setError(translateApiError(cause, t)),
   });
@@ -207,9 +281,33 @@ function MemberRow({
     unlinkMutation.mutate();
   }
 
+  function handleUnlinkGit(email: string) {
+    if (!window.confirm(t("settings:team.confirmUnlinkGit", { email }))) return;
+    setError(null);
+    unlinkGitMutation.mutate(email);
+  }
+
+  function handleUnlinkBitbucket() {
+    if (!window.confirm(t("settings:team.confirmUnlinkBitbucket", { email: user.email }))) return;
+    setError(null);
+    unlinkBitbucketMutation.mutate();
+  }
+
+  function handleSubmitBitbucket(event: FormEvent) {
+    event.preventDefault();
+    const username = bitbucketInput.trim();
+    if (username === "") return;
+    setError(null);
+    linkBitbucketMutation.mutate(username);
+  }
+
+  // Classi condivise dai bottoni-azione (link/unlink) della riga.
+  const actionButton =
+    "tap rounded-sm border border-line-strong px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase transition-colors disabled:cursor-not-allowed disabled:opacity-50";
+
   return (
-    <li className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-      <div className="flex min-w-0 items-center gap-2">
+    <li className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
         <Avatar src={user.avatarUrl} label={user.email} size={24} />
         <span className="truncate font-mono text-[13px] text-fg">{user.email}</span>
         {isCurrentUser && (
@@ -228,6 +326,24 @@ function MemberRow({
               : t("settings:team.slackLinked")
             : t("settings:team.slackNotLinked")}
         </span>
+        <span
+          className={`shrink-0 rounded-sm border px-1.5 py-0.5 font-mono text-[10px] tracking-[0.12em] uppercase ${
+            gitLinked ? "border-ok/40 text-ok" : "border-line-strong text-fg-faint"
+          }`}
+        >
+          {gitLinked
+            ? t("settings:team.gitLinkedCount", { count: gitCount })
+            : t("settings:team.gitNotLinked")}
+        </span>
+        <span
+          className={`shrink-0 rounded-sm border px-1.5 py-0.5 font-mono text-[10px] tracking-[0.12em] uppercase ${
+            bitbucketLinked ? "border-ok/40 text-ok" : "border-line-strong text-fg-faint"
+          }`}
+        >
+          {bitbucketLinked
+            ? t("settings:team.bitbucketLinkedTo", { username: user.bitbucketUsername })
+            : t("settings:team.bitbucketNotLinked")}
+        </span>
       </div>
 
       <div className="flex shrink-0 flex-wrap items-center gap-3">
@@ -236,7 +352,7 @@ function MemberRow({
             type="button"
             onClick={handleUnlink}
             disabled={unlinkMutation.isPending}
-            className="tap rounded-sm border border-line-strong px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase transition-colors hover:border-danger/40 hover:text-danger disabled:opacity-50"
+            className={`${actionButton} hover:border-danger/40 hover:text-danger`}
           >
             {unlinkMutation.isPending ? t("settings:team.unlinking") : t("settings:team.unlink")}
           </button>
@@ -249,7 +365,7 @@ function MemberRow({
               setPicking(true);
             }}
             disabled={slackUnavailable}
-            className="tap rounded-sm border border-line-strong px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase transition-colors hover:border-signal-dim/40 hover:text-signal disabled:cursor-not-allowed disabled:opacity-50"
+            className={`${actionButton} hover:border-signal-dim/40 hover:text-signal`}
           >
             {t("settings:team.linkSlack")}
           </button>
@@ -267,6 +383,45 @@ function MemberRow({
           />
         )}
         {isAdmin && slackUnavailable && !isLinked && <SlackNotConfiguredHint />}
+
+        {isAdmin && !pickingGit && (
+          <button
+            type="button"
+            onClick={() => {
+              setError(null);
+              setPickingGit(true);
+            }}
+            className={`${actionButton} hover:border-signal-dim/40 hover:text-signal`}
+          >
+            {t("settings:team.linkGit")}
+          </button>
+        )}
+
+        {isAdmin && bitbucketLinked && (
+          <button
+            type="button"
+            onClick={handleUnlinkBitbucket}
+            disabled={unlinkBitbucketMutation.isPending}
+            className={`${actionButton} hover:border-danger/40 hover:text-danger`}
+          >
+            {unlinkBitbucketMutation.isPending
+              ? t("settings:team.unlinking")
+              : t("settings:team.unlinkBitbucket")}
+          </button>
+        )}
+        {isAdmin && !bitbucketLinked && !editingBitbucket && (
+          <button
+            type="button"
+            onClick={() => {
+              setError(null);
+              setEditingBitbucket(true);
+            }}
+            className={`${actionButton} hover:border-signal-dim/40 hover:text-signal`}
+          >
+            {t("settings:team.linkBitbucket")}
+          </button>
+        )}
+
         <span className="hidden font-mono text-[11px] text-fg-faint sm:inline">
           {t("settings:team.memberSince", { date: formatDate(user.createdAt) })}
         </span>
@@ -289,6 +444,78 @@ function MemberRow({
         )}
       </div>
 
+      {/* Riga estesa (solo admin): chip delle email git, picker git e input
+          Bitbucket. Sta sotto la riga principale per non affollarla. */}
+      {isAdmin && (gitLinked || pickingGit || editingBitbucket) && (
+        <div className="flex basis-full flex-col gap-2">
+          {gitLinked && (
+            <ul className="flex flex-wrap gap-1.5">
+              {user.gitIdentities.map((identity) => (
+                <li
+                  key={identity.id}
+                  className="inline-flex items-center gap-1.5 rounded-sm border border-line-strong px-1.5 py-0.5 font-mono text-[11px] text-fg-muted"
+                >
+                  <span className="truncate">{identity.email}</span>
+                  <button
+                    type="button"
+                    aria-label={t("settings:team.gitUnlinkLabel", { email: identity.email })}
+                    onClick={() => handleUnlinkGit(identity.email)}
+                    disabled={unlinkGitMutation.isPending}
+                    className="tap text-fg-faint transition-colors hover:text-danger disabled:opacity-50"
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {pickingGit && (
+            <GitPicker
+              authors={gitCandidates}
+              pending={linkGitMutation.isPending}
+              pendingLabel={t("settings:team.linking")}
+              onCancel={() => setPickingGit(false)}
+              onPick={(email) => {
+                setError(null);
+                linkGitMutation.mutate(email);
+              }}
+            />
+          )}
+          {editingBitbucket && (
+            <form onSubmit={handleSubmitBitbucket} className="flex items-center gap-2">
+              <input
+                type="text"
+                aria-label={t("settings:team.bitbucketUsernameLabel")}
+                placeholder={t("settings:team.bitbucketUsernamePlaceholder")}
+                value={bitbucketInput}
+                disabled={linkBitbucketMutation.isPending}
+                onChange={(event) => setBitbucketInput(event.target.value)}
+                className="w-full rounded-sm border border-line-strong bg-ink-950 px-2 py-1 font-mono text-[12px] text-fg placeholder:text-fg-faint disabled:opacity-50 sm:w-64"
+              />
+              <button
+                type="submit"
+                disabled={linkBitbucketMutation.isPending || bitbucketInput.trim() === ""}
+                className={`${actionButton} hover:border-signal-dim/40 hover:text-signal`}
+              >
+                {linkBitbucketMutation.isPending
+                  ? t("settings:team.linking")
+                  : t("settings:team.bitbucketLink")}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingBitbucket(false);
+                  setBitbucketInput("");
+                }}
+                className={`${actionButton} hover:text-fg`}
+              >
+                {t("settings:team.cancel")}
+              </button>
+            </form>
+          )}
+        </div>
+      )}
+
       {error && (
         <div className="basis-full">
           <FormError message={error} />
@@ -298,76 +525,110 @@ function MemberRow({
   );
 }
 
-/** Numero massimo di voci renderizzate nella lista del picker Slack. */
-const SLACK_PICKER_MAX = 50;
+/** Numero massimo di voci renderizzate nella lista di un picker combobox. */
+const PICKER_MAX = 50;
 
-/** Filtro case-insensitive dei membri Slack su displayName + email. */
-function filterSlackUsers(slackUsers: SlackWorkspaceUser[], query: string): SlackWorkspaceUser[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return slackUsers;
-  return slackUsers.filter((su) => {
-    const name = (su.displayName ?? "").toLowerCase();
-    const email = (su.email ?? "").toLowerCase();
-    return name.includes(q) || email.includes(q);
-  });
+/** Etichette localizzate di un {@link ComboboxPicker}. */
+interface PickerLabels {
+  /** aria-label del combobox e della listbox. */
+  pickerLabel: string;
+  placeholder: string;
+  /** Riga mostrata quando nessuna voce combacia con la query. */
+  noResults: string;
+  cancel: string;
+  /** Testo della riga "+N altri" quando la lista è troncata (count già dato). */
+  moreResults: (count: number) => string;
 }
 
 /**
- * Picker dei membri del workspace Slack: un combobox con ricerca/autocomplete,
- * pensato per workspace grandi (centinaia di persone). L'input filtra le voci
- * per displayName ed email mentre si digita; la lista è scrollabile e cappata a
- * {@link SLACK_PICKER_MAX} voci, con una riga "+N altri" quando è troncata. Le
- * voci già collegate ad altri utenti restano elencate ma disabilitate (così
- * l'admin capisce perché non sono scegliibili). `onPick` scatta alla scelta di
- * un'opzione valida. Navigazione con ↑/↓/Invio; Esc chiama `onCancel`.
+ * Consente al picker di confermare un valore DIGITATO che non compare tra le
+ * opzioni (es. un'email git non ancora osservata dal poller). Un bottone sotto
+ * la lista e l'Invio a fuoco vuoto (nessuna opzione attiva selezionabile) lo
+ * confermano.
  */
-function SlackPicker({
-  slackUsers,
+interface PickerFreeText {
+  /** True se il testo corrente è inviabile come valore libero. */
+  canSubmit: (query: string) => boolean;
+  /** Etichetta del bottone "collega questo valore". */
+  label: (query: string) => string;
+  onSubmit: (query: string) => void;
+}
+
+/**
+ * Combobox generico con ricerca/autocomplete, riusato dai picker di /team
+ * (membri Slack, autori git). L'input filtra le voci mentre si digita (via
+ * `matches`); la lista è scrollabile e cappata a {@link PICKER_MAX} voci con una
+ * riga "+N altri" quando è troncata. Le voci `isDisabled` restano elencate ma
+ * non selezionabili (le frecce le saltano, il click/Invio non le sceglie), così
+ * l'utente capisce perché non sono scegliibili. L'aspetto della singola opzione
+ * è delegato a `renderOption`. Navigazione con ↑/↓/Invio; Esc chiama `onCancel`.
+ * `freeText` (opzionale) abilita l'invio di un valore digitato fuori lista.
+ */
+function ComboboxPicker<T>({
+  items,
+  getKey,
+  matches,
+  isDisabled,
+  renderOption,
+  onPick,
   pending,
   pendingLabel,
-  onPick,
   onCancel,
+  labels,
+  freeText,
 }: {
-  slackUsers: SlackWorkspaceUser[];
+  items: T[];
+  getKey: (item: T) => string;
+  /** Predicato di filtro: `query` è già normalizzata (trim + lowercase). */
+  matches: (item: T, query: string) => boolean;
+  isDisabled: (item: T) => boolean;
+  renderOption: (item: T, state: { active: boolean; disabled: boolean }) => ReactNode;
+  onPick: (item: T) => void;
   pending: boolean;
   pendingLabel: string;
-  onPick: (slackUserId: string) => void;
   onCancel: () => void;
+  labels: PickerLabels;
+  freeText?: PickerFreeText;
 }) {
-  const { t } = useTranslation();
   const [query, setQuery] = useState("");
-  // Indice attivo iniziale: prima voce selezionabile (le già-collegate sono
+  // Indice attivo iniziale: prima voce selezionabile (le disabilitate sono
   // saltate dalle frecce e non selezionabili con Invio).
-  const [active, setActive] = useState(() =>
-    slackUsers.findIndex((su) => su.linkedUserId == null),
-  );
+  const [active, setActive] = useState(() => items.findIndex((item) => !isDisabled(item)));
   const listboxId = useId();
+  // Id di base per gli id stabili delle option, così l'input può esporre
+  // `aria-activedescendant` verso l'opzione attiva (a11y per screen reader).
+  const optionBaseId = useId();
+  const optionId = (index: number) => `${optionBaseId}-option-${index}`;
 
-  // Filtro case-insensitive su displayName + email; cap a SLACK_PICKER_MAX voci
-  // renderizzate, con conteggio del troncamento per la riga "+N altri".
-  const { visible, overflow } = useMemo(() => {
-    const matches = filterSlackUsers(slackUsers, query);
-    return {
-      visible: matches.slice(0, SLACK_PICKER_MAX),
-      overflow: Math.max(0, matches.length - SLACK_PICKER_MAX),
-    };
-  }, [query, slackUsers]);
+  function filtered(value: string): T[] {
+    const q = value.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((item) => matches(item, q));
+  }
+
+  // Filtro + cap a PICKER_MAX voci renderizzate, col conteggio del troncamento
+  // per la riga "+N altri". Ricalcolato a ogni render: liste piccole, costo
+  // trascurabile, e nessuna dipendenza stale sulle callback props.
+  const all = filtered(query);
+  const visible = all.slice(0, PICKER_MAX);
+  const overflow = Math.max(0, all.length - PICKER_MAX);
 
   // La listbox è renderizzata quando la mutation non è in corso: aria-expanded
   // deve riflettere esattamente questa visibilità, non lo stato di pending.
   const listboxOpen = !pending;
 
-  function pick(su: SlackWorkspaceUser) {
-    if (su.linkedUserId != null) return;
-    onPick(su.id);
+  function pick(item: T) {
+    if (isDisabled(item)) return;
+    onPick(item);
   }
 
-  // Prossimo indice selezionabile (linkedUserId == null) in direzione `step`,
-  // partendo da `from`. Le frecce saltano le voci disabilitate; se non c'è
-  // nessuna voce selezionabile in quella direzione, l'indice resta invariato.
+  // Prossimo indice selezionabile in direzione `step`, partendo da `from`. Le
+  // frecce saltano le voci disabilitate; se non ce n'è nessuna in quella
+  // direzione, l'indice resta invariato.
   function nextSelectable(from: number, step: 1 | -1): number {
     for (let i = from + step; i >= 0 && i < visible.length; i += step) {
-      if (visible[i]?.linkedUserId == null) return i;
+      const item = visible[i];
+      if (item && !isDisabled(item)) return i;
     }
     return from;
   }
@@ -390,8 +651,13 @@ function SlackPicker({
     }
     if (event.key === "Enter") {
       event.preventDefault();
-      const su = visible[active];
-      if (su) pick(su);
+      const item = visible[active];
+      if (item && !isDisabled(item)) {
+        pick(item);
+        return;
+      }
+      // Nessuna opzione attiva selezionabile: ripiega sul valore libero.
+      if (freeText && freeText.canSubmit(query)) freeText.onSubmit(query);
     }
   }
 
@@ -403,19 +669,22 @@ function SlackPicker({
           role="combobox"
           aria-expanded={listboxOpen}
           aria-controls={listboxId}
+          aria-activedescendant={
+            listboxOpen && active >= 0 && active < visible.length ? optionId(active) : undefined
+          }
           aria-autocomplete="list"
-          aria-label={t("settings:team.slackPickerLabel")}
-          placeholder={t("settings:team.slackSearchPlaceholder")}
+          aria-label={labels.pickerLabel}
+          placeholder={labels.placeholder}
           disabled={pending}
           value={query}
           onChange={(event) => {
             const value = event.target.value;
             setQuery(value);
             // L'indice attivo punta alla prima voce selezionabile dei nuovi
-            // risultati (le voci già collegate non sono scelibili): -1 se non
-            // ce ne sono, così Invio non seleziona mai una voce disabilitata.
-            const matches = filterSlackUsers(slackUsers, value).slice(0, SLACK_PICKER_MAX);
-            setActive(matches.findIndex((su) => su.linkedUserId == null));
+            // risultati: -1 se non ce ne sono, così Invio non seleziona mai una
+            // voce disabilitata (ripiega semmai sul valore libero).
+            const next = filtered(value).slice(0, PICKER_MAX);
+            setActive(next.findIndex((item) => !isDisabled(item)));
           }}
           onKeyDown={handleKeyDown}
           className="w-full rounded-sm border border-line-strong bg-ink-950 px-2 py-1 font-mono text-[12px] text-fg placeholder:text-fg-faint disabled:opacity-50 sm:w-64"
@@ -430,7 +699,7 @@ function SlackPicker({
             onClick={onCancel}
             className="tap rounded-sm border border-line-strong px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase transition-colors hover:text-fg"
           >
-            {t("settings:team.cancel")}
+            {labels.cancel}
           </button>
         )}
       </div>
@@ -440,42 +709,31 @@ function SlackPicker({
           <ul
             id={listboxId}
             role="listbox"
-            aria-label={t("settings:team.slackPickerLabel")}
+            aria-label={labels.pickerLabel}
             className="max-h-56 w-full overflow-y-auto rounded-sm border border-line bg-ink-950 sm:w-72"
           >
             {visible.length === 0 ? (
-              <li className="px-2 py-2 font-mono text-[11px] text-fg-faint">
-                {t("settings:team.slackNoResults")}
-              </li>
+              <li className="px-2 py-2 font-mono text-[11px] text-fg-faint">{labels.noResults}</li>
             ) : (
-              visible.map((su, index) => {
-                const name = su.displayName ?? su.email ?? su.id;
-                const taken = su.linkedUserId != null;
+              visible.map((item, index) => {
+                const disabled = isDisabled(item);
+                const isActive = index === active;
                 return (
                   <li
-                    key={su.id}
+                    key={getKey(item)}
+                    id={optionId(index)}
                     role="option"
-                    aria-selected={index === active}
-                    aria-disabled={taken}
+                    aria-selected={isActive}
+                    aria-disabled={disabled}
                     onMouseEnter={() => setActive(index)}
-                    onClick={() => pick(su)}
+                    onClick={() => pick(item)}
                     className={`flex items-center gap-2 px-2 py-1.5 font-mono text-[12px] ${
-                      taken
+                      disabled
                         ? "cursor-not-allowed text-fg-faint"
-                        : `cursor-pointer text-fg ${index === active ? "bg-signal/10" : ""}`
+                        : `cursor-pointer text-fg ${isActive ? "bg-signal/10" : ""}`
                     }`}
                   >
-                    <Avatar src={su.avatarUrl} label={name} size={20} />
-                    {taken ? (
-                      <span className="truncate">
-                        {t("settings:team.slackOptionLinked", { name })}
-                      </span>
-                    ) : (
-                      <span className="min-w-0 truncate">
-                        <span className="text-fg">{name}</span>
-                        {su.email && <span className="text-fg-faint"> · {su.email}</span>}
-                      </span>
-                    )}
+                    {renderOption(item, { active: isActive, disabled })}
                   </li>
                 );
               })
@@ -483,12 +741,145 @@ function SlackPicker({
           </ul>
           {overflow > 0 && (
             <p className="font-mono text-[10px] tracking-[0.1em] text-fg-faint uppercase">
-              {t("settings:team.slackMoreResults", { count: overflow })}
+              {labels.moreResults(overflow)}
             </p>
+          )}
+          {freeText && freeText.canSubmit(query) && (
+            <button
+              type="button"
+              onClick={() => freeText.onSubmit(query)}
+              className="tap self-start rounded-sm border border-line-strong px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase transition-colors hover:border-signal-dim/40 hover:text-signal"
+            >
+              {freeText.label(query)}
+            </button>
           )}
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * Picker dei membri del workspace Slack: sottile wrapper di {@link ComboboxPicker}
+ * che filtra per displayName ed email, disabilita le voci già collegate ad altri
+ * utenti e ne rende l'opzione con avatar. `onPick` riceve lo Slack user id.
+ */
+function SlackPicker({
+  slackUsers,
+  pending,
+  pendingLabel,
+  onPick,
+  onCancel,
+}: {
+  slackUsers: SlackWorkspaceUser[];
+  pending: boolean;
+  pendingLabel: string;
+  onPick: (slackUserId: string) => void;
+  onCancel: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <ComboboxPicker<SlackWorkspaceUser>
+      items={slackUsers}
+      getKey={(su) => su.id}
+      matches={(su, q) =>
+        (su.displayName ?? "").toLowerCase().includes(q) ||
+        (su.email ?? "").toLowerCase().includes(q)
+      }
+      isDisabled={(su) => su.linkedUserId != null}
+      renderOption={(su) => {
+        const name = su.displayName ?? su.email ?? su.id;
+        const taken = su.linkedUserId != null;
+        return (
+          <>
+            <Avatar src={su.avatarUrl} label={name} size={20} />
+            {taken ? (
+              <span className="truncate">{t("settings:team.slackOptionLinked", { name })}</span>
+            ) : (
+              <span className="min-w-0 truncate">
+                <span className="text-fg">{name}</span>
+                {su.email && <span className="text-fg-faint"> · {su.email}</span>}
+              </span>
+            )}
+          </>
+        );
+      }}
+      onPick={(su) => onPick(su.id)}
+      pending={pending}
+      pendingLabel={pendingLabel}
+      onCancel={onCancel}
+      labels={{
+        pickerLabel: t("settings:team.slackPickerLabel"),
+        placeholder: t("settings:team.slackSearchPlaceholder"),
+        noResults: t("settings:team.slackNoResults"),
+        cancel: t("settings:team.cancel"),
+        moreResults: (count) => t("settings:team.slackMoreResults", { count }),
+      }}
+    />
+  );
+}
+
+/** Basilare riconoscimento di un'email per il valore libero del picker git. */
+function looksLikeEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+$/.test(value.trim());
+}
+
+/**
+ * Picker degli autori git osservati: wrapper di {@link ComboboxPicker} che filtra
+ * per email e authorName e disabilita le email già aliasate ad ALTRI membri.
+ * Con `freeText` consente anche di digitare un'email non osservata e collegarla
+ * comunque. `onPick` riceve l'email (già normalizzata lowercase).
+ */
+function GitPicker({
+  authors,
+  pending,
+  pendingLabel,
+  onPick,
+  onCancel,
+}: {
+  authors: ObservedAuthor[];
+  pending: boolean;
+  pendingLabel: string;
+  onPick: (email: string) => void;
+  onCancel: () => void;
+}) {
+  const { t } = useTranslation();
+  return (
+    <ComboboxPicker<ObservedAuthor>
+      items={authors}
+      getKey={(a) => a.email}
+      matches={(a, q) =>
+        a.email.toLowerCase().includes(q) || (a.authorName ?? "").toLowerCase().includes(q)
+      }
+      isDisabled={(a) => a.linkedUserId != null}
+      renderOption={(a) => {
+        const taken = a.linkedUserId != null;
+        return taken ? (
+          <span className="truncate">{t("settings:team.gitOptionLinked", { email: a.email })}</span>
+        ) : (
+          <span className="min-w-0 truncate">
+            <span className="text-fg">{a.email}</span>
+            {a.authorName && <span className="text-fg-faint"> · {a.authorName}</span>}
+          </span>
+        );
+      }}
+      onPick={(a) => onPick(a.email.toLowerCase())}
+      pending={pending}
+      pendingLabel={pendingLabel}
+      onCancel={onCancel}
+      labels={{
+        pickerLabel: t("settings:team.gitPickerLabel"),
+        placeholder: t("settings:team.gitSearchPlaceholder"),
+        noResults: t("settings:team.gitNoResults"),
+        cancel: t("settings:team.cancel"),
+        moreResults: (count) => t("settings:team.gitMoreResults", { count }),
+      }}
+      freeText={{
+        canSubmit: looksLikeEmail,
+        label: (q) => t("settings:team.gitLinkEmail", { email: q.trim().toLowerCase() }),
+        onSubmit: (q) => onPick(q.trim().toLowerCase()),
+      }}
+    />
   );
 }
 

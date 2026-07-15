@@ -788,6 +788,10 @@ export function deleteTicketLink(id: string, linkId: string): Promise<void> {
  */
 export interface TeamUser extends PublicUser {
   createdAt: string;
+  /** Username Bitbucket linkato, o null se non linkato. */
+  bitbucketUsername: string | null;
+  /** Email git aliasate a questo membro (per il picker di link in /team). */
+  gitIdentities: { id: string; email: string; authorName: string | null }[];
 }
 
 export function getUsers(): Promise<TeamUser[]> {
@@ -823,6 +827,58 @@ export function linkUserSlack(userId: string, slackUserId: string): Promise<Team
 /** Scollega l'identità Slack di un utente (solo admin). */
 export function unlinkUserSlack(userId: string): Promise<void> {
   return request("DELETE", `/api/users/${encodeURIComponent(userId)}/slack`);
+}
+
+/**
+ * Autore git realmente osservato dai repo (auto-raccolto dal poller), per il
+ * picker di link in /team. `linkedUserId` è l'utente Stubwise già collegato a
+ * questa email git (via git_identities), o null.
+ */
+export interface ObservedAuthor {
+  email: string;
+  authorName: string | null;
+  lastSeenAt: string;
+  linkedUserId: string | null;
+}
+
+/** Autori git osservati col link Stubwise (solo admin). */
+export function getObservedAuthors(): Promise<ObservedAuthor[]> {
+  return api.get("/api/git/observed-authors");
+}
+
+/**
+ * Alia un'email git a un membro (solo admin). Ritorna l'elenco aggiornato
+ * delle git identities del membro.
+ */
+export function linkGitIdentity(
+  userId: string,
+  email: string,
+): Promise<{ id: string; email: string; authorName: string | null }[]> {
+  return api.post(`/api/users/${encodeURIComponent(userId)}/git-identities`, { email });
+}
+
+/** Rimuove l'alias di un'email git da un membro (solo admin). */
+export function unlinkGitIdentity(userId: string, email: string): Promise<void> {
+  return request(
+    "DELETE",
+    `/api/users/${encodeURIComponent(userId)}/git-identities/${encodeURIComponent(email)}`,
+  );
+}
+
+/**
+ * Collega lo username Bitbucket di un utente (solo admin). Ritorna l'utente
+ * aggiornato (id + username). 409 `bitbucket_identity_taken` se già di un altro.
+ */
+export function linkUserBitbucket(
+  userId: string,
+  username: string,
+): Promise<{ id: string; bitbucketUsername: string | null }> {
+  return api.put(`/api/users/${encodeURIComponent(userId)}/bitbucket`, { username });
+}
+
+/** Scollega lo username Bitbucket di un utente (solo admin). */
+export function unlinkUserBitbucket(userId: string): Promise<void> {
+  return request("DELETE", `/api/users/${encodeURIComponent(userId)}/bitbucket`);
 }
 
 /**
@@ -960,6 +1016,11 @@ export interface Project {
   /** Se true, ogni push sul branch di default di un repo rigenera i suoi Docs. */
   docAutoUpdate: boolean;
   /**
+   * Se true, il worker genera ogni notte uno standup dai commit del giorno di
+   * tutti i repository del progetto (report attività). Default false.
+   */
+  dailyReportEnabled: boolean;
+  /**
    * Chiave di ingestion del progetto (Fase 3): gli SDK e i webhook inbound la
    * usano per autenticare l'invio di errori/ticket. Salita dal repository al
    * progetto; tutti i repo del gruppo condividono questa chiave.
@@ -994,6 +1055,7 @@ export interface ProjectDraft {
   description?: string | null;
   aiProviderId?: string | null;
   docAutoUpdate?: boolean;
+  dailyReportEnabled?: boolean;
 }
 
 /** Campi modificabili di un progetto (gruppo). Patch parziale. */
@@ -1004,6 +1066,8 @@ export interface ProjectPatch {
   aiProviderId?: string | null;
   /** Toggle auto-aggiornamento Docs ai push; assente = invariato. */
   docAutoUpdate?: boolean;
+  /** Toggle standup giornaliero (report attività); assente = invariato. */
+  dailyReportEnabled?: boolean;
 }
 
 export function getProjects(): Promise<ProjectListItem[]> {
@@ -2166,4 +2230,75 @@ export function getServerMetrics(
   const params = new URLSearchParams({ from: range.from, to: range.to });
   if (range.checkId) params.set("checkId", range.checkId);
   return api.get(`/api/servers/${encodeURIComponent(id)}/metrics?${params.toString()}`);
+}
+
+// --- Report attività (daily standup asincrono) ---
+
+/** Commit di una entry/vista dev: SHA, oggetto e repository di provenienza. */
+export interface ActivityCommit {
+  sha: string;
+  subject: string;
+  repoId: string;
+}
+
+/** Membro Stubwise risolto dall'email git (via git_identities), o null se non risolto. */
+export interface ActivityResolvedUser {
+  id: string;
+  email: string;
+  avatarUrl: string | null;
+}
+
+/** Entry per-autore di un report di progetto: una riga per email git. */
+export interface ActivityEntry {
+  gitEmail: string;
+  authorName: string | null;
+  resolvedUser: ActivityResolvedUser | null;
+  commitCount: number;
+  additions: number;
+  deletions: number;
+  commits: ActivityCommit[];
+  aiSummary: string | null;
+}
+
+/** Vista per-progetto del giorno: il report con le sue entries. */
+export interface ActivityProjectView {
+  project: { id: string; name: string; slug: string };
+  date: string;
+  status: string;
+  entries: ActivityEntry[];
+}
+
+/** Vista per-dev del giorno: entries di tutti i progetti raggruppate per membro. */
+export interface ActivityDeveloperView {
+  resolvedUser: ActivityResolvedUser | null;
+  gitEmail: string | null;
+  authorName: string | null;
+  totalCommits: number;
+  totalAdditions: number;
+  totalDeletions: number;
+  perProject: {
+    projectId: string;
+    projectName: string;
+    commitCount: number;
+    aiSummary: string | null;
+    commits: ActivityCommit[];
+  }[];
+}
+
+/**
+ * Report di attività di una data: entrambe le viste (per-progetto e per-dev)
+ * sugli stessi entries. Alimenta la sezione SPA "Attività".
+ */
+export interface ActivityReport {
+  date: string;
+  projects: ActivityProjectView[];
+  developers: ActivityDeveloperView[];
+}
+
+/**
+ * Report di attività di una data (`YYYY-MM-DD`, UTC). Visibile a ogni membro
+ * autenticato; una data senza report restituisce liste vuote.
+ */
+export function getActivity(date: string): Promise<ActivityReport> {
+  return api.get(`/api/activity?date=${encodeURIComponent(date)}`);
 }

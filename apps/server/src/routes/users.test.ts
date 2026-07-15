@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { count, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { users } from "@stubwise/db";
+import { gitIdentities, users } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
@@ -82,10 +82,59 @@ afterEach(async () => {
   // Riporta lo stato noto: adminId admin, memberId member; rimuove gli extra.
   await testDb.db.update(users).set({ role: "admin" }).where(eq(users.id, adminId));
   await testDb.db.update(users).set({ role: "member" }).where(eq(users.id, memberId));
+  // Azzera eventuali link git/bitbucket creati dai singoli test.
+  await testDb.db.delete(gitIdentities);
+  await testDb.db.update(users).set({ bitbucketUsername: null }).where(eq(users.id, memberId));
   for (const id of extraUserIds) {
     await testDb.db.delete(users).where(eq(users.id, id));
   }
   extraUserIds.clear();
+});
+
+describe("GET /api/users", () => {
+  it("non autenticato → 401", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/users" });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("espone bitbucketUsername e gitIdentities per ogni utente", async () => {
+    // memberId: 2 git identities + un bitbucketUsername; adminId: nessuno.
+    await testDb.db.insert(gitIdentities).values([
+      { userId: memberId, email: "bea@work.example", authorName: "Bea Work" },
+      { userId: memberId, email: "bea@home.example", authorName: null },
+    ]);
+    await testDb.db
+      .update(users)
+      .set({ bitbucketUsername: "bea-bb" })
+      .where(eq(users.id, memberId));
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/users",
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      id: string;
+      bitbucketUsername: string | null;
+      gitIdentities: { id: string; email: string; authorName: string | null }[];
+    }[];
+
+    const member = body.find((u) => u.id === memberId)!;
+    expect(member.bitbucketUsername).toBe("bea-bb");
+    expect(member.gitIdentities).toHaveLength(2);
+    expect(new Set(member.gitIdentities.map((g) => g.email))).toEqual(
+      new Set(["bea@work.example", "bea@home.example"]),
+    );
+    for (const identity of member.gitIdentities) {
+      expect(typeof identity.id).toBe("string");
+    }
+    expect(member.gitIdentities.find((g) => g.email === "bea@home.example")!.authorName).toBeNull();
+
+    const admin = body.find((u) => u.id === adminId)!;
+    expect(admin.bitbucketUsername).toBeNull();
+    expect(admin.gitIdentities).toEqual([]);
+  });
 });
 
 describe("PATCH /api/users/:id/role", () => {

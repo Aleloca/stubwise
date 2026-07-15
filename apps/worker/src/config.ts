@@ -426,6 +426,39 @@ const envSchema = z.object({
       .max(60, "deve essere un intero tra 0 e 60 in minuti (es. 1; 0 = disabilitato)")
       .default(1),
   ),
+  // Intervallo in minuti del poller del daily activity report (task separato
+  // dal loop dei job): raccoglie i commit del giorno per progetto e genera lo
+  // "standup notturno". È BEST-EFFORT e non tocca i timeout dei job.
+  // 0 = disabilitato. Default 15'.
+  DAILY_REPORT_POLL_MINUTES: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 0 in minuti (es. 15; 0 = disabilitato)" })
+      .int("deve essere un intero ≥ 0 in minuti (es. 15; 0 = disabilitato)")
+      .min(0, "deve essere un intero ≥ 0 in minuti (es. 15; 0 = disabilitato)")
+      .default(15),
+  ),
+  // Massimo autori per progetto per cui generare il riassunto AI del daily
+  // report: oltre questo numero si producono solo i dati grezzi (niente run
+  // AI per autore) per contenere costo e durata. Default 25.
+  DAILY_REPORT_MAX_AUTHORS_PER_PROJECT: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 (es. 25)" })
+      .int("deve essere un intero ≥ 1 (es. 25)")
+      .min(1, "deve essere un intero ≥ 1 (es. 25)")
+      .default(25),
+  ),
+  // Giorni di retention dei report di attività: la pulizia elimina i report più
+  // vecchi di questo limite. Default 90.
+  DAILY_REPORT_RETENTION_DAYS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 in giorni (es. 90)" })
+      .int("deve essere un intero ≥ 1 in giorni (es. 90)")
+      .min(1, "deve essere un intero ≥ 1 in giorni (es. 90)")
+      .default(90),
+  ),
 });
 
 export interface WorkerConfig {
@@ -527,6 +560,14 @@ export interface WorkerConfig {
   /** Intervallo in minuti del poller di valutazione alert del monitoraggio
    * (default 1; 0 = disabilitato). */
   monitorAlertIntervalMinutes: number;
+  /** Intervallo in minuti del poller del daily activity report (default 15;
+   * 0 = disabilitato). */
+  dailyReportPollMinutes: number;
+  /** Massimo autori per progetto per cui generare il riassunto AI notturno
+   * (default 25). */
+  dailyReportMaxAuthorsPerProject: number;
+  /** Giorni di retention dei report di attività prima della pulizia (default 90). */
+  dailyReportRetentionDays: number;
 }
 
 /**
@@ -589,5 +630,8 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     limitResumeCooldownMs: parsed.LIMIT_RESUME_API_KEY_COOLDOWN_MINUTES * 60_000,
     monitorRollupIntervalMinutes: parsed.MONITOR_ROLLUP_INTERVAL_MINUTES,
     monitorAlertIntervalMinutes: parsed.MONITOR_ALERT_INTERVAL_MINUTES,
+    dailyReportPollMinutes: parsed.DAILY_REPORT_POLL_MINUTES,
+    dailyReportMaxAuthorsPerProject: parsed.DAILY_REPORT_MAX_AUTHORS_PER_PROJECT,
+    dailyReportRetentionDays: parsed.DAILY_REPORT_RETENTION_DAYS,
   };
 }

@@ -95,6 +95,7 @@ export function ProjectDetailPage() {
                   description: project.description,
                   aiProviderId: project.aiProviderId,
                   docAutoUpdate: project.docAutoUpdate,
+                  dailyReportEnabled: project.dailyReportEnabled,
                 }}
                 onSubmit={handleSubmit}
               />
@@ -110,6 +111,10 @@ export function ProjectDetailPage() {
               <ReadOnlyRow
                 label={t("projects:form.docAutoUpdate")}
                 value={project.docAutoUpdate ? t("common:on") : t("common:off")}
+              />
+              <ReadOnlyRow
+                label={t("projects:form.dailyReport")}
+                value={project.dailyReportEnabled ? t("common:on") : t("common:off")}
               />
               <p className="pt-1 font-mono text-[11px] text-fg-faint">
                 {t("projects:detail.readOnlyHint")}

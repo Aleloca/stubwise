@@ -14,6 +14,7 @@ import { createHandler, createProjectSerializer } from "./handler.js";
 import { startMonitorAlertPoller } from "./monitor/alerts.js";
 import { startMonitorRollupPoller } from "./monitor/rollup.js";
 import { startLimitResumePoller } from "./providers/limit-resume-poller.js";
+import { startDailyReportPoller } from "./reports/daily-report-poller.js";
 import { DEFAULT_FIX_PLAN_TIMEOUT_MS, DEFAULT_FIX_TIMEOUT_MS } from "./pipeline/fix.js";
 import { DEFAULT_TRIAGE_TIMEOUT_MS } from "./pipeline/triage.js";
 import { runWorker } from "./queue.js";
@@ -292,6 +293,30 @@ startLimitResumePoller({
   signal: controller.signal,
 });
 
+// Poller del DAILY ACTIVITY REPORT (standup automatico): task SEPARATO dal loop
+// dei job, sul proprio intervallo, con GATE a mezzanotte UTC (un report per
+// progetto per giorno, idempotente sull'unique (project_id, date)). Per ogni
+// progetto con dailyReportEnabled legge i commit del giorno precedente da ogni
+// repo, li aggrega per autore, registra gli autori osservati e genera un
+// riassunto AI per autore, nella CATENA PER-PROGETTO (serializer condiviso col
+// fix/doc-generation/review: niente sovrapposizione col fetch --prune del mirror).
+// Riusa il model/timeout della review per l'agente. È BEST-EFFORT (non fa mai
+// crashare il worker) e NON tocca il lock/heartbeat dei job. Si ferma sullo
+// stesso AbortSignal.
+startDailyReportPoller({
+  db,
+  mirrors,
+  runner,
+  encryptionKey: config.encryptionKey,
+  serializer,
+  maxAuthorsPerProject: config.dailyReportMaxAuthorsPerProject,
+  retentionDays: config.dailyReportRetentionDays,
+  model: config.prReviewModel,
+  agentTimeoutMs: config.prReviewTimeoutMs,
+  intervalMinutes: config.dailyReportPollMinutes,
+  signal: controller.signal,
+});
+
 // Poller di ROLLUP + retention delle metriche di monitoraggio: task SEPARATO
 // dal loop dei job, sul proprio intervallo. Aggrega i campioni fini oltre le
 // 48h in bucket da 5' e applica la retention (tutto in una transazione con
@@ -323,6 +348,7 @@ console.error(
     `, docs-auto-update ${config.docsAutoUpdatePollSeconds > 0 ? `ogni ${config.docsAutoUpdatePollSeconds}"` : "disabilitato"}` +
     `, pr-review ${config.prReviewPollSeconds > 0 ? `ogni ${config.prReviewPollSeconds}"` : "disabilitato"}` +
     `, limit-resume ${config.limitResumePollMinutes > 0 ? `ogni ${config.limitResumePollMinutes}'` : "disabilitato"}` +
+    `, daily-report ${config.dailyReportPollMinutes > 0 ? `ogni ${config.dailyReportPollMinutes}'` : "disabilitato"}` +
     `, monitor-rollup ${config.monitorRollupIntervalMinutes > 0 ? `ogni ${config.monitorRollupIntervalMinutes}'` : "disabilitato"}` +
     `, monitor-alert ${config.monitorAlertIntervalMinutes > 0 ? `ogni ${config.monitorAlertIntervalMinutes}'` : "disabilitato"})`,
 );

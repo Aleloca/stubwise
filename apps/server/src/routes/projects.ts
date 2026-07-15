@@ -78,6 +78,9 @@ function toPublicProject(row: ProjectRow): z.infer<typeof projectSchema> {
     description: row.description,
     aiProviderId: row.aiProviderId,
     docAutoUpdate: row.docAutoUpdate,
+    // Standup giornaliero (report attività): se true il worker genera ogni
+    // notte lo standup dai commit del giorno dei repository del progetto.
+    dailyReportEnabled: row.dailyReportEnabled,
     // Ingestion di prodotto (Fase 3): la chiave con cui gli SDK inviano
     // errori/feedback e il contatore ticket per-progetto, saliti dal repo.
     ingestionKey: row.ingestionKey,
@@ -109,7 +112,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { name, description, aiProviderId, docAutoUpdate } = request.body;
+      const { name, description, aiProviderId, docAutoUpdate, dailyReportEnabled } = request.body;
 
       // Provider AI opzionale: se valorizzato deve riferire una riga esistente
       // (non serve enabled: è configurazione, l'enabled si valuta all'esecuzione).
@@ -138,6 +141,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
               description: description ?? null,
               aiProviderId: aiProviderId ?? null,
               ...(docAutoUpdate !== undefined ? { docAutoUpdate } : {}),
+              ...(dailyReportEnabled !== undefined ? { dailyReportEnabled } : {}),
               // Chiave di ingestion del progetto per gli SDK (Fase 3): 32 hex,
               // stesso generatore usato finora per i repository. UNIQUE: in caso
               // di collisione (astronomicamente improbabile) l'insert rilancia e
@@ -219,13 +223,15 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { name, description, aiProviderId, docAutoUpdate } = request.body;
+      const { name, description, aiProviderId, docAutoUpdate, dailyReportEnabled } = request.body;
       const updates: Partial<ProjectRow> = {};
       if (name !== undefined) updates.name = name;
       // null azzera la descrizione, una stringa la imposta; omesso lascia.
       if (description !== undefined) updates.description = description;
       // Toggle auto-aggiornamento Docs: omesso lo lascia invariato.
       if (docAutoUpdate !== undefined) updates.docAutoUpdate = docAutoUpdate;
+      // Toggle standup giornaliero (report attività): omesso lo lascia invariato.
+      if (dailyReportEnabled !== undefined) updates.dailyReportEnabled = dailyReportEnabled;
       // Provider AI del progetto (Docs e fix). null lo azzera (automatico); un
       // uuid deve riferire una riga ai_providers esistente; omesso lo lascia.
       if (aiProviderId !== undefined) {

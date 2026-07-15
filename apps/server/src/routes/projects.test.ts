@@ -60,6 +60,7 @@ describe("POST /api/projects", () => {
       description: null,
       aiProviderId: null,
       docAutoUpdate: false,
+      dailyReportEnabled: false,
       // Fase 3: il progetto nasce con la chiave di ingestion (32 hex) e il
       // contatore ticket per-progetto a 1.
       ingestionKey: expect.stringMatching(/^[0-9a-f]{32}$/),
@@ -189,6 +190,30 @@ describe("PATCH /api/projects/:projectId", () => {
     expect(body.name).toBe("Aggiornato");
     expect(body.description).toBe("nuova");
     expect(body.docAutoUpdate).toBe(true);
+  });
+
+  it("attiva dailyReportEnabled e lo persiste/ritorna", async () => {
+    const created = await createProject({ name: "Con Report" });
+    const id = (created.json() as { id: string }).id;
+    // Default false alla creazione.
+    expect((created.json() as { dailyReportEnabled: boolean }).dailyReportEnabled).toBe(false);
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${id}`,
+      headers: { cookie: adminCookie },
+      payload: { dailyReportEnabled: true },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { dailyReportEnabled: boolean }).dailyReportEnabled).toBe(true);
+
+    // Persistito: una GET successiva lo riflette.
+    const get = await app.inject({
+      method: "GET",
+      url: `/api/projects/${id}`,
+      headers: { cookie: adminCookie },
+    });
+    expect((get.json() as { dailyReportEnabled: boolean }).dailyReportEnabled).toBe(true);
   });
 
   it("aiProviderId esistente lo imposta, null lo azzera", async () => {

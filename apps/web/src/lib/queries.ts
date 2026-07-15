@@ -1,5 +1,6 @@
 import { infiniteQueryOptions, keepPreviousData, queryOptions } from "@tanstack/react-query";
 import {
+  getActivity,
   getAutomationSettings,
   getAiUsageCosts,
   getAiUsageSnapshots,
@@ -9,6 +10,7 @@ import {
   getInstanceSettings,
   getInvites,
   getNotificationSettings,
+  getObservedAuthors,
   getProject,
   getProjects,
   getRepositories,
@@ -203,6 +205,18 @@ export const invitesQueryOptions = queryOptions({
 export const slackWorkspaceUsersQueryOptions = queryOptions({
   queryKey: ["slack", "workspace-users"],
   queryFn: getSlackWorkspaceUsers,
+  retry: false,
+  staleTime: 60_000,
+});
+
+/**
+ * Autori git osservati dal poller per il picker di link in /team (solo admin).
+ * `retry: false`: l'endpoint richiede il ruolo admin e non ha senso riprovare
+ * un 403 deterministico.
+ */
+export const observedAuthorsQueryOptions = queryOptions({
+  queryKey: ["git", "observed-authors"],
+  queryFn: getObservedAuthors,
   retry: false,
   staleTime: 60_000,
 });
@@ -659,5 +673,19 @@ export function docBriefQueryOptions(repositoryId: string) {
     queryFn: () => getDocBrief(repositoryId),
     staleTime: 60_000,
     retry: false,
+  });
+}
+
+/**
+ * Report di attività di una data (`YYYY-MM-DD`, UTC): alimenta la sezione SPA
+ * "Attività". La data entra nella chiave così ogni giorno è una query a sé in
+ * cache. `staleTime` di un minuto: i report sono prodotti dal poller notturno,
+ * non cambiano durante la navigazione.
+ */
+export function activityReportQueryOptions(date: string) {
+  return queryOptions({
+    queryKey: ["activity", date],
+    queryFn: () => getActivity(date),
+    staleTime: 60_000,
   });
 }

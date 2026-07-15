@@ -31,6 +31,7 @@ export const NAMESPACES = [
   "docs",
   "search",
   "widget",
+  "activity",
 ] as const;
 
 /**

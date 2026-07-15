@@ -66,6 +66,7 @@ function project(overrides: Partial<ProjectListItem> = {}): ProjectListItem {
     description: null,
     aiProviderId: null,
     docAutoUpdate: false,
+    dailyReportEnabled: false,
     ingestionKey: "0123456789abcdef0123456789abcdef",
     nextTicketNumber: 1,
     repositoryCount: 0,

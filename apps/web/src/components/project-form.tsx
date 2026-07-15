@@ -13,6 +13,8 @@ interface ProjectInitialValues {
   aiProviderId: string | null;
   /** Se true, ogni push sul branch di default di un repo rigenera i suoi Docs. */
   docAutoUpdate: boolean;
+  /** Se true, il worker genera ogni notte uno standup dai commit del giorno. */
+  dailyReportEnabled: boolean;
 }
 
 interface ProjectFormProps {
@@ -43,6 +45,8 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
   const [aiProviderId, setAiProviderId] = useState(initial.aiProviderId ?? "");
   // Auto-aggiornamento Docs ai push (default off).
   const [docAutoUpdate, setDocAutoUpdate] = useState(initial.docAutoUpdate);
+  // Report attività giornaliero: standup notturno dai commit del giorno (default off).
+  const [dailyReportEnabled, setDailyReportEnabled] = useState(initial.dailyReportEnabled);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -63,6 +67,8 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
         ...(nextProviderId !== (initial.aiProviderId ?? null) && { aiProviderId: nextProviderId }),
         // docAutoUpdate incluso solo se cambiato (toggle), per un PATCH minimo.
         ...(docAutoUpdate !== initial.docAutoUpdate && { docAutoUpdate }),
+        // dailyReportEnabled incluso solo se cambiato (toggle), per un PATCH minimo.
+        ...(dailyReportEnabled !== initial.dailyReportEnabled && { dailyReportEnabled }),
       });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("common:unexpectedError"));
@@ -132,6 +138,30 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
           </label>
         </div>
         <p className="font-mono text-[11px] text-fg-faint">{t("projects:form.docAutoUpdateHint")}</p>
+      </div>
+
+      {/*
+        Report attività giornaliero: toggle (default off). Se attivo, il worker
+        genera ogni notte uno standup dai commit del giorno di tutti i repository
+        del progetto.
+      */}
+      <div className="flex flex-col gap-1.5 rounded-sm border border-line bg-ink-900 px-3 py-3">
+        <div className="flex items-center gap-2.5">
+          <input
+            id="project-daily-report"
+            type="checkbox"
+            checked={dailyReportEnabled}
+            onChange={(event) => setDailyReportEnabled(event.target.checked)}
+            className="h-4 w-4 shrink-0 accent-signal"
+          />
+          <label
+            htmlFor="project-daily-report"
+            className="font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase"
+          >
+            {t("projects:form.dailyReport")}
+          </label>
+        </div>
+        <p className="font-mono text-[11px] text-fg-faint">{t("projects:form.dailyReportHint")}</p>
       </div>
 
       <FormError message={error} />

@@ -57,6 +57,7 @@ function project(id: string, overrides: Partial<ProjectListItem> = {}): ProjectL
     description: null,
     aiProviderId: null,
     docAutoUpdate: false,
+    dailyReportEnabled: false,
     ingestionKey: "0123456789abcdef0123456789abcdef",
     nextTicketNumber: 1,
     repositoryCount: 1,

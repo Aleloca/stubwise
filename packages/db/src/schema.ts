@@ -25,6 +25,7 @@ import {
   boolean,
   check,
   customType,
+  date,
   index,
   integer,
   jsonb,
@@ -187,6 +188,16 @@ export const docTree = pgEnum("doc_tree", enumValues(docTreeSchema));
 // ticket, progetto, repository o pagina di documentazione.
 export const searchEntity = pgEnum("search_entity", enumValues(searchEntityTypeSchema));
 
+// Stato di un report di attività giornaliero: "queued" (creato dal gate
+// notturno, in attesa del worker), "running" (l'agente sta riassumendo),
+// "done" (completato) o "failed" (errore, con `error` valorizzato).
+export const activityReportStatus = pgEnum("activity_report_status", [
+  "queued",
+  "running",
+  "done",
+  "failed",
+]);
+
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   email: text("email").notNull().unique(),
@@ -202,6 +213,9 @@ export const users = pgTable("users", {
   slackUserId: text("slack_user_id").unique(),
   // URL dell'avatar Slack del membro, mostrato nella UI quando disponibile.
   slackAvatarUrl: text("slack_avatar_url"),
+  // Username Bitbucket linkato al membro (speculare a slackUserId): un solo
+  // membro per username, nullable (l'unique ignora i NULL in Postgres).
+  bitbucketUsername: text("bitbucket_username").unique(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -281,6 +295,10 @@ export const projects = pgTable("projects", {
   // false = disattivo (i push non innescano nulla). Toggle per-progetto, vale
   // per tutti i repository del progetto.
   docAutoUpdate: boolean("doc_auto_update").notNull().default(false),
+  // Se true, il poller notturno genera lo standup giornaliero per questo
+  // progetto. Default false: opt-in esplicito per non generare report (e
+  // consumare run dell'agente) su progetti non interessati.
+  dailyReportEnabled: boolean("daily_report_enabled").notNull().default(false),
   // Chiave di ingestion del progetto (salita da repositories in Fase 3): gli
   // errori via SDK e i feedback sono del prodotto/progetto, non di un repo — è
   // l'agente a capire quale repo sistemare. La chiave esistente è stata migrata
@@ -543,9 +561,7 @@ export const ticketEvents = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   // La timeline si carica sempre per ticket, ordinata cronologicamente.
-  (table) => [
-    index("ticket_events_ticket_id_created_at_idx").on(table.ticketId, table.createdAt),
-  ],
+  (table) => [index("ticket_events_ticket_id_created_at_idx").on(table.ticketId, table.createdAt)],
 );
 
 /**
@@ -922,17 +938,15 @@ export const savedViews = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     // Criteri di filtraggio della lista ticket; tutti opzionali.
-    filters: jsonb("filters")
-      .notNull()
-      .$type<{
-        projectId?: string;
-        status?: string;
-        type?: string;
-        priority?: string;
-        assigneeId?: string;
-        milestoneId?: string;
-        q?: string;
-      }>(),
+    filters: jsonb("filters").notNull().$type<{
+      projectId?: string;
+      status?: string;
+      type?: string;
+      priority?: string;
+      assigneeId?: string;
+      milestoneId?: string;
+      q?: string;
+    }>(),
     shared: boolean("shared").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -1780,4 +1794,83 @@ export const checkSamplesRollup = pgTable(
     // Retention per solo-ts (vedi server_metrics).
     index("check_samples_rollup_ts_idx").on(t.ts),
   ],
+);
+
+/**
+ * Alias email git → membro. Un membro può committare con più email (lavoro,
+ * personale, noreply del provider): relazione 1 membro : N email. Distinta da
+ * users.slackUserId (colonna singola) proprio per questo. L'email è memorizzata
+ * lowercase; l'unique impedisce che la stessa email sia linkata a due membri.
+ */
+export const gitIdentities = pgTable(
+  "git_identities",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    email: text("email").notNull().unique(),
+    authorName: text("author_name"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("git_identities_user_id_idx").on(table.userId)],
+);
+
+/**
+ * Autori git realmente osservati nei repo (auto-raccolti dal poller), per
+ * alimentare il picker di link in /team (analogo a slack workspace-users). La
+ * risoluzione a membro passa da git_identities, non serve un userId qui.
+ */
+export const gitAuthorsSeen = pgTable("git_authors_seen", {
+  email: text("email").primaryKey(),
+  authorName: text("author_name"),
+  firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Un report di attività per (progetto, giorno UTC). L'unique (project_id, date)
+ * rende idempotente il gate notturno: più tick concorrenti non creano doppioni.
+ * NB: il poller crea la riga direttamente in `running` (gate + generazione in un
+ * colpo solo); `queued` resta il default della colonna ma non è prodotto dal
+ * flusso attuale (riservato a un eventuale futuro gate a due fasi).
+ */
+export const activityReports = pgTable(
+  "activity_reports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    date: date("date").notNull(),
+    status: activityReportStatus("status").notNull().default("queued"),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [uniqueIndex("activity_reports_project_date_unique").on(table.projectId, table.date)],
+);
+
+/** Una riga per (report, autore git): conteggi, commit e riassunto AI. */
+export const activityReportEntries = pgTable(
+  "activity_report_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    reportId: uuid("report_id")
+      .notNull()
+      .references(() => activityReports.id, { onDelete: "cascade" }),
+    gitEmail: text("git_email").notNull(),
+    authorName: text("author_name"),
+    commitCount: integer("commit_count").notNull().default(0),
+    additions: integer("additions").notNull().default(0),
+    deletions: integer("deletions").notNull().default(0),
+    repoIds: jsonb("repo_ids").$type<string[]>().notNull().default([]),
+    commits: jsonb("commits")
+      .$type<{ sha: string; subject: string; repoId: string }[]>()
+      .notNull()
+      .default([]),
+    aiSummary: text("ai_summary"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("activity_report_entries_report_id_idx").on(table.reportId)],
 );
