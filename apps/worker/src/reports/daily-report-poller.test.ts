@@ -19,6 +19,7 @@ import type { ResolvedProvider } from "../providers/chain.js";
 import {
   pollDailyReportsOnce,
   previousUtcDay,
+  utcDayWindow,
   type PollDailyReportsDeps,
 } from "./daily-report-poller.js";
 
@@ -198,6 +199,15 @@ describe("previousUtcDay", () => {
     expect(since.toISOString()).toBe("2026-07-14T00:00:00.000Z");
     expect(until.toISOString()).toBe("2026-07-15T00:00:00.000Z");
     expect(date).toBe("2026-07-14");
+  });
+});
+
+describe("utcDayWindow", () => {
+  it("calcola la finestra half-open [since, until) del giorno UTC dato", () => {
+    const { since, until, date } = utcDayWindow("2026-07-12");
+    expect(since.toISOString()).toBe("2026-07-12T00:00:00.000Z");
+    expect(until.toISOString()).toBe("2026-07-13T00:00:00.000Z");
+    expect(date).toBe("2026-07-12");
   });
 });
 
@@ -500,5 +510,121 @@ describe("pollDailyReportsOnce", () => {
     // Nessuna entry persistita (l'errore precede la transazione entries+done).
     const entries = await testDb.db.select().from(activityReportEntries);
     expect(entries).toHaveLength(0);
+  });
+
+  it("genera un report accodato 'queued' su una data PASSATA, con la finestra di QUEL giorno", async () => {
+    // Progetto disabilitato: così l'unica generazione è quella del 'queued' e la
+    // finestra catturata è inequivocabilmente la sua (il gate notturno non gira).
+    const { projectId } = await createProject(testDb.db, { dailyReportEnabled: false });
+    // Richiesta manuale: riga 'queued' per 3 giorni fa (2026-07-12), non ieri.
+    await testDb.db
+      .insert(activityReports)
+      .values({ projectId, date: "2026-07-12", status: "queued" });
+
+    let queuedWindow: { since: Date; until: Date } | undefined;
+    const { deps } = makeDeps({
+      getCommitsImpl: async (_project, since, until) => {
+        queuedWindow = { since, until };
+        return [commit({ authorEmail: "alice@example.com", authorName: "Alice" })];
+      },
+    });
+
+    const generated = await pollDailyReportsOnce(deps);
+    expect(generated).toBe(1);
+
+    // La finestra passata a getCommitsInRange è quella del giorno RICHIESTO,
+    // non del giorno precedente a NOW.
+    expect(queuedWindow?.since.toISOString()).toBe("2026-07-12T00:00:00.000Z");
+    expect(queuedWindow?.until.toISOString()).toBe("2026-07-13T00:00:00.000Z");
+
+    const [report] = await testDb.db
+      .select()
+      .from(activityReports)
+      .where(eq(activityReports.projectId, projectId));
+    expect(report?.status).toBe("done");
+    expect(report?.date).toBe("2026-07-12");
+    const entries = await testDb.db
+      .select()
+      .from(activityReportEntries)
+      .where(eq(activityReportEntries.reportId, report!.id));
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.gitEmail).toBe("alice@example.com");
+  });
+
+  it("è idempotente: un 'queued' già portato a 'done' non viene rigenerato al tick successivo", async () => {
+    // Progetto DISABILITATO così il gate notturno non interferisce: isoliamo la
+    // sola fase queued.
+    const { projectId } = await createProject(testDb.db, { dailyReportEnabled: false });
+    await testDb.db
+      .insert(activityReports)
+      .values({ projectId, date: "2026-07-12", status: "queued" });
+
+    const first = makeDeps({ commitsByCall: [[commit({})]] });
+    expect(await pollDailyReportsOnce(first.deps)).toBe(1);
+
+    const second = makeDeps({ commitsByCall: [[commit({})]] });
+    // Non più 'queued' (ora 'done') → non raccolto di nuovo.
+    expect(await pollDailyReportsOnce(second.deps)).toBe(0);
+    // Il secondo tick non ha nemmeno letto i commit (nessuna riga da processare).
+    expect(second.getCommitsSpy).not.toHaveBeenCalled();
+    // Una sola riga per 2026-07-12, invariata a 'done'.
+    const july12 = await testDb.db
+      .select()
+      .from(activityReports)
+      .where(eq(activityReports.date, "2026-07-12"));
+    expect(july12).toHaveLength(1);
+    expect(july12[0]?.status).toBe("done");
+    expect(await testDb.db.select().from(activityReports)).toHaveLength(1);
+  });
+
+  it("genera un 'queued' anche per un progetto con dailyReportEnabled=false", async () => {
+    const { projectId } = await createProject(testDb.db, { dailyReportEnabled: false });
+    await testDb.db
+      .insert(activityReports)
+      .values({ projectId, date: "2026-07-12", status: "queued" });
+
+    const { deps, getCommitsSpy } = makeDeps({
+      commitsByCall: [[commit({ authorEmail: "alice@example.com", authorName: "Alice" })]],
+    });
+
+    const generated = await pollDailyReportsOnce(deps);
+    expect(generated).toBe(1); // richiesto esplicitamente: generato malgrado il toggle off.
+    expect(getCommitsSpy).toHaveBeenCalledTimes(1);
+
+    const [report] = await testDb.db
+      .select()
+      .from(activityReports)
+      .where(eq(activityReports.projectId, projectId));
+    expect(report?.status).toBe("done");
+    expect(report?.date).toBe("2026-07-12");
+  });
+
+  it("un 'queued' per IERI coincide col gate notturno e NON viene duplicato", async () => {
+    const { projectId } = await createProject(testDb.db, { dailyReportEnabled: true });
+    // Richiesta manuale per ieri (2026-07-14), lo stesso giorno del gate notturno.
+    await testDb.db
+      .insert(activityReports)
+      .values({ projectId, date: "2026-07-14", status: "queued" });
+
+    const { deps, getCommitsSpy } = makeDeps({
+      commitsByCall: [[commit({ authorEmail: "alice@example.com", authorName: "Alice" })]],
+    });
+
+    const generated = await pollDailyReportsOnce(deps);
+    // Un solo report done (la fase queued lo genera, il gate notturno lo salta).
+    expect(generated).toBe(1);
+    // Una sola riga per (progetto, 2026-07-14).
+    const reports = await testDb.db
+      .select()
+      .from(activityReports)
+      .where(eq(activityReports.projectId, projectId));
+    expect(reports).toHaveLength(1);
+    expect(reports[0]?.status).toBe("done");
+    // Una sola generazione: getCommits chiamato una volta (fase queued), il gate
+    // notturno ha saltato via onConflictDoNothing (riga già 'done').
+    expect(getCommitsSpy).toHaveBeenCalledTimes(1);
+    const entries = await testDb.db.select().from(activityReportEntries);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.gitEmail).toBe("alice@example.com");
   });
 });

@@ -75,6 +75,15 @@ export function previousUtcDay(now: Date): { since: Date; until: Date; date: str
   return { since, until, date };
 }
 
+/** Finestra half-open [since, until) del giorno UTC `dateStr` (YYYY-MM-DD).
+ * Usata dalla generazione MANUALE (report accodati 'queued' su una data scelta):
+ * a differenza di `previousUtcDay`, la data è arbitraria e non derivata da now. */
+export function utcDayWindow(dateStr: string): { since: Date; until: Date; date: string } {
+  const since = new Date(`${dateStr}T00:00:00.000Z`);
+  const until = new Date(since.getTime() + 24 * 60 * 60 * 1000);
+  return { since, until, date: dateStr };
+}
+
 export interface PollDailyReportsDeps {
   db: Db;
   mirrors: Pick<MirrorManager, "getCommitsInRange" | "ensureMirror">;
@@ -424,15 +433,71 @@ async function generateForProject(
 }
 
 /**
- * Esegue UN giro: per ogni progetto con dailyReportEnabled genera (idempotente)
- * il report del giorno UTC precedente, poi applica la retention. Ritorna il
- * numero di report `done` prodotti (utile ai test). Best-effort: non lancia mai.
+ * Esegue UN giro:
+ *  1. GENERAZIONE MANUALE: raccoglie i report accodati (status='queued', creati
+ *     dall'endpoint di richiesta manuale su una data scelta) e li genera sulla
+ *     LORO data — indipendentemente dal flag `dailyReportEnabled` del progetto
+ *     (sono stati richiesti esplicitamente).
+ *  2. GATE NOTTURNO: per ogni progetto con dailyReportEnabled genera
+ *     (idempotente) il report del giorno UTC precedente.
+ *  3. RETENTION.
+ * Ritorna il numero di report `done` prodotti (queued + notturni, utile ai
+ * test). Best-effort: non lancia mai.
+ *
+ * NIENTE DOPPIA GENERAZIONE nello stesso tick: la fase queued gira PRIMA del gate
+ * notturno, quindi se un 'queued' è per ieri e coincide col gate notturno di un
+ * progetto abilitato, la fase queued lo porta a 'done' e il gate notturno lo
+ * salta (onConflictDoNothing → riga esistente 'done' → skip). Il serializer
+ * per-progetto serializza comunque le due fasi dello stesso progetto.
  */
 export async function pollDailyReportsOnce(deps: PollDailyReportsDeps): Promise<number> {
   const now = (deps.now ?? (() => new Date()))();
   const { since, until, date } = previousUtcDay(now);
 
   let generated = 0;
+
+  // (1) Report accodati manualmente: coppie distinte (progetto, data) in stato
+  // 'queued'. Il reclaim dentro generateForProject vede la riga 'queued' (≠
+  // 'done') → la porta a 'running' e genera. Ogni coppia è isolata in try/catch
+  // e serializzata per-progetto come il resto.
+  try {
+    const queued = await deps.db
+      .selectDistinct({
+        projectId: activityReports.projectId,
+        date: activityReports.date,
+        aiProviderId: projects.aiProviderId,
+      })
+      .from(activityReports)
+      .innerJoin(projects, eq(activityReports.projectId, projects.id))
+      .where(eq(activityReports.status, "queued"));
+
+    for (const q of queued) {
+      try {
+        const win = utcDayWindow(q.date);
+        const ok = await deps.serializer.run(q.projectId, () =>
+          generateForProject(
+            deps,
+            { id: q.projectId, aiProviderId: q.aiProviderId },
+            win.since,
+            win.until,
+            win.date,
+            now,
+          ),
+        );
+        if (ok) generated++;
+      } catch (err) {
+        // Best-effort: un report accodato fallito non blocca gli altri.
+        console.error(
+          `[stubwise-worker] daily-report: report accodato del progetto ${q.projectId} (${q.date}) saltato: ${errText(err)}`,
+        );
+      }
+    }
+  } catch (err) {
+    console.error(
+      `[stubwise-worker] daily-report: selezione dei report accodati fallita: ${errText(err)}`,
+    );
+  }
+
   try {
     const enabledProjects = await deps.db
       .select({ id: projects.id, aiProviderId: projects.aiProviderId })
