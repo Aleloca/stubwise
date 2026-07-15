@@ -45,6 +45,19 @@ export interface MirrorProject extends ProjectGitConfig {
   provider: GitProviderKind;
 }
 
+/** Un commit restituito da `getCommitsInRange` (git log su finestra temporale). */
+export interface RangeCommit {
+  sha: string;
+  authorName: string;
+  authorEmail: string;
+  /** ISO 8601 (author date). */
+  date: string;
+  subject: string;
+  isMerge: boolean;
+  additions: number;
+  deletions: number;
+}
+
 export interface MirrorManagerOptions {
   /** Directory che contiene tutti i mirror bare (creata con mode 0700). */
   mirrorsDir: string;
@@ -610,6 +623,62 @@ export class MirrorManager {
         const tab = line.indexOf("\t");
         return { sha: line.slice(0, tab), subject: line.slice(tab + 1) };
       });
+  }
+
+  /**
+   * Commit su TUTTI i ref con author-date nella finestra [since, until)
+   * (`git log --all --since --until --numstat`), dal mirror aggiornato. `since`
+   * incluso, `until` escluso: passa istanti UTC. Ogni commit riporta autore,
+   * email, data ISO, subject, flag merge e righe aggiunte/rimosse (somma del
+   * numstat; i file binari, marcati "-", contano 0).
+   */
+  async getCommitsInRange(project: MirrorProject, since: Date, until: Date): Promise<RangeCommit[]> {
+    const mirrorDir = await this.ensureMirror(project);
+    // Record separato da NUL; header dei campi separati da TAB; poi le righe
+    // numstat. %P non vuoto con più di un parent ⇒ merge.
+    const format = "%x00%H%x09%an%x09%ae%x09%aI%x09%P%x09%s";
+    const out = await this.git(
+      [
+        "log",
+        "--all",
+        `--since=${since.toISOString()}`,
+        `--until=${until.toISOString()}`,
+        "--numstat",
+        `--pretty=format:${format}`,
+      ],
+      { cwd: mirrorDir }
+    );
+    const commits: RangeCommit[] = [];
+    for (const record of out.split("\x00")) {
+      // `--pretty=format:` antepone il format a ogni record senza newline finale:
+      // il primo split produce una stringa vuota iniziale, gestita dal check sotto.
+      // I record successivi al primo iniziano con il "\n" che segue il numstat
+      // del record precedente: lo togliamo prima di parsare l'header.
+      const trimmed = record.replace(/^\n+/, "");
+      if (trimmed.length === 0) continue;
+      const [header, ...statLines] = trimmed.split("\n");
+      const [sha, authorName, authorEmail, dateIso, parents, subject] = (header ?? "").split("\t");
+      let additions = 0;
+      let deletions = 0;
+      for (const line of statLines) {
+        if (line.length === 0) continue;
+        const [add, del] = line.split("\t");
+        // I file binari sono marcati "-" dal numstat: contano 0.
+        additions += add === "-" ? 0 : Number(add);
+        deletions += del === "-" ? 0 : Number(del);
+      }
+      commits.push({
+        sha: sha ?? "",
+        authorName: authorName ?? "",
+        authorEmail: authorEmail ?? "",
+        date: dateIso ?? "",
+        subject: subject ?? "",
+        isMerge: (parents ?? "").trim().split(/\s+/).filter(Boolean).length > 1,
+        additions,
+        deletions,
+      });
+    }
+    return commits;
   }
 
   /**

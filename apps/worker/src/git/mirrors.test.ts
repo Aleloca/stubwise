@@ -554,6 +554,151 @@ describe("MirrorManager.getCommitMessages", () => {
   });
 });
 
+describe("MirrorManager.getCommitsInRange", () => {
+  // Setup dedicato: un upstream con commit ad author-date/autori CONTROLLATI
+  // (via GIT_AUTHOR_DATE/GIT_COMMITTER_DATE), così da poter asserire la finestra.
+  async function commitWithDate(
+    work: string,
+    opts: { file: string; content: string | Buffer; name: string; email: string; date: string; message: string }
+  ): Promise<string> {
+    await writeFile(join(work, opts.file), opts.content);
+    await git(["add", "."], work);
+    await execa(
+      "git",
+      ["-c", `user.name=${opts.name}`, "-c", `user.email=${opts.email}`, "commit", "-m", opts.message],
+      { cwd: work, env: { GIT_AUTHOR_DATE: opts.date, GIT_COMMITTER_DATE: opts.date } }
+    );
+    const { stdout } = await execa("git", ["rev-parse", "HEAD"], { cwd: work });
+    return stdout;
+  }
+
+  async function makeDatedUpstream(): Promise<{ manager: MirrorManager; project: MirrorProject; work: string }> {
+    const root = await makeRoot();
+    const bare = join(root, "up.git");
+    await execa("git", ["init", "--bare", "-b", "main", bare]);
+    const work = join(root, "work");
+    await execa("git", ["init", "-b", "main", work]);
+    await git(["remote", "add", "origin", bare], work);
+    const manager = new MirrorManager({ mirrorsDir: join(root, "mirrors") });
+    const project: MirrorProject = {
+      provider: "github",
+      repoUrl: pathToFileURL(bare).href,
+      defaultBranch: "main",
+      credentials: { token: "t" },
+    };
+    return { manager, project, work };
+  }
+
+  const SINCE = new Date("2026-07-10T00:00:00Z");
+  const UNTIL = new Date("2026-07-11T00:00:00Z");
+
+  it("ritorna solo i commit dentro la finestra, con autore/email/data/subject e additions", async () => {
+    const { manager, project, work } = await makeDatedUpstream();
+    // Fuori finestra (prima di SINCE).
+    await commitWithDate(work, {
+      file: "old.txt",
+      content: "old\n",
+      name: "Old Dev",
+      email: "old@x.it",
+      date: "2026-07-09T12:00:00Z",
+      message: "chore: vecchio",
+    });
+    // Dentro la finestra.
+    const inSha = await commitWithDate(work, {
+      file: "new.txt",
+      content: "line1\nline2\nline3\n",
+      name: "Dev X",
+      email: "dev@x.it",
+      date: "2026-07-10T12:00:00Z",
+      message: "feat: nuova feature",
+    });
+    await git(["push", "origin", "main"], work);
+
+    const commits = await manager.getCommitsInRange(project, SINCE, UNTIL);
+
+    expect(commits).toHaveLength(1);
+    expect(commits[0]!.sha).toBe(inSha);
+    expect(commits[0]!.authorName).toBe("Dev X");
+    expect(commits[0]!.authorEmail).toBe("dev@x.it");
+    expect(commits[0]!.subject).toBe("feat: nuova feature");
+    expect(commits[0]!.date).toContain("2026-07-10");
+    expect(commits[0]!.isMerge).toBe(false);
+    expect(commits[0]!.additions).toBe(3);
+    expect(commits[0]!.deletions).toBe(0);
+  });
+
+  it("marca isMerge sui merge commit (più di un parent)", async () => {
+    const { manager, project, work } = await makeDatedUpstream();
+    await commitWithDate(work, {
+      file: "base.txt",
+      content: "base\n",
+      name: "Dev",
+      email: "dev@x.it",
+      date: "2026-07-10T08:00:00Z",
+      message: "base",
+    });
+    await git(["switch", "-C", "feature", "main"], work);
+    await commitWithDate(work, {
+      file: "feat.txt",
+      content: "feat\n",
+      name: "Dev",
+      email: "dev@x.it",
+      date: "2026-07-10T09:00:00Z",
+      message: "on feature",
+    });
+    await git(["switch", "main"], work);
+    // Merge non fast-forward: genera un commit con due parent. Data controllata.
+    await execa(
+      "git",
+      ["-c", "user.name=Dev", "-c", "user.email=dev@x.it", "merge", "--no-ff", "-m", "merge feature", "feature"],
+      { cwd: work, env: { GIT_AUTHOR_DATE: "2026-07-10T10:00:00Z", GIT_COMMITTER_DATE: "2026-07-10T10:00:00Z" } }
+    );
+    await git(["push", "origin", "main"], work);
+
+    const commits = await manager.getCommitsInRange(project, SINCE, UNTIL);
+    const merge = commits.find((c) => c.subject === "merge feature");
+    expect(merge).toBeDefined();
+    expect(merge!.isMerge).toBe(true);
+    // I commit non-merge nella finestra non sono flaggati.
+    expect(commits.filter((c) => c.subject !== "merge feature").every((c) => !c.isMerge)).toBe(true);
+  });
+
+  it("conta 0 righe per i file binari (numstat '-') ma include comunque il commit", async () => {
+    const { manager, project, work } = await makeDatedUpstream();
+    // Un file con byte NUL è rilevato binario da git → numstat "-\t-".
+    await commitWithDate(work, {
+      file: "blob.bin",
+      content: Buffer.from([0, 1, 2, 0, 255, 0, 42]),
+      name: "Dev",
+      email: "dev@x.it",
+      date: "2026-07-10T12:00:00Z",
+      message: "add binary",
+    });
+    await git(["push", "origin", "main"], work);
+
+    const commits = await manager.getCommitsInRange(project, SINCE, UNTIL);
+    expect(commits).toHaveLength(1);
+    expect(commits[0]!.subject).toBe("add binary");
+    expect(commits[0]!.additions).toBe(0);
+    expect(commits[0]!.deletions).toBe(0);
+  });
+
+  it("ritorna lista vuota quando nessun commit cade nella finestra", async () => {
+    const { manager, project, work } = await makeDatedUpstream();
+    await commitWithDate(work, {
+      file: "old.txt",
+      content: "old\n",
+      name: "Dev",
+      email: "dev@x.it",
+      date: "2026-07-09T12:00:00Z",
+      message: "prima della finestra",
+    });
+    await git(["push", "origin", "main"], work);
+
+    expect(await manager.getCommitsInRange(project, SINCE, UNTIL)).toEqual([]);
+  });
+});
+
 describe("MirrorManager.pushBranch", () => {
   it("pubblica il branch sull'upstream (push eseguito nel mirror, object store condiviso col worktree)", async () => {
     const { manager, upstream } = await makeFixture();
