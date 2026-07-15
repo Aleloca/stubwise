@@ -1,8 +1,9 @@
+import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { users } from "@stubwise/db";
+import { gitIdentities, users } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
-import { resolveReporter, resolveReporterBySlackId } from "./reporter.js";
+import { resolveReporter, resolveReporterBySlackId, resolveUserByGitEmail } from "./reporter.js";
 
 let testDb: TestDb;
 let userId: string;
@@ -57,5 +58,19 @@ describe("resolveReporterBySlackId", () => {
     expect(await resolveReporterBySlackId(testDb.db)).toBeNull();
     expect(await resolveReporterBySlackId(testDb.db, null)).toBeNull();
     expect(await resolveReporterBySlackId(testDb.db, "")).toBeNull();
+  });
+});
+
+describe("resolveUserByGitEmail", () => {
+  it("match case-insensitive via git_identities", async () => {
+    const [u] = await testDb.db
+      .insert(users)
+      .values({ email: `m-${randomUUID()}@x.it`, passwordHash: "x", role: "member" })
+      .returning();
+    await testDb.db.insert(gitIdentities).values({ userId: u!.id, email: "dev@x.it" });
+    expect(await resolveUserByGitEmail(testDb.db, "DEV@X.it")).toBe(u!.id);
+    expect(await resolveUserByGitEmail(testDb.db, "nope@x.it")).toBeNull();
+    expect(await resolveUserByGitEmail(testDb.db, null)).toBeNull();
+    expect(await resolveUserByGitEmail(testDb.db, undefined)).toBeNull();
   });
 });

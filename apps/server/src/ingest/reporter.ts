@@ -1,6 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 import type { Db } from "@stubwise/db";
-import { users } from "@stubwise/db";
+import { gitIdentities, users } from "@stubwise/db";
 
 /**
  * Risolve l'utente Stubwise a cui attribuire un ticket esterno (webhook/Slack)
@@ -38,4 +38,19 @@ export async function resolveReporterBySlackId(
     .where(eq(users.slackUserId, slackUserId))
     .limit(1);
   return user?.id ?? null;
+}
+
+/**
+ * Risolve il membro Stubwise a partire da un'email autore git (match
+ * case-insensitive su git_identities.email). Ritorna lo userId, o null se
+ * l'email non è associata ad alcun membro.
+ */
+export async function resolveUserByGitEmail(db: Db, email?: string | null): Promise<string | null> {
+  if (!email) return null;
+  const [row] = await db
+    .select({ userId: gitIdentities.userId })
+    .from(gitIdentities)
+    .where(sql`lower(${gitIdentities.email}) = lower(${email})`)
+    .limit(1);
+  return row?.userId ?? null;
 }
