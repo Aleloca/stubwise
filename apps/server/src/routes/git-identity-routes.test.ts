@@ -80,6 +80,18 @@ describe("POST /api/users/:id/git-identities", () => {
     expect(list[0]!.email).toBe("dev@x.it");
   });
 
+  it("email whitespace-only → 400 e nessuna riga inserita", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/users/${memberId}/git-identities`,
+      headers: { cookie: adminCookie },
+      payload: { email: "   " },
+    });
+    expect(res.statusCode).toBe(400);
+    const rows = await testDb.db.select().from(gitIdentities);
+    expect(rows).toHaveLength(0);
+  });
+
   it("case-collision: Dev@X.it poi dev@x.it → il secondo 409 git_identity_taken", async () => {
     const first = await app.inject({
       method: "POST",
@@ -179,6 +191,18 @@ describe("DELETE /api/users/:id/git-identities/:email", () => {
     expect((res.json() as { code: string }).code).toBe("git_identity_not_found");
   });
 
+  it(":email malformato (decode → %ZZ) → 404, non 500", async () => {
+    // %25ZZ: il router Fastify decodifica %25→% dando "%ZZ", poi il
+    // decodeURIComponent dell'handler lancia URIError. Deve tradursi in 404.
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/users/${memberId}/git-identities/%25ZZ`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(404);
+    expect((res.json() as { code: string }).code).toBe("git_identity_not_found");
+  });
+
   it("member → 403", async () => {
     const res = await app.inject({
       method: "DELETE",
@@ -201,6 +225,17 @@ describe("PUT /api/users/:id/bitbucket", () => {
     const body = res.json() as { id: string; bitbucketUsername: string | null };
     expect(body.id).toBe(memberId);
     expect(body.bitbucketUsername).toBe("member-bb");
+  });
+
+  it("trima lo username: '  bob  ' → 'bob'", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: `/api/users/${memberId}/bitbucket`,
+      headers: { cookie: adminCookie },
+      payload: { username: "  bob  " },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { bitbucketUsername: string | null }).bitbucketUsername).toBe("bob");
   });
 
   it("stesso username per un altro utente → 409 bitbucket_identity_taken", async () => {

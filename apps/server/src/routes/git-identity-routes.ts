@@ -5,7 +5,12 @@ import { z } from "zod";
 import { gitAuthorsSeen, gitIdentities, users } from "@stubwise/db";
 import { requireAdmin } from "../auth/session.js";
 import { apiError } from "../errors.js";
-import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
+import {
+  authErrorResponses,
+  errorSchema,
+  isForeignKeyViolation,
+  isUniqueViolation,
+} from "./shared.js";
 
 /**
  * Route di GESTIONE del linking identità git/Bitbucket → membro Stubwise (solo
@@ -60,7 +65,7 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
       preHandler: requireAdmin,
       schema: {
         params: z.object({ id: z.uuid() }),
-        body: z.object({ email: z.string().min(1), authorName: z.string().optional() }),
+        body: z.object({ email: z.string().trim().min(1), authorName: z.string().optional() }),
         response: {
           200: z.array(gitIdentitySchema),
           404: errorSchema,
@@ -91,6 +96,11 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
             "This git email is already linked to a member",
           );
         }
+        // Race: l'utente potrebbe essere sparito tra il pre-check e l'insert →
+        // la FK user_id → users.id lancia 23503. Trattalo come 404, non 500.
+        if (isForeignKeyViolation(err)) {
+          return apiError(reply, 404, "user_not_found", "User not found");
+        }
         throw err;
       }
       return reply.code(200).send(await identitiesOf(id));
@@ -109,7 +119,14 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
       },
     },
     async (request, reply) => {
-      const email = decodeURIComponent(request.params.email).trim().toLowerCase();
+      let email: string;
+      try {
+        email = decodeURIComponent(request.params.email).trim().toLowerCase();
+      } catch {
+        // decodeURIComponent lancia URIError su input malformato (es. %ZZ):
+        // non è un'associazione esistente → 404, non un 500 grezzo.
+        return apiError(reply, 404, "git_identity_not_found", "Git identity not found");
+      }
       const [deleted] = await app.db
         .delete(gitIdentities)
         .where(and(eq(gitIdentities.userId, request.params.id), eq(gitIdentities.email, email)))
@@ -128,7 +145,7 @@ export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void
       preHandler: requireAdmin,
       schema: {
         params: z.object({ id: z.uuid() }),
-        body: z.object({ username: z.string().min(1) }),
+        body: z.object({ username: z.string().trim().min(1) }),
         response: {
           200: z.object({ id: z.uuid(), bitbucketUsername: z.string().nullable() }),
           404: errorSchema,
