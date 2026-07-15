@@ -312,21 +312,52 @@ function ActivityBody({
     );
   }
 
+  // Nasconde i progetti la cui generazione è FINITA senza alcuna attività
+  // (`done` + 0 commit): sono le card "No activity" che sporcano la vista. I
+  // progetti ancora `queued`/`running` restano (mostrano "in generazione") anche
+  // se non hanno ancora commit; i `done` con commit restano.
+  const visibleProjects = report.projects.filter(
+    (p) => !(p.status === "done" && p.commits.length === 0),
+  );
+
   return (
     <div className="flex flex-col gap-6">
-      {view === "project"
-        ? report.projects.map((project) => (
+      {view === "project" ? (
+        visibleProjects.length === 0 ? (
+          <NoActivityDay />
+        ) : (
+          visibleProjects.map((project) => (
             <ProjectBlock key={project.project.id} project={project} isAdmin={isAdmin} />
           ))
-        : report.developers.length === 0
-          ? <DeveloperEmpty projects={report.projects} />
-          : report.developers.map((dev, index) => (
-              <DeveloperBlock
-                key={dev.resolvedUser?.id ?? dev.gitEmail ?? `dev-${index}`}
-                dev={dev}
-                isAdmin={isAdmin}
-              />
-            ))}
+        )
+      ) : report.developers.length === 0 ? (
+        <DeveloperEmpty projects={report.projects} />
+      ) : (
+        report.developers.map((dev, index) => (
+          <DeveloperBlock
+            key={dev.resolvedUser?.id ?? dev.gitEmail ?? `dev-${index}`}
+            dev={dev}
+            isAdmin={isAdmin}
+          />
+        ))
+      )}
+    </div>
+  );
+}
+
+/**
+ * Messaggio a livello di giornata quando esistono report per la data ma nessuno
+ * ha attività (tutti `done` con zero commit → tutte le card filtrate via). NON
+ * mostra il pulsante "Genera" (il report esiste già), a differenza dell'empty
+ * state di {@link ActivityBody} che scatta quando non c'è alcun report.
+ */
+function NoActivityDay() {
+  const { t } = useTranslation();
+  return (
+    <div className="grid place-items-center rounded-sm border border-dashed border-line-strong py-20">
+      <p className="font-mono text-[12px] tracking-[0.14em] text-fg-faint uppercase">
+        {t("activity:noActivityDay")}
+      </p>
     </div>
   );
 }
@@ -459,14 +490,21 @@ function ProjectBlock({
         }`}
       >
         <div className="flex min-w-0 items-center gap-3">
-          <CollapseToggle
-            collapsed={collapsed}
-            onToggle={() => setCollapsed((c) => !c)}
-            panelId={panelId}
-            label={project.project.name}
-          />
-          <h2 className="truncate font-mono text-[13px] font-medium text-fg">
-            {project.project.name}
+          <h2 className="flex min-w-0 items-center">
+            <button
+              type="button"
+              onClick={() => setCollapsed((c) => !c)}
+              aria-expanded={!collapsed}
+              aria-controls={collapsed ? undefined : panelId}
+              className="tap flex min-w-0 items-center gap-2 text-left transition-colors hover:text-signal"
+            >
+              <span aria-hidden="true" className="shrink-0 font-mono text-[12px] text-fg-faint">
+                {collapsed ? "▸" : "▾"}
+              </span>
+              <span className="truncate font-mono text-[13px] font-medium text-fg">
+                {project.project.name}
+              </span>
+            </button>
           </h2>
           <StatusBadge status={project.status} />
         </div>

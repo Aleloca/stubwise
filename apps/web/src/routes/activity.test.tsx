@@ -302,17 +302,20 @@ describe("sezione attività", () => {
     // Espanso di default: il contenuto (un commit) è visibile.
     expect(screen.getByText("Add login form")).toBeInTheDocument();
 
-    const collapse = screen.getByRole("button", { name: "Collapse Apollo" });
-    expect(collapse).toHaveAttribute("aria-expanded", "true");
-    await user.click(collapse);
+    // Il toggle è il nome del progetto stesso (cliccabile), non solo il chevron.
+    const toggle = screen.getByRole("button", { name: "Apollo" });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await user.click(toggle);
 
     // Collassato: il contenuto sparisce, l'header coi numeri resta visibile.
     expect(screen.queryByText("Add login form")).not.toBeInTheDocument();
     expect(screen.getByText("2 commits")).toBeInTheDocument();
 
-    const expand = screen.getByRole("button", { name: "Expand Apollo" });
-    expect(expand).toHaveAttribute("aria-expanded", "false");
-    await user.click(expand);
+    expect(screen.getByRole("button", { name: "Apollo" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    await user.click(screen.getByRole("button", { name: "Apollo" }));
 
     // Ri-espanso: il contenuto riappare.
     expect(screen.getByText("Add login form")).toBeInTheDocument();
@@ -612,13 +615,26 @@ describe("sezione attività", () => {
     const user = userEvent.setup();
     const multiReport = {
       date: "2026-07-14",
-      // `projects` non vuoto: evita l'empty-state (isEmpty deriva da projects).
+      // `projects` con attività: la vista-progetto mostra "Apollo" (i progetti
+      // `done` con zero commit verrebbero invece filtrati via).
       projects: [
         {
           project: { id: "p1", name: "Apollo", slug: "apollo" },
           status: "done",
-          header: { commitCount: 2, additions: 15, deletions: 3, authorCount: 1 },
-          commits: [],
+          header: { commitCount: 1, additions: 10, deletions: 2, authorCount: 1 },
+          commits: [
+            {
+              sha: "1111111aaaabbbb",
+              authorName: "Ada Dev",
+              authorEmail: "ada@git.example",
+              resolvedUser: { id: "u1", email: "ada@example.com", avatarUrl: null },
+              committedAt: "2026-07-14T09:00:00.000Z",
+              subject: "Apollo work",
+              additions: 10,
+              deletions: 2,
+              aiDescription: null,
+            },
+          ],
         },
       ],
       developers: [
@@ -843,7 +859,7 @@ describe("sezione attività", () => {
     const { queryClient } = renderActivity();
 
     await screen.findByRole("heading", { name: "Apollo" });
-    await user.click(screen.getByRole("button", { name: "Collapse Apollo" }));
+    await user.click(screen.getByRole("button", { name: "Apollo" }));
     expect(screen.queryByText("Add login form")).not.toBeInTheDocument();
     const callsBefore = activityCalls;
 
@@ -852,7 +868,83 @@ describe("sezione attività", () => {
     await waitFor(() => expect(activityCalls).toBeGreaterThan(callsBefore));
 
     // Dopo il refetch il blocco è ancora collassato (stato non perso).
-    expect(screen.getByRole("button", { name: "Expand Apollo" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Apollo" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
     expect(screen.queryByText("Add login form")).not.toBeInTheDocument();
+  });
+
+  it("nasconde i progetti 'done' senza attività, mostra quelli con commit", async () => {
+    const mixed = {
+      date: "2026-07-14",
+      projects: [
+        {
+          project: { id: "p1", name: "Apollo", slug: "apollo" },
+          status: "done",
+          header: { commitCount: 1, additions: 3, deletions: 0, authorCount: 1 },
+          commits: [
+            {
+              sha: "aaaaaaa1111",
+              authorName: "A",
+              authorEmail: "a@x.it",
+              resolvedUser: null,
+              committedAt: "2026-07-14T09:00:00.000Z",
+              subject: "Real work",
+              additions: 3,
+              deletions: 0,
+              aiDescription: null,
+            },
+          ],
+        },
+        {
+          project: { id: "p2", name: "Zephyr", slug: "zephyr" },
+          status: "done",
+          header: { commitCount: 0, additions: 0, deletions: 0, authorCount: 0 },
+          commits: [],
+        },
+      ],
+      developers: [],
+    };
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, mixed),
+    });
+
+    renderActivity();
+
+    // Apollo (con attività) è mostrato; Zephyr (done, 0 commit) è nascosto.
+    expect(await screen.findByRole("heading", { name: "Apollo" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Zephyr" })).not.toBeInTheDocument();
+  });
+
+  it("se tutti i progetti sono 'done' senza attività mostra il messaggio di giornata", async () => {
+    const allEmpty = {
+      date: "2026-07-14",
+      projects: [
+        {
+          project: { id: "p1", name: "Apollo", slug: "apollo" },
+          status: "done",
+          header: { commitCount: 0, additions: 0, deletions: 0, authorCount: 0 },
+          commits: [],
+        },
+      ],
+      developers: [],
+    };
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, allEmpty),
+    });
+
+    renderActivity();
+
+    // Nessuna card progetto; messaggio a livello di giornata, niente pulsante genera.
+    expect(await screen.findByText("No activity for this date")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Apollo" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Generate report for this day" }),
+    ).not.toBeInTheDocument();
   });
 });

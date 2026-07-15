@@ -1453,6 +1453,7 @@
     "noEnabledProjects": "No project has the activity report enabled",
     "loadError": "Could not load the report for this date.",
     "noActivity": "No activity",
+    "noActivityDay": "No activity for this date",
     "commits_one": "{{count}} commit",
     "commits_other": "{{count}} commits",
     "authors_one": "{{count}} author",
