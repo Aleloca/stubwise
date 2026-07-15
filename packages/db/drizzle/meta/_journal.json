@@ -358,6 +358,13 @@
       "when": 1784144049061,
       "tag": "0050_activity_commits",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1784155951826,
+      "tag": "0051_activity_summaries",
+      "breakpoints": true
     }
   ]
 }

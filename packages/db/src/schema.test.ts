@@ -4,6 +4,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "./client.js";
 import {
   activityCommits,
+  activityDayRollups,
+  activityDevSummaries,
   activityReports,
   aiJobs,
   aiProviders,
@@ -2074,5 +2076,74 @@ describe("schema: daily activity report", () => {
     const projectId = await seedProject();
     const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
     expect(project?.dailyReportEnabled).toBe(false);
+  });
+
+  it("activity_reports.summary: accetta null e testo", async () => {
+    const projectId = await seedProject();
+    // Di default (non generato) è null.
+    const [pending] = await db
+      .insert(activityReports)
+      .values({ projectId, date: "2026-08-01" })
+      .returning();
+    expect(pending?.summary).toBeNull();
+
+    // Valorizzabile con markdown.
+    const [withSummary] = await db
+      .insert(activityReports)
+      .values({ projectId, date: "2026-08-02", summary: "## Oggi\nHa fatto cose" })
+      .returning();
+    expect(withSummary?.summary).toBe("## Oggi\nHa fatto cose");
+  });
+
+  it("activity_dev_summaries: unique parziali su (date,userId) e (date,gitEmail), set null su delete user", async () => {
+    const userId = await seedUser();
+    const day = "2026-08-10";
+
+    // Riassunto per membro risolto (userId).
+    const [byUser] = await db
+      .insert(activityDevSummaries)
+      .values({ date: day, userId, summary: "riassunto membro" })
+      .returning();
+    expect(byUser?.userId).toBe(userId);
+    expect(byUser?.gitEmail).toBeNull();
+
+    // Duplicato (date, userId) → viola l'unique parziale.
+    await expect(
+      db.insert(activityDevSummaries).values({ date: day, userId, summary: "dup" }),
+    ).rejects.toThrow();
+
+    // Riassunto per email non risolta (userId null) nello stesso giorno → ok:
+    // le unique parziali sono distinte e mutuamente esclusive.
+    const email = `unresolved-${randomUUID()}@x.it`;
+    const [byEmail] = await db
+      .insert(activityDevSummaries)
+      .values({ date: day, gitEmail: email, summary: "riassunto email" })
+      .returning();
+    expect(byEmail?.userId).toBeNull();
+    expect(byEmail?.gitEmail).toBe(email);
+
+    // Duplicato (date, gitEmail) → viola l'unique parziale sull'email.
+    await expect(
+      db.insert(activityDevSummaries).values({ date: day, gitEmail: email, summary: "dup email" }),
+    ).rejects.toThrow();
+
+    // Delete dell'utente → userId set null (la riga sopravvive).
+    await db.delete(users).where(eq(users.id, userId));
+    const [afterDelete] = await db
+      .select()
+      .from(activityDevSummaries)
+      .where(eq(activityDevSummaries.id, byUser!.id));
+    expect(afterDelete?.userId).toBeNull();
+    expect(afterDelete?.summary).toBe("riassunto membro");
+  });
+
+  it("activity_day_rollups: date PK, duplicato → viola", async () => {
+    const day = "2026-08-20";
+    const [inserted] = await db.insert(activityDayRollups).values({ date: day }).returning();
+    expect(inserted?.date).toBe(day);
+    expect(inserted?.generatedAt).toBeInstanceOf(Date);
+
+    // Stessa data → viola la PK (gating idempotente per giorno).
+    await expect(db.insert(activityDayRollups).values({ date: day })).rejects.toThrow();
   });
 });
