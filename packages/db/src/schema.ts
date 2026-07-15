@@ -1831,6 +1831,9 @@ export const gitAuthorsSeen = pgTable("git_authors_seen", {
 /**
  * Un report di attività per (progetto, giorno UTC). L'unique (project_id, date)
  * rende idempotente il gate notturno: più tick concorrenti non creano doppioni.
+ * NB: il poller crea la riga direttamente in `running` (gate + generazione in un
+ * colpo solo); `queued` resta il default della colonna ma non è prodotto dal
+ * flusso attuale (riservato a un eventuale futuro gate a due fasi).
  */
 export const activityReports = pgTable(
   "activity_reports",
