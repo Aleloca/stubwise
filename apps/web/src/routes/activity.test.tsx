@@ -80,37 +80,35 @@ const REPOS = [
   },
 ];
 
-// Report con un progetto: un'entry con membro risolto e una con email grezza.
+// Report PER-COMMIT con un progetto: un commit di un membro risolto (con
+// descrizione AI markdown) e uno di un'email git non risolta (senza descrizione).
 const REPORT = {
   date: "2026-07-14",
   projects: [
     {
       project: { id: "p1", name: "Apollo", slug: "apollo" },
-      date: "2026-07-14",
       status: "done",
-      entries: [
+      header: { commitCount: 2, additions: 43, deletions: 6, authorCount: 2 },
+      commits: [
         {
-          gitEmail: "ada@git.example",
+          sha: "abcdef1234567890",
           authorName: "Ada Dev",
           resolvedUser: { id: "u1", email: "ada@example.com", avatarUrl: null },
-          commitCount: 2,
+          committedAt: "2026-07-14T09:00:00.000Z",
+          subject: "Add login form",
           additions: 40,
           deletions: 5,
-          commits: [
-            { sha: "abcdef1234567890", subject: "Add login form", repoId: "r1" },
-            { sha: "1122334455667788", subject: "Fix header", repoId: "r1" },
-          ],
-          aiSummary: "Worked on authentication and layout fixes.",
+          aiDescription: "Implemented the `login` handler and wired the form.",
         },
         {
-          gitEmail: "ghost@git.example",
+          sha: "9988776655443322",
           authorName: null,
           resolvedUser: null,
-          commitCount: 1,
+          committedAt: "2026-07-14T10:00:00.000Z",
+          subject: "Tweak copy",
           additions: 3,
           deletions: 1,
-          commits: [{ sha: "9988776655443322", subject: "Tweak copy", repoId: "r1" }],
-          aiSummary: null,
+          aiDescription: null,
         },
       ],
     },
@@ -120,16 +118,20 @@ const REPORT = {
       resolvedUser: { id: "u1", email: "ada@example.com", avatarUrl: null },
       gitEmail: "ada@git.example",
       authorName: "Ada Dev",
-      totalCommits: 2,
-      totalAdditions: 40,
-      totalDeletions: 5,
-      perProject: [
+      header: { commitCount: 1, additions: 40, deletions: 5, projectCount: 1 },
+      byProject: [
         {
-          projectId: "p1",
-          projectName: "Apollo",
-          commitCount: 2,
-          aiSummary: "Auth + layout.",
-          commits: [{ sha: "abcdef1234567890", subject: "Add login form", repoId: "r1" }],
+          project: { id: "p1", name: "Apollo", slug: "apollo" },
+          commits: [
+            {
+              sha: "abcdef1234567890",
+              committedAt: "2026-07-14T09:00:00.000Z",
+              subject: "Add login form",
+              additions: 40,
+              deletions: 5,
+              aiDescription: "Auth work in the `web` app.",
+            },
+          ],
         },
       ],
     },
@@ -137,16 +139,20 @@ const REPORT = {
       resolvedUser: null,
       gitEmail: "ghost@git.example",
       authorName: null,
-      totalCommits: 1,
-      totalAdditions: 3,
-      totalDeletions: 1,
-      perProject: [
+      header: { commitCount: 1, additions: 3, deletions: 1, projectCount: 1 },
+      byProject: [
         {
-          projectId: "p1",
-          projectName: "Apollo",
-          commitCount: 1,
-          aiSummary: null,
-          commits: [{ sha: "9988776655443322", subject: "Tweak copy", repoId: "r1" }],
+          project: { id: "p1", name: "Apollo", slug: "apollo" },
+          commits: [
+            {
+              sha: "9988776655443322",
+              committedAt: "2026-07-14T10:00:00.000Z",
+              subject: "Tweak copy",
+              additions: 3,
+              deletions: 1,
+              aiDescription: null,
+            },
+          ],
         },
       ],
     },
@@ -155,16 +161,16 @@ const REPORT = {
 
 const EMPTY_REPORT = { date: "2026-01-01", projects: [], developers: [] };
 
-// Report appena accodato: un progetto in stato "queued" con entries vuote (il
-// worker non l'ha ancora finalizzato).
+// Report appena accodato: un progetto in stato "queued" senza commit (il worker
+// non l'ha ancora finalizzato).
 const QUEUED_REPORT = {
   date: "2026-07-14",
   projects: [
     {
       project: { id: "p1", name: "Apollo", slug: "apollo" },
-      date: "2026-07-14",
       status: "queued",
-      entries: [],
+      header: { commitCount: 0, additions: 0, deletions: 0, authorCount: 0 },
+      commits: [],
     },
   ],
   developers: [],
@@ -184,18 +190,27 @@ describe("sezione attività", () => {
     expect(await screen.findByRole("heading", { name: "Activity" })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Apollo" })).toBeInTheDocument();
 
-    // Autore risolto: email del membro. Autore non risolto: email git grezza.
+    // Intestazione coi numeri dell'header per-commit.
+    expect(screen.getByText("2 commits")).toBeInTheDocument();
+    expect(screen.getByText("2 authors")).toBeInTheDocument();
+
+    // Autore risolto: email del membro. Autore non risolto: authorName grezzo…
+    // qui il secondo commit ha authorName null → segnaposto "Unknown author".
     expect(screen.getByText("ada@example.com")).toBeInTheDocument();
-    const ghost = screen.getByText("ghost@git.example");
+    const ghost = screen.getByText("Unknown author");
     expect(ghost).toBeInTheDocument();
-    // L'email non risolta è in corsivo (degradazione).
+    // L'autore non risolto è in corsivo (degradazione).
     expect(ghost.className).toContain("italic");
 
-    // Riassunto AI e commit.
-    expect(screen.getByText("Worked on authentication and layout fixes.")).toBeInTheDocument();
+    // I commit del giorno: SHA breve (7 char) e oggetto.
+    expect(screen.getByText("abcdef1")).toBeInTheDocument();
     expect(screen.getByText("Add login form")).toBeInTheDocument();
-    // Il repo è etichettato col nome, non con l'id grezzo.
-    expect(screen.getAllByText("web").length).toBeGreaterThan(0);
+    expect(screen.getByText("Tweak copy")).toBeInTheDocument();
+
+    // La descrizione AI è resa come MARKDOWN e sanitizzata: il backtick `login`
+    // diventa un elemento <code> (non testo grezzo con i backtick).
+    const code = screen.getByText("login");
+    expect(code.tagName).toBe("CODE");
 
     // Hint "Link in Team" (solo admin) accanto all'autore non risolto.
     expect(screen.getByRole("link", { name: "Link in Team" })).toBeInTheDocument();
@@ -210,7 +225,7 @@ describe("sezione attività", () => {
 
     renderActivity();
 
-    expect(await screen.findByText("ghost@git.example")).toBeInTheDocument();
+    expect(await screen.findByText("Unknown author")).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Link in Team" })).not.toBeInTheDocument();
   });
 
@@ -227,11 +242,17 @@ describe("sezione attività", () => {
     await screen.findByRole("heading", { name: "Apollo" });
     await user.click(screen.getByRole("tab", { name: "By developer" }));
 
-    // Il blocco dev mostra l'autore risolto e i totali (2 commit).
+    // Il blocco dev mostra l'autore risolto e i totali per-commit.
     expect(await screen.findByText("ada@example.com")).toBeInTheDocument();
-    expect(screen.getAllByText("2 commits").length).toBeGreaterThan(0);
-    // Il sotto-blocco per progetto compare col nome del progetto.
+    // Totali dell'header dev: 1 commit su 1 progetto.
+    expect(screen.getAllByText("1 commit").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("1 project").length).toBeGreaterThan(0);
+    // Il sotto-blocco per progetto compare col nome del progetto e i suoi commit.
     expect(screen.getAllByText("Apollo").length).toBeGreaterThan(0);
+    expect(screen.getByText("Add login form")).toBeInTheDocument();
+    // La descrizione del commit è markdown: il backtick `web` diventa <code>.
+    const code = screen.getByText("web");
+    expect(code.tagName).toBe("CODE");
   });
 
   it("cambio data nell'input → nuova query con la data scelta", async () => {
@@ -455,19 +476,5 @@ describe("sezione attività", () => {
     // translateApiError ripiega sul message del server (nessuna chiave errors:boom).
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Generation failed");
-  });
-
-  it("non crasha se la lista repository fallisce (fallback all'id repo)", async () => {
-    mockApi({
-      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
-      "GET /api/repositories": () => jsonResponse(500, { code: "boom", message: "down" }),
-      "GET /api/activity": () => jsonResponse(200, REPORT),
-    });
-
-    renderActivity();
-
-    // La pagina si monta e mostra i commit; il repo ripiega sull'id grezzo.
-    expect(await screen.findByText("Add login form")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getAllByText("r1").length).toBeGreaterThan(0));
   });
 });
