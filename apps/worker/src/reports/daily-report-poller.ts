@@ -10,7 +10,7 @@ import {
 } from "@stubwise/db";
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 import { z } from "zod";
-import type { AgentRunner } from "../agent/runner.js";
+import type { AgentRunner, AgentRunResult } from "../agent/runner.js";
 import type { MirrorManager, MirrorProject, RangeCommit } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
 import {
@@ -59,6 +59,27 @@ const COMMIT_DESC_MAX_TURNS = 3;
 
 /** Turni massimi del run del riassunto di progetto: solo testo, nessun tool. */
 const PROJECT_SUMMARY_MAX_TURNS = 3;
+
+/**
+ * Tetto di caratteri sul contenuto aggregato (subject + descrizione) dei commit
+ * passato al prompt del RIASSUNTO di progetto. Con centinaia di commit (giorno
+ * intenso o backfill manuale) l'elenco completo può eccedere il context del
+ * modello o far scadere il timeout: il run fallisce e `summary` resta null
+ * proprio quando un resoconto servirebbe di più. Meglio un elenco troncato con
+ * marcatore esplicito che nessun riassunto. */
+export const SUMMARY_INPUT_MAX_CHARS = 80_000;
+
+/**
+ * Testo utile da un run dell'agente: l'output trimmato se il processo è uscito
+ * con exit 0 e ha prodotto qualcosa, altrimenti null. `runner.run` RISOLVE anche
+ * su exit non-zero (è un risultato, non un errore): un exit ≠ 0 → nessun testo
+ * (niente descrizioni da un output parziale). Condiviso dal loop per-commit e
+ * dal blocco del riassunto. */
+function textFromRun(result: AgentRunResult): string | null {
+  if (result.exitCode !== 0) return null;
+  const out = result.output.trim();
+  return out.length > 0 ? out : null;
+}
 
 /** Forma attesa delle credenziali git decifrate (mirror di run-review.ts). */
 const credentialsSchema = z.object({
@@ -175,14 +196,29 @@ function buildCommitDescriptionPrompt(commit: RangeCommit, diff: string): string
  * costruzione (permissionMode "plan", cwd = mirror bare, nessun working tree). */
 function buildProjectSummaryPrompt(
   projectName: string | undefined,
-  commits: { subject: string; description: string | null }[],
+  commits: { subject: string; description: string | null | undefined }[],
 ): string {
-  const items = commits
-    .map(
-      (c, i) =>
-        `${i + 1}. ${c.subject}${c.description ? `\n   ${c.description.replace(/\n/g, "\n   ")}` : ""}`,
-    )
-    .join("\n");
+  // Accumula gli elementi (subject + descrizione) finché si resta entro il
+  // budget SUMMARY_INPUT_MAX_CHARS; poi ci si ferma e si segnala il troncamento.
+  // ORDINE: si mantiene quello originale (cronologico, dal git log) — un
+  // resoconto narrativo segue meglio la sequenza reale del lavoro, e il cap è una
+  // salvaguardia contro giornate/backfill enormi, non un criterio di "importanza"
+  // (non si riordina per dimensione). Almeno UN commit è sempre incluso, anche se
+  // da solo eccede il budget, così un elenco non è mai vuoto.
+  const lines: string[] = [];
+  let used = 0;
+  let included = 0;
+  for (const c of commits) {
+    const item = `${included + 1}. ${c.subject}${c.description ? `\n   ${c.description.replace(/\n/g, "\n   ")}` : ""}`;
+    if (included > 0 && used + item.length > SUMMARY_INPUT_MAX_CHARS) break;
+    lines.push(item);
+    used += item.length + 1; // +1 per il "\n" del join
+    included++;
+  }
+  const omitted = commits.length - included;
+  const items =
+    lines.join("\n") +
+    (omitted > 0 ? `\n\n[elenco troncato per lunghezza: ${omitted} commit non inclusi]` : "");
   return [
     `Sei un assistente tecnico che redige il resoconto giornaliero di un progetto software.`,
     projectName ? `Progetto: ${projectName}.` : ``,
@@ -420,10 +456,7 @@ async function generateForProject(
               });
               // Run crashato (exit ≠ 0): nessuna descrizione da un output
               // parziale. runner.run RISOLVE anche su exit non-zero.
-              if (result.exitCode === 0) {
-                const out = result.output.trim();
-                aiDescription = out.length > 0 ? out : null;
-              }
+              aiDescription = textFromRun(result);
             } catch (err) {
               // Best-effort: un run fallito (timeout, limite, spawn) → null.
               console.error(
@@ -460,7 +493,7 @@ async function generateForProject(
           cwd,
           prompt: buildProjectSummaryPrompt(
             projectRow.name,
-            rows.map((r) => ({ subject: r.subject, description: r.aiDescription ?? null })),
+            rows.map((r) => ({ subject: r.subject, description: r.aiDescription })),
           ),
           ...(deps.model !== undefined ? { model: deps.model } : {}),
           permissionMode: "plan",

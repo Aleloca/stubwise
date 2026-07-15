@@ -19,6 +19,7 @@ import type { ResolvedProvider } from "../providers/chain.js";
 import {
   pollDailyReportsOnce,
   previousUtcDay,
+  SUMMARY_INPUT_MAX_CHARS,
   utcDayWindow,
   type PollDailyReportsDeps,
 } from "./daily-report-poller.js";
@@ -921,5 +922,61 @@ describe("pollDailyReportsOnce", () => {
       .where(eq(gitAuthorsSeen.email, "carol@example.com"));
     expect(seen).toHaveLength(1);
     expect(seen[0]?.authorName).toBe("Carol"); // NON regredito a null.
+  });
+
+  it("il prompt del riassunto aggrega subject, descrizioni e nome del progetto", async () => {
+    await createProject(testDb.db, { dailyReportEnabled: true });
+    const { deps, runSpy } = makeDeps({
+      commitsByCall: [
+        [
+          commit({ sha: "1".repeat(40), subject: "Rework del parser" }),
+          commit({ sha: "2".repeat(40), subject: "Aggiunge cache LRU" }),
+        ],
+      ],
+    });
+
+    await pollDailyReportsOnce(deps);
+
+    // Il prompt del RIASSUNTO (quello con "resoconto") deve contenere l'elenco
+    // aggregato: subject di ogni commit, le descrizioni per-commit generate e il
+    // nome del progetto. Protegge buildProjectSummaryPrompt da regressioni che
+    // perdano l'aggregazione.
+    const summaryCall = runSpy.mock.calls.find((c) => c[0]?.prompt?.includes("resoconto"));
+    expect(summaryCall).toBeDefined();
+    const prompt = summaryCall![0].prompt as string;
+    expect(prompt).toContain("Progetto: Progetto daily.");
+    expect(prompt).toContain("Rework del parser");
+    expect(prompt).toContain("Aggiunge cache LRU");
+    expect(prompt).toContain("descrizione finta"); // le descrizioni per-commit aggregate.
+    expect(prompt).not.toContain("[elenco troncato"); // pochi commit: nessun troncamento.
+  });
+
+  it("cap: molti commit con descrizioni lunghe → prompt del riassunto troncato entro il budget", async () => {
+    await createProject(testDb.db, { dailyReportEnabled: true });
+    // 60 commit, ognuno con una descrizione per-commit di 3000 caratteri:
+    // ~180k di contenuto aggregato, ben oltre SUMMARY_INPUT_MAX_CHARS (80k).
+    const many = Array.from({ length: 60 }, (_, i) =>
+      commit({ sha: String(i).padStart(40, "0"), subject: `Commit numero ${i}` }),
+    );
+    const longDesc = "X".repeat(3000);
+    const { deps, runSpy } = makeDeps({
+      commitsByCall: [many],
+      // Descrizioni per-commit lunghe; il riassunto resta corto ("riassunto finto").
+      runResult: async (opts) =>
+        opts.prompt.includes("resoconto")
+          ? { output: "riassunto finto", exitCode: 0 }
+          : { output: longDesc, exitCode: 0 },
+    });
+
+    await pollDailyReportsOnce(deps);
+
+    const summaryCall = runSpy.mock.calls.find((c) => c[0]?.prompt?.includes("resoconto"));
+    expect(summaryCall).toBeDefined();
+    const prompt = summaryCall![0].prompt as string;
+    // Elenco troncato con marcatore che indica quanti commit sono esclusi.
+    expect(prompt).toMatch(/\[elenco troncato per lunghezza: \d+ commit non inclusi\]/);
+    // Il prompt non supera di molto il budget (l'elenco intero sarebbe ~180k):
+    // il preambolo fisso è di poche centinaia di caratteri.
+    expect(prompt.length).toBeLessThan(SUMMARY_INPUT_MAX_CHARS + 5_000);
   });
 });
