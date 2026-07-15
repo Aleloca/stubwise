@@ -64,6 +64,16 @@ export function formatDateTime(iso: string): string {
   return dateTimeFormat.format(new Date(iso));
 }
 
+const timeFormat = new Intl.DateTimeFormat("it-IT", {
+  hour: "2-digit",
+  minute: "2-digit",
+});
+
+/** Solo ora:minuti (24h), compatto — per l'orario dei commit nell'attività. */
+export function formatTime(iso: string): string {
+  return timeFormat.format(new Date(iso));
+}
+
 /** Solo data assoluta (formato italiano), per "membro dal" e gli inviti. */
 export function formatDate(iso: string): string {
   return dateFormat.format(new Date(iso));

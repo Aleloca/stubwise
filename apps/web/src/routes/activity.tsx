@@ -6,12 +6,13 @@ import { Avatar } from "../components/avatar";
 import { Markdown } from "../components/markdown";
 import {
   generateActivity,
+  type ActivityCommit,
   type ActivityDeveloperView,
   type ActivityProjectView,
   type ActivityResolvedUser,
 } from "../lib/api";
 import { meQueryOptions } from "../lib/auth";
-import { formatDate } from "../lib/format";
+import { formatDate, formatTime } from "../lib/format";
 import { activityReportQueryOptions } from "../lib/queries";
 import { translateApiError } from "../lib/translate-api-error";
 
@@ -400,6 +401,35 @@ function GenerateReport({ date }: { date: string }) {
 }
 
 /**
+ * Riga di un singolo commit, condivisa dalle due viste: SHA breve (con lo SHA
+ * completo nel `title`) + orario `HH:MM` + oggetto + diffstat, poi l'eventuale
+ * autore (slot `author`, presente solo in vista-progetto dove l'autore non è
+ * implicito) e la descrizione AI in markdown. La spaziatura è uniforme
+ * (`gap-1.5`) in entrambe le viste.
+ */
+function CommitRow({ commit, author }: { commit: ActivityCommit; author?: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap items-baseline gap-2">
+        <span
+          className="shrink-0 font-mono text-[11px] text-fg-faint"
+          title={commit.sha}
+        >
+          {shortSha(commit.sha)}
+        </span>
+        <span className="shrink-0 font-mono text-[11px] text-fg-faint">
+          {formatTime(commit.committedAt)}
+        </span>
+        <span className="min-w-0 flex-1 text-sm text-fg">{commit.subject}</span>
+        <DiffStat additions={commit.additions} deletions={commit.deletions} />
+      </div>
+      {author && <div className="flex items-center gap-2">{author}</div>}
+      {commit.aiDescription && <Markdown source={commit.aiDescription} />}
+    </div>
+  );
+}
+
+/**
  * Blocco vista-progetto: header col nome/status e i totali del giorno, poi la
  * lista dei commit (uno per riga, con autore risolto/grezzo e descrizione AI).
  */
@@ -440,23 +470,18 @@ function ProjectBlock({
       ) : (
         <ul className="divide-y divide-line">
           {project.commits.map((commit) => (
-            <li key={commit.sha} className="flex flex-col gap-2 px-4 py-3">
-              <div className="flex flex-wrap items-baseline gap-2">
-                <span className="shrink-0 font-mono text-[11px] text-fg-faint">
-                  {shortSha(commit.sha)}
-                </span>
-                <span className="min-w-0 flex-1 text-sm text-fg">{commit.subject}</span>
-                <DiffStat additions={commit.additions} deletions={commit.deletions} />
-              </div>
-              <div className="flex items-center gap-2">
-                <AuthorLabel
-                  resolvedUser={commit.resolvedUser ?? null}
-                  gitEmail={null}
-                  authorName={commit.authorName ?? null}
-                  isAdmin={isAdmin}
-                />
-              </div>
-              {commit.aiDescription && <Markdown source={commit.aiDescription} />}
+            <li key={commit.sha} className="px-4 py-3">
+              <CommitRow
+                commit={commit}
+                author={
+                  <AuthorLabel
+                    resolvedUser={commit.resolvedUser ?? null}
+                    gitEmail={null}
+                    authorName={commit.authorName ?? null}
+                    isAdmin={isAdmin}
+                  />
+                }
+              />
             </li>
           ))}
         </ul>
@@ -475,12 +500,14 @@ function DeveloperBlock({ dev, isAdmin }: { dev: ActivityDeveloperView; isAdmin:
   return (
     <section className="rounded-sm border border-line bg-ink-900">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
-        <AuthorLabel
-          resolvedUser={dev.resolvedUser}
-          gitEmail={dev.gitEmail}
-          authorName={dev.authorName}
-          isAdmin={isAdmin}
-        />
+        <h2 className="flex min-w-0 items-center">
+          <AuthorLabel
+            resolvedUser={dev.resolvedUser}
+            gitEmail={dev.gitEmail}
+            authorName={dev.authorName}
+            isAdmin={isAdmin}
+          />
+        </h2>
         <div className="flex items-center gap-3">
           <span className="font-mono text-[11px] tracking-[0.1em] text-fg-muted uppercase">
             {t("activity:commits", { count: header.commitCount })}
@@ -495,22 +522,15 @@ function DeveloperBlock({ dev, isAdmin }: { dev: ActivityDeveloperView; isAdmin:
         {dev.byProject.map((proj) => (
           <li key={proj.project.id} className="flex flex-col gap-2 px-4 py-3">
             <div className="flex flex-wrap items-baseline gap-3">
-              <span className="font-mono text-[13px] text-fg">{proj.project.name}</span>
+              <h3 className="font-mono text-[13px] text-fg">{proj.project.name}</h3>
               <span className="font-mono text-[11px] tracking-[0.1em] text-fg-muted uppercase">
                 {t("activity:commits", { count: proj.commits.length })}
               </span>
             </div>
             <ul className="flex flex-col gap-2">
               {proj.commits.map((commit) => (
-                <li key={commit.sha} className="flex flex-col gap-1.5">
-                  <div className="flex flex-wrap items-baseline gap-2">
-                    <span className="shrink-0 font-mono text-[11px] text-fg-faint">
-                      {shortSha(commit.sha)}
-                    </span>
-                    <span className="min-w-0 flex-1 text-sm text-fg">{commit.subject}</span>
-                    <DiffStat additions={commit.additions} deletions={commit.deletions} />
-                  </div>
-                  {commit.aiDescription && <Markdown source={commit.aiDescription} />}
+                <li key={commit.sha}>
+                  <CommitRow commit={commit} />
                 </li>
               ))}
             </ul>

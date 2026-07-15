@@ -477,4 +477,196 @@ describe("sezione attività", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Generation failed");
   });
+
+  it("descrizione AI multi-elemento: la lista markdown rende più <li>", async () => {
+    // Il caso "commit grosso → descrizione strutturata": una lista markdown deve
+    // produrre elementi <li> distinti, non testo grezzo con i trattini.
+    const listReport = {
+      date: "2026-07-14",
+      projects: [
+        {
+          project: { id: "p1", name: "Apollo", slug: "apollo" },
+          status: "done",
+          header: { commitCount: 1, additions: 10, deletions: 2, authorCount: 1 },
+          commits: [
+            {
+              sha: "aabbccddeeff0011",
+              authorName: "Ada Dev",
+              resolvedUser: { id: "u1", email: "ada@example.com", avatarUrl: null },
+              committedAt: "2026-07-14T09:00:00.000Z",
+              subject: "Big refactor",
+              additions: 10,
+              deletions: 2,
+              aiDescription: "- first change\n- second change",
+            },
+          ],
+        },
+      ],
+      developers: [],
+    };
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, listReport),
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    const first = screen.getByText("first change");
+    const second = screen.getByText("second change");
+    expect(first.tagName).toBe("LI");
+    expect(second.tagName).toBe("LI");
+  });
+
+  it("vista per sviluppatore con >1 progetto: rende entrambi i sotto-gruppi", async () => {
+    const user = userEvent.setup();
+    const multiReport = {
+      date: "2026-07-14",
+      // `projects` non vuoto: evita l'empty-state (isEmpty deriva da projects).
+      projects: [
+        {
+          project: { id: "p1", name: "Apollo", slug: "apollo" },
+          status: "done",
+          header: { commitCount: 2, additions: 15, deletions: 3, authorCount: 1 },
+          commits: [],
+        },
+      ],
+      developers: [
+        {
+          resolvedUser: { id: "u1", email: "ada@example.com", avatarUrl: null },
+          gitEmail: "ada@git.example",
+          authorName: "Ada Dev",
+          header: { commitCount: 2, additions: 15, deletions: 3, projectCount: 2 },
+          byProject: [
+            {
+              project: { id: "p1", name: "Apollo", slug: "apollo" },
+              commits: [
+                {
+                  sha: "1111111aaaabbbb",
+                  committedAt: "2026-07-14T09:00:00.000Z",
+                  subject: "Apollo work",
+                  additions: 10,
+                  deletions: 2,
+                  aiDescription: null,
+                },
+              ],
+            },
+            {
+              project: { id: "p2", name: "Zephyr", slug: "zephyr" },
+              commits: [
+                {
+                  sha: "2222222ccccdddd",
+                  committedAt: "2026-07-14T11:00:00.000Z",
+                  subject: "Zephyr work",
+                  additions: 5,
+                  deletions: 1,
+                  aiDescription: null,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, multiReport),
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    await user.click(screen.getByRole("tab", { name: "By developer" }));
+
+    // Il developer è un heading di livello 2 (outline a11y).
+    expect(
+      await screen.findByRole("heading", { level: 2, name: /ada@example\.com/ }),
+    ).toBeInTheDocument();
+    // Entrambi i sotto-gruppi progetto sono heading di livello 3…
+    expect(screen.getByRole("heading", { level: 3, name: "Apollo" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 3, name: "Zephyr" })).toBeInTheDocument();
+    // …e i commit di ciascun progetto sono resi.
+    expect(screen.getByText("Apollo work")).toBeInTheDocument();
+    expect(screen.getByText("Zephyr work")).toBeInTheDocument();
+  });
+
+  it("vista progetto: autore non risolto con authorName non-null mostra il nome", async () => {
+    const namedReport = {
+      date: "2026-07-14",
+      projects: [
+        {
+          project: { id: "p1", name: "Apollo", slug: "apollo" },
+          status: "done",
+          header: { commitCount: 1, additions: 4, deletions: 1, authorCount: 1 },
+          commits: [
+            {
+              sha: "ffeeddccbbaa9988",
+              authorName: "Mario Rossi",
+              resolvedUser: null,
+              committedAt: "2026-07-14T09:00:00.000Z",
+              subject: "Fix typo",
+              additions: 4,
+              deletions: 1,
+              aiDescription: null,
+            },
+          ],
+        },
+      ],
+      developers: [],
+    };
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, namedReport),
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    // resolvedUser null ma authorName presente → si mostra il nome grezzo,
+    // non il segnaposto "Unknown author".
+    expect(screen.getByText("Mario Rossi")).toBeInTheDocument();
+    expect(screen.queryByText("Unknown author")).not.toBeInTheDocument();
+  });
+
+  it("commit senza descrizione: rende l'oggetto ma nessun blocco markdown", async () => {
+    const noDescReport = {
+      date: "2026-07-14",
+      projects: [
+        {
+          project: { id: "p1", name: "Apollo", slug: "apollo" },
+          status: "done",
+          header: { commitCount: 1, additions: 2, deletions: 0, authorCount: 1 },
+          commits: [
+            {
+              sha: "0011223344556677",
+              authorName: "Ada Dev",
+              resolvedUser: { id: "u1", email: "ada@example.com", avatarUrl: null },
+              committedAt: "2026-07-14T09:00:00.000Z",
+              subject: "Bump version",
+              additions: 2,
+              deletions: 0,
+              aiDescription: null,
+            },
+          ],
+        },
+      ],
+      developers: [],
+    };
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, noDescReport),
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    // L'oggetto del commit è reso…
+    expect(screen.getByText("Bump version")).toBeInTheDocument();
+    // …ma senza `aiDescription` non c'è alcun contenitore markdown.
+    expect(document.querySelector(".markdown")).toBeNull();
+  });
 });
