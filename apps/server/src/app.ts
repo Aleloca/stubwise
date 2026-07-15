@@ -30,6 +30,7 @@ import { createAnthropicChatLlm, type ChatLlm } from "./routes/chat-llm.js";
 import { docsChatRoutes } from "./routes/docs-chat.js";
 import { docsRoutes } from "./routes/docs.js";
 import { gitAccountRoutes } from "./routes/git-accounts.js";
+import { gitIdentityRoutes } from "./routes/git-identity-routes.js";
 import { inboundRoutes } from "./routes/inbound.js";
 import { ingestRoutes } from "./routes/ingest.js";
 import { widgetRoutes } from "./routes/widget.js";
@@ -473,6 +474,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     prefix: "/api",
     slackClientFactory: opts.slackClientFactory,
   });
+
+  // Linking identità git/Bitbucket → membro (gemello di slackIdentityRoutes),
+  // per attribuire i commit alle persone nel daily activity report.
+  void app.register(gitIdentityRoutes, { prefix: "/api" });
 
   app.get("/health", async () => ({ status: "ok" }));
 
