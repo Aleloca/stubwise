@@ -148,7 +148,7 @@ interface MakeDepsOverrides {
     project: MirrorProject,
     sha: string,
   ) => Promise<{ diff: string; truncated: boolean }>;
-  runResult?: () => Promise<AgentRunResult>;
+  runResult?: (opts: { prompt: string }) => Promise<AgentRunResult>;
   retentionDays?: number;
   provider?: ResolvedProvider | null;
   /** Override della risoluzione della catena provider (per forzare un errore interno). */
@@ -174,7 +174,14 @@ function makeDeps(o: MakeDepsOverrides = {}): {
   );
   const ensureMirror = vi.fn(async () => "/tmp/fake-mirror");
   const runSpy = vi.fn(
-    o.runResult ?? (async (): Promise<AgentRunResult> => ({ output: "descrizione finta", exitCode: 0 })),
+    o.runResult ??
+      // Distingue il run del RIASSUNTO-progetto (il suo prompt contiene
+      // "resoconto") dagli run per-commit: così le asserzioni distinguono le due
+      // fonti. runResult custom (se passato) vale per TUTTI i run.
+      (async (opts: { prompt: string }): Promise<AgentRunResult> => ({
+        output: opts.prompt.includes("resoconto") ? "riassunto finto" : "descrizione finta",
+        exitCode: 0,
+      })),
   );
   const { serializer } = makeSerializer();
   const deps: PollDailyReportsDeps = {
@@ -252,6 +259,8 @@ describe("pollDailyReportsOnce", () => {
     expect(report?.status).toBe("done");
     expect(report?.date).toBe("2026-07-14");
     expect(report?.finishedAt).not.toBeNull();
+    // Riassunto narrativo del progetto, dal run di aggregazione (prompt "resoconto").
+    expect(report?.summary).toBe("riassunto finto");
 
     const commits = await testDb.db
       .select()
@@ -281,8 +290,9 @@ describe("pollDailyReportsOnce", () => {
     expect(bob?.deletions).toBe(1);
     expect(bob?.aiDescription).toBe("descrizione finta");
 
-    // Un run dell'agente e un diff recuperato per commit.
-    expect(runSpy).toHaveBeenCalledTimes(2);
+    // Un run dell'agente e un diff recuperato per commit, PIÙ un run per il
+    // riassunto narrativo del progetto (2 commit + 1 riassunto = 3 run).
+    expect(runSpy).toHaveBeenCalledTimes(3);
     expect(getCommitDiffSpy).toHaveBeenCalledTimes(2);
 
     // Autori osservati registrati.
@@ -359,8 +369,9 @@ describe("pollDailyReportsOnce", () => {
     expect(commits).toHaveLength(1);
     expect(commits[0]?.sha).toBe("1".repeat(40));
     expect(commits.find((c) => c.sha === "9".repeat(40))).toBeUndefined();
-    // Il run dell'agente è stato eseguito (rigenerazione vera, non skip).
-    expect(runSpy).toHaveBeenCalledTimes(1);
+    // Il run dell'agente è stato eseguito (rigenerazione vera, non skip): 1 per il
+    // commit + 1 per il riassunto del progetto.
+    expect(runSpy).toHaveBeenCalledTimes(2);
   });
 
   it("recovery: un orfano 'running' per una data PASSATA e progetto disabilitato viene rigenerato", async () => {
@@ -410,7 +421,8 @@ describe("pollDailyReportsOnce", () => {
     expect(commits).toHaveLength(1);
     expect(commits[0]?.sha).toBe("1".repeat(40));
     expect(commits.find((c) => c.sha === "9".repeat(40))).toBeUndefined();
-    expect(runSpy).toHaveBeenCalledTimes(1);
+    // 1 run per il commit + 1 per il riassunto del progetto.
+    expect(runSpy).toHaveBeenCalledTimes(2);
   });
 
   it("best-effort fase queued: un 'queued' il cui repo LANCIA non blocca l'altro, il tick non crasha", async () => {
@@ -526,7 +538,8 @@ describe("pollDailyReportsOnce", () => {
 
     const generated = await pollDailyReportsOnce(deps);
     expect(generated).toBe(1);
-    expect(runSpy).toHaveBeenCalledTimes(2); // un run tentato per commit.
+    // Un run tentato per commit (2) + 1 per il riassunto del progetto.
+    expect(runSpy).toHaveBeenCalledTimes(3);
 
     const commits = await testDb.db.select().from(activityCommits);
     expect(commits).toHaveLength(2); // entrambe le righe esistono coi dati grezzi.
@@ -574,6 +587,7 @@ describe("pollDailyReportsOnce", () => {
 
     const [report] = await testDb.db.select().from(activityReports);
     expect(report?.status).toBe("done");
+    expect(report?.summary).toBeNull(); // anche il run del riassunto lancia → null.
     const commits = await testDb.db.select().from(activityCommits);
     expect(commits).toHaveLength(1);
     expect(commits[0]?.aiDescription).toBeNull();
@@ -591,8 +605,10 @@ describe("pollDailyReportsOnce", () => {
 
     const generated = await pollDailyReportsOnce(deps);
     expect(generated).toBe(1);
-    // Nessun run: senza diff non si genera la descrizione.
-    expect(runSpy).not.toHaveBeenCalled();
+    // Nessun run PER-COMMIT (senza diff non si genera la descrizione), ma il
+    // riassunto del progetto gira comunque (c'è un commit, seppur senza descrizione).
+    expect(runSpy).toHaveBeenCalledTimes(1);
+    expect(runSpy.mock.calls[0]?.[0]?.prompt).toContain("resoconto");
     const commits = await testDb.db.select().from(activityCommits);
     expect(commits).toHaveLength(1);
     expect(commits[0]?.aiDescription).toBeNull();
@@ -610,10 +626,53 @@ describe("pollDailyReportsOnce", () => {
     expect(generated).toBe(1);
     expect(runSpy).not.toHaveBeenCalled();
     expect(getCommitDiffSpy).not.toHaveBeenCalled(); // nessun git show sprecato.
+    const [report] = await testDb.db.select().from(activityReports);
+    expect(report?.summary).toBeNull(); // niente provider → niente riassunto.
     const commits = await testDb.db.select().from(activityCommits);
     expect(commits).toHaveLength(1);
     expect(commits[0]?.aiDescription).toBeNull();
     expect(commits[0]?.subject).toBe("Fix qualcosa");
+  });
+
+  it("best-effort riassunto: se il run del riassunto LANCIA, summary è null ma il report è done", async () => {
+    await createProject(testDb.db, { dailyReportEnabled: true });
+    // Le descrizioni per-commit vanno a buon fine; SOLO il run del riassunto
+    // (prompt "resoconto") lancia: summary null, ma le righe e il report restano.
+    const { deps } = makeDeps({
+      commitsByCall: [[commit({})]],
+      runResult: async (opts) => {
+        if (opts.prompt.includes("resoconto")) throw new Error("riassunto esploso");
+        return { output: "descrizione finta", exitCode: 0 };
+      },
+    });
+
+    const generated = await pollDailyReportsOnce(deps);
+    expect(generated).toBe(1);
+
+    const [report] = await testDb.db.select().from(activityReports);
+    expect(report?.status).toBe("done");
+    expect(report?.summary).toBeNull(); // il run del riassunto ha lanciato.
+    const commits = await testDb.db.select().from(activityCommits);
+    expect(commits).toHaveLength(1);
+    // La descrizione per-commit è comunque stata salvata (non toccata dal fallimento).
+    expect(commits[0]?.aiDescription).toBe("descrizione finta");
+  });
+
+  it("progetto con soli commit di merge (0 non-merge): nessun run e nessun riassunto, report done", async () => {
+    await createProject(testDb.db, { dailyReportEnabled: true });
+    const { deps, runSpy } = makeDeps({
+      commitsByCall: [[commit({ isMerge: true, subject: "Merge branch" })]],
+    });
+
+    const generated = await pollDailyReportsOnce(deps);
+    expect(generated).toBe(1);
+    // Nessun run: niente commit da descrivere né da riassumere.
+    expect(runSpy).not.toHaveBeenCalled();
+    const [report] = await testDb.db.select().from(activityReports);
+    expect(report?.status).toBe("done");
+    expect(report?.summary).toBeNull(); // niente commit → niente riassunto.
+    const commits = await testDb.db.select().from(activityCommits);
+    expect(commits).toHaveLength(0);
   });
 
   it("un repo il cui getCommitsInRange LANCIA è saltato, gli altri producono righe", async () => {
@@ -676,9 +735,12 @@ describe("pollDailyReportsOnce", () => {
 
     const generated = await pollDailyReportsOnce(deps);
     expect(generated).toBe(1);
-    expect(runSpy).toHaveBeenCalledTimes(1); // il run è stato tentato.
+    // Il run è stato tentato per il commit (1) e per il riassunto (1); entrambi
+    // con exit ≠ 0 → nessun testo salvato.
+    expect(runSpy).toHaveBeenCalledTimes(2);
     const [report] = await testDb.db.select().from(activityReports);
     expect(report?.status).toBe("done");
+    expect(report?.summary).toBeNull(); // exit ≠ 0 → nessun riassunto.
     const commits = await testDb.db.select().from(activityCommits);
     expect(commits).toHaveLength(1);
     expect(commits[0]?.aiDescription).toBeNull(); // nessuna descrizione da un exit non-zero.

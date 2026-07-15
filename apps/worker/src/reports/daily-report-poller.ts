@@ -57,6 +57,9 @@ import {
 /** Turni massimi del run di descrizione: bastano pochi (nessun tool, solo testo). */
 const COMMIT_DESC_MAX_TURNS = 3;
 
+/** Turni massimi del run del riassunto di progetto: solo testo, nessun tool. */
+const PROJECT_SUMMARY_MAX_TURNS = 3;
+
 /** Forma attesa delle credenziali git decifrate (mirror di run-review.ts). */
 const credentialsSchema = z.object({
   username: z.string().min(1).optional(),
@@ -165,6 +168,35 @@ function buildCommitDescriptionPrompt(commit: RangeCommit, diff: string): string
   ].join("\n");
 }
 
+/** Prompt per il riassunto narrativo di un PROGETTO in un giorno, aggregando le
+ * descrizioni GIÀ generate dei suoi commit (niente run per-commit qui). Narrativo
+ * esteso, markdown, italiano, tecnico (per i dev).
+ * PROMPT INJECTION: subject/descrizioni sono input NON FIDATO; contenuto per
+ * costruzione (permissionMode "plan", cwd = mirror bare, nessun working tree). */
+function buildProjectSummaryPrompt(
+  projectName: string | undefined,
+  commits: { subject: string; description: string | null }[],
+): string {
+  const items = commits
+    .map(
+      (c, i) =>
+        `${i + 1}. ${c.subject}${c.description ? `\n   ${c.description.replace(/\n/g, "\n   ")}` : ""}`,
+    )
+    .join("\n");
+  return [
+    `Sei un assistente tecnico che redige il resoconto giornaliero di un progetto software.`,
+    projectName ? `Progetto: ${projectName}.` : ``,
+    `Di seguito i commit della giornata con la relativa descrizione tecnica:`,
+    items,
+    ``,
+    `Scrivi in ITALIANO un resoconto NARRATIVO ESTESO di cosa è stato fatto sul progetto`,
+    `nella giornata: ripercorri il lavoro raggruppando per temi/aree dove sensato, con`,
+    `dettaglio tecnico (è per sviluppatori). Usa markdown. Rispondi SOLO col resoconto.`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 /**
  * Genera UN report per un progetto (dentro il serializer). Ritorna true se ha
  * prodotto un report `done`, false se ha saltato (report del giorno già presente)
@@ -172,7 +204,7 @@ function buildCommitDescriptionPrompt(commit: RangeCommit, diff: string): string
  */
 async function generateForProject(
   deps: PollDailyReportsDeps,
-  projectRow: { id: string; aiProviderId: string | null },
+  projectRow: { id: string; name?: string; aiProviderId: string | null },
   since: Date,
   until: Date,
   date: string,
@@ -416,10 +448,43 @@ async function generateForProject(
       }
     }
 
+    // (e-bis) RIASSUNTO NARRATIVO DEL PROGETTO: un run agente che aggrega le
+    // descrizioni GIÀ generate (in `rows`) in un resoconto della giornata. Non
+    // rifà i run per-commit: passa solo subject + aiDescription al prompt.
+    // Best-effort come tutto il resto: no provider/cwd, 0 commit o run che
+    // lancia/exit≠0 → summary null, il report resta comunque `done`.
+    let summary: string | null = null;
+    if (provider && cwd && rows.length > 0) {
+      try {
+        const result = await deps.runner.run({
+          cwd,
+          prompt: buildProjectSummaryPrompt(
+            projectRow.name,
+            rows.map((r) => ({ subject: r.subject, description: r.aiDescription ?? null })),
+          ),
+          ...(deps.model !== undefined ? { model: deps.model } : {}),
+          permissionMode: "plan",
+          maxTurns: PROJECT_SUMMARY_MAX_TURNS,
+          timeoutMs: deps.agentTimeoutMs,
+          provider,
+        });
+        // Run crashato (exit ≠ 0): nessun riassunto da un output parziale.
+        if (result.exitCode === 0) {
+          const out = result.output.trim();
+          summary = out.length > 0 ? out : null;
+        }
+      } catch (err) {
+        // Best-effort: un run fallito (timeout, limite, spawn) → summary null.
+        console.error(
+          `[stubwise-worker] daily-report: riassunto del progetto ${projectRow.id} (${date}) fallito (${errText(err)})`,
+        );
+      }
+    }
+
     // (f+g) Persisti le righe (una per commit) e chiudi il report → done in UNA
-    // transazione: o si vede il report done con TUTTE le sue righe, o si resta nel
-    // tentativo precedente (nessuno stato intermedio "done senza righe" o "righe
-    // senza done").
+    // transazione: o si vede il report done con TUTTE le sue righe (e il summary),
+    // o si resta nel tentativo precedente (nessuno stato intermedio "done senza
+    // righe" o "righe senza done").
     await db.transaction(async (tx) => {
       if (rows.length > 0) {
         // Insert singolo: activityCommits ha ~10 colonne, quindi il tetto dei
@@ -430,7 +495,7 @@ async function generateForProject(
       }
       await tx
         .update(activityReports)
-        .set({ status: "done", finishedAt: now })
+        .set({ status: "done", finishedAt: now, summary })
         .where(eq(activityReports.id, reportId));
     });
     return true;
@@ -517,6 +582,7 @@ export async function pollDailyReportsOnce(deps: PollDailyReportsDeps): Promise<
       .select({
         projectId: activityReports.projectId,
         date: activityReports.date,
+        name: projects.name,
         aiProviderId: projects.aiProviderId,
       })
       .from(activityReports)
@@ -529,7 +595,7 @@ export async function pollDailyReportsOnce(deps: PollDailyReportsDeps): Promise<
         const ok = await deps.serializer.run(q.projectId, () =>
           generateForProject(
             deps,
-            { id: q.projectId, aiProviderId: q.aiProviderId },
+            { id: q.projectId, name: q.name, aiProviderId: q.aiProviderId },
             win.since,
             win.until,
             win.date,
@@ -552,7 +618,7 @@ export async function pollDailyReportsOnce(deps: PollDailyReportsDeps): Promise<
 
   try {
     const enabledProjects = await deps.db
-      .select({ id: projects.id, aiProviderId: projects.aiProviderId })
+      .select({ id: projects.id, name: projects.name, aiProviderId: projects.aiProviderId })
       .from(projects)
       .where(eq(projects.dailyReportEnabled, true));
 
