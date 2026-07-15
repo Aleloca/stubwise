@@ -1,7 +1,15 @@
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { activityCommits, activityReports, gitIdentities, projects, users } from "@stubwise/db";
+import {
+  activityCommits,
+  activityDayRollups,
+  activityDevSummaries,
+  activityReports,
+  gitIdentities,
+  projects,
+  users,
+} from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
@@ -48,6 +56,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await testDb.db.delete(activityReports);
+  await testDb.db.delete(activityDevSummaries);
+  await testDb.db.delete(activityDayRollups);
   await testDb.db.delete(gitIdentities);
   await testDb.db.delete(projects);
 });
@@ -507,6 +517,141 @@ describe("GET /api/activity", () => {
     expect(view.header.commitCount).toBe(0);
     expect(view.commits).toEqual([]);
     expect(body.developers).toEqual([]);
+  });
+
+  it("projects[].summary popolato dal report.summary (null se assente)", async () => {
+    await seedReport();
+    await testDb.db
+      .update(activityReports)
+      .set({ summary: "Riassunto del progetto per la giornata." })
+      .where(eq(activityReports.projectId, projectId));
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/activity?date=${DATE}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { projects: { summary: string | null }[] };
+    expect(body.projects).toHaveLength(1);
+    expect(body.projects[0]!.summary).toBe("Riassunto del progetto per la giornata.");
+  });
+
+  it("projects[].summary null quando il report non ha summary", async () => {
+    await seedReport();
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/activity?date=${DATE}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { projects: { summary: string | null }[] };
+    expect(body.projects[0]!.summary).toBeNull();
+  });
+
+  it("developers[].summary: risolto per userId, non risolto per gitEmail, null se assente", async () => {
+    await seedReport();
+    // Riassunto per il membro risolto (per userId) e per lo sconosciuto (per email).
+    await testDb.db.insert(activityDevSummaries).values([
+      { date: DATE, userId: memberId, summary: "Sintesi del membro." },
+      { date: DATE, gitEmail: "stranger@x.it", summary: "Sintesi dello sconosciuto." },
+    ]);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/activity?date=${DATE}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      developers: {
+        resolvedUser: { id: string } | null;
+        gitEmail: string | null;
+        summary: string | null;
+      }[];
+    };
+    const member = body.developers.find((d) => d.resolvedUser?.id === memberId)!;
+    expect(member.summary).toBe("Sintesi del membro.");
+    const stranger = body.developers.find((d) => d.resolvedUser === null)!;
+    expect(stranger.summary).toBe("Sintesi dello sconosciuto.");
+  });
+
+  it("developers[].summary null quando manca la riga per il gruppo", async () => {
+    await seedReport();
+    // Solo il membro ha una riga: lo sconosciuto resta senza summary.
+    await testDb.db
+      .insert(activityDevSummaries)
+      .values({ date: DATE, userId: memberId, summary: "Solo il membro." });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/activity?date=${DATE}`,
+      headers: { cookie: memberCookie },
+    });
+    const body = res.json() as {
+      developers: { resolvedUser: { id: string } | null; summary: string | null }[];
+    };
+    const stranger = body.developers.find((d) => d.resolvedUser === null)!;
+    expect(stranger.summary).toBeNull();
+  });
+
+  it("developersSummaryPending true: report done + commit + nessun rollup", async () => {
+    await seedReport();
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/activity?date=${DATE}`,
+      headers: { cookie: memberCookie },
+    });
+    const body = res.json() as { developersSummaryPending: boolean };
+    expect(body.developersSummaryPending).toBe(true);
+  });
+
+  it("developersSummaryPending false: rollup del giorno già presente", async () => {
+    await seedReport();
+    await testDb.db.insert(activityDayRollups).values({ date: DATE });
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/activity?date=${DATE}`,
+      headers: { cookie: memberCookie },
+    });
+    const body = res.json() as { developersSummaryPending: boolean };
+    expect(body.developersSummaryPending).toBe(false);
+  });
+
+  it("developersSummaryPending false: un report non è done (running)", async () => {
+    await seedReport();
+    // Aggiungo un secondo progetto con report ancora running: non tutti done.
+    const { projectId: p2 } = await seedRepository(testDb.db);
+    await testDb.db.insert(activityReports).values({ projectId: p2, date: DATE, status: "running" });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/activity?date=${DATE}`,
+      headers: { cookie: memberCookie },
+    });
+    const body = res.json() as { developersSummaryPending: boolean };
+    expect(body.developersSummaryPending).toBe(false);
+  });
+
+  it("developersSummaryPending false: report done ma nessun commit", async () => {
+    await testDb.db.insert(activityReports).values({ projectId, date: DATE, status: "done" });
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/activity?date=${DATE}`,
+      headers: { cookie: memberCookie },
+    });
+    const body = res.json() as { developersSummaryPending: boolean };
+    expect(body.developersSummaryPending).toBe(false);
+  });
+
+  it("developersSummaryPending false: giorno senza report", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/activity?date=${DATE}`,
+      headers: { cookie: memberCookie },
+    });
+    const body = res.json() as { developersSummaryPending: boolean };
+    expect(body.developersSummaryPending).toBe(false);
   });
 });
 

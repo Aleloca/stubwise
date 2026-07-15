@@ -2,7 +2,15 @@ import { asc, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { activityCommits, activityReports, gitIdentities, projects, users } from "@stubwise/db";
+import {
+  activityCommits,
+  activityDayRollups,
+  activityDevSummaries,
+  activityReports,
+  gitIdentities,
+  projects,
+  users,
+} from "@stubwise/db";
 import { requireAdmin, requireAuth } from "../auth/session.js";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
@@ -69,6 +77,9 @@ const projectViewSchema = z.object({
     deletions: z.number(),
     authorCount: z.number(),
   }),
+  // Riassunto narrativo del progetto per la giornata (markdown). Null se non
+  // ancora generato o se il run di sintesi è fallito.
+  summary: z.string().nullable(),
   commits: z.array(projectCommitSchema),
 });
 
@@ -82,6 +93,9 @@ const developerViewSchema = z.object({
     deletions: z.number(),
     projectCount: z.number(),
   }),
+  // Riassunto narrativo per-sviluppatore della giornata (markdown). Null se il
+  // rollup non è ancora avvenuto o non c'è una riga per questo gruppo.
+  summary: z.string().nullable(),
   byProject: z.array(
     z.object({
       project: projectSchema,
@@ -94,6 +108,10 @@ const responseSchema = z.object({
   date: z.string(),
   projects: z.array(projectViewSchema),
   developers: z.array(developerViewSchema),
+  // True quando i riassunti-per-sviluppatore del giorno sono attesi ma non
+  // ancora generati (tutti i report done, ci sono commit, ma manca il rollup):
+  // la UI mostra "in generazione". False altrimenti.
+  developersSummaryPending: z.boolean(),
 });
 
 /** Membro Stubwise nella forma esposta come `resolvedUser`. */
@@ -139,6 +157,7 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
         .select({
           reportId: activityReports.id,
           status: activityReports.status,
+          summary: activityReports.summary,
           projectId: projects.id,
           projectName: projects.name,
           projectSlug: projects.slug,
@@ -149,7 +168,9 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
         .orderBy(asc(projects.name));
 
       if (reportRows.length === 0) {
-        return reply.code(200).send({ date, projects: [], developers: [] });
+        return reply
+          .code(200)
+          .send({ date, projects: [], developers: [], developersSummaryPending: false });
       }
 
       const reportIds = reportRows.map((r) => r.reportId);
@@ -199,6 +220,39 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
       const resolve = (gitEmail: string): ResolvedUser | null =>
         userByEmail.get(gitEmail.toLowerCase()) ?? null;
 
+      // 4) Riassunti-per-sviluppatore del giorno (una query). Due mappe di lookup
+      // per il gruppo dev: per membro risolto (userId) o per email git non
+      // risolta (lowercase). Esattamente una delle due colonne è valorizzata.
+      const summaryByUserId = new Map<string, string>();
+      const summaryByEmail = new Map<string, string>();
+      const devSummaryRows = await app.db
+        .select({
+          userId: activityDevSummaries.userId,
+          gitEmail: activityDevSummaries.gitEmail,
+          summary: activityDevSummaries.summary,
+        })
+        .from(activityDevSummaries)
+        .where(eq(activityDevSummaries.date, date));
+      for (const row of devSummaryRows) {
+        if (row.userId) summaryByUserId.set(row.userId, row.summary);
+        else if (row.gitEmail) summaryByEmail.set(row.gitEmail.toLowerCase(), row.summary);
+      }
+
+      // 5) Il rollup dev-summary del giorno è già avvenuto? (una query, limit 1).
+      const rollupRows = await app.db
+        .select({ date: activityDayRollups.date })
+        .from(activityDayRollups)
+        .where(eq(activityDayRollups.date, date))
+        .limit(1);
+      const hasRollup = rollupRows.length > 0;
+
+      // I riassunti-per-dev sono ATTESI ma non ancora generati quando: tutti i
+      // report del giorno sono `done`, c'è almeno un commit da riassumere, e il
+      // rollup non è ancora stato registrato. (Senza commit non ci sono dev da
+      // riassumere → non pending.)
+      const allReportsDone = reportRows.every((r) => r.status === "done");
+      const developersSummaryPending = allReportsDone && commitRows.length > 0 && !hasRollup;
+
       // Il progetto di un commit viene dal SUO report (non dal repoId): un report
       // è per (progetto, giorno). Mappe reportId → progetto per l'aggregazione.
       const projectByReport = new Map<string, ProjectRef>(
@@ -230,6 +284,7 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
             deletions: commits.reduce((sum, c) => sum + c.deletions, 0),
             authorCount: authors.size,
           },
+          summary: report.summary ?? null,
           commits: commits.map((c) => ({
             sha: c.sha,
             authorEmail: c.authorEmail,
@@ -319,6 +374,11 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
           resolvedUser: dev.resolvedUser,
           gitEmail: dev.gitEmail,
           authorName: dev.authorName,
+          // Riassunto del gruppo: per membro risolto lookup per userId, per
+          // autore non risolto per email git (lowercase). Null se manca la riga.
+          summary: dev.resolvedUser
+            ? (summaryByUserId.get(dev.resolvedUser.id) ?? null)
+            : (dev.gitEmail ? (summaryByEmail.get(dev.gitEmail.toLowerCase()) ?? null) : null),
           header: {
             commitCount: dev.commitCount,
             additions: dev.additions,
@@ -340,7 +400,9 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
           return emailA.localeCompare(emailB);
         });
 
-      return reply.code(200).send({ date, projects: projectViews, developers: developerViews });
+      return reply
+        .code(200)
+        .send({ date, projects: projectViews, developers: developerViews, developersSummaryPending });
     },
   );
 
