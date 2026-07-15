@@ -8,7 +8,7 @@ import {
   repositories,
   type Db,
 } from "@stubwise/db";
-import { eq, lt } from "drizzle-orm";
+import { and, eq, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AgentRunner } from "../agent/runner.js";
 import type { MirrorManager, MirrorProject, RangeCommit } from "../git/mirrors.js";
@@ -30,12 +30,17 @@ import {
  * autori osservati (git_authors_seen), genera un riassunto AI per autore e
  * persiste tutto in activity_reports + activity_report_entries.
  *
- * IDEMPOTENZA: la creazione della riga activity_reports usa
- * `.onConflictDoNothing()` sull'unique (project_id, date): il primo tick del
- * giorno la crea, i successivi vedono il conflitto e SALTANO (non ci sono
- * doppioni né un secondo giro di run dell'agente). Il gate "un giorno per volta"
- * emerge da qui, non da un timer preciso a mezzanotte: il poller può girare
- * ogni N minuti e resta corretto.
+ * IDEMPOTENZA + RECOVERY: la creazione della riga activity_reports usa
+ * `.onConflictDoNothing()` sull'unique (project_id, date). Il primo tick del
+ * giorno la crea; sul conflitto si guarda lo stato della riga esistente: se
+ * `done` si SALTA (nessun doppione né un secondo giro di run), altrimenti la
+ * riga è un ORFANO (worker killato tra l'insert 'running' e il 'done', o un
+ * tentativo 'failed'): la si RECLAIMA in-place (entries parziali cancellate,
+ * status→'running') e si rigenera. Il serializer per-progetto garantisce che
+ * non esistano DUE generazioni concorrenti dello stesso progetto, quindi una
+ * riga ≠ 'done' vista all'inizio del turno è sempre orfana, mai una viva. Il
+ * gate "un giorno per volta" emerge da qui, non da un timer preciso a
+ * mezzanotte: il poller può girare ogni N minuti e resta corretto.
  *
  * BEST-EFFORT (come gli altri poller): NON fa MAI crashare il worker — ogni
  * progetto è in try/catch isolato, l'intero tick a sua volta. Un run dell'agente
@@ -129,7 +134,15 @@ async function resolveProvider(
 }
 
 /** Prompt del riassunto: elenca i commit del giorno (subject + numstat) e chiede
- * 2-4 righe in italiano su cosa ha fatto l'autore. Read-only, nessun codice. */
+ * 2-4 righe in italiano su cosa ha fatto l'autore. Read-only, nessun codice.
+ *
+ * PROMPT INJECTION: i subject dei commit sono input NON FIDATO (chiunque possa
+ * pushare può scrivere "ignora le istruzioni…" nel messaggio). Il rischio è
+ * contenuto per costruzione: il run gira con `permissionMode: "plan"`
+ * (read-only, nessuna azione/edit possibile) e con cwd = mirror BARE del primo
+ * repo (nessun working tree da cui leggere/scrivere file). Il caso peggiore
+ * realistico è un riassunto fuorviante salvato in aiSummary — testo, non
+ * un'azione — non un'esfiltrazione o una modifica. */
 function buildSummaryPrompt(agg: AuthorAgg, date: string): string {
   const lines = agg.commits
     .map((c) => `- ${c.subject}`)
@@ -162,8 +175,15 @@ async function generateForProject(
 ): Promise<boolean> {
   const { db } = deps;
 
-  // (a) Idempotenza: crea la riga running SOLO se non esiste già per (progetto,
-  // giorno). Conflitto → report già in corso/fatto oggi: SKIP silenzioso.
+  // (a) Claim idempotente con recovery degli orfani. Prova a creare la riga
+  // running per (progetto, giorno). Se il conflitto scatta la riga esiste già:
+  //  - status 'done' → report del giorno già completato: SKIP silenzioso;
+  //  - status 'running'/'failed' → ORFANO (worker killato prima del 'done', o
+  //    tentativo fallito): il serializer per-progetto esclude una generazione
+  //    viva concorrente, quindi si RECLAIMA in-place — entries parziali del
+  //    tentativo precedente cancellate, status→'running', error/finishedAt
+  //    azzerati — e si rigenera. Senza questo, una riga 'running' orfana
+  //    verrebbe saltata per sempre (giorno perso, spinner UI bloccato).
   let reportId: string;
   try {
     const inserted = await db
@@ -173,8 +193,29 @@ async function generateForProject(
         target: [activityReports.projectId, activityReports.date],
       })
       .returning({ id: activityReports.id });
-    if (inserted.length === 0) return false; // già presente per questo giorno.
-    reportId = inserted[0]!.id;
+    if (inserted.length > 0) {
+      reportId = inserted[0]!.id;
+    } else {
+      const [existing] = await db
+        .select({ id: activityReports.id, status: activityReports.status })
+        .from(activityReports)
+        .where(
+          and(
+            eq(activityReports.projectId, projectRow.id),
+            eq(activityReports.date, date),
+          ),
+        );
+      if (!existing || existing.status === "done") return false; // già completato.
+      // Orfano/fallito: reclaim inline e rigenera.
+      await db
+        .delete(activityReportEntries)
+        .where(eq(activityReportEntries.reportId, existing.id));
+      await db
+        .update(activityReports)
+        .set({ status: "running", error: null, finishedAt: null })
+        .where(eq(activityReports.id, existing.id));
+      reportId = existing.id;
+    }
   } catch (err) {
     console.error(
       `[stubwise-worker] daily-report: creazione della riga per il progetto ${projectRow.id} (${date}) fallita: ${errText(err)}`,
@@ -255,7 +296,12 @@ async function generateForProject(
           .values({ email, authorName: agg.authorName || null, firstSeenAt: now, lastSeenAt: now })
           .onConflictDoUpdate({
             target: gitAuthorsSeen.email,
-            set: { lastSeenAt: now, authorName: agg.authorName || null },
+            // Non regredire il nome a null: se questo giro non ha un nome per
+            // l'autore, tieni quello già registrato.
+            set: {
+              lastSeenAt: now,
+              authorName: sql`coalesce(${agg.authorName || null}, ${gitAuthorsSeen.authorName})`,
+            },
           });
       } catch (err) {
         console.error(
@@ -277,6 +323,11 @@ async function generateForProject(
     let cwd: string | undefined;
     if (provider && ordered.length > 0 && mirrorProjects.length > 0) {
       try {
+        // TODO: evitare il secondo fetch riusando il mirror dir già montato da
+        // getCommitsInRange (es. mirrorDirFor). Non è banale: mirrorProjects[0]
+        // può essere un repo il cui getCommitsInRange è FALLITO (push avviene
+        // prima della chiamata), quindi il suo mirror potrebbe non essere
+        // montato; ensureMirror qui garantisce comunque un cwd valido.
         cwd = await deps.mirrors.ensureMirror(mirrorProjects[0]!);
       } catch (err) {
         console.error(
@@ -285,6 +336,13 @@ async function generateForProject(
       }
     }
 
+    // NOTA sul serializer: l'intera generazione — inclusa questa fase AI, la più
+    // lenta (un run dell'agente per autore, potenzialmente minuti) — gira DENTRO
+    // il serializer per-progetto e blocca gli altri job dello STESSO progetto per
+    // tutta la durata. È un solo report al giorno e gli altri progetti procedono
+    // in parallelo (serializer per-progetto, non globale): trade-off accettato
+    // per non dover ragionare sulla concorrenza col `fetch --prune` del mirror
+    // dello stesso progetto (stessa invariante di fix/doc-generation/review).
     let skippedByCap = 0;
     const entries: (typeof activityReportEntries.$inferInsert)[] = [];
     for (let i = 0; i < ordered.length; i++) {
@@ -334,16 +392,19 @@ async function generateForProject(
       );
     }
 
-    // (f) Persisti le entry (una per autore).
-    if (entries.length > 0) {
-      await db.insert(activityReportEntries).values(entries);
-    }
-
-    // (g) Report → done.
-    await db
-      .update(activityReports)
-      .set({ status: "done", finishedAt: now })
-      .where(eq(activityReports.id, reportId));
+    // (f+g) Persisti le entry (una per autore) e chiudi il report → done in
+    // UNA transazione: o si vede il report done con TUTTE le sue entries, o si
+    // resta nel tentativo precedente (nessuno stato intermedio "done senza
+    // entries" o "entries senza done").
+    await db.transaction(async (tx) => {
+      if (entries.length > 0) {
+        await tx.insert(activityReportEntries).values(entries);
+      }
+      await tx
+        .update(activityReports)
+        .set({ status: "done", finishedAt: now })
+        .where(eq(activityReports.id, reportId));
+    });
     return true;
   } catch (err) {
     // (h) Errore non recuperabile: chiudi il report failed, MAI propagare.

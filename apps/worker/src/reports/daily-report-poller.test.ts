@@ -13,7 +13,7 @@ import { eq } from "drizzle-orm";
 import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentRunner, AgentRunResult } from "../agent/runner.js";
-import type { MirrorManager, RangeCommit } from "../git/mirrors.js";
+import type { MirrorManager, MirrorProject, RangeCommit } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import {
@@ -80,6 +80,31 @@ async function createProject(
   return { projectId: project!.id, repositoryId: repository!.id };
 }
 
+/** Aggiunge un secondo repository (con proprio account cifrato) a un progetto. */
+async function addRepository(db: Db, projectId: string): Promise<string> {
+  const [account] = await db
+    .insert(gitAccounts)
+    .values({
+      name: `Account daily ${randomUUID()}`,
+      provider: "github",
+      encryptedCredentials: encrypt(JSON.stringify({ token: "tok" }), ENCRYPTION_KEY),
+    })
+    .returning();
+  const [repository] = await db
+    .insert(repositories)
+    .values({
+      projectId,
+      name: "Repo daily 2",
+      slug: `repo-${randomUUID()}`,
+      provider: "github",
+      gitAccountId: account!.id,
+      repoUrl: `https://example.com/owner/repo-${randomUUID()}`,
+      defaultBranch: "main",
+    })
+    .returning();
+  return repository!.id;
+}
+
 /** Serializer fake: registra i projectId ed esegue subito il task. */
 function makeSerializer(): { serializer: ProjectSerializer; calls: string[] } {
   const calls: string[] = [];
@@ -115,10 +140,14 @@ const NOW = new Date("2026-07-15T12:00:00Z");
 
 interface MakeDepsOverrides {
   commitsByCall?: RangeCommit[][];
+  /** Impl custom di getCommitsInRange (per testare i lanci per-repo). Vince su commitsByCall. */
+  getCommitsImpl?: (project: MirrorProject, since: Date, until: Date) => Promise<RangeCommit[]>;
   runResult?: () => Promise<AgentRunResult>;
   maxAuthorsPerProject?: number;
   retentionDays?: number;
   provider?: ResolvedProvider | null;
+  /** Override della risoluzione della catena provider (per forzare un errore interno). */
+  loadProviderChainFn?: PollDailyReportsDeps["loadProviderChainFn"];
   now?: () => Date;
 }
 
@@ -129,7 +158,10 @@ function makeDeps(o: MakeDepsOverrides = {}): {
 } {
   const commitsByCall = o.commitsByCall ?? [[]];
   let call = 0;
-  const getCommitsSpy = vi.fn(async () => commitsByCall[Math.min(call++, commitsByCall.length - 1)] ?? []);
+  const getCommitsSpy = vi.fn(
+    o.getCommitsImpl ??
+      (async () => commitsByCall[Math.min(call++, commitsByCall.length - 1)] ?? []),
+  );
   const ensureMirror = vi.fn(async () => "/tmp/fake-mirror");
   const runSpy = vi.fn(
     o.runResult ?? (async (): Promise<AgentRunResult> => ({ output: "riassunto finto", exitCode: 0 })),
@@ -152,7 +184,9 @@ function makeDeps(o: MakeDepsOverrides = {}): {
     // Bypassa la risoluzione reale del provider: iniettiamo una catena finta
     // così runner.run viene comunque invocato (testiamo la logica del poller,
     // non l'integrazione col CLI). provider === null → nessun provider.
-    loadProviderChainFn: async () => (o.provider === null ? [] : [o.provider ?? FAKE_PROVIDER]),
+    loadProviderChainFn:
+      o.loadProviderChainFn ??
+      (async () => (o.provider === null ? [] : [o.provider ?? FAKE_PROVIDER])),
     loadProviderByIdFn: async () => o.provider ?? FAKE_PROVIDER,
   };
   return { deps, runSpy, getCommitsSpy };
@@ -233,6 +267,51 @@ describe("pollDailyReportsOnce", () => {
     // Il secondo tick non ha nemmeno letto i commit (skip alla creazione riga).
     expect(second.getCommitsSpy).not.toHaveBeenCalled();
     expect(await testDb.db.select().from(activityReports)).toHaveLength(1);
+  });
+
+  it("rigenera un report ORFANO 'running' del giorno invece di saltarlo", async () => {
+    const { projectId } = await createProject(testDb.db, { dailyReportEnabled: true });
+    // Simula un tentativo precedente killato tra l'insert 'running' e il 'done':
+    // riga 'running' con una entry parziale rimasta appesa.
+    const [orphan] = await testDb.db
+      .insert(activityReports)
+      .values({ projectId, date: "2026-07-14", status: "running" })
+      .returning();
+    await testDb.db.insert(activityReportEntries).values({
+      reportId: orphan!.id,
+      gitEmail: "stale@example.com",
+      authorName: "Stale",
+      commitCount: 99,
+    });
+
+    const { deps, runSpy } = makeDeps({
+      commitsByCall: [
+        [commit({ sha: "1".repeat(40), authorEmail: "alice@example.com", authorName: "Alice" })],
+      ],
+    });
+    const generated = await pollDailyReportsOnce(deps);
+    expect(generated).toBe(1); // rigenerato, non saltato.
+
+    // La riga è la STESSA (reclaim in-place), ora 'done'.
+    const reports = await testDb.db
+      .select()
+      .from(activityReports)
+      .where(eq(activityReports.projectId, projectId));
+    expect(reports).toHaveLength(1);
+    expect(reports[0]?.id).toBe(orphan!.id);
+    expect(reports[0]?.status).toBe("done");
+    expect(reports[0]?.finishedAt).not.toBeNull();
+
+    // Entries FRESCHE: la parziale del tentativo precedente è sparita.
+    const entries = await testDb.db
+      .select()
+      .from(activityReportEntries)
+      .where(eq(activityReportEntries.reportId, orphan!.id));
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.gitEmail).toBe("alice@example.com");
+    expect(entries.find((e) => e.gitEmail === "stale@example.com")).toBeUndefined();
+    // Il run dell'agente è stato eseguito (rigenerazione vera, non skip).
+    expect(runSpy).toHaveBeenCalledTimes(1);
   });
 
   it("esclude i commit di merge dal conteggio", async () => {
@@ -332,5 +411,94 @@ describe("pollDailyReportsOnce", () => {
     expect(entries).toHaveLength(1);
     expect(entries[0]?.aiSummary).toBeNull();
     expect(entries[0]?.commitCount).toBe(1);
+  });
+
+  it("un repo il cui getCommitsInRange LANCIA è saltato, gli altri aggregano", async () => {
+    const { projectId } = await createProject(testDb.db, { dailyReportEnabled: true });
+    await addRepository(testDb.db, projectId);
+    // Primo repo (prima chiamata) esplode, il secondo restituisce un commit.
+    let n = 0;
+    const { deps } = makeDeps({
+      getCommitsImpl: async () => {
+        if (n++ === 0) throw new Error("git log fallito");
+        return [commit({ authorEmail: "alice@example.com", authorName: "Alice" })];
+      },
+    });
+
+    const generated = await pollDailyReportsOnce(deps);
+    expect(generated).toBe(1); // il report NON è azzerato dal repo rotto.
+
+    const [report] = await testDb.db.select().from(activityReports);
+    expect(report?.status).toBe("done");
+    const entries = await testDb.db.select().from(activityReportEntries);
+    expect(entries).toHaveLength(1); // aggregato solo il repo sopravvissuto.
+    expect(entries[0]?.gitEmail).toBe("alice@example.com");
+    expect(entries[0]?.commitCount).toBe(1);
+  });
+
+  it("stesso autore su DUE repo: repoIds ha entrambi e i conteggi si sommano", async () => {
+    const { projectId, repositoryId } = await createProject(testDb.db, {
+      dailyReportEnabled: true,
+    });
+    const repositoryId2 = await addRepository(testDb.db, projectId);
+    const { deps } = makeDeps({
+      commitsByCall: [
+        [commit({ sha: "1".repeat(40), authorEmail: "alice@example.com", authorName: "Alice", additions: 10, deletions: 2 })],
+        [commit({ sha: "2".repeat(40), authorEmail: "alice@example.com", authorName: "Alice", additions: 5, deletions: 3 })],
+      ],
+    });
+
+    await pollDailyReportsOnce(deps);
+    const entries = await testDb.db.select().from(activityReportEntries);
+    expect(entries).toHaveLength(1); // un solo autore.
+    const alice = entries[0]!;
+    expect(alice.commitCount).toBe(2); // 1 + 1.
+    expect(alice.additions).toBe(15); // 10 + 5.
+    expect(alice.deletions).toBe(5); // 2 + 3.
+    expect(new Set(alice.repoIds)).toEqual(new Set([repositoryId, repositoryId2]));
+    expect(alice.commits).toHaveLength(2);
+  });
+
+  it("run con exitCode != 0 (senza lanciare): aiSummary null, report done", async () => {
+    await createProject(testDb.db, { dailyReportEnabled: true });
+    const { deps, runSpy } = makeDeps({
+      commitsByCall: [[commit({})]],
+      runResult: async () => ({ output: "output parziale", exitCode: 1 }),
+    });
+
+    const generated = await pollDailyReportsOnce(deps);
+    expect(generated).toBe(1);
+    expect(runSpy).toHaveBeenCalledTimes(1); // il run è stato tentato.
+    const [report] = await testDb.db.select().from(activityReports);
+    expect(report?.status).toBe("done");
+    const entries = await testDb.db.select().from(activityReportEntries);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.aiSummary).toBeNull(); // nessun riassunto da un exit non-zero.
+    expect(entries[0]?.commitCount).toBe(1);
+  });
+
+  it("un errore interno porta il report a 'failed' senza far crashare il tick", async () => {
+    const { projectId } = await createProject(testDb.db, { dailyReportEnabled: true });
+    // La risoluzione del provider esplode DOPO il claim → cade nel catch (h).
+    const { deps } = makeDeps({
+      commitsByCall: [[commit({})]],
+      loadProviderChainFn: async () => {
+        throw new Error("provider chain esplosa");
+      },
+    });
+
+    const generated = await pollDailyReportsOnce(deps);
+    expect(generated).toBe(0); // fallito, non contato come done.
+
+    const [report] = await testDb.db
+      .select()
+      .from(activityReports)
+      .where(eq(activityReports.projectId, projectId));
+    expect(report?.status).toBe("failed");
+    expect(report?.error).toContain("provider chain esplosa");
+    expect(report?.finishedAt).not.toBeNull();
+    // Nessuna entry persistita (l'errore precede la transazione entries+done).
+    const entries = await testDb.db.select().from(activityReportEntries);
+    expect(entries).toHaveLength(0);
   });
 });
