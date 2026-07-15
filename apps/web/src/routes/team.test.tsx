@@ -58,6 +58,8 @@ const ADMIN = {
   role: "admin" as const,
   avatarUrl: null,
   slackUserId: null,
+  bitbucketUsername: null,
+  gitIdentities: [],
 };
 const MEMBER = {
   id: "u2",
@@ -65,6 +67,8 @@ const MEMBER = {
   role: "member" as const,
   avatarUrl: null,
   slackUserId: null,
+  bitbucketUsername: null,
+  gitIdentities: [],
 };
 
 const USERS = [

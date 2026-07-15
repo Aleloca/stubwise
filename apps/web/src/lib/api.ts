@@ -788,6 +788,10 @@ export function deleteTicketLink(id: string, linkId: string): Promise<void> {
  */
 export interface TeamUser extends PublicUser {
   createdAt: string;
+  /** Username Bitbucket linkato, o null se non linkato. */
+  bitbucketUsername: string | null;
+  /** Email git aliasate a questo membro (per il picker di link in /team). */
+  gitIdentities: { id: string; email: string; authorName: string | null }[];
 }
 
 export function getUsers(): Promise<TeamUser[]> {
@@ -823,6 +827,58 @@ export function linkUserSlack(userId: string, slackUserId: string): Promise<Team
 /** Scollega l'identità Slack di un utente (solo admin). */
 export function unlinkUserSlack(userId: string): Promise<void> {
   return request("DELETE", `/api/users/${encodeURIComponent(userId)}/slack`);
+}
+
+/**
+ * Autore git realmente osservato dai repo (auto-raccolto dal poller), per il
+ * picker di link in /team. `linkedUserId` è l'utente Stubwise già collegato a
+ * questa email git (via git_identities), o null.
+ */
+export interface ObservedAuthor {
+  email: string;
+  authorName: string | null;
+  lastSeenAt: string;
+  linkedUserId: string | null;
+}
+
+/** Autori git osservati col link Stubwise (solo admin). */
+export function getObservedAuthors(): Promise<ObservedAuthor[]> {
+  return api.get("/api/git/observed-authors");
+}
+
+/**
+ * Alia un'email git a un membro (solo admin). Ritorna l'elenco aggiornato
+ * delle git identities del membro.
+ */
+export function linkGitIdentity(
+  userId: string,
+  email: string,
+): Promise<{ id: string; email: string; authorName: string | null }[]> {
+  return api.post(`/api/users/${encodeURIComponent(userId)}/git-identities`, { email });
+}
+
+/** Rimuove l'alias di un'email git da un membro (solo admin). */
+export function unlinkGitIdentity(userId: string, email: string): Promise<void> {
+  return request(
+    "DELETE",
+    `/api/users/${encodeURIComponent(userId)}/git-identities/${encodeURIComponent(email)}`,
+  );
+}
+
+/**
+ * Collega lo username Bitbucket di un utente (solo admin). Ritorna l'utente
+ * aggiornato (id + username). 409 `bitbucket_identity_taken` se già di un altro.
+ */
+export function linkUserBitbucket(
+  userId: string,
+  username: string,
+): Promise<{ id: string; bitbucketUsername: string | null }> {
+  return api.put(`/api/users/${encodeURIComponent(userId)}/bitbucket`, { username });
+}
+
+/** Scollega lo username Bitbucket di un utente (solo admin). */
+export function unlinkUserBitbucket(userId: string): Promise<void> {
+  return request("DELETE", `/api/users/${encodeURIComponent(userId)}/bitbucket`);
 }
 
 /**

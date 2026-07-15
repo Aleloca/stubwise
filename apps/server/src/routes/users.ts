@@ -1,9 +1,9 @@
-import { asc, count, eq } from "drizzle-orm";
+import { asc, count, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { requireAdmin, requireAuth } from "../auth/session.js";
-import { users } from "@stubwise/db";
+import { gitIdentities, users } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -22,6 +22,21 @@ export const publicUserSchema = z.object({
 });
 
 /**
+ * Utente nella prospettiva della pagina Team: l'identità pubblica più i campi
+ * di linking git/bitbucket. Schema esteso DEDICATO a `GET /api/users`, così le
+ * altre route che ritornano un singolo utente (`publicUserSchema`: PATCH role,
+ * PUT/DELETE slack) restano invariate e non devono popolare questi campi.
+ */
+export const teamUserSchema = publicUserSchema.extend({
+  // Username Bitbucket linkato (users.bitbucketUsername); null se non linkato.
+  bitbucketUsername: z.string().nullable(),
+  // Email git aliasate a questo membro (tabella git_identities).
+  gitIdentities: z.array(
+    z.object({ id: z.uuid(), email: z.string(), authorName: z.string().nullable() }),
+  ),
+});
+
+/**
  * Route degli utenti, registrate sotto /api/users. La lista è visibile a
  * qualunque utente autenticato: serve alla UI per il selettore degli
  * assegnatari, non espone nulla oltre a email e ruolo.
@@ -33,7 +48,7 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
     "/",
     {
       preHandler: requireAuth,
-      schema: { response: { 200: z.array(publicUserSchema), ...authErrorResponses } },
+      schema: { response: { 200: z.array(teamUserSchema), ...authErrorResponses } },
     },
     async () => {
       const rows = await app.db
@@ -44,10 +59,37 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
           createdAt: users.createdAt,
           avatarUrl: users.slackAvatarUrl,
           slackUserId: users.slackUserId,
+          bitbucketUsername: users.bitbucketUsername,
         })
         .from(users)
         .orderBy(asc(users.createdAt));
-      return rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() }));
+
+      // Git identities di TUTTI gli utenti in UNA query (no N+1), poi
+      // raggruppate per userId in memoria.
+      const userIds = rows.map((row) => row.id);
+      const identityRows = userIds.length
+        ? await app.db
+            .select({
+              id: gitIdentities.id,
+              userId: gitIdentities.userId,
+              email: gitIdentities.email,
+              authorName: gitIdentities.authorName,
+            })
+            .from(gitIdentities)
+            .where(inArray(gitIdentities.userId, userIds))
+        : [];
+      const identitiesByUser = new Map<string, { id: string; email: string; authorName: string | null }[]>();
+      for (const row of identityRows) {
+        const list = identitiesByUser.get(row.userId) ?? [];
+        list.push({ id: row.id, email: row.email, authorName: row.authorName });
+        identitiesByUser.set(row.userId, list);
+      }
+
+      return rows.map((row) => ({
+        ...row,
+        createdAt: row.createdAt.toISOString(),
+        gitIdentities: identitiesByUser.get(row.id) ?? [],
+      }));
     },
   );
 

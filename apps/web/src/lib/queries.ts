@@ -9,6 +9,7 @@ import {
   getInstanceSettings,
   getInvites,
   getNotificationSettings,
+  getObservedAuthors,
   getProject,
   getProjects,
   getRepositories,
@@ -203,6 +204,18 @@ export const invitesQueryOptions = queryOptions({
 export const slackWorkspaceUsersQueryOptions = queryOptions({
   queryKey: ["slack", "workspace-users"],
   queryFn: getSlackWorkspaceUsers,
+  retry: false,
+  staleTime: 60_000,
+});
+
+/**
+ * Autori git osservati dal poller per il picker di link in /team (solo admin).
+ * `retry: false`: l'endpoint richiede il ruolo admin e non ha senso riprovare
+ * un 403 deterministico.
+ */
+export const observedAuthorsQueryOptions = queryOptions({
+  queryKey: ["git", "observed-authors"],
+  queryFn: getObservedAuthors,
   retry: false,
   staleTime: 60_000,
 });
