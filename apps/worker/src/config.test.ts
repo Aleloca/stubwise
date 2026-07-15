@@ -57,6 +57,57 @@ describe("loadWorkerConfig", () => {
     // Poller monitor: rollup ogni 5', valutazione alert ogni 1'.
     expect(config.monitorRollupIntervalMinutes).toBe(5);
     expect(config.monitorAlertIntervalMinutes).toBe(1);
+    // Daily activity report: poller ogni 15', max 25 autori/progetto, retention 90 giorni.
+    expect(config.dailyReportPollMinutes).toBe(15);
+    expect(config.dailyReportMaxAuthorsPerProject).toBe(25);
+    expect(config.dailyReportRetentionDays).toBe(90);
+  });
+
+  it("rispetta DAILY_REPORT_POLL_MINUTES esplicito, 0 = disabilitato e rifiuta i non validi", () => {
+    expect(
+      loadWorkerConfig({ ...VALID, DAILY_REPORT_POLL_MINUTES: "30" }).dailyReportPollMinutes,
+    ).toBe(30);
+    expect(
+      loadWorkerConfig({ ...VALID, DAILY_REPORT_POLL_MINUTES: "0" }).dailyReportPollMinutes,
+    ).toBe(0);
+    // Vuoto (es. da .env.example) usa il default 15.
+    expect(loadWorkerConfig({ ...VALID, DAILY_REPORT_POLL_MINUTES: "" }).dailyReportPollMinutes).toBe(
+      15,
+    );
+    expect(() => loadWorkerConfig({ ...VALID, DAILY_REPORT_POLL_MINUTES: "-1" })).toThrow(
+      /DAILY_REPORT_POLL_MINUTES/,
+    );
+    expect(() => loadWorkerConfig({ ...VALID, DAILY_REPORT_POLL_MINUTES: "abc" })).toThrow(
+      /DAILY_REPORT_POLL_MINUTES/,
+    );
+  });
+
+  it("rispetta DAILY_REPORT_MAX_AUTHORS_PER_PROJECT esplicito e rifiuta < 1", () => {
+    expect(
+      loadWorkerConfig({ ...VALID, DAILY_REPORT_MAX_AUTHORS_PER_PROJECT: "10" })
+        .dailyReportMaxAuthorsPerProject,
+    ).toBe(10);
+    // Vuoto (es. da .env.example) usa il default 25.
+    expect(
+      loadWorkerConfig({ ...VALID, DAILY_REPORT_MAX_AUTHORS_PER_PROJECT: "" })
+        .dailyReportMaxAuthorsPerProject,
+    ).toBe(25);
+    expect(() =>
+      loadWorkerConfig({ ...VALID, DAILY_REPORT_MAX_AUTHORS_PER_PROJECT: "0" }),
+    ).toThrow(/DAILY_REPORT_MAX_AUTHORS_PER_PROJECT/);
+  });
+
+  it("rispetta DAILY_REPORT_RETENTION_DAYS esplicito e rifiuta < 1", () => {
+    expect(
+      loadWorkerConfig({ ...VALID, DAILY_REPORT_RETENTION_DAYS: "30" }).dailyReportRetentionDays,
+    ).toBe(30);
+    // Vuoto (es. da .env.example) usa il default 90.
+    expect(
+      loadWorkerConfig({ ...VALID, DAILY_REPORT_RETENTION_DAYS: "" }).dailyReportRetentionDays,
+    ).toBe(90);
+    expect(() => loadWorkerConfig({ ...VALID, DAILY_REPORT_RETENTION_DAYS: "0" })).toThrow(
+      /DAILY_REPORT_RETENTION_DAYS/,
+    );
   });
 
   it("rispetta MONITOR_ROLLUP_INTERVAL_MINUTES esplicito, 0 = disabilitato e rifiuta i fuori range", () => {
