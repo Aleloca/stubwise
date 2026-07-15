@@ -3,6 +3,7 @@ import {
   activityDayRollups,
   activityDevSummaries,
   activityReports,
+  aiProviders,
   encrypt,
   gitAccounts,
   gitAuthorsSeen,
@@ -47,6 +48,7 @@ afterEach(async () => {
   await testDb.db.delete(activityDayRollups);
   await testDb.db.delete(gitIdentities);
   await testDb.db.delete(projects);
+  await testDb.db.delete(aiProviders);
   await testDb.db.delete(gitAccounts);
   await testDb.db.delete(gitAuthorsSeen);
   await testDb.db.delete(users);
@@ -182,6 +184,8 @@ interface MakeDepsOverrides {
   provider?: ResolvedProvider | null;
   /** Override della risoluzione della catena provider (per forzare un errore interno). */
   loadProviderChainFn?: PollDailyReportsDeps["loadProviderChainFn"];
+  /** Override della risoluzione per-id (per simulare un pin rotto → undefined). */
+  loadProviderByIdFn?: PollDailyReportsDeps["loadProviderByIdFn"];
   now?: () => Date;
 }
 
@@ -234,7 +238,7 @@ function makeDeps(o: MakeDepsOverrides = {}): {
     loadProviderChainFn:
       o.loadProviderChainFn ??
       (async () => (o.provider === null ? [] : [o.provider ?? FAKE_PROVIDER])),
-    loadProviderByIdFn: async () => o.provider ?? FAKE_PROVIDER,
+    loadProviderByIdFn: o.loadProviderByIdFn ?? (async () => o.provider ?? FAKE_PROVIDER),
   };
   return { deps, runSpy, getCommitsSpy, getCommitDiffSpy };
 }
@@ -1214,5 +1218,102 @@ describe("pollDailyReportsOnce", () => {
     const rollups = await testDb.db.select().from(activityDayRollups);
     expect(rollups).toHaveLength(1);
     expect(rollups[0]?.date).toBe("2026-07-14");
+  });
+
+  it("rollup: un pin di progetto NON risolvibile non blocca il rollup — usa la chain globale", async () => {
+    const { projectId } = await createProject(testDb.db, { dailyReportEnabled: true });
+    // Il progetto ha un provider PINNED (FK reale) che però NON è risolvibile
+    // (loadProviderByIdFn → undefined, es. credenziale illeggibile).
+    const [pinned] = await testDb.db
+      .insert(aiProviders)
+      .values({ position: 0, kind: "api_key", label: "pin rotto", secretEncrypted: "x" })
+      .returning();
+    await testDb.db
+      .update(projects)
+      .set({ aiProviderId: pinned!.id })
+      .where(eq(projects.id, projectId));
+
+    const { deps } = makeDeps({
+      commitsByCall: [[commit({ authorEmail: "alice@example.com", authorName: "Alice" })]],
+      // Pin rotto: la risoluzione per-id fallisce sempre (null)...
+      loadProviderByIdFn: async () => null,
+      // ...ma la chain globale è valida.
+      loadProviderChainFn: async () => [FAKE_PROVIDER],
+    });
+
+    await pollDailyReportsOnce(deps);
+
+    // Il rollup, cross-progetto, ha risolto il provider dalla CHAIN (non dal pin
+    // rotto del progetto): ha generato il dev-summary e marcato il giorno. Con la
+    // vecchia logica (pin del progetto) il giorno sarebbe restato pending per sempre.
+    const devSummaries = await testDb.db.select().from(activityDevSummaries);
+    expect(devSummaries).toHaveLength(1);
+    expect(devSummaries[0]?.summary).toBe("riassunto finto");
+    expect(await testDb.db.select().from(activityDayRollups)).toHaveLength(1);
+  });
+
+  it("rollup: un dev-summary già presente (crash parziale) NON viene rigenerato, gli altri sì", async () => {
+    // Progetto DISABILITATO col report del giorno GIÀ `done`: così questo tick NON
+    // lo rigenera (nessuna invalidazione dei dev-summary del giorno) e la fase di
+    // rollup lo vede tra i candidati con la riga di alice pre-esistente.
+    const { projectId, repositoryId } = await createProject(testDb.db, {
+      dailyReportEnabled: false,
+    });
+    // alice è un membro risolto; bob resta email non risolta.
+    const userId = await createMember(testDb.db, ["alice@example.com"]);
+    const [done] = await testDb.db
+      .insert(activityReports)
+      .values({ projectId, date: "2026-07-14", status: "done" })
+      .returning();
+    await testDb.db.insert(activityCommits).values([
+      {
+        reportId: done!.id,
+        repoId: repositoryId,
+        sha: "1".repeat(40),
+        authorEmail: "alice@example.com",
+        committedAt: new Date("2026-07-14T10:00:00Z"),
+        subject: "Lavoro di alice",
+      },
+      {
+        reportId: done!.id,
+        repoId: repositoryId,
+        sha: "2".repeat(40),
+        authorEmail: "bob@example.com",
+        committedAt: new Date("2026-07-14T11:00:00Z"),
+        subject: "Lavoro di bob",
+      },
+    ]);
+    // Simula un tick precedente crashato DOPO l'insert del dev-summary di alice ma
+    // PRIMA di marcare il rollup: la riga di alice esiste già per il giorno.
+    await testDb.db.insert(activityDevSummaries).values({
+      date: "2026-07-14",
+      userId,
+      gitEmail: null,
+      summary: "PRE-ESISTENTE",
+    });
+
+    const { deps, runSpy } = makeDeps();
+    await pollDailyReportsOnce(deps);
+
+    // Il gruppo di alice è saltato (già presente): nessun run del suo dev-summary.
+    // Solo bob genera un run "SVILUPPATORE".
+    const devRuns = runSpy.mock.calls.filter((c) => c[0]?.prompt?.includes("SVILUPPATORE"));
+    expect(devRuns).toHaveLength(1);
+    expect(devRuns[0]![0].prompt).toContain("Lavoro di bob");
+    expect(devRuns[0]![0].prompt).not.toContain("Lavoro di alice");
+
+    const summaries = await testDb.db
+      .select()
+      .from(activityDevSummaries)
+      .where(eq(activityDevSummaries.date, "2026-07-14"));
+    expect(summaries).toHaveLength(2);
+    // La riga di alice resta quella pre-esistente (non riscritta).
+    const aliceRow = summaries.find((s) => s.userId === userId);
+    expect(aliceRow?.summary).toBe("PRE-ESISTENTE");
+    // bob è stato generato normalmente.
+    const bobRow = summaries.find((s) => s.gitEmail === "bob@example.com");
+    expect(bobRow?.summary).toBe("riassunto finto");
+    // Il giorno è marcato come rollupato.
+    expect(await testDb.db.select().from(activityDayRollups)).toHaveLength(1);
   });
 });

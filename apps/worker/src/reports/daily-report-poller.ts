@@ -629,6 +629,10 @@ async function rollupDevSummaries(deps: PollDailyReportsDeps): Promise<void> {
   try {
     // Giorni con TUTTI i report `done` (group-by + having bool_and) MENO quelli già
     // rollupati. Due query semplici invece di un NOT EXISTS annidato.
+    // LIMITAZIONE NOTA: un giorno con anche UN SOLO report non `done` (incluso un
+    // `failed` non recuperabile) non entra tra i candidati → non viene mai
+    // rollupato e resta `developersSummaryPending`. Recovery: rigenerare/risolvere
+    // quel report (portarlo a `done` o rimuoverlo) sblocca il giorno.
     const allDone = await db
       .select({ date: activityReports.date })
       .from(activityReports)
@@ -640,18 +644,17 @@ async function rollupDevSummaries(deps: PollDailyReportsDeps): Promise<void> {
 
     for (const date of candidates) {
       try {
-        // (a) Tutti i commit del giorno (cross-progetto), con l'aiProviderId del
-        // loro progetto (per risolvere un provider utilizzabile del giorno).
+        // (a) Tutti i commit del giorno (cross-progetto). Il provider NON dipende dal
+        // progetto (il rollup è cross-progetto): si risolve dalla chain globale più
+        // sotto, quindi qui non serve l'aiProviderId dei progetti.
         const dayCommits = await db
           .select({
             authorEmail: activityCommits.authorEmail,
             subject: activityCommits.subject,
             aiDescription: activityCommits.aiDescription,
-            aiProviderId: projects.aiProviderId,
           })
           .from(activityCommits)
           .innerJoin(activityReports, eq(activityCommits.reportId, activityReports.id))
-          .innerJoin(projects, eq(activityReports.projectId, projects.id))
           .where(eq(activityReports.date, date));
 
         // (b) Mappa email git (lowercase) → membro, per risolvere gli autori.
@@ -682,19 +685,53 @@ async function rollupDevSummaries(deps: PollDailyReportsDeps): Promise<void> {
         }
         const groupList = [...groups.values()];
 
-        // (d) Provider: risolto dall'aiProviderId di un progetto del giorno (o la
-        // catena). Se ci sono gruppi da riassumere ma nessun provider utilizzabile,
-        // NON marcare il rollup: si ritenta al tick successivo. Un giorno senza
-        // gruppi (0 commit) prosegue e viene marcato senza generare nulla.
-        const provider = await resolveProvider(deps, dayCommits[0]?.aiProviderId ?? null);
+        // (d) Provider: risolto dalla CHAIN GLOBALE (default), NON dal pin di un
+        // progetto arbitrario del giorno. Il dev-summary è cross-progetto: un pin
+        // rotto (non risolvibile) di un progetto non deve bloccare il rollup finché
+        // la chain offre un provider valido. Se ci sono gruppi da riassumere ma la
+        // chain è vuota (nessun provider), NON marcare il rollup: si ritenta al tick
+        // successivo, quando il provider torna. Un giorno senza gruppi (0 commit)
+        // prosegue e viene marcato senza generare nulla.
+        const provider = await resolveProvider(deps, null);
         if (!provider && groupList.length > 0) continue;
 
-        // (e) Un run per gruppo; cwd = tmp dir (il rollup non tocca git). Best-effort:
+        // (e) Crash-consistency: se un tick precedente è crashato DOPO alcuni insert
+        // in activity_dev_summaries ma PRIMA di marcare activity_day_rollups, il
+        // giorno è di nuovo candidato. Carica le chiavi già presenti e salta i
+        // gruppi già fatti, così un retry non rilancia i run AI sui dev completati
+        // (l'onConflictDoNothing resta come rete di sicurezza a valle).
+        const existingSummaries = await db
+          .select({
+            userId: activityDevSummaries.userId,
+            gitEmail: activityDevSummaries.gitEmail,
+          })
+          .from(activityDevSummaries)
+          .where(eq(activityDevSummaries.date, date));
+        const doneUserIds = new Set(
+          existingSummaries.map((s) => s.userId).filter((v): v is string => v !== null),
+        );
+        const doneEmails = new Set(
+          existingSummaries.map((s) => s.gitEmail).filter((v): v is string => v !== null),
+        );
+
+        if (groupList.length > 0) {
+          console.error(
+            `[stubwise-worker] daily-report: rollup di ${groupList.length} sviluppatori per il giorno ${date}`,
+          );
+        }
+
+        // (f) Un run per gruppo; cwd = tmp dir (il rollup non tocca git). Best-effort:
         // un run fallito o con exit ≠ 0 → quel dev senza summary (la UI mostrerà un
         // placeholder), gli altri procedono.
         const cwd = tmpdir();
         for (const group of groupList) {
           if (!provider) break; // difensivo: groupList>0 senza provider è già uscito.
+          // Salta i gruppi già presenti in DB (retry dopo crash parziale): il loro
+          // summary resta quello pre-esistente, niente nuovo run.
+          const alreadyDone = group.userId
+            ? doneUserIds.has(group.userId)
+            : group.gitEmail !== null && doneEmails.has(group.gitEmail);
+          if (alreadyDone) continue;
           let summary: string | null = null;
           try {
             const result = await deps.runner.run({
@@ -732,7 +769,7 @@ async function rollupDevSummaries(deps: PollDailyReportsDeps): Promise<void> {
           }
         }
 
-        // (f) Marca il giorno come rollupato (anche con 0 gruppi) così non resta
+        // (g) Marca il giorno come rollupato (anche con 0 gruppi) così non resta
         // pending all'infinito. onConflictDoNothing: idempotente sul date PK.
         await db.insert(activityDayRollups).values({ date }).onConflictDoNothing();
       } catch (err) {
