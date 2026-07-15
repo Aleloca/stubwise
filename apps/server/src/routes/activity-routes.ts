@@ -40,6 +40,7 @@ const projectSchema = z.object({ id: z.uuid(), name: z.string(), slug: z.string(
 /** Commit nella vista per-progetto: include l'autore (nome + membro risolto). */
 const projectCommitSchema = z.object({
   sha: z.string(),
+  authorEmail: z.string(),
   authorName: z.string().nullable(),
   resolvedUser: resolvedUserSchema,
   committedAt: z.string(),
@@ -231,6 +232,7 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
           },
           commits: commits.map((c) => ({
             sha: c.sha,
+            authorEmail: c.authorEmail,
             authorName: c.authorName,
             resolvedUser: resolve(c.authorEmail),
             committedAt: c.committedAt.toISOString(),

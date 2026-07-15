@@ -2256,6 +2256,12 @@ export interface ActivityProjectRef {
  */
 export interface ActivityCommit {
   sha: string;
+  /**
+   * Email git dell'autore. Presente solo nella vista per-progetto (serve
+   * all'admin per associare l'email a un membro del team); nella vista per-dev
+   * l'autore è già raggruppato e il campo è assente.
+   */
+  authorEmail?: string;
   authorName?: string | null;
   resolvedUser?: ActivityResolvedUser | null;
   committedAt: string;
