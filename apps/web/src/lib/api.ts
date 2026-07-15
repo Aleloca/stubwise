@@ -1016,6 +1016,11 @@ export interface Project {
   /** Se true, ogni push sul branch di default di un repo rigenera i suoi Docs. */
   docAutoUpdate: boolean;
   /**
+   * Se true, il worker genera ogni notte uno standup dai commit del giorno di
+   * tutti i repository del progetto (report attività). Default false.
+   */
+  dailyReportEnabled: boolean;
+  /**
    * Chiave di ingestion del progetto (Fase 3): gli SDK e i webhook inbound la
    * usano per autenticare l'invio di errori/ticket. Salita dal repository al
    * progetto; tutti i repo del gruppo condividono questa chiave.
@@ -1050,6 +1055,7 @@ export interface ProjectDraft {
   description?: string | null;
   aiProviderId?: string | null;
   docAutoUpdate?: boolean;
+  dailyReportEnabled?: boolean;
 }
 
 /** Campi modificabili di un progetto (gruppo). Patch parziale. */
@@ -1060,6 +1066,8 @@ export interface ProjectPatch {
   aiProviderId?: string | null;
   /** Toggle auto-aggiornamento Docs ai push; assente = invariato. */
   docAutoUpdate?: boolean;
+  /** Toggle standup giornaliero (report attività); assente = invariato. */
+  dailyReportEnabled?: boolean;
 }
 
 export function getProjects(): Promise<ProjectListItem[]> {

@@ -66,6 +66,7 @@ function detail(overrides: Partial<ProjectDetail> = {}): ProjectDetail {
     description: null,
     aiProviderId: null,
     docAutoUpdate: false,
+    dailyReportEnabled: false,
     ingestionKey: "0123456789abcdef0123456789abcdef",
     nextTicketNumber: 1,
     repositories: [],

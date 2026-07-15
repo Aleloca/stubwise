@@ -924,6 +924,8 @@
       "descriptionPlaceholder": "What this project is for…",
       "docAutoUpdate": "Auto-update documentation on every push",
       "docAutoUpdateHint": "// regenerates a repo's Docs when a push lands on its default branch.",
+      "dailyReport": "Daily activity report",
+      "dailyReportHint": "// generates a nightly standup from the day's commits across the project's repositories.",
       "aiProvider": "Project AI provider",
       "aiProviderAuto": "Automatic (failover chain)",
       "aiProviderHint": "// applies to Docs and fixes of all repositories; empty = chain of enabled providers.",
