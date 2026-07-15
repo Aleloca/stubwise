@@ -734,14 +734,25 @@ export class MirrorManager {
   }
 
   /**
-   * Diff di un singolo commit (`git show <sha>`), dal mirror aggiornato, troncato
-   * allo stesso tetto di getPrDiff (MAX_DIFF_CHARS, via truncateDiff) per non
+   * Diff di un singolo commit (`git show <sha>`), dal mirror, troncato allo
+   * stesso tetto di getPrDiff (MAX_DIFF_CHARS, via truncateDiff) per non
    * esplodere su commit enormi. Ritorna il testo del diff e se è stato troncato.
    * Read-only. Lo sha è validato da SHA_RE (mai reinterpretabile come opzione).
+   *
+   * `skipFetch`: quando true NON chiama ensureMirror (che farebbe un
+   * `git fetch --prune`) e legge direttamente dal mirror GIÀ montato via
+   * mirrorDirFor. Gli sha sono immutabili: se un chiamante ha appena fatto
+   * girare getCommitsInRange/ensureMirror per lo stesso repo, il commit è già
+   * presente e ogni fetch aggiuntivo per-commit è sprecato (N+1 fetch). Con
+   * skipFetch assente/false il comportamento resta quello storico (fetch).
    */
-  async getCommitDiff(project: MirrorProject, sha: string): Promise<{ diff: string; truncated: boolean }> {
+  async getCommitDiff(
+    project: MirrorProject,
+    sha: string,
+    opts?: { skipFetch?: boolean }
+  ): Promise<{ diff: string; truncated: boolean }> {
     if (!SHA_RE.test(sha)) throw new InvalidShaError(sha);
-    const mirrorDir = await this.ensureMirror(project);
+    const mirrorDir = opts?.skipFetch ? this.mirrorDirFor(project) : await this.ensureMirror(project);
     // `git show`: header del commit (--format=medium) + diff. -M rileva i rename
     // (come un diff leggibile), --no-color per un testo pulito nel prompt.
     // `--` separa la revisione da eventuali pathspec: lo sha non è ambiguo.

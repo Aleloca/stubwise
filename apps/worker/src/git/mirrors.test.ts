@@ -512,6 +512,34 @@ describe("MirrorManager.getCommitDiff", () => {
     // Nessun ensureMirror (quindi nessun comando git): la mirrorsDir non esiste.
     expect(existsSync(mirrorsDir)).toBe(false);
   });
+
+  it("con skipFetch legge dal mirror GIÀ montato senza rifare il fetch", async () => {
+    const { manager, upstream } = await makeFixture();
+    const project = projectFor(upstream);
+    const sha = await upstream.addCommit("greeting.txt", "ciao mondo\n");
+    // Monta+fetcha il mirror una volta: lo sha è ora presente nell'object store.
+    await manager.ensureMirror(project);
+
+    // Commit pushato DOPO il montaggio: NON è nel mirror finché non si rifetcha.
+    const laterSha = await upstream.addCommit("later.txt", "dopo\n");
+
+    // skipFetch: ritorna il diff del commit già presente, senza toccare la rete.
+    const { diff, truncated } = await manager.getCommitDiff(project, sha, { skipFetch: true });
+    expect(diff).toContain("greeting.txt");
+    expect(diff).toContain(sha);
+    expect(truncated).toBe(false);
+
+    // Prova che NON è stato fatto fetch: il commit nuovo è irraggiungibile con
+    // skipFetch (git show fallisce), mentre col default (fetch) diventa visibile.
+    const err = await manager.getCommitDiff(project, laterSha, { skipFetch: true }).then(
+      () => null,
+      (e: unknown) => e
+    );
+    expect(err).toBeInstanceOf(GitCommandError);
+
+    const { diff: laterDiff } = await manager.getCommitDiff(project, laterSha);
+    expect(laterDiff).toContain("later.txt");
+  });
 });
 
 describe("MirrorManager.getChangedFiles", () => {

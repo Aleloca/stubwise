@@ -239,11 +239,13 @@ async function generateForProject(
 
     // (c) Commit NON-MERGE del giorno di OGNI repo, raccolti con il loro repo (per
     // poterne recuperare il diff dal mirror corretto). NESSUN cap sul numero.
+    // Ogni commit porta l'email dell'autore già in lowercase, calcolata UNA volta
+    // (serve sia a git_authors_seen sia alla riga persistita).
     const mirrorProjects: MirrorProject[] = [];
     const repoCommits: {
       mirrorProject: MirrorProject;
       repositoryId: string;
-      commits: RangeCommit[];
+      commits: { commit: RangeCommit; emailLower: string }[];
     }[] = [];
     // Autori osservati (email lowercase → ultimo nome non vuoto, o null): serve a
     // git_authors_seen. Un commit basta a "vedere" un autore.
@@ -279,13 +281,16 @@ async function generateForProject(
         continue;
       }
       const nonMerge = commits.filter((c) => !c.isMerge); // i merge non sono lavoro.
-      for (const c of nonMerge) {
-        const email = c.authorEmail.toLowerCase();
+      const prepared = nonMerge.map((commit) => ({
+        commit,
+        emailLower: commit.authorEmail.toLowerCase(),
+      }));
+      for (const { commit, emailLower } of prepared) {
         // Ultimo nome non vuoto visto per l'email; non regredire a null.
-        if (c.authorName) authorsSeen.set(email, c.authorName);
-        else if (!authorsSeen.has(email)) authorsSeen.set(email, null);
+        if (commit.authorName) authorsSeen.set(emailLower, commit.authorName);
+        else if (!authorsSeen.has(emailLower)) authorsSeen.set(emailLower, null);
       }
-      repoCommits.push({ mirrorProject, repositoryId: repository.id, commits: nonMerge });
+      repoCommits.push({ mirrorProject, repositoryId: repository.id, commits: prepared });
     }
 
     // (d) git_authors_seen: registra/aggiorna ogni autore osservato oggi.
@@ -316,6 +321,15 @@ async function generateForProject(
     // c'è provider o il mirror non è montabile, le descrizioni si saltano e
     // restano i dati grezzi (aiDescription null per tutti i commit).
     const totalCommits = repoCommits.reduce((n, r) => n + r.commits.length, 0);
+    // Osservabilità: senza cap una giornata intensa (o un backfill manuale) può
+    // far girare molti run e tenere il serializer del progetto occupato a lungo.
+    // Loggare il volume rende visibile una generazione corposa (vs. fix affamati
+    // in silenzio). Solo log, nessun limite.
+    if (totalCommits > 0) {
+      console.error(
+        `[stubwise-worker] daily-report: descrizione di ${totalCommits} commit per il progetto ${projectRow.id} (${date})`,
+      );
+    }
     const provider = await resolveProvider(deps, projectRow.aiProviderId);
     let cwd: string | undefined;
     if (provider && totalCommits > 0 && mirrorProjects.length > 0) {
@@ -340,16 +354,22 @@ async function generateForProject(
     // best-effort (diff non recuperabile o run fallito → null).
     const rows: (typeof activityCommits.$inferInsert)[] = [];
     for (const { mirrorProject, repositoryId, commits } of repoCommits) {
-      for (const c of commits) {
+      for (const { commit: c, emailLower } of commits) {
         let aiDescription: string | null = null;
         // Descrizione solo se c'è un provider e un cwd valido: altrimenti nemmeno
         // si recupera il diff (git show sprecato) e restano i dati grezzi.
         if (provider && cwd) {
           // Diff best-effort: un getCommitDiff fallito → diff vuoto, si procede
-          // (la descrizione verrà saltata, i dati grezzi restano).
+          // (la descrizione verrà saltata, i dati grezzi restano). skipFetch: il
+          // mirror è GIÀ montato+fetchato da getCommitsInRange (fase c) e/o
+          // ensureMirror per il cwd; gli sha sono immutabili, quindi si legge dal
+          // mirror senza rifare un fetch per commit (evita N+1 fetch sul serializer).
           let diff = "";
           try {
-            ({ diff } = await deps.mirrors.getCommitDiff(mirrorProject, c.sha));
+            const res = await deps.mirrors.getCommitDiff(mirrorProject, c.sha, { skipFetch: true });
+            // Diff troncato (commit enorme oltre MAX_DIFF_CHARS): segnalalo così
+            // l'agente sa che il contenuto è parziale e non lo descrive come completo.
+            diff = res.truncated ? `${res.diff}\n\n[diff troncato per lunghezza]` : res.diff;
           } catch (err) {
             console.error(
               `[stubwise-worker] daily-report: diff del commit ${c.sha} (repo ${repositoryId}) non recuperabile (${errText(err)}), descrizione saltata`,
@@ -385,7 +405,7 @@ async function generateForProject(
           reportId,
           repoId: repositoryId,
           sha: c.sha,
-          authorEmail: c.authorEmail.toLowerCase(),
+          authorEmail: emailLower,
           authorName: c.authorName || null,
           committedAt: new Date(c.date),
           subject: c.subject,
@@ -402,6 +422,10 @@ async function generateForProject(
     // senza done").
     await db.transaction(async (tx) => {
       if (rows.length > 0) {
+        // Insert singolo: activityCommits ha ~10 colonne, quindi il tetto dei
+        // 65_535 parametri per statement di Postgres si tocca solo oltre ~6.5k
+        // righe (commit in un giorno). Nessun chunk necessario per un singolo
+        // giorno; se un domani i backfill superassero quel volume, spezzare qui.
         await tx.insert(activityCommits).values(rows);
       }
       await tx

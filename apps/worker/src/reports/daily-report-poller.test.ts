@@ -270,6 +270,9 @@ describe("pollDailyReportsOnce", () => {
     expect(alice?.deletions).toBe(2);
     expect(alice?.aiDescription).toBe("descrizione finta");
     expect(alice?.committedAt).toBeInstanceOf(Date);
+    // Valore ESATTO: la committer date del commit fixture, non `now` né l'author
+    // date — blocca una regressione sulla sorgente della data persistita.
+    expect(alice?.committedAt).toEqual(new Date("2026-07-14T10:00:00.000Z"));
 
     const bob = commits.find((c) => c.sha === "2".repeat(40));
     expect(bob?.authorEmail).toBe("bob@example.com");
@@ -821,5 +824,40 @@ describe("pollDailyReportsOnce", () => {
     const commits = await testDb.db.select().from(activityCommits);
     expect(commits).toHaveLength(1);
     expect(commits[0]?.authorEmail).toBe("alice@example.com");
+  });
+
+  it("git_authors_seen: il nome NON regredisce a null se un commit successivo ha nome vuoto", async () => {
+    // Progetto disabilitato: isoliamo la sola fase queued (nessun gate notturno).
+    const { projectId } = await createProject(testDb.db, { dailyReportEnabled: false });
+
+    // Tick 1 — 2026-07-12: l'autore compare con un nome.
+    await testDb.db
+      .insert(activityReports)
+      .values({ projectId, date: "2026-07-12", status: "queued" });
+    const first = makeDeps({
+      commitsByCall: [[commit({ authorEmail: "carol@example.com", authorName: "Carol" })]],
+    });
+    expect(await pollDailyReportsOnce(first.deps)).toBe(1);
+    let seen = await testDb.db
+      .select()
+      .from(gitAuthorsSeen)
+      .where(eq(gitAuthorsSeen.email, "carol@example.com"));
+    expect(seen[0]?.authorName).toBe("Carol");
+
+    // Tick 2 — 2026-07-13: STESSO autore (stessa email) ma con nome VUOTO. Il
+    // coalesce dell'upsert deve tenere il nome già registrato, non azzerarlo.
+    await testDb.db
+      .insert(activityReports)
+      .values({ projectId, date: "2026-07-13", status: "queued" });
+    const second = makeDeps({
+      commitsByCall: [[commit({ authorEmail: "carol@example.com", authorName: "" })]],
+    });
+    expect(await pollDailyReportsOnce(second.deps)).toBe(1);
+    seen = await testDb.db
+      .select()
+      .from(gitAuthorsSeen)
+      .where(eq(gitAuthorsSeen.email, "carol@example.com"));
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.authorName).toBe("Carol"); // NON regredito a null.
   });
 });
