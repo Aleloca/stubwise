@@ -2305,8 +2305,12 @@ export function getActivity(date: string): Promise<ActivityReport> {
 
 /**
  * Accoda la generazione manuale dei report attività per una data (solo admin,
- * arbitrato dal server). Ritorna quanti progetti abilitati sono stati accodati:
- * `queued: 0` significa che nessun progetto ha il report attività abilitato.
+ * arbitrato dal server). Ritorna il numero di report NUOVI accodati (`queued`):
+ * `0` può significare "nessun progetto ha il report attività abilitato" OPPURE
+ * "esistono già report per quel giorno" (l'insert è `onConflictDoNothing`, non
+ * riaccoda). La UI mostra il pulsante solo quando non c'è alcun report per il
+ * giorno, quindi lì `queued: 0` implica "nessun progetto abilitato"; ma le due
+ * condizioni NON sono equivalenti in generale.
  */
 export function generateActivity(date: string): Promise<{ queued: number }> {
   return api.post(`/api/activity/generate`, { date });

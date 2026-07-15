@@ -413,6 +413,50 @@ describe("sezione attività", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("report queued + vista per sviluppatore: niente pulsante genera, mostra 'Generating…'", async () => {
+    // Regressione Issue 1: con `developers: []` ma `projects` popolato (report
+    // accodato), la vista-dev NON deve riproporre l'empty state + il pulsante.
+    const user = userEvent.setup();
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, QUEUED_REPORT),
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    await user.click(screen.getByRole("tab", { name: "By developer" }));
+
+    // Il ramo dev mostra il placeholder "in generazione", non l'empty state.
+    expect(await screen.findByText("Generating…")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Generate report for this day" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("No report for this date")).not.toBeInTheDocument();
+  });
+
+  it("giorno vuoto + admin: generate fallisce (500) → errore con role=alert", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, EMPTY_REPORT),
+      "POST /api/activity/generate": () =>
+        jsonResponse(500, { code: "boom", message: "Generation failed" }),
+    });
+
+    renderActivity();
+
+    await user.click(
+      await screen.findByRole("button", { name: "Generate report for this day" }),
+    );
+
+    // translateApiError ripiega sul message del server (nessuna chiave errors:boom).
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Generation failed");
+  });
+
   it("non crasha se la lista repository fallisce (fallback all'id repo)", async () => {
     mockApi({
       "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
