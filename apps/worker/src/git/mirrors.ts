@@ -50,7 +50,7 @@ export interface RangeCommit {
   sha: string;
   authorName: string;
   authorEmail: string;
-  /** ISO 8601 (author date). */
+  /** ISO 8601 (committer date, coerente col filtro della finestra). */
   date: string;
   subject: string;
   isMerge: boolean;
@@ -626,23 +626,30 @@ export class MirrorManager {
   }
 
   /**
-   * Commit su TUTTI i ref con author-date nella finestra [since, until)
-   * (`git log --all --since --until --numstat`), dal mirror aggiornato. `since`
-   * incluso, `until` escluso: passa istanti UTC. Ogni commit riporta autore,
-   * email, data ISO, subject, flag merge e righe aggiunte/rimosse (somma del
-   * numstat; i file binari, marcati "-", contano 0).
+   * Commit su tutti i BRANCH (refs/heads, non su tutti i ref: così restano
+   * fuori le head di PR non mergiate come refs/pull/* di GitHub e simili) con
+   * committer-date nella finestra [since, until) (`git log --branches --since
+   * --until --numstat`), dal mirror aggiornato. `since` incluso, `until` escluso
+   * (implementato come until-1s, granularità git al secondo): passa istanti UTC.
+   * Ogni commit riporta autore, email, data ISO (committer date, coerente col
+   * filtro), subject, flag merge e righe aggiunte/rimosse (somma del numstat; i
+   * file binari, marcati "-", contano 0).
    */
   async getCommitsInRange(project: MirrorProject, since: Date, until: Date): Promise<RangeCommit[]> {
     const mirrorDir = await this.ensureMirror(project);
+    // `git log --until` è INCLUSIVO: per una finestra half-open [since, until)
+    // escludiamo l'istante `until` sottraendo 1s (la granularità di git).
+    const untilExclusive = new Date(until.getTime() - 1000);
     // Record separato da NUL; header dei campi separati da TAB; poi le righe
-    // numstat. %P non vuoto con più di un parent ⇒ merge.
-    const format = "%x00%H%x09%an%x09%ae%x09%aI%x09%P%x09%s";
+    // numstat. %P non vuoto con più di un parent ⇒ merge. %cI = committer date
+    // (coerente col filtro --since/--until, che git applica sulla committer date).
+    const format = "%x00%H%x09%an%x09%ae%x09%cI%x09%P%x09%s";
     const out = await this.git(
       [
         "log",
-        "--all",
+        "--branches",
         `--since=${since.toISOString()}`,
-        `--until=${until.toISOString()}`,
+        `--until=${untilExclusive.toISOString()}`,
         "--numstat",
         `--pretty=format:${format}`,
       ],
@@ -657,7 +664,15 @@ export class MirrorManager {
       const trimmed = record.replace(/^\n+/, "");
       if (trimmed.length === 0) continue;
       const [header, ...statLines] = trimmed.split("\n");
-      const [sha, authorName, authorEmail, dateIso, parents, subject] = (header ?? "").split("\t");
+      // %s è l'ultimo campo del format: teniamo il subject come "resto" (slice+join)
+      // così un eventuale TAB nel subject non lo tronca (come in getCommitMessages).
+      const parts = (header ?? "").split("\t");
+      const sha = parts[0] ?? "";
+      const authorName = parts[1] ?? "";
+      const authorEmail = parts[2] ?? "";
+      const dateIso = parts[3] ?? "";
+      const parents = parts[4] ?? "";
+      const subject = parts.slice(5).join("\t");
       let additions = 0;
       let deletions = 0;
       for (const line of statLines) {
@@ -668,12 +683,12 @@ export class MirrorManager {
         deletions += del === "-" ? 0 : Number(del);
       }
       commits.push({
-        sha: sha ?? "",
-        authorName: authorName ?? "",
-        authorEmail: authorEmail ?? "",
-        date: dateIso ?? "",
-        subject: subject ?? "",
-        isMerge: (parents ?? "").trim().split(/\s+/).filter(Boolean).length > 1,
+        sha,
+        authorName,
+        authorEmail,
+        date: dateIso,
+        subject,
+        isMerge: parents.trim().split(/\s+/).filter(Boolean).length > 1,
         additions,
         deletions,
       });

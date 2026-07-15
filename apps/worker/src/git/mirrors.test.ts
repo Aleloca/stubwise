@@ -683,6 +683,73 @@ describe("MirrorManager.getCommitsInRange", () => {
     expect(commits[0]!.deletions).toBe(0);
   });
 
+  // Commit con author-date e committer-date DISTINTE: fissa la semantica del
+  // filtro (git usa la committer date) e del campo `date` riportato.
+  async function commitWithSplitDate(
+    work: string,
+    opts: {
+      file: string;
+      content: string;
+      name: string;
+      email: string;
+      authorDate: string;
+      committerDate: string;
+      message: string;
+    }
+  ): Promise<string> {
+    await writeFile(join(work, opts.file), opts.content);
+    await git(["add", "."], work);
+    await execa(
+      "git",
+      ["-c", `user.name=${opts.name}`, "-c", `user.email=${opts.email}`, "commit", "-m", opts.message],
+      { cwd: work, env: { GIT_AUTHOR_DATE: opts.authorDate, GIT_COMMITTER_DATE: opts.committerDate } }
+    );
+    const { stdout } = await execa("git", ["rev-parse", "HEAD"], { cwd: work });
+    return stdout;
+  }
+
+  it("filtra e riporta la COMMITTER date: author fuori finestra, committer dentro ⇒ incluso", async () => {
+    const { manager, project, work } = await makeDatedUpstream();
+    // Author date PRIMA della finestra, committer date DENTRO: git filtra sulla
+    // committer date, quindi il commit deve essere incluso.
+    const sha = await commitWithSplitDate(work, {
+      file: "rebased.txt",
+      content: "x\n",
+      name: "Dev X",
+      email: "dev@x.it",
+      authorDate: "2026-07-09T12:00:00Z", // fuori (prima di SINCE)
+      committerDate: "2026-07-10T12:00:00Z", // dentro
+      message: "feat: cherry-picked",
+    });
+    await git(["push", "origin", "main"], work);
+
+    const commits = await manager.getCommitsInRange(project, SINCE, UNTIL);
+
+    expect(commits).toHaveLength(1);
+    expect(commits[0]!.sha).toBe(sha);
+    // Il campo `date` è la COMMITTER date (dentro finestra), non l'author date.
+    expect(commits[0]!.date).toContain("2026-07-10");
+    expect(commits[0]!.date).not.toContain("2026-07-09");
+  });
+
+  it("caso simmetrico: author dentro, committer fuori ⇒ escluso", async () => {
+    const { manager, project, work } = await makeDatedUpstream();
+    // Author date DENTRO la finestra ma committer date PRIMA: il filtro sulla
+    // committer date lo esclude.
+    await commitWithSplitDate(work, {
+      file: "amended.txt",
+      content: "y\n",
+      name: "Dev Y",
+      email: "y@x.it",
+      authorDate: "2026-07-10T12:00:00Z", // dentro
+      committerDate: "2026-07-09T12:00:00Z", // fuori (prima di SINCE)
+      message: "feat: author dentro committer fuori",
+    });
+    await git(["push", "origin", "main"], work);
+
+    expect(await manager.getCommitsInRange(project, SINCE, UNTIL)).toEqual([]);
+  });
+
   it("ritorna lista vuota quando nessun commit cade nella finestra", async () => {
     const { manager, project, work } = await makeDatedUpstream();
     await commitWithDate(work, {
