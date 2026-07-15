@@ -3,7 +3,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "./client.js";
 import {
-  activityReportEntries,
+  activityCommits,
   activityReports,
   aiJobs,
   aiProviders,
@@ -1940,53 +1940,98 @@ describe("schema: daily activity report", () => {
     expect(other?.date).toBe("2026-07-15");
   });
 
-  it("activity_report_entries: default jsonb/interi, round-trip commits e cascade dal report", async () => {
-    const projectId = await seedProject();
+  it("activity_commits: default interi, unique (report,repo,sha) e cascade da report e repository", async () => {
+    const { projectId, repositoryId } = await seedRepository(db);
     const [report] = await db
       .insert(activityReports)
       .values({ projectId, date: "2026-07-14" })
       .returning();
     if (!report) throw new Error("insert del report non ha restituito la riga");
 
-    // Entry minimale: i default (0 e []) devono applicarsi.
+    // Commit-row minimale: i default (0) su additions/deletions si applicano,
+    // aiDescription/authorName sono null.
+    const committedAt = new Date("2026-07-14T09:00:00.000Z");
     const [minimal] = await db
-      .insert(activityReportEntries)
-      .values({ reportId: report.id, gitEmail: "dev@x.it" })
-      .returning();
-    expect(minimal?.commitCount).toBe(0);
-    expect(minimal?.additions).toBe(0);
-    expect(minimal?.deletions).toBe(0);
-    expect(minimal?.repoIds).toEqual([]);
-    expect(minimal?.commits).toEqual([]);
-    expect(minimal?.aiSummary).toBeNull();
-
-    // Entry valorizzata: round-trip dei jsonb tipizzati.
-    const repoId = randomUUID();
-    const commits = [{ sha: "abc123", subject: "fix: bug", repoId }];
-    const [full] = await db
-      .insert(activityReportEntries)
+      .insert(activityCommits)
       .values({
         reportId: report.id,
-        gitEmail: "dev2@x.it",
-        authorName: "Dev Due",
-        commitCount: 3,
-        additions: 42,
-        deletions: 7,
-        repoIds: [repoId],
-        commits,
-        aiSummary: "Ha sistemato un bug",
+        repoId: repositoryId,
+        sha: "abc123",
+        authorEmail: "dev@x.it",
+        committedAt,
+        subject: "fix: bug",
       })
       .returning();
-    expect(full?.repoIds).toEqual([repoId]);
-    expect(full?.commits).toEqual(commits);
-    expect(full?.commitCount).toBe(3);
+    expect(minimal?.additions).toBe(0);
+    expect(minimal?.deletions).toBe(0);
+    expect(minimal?.authorName).toBeNull();
+    expect(minimal?.aiDescription).toBeNull();
+    expect(minimal?.committedAt).toBeInstanceOf(Date);
 
-    // Cascade: eliminando il report spariscono le sue entry.
+    // Commit-row valorizzata: round-trip dei campi.
+    const [full] = await db
+      .insert(activityCommits)
+      .values({
+        reportId: report.id,
+        repoId: repositoryId,
+        sha: "def456",
+        authorEmail: "dev2@x.it",
+        authorName: "Dev Due",
+        committedAt,
+        subject: "feat: cosa nuova",
+        additions: 42,
+        deletions: 7,
+        aiDescription: "## Cosa\nHa aggiunto una feature",
+      })
+      .returning();
+    expect(full?.additions).toBe(42);
+    expect(full?.deletions).toBe(7);
+    expect(full?.aiDescription).toBe("## Cosa\nHa aggiunto una feature");
+
+    // Unique (reportId, repoId, sha): stesso sha nello stesso report/repo → errore.
+    await expect(
+      db.insert(activityCommits).values({
+        reportId: report.id,
+        repoId: repositoryId,
+        sha: "abc123",
+        authorEmail: "dev@x.it",
+        committedAt,
+        subject: "fix: bug (duplicato)",
+      }),
+    ).rejects.toThrow();
+
+    // Cascade: eliminando il report spariscono i suoi activity_commits.
     await db.delete(activityReports).where(eq(activityReports.id, report.id));
+    const afterReportDelete = await db
+      .select()
+      .from(activityCommits)
+      .where(eq(activityCommits.reportId, report.id));
+    expect(afterReportDelete).toHaveLength(0);
+  });
+
+  it("activity_commits: cascade da delete del repository", async () => {
+    const { projectId, repositoryId } = await seedRepository(db);
+    const [report] = await db
+      .insert(activityReports)
+      .values({ projectId, date: "2026-07-14" })
+      .returning();
+    if (!report) throw new Error("insert del report non ha restituito la riga");
+
+    await db.insert(activityCommits).values({
+      reportId: report.id,
+      repoId: repositoryId,
+      sha: "abc123",
+      authorEmail: "dev@x.it",
+      committedAt: new Date("2026-07-14T09:00:00.000Z"),
+      subject: "fix: bug",
+    });
+
+    // Eliminando il repository spariscono i suoi activity_commits.
+    await db.delete(repositories).where(eq(repositories.id, repositoryId));
     const rows = await db
       .select()
-      .from(activityReportEntries)
-      .where(eq(activityReportEntries.reportId, report.id));
+      .from(activityCommits)
+      .where(eq(activityCommits.repoId, repositoryId));
     expect(rows).toHaveLength(0);
   });
 

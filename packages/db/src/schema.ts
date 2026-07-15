@@ -1851,26 +1851,38 @@ export const activityReports = pgTable(
   (table) => [uniqueIndex("activity_reports_project_date_unique").on(table.projectId, table.date)],
 );
 
-/** Una riga per (report, autore git): conteggi, commit e riassunto AI. */
-export const activityReportEntries = pgTable(
-  "activity_report_entries",
+/** Una riga per commit (non-merge) del giorno, con la descrizione AI dal suo
+ * diff. Le viste (per progetto / per persona) sono raggruppamenti di queste
+ * righe: repoId e authorEmail sono campi del commit. */
+export const activityCommits = pgTable(
+  "activity_commits",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     reportId: uuid("report_id")
       .notNull()
       .references(() => activityReports.id, { onDelete: "cascade" }),
-    gitEmail: text("git_email").notNull(),
+    repoId: uuid("repo_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    sha: text("sha").notNull(),
+    authorEmail: text("author_email").notNull(),
     authorName: text("author_name"),
-    commitCount: integer("commit_count").notNull().default(0),
+    committedAt: timestamp("committed_at", { withTimezone: true }).notNull(),
+    subject: text("subject").notNull(),
     additions: integer("additions").notNull().default(0),
     deletions: integer("deletions").notNull().default(0),
-    repoIds: jsonb("repo_ids").$type<string[]>().notNull().default([]),
-    commits: jsonb("commits")
-      .$type<{ sha: string; subject: string; repoId: string }[]>()
-      .notNull()
-      .default([]),
-    aiSummary: text("ai_summary"),
+    // Descrizione tecnica generata dal diff del commit (markdown). Null se il
+    // run dell'agente è fallito: la UI mostra il subject come fallback.
+    aiDescription: text("ai_description"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index("activity_report_entries_report_id_idx").on(table.reportId)],
+  (table) => [
+    uniqueIndex("activity_commits_report_repo_sha_unique").on(
+      table.reportId,
+      table.repoId,
+      table.sha,
+    ),
+    index("activity_commits_report_id_idx").on(table.reportId),
+    index("activity_commits_author_email_idx").on(table.authorEmail),
+  ],
 );
