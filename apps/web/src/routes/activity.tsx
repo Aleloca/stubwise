@@ -1,17 +1,19 @@
-import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Component, type ReactNode, Suspense, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "../components/avatar";
-import type {
-  ActivityCommit,
-  ActivityDeveloperView,
-  ActivityProjectView,
-  ActivityResolvedUser,
+import {
+  generateActivity,
+  type ActivityCommit,
+  type ActivityDeveloperView,
+  type ActivityProjectView,
+  type ActivityResolvedUser,
 } from "../lib/api";
 import { meQueryOptions } from "../lib/auth";
 import { formatDate } from "../lib/format";
 import { activityReportQueryOptions, repositoriesQueryOptions } from "../lib/queries";
+import { translateApiError } from "../lib/translate-api-error";
 
 /**
  * Sezione "Attività": lo standup giornaliero asincrono, visibile a ogni membro.
@@ -291,7 +293,12 @@ function ActivityBody({
     return (repoId: string) => map.get(repoId) ?? repoId;
   }, [reposQuery.data]);
 
-  const isEmpty = view === "project" ? report.projects.length === 0 : report.developers.length === 0;
+  // `isEmpty` è derivato dall'ESISTENZA del report per il giorno, uguale in
+  // entrambe le viste: un report appena accodato ha `projects` popolato (status
+  // queued) ma `developers: []`, quindi legarlo a `developers` in vista-dev
+  // farebbe riapparire l'empty state (+ pulsante "Genera") su un report già in
+  // corso. Il ramo dev gestisce a parte il caso `developers` vuoto (sotto).
+  const isEmpty = report.projects.length === 0;
   if (isEmpty) {
     return (
       <div className="grid place-items-center rounded-sm border border-dashed border-line-strong py-20">
@@ -301,6 +308,7 @@ function ActivityBody({
         <p className="mt-2 max-w-md text-center text-sm text-fg-muted">
           {t("activity:noReportHint")}
         </p>
+        {isAdmin && <GenerateReport key={date} date={date} />}
       </div>
     );
   }
@@ -316,14 +324,92 @@ function ActivityBody({
               repoName={repoName}
             />
           ))
-        : report.developers.map((dev, index) => (
-            <DeveloperBlock
-              key={dev.resolvedUser?.id ?? dev.gitEmail ?? `dev-${index}`}
-              dev={dev}
-              isAdmin={isAdmin}
-              repoName={repoName}
-            />
-          ))}
+        : report.developers.length === 0
+          ? <DeveloperEmpty projects={report.projects} />
+          : report.developers.map((dev, index) => (
+              <DeveloperBlock
+                key={dev.resolvedUser?.id ?? dev.gitEmail ?? `dev-${index}`}
+                dev={dev}
+                isAdmin={isAdmin}
+                repoName={repoName}
+              />
+            ))}
+    </div>
+  );
+}
+
+/**
+ * Placeholder della vista-dev quando `report.developers` è vuoto ma un report
+ * per il giorno esiste (`projects` popolato): report appena accodato/in corso,
+ * oppure un giorno "done" senza alcun commit. Senza questo, il ramo dev
+ * renderebbe un contenitore vuoto (schermata bianca). Il messaggio è coerente
+ * col {@link ProjectBlock}: "Generating…" se almeno un progetto è queued/running,
+ * altrimenti "No activity".
+ */
+function DeveloperEmpty({ projects }: { projects: ActivityProjectView[] }) {
+  const { t } = useTranslation();
+  const generating = projects.some(
+    (p) => p.status === "queued" || p.status === "running",
+  );
+  return (
+    <section className="rounded-sm border border-line bg-ink-900">
+      <p className="px-4 py-4 font-mono text-[12px] text-fg-faint">
+        {generating ? t("activity:inProgress") : t("activity:noActivity")}
+      </p>
+    </section>
+  );
+}
+
+/**
+ * Trigger admin per la generazione manuale dei report attività di un giorno
+ * senza report. Al click accoda i progetti abilitati via
+ * `POST /api/activity/generate`: se qualcuno viene accodato, invalida la query
+ * del giorno (fa ripartire il refetch + il polling adattivo che porta la vista
+ * dallo stato "in generazione" al report vero); se nessun progetto ha il report
+ * abilitato (`queued: 0`) mostra un hint. Gli errori si localizzano inline.
+ */
+function GenerateReport({ date }: { date: string }) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const mutation = useMutation({
+    mutationFn: () => generateActivity(date),
+    onSuccess: (res) => {
+      setError(null);
+      if (res.queued > 0) {
+        setNotice(null);
+        void queryClient.invalidateQueries({ queryKey: ["activity", date] });
+      } else {
+        setNotice(t("activity:noEnabledProjects"));
+      }
+    },
+    onError: (cause) => {
+      setNotice(null);
+      setError(translateApiError(cause, t));
+    },
+  });
+  return (
+    <div className="mt-6 flex flex-col items-center gap-2">
+      <button
+        type="button"
+        onClick={() => mutation.mutate()}
+        disabled={mutation.isPending}
+        aria-busy={mutation.isPending}
+        className="rounded-sm border border-line-strong px-3 py-1.5 font-mono text-[11px] tracking-[0.12em] text-fg-muted uppercase transition-colors hover:border-signal-dim hover:text-fg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-line-strong disabled:hover:text-fg-muted"
+      >
+        {mutation.isPending ? t("activity:generating") : t("activity:generate")}
+      </button>
+      {notice && (
+        <p role="status" className="text-center text-sm text-fg-muted">
+          {notice}
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="text-center text-sm text-danger">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
@@ -346,7 +432,11 @@ function ProjectBlock({
         <StatusBadge status={project.status} />
       </header>
       {project.entries.length === 0 ? (
-        <p className="px-4 py-4 font-mono text-[12px] text-fg-faint">{t("activity:noActivity")}</p>
+        <p className="px-4 py-4 font-mono text-[12px] text-fg-faint">
+          {project.status === "queued" || project.status === "running"
+            ? t("activity:inProgress")
+            : t("activity:noActivity")}
+        </p>
       ) : (
         <ul className="divide-y divide-line">
           {project.entries.map((entry) => (

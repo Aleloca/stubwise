@@ -8,7 +8,7 @@ import {
   repositories,
   type Db,
 } from "@stubwise/db";
-import { and, eq, lt, sql } from "drizzle-orm";
+import { and, eq, gte, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AgentRunner } from "../agent/runner.js";
 import type { MirrorManager, MirrorProject, RangeCommit } from "../git/mirrors.js";
@@ -73,6 +73,15 @@ export function previousUtcDay(now: Date): { since: Date; until: Date; date: str
   const since = new Date(untilMs - 24 * 60 * 60 * 1000);
   const date = since.toISOString().slice(0, 10);
   return { since, until, date };
+}
+
+/** Finestra half-open [since, until) del giorno UTC `dateStr` (YYYY-MM-DD).
+ * Usata dalla generazione MANUALE (report accodati 'queued' su una data scelta):
+ * a differenza di `previousUtcDay`, la data è arbitraria e non derivata da now. */
+export function utcDayWindow(dateStr: string): { since: Date; until: Date; date: string } {
+  const since = new Date(`${dateStr}T00:00:00.000Z`);
+  const until = new Date(since.getTime() + 24 * 60 * 60 * 1000);
+  return { since, until, date: dateStr };
 }
 
 export interface PollDailyReportsDeps {
@@ -424,15 +433,104 @@ async function generateForProject(
 }
 
 /**
- * Esegue UN giro: per ogni progetto con dailyReportEnabled genera (idempotente)
- * il report del giorno UTC precedente, poi applica la retention. Ritorna il
- * numero di report `done` prodotti (utile ai test). Best-effort: non lancia mai.
+ * Esegue UN giro:
+ *  1. GENERAZIONE MANUALE: raccoglie i report accodati (status='queued', creati
+ *     dall'endpoint di richiesta manuale su una data scelta) e li genera sulla
+ *     LORO data — indipendentemente dal flag `dailyReportEnabled` del progetto
+ *     (sono stati richiesti esplicitamente).
+ *  2. GATE NOTTURNO: per ogni progetto con dailyReportEnabled genera
+ *     (idempotente) il report del giorno UTC precedente.
+ *  3. RETENTION.
+ * Ritorna il numero di report `done` prodotti (queued + notturni, utile ai
+ * test). Best-effort: non lancia mai.
+ *
+ * NIENTE DOPPIA GENERAZIONE nello stesso tick: la fase queued gira PRIMA del gate
+ * notturno, quindi se un 'queued' è per ieri e coincide col gate notturno di un
+ * progetto abilitato, la fase queued lo porta a 'done' e il gate notturno lo
+ * salta (onConflictDoNothing → riga esistente 'done' → skip). Il serializer
+ * per-progetto serializza comunque le due fasi dello stesso progetto.
  */
 export async function pollDailyReportsOnce(deps: PollDailyReportsDeps): Promise<number> {
   const now = (deps.now ?? (() => new Date()))();
   const { since, until, date } = previousUtcDay(now);
 
+  // Cutoff della retention (giorno UTC di `now - retentionDays`, come stringa
+  // YYYY-MM-DD confrontata sulla colonna `date`). Calcolato una volta: serve sia
+  // alla fase queued (per NON generare i report oltre la retention) sia al blocco
+  // retention in coda al tick.
+  const todayMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const cutoff = new Date(todayMs - deps.retentionDays * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+
   let generated = 0;
+
+  // (0) RECOVERY ORFANI: il poller è single-process e i tick non si
+  // sovrappongono (guard `running` in startDailyReportPoller), quindi un report
+  // ancora `running` all'inizio del tick è orfano di un worker crashato a metà
+  // generazione. Lo rimettiamo `queued` così la fase successiva lo rigenera (le
+  // entries parziali vengono ripulite dal reclaim in generateForProject). Senza
+  // questo, un manuale orfano su una data arbitraria o un progetto disabilitato
+  // — che né la fase queued (filtra status='queued') né il gate notturno (solo
+  // ieri + progetto abilitato) ripescano — resterebbe `running` per sempre.
+  // Best-effort.
+  try {
+    await deps.db
+      .update(activityReports)
+      .set({ status: "queued", error: null, finishedAt: null })
+      .where(eq(activityReports.status, "running"));
+  } catch (err) {
+    console.error(
+      `[stubwise-worker] daily-report: recovery degli orfani 'running' fallita: ${errText(err)}`,
+    );
+  }
+
+  // (1) Report accodati manualmente: coppie (progetto, data) in stato 'queued'.
+  // Il reclaim dentro generateForProject vede la riga 'queued' (≠ 'done') → la
+  // porta a 'running' e genera. Ogni coppia è isolata in try/catch e
+  // serializzata per-progetto come il resto. L'unique (project_id, date) e il
+  // join 1:1 a projects rendono le righe già distinte: basta un select normale.
+  // Filtro `date >= cutoff`: i queued oltre la retention non vengono generati
+  // (spreco di run AI, verrebbero cancellati dalla retention nello stesso tick);
+  // il rifiuto esplicito con messaggio all'utente è demandato all'endpoint.
+  try {
+    const queued = await deps.db
+      .select({
+        projectId: activityReports.projectId,
+        date: activityReports.date,
+        aiProviderId: projects.aiProviderId,
+      })
+      .from(activityReports)
+      .innerJoin(projects, eq(activityReports.projectId, projects.id))
+      .where(and(eq(activityReports.status, "queued"), gte(activityReports.date, cutoff)));
+
+    for (const q of queued) {
+      try {
+        const win = utcDayWindow(q.date);
+        const ok = await deps.serializer.run(q.projectId, () =>
+          generateForProject(
+            deps,
+            { id: q.projectId, aiProviderId: q.aiProviderId },
+            win.since,
+            win.until,
+            win.date,
+            now,
+          ),
+        );
+        if (ok) generated++;
+      } catch (err) {
+        // Best-effort: un report accodato fallito non blocca gli altri.
+        console.error(
+          `[stubwise-worker] daily-report: report accodato del progetto ${q.projectId} (${q.date}) saltato: ${errText(err)}`,
+        );
+      }
+    }
+  } catch (err) {
+    console.error(
+      `[stubwise-worker] daily-report: selezione dei report accodati fallita: ${errText(err)}`,
+    );
+  }
+
   try {
     const enabledProjects = await deps.db
       .select({ id: projects.id, aiProviderId: projects.aiProviderId })
@@ -457,13 +555,9 @@ export async function pollDailyReportsOnce(deps: PollDailyReportsDeps): Promise<
   }
 
   // Retention (una volta per tick, fuori dal loop): cancella i report più vecchi
-  // di retentionDays. Cutoff = mezzanotte UTC di oggi meno retentionDays, come
-  // stringa YYYY-MM-DD confrontata sulla colonna `date`. Best-effort.
+  // di retentionDays. `cutoff` è calcolato in testa al tick e condiviso con il
+  // filtro della fase queued. Best-effort.
   try {
-    const todayMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-    const cutoff = new Date(todayMs - deps.retentionDays * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .slice(0, 10);
     await deps.db.delete(activityReports).where(lt(activityReports.date, cutoff));
   } catch (err) {
     console.error(`[stubwise-worker] daily-report: retention fallita: ${errText(err)}`);

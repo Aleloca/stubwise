@@ -681,11 +681,23 @@ export function docBriefQueryOptions(repositoryId: string) {
  * "Attività". La data entra nella chiave così ogni giorno è una query a sé in
  * cache. `staleTime` di un minuto: i report sono prodotti dal poller notturno,
  * non cambiano durante la navigazione.
+ *
+ * `refetchInterval` adattivo: quando la generazione manuale accoda dei report,
+ * questi arrivano `queued`/`running` (entries vuote) e il worker li finalizza in
+ * modo asincrono. Finché almeno uno non è `done`/`failed` ricarichiamo ogni 10s
+ * così la vista passa da "in generazione" al report vero senza intervento; poi
+ * niente più refetch periodico.
  */
 export function activityReportQueryOptions(date: string) {
   return queryOptions({
     queryKey: ["activity", date],
     queryFn: () => getActivity(date),
     staleTime: 60_000,
+    refetchInterval: (query) => {
+      const pending = query.state.data?.projects.some(
+        (p) => p.status === "queued" || p.status === "running",
+      );
+      return pending ? 10_000 : false;
+    },
   });
 }

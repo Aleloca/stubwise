@@ -14,6 +14,7 @@ const DATE = "2026-07-14";
 
 let testDb: TestDb;
 let app: FastifyInstance;
+let adminCookie: string;
 let memberCookie: string;
 let memberId: string;
 let projectId: string;
@@ -27,7 +28,7 @@ beforeAll(async () => {
     encryptionKey: ENCRYPTION_KEY.toString("base64"),
     publicUrl: "https://stubwise.example.com",
   });
-  ({ memberCookie, memberId } = await seedUsers(app));
+  ({ adminCookie, memberCookie, memberId } = await seedUsers(app));
   // L'avatar del membro entra nel resolvedUser: lo valorizziamo per verificarlo.
   await testDb.db
     .update(users)
@@ -361,5 +362,134 @@ describe("GET /api/activity", () => {
     // Ordine di entryRows non garantito (nessun ORDER BY): accettiamo entrambe
     // le concatenazioni.
     expect(["Sommario A.\n\nSommario B.", "Sommario B.\n\nSommario A."]).toContain(row.aiSummary);
+  });
+});
+
+describe("POST /api/activity/generate", () => {
+  // Data sicuramente NON futura (evita dipendenze dall'orologio reale del CI).
+  const PAST_DATE = "2020-01-15";
+
+  /** Data di domani (UTC) come YYYY-MM-DD. */
+  function tomorrowUtc(): string {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() + 1);
+    return d.toISOString().slice(0, 10);
+  }
+
+  /** Abilita `dailyReportEnabled` per i progetti indicati. */
+  async function enable(ids: string[]): Promise<void> {
+    for (const id of ids) {
+      await testDb.db
+        .update(projects)
+        .set({ dailyReportEnabled: true })
+        .where(eq(projects.id, id));
+    }
+  }
+
+  it("senza sessione → 401", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/activity/generate",
+      payload: { date: PAST_DATE },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("member (non admin) → 403", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/activity/generate",
+      headers: { cookie: memberCookie },
+      payload: { date: PAST_DATE },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("data malformata/impossibile → 400 invalid_date", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/activity/generate",
+      headers: { cookie: adminCookie },
+      payload: { date: "2026-13-40" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("invalid_date");
+  });
+
+  it("data futura → 400 date_in_future", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/activity/generate",
+      headers: { cookie: adminCookie },
+      payload: { date: tomorrowUtc() },
+    });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("date_in_future");
+  });
+
+  it("accoda un report queued per ogni progetto abilitato (ignora i disabilitati)", async () => {
+    // `projectId` (da beforeEach) resta disabilitato; ne creiamo due abilitati.
+    const { projectId: p1 } = await seedRepository(testDb.db);
+    const { projectId: p2 } = await seedRepository(testDb.db);
+    await enable([p1, p2]);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/activity/generate",
+      headers: { cookie: adminCookie },
+      payload: { date: PAST_DATE },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { queued: number }).queued).toBe(2);
+
+    const rows = await testDb.db
+      .select({ projectId: activityReports.projectId, status: activityReports.status })
+      .from(activityReports)
+      .where(eq(activityReports.date, PAST_DATE));
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.status === "queued")).toBe(true);
+    expect(rows.map((r) => r.projectId).sort()).toEqual([p1, p2].sort());
+    // Il progetto disabilitato NON è stato accodato.
+    expect(rows.some((r) => r.projectId === projectId)).toBe(false);
+  });
+
+  it("ri-chiamata stessa data → queued 0 (onConflictDoNothing, nessun doppione)", async () => {
+    const { projectId: p1 } = await seedRepository(testDb.db);
+    await enable([p1]);
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/api/activity/generate",
+      headers: { cookie: adminCookie },
+      payload: { date: PAST_DATE },
+    });
+    expect((first.json() as { queued: number }).queued).toBe(1);
+
+    const second = await app.inject({
+      method: "POST",
+      url: "/api/activity/generate",
+      headers: { cookie: adminCookie },
+      payload: { date: PAST_DATE },
+    });
+    expect(second.statusCode).toBe(200);
+    expect((second.json() as { queued: number }).queued).toBe(0);
+
+    const rows = await testDb.db
+      .select({ id: activityReports.id })
+      .from(activityReports)
+      .where(eq(activityReports.date, PAST_DATE));
+    expect(rows).toHaveLength(1);
+  });
+
+  it("nessun progetto abilitato → queued 0", async () => {
+    // Solo `projectId` da beforeEach, disabilitato.
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/activity/generate",
+      headers: { cookie: adminCookie },
+      payload: { date: PAST_DATE },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { queued: number }).queued).toBe(0);
   });
 });

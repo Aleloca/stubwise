@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { activityReportEntries, activityReports, gitIdentities, projects, users } from "@stubwise/db";
-import { requireAuth } from "../auth/session.js";
+import { requireAdmin, requireAuth } from "../auth/session.js";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -252,6 +252,63 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
       const developerViews = [...devs.values()].sort((a, b) => b.totalCommits - a.totalCommits);
 
       return reply.code(200).send({ date, projects: projectViews, developers: developerViews });
+    },
+  );
+
+  // Accoda la generazione manuale dei report per una data: inserisce un
+  // `activity_reports` in stato `queued` per OGNI progetto con
+  // `dailyReportEnabled=true`. Il worker (poller) raccoglie i `queued` e li
+  // genera. Solo admin: accoda lavoro che consuma run AI. `queued` nella
+  // risposta = quanti report NUOVI sono stati accodati; i giorni già presenti
+  // (generati o già in coda) non vengono toccati né duplicati grazie
+  // all'onConflictDoNothing sull'unique (project_id, date).
+  app.post(
+    "/generate",
+    {
+      preHandler: requireAdmin,
+      schema: {
+        body: z.object({ date: z.string() }),
+        response: { 200: z.object({ queued: z.number() }), 400: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { date } = request.body;
+      // Stessa validazione di GET: formato + data di calendario REALE (evita
+      // che la colonna Postgres `date` rifiuti es. 2026-13-40 → 500).
+      if (!DATE_RE.test(date)) {
+        return apiError(reply, 400, "invalid_date", "date must be in YYYY-MM-DD format");
+      }
+      const parsed = new Date(`${date}T00:00:00.000Z`);
+      if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) {
+        return apiError(reply, 400, "invalid_date", "Invalid date");
+      }
+      // Niente report per il futuro: non ci sono ancora commit da riassumere.
+      const todayUtc = new Date().toISOString().slice(0, 10);
+      if (date > todayUtc) {
+        return apiError(
+          reply,
+          400,
+          "date_in_future",
+          "Cannot generate a report for a future date",
+        );
+      }
+
+      const enabled = await app.db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(eq(projects.dailyReportEnabled, true));
+      if (enabled.length === 0) {
+        return reply.code(200).send({ queued: 0 });
+      }
+
+      const rows = enabled.map((p) => ({ projectId: p.id, date, status: "queued" as const }));
+      const inserted = await app.db
+        .insert(activityReports)
+        .values(rows)
+        .onConflictDoNothing({ target: [activityReports.projectId, activityReports.date] })
+        .returning({ id: activityReports.id });
+
+      return reply.code(200).send({ queued: inserted.length });
     },
   );
 }
