@@ -1,17 +1,19 @@
-import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Component, type ReactNode, Suspense, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "../components/avatar";
-import type {
-  ActivityCommit,
-  ActivityDeveloperView,
-  ActivityProjectView,
-  ActivityResolvedUser,
+import {
+  generateActivity,
+  type ActivityCommit,
+  type ActivityDeveloperView,
+  type ActivityProjectView,
+  type ActivityResolvedUser,
 } from "../lib/api";
 import { meQueryOptions } from "../lib/auth";
 import { formatDate } from "../lib/format";
 import { activityReportQueryOptions, repositoriesQueryOptions } from "../lib/queries";
+import { translateApiError } from "../lib/translate-api-error";
 
 /**
  * Sezione "Attività": lo standup giornaliero asincrono, visibile a ogni membro.
@@ -301,6 +303,7 @@ function ActivityBody({
         <p className="mt-2 max-w-md text-center text-sm text-fg-muted">
           {t("activity:noReportHint")}
         </p>
+        {isAdmin && <GenerateReport date={date} />}
       </div>
     );
   }
@@ -328,6 +331,55 @@ function ActivityBody({
   );
 }
 
+/**
+ * Trigger admin per la generazione manuale dei report attività di un giorno
+ * senza report. Al click accoda i progetti abilitati via
+ * `POST /api/activity/generate`: se qualcuno viene accodato, invalida la query
+ * del giorno (fa ripartire il refetch + il polling adattivo che porta la vista
+ * dallo stato "in generazione" al report vero); se nessun progetto ha il report
+ * abilitato (`queued: 0`) mostra un hint. Gli errori si localizzano inline.
+ */
+function GenerateReport({ date }: { date: string }) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const mutation = useMutation({
+    mutationFn: () => generateActivity(date),
+    onSuccess: (res) => {
+      setError(null);
+      if (res.queued > 0) {
+        setNotice(null);
+        void queryClient.invalidateQueries({ queryKey: ["activity", date] });
+      } else {
+        setNotice(t("activity:noEnabledProjects"));
+      }
+    },
+    onError: (cause) => {
+      setNotice(null);
+      setError(translateApiError(cause, t));
+    },
+  });
+  return (
+    <div className="mt-6 flex flex-col items-center gap-2">
+      <button
+        type="button"
+        onClick={() => mutation.mutate()}
+        disabled={mutation.isPending}
+        className="rounded-sm border border-line-strong px-3 py-1.5 font-mono text-[11px] tracking-[0.12em] text-fg-muted uppercase transition-colors hover:border-signal-dim hover:text-fg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-line-strong disabled:hover:text-fg-muted"
+      >
+        {mutation.isPending ? t("activity:generating") : t("activity:generate")}
+      </button>
+      {notice && <p className="text-center text-sm text-fg-muted">{notice}</p>}
+      {error && (
+        <p role="alert" className="text-center text-sm text-danger">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** Blocco vista-progetto: header col nome/status e una riga per autore. */
 function ProjectBlock({
   project,
@@ -346,7 +398,11 @@ function ProjectBlock({
         <StatusBadge status={project.status} />
       </header>
       {project.entries.length === 0 ? (
-        <p className="px-4 py-4 font-mono text-[12px] text-fg-faint">{t("activity:noActivity")}</p>
+        <p className="px-4 py-4 font-mono text-[12px] text-fg-faint">
+          {project.status === "queued" || project.status === "running"
+            ? t("activity:inProgress")
+            : t("activity:noActivity")}
+        </p>
       ) : (
         <ul className="divide-y divide-line">
           {project.entries.map((entry) => (

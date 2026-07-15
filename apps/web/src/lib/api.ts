@@ -2302,3 +2302,12 @@ export interface ActivityReport {
 export function getActivity(date: string): Promise<ActivityReport> {
   return api.get(`/api/activity?date=${encodeURIComponent(date)}`);
 }
+
+/**
+ * Accoda la generazione manuale dei report attività per una data (solo admin,
+ * arbitrato dal server). Ritorna quanti progetti abilitati sono stati accodati:
+ * `queued: 0` significa che nessun progetto ha il report attività abilitato.
+ */
+export function generateActivity(date: string): Promise<{ queued: number }> {
+  return api.post(`/api/activity/generate`, { date });
+}

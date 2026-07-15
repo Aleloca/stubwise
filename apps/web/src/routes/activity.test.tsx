@@ -155,6 +155,21 @@ const REPORT = {
 
 const EMPTY_REPORT = { date: "2026-01-01", projects: [], developers: [] };
 
+// Report appena accodato: un progetto in stato "queued" con entries vuote (il
+// worker non l'ha ancora finalizzato).
+const QUEUED_REPORT = {
+  date: "2026-07-14",
+  projects: [
+    {
+      project: { id: "p1", name: "Apollo", slug: "apollo" },
+      date: "2026-07-14",
+      status: "queued",
+      entries: [],
+    },
+  ],
+  developers: [],
+};
+
 describe("sezione attività", () => {
   it("admin: vista per progetto (default) con membro risolto ed email grezza", async () => {
     mockApi({
@@ -311,6 +326,91 @@ describe("sezione attività", () => {
     renderActivity();
 
     expect(await screen.findByText("No report for this date")).toBeInTheDocument();
+  });
+
+  it("giorno vuoto + admin: pulsante genera → POST /generate, poi stato 'Generating…'", async () => {
+    const user = userEvent.setup();
+    let generateBody: unknown = null;
+    let queued = false;
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, queued ? QUEUED_REPORT : EMPTY_REPORT),
+      "POST /api/activity/generate": (_url, init) => {
+        generateBody = JSON.parse(String(init?.body));
+        queued = true;
+        return jsonResponse(200, { queued: 2 });
+      },
+    });
+
+    renderActivity();
+
+    const button = await screen.findByRole("button", {
+      name: "Generate report for this day",
+    });
+    await user.click(button);
+
+    // Il body del POST contiene la data selezionata (default: ieri UTC).
+    await waitFor(() => expect(generateBody).not.toBeNull());
+    expect(generateBody).toHaveProperty("date");
+
+    // Dopo l'invalidazione la vista mostra il report accodato "in generazione".
+    expect(await screen.findByText("Generating…")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Apollo" })).toBeInTheDocument();
+  });
+
+  it("giorno vuoto + member: nessun pulsante genera (solo 'No report')", async () => {
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: MEMBER }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, EMPTY_REPORT),
+    });
+
+    renderActivity();
+
+    expect(await screen.findByText("No report for this date")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Generate report for this day" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("giorno vuoto + admin: generate con queued=0 → hint 'nessun progetto abilitato'", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, EMPTY_REPORT),
+      "POST /api/activity/generate": () => jsonResponse(200, { queued: 0 }),
+    });
+
+    renderActivity();
+
+    await user.click(
+      await screen.findByRole("button", { name: "Generate report for this day" }),
+    );
+
+    expect(
+      await screen.findByText("No project has the activity report enabled"),
+    ).toBeInTheDocument();
+    // Nessun report: resta l'empty state.
+    expect(screen.getByText("No report for this date")).toBeInTheDocument();
+  });
+
+  it("report in stato queued/running → mostra 'Generating…'", async () => {
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, QUEUED_REPORT),
+    });
+
+    renderActivity();
+
+    expect(await screen.findByRole("heading", { name: "Apollo" })).toBeInTheDocument();
+    expect(screen.getByText("Generating…")).toBeInTheDocument();
+    // Non c'è il pulsante genera quando esiste già un report accodato.
+    expect(
+      screen.queryByRole("button", { name: "Generate report for this day" }),
+    ).not.toBeInTheDocument();
   });
 
   it("non crasha se la lista repository fallisce (fallback all'id repo)", async () => {
