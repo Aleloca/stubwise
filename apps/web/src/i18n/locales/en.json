@@ -18,6 +18,7 @@
       "projects": "Projects",
       "repositories": "Repositories",
       "monitor": "Monitor",
+      "activity": "Activity",
       "team": "Team",
       "settings": "Settings",
       "docs": "Documentation",
@@ -1432,5 +1433,29 @@
     "copyGuide": "Copy install guide",
     "downloadGuide": "Download install guide (.md)",
     "downloadGuideShort": ".md"
+  },
+  "activity": {
+    "title": "Activity",
+    "subtitle": "Asynchronous daily standup: commits and AI summaries by project and by developer.",
+    "dateLabel": "Date",
+    "previousDay": "Previous day",
+    "nextDay": "Next day",
+    "tabsLabel": "Activity views",
+    "viewProject": "By project",
+    "viewDeveloper": "By developer",
+    "noReport": "No report for this date",
+    "noReportHint": "Reports are generated overnight for the previous day.",
+    "noActivity": "No activity",
+    "commits_one": "{{count}} commit",
+    "commits_other": "{{count}} commits",
+    "linkHint": "Link in Team",
+    "unresolvedTitle": "Git identity not linked to a member",
+    "unknownAuthor": "Unknown author",
+    "status": {
+      "queued": "Queued",
+      "running": "Running",
+      "done": "Done",
+      "failed": "Failed"
+    }
   }
 }

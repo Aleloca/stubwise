@@ -18,6 +18,7 @@
       "projects": "Progetti",
       "repositories": "Repository",
       "monitor": "Monitor",
+      "activity": "Attività",
       "team": "Team",
       "settings": "Impostazioni",
       "docs": "Documentazione",
@@ -1432,5 +1433,29 @@
     "copyGuide": "Copia guida d'installazione",
     "downloadGuide": "Scarica guida d'installazione (.md)",
     "downloadGuideShort": ".md"
+  },
+  "activity": {
+    "title": "Attività",
+    "subtitle": "Standup giornaliero asincrono: commit e riassunti AI per progetto e per sviluppatore.",
+    "dateLabel": "Data",
+    "previousDay": "Giorno precedente",
+    "nextDay": "Giorno successivo",
+    "tabsLabel": "Viste attività",
+    "viewProject": "Per progetto",
+    "viewDeveloper": "Per sviluppatore",
+    "noReport": "Nessun report per questa data",
+    "noReportHint": "I report vengono generati durante la notte per il giorno precedente.",
+    "noActivity": "Nessuna attività",
+    "commits_one": "{{count}} commit",
+    "commits_other": "{{count}} commit",
+    "linkHint": "Associa in Team",
+    "unresolvedTitle": "Identità git non associata a un membro",
+    "unknownAuthor": "Autore sconosciuto",
+    "status": {
+      "queued": "In coda",
+      "running": "In corso",
+      "done": "Completato",
+      "failed": "Fallito"
+    }
   }
 }

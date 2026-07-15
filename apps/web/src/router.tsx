@@ -13,6 +13,7 @@ import { ApiError } from "./lib/api";
 import { meQueryOptions, setupStatusQueryOptions } from "./lib/auth";
 import {
   activityQueryOptions,
+  activityReportQueryOptions,
   aiProvidersQueryOptions,
   automationSettingsQueryOptions,
   boardTicketsQueryOptions,
@@ -42,6 +43,7 @@ import {
   widgetConversationsQueryOptions,
   widgetsQueryOptions,
 } from "./lib/queries";
+import { ActivityPage } from "./routes/activity";
 import { boardSearchSchema, BoardPage } from "./routes/board";
 import {
   DocsManualNew,
@@ -441,6 +443,23 @@ const serverDetailRoute = createRoute({
   component: ServerDetailPage,
 });
 
+/**
+ * Sezione Attività (standup giornaliero), visibile a ogni membro. Prefetch
+ * best-effort del report di IERI (default del componente): la data vive nello
+ * stato del componente, quindi il loader può solo precaricare il default; il
+ * cambio data è gestito dal confine Suspense dentro la pagina. Un errore non
+ * blocca la pagina (la query lo ripropone col retry/refetch).
+ */
+const activityRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/activity",
+  loader: ({ context }) =>
+    context.queryClient
+      .ensureQueryData(activityReportQueryOptions(new Date(Date.now() - 86_400_000).toISOString().slice(0, 10)))
+      .catch(() => undefined),
+  component: ActivityPage,
+});
+
 const teamRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/team",
@@ -582,6 +601,7 @@ const routeTree = rootRoute.addChildren([
     ]),
     monitorRoute,
     serverDetailRoute,
+    activityRoute,
     teamRoute,
     settingsRoute.addChildren([
       settingsIndexRoute,

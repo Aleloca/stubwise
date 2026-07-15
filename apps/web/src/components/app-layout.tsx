@@ -28,6 +28,7 @@ const NAV_ITEMS = [
   { to: "/projects", labelKey: "common:nav.projects", code: "PRJ" },
   { to: "/repositories", labelKey: "common:nav.repositories", code: "REP" },
   { to: "/monitor", labelKey: "common:nav.monitor", code: "MON" },
+  { to: "/activity", labelKey: "common:nav.activity", code: "ACT" },
   { to: "/docs", labelKey: "common:nav.docs", code: "DOC" },
   { to: "/team", labelKey: "common:nav.team", code: "TEA" },
   { to: "/settings", labelKey: "common:nav.settings", code: "SET" },
