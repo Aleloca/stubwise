@@ -104,6 +104,17 @@ type ProjectRef = { id: string; name: string; slug: string };
 /** Data calendario UTC (YYYY-MM-DD): stesso formato del campo `date` del report. */
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * True se `date` è una data di calendario reale in formato YYYY-MM-DD. Il regex
+ * accetta il formato ma non le date impossibili (es. 2026-13-40, 2026-02-30):
+ * le ricostruiamo per rifiutarle qui, evitando un 500 dalla colonna Postgres `date`.
+ */
+function isRealCalendarDate(date: string): boolean {
+  if (!DATE_RE.test(date)) return false;
+  const parsed = new Date(`${date}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date;
+}
+
 export async function activityRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
@@ -118,15 +129,8 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const { date } = request.query;
-      if (!DATE_RE.test(date)) {
-        return apiError(reply, 400, "invalid_date", "date must be in YYYY-MM-DD format");
-      }
-      // Il formato è corretto ma potrebbe essere una data impossibile (es.
-      // 2026-13-40, 2026-02-30): la colonna Postgres `date` la rifiuterebbe →
-      // 500. Verifichiamo che sia una data di calendario REALE ricostruendola.
-      const parsed = new Date(`${date}T00:00:00Z`);
-      if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) {
-        return apiError(reply, 400, "invalid_date", "Invalid date");
+      if (!isRealCalendarDate(date)) {
+        return apiError(reply, 400, "invalid_date", "date must be a real calendar date (YYYY-MM-DD)");
       }
 
       // 1) Report del giorno + progetto (join). Ordine stabile per nome progetto.
@@ -168,22 +172,27 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
         .orderBy(asc(activityCommits.committedAt));
 
       // 3) Mappa email(lowercase) → membro. Una sola query join git_identities+users.
-      const identityRows = await app.db
-        .select({
-          email: gitIdentities.email,
-          id: users.id,
-          userEmail: users.email,
-          avatarUrl: users.slackAvatarUrl,
-        })
-        .from(gitIdentities)
-        .innerJoin(users, eq(gitIdentities.userId, users.id));
+      // Serve SOLO a risolvere i commit: se non ce ne sono (es. giorno con report
+      // queued/running ma senza commit persistiti), saltiamo la query e usiamo una
+      // mappa vuota. (Il caso "giorno senza report" ha già short-circuitato sopra.)
       const userByEmail = new Map<string, ResolvedUser>();
-      for (const row of identityRows) {
-        userByEmail.set(row.email.toLowerCase(), {
-          id: row.id,
-          email: row.userEmail,
-          avatarUrl: row.avatarUrl,
-        });
+      if (commitRows.length > 0) {
+        const identityRows = await app.db
+          .select({
+            email: gitIdentities.email,
+            id: users.id,
+            userEmail: users.email,
+            avatarUrl: users.slackAvatarUrl,
+          })
+          .from(gitIdentities)
+          .innerJoin(users, eq(gitIdentities.userId, users.id));
+        for (const row of identityRows) {
+          userByEmail.set(row.email.toLowerCase(), {
+            id: row.id,
+            email: row.userEmail,
+            avatarUrl: row.avatarUrl,
+          });
+        }
       }
 
       const resolve = (gitEmail: string): ResolvedUser | null =>
@@ -270,6 +279,10 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
           dev = {
             resolvedUser: resolved,
             gitEmail: resolved ? null : commit.authorEmail,
+            // First-commit-wins: per un membro risolto con più identità git/nomi
+            // diversi si mostra il nome del commit cronologicamente più vecchio
+            // (i commit sono già in ordine committedAt ASC). Cosmetico: la UI usa
+            // resolvedUser quando presente.
             authorName: commit.authorName,
             commitCount: 0,
             additions: 0,
@@ -314,7 +327,16 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
             a.project.name.localeCompare(b.project.name),
           ),
         }))
-        .sort((a, b) => b.header.commitCount - a.header.commitCount);
+        // Ordine per commitCount DESC; a parità, tie-breaker stabile per email
+        // (resolvedUser.email, poi gitEmail) così l'ordine è deterministico.
+        .sort((a, b) => {
+          if (b.header.commitCount !== a.header.commitCount) {
+            return b.header.commitCount - a.header.commitCount;
+          }
+          const emailA = a.resolvedUser?.email ?? a.gitEmail ?? "";
+          const emailB = b.resolvedUser?.email ?? b.gitEmail ?? "";
+          return emailA.localeCompare(emailB);
+        });
 
       return reply.code(200).send({ date, projects: projectViews, developers: developerViews });
     },
@@ -340,12 +362,8 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
       const { date } = request.body;
       // Stessa validazione di GET: formato + data di calendario REALE (evita
       // che la colonna Postgres `date` rifiuti es. 2026-13-40 → 500).
-      if (!DATE_RE.test(date)) {
-        return apiError(reply, 400, "invalid_date", "date must be in YYYY-MM-DD format");
-      }
-      const parsed = new Date(`${date}T00:00:00.000Z`);
-      if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== date) {
-        return apiError(reply, 400, "invalid_date", "Invalid date");
+      if (!isRealCalendarDate(date)) {
+        return apiError(reply, 400, "invalid_date", "date must be a real calendar date (YYYY-MM-DD)");
       }
       // Niente report per il futuro: non ci sono ancora commit da riassumere.
       const todayUtc = new Date().toISOString().slice(0, 10);

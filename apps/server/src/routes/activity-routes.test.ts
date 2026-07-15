@@ -425,6 +425,58 @@ describe("GET /api/activity", () => {
     expect(row.commits.map((c) => c.sha).sort()).toEqual(["a1", "b1"]);
   });
 
+  it("developers con stesso commitCount → ordinati in modo deterministico per email", async () => {
+    // Due dev NON risolti con lo stesso numero di commit (1 ciascuno): senza
+    // tie-breaker l'ordine sarebbe arbitrario. Ci aspettiamo ordine alfabetico
+    // per gitEmail: "aaa@x.it" prima di "zzz@x.it".
+    const ins = await testDb.db
+      .insert(activityReports)
+      .values({ projectId, date: DATE, status: "done" })
+      .returning({ id: activityReports.id });
+    const reportId = ins[0]!.id;
+
+    await testDb.db.insert(activityCommits).values([
+      {
+        reportId,
+        repoId: repositoryId,
+        sha: "z1",
+        authorEmail: "zzz@x.it",
+        authorName: "Zed",
+        committedAt: new Date("2026-07-14T08:00:00Z"),
+        subject: "s-z",
+        additions: 1,
+        deletions: 1,
+        aiDescription: null,
+      },
+      {
+        reportId,
+        repoId: repositoryId,
+        sha: "a1",
+        authorEmail: "aaa@x.it",
+        authorName: "Ann",
+        committedAt: new Date("2026-07-14T09:00:00Z"),
+        subject: "s-a",
+        additions: 1,
+        deletions: 1,
+        aiDescription: null,
+      },
+    ]);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/activity?date=${DATE}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      developers: { gitEmail: string | null; header: { commitCount: number } }[];
+    };
+    expect(body.developers).toHaveLength(2);
+    expect(body.developers.every((d) => d.header.commitCount === 1)).toBe(true);
+    // Il commit "zzz" è cronologicamente primo, ma l'ordine finale è per email.
+    expect(body.developers.map((d) => d.gitEmail)).toEqual(["aaa@x.it", "zzz@x.it"]);
+  });
+
   it("report queued/running senza commit → appare in projects, developers vuoto", async () => {
     await testDb.db
       .insert(activityReports)
