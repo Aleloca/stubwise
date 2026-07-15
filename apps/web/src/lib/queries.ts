@@ -1,5 +1,6 @@
 import { infiniteQueryOptions, keepPreviousData, queryOptions } from "@tanstack/react-query";
 import {
+  getActivity,
   getAutomationSettings,
   getAiUsageCosts,
   getAiUsageSnapshots,
@@ -672,5 +673,19 @@ export function docBriefQueryOptions(repositoryId: string) {
     queryFn: () => getDocBrief(repositoryId),
     staleTime: 60_000,
     retry: false,
+  });
+}
+
+/**
+ * Report di attività di una data (`YYYY-MM-DD`, UTC): alimenta la sezione SPA
+ * "Attività". La data entra nella chiave così ogni giorno è una query a sé in
+ * cache. `staleTime` di un minuto: i report sono prodotti dal poller notturno,
+ * non cambiano durante la navigazione.
+ */
+export function activityReportQueryOptions(date: string) {
+  return queryOptions({
+    queryKey: ["activity", date],
+    queryFn: () => getActivity(date),
+    staleTime: 60_000,
   });
 }

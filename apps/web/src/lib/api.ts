@@ -2223,3 +2223,74 @@ export function getServerMetrics(
   if (range.checkId) params.set("checkId", range.checkId);
   return api.get(`/api/servers/${encodeURIComponent(id)}/metrics?${params.toString()}`);
 }
+
+// --- Report attività (daily standup asincrono) ---
+
+/** Commit di una entry/vista dev: SHA, oggetto e repository di provenienza. */
+export interface ActivityCommit {
+  sha: string;
+  subject: string;
+  repoId: string;
+}
+
+/** Membro Stubwise risolto dall'email git (via git_identities), o null se non risolto. */
+export interface ActivityResolvedUser {
+  id: string;
+  email: string;
+  avatarUrl: string | null;
+}
+
+/** Entry per-autore di un report di progetto: una riga per email git. */
+export interface ActivityEntry {
+  gitEmail: string;
+  authorName: string | null;
+  resolvedUser: ActivityResolvedUser | null;
+  commitCount: number;
+  additions: number;
+  deletions: number;
+  commits: ActivityCommit[];
+  aiSummary: string | null;
+}
+
+/** Vista per-progetto del giorno: il report con le sue entries. */
+export interface ActivityProjectView {
+  project: { id: string; name: string; slug: string };
+  date: string;
+  status: string;
+  entries: ActivityEntry[];
+}
+
+/** Vista per-dev del giorno: entries di tutti i progetti raggruppate per membro. */
+export interface ActivityDeveloperView {
+  resolvedUser: ActivityResolvedUser | null;
+  gitEmail: string | null;
+  authorName: string | null;
+  totalCommits: number;
+  totalAdditions: number;
+  totalDeletions: number;
+  perProject: {
+    projectId: string;
+    projectName: string;
+    commitCount: number;
+    aiSummary: string | null;
+    commits: ActivityCommit[];
+  }[];
+}
+
+/**
+ * Report di attività di una data: entrambe le viste (per-progetto e per-dev)
+ * sugli stessi entries. Alimenta la sezione SPA "Attività".
+ */
+export interface ActivityReport {
+  date: string;
+  projects: ActivityProjectView[];
+  developers: ActivityDeveloperView[];
+}
+
+/**
+ * Report di attività di una data (`YYYY-MM-DD`, UTC). Visibile a ogni membro
+ * autenticato; una data senza report restituisce liste vuote.
+ */
+export function getActivity(date: string): Promise<ActivityReport> {
+  return api.get(`/api/activity?date=${encodeURIComponent(date)}`);
+}
