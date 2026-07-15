@@ -31,6 +31,7 @@ import { docsChatRoutes } from "./routes/docs-chat.js";
 import { docsRoutes } from "./routes/docs.js";
 import { gitAccountRoutes } from "./routes/git-accounts.js";
 import { gitIdentityRoutes } from "./routes/git-identity-routes.js";
+import { activityRoutes } from "./routes/activity-routes.js";
 import { inboundRoutes } from "./routes/inbound.js";
 import { ingestRoutes } from "./routes/ingest.js";
 import { widgetRoutes } from "./routes/widget.js";
@@ -478,6 +479,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Linking identità git/Bitbucket → membro (gemello di slackIdentityRoutes),
   // per attribuire i commit alle persone nel daily activity report.
   void app.register(gitIdentityRoutes, { prefix: "/api" });
+
+  // Lettura dei report di attività (daily standup) per data: viste per-progetto
+  // e per-dev. Visibile a tutti i membri (requireAuth), non solo admin.
+  void app.register(activityRoutes, { prefix: "/api/activity" });
 
   app.get("/health", async () => ({ status: "ok" }));
 
