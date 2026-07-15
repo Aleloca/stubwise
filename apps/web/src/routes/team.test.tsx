@@ -751,6 +751,35 @@ describe("pagina team", () => {
     await waitFor(() => expect(postBody).toEqual({ email: "typed@git.example" }));
   });
 
+  it("admin: normalizza in lowercase un'email git digitata con maiuscole", async () => {
+    const user = userEvent.setup();
+    let postBody: unknown;
+
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/users": () => jsonResponse(200, USERS),
+      "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
+      "GET /api/git/observed-authors": () => jsonResponse(200, OBSERVED_AUTHORS),
+      "GET /api/auth/invites": () => jsonResponse(200, []),
+      "POST /api/users/u2/git-identities": (_url, init) => {
+        postBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, [{ id: "g3", email: "mixedcase@git.example", authorName: null }]);
+      },
+    });
+
+    renderTeam();
+
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    await user.click(within(beaRow).getByRole("button", { name: "Link git" }));
+    const search = within(beaRow).getByRole("combobox", { name: "Pick a git author" });
+    await user.type(search, "MixedCase@Git.Example");
+    // Il bottone del valore libero mostra già l'email normalizzata; l'invio
+    // POST-a l'email in lowercase (normalizzazione lato client).
+    await user.click(within(beaRow).getByRole("button", { name: /Link «mixedcase@git.example»/ }));
+
+    await waitFor(() => expect(postBody).toEqual({ email: "mixedcase@git.example" }));
+  });
+
   it("admin: errore git_identity_taken mostra il messaggio i18n", async () => {
     const user = userEvent.setup();
 
@@ -821,6 +850,31 @@ describe("pagina team", () => {
     await user.click(within(beaRow).getByRole("button", { name: "Unlink Bitbucket" }));
     await waitFor(() => expect(deleted).toBe(true));
     await waitFor(() => expect(within(beaRow).getByText("No Bitbucket")).toBeInTheDocument());
+  });
+
+  it("admin: errore bitbucket_identity_taken mostra il messaggio i18n", async () => {
+    const user = userEvent.setup();
+
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/users": () => jsonResponse(200, USERS),
+      "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
+      "GET /api/git/observed-authors": () => jsonResponse(200, OBSERVED_AUTHORS),
+      "GET /api/auth/invites": () => jsonResponse(200, []),
+      "PUT /api/users/u2/bitbucket": () =>
+        jsonResponse(409, { code: "bitbucket_identity_taken", message: "taken" }),
+    });
+
+    renderTeam();
+
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    await user.click(within(beaRow).getByRole("button", { name: "Link Bitbucket" }));
+    await user.type(within(beaRow).getByRole("textbox", { name: "Bitbucket username" }), "bea-bb");
+    await user.click(within(beaRow).getByRole("button", { name: "Link" }));
+
+    expect(
+      await screen.findByText("This Bitbucket username is already linked to another member"),
+    ).toBeInTheDocument();
   });
 
   it("member: vede i badge git/bitbucket ma nessun controllo di link", async () => {

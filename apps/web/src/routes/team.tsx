@@ -306,7 +306,7 @@ function MemberRow({
     "tap rounded-sm border border-line-strong px-2 py-1 font-mono text-[10px] tracking-[0.14em] text-fg-muted uppercase transition-colors disabled:cursor-not-allowed disabled:opacity-50";
 
   return (
-    <li className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+    <li className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <Avatar src={user.avatarUrl} label={user.email} size={24} />
         <span className="truncate font-mono text-[13px] text-fg">{user.email}</span>
@@ -595,6 +595,10 @@ function ComboboxPicker<T>({
   // saltate dalle frecce e non selezionabili con Invio).
   const [active, setActive] = useState(() => items.findIndex((item) => !isDisabled(item)));
   const listboxId = useId();
+  // Id di base per gli id stabili delle option, così l'input può esporre
+  // `aria-activedescendant` verso l'opzione attiva (a11y per screen reader).
+  const optionBaseId = useId();
+  const optionId = (index: number) => `${optionBaseId}-option-${index}`;
 
   function filtered(value: string): T[] {
     const q = value.trim().toLowerCase();
@@ -665,6 +669,9 @@ function ComboboxPicker<T>({
           role="combobox"
           aria-expanded={listboxOpen}
           aria-controls={listboxId}
+          aria-activedescendant={
+            listboxOpen && active >= 0 && active < visible.length ? optionId(active) : undefined
+          }
           aria-autocomplete="list"
           aria-label={labels.pickerLabel}
           placeholder={labels.placeholder}
@@ -714,6 +721,7 @@ function ComboboxPicker<T>({
                 return (
                   <li
                     key={getKey(item)}
+                    id={optionId(index)}
                     role="option"
                     aria-selected={isActive}
                     aria-disabled={disabled}
