@@ -324,6 +324,128 @@ describe("pollDailyReportsOnce", () => {
     expect(runSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("recovery: un orfano 'running' per una data PASSATA e progetto disabilitato viene rigenerato", async () => {
+    // Backfill manuale killato a metà: riga 'running' per 3 giorni fa su un
+    // progetto disabilitato. Né la fase queued (filtra status='queued') né il
+    // gate notturno (solo ieri + progetto abilitato) lo ripescherebbero: senza la
+    // FASE 0 di recovery resterebbe 'running' per sempre.
+    const { projectId } = await createProject(testDb.db, { dailyReportEnabled: false });
+    const [orphan] = await testDb.db
+      .insert(activityReports)
+      .values({ projectId, date: "2026-07-12", status: "running" })
+      .returning();
+    await testDb.db.insert(activityReportEntries).values({
+      reportId: orphan!.id,
+      gitEmail: "stale@example.com",
+      authorName: "Stale",
+      commitCount: 99,
+    });
+
+    const { deps, runSpy } = makeDeps({
+      commitsByCall: [
+        [commit({ sha: "1".repeat(40), authorEmail: "alice@example.com", authorName: "Alice" })],
+      ],
+    });
+    const generated = await pollDailyReportsOnce(deps);
+    expect(generated).toBe(1); // recuperato e rigenerato, non bloccato.
+
+    const reports = await testDb.db
+      .select()
+      .from(activityReports)
+      .where(eq(activityReports.projectId, projectId));
+    expect(reports).toHaveLength(1);
+    expect(reports[0]?.id).toBe(orphan!.id); // stessa riga (reclaim in-place).
+    expect(reports[0]?.status).toBe("done");
+    expect(reports[0]?.date).toBe("2026-07-12");
+    expect(reports[0]?.finishedAt).not.toBeNull();
+
+    // Entries fresche: la parziale del tentativo precedente è sparita.
+    const entries = await testDb.db
+      .select()
+      .from(activityReportEntries)
+      .where(eq(activityReportEntries.reportId, orphan!.id));
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.gitEmail).toBe("alice@example.com");
+    expect(entries.find((e) => e.gitEmail === "stale@example.com")).toBeUndefined();
+    expect(runSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("best-effort fase queued: un 'queued' il cui repo LANCIA non blocca l'altro, il tick non crasha", async () => {
+    // Due progetti disabilitati con un 'queued' ciascuno (così il gate notturno
+    // non interferisce). Il primo getCommitsInRange chiamato LANCIA: il suo report
+    // si chiude comunque (repo saltato, 0 entries) e l'altro viene generato.
+    const a = await createProject(testDb.db, { dailyReportEnabled: false });
+    const b = await createProject(testDb.db, { dailyReportEnabled: false });
+    await testDb.db
+      .insert(activityReports)
+      .values({ projectId: a.projectId, date: "2026-07-12", status: "queued" });
+    await testDb.db
+      .insert(activityReports)
+      .values({ projectId: b.projectId, date: "2026-07-12", status: "queued" });
+
+    let n = 0;
+    const { deps } = makeDeps({
+      getCommitsImpl: async () => {
+        if (n++ === 0) throw new Error("git log fallito");
+        return [commit({ authorEmail: "alice@example.com", authorName: "Alice" })];
+      },
+    });
+
+    const generated = await pollDailyReportsOnce(deps); // non deve lanciare.
+    expect(generated).toBe(2); // entrambi i report chiusi 'done'.
+
+    const reports = await testDb.db.select().from(activityReports);
+    expect(reports).toHaveLength(2);
+    expect(reports.every((r) => r.status === "done")).toBe(true);
+    // Una sola entry in tutto: il repo che ha lanciato non ne ha prodotte.
+    const entries = await testDb.db.select().from(activityReportEntries);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.gitEmail).toBe("alice@example.com");
+  });
+
+  it("più 'queued' su più progetti in un tick: tutti generati", async () => {
+    const a = await createProject(testDb.db, { dailyReportEnabled: false });
+    const b = await createProject(testDb.db, { dailyReportEnabled: false });
+    const c = await createProject(testDb.db, { dailyReportEnabled: false });
+    for (const p of [a, b, c]) {
+      await testDb.db
+        .insert(activityReports)
+        .values({ projectId: p.projectId, date: "2026-07-12", status: "queued" });
+    }
+
+    const { deps, getCommitsSpy } = makeDeps({
+      commitsByCall: [[commit({ authorEmail: "alice@example.com", authorName: "Alice" })]],
+    });
+
+    const generated = await pollDailyReportsOnce(deps);
+    expect(generated).toBe(3); // tutti e tre generati.
+    expect(getCommitsSpy).toHaveBeenCalledTimes(3);
+
+    const reports = await testDb.db.select().from(activityReports);
+    expect(reports).toHaveLength(3);
+    expect(reports.every((r) => r.status === "done")).toBe(true);
+  });
+
+  it("un 'queued' oltre la retention NON viene generato e viene rimosso dalla retention", async () => {
+    // retentionDays=90, NOW=2026-07-15 → cutoff ~2026-04-16. Un 'queued' per
+    // 2026-01-01 è oltre la retention: non va generato (spreco di run AI) e viene
+    // cancellato dal blocco retention nello stesso tick.
+    const { projectId } = await createProject(testDb.db, { dailyReportEnabled: false });
+    await testDb.db
+      .insert(activityReports)
+      .values({ projectId, date: "2026-01-01", status: "queued" });
+
+    const { deps, getCommitsSpy } = makeDeps({
+      retentionDays: 90,
+      commitsByCall: [[commit({})]],
+    });
+    const generated = await pollDailyReportsOnce(deps);
+    expect(generated).toBe(0); // non generato.
+    expect(getCommitsSpy).not.toHaveBeenCalled(); // nemmeno letto i commit.
+    // Rimosso dalla retention: nessuna riga resta.
+    expect(await testDb.db.select().from(activityReports)).toHaveLength(0);
+  });
+
   it("esclude i commit di merge dal conteggio", async () => {
     await createProject(testDb.db, { dailyReportEnabled: true });
     const { deps } = makeDeps({

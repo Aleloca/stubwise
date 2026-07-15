@@ -8,7 +8,7 @@ import {
   repositories,
   type Db,
 } from "@stubwise/db";
-import { and, eq, lt, sql } from "drizzle-orm";
+import { and, eq, gte, lt, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AgentRunner } from "../agent/runner.js";
 import type { MirrorManager, MirrorProject, RangeCommit } from "../git/mirrors.js";
@@ -454,22 +454,55 @@ export async function pollDailyReportsOnce(deps: PollDailyReportsDeps): Promise<
   const now = (deps.now ?? (() => new Date()))();
   const { since, until, date } = previousUtcDay(now);
 
+  // Cutoff della retention (giorno UTC di `now - retentionDays`, come stringa
+  // YYYY-MM-DD confrontata sulla colonna `date`). Calcolato una volta: serve sia
+  // alla fase queued (per NON generare i report oltre la retention) sia al blocco
+  // retention in coda al tick.
+  const todayMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const cutoff = new Date(todayMs - deps.retentionDays * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+
   let generated = 0;
 
-  // (1) Report accodati manualmente: coppie distinte (progetto, data) in stato
-  // 'queued'. Il reclaim dentro generateForProject vede la riga 'queued' (≠
-  // 'done') → la porta a 'running' e genera. Ogni coppia è isolata in try/catch
-  // e serializzata per-progetto come il resto.
+  // (0) RECOVERY ORFANI: il poller è single-process e i tick non si
+  // sovrappongono (guard `running` in startDailyReportPoller), quindi un report
+  // ancora `running` all'inizio del tick è orfano di un worker crashato a metà
+  // generazione. Lo rimettiamo `queued` così la fase successiva lo rigenera (le
+  // entries parziali vengono ripulite dal reclaim in generateForProject). Senza
+  // questo, un manuale orfano su una data arbitraria o un progetto disabilitato
+  // — che né la fase queued (filtra status='queued') né il gate notturno (solo
+  // ieri + progetto abilitato) ripescano — resterebbe `running` per sempre.
+  // Best-effort.
+  try {
+    await deps.db
+      .update(activityReports)
+      .set({ status: "queued", error: null, finishedAt: null })
+      .where(eq(activityReports.status, "running"));
+  } catch (err) {
+    console.error(
+      `[stubwise-worker] daily-report: recovery degli orfani 'running' fallita: ${errText(err)}`,
+    );
+  }
+
+  // (1) Report accodati manualmente: coppie (progetto, data) in stato 'queued'.
+  // Il reclaim dentro generateForProject vede la riga 'queued' (≠ 'done') → la
+  // porta a 'running' e genera. Ogni coppia è isolata in try/catch e
+  // serializzata per-progetto come il resto. L'unique (project_id, date) e il
+  // join 1:1 a projects rendono le righe già distinte: basta un select normale.
+  // Filtro `date >= cutoff`: i queued oltre la retention non vengono generati
+  // (spreco di run AI, verrebbero cancellati dalla retention nello stesso tick);
+  // il rifiuto esplicito con messaggio all'utente è demandato all'endpoint.
   try {
     const queued = await deps.db
-      .selectDistinct({
+      .select({
         projectId: activityReports.projectId,
         date: activityReports.date,
         aiProviderId: projects.aiProviderId,
       })
       .from(activityReports)
       .innerJoin(projects, eq(activityReports.projectId, projects.id))
-      .where(eq(activityReports.status, "queued"));
+      .where(and(eq(activityReports.status, "queued"), gte(activityReports.date, cutoff)));
 
     for (const q of queued) {
       try {
@@ -522,13 +555,9 @@ export async function pollDailyReportsOnce(deps: PollDailyReportsDeps): Promise<
   }
 
   // Retention (una volta per tick, fuori dal loop): cancella i report più vecchi
-  // di retentionDays. Cutoff = mezzanotte UTC di oggi meno retentionDays, come
-  // stringa YYYY-MM-DD confrontata sulla colonna `date`. Best-effort.
+  // di retentionDays. `cutoff` è calcolato in testa al tick e condiviso con il
+  // filtro della fase queued. Best-effort.
   try {
-    const todayMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-    const cutoff = new Date(todayMs - deps.retentionDays * 24 * 60 * 60 * 1000)
-      .toISOString()
-      .slice(0, 10);
     await deps.db.delete(activityReports).where(lt(activityReports.date, cutoff));
   } catch (err) {
     console.error(`[stubwise-worker] daily-report: retention fallita: ${errText(err)}`);
