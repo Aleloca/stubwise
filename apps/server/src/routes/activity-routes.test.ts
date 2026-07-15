@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { activityReportEntries, activityReports, gitIdentities, projects, users } from "@stubwise/db";
+import { activityCommits, activityReports, gitIdentities, projects, users } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
@@ -18,6 +18,7 @@ let adminCookie: string;
 let memberCookie: string;
 let memberId: string;
 let projectId: string;
+let repositoryId: string;
 const PROJECT_NAME = "Progetto di test";
 
 beforeAll(async () => {
@@ -42,7 +43,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  ({ projectId } = await seedRepository(testDb.db));
+  ({ projectId, repositoryId } = await seedRepository(testDb.db));
 });
 
 afterEach(async () => {
@@ -51,7 +52,11 @@ afterEach(async () => {
   await testDb.db.delete(projects);
 });
 
-/** Crea un report `done` per il progetto con due entries (una risolta, una no). */
+/**
+ * Crea un report `done` per il progetto con 4 commit: 3 del membro (email git
+ * "dev@member.it") + 1 di uno sconosciuto ("stranger@x.it"). Additions/deletions
+ * del membro sommano 100/20, dello sconosciuto 5/1.
+ */
 async function seedReport(): Promise<void> {
   const inserted = await testDb.db
     .insert(activityReports)
@@ -62,32 +67,54 @@ async function seedReport(): Promise<void> {
   // Il membro possiede l'email git "dev@member.it".
   await testDb.db.insert(gitIdentities).values({ userId: memberId, email: "dev@member.it" });
 
-  await testDb.db.insert(activityReportEntries).values([
+  await testDb.db.insert(activityCommits).values([
     {
       reportId,
-      gitEmail: "dev@member.it",
+      repoId: repositoryId,
+      sha: "aaa111",
+      authorEmail: "dev@member.it",
       authorName: "Dev Member",
-      commitCount: 3,
-      additions: 100,
-      deletions: 20,
-      repoIds: ["repo-1"],
-      commits: [
-        { sha: "aaa111", subject: "feat: uno", repoId: "repo-1" },
-        { sha: "bbb222", subject: "fix: due", repoId: "repo-1" },
-        { sha: "ccc333", subject: "chore: tre", repoId: "repo-1" },
-      ],
-      aiSummary: "Ha lavorato su feature.",
+      committedAt: new Date("2026-07-14T08:00:00Z"),
+      subject: "feat: uno",
+      additions: 50,
+      deletions: 10,
+      aiDescription: "Ha aggiunto la feature uno.",
     },
     {
       reportId,
-      gitEmail: "stranger@x.it",
+      repoId: repositoryId,
+      sha: "bbb222",
+      authorEmail: "dev@member.it",
+      authorName: "Dev Member",
+      committedAt: new Date("2026-07-14T09:00:00Z"),
+      subject: "fix: due",
+      additions: 30,
+      deletions: 5,
+      aiDescription: null,
+    },
+    {
+      reportId,
+      repoId: repositoryId,
+      sha: "ccc333",
+      authorEmail: "dev@member.it",
+      authorName: "Dev Member",
+      committedAt: new Date("2026-07-14T10:00:00Z"),
+      subject: "chore: tre",
+      additions: 20,
+      deletions: 5,
+      aiDescription: null,
+    },
+    {
+      reportId,
+      repoId: repositoryId,
+      sha: "ddd444",
+      authorEmail: "stranger@x.it",
       authorName: "Stranger",
-      commitCount: 1,
+      committedAt: new Date("2026-07-14T11:00:00Z"),
+      subject: "docs: quattro",
       additions: 5,
       deletions: 1,
-      repoIds: ["repo-1"],
-      commits: [{ sha: "ddd444", subject: "docs: quattro", repoId: "repo-1" }],
-      aiSummary: null,
+      aiDescription: null,
     },
   ]);
 }
@@ -132,7 +159,7 @@ describe("GET /api/activity", () => {
     expect(body.developers).toEqual([]);
   });
 
-  it("vista per-progetto: entries con resolvedUser risolto e null", async () => {
+  it("vista per-progetto: header aggregato e commit con resolvedUser risolto/null", async () => {
     await seedReport();
     const res = await app.inject({
       method: "GET",
@@ -143,17 +170,22 @@ describe("GET /api/activity", () => {
     const body = res.json() as {
       projects: {
         project: { id: string; name: string; slug: string };
-        date: string;
         status: string;
-        entries: {
-          gitEmail: string;
-          authorName: string | null;
-          resolvedUser: { id: string; email: string; avatarUrl: string | null } | null;
+        header: {
           commitCount: number;
           additions: number;
           deletions: number;
-          commits: { sha: string; subject: string; repoId: string }[];
-          aiSummary: string | null;
+          authorCount: number;
+        };
+        commits: {
+          sha: string;
+          authorName: string | null;
+          resolvedUser: { id: string; email: string; avatarUrl: string | null } | null;
+          committedAt: string;
+          subject: string;
+          additions: number;
+          deletions: number;
+          aiDescription: string | null;
         }[];
       }[];
     };
@@ -162,22 +194,31 @@ describe("GET /api/activity", () => {
     expect(view.project.id).toBe(projectId);
     expect(view.project.name).toBe(PROJECT_NAME);
     expect(view.status).toBe("done");
-    expect(view.date).toBe(DATE);
-    expect(view.entries).toHaveLength(2);
+    // 4 commit totali: 3 del membro (100/20) + 1 sconosciuto (5/1), 2 autori.
+    expect(view.header).toEqual({
+      commitCount: 4,
+      additions: 105,
+      deletions: 21,
+      authorCount: 2,
+    });
+    expect(view.commits).toHaveLength(4);
+    // Ordine cronologico ASC per committedAt.
+    expect(view.commits.map((c) => c.sha)).toEqual(["aaa111", "bbb222", "ccc333", "ddd444"]);
 
-    const resolved = view.entries.find((e) => e.gitEmail === "dev@member.it")!;
+    const resolved = view.commits.find((c) => c.sha === "aaa111")!;
     expect(resolved.resolvedUser).not.toBeNull();
     expect(resolved.resolvedUser!.id).toBe(memberId);
     expect(resolved.resolvedUser!.email).toBe("member@example.com");
     expect(resolved.resolvedUser!.avatarUrl).toBe("https://avatars.example/member.png");
-    expect(resolved.commitCount).toBe(3);
-    expect(resolved.commits).toHaveLength(3);
+    expect(resolved.aiDescription).toBe("Ha aggiunto la feature uno.");
+    expect(resolved.committedAt).toBe("2026-07-14T08:00:00.000Z");
 
-    const unresolved = view.entries.find((e) => e.gitEmail === "stranger@x.it")!;
+    const unresolved = view.commits.find((c) => c.sha === "ddd444")!;
     expect(unresolved.resolvedUser).toBeNull();
+    expect(unresolved.aiDescription).toBeNull();
   });
 
-  it("vista per-dev: membro risolto una volta, sconosciuto come dev separato", async () => {
+  it("vista per-dev: membro risolto aggregato, sconosciuto come dev separato", async () => {
     await seedReport();
     const res = await app.inject({
       method: "GET",
@@ -190,15 +231,15 @@ describe("GET /api/activity", () => {
         resolvedUser: { id: string; email: string; avatarUrl: string | null } | null;
         gitEmail: string | null;
         authorName: string | null;
-        totalCommits: number;
-        totalAdditions: number;
-        totalDeletions: number;
-        perProject: {
-          projectId: string;
-          projectName: string;
+        header: {
           commitCount: number;
-          aiSummary: string | null;
-          commits: { sha: string; subject: string; repoId: string }[];
+          additions: number;
+          deletions: number;
+          projectCount: number;
+        };
+        byProject: {
+          project: { id: string; name: string; slug: string };
+          commits: { sha: string; subject: string; aiDescription: string | null }[];
         }[];
       }[];
     };
@@ -207,24 +248,28 @@ describe("GET /api/activity", () => {
     const member = body.developers.find((d) => d.resolvedUser?.id === memberId)!;
     expect(member).toBeDefined();
     expect(member.resolvedUser!.email).toBe("member@example.com");
-    expect(member.totalCommits).toBe(3);
-    expect(member.totalAdditions).toBe(100);
-    expect(member.totalDeletions).toBe(20);
-    expect(member.perProject).toHaveLength(1);
-    expect(member.perProject[0]!.projectId).toBe(projectId);
-    expect(member.perProject[0]!.projectName).toBe(PROJECT_NAME);
-    expect(member.perProject[0]!.commitCount).toBe(3);
+    expect(member.header).toEqual({
+      commitCount: 3,
+      additions: 100,
+      deletions: 20,
+      projectCount: 1,
+    });
+    expect(member.byProject).toHaveLength(1);
+    expect(member.byProject[0]!.project.id).toBe(projectId);
+    expect(member.byProject[0]!.project.name).toBe(PROJECT_NAME);
+    expect(member.byProject[0]!.commits.map((c) => c.sha)).toEqual(["aaa111", "bbb222", "ccc333"]);
 
     const stranger = body.developers.find((d) => d.resolvedUser === null)!;
     expect(stranger).toBeDefined();
     expect(stranger.gitEmail).toBe("stranger@x.it");
-    expect(stranger.totalCommits).toBe(1);
+    expect(stranger.header.commitCount).toBe(1);
   });
 
   it("membro con più email git è unito sotto lo stesso resolvedUser", async () => {
-    // Due progetti, ciascuno con un'entry attribuita a un'email DIVERSA dello
+    // Due progetti, ciascuno con un commit attribuito a un'email DIVERSA dello
     // stesso membro: nella vista per-dev deve comparire una sola volta.
-    const { projectId: projectId2 } = await seedRepository(testDb.db);
+    const { projectId: projectId2, repositoryId: repositoryId2 } =
+      await seedRepository(testDb.db);
 
     await testDb.db.insert(gitIdentities).values([
       { userId: memberId, email: "a@member.it" },
@@ -242,28 +287,42 @@ describe("GET /api/activity", () => {
       .returning({ id: activityReports.id });
     const r2 = ins2[0]!.id;
 
-    await testDb.db.insert(activityReportEntries).values([
+    await testDb.db.insert(activityCommits).values([
       {
         reportId: r1,
-        gitEmail: "a@member.it",
+        repoId: repositoryId,
+        sha: "a1",
+        authorEmail: "a@member.it",
         authorName: "A",
-        commitCount: 2,
+        committedAt: new Date("2026-07-14T08:00:00Z"),
+        subject: "s1",
         additions: 10,
         deletions: 3,
-        repoIds: ["repo-1"],
-        commits: [{ sha: "a1", subject: "s1", repoId: "repo-1" }],
-        aiSummary: null,
+        aiDescription: null,
+      },
+      {
+        reportId: r1,
+        repoId: repositoryId,
+        sha: "a2",
+        authorEmail: "a@member.it",
+        authorName: "A",
+        committedAt: new Date("2026-07-14T08:30:00Z"),
+        subject: "s1b",
+        additions: 0,
+        deletions: 0,
+        aiDescription: null,
       },
       {
         reportId: r2,
-        gitEmail: "b@member.it",
+        repoId: repositoryId2,
+        sha: "b1",
+        authorEmail: "b@member.it",
         authorName: "B",
-        commitCount: 4,
+        committedAt: new Date("2026-07-14T09:00:00Z"),
+        subject: "s2",
         additions: 40,
         deletions: 7,
-        repoIds: ["repo-2"],
-        commits: [{ sha: "b1", subject: "s2", repoId: "repo-2" }],
-        aiSummary: null,
+        aiDescription: null,
       },
     ]);
 
@@ -276,26 +335,31 @@ describe("GET /api/activity", () => {
     const body = res.json() as {
       developers: {
         resolvedUser: { id: string } | null;
-        totalCommits: number;
-        totalAdditions: number;
-        totalDeletions: number;
-        perProject: { projectId: string }[];
+        header: {
+          commitCount: number;
+          additions: number;
+          deletions: number;
+          projectCount: number;
+        };
+        byProject: { project: { id: string } }[];
       }[];
     };
     expect(body.developers).toHaveLength(1);
     const member = body.developers[0]!;
     expect(member.resolvedUser!.id).toBe(memberId);
-    expect(member.totalCommits).toBe(6);
-    expect(member.totalAdditions).toBe(50);
-    expect(member.totalDeletions).toBe(10);
-    expect(member.perProject).toHaveLength(2);
+    expect(member.header).toEqual({
+      commitCount: 3,
+      additions: 50,
+      deletions: 10,
+      projectCount: 2,
+    });
+    expect(member.byProject).toHaveLength(2);
   });
 
-  it("più email dello stesso membro sullo STESSO progetto → perProject una riga", async () => {
+  it("più email dello stesso membro sullo STESSO progetto → byProject una riga", async () => {
     // Due email git dello stesso membro committano allo stesso progetto nello
-    // stesso giorno (due entry sullo stesso report): perProject deve aggregarle
-    // in UNA sola riga per quel progetto, sommando commitCount e concatenando i
-    // commits (niente header progetto duplicati nella UI).
+    // stesso giorno: byProject deve aggregarle in UNA sola riga per quel
+    // progetto, concatenando i commit (niente header progetto duplicati).
     await testDb.db.insert(gitIdentities).values([
       { userId: memberId, email: "a@member.it" },
       { userId: memberId, email: "b@member.it" },
@@ -307,28 +371,30 @@ describe("GET /api/activity", () => {
       .returning({ id: activityReports.id });
     const reportId = ins[0]!.id;
 
-    await testDb.db.insert(activityReportEntries).values([
+    await testDb.db.insert(activityCommits).values([
       {
         reportId,
-        gitEmail: "a@member.it",
+        repoId: repositoryId,
+        sha: "a1",
+        authorEmail: "a@member.it",
         authorName: "A",
-        commitCount: 2,
+        committedAt: new Date("2026-07-14T08:00:00Z"),
+        subject: "s1",
         additions: 10,
         deletions: 3,
-        repoIds: ["repo-1"],
-        commits: [{ sha: "a1", subject: "s1", repoId: "repo-1" }],
-        aiSummary: "Sommario A.",
+        aiDescription: "Sommario A.",
       },
       {
         reportId,
-        gitEmail: "b@member.it",
+        repoId: repositoryId,
+        sha: "b1",
+        authorEmail: "b@member.it",
         authorName: "B",
-        commitCount: 4,
+        committedAt: new Date("2026-07-14T09:00:00Z"),
+        subject: "s2",
         additions: 40,
         deletions: 7,
-        repoIds: ["repo-1"],
-        commits: [{ sha: "b1", subject: "s2", repoId: "repo-1" }],
-        aiSummary: "Sommario B.",
+        aiDescription: "Sommario B.",
       },
     ]);
 
@@ -341,27 +407,51 @@ describe("GET /api/activity", () => {
     const body = res.json() as {
       developers: {
         resolvedUser: { id: string } | null;
-        totalCommits: number;
-        perProject: {
-          projectId: string;
-          commitCount: number;
+        header: { commitCount: number; projectCount: number };
+        byProject: {
+          project: { id: string };
           commits: { sha: string }[];
-          aiSummary: string | null;
         }[];
       }[];
     };
     expect(body.developers).toHaveLength(1);
     const member = body.developers[0]!;
     expect(member.resolvedUser!.id).toBe(memberId);
-    expect(member.totalCommits).toBe(6);
-    expect(member.perProject).toHaveLength(1);
-    const row = member.perProject[0]!;
-    expect(row.projectId).toBe(projectId);
-    expect(row.commitCount).toBe(6);
+    expect(member.header.commitCount).toBe(2);
+    expect(member.header.projectCount).toBe(1);
+    expect(member.byProject).toHaveLength(1);
+    const row = member.byProject[0]!;
+    expect(row.project.id).toBe(projectId);
     expect(row.commits.map((c) => c.sha).sort()).toEqual(["a1", "b1"]);
-    // Ordine di entryRows non garantito (nessun ORDER BY): accettiamo entrambe
-    // le concatenazioni.
-    expect(["Sommario A.\n\nSommario B.", "Sommario B.\n\nSommario A."]).toContain(row.aiSummary);
+  });
+
+  it("report queued/running senza commit → appare in projects, developers vuoto", async () => {
+    await testDb.db
+      .insert(activityReports)
+      .values({ projectId, date: DATE, status: "running" });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/activity?date=${DATE}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      projects: {
+        project: { id: string };
+        status: string;
+        header: { commitCount: number };
+        commits: unknown[];
+      }[];
+      developers: unknown[];
+    };
+    expect(body.projects).toHaveLength(1);
+    const view = body.projects[0]!;
+    expect(view.project.id).toBe(projectId);
+    expect(view.status).toBe("running");
+    expect(view.header.commitCount).toBe(0);
+    expect(view.commits).toEqual([]);
+    expect(body.developers).toEqual([]);
   });
 });
 
