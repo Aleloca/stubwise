@@ -1464,6 +1464,7 @@
     "memberNoResults": "No members match",
     "memberMoreResults": "+{{count}} more",
     "linking": "Linking…",
+    "loadingMembers": "Loading members…",
     "cancel": "Cancel",
     "collapseBlock": "Collapse {{name}}",
     "expandBlock": "Expand {{name}}",

@@ -53,7 +53,7 @@ function renderActivity() {
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
-  return router;
+  return { router, queryClient };
 }
 
 // Email di sessione distinte dai dati del report: l'AppLayout mostra l'email
@@ -757,5 +757,102 @@ describe("sezione attività", () => {
     expect(screen.getByText("Bump version")).toBeInTheDocument();
     // …ma senza `aiDescription` non c'è alcun contenitore markdown.
     expect(document.querySelector(".markdown")).toBeNull();
+  });
+
+  it("admin: 'Link team member' nella vista per sviluppatore associa l'email git del dev", async () => {
+    // Ramo `linkEmail={dev.gitEmail}`: nella vista-dev un developer non risolto
+    // (resolvedUser null, gitEmail valorizzato) espone il pulsante nell'header
+    // dev; il POST usa l'email git del developer, non quella del membro scelto.
+    const user = userEvent.setup();
+    let linkBody: unknown = null;
+    let linkedUserId: string | null = null;
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, REPORT),
+      "GET /api/users": () => jsonResponse(200, MEMBERS),
+      "POST /api/users/u9/git-identities": (_url, init) => {
+        linkedUserId = "u9";
+        linkBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, []);
+      },
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    await user.click(screen.getByRole("tab", { name: "By developer" }));
+
+    // Nel blocco del dev non risolto (ghost@git.example) c'è il pulsante di link.
+    await user.click(screen.getByRole("button", { name: "Link team member" }));
+
+    const combo = await screen.findByRole("combobox", { name: "Pick a team member" });
+    await user.type(combo, "newdev");
+    const listbox = screen.getByRole("listbox");
+    await user.click(within(listbox).getByRole("option", { name: /newdev@corp\.example/ }));
+
+    // Il POST associa l'email git del DEVELOPER (dev.gitEmail), non del membro.
+    await waitFor(() => expect(linkBody).toEqual({ email: "ghost@git.example" }));
+    expect(linkedUserId).toBe("u9");
+  });
+
+  it("admin: link membro con 409 git_identity_taken → errore inline, picker ancora utilizzabile", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, REPORT),
+      "GET /api/users": () => jsonResponse(200, MEMBERS),
+      "POST /api/users/u9/git-identities": () =>
+        jsonResponse(409, { code: "git_identity_taken", message: "taken" }),
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    await user.click(screen.getByRole("button", { name: "Link team member" }));
+
+    const combo = await screen.findByRole("combobox", { name: "Pick a team member" });
+    await user.type(combo, "newdev");
+    await user.click(
+      within(screen.getByRole("listbox")).getByRole("option", { name: /newdev@corp\.example/ }),
+    );
+
+    // Il messaggio i18n del codice 409 compare inline (role=alert)…
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("This git email is already linked to a member");
+    // …e il picker resta montato/utilizzabile (l'errore non lo chiude).
+    expect(screen.getByRole("combobox", { name: "Pick a team member" })).toBeInTheDocument();
+  });
+
+  it("collapse persiste attraverso un refetch della query attività", async () => {
+    // Invariante: la key stabile del blocco (project.id) preserva lo stato di
+    // collapse quando la query attività viene invalidata e rifà il fetch (come
+    // dopo un link membro). Nessun remount → il blocco resta collassato.
+    const user = userEvent.setup();
+    let activityCalls = 0;
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => {
+        activityCalls += 1;
+        return jsonResponse(200, REPORT);
+      },
+    });
+
+    const { queryClient } = renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    await user.click(screen.getByRole("button", { name: "Collapse Apollo" }));
+    expect(screen.queryByText("Add login form")).not.toBeInTheDocument();
+    const callsBefore = activityCalls;
+
+    // Invalidazione per prefisso → refetch della stessa key.
+    await queryClient.invalidateQueries({ queryKey: ["activity"] });
+    await waitFor(() => expect(activityCalls).toBeGreaterThan(callsBefore));
+
+    // Dopo il refetch il blocco è ancora collassato (stato non perso).
+    expect(screen.getByRole("button", { name: "Expand Apollo" })).toBeInTheDocument();
+    expect(screen.queryByText("Add login form")).not.toBeInTheDocument();
   });
 });

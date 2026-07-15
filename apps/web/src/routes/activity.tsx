@@ -316,12 +316,7 @@ function ActivityBody({
     <div className="flex flex-col gap-6">
       {view === "project"
         ? report.projects.map((project) => (
-            <ProjectBlock
-              key={project.project.id}
-              project={project}
-              isAdmin={isAdmin}
-              date={date}
-            />
+            <ProjectBlock key={project.project.id} project={project} isAdmin={isAdmin} />
           ))
         : report.developers.length === 0
           ? <DeveloperEmpty projects={report.projects} />
@@ -330,7 +325,6 @@ function ActivityBody({
                 key={dev.resolvedUser?.id ?? dev.gitEmail ?? `dev-${index}`}
                 dev={dev}
                 isAdmin={isAdmin}
-                date={date}
               />
             ))}
     </div>
@@ -449,11 +443,9 @@ function CommitRow({ commit, author }: { commit: ActivityCommit; author?: ReactN
 function ProjectBlock({
   project,
   isAdmin,
-  date,
 }: {
   project: ActivityProjectView;
   isAdmin: boolean;
-  date: string;
 }) {
   const { t } = useTranslation();
   const { header } = project;
@@ -509,7 +501,6 @@ function ProjectBlock({
                         linkEmail={commit.authorEmail ?? null}
                         authorName={commit.authorName ?? null}
                         isAdmin={isAdmin}
-                        date={date}
                       />
                     }
                   />
@@ -530,11 +521,9 @@ function ProjectBlock({
 function DeveloperBlock({
   dev,
   isAdmin,
-  date,
 }: {
   dev: ActivityDeveloperView;
   isAdmin: boolean;
-  date: string;
 }) {
   const { t } = useTranslation();
   const { header } = dev;
@@ -562,7 +551,6 @@ function DeveloperBlock({
               linkEmail={dev.gitEmail}
               authorName={dev.authorName}
               isAdmin={isAdmin}
-              date={date}
             />
           </h2>
         </div>
@@ -605,6 +593,9 @@ function DeveloperBlock({
  * Chevron toggle per collassare/espandere un blocco (progetto o sviluppatore).
  * `▾` espanso, `▸` collassato. `aria-expanded` riflette lo stato e `aria-controls`
  * punta al pannello del contenuto; l'`aria-label` è localizzata col nome del blocco.
+ * Il pannello è smontato da collassato (per non renderizzare contenuto pesante),
+ * quindi `aria-controls` è omesso in quello stato: puntare a un id non montato è
+ * una violazione ARIA.
  */
 function CollapseToggle({
   collapsed,
@@ -623,7 +614,7 @@ function CollapseToggle({
       type="button"
       onClick={onToggle}
       aria-expanded={!collapsed}
-      aria-controls={panelId}
+      aria-controls={collapsed ? undefined : panelId}
       aria-label={t(collapsed ? "activity:expandBlock" : "activity:collapseBlock", {
         name: label,
       })}
@@ -647,7 +638,6 @@ function AuthorLabel({
   linkEmail,
   authorName,
   isAdmin,
-  date,
 }: {
   resolvedUser: ActivityResolvedUser | null;
   gitEmail: string | null;
@@ -655,7 +645,6 @@ function AuthorLabel({
   linkEmail: string | null;
   authorName: string | null;
   isAdmin: boolean;
-  date: string;
 }) {
   const { t } = useTranslation();
   if (resolvedUser) {
@@ -675,7 +664,7 @@ function AuthorLabel({
       >
         {raw}
       </span>
-      {isAdmin && linkEmail && <LinkMemberControl email={linkEmail} date={date} />}
+      {isAdmin && linkEmail && <LinkMemberControl email={linkEmail} />}
     </span>
   );
 }
@@ -685,24 +674,29 @@ function AuthorLabel({
  * del team, inline nella sezione Attività (sostituisce il vecchio link a /team).
  * Un pulsante apre un combobox con autocomplete sui membri (caricati solo
  * all'apertura); selezionandone uno si chiama `linkGitIdentity(memberId, email)`.
- * Al successo si invalida la query del giorno (l'autore si risolve al refetch) e
- * la lista membri; gli errori (es. 409 `git_identity_taken`) si mostrano inline.
+ * Al successo si invalidano per prefisso le query attività (l'autore si risolve
+ * al refetch) e la lista membri; gli errori (es. 409 `git_identity_taken`) si
+ * mostrano inline.
  */
-function LinkMemberControl({ email, date }: { email: string; date: string }) {
+function LinkMemberControl({ email }: { email: string }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [picking, setPicking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // I membri servono solo a picker aperto: `enabled` evita N fetch quando la
   // pagina ha molti autori non risolti. Query condivisa (staleTime) con /team.
-  const { data: users } = useQuery({ ...usersQueryOptions, enabled: picking });
+  // `isLoading` distingue "sto caricando" da "nessun membro": a cache fredda il
+  // combobox mostrerebbe altrimenti il noResults durante il fetch (fuorviante).
+  const { data: users, isLoading } = useQuery({ ...usersQueryOptions, enabled: picking });
   const members = users ?? [];
 
   const mutation = useMutation({
     mutationFn: (memberId: string) => linkGitIdentity(memberId, email),
     onSuccess: () => {
       setPicking(false);
-      void queryClient.invalidateQueries({ queryKey: ["activity", date] });
+      // Invalidazione per prefisso: rifà TUTTI i giorni cacheati (report
+      // giornalieri, costo trascurabile) senza dover filare la `date` fin qui.
+      void queryClient.invalidateQueries({ queryKey: ["activity"] });
       void queryClient.invalidateQueries({ queryKey: usersQueryOptions.queryKey });
     },
     onError: (cause) => setError(translateApiError(cause, t)),
@@ -720,6 +714,14 @@ function LinkMemberControl({ email, date }: { email: string; date: string }) {
       >
         {t("activity:linkMember")}
       </button>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <span className="font-mono text-[11px] tracking-[0.1em] text-fg-faint uppercase">
+        {t("activity:loadingMembers")}
+      </span>
     );
   }
 

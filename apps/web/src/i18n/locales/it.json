@@ -1464,6 +1464,7 @@
     "memberNoResults": "Nessun membro corrisponde",
     "memberMoreResults": "+{{count}} altri",
     "linking": "Collegamento…",
+    "loadingMembers": "Caricamento membri…",
     "cancel": "Annulla",
     "collapseBlock": "Comprimi {{name}}",
     "expandBlock": "Espandi {{name}}",
