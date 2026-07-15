@@ -240,6 +240,67 @@ describe("sezione attività", () => {
     await waitFor(() => expect(seen).toContain("2026-07-01"));
   });
 
+  it("prev/next → fetch con la data spostata di ±1 giorno in UTC", async () => {
+    const user = userEvent.setup();
+    const seen: string[] = [];
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": (url) => {
+        seen.push(url.searchParams.get("date") ?? "");
+        return jsonResponse(200, REPORT);
+      },
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+
+    // Fissa una data nota (l'input evita la dipendenza dal default "ieri"),
+    // poi verifica lo shift esatto di -1 giorno cliccando "giorno precedente".
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-05-15" } });
+    await waitFor(() => expect(seen).toContain("2026-05-15"));
+    await user.click(screen.getByRole("button", { name: "Previous day" }));
+    await waitFor(() => expect(seen).toContain("2026-05-14"));
+
+    // Da un'altra data nota, "giorno successivo" spinge di +1 giorno in UTC.
+    fireEvent.change(screen.getByLabelText("Date"), { target: { value: "2026-05-20" } });
+    await waitFor(() => expect(seen).toContain("2026-05-20"));
+    await user.click(screen.getByRole("button", { name: "Next day" }));
+    await waitFor(() => expect(seen).toContain("2026-05-21"));
+  });
+
+  it("errore della query attività → messaggio nel corpo, controlli montati, retry recupera", async () => {
+    const user = userEvent.setup();
+    let fail = true;
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () =>
+        fail ? jsonResponse(500, { code: "boom", message: "down" }) : jsonResponse(200, REPORT),
+    });
+
+    renderActivity();
+
+    // Il messaggio d'errore i18n compare NEL CORPO (l'error boundary locale non
+    // smonta la pagina).
+    expect(
+      await screen.findByText("Could not load the report for this date."),
+    ).toBeInTheDocument();
+    // Selettore data e tab restano montati: l'utente può cambiare data / riprovare.
+    expect(screen.getByLabelText("Date")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "By project" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "By developer" })).toBeInTheDocument();
+
+    // "Riprova" con la data corrente: la seconda risposta è 200 → il corpo si riprende.
+    fail = false;
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByRole("heading", { name: "Apollo" })).toBeInTheDocument();
+    expect(
+      screen.queryByText("Could not load the report for this date."),
+    ).not.toBeInTheDocument();
+  });
+
   it("giorno senza report → messaggio 'No report for this date'", async () => {
     mockApi({
       "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),

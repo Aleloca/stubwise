@@ -1445,6 +1445,7 @@
     "viewDeveloper": "Per sviluppatore",
     "noReport": "Nessun report per questa data",
     "noReportHint": "I report vengono generati durante la notte per il giorno precedente.",
+    "loadError": "Impossibile caricare il report per questa data.",
     "noActivity": "Nessuna attività",
     "commits_one": "{{count}} commit",
     "commits_other": "{{count}} commit",

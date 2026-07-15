@@ -1445,6 +1445,7 @@
     "viewDeveloper": "By developer",
     "noReport": "No report for this date",
     "noReportHint": "Reports are generated overnight for the previous day.",
+    "loadError": "Could not load the report for this date.",
     "noActivity": "No activity",
     "commits_one": "{{count}} commit",
     "commits_other": "{{count}} commits",

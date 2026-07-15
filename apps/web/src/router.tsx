@@ -43,7 +43,7 @@ import {
   widgetConversationsQueryOptions,
   widgetsQueryOptions,
 } from "./lib/queries";
-import { ActivityPage } from "./routes/activity";
+import { ActivityPage, yesterdayUtc } from "./routes/activity";
 import { boardSearchSchema, BoardPage } from "./routes/board";
 import {
   DocsManualNew,
@@ -453,9 +453,12 @@ const serverDetailRoute = createRoute({
 const activityRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/activity",
+  // Il default della data DEVE coincidere con quello del componente
+  // (`yesterdayUtc`), altrimenti il loader prefetcha una queryKey diversa da
+  // quella richiesta al render → flash del Suspense + doppia fetch.
   loader: ({ context }) =>
     context.queryClient
-      .ensureQueryData(activityReportQueryOptions(new Date(Date.now() - 86_400_000).toISOString().slice(0, 10)))
+      .ensureQueryData(activityReportQueryOptions(yesterdayUtc()))
       .catch(() => undefined),
   component: ActivityPage,
 });

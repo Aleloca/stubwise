@@ -1,6 +1,6 @@
-import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Suspense, useMemo, useState } from "react";
+import { Component, type ReactNode, Suspense, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "../components/avatar";
 import type {
@@ -10,6 +10,7 @@ import type {
   ActivityResolvedUser,
 } from "../lib/api";
 import { meQueryOptions } from "../lib/auth";
+import { formatDate } from "../lib/format";
 import { activityReportQueryOptions, repositoriesQueryOptions } from "../lib/queries";
 
 /**
@@ -18,9 +19,12 @@ import { activityReportQueryOptions, repositoriesQueryOptions } from "../lib/que
  * sugli stessi dati: PER PROGETTO (un blocco per progetto con gli autori del
  * giorno) e GLOBALE PER-DEV (un blocco per sviluppatore che aggrega i commit su
  * tutti i progetti). I dati veri stanno in {@link ActivityBody}, dietro un
- * confine Suspense così il cambio data non smonta i controlli (né crasha in
- * assenza di boundary): l'header e i tab restano montati mentre il report per la
- * nuova data carica.
+ * confine Suspense (per la sospensione) e un {@link ActivityErrorBoundary}
+ * locale (per gli errori della query). Entrambi i confini avvolgono SOLO il
+ * corpo: header, selettore data e tab restano montati sia mentre il report per
+ * la nuova data carica sia quando la query fallisce — l'utente può cambiare data
+ * o riprovare senza perdere i controlli. `useSuspenseQuery` lancerebbe altrimenti
+ * l'errore fino all'error component del router, smontando l'intera pagina.
  */
 export function ActivityPage() {
   const { t } = useTranslation();
@@ -42,17 +46,100 @@ export function ActivityPage() {
       </div>
 
       <div className="mt-6">
-        <Suspense fallback={<ActivityLoading />}>
-          <ActivityBody date={date} view={view} isAdmin={isAdmin} />
-        </Suspense>
+        {/*
+         * L'error boundary avvolge il Suspense: un errore della query per la
+         * data selezionata mostra il fallback SOLO qui, senza smontare i
+         * controlli. `resetKey={date}` azzera il boundary al cambio data, così
+         * la query della nuova data riparte pulita.
+         */}
+        <ActivityErrorBoundary
+          resetKey={date}
+          fallback={(reset) => <ActivityError date={date} onRetry={reset} />}
+        >
+          <Suspense fallback={<ActivityLoading />}>
+            <ActivityBody date={date} view={view} isAdmin={isAdmin} />
+          </Suspense>
+        </ActivityErrorBoundary>
       </div>
     </div>
   );
 }
 
 /** Data di ieri in UTC (`YYYY-MM-DD`), coerente col giorno prodotto dal poller. */
-function yesterdayUtc(): string {
+export function yesterdayUtc(): string {
   return new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+}
+
+/** Data di oggi in UTC (`YYYY-MM-DD`): tetto del selettore (niente giorni futuri). */
+function todayUtc(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Error boundary locale al corpo Attività. `useSuspenseQuery` rilancia gli
+ * errori OLTRE il `<Suspense>` (che cattura solo la sospensione): senza questo
+ * confine finirebbero all'error component del router, smontando tutta la pagina.
+ * `resetKey` (la data selezionata) azzera lo stato d'errore quando cambia, così
+ * scegliere un'altra data fa ripartire la query invece di restare bloccati sul
+ * fallback.
+ */
+class ActivityErrorBoundary extends Component<
+  { resetKey: string; fallback: (reset: () => void) => ReactNode; children: ReactNode },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error): { error: Error } {
+    return { error };
+  }
+
+  componentDidUpdate(prev: { resetKey: string }): void {
+    if (this.state.error && prev.resetKey !== this.props.resetKey) {
+      this.setState({ error: null });
+    }
+  }
+
+  reset = (): void => {
+    this.setState({ error: null });
+  };
+
+  render(): ReactNode {
+    if (this.state.error) return this.props.fallback(this.reset);
+    return this.props.children;
+  }
+}
+
+/**
+ * Fallback d'errore del corpo Attività: messaggio i18n + "Riprova". Il retry
+ * resetta la query della data corrente (scartando l'errore in cache) e azzera il
+ * boundary, così la query riparte. Cambiare data resetta comunque il boundary
+ * (vedi {@link ActivityErrorBoundary}).
+ */
+function ActivityError({ date, onRetry }: { date: string; onRetry: () => void }) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const retry = (): void => {
+    void queryClient.resetQueries({ queryKey: ["activity", date] });
+    onRetry();
+  };
+  return (
+    <div
+      role="alert"
+      className="w-full max-w-md rounded-sm border border-danger/30 bg-ink-900 p-6"
+    >
+      <p className="font-mono text-[11px] tracking-[0.18em] text-danger uppercase">
+        {t("common:error")}
+      </p>
+      <p className="mt-2 text-sm text-fg-muted">{t("activity:loadError")}</p>
+      <button
+        type="button"
+        onClick={retry}
+        className="mt-4 rounded-sm border border-line-strong px-3 py-1.5 font-mono text-[11px] tracking-[0.12em] text-fg-muted uppercase transition-colors hover:border-signal-dim hover:text-fg"
+      >
+        {t("common:retry")}
+      </button>
+    </div>
+  );
 }
 
 /** Sposta una data `YYYY-MM-DD` di `deltaDays` giorni, restando in UTC. */
@@ -67,38 +154,53 @@ function shortSha(sha: string): string {
   return sha.slice(0, 7);
 }
 
-/** Selettore data: bottoni ±1 giorno + input date nativo. */
+/**
+ * Selettore data: bottoni ±1 giorno + input date nativo (con etichetta leggibile
+ * della data scelta). Il tetto è OGGI in UTC: `max` sull'input impedisce di
+ * digitare giorni futuri e il bottone "giorno successivo" è disabilitato quando
+ * la data è già l'ultima disponibile (il poller produce solo giorni passati).
+ */
 function DateSelector({ date, onChange }: { date: string; onChange: (date: string) => void }) {
   const { t } = useTranslation();
+  const today = todayUtc();
+  const atMax = date >= today;
   const stepButton =
-    "tap rounded-sm border border-line-strong px-2 py-1.5 font-mono text-[12px] text-fg-muted transition-colors hover:border-signal-dim/40 hover:text-signal";
+    "tap rounded-sm border border-line-strong px-2 py-1.5 font-mono text-[12px] text-fg-muted transition-colors hover:border-signal-dim/40 hover:text-signal disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-line-strong disabled:hover:text-fg-muted";
   return (
-    <div className="flex items-center gap-2">
-      <button
-        type="button"
-        aria-label={t("activity:previousDay")}
-        onClick={() => onChange(shiftDate(date, -1))}
-        className={stepButton}
-      >
-        ‹
-      </button>
-      <input
-        type="date"
-        aria-label={t("activity:dateLabel")}
-        value={date}
-        onChange={(event) => {
-          if (event.target.value) onChange(event.target.value);
-        }}
-        className="rounded-sm border border-line-strong bg-ink-950 px-2 py-1.5 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
-      />
-      <button
-        type="button"
-        aria-label={t("activity:nextDay")}
-        onClick={() => onChange(shiftDate(date, 1))}
-        className={stepButton}
-      >
-        ›
-      </button>
+    <div className="flex flex-col gap-1">
+      <span className="font-mono text-[11px] tracking-[0.1em] text-fg-faint uppercase">
+        {/* Etichetta leggibile: mezzogiorno locale per non slittare di giorno. */}
+        {formatDate(`${date}T12:00:00`)}
+      </span>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          aria-label={t("activity:previousDay")}
+          onClick={() => onChange(shiftDate(date, -1))}
+          className={stepButton}
+        >
+          ‹
+        </button>
+        <input
+          type="date"
+          aria-label={t("activity:dateLabel")}
+          value={date}
+          max={today}
+          onChange={(event) => {
+            if (event.target.value) onChange(event.target.value);
+          }}
+          className="rounded-sm border border-line-strong bg-ink-950 px-2 py-1.5 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
+        />
+        <button
+          type="button"
+          aria-label={t("activity:nextDay")}
+          onClick={() => onChange(shiftDate(date, 1))}
+          disabled={atMax}
+          className={stepButton}
+        >
+          ›
+        </button>
+      </div>
     </div>
   );
 }
