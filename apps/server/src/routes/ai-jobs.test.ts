@@ -340,6 +340,8 @@ describe("GET /api/users", () => {
         createdAt: expect.any(String),
         avatarUrl: null,
         slackUserId: null,
+        bitbucketUsername: null,
+        gitIdentities: [],
       },
       {
         id: users.memberId,
@@ -348,6 +350,8 @@ describe("GET /api/users", () => {
         createdAt: expect.any(String),
         avatarUrl: null,
         slackUserId: null,
+        bitbucketUsername: null,
+        gitIdentities: [],
       },
     ]);
     // Nessun campo sensibile trapela.
