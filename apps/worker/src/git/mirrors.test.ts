@@ -471,6 +471,49 @@ describe("MirrorManager.getPrDiff", () => {
   });
 });
 
+describe("MirrorManager.getCommitDiff", () => {
+  it("ritorna il diff del singolo commit (header + righe modificate) non troncato", async () => {
+    const { manager, upstream } = await makeFixture();
+    const project = projectFor(upstream);
+    const sha = await upstream.addCommit("greeting.txt", "ciao mondo\n");
+
+    const { diff, truncated } = await manager.getCommitDiff(project, sha);
+
+    // `git show` include l'header del commit (sha completo) e il diff.
+    expect(diff).toContain(sha);
+    expect(diff).toContain("greeting.txt");
+    expect(diff).toContain("+ciao mondo");
+    expect(truncated).toBe(false);
+  });
+
+  it("tronca i commit enormi a MAX_DIFF_CHARS e segnala truncated", async () => {
+    const { manager, upstream } = await makeFixture();
+    const project = projectFor(upstream);
+    const shaBig = await upstream.addCommit("big.txt", `${"x".repeat(MAX_DIFF_CHARS + 50_000)}\n`);
+
+    const { diff, truncated } = await manager.getCommitDiff(project, shaBig);
+
+    expect(truncated).toBe(true);
+    expect(diff.length).toBe(MAX_DIFF_CHARS);
+  });
+
+  it("rifiuta uno sha malformato con InvalidShaError senza eseguire alcun comando git", async () => {
+    const root = await makeRoot();
+    const mirrorsDir = join(root, "mirrors");
+    const manager = new MirrorManager({ mirrorsDir });
+    const project: MirrorProject = {
+      provider: "github",
+      repoUrl: "https://github.com/acme/repo",
+      defaultBranch: "main",
+      credentials: { token: "t" },
+    };
+
+    await expect(manager.getCommitDiff(project, "not-a-sha")).rejects.toBeInstanceOf(InvalidShaError);
+    // Nessun ensureMirror (quindi nessun comando git): la mirrorsDir non esiste.
+    expect(existsSync(mirrorsDir)).toBe(false);
+  });
+});
+
 describe("MirrorManager.getChangedFiles", () => {
   it("ritorna i file cambiati tra due commit (mirror aggiornato via ensureMirror)", async () => {
     const { manager, upstream } = await makeFixture();

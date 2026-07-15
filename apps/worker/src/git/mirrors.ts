@@ -187,6 +187,16 @@ export function mirrorRemoteUrl(project: MirrorProject): string {
  */
 export const MAX_DIFF_CHARS = 150_000;
 
+/**
+ * Tronca un diff a MAX_DIFF_CHARS per non esplodere sui prompt dell'agente.
+ * Condiviso da getPrDiff e getCommitDiff: stessa strategia (taglio per
+ * caratteri) e stessa costante.
+ */
+function truncateDiff(diff: string): { diff: string; truncated: boolean } {
+  if (diff.length <= MAX_DIFF_CHARS) return { diff, truncated: false };
+  return { diff: diff.slice(0, MAX_DIFF_CHARS), truncated: true };
+}
+
 /** Sha abbreviato o completo (hex 7-40): tutto il resto è rifiutato a monte. */
 const SHA_RE = /^[0-9a-f]{7,40}$/i;
 
@@ -720,8 +730,25 @@ export class MirrorManager {
     }
     // `--` separa revisioni da pathspec, come getChangedFiles.
     const diff = await this.git(["diff", base, headSha, "--"], { cwd: mirrorDir });
-    if (diff.length <= MAX_DIFF_CHARS) return { diff, truncated: false };
-    return { diff: diff.slice(0, MAX_DIFF_CHARS), truncated: true };
+    return truncateDiff(diff);
+  }
+
+  /**
+   * Diff di un singolo commit (`git show <sha>`), dal mirror aggiornato, troncato
+   * allo stesso tetto di getPrDiff (MAX_DIFF_CHARS, via truncateDiff) per non
+   * esplodere su commit enormi. Ritorna il testo del diff e se è stato troncato.
+   * Read-only. Lo sha è validato da SHA_RE (mai reinterpretabile come opzione).
+   */
+  async getCommitDiff(project: MirrorProject, sha: string): Promise<{ diff: string; truncated: boolean }> {
+    if (!SHA_RE.test(sha)) throw new InvalidShaError(sha);
+    const mirrorDir = await this.ensureMirror(project);
+    // `git show`: header del commit (--format=medium) + diff. -M rileva i rename
+    // (come un diff leggibile), --no-color per un testo pulito nel prompt.
+    // `--` separa la revisione da eventuali pathspec: lo sha non è ambiguo.
+    const out = await this.git(["show", "--no-color", "-M", "--format=medium", sha, "--"], {
+      cwd: mirrorDir,
+    });
+    return truncateDiff(out);
   }
 
   private git(
