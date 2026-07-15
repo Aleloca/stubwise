@@ -2232,14 +2232,7 @@ export function getServerMetrics(
   return api.get(`/api/servers/${encodeURIComponent(id)}/metrics?${params.toString()}`);
 }
 
-// --- Report attività (daily standup asincrono) ---
-
-/** Commit di una entry/vista dev: SHA, oggetto e repository di provenienza. */
-export interface ActivityCommit {
-  sha: string;
-  subject: string;
-  repoId: string;
-}
+// --- Report attività (daily standup asincrono, PER-COMMIT) ---
 
 /** Membro Stubwise risolto dall'email git (via git_identities), o null se non risolto. */
 export interface ActivityResolvedUser {
@@ -2248,46 +2241,69 @@ export interface ActivityResolvedUser {
   avatarUrl: string | null;
 }
 
-/** Entry per-autore di un report di progetto: una riga per email git. */
-export interface ActivityEntry {
-  gitEmail: string;
-  authorName: string | null;
-  resolvedUser: ActivityResolvedUser | null;
+/** Progetto riferito dalle due viste. */
+export interface ActivityProjectRef {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+/**
+ * Un singolo commit del giorno. Nella vista per-progetto include l'autore
+ * (`authorName` + `resolvedUser`); nella vista per-dev l'autore è implicito
+ * (già raggruppato) e quei campi sono assenti. `aiDescription` è markdown
+ * NON FIDATO (prodotto da un agente): renderlo SEMPRE via `<Markdown>`.
+ */
+export interface ActivityCommit {
+  sha: string;
+  authorName?: string | null;
+  resolvedUser?: ActivityResolvedUser | null;
+  committedAt: string;
+  subject: string;
+  additions: number;
+  deletions: number;
+  aiDescription: string | null;
+}
+
+/** Totali di intestazione della vista per-progetto. */
+export interface ActivityProjectHeader {
   commitCount: number;
   additions: number;
   deletions: number;
-  commits: ActivityCommit[];
-  aiSummary: string | null;
+  authorCount: number;
 }
 
-/** Vista per-progetto del giorno: il report con le sue entries. */
+/** Totali di intestazione della vista per-sviluppatore. */
+export interface ActivityDeveloperHeader {
+  commitCount: number;
+  additions: number;
+  deletions: number;
+  projectCount: number;
+}
+
+/** Vista per-progetto del giorno: header coi totali + la lista dei commit. */
 export interface ActivityProjectView {
-  project: { id: string; name: string; slug: string };
-  date: string;
+  project: ActivityProjectRef;
   status: string;
-  entries: ActivityEntry[];
+  header: ActivityProjectHeader;
+  commits: ActivityCommit[];
 }
 
-/** Vista per-dev del giorno: entries di tutti i progetti raggruppate per membro. */
+/** Vista per-dev del giorno: header coi totali + i commit raggruppati per progetto. */
 export interface ActivityDeveloperView {
   resolvedUser: ActivityResolvedUser | null;
   gitEmail: string | null;
   authorName: string | null;
-  totalCommits: number;
-  totalAdditions: number;
-  totalDeletions: number;
-  perProject: {
-    projectId: string;
-    projectName: string;
-    commitCount: number;
-    aiSummary: string | null;
+  header: ActivityDeveloperHeader;
+  byProject: {
+    project: ActivityProjectRef;
     commits: ActivityCommit[];
   }[];
 }
 
 /**
  * Report di attività di una data: entrambe le viste (per-progetto e per-dev)
- * sugli stessi entries. Alimenta la sezione SPA "Attività".
+ * sugli stessi commit. Alimenta la sezione SPA "Attività".
  */
 export interface ActivityReport {
   date: string;

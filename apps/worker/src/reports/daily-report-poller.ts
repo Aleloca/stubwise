@@ -1,5 +1,5 @@
 import {
-  activityReportEntries,
+  activityCommits,
   activityReports,
   decrypt,
   gitAccounts,
@@ -26,17 +26,18 @@ import {
  * proprio intervallo, con un GATE a mezzanotte UTC (un solo report per progetto
  * per giorno, reso idempotente dall'unique (project_id, date)), per ogni progetto
  * con `dailyReportEnabled=true` legge i commit del GIORNO UTC PRECEDENTE da ogni
- * suo repo (getCommitsInRange, Task 2), li aggrega per email autore, registra gli
- * autori osservati (git_authors_seen), genera un riassunto AI per autore e
- * persiste tutto in activity_reports + activity_report_entries.
+ * suo repo (getCommitsInRange, Task 2), esclude i merge, registra gli autori
+ * osservati (git_authors_seen), genera per OGNI commit una descrizione tecnica
+ * AI (dal suo diff) e persiste una riga per commit in activity_reports +
+ * activity_commits.
  *
  * IDEMPOTENZA + RECOVERY: la creazione della riga activity_reports usa
  * `.onConflictDoNothing()` sull'unique (project_id, date). Il primo tick del
  * giorno la crea; sul conflitto si guarda lo stato della riga esistente: se
  * `done` si SALTA (nessun doppione né un secondo giro di run), altrimenti la
  * riga è un ORFANO (worker killato tra l'insert 'running' e il 'done', o un
- * tentativo 'failed'): la si RECLAIMA in-place (entries parziali cancellate,
- * status→'running') e si rigenera. Il serializer per-progetto garantisce che
+ * tentativo 'failed'): la si RECLAIMA in-place (activity_commits parziali
+ * cancellate, status→'running') e si rigenera. Il serializer per-progetto garantisce che
  * non esistano DUE generazioni concorrenti dello stesso progetto, quindi una
  * riga ≠ 'done' vista all'inizio del turno è sempre orfana, mai una viva. Il
  * gate "un giorno per volta" emerge da qui, non da un timer preciso a
@@ -44,16 +45,17 @@ import {
  *
  * BEST-EFFORT (come gli altri poller): NON fa MAI crashare il worker — ogni
  * progetto è in try/catch isolato, l'intero tick a sua volta. Un run dell'agente
- * che lancia/va in errore per un autore lascia solo `aiSummary = null` per
- * quell'autore: i dati grezzi (conteggi, commit) si persistono comunque. Nessun
- * resume sul limite del provider (MVP): un limite = aiSummary null, si riprova il
- * giorno dopo. Gira nella CATENA PER-PROGETTO (serializer condiviso col fix, la
- * doc-generation e la review) per non sovrapporsi al `fetch --prune` del mirror
- * dello stesso progetto. Si ferma sull'AbortSignal del worker.
+ * che lancia/va in errore per un commit lascia solo `aiDescription = null` per
+ * quel commit: i dati grezzi (sha, autore, subject, numstat) si persistono
+ * comunque. Nessun resume sul limite del provider (MVP): un limite =
+ * aiDescription null, si riprova il giorno dopo. Gira nella CATENA PER-PROGETTO
+ * (serializer condiviso col fix, la doc-generation e la review) per non
+ * sovrapporsi al `fetch --prune` del mirror dello stesso progetto. Si ferma
+ * sull'AbortSignal del worker.
  */
 
-/** Turni massimi del run di riassunto: bastano pochi (nessun tool, solo testo). */
-const SUMMARY_MAX_TURNS = 4;
+/** Turni massimi del run di descrizione: bastano pochi (nessun tool, solo testo). */
+const COMMIT_DESC_MAX_TURNS = 3;
 
 /** Forma attesa delle credenziali git decifrate (mirror di run-review.ts). */
 const credentialsSchema = z.object({
@@ -86,19 +88,24 @@ export function utcDayWindow(dateStr: string): { since: Date; until: Date; date:
 
 export interface PollDailyReportsDeps {
   db: Db;
-  mirrors: Pick<MirrorManager, "getCommitsInRange" | "ensureMirror">;
+  mirrors: Pick<MirrorManager, "getCommitsInRange" | "ensureMirror" | "getCommitDiff">;
   runner: AgentRunner;
   /** Chiave AES-256 per decifrare le credenziali git e i segreti dei provider AI. */
   encryptionKey: Buffer;
   /** Catena per-progetto CONDIVISA col fix/doc-generation/review (serializzazione). */
   serializer: ProjectSerializer;
-  /** Massimo autori per progetto per cui GENERARE il riassunto AI (gli altri: null). */
+  /**
+   * @deprecated Non più usato dal modello PER-COMMIT: ora si genera una
+   * descrizione per OGNI commit non-merge, senza cap per-autore. Il campo (e la
+   * env `DAILY_REPORT_MAX_AUTHORS_PER_PROJECT`) restano per non rompere la config
+   * esistente, ma il poller non li legge più.
+   */
   maxAuthorsPerProject: number;
   /** Giorni di retention dei report prima della pulizia. */
   retentionDays: number;
-  /** Modello AI del riassunto (omesso = default del CLI). */
+  /** Modello AI della descrizione (omesso = default del CLI). */
   model?: string;
-  /** Timeout (ms) di ogni run di riassunto dell'agente. */
+  /** Timeout (ms) di ogni run di descrizione dell'agente. */
   agentTimeoutMs: number;
   /** "adesso" iniettabile nei test. Default new Date(). */
   now?: () => Date;
@@ -110,16 +117,6 @@ export interface PollDailyReportsDeps {
 
 function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
-}
-
-/** Accumulatore per-autore mentre si aggregano i commit di TUTTI i repo. */
-interface AuthorAgg {
-  authorName: string;
-  commitCount: number;
-  additions: number;
-  deletions: number;
-  repoIds: Set<string>;
-  commits: { sha: string; subject: string; repoId: string }[];
 }
 
 /**
@@ -142,30 +139,29 @@ async function resolveProvider(
   return chain[0];
 }
 
-/** Prompt del riassunto: elenca i commit del giorno (subject + numstat) e chiede
- * 2-4 righe in italiano su cosa ha fatto l'autore. Read-only, nessun codice.
- *
- * PROMPT INJECTION: i subject dei commit sono input NON FIDATO (chiunque possa
- * pushare può scrivere "ignora le istruzioni…" nel messaggio). Il rischio è
- * contenuto per costruzione: il run gira con `permissionMode: "plan"`
- * (read-only, nessuna azione/edit possibile) e con cwd = mirror BARE del primo
- * repo (nessun working tree da cui leggere/scrivere file). Il caso peggiore
- * realistico è un riassunto fuorviante salvato in aiSummary — testo, non
- * un'azione — non un'esfiltrazione o una modifica. */
-function buildSummaryPrompt(agg: AuthorAgg, date: string): string {
-  const lines = agg.commits
-    .map((c) => `- ${c.subject}`)
-    .join("\n");
+/** Prompt per la descrizione tecnica di UN commit, dal suo diff. Dettaglio
+ * ADATTIVO: commit piccolo → 1 frase; commit grosso → paragrafo (file/funzioni,
+ * approccio, effetti). Output markdown, tecnico (per i dev).
+ * PROMPT INJECTION: subject e diff sono input NON FIDATO (chi pusha controlla il
+ * contenuto). Contenuto per costruzione: permissionMode "plan" (read-only) e cwd
+ * = mirror BARE (nessun working tree). Caso peggiore: descrizione fuorviante
+ * salvata, non un'azione. */
+function buildCommitDescriptionPrompt(commit: RangeCommit, diff: string): string {
   return [
-    `Sei un assistente che redige lo standup giornaliero di un team di sviluppo.`,
-    `Autore: ${agg.authorName || "(sconosciuto)"}. Giorno: ${date}.`,
-    `Ha fatto ${agg.commitCount} commit (+${agg.additions}/-${agg.deletions} righe) su ${agg.repoIds.size} repository.`,
-    `Messaggi dei commit:`,
-    lines,
+    `Sei un assistente tecnico che documenta i commit di un team di sviluppo per uno standup.`,
+    `Commit: ${commit.subject}`,
+    `Modifiche: +${commit.additions}/-${commit.deletions} righe.`,
     ``,
-    `Scrivi in ITALIANO un riassunto di 2-4 righe di cosa ha fatto questo autore nella giornata,`,
-    `in linguaggio naturale e sintetico, senza elenchi puntati e senza ripetere gli sha.`,
-    `Rispondi SOLO con il riassunto, senza preamboli.`,
+    `Diff del commit:`,
+    "```diff",
+    diff,
+    "```",
+    ``,
+    `Scrivi in ITALIANO una descrizione TECNICA di cosa fa questo commit, adattando la lunghezza`,
+    `all'ampiezza del cambiamento: per un commit piccolo basta UNA frase; per un commit corposo`,
+    `scrivi un breve paragrafo che indichi i file/componenti toccati, l'approccio e gli effetti.`,
+    `Vai pure sul tecnico (è per sviluppatori). Usa markdown se utile (es. \`nomi\` di codice).`,
+    `Rispondi SOLO con la descrizione, senza preamboli né lo sha.`,
   ].join("\n");
 }
 
@@ -189,8 +185,8 @@ async function generateForProject(
   //  - status 'done' → report del giorno già completato: SKIP silenzioso;
   //  - status 'running'/'failed' → ORFANO (worker killato prima del 'done', o
   //    tentativo fallito): il serializer per-progetto esclude una generazione
-  //    viva concorrente, quindi si RECLAIMA in-place — entries parziali del
-  //    tentativo precedente cancellate, status→'running', error/finishedAt
+  //    viva concorrente, quindi si RECLAIMA in-place — activity_commits parziali
+  //    del tentativo precedente cancellate, status→'running', error/finishedAt
   //    azzerati — e si rigenera. Senza questo, una riga 'running' orfana
   //    verrebbe saltata per sempre (giorno perso, spinner UI bloccato).
   let reportId: string;
@@ -215,10 +211,11 @@ async function generateForProject(
           ),
         );
       if (!existing || existing.status === "done") return false; // già completato.
-      // Orfano/fallito: reclaim inline e rigenera.
+      // Orfano/fallito: reclaim inline e rigenera. Cancella le activity_commits
+      // parziali del tentativo precedente (una riga per commit).
       await db
-        .delete(activityReportEntries)
-        .where(eq(activityReportEntries.reportId, existing.id));
+        .delete(activityCommits)
+        .where(eq(activityCommits.reportId, existing.id));
       await db
         .update(activityReports)
         .set({ status: "running", error: null, finishedAt: null })
@@ -240,9 +237,19 @@ async function generateForProject(
       .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
       .where(eq(repositories.projectId, projectRow.id));
 
-    // (c) Commit del giorno di OGNI repo → (d) aggregazione per email autore.
-    const byEmail = new Map<string, AuthorAgg>();
+    // (c) Commit NON-MERGE del giorno di OGNI repo, raccolti con il loro repo (per
+    // poterne recuperare il diff dal mirror corretto). NESSUN cap sul numero.
+    // Ogni commit porta l'email dell'autore già in lowercase, calcolata UNA volta
+    // (serve sia a git_authors_seen sia alla riga persistita).
     const mirrorProjects: MirrorProject[] = [];
+    const repoCommits: {
+      mirrorProject: MirrorProject;
+      repositoryId: string;
+      commits: { commit: RangeCommit; emailLower: string }[];
+    }[] = [];
+    // Autori osservati (email lowercase → ultimo nome non vuoto, o null): serve a
+    // git_authors_seen. Un commit basta a "vedere" un autore.
+    const authorsSeen = new Map<string, string | null>();
     for (const { repository, account } of repoRows) {
       let credentials: z.infer<typeof credentialsSchema>;
       try {
@@ -267,49 +274,38 @@ async function generateForProject(
       try {
         commits = await deps.mirrors.getCommitsInRange(mirrorProject, since, until);
       } catch (err) {
-        // Un repo irraggiungibile non azzera il report: si aggregano gli altri.
+        // Un repo irraggiungibile non azzera il report: si processano gli altri.
         console.error(
           `[stubwise-worker] daily-report: git log del repository ${repository.id} fallito (${errText(err)}), salto il repo`,
         );
         continue;
       }
-      for (const c of commits) {
-        if (c.isMerge) continue; // i merge non sono lavoro di un autore.
-        const email = c.authorEmail.toLowerCase();
-        let agg = byEmail.get(email);
-        if (!agg) {
-          agg = {
-            authorName: "",
-            commitCount: 0,
-            additions: 0,
-            deletions: 0,
-            repoIds: new Set<string>(),
-            commits: [],
-          };
-          byEmail.set(email, agg);
-        }
-        if (c.authorName) agg.authorName = c.authorName; // ultimo non vuoto visto.
-        agg.commitCount++;
-        agg.additions += c.additions;
-        agg.deletions += c.deletions;
-        agg.repoIds.add(repository.id);
-        agg.commits.push({ sha: c.sha, subject: c.subject, repoId: repository.id });
+      const nonMerge = commits.filter((c) => !c.isMerge); // i merge non sono lavoro.
+      const prepared = nonMerge.map((commit) => ({
+        commit,
+        emailLower: commit.authorEmail.toLowerCase(),
+      }));
+      for (const { commit, emailLower } of prepared) {
+        // Ultimo nome non vuoto visto per l'email; non regredire a null.
+        if (commit.authorName) authorsSeen.set(emailLower, commit.authorName);
+        else if (!authorsSeen.has(emailLower)) authorsSeen.set(emailLower, null);
       }
+      repoCommits.push({ mirrorProject, repositoryId: repository.id, commits: prepared });
     }
 
     // (d) git_authors_seen: registra/aggiorna ogni autore osservato oggi.
-    for (const [email, agg] of byEmail) {
+    for (const [email, name] of authorsSeen) {
       try {
         await db
           .insert(gitAuthorsSeen)
-          .values({ email, authorName: agg.authorName || null, firstSeenAt: now, lastSeenAt: now })
+          .values({ email, authorName: name, firstSeenAt: now, lastSeenAt: now })
           .onConflictDoUpdate({
             target: gitAuthorsSeen.email,
             // Non regredire il nome a null: se questo giro non ha un nome per
             // l'autore, tieni quello già registrato.
             set: {
               lastSeenAt: now,
-              authorName: sql`coalesce(${agg.authorName || null}, ${gitAuthorsSeen.authorName})`,
+              authorName: sql`coalesce(${name}, ${gitAuthorsSeen.authorName})`,
             },
           });
       } catch (err) {
@@ -319,95 +315,118 @@ async function generateForProject(
       }
     }
 
-    // (e) Riassunto AI per autore, ordinati per commitCount desc: solo i primi
-    // maxAuthorsPerProject; gli altri hanno aiSummary=null (nessun run speso).
-    const ordered = [...byEmail.entries()].sort((a, b) => b[1].commitCount - a[1].commitCount);
+    // (e) Provider AI + cwd del run. La descrizione NON richiede il checkout del
+    // codice (il diff è già inline nel prompt), quindi NON si apre un worktree:
+    // basta una directory valida come cwd, il mirror bare del primo repo. Se non
+    // c'è provider o il mirror non è montabile, le descrizioni si saltano e
+    // restano i dati grezzi (aiDescription null per tutti i commit).
+    const totalCommits = repoCommits.reduce((n, r) => n + r.commits.length, 0);
+    // Osservabilità: senza cap una giornata intensa (o un backfill manuale) può
+    // far girare molti run e tenere il serializer del progetto occupato a lungo.
+    // Loggare il volume rende visibile una generazione corposa (vs. fix affamati
+    // in silenzio). Solo log, nessun limite.
+    if (totalCommits > 0) {
+      console.error(
+        `[stubwise-worker] daily-report: descrizione di ${totalCommits} commit per il progetto ${projectRow.id} (${date})`,
+      );
+    }
     const provider = await resolveProvider(deps, projectRow.aiProviderId);
-
-    // cwd del run: il riassunto NON richiede il checkout del codice (bastano i
-    // subject + numstat già in mano), quindi NON si apre un worktree — sarebbe uno
-    // spreco. Basta una directory valida: il mirror bare del primo repo (già
-    // garantito da getCommitsInRange). Se non c'è (nessun repo/provider o mirror
-    // non montabile) i riassunti si saltano e restano i dati grezzi.
     let cwd: string | undefined;
-    if (provider && ordered.length > 0 && mirrorProjects.length > 0) {
+    if (provider && totalCommits > 0 && mirrorProjects.length > 0) {
       try {
-        // TODO: evitare il secondo fetch riusando il mirror dir già montato da
-        // getCommitsInRange (es. mirrorDirFor). Non è banale: mirrorProjects[0]
-        // può essere un repo il cui getCommitsInRange è FALLITO (push avviene
-        // prima della chiamata), quindi il suo mirror potrebbe non essere
-        // montato; ensureMirror qui garantisce comunque un cwd valido.
         cwd = await deps.mirrors.ensureMirror(mirrorProjects[0]!);
       } catch (err) {
         console.error(
-          `[stubwise-worker] daily-report: mirror per il cwd dei riassunti non montabile (${errText(err)}), procedo senza riassunti`,
+          `[stubwise-worker] daily-report: mirror per il cwd delle descrizioni non montabile (${errText(err)}), procedo senza descrizioni`,
         );
       }
     }
 
     // NOTA sul serializer: l'intera generazione — inclusa questa fase AI, la più
-    // lenta (un run dell'agente per autore, potenzialmente minuti) — gira DENTRO
-    // il serializer per-progetto e blocca gli altri job dello STESSO progetto per
-    // tutta la durata. È un solo report al giorno e gli altri progetti procedono
-    // in parallelo (serializer per-progetto, non globale): trade-off accettato
-    // per non dover ragionare sulla concorrenza col `fetch --prune` del mirror
-    // dello stesso progetto (stessa invariante di fix/doc-generation/review).
-    let skippedByCap = 0;
-    const entries: (typeof activityReportEntries.$inferInsert)[] = [];
-    for (let i = 0; i < ordered.length; i++) {
-      const [email, agg] = ordered[i]!;
-      let aiSummary: string | null = null;
-      if (provider && cwd && i < deps.maxAuthorsPerProject) {
-        try {
-          const result = await deps.runner.run({
-            cwd,
-            prompt: buildSummaryPrompt(agg, date),
-            ...(deps.model !== undefined ? { model: deps.model } : {}),
-            permissionMode: "plan",
-            maxTurns: SUMMARY_MAX_TURNS,
-            timeoutMs: deps.agentTimeoutMs,
-            provider,
-          });
-          // Run crashato (exit ≠ 0): nessun riassunto inventato da un output
-          // parziale. runner.run RISOLVE anche su exit non-zero.
-          if (result.exitCode === 0) {
-            const out = result.output.trim();
-            aiSummary = out.length > 0 ? out : null;
+    // lenta (un run dell'agente per COMMIT, potenzialmente minuti in totale) —
+    // gira DENTRO il serializer per-progetto e blocca gli altri job dello STESSO
+    // progetto per tutta la durata. È un solo report al giorno e gli altri
+    // progetti procedono in parallelo (serializer per-progetto, non globale):
+    // trade-off accettato per non ragionare sulla concorrenza col `fetch --prune`
+    // del mirror (stessa invariante di fix/doc-generation/review).
+    //
+    // Una riga per commit non-merge: dati grezzi SEMPRE persistiti, aiDescription
+    // best-effort (diff non recuperabile o run fallito → null).
+    const rows: (typeof activityCommits.$inferInsert)[] = [];
+    for (const { mirrorProject, repositoryId, commits } of repoCommits) {
+      for (const { commit: c, emailLower } of commits) {
+        let aiDescription: string | null = null;
+        // Descrizione solo se c'è un provider e un cwd valido: altrimenti nemmeno
+        // si recupera il diff (git show sprecato) e restano i dati grezzi.
+        if (provider && cwd) {
+          // Diff best-effort: un getCommitDiff fallito → diff vuoto, si procede
+          // (la descrizione verrà saltata, i dati grezzi restano). skipFetch: il
+          // mirror è GIÀ montato+fetchato da getCommitsInRange (fase c) e/o
+          // ensureMirror per il cwd; gli sha sono immutabili, quindi si legge dal
+          // mirror senza rifare un fetch per commit (evita N+1 fetch sul serializer).
+          let diff = "";
+          try {
+            const res = await deps.mirrors.getCommitDiff(mirrorProject, c.sha, { skipFetch: true });
+            // Diff troncato (commit enorme oltre MAX_DIFF_CHARS): segnalalo così
+            // l'agente sa che il contenuto è parziale e non lo descrive come completo.
+            diff = res.truncated ? `${res.diff}\n\n[diff troncato per lunghezza]` : res.diff;
+          } catch (err) {
+            console.error(
+              `[stubwise-worker] daily-report: diff del commit ${c.sha} (repo ${repositoryId}) non recuperabile (${errText(err)}), descrizione saltata`,
+            );
           }
-        } catch (err) {
-          // Best-effort: un run fallito (timeout, limite, spawn) → summary null.
-          console.error(
-            `[stubwise-worker] daily-report: riassunto per un autore del progetto ${projectRow.id} fallito (${errText(err)})`,
-          );
+          if (diff.length > 0) {
+            try {
+              const result = await deps.runner.run({
+                cwd,
+                prompt: buildCommitDescriptionPrompt(c, diff),
+                ...(deps.model !== undefined ? { model: deps.model } : {}),
+                permissionMode: "plan",
+                maxTurns: COMMIT_DESC_MAX_TURNS,
+                timeoutMs: deps.agentTimeoutMs,
+                provider,
+              });
+              // Run crashato (exit ≠ 0): nessuna descrizione da un output
+              // parziale. runner.run RISOLVE anche su exit non-zero.
+              if (result.exitCode === 0) {
+                const out = result.output.trim();
+                aiDescription = out.length > 0 ? out : null;
+              }
+            } catch (err) {
+              // Best-effort: un run fallito (timeout, limite, spawn) → null.
+              console.error(
+                `[stubwise-worker] daily-report: descrizione del commit ${c.sha} del progetto ${projectRow.id} fallita (${errText(err)})`,
+              );
+            }
+          }
         }
-      } else if (provider && cwd && i >= deps.maxAuthorsPerProject) {
-        skippedByCap++;
+
+        rows.push({
+          reportId,
+          repoId: repositoryId,
+          sha: c.sha,
+          authorEmail: emailLower,
+          authorName: c.authorName || null,
+          committedAt: new Date(c.date),
+          subject: c.subject,
+          additions: c.additions,
+          deletions: c.deletions,
+          aiDescription,
+        });
       }
-      entries.push({
-        reportId,
-        gitEmail: email,
-        authorName: agg.authorName || null,
-        commitCount: agg.commitCount,
-        additions: agg.additions,
-        deletions: agg.deletions,
-        repoIds: [...agg.repoIds],
-        commits: agg.commits,
-        aiSummary,
-      });
-    }
-    if (skippedByCap > 0) {
-      console.error(
-        `[stubwise-worker] daily-report: progetto ${projectRow.id} (${date}): ${skippedByCap} autori oltre il cap di ${deps.maxAuthorsPerProject}, riassunto non generato`,
-      );
     }
 
-    // (f+g) Persisti le entry (una per autore) e chiudi il report → done in
-    // UNA transazione: o si vede il report done con TUTTE le sue entries, o si
-    // resta nel tentativo precedente (nessuno stato intermedio "done senza
-    // entries" o "entries senza done").
+    // (f+g) Persisti le righe (una per commit) e chiudi il report → done in UNA
+    // transazione: o si vede il report done con TUTTE le sue righe, o si resta nel
+    // tentativo precedente (nessuno stato intermedio "done senza righe" o "righe
+    // senza done").
     await db.transaction(async (tx) => {
-      if (entries.length > 0) {
-        await tx.insert(activityReportEntries).values(entries);
+      if (rows.length > 0) {
+        // Insert singolo: activityCommits ha ~10 colonne, quindi il tetto dei
+        // 65_535 parametri per statement di Postgres si tocca solo oltre ~6.5k
+        // righe (commit in un giorno). Nessun chunk necessario per un singolo
+        // giorno; se un domani i backfill superassero quel volume, spezzare qui.
+        await tx.insert(activityCommits).values(rows);
       }
       await tx
         .update(activityReports)
@@ -469,7 +488,7 @@ export async function pollDailyReportsOnce(deps: PollDailyReportsDeps): Promise<
   // sovrappongono (guard `running` in startDailyReportPoller), quindi un report
   // ancora `running` all'inizio del tick è orfano di un worker crashato a metà
   // generazione. Lo rimettiamo `queued` così la fase successiva lo rigenera (le
-  // entries parziali vengono ripulite dal reclaim in generateForProject). Senza
+  // activity_commits parziali vengono ripulite dal reclaim in generateForProject). Senza
   // questo, un manuale orfano su una data arbitraria o un progetto disabilitato
   // — che né la fase queued (filtra status='queued') né il gate notturno (solo
   // ieri + progetto abilitato) ripescano — resterebbe `running` per sempre.

@@ -438,6 +438,9 @@ const envSchema = z.object({
       .min(0, "deve essere un intero ≥ 0 in minuti (es. 15; 0 = disabilitato)")
       .default(15),
   ),
+  // deprecato: non più usato dal modello per-commit (il poller genera una
+  // descrizione per OGNI commit non-merge, senza cap per-autore). Lasciato per
+  // non rompere la config esistente (env e campo WorkerConfig restano).
   // Massimo autori per progetto per cui generare il riassunto AI del daily
   // report: oltre questo numero si producono solo i dati grezzi (niente run
   // AI per autore) per contenere costo e durata. Default 25.
@@ -563,7 +566,9 @@ export interface WorkerConfig {
   /** Intervallo in minuti del poller del daily activity report (default 15;
    * 0 = disabilitato). */
   dailyReportPollMinutes: number;
-  /** Massimo autori per progetto per cui generare il riassunto AI notturno
+  /** @deprecated Non più usato dal modello per-commit (descrizione per OGNI
+   * commit non-merge, senza cap per-autore). Lasciato per non rompere la config.
+   * Massimo autori per progetto per cui generare il riassunto AI notturno
    * (default 25). */
   dailyReportMaxAuthorsPerProject: number;
   /** Giorni di retention dei report di attività prima della pulizia (default 90). */

@@ -1,8 +1,9 @@
-import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Component, type ReactNode, Suspense, useMemo, useState } from "react";
+import { Component, type ReactNode, Suspense, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "../components/avatar";
+import { Markdown } from "../components/markdown";
 import {
   generateActivity,
   type ActivityCommit,
@@ -11,8 +12,8 @@ import {
   type ActivityResolvedUser,
 } from "../lib/api";
 import { meQueryOptions } from "../lib/auth";
-import { formatDate } from "../lib/format";
-import { activityReportQueryOptions, repositoriesQueryOptions } from "../lib/queries";
+import { formatDate, formatTime } from "../lib/format";
+import { activityReportQueryOptions } from "../lib/queries";
 import { translateApiError } from "../lib/translate-api-error";
 
 /**
@@ -270,8 +271,7 @@ function ActivityLoading() {
 
 /**
  * Corpo dati: legge il report della data (suspende finché non è in cache) e
- * risolve i nomi dei repository best-effort per etichettare i commit. Un errore
- * della lista repository lascia comunque i commit con l'id grezzo del repo.
+ * rende la vista selezionata sul payload PER-COMMIT.
  */
 function ActivityBody({
   date,
@@ -284,14 +284,6 @@ function ActivityBody({
 }) {
   const { t } = useTranslation();
   const report = useSuspenseQuery(activityReportQueryOptions(date)).data;
-  // Mappa repoId → nome, best-effort: la lista è admin-agnostica e degrada senza
-  // bloccare la pagina (fallback all'id grezzo del repo).
-  const reposQuery = useQuery(repositoriesQueryOptions());
-  const repoName = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const r of reposQuery.data ?? []) map.set(r.id, r.name);
-    return (repoId: string) => map.get(repoId) ?? repoId;
-  }, [reposQuery.data]);
 
   // `isEmpty` è derivato dall'ESISTENZA del report per il giorno, uguale in
   // entrambe le viste: un report appena accodato ha `projects` popolato (status
@@ -317,12 +309,7 @@ function ActivityBody({
     <div className="flex flex-col gap-6">
       {view === "project"
         ? report.projects.map((project) => (
-            <ProjectBlock
-              key={project.project.id}
-              project={project}
-              isAdmin={isAdmin}
-              repoName={repoName}
-            />
+            <ProjectBlock key={project.project.id} project={project} isAdmin={isAdmin} />
           ))
         : report.developers.length === 0
           ? <DeveloperEmpty projects={report.projects} />
@@ -331,7 +318,6 @@ function ActivityBody({
                 key={dev.resolvedUser?.id ?? dev.gitEmail ?? `dev-${index}`}
                 dev={dev}
                 isAdmin={isAdmin}
-                repoName={repoName}
               />
             ))}
     </div>
@@ -414,24 +400,68 @@ function GenerateReport({ date }: { date: string }) {
   );
 }
 
-/** Blocco vista-progetto: header col nome/status e una riga per autore. */
+/**
+ * Riga di un singolo commit, condivisa dalle due viste: SHA breve (con lo SHA
+ * completo nel `title`) + orario `HH:MM` + oggetto + diffstat, poi l'eventuale
+ * autore (slot `author`, presente solo in vista-progetto dove l'autore non è
+ * implicito) e la descrizione AI in markdown. La spaziatura è uniforme
+ * (`gap-1.5`) in entrambe le viste.
+ */
+function CommitRow({ commit, author }: { commit: ActivityCommit; author?: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap items-baseline gap-2">
+        <span
+          className="shrink-0 font-mono text-[11px] text-fg-faint"
+          title={commit.sha}
+        >
+          {shortSha(commit.sha)}
+        </span>
+        <span className="shrink-0 font-mono text-[11px] text-fg-faint">
+          {formatTime(commit.committedAt)}
+        </span>
+        <span className="min-w-0 flex-1 text-sm text-fg">{commit.subject}</span>
+        <DiffStat additions={commit.additions} deletions={commit.deletions} />
+      </div>
+      {author && <div className="flex items-center gap-2">{author}</div>}
+      {commit.aiDescription && <Markdown source={commit.aiDescription} />}
+    </div>
+  );
+}
+
+/**
+ * Blocco vista-progetto: header col nome/status e i totali del giorno, poi la
+ * lista dei commit (uno per riga, con autore risolto/grezzo e descrizione AI).
+ */
 function ProjectBlock({
   project,
   isAdmin,
-  repoName,
 }: {
   project: ActivityProjectView;
   isAdmin: boolean;
-  repoName: (repoId: string) => string;
 }) {
   const { t } = useTranslation();
+  const { header } = project;
   return (
     <section className="rounded-sm border border-line bg-ink-900">
-      <header className="flex items-baseline justify-between gap-3 border-b border-line px-4 py-3">
-        <h2 className="truncate font-mono text-[13px] font-medium text-fg">{project.project.name}</h2>
-        <StatusBadge status={project.status} />
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <h2 className="truncate font-mono text-[13px] font-medium text-fg">
+            {project.project.name}
+          </h2>
+          <StatusBadge status={project.status} />
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-[11px] tracking-[0.1em] text-fg-muted uppercase">
+            {t("activity:commits", { count: header.commitCount })}
+          </span>
+          <DiffStat additions={header.additions} deletions={header.deletions} />
+          <span className="font-mono text-[11px] tracking-[0.1em] text-fg-faint uppercase">
+            {t("activity:authors", { count: header.authorCount })}
+          </span>
+        </div>
       </header>
-      {project.entries.length === 0 ? (
+      {project.commits.length === 0 ? (
         <p className="px-4 py-4 font-mono text-[12px] text-fg-faint">
           {project.status === "queued" || project.status === "running"
             ? t("activity:inProgress")
@@ -439,24 +469,19 @@ function ProjectBlock({
         </p>
       ) : (
         <ul className="divide-y divide-line">
-          {project.entries.map((entry) => (
-            <li key={entry.gitEmail} className="flex flex-col gap-2 px-4 py-3">
-              <div className="flex flex-wrap items-center gap-3">
-                <AuthorLabel
-                  resolvedUser={entry.resolvedUser}
-                  gitEmail={entry.gitEmail}
-                  authorName={entry.authorName}
-                  isAdmin={isAdmin}
-                />
-                <span className="font-mono text-[11px] tracking-[0.1em] text-fg-muted uppercase">
-                  {t("activity:commits", { count: entry.commitCount })}
-                </span>
-                <DiffStat additions={entry.additions} deletions={entry.deletions} />
-              </div>
-              {entry.aiSummary && (
-                <p className="text-sm text-fg-muted">{entry.aiSummary}</p>
-              )}
-              <CommitList commits={entry.commits} repoName={repoName} />
+          {project.commits.map((commit) => (
+            <li key={commit.sha} className="px-4 py-3">
+              <CommitRow
+                commit={commit}
+                author={
+                  <AuthorLabel
+                    resolvedUser={commit.resolvedUser ?? null}
+                    gitEmail={null}
+                    authorName={commit.authorName ?? null}
+                    isAdmin={isAdmin}
+                  />
+                }
+              />
             </li>
           ))}
         </ul>
@@ -465,44 +490,50 @@ function ProjectBlock({
   );
 }
 
-/** Blocco vista-dev: totali dell'autore + un sotto-blocco per progetto. */
-function DeveloperBlock({
-  dev,
-  isAdmin,
-  repoName,
-}: {
-  dev: ActivityDeveloperView;
-  isAdmin: boolean;
-  repoName: (repoId: string) => string;
-}) {
+/**
+ * Blocco vista-dev: header con l'autore e i suoi totali, poi un sotto-blocco per
+ * progetto con i relativi commit (l'autore è implicito, non ripetuto per riga).
+ */
+function DeveloperBlock({ dev, isAdmin }: { dev: ActivityDeveloperView; isAdmin: boolean }) {
   const { t } = useTranslation();
+  const { header } = dev;
   return (
     <section className="rounded-sm border border-line bg-ink-900">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
-        <AuthorLabel
-          resolvedUser={dev.resolvedUser}
-          gitEmail={dev.gitEmail}
-          authorName={dev.authorName}
-          isAdmin={isAdmin}
-        />
+        <h2 className="flex min-w-0 items-center">
+          <AuthorLabel
+            resolvedUser={dev.resolvedUser}
+            gitEmail={dev.gitEmail}
+            authorName={dev.authorName}
+            isAdmin={isAdmin}
+          />
+        </h2>
         <div className="flex items-center gap-3">
           <span className="font-mono text-[11px] tracking-[0.1em] text-fg-muted uppercase">
-            {t("activity:commits", { count: dev.totalCommits })}
+            {t("activity:commits", { count: header.commitCount })}
           </span>
-          <DiffStat additions={dev.totalAdditions} deletions={dev.totalDeletions} />
+          <DiffStat additions={header.additions} deletions={header.deletions} />
+          <span className="font-mono text-[11px] tracking-[0.1em] text-fg-faint uppercase">
+            {t("activity:projects", { count: header.projectCount })}
+          </span>
         </div>
       </header>
       <ul className="divide-y divide-line">
-        {dev.perProject.map((proj) => (
-          <li key={proj.projectId} className="flex flex-col gap-2 px-4 py-3">
+        {dev.byProject.map((proj) => (
+          <li key={proj.project.id} className="flex flex-col gap-2 px-4 py-3">
             <div className="flex flex-wrap items-baseline gap-3">
-              <span className="font-mono text-[13px] text-fg">{proj.projectName}</span>
+              <h3 className="font-mono text-[13px] text-fg">{proj.project.name}</h3>
               <span className="font-mono text-[11px] tracking-[0.1em] text-fg-muted uppercase">
-                {t("activity:commits", { count: proj.commitCount })}
+                {t("activity:commits", { count: proj.commits.length })}
               </span>
             </div>
-            {proj.aiSummary && <p className="text-sm text-fg-muted">{proj.aiSummary}</p>}
-            <CommitList commits={proj.commits} repoName={repoName} />
+            <ul className="flex flex-col gap-2">
+              {proj.commits.map((commit) => (
+                <li key={commit.sha}>
+                  <CommitRow commit={commit} />
+                </li>
+              ))}
+            </ul>
           </li>
         ))}
       </ul>
@@ -583,29 +614,5 @@ function StatusBadge({ status }: { status: string }) {
     >
       {t(`activity:status.${status}`, status)}
     </span>
-  );
-}
-
-/** Lista compatta dei commit: oggetto + repo + sha breve. */
-function CommitList({
-  commits,
-  repoName,
-}: {
-  commits: ActivityCommit[];
-  repoName: (repoId: string) => string;
-}) {
-  if (commits.length === 0) return null;
-  return (
-    <ul className="flex flex-col gap-1">
-      {commits.map((commit) => (
-        <li key={commit.sha} className="flex flex-wrap items-baseline gap-2 font-mono text-[12px]">
-          <span className="text-fg-faint">{shortSha(commit.sha)}</span>
-          <span className="min-w-0 flex-1 truncate text-fg-muted">{commit.subject}</span>
-          <span className="shrink-0 text-[10px] tracking-[0.08em] text-fg-faint uppercase">
-            {repoName(commit.repoId)}
-          </span>
-        </li>
-      ))}
-    </ul>
   );
 }
