@@ -640,4 +640,214 @@ describe("pagina team", () => {
       await screen.findByText("You cannot demote the last admin"),
     ).toBeInTheDocument();
   });
+
+  // Autori git osservati per il picker di link.
+  const OBSERVED_AUTHORS = [
+    { email: "bea@git.example", authorName: "Bea Dev", lastSeenAt: "2026-06-01T10:00:00.000Z", linkedUserId: null },
+    { email: "carl@git.example", authorName: "Carl", lastSeenAt: "2026-06-01T10:00:00.000Z", linkedUserId: "u9" },
+  ];
+
+  it("admin: collega un'email git a un membro tramite il picker e la scollega", async () => {
+    const user = userEvent.setup();
+    let postBody: unknown;
+    let deletedPath: string | null = null;
+    let identities: { id: string; email: string; authorName: string | null }[] = [];
+
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/users": () =>
+        jsonResponse(200, [USERS[0], { ...USERS[1], gitIdentities: identities }]),
+      "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
+      "GET /api/git/observed-authors": () => jsonResponse(200, OBSERVED_AUTHORS),
+      "GET /api/auth/invites": () => jsonResponse(200, []),
+      "POST /api/users/u2/git-identities": (_url, init) => {
+        postBody = JSON.parse(String(init?.body));
+        identities = [{ id: "g1", email: "bea@git.example", authorName: "Bea Dev" }];
+        return jsonResponse(200, identities);
+      },
+      "DELETE /api/users/u2/git-identities/bea%40git.example": (url) => {
+        deletedPath = url.pathname;
+        identities = [];
+        return jsonResponse(204, null);
+      },
+    });
+
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderTeam();
+
+    // Nessuna git identity → badge "Git · 0".
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    expect(within(beaRow).getByText("Git · 0")).toBeInTheDocument();
+
+    // Apri il picker git e seleziona un autore osservato.
+    await user.click(within(beaRow).getByRole("button", { name: "Link git" }));
+    const search = within(beaRow).getByRole("combobox", { name: "Pick a git author" });
+    await user.type(search, "Bea");
+    const listbox = within(beaRow).getByRole("listbox");
+    await user.click(within(listbox).getByRole("option", { name: /bea@git.example/ }));
+
+    await waitFor(() => expect(postBody).toEqual({ email: "bea@git.example" }));
+    // Dopo l'invalidazione l'email compare come chip e il badge diventa "Git · 1".
+    await waitFor(() => expect(within(beaRow).getByText("Git · 1")).toBeInTheDocument());
+    expect(within(beaRow).getByText("bea@git.example")).toBeInTheDocument();
+
+    // Unlink della chip → DELETE col path giusto.
+    await user.click(
+      within(beaRow).getByRole("button", { name: "Unlink git email bea@git.example" }),
+    );
+    await waitFor(() =>
+      expect(deletedPath).toBe("/api/users/u2/git-identities/bea%40git.example"),
+    );
+    await waitFor(() => expect(within(beaRow).getByText("Git · 0")).toBeInTheDocument());
+  });
+
+  it("admin: la voce git già collegata ad altri non è selezionabile", async () => {
+    const user = userEvent.setup();
+
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/users": () => jsonResponse(200, USERS),
+      "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
+      "GET /api/git/observed-authors": () => jsonResponse(200, OBSERVED_AUTHORS),
+      "GET /api/auth/invites": () => jsonResponse(200, []),
+    });
+
+    renderTeam();
+
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    await user.click(within(beaRow).getByRole("button", { name: "Link git" }));
+    const search = within(beaRow).getByRole("combobox", { name: "Pick a git author" });
+    await user.type(search, "carl");
+    const listbox = within(beaRow).getByRole("listbox");
+    const taken = within(listbox).getByRole("option", { name: /already linked/ });
+    expect(taken).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("admin: consente di collegare un'email git digitata a mano (valore libero)", async () => {
+    const user = userEvent.setup();
+    let postBody: unknown;
+
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/users": () => jsonResponse(200, USERS),
+      "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
+      "GET /api/git/observed-authors": () => jsonResponse(200, OBSERVED_AUTHORS),
+      "GET /api/auth/invites": () => jsonResponse(200, []),
+      "POST /api/users/u2/git-identities": (_url, init) => {
+        postBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, [{ id: "g2", email: "typed@git.example", authorName: null }]);
+      },
+    });
+
+    renderTeam();
+
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    await user.click(within(beaRow).getByRole("button", { name: "Link git" }));
+    const search = within(beaRow).getByRole("combobox", { name: "Pick a git author" });
+    await user.type(search, "typed@git.example");
+    // Nessuna opzione corrispondente, ma il valore libero è inviabile.
+    await user.click(within(beaRow).getByRole("button", { name: /Link «typed@git.example»/ }));
+
+    await waitFor(() => expect(postBody).toEqual({ email: "typed@git.example" }));
+  });
+
+  it("admin: errore git_identity_taken mostra il messaggio i18n", async () => {
+    const user = userEvent.setup();
+
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/users": () => jsonResponse(200, USERS),
+      "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
+      "GET /api/git/observed-authors": () => jsonResponse(200, OBSERVED_AUTHORS),
+      "GET /api/auth/invites": () => jsonResponse(200, []),
+      "POST /api/users/u2/git-identities": () =>
+        jsonResponse(409, { code: "git_identity_taken", message: "taken" }),
+    });
+
+    renderTeam();
+
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    await user.click(within(beaRow).getByRole("button", { name: "Link git" }));
+    const search = within(beaRow).getByRole("combobox", { name: "Pick a git author" });
+    await user.type(search, "Bea");
+    const listbox = within(beaRow).getByRole("listbox");
+    await user.click(within(listbox).getByRole("option", { name: /bea@git.example/ }));
+
+    expect(
+      await screen.findByText("This git email is already linked to a member"),
+    ).toBeInTheDocument();
+  });
+
+  it("admin: collega e scollega lo username Bitbucket di un membro", async () => {
+    const user = userEvent.setup();
+    let putBody: unknown;
+    let deleted = false;
+    let username: string | null = null;
+
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...ADMIN, language: "en" } }),
+      "GET /api/users": () =>
+        jsonResponse(200, [USERS[0], { ...USERS[1], bitbucketUsername: username }]),
+      "GET /api/slack/workspace-users": () => jsonResponse(200, SLACK_USERS),
+      "GET /api/git/observed-authors": () => jsonResponse(200, OBSERVED_AUTHORS),
+      "GET /api/auth/invites": () => jsonResponse(200, []),
+      "PUT /api/users/u2/bitbucket": (_url, init) => {
+        putBody = JSON.parse(String(init?.body));
+        username = "bea-bb";
+        return jsonResponse(200, { id: "u2", bitbucketUsername: "bea-bb" });
+      },
+      "DELETE /api/users/u2/bitbucket": () => {
+        deleted = true;
+        username = null;
+        return jsonResponse(204, null);
+      },
+    });
+
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderTeam();
+
+    const beaRow = (await screen.findByText("bea@example.com")).closest("li")!;
+    expect(within(beaRow).getByText("No Bitbucket")).toBeInTheDocument();
+
+    // Apri l'input, digita lo username e conferma.
+    await user.click(within(beaRow).getByRole("button", { name: "Link Bitbucket" }));
+    await user.type(within(beaRow).getByRole("textbox", { name: "Bitbucket username" }), "bea-bb");
+    await user.click(within(beaRow).getByRole("button", { name: "Link" }));
+
+    await waitFor(() => expect(putBody).toEqual({ username: "bea-bb" }));
+    await waitFor(() => expect(within(beaRow).getByText("BB · bea-bb")).toBeInTheDocument());
+
+    // Unlink Bitbucket → DELETE.
+    await user.click(within(beaRow).getByRole("button", { name: "Unlink Bitbucket" }));
+    await waitFor(() => expect(deleted).toBe(true));
+    await waitFor(() => expect(within(beaRow).getByText("No Bitbucket")).toBeInTheDocument());
+  });
+
+  it("member: vede i badge git/bitbucket ma nessun controllo di link", async () => {
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: { ...MEMBER, language: "en" } }),
+      "GET /api/users": () =>
+        jsonResponse(200, [
+          {
+            ...ADMIN,
+            createdAt: "2026-01-01T10:00:00.000Z",
+            bitbucketUsername: "ada-bb",
+            gitIdentities: [{ id: "g1", email: "ada@git.example", authorName: null }],
+          },
+          { ...MEMBER, createdAt: "2026-02-01T10:00:00.000Z" },
+        ]),
+    });
+
+    renderTeam();
+
+    const adaRow = (await screen.findByText("ada@example.com")).closest("li")!;
+    // Badge visibili a tutti.
+    expect(within(adaRow).getByText("Git · 1")).toBeInTheDocument();
+    expect(within(adaRow).getByText("BB · ada-bb")).toBeInTheDocument();
+    // Niente controlli di link (riservati agli admin).
+    expect(within(adaRow).queryByRole("button", { name: "Link git" })).not.toBeInTheDocument();
+    expect(
+      within(adaRow).queryByRole("button", { name: "Link Bitbucket" }),
+    ).not.toBeInTheDocument();
+  });
 });
