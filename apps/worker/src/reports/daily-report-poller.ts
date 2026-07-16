@@ -12,7 +12,7 @@ import {
   repositories,
   type Db,
 } from "@stubwise/db";
-import { and, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, lt, lte, sql } from "drizzle-orm";
 import { tmpdir } from "node:os";
 import { z } from "zod";
 import type { AgentRunner, AgentRunResult } from "../agent/runner.js";
@@ -298,6 +298,13 @@ async function generateForProject(
   //    del tentativo precedente cancellate, status→'running', error/finishedAt
   //    azzerati — e si rigenera. Senza questo, una riga 'running' orfana
   //    verrebbe saltata per sempre (giorno perso, spinner UI bloccato).
+  // RIGENERAZIONE INCREMENTALE: descrizioni AI già generate riutilizzabili per sha.
+  // Vuota per un insert FRESCO (generazione notturna/queued nuova → genera tutto);
+  // popolata SOLO nel ramo reclaim, dalle activity_commits del tentativo
+  // precedente, PRIMA di cancellarle. Nel loop per-commit un sha presente qui
+  // riusa la sua descrizione senza rifare il run dell'agente (né il getCommitDiff):
+  // un giorno con 45 commit già descritti + 3 nuovi fa 3 run, non 48.
+  const reusable = new Map<string, string>();
   let reportId: string;
   try {
     const inserted = await db
@@ -320,8 +327,23 @@ async function generateForProject(
           ),
         );
       if (!existing || existing.status === "done") return false; // già completato.
-      // Orfano/fallito: reclaim inline e rigenera. Cancella le activity_commits
-      // parziali del tentativo precedente (una riga per commit).
+      // Orfano/fallito: reclaim inline e rigenera. PRIMA di cancellare, cattura le
+      // descrizioni AI già generate (SOLO le non-null: un commit senza descrizione
+      // — run fallito la volta prima — va ritentato) per riusarle nel loop.
+      const previous = await db
+        .select({ sha: activityCommits.sha, aiDescription: activityCommits.aiDescription })
+        .from(activityCommits)
+        .where(
+          and(
+            eq(activityCommits.reportId, existing.id),
+            isNotNull(activityCommits.aiDescription),
+          ),
+        );
+      for (const row of previous) {
+        if (row.aiDescription != null) reusable.set(row.sha, row.aiDescription);
+      }
+      // Cancella le activity_commits parziali del tentativo precedente (una riga
+      // per commit); le descrizioni riusabili sono già in `reusable`.
       await db
         .delete(activityCommits)
         .where(eq(activityCommits.reportId, existing.id));
@@ -482,9 +504,17 @@ async function generateForProject(
     for (const { mirrorProject, repositoryId, commits } of repoCommits) {
       for (const { commit: c, emailLower } of commits) {
         let aiDescription: string | null = null;
-        // Descrizione solo se c'è un provider e un cwd valido: altrimenti nemmeno
-        // si recupera il diff (git show sprecato) e restano i dati grezzi.
-        if (provider && cwd) {
+        // RIUSO INCREMENTALE: sha già descritto in un tentativo precedente (solo in
+        // rigenerazione: reclaim di un orfano/queued). La descrizione è invariante
+        // sullo sha (il commit è immutabile) → riusala così com'è, ZERO costo:
+        // nessun getCommitDiff né run dell'agente. Un insert fresco ha la mappa
+        // vuota (genera tutto, comportamento notturno invariato).
+        const reused = reusable.get(c.sha);
+        if (reused != null) {
+          aiDescription = reused;
+        } else if (provider && cwd) {
+          // Descrizione solo se c'è un provider e un cwd valido: altrimenti nemmeno
+          // si recupera il diff (git show sprecato) e restano i dati grezzi.
           // Diff best-effort: un getCommitDiff fallito → diff vuoto, si procede
           // (la descrizione verrà saltata, i dati grezzi restano). skipFetch: il
           // mirror è GIÀ montato+fetchato da getCommitsInRange (fase c) e/o
