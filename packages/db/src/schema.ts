@@ -1849,6 +1849,10 @@ export const activityReports = pgTable(
     // aggregando le descrizioni per-commit. Null se non ancora generato o se il
     // run di sintesi è fallito.
     summary: text("summary"),
+    // Commit con committer-date di questo giorno presenti nel repo ma ASSENTI dal
+    // report (pushati dopo la generazione). Aggiornato dalla fase di recount;
+    // azzerato alla (ri)generazione. > 0 → il report è potenzialmente incompleto.
+    staleCommitCount: integer("stale_commit_count").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
   },
@@ -1930,4 +1934,19 @@ export const activityDevSummaries = pgTable(
 export const activityDayRollups = pgTable("activity_day_rollups", {
   date: date("date").primaryKey(),
   generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Debounce dei job di recount dei report attività: un push su un repo di un
+ * progetto con report abilitato accoda/rinfresca qui (upsert per projectId,
+ * notBefore in avanti). Il poller reclama i job scaduti (not_before <= now) e
+ * ricalcola stale_commit_count dei report done del progetto. Pattern identico a
+ * doc_auto_update_jobs / pr_review_jobs.
+ */
+export const activityRecountJobs = pgTable("activity_recount_jobs", {
+  projectId: uuid("project_id")
+    .primaryKey()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  notBefore: timestamp("not_before", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

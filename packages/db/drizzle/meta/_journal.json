@@ -365,6 +365,13 @@
       "when": 1784155951826,
       "tag": "0051_activity_summaries",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1784204914669,
+      "tag": "0052_activity_recount",
+      "breakpoints": true
     }
   ]
 }
