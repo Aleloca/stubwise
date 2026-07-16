@@ -58,6 +58,18 @@ export interface RangeCommit {
   deletions: number;
 }
 
+/**
+ * Ref LEGGERO di un commit restituito da `getCommitRefsInRange`: solo i campi
+ * che servono al recount (confronto degli sha), senza il costo del `--numstat`
+ * (un diff per ogni commit) di `getCommitsInRange`.
+ */
+export interface RangeCommitRef {
+  sha: string;
+  /** ISO 8601 (committer date, coerente col filtro della finestra). */
+  date: string;
+  isMerge: boolean;
+}
+
 export interface MirrorManagerOptions {
   /** Directory che contiene tutti i mirror bare (creata con mode 0700). */
   mirrorsDir: string;
@@ -704,6 +716,48 @@ export class MirrorManager {
       });
     }
     return commits;
+  }
+
+  /**
+   * Variante LEGGERA di getCommitsInRange per il RECOUNT: gli stessi commit
+   * (branch, stessa finestra half-open [since, until) sulla committer date) ma
+   * SENZA `--numstat` — che calcolerebbe un diff per OGNI commit dell'intera
+   * finestra di retention (~90 giorni), la parte di gran lunga più costosa. Al
+   * recount servono solo `sha`, committer date e `isMerge` (per confrontare gli
+   * sha con quelli già registrati), non additions/deletions/autore/subject.
+   *
+   * Output `git log --branches --since --until --pretty=format:%H%x09%cI%x09%P`
+   * (sha TAB committer-date TAB parents, una riga per commit): %P con più di un
+   * parent ⇒ merge. Righe vuote filtrate. Errori git propagati (come le altre).
+   */
+  async getCommitRefsInRange(project: MirrorProject, since: Date, until: Date): Promise<RangeCommitRef[]> {
+    const mirrorDir = await this.ensureMirror(project);
+    // Stessa finestra half-open di getCommitsInRange: `--until` è INCLUSIVO,
+    // quindi escludiamo l'istante `until` sottraendo 1s (la granularità di git).
+    const untilExclusive = new Date(until.getTime() - 1000);
+    // %H = sha completo, %x09 = TAB, %cI = committer date (coerente col filtro
+    // --since/--until), %P = parents. NESSUN --numstat: una riga per commit.
+    const out = await this.git(
+      [
+        "log",
+        "--branches",
+        `--since=${since.toISOString()}`,
+        `--until=${untilExclusive.toISOString()}`,
+        "--pretty=format:%H%x09%cI%x09%P",
+      ],
+      { cwd: mirrorDir }
+    );
+    return out
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map((line) => {
+        const [sha = "", date = "", parents = ""] = line.split("\t");
+        return {
+          sha,
+          date,
+          isMerge: parents.trim().split(/\s+/).filter(Boolean).length > 1,
+        };
+      });
   }
 
   /**

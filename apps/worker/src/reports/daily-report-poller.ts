@@ -120,7 +120,10 @@ export function utcDayWindow(dateStr: string): { since: Date; until: Date; date:
 
 export interface PollDailyReportsDeps {
   db: Db;
-  mirrors: Pick<MirrorManager, "getCommitsInRange" | "ensureMirror" | "getCommitDiff">;
+  mirrors: Pick<
+    MirrorManager,
+    "getCommitsInRange" | "getCommitRefsInRange" | "ensureMirror" | "getCommitDiff"
+  >;
   runner: AgentRunner;
   /** Chiave AES-256 per decifrare le credenziali git e i segreti dei provider AI. */
   encryptionKey: Buffer;
@@ -810,7 +813,11 @@ async function recountProject(
   // failed) si stanno generando o sono falliti, non hanno un conteggio stabile da
   // ricontrollare. Nessun report done → niente da fare.
   const doneReports = await db
-    .select({ id: activityReports.id, date: activityReports.date })
+    .select({
+      id: activityReports.id,
+      date: activityReports.date,
+      staleCommitCount: activityReports.staleCommitCount,
+    })
     .from(activityReports)
     .where(
       and(
@@ -840,10 +847,12 @@ async function recountProject(
       defaultBranch: repository.defaultBranch,
       credentials,
     };
-    // getCommitsInRange fa un fetch del mirror: il recount DEVE vedere i commit
-    // nuovi (pushati dopo la generazione). Il serializer per-progetto evita la
-    // collisione col `fetch --prune` di un altro job dello stesso progetto.
-    const commits = await deps.mirrors.getCommitsInRange(mirrorProject, since, until);
+    // getCommitRefsInRange fa un fetch del mirror: il recount DEVE vedere i
+    // commit nuovi (pushati dopo la generazione). Il serializer per-progetto
+    // evita la collisione col `fetch --prune` di un altro job dello stesso
+    // progetto. Variante LEGGERA (senza --numstat): al recount servono solo
+    // sha/date/isMerge, non il diff per-commit dell'intera finestra di retention.
+    const commits = await deps.mirrors.getCommitRefsInRange(mirrorProject, since, until);
     for (const c of commits) {
       if (c.isMerge) continue; // i merge non sono lavoro: non contano come mancanti.
       const day = new Date(c.date).toISOString().slice(0, 10); // YYYY-MM-DD UTC della committer date.
@@ -877,13 +886,17 @@ async function recountProject(
   }
 
   // (f) Per ogni report done: mancanti = |commit del suo giorno NON in activity_commits|.
-  // UPDATE pieno → idempotente (0 se non manca nulla).
+  // Calcolo pieno → idempotente (0 se non manca nulla). UPDATE SOLO quando il
+  // valore cambia: al recount la stragrande maggioranza dei report resta a 0
+  // (nessun commit mancante nuovo), e riscrivere lo stesso conteggio a ogni push
+  // produrrebbe scritture morte (WAL/autovacuum) su fino a ~90 report per job.
   const empty: Set<string> = new Set();
   for (const report of doneReports) {
     const expected = expectedByDay.get(report.date) ?? empty;
     const present = shaByReport.get(report.id) ?? empty;
     let missing = 0;
     for (const sha of expected) if (!present.has(sha)) missing++;
+    if (missing === report.staleCommitCount) continue; // invariato → niente scrittura.
     await db
       .update(activityReports)
       .set({ staleCommitCount: missing })

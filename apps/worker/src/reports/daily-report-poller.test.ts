@@ -194,13 +194,26 @@ function makeDeps(o: MakeDepsOverrides = {}): {
   deps: PollDailyReportsDeps;
   runSpy: ReturnType<typeof vi.fn>;
   getCommitsSpy: ReturnType<typeof vi.fn>;
+  getCommitRefsSpy: ReturnType<typeof vi.fn>;
   getCommitDiffSpy: ReturnType<typeof vi.fn>;
 } {
   const commitsByCall = o.commitsByCall ?? [[]];
+  // Sorgente unica dei commit finti: sia la GENERAZIONE (getCommitsInRange) sia il
+  // RECOUNT (getCommitRefsInRange) leggono da qui. commitsByCall è indicizzato per
+  // chiamata (una call per repo); getCommitsImpl vince se passato.
   let call = 0;
-  const getCommitsSpy = vi.fn(
+  const commitsImpl =
     o.getCommitsImpl ??
-      (async () => commitsByCall[Math.min(call++, commitsByCall.length - 1)] ?? []),
+    (async (): Promise<RangeCommit[]> =>
+      commitsByCall[Math.min(call++, commitsByCall.length - 1)] ?? []);
+  const getCommitsSpy = vi.fn(commitsImpl);
+  // Il recount usa la variante LEGGERA getCommitRefsInRange: deriva {sha,date,isMerge}
+  // dalla stessa sorgente. Spy separato dalla generazione (che usa getCommitsInRange).
+  const getCommitRefsSpy = vi.fn(
+    async (project: MirrorProject, since: Date, until: Date) => {
+      const commits = await commitsImpl(project, since, until);
+      return commits.map((c) => ({ sha: c.sha, date: c.date, isMerge: c.isMerge }));
+    },
   );
   const getCommitDiffSpy = vi.fn(
     o.getCommitDiffImpl ??
@@ -222,9 +235,13 @@ function makeDeps(o: MakeDepsOverrides = {}): {
     db: testDb.db,
     mirrors: {
       getCommitsInRange: getCommitsSpy,
+      getCommitRefsInRange: getCommitRefsSpy,
       getCommitDiff: getCommitDiffSpy,
       ensureMirror,
-    } as unknown as Pick<MirrorManager, "getCommitsInRange" | "getCommitDiff" | "ensureMirror">,
+    } as unknown as Pick<
+      MirrorManager,
+      "getCommitsInRange" | "getCommitRefsInRange" | "getCommitDiff" | "ensureMirror"
+    >,
     runner: { run: runSpy } as unknown as AgentRunner,
     encryptionKey: ENCRYPTION_KEY,
     serializer,
@@ -241,7 +258,7 @@ function makeDeps(o: MakeDepsOverrides = {}): {
       (async () => (o.provider === null ? [] : [o.provider ?? FAKE_PROVIDER])),
     loadProviderByIdFn: o.loadProviderByIdFn ?? (async () => o.provider ?? FAKE_PROVIDER),
   };
-  return { deps, runSpy, getCommitsSpy, getCommitDiffSpy };
+  return { deps, runSpy, getCommitsSpy, getCommitRefsSpy, getCommitDiffSpy };
 }
 
 describe("previousUtcDay", () => {
@@ -1468,7 +1485,7 @@ describe("recountStaleReports (fase recount)", () => {
     );
     await enqueueRecount(projectId, 5 * 60_000); // futuro.
 
-    const { deps, getCommitsSpy } = makeDeps({
+    const { deps, getCommitRefsSpy } = makeDeps({
       commitsByCall: [
         [
           commit({ sha: "1".repeat(40), date: "2026-07-14T10:00:00Z" }),
@@ -1480,7 +1497,7 @@ describe("recountStaleReports (fase recount)", () => {
     await pollDailyReportsOnce(deps);
 
     // Recount non ha reclamato nulla: git non è stato interrogato.
-    expect(getCommitsSpy).not.toHaveBeenCalled();
+    expect(getCommitRefsSpy).not.toHaveBeenCalled();
     const [report] = await testDb.db
       .select()
       .from(activityReports)
@@ -1490,16 +1507,19 @@ describe("recountStaleReports (fase recount)", () => {
     expect(await testDb.db.select().from(activityRecountJobs)).toHaveLength(1);
   });
 
-  it("best-effort: un progetto il cui git LANCIA non blocca il recount degli altri", async () => {
+  it("best-effort + fail-closed: un progetto il cui git LANCIA non blocca gli altri e non azzera il suo stale", async () => {
     const a = await createProject(testDb.db, { dailyReportEnabled: false });
     const b = await createProject(testDb.db, { dailyReportEnabled: false });
-    await seedDoneReport(a.projectId, a.repositoryId, "2026-07-14", ["1".repeat(40)]);
-    await seedDoneReport(b.projectId, b.repositoryId, "2026-07-14", ["1".repeat(40)]);
+    // Entrambi partono con uno stale pre-esistente (5): simmetrici, così
+    // l'asserzione è indipendente da QUALE dei due venga processato per primo.
+    await seedDoneReport(a.projectId, a.repositoryId, "2026-07-14", ["1".repeat(40)], 5);
+    await seedDoneReport(b.projectId, b.repositoryId, "2026-07-14", ["1".repeat(40)], 5);
     await enqueueRecount(a.projectId, -60_000);
     await enqueueRecount(b.projectId, -60_000);
 
     // Il PRIMO progetto processato LANCIA (repo irraggiungibile) → il suo recount
-    // aborta senza aggiornare; il secondo restituisce un commit mancante.
+    // aborta senza aggiornare (fail-closed); il secondo restituisce un commit
+    // mancante e viene ricontrollato normalmente.
     let n = 0;
     const { deps } = makeDeps({
       getCommitsImpl: async () => {
@@ -1515,9 +1535,10 @@ describe("recountStaleReports (fase recount)", () => {
 
     // Entrambi i job reclamati (best-effort: il fallito non viene riaccodato qui).
     expect(await testDb.db.select().from(activityRecountJobs)).toHaveLength(0);
-    // Il progetto sopravvissuto ha stale=1; quello col git rotto resta 0 (non aggiornato).
+    // Fail-closed: il progetto col git rotto CONSERVA il suo stale=5 (l'abort NON
+    // lo sovrascrive a 0). Il progetto sopravvissuto scende a stale=1 (un mancante).
     const reports = await testDb.db.select().from(activityReports);
-    expect(reports.map((r) => r.staleCommitCount).sort()).toEqual([0, 1]);
+    expect(reports.map((r) => r.staleCommitCount).sort()).toEqual([1, 5]);
   });
 
   it("i commit di merge non contano tra i mancanti", async () => {
@@ -1592,14 +1613,80 @@ describe("recountStaleReports (fase recount)", () => {
     await seedDoneReport(projectId, repositoryId, "2026-07-14", ["1".repeat(40)], 4);
     // Nessun job accodato.
 
-    const { deps, getCommitsSpy } = makeDeps({
+    const { deps, getCommitRefsSpy } = makeDeps({
       commitsByCall: [[commit({ sha: "1".repeat(40), date: "2026-07-14T10:00:00Z" })]],
     });
 
     await pollDailyReportsOnce(deps);
 
-    expect(getCommitsSpy).not.toHaveBeenCalled();
+    expect(getCommitRefsSpy).not.toHaveBeenCalled();
     const [report] = await testDb.db.select().from(activityReports);
     expect(report?.staleCommitCount).toBe(4); // invariato.
+  });
+
+  it("aggrega i commit di TUTTI i repo del progetto: l'expected del giorno è l'unione", async () => {
+    const { projectId, repositoryId } = await createProject(testDb.db, {
+      dailyReportEnabled: false,
+    });
+    // Secondo repo dello stesso progetto: i suoi commit del giorno concorrono
+    // allo stesso report (l'expected del giorno è l'UNIONE dei due repo).
+    await addRepository(testDb.db, projectId);
+    // Il report ha registrato SOLO a1: a2 (repo A) e b1 (repo B) sono mancanti.
+    const reportId = await seedDoneReport(projectId, repositoryId, "2026-07-14", ["a".repeat(40)]);
+    await enqueueRecount(projectId, -60_000);
+
+    // Una call per repo (l'ordine dei repo non conta: si uniscono in expectedByDay).
+    const { deps } = makeDeps({
+      commitsByCall: [
+        [
+          commit({ sha: "a".repeat(40), date: "2026-07-14T10:00:00Z" }), // presente
+          commit({ sha: "b".repeat(40), date: "2026-07-14T11:00:00Z" }), // mancante (repo A)
+        ],
+        [
+          commit({ sha: "c".repeat(40), date: "2026-07-14T12:00:00Z" }), // mancante (repo B)
+        ],
+      ],
+    });
+
+    await pollDailyReportsOnce(deps);
+
+    const [report] = await testDb.db
+      .select()
+      .from(activityReports)
+      .where(eq(activityReports.id, reportId));
+    // Unione {a,b,c} − registrati {a} = 2 mancanti (uno per repo).
+    expect(report?.staleCommitCount).toBe(2);
+  });
+
+  it("un report done oltre la retention (più vecchio del cutoff) NON viene ricontrollato", async () => {
+    // Il recount filtra i report con `date >= cutoffDate` (cutoff = now - retentionDays,
+    // lo STESSO della retention). Un report più vecchio del cutoff è FUORI dalla
+    // finestra del recount: non viene ricontrollato — git non è nemmeno interrogato
+    // per lui — e la fase di retention dello stesso tick lo elimina.
+    const { projectId, repositoryId } = await createProject(testDb.db, {
+      dailyReportEnabled: false,
+    });
+    // SOLO un report molto vecchio (2026-01-01), ben oltre il cutoff (~2026-04-16
+    // con retention 90gg da NOW=2026-07-15), con uno stale pre-esistente (3).
+    const oldId = await seedDoneReport(projectId, repositoryId, "2026-01-01", [], 3);
+    await enqueueRecount(projectId, -60_000);
+
+    // git AVREBBE un commit mancante per quel giorno, ma non deve mai essere
+    // consultato: il report è fuori retention e il recount lo salta.
+    const { deps, getCommitRefsSpy } = makeDeps({
+      commitsByCall: [[commit({ sha: "9".repeat(40), date: "2026-01-01T10:00:00Z" })]],
+    });
+
+    await pollDailyReportsOnce(deps);
+
+    // Recount NON ha interrogato git: nessun report done entro la retention da
+    // ricontrollare (il vecchio è escluso dal filtro `date >= cutoffDate`).
+    expect(getCommitRefsSpy).not.toHaveBeenCalled();
+    // Il report vecchio è stato eliminato dalla retention (mai ricontato).
+    const [old] = await testDb.db
+      .select()
+      .from(activityReports)
+      .where(eq(activityReports.id, oldId));
+    expect(old).toBeUndefined();
   });
 });
