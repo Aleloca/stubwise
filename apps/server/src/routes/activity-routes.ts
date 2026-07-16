@@ -1,4 +1,4 @@
-import { asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -80,6 +80,10 @@ const projectViewSchema = z.object({
   // Riassunto narrativo del progetto per la giornata (markdown). Null se non
   // ancora generato o se il run di sintesi è fallito.
   summary: z.string().nullable(),
+  // Commit del giorno presenti nel repo ma ASSENTI da questo report (pushati
+  // dopo la generazione), dal campo `stale_commit_count` del report. > 0 → il
+  // report è potenzialmente incompleto: la UI lo segnala e offre "rigenera".
+  staleCommitCount: z.number(),
   commits: z.array(projectCommitSchema),
 });
 
@@ -112,6 +116,10 @@ const responseSchema = z.object({
   // ancora generati (tutti i report done, ci sono commit, ma manca il rollup):
   // la UI mostra "in generazione". False altrimenti.
   developersSummaryPending: z.boolean(),
+  // Somma di `staleCommitCount` su TUTTI i report del giorno: totale dei commit
+  // del giorno non ancora inclusi in alcun report. > 0 → banner "N commit non
+  // ancora nei report" nella UI. 0 nel giorno senza report.
+  staleCommitTotal: z.number(),
 });
 
 /** Membro Stubwise nella forma esposta come `resolvedUser`. */
@@ -158,6 +166,7 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
           reportId: activityReports.id,
           status: activityReports.status,
           summary: activityReports.summary,
+          staleCommitCount: activityReports.staleCommitCount,
           projectId: projects.id,
           projectName: projects.name,
           projectSlug: projects.slug,
@@ -168,9 +177,13 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
         .orderBy(asc(projects.name));
 
       if (reportRows.length === 0) {
-        return reply
-          .code(200)
-          .send({ date, projects: [], developers: [], developersSummaryPending: false });
+        return reply.code(200).send({
+          date,
+          projects: [],
+          developers: [],
+          developersSummaryPending: false,
+          staleCommitTotal: 0,
+        });
       }
 
       const reportIds = reportRows.map((r) => r.reportId);
@@ -285,6 +298,7 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
             authorCount: authors.size,
           },
           summary: report.summary ?? null,
+          staleCommitCount: report.staleCommitCount,
           commits: commits.map((c) => ({
             sha: c.sha,
             authorEmail: c.authorEmail,
@@ -400,9 +414,17 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
           return emailA.localeCompare(emailB);
         });
 
-      return reply
-        .code(200)
-        .send({ date, projects: projectViews, developers: developerViews, developersSummaryPending });
+      // Totale dei commit del giorno non ancora inclusi in alcun report: somma
+      // dello stale per-report. Alimenta il banner globale nella UI.
+      const staleCommitTotal = reportRows.reduce((sum, r) => sum + r.staleCommitCount, 0);
+
+      return reply.code(200).send({
+        date,
+        projects: projectViews,
+        developers: developerViews,
+        developersSummaryPending,
+        staleCommitTotal,
+      });
     },
   );
 
@@ -410,20 +432,30 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
   // `activity_reports` in stato `queued` per OGNI progetto con
   // `dailyReportEnabled=true`. Il worker (poller) raccoglie i `queued` e li
   // genera. Solo admin: accoda lavoro che consuma run AI. `queued` nella
-  // risposta = quanti report NUOVI sono stati accodati; i giorni già presenti
-  // (generati o già in coda) non vengono toccati né duplicati grazie
-  // all'onConflictDoNothing sull'unique (project_id, date).
+  // risposta = quanti report sono ORA in coda per effetto della chiamata.
+  //
+  // Senza `force` (default): i giorni già presenti (generati o già in coda) non
+  // vengono toccati né duplicati grazie all'onConflictDoNothing sull'unique
+  // (project_id, date); `queued` = solo i report NUOVI accodati.
+  //
+  // Con `force=true`: si RIGENERA anche il già-fatto. I report esistenti in
+  // stato `done`/`failed` per (progetto abilitato, date) vengono rimessi
+  // `queued` (e il loro `staleCommitCount` azzerato: sono in rigenerazione, un
+  // conteggio stale sarebbe fuorviante e la generazione lo ricostruirà); quelli
+  // già `queued`/`running` NON si toccano (si stanno già generando). I progetti
+  // abilitati senza report vengono comunque accodati. `queued` = report nuovi +
+  // report forzati (rimessi in coda).
   app.post(
     "/generate",
     {
       preHandler: requireAdmin,
       schema: {
-        body: z.object({ date: z.string() }),
+        body: z.object({ date: z.string(), force: z.boolean().optional().default(false) }),
         response: { 200: z.object({ queued: z.number() }), 400: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
-      const { date } = request.body;
+      const { date, force } = request.body;
       // Stessa validazione di GET: formato + data di calendario REALE (evita
       // che la colonna Postgres `date` rifiuti es. 2026-13-40 → 500).
       if (!isRealCalendarDate(date)) {
@@ -448,14 +480,38 @@ export async function activityRoutes(instance: FastifyInstance): Promise<void> {
         return reply.code(200).send({ queued: 0 });
       }
 
-      const rows = enabled.map((p) => ({ projectId: p.id, date, status: "queued" as const }));
+      const enabledIds = enabled.map((p) => p.id);
+
+      // Accoda i progetti abilitati SENZA report per (progetto, date): comune a
+      // force e non-force. L'onConflictDoNothing lascia intatti quelli già
+      // presenti (qualunque stato), evitando doppioni sull'unique.
+      const rows = enabledIds.map((id) => ({ projectId: id, date, status: "queued" as const }));
       const inserted = await app.db
         .insert(activityReports)
         .values(rows)
         .onConflictDoNothing({ target: [activityReports.projectId, activityReports.date] })
         .returning({ id: activityReports.id });
 
-      return reply.code(200).send({ queued: inserted.length });
+      if (!force) {
+        return reply.code(200).send({ queued: inserted.length });
+      }
+
+      // force: rimetti in coda i report GIÀ generati (done) o falliti (failed) dei
+      // progetti abilitati per questo giorno. Non tocca queued/running (già vivi).
+      // Azzera lo stale: il report sta per essere rigenerato da zero.
+      const forced = await app.db
+        .update(activityReports)
+        .set({ status: "queued", staleCommitCount: 0 })
+        .where(
+          and(
+            eq(activityReports.date, date),
+            inArray(activityReports.projectId, enabledIds),
+            inArray(activityReports.status, ["done", "failed"]),
+          ),
+        )
+        .returning({ id: activityReports.id });
+
+      return reply.code(200).send({ queued: inserted.length + forced.length });
     },
   );
 }
