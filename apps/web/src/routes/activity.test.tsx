@@ -224,7 +224,15 @@ const QUEUED_REPORT = {
 const STALE_REPORT = {
   ...REPORT,
   staleCommitTotal: 4,
-  projects: [{ ...REPORT.projects[0], staleCommitCount: 3 }],
+  projects: [{ ...REPORT.projects[0], staleCommitCount: 4 }],
+};
+
+// Variante con un solo commit mancante (total = somma = 1): esercita le forme
+// SINGOLARI (`staleWarning_one` / `staleBadge_one`) di avviso e badge.
+const STALE_REPORT_ONE = {
+  ...REPORT,
+  staleCommitTotal: 1,
+  projects: [{ ...REPORT.projects[0], staleCommitCount: 1 }],
 };
 
 describe("sezione attività", () => {
@@ -1300,8 +1308,8 @@ describe("sezione attività", () => {
     renderActivity();
 
     await screen.findByRole("heading", { name: "Apollo" });
-    // Il progetto ha 3 commit non ancora inclusi → badge "3 new commits".
-    expect(screen.getByText("3 new commits")).toBeInTheDocument();
+    // Il progetto ha 4 commit non ancora inclusi → badge "4 new commits".
+    expect(screen.getByText("4 new commits")).toBeInTheDocument();
   });
 
   it("nessun badge sulla card quando staleCommitCount è 0", async () => {
@@ -1399,5 +1407,71 @@ describe("sezione attività", () => {
       await screen.findByRole("button", { name: "Generate report for this day" }),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Regenerate" })).not.toBeInTheDocument();
+  });
+
+  it("un solo commit mancante → avviso e badge nella forma singolare (_one)", async () => {
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, STALE_REPORT_ONE),
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    // Badge sulla card nella forma singolare.
+    expect(screen.getByText("1 new commit")).toBeInTheDocument();
+    // Avviso di giornata nella forma singolare (niente "commits").
+    expect(
+      screen.getByText("1 new commit not included since the last generation"),
+    ).toBeInTheDocument();
+  });
+
+  it("admin: 'Regenerate' fallisce (500) → errore inline con role=alert", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, REPORT),
+      "POST /api/activity/generate": () =>
+        jsonResponse(500, { code: "boom", message: "Regeneration failed" }),
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    await user.click(screen.getByRole("button", { name: "Regenerate" }));
+
+    // translateApiError ripiega sul message del server (nessuna chiave errors:boom).
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Regeneration failed");
+  });
+
+  it("admin: dopo 'Regenerate' ok il refetch mostra lo stato aggiornato (in generazione)", async () => {
+    // Invalidazione post-success: il POST force accoda, poi il secondo GET
+    // (dovuto all'invalidazione di ["activity",date]) porta i report a queued →
+    // la card passa a "Generating…" e il pulsante resta disabilitato.
+    const user = userEvent.setup();
+    let queued = false;
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, queued ? QUEUED_REPORT : STALE_REPORT),
+      "POST /api/activity/generate": () => {
+        queued = true;
+        return jsonResponse(200, { queued: 1 });
+      },
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    // Prima: report done con commit mancanti → il pulsante "Regenerate" è cliccabile.
+    await user.click(screen.getByRole("button", { name: "Regenerate" }));
+
+    // Dopo l'invalidazione il progetto è queued: la card mostra "Generating…" e il
+    // pulsante resta disabilitato con "Regenerating…" per l'intera generazione.
+    expect(await screen.findByText("Generating…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Regenerating…" })).toBeDisabled();
   });
 });

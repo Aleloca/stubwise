@@ -165,6 +165,14 @@ function shortSha(sha: string): string {
 }
 
 /**
+ * Classe Tailwind condivisa dei pulsanti d'azione asincrona ({@link GenerateReport},
+ * {@link RegenerateButton}): stessa estetica "terminal" + stati disabled/aria-busy.
+ * Estratta per tenere lo stile in un punto solo (una modifica vale per entrambi).
+ */
+const ASYNC_BUTTON_CLASS =
+  "rounded-sm border border-line-strong px-3 py-1.5 font-mono text-[11px] tracking-[0.12em] text-fg-muted uppercase transition-colors hover:border-signal-dim hover:text-fg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-line-strong disabled:hover:text-fg-muted";
+
+/**
  * Selettore data: bottoni ±1 giorno + input date nativo (con etichetta leggibile
  * della data scelta). Il tetto è OGGI in UTC: `max` sull'input impedisce di
  * digitare giorni futuri e il bottone "giorno successivo" è disabilitato quando
@@ -320,9 +328,20 @@ function ActivityBody({
     (p) => !(p.status === "done" && p.commits.length === 0),
   );
 
+  // Una generazione è in corso se almeno un progetto è ancora queued/running:
+  // il pulsante "Rigenera" resta disabilitato con "Regenerating…" finché dura.
+  const generating = report.projects.some(
+    (p) => p.status === "queued" || p.status === "running",
+  );
+
   return (
     <div className="flex flex-col gap-6">
-      <RecountBar date={date} staleCommitTotal={report.staleCommitTotal} isAdmin={isAdmin} />
+      <RecountBar
+        date={date}
+        staleCommitTotal={report.staleCommitTotal}
+        isAdmin={isAdmin}
+        generating={generating}
+      />
       {view === "project" ? (
         visibleProjects.length === 0 ? (
           <NoActivityDay />
@@ -422,7 +441,7 @@ function GenerateReport({ date }: { date: string }) {
         onClick={() => mutation.mutate()}
         disabled={mutation.isPending}
         aria-busy={mutation.isPending}
-        className="rounded-sm border border-line-strong px-3 py-1.5 font-mono text-[11px] tracking-[0.12em] text-fg-muted uppercase transition-colors hover:border-signal-dim hover:text-fg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-line-strong disabled:hover:text-fg-muted"
+        className={ASYNC_BUTTON_CLASS}
       >
         {mutation.isPending ? t("activity:generating") : t("activity:generate")}
       </button>
@@ -455,10 +474,13 @@ function RecountBar({
   date,
   staleCommitTotal,
   isAdmin,
+  generating,
 }: {
   date: string;
   staleCommitTotal: number;
   isAdmin: boolean;
+  /** Una generazione del giorno è già in corso (progetto queued/running). */
+  generating: boolean;
 }) {
   const { t } = useTranslation();
   const hasStale = staleCommitTotal > 0;
@@ -467,12 +489,13 @@ function RecountBar({
     <div className="flex flex-wrap items-center justify-between gap-3">
       {hasStale ? (
         <p role="status" className="font-mono text-[12px] text-signal">
-          ⚠ {t("activity:staleWarning", { count: staleCommitTotal })}
+          <span aria-hidden="true">⚠</span>{" "}
+          {t("activity:staleWarning", { count: staleCommitTotal })}
         </p>
       ) : (
         <span />
       )}
-      {isAdmin && <RegenerateButton date={date} />}
+      {isAdmin && <RegenerateButton date={date} generating={generating} />}
     </div>
   );
 }
@@ -481,9 +504,12 @@ function RecountBar({
  * Pulsante admin "Rigenera": riaccoda il giorno con `force` (include i commit
  * arrivati dopo l'ultima generazione). Al successo invalida la query del giorno
  * (fa ripartire il refetch + il polling adattivo, riportando la vista in stato
- * "in generazione"). Errori localizzati inline.
+ * "in generazione"). Errori localizzati inline. Resta disabilitato con
+ * "Regenerating…" mentre una generazione è già in corso (`generating`) o mentre
+ * il POST è in volo (`mutation.isPending`): la generazione dura minuti, quindi
+ * il pulsante non deve tornare cliccabile appena il POST si risolve.
  */
-function RegenerateButton({ date }: { date: string }) {
+function RegenerateButton({ date, generating }: { date: string; generating: boolean }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
@@ -495,16 +521,17 @@ function RegenerateButton({ date }: { date: string }) {
     },
     onError: (cause) => setError(translateApiError(cause, t)),
   });
+  const busy = generating || mutation.isPending;
   return (
     <span className="flex flex-col items-end gap-1">
       <button
         type="button"
         onClick={() => mutation.mutate()}
-        disabled={mutation.isPending}
-        aria-busy={mutation.isPending}
-        className="rounded-sm border border-line-strong px-3 py-1.5 font-mono text-[11px] tracking-[0.12em] text-fg-muted uppercase transition-colors hover:border-signal-dim hover:text-fg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-line-strong disabled:hover:text-fg-muted"
+        disabled={busy}
+        aria-busy={busy}
+        className={ASYNC_BUTTON_CLASS}
       >
-        {mutation.isPending ? t("activity:regenerating") : t("activity:regenerate")}
+        {busy ? t("activity:regenerating") : t("activity:regenerate")}
       </button>
       {error && (
         <span role="alert" className="text-sm text-danger">
