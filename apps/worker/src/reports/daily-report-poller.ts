@@ -340,6 +340,7 @@ async function generateForProject(
           ),
         );
       for (const row of previous) {
+        // il != null è solo per il narrowing TS: la query filtra già isNotNull.
         if (row.aiDescription != null) reusable.set(row.sha, row.aiDescription);
       }
       // Cancella le activity_commits parziali del tentativo precedente (una riga
@@ -614,9 +615,16 @@ async function generateForProject(
         // giorno; se un domani i backfill superassero quel volume, spezzare qui.
         await tx.insert(activityCommits).values(rows);
       }
+      // staleCommitCount: 0 — la (ri)generazione legge l'INTERA finestra
+      // [since, until) del giorno (getCommitsInRange fresco) e reinserisce tutti i
+      // commit, quindi post-generazione i mancanti sono 0 (valore autoritativo). Lo
+      // stale è scritto solo dal recount (accodato da un push): senza azzerarlo qui,
+      // dopo un "Rigenera" manuale il badge "N commit mancanti" resterebbe visibile
+      // finché non arriva un push. Innocuo per la generazione fresca/notturna: era
+      // già 0.
       await tx
         .update(activityReports)
-        .set({ status: "done", finishedAt: now, summary })
+        .set({ status: "done", finishedAt: now, summary, staleCommitCount: 0 })
         .where(eq(activityReports.id, reportId));
     });
     return true;
