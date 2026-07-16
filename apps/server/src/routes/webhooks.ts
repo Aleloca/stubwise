@@ -4,6 +4,7 @@ import { dispatchNotification } from "@stubwise/notifications";
 import { and, count, desc, eq, isNotNull, ne, notInArray, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import {
+  activityRecountJobs,
   aiJobs,
   comments,
   docAutoUpdateJobs,
@@ -47,6 +48,15 @@ const DEBOUNCE_MS = 5 * 60 * 1000;
  * push su main.
  */
 const PR_REVIEW_DEBOUNCE_MS = 90 * 1000;
+
+/**
+ * Debounce del recount dei report attività: ogni push su un repo di un progetto
+ * con i report giornalieri attivi sposta `not_before` di questo intervallo, così
+ * una raffica di push accorpa in un solo recount (il worker lo reclama quando i
+ * push si fermano per almeno questo tempo). Più corto degli altri: il recount è
+ * un'aggregazione leggera e conviene tenerlo reattivo.
+ */
+const ACTIVITY_RECOUNT_DEBOUNCE_MS = 60 * 1000;
 
 /**
  * Normalizza gli header Fastify (string | string[] | undefined) nella
@@ -157,13 +167,31 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
         // restano sul repository.
         const [repository] = await instance.db
           .select({
+            projectId: repositories.projectId,
             defaultBranch: repositories.defaultBranch,
             docAutoUpdate: projects.docAutoUpdate,
+            dailyReportEnabled: projects.dailyReportEnabled,
             currentDocGenerationId: repositories.currentDocGenerationId,
           })
           .from(repositories)
           .innerJoin(projects, eq(projects.id, repositories.projectId))
           .where(eq(repositories.id, context.repositoryId));
+
+        // Recount dei report attività: indipendente dal branch e dal toggle
+        // Docs. Qualunque push su un repo di un progetto con i report giornalieri
+        // attivi accoda (in debounce) un recount, che il worker processerà.
+        // L'upsert sulla PK (project_id) tiene un solo job pending per progetto:
+        // push ravvicinati spostano solo la finestra di debounce in avanti.
+        if (repository?.dailyReportEnabled === true) {
+          const recountNotBefore = new Date(Date.now() + ACTIVITY_RECOUNT_DEBOUNCE_MS);
+          await instance.db
+            .insert(activityRecountJobs)
+            .values({ projectId: repository.projectId, notBefore: recountNotBefore })
+            .onConflictDoUpdate({
+              target: activityRecountJobs.projectId,
+              set: { notBefore: recountNotBefore },
+            });
+        }
 
         // Gate: si agisce solo sui push al branch di default di un repository il
         // cui progetto ha il toggle attivo. Tutto il resto è no-op (un push su un

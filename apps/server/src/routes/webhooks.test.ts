@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
 import {
+  activityRecountJobs,
   aiJobs,
   comments,
   docAutoUpdateJobs,
@@ -1458,6 +1459,118 @@ describe("POST /webhooks/git/:projectSlug — push (auto-aggiornamento Docs)", (
     expect(await ticketStatus(ticketId)).toBe("done");
     // E nessun job di auto-update è stato creato.
     expect(await pendingJob(project.id)).toBeUndefined();
+  });
+});
+
+describe("POST /webhooks/git/:projectSlug — push (recount report attività)", () => {
+  const SHA = (c: string) => c.repeat(40);
+
+  /** Porta il toggle dailyReportEnabled del progetto (gruppo) del repository. */
+  async function setDailyReportEnabled(repositoryId: string, value: boolean): Promise<void> {
+    const [repository] = await testDb.db
+      .select({ projectId: repositories.projectId })
+      .from(repositories)
+      .where(eq(repositories.id, repositoryId));
+    await testDb.db
+      .update(projects)
+      .set({ dailyReportEnabled: value })
+      .where(eq(projects.id, repository!.projectId));
+  }
+
+  /** Legge l'unico job di recount del progetto (o undefined). */
+  async function recountJob(projectId: string) {
+    const [row] = await testDb.db
+      .select()
+      .from(activityRecountJobs)
+      .where(eq(activityRecountJobs.projectId, projectId));
+    return row;
+  }
+
+  function postPush(slug: string, secret: string, body: string) {
+    return app.inject({
+      method: "POST",
+      url: `/webhooks/git/${slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "push",
+        "x-hub-signature-256": sign(secret, body),
+      },
+      payload: body,
+    });
+  }
+
+  it("push con dailyReportEnabled=true → accoda un recount (not_before ~ now+60s)", async () => {
+    const project = await createProject({
+      name: "Recount On",
+      provider: "github",
+      repoUrl: "https://github.com/acme/recount-on",
+      defaultBranch: "main",
+      credentials: { token: "tok" },
+    });
+    await setDailyReportEnabled(project.id, true);
+    const body = githubPushPayload("main", SHA("a"), SHA("b"));
+
+    const before = Date.now();
+    const res = await postPush(project.slug, project.webhookSecret, body);
+    expect(res.statusCode).toBe(204);
+
+    const job = await recountJob(project.projectId);
+    expect(job).toBeDefined();
+    // not_before nella finestra di debounce (~ now + 60s), con un margine ampio.
+    expect(job!.notBefore.getTime()).toBeGreaterThan(before);
+    expect(job!.notBefore.getTime()).toBeLessThanOrEqual(before + 60_000 + 5_000);
+  });
+
+  it("secondo push ravvicinato → un solo job (upsert), not_before spostato avanti", async () => {
+    const project = await createProject({
+      name: "Recount Debounce",
+      provider: "github",
+      repoUrl: "https://github.com/acme/recount-debounce",
+      defaultBranch: "main",
+      credentials: { token: "tok" },
+    });
+    await setDailyReportEnabled(project.id, true);
+
+    const r1 = await postPush(
+      project.slug,
+      project.webhookSecret,
+      githubPushPayload("main", SHA("a"), SHA("b")),
+    );
+    expect(r1.statusCode).toBe(204);
+    const first = await recountJob(project.projectId);
+    const firstNotBefore = first!.notBefore.getTime();
+
+    const r2 = await postPush(
+      project.slug,
+      project.webhookSecret,
+      githubPushPayload("main", SHA("b"), SHA("c")),
+    );
+    expect(r2.statusCode).toBe(204);
+
+    // Una sola riga per progetto (PK project_id).
+    const all = await testDb.db
+      .select()
+      .from(activityRecountJobs)
+      .where(eq(activityRecountJobs.projectId, project.projectId));
+    expect(all).toHaveLength(1);
+    // not_before avanza (debounce).
+    expect(all[0]!.notBefore.getTime()).toBeGreaterThanOrEqual(firstNotBefore);
+  });
+
+  it("push con dailyReportEnabled=false → nessun recount", async () => {
+    const project = await createProject({
+      name: "Recount Off",
+      provider: "github",
+      repoUrl: "https://github.com/acme/recount-off",
+      defaultBranch: "main",
+      credentials: { token: "tok" },
+    });
+    // toggle lasciato a false (default).
+    const body = githubPushPayload("main", SHA("a"), SHA("b"));
+
+    const res = await postPush(project.slug, project.webhookSecret, body);
+    expect(res.statusCode).toBe(204);
+    expect(await recountJob(project.projectId)).toBeUndefined();
   });
 });
 
