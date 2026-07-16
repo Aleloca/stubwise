@@ -2,6 +2,7 @@ import {
   activityCommits,
   activityDayRollups,
   activityDevSummaries,
+  activityRecountJobs,
   activityReports,
   decrypt,
   gitAccounts,
@@ -11,7 +12,7 @@ import {
   repositories,
   type Db,
 } from "@stubwise/db";
-import { and, eq, gte, lt, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
 import { tmpdir } from "node:os";
 import { z } from "zod";
 import type { AgentRunner, AgentRunResult } from "../agent/runner.js";
@@ -119,7 +120,10 @@ export function utcDayWindow(dateStr: string): { since: Date; until: Date; date:
 
 export interface PollDailyReportsDeps {
   db: Db;
-  mirrors: Pick<MirrorManager, "getCommitsInRange" | "ensureMirror" | "getCommitDiff">;
+  mirrors: Pick<
+    MirrorManager,
+    "getCommitsInRange" | "getCommitRefsInRange" | "ensureMirror" | "getCommitDiff"
+  >;
   runner: AgentRunner;
   /** Chiave AES-256 per decifrare le credenziali git e i segreti dei provider AI. */
   encryptionKey: Buffer;
@@ -786,11 +790,182 @@ async function rollupDevSummaries(deps: PollDailyReportsDeps): Promise<void> {
 }
 
 /**
+ * Ricontrolla UN progetto (dentro il serializer): ricalcola `stale_commit_count`
+ * dei suoi report `done` entro la retention confrontando i commit REALI del mirror
+ * (git-only, nessun agente) con gli sha già registrati in `activity_commits`.
+ * RICALCOLO PIENO (non incrementale) → idempotente: un report senza commit
+ * mancanti torna a 0. Se un repo è irraggiungibile o le credenziali non sono
+ * decifrabili, l'errore PROPAGA (lo gestisce il chiamante): meglio non aggiornare
+ * nulla che scrivere un conteggio da una vista parziale del git (falserebbe lo
+ * stale a 0, nascondendo commit mancanti). Un progetto SENZA report done entro la
+ * retention è un no-op.
+ */
+async function recountProject(
+  deps: PollDailyReportsDeps,
+  projectId: string,
+  since: Date,
+  until: Date,
+  cutoffDate: string,
+): Promise<void> {
+  const { db } = deps;
+
+  // (b) Solo i report `done` entro la retention: gli altri stati (queued/running/
+  // failed) si stanno generando o sono falliti, non hanno un conteggio stabile da
+  // ricontrollare. Nessun report done → niente da fare.
+  const doneReports = await db
+    .select({
+      id: activityReports.id,
+      date: activityReports.date,
+      staleCommitCount: activityReports.staleCommitCount,
+    })
+    .from(activityReports)
+    .where(
+      and(
+        eq(activityReports.projectId, projectId),
+        eq(activityReports.status, "done"),
+        gte(activityReports.date, cutoffDate),
+      ),
+    );
+  if (doneReports.length === 0) return;
+
+  // (c) Repo del progetto + credenziali. (d) Commit REALI recenti di ogni repo,
+  // raggruppati per giorno UTC della committer date, merge esclusi.
+  const repoRows = await db
+    .select({ repository: repositories, account: gitAccounts })
+    .from(repositories)
+    .innerJoin(gitAccounts, eq(repositories.gitAccountId, gitAccounts.id))
+    .where(eq(repositories.projectId, projectId));
+
+  const expectedByDay = new Map<string, Set<string>>();
+  for (const { repository, account } of repoRows) {
+    const credentials = credentialsSchema.parse(
+      JSON.parse(decrypt(account.encryptedCredentials, deps.encryptionKey)),
+    );
+    const mirrorProject: MirrorProject = {
+      provider: repository.provider,
+      repoUrl: repository.repoUrl,
+      defaultBranch: repository.defaultBranch,
+      credentials,
+    };
+    // getCommitRefsInRange fa un fetch del mirror: il recount DEVE vedere i
+    // commit nuovi (pushati dopo la generazione). Il serializer per-progetto
+    // evita la collisione col `fetch --prune` di un altro job dello stesso
+    // progetto. Variante LEGGERA (senza --numstat): al recount servono solo
+    // sha/date/isMerge, non il diff per-commit dell'intera finestra di retention.
+    const commits = await deps.mirrors.getCommitRefsInRange(mirrorProject, since, until);
+    for (const c of commits) {
+      if (c.isMerge) continue; // i merge non sono lavoro: non contano come mancanti.
+      const day = new Date(c.date).toISOString().slice(0, 10); // YYYY-MM-DD UTC della committer date.
+      let set = expectedByDay.get(day);
+      if (!set) {
+        set = new Set();
+        expectedByDay.set(day, set);
+      }
+      set.add(c.sha);
+    }
+  }
+
+  // (e) Sha già registrati per ogni report done → Map<reportId, Set<sha>>.
+  const shaByReport = new Map<string, Set<string>>();
+  const registered = await db
+    .select({ reportId: activityCommits.reportId, sha: activityCommits.sha })
+    .from(activityCommits)
+    .where(
+      inArray(
+        activityCommits.reportId,
+        doneReports.map((r) => r.id),
+      ),
+    );
+  for (const row of registered) {
+    let set = shaByReport.get(row.reportId);
+    if (!set) {
+      set = new Set();
+      shaByReport.set(row.reportId, set);
+    }
+    set.add(row.sha);
+  }
+
+  // (f) Per ogni report done: mancanti = |commit del suo giorno NON in activity_commits|.
+  // Calcolo pieno → idempotente (0 se non manca nulla). UPDATE SOLO quando il
+  // valore cambia: al recount la stragrande maggioranza dei report resta a 0
+  // (nessun commit mancante nuovo), e riscrivere lo stesso conteggio a ogni push
+  // produrrebbe scritture morte (WAL/autovacuum) su fino a ~90 report per job.
+  const empty: Set<string> = new Set();
+  for (const report of doneReports) {
+    const expected = expectedByDay.get(report.date) ?? empty;
+    const present = shaByReport.get(report.id) ?? empty;
+    let missing = 0;
+    for (const sha of expected) if (!present.has(sha)) missing++;
+    if (missing === report.staleCommitCount) continue; // invariato → niente scrittura.
+    await db
+      .update(activityReports)
+      .set({ staleCommitCount: missing })
+      .where(eq(activityReports.id, report.id));
+  }
+}
+
+/**
+ * FASE DI RECOUNT (rilevamento commit mancanti). Il webhook accoda in
+ * `activity_recount_jobs` (debounce, un pending per progetto) a ogni push su un
+ * repo di un progetto con report abilitato. Qui si reclamano i job scaduti e, per
+ * ogni progetto, si ricalcola `stale_commit_count` dei suoi report done entro la
+ * retention confrontando i commit reali del mirror con quelli già registrati.
+ *
+ * GIT-ONLY (nessun agente): confronta sha. Best-effort a ogni livello — l'intera
+ * fase e ogni progetto sono in try/catch isolati: un progetto in errore (git
+ * irraggiungibile, credenziali illeggibili) non blocca gli altri né le altre fasi
+ * del tick. Il job è già stato reclamato (DELETE): un fallimento lo perde per
+ * questo tick, ma il prossimo push lo riaccoda.
+ */
+async function recountStaleReports(deps: PollDailyReportsDeps, now: Date): Promise<void> {
+  const { db } = deps;
+
+  // (1) CLAIM: rimuove e restituisce in un colpo solo i job scaduti (debounce,
+  // pattern di pr_review_jobs / doc_auto_update_jobs). Atomico → niente doppio
+  // processing tra tick.
+  let claimed: { projectId: string }[];
+  try {
+    claimed = await db
+      .delete(activityRecountJobs)
+      .where(lte(activityRecountJobs.notBefore, sql`now()`))
+      .returning({ projectId: activityRecountJobs.projectId });
+  } catch (err) {
+    console.error(`[stubwise-worker] daily-report: claim dei recount job fallito: ${errText(err)}`);
+    return;
+  }
+  if (claimed.length === 0) return; // niente scaduto: no-op.
+
+  // Cutoff della retention (giorno UTC di `now - retentionDays`, mezzanotte UTC).
+  // `since` = quel giorno; `until` = domani mezzanotte UTC (per includere oggi).
+  const todayMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const since = new Date(todayMs - deps.retentionDays * 24 * 60 * 60 * 1000);
+  const until = new Date(todayMs + 24 * 60 * 60 * 1000);
+  const cutoffDate = since.toISOString().slice(0, 10);
+
+  for (const { projectId } of claimed) {
+    try {
+      // Serializzato per-progetto (tocca il mirror, come fix/doc/review): evita la
+      // collisione col fetch di un altro job dello stesso progetto.
+      await deps.serializer.run(projectId, () =>
+        recountProject(deps, projectId, since, until, cutoffDate),
+      );
+    } catch (err) {
+      // Best-effort: un progetto in errore non blocca gli altri.
+      console.error(
+        `[stubwise-worker] daily-report: recount del progetto ${projectId} fallito: ${errText(err)}`,
+      );
+    }
+  }
+}
+
+/**
  * Esegue UN giro:
  *  1. GENERAZIONE MANUALE: raccoglie i report accodati (status='queued', creati
  *     dall'endpoint di richiesta manuale su una data scelta) e li genera sulla
  *     LORO data — indipendentemente dal flag `dailyReportEnabled` del progetto
  *     (sono stati richiesti esplicitamente).
+ *  1-bis. RECOUNT: reclama i recount job scaduti e ricalcola stale_commit_count
+ *     dei report done dei progetti toccati (git-only, best-effort).
  *  2. GATE NOTTURNO: per ogni progetto con dailyReportEnabled genera
  *     (idempotente) il report del giorno UTC precedente.
  *  3. RETENTION.
@@ -884,6 +1059,12 @@ export async function pollDailyReportsOnce(deps: PollDailyReportsDeps): Promise<
       `[stubwise-worker] daily-report: selezione dei report accodati fallita: ${errText(err)}`,
     );
   }
+
+  // (1-bis) FASE DI RECOUNT: reclama i recount job scaduti e ricalcola
+  // `stale_commit_count` dei report done dei progetti toccati (git-only,
+  // best-effort). Fuori dal gate notturno: gira a ogni tick, indipendente dalla
+  // generazione.
+  await recountStaleReports(deps, now);
 
   try {
     const enabledProjects = await deps.db

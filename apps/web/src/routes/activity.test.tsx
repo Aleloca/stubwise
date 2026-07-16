@@ -110,11 +110,13 @@ const REPOS = [
 const REPORT = {
   date: "2026-07-14",
   developersSummaryPending: false,
+  staleCommitTotal: 0,
   projects: [
     {
       project: { id: "p1", name: "Apollo", slug: "apollo" },
       status: "done",
       summary: "Delivered auth improvements across the board.",
+      staleCommitCount: 0,
       header: { commitCount: 2, additions: 43, deletions: 6, authorCount: 2 },
       commits: [
         {
@@ -195,6 +197,7 @@ const EMPTY_REPORT = {
   projects: [],
   developers: [],
   developersSummaryPending: false,
+  staleCommitTotal: 0,
 };
 
 // Report appena accodato: un progetto in stato "queued" senza commit (il worker
@@ -202,16 +205,34 @@ const EMPTY_REPORT = {
 const QUEUED_REPORT = {
   date: "2026-07-14",
   developersSummaryPending: false,
+  staleCommitTotal: 0,
   projects: [
     {
       project: { id: "p1", name: "Apollo", slug: "apollo" },
       status: "queued",
       summary: null,
+      staleCommitCount: 0,
       header: { commitCount: 0, additions: 0, deletions: 0, authorCount: 0 },
       commits: [],
     },
   ],
   developers: [],
+};
+
+// Report con commit mancanti: sono arrivati nuovi commit dopo l'ultima
+// generazione (staleCommitTotal > 0, il progetto ne ha staleCommitCount > 0).
+const STALE_REPORT = {
+  ...REPORT,
+  staleCommitTotal: 4,
+  projects: [{ ...REPORT.projects[0], staleCommitCount: 4 }],
+};
+
+// Variante con un solo commit mancante (total = somma = 1): esercita le forme
+// SINGOLARI (`staleWarning_one` / `staleBadge_one`) di avviso e badge.
+const STALE_REPORT_ONE = {
+  ...REPORT,
+  staleCommitTotal: 1,
+  projects: [{ ...REPORT.projects[0], staleCommitCount: 1 }],
 };
 
 describe("sezione attività", () => {
@@ -1275,5 +1296,182 @@ describe("sezione attività", () => {
     const fixed = within(region).getByText("fixed logout");
     expect(shipped.tagName).toBe("LI");
     expect(fixed.tagName).toBe("LI");
+  });
+
+  it("badge sulla card quando staleCommitCount > 0; nessun badge se 0", async () => {
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, STALE_REPORT),
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    // Il progetto ha 4 commit non ancora inclusi → badge "4 new commits".
+    expect(screen.getByText("4 new commits")).toBeInTheDocument();
+  });
+
+  it("nessun badge sulla card quando staleCommitCount è 0", async () => {
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, REPORT),
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    expect(screen.queryByText(/new commits?$/)).not.toBeInTheDocument();
+  });
+
+  it("avviso di giornata quando staleCommitTotal > 0 (col numero)", async () => {
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: MEMBER }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, STALE_REPORT),
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    // L'avviso di giornata (visibile anche ai member) riporta il totale.
+    expect(
+      screen.getByText(/4 new commits not included since the last generation/),
+    ).toBeInTheDocument();
+  });
+
+  it("nessun avviso di giornata quando staleCommitTotal è 0", async () => {
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: MEMBER }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, REPORT),
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    expect(
+      screen.queryByText(/not included since the last generation/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("admin: pulsante 'Regenerate' su report esistente → POST /generate con force:true", async () => {
+    const user = userEvent.setup();
+    let generateBody: unknown = null;
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, REPORT),
+      "POST /api/activity/generate": (_url, init) => {
+        generateBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, { queued: 1 });
+      },
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    await user.click(screen.getByRole("button", { name: "Regenerate" }));
+
+    // Il body forza la rigenerazione dei report esistenti del giorno.
+    await waitFor(() => expect(generateBody).not.toBeNull());
+    expect(generateBody).toHaveProperty("force", true);
+    expect(generateBody).toHaveProperty("date");
+  });
+
+  it("member: nessun pulsante 'Regenerate' su report esistente", async () => {
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: MEMBER }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, REPORT),
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    expect(screen.queryByRole("button", { name: "Regenerate" })).not.toBeInTheDocument();
+  });
+
+  it("giorno vuoto: nessun 'Regenerate', resta il 'Generate' (non regredito)", async () => {
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, EMPTY_REPORT),
+    });
+
+    renderActivity();
+
+    // Su un giorno senza report c'è "Generate", non "Regenerate".
+    expect(
+      await screen.findByRole("button", { name: "Generate report for this day" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Regenerate" })).not.toBeInTheDocument();
+  });
+
+  it("un solo commit mancante → avviso e badge nella forma singolare (_one)", async () => {
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, STALE_REPORT_ONE),
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    // Badge sulla card nella forma singolare.
+    expect(screen.getByText("1 new commit")).toBeInTheDocument();
+    // Avviso di giornata nella forma singolare (niente "commits").
+    expect(
+      screen.getByText("1 new commit not included since the last generation"),
+    ).toBeInTheDocument();
+  });
+
+  it("admin: 'Regenerate' fallisce (500) → errore inline con role=alert", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, REPORT),
+      "POST /api/activity/generate": () =>
+        jsonResponse(500, { code: "boom", message: "Regeneration failed" }),
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    await user.click(screen.getByRole("button", { name: "Regenerate" }));
+
+    // translateApiError ripiega sul message del server (nessuna chiave errors:boom).
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Regeneration failed");
+  });
+
+  it("admin: dopo 'Regenerate' ok il refetch mostra lo stato aggiornato (in generazione)", async () => {
+    // Invalidazione post-success: il POST force accoda, poi il secondo GET
+    // (dovuto all'invalidazione di ["activity",date]) porta i report a queued →
+    // la card passa a "Generating…" e il pulsante resta disabilitato.
+    const user = userEvent.setup();
+    let queued = false;
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, queued ? QUEUED_REPORT : STALE_REPORT),
+      "POST /api/activity/generate": () => {
+        queued = true;
+        return jsonResponse(200, { queued: 1 });
+      },
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    // Prima: report done con commit mancanti → il pulsante "Regenerate" è cliccabile.
+    await user.click(screen.getByRole("button", { name: "Regenerate" }));
+
+    // Dopo l'invalidazione il progetto è queued: la card mostra "Generating…" e il
+    // pulsante resta disabilitato con "Regenerating…" per l'intera generazione.
+    expect(await screen.findByText("Generating…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Regenerating…" })).toBeDisabled();
   });
 });

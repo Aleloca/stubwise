@@ -6,6 +6,7 @@ import {
   activityCommits,
   activityDayRollups,
   activityDevSummaries,
+  activityRecountJobs,
   activityReports,
   aiJobs,
   aiProviders,
@@ -2093,6 +2094,49 @@ describe("schema: daily activity report", () => {
       .values({ projectId, date: "2026-08-02", summary: "## Oggi\nHa fatto cose" })
       .returning();
     expect(withSummary?.summary).toBe("## Oggi\nHa fatto cose");
+  });
+
+  it("activity_reports.stale_commit_count: default 0 e valorizzabile", async () => {
+    const projectId = await seedProject();
+    // Di default (report appena creato) il contatore dei commit mancanti è 0.
+    const [fresh] = await db
+      .insert(activityReports)
+      .values({ projectId, date: "2026-08-05" })
+      .returning();
+    expect(fresh?.staleCommitCount).toBe(0);
+
+    // Il recount lo può alzare: round-trip di un valore > 0.
+    const [stale] = await db
+      .insert(activityReports)
+      .values({ projectId, date: "2026-08-06", staleCommitCount: 3 })
+      .returning();
+    expect(stale?.staleCommitCount).toBe(3);
+  });
+
+  it("activity_recount_jobs: PK projectId (upsert/duplicato) e cascade su delete project", async () => {
+    const projectId = await seedProject();
+    const notBefore = new Date("2026-08-05T10:00:00.000Z");
+    const [job] = await db
+      .insert(activityRecountJobs)
+      .values({ projectId, notBefore })
+      .returning();
+    expect(job?.projectId).toBe(projectId);
+    expect(job?.notBefore).toBeInstanceOf(Date);
+    expect(job?.createdAt).toBeInstanceOf(Date);
+
+    // Stesso projectId → viola la PK (un solo job pending per progetto: il
+    // webhook fa upsert su questo vincolo).
+    await expect(
+      db.insert(activityRecountJobs).values({ projectId, notBefore }),
+    ).rejects.toThrow();
+
+    // Cascade: eliminando il progetto sparisce il suo job di recount.
+    await db.delete(projects).where(eq(projects.id, projectId));
+    const rows = await db
+      .select()
+      .from(activityRecountJobs)
+      .where(eq(activityRecountJobs.projectId, projectId));
+    expect(rows).toHaveLength(0);
   });
 
   it("activity_dev_summaries: unique parziali su (date,userId) e (date,gitEmail), set null su delete user", async () => {

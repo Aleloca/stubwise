@@ -653,6 +653,75 @@ describe("GET /api/activity", () => {
     const body = res.json() as { developersSummaryPending: boolean };
     expect(body.developersSummaryPending).toBe(false);
   });
+
+  it("projects[].staleCommitCount dal report; staleCommitTotal = somma", async () => {
+    await seedReport();
+    // Il report del progetto ha 2 commit del giorno non ancora inclusi.
+    await testDb.db
+      .update(activityReports)
+      .set({ staleCommitCount: 2 })
+      .where(eq(activityReports.projectId, projectId));
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/activity?date=${DATE}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      projects: { staleCommitCount: number }[];
+      staleCommitTotal: number;
+    };
+    expect(body.projects).toHaveLength(1);
+    expect(body.projects[0]!.staleCommitCount).toBe(2);
+    expect(body.staleCommitTotal).toBe(2);
+  });
+
+  it("staleCommitTotal somma lo stale di TUTTI i report del giorno", async () => {
+    await seedReport();
+    await testDb.db
+      .update(activityReports)
+      .set({ staleCommitCount: 2 })
+      .where(eq(activityReports.projectId, projectId));
+    // Secondo progetto con report done e 3 commit stale.
+    const { projectId: p2 } = await seedRepository(testDb.db);
+    await testDb.db
+      .insert(activityReports)
+      .values({ projectId: p2, date: DATE, status: "done", staleCommitCount: 3 });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/activity?date=${DATE}`,
+      headers: { cookie: memberCookie },
+    });
+    const body = res.json() as { staleCommitTotal: number };
+    expect(body.staleCommitTotal).toBe(5);
+  });
+
+  it("staleCommitCount default 0 e staleCommitTotal 0 senza stale", async () => {
+    await seedReport();
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/activity?date=${DATE}`,
+      headers: { cookie: memberCookie },
+    });
+    const body = res.json() as {
+      projects: { staleCommitCount: number }[];
+      staleCommitTotal: number;
+    };
+    expect(body.projects[0]!.staleCommitCount).toBe(0);
+    expect(body.staleCommitTotal).toBe(0);
+  });
+
+  it("giorno senza report → staleCommitTotal 0", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/activity?date=${DATE}`,
+      headers: { cookie: memberCookie },
+    });
+    const body = res.json() as { staleCommitTotal: number };
+    expect(body.staleCommitTotal).toBe(0);
+  });
 });
 
 describe("POST /api/activity/generate", () => {
@@ -781,5 +850,124 @@ describe("POST /api/activity/generate", () => {
     });
     expect(res.statusCode).toBe(200);
     expect((res.json() as { queued: number }).queued).toBe(0);
+  });
+
+  it("force=false (default): report done esistente NON toccato, resta done", async () => {
+    const { projectId: p1 } = await seedRepository(testDb.db);
+    await enable([p1]);
+    await testDb.db
+      .insert(activityReports)
+      .values({ projectId: p1, date: PAST_DATE, status: "done" });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/activity/generate",
+      headers: { cookie: adminCookie },
+      payload: { date: PAST_DATE },
+    });
+    expect(res.statusCode).toBe(200);
+    // Nessun report nuovo accodato: il done resta done.
+    expect((res.json() as { queued: number }).queued).toBe(0);
+
+    const rows = await testDb.db
+      .select({ status: activityReports.status })
+      .from(activityReports)
+      .where(eq(activityReports.projectId, p1));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.status).toBe("done");
+  });
+
+  it("force=true: report done → queued (stale azzerato); mancante → queued; running intoccato", async () => {
+    // p1: report done con stale=4 → deve tornare queued e stale=0.
+    // p2: report running → NON toccato.
+    // p3: abilitato senza report → accodato queued.
+    const { projectId: p1 } = await seedRepository(testDb.db);
+    const { projectId: p2 } = await seedRepository(testDb.db);
+    const { projectId: p3 } = await seedRepository(testDb.db);
+    await enable([p1, p2, p3]);
+
+    await testDb.db
+      .insert(activityReports)
+      .values({ projectId: p1, date: PAST_DATE, status: "done", staleCommitCount: 4 });
+    await testDb.db
+      .insert(activityReports)
+      .values({ projectId: p2, date: PAST_DATE, status: "running" });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/activity/generate",
+      headers: { cookie: adminCookie },
+      payload: { date: PAST_DATE, force: true },
+    });
+    expect(res.statusCode).toBe(200);
+    // 1 nuovo (p3) + 1 forzato (p1). Il running (p2) non conta.
+    expect((res.json() as { queued: number }).queued).toBe(2);
+
+    const byProject = new Map(
+      (
+        await testDb.db
+          .select({
+            projectId: activityReports.projectId,
+            status: activityReports.status,
+            stale: activityReports.staleCommitCount,
+          })
+          .from(activityReports)
+          .where(eq(activityReports.date, PAST_DATE))
+      ).map((r) => [r.projectId, r]),
+    );
+    // p1: done → queued, stale azzerato.
+    expect(byProject.get(p1)!.status).toBe("queued");
+    expect(byProject.get(p1)!.stale).toBe(0);
+    // p2: running intoccato.
+    expect(byProject.get(p2)!.status).toBe("running");
+    // p3: nuovo report queued.
+    expect(byProject.get(p3)!.status).toBe("queued");
+  });
+
+  it("force=true: report failed → rimesso queued", async () => {
+    const { projectId: p1 } = await seedRepository(testDb.db);
+    await enable([p1]);
+    await testDb.db
+      .insert(activityReports)
+      .values({ projectId: p1, date: PAST_DATE, status: "failed" });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/activity/generate",
+      headers: { cookie: adminCookie },
+      payload: { date: PAST_DATE, force: true },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { queued: number }).queued).toBe(1);
+
+    const rows = await testDb.db
+      .select({ status: activityReports.status })
+      .from(activityReports)
+      .where(eq(activityReports.projectId, p1));
+    expect(rows[0]!.status).toBe("queued");
+  });
+
+  it("force=true: report già queued NON viene ri-accodato (non conta)", async () => {
+    const { projectId: p1 } = await seedRepository(testDb.db);
+    await enable([p1]);
+    await testDb.db
+      .insert(activityReports)
+      .values({ projectId: p1, date: PAST_DATE, status: "queued" });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/activity/generate",
+      headers: { cookie: adminCookie },
+      payload: { date: PAST_DATE, force: true },
+    });
+    expect(res.statusCode).toBe(200);
+    // Nulla di nuovo né forzato: resta l'unico queued esistente.
+    expect((res.json() as { queued: number }).queued).toBe(0);
+
+    const rows = await testDb.db
+      .select({ id: activityReports.id })
+      .from(activityReports)
+      .where(eq(activityReports.projectId, p1));
+    expect(rows).toHaveLength(1);
   });
 });
