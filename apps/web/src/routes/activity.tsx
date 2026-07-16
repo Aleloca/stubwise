@@ -322,6 +322,7 @@ function ActivityBody({
 
   return (
     <div className="flex flex-col gap-6">
+      <RecountBar date={date} staleCommitTotal={report.staleCommitTotal} isAdmin={isAdmin} />
       {view === "project" ? (
         visibleProjects.length === 0 ? (
           <NoActivityDay />
@@ -436,6 +437,81 @@ function GenerateReport({ date }: { date: string }) {
         </p>
       )}
     </div>
+  );
+}
+
+/**
+ * Barra in cima al corpo quando un report per il giorno ESISTE già (a differenza
+ * di {@link GenerateReport}, che compare solo su un giorno senza alcun report).
+ * Mostra due cose, indipendenti:
+ * - un AVVISO di giornata (visibile a tutti) quando `staleCommitTotal > 0`: sono
+ *   arrivati nuovi commit dopo l'ultima generazione, non ancora inclusi;
+ * - il pulsante "Rigenera" (solo admin), che riaccoda il giorno con `force` per
+ *   incorporare quei commit.
+ * Se non c'è nulla da mostrare (nessun commit mancante e utente non admin) non
+ * rende nulla.
+ */
+function RecountBar({
+  date,
+  staleCommitTotal,
+  isAdmin,
+}: {
+  date: string;
+  staleCommitTotal: number;
+  isAdmin: boolean;
+}) {
+  const { t } = useTranslation();
+  const hasStale = staleCommitTotal > 0;
+  if (!hasStale && !isAdmin) return null;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      {hasStale ? (
+        <p role="status" className="font-mono text-[12px] text-signal">
+          ⚠ {t("activity:staleWarning", { count: staleCommitTotal })}
+        </p>
+      ) : (
+        <span />
+      )}
+      {isAdmin && <RegenerateButton date={date} />}
+    </div>
+  );
+}
+
+/**
+ * Pulsante admin "Rigenera": riaccoda il giorno con `force` (include i commit
+ * arrivati dopo l'ultima generazione). Al successo invalida la query del giorno
+ * (fa ripartire il refetch + il polling adattivo, riportando la vista in stato
+ * "in generazione"). Errori localizzati inline.
+ */
+function RegenerateButton({ date }: { date: string }) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const [error, setError] = useState<string | null>(null);
+  const mutation = useMutation({
+    mutationFn: () => generateActivity(date, { force: true }),
+    onSuccess: () => {
+      setError(null);
+      void queryClient.invalidateQueries({ queryKey: ["activity", date] });
+    },
+    onError: (cause) => setError(translateApiError(cause, t)),
+  });
+  return (
+    <span className="flex flex-col items-end gap-1">
+      <button
+        type="button"
+        onClick={() => mutation.mutate()}
+        disabled={mutation.isPending}
+        aria-busy={mutation.isPending}
+        className="rounded-sm border border-line-strong px-3 py-1.5 font-mono text-[11px] tracking-[0.12em] text-fg-muted uppercase transition-colors hover:border-signal-dim hover:text-fg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-line-strong disabled:hover:text-fg-muted"
+      >
+        {mutation.isPending ? t("activity:regenerating") : t("activity:regenerate")}
+      </button>
+      {error && (
+        <span role="alert" className="text-sm text-danger">
+          {error}
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -575,6 +651,11 @@ function ProjectBlock({
             </button>
           </h2>
           <StatusBadge status={project.status} />
+          {project.staleCommitCount > 0 && (
+            <span className="shrink-0 rounded-sm border border-signal/40 px-1.5 py-0.5 font-mono text-[10px] tracking-[0.12em] text-signal uppercase">
+              {t("activity:staleBadge", { count: project.staleCommitCount })}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <span className="font-mono text-[11px] tracking-[0.1em] text-fg-muted uppercase">

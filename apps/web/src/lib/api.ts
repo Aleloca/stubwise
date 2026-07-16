@@ -2299,6 +2299,12 @@ export interface ActivityProjectView {
    * ancora in generazione o se la run è fallita senza produrne uno.
    */
   summary: string | null;
+  /**
+   * Numero di commit del giorno per questo progetto NON ancora inclusi nel
+   * report (nuovi commit arrivati dopo l'ultima generazione). `0` se il report
+   * è aggiornato. Alimenta il badge "N nuovi commit" e invita alla rigenerazione.
+   */
+  staleCommitCount: number;
 }
 
 /** Vista per-dev del giorno: header coi totali + i commit raggruppati per progetto. */
@@ -2333,6 +2339,13 @@ export interface ActivityReport {
    * placeholder e il polling continua finché resta `true`.
    */
   developersSummaryPending: boolean;
+  /**
+   * Somma dei commit del giorno NON ancora inclusi in alcun report (per tutti i
+   * progetti). `> 0` significa che sono arrivati nuovi commit dopo l'ultima
+   * generazione: la UI mostra un avviso di giornata e (agli admin) il pulsante
+   * "Rigenera".
+   */
+  staleCommitTotal: number;
 }
 
 /**
@@ -2351,7 +2364,15 @@ export function getActivity(date: string): Promise<ActivityReport> {
  * riaccoda). La UI mostra il pulsante solo quando non c'è alcun report per il
  * giorno, quindi lì `queued: 0` implica "nessun progetto abilitato"; ma le due
  * condizioni NON sono equivalenti in generale.
+ *
+ * Con `force: true` il server riaccoda anche i report già `done`/`failed` del
+ * giorno (per includere i commit arrivati dopo l'ultima generazione): è la
+ * "Rigenera" mostrata quando un report esiste già. Senza `force` (default) i
+ * report esistenti non vengono ritoccati (`onConflictDoNothing`).
  */
-export function generateActivity(date: string): Promise<{ queued: number }> {
-  return api.post(`/api/activity/generate`, { date });
+export function generateActivity(
+  date: string,
+  opts?: { force?: boolean },
+): Promise<{ queued: number }> {
+  return api.post(`/api/activity/generate`, { date, force: opts?.force ?? false });
 }

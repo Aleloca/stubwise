@@ -1475,6 +1475,12 @@
     "summaryPending": "Summary in progress…",
     "expandCommit": "Show description for {{subject}}",
     "collapseCommit": "Hide description for {{subject}}",
+    "regenerate": "Regenerate",
+    "regenerating": "Regenerating…",
+    "staleWarning_one": "{{count}} new commit not included since the last generation",
+    "staleWarning_other": "{{count}} new commits not included since the last generation",
+    "staleBadge_one": "{{count}} new commit",
+    "staleBadge_other": "{{count}} new commits",
     "status": {
       "queued": "Queued",
       "running": "Running",
