@@ -1471,6 +1471,9 @@
     "expandBlock": "Expand {{name}}",
     "unresolvedTitle": "Git identity not linked to a member",
     "unknownAuthor": "Unknown author",
+    "summaryPending": "Summary in progress…",
+    "expandCommit": "Show commit description",
+    "collapseCommit": "Hide commit description",
     "status": {
       "queued": "Queued",
       "running": "Running",

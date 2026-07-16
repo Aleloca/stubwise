@@ -338,6 +338,7 @@ function ActivityBody({
             key={dev.resolvedUser?.id ?? dev.gitEmail ?? `dev-${index}`}
             dev={dev}
             isAdmin={isAdmin}
+            summaryPending={report.developersSummaryPending === true}
           />
         ))
       )}
@@ -442,34 +443,89 @@ function GenerateReport({ date }: { date: string }) {
  * Riga di un singolo commit, condivisa dalle due viste: SHA breve (con lo SHA
  * completo nel `title`) + orario `HH:MM` + oggetto + diffstat, poi l'eventuale
  * autore (slot `author`, presente solo in vista-progetto dove l'autore non è
- * implicito) e la descrizione AI in markdown. La spaziatura è uniforme
- * (`gap-1.5`) in entrambe le viste.
+ * implicito). La descrizione AI in markdown è COLLASSATA di default: la riga
+ * compatta è un pulsante che la espande/richiude (`aria-expanded` + pannello con
+ * id). Un commit senza `aiDescription` non è espandibile: la riga è statica e
+ * mostra solo l'oggetto. L'autore vive fuori dal pulsante (contiene controlli
+ * interattivi propri — il picker "Link team member" — che non possono annidarsi
+ * in un `<button>`).
  */
 function CommitRow({ commit, author }: { commit: ActivityCommit; author?: ReactNode }) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  const panelId = useId();
+  const description = commit.aiDescription;
+  const summary = (
+    <>
+      <span aria-hidden="true" className="w-3 shrink-0 font-mono text-[11px] text-fg-faint">
+        {description ? (expanded ? "▾" : "▸") : ""}
+      </span>
+      <span className="shrink-0 font-mono text-[11px] text-fg-faint" title={commit.sha}>
+        {shortSha(commit.sha)}
+      </span>
+      <span className="shrink-0 font-mono text-[11px] text-fg-faint">
+        {formatTime(commit.committedAt)}
+      </span>
+      <span className="min-w-0 flex-1 text-sm text-fg">{commit.subject}</span>
+      <DiffStat additions={commit.additions} deletions={commit.deletions} />
+    </>
+  );
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex flex-wrap items-baseline gap-2">
-        <span
-          className="shrink-0 font-mono text-[11px] text-fg-faint"
-          title={commit.sha}
+      {description ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          aria-expanded={expanded}
+          aria-controls={expanded ? panelId : undefined}
+          aria-label={t(expanded ? "activity:collapseCommit" : "activity:expandCommit")}
+          className="tap flex w-full flex-wrap items-baseline gap-2 text-left transition-colors hover:text-signal"
         >
-          {shortSha(commit.sha)}
-        </span>
-        <span className="shrink-0 font-mono text-[11px] text-fg-faint">
-          {formatTime(commit.committedAt)}
-        </span>
-        <span className="min-w-0 flex-1 text-sm text-fg">{commit.subject}</span>
-        <DiffStat additions={commit.additions} deletions={commit.deletions} />
-      </div>
+          {summary}
+        </button>
+      ) : (
+        <div className="flex flex-wrap items-baseline gap-2">{summary}</div>
+      )}
       {author && <div className="flex items-center gap-2">{author}</div>}
-      {commit.aiDescription && <Markdown source={commit.aiDescription} />}
+      {expanded && description && (
+        <div id={panelId} className="pl-5">
+          <Markdown source={description} />
+        </div>
+      )}
     </div>
   );
 }
 
 /**
- * Blocco vista-progetto: header col nome/status e i totali del giorno, poi la
- * lista dei commit (uno per riga, con autore risolto/grezzo e descrizione AI).
+ * Riassunto narrativo del giorno in cima al pannello di una card (progetto o
+ * sviluppatore), PRIMA della lista commit. Se `summary` è presente lo rende come
+ * markdown (NON fidato → `<Markdown>`) in un blocco tenue distinto dai commit; se
+ * è `null` mostra un placeholder discreto SOLO quando la generazione è ancora in
+ * corso (`pending`), altrimenti nulla (run senza riassunto: niente ingombro).
+ */
+function DaySummary({ summary, pending }: { summary: string | null; pending: boolean }) {
+  const { t } = useTranslation();
+  if (summary) {
+    return (
+      <div className="border-b border-line bg-ink-950/40 px-4 py-3">
+        <Markdown source={summary} />
+      </div>
+    );
+  }
+  if (pending) {
+    return (
+      <p className="border-b border-line px-4 py-3 font-mono text-[12px] text-fg-faint">
+        {t("activity:summaryPending")}
+      </p>
+    );
+  }
+  return null;
+}
+
+/**
+ * Blocco vista-progetto: header col nome/status e i totali del giorno, poi il
+ * riassunto narrativo del giorno e la lista dei commit (uno per riga, con autore
+ * risolto/grezzo e descrizione AI espandibile).
  */
 function ProjectBlock({
   project,
@@ -520,6 +576,10 @@ function ProjectBlock({
       </header>
       {!collapsed && (
         <div id={panelId}>
+          <DaySummary
+            summary={project.summary ?? null}
+            pending={project.status === "queued" || project.status === "running"}
+          />
           {project.commits.length === 0 ? (
             <p className="px-4 py-4 font-mono text-[12px] text-fg-faint">
               {project.status === "queued" || project.status === "running"
@@ -559,9 +619,12 @@ function ProjectBlock({
 function DeveloperBlock({
   dev,
   isAdmin,
+  summaryPending,
 }: {
   dev: ActivityDeveloperView;
   isAdmin: boolean;
+  /** Rollup dei riassunti per-dev ancora in corso (dal report a livello giorno). */
+  summaryPending: boolean;
 }) {
   const { t } = useTranslation();
   const { header } = dev;
@@ -603,7 +666,9 @@ function DeveloperBlock({
         </div>
       </header>
       {!collapsed && (
-        <ul id={panelId} className="divide-y divide-line">
+        <div id={panelId}>
+          <DaySummary summary={dev.summary ?? null} pending={summaryPending} />
+          <ul className="divide-y divide-line">
           {dev.byProject.map((proj) => (
             <li key={proj.project.id} className="flex flex-col gap-2 px-4 py-3">
               <div className="flex flex-wrap items-baseline gap-3">
@@ -621,7 +686,8 @@ function DeveloperBlock({
               </ul>
             </li>
           ))}
-        </ul>
+          </ul>
+        </div>
       )}
     </section>
   );

@@ -684,9 +684,10 @@ export function docBriefQueryOptions(repositoryId: string) {
  *
  * `refetchInterval` adattivo: quando la generazione manuale accoda dei report,
  * questi arrivano `queued`/`running` (entries vuote) e il worker li finalizza in
- * modo asincrono. Finché almeno uno non è `done`/`failed` ricarichiamo ogni 10s
- * così la vista passa da "in generazione" al report vero senza intervento; poi
- * niente più refetch periodico.
+ * modo asincrono. Ricarichiamo ogni 10s finché almeno un report è `queued`/
+ * `running` OPPURE il rollup dei riassunti per-dev è ancora in corso
+ * (`developersSummaryPending`): così la vista passa da "in generazione" al
+ * report vero — riassunti compresi — senza intervento; poi niente più refetch.
  */
 export function activityReportQueryOptions(date: string) {
   return queryOptions({
@@ -694,9 +695,10 @@ export function activityReportQueryOptions(date: string) {
     queryFn: () => getActivity(date),
     staleTime: 60_000,
     refetchInterval: (query) => {
-      const pending = query.state.data?.projects.some(
-        (p) => p.status === "queued" || p.status === "running",
-      );
+      const data = query.state.data;
+      const pending =
+        data?.projects.some((p) => p.status === "queued" || p.status === "running") ||
+        data?.developersSummaryPending === true;
       return pending ? 10_000 : false;
     },
   });
