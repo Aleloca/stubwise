@@ -477,6 +477,281 @@ describe("pollDailyReportsOnce", () => {
     expect(runSpy).toHaveBeenCalledTimes(3);
   });
 
+  it("rigenerazione incrementale: riusa le descrizioni dei commit invariati, genera solo i nuovi", async () => {
+    // Progetto disabilitato: isoliamo la sola fase queued (nessun gate notturno).
+    const { projectId, repositoryId } = await createProject(testDb.db, {
+      dailyReportEnabled: false,
+    });
+    // Report GIÀ done con 2 commit descritti (A, B): la volta scorsa hanno prodotto
+    // una descrizione valida.
+    const [existing] = await testDb.db
+      .insert(activityReports)
+      .values({ projectId, date: "2026-07-14", status: "done" })
+      .returning();
+    await testDb.db.insert(activityCommits).values([
+      {
+        reportId: existing!.id,
+        repoId: repositoryId,
+        sha: "a".repeat(40),
+        authorEmail: "alice@example.com",
+        authorName: "Alice",
+        committedAt: new Date("2026-07-14T09:00:00Z"),
+        subject: "Commit A",
+        aiDescription: "VECCHIA A",
+      },
+      {
+        reportId: existing!.id,
+        repoId: repositoryId,
+        sha: "b".repeat(40),
+        authorEmail: "alice@example.com",
+        authorName: "Alice",
+        committedAt: new Date("2026-07-14T10:00:00Z"),
+        subject: "Commit B",
+        aiDescription: "VECCHIA B",
+      },
+    ]);
+    // Rigenerazione (force/reclaim): rimetti il report 'queued'.
+    await testDb.db
+      .update(activityReports)
+      .set({ status: "queued" })
+      .where(eq(activityReports.id, existing!.id));
+
+    // git ora ritorna A, B (sha invariati) + C (nuovo).
+    const { deps, runSpy, getCommitDiffSpy } = makeDeps({
+      commitsByCall: [
+        [
+          commit({ sha: "a".repeat(40), authorEmail: "alice@example.com", authorName: "Alice", subject: "Commit A" }),
+          commit({ sha: "b".repeat(40), authorEmail: "alice@example.com", authorName: "Alice", subject: "Commit B" }),
+          commit({ sha: "c".repeat(40), authorEmail: "alice@example.com", authorName: "Alice", subject: "Commit C" }),
+        ],
+      ],
+    });
+
+    const generated = await pollDailyReportsOnce(deps);
+    expect(generated).toBe(1);
+
+    // SOLO C (nuovo) ha richiesto un diff + un run per la descrizione; A e B riusati
+    // (nessun getCommitDiff, nessun run per loro).
+    expect(getCommitDiffSpy).toHaveBeenCalledTimes(1);
+    expect(getCommitDiffSpy.mock.calls[0]?.[1]).toBe("c".repeat(40));
+    // Run totali: 1 (descrizione di C) + 1 (riassunto progetto, si rifà sempre) +
+    // 1 (dev-summary di alice nel rollup) = 3. NON 5 (che sarebbe A+B+C+riassunto+dev).
+    expect(runSpy).toHaveBeenCalledTimes(3);
+
+    // Le activity_commits finali: A e B con la descrizione VECCHIA riusata, C con
+    // quella nuova.
+    const commits = await testDb.db
+      .select()
+      .from(activityCommits)
+      .where(eq(activityCommits.reportId, existing!.id));
+    expect(commits).toHaveLength(3);
+    expect(commits.find((c) => c.sha === "a".repeat(40))?.aiDescription).toBe("VECCHIA A");
+    expect(commits.find((c) => c.sha === "b".repeat(40))?.aiDescription).toBe("VECCHIA B");
+    expect(commits.find((c) => c.sha === "c".repeat(40))?.aiDescription).toBe("descrizione finta");
+  });
+
+  it("rigenerazione: azzera stale_commit_count del report", async () => {
+    // Progetto disabilitato: isoliamo la sola fase queued (nessun gate notturno).
+    const { projectId, repositoryId } = await createProject(testDb.db, {
+      dailyReportEnabled: false,
+    });
+    // Report done con stale=3 (un push aveva segnalato commit mancanti). La
+    // rigenerazione legge l'INTERA finestra del giorno e reinserisce tutti i commit
+    // → i mancanti tornano 0 (valore autoritativo), il badge sparisce senza attendere
+    // un nuovo push.
+    const [existing] = await testDb.db
+      .insert(activityReports)
+      .values({ projectId, date: "2026-07-14", status: "done", staleCommitCount: 3 })
+      .returning();
+    await testDb.db.insert(activityCommits).values({
+      reportId: existing!.id,
+      repoId: repositoryId,
+      sha: "a".repeat(40),
+      authorEmail: "alice@example.com",
+      authorName: "Alice",
+      committedAt: new Date("2026-07-14T09:00:00Z"),
+      subject: "Commit A",
+      aiDescription: "VECCHIA A",
+    });
+    // Rigenerazione manuale: rimetti il report 'queued'.
+    await testDb.db
+      .update(activityReports)
+      .set({ status: "queued" })
+      .where(eq(activityReports.id, existing!.id));
+
+    const { deps } = makeDeps({
+      commitsByCall: [
+        [commit({ sha: "a".repeat(40), authorEmail: "alice@example.com", authorName: "Alice", subject: "Commit A" })],
+      ],
+    });
+
+    const generated = await pollDailyReportsOnce(deps);
+    expect(generated).toBe(1);
+
+    const [report] = await testDb.db
+      .select()
+      .from(activityReports)
+      .where(eq(activityReports.id, existing!.id));
+    expect(report?.status).toBe("done");
+    expect(report?.staleCommitCount).toBe(0); // azzerato dal finalize della rigenerazione.
+  });
+
+  it("rigenerazione: un commit non più nel git range (branch cancellato) NON viene reinserito", async () => {
+    const { projectId, repositoryId } = await createProject(testDb.db, {
+      dailyReportEnabled: false,
+    });
+    // Report done con A e B descritti; B stava su un branch poi cancellato.
+    const [existing] = await testDb.db
+      .insert(activityReports)
+      .values({ projectId, date: "2026-07-14", status: "done" })
+      .returning();
+    await testDb.db.insert(activityCommits).values([
+      {
+        reportId: existing!.id,
+        repoId: repositoryId,
+        sha: "a".repeat(40),
+        authorEmail: "alice@example.com",
+        authorName: "Alice",
+        committedAt: new Date("2026-07-14T09:00:00Z"),
+        subject: "Commit A",
+        aiDescription: "VECCHIA A",
+      },
+      {
+        reportId: existing!.id,
+        repoId: repositoryId,
+        sha: "b".repeat(40),
+        authorEmail: "alice@example.com",
+        authorName: "Alice",
+        committedAt: new Date("2026-07-14T10:00:00Z"),
+        subject: "Commit B",
+        aiDescription: "VECCHIA B",
+      },
+    ]);
+    await testDb.db
+      .update(activityReports)
+      .set({ status: "queued" })
+      .where(eq(activityReports.id, existing!.id));
+
+    // git ora ritorna SOLO A: B è sparito (branch cancellato).
+    const { deps, getCommitDiffSpy } = makeDeps({
+      commitsByCall: [
+        [commit({ sha: "a".repeat(40), authorEmail: "alice@example.com", authorName: "Alice", subject: "Commit A" })],
+      ],
+    });
+
+    await pollDailyReportsOnce(deps);
+
+    // Le activity_commits finali contengono SOLO A: B non è reinserito (non è più
+    // nella finestra). A porta la descrizione riusata (nessun diff/run per lui).
+    const commits = await testDb.db
+      .select()
+      .from(activityCommits)
+      .where(eq(activityCommits.reportId, existing!.id));
+    expect(commits).toHaveLength(1);
+    expect(commits[0]?.sha).toBe("a".repeat(40));
+    expect(commits[0]?.aiDescription).toBe("VECCHIA A");
+    expect(commits.find((c) => c.sha === "b".repeat(40))).toBeUndefined();
+    expect(getCommitDiffSpy).not.toHaveBeenCalled(); // A riusato, nessun diff.
+  });
+
+  it("rigenerazione multi-repo: riuso per chiave sha globale — repo invariato riusato, repo nuovo generato", async () => {
+    const { projectId, repositoryId } = await createProject(testDb.db, {
+      dailyReportEnabled: false,
+    });
+    const repositoryId2 = await addRepository(testDb.db, projectId);
+    // Report done: il repo 1 ha già lo sha A descritto; il repo 2 nulla ancora.
+    const [existing] = await testDb.db
+      .insert(activityReports)
+      .values({ projectId, date: "2026-07-14", status: "done" })
+      .returning();
+    await testDb.db.insert(activityCommits).values({
+      reportId: existing!.id,
+      repoId: repositoryId,
+      sha: "a".repeat(40),
+      authorEmail: "alice@example.com",
+      authorName: "Alice",
+      committedAt: new Date("2026-07-14T09:00:00Z"),
+      subject: "Commit A",
+      aiDescription: "VECCHIA A",
+    });
+    await testDb.db
+      .update(activityReports)
+      .set({ status: "queued" })
+      .where(eq(activityReports.id, existing!.id));
+
+    // Rigenerazione: il repo 1 ritorna A (invariato), il repo 2 ritorna N (nuovo).
+    const { deps, getCommitDiffSpy } = makeDeps({
+      commitsByCall: [
+        [commit({ sha: "a".repeat(40), authorEmail: "alice@example.com", authorName: "Alice", subject: "Commit A" })],
+        [commit({ sha: "e".repeat(40), authorEmail: "alice@example.com", authorName: "Alice", subject: "Commit N" })],
+      ],
+    });
+
+    await pollDailyReportsOnce(deps);
+
+    // Solo lo sha nuovo (repo 2) ha richiesto un diff + un run: A riusato dalla
+    // chiave sha GLOBALE (indipendente dal repo di provenienza).
+    expect(getCommitDiffSpy).toHaveBeenCalledTimes(1);
+    expect(getCommitDiffSpy.mock.calls[0]?.[1]).toBe("e".repeat(40));
+
+    const commits = await testDb.db
+      .select()
+      .from(activityCommits)
+      .where(eq(activityCommits.reportId, existing!.id));
+    expect(commits).toHaveLength(2);
+    const a = commits.find((c) => c.sha === "a".repeat(40));
+    expect(a?.aiDescription).toBe("VECCHIA A"); // riusato.
+    expect(a?.repoId).toBe(repositoryId);
+    const n = commits.find((c) => c.sha === "e".repeat(40));
+    expect(n?.aiDescription).toBe("descrizione finta"); // generato.
+    expect(n?.repoId).toBe(repositoryId2);
+  });
+
+  it("rigenerazione incrementale: un commit con descrizione NULL viene ritentato (non riusato)", async () => {
+    const { projectId, repositoryId } = await createProject(testDb.db, {
+      dailyReportEnabled: false,
+    });
+    // Report done con UN commit A la cui descrizione è NULL (run fallito la volta
+    // prima): NON è riusabile, va rigenerato.
+    const [existing] = await testDb.db
+      .insert(activityReports)
+      .values({ projectId, date: "2026-07-14", status: "done" })
+      .returning();
+    await testDb.db.insert(activityCommits).values({
+      reportId: existing!.id,
+      repoId: repositoryId,
+      sha: "a".repeat(40),
+      authorEmail: "alice@example.com",
+      authorName: "Alice",
+      committedAt: new Date("2026-07-14T09:00:00Z"),
+      subject: "Commit A",
+      aiDescription: null,
+    });
+    await testDb.db
+      .update(activityReports)
+      .set({ status: "queued" })
+      .where(eq(activityReports.id, existing!.id));
+
+    const { deps, runSpy, getCommitDiffSpy } = makeDeps({
+      commitsByCall: [
+        [commit({ sha: "a".repeat(40), authorEmail: "alice@example.com", authorName: "Alice", subject: "Commit A" })],
+      ],
+    });
+
+    await pollDailyReportsOnce(deps);
+
+    // A non è nella mappa dei riusabili (descrizione null) → rigenerato: diff + run.
+    expect(getCommitDiffSpy).toHaveBeenCalledTimes(1);
+    // 1 (descrizione di A) + 1 (riassunto progetto) + 1 (dev-summary alice) = 3.
+    expect(runSpy).toHaveBeenCalledTimes(3);
+    const commits = await testDb.db
+      .select()
+      .from(activityCommits)
+      .where(eq(activityCommits.reportId, existing!.id));
+    expect(commits).toHaveLength(1);
+    expect(commits[0]?.aiDescription).toBe("descrizione finta"); // rigenerata, non più null.
+  });
+
   it("best-effort fase queued: un 'queued' il cui repo LANCIA non blocca l'altro, il tick non crasha", async () => {
     // Due progetti disabilitati con un 'queued' ciascuno (così il gate notturno
     // non interferisce). Il primo getCommitsInRange chiamato LANCIA: il suo report
