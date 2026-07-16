@@ -1419,6 +1419,42 @@ describe("recountStaleReports (fase recount)", () => {
     expect(report?.staleCommitCount).toBe(0);
   });
 
+  it("raggruppa i commit per giorno UTC, non per giorno locale del committer", async () => {
+    // Committer in un fuso -08:00 vicino alla mezzanotte: 2026-07-14T18:00-08:00
+    // = 2026-07-15T02:00Z. Il commit appartiene al giorno UTC 07-15 (come lo
+    // registra la generazione, che usa istanti UTC), NON al 07-14 locale.
+    const { projectId, repositoryId } = await createProject(testDb.db, {
+      dailyReportEnabled: false,
+    });
+    // Il report del 07-15 ha già il commit registrato → deve risultare presente.
+    const report15 = await seedDoneReport(projectId, repositoryId, "2026-07-15", [
+      "1".repeat(40),
+    ]);
+    // Il report del 07-14 non ha commit: NON deve ereditare un falso mancante.
+    const report14 = await seedDoneReport(projectId, repositoryId, "2026-07-14", []);
+    await enqueueRecount(projectId, -60_000);
+
+    const { deps } = makeDeps({
+      commitsByCall: [[commit({ sha: "1".repeat(40), date: "2026-07-14T18:00:00-08:00" })]],
+    });
+
+    await pollDailyReportsOnce(deps);
+
+    const [r15] = await testDb.db
+      .select()
+      .from(activityReports)
+      .where(eq(activityReports.id, report15));
+    // Il commit è attribuito al 07-15 UTC ed è presente → nessun mancante.
+    expect(r15?.staleCommitCount).toBe(0);
+
+    const [r14] = await testDb.db
+      .select()
+      .from(activityReports)
+      .where(eq(activityReports.id, report14));
+    // Con lo slice locale il commit finirebbe nel bucket 07-14 → falso mancante (1).
+    expect(r14?.staleCommitCount).toBe(0);
+  });
+
   it("un recount job con notBefore FUTURO non viene processato", async () => {
     const { projectId, repositoryId } = await createProject(testDb.db, {
       dailyReportEnabled: false,

@@ -846,7 +846,7 @@ async function recountProject(
     const commits = await deps.mirrors.getCommitsInRange(mirrorProject, since, until);
     for (const c of commits) {
       if (c.isMerge) continue; // i merge non sono lavoro: non contano come mancanti.
-      const day = c.date.slice(0, 10); // YYYY-MM-DD UTC della committer date.
+      const day = new Date(c.date).toISOString().slice(0, 10); // YYYY-MM-DD UTC della committer date.
       let set = expectedByDay.get(day);
       if (!set) {
         set = new Set();
