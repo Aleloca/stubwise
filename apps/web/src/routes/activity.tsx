@@ -478,7 +478,9 @@ function CommitRow({ commit, author }: { commit: ActivityCommit; author?: ReactN
           onClick={() => setExpanded((e) => !e)}
           aria-expanded={expanded}
           aria-controls={expanded ? panelId : undefined}
-          aria-label={t(expanded ? "activity:collapseCommit" : "activity:expandCommit")}
+          aria-label={t(expanded ? "activity:collapseCommit" : "activity:expandCommit", {
+            subject: commit.subject,
+          })}
           className="tap flex w-full flex-wrap items-baseline gap-2 text-left transition-colors hover:text-signal"
         >
           {summary}
@@ -507,14 +509,24 @@ function DaySummary({ summary, pending }: { summary: string | null; pending: boo
   const { t } = useTranslation();
   if (summary) {
     return (
-      <div className="border-b border-line bg-ink-950/40 px-4 py-3">
+      <div
+        role="region"
+        aria-label={t("activity:summaryLabel")}
+        aria-live="polite"
+        className="border-b border-line bg-ink-950/40 px-4 py-3"
+      >
         <Markdown source={summary} />
       </div>
     );
   }
   if (pending) {
     return (
-      <p className="border-b border-line px-4 py-3 font-mono text-[12px] text-fg-faint">
+      <p
+        role="region"
+        aria-label={t("activity:summaryLabel")}
+        aria-live="polite"
+        className="border-b border-line px-4 py-3 font-mono text-[12px] text-fg-faint"
+      >
         {t("activity:summaryPending")}
       </p>
     );

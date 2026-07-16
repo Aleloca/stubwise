@@ -254,7 +254,9 @@ describe("sezione attività", () => {
     // La descrizione AI è COLLASSATA di default: non visibile finché non si
     // espande la riga del commit.
     expect(screen.queryByText("login")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Show commit description" }));
+    await user.click(
+      screen.getByRole("button", { name: "Show description for Add login form" }),
+    );
 
     // Espansa: la descrizione è resa come MARKDOWN e sanitizzata (il backtick
     // `login` diventa un elemento <code>, non testo grezzo con i backtick).
@@ -370,7 +372,9 @@ describe("sezione attività", () => {
     // La descrizione del commit è collassata: si espande la riga (un solo commit
     // espandibile) e il backtick `web` diventa <code>.
     expect(screen.queryByText("web")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Show commit description" }));
+    await user.click(
+      screen.getByRole("button", { name: "Show description for Add login form" }),
+    );
     const code = screen.getByText("web");
     expect(code.tagName).toBe("CODE");
   });
@@ -637,7 +641,7 @@ describe("sezione attività", () => {
 
     await screen.findByRole("heading", { name: "Apollo" });
     // Espande la riga del commit (collassata di default) per rivelare la lista.
-    await user.click(screen.getByRole("button", { name: "Show commit description" }));
+    await user.click(screen.getByRole("button", { name: "Show description for Big refactor" }));
     const first = screen.getByText("first change");
     const second = screen.getByText("second change");
     expect(first.tagName).toBe("LI");
@@ -1050,21 +1054,21 @@ describe("sezione attività", () => {
 
     await screen.findByRole("heading", { name: "Apollo" });
     // Collassata: la descrizione non è nel DOM e la riga espone aria-expanded=false.
-    const toggle = screen.getByRole("button", { name: "Show commit description" });
+    const toggle = screen.getByRole("button", { name: "Show description for Add login form" });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText("login")).not.toBeInTheDocument();
 
     // Espande: la descrizione appare, aria-expanded passa a true (e l'etichetta cambia).
     await user.click(toggle);
     expect(screen.getByText("login").tagName).toBe("CODE");
-    const expanded = screen.getByRole("button", { name: "Hide commit description" });
+    const expanded = screen.getByRole("button", { name: "Hide description for Add login form" });
     expect(expanded).toHaveAttribute("aria-expanded", "true");
 
     // Richiude: la descrizione sparisce di nuovo.
     await user.click(expanded);
     expect(screen.queryByText("login")).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "Show commit description" }),
+      screen.getByRole("button", { name: "Show description for Add login form" }),
     ).toHaveAttribute("aria-expanded", "false");
   });
 
@@ -1106,7 +1110,7 @@ describe("sezione attività", () => {
     // L'oggetto è reso, ma senza descrizione non c'è il toggle di espansione.
     expect(screen.getByText("Bump version")).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Show commit description" }),
+      screen.queryByRole("button", { name: /Show description for/ }),
     ).not.toBeInTheDocument();
   });
 
@@ -1189,5 +1193,87 @@ describe("sezione attività", () => {
         },
       }),
     ).toBe(10_000);
+  });
+
+  it("espansione descrizione commit persiste attraverso un refetch della query", async () => {
+    // Invariante: le righe commit sono keyate per sha → lo stato locale di
+    // espansione si preserva quando la query attività viene invalidata e rifà il
+    // fetch (nessun remount). La descrizione espansa resta visibile.
+    const user = userEvent.setup();
+    let activityCalls = 0;
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => {
+        activityCalls += 1;
+        return jsonResponse(200, REPORT);
+      },
+    });
+
+    const { queryClient } = renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    // Espande la riga del commit: la descrizione markdown appare.
+    await user.click(
+      screen.getByRole("button", { name: "Show description for Add login form" }),
+    );
+    expect(screen.getByText("login").tagName).toBe("CODE");
+    const callsBefore = activityCalls;
+
+    // Invalidazione per prefisso → refetch della stessa key.
+    await queryClient.invalidateQueries({ queryKey: ["activity"] });
+    await waitFor(() => expect(activityCalls).toBeGreaterThan(callsBefore));
+
+    // Dopo il refetch la descrizione è ancora espansa (stato non perso).
+    expect(screen.getByText("login").tagName).toBe("CODE");
+    expect(
+      screen.getByRole("button", { name: "Hide description for Add login form" }),
+    ).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("riassunto markdown multi-elemento: la lista rende più <li> in cima alla card", async () => {
+    // Il riassunto del giorno può essere markdown strutturato: una lista deve
+    // produrre elementi <li> distinti, non testo grezzo coi trattini.
+    const listSummary = {
+      date: "2026-07-14",
+      developersSummaryPending: false,
+      projects: [
+        {
+          project: { id: "p1", name: "Apollo", slug: "apollo" },
+          status: "done",
+          summary: "- shipped auth\n- fixed logout",
+          header: { commitCount: 1, additions: 4, deletions: 1, authorCount: 1 },
+          commits: [
+            {
+              sha: "0011223344556677",
+              authorName: "Ada Dev",
+              resolvedUser: { id: "u1", email: "ada@example.com", avatarUrl: null },
+              committedAt: "2026-07-14T09:00:00.000Z",
+              subject: "Bump version",
+              additions: 4,
+              deletions: 1,
+              aiDescription: null,
+            },
+          ],
+        },
+      ],
+      developers: [],
+    };
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, listSummary),
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    // Il riassunto in cima alla card è una region etichettata "Summary".
+    const region = screen.getByRole("region", { name: "Summary" });
+    // La lista markdown rende <li> distinti (non testo grezzo coi trattini).
+    const shipped = within(region).getByText("shipped auth");
+    const fixed = within(region).getByText("fixed logout");
+    expect(shipped.tagName).toBe("LI");
+    expect(fixed.tagName).toBe("LI");
   });
 });
