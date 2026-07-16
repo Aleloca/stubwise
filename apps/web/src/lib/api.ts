@@ -2293,6 +2293,12 @@ export interface ActivityProjectView {
   status: string;
   header: ActivityProjectHeader;
   commits: ActivityCommit[];
+  /**
+   * Riassunto narrativo del giorno per il progetto (markdown NON FIDATO,
+   * prodotto da un agente: renderlo via `<Markdown>`). `null` se il report è
+   * ancora in generazione o se la run è fallita senza produrne uno.
+   */
+  summary: string | null;
 }
 
 /** Vista per-dev del giorno: header coi totali + i commit raggruppati per progetto. */
@@ -2305,6 +2311,12 @@ export interface ActivityDeveloperView {
     project: ActivityProjectRef;
     commits: ActivityCommit[];
   }[];
+  /**
+   * Riassunto narrativo del giorno per lo sviluppatore (markdown NON FIDATO:
+   * renderlo via `<Markdown>`). `null` se il rollup dei riassunti dev è ancora
+   * in corso (vedi `developersSummaryPending`) o se non è stato prodotto.
+   */
+  summary: string | null;
 }
 
 /**
@@ -2315,6 +2327,12 @@ export interface ActivityReport {
   date: string;
   projects: ActivityProjectView[];
   developers: ActivityDeveloperView[];
+  /**
+   * `true` mentre il rollup dei riassunti per-sviluppatore è ancora in corso
+   * (i `developers[].summary` possono essere `null` in attesa). La UI mostra un
+   * placeholder e il polling continua finché resta `true`.
+   */
+  developersSummaryPending: boolean;
 }
 
 /**

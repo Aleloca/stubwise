@@ -1,11 +1,16 @@
 import {
   activityCommits,
+  activityDayRollups,
+  activityDevSummaries,
   activityReports,
+  aiProviders,
   encrypt,
   gitAccounts,
   gitAuthorsSeen,
+  gitIdentities,
   projects,
   repositories,
+  users,
   type Db,
 } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
@@ -19,6 +24,7 @@ import type { ResolvedProvider } from "../providers/chain.js";
 import {
   pollDailyReportsOnce,
   previousUtcDay,
+  SUMMARY_INPUT_MAX_CHARS,
   utcDayWindow,
   type PollDailyReportsDeps,
 } from "./daily-report-poller.js";
@@ -34,10 +40,18 @@ beforeAll(async () => {
 }, 120_000);
 
 afterEach(async () => {
-  // activity_reports/commits cascano da projects; git_authors_seen è globale.
+  // activity_reports/commits cascano da projects; le tabelle globali (non legate a
+  // un progetto via FK) vanno pulite a mano per isolare i test. activity_dev_summaries
+  // prima di users (userId → set null) e activity_day_rollups/git_authors_seen sono
+  // slegate; git_identities cascade da users.
+  await testDb.db.delete(activityDevSummaries);
+  await testDb.db.delete(activityDayRollups);
+  await testDb.db.delete(gitIdentities);
   await testDb.db.delete(projects);
+  await testDb.db.delete(aiProviders);
   await testDb.db.delete(gitAccounts);
   await testDb.db.delete(gitAuthorsSeen);
+  await testDb.db.delete(users);
 });
 
 afterAll(async () => {
@@ -106,6 +120,23 @@ async function addRepository(db: Db, projectId: string): Promise<string> {
   return repository!.id;
 }
 
+/** Crea un membro (users) con N identità git (git_identities) associate, tutte
+ * lowercase. Ritorna lo userId. Serve al rollup per risolvere gli autori. */
+async function createMember(db: Db, emails: string[]): Promise<string> {
+  const [user] = await db
+    .insert(users)
+    .values({
+      email: `member-${randomUUID()}@example.com`,
+      passwordHash: "x",
+      role: "member",
+    })
+    .returning();
+  for (const email of emails) {
+    await db.insert(gitIdentities).values({ userId: user!.id, email: email.toLowerCase() });
+  }
+  return user!.id;
+}
+
 /** Serializer fake: registra i projectId ed esegue subito il task. */
 function makeSerializer(): { serializer: ProjectSerializer; calls: string[] } {
   const calls: string[] = [];
@@ -148,11 +179,13 @@ interface MakeDepsOverrides {
     project: MirrorProject,
     sha: string,
   ) => Promise<{ diff: string; truncated: boolean }>;
-  runResult?: () => Promise<AgentRunResult>;
+  runResult?: (opts: { prompt: string }) => Promise<AgentRunResult>;
   retentionDays?: number;
   provider?: ResolvedProvider | null;
   /** Override della risoluzione della catena provider (per forzare un errore interno). */
   loadProviderChainFn?: PollDailyReportsDeps["loadProviderChainFn"];
+  /** Override della risoluzione per-id (per simulare un pin rotto → undefined). */
+  loadProviderByIdFn?: PollDailyReportsDeps["loadProviderByIdFn"];
   now?: () => Date;
 }
 
@@ -174,7 +207,14 @@ function makeDeps(o: MakeDepsOverrides = {}): {
   );
   const ensureMirror = vi.fn(async () => "/tmp/fake-mirror");
   const runSpy = vi.fn(
-    o.runResult ?? (async (): Promise<AgentRunResult> => ({ output: "descrizione finta", exitCode: 0 })),
+    o.runResult ??
+      // Distingue il run del RIASSUNTO-progetto (il suo prompt contiene
+      // "resoconto") dagli run per-commit: così le asserzioni distinguono le due
+      // fonti. runResult custom (se passato) vale per TUTTI i run.
+      (async (opts: { prompt: string }): Promise<AgentRunResult> => ({
+        output: opts.prompt.includes("resoconto") ? "riassunto finto" : "descrizione finta",
+        exitCode: 0,
+      })),
   );
   const { serializer } = makeSerializer();
   const deps: PollDailyReportsDeps = {
@@ -198,7 +238,7 @@ function makeDeps(o: MakeDepsOverrides = {}): {
     loadProviderChainFn:
       o.loadProviderChainFn ??
       (async () => (o.provider === null ? [] : [o.provider ?? FAKE_PROVIDER])),
-    loadProviderByIdFn: async () => o.provider ?? FAKE_PROVIDER,
+    loadProviderByIdFn: o.loadProviderByIdFn ?? (async () => o.provider ?? FAKE_PROVIDER),
   };
   return { deps, runSpy, getCommitsSpy, getCommitDiffSpy };
 }
@@ -252,6 +292,8 @@ describe("pollDailyReportsOnce", () => {
     expect(report?.status).toBe("done");
     expect(report?.date).toBe("2026-07-14");
     expect(report?.finishedAt).not.toBeNull();
+    // Riassunto narrativo del progetto, dal run di aggregazione (prompt "resoconto").
+    expect(report?.summary).toBe("riassunto finto");
 
     const commits = await testDb.db
       .select()
@@ -281,8 +323,10 @@ describe("pollDailyReportsOnce", () => {
     expect(bob?.deletions).toBe(1);
     expect(bob?.aiDescription).toBe("descrizione finta");
 
-    // Un run dell'agente e un diff recuperato per commit.
-    expect(runSpy).toHaveBeenCalledTimes(2);
+    // Un run dell'agente e un diff recuperato per commit, PIÙ un run per il
+    // riassunto narrativo del progetto, PIÙ un run per il riassunto per-sviluppatore
+    // di ciascuno dei due autori non risolti (2 commit + 1 progetto + 2 dev = 5 run).
+    expect(runSpy).toHaveBeenCalledTimes(5);
     expect(getCommitDiffSpy).toHaveBeenCalledTimes(2);
 
     // Autori osservati registrati.
@@ -359,8 +403,9 @@ describe("pollDailyReportsOnce", () => {
     expect(commits).toHaveLength(1);
     expect(commits[0]?.sha).toBe("1".repeat(40));
     expect(commits.find((c) => c.sha === "9".repeat(40))).toBeUndefined();
-    // Il run dell'agente è stato eseguito (rigenerazione vera, non skip).
-    expect(runSpy).toHaveBeenCalledTimes(1);
+    // Il run dell'agente è stato eseguito (rigenerazione vera, non skip): 1 per il
+    // commit + 1 per il riassunto del progetto + 1 per il dev-summary di alice.
+    expect(runSpy).toHaveBeenCalledTimes(3);
   });
 
   it("recovery: un orfano 'running' per una data PASSATA e progetto disabilitato viene rigenerato", async () => {
@@ -410,7 +455,8 @@ describe("pollDailyReportsOnce", () => {
     expect(commits).toHaveLength(1);
     expect(commits[0]?.sha).toBe("1".repeat(40));
     expect(commits.find((c) => c.sha === "9".repeat(40))).toBeUndefined();
-    expect(runSpy).toHaveBeenCalledTimes(1);
+    // 1 run per il commit + 1 per il riassunto del progetto + 1 per il dev-summary.
+    expect(runSpy).toHaveBeenCalledTimes(3);
   });
 
   it("best-effort fase queued: un 'queued' il cui repo LANCIA non blocca l'altro, il tick non crasha", async () => {
@@ -526,7 +572,9 @@ describe("pollDailyReportsOnce", () => {
 
     const generated = await pollDailyReportsOnce(deps);
     expect(generated).toBe(1);
-    expect(runSpy).toHaveBeenCalledTimes(2); // un run tentato per commit.
+    // Un run tentato per commit (2) + 1 per il riassunto del progetto + 1 per il
+    // dev-summary di ciascun autore non risolto (alice, bob) = 5 run.
+    expect(runSpy).toHaveBeenCalledTimes(5);
 
     const commits = await testDb.db.select().from(activityCommits);
     expect(commits).toHaveLength(2); // entrambe le righe esistono coi dati grezzi.
@@ -574,6 +622,7 @@ describe("pollDailyReportsOnce", () => {
 
     const [report] = await testDb.db.select().from(activityReports);
     expect(report?.status).toBe("done");
+    expect(report?.summary).toBeNull(); // anche il run del riassunto lancia → null.
     const commits = await testDb.db.select().from(activityCommits);
     expect(commits).toHaveLength(1);
     expect(commits[0]?.aiDescription).toBeNull();
@@ -591,8 +640,12 @@ describe("pollDailyReportsOnce", () => {
 
     const generated = await pollDailyReportsOnce(deps);
     expect(generated).toBe(1);
-    // Nessun run: senza diff non si genera la descrizione.
-    expect(runSpy).not.toHaveBeenCalled();
+    // Nessun run PER-COMMIT (senza diff non si genera la descrizione), ma il
+    // riassunto del progetto gira comunque (c'è un commit, seppur senza descrizione),
+    // e nella fase di rollup il dev-summary di alice: 1 progetto + 1 dev = 2 run.
+    expect(runSpy).toHaveBeenCalledTimes(2);
+    // Il primo run è quello del riassunto di progetto (prima della fase di rollup).
+    expect(runSpy.mock.calls[0]?.[0]?.prompt).toContain("resoconto");
     const commits = await testDb.db.select().from(activityCommits);
     expect(commits).toHaveLength(1);
     expect(commits[0]?.aiDescription).toBeNull();
@@ -610,10 +663,53 @@ describe("pollDailyReportsOnce", () => {
     expect(generated).toBe(1);
     expect(runSpy).not.toHaveBeenCalled();
     expect(getCommitDiffSpy).not.toHaveBeenCalled(); // nessun git show sprecato.
+    const [report] = await testDb.db.select().from(activityReports);
+    expect(report?.summary).toBeNull(); // niente provider → niente riassunto.
     const commits = await testDb.db.select().from(activityCommits);
     expect(commits).toHaveLength(1);
     expect(commits[0]?.aiDescription).toBeNull();
     expect(commits[0]?.subject).toBe("Fix qualcosa");
+  });
+
+  it("best-effort riassunto: se il run del riassunto LANCIA, summary è null ma il report è done", async () => {
+    await createProject(testDb.db, { dailyReportEnabled: true });
+    // Le descrizioni per-commit vanno a buon fine; SOLO il run del riassunto
+    // (prompt "resoconto") lancia: summary null, ma le righe e il report restano.
+    const { deps } = makeDeps({
+      commitsByCall: [[commit({})]],
+      runResult: async (opts) => {
+        if (opts.prompt.includes("resoconto")) throw new Error("riassunto esploso");
+        return { output: "descrizione finta", exitCode: 0 };
+      },
+    });
+
+    const generated = await pollDailyReportsOnce(deps);
+    expect(generated).toBe(1);
+
+    const [report] = await testDb.db.select().from(activityReports);
+    expect(report?.status).toBe("done");
+    expect(report?.summary).toBeNull(); // il run del riassunto ha lanciato.
+    const commits = await testDb.db.select().from(activityCommits);
+    expect(commits).toHaveLength(1);
+    // La descrizione per-commit è comunque stata salvata (non toccata dal fallimento).
+    expect(commits[0]?.aiDescription).toBe("descrizione finta");
+  });
+
+  it("progetto con soli commit di merge (0 non-merge): nessun run e nessun riassunto, report done", async () => {
+    await createProject(testDb.db, { dailyReportEnabled: true });
+    const { deps, runSpy } = makeDeps({
+      commitsByCall: [[commit({ isMerge: true, subject: "Merge branch" })]],
+    });
+
+    const generated = await pollDailyReportsOnce(deps);
+    expect(generated).toBe(1);
+    // Nessun run: niente commit da descrivere né da riassumere.
+    expect(runSpy).not.toHaveBeenCalled();
+    const [report] = await testDb.db.select().from(activityReports);
+    expect(report?.status).toBe("done");
+    expect(report?.summary).toBeNull(); // niente commit → niente riassunto.
+    const commits = await testDb.db.select().from(activityCommits);
+    expect(commits).toHaveLength(0);
   });
 
   it("un repo il cui getCommitsInRange LANCIA è saltato, gli altri producono righe", async () => {
@@ -676,9 +772,13 @@ describe("pollDailyReportsOnce", () => {
 
     const generated = await pollDailyReportsOnce(deps);
     expect(generated).toBe(1);
-    expect(runSpy).toHaveBeenCalledTimes(1); // il run è stato tentato.
+    // Il run è stato tentato per il commit (1), per il riassunto di progetto (1) e
+    // per il dev-summary di alice nel rollup (1); tutti con exit ≠ 0 → nessun testo
+    // salvato.
+    expect(runSpy).toHaveBeenCalledTimes(3);
     const [report] = await testDb.db.select().from(activityReports);
     expect(report?.status).toBe("done");
+    expect(report?.summary).toBeNull(); // exit ≠ 0 → nessun riassunto.
     const commits = await testDb.db.select().from(activityCommits);
     expect(commits).toHaveLength(1);
     expect(commits[0]?.aiDescription).toBeNull(); // nessuna descrizione da un exit non-zero.
@@ -859,5 +959,361 @@ describe("pollDailyReportsOnce", () => {
       .where(eq(gitAuthorsSeen.email, "carol@example.com"));
     expect(seen).toHaveLength(1);
     expect(seen[0]?.authorName).toBe("Carol"); // NON regredito a null.
+  });
+
+  it("il prompt del riassunto aggrega subject, descrizioni e nome del progetto", async () => {
+    await createProject(testDb.db, { dailyReportEnabled: true });
+    const { deps, runSpy } = makeDeps({
+      commitsByCall: [
+        [
+          commit({ sha: "1".repeat(40), subject: "Rework del parser" }),
+          commit({ sha: "2".repeat(40), subject: "Aggiunge cache LRU" }),
+        ],
+      ],
+    });
+
+    await pollDailyReportsOnce(deps);
+
+    // Il prompt del RIASSUNTO (quello con "resoconto") deve contenere l'elenco
+    // aggregato: subject di ogni commit, le descrizioni per-commit generate e il
+    // nome del progetto. Protegge buildProjectSummaryPrompt da regressioni che
+    // perdano l'aggregazione.
+    const summaryCall = runSpy.mock.calls.find((c) => c[0]?.prompt?.includes("resoconto"));
+    expect(summaryCall).toBeDefined();
+    const prompt = summaryCall![0].prompt as string;
+    expect(prompt).toContain("Progetto: Progetto daily.");
+    expect(prompt).toContain("Rework del parser");
+    expect(prompt).toContain("Aggiunge cache LRU");
+    expect(prompt).toContain("descrizione finta"); // le descrizioni per-commit aggregate.
+    expect(prompt).not.toContain("[elenco troncato"); // pochi commit: nessun troncamento.
+  });
+
+  it("cap: molti commit con descrizioni lunghe → prompt del riassunto troncato entro il budget", async () => {
+    await createProject(testDb.db, { dailyReportEnabled: true });
+    // 60 commit, ognuno con una descrizione per-commit di 3000 caratteri:
+    // ~180k di contenuto aggregato, ben oltre SUMMARY_INPUT_MAX_CHARS (80k).
+    const many = Array.from({ length: 60 }, (_, i) =>
+      commit({ sha: String(i).padStart(40, "0"), subject: `Commit numero ${i}` }),
+    );
+    const longDesc = "X".repeat(3000);
+    const { deps, runSpy } = makeDeps({
+      commitsByCall: [many],
+      // Descrizioni per-commit lunghe; il riassunto resta corto ("riassunto finto").
+      runResult: async (opts) =>
+        opts.prompt.includes("resoconto")
+          ? { output: "riassunto finto", exitCode: 0 }
+          : { output: longDesc, exitCode: 0 },
+    });
+
+    await pollDailyReportsOnce(deps);
+
+    const summaryCall = runSpy.mock.calls.find((c) => c[0]?.prompt?.includes("resoconto"));
+    expect(summaryCall).toBeDefined();
+    const prompt = summaryCall![0].prompt as string;
+    // Elenco troncato con marcatore che indica quanti commit sono esclusi.
+    expect(prompt).toMatch(/\[elenco troncato per lunghezza: \d+ commit non inclusi\]/);
+    // Il prompt non supera di molto il budget (l'elenco intero sarebbe ~180k):
+    // il preambolo fisso è di poche centinaia di caratteri.
+    expect(prompt.length).toBeLessThan(SUMMARY_INPUT_MAX_CHARS + 5_000);
+  });
+
+  it("rollup: un giorno tutto done crea un dev-summary per membro risolto e uno per email non risolta", async () => {
+    await createProject(testDb.db, { dailyReportEnabled: true });
+    // alice è associata a un membro; bob no.
+    const userId = await createMember(testDb.db, ["alice@example.com"]);
+    const { deps } = makeDeps({
+      commitsByCall: [
+        [
+          commit({ sha: "1".repeat(40), authorEmail: "alice@example.com", authorName: "Alice" }),
+          commit({ sha: "2".repeat(40), authorEmail: "bob@example.com", authorName: "Bob" }),
+        ],
+      ],
+    });
+
+    await pollDailyReportsOnce(deps);
+
+    const devSummaries = await testDb.db
+      .select()
+      .from(activityDevSummaries)
+      .where(eq(activityDevSummaries.date, "2026-07-14"));
+    expect(devSummaries).toHaveLength(2);
+    // Membro risolto: userId valorizzato, gitEmail null.
+    const member = devSummaries.find((d) => d.userId === userId);
+    expect(member).toBeDefined();
+    expect(member?.gitEmail).toBeNull();
+    expect(member?.summary).toBe("riassunto finto"); // il prompt dev contiene "resoconto".
+    // Autore non risolto: gitEmail valorizzato, userId null.
+    const byEmail = devSummaries.find((d) => d.gitEmail === "bob@example.com");
+    expect(byEmail).toBeDefined();
+    expect(byEmail?.userId).toBeNull();
+    expect(byEmail?.summary).toBe("riassunto finto");
+
+    // Il giorno è marcato come rollupato.
+    const rollups = await testDb.db.select().from(activityDayRollups);
+    expect(rollups).toHaveLength(1);
+    expect(rollups[0]?.date).toBe("2026-07-14");
+  });
+
+  it("rollup: un membro con due email git produce UN solo dev-summary, aggregando i commit di entrambe", async () => {
+    await createProject(testDb.db, { dailyReportEnabled: true });
+    const userId = await createMember(testDb.db, ["work@example.com", "perso@example.com"]);
+    const { deps, runSpy } = makeDeps({
+      commitsByCall: [
+        [
+          commit({ sha: "1".repeat(40), authorEmail: "work@example.com", authorName: "Dev", subject: "Commit lavoro" }),
+          commit({ sha: "2".repeat(40), authorEmail: "perso@example.com", authorName: "Dev", subject: "Commit personale" }),
+        ],
+      ],
+    });
+
+    await pollDailyReportsOnce(deps);
+
+    const devSummaries = await testDb.db.select().from(activityDevSummaries);
+    expect(devSummaries).toHaveLength(1); // un'unica riga per il membro.
+    expect(devSummaries[0]?.userId).toBe(userId);
+    expect(devSummaries[0]?.gitEmail).toBeNull();
+
+    // Il prompt del dev-summary (unico gruppo membro) aggrega i commit di ENTRAMBE
+    // le email. Distinto dal riassunto di progetto dal marcatore "SVILUPPATORE".
+    const devCall = runSpy.mock.calls.find((c) => c[0]?.prompt?.includes("SVILUPPATORE"));
+    expect(devCall).toBeDefined();
+    expect(devCall![0].prompt).toContain("Commit lavoro");
+    expect(devCall![0].prompt).toContain("Commit personale");
+  });
+
+  it("rollup: idempotente — un secondo tick con rollup già presente non rigenera i dev-summary", async () => {
+    await createProject(testDb.db, { dailyReportEnabled: true });
+    const first = makeDeps({
+      commitsByCall: [[commit({ authorEmail: "alice@example.com", authorName: "Alice" })]],
+    });
+    await pollDailyReportsOnce(first.deps);
+    const after1 = await testDb.db.select().from(activityDevSummaries);
+    expect(after1).toHaveLength(1);
+    expect(await testDb.db.select().from(activityDayRollups)).toHaveLength(1);
+
+    // Secondo tick: il report è done (skip generazione) e il rollup è già marcato →
+    // nessun nuovo run e righe invariate (stessa riga, non ricreata).
+    const second = makeDeps({
+      commitsByCall: [[commit({ authorEmail: "alice@example.com", authorName: "Alice" })]],
+    });
+    await pollDailyReportsOnce(second.deps);
+    expect(second.runSpy).not.toHaveBeenCalled();
+    const after2 = await testDb.db.select().from(activityDevSummaries);
+    expect(after2).toHaveLength(1);
+    expect(after2[0]?.id).toBe(after1[0]?.id);
+  });
+
+  it("rollup: un giorno con un report non-done NON viene rollupato finché non sono tutti done", async () => {
+    // Il gate del rollup richiede bool_and(status='done') sul giorno: un report
+    // 'failed' (non recuperato da FASE 0, né rigenerato: progetto disabilitato) lo
+    // tiene fuori dai candidati. Modella l'attesa di "tutti done" (un report ancora
+    // in corso in un altro progetto blocca il rollup del giorno).
+    const a = await createProject(testDb.db, { dailyReportEnabled: false });
+    const b = await createProject(testDb.db, { dailyReportEnabled: false });
+    const [done] = await testDb.db
+      .insert(activityReports)
+      .values({ projectId: a.projectId, date: "2026-07-12", status: "done" })
+      .returning();
+    await testDb.db.insert(activityCommits).values({
+      reportId: done!.id,
+      repoId: a.repositoryId,
+      sha: "1".repeat(40),
+      authorEmail: "alice@example.com",
+      committedAt: new Date("2026-07-12T00:00:00Z"),
+      subject: "Commit fatto",
+    });
+    await testDb.db
+      .insert(activityReports)
+      .values({ projectId: b.projectId, date: "2026-07-12", status: "failed" });
+
+    const { deps, runSpy } = makeDeps();
+    await pollDailyReportsOnce(deps);
+
+    expect(runSpy).not.toHaveBeenCalled(); // nessun run del rollup.
+    expect(await testDb.db.select().from(activityDevSummaries)).toHaveLength(0);
+    expect(await testDb.db.select().from(activityDayRollups)).toHaveLength(0);
+  });
+
+  it("rollup: invalidato quando un report del giorno viene rigenerato, poi rifatto al tick successivo", async () => {
+    const { projectId } = await createProject(testDb.db, { dailyReportEnabled: true });
+
+    // Tick 1: genera il report del giorno + il rollup dev-summary.
+    const t1 = makeDeps({
+      commitsByCall: [[commit({ authorEmail: "alice@example.com", authorName: "Alice" })]],
+    });
+    await pollDailyReportsOnce(t1.deps);
+    expect(await testDb.db.select().from(activityDayRollups)).toHaveLength(1);
+    expect(await testDb.db.select().from(activityDevSummaries)).toHaveLength(1);
+
+    // Rigenerazione manuale: rimetti il report 'queued'.
+    await testDb.db
+      .update(activityReports)
+      .set({ status: "queued" })
+      .where(eq(activityReports.projectId, projectId));
+
+    // Tick 2 SENZA provider: il reclaim (in generateForProject) invalida rollup +
+    // dev-summary del giorno; la fase di rollup NON li riscrive (niente provider) →
+    // restano cancellati, provando l'invalidazione.
+    const t2 = makeDeps({
+      provider: null,
+      commitsByCall: [[commit({ authorEmail: "alice@example.com", authorName: "Alice" })]],
+    });
+    await pollDailyReportsOnce(t2.deps);
+    expect(await testDb.db.select().from(activityDayRollups)).toHaveLength(0);
+    expect(await testDb.db.select().from(activityDevSummaries)).toHaveLength(0);
+
+    // Tick 3 con provider: il report è di nuovo done → la fase di rollup lo rifà.
+    const t3 = makeDeps({
+      commitsByCall: [[commit({ authorEmail: "alice@example.com", authorName: "Alice" })]],
+    });
+    await pollDailyReportsOnce(t3.deps);
+    expect(await testDb.db.select().from(activityDayRollups)).toHaveLength(1);
+    expect(await testDb.db.select().from(activityDevSummaries)).toHaveLength(1);
+  });
+
+  it("rollup best-effort: un gruppo il cui run lancia non ha summary, gli altri sì, e il rollup è scritto", async () => {
+    await createProject(testDb.db, { dailyReportEnabled: true });
+    const { deps } = makeDeps({
+      commitsByCall: [
+        [
+          commit({ sha: "1".repeat(40), authorEmail: "alice@example.com", authorName: "Alice", subject: "Lavoro di alice" }),
+          commit({ sha: "2".repeat(40), authorEmail: "bob@example.com", authorName: "Bob", subject: "Lavoro di bob" }),
+        ],
+      ],
+      // Solo il run del dev-summary di bob (prompt "SVILUPPATORE" col suo subject)
+      // lancia; tutti gli altri run vanno a buon fine.
+      runResult: async (opts) => {
+        if (opts.prompt.includes("SVILUPPATORE") && opts.prompt.includes("Lavoro di bob")) {
+          throw new Error("dev summary di bob esploso");
+        }
+        return {
+          output: opts.prompt.includes("resoconto") ? "riassunto finto" : "descrizione finta",
+          exitCode: 0,
+        };
+      },
+    });
+
+    await pollDailyReportsOnce(deps);
+
+    const devSummaries = await testDb.db.select().from(activityDevSummaries);
+    expect(devSummaries).toHaveLength(1); // solo alice ha un summary.
+    expect(devSummaries[0]?.gitEmail).toBe("alice@example.com");
+    // Il giorno è comunque marcato come rollupato (best-effort).
+    expect(await testDb.db.select().from(activityDayRollups)).toHaveLength(1);
+  });
+
+  it("rollup: un giorno done ma senza commit → rollup scritto, 0 dev-summary", async () => {
+    await createProject(testDb.db, { dailyReportEnabled: true });
+    // 0 commit non-merge → report done senza righe.
+    const { deps, runSpy } = makeDeps({ commitsByCall: [[]] });
+
+    await pollDailyReportsOnce(deps);
+
+    const [report] = await testDb.db.select().from(activityReports);
+    expect(report?.status).toBe("done");
+    // Nessun run (né descrizioni né riassunti né dev-summary) e nessun dev-summary.
+    expect(runSpy).not.toHaveBeenCalled();
+    expect(await testDb.db.select().from(activityDevSummaries)).toHaveLength(0);
+    // Il giorno è comunque marcato, così non resta pending all'infinito.
+    const rollups = await testDb.db.select().from(activityDayRollups);
+    expect(rollups).toHaveLength(1);
+    expect(rollups[0]?.date).toBe("2026-07-14");
+  });
+
+  it("rollup: un pin di progetto NON risolvibile non blocca il rollup — usa la chain globale", async () => {
+    const { projectId } = await createProject(testDb.db, { dailyReportEnabled: true });
+    // Il progetto ha un provider PINNED (FK reale) che però NON è risolvibile
+    // (loadProviderByIdFn → undefined, es. credenziale illeggibile).
+    const [pinned] = await testDb.db
+      .insert(aiProviders)
+      .values({ position: 0, kind: "api_key", label: "pin rotto", secretEncrypted: "x" })
+      .returning();
+    await testDb.db
+      .update(projects)
+      .set({ aiProviderId: pinned!.id })
+      .where(eq(projects.id, projectId));
+
+    const { deps } = makeDeps({
+      commitsByCall: [[commit({ authorEmail: "alice@example.com", authorName: "Alice" })]],
+      // Pin rotto: la risoluzione per-id fallisce sempre (null)...
+      loadProviderByIdFn: async () => null,
+      // ...ma la chain globale è valida.
+      loadProviderChainFn: async () => [FAKE_PROVIDER],
+    });
+
+    await pollDailyReportsOnce(deps);
+
+    // Il rollup, cross-progetto, ha risolto il provider dalla CHAIN (non dal pin
+    // rotto del progetto): ha generato il dev-summary e marcato il giorno. Con la
+    // vecchia logica (pin del progetto) il giorno sarebbe restato pending per sempre.
+    const devSummaries = await testDb.db.select().from(activityDevSummaries);
+    expect(devSummaries).toHaveLength(1);
+    expect(devSummaries[0]?.summary).toBe("riassunto finto");
+    expect(await testDb.db.select().from(activityDayRollups)).toHaveLength(1);
+  });
+
+  it("rollup: un dev-summary già presente (crash parziale) NON viene rigenerato, gli altri sì", async () => {
+    // Progetto DISABILITATO col report del giorno GIÀ `done`: così questo tick NON
+    // lo rigenera (nessuna invalidazione dei dev-summary del giorno) e la fase di
+    // rollup lo vede tra i candidati con la riga di alice pre-esistente.
+    const { projectId, repositoryId } = await createProject(testDb.db, {
+      dailyReportEnabled: false,
+    });
+    // alice è un membro risolto; bob resta email non risolta.
+    const userId = await createMember(testDb.db, ["alice@example.com"]);
+    const [done] = await testDb.db
+      .insert(activityReports)
+      .values({ projectId, date: "2026-07-14", status: "done" })
+      .returning();
+    await testDb.db.insert(activityCommits).values([
+      {
+        reportId: done!.id,
+        repoId: repositoryId,
+        sha: "1".repeat(40),
+        authorEmail: "alice@example.com",
+        committedAt: new Date("2026-07-14T10:00:00Z"),
+        subject: "Lavoro di alice",
+      },
+      {
+        reportId: done!.id,
+        repoId: repositoryId,
+        sha: "2".repeat(40),
+        authorEmail: "bob@example.com",
+        committedAt: new Date("2026-07-14T11:00:00Z"),
+        subject: "Lavoro di bob",
+      },
+    ]);
+    // Simula un tick precedente crashato DOPO l'insert del dev-summary di alice ma
+    // PRIMA di marcare il rollup: la riga di alice esiste già per il giorno.
+    await testDb.db.insert(activityDevSummaries).values({
+      date: "2026-07-14",
+      userId,
+      gitEmail: null,
+      summary: "PRE-ESISTENTE",
+    });
+
+    const { deps, runSpy } = makeDeps();
+    await pollDailyReportsOnce(deps);
+
+    // Il gruppo di alice è saltato (già presente): nessun run del suo dev-summary.
+    // Solo bob genera un run "SVILUPPATORE".
+    const devRuns = runSpy.mock.calls.filter((c) => c[0]?.prompt?.includes("SVILUPPATORE"));
+    expect(devRuns).toHaveLength(1);
+    expect(devRuns[0]![0].prompt).toContain("Lavoro di bob");
+    expect(devRuns[0]![0].prompt).not.toContain("Lavoro di alice");
+
+    const summaries = await testDb.db
+      .select()
+      .from(activityDevSummaries)
+      .where(eq(activityDevSummaries.date, "2026-07-14"));
+    expect(summaries).toHaveLength(2);
+    // La riga di alice resta quella pre-esistente (non riscritta).
+    const aliceRow = summaries.find((s) => s.userId === userId);
+    expect(aliceRow?.summary).toBe("PRE-ESISTENTE");
+    // bob è stato generato normalmente.
+    const bobRow = summaries.find((s) => s.gitEmail === "bob@example.com");
+    expect(bobRow?.summary).toBe("riassunto finto");
+    // Il giorno è marcato come rollupato.
+    expect(await testDb.db.select().from(activityDayRollups)).toHaveLength(1);
   });
 });

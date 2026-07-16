@@ -1845,6 +1845,10 @@ export const activityReports = pgTable(
     date: date("date").notNull(),
     status: activityReportStatus("status").notNull().default("queued"),
     error: text("error"),
+    // Riassunto narrativo del progetto per la giornata (markdown), generato
+    // aggregando le descrizioni per-commit. Null se non ancora generato o se il
+    // run di sintesi è fallito.
+    summary: text("summary"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
   },
@@ -1886,3 +1890,44 @@ export const activityCommits = pgTable(
     index("activity_commits_author_email_idx").on(table.authorEmail),
   ],
 );
+
+/**
+ * Riassunto narrativo per SVILUPPATORE per un giorno, aggregando le descrizioni
+ * dei suoi commit su tutti i progetti. Il gruppo è un membro risolto (`userId`)
+ * oppure, per un autore git non associato, la sua email (`gitEmail`). Esattamente
+ * uno dei due è valorizzato.
+ */
+export const activityDevSummaries = pgTable(
+  "activity_dev_summaries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    date: date("date").notNull(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    gitEmail: text("git_email"),
+    summary: text("summary").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Un riassunto per (giorno, membro) e uno per (giorno, email non risolta).
+    // Unique parziali: userId e gitEmail sono mutuamente esclusivi.
+    uniqueIndex("activity_dev_summaries_date_user_unique")
+      .on(table.date, table.userId)
+      .where(sql`user_id is not null`),
+    uniqueIndex("activity_dev_summaries_date_email_unique")
+      .on(table.date, table.gitEmail)
+      .where(sql`git_email is not null`),
+    index("activity_dev_summaries_date_idx").on(table.date),
+  ],
+);
+
+/**
+ * Segna che il rollup dei riassunti-per-sviluppatore di un giorno è stato
+ * generato (tutti i report del giorno erano `done`). Gating idempotente: la
+ * fase di rollup nel poller salta i giorni già presenti qui. Rimossa quando un
+ * report del giorno torna queued/running (rigenerazione), per riattivare il
+ * rollup.
+ */
+export const activityDayRollups = pgTable("activity_day_rollups", {
+  date: date("date").primaryKey(),
+  generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
+});

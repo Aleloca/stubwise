@@ -1,16 +1,20 @@
 import {
   activityCommits,
+  activityDayRollups,
+  activityDevSummaries,
   activityReports,
   decrypt,
   gitAccounts,
   gitAuthorsSeen,
+  gitIdentities,
   projects,
   repositories,
   type Db,
 } from "@stubwise/db";
 import { and, eq, gte, lt, sql } from "drizzle-orm";
+import { tmpdir } from "node:os";
 import { z } from "zod";
-import type { AgentRunner } from "../agent/runner.js";
+import type { AgentRunner, AgentRunResult } from "../agent/runner.js";
 import type { MirrorManager, MirrorProject, RangeCommit } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
 import {
@@ -56,6 +60,33 @@ import {
 
 /** Turni massimi del run di descrizione: bastano pochi (nessun tool, solo testo). */
 const COMMIT_DESC_MAX_TURNS = 3;
+
+/** Turni massimi del run del riassunto di progetto: solo testo, nessun tool. */
+const PROJECT_SUMMARY_MAX_TURNS = 3;
+
+/** Turni massimi del run del riassunto per-sviluppatore: solo testo, nessun tool. */
+const DEV_SUMMARY_MAX_TURNS = 3;
+
+/**
+ * Tetto di caratteri sul contenuto aggregato (subject + descrizione) dei commit
+ * passato al prompt del RIASSUNTO di progetto. Con centinaia di commit (giorno
+ * intenso o backfill manuale) l'elenco completo può eccedere il context del
+ * modello o far scadere il timeout: il run fallisce e `summary` resta null
+ * proprio quando un resoconto servirebbe di più. Meglio un elenco troncato con
+ * marcatore esplicito che nessun riassunto. */
+export const SUMMARY_INPUT_MAX_CHARS = 80_000;
+
+/**
+ * Testo utile da un run dell'agente: l'output trimmato se il processo è uscito
+ * con exit 0 e ha prodotto qualcosa, altrimenti null. `runner.run` RISOLVE anche
+ * su exit non-zero (è un risultato, non un errore): un exit ≠ 0 → nessun testo
+ * (niente descrizioni da un output parziale). Condiviso dal loop per-commit e
+ * dal blocco del riassunto. */
+function textFromRun(result: AgentRunResult): string | null {
+  if (result.exitCode !== 0) return null;
+  const out = result.output.trim();
+  return out.length > 0 ? out : null;
+}
 
 /** Forma attesa delle credenziali git decifrate (mirror di run-review.ts). */
 const credentialsSchema = z.object({
@@ -165,6 +196,80 @@ function buildCommitDescriptionPrompt(commit: RangeCommit, diff: string): string
   ].join("\n");
 }
 
+/** Accumula l'elenco "N. subject / descrizione" dei commit finché resta entro il
+ * budget SUMMARY_INPUT_MAX_CHARS, poi si ferma e segnala il troncamento con un
+ * marcatore esplicito. ORDINE: si mantiene quello originale (cronologico, dal git
+ * log) — un resoconto narrativo segue meglio la sequenza reale del lavoro, e il
+ * cap è una salvaguardia contro giornate/backfill enormi, non un criterio di
+ * "importanza" (non si riordina per dimensione). Almeno UN commit è sempre
+ * incluso, anche se da solo eccede il budget, così l'elenco non è mai vuoto.
+ * Condiviso dal riassunto di progetto e da quello per-sviluppatore. */
+function cappedCommitList(
+  commits: { subject: string; description: string | null | undefined }[],
+): string {
+  const lines: string[] = [];
+  let used = 0;
+  let included = 0;
+  for (const c of commits) {
+    const item = `${included + 1}. ${c.subject}${c.description ? `\n   ${c.description.replace(/\n/g, "\n   ")}` : ""}`;
+    if (included > 0 && used + item.length > SUMMARY_INPUT_MAX_CHARS) break;
+    lines.push(item);
+    used += item.length + 1; // +1 per il "\n" del join
+    included++;
+  }
+  const omitted = commits.length - included;
+  return (
+    lines.join("\n") +
+    (omitted > 0 ? `\n\n[elenco troncato per lunghezza: ${omitted} commit non inclusi]` : "")
+  );
+}
+
+/** Prompt per il riassunto narrativo di un PROGETTO in un giorno, aggregando le
+ * descrizioni GIÀ generate dei suoi commit (niente run per-commit qui). Narrativo
+ * esteso, markdown, italiano, tecnico (per i dev).
+ * PROMPT INJECTION: subject/descrizioni sono input NON FIDATO; contenuto per
+ * costruzione (permissionMode "plan", cwd = mirror bare, nessun working tree). */
+function buildProjectSummaryPrompt(
+  projectName: string | undefined,
+  commits: { subject: string; description: string | null | undefined }[],
+): string {
+  const items = cappedCommitList(commits);
+  return [
+    `Sei un assistente tecnico che redige il resoconto giornaliero di un progetto software.`,
+    projectName ? `Progetto: ${projectName}.` : ``,
+    `Di seguito i commit della giornata con la relativa descrizione tecnica:`,
+    items,
+    ``,
+    `Scrivi in ITALIANO un resoconto NARRATIVO ESTESO di cosa è stato fatto sul progetto`,
+    `nella giornata: ripercorri il lavoro raggruppando per temi/aree dove sensato, con`,
+    `dettaglio tecnico (è per sviluppatori). Usa markdown. Rispondi SOLO col resoconto.`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** Prompt per il riassunto narrativo di UNO SVILUPPATORE in un giorno, aggregando
+ * le descrizioni GIÀ generate dei suoi commit su TUTTI i progetti (cross-progetto,
+ * niente run per-commit qui). Narrativo esteso, markdown, italiano, tecnico.
+ * PROMPT INJECTION: subject/descrizioni sono input NON FIDATO; contenuto per
+ * costruzione (permissionMode "plan", cwd = tmp dir, nessun working tree). */
+function buildDevSummaryPrompt(
+  commits: { subject: string; description: string | null | undefined }[],
+): string {
+  const items = cappedCommitList(commits);
+  return [
+    `Sei un assistente tecnico che redige il resoconto giornaliero di UNO SVILUPPATORE.`,
+    `Di seguito i commit di questa persona nella giornata, su vari progetti, con la`,
+    `relativa descrizione tecnica:`,
+    items,
+    ``,
+    `Scrivi in ITALIANO un resoconto NARRATIVO ESTESO di cosa ha fatto questa persona`,
+    `nella giornata: ripercorri il lavoro raggruppando per temi/aree/progetti dove`,
+    `sensato, con dettaglio tecnico (è per sviluppatori). Usa markdown. Rispondi SOLO`,
+    `col resoconto.`,
+  ].join("\n");
+}
+
 /**
  * Genera UN report per un progetto (dentro il serializer). Ritorna true se ha
  * prodotto un report `done`, false se ha saltato (report del giorno già presente)
@@ -172,7 +277,7 @@ function buildCommitDescriptionPrompt(commit: RangeCommit, diff: string): string
  */
 async function generateForProject(
   deps: PollDailyReportsDeps,
-  projectRow: { id: string; aiProviderId: string | null },
+  projectRow: { id: string; name?: string; aiProviderId: string | null },
   since: Date,
   until: Date,
   date: string,
@@ -227,6 +332,23 @@ async function generateForProject(
       `[stubwise-worker] daily-report: creazione della riga per il progetto ${projectRow.id} (${date}) fallita: ${errText(err)}`,
     );
     return false;
+  }
+
+  // Invalidazione del rollup dev-summary del giorno: si arriva qui solo quando il
+  // report è `running` (insert fresco o reclaim di un orfano/queued), cioè lo si
+  // sta (ri)generando. (Ri)generare cambia i suoi commit, quindi il riassunto
+  // per-SVILUPPATORE del giorno — che li aggrega cross-progetto — diventa stale.
+  // Cancellando la riga di gating (activity_day_rollups) e i dev-summary del
+  // giorno, la fase di rollup li rifà quando TUTTI i report del giorno tornano
+  // `done`. Best-effort: un fallimento qui non deve bloccare la generazione (nel
+  // caso peggiore il rollup resta col vecchio contenuto fino al prossimo trigger).
+  try {
+    await db.delete(activityDayRollups).where(eq(activityDayRollups.date, date));
+    await db.delete(activityDevSummaries).where(eq(activityDevSummaries.date, date));
+  } catch (err) {
+    console.error(
+      `[stubwise-worker] daily-report: invalidazione del rollup dev-summary per ${date} fallita (${errText(err)})`,
+    );
   }
 
   try {
@@ -388,10 +510,7 @@ async function generateForProject(
               });
               // Run crashato (exit ≠ 0): nessuna descrizione da un output
               // parziale. runner.run RISOLVE anche su exit non-zero.
-              if (result.exitCode === 0) {
-                const out = result.output.trim();
-                aiDescription = out.length > 0 ? out : null;
-              }
+              aiDescription = textFromRun(result);
             } catch (err) {
               // Best-effort: un run fallito (timeout, limite, spawn) → null.
               console.error(
@@ -416,10 +535,43 @@ async function generateForProject(
       }
     }
 
+    // (e-bis) RIASSUNTO NARRATIVO DEL PROGETTO: un run agente che aggrega le
+    // descrizioni GIÀ generate (in `rows`) in un resoconto della giornata. Non
+    // rifà i run per-commit: passa solo subject + aiDescription al prompt.
+    // Best-effort come tutto il resto: no provider/cwd, 0 commit o run che
+    // lancia/exit≠0 → summary null, il report resta comunque `done`.
+    let summary: string | null = null;
+    if (provider && cwd && rows.length > 0) {
+      try {
+        const result = await deps.runner.run({
+          cwd,
+          prompt: buildProjectSummaryPrompt(
+            projectRow.name,
+            rows.map((r) => ({ subject: r.subject, description: r.aiDescription })),
+          ),
+          ...(deps.model !== undefined ? { model: deps.model } : {}),
+          permissionMode: "plan",
+          maxTurns: PROJECT_SUMMARY_MAX_TURNS,
+          timeoutMs: deps.agentTimeoutMs,
+          provider,
+        });
+        // Run crashato (exit ≠ 0): nessun riassunto da un output parziale.
+        if (result.exitCode === 0) {
+          const out = result.output.trim();
+          summary = out.length > 0 ? out : null;
+        }
+      } catch (err) {
+        // Best-effort: un run fallito (timeout, limite, spawn) → summary null.
+        console.error(
+          `[stubwise-worker] daily-report: riassunto del progetto ${projectRow.id} (${date}) fallito (${errText(err)})`,
+        );
+      }
+    }
+
     // (f+g) Persisti le righe (una per commit) e chiudi il report → done in UNA
-    // transazione: o si vede il report done con TUTTE le sue righe, o si resta nel
-    // tentativo precedente (nessuno stato intermedio "done senza righe" o "righe
-    // senza done").
+    // transazione: o si vede il report done con TUTTE le sue righe (e il summary),
+    // o si resta nel tentativo precedente (nessuno stato intermedio "done senza
+    // righe" o "righe senza done").
     await db.transaction(async (tx) => {
       if (rows.length > 0) {
         // Insert singolo: activityCommits ha ~10 colonne, quindi il tetto dei
@@ -430,7 +582,7 @@ async function generateForProject(
       }
       await tx
         .update(activityReports)
-        .set({ status: "done", finishedAt: now })
+        .set({ status: "done", finishedAt: now, summary })
         .where(eq(activityReports.id, reportId));
     });
     return true;
@@ -448,6 +600,188 @@ async function generateForProject(
       // best-effort: se anche la chiusura fallisce non c'è altro da fare.
     }
     return false;
+  }
+}
+
+/**
+ * FASE DI ROLLUP dei riassunti PER-SVILUPPATORE (cross-progetto), gated per
+ * giorno. Per ogni `date` con TUTTI i suoi report `done` e SENZA riga in
+ * activity_day_rollups: carica i commit del giorno, li raggruppa per dev (membro
+ * risolto via git_identities — unisce le sue N email — oppure email se non
+ * associato), per ogni gruppo un run agente sulle descrizioni dei suoi commit
+ * (una riga in activity_dev_summaries), infine marca il giorno in
+ * activity_day_rollups.
+ *
+ * NON tocca git: usa le descrizioni GIÀ in DB, quindi NON serve né il serializer
+ * per-progetto né un mirror. Il runner richiede comunque un cwd valido: si usa una
+ * tmp dir (nessun montaggio/fetch). Best-effort a ogni livello — l'intera fase,
+ * ogni giorno e ogni gruppo sono isolati in try/catch: un fallimento lascia il
+ * giorno senza (parte del) rollup, ritentato al tick successivo se il rollup NON è
+ * stato marcato.
+ *
+ * PROVIDER MANCANTE: se un giorno HA commit ma non c'è un provider utilizzabile, il
+ * rollup NON viene marcato (nessun dev-summary generabile) → si ritenta al tick
+ * successivo, quando il provider torna. Un giorno SENZA commit (0 gruppi) viene
+ * marcato comunque, senza generare nulla, così non resta "pending" all'infinito.
+ */
+async function rollupDevSummaries(deps: PollDailyReportsDeps): Promise<void> {
+  const { db } = deps;
+  try {
+    // Giorni con TUTTI i report `done` (group-by + having bool_and) MENO quelli già
+    // rollupati. Due query semplici invece di un NOT EXISTS annidato.
+    // LIMITAZIONE NOTA: un giorno con anche UN SOLO report non `done` (incluso un
+    // `failed` non recuperabile) non entra tra i candidati → non viene mai
+    // rollupato e resta `developersSummaryPending`. Recovery: rigenerare/risolvere
+    // quel report (portarlo a `done` o rimuoverlo) sblocca il giorno.
+    const allDone = await db
+      .select({ date: activityReports.date })
+      .from(activityReports)
+      .groupBy(activityReports.date)
+      .having(sql`bool_and(${activityReports.status} = 'done')`);
+    const rolled = await db.select({ date: activityDayRollups.date }).from(activityDayRollups);
+    const rolledSet = new Set(rolled.map((r) => r.date));
+    const candidates = allDone.map((r) => r.date).filter((d) => !rolledSet.has(d));
+
+    for (const date of candidates) {
+      try {
+        // (a) Tutti i commit del giorno (cross-progetto). Il provider NON dipende dal
+        // progetto (il rollup è cross-progetto): si risolve dalla chain globale più
+        // sotto, quindi qui non serve l'aiProviderId dei progetti.
+        const dayCommits = await db
+          .select({
+            authorEmail: activityCommits.authorEmail,
+            subject: activityCommits.subject,
+            aiDescription: activityCommits.aiDescription,
+          })
+          .from(activityCommits)
+          .innerJoin(activityReports, eq(activityCommits.reportId, activityReports.id))
+          .where(eq(activityReports.date, date));
+
+        // (b) Mappa email git (lowercase) → membro, per risolvere gli autori.
+        const identities = await db
+          .select({ email: gitIdentities.email, userId: gitIdentities.userId })
+          .from(gitIdentities);
+        const emailToUser = new Map(identities.map((i) => [i.email.toLowerCase(), i.userId]));
+
+        // (c) Raggruppa per chiave dev: membro risolto (`user:<id>`, unisce le sue
+        // N email) o email non risolta (`email:<lower>`). Ogni gruppo porta i suoi
+        // commit cross-progetto (subject + descrizione).
+        interface DevGroup {
+          userId: string | null;
+          gitEmail: string | null;
+          commits: { subject: string; description: string | null }[];
+        }
+        const groups = new Map<string, DevGroup>();
+        for (const c of dayCommits) {
+          const emailLower = c.authorEmail.toLowerCase();
+          const userId = emailToUser.get(emailLower) ?? null;
+          const key = userId ? `user:${userId}` : `email:${emailLower}`;
+          let group = groups.get(key);
+          if (!group) {
+            group = { userId, gitEmail: userId ? null : emailLower, commits: [] };
+            groups.set(key, group);
+          }
+          group.commits.push({ subject: c.subject, description: c.aiDescription });
+        }
+        const groupList = [...groups.values()];
+
+        // (d) Provider: risolto dalla CHAIN GLOBALE (default), NON dal pin di un
+        // progetto arbitrario del giorno. Il dev-summary è cross-progetto: un pin
+        // rotto (non risolvibile) di un progetto non deve bloccare il rollup finché
+        // la chain offre un provider valido. Se ci sono gruppi da riassumere ma la
+        // chain è vuota (nessun provider), NON marcare il rollup: si ritenta al tick
+        // successivo, quando il provider torna. Un giorno senza gruppi (0 commit)
+        // prosegue e viene marcato senza generare nulla.
+        const provider = await resolveProvider(deps, null);
+        if (!provider && groupList.length > 0) continue;
+
+        // (e) Crash-consistency: se un tick precedente è crashato DOPO alcuni insert
+        // in activity_dev_summaries ma PRIMA di marcare activity_day_rollups, il
+        // giorno è di nuovo candidato. Carica le chiavi già presenti e salta i
+        // gruppi già fatti, così un retry non rilancia i run AI sui dev completati
+        // (l'onConflictDoNothing resta come rete di sicurezza a valle).
+        const existingSummaries = await db
+          .select({
+            userId: activityDevSummaries.userId,
+            gitEmail: activityDevSummaries.gitEmail,
+          })
+          .from(activityDevSummaries)
+          .where(eq(activityDevSummaries.date, date));
+        const doneUserIds = new Set(
+          existingSummaries.map((s) => s.userId).filter((v): v is string => v !== null),
+        );
+        const doneEmails = new Set(
+          existingSummaries.map((s) => s.gitEmail).filter((v): v is string => v !== null),
+        );
+
+        if (groupList.length > 0) {
+          console.error(
+            `[stubwise-worker] daily-report: rollup di ${groupList.length} sviluppatori per il giorno ${date}`,
+          );
+        }
+
+        // (f) Un run per gruppo; cwd = tmp dir (il rollup non tocca git). Best-effort:
+        // un run fallito o con exit ≠ 0 → quel dev senza summary (la UI mostrerà un
+        // placeholder), gli altri procedono.
+        const cwd = tmpdir();
+        for (const group of groupList) {
+          if (!provider) break; // difensivo: groupList>0 senza provider è già uscito.
+          // Salta i gruppi già presenti in DB (retry dopo crash parziale): il loro
+          // summary resta quello pre-esistente, niente nuovo run.
+          const alreadyDone = group.userId
+            ? doneUserIds.has(group.userId)
+            : group.gitEmail !== null && doneEmails.has(group.gitEmail);
+          if (alreadyDone) continue;
+          let summary: string | null = null;
+          try {
+            const result = await deps.runner.run({
+              cwd,
+              prompt: buildDevSummaryPrompt(group.commits),
+              ...(deps.model !== undefined ? { model: deps.model } : {}),
+              permissionMode: "plan",
+              maxTurns: DEV_SUMMARY_MAX_TURNS,
+              timeoutMs: deps.agentTimeoutMs,
+              provider,
+            });
+            summary = textFromRun(result);
+          } catch (err) {
+            console.error(
+              `[stubwise-worker] daily-report: riassunto dello sviluppatore ${group.userId ?? group.gitEmail} (${date}) fallito (${errText(err)})`,
+            );
+          }
+          if (summary) {
+            try {
+              await db
+                .insert(activityDevSummaries)
+                .values({
+                  date,
+                  userId: group.userId,
+                  gitEmail: group.userId ? null : group.gitEmail,
+                  summary,
+                })
+                // Difesa contro doppioni sulle unique parziali (date,userId)/(date,email).
+                .onConflictDoNothing();
+            } catch (err) {
+              console.error(
+                `[stubwise-worker] daily-report: insert del dev-summary ${group.userId ?? group.gitEmail} (${date}) fallito (${errText(err)})`,
+              );
+            }
+          }
+        }
+
+        // (g) Marca il giorno come rollupato (anche con 0 gruppi) così non resta
+        // pending all'infinito. onConflictDoNothing: idempotente sul date PK.
+        await db.insert(activityDayRollups).values({ date }).onConflictDoNothing();
+      } catch (err) {
+        console.error(
+          `[stubwise-worker] daily-report: rollup dev-summary del giorno ${date} fallito: ${errText(err)}`,
+        );
+      }
+    }
+  } catch (err) {
+    console.error(
+      `[stubwise-worker] daily-report: fase di rollup dev-summary fallita: ${errText(err)}`,
+    );
   }
 }
 
@@ -517,6 +851,7 @@ export async function pollDailyReportsOnce(deps: PollDailyReportsDeps): Promise<
       .select({
         projectId: activityReports.projectId,
         date: activityReports.date,
+        name: projects.name,
         aiProviderId: projects.aiProviderId,
       })
       .from(activityReports)
@@ -529,7 +864,7 @@ export async function pollDailyReportsOnce(deps: PollDailyReportsDeps): Promise<
         const ok = await deps.serializer.run(q.projectId, () =>
           generateForProject(
             deps,
-            { id: q.projectId, aiProviderId: q.aiProviderId },
+            { id: q.projectId, name: q.name, aiProviderId: q.aiProviderId },
             win.since,
             win.until,
             win.date,
@@ -552,7 +887,7 @@ export async function pollDailyReportsOnce(deps: PollDailyReportsDeps): Promise<
 
   try {
     const enabledProjects = await deps.db
-      .select({ id: projects.id, aiProviderId: projects.aiProviderId })
+      .select({ id: projects.id, name: projects.name, aiProviderId: projects.aiProviderId })
       .from(projects)
       .where(eq(projects.dailyReportEnabled, true));
 
@@ -572,6 +907,13 @@ export async function pollDailyReportsOnce(deps: PollDailyReportsDeps): Promise<
   } catch (err) {
     console.error(`[stubwise-worker] daily-report: selezione dei progetti fallita: ${errText(err)}`);
   }
+
+  // (2) FASE DI ROLLUP dev-summary (cross-progetto): dopo che TUTTI i report di un
+  // giorno sono `done`, genera i riassunti per-sviluppatore del giorno e lo marca.
+  // Best-effort, non tocca git (usa le descrizioni già in DB). Gira dopo il gate
+  // notturno (che porta a `done` gli ultimi report del giorno) e prima della
+  // retention.
+  await rollupDevSummaries(deps);
 
   // Retention (una volta per tick, fuori dal loop): cancella i report più vecchi
   // di retentionDays. `cutoff` è calcolato in testa al tick e condiviso con il

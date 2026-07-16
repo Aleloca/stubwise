@@ -3,6 +3,7 @@ import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { activityReportQueryOptions } from "../lib/queries";
 import { createAppRouter } from "../router";
 
 /**
@@ -108,10 +109,12 @@ const REPOS = [
 // descrizione AI markdown) e uno di un'email git non risolta (senza descrizione).
 const REPORT = {
   date: "2026-07-14",
+  developersSummaryPending: false,
   projects: [
     {
       project: { id: "p1", name: "Apollo", slug: "apollo" },
       status: "done",
+      summary: "Delivered auth improvements across the board.",
       header: { commitCount: 2, additions: 43, deletions: 6, authorCount: 2 },
       commits: [
         {
@@ -144,6 +147,7 @@ const REPORT = {
       resolvedUser: { id: "u1", email: "ada@example.com", avatarUrl: null },
       gitEmail: "ada@git.example",
       authorName: "Ada Dev",
+      summary: "Ada focused on authentication.",
       header: { commitCount: 1, additions: 40, deletions: 5, projectCount: 1 },
       byProject: [
         {
@@ -165,6 +169,7 @@ const REPORT = {
       resolvedUser: null,
       gitEmail: "ghost@git.example",
       authorName: null,
+      summary: null,
       header: { commitCount: 1, additions: 3, deletions: 1, projectCount: 1 },
       byProject: [
         {
@@ -185,16 +190,23 @@ const REPORT = {
   ],
 };
 
-const EMPTY_REPORT = { date: "2026-01-01", projects: [], developers: [] };
+const EMPTY_REPORT = {
+  date: "2026-01-01",
+  projects: [],
+  developers: [],
+  developersSummaryPending: false,
+};
 
 // Report appena accodato: un progetto in stato "queued" senza commit (il worker
-// non l'ha ancora finalizzato).
+// non l'ha ancora finalizzato) e nessun riassunto ancora prodotto.
 const QUEUED_REPORT = {
   date: "2026-07-14",
+  developersSummaryPending: false,
   projects: [
     {
       project: { id: "p1", name: "Apollo", slug: "apollo" },
       status: "queued",
+      summary: null,
       header: { commitCount: 0, additions: 0, deletions: 0, authorCount: 0 },
       commits: [],
     },
@@ -204,6 +216,7 @@ const QUEUED_REPORT = {
 
 describe("sezione attività", () => {
   it("admin: vista per progetto (default) con membro risolto ed email grezza", async () => {
+    const user = userEvent.setup();
     mockApi({
       "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
       "GET /api/repositories": () => jsonResponse(200, REPOS),
@@ -215,6 +228,11 @@ describe("sezione attività", () => {
     // Header e blocco progetto.
     expect(await screen.findByRole("heading", { name: "Activity" })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: "Apollo" })).toBeInTheDocument();
+
+    // Il riassunto narrativo del giorno è mostrato in cima alla card.
+    expect(
+      screen.getByText("Delivered auth improvements across the board."),
+    ).toBeInTheDocument();
 
     // Intestazione coi numeri dell'header per-commit.
     expect(screen.getByText("2 commits")).toBeInTheDocument();
@@ -233,8 +251,15 @@ describe("sezione attività", () => {
     expect(screen.getByText("Add login form")).toBeInTheDocument();
     expect(screen.getByText("Tweak copy")).toBeInTheDocument();
 
-    // La descrizione AI è resa come MARKDOWN e sanitizzata: il backtick `login`
-    // diventa un elemento <code> (non testo grezzo con i backtick).
+    // La descrizione AI è COLLASSATA di default: non visibile finché non si
+    // espande la riga del commit.
+    expect(screen.queryByText("login")).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Show description for Add login form" }),
+    );
+
+    // Espansa: la descrizione è resa come MARKDOWN e sanitizzata (il backtick
+    // `login` diventa un elemento <code>, non testo grezzo con i backtick).
     const code = screen.getByText("login");
     expect(code.tagName).toBe("CODE");
 
@@ -336,13 +361,20 @@ describe("sezione attività", () => {
 
     // Il blocco dev mostra l'autore risolto e i totali per-commit.
     expect(await screen.findByText("ada@example.com")).toBeInTheDocument();
+    // Il riassunto narrativo del dev è in cima alla card.
+    expect(screen.getByText("Ada focused on authentication.")).toBeInTheDocument();
     // Totali dell'header dev: 1 commit su 1 progetto.
     expect(screen.getAllByText("1 commit").length).toBeGreaterThan(0);
     expect(screen.getAllByText("1 project").length).toBeGreaterThan(0);
     // Il sotto-blocco per progetto compare col nome del progetto e i suoi commit.
     expect(screen.getAllByText("Apollo").length).toBeGreaterThan(0);
     expect(screen.getByText("Add login form")).toBeInTheDocument();
-    // La descrizione del commit è markdown: il backtick `web` diventa <code>.
+    // La descrizione del commit è collassata: si espande la riga (un solo commit
+    // espandibile) e il backtick `web` diventa <code>.
+    expect(screen.queryByText("web")).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Show description for Add login form" }),
+    );
     const code = screen.getByText("web");
     expect(code.tagName).toBe("CODE");
   });
@@ -573,12 +605,15 @@ describe("sezione attività", () => {
   it("descrizione AI multi-elemento: la lista markdown rende più <li>", async () => {
     // Il caso "commit grosso → descrizione strutturata": una lista markdown deve
     // produrre elementi <li> distinti, non testo grezzo con i trattini.
+    const user = userEvent.setup();
     const listReport = {
       date: "2026-07-14",
+      developersSummaryPending: false,
       projects: [
         {
           project: { id: "p1", name: "Apollo", slug: "apollo" },
           status: "done",
+          summary: null,
           header: { commitCount: 1, additions: 10, deletions: 2, authorCount: 1 },
           commits: [
             {
@@ -605,6 +640,8 @@ describe("sezione attività", () => {
     renderActivity();
 
     await screen.findByRole("heading", { name: "Apollo" });
+    // Espande la riga del commit (collassata di default) per rivelare la lista.
+    await user.click(screen.getByRole("button", { name: "Show description for Big refactor" }));
     const first = screen.getByText("first change");
     const second = screen.getByText("second change");
     expect(first.tagName).toBe("LI");
@@ -946,5 +983,297 @@ describe("sezione attività", () => {
     expect(
       screen.queryByRole("button", { name: "Generate report for this day" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("riassunto null + report queued → placeholder 'Summary in progress…'", async () => {
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, QUEUED_REPORT),
+    });
+
+    renderActivity();
+
+    // Progetto queued senza riassunto → placeholder in cima alla card.
+    expect(await screen.findByRole("heading", { name: "Apollo" })).toBeInTheDocument();
+    expect(screen.getByText("Summary in progress…")).toBeInTheDocument();
+  });
+
+  it("riassunto null + progetto done → nessun placeholder ingombrante", async () => {
+    // Run finita senza riassunto (summary null, status done): non si mostra né il
+    // markdown né il placeholder "in generazione".
+    const doneNoSummary = {
+      date: "2026-07-14",
+      developersSummaryPending: false,
+      projects: [
+        {
+          project: { id: "p1", name: "Apollo", slug: "apollo" },
+          status: "done",
+          summary: null,
+          header: { commitCount: 1, additions: 2, deletions: 0, authorCount: 1 },
+          commits: [
+            {
+              sha: "0011223344556677",
+              authorName: "Ada Dev",
+              resolvedUser: { id: "u1", email: "ada@example.com", avatarUrl: null },
+              committedAt: "2026-07-14T09:00:00.000Z",
+              subject: "Bump version",
+              additions: 2,
+              deletions: 0,
+              aiDescription: null,
+            },
+          ],
+        },
+      ],
+      developers: [],
+    };
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, doneNoSummary),
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    expect(screen.getByText("Bump version")).toBeInTheDocument();
+    // Nessun placeholder e nessun blocco riassunto (markdown).
+    expect(screen.queryByText("Summary in progress…")).not.toBeInTheDocument();
+    expect(document.querySelector(".markdown")).toBeNull();
+  });
+
+  it("descrizione commit: collassata di default, espande e richiude con aria-expanded", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, REPORT),
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    // Collassata: la descrizione non è nel DOM e la riga espone aria-expanded=false.
+    const toggle = screen.getByRole("button", { name: "Show description for Add login form" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("login")).not.toBeInTheDocument();
+
+    // Espande: la descrizione appare, aria-expanded passa a true (e l'etichetta cambia).
+    await user.click(toggle);
+    expect(screen.getByText("login").tagName).toBe("CODE");
+    const expanded = screen.getByRole("button", { name: "Hide description for Add login form" });
+    expect(expanded).toHaveAttribute("aria-expanded", "true");
+
+    // Richiude: la descrizione sparisce di nuovo.
+    await user.click(expanded);
+    expect(screen.queryByText("login")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Show description for Add login form" }),
+    ).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("commit senza descrizione: riga non espandibile (nessun toggle), solo oggetto", async () => {
+    const oneNullDesc = {
+      date: "2026-07-14",
+      developersSummaryPending: false,
+      projects: [
+        {
+          project: { id: "p1", name: "Apollo", slug: "apollo" },
+          status: "done",
+          summary: null,
+          header: { commitCount: 1, additions: 2, deletions: 0, authorCount: 1 },
+          commits: [
+            {
+              sha: "0011223344556677",
+              authorName: "Ada Dev",
+              resolvedUser: { id: "u1", email: "ada@example.com", avatarUrl: null },
+              committedAt: "2026-07-14T09:00:00.000Z",
+              subject: "Bump version",
+              additions: 2,
+              deletions: 0,
+              aiDescription: null,
+            },
+          ],
+        },
+      ],
+      developers: [],
+    };
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, oneNullDesc),
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    // L'oggetto è reso, ma senza descrizione non c'è il toggle di espansione.
+    expect(screen.getByText("Bump version")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Show description for/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("vista per sviluppatore: developersSummaryPending → placeholder riassunto per il dev", async () => {
+    // Rollup dei riassunti dev ancora in corso: il dev senza summary mostra il
+    // placeholder "in generazione" in cima alla propria card.
+    const user = userEvent.setup();
+    const pendingReport = {
+      date: "2026-07-14",
+      developersSummaryPending: true,
+      projects: REPORT.projects,
+      developers: [
+        {
+          resolvedUser: { id: "u1", email: "ada@example.com", avatarUrl: null },
+          gitEmail: "ada@git.example",
+          authorName: "Ada Dev",
+          summary: null,
+          header: { commitCount: 1, additions: 40, deletions: 5, projectCount: 1 },
+          byProject: [
+            {
+              project: { id: "p1", name: "Apollo", slug: "apollo" },
+              commits: [
+                {
+                  sha: "abcdef1234567890",
+                  committedAt: "2026-07-14T09:00:00.000Z",
+                  subject: "Add login form",
+                  additions: 40,
+                  deletions: 5,
+                  aiDescription: null,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, pendingReport),
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    await user.click(screen.getByRole("tab", { name: "By developer" }));
+
+    expect(await screen.findByText("ada@example.com")).toBeInTheDocument();
+    expect(screen.getByText("Summary in progress…")).toBeInTheDocument();
+  });
+
+  it("polling: refetchInterval attivo con report pending o developersSummaryPending", () => {
+    const interval = activityReportQueryOptions("2026-07-14").refetchInterval as (query: {
+      state: { data: unknown };
+    }) => number | false;
+
+    // Tutto done e nessun rollup pendente → nessun refetch periodico.
+    expect(
+      interval({
+        state: {
+          data: { projects: [{ status: "done" }], developers: [], developersSummaryPending: false },
+        },
+      }),
+    ).toBe(false);
+
+    // Un report queued → polling attivo.
+    expect(
+      interval({
+        state: {
+          data: { projects: [{ status: "queued" }], developers: [], developersSummaryPending: false },
+        },
+      }),
+    ).toBe(10_000);
+
+    // Report done ma rollup riassunti dev in corso → polling attivo.
+    expect(
+      interval({
+        state: {
+          data: { projects: [{ status: "done" }], developers: [], developersSummaryPending: true },
+        },
+      }),
+    ).toBe(10_000);
+  });
+
+  it("espansione descrizione commit persiste attraverso un refetch della query", async () => {
+    // Invariante: le righe commit sono keyate per sha → lo stato locale di
+    // espansione si preserva quando la query attività viene invalidata e rifà il
+    // fetch (nessun remount). La descrizione espansa resta visibile.
+    const user = userEvent.setup();
+    let activityCalls = 0;
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => {
+        activityCalls += 1;
+        return jsonResponse(200, REPORT);
+      },
+    });
+
+    const { queryClient } = renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    // Espande la riga del commit: la descrizione markdown appare.
+    await user.click(
+      screen.getByRole("button", { name: "Show description for Add login form" }),
+    );
+    expect(screen.getByText("login").tagName).toBe("CODE");
+    const callsBefore = activityCalls;
+
+    // Invalidazione per prefisso → refetch della stessa key.
+    await queryClient.invalidateQueries({ queryKey: ["activity"] });
+    await waitFor(() => expect(activityCalls).toBeGreaterThan(callsBefore));
+
+    // Dopo il refetch la descrizione è ancora espansa (stato non perso).
+    expect(screen.getByText("login").tagName).toBe("CODE");
+    expect(
+      screen.getByRole("button", { name: "Hide description for Add login form" }),
+    ).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("riassunto markdown multi-elemento: la lista rende più <li> in cima alla card", async () => {
+    // Il riassunto del giorno può essere markdown strutturato: una lista deve
+    // produrre elementi <li> distinti, non testo grezzo coi trattini.
+    const listSummary = {
+      date: "2026-07-14",
+      developersSummaryPending: false,
+      projects: [
+        {
+          project: { id: "p1", name: "Apollo", slug: "apollo" },
+          status: "done",
+          summary: "- shipped auth\n- fixed logout",
+          header: { commitCount: 1, additions: 4, deletions: 1, authorCount: 1 },
+          commits: [
+            {
+              sha: "0011223344556677",
+              authorName: "Ada Dev",
+              resolvedUser: { id: "u1", email: "ada@example.com", avatarUrl: null },
+              committedAt: "2026-07-14T09:00:00.000Z",
+              subject: "Bump version",
+              additions: 4,
+              deletions: 1,
+              aiDescription: null,
+            },
+          ],
+        },
+      ],
+      developers: [],
+    };
+    mockApi({
+      "GET /api/auth/me": () => jsonResponse(200, { user: ADMIN }),
+      "GET /api/repositories": () => jsonResponse(200, REPOS),
+      "GET /api/activity": () => jsonResponse(200, listSummary),
+    });
+
+    renderActivity();
+
+    await screen.findByRole("heading", { name: "Apollo" });
+    // Il riassunto in cima alla card è una region etichettata "Summary".
+    const region = screen.getByRole("region", { name: "Summary" });
+    // La lista markdown rende <li> distinti (non testo grezzo coi trattini).
+    const shipped = within(region).getByText("shipped auth");
+    const fixed = within(region).getByText("fixed logout");
+    expect(shipped.tagName).toBe("LI");
+    expect(fixed.tagName).toBe("LI");
   });
 });
