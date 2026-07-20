@@ -26,6 +26,8 @@ export const en: Catalog = {
     "AI triage: type={type}, effort={effortLabel} ({effort}/5). Automation not started (auto-fix disabled for this type, or effort above the threshold of {threshold}). You can start the fix manually.",
   "comment.triageSkip": "AI triage: skipping this ticket — {reason}",
   "comment.triageDuplicate": 'AI triage: duplicate of #{number} — "{title}"',
+  "comment.backlogDeviated":
+    "AI triage: type {type}. It does not enter the fix pipeline: moved to the discovery backlog for collection and refinement.",
   "comment.planProposed": "Proposed plan (awaiting approval):",
   "comment.planApproved": "Plan approved — execution in progress",
   "comment.planRejected": "Plan rejected — replanning in progress",
@@ -130,6 +132,8 @@ export const it: Catalog = {
     "Triage AI: tipo={type}, effort={effortLabel} ({effort}/5). Automazione non avviata (auto-fix disattivato per questo tipo, oppure effort sopra la soglia di {threshold}). Puoi avviare il fix manualmente.",
   "comment.triageSkip": "Triage AI: salto questo ticket — {reason}",
   "comment.triageDuplicate": 'Triage AI: duplicato di #{number} — "{title}"',
+  "comment.backlogDeviated":
+    "Triage AI: tipo {type}. Non entra nella pipeline di fix: spostato nel backlog di discovery per raccolta e raffinamento.",
   "comment.planProposed": "Piano proposto (in attesa di approvazione):",
   "comment.planApproved": "Piano approvato — esecuzione in corso",
   "comment.planRejected": "Piano rifiutato — ripianificazione in corso",

@@ -1,4 +1,4 @@
-import { automationRules, comments, tickets, type Db } from "@stubwise/db";
+import { automationRules, backlogJobs, comments, projects, tickets, type Db } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
 import type { TicketType } from "@stubwise/shared";
 import { and, desc, eq, ne } from "drizzle-orm";
@@ -286,6 +286,46 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
     .update(tickets)
     .set({ type: decision.type, effort: decision.effort })
     .where(eq(tickets.id, ticket.id));
+
+  // DEVIAZIONE BACKLOG: se il triage (ri)classifica il ticket come feedback o
+  // feature e il progetto ha il backlog di discovery abilitato, il ticket NON
+  // entra nella pipeline di fix — si accoda un intake nel backlog e il job di fix
+  // si chiude `skipped`. Il ticket verrà chiuso dall'intake (a dedup/generazione
+  // riuscita), non qui, così un intake fallito lo lascia aperto (fail-safe). Lo
+  // stesso helper server (maybeEnqueueBacklogIntake) devia i ticket ALL'INGRESSO;
+  // questo copre il caso in cui è il triage a scoprire il tipo (es. un "bug"
+  // riclassificato "feature"). L'avvio MANUALE scavalca (un umano ha deciso di
+  // lanciare il fix), coerente col gate di automazione.
+  if ((decision.type === "feedback" || decision.type === "feature") && !job.manualTrigger) {
+    const [project] = await db
+      .select({ backlogEnabled: projects.backlogEnabled })
+      .from(projects)
+      .where(eq(projects.id, ticket.projectId));
+    if (project?.backlogEnabled) {
+      // Intake + commento in transazione (deviazione e spiegazione atomiche);
+      // completeJob è il commit point separato come gli altri esiti del triage.
+      await db.transaction(async (tx) => {
+        await tx.insert(backlogJobs).values({
+          projectId: ticket.projectId,
+          kind: "intake",
+          payload: { ticketId: ticket.id },
+        });
+        await tx.insert(comments).values({
+          ticketId: ticket.id,
+          authorType: "ai",
+          body: t(lang, "comment.backlogDeviated", { type: decision.type }),
+        });
+      });
+      const skipped = await completeJob(db, job.id, {
+        status: "skipped",
+        log: `[triage] tipo ${decision.type}: deviato al backlog di discovery, job saltato`,
+      });
+      if (!skipped) {
+        await appendLog(db, job.id, "[triage] ownership persa dopo la deviazione al backlog");
+      }
+      return "skipped";
+    }
+  }
 
   switch (decision.decision) {
     case "fix": {
