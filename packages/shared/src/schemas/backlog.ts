@@ -40,6 +40,54 @@ export const backlogJobStatusSchema = z.enum(["queued", "running", "done", "fail
 export type BacklogJobStatus = z.infer<typeof backlogJobStatusSchema>;
 
 /**
+ * Payload di un job `intake` DEVIATO DA UN TICKET: solo il riferimento al ticket.
+ * Titolo e corpo vengono letti dal ticket al dequeue (fonte di verità sempre
+ * fresca, niente copia stantia nel payload).
+ */
+export const backlogIntakeFromTicketPayloadSchema = z.object({ ticketId: z.uuid() }).strict();
+export type BacklogIntakeFromTicketPayload = z.infer<typeof backlogIntakeFromTicketPayloadSchema>;
+
+/**
+ * Payload di un job `intake` MANUALE (idea proposta da un utente senza ticket):
+ * titolo e corpo sono nel payload, non c'è un ticket d'origine.
+ */
+export const backlogIntakeManualPayloadSchema = z
+  .object({ title: z.string().min(1), body: z.string().min(1) })
+  .strict();
+export type BacklogIntakeManualPayload = z.infer<typeof backlogIntakeManualPayloadSchema>;
+
+/**
+ * Payload di un job `intake`, in una delle due FORME (da ticket o manuale). La
+ * discriminazione è per FORMA, non per `kind` (entrambe hanno kind `intake`):
+ * `z.union` di oggetti `strict`, così `{ticketId}` e `{title, body}` non si
+ * confondono né tollerano campi estranei.
+ */
+export const backlogIntakePayloadSchema = z.union([
+  backlogIntakeFromTicketPayloadSchema,
+  backlogIntakeManualPayloadSchema,
+]);
+export type BacklogIntakePayload = z.infer<typeof backlogIntakePayloadSchema>;
+
+/** Payload di un job `deep_dive`: la voce da approfondire e il repo scelto. */
+export const backlogDeepDivePayloadSchema = z
+  .object({ itemId: z.uuid(), repositoryId: z.uuid() })
+  .strict();
+export type BacklogDeepDivePayload = z.infer<typeof backlogDeepDivePayloadSchema>;
+
+/**
+ * Union discriminata-per-forma del payload di QUALSIASI job del backlog: intake
+ * (da ticket o manuale) o deep_dive. Applicata come `.$type<>` sulla colonna
+ * `payload` di `backlog_jobs` e validata al dequeue dal worker (un payload che
+ * non combacia con nessuna forma → job fallito subito, senza retry).
+ */
+export const backlogJobPayloadSchema = z.union([
+  backlogIntakeFromTicketPayloadSchema,
+  backlogIntakeManualPayloadSchema,
+  backlogDeepDivePayloadSchema,
+]);
+export type BacklogJobPayload = z.infer<typeof backlogJobPayloadSchema>;
+
+/**
  * Metadati suggeriti dall'AI in attesa di conferma umana. Restano separati dai
  * campi confermati sulla voce (effort/risk/urgency): l'umano li promuove
  * esplicitamente durante il raffinamento.

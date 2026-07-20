@@ -1,5 +1,6 @@
 import {
   type AlertThresholds,
+  type BacklogJobPayload,
   type BacklogSuggested,
   type DiscoveredService,
   backlogItemSourceSchema,
@@ -2078,12 +2079,21 @@ export const backlogJobs = pgTable(
       .references(() => projects.id, { onDelete: "cascade" }),
     kind: backlogJobKind("kind").notNull(),
     status: backlogJobStatus("status").notNull().default("queued"),
-    payload: jsonb("payload").notNull(),
+    // Payload tipizzato (union per-forma: intake da ticket / intake manuale /
+    // deep_dive). `.$type` è solo compile-time; il worker rivalida al dequeue.
+    payload: jsonb("payload").$type<BacklogJobPayload>().notNull(),
     attempts: integer("attempts").notNull().default(0),
     error: text("error"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp("started_at", { withTimezone: true }),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
   },
-  (table) => [index("backlog_jobs_status_idx").on(table.status, table.createdAt)],
+  // Claim del worker: il job in coda più vecchio (FIFO). Indice PARZIALE (come
+  // `ai_jobs_queued_created_at_idx`): resta minuscolo perché copre solo i job
+  // ancora `queued`, che è l'unico stato su cui il claim ordina per created_at.
+  (table) => [
+    index("backlog_jobs_queued_created_at_idx")
+      .on(table.createdAt)
+      .where(sql`status = 'queued'`),
+  ],
 );
