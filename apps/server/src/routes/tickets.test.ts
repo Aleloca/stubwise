@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { aiJobs, comments, ticketEvents, ticketLinks, tickets } from "@stubwise/db";
+import { aiJobs, backlogJobs, comments, projects, ticketEvents, ticketLinks, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, seedTicketRepository, startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
@@ -234,6 +234,48 @@ describe("POST /api/tickets", () => {
       },
     });
     expect(res.statusCode).toBe(401);
+  });
+
+  it("feedback manuale su progetto con backlogEnabled: accoda un job intake nel backlog", async () => {
+    const backlogProjectId = await createProject();
+    await testDb.db
+      .update(projects)
+      .set({ backlogEnabled: true })
+      .where(eq(projects.id, backlogProjectId));
+
+    const res = await postTicket({
+      projectId: backlogProjectId,
+      title: "Vorrei l'export in CSV",
+      type: "feedback",
+    });
+    expect(res.statusCode).toBe(201);
+    const ticket = res.json() as TicketBody;
+
+    const jobs = await testDb.db
+      .select()
+      .from(backlogJobs)
+      .where(eq(backlogJobs.projectId, backlogProjectId));
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.kind).toBe("intake");
+    expect(jobs[0]!.status).toBe("queued");
+    expect(jobs[0]!.payload).toEqual({ ticketId: ticket.id });
+  });
+
+  it("bug manuale su progetto con backlogEnabled: nessun job backlog (solo feedback/feature)", async () => {
+    const backlogProjectId = await createProject();
+    await testDb.db
+      .update(projects)
+      .set({ backlogEnabled: true })
+      .where(eq(projects.id, backlogProjectId));
+
+    const res = await postTicket({ projectId: backlogProjectId, title: "Crash", type: "bug" });
+    expect(res.statusCode).toBe(201);
+
+    const jobs = await testDb.db
+      .select()
+      .from(backlogJobs)
+      .where(eq(backlogJobs.projectId, backlogProjectId));
+    expect(jobs).toHaveLength(0);
   });
 });
 

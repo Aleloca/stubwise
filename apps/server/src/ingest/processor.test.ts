@@ -1,7 +1,7 @@
 import type { ErrorEvent, FeedbackEvent, TicketCreateEvent } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { aiJobs, attachments, errorGroups, tickets } from "@stubwise/db";
+import { aiJobs, attachments, backlogJobs, errorGroups, projects, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import type { ObjectStorage } from "../storage/index.js";
@@ -430,6 +430,71 @@ describe("processEvents — eventi ticket", () => {
     expect(ticket!.title).toBe("Aggiungere export CSV");
     expect(ticket!.body).toBe("Richiesto dal team vendite");
     expect(await ticketJobs(ticket!.id)).toHaveLength(1);
+  });
+});
+
+describe("processEvents — deviazione intake al backlog (backlogEnabled)", () => {
+  async function createBacklogProject(): Promise<{ id: string }> {
+    const project = await createProject();
+    await testDb.db
+      .update(projects)
+      .set({ backlogEnabled: true })
+      .where(eq(projects.id, project.id));
+    return project;
+  }
+
+  async function projectBacklogJobs(projectId: string) {
+    return testDb.db.select().from(backlogJobs).where(eq(backlogJobs.projectId, projectId));
+  }
+
+  it("feedback su progetto abilitato: job intake in backlog_jobs, NESSUN aiJob", async () => {
+    const project = await createBacklogProject();
+    const result = await processEvents(testDb.db, project, [
+      { kind: "feedback", message: "Vorrei l'export in CSV" },
+    ]);
+    expect(result).toEqual({ created: 1, deduped: 0 });
+
+    const [ticket] = await projectTickets(project.id);
+    expect(ticket!.type).toBe("feedback");
+    expect(await ticketJobs(ticket!.id)).toHaveLength(0);
+
+    const jobs = await projectBacklogJobs(project.id);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.kind).toBe("intake");
+    expect(jobs[0]!.status).toBe("queued");
+    expect(jobs[0]!.payload).toEqual({ ticketId: ticket!.id });
+  });
+
+  it("evento ticket type feature su progetto abilitato: deviato al backlog", async () => {
+    const project = await createBacklogProject();
+    await processEvents(testDb.db, project, [
+      { kind: "ticket", title: "Dark mode", type: "feature", priority: "low" },
+    ]);
+
+    const [ticket] = await projectTickets(project.id);
+    expect(await ticketJobs(ticket!.id)).toHaveLength(0);
+    const jobs = await projectBacklogJobs(project.id);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.payload).toEqual({ ticketId: ticket!.id });
+  });
+
+  it("progetto DISABILITATO: il feedback accoda l'aiJob come oggi, niente backlog", async () => {
+    const project = await createProject();
+    await processEvents(testDb.db, project, [{ kind: "feedback", message: "Manca la ricerca" }]);
+
+    const [ticket] = await projectTickets(project.id);
+    expect(await ticketJobs(ticket!.id)).toHaveLength(1);
+    expect(await projectBacklogJobs(project.id)).toHaveLength(0);
+  });
+
+  it("evento errore (type bug) su progetto abilitato: pipeline fix invariata", async () => {
+    const project = await createBacklogProject();
+    await processEvents(testDb.db, project, [errorEvent()]);
+
+    const [ticket] = await projectTickets(project.id);
+    expect(ticket!.type).toBe("bug");
+    expect(await ticketJobs(ticket!.id)).toHaveLength(1);
+    expect(await projectBacklogJobs(project.id)).toHaveLength(0);
   });
 });
 

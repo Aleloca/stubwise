@@ -26,6 +26,7 @@ import {
   tickets,
   users,
 } from "@stubwise/db";
+import { maybeEnqueueBacklogIntake } from "../backlog/enqueue.js";
 import { createTicket, ProjectNotFoundError, type Ticket } from "../db/tickets.js";
 import { apiError } from "../errors.js";
 import {
@@ -440,17 +441,25 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         // Il ticket nasce a livello di PROGETTO (Fase 3): niente repository
         // bersaglio, il numero è per-progetto (row-lock su projects dentro
         // createTicket). L'agente sceglierà da sé i repo da toccare.
-        const ticket = await createTicket(app.db, {
-          projectId,
-          title,
-          body,
-          type,
-          priority,
-          // Da questa route nascono solo ticket manuali: l'eventuale source
-          // nel payload del client viene ignorato dallo schema.
-          source: "manual",
-          assigneeId,
-          labels,
+        const ticket = await app.db.transaction(async (tx) => {
+          const created = await createTicket(tx, {
+            projectId,
+            title,
+            body,
+            type,
+            priority,
+            // Da questa route nascono solo ticket manuali: l'eventuale source
+            // nel payload del client viene ignorato dallo schema.
+            source: "manual",
+            assigneeId,
+            labels,
+          });
+          // Feedback/feature su progetto con backlogEnabled → job intake nel
+          // backlog di discovery. La creazione manuale non ha mai accodato
+          // aiJobs (l'automazione parte da POST /:id/run-ai): qui si AGGIUNGE
+          // solo la deviazione al backlog, atomica col ticket.
+          await maybeEnqueueBacklogIntake(tx, created);
+          return created;
         });
         return await reply.code(201).send(toPublicTicket(ticket));
       } catch (error) {
