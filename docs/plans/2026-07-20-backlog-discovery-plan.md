@@ -468,3 +468,14 @@ Usa superpowers:finishing-a-development-branch. Promemoria deploy (NON eseguire 
 2. **Metadati alla creazione**: le stime AI iniziali vanno dirette nei campi; `suggested` (con conferma) si usa solo per le revisioni successive (refresh-document, deep dive).
 3. **Deep dive multi-repo**: scelta esplicita del repo in UI (default automatico "repo con più match" rimandato — YAGNI).
 4. **Creazione manuale**: risposta 202 e item creato async dal worker (stesso percorso dedup/RAG), non creazione sincrona.
+5. **Chiusura ticket d'origine**: commento AI col titolo dell'item invece dell'"evento in timeline" (non esiste un kind di ticket_event adatto; stesso pattern del triage sui duplicati).
+6. **Dedup**: esclude anche gli item `converted` oltre agli `archived` (un feedback su un'idea già convertita merita un item nuovo, non un merge dentro uno chiuso).
+7. **Viste salvate**: ammesso `status: "all"` (estensione oltre il "viste invariate" del design) per non perdere l'intento "Tutti" al salvataggio di una vista.
+8. **Sicurezza intake**: run agente in `permissionMode: "default"` (non "plan" come da piano) — l'intake non usa tool e "plan" avrebbe concesso letture filesystem inutili.
+
+## Follow-up noti (non bloccanti, dalle review)
+
+- i18n lato server del backlog: marker "Documento aggiornato.", messaggi-ponte del merge e prompt in italiano fisso (innocuo su istanza it; se i18n-izzato, il confronto del marker va fatto sull'insieme dei valori noti).
+- Cap/minimo sul documento fuso dal merge manuale; pulizia dei similarToId che puntano a item assorbiti; blocco deep dive su item converted.
+- E2E Playwright dedicato alle pagine /backlog (limitato dall'assenza del worker nello stack E2E); estrazione backlog-actions/ModalShell condiviso; retention tabella backlog_jobs.
+- Pre-esistente fuori scope: il triage omette permissionMode (→ acceptEdits del runner) — valutare l'uniformazione a "default".
