@@ -24,6 +24,16 @@ import {
 } from "@stubwise/db";
 import { requireAdmin, requireAuth } from "../auth/session.js";
 import { apiError } from "../errors.js";
+import {
+  BACKLOG_RETRIEVAL_K,
+  buildBacklogSystemPrompt,
+  buildRefreshDocumentPrompt,
+  type OriginTicketContext,
+  type PromptMessage,
+} from "./backlog-rag.js";
+import { streamChatResponse, TRUNCATION_MARKER } from "./docs-chat-core.js";
+import { buildCitations } from "./docs-rag.js";
+import { retrieveChunksForProject } from "./docs-retrieval.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
@@ -122,6 +132,23 @@ const listQuerySchema = z.object({
 });
 
 const idParamsSchema = z.object({ id: z.uuid() });
+
+/** Body della chat di raffinamento: un messaggio non vuoto. */
+const chatBodySchema = z.object({ message: z.string().min(1).max(8000) });
+
+/**
+ * Contenuto esatto del messaggio `system` che marca l'ultimo "Aggiorna
+ * documento". I refresh successivi sintetizzano solo la conversazione DOPO
+ * l'ultimo marker (delta), non tutta la storia. Deve restare stabile: è
+ * confrontato per uguaglianza.
+ */
+const DOCUMENT_UPDATED_MARKER = "Documento aggiornato.";
+
+/** Forma difensiva dell'output JSON di "Aggiorna documento". */
+const refreshOutputSchema = z.object({
+  document: z.string(),
+  suggested: backlogSuggestedSchema.optional(),
+});
 
 /** Colonne "base" della voce (esplicite: mai `embedding`). */
 const baseColumns = {
@@ -249,6 +276,93 @@ function decodeCursor(raw: string): Cursor | null {
   if (!match || !isPlausibleTimestamp(match)) return null;
   if (!z.uuid().safeParse(id).success) return null;
   return { createdAt, id };
+}
+
+/** Ticket d'origine (role=origin) della voce, con titolo+corpo per il prompt. */
+async function loadOriginTickets(db: Db, itemId: string): Promise<OriginTicketContext[]> {
+  return db
+    .select({ number: tickets.number, title: tickets.title, body: tickets.body })
+    .from(backlogItemTickets)
+    .innerJoin(tickets, eq(tickets.id, backlogItemTickets.ticketId))
+    .where(and(eq(backlogItemTickets.itemId, itemId), eq(backlogItemTickets.role, "origin")))
+    .orderBy(asc(tickets.number));
+}
+
+/**
+ * Storico della chat di una voce, normalizzato per l'LLM. I messaggi `system`
+ * (esiti deep dive, marker "documento aggiornato") sono inclusi come turni
+ * `user` con prefisso `[system]`: sono contesto utile, non ruoli LLM a sé.
+ * Turni consecutivi dello stesso ruolo sono FUSI (l'API dei modelli vuole ruoli
+ * alternati): due `user` di fila — es. un `[system]` seguito dalla domanda —
+ * diventano un solo turno.
+ */
+async function loadBacklogHistory(db: Db, itemId: string): Promise<PromptMessage[]> {
+  const rows = await db
+    .select({ role: backlogChatMessages.role, content: backlogChatMessages.content })
+    .from(backlogChatMessages)
+    .where(eq(backlogChatMessages.itemId, itemId))
+    .orderBy(asc(backlogChatMessages.createdAt), asc(backlogChatMessages.id));
+
+  const mapped: PromptMessage[] = rows.map((r) =>
+    r.role === "assistant"
+      ? { role: "assistant", content: r.content }
+      : r.role === "system"
+        ? { role: "user", content: `[system] ${r.content}` }
+        : { role: "user", content: r.content },
+  );
+
+  // Fonde i turni consecutivi con lo stesso ruolo (ruoli alternati richiesti).
+  const merged: PromptMessage[] = [];
+  for (const m of mapped) {
+    const last = merged.at(-1);
+    if (last && last.role === m.role) last.content += `\n\n${m.content}`;
+    else merged.push({ ...m });
+  }
+  return merged;
+}
+
+/**
+ * Parsa l'output JSON di "Aggiorna documento" in modo DIFENSIVO: tollera
+ * eventuali fence Markdown (```json … ```), estrae il primo oggetto `{…}` e lo
+ * valida contro {@link refreshOutputSchema}. Restituisce null se non parsabile
+ * o non conforme (la route mappa null → 502 e NON salva nulla).
+ */
+function parseRefreshOutput(raw: string): z.infer<typeof refreshOutputSchema> | null {
+  let text = raw.trim();
+  // Rimuove un eventuale blocco di codice ```json … ``` o ``` … ```.
+  const fence = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(text);
+  if (fence) text = fence[1]!.trim();
+  // In caso di preamboli/postamboli, isola il primo oggetto bilanciato grezzo.
+  if (!text.startsWith("{")) {
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start === -1 || end <= start) return null;
+    text = text.slice(start, end + 1);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const result = refreshOutputSchema.safeParse(parsed);
+  return result.success ? result.data : null;
+}
+
+/** Accumula lo stream one-shot dell'LLM in una stringa (nessun SSE). */
+async function collectStream(
+  chatLlm: FastifyInstance["chatLlm"],
+  system: string,
+  message: string,
+): Promise<string> {
+  let text = "";
+  for await (const delta of chatLlm.stream({
+    system,
+    messages: [{ role: "user", content: message }],
+  })) {
+    text += delta;
+  }
+  return text;
 }
 
 export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
@@ -594,6 +708,186 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       await app.db.update(backlogItems).set({ suggested: null }).where(eq(backlogItems.id, id));
       const updated = await loadBaseItem(app.db, id);
       // La voce può sparire tra l'update e la rilettura (race con una delete).
+      if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+      return updated;
+    },
+  );
+
+  // --- Chat RAG di raffinamento (SSE) --------------------------------------
+  //
+  // UNA conversazione per voce (backlog_chat_messages). Stesso trasporto della
+  // chat Docs (streamChatResponse): pre-flight isAvailable → 503 PRIMA
+  // dell'hijack, poi stream SSE grezzo su reply.raw. Non c'è una tabella di
+  // sessioni: la voce È la sessione, quindi `sessionId` passato a
+  // streamChatResponse (per l'evento `done`) è l'id della voce stessa.
+  app.post(
+    "/:id/chat",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        body: chatBodySchema,
+        // Nessuno schema 200: la risposta è uno stream SSE grezzo (reply.hijack).
+        // Restano gli errori PRIMA dello stream (404/503/auth), path Fastify normale.
+        response: { 404: errorSchema, 503: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const { message } = request.body;
+
+      const item = await loadBaseItem(app.db, id);
+      if (!item) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+
+      // PRE-FLIGHT disponibilità chat, PRIMA dell'hijack: 503 JSON pulito se
+      // nessun provider api_key (vedi docs-chat.ts). Il fallback mid-stream resta.
+      if (app.chatLlm.isAvailable) {
+        const availability = await app.chatLlm.isAvailable();
+        if (!availability.available) {
+          return apiError(reply, 503, "chat_unavailable", "Backlog chat requires an API-key AI provider");
+        }
+      }
+
+      // Persiste il messaggio utente PRIMA del retrieval/streaming: lo storico
+      // passato all'LLM include così la domanda corrente in coda.
+      await app.db.insert(backlogChatMessages).values({ itemId: id, role: "user", content: message });
+
+      // Primo messaggio in chat su una voce `new` → la porta in `refining`.
+      if (item.status === "new") {
+        await app.db.update(backlogItems).set({ status: "refining" }).where(eq(backlogItems.id, id));
+      }
+
+      // Retrieval sulla documentazione del PROGETTO (cross-repo), stesso motore
+      // condiviso della chat Docs. Se l'embedding è down → fallback full-text.
+      const chunks = await retrieveChunksForProject(
+        app.db,
+        app.embeddingClient,
+        item.projectId,
+        message,
+        { k: BACKLOG_RETRIEVAL_K, logger: request.log },
+      );
+      const citations = buildCitations(chunks);
+      const originTickets = await loadOriginTickets(app.db, id);
+      const system = buildBacklogSystemPrompt(item, originTickets, chunks);
+      const history = await loadBacklogHistory(app.db, id);
+
+      // Streaming SSE + persistenza dell'assistant su backlog_chat_messages.
+      // Semantica di troncamento coerente col default della chat Docs: parziale
+      // salvato con TRUNCATION_MARKER e SENZA citazioni (non "giustificate").
+      await streamChatResponse({
+        db: app.db,
+        chatLlm: app.chatLlm,
+        request,
+        reply,
+        // La voce È la sessione: nessuna tabella sessioni, l'id voce identifica
+        // la conversazione nell'evento `done`.
+        sessionId: id,
+        system,
+        history,
+        citations,
+        logContext: { backlogItemId: id },
+        persistAssistantMessage: async ({ content, citations: cites, truncated }) => {
+          await app.db.insert(backlogChatMessages).values({
+            itemId: id,
+            role: "assistant",
+            content: truncated ? content + TRUNCATION_MARKER : content,
+            citations: truncated ? null : cites,
+          });
+        },
+      });
+    },
+  );
+
+  // --- Aggiorna documento (one-shot) ---------------------------------------
+  //
+  // Sintetizza la conversazione DALL'ULTIMO aggiornamento nel documento. Marca
+  // il punto con un messaggio `system` ("Documento aggiornato."), così i refresh
+  // successivi vedono solo il delta. 409 se non c'è nulla di nuovo da sintetizzare.
+  // Chiamata one-shot: accumula lo stream, parsa JSON difensivamente (parse KO
+  // → 502, niente salvataggio), aggiorna document + suggested (i nuovi
+  // SOSTITUISCONO i vecchi). 503 se la chat non è servibile.
+  app.post(
+    "/:id/refresh-document",
+    {
+      preHandler: requireAdmin,
+      schema: {
+        params: idParamsSchema,
+        response: {
+          200: backlogItemBaseSchema,
+          404: errorSchema,
+          409: errorSchema,
+          502: errorSchema,
+          503: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+
+      const item = await loadBaseItem(app.db, id);
+      if (!item) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+
+      if (app.chatLlm.isAvailable) {
+        const availability = await app.chatLlm.isAvailable();
+        if (!availability.available) {
+          return apiError(reply, 503, "chat_unavailable", "Backlog chat requires an API-key AI provider");
+        }
+      }
+
+      // Delta = messaggi dopo l'ULTIMO marker "Documento aggiornato."; se non
+      // c'è mai stato un aggiornamento, tutta la storia. I `system` non-marker
+      // (esiti deep dive) restano nel delta come contesto.
+      const messages = await app.db
+        .select({
+          role: backlogChatMessages.role,
+          content: backlogChatMessages.content,
+        })
+        .from(backlogChatMessages)
+        .where(eq(backlogChatMessages.itemId, id))
+        .orderBy(asc(backlogChatMessages.createdAt), asc(backlogChatMessages.id));
+
+      let lastMarker = -1;
+      messages.forEach((m, i) => {
+        if (m.role === "system" && m.content === DOCUMENT_UPDATED_MARKER) lastMarker = i;
+      });
+      const deltaRows = messages.slice(lastMarker + 1);
+      if (deltaRows.length === 0) {
+        return apiError(reply, 409, "no_new_messages", "No new messages since the last document update");
+      }
+
+      const delta: PromptMessage[] = deltaRows.map((m) =>
+        m.role === "assistant"
+          ? { role: "assistant", content: m.content }
+          : m.role === "system"
+            ? { role: "user", content: `[system] ${m.content}` }
+            : { role: "user", content: m.content },
+      );
+
+      const system = buildRefreshDocumentPrompt(item, delta);
+      const raw = await collectStream(app.chatLlm, system, "Aggiorna il documento e restituisci il JSON richiesto.");
+      const parsed = parseRefreshOutput(raw);
+      if (!parsed) {
+        return apiError(reply, 502, "refresh_parse_failed", "The AI response could not be parsed");
+      }
+
+      // suggested: se proposto, SOSTITUISCE il precedente (null se non azionabile);
+      // se assente dal JSON, resta invariato.
+      const updates: { document: string; suggested?: BacklogSuggested | null } = {
+        document: parsed.document,
+      };
+      if (parsed.suggested !== undefined) {
+        updates.suggested = hasActionableSuggested(parsed.suggested) ? parsed.suggested : null;
+      }
+
+      await app.db.transaction(async (tx) => {
+        await tx.update(backlogItems).set(updates).where(eq(backlogItems.id, id));
+        await tx
+          .insert(backlogChatMessages)
+          .values({ itemId: id, role: "system", content: DOCUMENT_UPDATED_MARKER });
+      });
+
+      const updated = await loadBaseItem(app.db, id);
       if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
       return updated;
     },
