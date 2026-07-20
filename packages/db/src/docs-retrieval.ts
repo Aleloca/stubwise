@@ -296,7 +296,8 @@ const CHUNK_OVERFETCH_FACTOR = 5;
 const MIN_CHUNK_OVERFETCH = 40;
 
 /**
- * Retrieval ibrido per `query` nel progetto `projectId`.
+ * Retrieval ibrido per `query` in un singolo `repositoryId` (la sua generazione
+ * corrente + le righe manuali).
  *
  * 1. **Semantico**: embed della query (via `embeddingClient`) → over-fetch dei
  *    chunk per distanza coseno ascendente (`embedding <=> $queryVec`), scopati a

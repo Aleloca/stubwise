@@ -8,6 +8,7 @@ import { and, eq, gte, lt, sql } from "drizzle-orm";
 import type { EmbeddingProvider } from "@stubwise/db";
 import type { AgentRunner } from "../agent/runner.js";
 import type { ProjectSerializer } from "../handler.js";
+import { runIntake } from "./intake.js";
 
 /**
  * CODA `backlog_jobs` — il worker del backlog di discovery.
@@ -76,9 +77,8 @@ export interface BacklogDeps {
 }
 
 /**
- * Esecutore dell'intake. Iniettabile in `BacklogPollerDeps.runIntakeFn` (test) e
- * cablato al `runIntake` reale in index.ts (Task 16): il poller NON importa il
- * modulo intake direttamente, così la coda resta testabile con un fake.
+ * Esecutore dell'intake. Default: {@link runIntake}; iniettabile via
+ * `BacklogPollerDeps.runIntakeFn` per testare la sola coda con un fake.
  */
 export type RunIntakeFn = (
   deps: BacklogDeps,
@@ -205,11 +205,7 @@ async function requeueBacklogJob(db: Db, jobId: string, error: string): Promise<
  * `deep_dive` è un placeholder (Task 15).
  */
 export async function runBacklogJob(deps: BacklogPollerDeps, job: BacklogJob): Promise<void> {
-  const runIntakeFn =
-    deps.runIntakeFn ??
-    (() => {
-      throw new Error("runIntakeFn non iniettato (cablato in index.ts, vedi Task 16)");
-    });
+  const runIntakeFn = deps.runIntakeFn ?? runIntake;
   if (job.kind === "intake") {
     const parsed = backlogIntakePayloadSchema.safeParse(job.payload);
     if (!parsed.success) {
