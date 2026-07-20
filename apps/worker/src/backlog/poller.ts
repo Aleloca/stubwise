@@ -2,12 +2,16 @@ import { backlogJobs, type Db } from "@stubwise/db";
 import {
   backlogDeepDivePayloadSchema,
   backlogIntakePayloadSchema,
+  type BacklogDeepDivePayload,
   type BacklogIntakePayload,
 } from "@stubwise/shared";
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 import type { EmbeddingProvider } from "@stubwise/db";
 import type { AgentRunner } from "../agent/runner.js";
+import type { MirrorManager } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
+import { loadProviderById, loadProviderChain } from "../providers/chain.js";
+import { runDeepDive } from "./deep-dive.js";
 import { runIntake } from "./intake.js";
 
 /**
@@ -61,9 +65,14 @@ export interface BacklogDeps {
   db: Db;
   embeddingClient: EmbeddingProvider;
   runner: AgentRunner;
+  /** Mirror manager CONDIVISO col fix/doc-generation/review: il deep dive monta
+   * un worktree read-only del repo (l'intake non lo usa). */
+  mirrors: Pick<MirrorManager, "resolveDefaultBranchHead" | "withWorktreeAtSha">;
   /** Catena per-progetto CONDIVISA col fix/doc-generation/review (serializzazione). */
   serializer: ProjectSerializer;
   logger: BacklogLogger;
+  /** Chiave AES-256 per decifrare credenziali git e segreti dei provider AI. */
+  encryptionKey: Buffer;
   /** Soglia di similarità (0–1) sopra cui un nuovo feedback si FONDE in una voce. */
   mergeThreshold: number;
   /** Soglia di similarità (0–1) sopra cui una voce nuova segnala "simile a X". */
@@ -72,8 +81,15 @@ export interface BacklogDeps {
   model?: string;
   /** Timeout (ms) di ogni run dell'agente. */
   agentTimeoutMs: number;
-  /** Directory vuota e innocua usata come cwd dei run (nessun worktree). */
+  /** Turni massimi del run di deep dive (esplorazione del codice). */
+  deepDiveMaxTurns: number;
+  /** Directory vuota e innocua usata come cwd dei run dell'intake (nessun
+   * worktree: il merge/intake ragionano solo sul testo del prompt). */
   workDir: string;
+  /** Risolutore di UN provider AI per id (iniettabile nei test). Default: loadProviderById. */
+  loadProviderByIdFn?: typeof loadProviderById;
+  /** Caricatore della catena di provider AI (iniettabile nei test). Default: loadProviderChain. */
+  loadProviderChainFn?: typeof loadProviderChain;
 }
 
 /**
@@ -86,6 +102,16 @@ export type RunIntakeFn = (
   payload: BacklogIntakePayload,
 ) => Promise<void>;
 
+/**
+ * Esecutore del deep dive. Default: {@link runDeepDive}; iniettabile via
+ * `BacklogPollerDeps.runDeepDiveFn` per testare la sola coda con un fake.
+ */
+export type RunDeepDiveFn = (
+  deps: BacklogDeps,
+  job: BacklogJob,
+  payload: BacklogDeepDivePayload,
+) => Promise<void>;
+
 export interface BacklogPollerDeps extends BacklogDeps {
   /** "adesso" iniettabile nei test. Default new Date(). */
   now?: () => Date;
@@ -93,6 +119,8 @@ export interface BacklogPollerDeps extends BacklogDeps {
   staleMinutes?: number;
   /** Esecutore dell'intake, iniettabile nei test. Default runIntake. */
   runIntakeFn?: RunIntakeFn;
+  /** Esecutore del deep dive, iniettabile nei test. Default runDeepDive. */
+  runDeepDiveFn?: RunDeepDiveFn;
   /** Stop cooperativo: interrompe il drain a metà tick. */
   signal?: AbortSignal;
 }
@@ -205,8 +233,8 @@ async function requeueBacklogJob(db: Db, jobId: string, error: string): Promise<
  * `deep_dive` è un placeholder (Task 15).
  */
 export async function runBacklogJob(deps: BacklogPollerDeps, job: BacklogJob): Promise<void> {
-  const runIntakeFn = deps.runIntakeFn ?? runIntake;
   if (job.kind === "intake") {
+    const runIntakeFn = deps.runIntakeFn ?? runIntake;
     const parsed = backlogIntakePayloadSchema.safeParse(job.payload);
     if (!parsed.success) {
       throw new MalformedBacklogPayloadError(`payload intake non valido: ${parsed.error.message}`);
@@ -215,11 +243,12 @@ export async function runBacklogJob(deps: BacklogPollerDeps, job: BacklogJob): P
     return;
   }
   // deep_dive
+  const runDeepDiveFn = deps.runDeepDiveFn ?? runDeepDive;
   const parsed = backlogDeepDivePayloadSchema.safeParse(job.payload);
   if (!parsed.success) {
     throw new MalformedBacklogPayloadError(`payload deep_dive non valido: ${parsed.error.message}`);
   }
-  throw new Error("deep_dive non ancora implementato");
+  await runDeepDiveFn(deps, job, parsed.data);
 }
 
 /**

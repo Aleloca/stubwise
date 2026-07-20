@@ -13,6 +13,7 @@ import {
   recoverStaleBacklogJobs,
   type BacklogLogger,
   type BacklogPollerDeps,
+  type RunDeepDiveFn,
   type RunIntakeFn,
 } from "./poller.js";
 
@@ -79,18 +80,36 @@ async function getJob(db: Db, id: string): Promise<typeof backlogJobs.$inferSele
   return row!;
 }
 
+/** Mirror stub: i test della coda non arrivano mai al mirror (deep dive iniettato). */
+const explodingMirrors: BacklogPollerDeps["mirrors"] = {
+  resolveDefaultBranchHead: () => {
+    throw new Error("il mirror non deve essere usato nei test della coda");
+  },
+  withWorktreeAtSha: () => {
+    throw new Error("il mirror non deve essere usato nei test della coda");
+  },
+};
+
 /** Deps del poller con default innocui; ogni test sovrascrive ciò che serve. */
 function makeDeps(db: Db, overrides: Partial<BacklogPollerDeps> = {}): BacklogPollerDeps {
   return {
     db,
     embeddingClient: { embed: async () => [] },
     runner: explodingRunner,
+    mirrors: explodingMirrors,
     serializer: createProjectSerializer(),
     logger: silentLogger,
+    encryptionKey: Buffer.alloc(32),
     mergeThreshold: 0.9,
     similarThreshold: 0.78,
     agentTimeoutMs: 1000,
+    deepDiveMaxTurns: 30,
     workDir: "/tmp",
+    // Il deep dive reale è coperto da deep-dive.test.ts: nella coda lo iniettiamo
+    // così i test non montano worktree né chiamano l'agente.
+    runDeepDiveFn: () => {
+      throw new Error("il deep dive reale non deve girare nei test della coda");
+    },
     ...overrides,
   };
 }
@@ -238,7 +257,20 @@ describe("pollBacklogJobsOnce", () => {
     expect((await getJob(db, id)).status).toBe("done");
   });
 
-  it("deep_dive lancia 'not implemented' → riaccodato (tentativi residui)", async () => {
+  it("smista un job deep_dive a runDeepDiveFn e lo chiude done", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const payload = { itemId: randomUUID(), repositoryId: randomUUID() };
+    const id = await insertJob(db, { projectId, kind: "deep_dive", payload });
+
+    const runDeepDiveFn = vi.fn<RunDeepDiveFn>(async () => {});
+    await pollBacklogJobsOnce(makeDeps(db, { runDeepDiveFn }));
+
+    expect(runDeepDiveFn.mock.calls[0]![2]).toEqual(payload);
+    expect((await getJob(db, id)).status).toBe("done");
+  });
+
+  it("deep_dive che lancia → riaccodato (tentativi residui)", async () => {
     const db = testDb.db;
     const projectId = await createProject(db);
     const id = await insertJob(db, {
@@ -247,13 +279,16 @@ describe("pollBacklogJobsOnce", () => {
       payload: { itemId: randomUUID(), repositoryId: randomUUID() },
     });
 
-    const done = await pollBacklogJobsOnce(makeDeps(db));
+    const runDeepDiveFn = vi.fn<RunDeepDiveFn>(async () => {
+      throw new Error("boom del deep dive");
+    });
+    const done = await pollBacklogJobsOnce(makeDeps(db, { runDeepDiveFn }));
 
     expect(done).toBe(0);
     const job = await getJob(db, id);
     expect(job.status).toBe("queued");
     expect(job.attempts).toBe(1);
-    expect(job.error).toContain("deep_dive non ancora implementato");
+    expect(job.error).toContain("boom del deep dive");
   });
 
   it("payload malformato → failed subito, niente retry", async () => {

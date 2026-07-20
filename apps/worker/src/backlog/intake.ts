@@ -18,9 +18,11 @@ import {
 import { and, eq, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AgentRunResult } from "../agent/runner.js";
+import type { ResolvedProvider } from "../providers/chain.js";
 import { getContentLanguage } from "../settings.js";
 import type { BacklogDeps, BacklogJob } from "./poller.js";
 import { buildIntakePrompt, buildMergePrompt } from "./prompts.js";
+import { loadProjectAiProviderId, resolveBacklogProvider } from "./provider.js";
 
 /**
  * INTAKE del backlog di discovery: dedup semantico + generazione della voce.
@@ -171,6 +173,7 @@ async function mergeIntoItem(
   input: { title: string; body: string },
   ticket: OriginTicket | null,
   lang: Language,
+  provider: ResolvedProvider | undefined,
 ): Promise<void> {
   const result = await deps.runner.run({
     cwd: deps.workDir,
@@ -179,6 +182,7 @@ async function mergeIntoItem(
     permissionMode: "default",
     maxTurns: 3,
     timeoutMs: deps.agentTimeoutMs,
+    ...(provider !== undefined ? { provider } : {}),
   });
   const parsed: MergeOutput | null = parseAgentJson(outputOrThrow(result, "merge"), mergeOutputSchema);
   if (!parsed) throw new Error("intake: output del merge non parsabile");
@@ -215,6 +219,7 @@ async function createNewItem(
   best: BestMatch | null,
   ticket: OriginTicket | null,
   lang: Language,
+  provider: ResolvedProvider | undefined,
 ): Promise<void> {
   const chunks = await retrieveChunksForProject(
     deps.db,
@@ -237,6 +242,7 @@ async function createNewItem(
     permissionMode: "default",
     maxTurns: 3,
     timeoutMs: deps.agentTimeoutMs,
+    ...(provider !== undefined ? { provider } : {}),
   });
   const parsed: IntakeOutput | null = parseAgentJson(
     outputOrThrow(result, "intake"),
@@ -339,6 +345,11 @@ export async function runIntake(
   // risolta UNA volta per job come nel triage.
   const lang = await getContentLanguage(db);
 
+  // Provider AI del run (pinned del progetto o chain[0]); undefined = auth del
+  // container (comportamento storico). Risolto una volta per job.
+  const aiProviderId = await loadProjectAiProviderId(db, projectId);
+  const provider = await resolveBacklogProvider(deps, aiProviderId);
+
   // 2. Embedding di titolo+corpo. Un fallimento lancia → retry.
   const [vec] = await deps.embeddingClient.embed([feedbackText(input.title, input.body)]);
   if (!vec) throw new Error("intake: embedding, nessun vettore restituito");
@@ -348,8 +359,8 @@ export async function runIntake(
 
   // 4/5. Merge sopra soglia, altrimenti nuova voce.
   if (best && best.similarity >= deps.mergeThreshold) {
-    await mergeIntoItem(deps, best, input, ticket, lang);
+    await mergeIntoItem(deps, best, input, ticket, lang, provider);
   } else {
-    await createNewItem(deps, projectId, input, vec, best, ticket, lang);
+    await createNewItem(deps, projectId, input, vec, best, ticket, lang, provider);
   }
 }

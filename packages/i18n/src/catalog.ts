@@ -51,6 +51,7 @@ export const en: Catalog = {
   // --- backlog.* — messaggi `system` nella chat di una voce del backlog ---
   "backlog.mergedFromTicket": "New feedback integrated from ticket #{number}.",
   "backlog.mergedManual": "New feedback integrated (manually submitted idea).",
+  "backlog.deepDiveDone": 'Technical analysis completed on repository "{repo}".',
 
   // --- effort.* — etichette della scala di sforzo 1–5 (allineate alle label
   // della web UI, namespace `badges.effort`). Usate nei commenti AI del triage.
@@ -161,6 +162,7 @@ export const it: Catalog = {
   // --- backlog.* (messaggi `system` nella chat di una voce del backlog) ---
   "backlog.mergedFromTicket": "Nuovo feedback integrato dal ticket #{number}.",
   "backlog.mergedManual": "Nuovo feedback integrato (idea proposta manualmente).",
+  "backlog.deepDiveDone": 'Analisi tecnica completata sul repository "{repo}".',
 
   // --- effort.* (etichette italiane della scala di sforzo, = EFFORT_LABELS) ---
   "effort.1": "Banale",

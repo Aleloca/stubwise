@@ -113,3 +113,51 @@ export function buildMergePrompt(currentDocument: string, newFeedback: string): 
     `--- NUOVO FEEDBACK ---\n${newFeedback}`,
   ].join("\n");
 }
+
+/** Voce del backlog in ingresso al deep dive: documento e metadati correnti. */
+export interface DeepDiveInput {
+  title: string;
+  document: string;
+  effort: number | null;
+  risk: string | null;
+  urgency: string | null;
+}
+
+/**
+ * Prompt del DEEP DIVE (approfondimento tecnico sul repo collegato). A DIFFERENZA
+ * dell'intake/merge, questo run gira in `permissionMode: "plan"` su un WORKTREE
+ * del mirror (pattern PR review): l'agente DEVE leggere il codice reale (Read/
+ * Grep/Glob) per validare la fattibilità dell'idea. Il documento della voce è
+ * input non fidato, ma qui il caso peggiore è che l'agente legga il repo (che sta
+ * già leggendo per design) — nessuna scrittura, nessun push. L'output è JSON
+ * `{ analysis, suggested }`: `analysis` è il markdown della sezione "Analisi
+ * tecnica", `suggested` sono i metadati proposti (mai applicati in automatico).
+ */
+export function buildDeepDivePrompt(input: DeepDiveInput): string {
+  const meta = [
+    `- effort attuale: ${input.effort ?? "non stimato"} (scala 1–5)`,
+    `- rischio attuale: ${input.risk ?? "non stimato"}`,
+    `- urgenza attuale: ${input.urgency ?? "non stimata"}`,
+  ].join("\n");
+  return [
+    "Sei un ingegnere senior che valuta la fattibilità tecnica di una voce del backlog di discovery. Ti trovi nella radice del repository collegato (working tree read-only): ESPLORA il codice reale (Read/Grep/Glob) per fondare la tua analisi sui fatti, non su ipotesi.",
+    "",
+    "OBIETTIVO: produrre una sezione 'Analisi tecnica' che risponda a:",
+    "- **Fattibilità**: l'idea è realizzabile con l'architettura attuale? Cosa la rende facile o difficile?",
+    "- **Punti di contatto**: quali file/moduli/componenti concreti andrebbero toccati o estesi (cita percorsi reali che hai visto nel repo).",
+    "- **Rischi di regressione**: quali comportamenti esistenti rischiano di rompersi, con riferimenti concreti al codice (non generici).",
+    "- **Nodi aperti**: decisioni tecniche o incognite emerse dall'esplorazione.",
+    "",
+    "Poi RIVEDI le stime alla luce di ciò che hai visto e proponi (senza applicarle) i metadati aggiornati: effort (1–5), risk (low|medium|high) con una breve nota, urgency (low|medium|high|urgent). Proponi SOLO i campi per cui hai un parere motivato; ometti gli altri. `reason` spiega in una frase il perché delle proposte.",
+    "",
+    "FORMATO DI OUTPUT (OBBLIGATORIO): un unico oggetto JSON valido, senza testo attorno, della forma:",
+    '{ "analysis": "<markdown della sezione Analisi tecnica>", "suggested": { "effort": <1-5>, "risk": "low"|"medium"|"high", "riskNote": "<nota>", "urgency": "low"|"medium"|"high"|"urgent", "reason": "<motivazione>" } }',
+    'Il markdown di "analysis" NON deve includere l\'intestazione "## Analisi tecnica" (viene aggiunta automaticamente). Ometti da "suggested" i campi su cui non hai un parere; se non proponi nulla, restituisci `"suggested": {}`.',
+    "",
+    `--- VOCE: TITOLO ---\n${input.title}`,
+    "",
+    `--- VOCE: METADATI CORRENTI ---\n${meta}`,
+    "",
+    `--- VOCE: DOCUMENTO ---\n${input.document || "(vuoto)"}`,
+  ].join("\n");
+}
