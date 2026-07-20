@@ -309,6 +309,9 @@ async function loadTicketRepositories(
  * Cursore di paginazione decodificato: il timestamp resta la stringa
  * testuale di Postgres (precisione al microsecondo, che un Date JS
  * perderebbe) e viene ricastato a timestamptz solo nella query.
+ *
+ * NB: gli helper cursor qui sotto sono replicati in backlog.ts — tenere i due
+ * file in sync (l'estrazione in shared.ts è rimandata).
  */
 interface Cursor {
   createdAt: string;

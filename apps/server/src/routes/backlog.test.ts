@@ -136,6 +136,19 @@ describe("GET /api/backlog", () => {
     expect(body.items.map((i) => i.title)).toEqual(["Login con Google"]);
   });
 
+  it("q con metacaratteri LIKE è escapato: '%' non matcha tutto", async () => {
+    await insertItem({ title: "Sconto 50% sul piano" });
+    await insertItem({ title: "Titolo senza percento" });
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/backlog?q=${encodeURIComponent("%")}`,
+      headers: { cookie: memberCookie },
+    });
+    const body = res.json() as { items: { title: string }[] };
+    // Solo il titolo che contiene LETTERALMENTE '%', non tutti.
+    expect(body.items.map((i) => i.title)).toEqual(["Sconto 50% sul piano"]);
+  });
+
   it("similarTo risolto dal similarToId", async () => {
     const target = await insertItem({ title: "Voce originale" });
     await insertItem({ title: "Voce simile", similarToId: target.id });
@@ -351,6 +364,51 @@ describe("PATCH /api/backlog/:id", () => {
     expect(body.suggested).toBeNull();
   });
 
+  it("suggested diventa null anche se resta solo un reason orfano", async () => {
+    // `reason` è la motivazione dei metadati, non un metadato: coprendo effort
+    // e risk non resta nulla di azionabile → suggested null.
+    const item = await insertItem({
+      suggested: { effort: 4, risk: "high", reason: "motivazione dei suggerimenti" },
+    });
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/backlog/${item.id}`,
+      headers: { cookie: adminCookie },
+      payload: { effort: 2, risk: "low" },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { effort: number; risk: string; suggested: unknown };
+    expect(body.effort).toBe(2);
+    expect(body.risk).toBe("low");
+    expect(body.suggested).toBeNull();
+  });
+
+  it("azzeramento esplicito con null (effort: null)", async () => {
+    const item = await insertItem({ effort: 3 });
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/backlog/${item.id}`,
+      headers: { cookie: adminCookie },
+      payload: { effort: null },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { effort: number | null }).effort).toBeNull();
+  });
+
+  it("body vuoto {} → 200 no-op", async () => {
+    const item = await insertItem({ title: "Invariata", effort: 2 });
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/backlog/${item.id}`,
+      headers: { cookie: adminCookie },
+      payload: {},
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { title: string; effort: number };
+    expect(body.title).toBe("Invariata");
+    expect(body.effort).toBe(2);
+  });
+
   it("transizione verso converted vietata → errore", async () => {
     const item = await insertItem({ status: "ready" });
     const res = await app.inject({
@@ -366,6 +424,16 @@ describe("PATCH /api/backlog/:id", () => {
       .from(backlogItems)
       .where(eq(backlogItems.id, item.id));
     expect(row!.status).toBe("ready");
+  });
+
+  it("id inesistente con status converted → 404 (non 409)", async () => {
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/backlog/${crypto.randomUUID()}`,
+      headers: { cookie: adminCookie },
+      payload: { status: "converted" },
+    });
+    expect(res.statusCode).toBe(404);
   });
 
   it("altre transizioni di stato sono ammesse", async () => {
@@ -444,6 +512,16 @@ describe("POST /api/backlog/:id/suggested/accept", () => {
 
   it("409 se suggested è null", async () => {
     const item = await insertItem();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/suggested/accept`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(409);
+  });
+
+  it("409 se suggested ha solo un reason orfano (nulla da accettare)", async () => {
+    const item = await insertItem({ suggested: { reason: "solo la motivazione" } });
     const res = await app.inject({
       method: "POST",
       url: `/api/backlog/${item.id}/suggested/accept`,

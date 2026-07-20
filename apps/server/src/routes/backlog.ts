@@ -100,7 +100,7 @@ const linkedTicketSchema = z.object({
 /** Messaggio della chat di raffinamento (una sola conversazione per voce). */
 const chatMessageSchema = z.object({
   id: z.uuid(),
-  role: z.enum(["user", "assistant", "system"]),
+  role: z.enum(backlogChatMessages.role.enumValues),
   content: z.string(),
   citations: z.unknown().nullable(),
   createdAt: z.iso.datetime(),
@@ -150,6 +150,20 @@ type ItemUpdate = Partial<
   >
 >;
 
+/**
+ * Chiavi AZIONABILI di `suggested`: i metadati promuovibili sui campi reali.
+ * `reason` è la motivazione dei suggerimenti, non un metadato: da sola non
+ * tiene vivo l'oggetto (né dà nulla da accettare).
+ */
+const ACTIONABLE_SUGGESTED_KEYS = ["effort", "risk", "riskNote", "urgency"] as const;
+
+/** True se `suggested` contiene almeno un metadato azionabile. */
+function hasActionableSuggested(
+  suggested: BacklogSuggested | null | undefined,
+): suggested is BacklogSuggested {
+  return suggested != null && ACTIONABLE_SUGGESTED_KEYS.some((k) => suggested[k] !== undefined);
+}
+
 /** Risolve il riferimento `similarTo` di una singola voce (una query se presente). */
 async function resolveSimilar(
   db: Db,
@@ -194,6 +208,9 @@ async function loadBaseItem(
  * Cursore di paginazione (identico a /api/tickets): il timestamp resta la
  * stringa testuale di Postgres (microsecondi) e viene ricastato a timestamptz
  * solo nella query.
+ *
+ * NB: gli helper cursor qui sotto sono una copia di quelli in tickets.ts —
+ * tenere i due file in sync (l'estrazione in shared.ts è rimandata).
  */
 interface Cursor {
   createdAt: string;
@@ -420,6 +437,13 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       const { id } = request.params;
       const { title, status, effort, risk, riskNote, urgency } = request.body;
 
+      const [current] = await app.db
+        .select({ suggested: backlogItems.suggested })
+        .from(backlogItems)
+        .where(eq(backlogItems.id, id));
+      if (!current) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+
+      // Dopo il 404: un id inesistente resta 404 anche con status=converted.
       if (status === "converted") {
         return apiError(
           reply,
@@ -428,12 +452,6 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
           "A backlog item can only reach 'converted' via the convert endpoint",
         );
       }
-
-      const [current] = await app.db
-        .select({ suggested: backlogItems.suggested })
-        .from(backlogItems)
-        .where(eq(backlogItems.id, id));
-      if (!current) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
 
       const updates: ItemUpdate = {};
       if (title !== undefined) updates.title = title;
@@ -444,6 +462,8 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       if (urgency !== undefined) updates.urgency = urgency;
 
       // Azzera in `suggested` i metadati appena decisi a mano (mappa 1:1).
+      // Senza più metadati azionabili l'oggetto diventa null: un `reason`
+      // orfano (motivazione senza suggerimenti) non lo tiene vivo.
       if (
         current.suggested &&
         (effort !== undefined ||
@@ -456,14 +476,16 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         if (risk !== undefined) delete next.risk;
         if (riskNote !== undefined) delete next.riskNote;
         if (urgency !== undefined) delete next.urgency;
-        updates.suggested = Object.keys(next).length === 0 ? null : next;
+        updates.suggested = hasActionableSuggested(next) ? next : null;
       }
 
       if (Object.keys(updates).length > 0) {
         await app.db.update(backlogItems).set(updates).where(eq(backlogItems.id, id));
       }
-      // La voce esiste (verificata sopra): loadBaseItem non torna null.
-      return (await loadBaseItem(app.db, id))!;
+      const updated = await loadBaseItem(app.db, id);
+      // La voce può sparire tra l'update e la rilettura (race con una delete).
+      if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+      return updated;
     },
   );
 
@@ -521,7 +543,9 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         .from(backlogItems)
         .where(eq(backlogItems.id, id));
       if (!current) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
-      if (!current.suggested) {
+      // Simmetrico al PATCH: senza metadati azionabili (un `reason` orfano non
+      // conta) non c'è nulla da accettare.
+      if (!hasActionableSuggested(current.suggested)) {
         return apiError(reply, 409, "no_suggested", "No suggested metadata to accept");
       }
 
@@ -533,7 +557,10 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       if (s.urgency !== undefined) updates.urgency = s.urgency;
 
       await app.db.update(backlogItems).set(updates).where(eq(backlogItems.id, id));
-      return (await loadBaseItem(app.db, id))!;
+      const updated = await loadBaseItem(app.db, id);
+      // La voce può sparire tra l'update e la rilettura (race con una delete).
+      if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+      return updated;
     },
   );
 
@@ -565,7 +592,10 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       }
 
       await app.db.update(backlogItems).set({ suggested: null }).where(eq(backlogItems.id, id));
-      return (await loadBaseItem(app.db, id))!;
+      const updated = await loadBaseItem(app.db, id);
+      // La voce può sparire tra l'update e la rilettura (race con una delete).
+      if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+      return updated;
     },
   );
 }
