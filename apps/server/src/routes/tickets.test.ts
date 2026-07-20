@@ -397,6 +397,49 @@ describe("GET /api/tickets — filtri", () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it("filtro statuses (multiplo, comma-separated): solo gli stati elencati", async () => {
+    const pid = await createProject();
+    const open = await postTicket({ projectId: pid, title: "Aperto", type: "bug" });
+    const triaged = await postTicket({ projectId: pid, title: "Triaged", type: "task" });
+    const closed = await postTicket({ projectId: pid, title: "Chiuso", type: "task" });
+    await testDb.db
+      .update(tickets)
+      .set({ status: "triaged" })
+      .where(eq(tickets.id, (triaged.json() as TicketBody).id));
+    await testDb.db
+      .update(tickets)
+      .set({ status: "closed" })
+      .where(eq(tickets.id, (closed.json() as TicketBody).id));
+
+    const res = await listTickets({ projectId: pid, statuses: "open,triaged" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as ListBody;
+    expect(body.items.map((t) => t.id).sort()).toEqual(
+      [(open.json() as TicketBody).id, (triaged.json() as TicketBody).id].sort(),
+    );
+  });
+
+  it("statuses vince su status quando presenti entrambi", async () => {
+    const pid = await createProject();
+    const open = await postTicket({ projectId: pid, title: "Aperto", type: "bug" });
+    const closed = await postTicket({ projectId: pid, title: "Chiuso", type: "task" });
+    await testDb.db
+      .update(tickets)
+      .set({ status: "closed" })
+      .where(eq(tickets.id, (closed.json() as TicketBody).id));
+
+    const res = await listTickets({ projectId: pid, status: "closed", statuses: "open" });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as ListBody).items.map((t) => t.id)).toEqual([
+      (open.json() as TicketBody).id,
+    ]);
+  });
+
+  it("statuses con un valore non valido: 400", async () => {
+    const res = await listTickets({ projectId: filterProjectId, statuses: "open,archiviato" });
+    expect(res.statusCode).toBe(400);
+  });
+
   it("senza sessione: 401", async () => {
     const res = await app.inject({ method: "GET", url: "/api/tickets" });
     expect(res.statusCode).toBe(401);

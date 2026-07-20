@@ -4,6 +4,7 @@ import {
   ticketSourceSchema,
   ticketStatusSchema,
   ticketTypeSchema,
+  type TicketStatus,
 } from "@stubwise/shared";
 import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
@@ -116,6 +117,10 @@ const updateTicketBodySchema = z.object({
 const listTicketsQuerySchema = z.object({
   projectId: z.uuid().optional(),
   status: ticketStatusSchema.optional(),
+  // Filtro multi-stato: lista comma-separated di stati (es. "open,triaged").
+  // Ogni valore è validato nel handler con ticketStatusSchema (400 se invalido).
+  // Mutuamente esclusivo con `status`: se presenti entrambi, vince `statuses`.
+  statuses: z.string().optional(),
   type: ticketTypeSchema.optional(),
   priority: ticketPrioritySchema.optional(),
   assigneeId: z.uuid().optional(),
@@ -486,12 +491,24 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { projectId, status, type, priority, assigneeId, milestoneId, q, cursor, limit } =
+      const { projectId, status, statuses, type, priority, assigneeId, milestoneId, q, cursor, limit } =
         request.query;
 
       const conditions: SQL[] = [];
       if (projectId) conditions.push(eq(tickets.projectId, projectId));
-      if (status) conditions.push(eq(tickets.status, status));
+      // Multi-stato: `statuses` (comma-separated, ogni valore validato) vince
+      // sul singolo `status` se presenti entrambi.
+      if (statuses !== undefined) {
+        const values: TicketStatus[] = [];
+        for (const raw of statuses.split(",")) {
+          const parsed = ticketStatusSchema.safeParse(raw);
+          if (!parsed.success) {
+            return apiError(reply, 400, "invalid_statuses", "Invalid status value in statuses");
+          }
+          values.push(parsed.data);
+        }
+        conditions.push(inArray(tickets.status, values));
+      } else if (status) conditions.push(eq(tickets.status, status));
       if (type) conditions.push(eq(tickets.type, type));
       if (priority) conditions.push(eq(tickets.priority, priority));
       if (assigneeId) conditions.push(eq(tickets.assigneeId, assigneeId));
