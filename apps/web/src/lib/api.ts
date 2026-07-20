@@ -1041,6 +1041,11 @@ export interface Project {
    */
   dailyReportEnabled: boolean;
   /**
+   * Se true, i ticket feedback/feature del progetto vengono deviati all'intake
+   * del backlog di discovery invece di entrare nella pipeline di fix. Default false.
+   */
+  backlogEnabled: boolean;
+  /**
    * Chiave di ingestion del progetto (Fase 3): gli SDK e i webhook inbound la
    * usano per autenticare l'invio di errori/ticket. Salita dal repository al
    * progetto; tutti i repo del gruppo condividono questa chiave.
@@ -1076,6 +1081,7 @@ export interface ProjectDraft {
   aiProviderId?: string | null;
   docAutoUpdate?: boolean;
   dailyReportEnabled?: boolean;
+  backlogEnabled?: boolean;
 }
 
 /** Campi modificabili di un progetto (gruppo). Patch parziale. */
@@ -1088,6 +1094,8 @@ export interface ProjectPatch {
   docAutoUpdate?: boolean;
   /** Toggle standup giornaliero (report attività); assente = invariato. */
   dailyReportEnabled?: boolean;
+  /** Toggle backlog di discovery (deviazione feedback/feature); assente = invariato. */
+  backlogEnabled?: boolean;
 }
 
 export function getProjects(): Promise<ProjectListItem[]> {

@@ -928,6 +928,8 @@
       "docAutoUpdateHint": "// rigenera i Docs di un repo quando arriva un push sul suo branch di default.",
       "dailyReport": "Report attività giornaliero",
       "dailyReportHint": "// genera ogni notte uno standup dai commit del giorno dei repository del progetto.",
+      "backlog": "Backlog di discovery",
+      "backlogHint": "// devia i ticket feedback/feature all'intake del backlog invece della pipeline di fix.",
       "aiProvider": "Provider AI del progetto",
       "aiProviderAuto": "Automatico (catena con failover)",
       "aiProviderHint": "// vale per Docs e fix di tutti i repository; vuoto = catena dei provider abilitati.",
