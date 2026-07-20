@@ -1,28 +1,48 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createFakeEmbeddingClient } from "@stubwise/embeddings";
-import {
-  retrieveChunks,
-  retrieveChunksAll,
-  retrieveChunksForProject,
-} from "./docs-retrieval.js";
-import {
-  docChunks,
-  docGenerations,
-  docPages,
-  gitAccounts,
-  projects,
-  repositories,
-} from "@stubwise/db";
-import type { Db } from "@stubwise/db";
-import type { TestDb } from "@stubwise/db/testing";
-import { startTestDb } from "@stubwise/db/testing";
+import type { Db } from "./client.js";
+import type { EmbeddingProvider } from "./docs-retrieval.js";
+import { retrieveChunks, retrieveChunksAll, retrieveChunksForProject } from "./docs-retrieval.js";
+import { docChunks, docGenerations, docPages, gitAccounts, projects, repositories } from "./schema.js";
+import { startTestDb, type TestDb } from "./testing.js";
 
-// Stesso fake client deterministico (hash → vettore) usato dai test docs: per un
-// testo identico il vettore è identico → distanza coseno 0 → quel chunk ranka
-// primo. È così che rendiamo "semanticamente vicino" deterministico.
-const embeddingClient = createFakeEmbeddingClient();
+// Fake embedding provider DETERMINISTICO e senza rete (replica di
+// `createFakeEmbeddingClient` di @stubwise/embeddings, FNV-1a → xorshift32): per
+// un testo identico il vettore è identico → distanza coseno 0 → quel chunk ranka
+// primo. È così che rendiamo "semanticamente vicino" deterministico. Inlinato qui
+// per NON accoppiare i test di @stubwise/db al package embeddings — stesso motivo
+// per cui il retrieval usa il tipo strutturale `EmbeddingProvider`.
+const EMBEDDING_DIMENSION = 1024;
+
+/** Hash deterministico FNV-1a 32-bit, stabile tra run/processi. */
+function fnv1a(input: string): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash >>> 0;
+}
+
+const embeddingClient: EmbeddingProvider = {
+  async embed(inputs: string[]): Promise<number[][]> {
+    return inputs.map((text) => {
+      // seed != 0 (xorshift degenera su 0).
+      let state = fnv1a(text) || 1;
+      const vector = new Array<number>(EMBEDDING_DIMENSION);
+      for (let i = 0; i < EMBEDDING_DIMENSION; i++) {
+        state ^= state << 13;
+        state >>>= 0;
+        state ^= state >>> 17;
+        state ^= state << 5;
+        state >>>= 0;
+        vector[i] = (state / 0x100000000) * 2 - 1;
+      }
+      return vector;
+    });
+  },
+};
 
 let testDb: TestDb;
 let db: Db;
