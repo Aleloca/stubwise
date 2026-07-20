@@ -25,6 +25,7 @@ function isDocsSpacePath(pathname: string): boolean {
 const NAV_ITEMS = [
   { to: "/tickets", labelKey: "common:nav.tickets", code: "TKT" },
   { to: "/board", labelKey: "common:nav.board", code: "BRD" },
+  { to: "/backlog", labelKey: "common:nav.backlog", code: "BLG" },
   { to: "/projects", labelKey: "common:nav.projects", code: "PRJ" },
   { to: "/repositories", labelKey: "common:nav.repositories", code: "REP" },
   { to: "/monitor", labelKey: "common:nav.monitor", code: "MON" },

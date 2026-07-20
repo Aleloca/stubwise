@@ -164,6 +164,32 @@ describe("lista ticket", () => {
     expect(await screen.findByText(/no tickets found/i)).toBeInTheDocument();
   });
 
+  it("stato vuoto col default «Attivi»: mostra l'hint e «Mostra tutti» imposta status=all", async () => {
+    mockApi({
+      ...baseHandlers,
+      "/api/tickets": () => jsonResponse(200, { items: [], nextCursor: null }),
+    });
+
+    const router = renderApp("/tickets");
+    await screen.findByText(/no tickets found/i);
+    // Col default (status assente) gli stati completati sono nascosti: c'è l'hint.
+    expect(screen.getByText(/completed statuses are hidden/i)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /show all/i }));
+    await waitFor(() => expect(router.state.location.search).toEqual({ status: "all" }));
+  });
+
+  it("stato vuoto con status esplicito: nessun hint «Mostra tutti»", async () => {
+    mockApi({
+      ...baseHandlers,
+      "/api/tickets": () => jsonResponse(200, { items: [], nextCursor: null }),
+    });
+
+    renderApp("/tickets?status=done");
+    await screen.findByText(/no tickets found/i);
+    expect(screen.queryByRole("button", { name: /show all/i })).not.toBeInTheDocument();
+  });
+
   it("i filtri nell'URL arrivano ai controlli e alla richiesta API", async () => {
     const seen: string[] = [];
     mockApi({

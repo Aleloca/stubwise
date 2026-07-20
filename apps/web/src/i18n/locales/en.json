@@ -15,6 +15,7 @@
     "nav": {
       "tickets": "Tickets",
       "board": "Board",
+      "backlog": "Backlog",
       "projects": "Projects",
       "repositories": "Repositories",
       "monitor": "Monitor",
@@ -271,6 +272,8 @@
       "createProjectFirst": "Create a project first",
       "empty": "// no tickets found",
       "emptyHint": "Try widening the filters or changing the search term.",
+      "emptyActiveHint": "Completed statuses are hidden.",
+      "showAll": "Show all",
       "loadMore": "Load more",
       "loadingMore": "Loading…"
     },
@@ -483,6 +486,49 @@
       "tokensOut": "Tokens out",
       "cache": "Cache",
       "cost": "Cost"
+    }
+  },
+  "backlog": {
+    "list": {
+      "title": "Backlog",
+      "subtitle": "Discovery ideas gathered from feedback and feature requests.",
+      "newItem": "New item",
+      "createProjectFirst": "Create a project first",
+      "empty": "// no backlog items",
+      "emptyHint": "Try widening the filters or changing the search term.",
+      "loadMore": "Load more",
+      "loadingMore": "Loading…",
+      "processing": "Item queued — it will appear here in a few minutes.",
+      "dismiss": "Dismiss"
+    },
+    "filters": {
+      "search": "Search",
+      "searchPlaceholder": "Search backlog items…",
+      "project": "Project",
+      "status": "Status",
+      "statusActive": "Active (default)",
+      "urgency": "Urgency",
+      "risk": "Risk",
+      "all": "All"
+    },
+    "card": {
+      "requestCount": "Requested {{count}} time",
+      "requestCount_other": "Requested {{count}} times",
+      "similarTo": "≈ similar to {{title}}",
+      "ticketCount": "{{count}} linked ticket",
+      "ticketCount_other": "{{count}} linked tickets"
+    },
+    "newDialog": {
+      "title": "New backlog item",
+      "badge": "discovery",
+      "itemTitle": "Title",
+      "titlePlaceholder": "E.g. Bulk export of orders",
+      "project": "Project",
+      "description": "Description",
+      "descriptionPlaceholder": "Describe the idea… Markdown supported.",
+      "cancel": "Cancel",
+      "submit": "Create item",
+      "submitPending": "Queuing…"
     }
   },
   "settings": {
@@ -869,13 +915,26 @@
       "4": "Large",
       "5": "Very large"
     },
+    "backlogStatus": {
+      "new": "New",
+      "refining": "Refining",
+      "ready": "Ready",
+      "converted": "Converted",
+      "archived": "Archived"
+    },
+    "backlogRisk": {
+      "low": "Low risk",
+      "medium": "Medium risk",
+      "high": "High risk"
+    },
     "prState": {
       "open": "PR open",
       "merged": "PR merged",
       "closed_unmerged": "PR closed"
     },
     "priorityTitle": "Priority: {{label}}",
-    "sourceTitle": "Source: {{label}}"
+    "sourceTitle": "Source: {{label}}",
+    "effortTitle": "Effort: {{label}} ({{value}}/5)"
   },
   "projects": {
     "list": {

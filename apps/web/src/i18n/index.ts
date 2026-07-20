@@ -15,6 +15,7 @@ export const NAMESPACES = [
   "errors",
   "auth",
   "tickets",
+  "backlog",
   "settings",
   "notifications",
   "automation",

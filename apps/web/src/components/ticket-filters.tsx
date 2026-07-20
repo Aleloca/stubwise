@@ -144,9 +144,9 @@ export function TicketFilters({ value, projects, onChange }: TicketFiltersProps)
   );
 }
 
-const labelClass = "font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase";
+export const labelClass = "font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase";
 
-interface FilterSelectProps {
+export interface FilterSelectProps {
   id: string;
   label: string;
   value: string | undefined;
@@ -157,7 +157,8 @@ interface FilterSelectProps {
   emptyLabel?: string;
 }
 
-function FilterSelect({
+/** Select di filtro riusabile: opzione vuota + opzioni tradotte dal chiamante. */
+export function FilterSelect({
   id,
   label,
   value,

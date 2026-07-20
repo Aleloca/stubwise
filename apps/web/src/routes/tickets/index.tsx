@@ -191,6 +191,24 @@ export function TicketsPage() {
             {t("tickets:list.empty")}
           </p>
           <p className="mt-2 text-sm text-fg-muted">{t("tickets:list.emptyHint")}</p>
+          {/*
+            Col filtro di stato al default "Attivi" (status assente) e nessun
+            risultato, gli stati completati sono nascosti: offriamo un'azione
+            esplicita per mostrarli tutti (status=all) invece di lasciare l'utente
+            a chiedersi dove siano i ticket done/closed.
+          */}
+          {search.status === undefined && (
+            <p className="mt-2 text-sm text-fg-muted">
+              {t("tickets:list.emptyActiveHint")}{" "}
+              <button
+                type="button"
+                onClick={() => handleFiltersChange({ status: "all" })}
+                className="text-signal underline underline-offset-2 transition-colors hover:text-signal-bright"
+              >
+                {t("tickets:list.showAll")}
+              </button>
+            </p>
+          )}
         </div>
       ) : (
         <div className="mt-6 rounded-sm border border-line bg-ink-900">

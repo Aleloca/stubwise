@@ -15,6 +15,7 @@
     "nav": {
       "tickets": "Ticket",
       "board": "Bacheca",
+      "backlog": "Backlog",
       "projects": "Progetti",
       "repositories": "Repository",
       "monitor": "Monitor",
@@ -271,6 +272,8 @@
       "createProjectFirst": "Crea prima un progetto",
       "empty": "// nessun ticket trovato",
       "emptyHint": "Prova ad allargare i filtri o a cambiare il termine di ricerca.",
+      "emptyActiveHint": "Gli stati completati sono nascosti.",
+      "showAll": "Mostra tutti",
       "loadMore": "Carica altri",
       "loadingMore": "Carico…"
     },
@@ -483,6 +486,49 @@
       "tokensOut": "Token out",
       "cache": "Cache",
       "cost": "Costo"
+    }
+  },
+  "backlog": {
+    "list": {
+      "title": "Backlog",
+      "subtitle": "Idee di discovery raccolte da feedback e richieste di feature.",
+      "newItem": "Nuovo item",
+      "createProjectFirst": "Crea prima un progetto",
+      "empty": "// nessun item nel backlog",
+      "emptyHint": "Prova ad allargare i filtri o a cambiare il termine di ricerca.",
+      "loadMore": "Carica altri",
+      "loadingMore": "Carico…",
+      "processing": "Item in elaborazione — comparirà qui tra pochi minuti.",
+      "dismiss": "Chiudi"
+    },
+    "filters": {
+      "search": "Cerca",
+      "searchPlaceholder": "Cerca negli item del backlog…",
+      "project": "Progetto",
+      "status": "Stato",
+      "statusActive": "Attivi (default)",
+      "urgency": "Urgenza",
+      "risk": "Rischio",
+      "all": "Tutti"
+    },
+    "card": {
+      "requestCount": "Richiesto {{count}} volta",
+      "requestCount_other": "Richiesto {{count}} volte",
+      "similarTo": "≈ simile a {{title}}",
+      "ticketCount": "{{count}} ticket collegato",
+      "ticketCount_other": "{{count}} ticket collegati"
+    },
+    "newDialog": {
+      "title": "Nuovo item del backlog",
+      "badge": "discovery",
+      "itemTitle": "Titolo",
+      "titlePlaceholder": "Es. Export massivo degli ordini",
+      "project": "Progetto",
+      "description": "Descrizione",
+      "descriptionPlaceholder": "Descrivi l'idea… Markdown supportato.",
+      "cancel": "Annulla",
+      "submit": "Crea item",
+      "submitPending": "In coda…"
     }
   },
   "settings": {
@@ -869,13 +915,26 @@
       "4": "Grande",
       "5": "Molto grande"
     },
+    "backlogStatus": {
+      "new": "Nuovo",
+      "refining": "In raffinamento",
+      "ready": "Pronto",
+      "converted": "Convertito",
+      "archived": "Archiviato"
+    },
+    "backlogRisk": {
+      "low": "Rischio basso",
+      "medium": "Rischio medio",
+      "high": "Rischio alto"
+    },
     "prState": {
       "open": "PR aperta",
       "merged": "PR mergiata",
       "closed_unmerged": "PR chiusa"
     },
     "priorityTitle": "Priorità: {{label}}",
-    "sourceTitle": "Origine: {{label}}"
+    "sourceTitle": "Origine: {{label}}",
+    "effortTitle": "Sforzo: {{label}} ({{value}}/5)"
   },
   "projects": {
     "list": {

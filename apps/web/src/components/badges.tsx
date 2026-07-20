@@ -1,4 +1,6 @@
 import type {
+  BacklogItemStatus,
+  BacklogRisk,
   GitProviderKind,
   PrState,
   TicketPriority,
@@ -149,6 +151,81 @@ export function SourceBadge({ source }: { source: TicketSource }) {
   return (
     <span className={`${badgeBase} text-fg-faint`} title={t("badges:sourceTitle", { label })}>
       ◇ {label}
+    </span>
+  );
+}
+
+/*
+ * Badge del dominio backlog di discovery: stesse convenzioni dei ticket (chip
+ * mono, colore come segnale). Le mappe `*_LABEL_KEYS` espongono la chiave i18n
+ * per ogni valore così i select dei filtri le traducono col proprio `t`.
+ * L'urgenza riusa {@link PriorityBadge} (stessa scala di priority dei ticket);
+ * qui vivono solo i badge specifici del backlog: stato, rischio ed effort.
+ */
+
+export const BACKLOG_STATUS_LABEL_KEYS: Record<BacklogItemStatus, string> = {
+  new: "badges:backlogStatus.new",
+  refining: "badges:backlogStatus.refining",
+  ready: "badges:backlogStatus.ready",
+  converted: "badges:backlogStatus.converted",
+  archived: "badges:backlogStatus.archived",
+};
+
+/** Colore-stato del backlog: pallino del badge di stato. */
+const BACKLOG_STATUS_DOT: Record<BacklogItemStatus, string> = {
+  new: "bg-signal",
+  refining: "bg-sky-400",
+  ready: "bg-ok",
+  converted: "bg-violet-400",
+  archived: "bg-fg-faint",
+};
+
+export function BacklogStatusBadge({ status }: { status: BacklogItemStatus }) {
+  const { t } = useTranslation();
+  return (
+    <span className={`${badgeBase} border border-line bg-ink-800/60 px-2 py-0.5 text-fg-muted`}>
+      <span aria-hidden className={`size-1.5 rounded-full ${BACKLOG_STATUS_DOT[status]}`} />
+      {t(BACKLOG_STATUS_LABEL_KEYS[status])}
+    </span>
+  );
+}
+
+export const BACKLOG_RISK_LABEL_KEYS: Record<BacklogRisk, string> = {
+  low: "badges:backlogRisk.low",
+  medium: "badges:backlogRisk.medium",
+  high: "badges:backlogRisk.high",
+};
+
+const BACKLOG_RISK_CLASS: Record<BacklogRisk, string> = {
+  low: "text-fg-muted border-line-strong",
+  medium: "text-signal border-signal-dim/40",
+  high: "text-danger border-danger/30",
+};
+
+/** Livello di rischio stimato di una voce del backlog: chip colorato per livello. */
+export function BacklogRiskBadge({ risk }: { risk: BacklogRisk }) {
+  const { t } = useTranslation();
+  return (
+    <span className={`${badgeBase} border px-2 py-0.5 ${BACKLOG_RISK_CLASS[risk]}`}>
+      {t(BACKLOG_RISK_LABEL_KEYS[risk])}
+    </span>
+  );
+}
+
+/**
+ * Stima di effort (1–5) di una voce del backlog: chip "E{n}" con l'etichetta
+ * scalare (Banale…Molto grande) nel title. Riusa le label `badges:effort.*`
+ * condivise col triage dei ticket.
+ */
+export function BacklogEffortBadge({ effort }: { effort: number }) {
+  const { t } = useTranslation();
+  const label = t(`badges:effort.${effort}`);
+  return (
+    <span
+      className={`${badgeBase} border border-line-strong px-2 py-0.5 text-fg-muted`}
+      title={t("badges:effortTitle", { label, value: effort })}
+    >
+      E{effort}
     </span>
   );
 }

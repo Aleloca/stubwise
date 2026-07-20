@@ -15,6 +15,7 @@ import {
   activityQueryOptions,
   activityReportQueryOptions,
   aiProvidersQueryOptions,
+  backlogInfiniteQueryOptions,
   automationSettingsQueryOptions,
   boardTicketsQueryOptions,
   commentsQueryOptions,
@@ -44,6 +45,7 @@ import {
   widgetsQueryOptions,
 } from "./lib/queries";
 import { ActivityPage, yesterdayUtc } from "./routes/activity";
+import { backlogSearchSchema, BacklogPage } from "./routes/backlog/index";
 import { boardSearchSchema, BoardPage } from "./routes/board";
 import {
   DocsManualNew,
@@ -211,6 +213,26 @@ const boardRoute = createRoute({
     ]);
   },
   component: BoardPage,
+});
+
+/**
+ * Backlog di discovery: lista delle idee raccolte da feedback/feature. I filtri
+ * vivono nei search param (validati qui, tipati ovunque); il default della lista
+ * nasconde converted/archived. Prefetch della prima pagina filtrata + progetti
+ * (nomi + select filtro) prima del render: le useSuspenseQuery non attendono.
+ */
+const backlogRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/backlog",
+  validateSearch: (search) => backlogSearchSchema.parse(search),
+  loaderDeps: ({ search }) => search,
+  loader: async ({ context, deps }) => {
+    await Promise.all([
+      context.queryClient.ensureInfiniteQueryData(backlogInfiniteQueryOptions(deps)),
+      context.queryClient.ensureQueryData(projectsQueryOptions),
+    ]);
+  },
+  component: BacklogPage,
 });
 
 const projectsRoute = createRoute({
@@ -593,6 +615,7 @@ const routeTree = rootRoute.addChildren([
     ticketsRoute,
     ticketDetailRoute,
     boardRoute,
+    backlogRoute,
     projectsRoute,
     projectDetailRoute,
     widgetConversationsRoute,
