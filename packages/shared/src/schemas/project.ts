@@ -78,6 +78,9 @@ export const projectSchema = z.object({
   // Se true, il worker genera ogni notte uno standup dai commit del giorno di
   // tutti i repository del progetto (report attività). Default false.
   dailyReportEnabled: z.boolean(),
+  // Se true, i ticket feedback/feature del progetto NON entrano nella pipeline
+  // fix: vengono deviati verso il backlog di discovery (intake). Default false.
+  backlogEnabled: z.boolean(),
   // Chiave di ingestion del progetto: gli SDK la usano per inviare errori e
   // feedback (l'ingestion è di prodotto, non di repo — Fase 3).
   ingestionKey: z.string().min(1),
@@ -98,6 +101,7 @@ export const createProjectSchema = z.object({
   aiProviderId: z.uuid().nullable().optional(),
   docAutoUpdate: z.boolean().optional(),
   dailyReportEnabled: z.boolean().optional(),
+  backlogEnabled: z.boolean().optional(),
 });
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;
 
@@ -111,5 +115,6 @@ export const updateProjectSchema = z.object({
   aiProviderId: z.uuid().nullable().optional(),
   docAutoUpdate: z.boolean().optional(),
   dailyReportEnabled: z.boolean().optional(),
+  backlogEnabled: z.boolean().optional(),
 });
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
