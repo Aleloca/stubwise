@@ -602,6 +602,22 @@
       "archive": "Archivia",
       "reopen": "Riapri",
       "cancel": "Annulla"
+    },
+    "chat": {
+      "title": "Chat di raffinamento",
+      "subtitle": "Discuti e raffina questa idea con l'agente.",
+      "open": "Apri la chat",
+      "close": "Chiudi la chat",
+      "placeholder": "Chiedi o raffina questa idea…",
+      "emptyTitle": "// ancora nessun messaggio",
+      "emptyHint": "Avvia una conversazione per raffinare questo item del backlog.",
+      "you": "Tu",
+      "assistant": "Agente",
+      "send": "Invia",
+      "thinking": "Sto pensando…",
+      "error": "Qualcosa è andato storto nel generare la risposta.",
+      "unavailable": "La chat richiede un provider AI con API key. Chiedi a un admin di configurarne uno nelle Impostazioni.",
+      "sources": "Fonti"
     }
   },
   "settings": {

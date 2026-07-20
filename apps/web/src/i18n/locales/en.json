@@ -602,6 +602,22 @@
       "archive": "Archive",
       "reopen": "Reopen",
       "cancel": "Cancel"
+    },
+    "chat": {
+      "title": "Refinement chat",
+      "subtitle": "Discuss and refine this idea with the agent.",
+      "open": "Open chat",
+      "close": "Close chat",
+      "placeholder": "Ask or refine this idea…",
+      "emptyTitle": "// no messages yet",
+      "emptyHint": "Start a conversation to refine this backlog item.",
+      "you": "You",
+      "assistant": "Agent",
+      "send": "Send",
+      "thinking": "Thinking…",
+      "error": "Something went wrong generating the answer.",
+      "unavailable": "Chat requires an API-key AI provider. Ask an admin to configure one in Settings.",
+      "sources": "Sources"
     }
   },
   "settings": {

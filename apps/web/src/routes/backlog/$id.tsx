@@ -21,6 +21,7 @@ import {
   PriorityBadge,
   SOURCE_LABEL_KEYS,
 } from "../../components/badges";
+import { BacklogChat } from "../../components/backlog-chat";
 import { ComboboxPicker } from "../../components/combobox-picker";
 import { SelectField } from "../../components/field";
 import { Markdown } from "../../components/markdown";
@@ -300,6 +301,14 @@ export function BacklogDetailPage() {
           </div>
 
           {isAdmin && <ActionsPanel item={item} onApply={applyBase} navigate={navigate} />}
+
+          <BacklogChat
+            itemId={id}
+            initialMessages={item.messages}
+            onExchangeComplete={() =>
+              void queryClient.invalidateQueries({ queryKey: backlogKeys.detail(id) })
+            }
+          />
         </aside>
       </div>
     </div>
