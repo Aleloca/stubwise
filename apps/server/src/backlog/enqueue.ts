@@ -5,8 +5,8 @@
  * nella pipeline fix (nessun aiJob): vengono accodati come job `intake` in
  * `backlog_jobs`, che il worker processerà (dedup + metadati suggeriti). Questo
  * helper è l'UNICO punto di decisione: lo chiamano tutti i percorsi di nascita
- * di un ticket (ingest SDK, sorgenti esterne, creazione manuale), dentro la
- * stessa transazione dell'insert del ticket.
+ * di un ticket (ingest SDK, sorgenti esterne, creazione manuale, widget),
+ * dentro la stessa transazione dell'insert del ticket.
  */
 
 import { eq } from "drizzle-orm";

@@ -6,6 +6,7 @@ import { createFakeEmbeddingClient } from "@stubwise/embeddings";
 import { buildApp } from "../app.js";
 import type { ChatAvailability, ChatLlm, ChatLlmInput } from "./chat-llm.js";
 import {
+  backlogJobs,
   docChunks,
   docGenerations,
   docPages,
@@ -1768,6 +1769,48 @@ describe("POST /widget/:slug/conversations/:conversationId/tickets", () => {
     expect(body).not.toContain("Trascrizione della conversazione");
     expect(body).toContain("**Segnalazione**");
     expect(body).toContain("corpo proposta");
+  });
+
+  it("feedback da widget su progetto con backlogEnabled → job intake in backlog_jobs", async () => {
+    const { project, widget, conversationId } = await setupTicketConversation(testDb.db);
+    await testDb.db
+      .update(projects)
+      .set({ backlogEnabled: true })
+      .where(eq(projects.id, project.projectId));
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
+      headers: { "x-stubwise-key": widget.key },
+      payload: { title: "Vorrei l'export CSV", body: "richiesta", type: "feedback", userId: "visitor-1" },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const jobs = await testDb.db
+      .select()
+      .from(backlogJobs)
+      .where(eq(backlogJobs.projectId, project.projectId));
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.kind).toBe("intake");
+    expect(jobs[0]!.status).toBe("queued");
+    expect(jobs[0]!.payload).toEqual({ ticketId: res.json().ticketId });
+  });
+
+  it("feedback da widget su progetto DISABILITATO → nessun job backlog", async () => {
+    const { project, widget, conversationId } = await setupTicketConversation(testDb.db);
+    const res = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${conversationId}/tickets`,
+      headers: { "x-stubwise-key": widget.key },
+      payload: { title: "Feedback", body: "corpo", type: "feedback", userId: "visitor-1" },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const jobs = await testDb.db
+      .select()
+      .from(backlogJobs)
+      .where(eq(backlogJobs.projectId, project.projectId));
+    expect(jobs).toHaveLength(0);
   });
 });
 
