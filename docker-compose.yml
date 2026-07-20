@@ -160,6 +160,17 @@ services:
       # emissione monitor.alert/recovered). Più frequente del rollup: allarmi
       # reattivi. 0 = disabilitato. Default 1'. Max 60.
       - MONITOR_ALERT_INTERVAL_MINUTES=${MONITOR_ALERT_INTERVAL_MINUTES:-1}
+      # --- Backlog di discovery (poller separato dal loop dei job) ---
+      # Reclama i job backlog_jobs (intake + deep dive) ed esegue gli agenti nella
+      # catena PER-PROGETTO. Soglie del dedup semantico: merge (fusione automatica)
+      # e similar (badge "simile a X", zona grigia sotto la merge; deve restare ≤
+      # merge). Poll in secondi (0 = disabilitato). Modello economico di default;
+      # timeout del run in ms (come la review).
+      - BACKLOG_MERGE_THRESHOLD=${BACKLOG_MERGE_THRESHOLD:-0.9}
+      - BACKLOG_SIMILAR_THRESHOLD=${BACKLOG_SIMILAR_THRESHOLD:-0.78}
+      - BACKLOG_POLL_SECONDS=${BACKLOG_POLL_SECONDS:-20}
+      - BACKLOG_MODEL=${BACKLOG_MODEL:-sonnet}
+      - BACKLOG_AGENT_TIMEOUT_MS=${BACKLOG_AGENT_TIMEOUT_MS:-900000}
       # --- Auth del CLI claude ---
       # Metodo raccomandato: gestisci le credenziali in Settings -> AI providers
       # (catena cifrata nel DB, con failover). Le due righe pass-through qui sotto

@@ -462,7 +462,69 @@ const envSchema = z.object({
       .min(1, "deve essere un intero ≥ 1 in giorni (es. 90)")
       .default(90),
   ),
-});
+  // Soglia di similarità (0–1) sopra cui, all'intake del backlog di discovery, un
+  // nuovo feedback si FONDE automaticamente in una voce esistente (dedup). Alta
+  // per default (0.90): si fondono solo i quasi-duplicati. Da tarare sul campo.
+  BACKLOG_MERGE_THRESHOLD: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un numero tra 0 e 1 (es. 0.9)" })
+      .min(0, "deve essere un numero tra 0 e 1 (es. 0.9)")
+      .max(1, "deve essere un numero tra 0 e 1 (es. 0.9)")
+      .default(0.9),
+  ),
+  // Soglia di similarità (0–1) sopra cui una NUOVA voce del backlog segnala
+  // "simile a X" (zona grigia: sotto la merge ma sopra questa → badge + fusione
+  // manuale possibile). Deve restare ≤ BACKLOG_MERGE_THRESHOLD (verificato sotto).
+  // Default 0.78. Da tarare sul campo.
+  BACKLOG_SIMILAR_THRESHOLD: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un numero tra 0 e 1 (es. 0.78)" })
+      .min(0, "deve essere un numero tra 0 e 1 (es. 0.78)")
+      .max(1, "deve essere un numero tra 0 e 1 (es. 0.78)")
+      .default(0.78),
+  ),
+  // Intervallo di poll (secondi) del poller del backlog di discovery (task
+  // separato dal loop dei job): reclama i job `backlog_jobs` queued (intake e
+  // deep dive) e li esegue nella CATENA PER-PROGETTO (serializer condiviso).
+  // È BEST-EFFORT e non tocca i timeout dei job. 0 = disabilitato. Default 20".
+  BACKLOG_POLL_SECONDS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 0 in secondi (es. 20; 0 = disabilitato)" })
+      .int("deve essere un intero ≥ 0 in secondi (es. 20; 0 = disabilitato)")
+      .min(0, "deve essere un intero ≥ 0 in secondi (es. 20; 0 = disabilitato)")
+      .default(20),
+  ),
+  // Modello dell'agente del backlog (intake + deep dive). Economico per default
+  // ("sonnet", come PR_REVIEW_MODEL): l'intake è testo, il deep dive è analisi.
+  BACKLOG_MODEL: z.preprocess(
+    emptyAsUndefined,
+    z
+      .string({ error: "deve essere il nome di un modello (es. sonnet)" })
+      .min(1)
+      .default("sonnet"),
+  ),
+  // Timeout (ms) di ogni run dell'agente del backlog (intake e deep dive).
+  // Default 900000 = 15', come il run di review: un run appeso fallisce lì e il
+  // job del backlog viene riaccodato/fallito dal poller.
+  BACKLOG_AGENT_TIMEOUT_MS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero > 0 in millisecondi (es. 900000)" })
+      .int("deve essere un intero > 0 in millisecondi (es. 900000)")
+      .min(1, "deve essere un intero > 0 in millisecondi (es. 900000)")
+      .default(900_000),
+  ),
+}).refine(
+  (env) => env.BACKLOG_SIMILAR_THRESHOLD <= env.BACKLOG_MERGE_THRESHOLD,
+  {
+    error:
+      "BACKLOG_SIMILAR_THRESHOLD deve essere ≤ BACKLOG_MERGE_THRESHOLD (la zona grigia 'simile a X' sta SOTTO la soglia di merge)",
+    path: ["BACKLOG_SIMILAR_THRESHOLD"],
+  },
+);
 
 export interface WorkerConfig {
   databaseUrl: string;
@@ -573,6 +635,19 @@ export interface WorkerConfig {
   dailyReportMaxAuthorsPerProject: number;
   /** Giorni di retention dei report di attività prima della pulizia (default 90). */
   dailyReportRetentionDays: number;
+  /** Soglia di similarità (0–1) sopra cui l'intake del backlog fonde in una voce
+   * esistente (default 0.90). */
+  backlogMergeThreshold: number;
+  /** Soglia di similarità (0–1) sopra cui una nuova voce del backlog segnala
+   * "simile a X" (default 0.78; ≤ backlogMergeThreshold). */
+  backlogSimilarThreshold: number;
+  /** Intervallo in secondi del poller del backlog di discovery (default 20;
+   * 0 = disabilitato). */
+  backlogPollSeconds: number;
+  /** Modello dell'agente del backlog, intake + deep dive (default "sonnet"). */
+  backlogModel: string;
+  /** Timeout (ms) di ogni run dell'agente del backlog (default 900000 = 15'). */
+  backlogAgentTimeoutMs: number;
 }
 
 /**
@@ -638,5 +713,10 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     dailyReportPollMinutes: parsed.DAILY_REPORT_POLL_MINUTES,
     dailyReportMaxAuthorsPerProject: parsed.DAILY_REPORT_MAX_AUTHORS_PER_PROJECT,
     dailyReportRetentionDays: parsed.DAILY_REPORT_RETENTION_DAYS,
+    backlogMergeThreshold: parsed.BACKLOG_MERGE_THRESHOLD,
+    backlogSimilarThreshold: parsed.BACKLOG_SIMILAR_THRESHOLD,
+    backlogPollSeconds: parsed.BACKLOG_POLL_SECONDS,
+    backlogModel: parsed.BACKLOG_MODEL,
+    backlogAgentTimeoutMs: parsed.BACKLOG_AGENT_TIMEOUT_MS,
   };
 }
