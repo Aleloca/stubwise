@@ -12,11 +12,22 @@ import { PRIORITY_LABEL_KEYS, STATUS_LABEL_KEYS, TYPE_LABEL_KEYS } from "./badge
 
 const SEARCH_DEBOUNCE_MS = 300;
 
+/**
+ * Stato UI dei filtri della lista: come {@link TicketFiltersValue} ma con lo
+ * stato allargato per includere il valore sintetico `"all"` (tutti gli stati).
+ * `status` assente = default "stati attivi", `"all"` = nessun filtro di stato,
+ * un valore = filtro su quel singolo stato. La traduzione in filtri API (il
+ * campo `statuses`) avviene nella pagina.
+ */
+export interface TicketFiltersState extends Omit<TicketFiltersValue, "status"> {
+  status?: TicketFiltersValue["status"] | "all";
+}
+
 interface TicketFiltersProps {
-  value: TicketFiltersValue;
+  value: TicketFiltersState;
   projects: Project[];
   /** Patch parziale dei filtri; `undefined` rimuove la chiave (e il param). */
-  onChange: (patch: Partial<TicketFiltersValue>) => void;
+  onChange: (patch: Partial<TicketFiltersState>) => void;
 }
 
 /**
@@ -75,15 +86,24 @@ export function TicketFilters({ value, projects, onChange }: TicketFiltersProps)
         // patch (undefined → sparisce dall'URL).
         onChange={(projectId) => onChange({ projectId, milestoneId: undefined })}
       />
+      {/*
+        Stato: l'opzione vuota è "Attivi (default)" (nasconde done/closed), poi
+        "Tutti" (nessun filtro), poi i singoli stati. Il valore vuoto emette
+        `undefined` → la pagina applica il default degli stati attivi.
+      */}
       <FilterSelect
         id="filter-status"
         label={t("tickets:filters.status")}
+        emptyLabel={t("tickets:filters.statusActive")}
         value={value.status}
-        options={ticketStatusSchema.options.map((status) => ({
-          value: status,
-          label: t(STATUS_LABEL_KEYS[status]),
-        }))}
-        onChange={(status) => onChange({ status: status as TicketFiltersValue["status"] })}
+        options={[
+          { value: "all", label: t("tickets:filters.statusAll") },
+          ...ticketStatusSchema.options.map((status) => ({
+            value: status,
+            label: t(STATUS_LABEL_KEYS[status]),
+          })),
+        ]}
+        onChange={(status) => onChange({ status: status as TicketFiltersState["status"] })}
       />
       <FilterSelect
         id="filter-type"
@@ -133,9 +153,19 @@ interface FilterSelectProps {
   options: { value: string; label: string }[];
   onChange: (value: string | undefined) => void;
   disabled?: boolean;
+  /** Etichetta dell'opzione vuota; default `tickets:filters.all`. */
+  emptyLabel?: string;
 }
 
-function FilterSelect({ id, label, value, options, onChange, disabled }: FilterSelectProps) {
+function FilterSelect({
+  id,
+  label,
+  value,
+  options,
+  onChange,
+  disabled,
+  emptyLabel,
+}: FilterSelectProps) {
   const { t } = useTranslation();
 
   return (
@@ -150,7 +180,7 @@ function FilterSelect({ id, label, value, options, onChange, disabled }: FilterS
         onChange={(event) => onChange(event.target.value || undefined)}
         className="rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1.5 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim disabled:cursor-not-allowed disabled:opacity-50"
       >
-        <option value="">{t("tickets:filters.all")}</option>
+        <option value="">{emptyLabel ?? t("tickets:filters.all")}</option>
         {options.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}

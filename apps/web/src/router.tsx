@@ -80,7 +80,11 @@ import { SettingsUsagePage } from "./routes/settings/usage";
 import { SetupPage } from "./routes/setup";
 import { TeamPage } from "./routes/team";
 import { TicketDetailPage } from "./routes/tickets/$id";
-import { ticketSearchSchema, TicketsPage } from "./routes/tickets/index";
+import {
+  effectiveTicketFilters,
+  ticketSearchSchema,
+  TicketsPage,
+} from "./routes/tickets/index";
 
 /*
  * Routing code-based (createRoute, niente plugin file-router): l'albero è
@@ -162,7 +166,9 @@ const ticketsRoute = createRoute({
     // Prima pagina della lista e progetti (nomi + select filtro) in cache
     // prima del render: il componente usa le useSuspenseQuery senza attese.
     await Promise.all([
-      context.queryClient.ensureInfiniteQueryData(ticketsInfiniteQueryOptions(deps)),
+      context.queryClient.ensureInfiniteQueryData(
+        ticketsInfiniteQueryOptions(effectiveTicketFilters(deps)),
+      ),
       context.queryClient.ensureQueryData(projectsQueryOptions),
     ]);
   },

@@ -291,6 +291,8 @@
       "searchPlaceholder": "Cerca in titolo, descrizione, commenti…",
       "project": "Progetto",
       "status": "Stato",
+      "statusActive": "Attivi (default)",
+      "statusAll": "Tutti",
       "type": "Tipo",
       "priority": "Priorità",
       "milestone": "Milestone",

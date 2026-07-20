@@ -279,6 +279,12 @@ export interface TicketListItem extends TicketBase {
 export interface TicketFilters {
   projectId?: string;
   status?: TicketStatus;
+  /**
+   * Multi-stato (comma-separated lato server): mutuamente esclusivo con
+   * `status` (lato server `statuses` vince). Usato dalla lista per il default
+   * "stati attivi". Omesso dalla richiesta se assente o array vuoto.
+   */
+  statuses?: string[];
   type?: TicketType;
   priority?: TicketPriority;
   milestoneId?: string;
@@ -309,6 +315,11 @@ export function listTickets(
   const params = new URLSearchParams();
   if (filters.projectId) params.set("projectId", filters.projectId);
   if (filters.status) params.set("status", filters.status);
+  // `statuses` omesso se assente o vuoto: il server rifiuta `statuses=` vuoto
+  // con 400, quindi non va mai mandato senza valori.
+  if (filters.statuses && filters.statuses.length > 0) {
+    params.set("statuses", filters.statuses.join(","));
+  }
   if (filters.type) params.set("type", filters.type);
   if (filters.priority) params.set("priority", filters.priority);
   if (filters.milestoneId) params.set("milestoneId", filters.milestoneId);

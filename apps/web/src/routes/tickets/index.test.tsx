@@ -182,6 +182,60 @@ describe("lista ticket", () => {
     expect(seen[0]).toContain("q=export");
   });
 
+  it("senza status di default chiede solo gli stati attivi (statuses), non status singolo", async () => {
+    let seen: URLSearchParams | undefined;
+    mockApi({
+      ...baseHandlers,
+      "/api/tickets": (url) => {
+        seen = url.searchParams;
+        return jsonResponse(200, { items: [], nextCursor: null });
+      },
+    });
+
+    renderApp("/tickets");
+
+    await screen.findByText(/no tickets found/i);
+    // Multi-stato comma-separated: robusto rispetto all'encoding (%2C) perché
+    // leggiamo il valore già decodificato da URLSearchParams.
+    expect(seen?.get("statuses")).toBe("open,triaged,in_progress,in_review");
+    expect(seen?.get("status")).toBeNull();
+  });
+
+  it("con status=all non manda alcun parametro di stato", async () => {
+    let seen: URLSearchParams | undefined;
+    mockApi({
+      ...baseHandlers,
+      "/api/tickets": (url) => {
+        seen = url.searchParams;
+        return jsonResponse(200, { items: [], nextCursor: null });
+      },
+    });
+
+    renderApp("/tickets?status=all");
+
+    await screen.findByText(/no tickets found/i);
+    expect(screen.getByLabelText(/status/i)).toHaveValue("all");
+    expect(seen?.get("status")).toBeNull();
+    expect(seen?.get("statuses")).toBeNull();
+  });
+
+  it("con status=done manda solo status singolo (nessun default statuses)", async () => {
+    let seen: URLSearchParams | undefined;
+    mockApi({
+      ...baseHandlers,
+      "/api/tickets": (url) => {
+        seen = url.searchParams;
+        return jsonResponse(200, { items: [], nextCursor: null });
+      },
+    });
+
+    renderApp("/tickets?status=done");
+
+    await screen.findByText(/no tickets found/i);
+    expect(seen?.get("status")).toBe("done");
+    expect(seen?.get("statuses")).toBeNull();
+  });
+
   it("un search param malformato viene scartato invece di rompere la route", async () => {
     mockApi({
       ...baseHandlers,

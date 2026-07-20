@@ -291,6 +291,8 @@
       "searchPlaceholder": "Search title, description, comments…",
       "project": "Project",
       "status": "Status",
+      "statusActive": "Active (default)",
+      "statusAll": "All",
       "type": "Type",
       "priority": "Priority",
       "milestone": "Milestone",

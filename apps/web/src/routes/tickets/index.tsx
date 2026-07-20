@@ -14,7 +14,7 @@ import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { NewTicketDialog } from "../../components/new-ticket-dialog";
 import { SavedViews } from "../../components/saved-views";
-import { TicketFilters } from "../../components/ticket-filters";
+import { TicketFilters, type TicketFiltersState } from "../../components/ticket-filters";
 import { TicketRow } from "../../components/ticket-row";
 import {
   postTicket,
@@ -35,7 +35,12 @@ import {
  */
 export const ticketSearchSchema = z.object({
   projectId: z.uuid().optional().catch(undefined),
-  status: ticketStatusSchema.optional().catch(undefined),
+  // Oltre ai singoli stati, `"all"` (tutti gli stati) è un valore valido:
+  // status assente = default "stati attivi", `"all"` = nessun filtro di stato.
+  status: z
+    .union([ticketStatusSchema, z.literal("all")])
+    .optional()
+    .catch(undefined),
   type: ticketTypeSchema.optional().catch(undefined),
   priority: ticketPrioritySchema.optional().catch(undefined),
   milestoneId: z.uuid().optional().catch(undefined),
@@ -43,6 +48,30 @@ export const ticketSearchSchema = z.object({
 });
 
 export type TicketSearch = z.infer<typeof ticketSearchSchema>;
+
+/**
+ * Stati "attivi" mostrati di default quando l'URL non fissa uno stato: nasconde
+ * done/closed. Mandati al server come `statuses` (multi-stato comma-separated).
+ */
+export const DEFAULT_ACTIVE_STATUSES = [
+  "open",
+  "triaged",
+  "in_progress",
+  "in_review",
+] as const;
+
+/**
+ * Traduce i search param della lista nei filtri API. Regole sullo stato:
+ * assente → default `statuses` = stati attivi (done/closed nascosti); `"all"` →
+ * nessun filtro di stato; un valore → filtro sul singolo stato. Condivisa tra il
+ * loader della route e il componente così la query key coincide (nessun refetch).
+ */
+export function effectiveTicketFilters(search: TicketSearch): TicketFiltersValue {
+  const { status, ...rest } = search;
+  if (status === undefined) return { ...rest, statuses: [...DEFAULT_ACTIVE_STATUSES] };
+  if (status === "all") return { ...rest };
+  return { ...rest, status };
+}
 
 // L'id della route include il layout autenticato (id "authed").
 const route = getRouteApi("/authed/tickets");
@@ -61,13 +90,13 @@ export function TicketsPage() {
 
   const { data: projects } = useSuspenseQuery(projectsQueryOptions);
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage } = useSuspenseInfiniteQuery(
-    ticketsInfiniteQueryOptions(search),
+    ticketsInfiniteQueryOptions(effectiveTicketFilters(search)),
   );
 
   const tickets = data.pages.flatMap((page) => page.items);
   const projectNames = new Map(projects.map((project) => [project.id, project.name]));
 
-  function handleFiltersChange(patch: Partial<TicketFiltersValue>) {
+  function handleFiltersChange(patch: Partial<TicketFiltersState>) {
     void navigate({
       search: (prev) => ({ ...prev, ...patch }),
       // I filtri non devono intasare la history: avanti/indietro naviga tra
@@ -82,7 +111,9 @@ export function TicketsPage() {
   // lista: non compare nello schema dei search param, quindi non è incluso.
   const currentFilters: SavedViewFilters = {
     ...(search.projectId !== undefined && { projectId: search.projectId }),
-    ...(search.status !== undefined && { status: search.status }),
+    // `"all"` (tutti gli stati) e il default (assente) non sono filtri di stato
+    // salvabili: solo un singolo stato esplicito finisce nella vista.
+    ...(search.status !== undefined && search.status !== "all" && { status: search.status }),
     ...(search.type !== undefined && { type: search.type }),
     ...(search.priority !== undefined && { priority: search.priority }),
     ...(search.milestoneId !== undefined && { milestoneId: search.milestoneId }),

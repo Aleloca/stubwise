@@ -90,13 +90,21 @@ describe("TicketFilters", () => {
     expect(onChange).toHaveBeenCalledExactlyOnceWith({ status: "open" });
   });
 
-  it("tornare a «Tutti» azzera il filtro (undefined, sparisce dall'URL)", async () => {
+  it("tornare a «Attivi (default)» azzera il filtro (undefined, sparisce dall'URL)", async () => {
     const onChange = renderFilters({ status: "done" });
 
     expect(screen.getByLabelText(/status/i)).toHaveValue("done");
     await userEvent.selectOptions(screen.getByLabelText(/status/i), "");
 
     expect(onChange).toHaveBeenCalledExactlyOnceWith({ status: undefined });
+  });
+
+  it("selezionare «Tutti» manda status «all» (nessun filtro di stato)", async () => {
+    const onChange = renderFilters();
+
+    await userEvent.selectOptions(screen.getByLabelText(/status/i), "all");
+
+    expect(onChange).toHaveBeenCalledExactlyOnceWith({ status: "all" });
   });
 
   it("tipo, priorità e progetto chiamano onChange con la chiave giusta", async () => {
