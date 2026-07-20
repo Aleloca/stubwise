@@ -1,0 +1,516 @@
+import { randomBytes } from "node:crypto";
+import type { FastifyInstance } from "fastify";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  backlogChatMessages,
+  backlogItems,
+  backlogItemTickets,
+  backlogJobs,
+  projects,
+  tickets,
+} from "@stubwise/db";
+import type { TestDb } from "@stubwise/db/testing";
+import { seedRepository, startTestDb } from "@stubwise/db/testing";
+import { eq } from "drizzle-orm";
+import { buildApp } from "../app.js";
+import { seedUsers } from "../test/fixtures.js";
+
+const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
+const ENCRYPTION_KEY = randomBytes(32);
+
+let testDb: TestDb;
+let app: FastifyInstance;
+let adminCookie: string;
+let memberCookie: string;
+let projectId: string;
+
+beforeAll(async () => {
+  testDb = await startTestDb();
+  app = buildApp({
+    db: testDb.db,
+    sessionSecret: SESSION_SECRET,
+    encryptionKey: ENCRYPTION_KEY.toString("base64"),
+    publicUrl: "https://stubwise.example.com",
+  });
+  ({ adminCookie, memberCookie } = await seedUsers(app));
+}, 120_000);
+
+afterAll(async () => {
+  await app.close();
+  await testDb.stop();
+});
+
+beforeEach(async () => {
+  ({ projectId } = await seedRepository(testDb.db));
+});
+
+afterEach(async () => {
+  await testDb.db.delete(backlogChatMessages);
+  await testDb.db.delete(backlogItemTickets);
+  await testDb.db.delete(backlogJobs);
+  await testDb.db.delete(backlogItems);
+  await testDb.db.delete(tickets);
+  await testDb.db.delete(projects);
+});
+
+/** Inserisce una voce di backlog nel progetto corrente e ne restituisce la riga. */
+async function insertItem(
+  overrides: Partial<typeof backlogItems.$inferInsert> = {},
+): Promise<typeof backlogItems.$inferSelect> {
+  const [row] = await testDb.db
+    .insert(backlogItems)
+    .values({ projectId, title: "Voce di test", source: "manual", ...overrides })
+    .returning();
+  return row!;
+}
+
+/** Inserisce un ticket nel progetto corrente (numero per-progetto). */
+async function insertTicket(number: number, title: string): Promise<string> {
+  const [row] = await testDb.db
+    .insert(tickets)
+    .values({ projectId, number, title, type: "feedback", priority: "medium", source: "manual" })
+    .returning({ id: tickets.id });
+  return row!.id;
+}
+
+describe("GET /api/backlog", () => {
+  it("senza sessione → 401", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/backlog" });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("default: esclude converted e archived quando status è assente", async () => {
+    await insertItem({ title: "attiva-new", status: "new" });
+    await insertItem({ title: "attiva-ready", status: "ready" });
+    await insertItem({ title: "conv", status: "converted" });
+    await insertItem({ title: "arch", status: "archived" });
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/backlog",
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { items: { title: string }[] };
+    expect(body.items.map((i) => i.title).sort()).toEqual(["attiva-new", "attiva-ready"]);
+  });
+
+  it("con status esplicito include lo stato terminale", async () => {
+    await insertItem({ title: "conv", status: "converted" });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/backlog?status=converted",
+      headers: { cookie: memberCookie },
+    });
+    const body = res.json() as { items: { title: string; status: string }[] };
+    expect(body.items).toHaveLength(1);
+    expect(body.items[0]!.status).toBe("converted");
+  });
+
+  it("filtra per projectId, urgency e risk", async () => {
+    await insertItem({ title: "match", urgency: "urgent", risk: "high" });
+    await insertItem({ title: "no-urg", urgency: "low", risk: "high" });
+    await insertItem({ title: "no-risk", urgency: "urgent", risk: "low" });
+    // Progetto diverso: non deve comparire con il filtro projectId.
+    const { projectId: other } = await seedRepository(testDb.db);
+    await insertItem({ projectId: other, title: "altro", urgency: "urgent", risk: "high" });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/backlog?projectId=${projectId}&urgency=urgent&risk=high`,
+      headers: { cookie: memberCookie },
+    });
+    const body = res.json() as { items: { title: string }[] };
+    expect(body.items.map((i) => i.title)).toEqual(["match"]);
+  });
+
+  it("q filtra il titolo (ILIKE, case-insensitive)", async () => {
+    await insertItem({ title: "Login con Google" });
+    await insertItem({ title: "Esporta PDF" });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/backlog?q=login",
+      headers: { cookie: memberCookie },
+    });
+    const body = res.json() as { items: { title: string }[] };
+    expect(body.items.map((i) => i.title)).toEqual(["Login con Google"]);
+  });
+
+  it("similarTo risolto dal similarToId", async () => {
+    const target = await insertItem({ title: "Voce originale" });
+    await insertItem({ title: "Voce simile", similarToId: target.id });
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/backlog",
+      headers: { cookie: memberCookie },
+    });
+    const body = res.json() as {
+      items: { title: string; similarTo: { id: string; title: string } | null }[];
+    };
+    const simile = body.items.find((i) => i.title === "Voce simile")!;
+    expect(simile.similarTo).toEqual({ id: target.id, title: "Voce originale" });
+    const originale = body.items.find((i) => i.title === "Voce originale")!;
+    expect(originale.similarTo).toBeNull();
+  });
+
+  it("ticketCount conta solo i ticket con role=origin", async () => {
+    const item = await insertItem({ title: "Voce con ticket" });
+    const t1 = await insertTicket(1, "origine 1");
+    const t2 = await insertTicket(2, "origine 2");
+    const t3 = await insertTicket(3, "convertito");
+    await testDb.db.insert(backlogItemTickets).values([
+      { itemId: item.id, ticketId: t1, role: "origin" },
+      { itemId: item.id, ticketId: t2, role: "origin" },
+      { itemId: item.id, ticketId: t3, role: "converted_to" },
+    ]);
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/backlog",
+      headers: { cookie: memberCookie },
+    });
+    const body = res.json() as { items: { title: string; ticketCount: number }[] };
+    expect(body.items[0]!.ticketCount).toBe(2);
+  });
+
+  it("non espone document né embedding nella lista", async () => {
+    await insertItem({ title: "Con documento", document: "# Contenuto lungo del documento" });
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/backlog",
+      headers: { cookie: memberCookie },
+    });
+    const body = res.json() as { items: Record<string, unknown>[] };
+    expect(body.items[0]).not.toHaveProperty("document");
+    expect(body.items[0]).not.toHaveProperty("embedding");
+  });
+
+  it("paginazione per cursor", async () => {
+    // Tre voci con createdAt crescente e distinto (ordine DESC nella risposta).
+    for (let i = 0; i < 3; i++) {
+      await testDb.db.insert(backlogItems).values({
+        projectId,
+        title: `voce-${i}`,
+        source: "manual",
+        createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, i)),
+      });
+    }
+    const first = await app.inject({
+      method: "GET",
+      url: "/api/backlog?limit=2",
+      headers: { cookie: memberCookie },
+    });
+    const firstBody = first.json() as {
+      items: { title: string }[];
+      nextCursor: string | null;
+    };
+    expect(firstBody.items.map((i) => i.title)).toEqual(["voce-2", "voce-1"]);
+    expect(firstBody.nextCursor).not.toBeNull();
+
+    const second = await app.inject({
+      method: "GET",
+      url: `/api/backlog?limit=2&cursor=${encodeURIComponent(firstBody.nextCursor!)}`,
+      headers: { cookie: memberCookie },
+    });
+    const secondBody = second.json() as {
+      items: { title: string }[];
+      nextCursor: string | null;
+    };
+    expect(secondBody.items.map((i) => i.title)).toEqual(["voce-0"]);
+    expect(secondBody.nextCursor).toBeNull();
+  });
+
+  it("cursor malformato → 400", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/backlog?cursor=spazzatura",
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
+describe("GET /api/backlog/:id", () => {
+  it("404 se inesistente", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/backlog/${crypto.randomUUID()}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("dettaglio completo con document, suggested, tickets, messages, similarTo", async () => {
+    const target = await insertItem({ title: "Originale" });
+    const item = await insertItem({
+      title: "Idea",
+      document: "# Documento",
+      status: "refining",
+      effort: 3,
+      similarToId: target.id,
+      suggested: { effort: 4, risk: "high", reason: "grande" },
+    });
+    const t1 = await insertTicket(1, "ticket origine");
+    const t2 = await insertTicket(2, "ticket convertito");
+    await testDb.db.insert(backlogItemTickets).values([
+      { itemId: item.id, ticketId: t1, role: "origin" },
+      { itemId: item.id, ticketId: t2, role: "converted_to" },
+    ]);
+    await testDb.db.insert(backlogChatMessages).values([
+      {
+        itemId: item.id,
+        role: "user",
+        content: "primo",
+        createdAt: new Date("2026-01-01T08:00:00Z"),
+      },
+      {
+        itemId: item.id,
+        role: "assistant",
+        content: "secondo",
+        citations: [{ title: "doc", url: "/x" }],
+        createdAt: new Date("2026-01-01T09:00:00Z"),
+      },
+    ]);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/backlog/${item.id}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      id: string;
+      document: string;
+      suggested: { effort: number; risk: string; reason: string } | null;
+      similarTo: { id: string; title: string } | null;
+      tickets: { id: string; number: number; title: string; role: string }[];
+      messages: { role: string; content: string; citations: unknown }[];
+    };
+    expect(body.document).toBe("# Documento");
+    expect(body.suggested).toEqual({ effort: 4, risk: "high", reason: "grande" });
+    expect(body.similarTo).toEqual({ id: target.id, title: "Originale" });
+    expect(body.tickets).toHaveLength(2);
+    expect(body.tickets.find((t) => t.role === "origin")!.number).toBe(1);
+    expect(body.tickets.find((t) => t.role === "converted_to")!.number).toBe(2);
+    // Messaggi in ordine cronologico.
+    expect(body.messages.map((m) => m.content)).toEqual(["primo", "secondo"]);
+    expect(body.messages[1]!.citations).toEqual([{ title: "doc", url: "/x" }]);
+  });
+});
+
+describe("PATCH /api/backlog/:id", () => {
+  it("member (non admin) → 403", async () => {
+    const item = await insertItem();
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/backlog/${item.id}`,
+      headers: { cookie: memberCookie },
+      payload: { title: "nuovo" },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("404 se inesistente", async () => {
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/backlog/${crypto.randomUUID()}`,
+      headers: { cookie: adminCookie },
+      payload: { title: "nuovo" },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("una metadata modifica a mano azzera il campo corrispondente in suggested", async () => {
+    const item = await insertItem({
+      effort: 2,
+      suggested: { effort: 4, risk: "high", reason: "motivo" },
+    });
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/backlog/${item.id}`,
+      headers: { cookie: adminCookie },
+      payload: { effort: 5 },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { effort: number; suggested: Record<string, unknown> | null };
+    expect(body.effort).toBe(5);
+    // effort rimosso da suggested; risk e reason restano.
+    expect(body.suggested).toEqual({ risk: "high", reason: "motivo" });
+  });
+
+  it("suggested diventa null quando resta vuoto", async () => {
+    const item = await insertItem({ suggested: { effort: 4 } });
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/backlog/${item.id}`,
+      headers: { cookie: adminCookie },
+      payload: { effort: 1 },
+    });
+    const body = res.json() as { suggested: unknown };
+    expect(body.suggested).toBeNull();
+  });
+
+  it("transizione verso converted vietata → errore", async () => {
+    const item = await insertItem({ status: "ready" });
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/backlog/${item.id}`,
+      headers: { cookie: adminCookie },
+      payload: { status: "converted" },
+    });
+    expect(res.statusCode).toBe(409);
+    // Lo stato non è cambiato.
+    const [row] = await testDb.db
+      .select({ status: backlogItems.status })
+      .from(backlogItems)
+      .where(eq(backlogItems.id, item.id));
+    expect(row!.status).toBe("ready");
+  });
+
+  it("altre transizioni di stato sono ammesse", async () => {
+    const item = await insertItem({ status: "new" });
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/backlog/${item.id}`,
+      headers: { cookie: adminCookie },
+      payload: { status: "archived" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { status: string }).status).toBe("archived");
+  });
+});
+
+describe("POST /api/backlog", () => {
+  it("senza sessione → 401", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/backlog",
+      payload: { projectId, title: "Idea", body: "descrizione" },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("progetto inesistente → 404", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/backlog",
+      headers: { cookie: memberCookie },
+      payload: { projectId: crypto.randomUUID(), title: "Idea", body: "descrizione" },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("creazione manuale → 202 e job intake con payload title/body", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/backlog",
+      headers: { cookie: memberCookie },
+      payload: { projectId, title: "Idea manuale", body: "corpo della richiesta" },
+    });
+    expect(res.statusCode).toBe(202);
+    expect(res.json()).toEqual({ queued: true });
+
+    const jobs = await testDb.db
+      .select()
+      .from(backlogJobs)
+      .where(eq(backlogJobs.projectId, projectId));
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.kind).toBe("intake");
+    expect(jobs[0]!.status).toBe("queued");
+    expect(jobs[0]!.payload).toEqual({ title: "Idea manuale", body: "corpo della richiesta" });
+  });
+});
+
+describe("POST /api/backlog/:id/suggested/accept", () => {
+  it("member (non admin) → 403", async () => {
+    const item = await insertItem({ suggested: { effort: 4 } });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/suggested/accept`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("404 se inesistente", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${crypto.randomUUID()}/suggested/accept`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("409 se suggested è null", async () => {
+    const item = await insertItem();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/suggested/accept`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(409);
+  });
+
+  it("applica tutti i metadati suggeriti e azzera suggested", async () => {
+    const item = await insertItem({
+      effort: 1,
+      risk: "low",
+      suggested: { effort: 4, risk: "high", riskNote: "attenzione", urgency: "urgent" },
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/suggested/accept`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      effort: number;
+      risk: string;
+      riskNote: string;
+      urgency: string;
+      suggested: unknown;
+    };
+    expect(body.effort).toBe(4);
+    expect(body.risk).toBe("high");
+    expect(body.riskNote).toBe("attenzione");
+    expect(body.urgency).toBe("urgent");
+    expect(body.suggested).toBeNull();
+  });
+});
+
+describe("POST /api/backlog/:id/suggested/dismiss", () => {
+  it("member (non admin) → 403", async () => {
+    const item = await insertItem({ suggested: { effort: 4 } });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/suggested/dismiss`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("409 se suggested è null", async () => {
+    const item = await insertItem();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/suggested/dismiss`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(409);
+  });
+
+  it("azzera suggested senza applicare i metadati", async () => {
+    const item = await insertItem({ effort: 1, suggested: { effort: 4, risk: "high" } });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/suggested/dismiss`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { effort: number; suggested: unknown };
+    // I metadati reali NON cambiano; solo suggested è azzerato.
+    expect(body.effort).toBe(1);
+    expect(body.suggested).toBeNull();
+  });
+});
