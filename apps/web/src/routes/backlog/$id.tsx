@@ -19,7 +19,6 @@ import {
   BacklogStatusBadge,
   PRIORITY_LABEL_KEYS,
   PriorityBadge,
-  SOURCE_LABEL_KEYS,
 } from "../../components/badges";
 import { BacklogChat } from "../../components/backlog-chat";
 import { ComboboxPicker } from "../../components/combobox-picker";
@@ -118,8 +117,12 @@ export function BacklogDetailPage() {
           {item.effort !== null && <BacklogEffortBadge effort={item.effort} />}
           {item.risk !== null && <BacklogRiskBadge risk={item.risk} />}
           {item.urgency !== null && <PriorityBadge priority={item.urgency} />}
-          <span className="font-mono text-[11px] text-fg-faint" title={t(SOURCE_LABEL_KEYS.manual)}>
-            ◇ {t(item.source === "ticket" ? "badges:source.webhook" : "badges:source.manual")}
+          {/* Sorgente con chiavi i18n dedicate al backlog (ticket/manual). */}
+          <span
+            className="font-mono text-[11px] text-fg-faint"
+            title={t("badges:sourceTitle", { label: t(`backlog:source.${item.source}`) })}
+          >
+            ◇ {t(`backlog:source.${item.source}`)}
           </span>
           <span className="font-mono text-[11px] text-fg-muted">{projectName}</span>
           {item.requestCount > 1 && (
@@ -207,7 +210,7 @@ export function BacklogDetailPage() {
               id="backlog-status"
               label={t("backlog:detail.status")}
               value={EDITABLE_STATUSES.includes(item.status) ? item.status : ""}
-              disabled={isLocked || patchMutation.isPending}
+              disabled={!isAdmin || isLocked || patchMutation.isPending}
               onChange={(event) =>
                 patchMutation.mutate({ status: event.target.value as BacklogItemStatus })
               }
@@ -227,7 +230,7 @@ export function BacklogDetailPage() {
               id="backlog-effort"
               label={t("backlog:detail.effort")}
               value={item.effort === null ? "" : String(item.effort)}
-              disabled={isLocked || patchMutation.isPending}
+              disabled={!isAdmin || isLocked || patchMutation.isPending}
               onChange={(event) =>
                 patchMutation.mutate({
                   effort: event.target.value === "" ? null : Number(event.target.value),
@@ -246,7 +249,7 @@ export function BacklogDetailPage() {
               id="backlog-risk"
               label={t("backlog:detail.risk")}
               value={item.risk ?? ""}
-              disabled={isLocked || patchMutation.isPending}
+              disabled={!isAdmin || isLocked || patchMutation.isPending}
               onChange={(event) =>
                 patchMutation.mutate({
                   risk: event.target.value === "" ? null : (event.target.value as BacklogRisk),
@@ -265,7 +268,7 @@ export function BacklogDetailPage() {
               id="backlog-urgency"
               label={t("backlog:detail.urgency")}
               value={item.urgency ?? ""}
-              disabled={isLocked || patchMutation.isPending}
+              disabled={!isAdmin || isLocked || patchMutation.isPending}
               onChange={(event) =>
                 patchMutation.mutate({
                   urgency:
@@ -283,7 +286,7 @@ export function BacklogDetailPage() {
 
             <RiskNoteField
               value={item.riskNote ?? ""}
-              disabled={isLocked || patchMutation.isPending}
+              disabled={!isAdmin || isLocked || patchMutation.isPending}
               onCommit={(riskNote) => patchMutation.mutate({ riskNote: riskNote || null })}
             />
 
@@ -300,7 +303,14 @@ export function BacklogDetailPage() {
             </dl>
           </div>
 
-          {isAdmin && <ActionsPanel item={item} onApply={applyBase} navigate={navigate} />}
+          {isAdmin && (
+            <ActionsPanel
+              item={item}
+              projectName={projectName}
+              onApply={applyBase}
+              navigate={navigate}
+            />
+          )}
 
           <BacklogChat
             itemId={id}
@@ -478,10 +488,13 @@ function SuggestedBanner({
  */
 function ActionsPanel({
   item,
+  projectName,
   onApply,
   navigate,
 }: {
   item: BacklogItemDetail;
+  /** Nome del progetto risolto dalla pagina: finisce nel frontmatter export. */
+  projectName: string;
   onApply: (updated: BacklogItemBase) => Promise<void>;
   navigate: ReturnType<typeof route.useNavigate>;
 }) {
@@ -571,6 +584,7 @@ function ActionsPanel({
     const front = [
       "---",
       `title: ${item.title}`,
+      `project: ${projectName}`,
       `effort: ${item.effort ?? "-"}`,
       `risk: ${item.risk ?? "-"}`,
       `urgency: ${item.urgency ?? "-"}`,

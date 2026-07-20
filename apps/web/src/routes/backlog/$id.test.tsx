@@ -93,10 +93,18 @@ interface MockState {
   merges: unknown[];
   /** Esito da far tornare al refresh-document (default 200). */
   refreshStatus: number;
+  /** Esito da far tornare al deep-dive (default 202; 409 = già in corso). */
+  deepDiveStatus: number;
 }
 
 function mockDetailApi(
-  overrides: { item?: BacklogItemDetail; role?: "admin" | "member"; repos?: unknown[]; refreshStatus?: number } = {},
+  overrides: {
+    item?: BacklogItemDetail;
+    role?: "admin" | "member";
+    repos?: unknown[];
+    refreshStatus?: number;
+    deepDiveStatus?: number;
+  } = {},
 ): MockState {
   const state: MockState = {
     item: overrides.item ?? detailFixture(),
@@ -108,6 +116,7 @@ function mockDetailApi(
     converts: 0,
     merges: [],
     refreshStatus: overrides.refreshStatus ?? 200,
+    deepDiveStatus: overrides.deepDiveStatus ?? 202,
   };
   const role = overrides.role ?? "admin";
   const repos =
@@ -217,6 +226,14 @@ function mockDetailApi(
       return Promise.resolve(jsonResponse(200, base()));
     }
     if (path === `/api/backlog/${ITEM_ID}/deep-dive`) {
+      if (state.deepDiveStatus !== 202) {
+        return Promise.resolve(
+          jsonResponse(state.deepDiveStatus, {
+            code: "deep_dive_pending",
+            message: "A deep dive is already in progress",
+          }),
+        );
+      }
       state.deepDives.push(JSON.parse(String(init?.body)));
       state.item = { ...state.item, deepDivePending: true };
       return Promise.resolve(jsonResponse(202, { queued: true }));
@@ -379,6 +396,25 @@ describe("dettaglio backlog", () => {
     expect(await screen.findByText(/Nothing new to synthesize/i)).toBeInTheDocument();
   });
 
+  it("aggiorna documento: 502 mostra l'errore di generazione", async () => {
+    mockDetailApi({ refreshStatus: 502 });
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Update document" }));
+    expect(await screen.findByText(/Could not generate the document/i)).toBeInTheDocument();
+  });
+
+  it("deep dive: 409 (già in corso) mostra il messaggio d'errore del server", async () => {
+    mockDetailApi({
+      deepDiveStatus: 409,
+      repos: [{ id: REPO_A, name: "Repo A", slug: "repo-a", projectId: PROJECT_ID, provider: "github" }],
+    });
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Deep-dive analysis" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/already in progress/i);
+  });
+
   it("converti in task: conferma, POST e link al ticket creato", async () => {
     const state = mockDetailApi();
     renderDetail();
@@ -450,17 +486,24 @@ describe("dettaglio backlog", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: "Copy Markdown" }));
     await waitFor(() => expect(writeText).toHaveBeenCalled());
-    expect(String(writeText.mock.calls[0]![0])).toContain("title: Export massivo ordini");
+    const exported = String(writeText.mock.calls[0]![0]);
+    expect(exported).toContain("title: Export massivo ordini");
+    expect(exported).toContain("project: Progetto Alfa");
   });
 
-  it("member: niente banner suggeriti né barra azioni", async () => {
+  it("member: niente banner suggeriti né barra azioni, metadati disabilitati", async () => {
     mockDetailApi({ role: "member", item: detailFixture({ suggested: { effort: 4 } }) });
     renderDetail();
 
     await screen.findByRole("heading", { name: "Export massivo ordini" });
     expect(screen.queryByRole("region", { name: "AI suggestions" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Convert to task" })).not.toBeInTheDocument();
-    // Ma i metadati restano visibili (read-only lato server per i member).
-    expect(screen.getByLabelText("Status")).toBeInTheDocument();
+    // I metadati restano visibili ma DISABILITATI: la PATCH server è
+    // admin-only e un 403 dal select sarebbe solo confuso.
+    expect(screen.getByLabelText("Status")).toBeDisabled();
+    expect(screen.getByLabelText("Effort")).toBeDisabled();
+    expect(screen.getByLabelText("Risk")).toBeDisabled();
+    expect(screen.getByLabelText("Urgency")).toBeDisabled();
+    expect(screen.getByLabelText("Risk note")).toBeDisabled();
   });
 });

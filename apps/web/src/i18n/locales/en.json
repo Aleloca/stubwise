@@ -530,6 +530,10 @@
       "submit": "Create item",
       "submitPending": "Queuing…"
     },
+    "source": {
+      "ticket": "From ticket",
+      "manual": "Manual"
+    },
     "detail": {
       "back": "Back to backlog",
       "document": "Document",
@@ -551,8 +555,7 @@
       "createdAt": "Created",
       "updatedAt": "Updated",
       "requestCount": "Requests",
-      "lockedNotice": "This item is {{status}}: editing is disabled.",
-      "convertedTicket": "Converted to ticket #{{number}}"
+      "lockedNotice": "This item is {{status}}: editing is disabled."
     },
     "suggested": {
       "title": "AI suggestions",
@@ -581,7 +584,6 @@
       "chooseRepoHint": "Pick the repository the agent should analyze.",
       "start": "Start",
       "noRepos": "This project has no repositories to analyze.",
-      "export": "Export .md",
       "copyMd": "Copy Markdown",
       "copied": "Copied!",
       "downloadMd": "Download .md",

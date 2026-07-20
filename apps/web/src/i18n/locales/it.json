@@ -530,6 +530,10 @@
       "submit": "Crea item",
       "submitPending": "In coda…"
     },
+    "source": {
+      "ticket": "Da ticket",
+      "manual": "Manuale"
+    },
     "detail": {
       "back": "Torna al backlog",
       "document": "Documento",
@@ -551,8 +555,7 @@
       "createdAt": "Creato",
       "updatedAt": "Aggiornato",
       "requestCount": "Richieste",
-      "lockedNotice": "Questo item è {{status}}: la modifica è disabilitata.",
-      "convertedTicket": "Convertito nel ticket #{{number}}"
+      "lockedNotice": "Questo item è {{status}}: la modifica è disabilitata."
     },
     "suggested": {
       "title": "Suggerimenti AI",
@@ -581,7 +584,6 @@
       "chooseRepoHint": "Scegli il repository che l'agente deve analizzare.",
       "start": "Avvia",
       "noRepos": "Questo progetto non ha repository da analizzare.",
-      "export": "Esporta .md",
       "copyMd": "Copia Markdown",
       "copied": "Copiato!",
       "downloadMd": "Scarica .md",
