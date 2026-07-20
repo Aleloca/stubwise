@@ -507,7 +507,8 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
           }
           values.push(parsed.data);
         }
-        conditions.push(inArray(tickets.status, values));
+        // Dedup: evita bind param ripetuti con ?statuses=open,open,...
+        conditions.push(inArray(tickets.status, [...new Set(values)]));
       } else if (status) conditions.push(eq(tickets.status, status));
       if (type) conditions.push(eq(tickets.type, type));
       if (priority) conditions.push(eq(tickets.priority, priority));

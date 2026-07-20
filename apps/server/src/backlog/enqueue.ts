@@ -10,6 +10,7 @@
  */
 
 import { eq } from "drizzle-orm";
+import type { TicketType } from "@stubwise/shared";
 import type { Db } from "@stubwise/db";
 import { backlogJobs, projects } from "@stubwise/db";
 
@@ -22,7 +23,7 @@ import { backlogJobs, projects } from "@stubwise/db";
  */
 export async function maybeEnqueueBacklogIntake(
   tx: Db,
-  ticket: { id: string; projectId: string; type: string },
+  ticket: { id: string; projectId: string; type: TicketType },
 ): Promise<boolean> {
   if (ticket.type !== "feedback" && ticket.type !== "feature") return false;
   const [project] = await tx
