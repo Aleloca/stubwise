@@ -236,6 +236,91 @@ describe("lista ticket", () => {
     expect(seen?.get("statuses")).toBeNull();
   });
 
+  it("una vista salvata su «Tutti» riapplica status=all (nessun parametro stato in fetch)", async () => {
+    const seen: URLSearchParams[] = [];
+    const view = {
+      id: "55555555-5555-4555-8555-555555555555",
+      name: "Tutto il backlog",
+      filters: { status: "all" },
+      shared: false,
+      ownerId: "u1",
+      isOwn: true,
+      createdAt: "2026-06-01T10:00:00.000Z",
+    };
+    mockApi({
+      ...baseHandlers,
+      "/api/saved-views": () => jsonResponse(200, [view]),
+      "/api/tickets": (url) => {
+        seen.push(url.searchParams);
+        return jsonResponse(200, { items: [], nextCursor: null });
+      },
+    });
+
+    const router = renderApp("/tickets?status=done");
+    await screen.findByText(/no tickets found/i);
+    expect(seen.at(-1)?.get("status")).toBe("done");
+
+    await userEvent.click(screen.getByRole("button", { name: "Apply Tutto il backlog" }));
+
+    await waitFor(() => expect(router.state.location.search).toEqual({ status: "all" }));
+    // La riapplicazione mostra TUTTI gli stati: nessun parametro stato.
+    await waitFor(() => {
+      const last = seen.at(-1);
+      expect(last?.get("status")).toBeNull();
+      expect(last?.get("statuses")).toBeNull();
+    });
+  });
+
+  it("salvare una vista su «Tutti» persiste status=all; una con stato esplicito resta invariata", async () => {
+    const user = userEvent.setup();
+    const createdBodies: unknown[] = [];
+    const doneView = {
+      id: "66666666-6666-4666-8666-666666666666",
+      name: "Chiusi",
+      filters: { status: "done" },
+      shared: false,
+      ownerId: "u1",
+      isOwn: true,
+      createdAt: "2026-06-01T10:00:00.000Z",
+    };
+    fetchMock.mockImplementation((input, init) => {
+      const raw =
+        typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const url = new URL(raw, "http://test.local");
+      const method = init?.method ?? "GET";
+      if (url.pathname === "/api/saved-views" && method === "POST") {
+        createdBodies.push(JSON.parse(String(init?.body)));
+        return Promise.resolve(jsonResponse(201, doneView));
+      }
+      if (url.pathname === "/api/saved-views") {
+        return Promise.resolve(jsonResponse(200, [doneView]));
+      }
+      if (url.pathname === "/api/tickets") {
+        return Promise.resolve(jsonResponse(200, { items: [], nextCursor: null }));
+      }
+      const handler = baseHandlers[url.pathname as keyof typeof baseHandlers];
+      if (!handler) throw new Error(`fetch non mockata per ${method} ${raw}`);
+      return Promise.resolve(handler());
+    });
+
+    const router = renderApp("/tickets?status=all");
+    await screen.findByText(/no tickets found/i);
+
+    // Salva la combinazione corrente ("Tutti"): il body deve portare status=all.
+    await user.type(screen.getByLabelText("View name"), "Tutto");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(createdBodies).toHaveLength(1));
+    expect(createdBodies[0]).toEqual({
+      name: "Tutto",
+      filters: { status: "all" },
+      shared: false,
+    });
+
+    // Una vista con stato esplicito continua a riapplicare quel singolo stato.
+    await user.click(screen.getByRole("button", { name: "Apply Chiusi" }));
+    await waitFor(() => expect(router.state.location.search).toEqual({ status: "done" }));
+  });
+
   it("un search param malformato viene scartato invece di rompere la route", async () => {
     mockApi({
       ...baseHandlers,

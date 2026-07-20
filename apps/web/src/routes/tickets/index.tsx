@@ -111,9 +111,12 @@ export function TicketsPage() {
   // lista: non compare nello schema dei search param, quindi non è incluso.
   const currentFilters: SavedViewFilters = {
     ...(search.projectId !== undefined && { projectId: search.projectId }),
-    // `"all"` (tutti gli stati) e il default (assente) non sono filtri di stato
-    // salvabili: solo un singolo stato esplicito finisce nella vista.
-    ...(search.status !== undefined && search.status !== "all" && { status: search.status }),
+    // `"all"` è salvabile come gli stati singoli: una vista salvata su "Tutti"
+    // deve riaprire tutti gli stati, non il default. Le viste SENZA `status`
+    // (incluse quelle salvate prima del default "stati attivi") seguono invece
+    // il default corrente della lista: alla riapplicazione mostrano gli Attivi
+    // — comportamento voluto, coerente col nuovo default.
+    ...(search.status !== undefined && { status: search.status }),
     ...(search.type !== undefined && { type: search.type }),
     ...(search.priority !== undefined && { priority: search.priority }),
     ...(search.milestoneId !== undefined && { milestoneId: search.milestoneId }),

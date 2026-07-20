@@ -12,11 +12,15 @@ import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js"
  * Criteri di filtraggio della lista ticket persistibili in una vista salvata.
  * Tutti opzionali e `.strict()`: chiavi non previste vengono rifiutate per non
  * salvare spazzatura nel jsonb (e per non confondere il client che li riapplica).
+ *
+ * `status` ammette anche il valore sintetico `"all"` della lista (nessun filtro
+ * di stato, in contrapposizione al default "stati attivi"): una vista salvata su
+ * "Tutti" deve preservare quell'intento alla riapplicazione.
  */
 const savedViewFiltersSchema = z
   .object({
     projectId: z.uuid().optional(),
-    status: ticketStatusSchema.optional(),
+    status: z.union([ticketStatusSchema, z.literal("all")]).optional(),
     type: ticketTypeSchema.optional(),
     priority: ticketPrioritySchema.optional(),
     assigneeId: z.uuid().optional(),

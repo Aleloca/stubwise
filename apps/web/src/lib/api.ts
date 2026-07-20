@@ -293,7 +293,7 @@ export interface TicketFilters {
    * `status` (lato server `statuses` vince). Usato dalla lista per il default
    * "stati attivi". Omesso dalla richiesta se assente o array vuoto.
    */
-  statuses?: string[];
+  statuses?: TicketStatus[];
   type?: TicketType;
   priority?: TicketPriority;
   milestoneId?: string;
@@ -423,7 +423,12 @@ export function deleteMilestone(id: string): Promise<void> {
 /** Criteri di filtraggio della lista ticket persistiti in una vista salvata. */
 export interface SavedViewFilters {
   projectId?: string;
-  status?: TicketStatus;
+  /**
+   * Oltre ai singoli stati, `"all"` (tutti gli stati, in contrapposizione al
+   * default "stati attivi" della lista): una vista salvata su "Tutti" preserva
+   * quell'intento alla riapplicazione.
+   */
+  status?: TicketStatus | "all";
   type?: TicketType;
   priority?: TicketPriority;
   assigneeId?: string;

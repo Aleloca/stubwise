@@ -22,6 +22,15 @@ export interface BacklogChatHandlers {
  * `chat_unavailable` del pre-flight del server (nessun provider api_key), che il
  * chiamante riconosce dal `code` per un messaggio dedicato. Il parsing SSE
  * (`data: {json}` separati da `\n\n`) è identico a quello della chat Docs.
+ *
+ * Contratto di chiusura: lo stream PUÒ chiudersi senza un `done` esplicito (es.
+ * risposta troncata dal server) — in quel caso la promise si risolve comunque,
+ * SENZA invocare `onDone` né `onError`. È il chiamante a chiudere lo stato di
+ * "streaming in corso" alla risoluzione della promise (non dentro `onDone`),
+ * così l'indicatore sparisce in ogni caso. Un eventuale buffer residuo senza il
+ * separatore finale `\n\n` viene scartato intenzionalmente: un evento SSE
+ * incompleto non è parsabile in modo affidabile e i delta già consegnati
+ * restano validi.
  */
 export async function postBacklogChatStream(
   itemId: string,
