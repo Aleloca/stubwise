@@ -7,15 +7,18 @@ import {
   tickets,
   type Db,
 } from "@stubwise/db";
+import { t } from "@stubwise/i18n";
 import {
   backlogRiskSchema,
   backlogUrgencySchema,
   effortSchema,
   type BacklogIntakePayload,
+  type Language,
 } from "@stubwise/shared";
 import { and, eq, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AgentRunResult } from "../agent/runner.js";
+import { getContentLanguage } from "../settings.js";
 import type { BacklogDeps, BacklogJob } from "./poller.js";
 import { buildIntakePrompt, buildMergePrompt } from "./prompts.js";
 
@@ -34,12 +37,24 @@ import { buildIntakePrompt, buildMergePrompt } from "./prompts.js";
  * FAIL-SAFE: il ticket d'origine viene chiuso SOLO dopo il successo (embedding,
  * run agente, parse, insert). Qualunque errore prima → throw: il poller riaccoda
  * (o fallisce dopo i tentativi) e il ticket RESTA aperto.
+ *
+ * NON-IDEMPOTENZA del retry (accettata, nessun marker di completamento): se il
+ * worker crasha DOPO il commit della transazione ma PRIMA che il poller marchi il
+ * job `done`, il retry ri-esegue l'intake da capo. Per un intake DA TICKET il
+ * rientro è naturale (il ticket è ormai `closed` → no-op); per un intake MANUALE
+ * il retry rifà l'embedding, trova la voce appena creata con similarità 1.0 e ci
+ * fa MERGE sopra (requestCount gonfiato di 1, documento "integrato" con lo stesso
+ * feedback). Esito benigno — nessun duplicato, solo un contatore ottimista — e la
+ * finestra è minuscola: non vale un marker di completamento dedicato.
  */
 
-/** Output JSON della PRIMA elaborazione di una voce (buildIntakePrompt). */
+/** Output JSON della PRIMA elaborazione di una voce (buildIntakePrompt). I cap
+ * (title 300 come createBacklogItemSchema, document 50k) respingono un output
+ * degenere/iniettato prima che finisca in DB: schema violato → parse null →
+ * throw → retry. */
 const intakeOutputSchema = z.object({
-  title: z.string().min(1),
-  document: z.string().min(1),
+  title: z.string().min(1).max(300),
+  document: z.string().min(1).max(50_000),
   effort: effortSchema,
   risk: backlogRiskSchema,
   riskNote: z.string().max(2000).optional(),
@@ -155,12 +170,13 @@ async function mergeIntoItem(
   item: BestMatch,
   input: { title: string; body: string },
   ticket: OriginTicket | null,
+  lang: Language,
 ): Promise<void> {
   const result = await deps.runner.run({
     cwd: deps.workDir,
     prompt: buildMergePrompt(item.document, feedbackText(input.title, input.body)),
     ...(deps.model !== undefined ? { model: deps.model } : {}),
-    permissionMode: "plan",
+    permissionMode: "default",
     maxTurns: 3,
     timeoutMs: deps.agentTimeoutMs,
   });
@@ -173,14 +189,15 @@ async function mergeIntoItem(
       .set({ document: parsed.document, requestCount: sql`${backlogItems.requestCount} + 1` })
       .where(eq(backlogItems.id, item.id));
     // Messaggio di sistema nella chat della voce: traccia l'integrazione.
+    // Testo utente → i18n (lingua dei contenuti d'istanza, come i commenti AI).
     await tx.insert(backlogChatMessages).values({
       itemId: item.id,
       role: "system",
       content: ticket
-        ? `Nuovo feedback integrato dal ticket #${ticket.number}.`
-        : "Nuovo feedback integrato (idea proposta manualmente).",
+        ? t(lang, "backlog.mergedFromTicket", { number: ticket.number })
+        : t(lang, "backlog.mergedManual"),
     });
-    if (ticket) await closeOriginTicket(tx, ticket, item.id, item.title);
+    if (ticket) await closeOriginTicket(tx, ticket, item.id, item.title, lang);
   });
 }
 
@@ -197,6 +214,7 @@ async function createNewItem(
   vec: number[],
   best: BestMatch | null,
   ticket: OriginTicket | null,
+  lang: Language,
 ): Promise<void> {
   const chunks = await retrieveChunksForProject(
     deps.db,
@@ -216,7 +234,7 @@ async function createNewItem(
       chunks,
     ),
     ...(deps.model !== undefined ? { model: deps.model } : {}),
-    permissionMode: "plan",
+    permissionMode: "default",
     maxTurns: 3,
     timeoutMs: deps.agentTimeoutMs,
   });
@@ -245,7 +263,7 @@ async function createNewItem(
       })
       .returning({ id: backlogItems.id, title: backlogItems.title });
     const item = inserted!;
-    if (ticket) await closeOriginTicket(tx, ticket, item.id, item.title);
+    if (ticket) await closeOriginTicket(tx, ticket, item.id, item.title, lang);
   });
 }
 
@@ -261,15 +279,17 @@ async function closeOriginTicket(
   ticket: OriginTicket,
   itemId: string,
   itemTitle: string,
+  lang: Language,
 ): Promise<void> {
   await tx
     .insert(backlogItemTickets)
     .values({ itemId, ticketId: ticket.id, role: "origin" })
     .onConflictDoNothing();
+  // Commento AI nella lingua dei contenuti d'istanza (come i commenti del triage).
   await tx.insert(comments).values({
     ticketId: ticket.id,
     authorType: "ai",
-    body: `Spostato nel backlog di discovery: "${itemTitle}".`,
+    body: t(lang, "comment.backlogIntake", { title: itemTitle }),
   });
   await tx.update(tickets).set({ status: "closed" }).where(eq(tickets.id, ticket.id));
 }
@@ -315,6 +335,10 @@ export async function runIntake(
     input = { title: payload.title, body: payload.body };
   }
 
+  // Lingua dei contenuti generati (commento di chiusura, messaggi system),
+  // risolta UNA volta per job come nel triage.
+  const lang = await getContentLanguage(db);
+
   // 2. Embedding di titolo+corpo. Un fallimento lancia → retry.
   const [vec] = await deps.embeddingClient.embed([feedbackText(input.title, input.body)]);
   if (!vec) throw new Error("intake: embedding, nessun vettore restituito");
@@ -324,8 +348,8 @@ export async function runIntake(
 
   // 4/5. Merge sopra soglia, altrimenti nuova voce.
   if (best && best.similarity >= deps.mergeThreshold) {
-    await mergeIntoItem(deps, best, input, ticket);
+    await mergeIntoItem(deps, best, input, ticket, lang);
   } else {
-    await createNewItem(deps, projectId, input, vec, best, ticket);
+    await createNewItem(deps, projectId, input, vec, best, ticket, lang);
   }
 }

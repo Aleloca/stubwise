@@ -10,7 +10,7 @@ import {
 } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { BacklogIntakePayload } from "@stubwise/shared";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentRunner, AgentRunResult } from "../agent/runner.js";
@@ -156,9 +156,11 @@ describe("runIntake — nuova voce", () => {
     const [closed] = await db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, ticket.id));
     expect(closed!.status).toBe("closed");
 
+    // Commento AI nella lingua d'istanza (default 'en'), via catalogo i18n.
     const [comment] = await db.select().from(comments).where(eq(comments.ticketId, ticket.id));
     expect(comment!.authorType).toBe("ai");
-    expect(comment!.body).toContain("Spostato nel backlog");
+    expect(comment!.body).toContain("Moved to the discovery backlog");
+    expect(comment!.body).toContain("Voce generata");
 
     const [link] = await db
       .select()
@@ -239,13 +241,19 @@ describe("runIntake — merge (dedup sopra soglia)", () => {
     expect(items[0]!.document).toBe("## Contesto\nvecchio + nuovo");
     expect(items[0]!.requestCount).toBe(existing!.requestCount + 1);
 
-    // Messaggio di sistema nella chat della voce, col numero del ticket.
+    // L'embedding della voce NON è stato ricalcolato: resta il nucleo dell'idea
+    // (i valori 0/1 di vecA sono esatti in float4, il confronto è stabile).
+    expect(items[0]!.embedding).toEqual(vecA);
+
+    // Messaggio di sistema nella chat della voce (i18n, lingua d'istanza 'en'),
+    // col numero del ticket.
     const [msg] = await db
       .select()
       .from(backlogChatMessages)
       .where(eq(backlogChatMessages.itemId, existing!.id));
     expect(msg!.role).toBe("system");
     expect(msg!.content).toContain("#7");
+    expect(msg!.content).toContain("New feedback integrated");
 
     // Ticket chiuso + collegato alla voce esistente.
     const [closed] = await db.select({ status: tickets.status }).from(tickets).where(eq(tickets.id, ticket.id));
@@ -255,6 +263,78 @@ describe("runIntake — merge (dedup sopra soglia)", () => {
       .from(backlogItemTickets)
       .where(and(eq(backlogItemTickets.itemId, existing!.id), eq(backlogItemTickets.ticketId, ticket.id)));
     expect(link!.role).toBe("origin");
+  });
+
+  it("una voce ARCHIVED con embedding identico è esclusa dal dedup → nasce una voce nuova", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const [archived] = await db
+      .insert(backlogItems)
+      .values({
+        projectId,
+        title: "Idea scartata",
+        document: "d",
+        source: "manual",
+        status: "archived",
+        embedding: vecA,
+      })
+      .returning({ id: backlogItems.id });
+    const ticket = await createTicket(db, projectId, { title: "Ci riprovo", body: "stessa idea" });
+    const feedback = "Ci riprovo\n\nstessa idea";
+
+    const deps = makeDeps(db, {
+      embeddingClient: embeddingClient({ [feedback]: vecA }), // identico all'archiviata
+      runner: fakeRunner(INTAKE_JSON),
+    });
+    await runIntake(deps, fakeJob(projectId), { ticketId: ticket.id });
+
+    // Niente merge sull'archiviata: voce NUOVA, senza nemmeno similarToId
+    // (l'archiviata è fuori dalla similarity search del tutto).
+    const items = await db.select().from(backlogItems).where(eq(backlogItems.projectId, projectId));
+    expect(items).toHaveLength(2);
+    const created = items.find((i) => i.id !== archived!.id)!;
+    expect(created.title).toBe("Voce generata");
+    expect(created.similarToId).toBeNull();
+    // L'archiviata è intatta (requestCount invariato, nessun system message).
+    const old = items.find((i) => i.id === archived!.id)!;
+    expect(old.requestCount).toBe(1);
+    expect(old.document).toBe("d");
+  });
+
+  it("similarità ESATTAMENTE = mergeThreshold → merge (frontiera del >=)", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    await db.insert(backlogItems).values({
+      projectId,
+      title: "Idea",
+      document: "d",
+      source: "manual",
+      embedding: vecA,
+    });
+    const ticket = await createTicket(db, projectId, { title: "Frontiera", body: "al limite" });
+    const feedback = "Frontiera\n\nal limite";
+
+    // Similarità MISURATA dalla stessa query pgvector dell'intake (1 - distanza):
+    // usarla come soglia garantisce l'uguaglianza esatta alla frontiera, senza
+    // dipendere dall'aritmetica float del coseno.
+    const literal = `[${vecGray.join(",")}]`;
+    const [row] = await db
+      .select({ distance: sql<number>`(${backlogItems.embedding} <=> ${literal}::vector)` })
+      .from(backlogItems)
+      .where(eq(backlogItems.projectId, projectId));
+    const measured = 1 - row!.distance;
+
+    const deps = makeDeps(db, {
+      embeddingClient: embeddingClient({ [feedback]: vecGray }),
+      runner: fakeRunner(JSON.stringify({ document: "fuso" })),
+      mergeThreshold: measured, // frontiera esatta: similarity >= threshold deve fondere
+    });
+    await runIntake(deps, fakeJob(projectId), { ticketId: ticket.id });
+
+    const items = await db.select().from(backlogItems).where(eq(backlogItems.projectId, projectId));
+    expect(items).toHaveLength(1); // merge, nessuna voce nuova
+    expect(items[0]!.document).toBe("fuso");
+    expect(items[0]!.requestCount).toBe(2);
   });
 });
 

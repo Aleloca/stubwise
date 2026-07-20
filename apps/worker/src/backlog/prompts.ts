@@ -17,8 +17,13 @@ import type { RetrievedChunk } from "@stubwise/db";
  *
  * PROMPT INJECTION: titolo/corpo del feedback e documenti sono input NON FIDATO
  * (chi apre un ticket ne controlla il contenuto). Contenuto per costruzione: i
- * run girano in `permissionMode: "plan"` (sola analisi) su una dir vuota
- * (nessun worktree, nessun tool di scrittura). Caso peggiore: una voce del
+ * run girano in `permissionMode: "default"` (in headless nega ciò che
+ * richiederebbe approvazione) su una dir vuota (nessun worktree). NON si usa
+ * "plan": è la modalità di ESPLORAZIONE read-only e invita l'agente a leggere
+ * il filesystem del container (Read/Grep/Glob) — un feedback ostile potrebbe
+ * indurlo a leggere file sensibili (es. /proc/self/environ) con canale di
+ * ritorno via title → commento sul ticket. L'intake non usa tool per design:
+ * tutto il contesto è già nel prompt. Caso peggiore residuo: una voce del
  * backlog dal contenuto fuorviante, mai un'azione sul sistema.
  */
 

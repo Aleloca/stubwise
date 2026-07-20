@@ -28,6 +28,7 @@ export const en: Catalog = {
   "comment.triageDuplicate": 'AI triage: duplicate of #{number} — "{title}"',
   "comment.backlogDeviated":
     "AI triage: type {type}. It does not enter the fix pipeline: moved to the discovery backlog for collection and refinement.",
+  "comment.backlogIntake": 'Moved to the discovery backlog: "{title}".',
   "comment.planProposed": "Proposed plan (awaiting approval):",
   "comment.planApproved": "Plan approved — execution in progress",
   "comment.planRejected": "Plan rejected — replanning in progress",
@@ -46,6 +47,10 @@ export const en: Catalog = {
   "comment.reviewVerdict.approve": "🔎 **PR Review** — approval suggested ({url})",
   "comment.reviewVerdict.requestChanges": "🔎 **PR Review** — changes requested ({url})",
   "comment.reviewTicketBody": "Automatic review of pull request {url} (branch `{branch}`).",
+
+  // --- backlog.* — messaggi `system` nella chat di una voce del backlog ---
+  "backlog.mergedFromTicket": "New feedback integrated from ticket #{number}.",
+  "backlog.mergedManual": "New feedback integrated (manually submitted idea).",
 
   // --- effort.* — etichette della scala di sforzo 1–5 (allineate alle label
   // della web UI, namespace `badges.effort`). Usate nei commenti AI del triage.
@@ -134,6 +139,7 @@ export const it: Catalog = {
   "comment.triageDuplicate": 'Triage AI: duplicato di #{number} — "{title}"',
   "comment.backlogDeviated":
     "Triage AI: tipo {type}. Non entra nella pipeline di fix: spostato nel backlog di discovery per raccolta e raffinamento.",
+  "comment.backlogIntake": 'Spostato nel backlog di discovery: "{title}".',
   "comment.planProposed": "Piano proposto (in attesa di approvazione):",
   "comment.planApproved": "Piano approvato — esecuzione in corso",
   "comment.planRejected": "Piano rifiutato — ripianificazione in corso",
@@ -151,6 +157,10 @@ export const it: Catalog = {
   "comment.reviewVerdict.approve": "🔎 **PR Review** — approvazione suggerita ({url})",
   "comment.reviewVerdict.requestChanges": "🔎 **PR Review** — modifiche richieste ({url})",
   "comment.reviewTicketBody": "Review automatica della pull request {url} (branch `{branch}`).",
+
+  // --- backlog.* (messaggi `system` nella chat di una voce del backlog) ---
+  "backlog.mergedFromTicket": "Nuovo feedback integrato dal ticket #{number}.",
+  "backlog.mergedManual": "Nuovo feedback integrato (idea proposta manualmente).",
 
   // --- effort.* (etichette italiane della scala di sforzo, = EFFORT_LABELS) ---
   "effort.1": "Banale",
