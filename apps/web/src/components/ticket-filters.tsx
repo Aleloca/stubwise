@@ -4,13 +4,11 @@ import {
   ticketTypeSchema,
 } from "@stubwise/shared";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { Project, TicketFilters as TicketFiltersValue } from "../lib/api";
 import { milestonesQueryOptions } from "../lib/queries";
 import { PRIORITY_LABEL_KEYS, STATUS_LABEL_KEYS, TYPE_LABEL_KEYS } from "./badges";
-
-const SEARCH_DEBOUNCE_MS = 300;
+import { DebouncedSearchField } from "./debounced-search-field";
 
 /**
  * Stato UI dei filtri della lista: come {@link TicketFiltersValue} ma con lo
@@ -37,44 +35,21 @@ interface TicketFiltersProps {
  */
 export function TicketFilters({ value, projects, onChange }: TicketFiltersProps) {
   const { t } = useTranslation();
-  const [draft, setDraft] = useState(value.q ?? "");
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
-
-  // Se q cambia da fuori (back/forward, link condiviso) il campo si allinea.
-  useEffect(() => {
-    setDraft(value.q ?? "");
-  }, [value.q]);
-
-  useEffect(() => () => clearTimeout(timerRef.current), []);
 
   // Milestone per-progetto: la query si abilita solo con un projectId (le
   // milestone non esistono fuori da un progetto). Senza progetto il select
   // resta disabilitato con la sola opzione "All".
   const { data: milestones = [] } = useQuery(milestonesQueryOptions(value.projectId));
 
-  function handleSearch(next: string) {
-    setDraft(next);
-    clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      onChange({ q: next.trim() || undefined });
-    }, SEARCH_DEBOUNCE_MS);
-  }
-
   return (
     <div className="flex flex-wrap items-end gap-3">
-      <div className="flex min-w-56 flex-1 flex-col gap-1">
-        <label htmlFor="filter-q" className={labelClass}>
-          {t("tickets:filters.search")}
-        </label>
-        <input
-          id="filter-q"
-          type="search"
-          value={draft}
-          onChange={(event) => handleSearch(event.target.value)}
-          placeholder={t("tickets:filters.searchPlaceholder")}
-          className="rounded-sm border border-line-strong bg-ink-950/70 px-3 py-1.5 text-sm text-fg placeholder:text-fg-faint transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
-        />
-      </div>
+      <DebouncedSearchField
+        id="filter-q"
+        label={t("tickets:filters.search")}
+        placeholder={t("tickets:filters.searchPlaceholder")}
+        value={value.q}
+        onChange={(q) => onChange({ q })}
+      />
 
       <FilterSelect
         id="filter-project"

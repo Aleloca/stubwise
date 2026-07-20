@@ -156,6 +156,11 @@ export function backlogItemQueryOptions(id: string) {
     queryKey: backlogKeys.detail(id),
     queryFn: () => getBacklogItem(id),
     staleTime: 10_000,
+    // Polling adattivo mentre un deep dive è in coda/in corso (pattern
+    // /activity): il worker lo elabora in modo asincrono, quindi finché
+    // `deepDivePending` è vero ricarichiamo ogni 10s così il documento
+    // aggiornato e i metadati suggeriti compaiono senza intervento; poi stop.
+    refetchInterval: (query) => (query.state.data?.deepDivePending ? 10_000 : false),
   });
 }
 

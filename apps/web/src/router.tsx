@@ -16,6 +16,7 @@ import {
   activityReportQueryOptions,
   aiProvidersQueryOptions,
   backlogInfiniteQueryOptions,
+  backlogItemQueryOptions,
   automationSettingsQueryOptions,
   boardTicketsQueryOptions,
   commentsQueryOptions,
@@ -45,6 +46,7 @@ import {
   widgetsQueryOptions,
 } from "./lib/queries";
 import { ActivityPage, yesterdayUtc } from "./routes/activity";
+import { BacklogDetailPage } from "./routes/backlog/$id";
 import { backlogSearchSchema, BacklogPage } from "./routes/backlog/index";
 import { boardSearchSchema, BoardPage } from "./routes/board";
 import {
@@ -233,6 +235,24 @@ const backlogRoute = createRoute({
     ]);
   },
   component: BacklogPage,
+});
+
+/**
+ * Dettaglio di una voce del backlog: documento, metadati suggeriti, ticket
+ * collegati e chat di raffinamento. Segmento dinamico `$id` distinto dallo
+ * statico `/backlog`. Prefetch della voce + progetti (nome nell'header) prima
+ * del render, così le useSuspenseQuery del componente non attendono.
+ */
+const backlogDetailRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/backlog/$id",
+  loader: async ({ context, params }) => {
+    await Promise.all([
+      context.queryClient.ensureQueryData(backlogItemQueryOptions(params.id)),
+      context.queryClient.ensureQueryData(projectsQueryOptions),
+    ]);
+  },
+  component: BacklogDetailPage,
 });
 
 const projectsRoute = createRoute({
@@ -616,6 +636,7 @@ const routeTree = rootRoute.addChildren([
     ticketDetailRoute,
     boardRoute,
     backlogRoute,
+    backlogDetailRoute,
     projectsRoute,
     projectDetailRoute,
     widgetConversationsRoute,

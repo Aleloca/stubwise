@@ -11,8 +11,8 @@ import {
   useSuspenseInfiniteQuery,
   useSuspenseQuery,
 } from "@tanstack/react-query";
-import { getRouteApi } from "@tanstack/react-router";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { getRouteApi, Link } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import {
@@ -24,9 +24,9 @@ import {
   PRIORITY_LABEL_KEYS,
   PriorityBadge,
 } from "../../components/badges";
-import { FormError, SelectField, TextField } from "../../components/field";
-import { MarkdownEditor } from "../../components/markdown-editor";
-import { FilterSelect, labelClass } from "../../components/ticket-filters";
+import { DebouncedSearchField } from "../../components/debounced-search-field";
+import { NewBacklogItemDialog } from "../../components/new-backlog-item-dialog";
+import { FilterSelect } from "../../components/ticket-filters";
 import {
   postBacklogItem,
   type BacklogFilters,
@@ -217,8 +217,6 @@ export function BacklogPage() {
   );
 }
 
-const SEARCH_DEBOUNCE_MS = 300;
-
 interface BacklogFilterBarProps {
   value: BacklogSearch;
   projects: Project[];
@@ -228,43 +226,21 @@ interface BacklogFilterBarProps {
 /**
  * Barra dei filtri del backlog. Componente puro: lo stato vive nell'URL, qui
  * arrivano `value` e si emettono patch via `onChange`. La ricerca è debounced
- * per non riscrivere l'URL a ogni tasto (stesso pattern di {@link TicketFilters}).
+ * per non riscrivere l'URL a ogni tasto (stesso {@link DebouncedSearchField}
+ * condiviso con {@link TicketFilters}).
  */
 function BacklogFilterBar({ value, projects, onChange }: BacklogFilterBarProps) {
   const { t } = useTranslation();
-  const [draft, setDraft] = useState(value.q ?? "");
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
-
-  // Se q cambia da fuori (back/forward, link condiviso) il campo si allinea.
-  useEffect(() => {
-    setDraft(value.q ?? "");
-  }, [value.q]);
-
-  useEffect(() => () => clearTimeout(timerRef.current), []);
-
-  function handleSearch(next: string) {
-    setDraft(next);
-    clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      onChange({ q: next.trim() || undefined });
-    }, SEARCH_DEBOUNCE_MS);
-  }
 
   return (
     <div className="flex flex-wrap items-end gap-3">
-      <div className="flex min-w-56 flex-1 flex-col gap-1">
-        <label htmlFor="backlog-filter-q" className={labelClass}>
-          {t("backlog:filters.search")}
-        </label>
-        <input
-          id="backlog-filter-q"
-          type="search"
-          value={draft}
-          onChange={(event) => handleSearch(event.target.value)}
-          placeholder={t("backlog:filters.searchPlaceholder")}
-          className="rounded-sm border border-line-strong bg-ink-950/70 px-3 py-1.5 text-sm text-fg placeholder:text-fg-faint transition-colors hover:border-ink-700 focus-visible:border-signal-dim"
-        />
-      </div>
+      <DebouncedSearchField
+        id="backlog-filter-q"
+        label={t("backlog:filters.search")}
+        placeholder={t("backlog:filters.searchPlaceholder")}
+        value={value.q}
+        onChange={(q) => onChange({ q })}
+      />
 
       <FilterSelect
         id="backlog-filter-project"
@@ -323,16 +299,15 @@ interface BacklogCardProps {
 
 /**
  * Card di una voce del backlog: tutta cliccabile verso il dettaglio
- * `/backlog/$id`. Quella route non esiste ancora (arriva nel Task 20): si usa
- * un'ancora `<a href>` col path letterale — typecheck-safe senza la route
- * registrata; il Task 20 la convertirà in un `<Link>` tipato per la nav SPA.
+ * `/backlog/$id` con un {@link Link} tipato (nav SPA, prefetch on intent).
  */
 function BacklogCard({ item, projectName }: BacklogCardProps) {
   const { t } = useTranslation();
 
   return (
-    <a
-      href={`/backlog/${item.id}`}
+    <Link
+      to="/backlog/$id"
+      params={{ id: item.id }}
       className="group grid grid-cols-1 items-center gap-x-4 gap-y-1 border-b border-line px-4 py-3 transition-colors last:border-b-0 hover:bg-ink-850 sm:grid-cols-[minmax(0,1fr)_auto]"
     >
       <span className="min-w-0">
@@ -362,8 +337,11 @@ function BacklogCard({ item, projectName }: BacklogCardProps) {
             </span>
           )}
           {item.similarTo && (
+            // `min-w-0` + `truncate` su una pill dentro un flex-wrap: senza il
+            // min-w-0 la pill non si accorcerebbe (contenuto flex intrinsecamente
+            // min-content) e traboccherebbe oltre la card su titoli lunghi.
             <span
-              className="truncate text-fg-muted"
+              className="min-w-0 max-w-[16rem] truncate text-fg-muted"
               title={t("backlog:card.similarTo", { title: item.similarTo.title })}
             >
               {t("backlog:card.similarTo", { title: item.similarTo.title })}
@@ -385,132 +363,6 @@ function BacklogCard({ item, projectName }: BacklogCardProps) {
           {formatRelativeTime(item.updatedAt)}
         </time>
       </span>
-    </a>
-  );
-}
-
-interface NewBacklogItemDialogProps {
-  /** Progetti (gruppi) disponibili: il primo è preselezionato. */
-  projects: Project[];
-  /** Accoda la voce; il rigetto mostra l'errore e lascia il dialog aperto. */
-  onSubmit: (input: { projectId: string; title: string; body: string }) => Promise<void>;
-  onClose: () => void;
-}
-
-/**
- * Dialog di creazione manuale di una voce del backlog (pattern
- * {@link NewTicketDialog}). Titolo e descrizione sono entrambi obbligatori: il
- * server accoda un job `intake` che dedup-a e suggerisce i metadati, quindi
- * serve un corpo da elaborare. Escape o Annulla per chiudere.
- */
-function NewBacklogItemDialog({ projects, onSubmit, onClose }: NewBacklogItemDialogProps) {
-  const { t } = useTranslation();
-  const [projectId, setProjectId] = useState(projects[0]?.id ?? "");
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-
-  const canSubmit = title.trim() !== "" && body.trim() !== "" && projectId !== "";
-
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    if (!canSubmit) return;
-    setError(null);
-    setPending(true);
-    try {
-      await onSubmit({ projectId, title: title.trim(), body: body.trim() });
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t("common:unexpectedError"));
-    } finally {
-      setPending(false);
-    }
-  }
-
-  return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-ink-950/80 p-3 backdrop-blur-[2px] sm:p-6"
-      onKeyDown={(event) => {
-        if (event.key === "Escape") onClose();
-      }}
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="new-backlog-title"
-        className="w-full max-w-lg border border-line bg-ink-900 shadow-[0_24px_60px_-24px_rgba(0,0,0,0.9)]"
-      >
-        <header className="flex items-baseline justify-between border-b border-line px-5 py-4">
-          <h2 id="new-backlog-title" className="text-lg font-semibold">
-            {t("backlog:newDialog.title")}
-          </h2>
-          <span className="font-mono text-[10px] tracking-[0.18em] text-fg-faint uppercase">
-            {t("backlog:newDialog.badge")}
-          </span>
-        </header>
-
-        <form
-          onSubmit={(event) => void handleSubmit(event)}
-          className="flex flex-col gap-4 px-5 py-5"
-          noValidate
-        >
-          <TextField
-            id="backlog-title"
-            label={t("backlog:newDialog.itemTitle")}
-            required
-            autoFocus
-            placeholder={t("backlog:newDialog.titlePlaceholder")}
-            value={title}
-            onChange={(event) => setTitle(event.target.value)}
-          />
-
-          <SelectField
-            id="backlog-project"
-            label={t("backlog:newDialog.project")}
-            required
-            value={projectId}
-            onChange={(event) => setProjectId(event.target.value)}
-            options={projects.map((project) => ({ value: project.id, label: project.name }))}
-          />
-
-          <div className="flex flex-col gap-1.5">
-            <label
-              htmlFor="backlog-body"
-              className="font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase"
-            >
-              {t("backlog:newDialog.description")}
-            </label>
-            <MarkdownEditor
-              id="backlog-body"
-              value={body}
-              onChange={setBody}
-              placeholder={t("backlog:newDialog.descriptionPlaceholder")}
-            />
-          </div>
-
-          <FormError message={error} />
-
-          <div className="mt-1 flex items-center justify-end gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-sm border border-line-strong px-3 py-2 font-mono text-[12px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg"
-            >
-              {t("backlog:newDialog.cancel")}
-            </button>
-            <button
-              type="submit"
-              disabled={pending || !canSubmit}
-              className="rounded-sm bg-signal px-4 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright active:bg-signal-dim disabled:cursor-not-allowed disabled:bg-signal-dim disabled:opacity-60"
-            >
-              {pending ? t("backlog:newDialog.submitPending") : t("backlog:newDialog.submit")}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+    </Link>
   );
 }
