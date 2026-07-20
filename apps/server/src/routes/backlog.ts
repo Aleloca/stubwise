@@ -347,18 +347,22 @@ function parseRefreshOutput(raw: string): z.infer<typeof refreshOutputSchema> | 
   // Rimuove un eventuale blocco di codice ```json … ``` o ``` … ```.
   const fence = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(text);
   if (fence) text = fence[1]!.trim();
-  // In caso di preamboli/postamboli, isola il primo oggetto bilanciato grezzo.
-  if (!text.startsWith("{")) {
-    const start = text.indexOf("{");
-    const end = text.lastIndexOf("}");
-    if (start === -1 || end <= start) return null;
-    text = text.slice(start, end + 1);
-  }
+
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return null;
+    // Preambolo E/O postambolo attorno all'oggetto (anche quando il testo
+    // INIZIA con `{` ma prosegue oltre): ritenta sempre isolando la fetta tra
+    // la prima `{` e l'ultima `}`.
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start === -1 || end <= start) return null;
+    try {
+      parsed = JSON.parse(text.slice(start, end + 1));
+    } catch {
+      return null;
+    }
   }
   const result = refreshOutputSchema.safeParse(parsed);
   return result.success ? result.data : null;
@@ -971,6 +975,18 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       }
 
       const result = await app.db.transaction(async (tx) => {
+        // CLAIM anti-TOCTOU come PRIMA operazione: UPDATE condizionato allo
+        // stato. Due convert concorrenti si serializzano sul row-lock della
+        // voce: il secondo trova 0 righe (status già converted) ed esce SENZA
+        // aver creato nulla (→ 409). Il pre-check sopra resta solo per il
+        // fast-path senza transazione.
+        const claimed = await tx
+          .update(backlogItems)
+          .set({ status: "converted" })
+          .where(and(eq(backlogItems.id, id), sql`${backlogItems.status} <> 'converted'`))
+          .returning({ id: backlogItems.id });
+        if (claimed.length === 0) return null;
+
         const ticket = await createTicket(tx, {
           projectId: item.projectId,
           title: item.title,
@@ -986,10 +1002,12 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         await tx
           .insert(backlogItemTickets)
           .values({ itemId: id, ticketId: ticket.id, role: "converted_to" });
-        await tx.update(backlogItems).set({ status: "converted" }).where(eq(backlogItems.id, id));
         return { ticketId: ticket.id, ticketNumber: ticket.number };
       });
 
+      if (!result) {
+        return apiError(reply, 409, "already_converted", "Backlog item already converted");
+      }
       return result;
     },
   );
@@ -1070,11 +1088,14 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
           await tx.delete(backlogItemTickets).where(eq(backlogItemTickets.itemId, id));
         }
 
-        // requestCount del target += quello dell'assorbita; documento fuso.
+        // requestCount del target += quello dell'assorbita, letto con una
+        // SUBQUERY dentro la transazione (non il valore pre-LLM: la chiamata
+        // AI è lunga e un intake concorrente può averlo incrementato nel
+        // frattempo); documento fuso.
         await tx
           .update(backlogItems)
           .set({
-            requestCount: sql`${backlogItems.requestCount} + ${absorbed.requestCount}`,
+            requestCount: sql`${backlogItems.requestCount} + (select bi.request_count from backlog_items bi where bi.id = ${id})`,
             document: mergedDocument,
           })
           .where(eq(backlogItems.id, targetId));

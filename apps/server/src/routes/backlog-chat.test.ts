@@ -233,6 +233,38 @@ describe("POST /api/backlog/:id/chat", () => {
     expect(lastChatInput!.system).toContain(item.title);
   });
 
+  it("errore LLM a metà stream: parziale persistito con marcatore e citations null", async () => {
+    const item = await insertItem({ status: "refining" });
+    const partial = "Risposta parz";
+    streamOverride = async function* (): AsyncIterable<string> {
+      yield partial;
+      throw new Error("LLM esploso a metà stream");
+    };
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/chat`,
+      headers: { cookie: memberCookie },
+      payload: { message: "domanda che fallisce a metà" },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const events = parseSse(res.payload);
+    expect(events.some((e) => e.type === "error")).toBe(true);
+    expect(events.some((e) => e.type === "done")).toBe(false);
+
+    // Il persister custom salva il parziale con TRUNCATION_MARKER e citations null.
+    const assistant = await vi.waitFor(async () => {
+      const rows = await readMessages(item.id);
+      const row = rows.find((m) => m.role === "assistant");
+      expect(row).toBeDefined();
+      return row!;
+    });
+    expect(assistant.content.startsWith(partial)).toBe(true);
+    expect(assistant.content).toContain("[risposta interrotta]");
+    expect(assistant.citations).toBeNull();
+  });
+
   it("i ticket d'origine finiscono nel system prompt", async () => {
     const item = await insertItem();
     const [t] = await testDb.db
@@ -319,6 +351,21 @@ describe("POST /api/backlog/:id/refresh-document", () => {
     // Marker system inserito.
     const msgs = await readMessages(item.id);
     expect(msgs.some((m) => m.role === "system" && m.content === "Documento aggiornato.")).toBe(true);
+  });
+
+  it("parse ok con preambolo E postambolo attorno al JSON → 200", async () => {
+    const item = await insertItem({ document: "# Vecchio" });
+    await seedUserMessage(item.id);
+    streamOverride = async function* () {
+      yield 'Ecco il documento aggiornato:\n{"document":"# Con contorno"}\nFammi sapere se va bene!';
+    };
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/refresh-document`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { document: string }).document).toBe("# Con contorno");
   });
 
   it("parse fallito: 502 e nessuna modifica al documento", async () => {
