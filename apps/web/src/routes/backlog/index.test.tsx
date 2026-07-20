@@ -170,12 +170,14 @@ describe("lista backlog", () => {
       },
     });
 
-    renderApp("/backlog?status=ready&urgency=high&risk=medium&q=export");
+    renderApp(`/backlog?projectId=${PROJECT_ID}&status=ready&urgency=high&risk=medium&q=export`);
 
     expect(await screen.findByLabelText("Status")).toHaveValue("ready");
+    expect(screen.getByLabelText("Project")).toHaveValue(PROJECT_ID);
     expect(screen.getByLabelText("Urgency")).toHaveValue("high");
     expect(screen.getByLabelText("Risk")).toHaveValue("medium");
     expect(screen.getByRole("searchbox", { name: /search/i })).toHaveValue("export");
+    expect(seen?.get("projectId")).toBe(PROJECT_ID);
     expect(seen?.get("status")).toBe("ready");
     expect(seen?.get("urgency")).toBe("high");
     expect(seen?.get("risk")).toBe("medium");
@@ -265,34 +267,55 @@ describe("lista backlog", () => {
 });
 
 describe("nuovo item dalla lista backlog", () => {
-  it("apre il dialog, invia il POST 202 e mostra il banner «in elaborazione»", async () => {
-    const user = userEvent.setup();
-    let postBody: unknown;
+  /**
+   * Mock per metodo+path: POST /api/backlog risponde 202 (e cattura il body),
+   * GET /api/backlog risponde la lista corrente (`listItems`, mutabile dal
+   * chiamante) e ne conta le richieste in `listGets`.
+   */
+  function mockBacklogCreate() {
+    const state = {
+      postBody: undefined as unknown,
+      listGets: 0,
+      listItems: [] as BacklogItem[],
+    };
     fetchMock.mockImplementation((input, init) => {
       const raw =
         typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       const url = new URL(raw, "http://test.local");
       const method = init?.method ?? "GET";
       if (url.pathname === "/api/backlog" && method === "POST") {
-        postBody = JSON.parse(String(init?.body));
+        state.postBody = JSON.parse(String(init?.body));
         return Promise.resolve(jsonResponse(202, { queued: true }));
       }
       if (url.pathname === "/api/backlog") {
-        return Promise.resolve(jsonResponse(200, { items: [], nextCursor: null }));
+        state.listGets += 1;
+        return Promise.resolve(jsonResponse(200, { items: state.listItems, nextCursor: null }));
       }
       const handler = baseHandlers[url.pathname as keyof typeof baseHandlers];
       if (!handler) throw new Error(`fetch non mockata per ${method} ${raw}`);
       return Promise.resolve(handler());
     });
+    return state;
+  }
 
-    renderApp();
-    expect(await screen.findByText(/no backlog items/i)).toBeInTheDocument();
-
+  /** Compila e invia il dialog "Nuovo item" (già sulla lista renderizzata). */
+  async function submitNewItem(user: ReturnType<typeof userEvent.setup>) {
     await user.click(screen.getByRole("button", { name: "New item" }));
     const dialog = screen.getByRole("dialog", { name: "New backlog item" });
     await user.type(within(dialog).getByLabelText("Title"), "Export massivo ordini");
     await user.type(within(dialog).getByLabelText("Description"), "Servono gli ordini in CSV.");
     await user.click(within(dialog).getByRole("button", { name: "Create item" }));
+  }
+
+  it("apre il dialog, invia il POST 202, mostra il banner e rifetcha la lista", async () => {
+    const user = userEvent.setup();
+    const api = mockBacklogCreate();
+
+    renderApp();
+    expect(await screen.findByText(/no backlog items/i)).toBeInTheDocument();
+    const getsBeforePost = api.listGets;
+
+    await submitNewItem(user);
 
     // Dialog chiuso e banner comparso: il 202 non crea subito la voce.
     await waitFor(() =>
@@ -301,10 +324,38 @@ describe("nuovo item dalla lista backlog", () => {
     expect(
       await screen.findByText(/Item queued — it will appear here in a few minutes\./),
     ).toBeInTheDocument();
-    expect(postBody).toEqual({
+    expect(api.postBody).toEqual({
       projectId: PROJECT_ID,
       title: "Export massivo ordini",
       body: "Servono gli ordini in CSV.",
     });
+    // L'invalidazione post-202 rifetcha la lista (qui ancora vuota: il banner
+    // resta finché la voce non compare).
+    await waitFor(() => expect(api.listGets).toBeGreaterThan(getsBeforePost));
+    expect(
+      screen.getByText(/Item queued — it will appear here in a few minutes\./),
+    ).toBeInTheDocument();
+  });
+
+  it("quando l'item compare in lista il banner si dismette da solo", async () => {
+    const user = userEvent.setup();
+    const api = mockBacklogCreate();
+
+    renderApp();
+    expect(await screen.findByText(/no backlog items/i)).toBeInTheDocument();
+
+    // Dal prossimo GET (il refetch dell'invalidazione post-202) la lista
+    // contiene la voce creata dal worker: il refetch la porta in pagina e
+    // l'auto-dismiss spegne il banner. Impostata PRIMA del submit perché il
+    // refetch parte subito dopo il POST (nessun altro GET nel mezzo).
+    api.listItems = [makeItem({ title: "Export massivo ordini" })];
+    await submitNewItem(user);
+
+    expect(await screen.findByText("Export massivo ordini")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/Item queued — it will appear here in a few minutes\./),
+      ).not.toBeInTheDocument(),
+    );
   });
 });
