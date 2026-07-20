@@ -1,16 +1,27 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  acceptSuggested,
   api,
   ApiError,
+  convertBacklogItem,
   createServer,
   createServerCheck,
+  dismissSuggested,
+  getBacklogItem,
   getMe,
   getServerMetrics,
   getSetupStatus,
+  listBacklogItems,
   listServers,
+  listTickets,
+  mergeBacklogItem,
+  patchBacklogItem,
+  postBacklogItem,
   postLogin,
   postLogout,
   postSetup,
+  refreshBacklogDocument,
+  requestDeepDive,
 } from "./api";
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -221,5 +232,129 @@ describe("funzioni server monitoring", () => {
     await getServerMetrics("s1", { from: "2026-07-01T00:00:00.000Z", to: "2026-07-08T00:00:00.000Z" });
     const url = fetchMock.mock.calls[0]![0] as string;
     expect(new URLSearchParams(url.split("?")[1]).has("checkId")).toBe(false);
+  });
+});
+
+describe("funzioni ticket (multi-stato)", () => {
+  it("listTickets con statuses: manda il parametro comma-separated, non status", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { items: [], nextCursor: null }));
+
+    await listTickets({ statuses: ["open", "triaged", "in_progress", "in_review"] });
+    const url = new URL(fetchMock.mock.calls[0]![0] as string, "http://test.local");
+    expect(url.searchParams.get("statuses")).toBe("open,triaged,in_progress,in_review");
+    expect(url.searchParams.has("status")).toBe(false);
+  });
+
+  it("listTickets con statuses vuoto: omette il parametro", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { items: [], nextCursor: null }));
+
+    await listTickets({ statuses: [] });
+    const url = new URL(fetchMock.mock.calls[0]![0] as string, "http://test.local");
+    expect(url.searchParams.has("statuses")).toBe(false);
+  });
+
+  it("listTickets con status singolo: manda status, non statuses", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { items: [], nextCursor: null }));
+
+    await listTickets({ status: "done" });
+    const url = new URL(fetchMock.mock.calls[0]![0] as string, "http://test.local");
+    expect(url.searchParams.get("status")).toBe("done");
+    expect(url.searchParams.has("statuses")).toBe(false);
+  });
+});
+
+describe("funzioni backlog", () => {
+  it("listBacklogItems: mette i filtri e il cursore nella query", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { items: [], nextCursor: null }));
+
+    await listBacklogItems(
+      { projectId: "p1", status: "new", urgency: "high", risk: "medium", q: "login" },
+      "cursore-1",
+      25,
+    );
+    const url = new URL(fetchMock.mock.calls[0]![0] as string, "http://test.local");
+    expect(url.pathname).toBe("/api/backlog");
+    expect(url.searchParams.get("projectId")).toBe("p1");
+    expect(url.searchParams.get("status")).toBe("new");
+    expect(url.searchParams.get("urgency")).toBe("high");
+    expect(url.searchParams.get("risk")).toBe("medium");
+    expect(url.searchParams.get("q")).toBe("login");
+    expect(url.searchParams.get("cursor")).toBe("cursore-1");
+    expect(url.searchParams.get("limit")).toBe("25");
+  });
+
+  it("listBacklogItems senza filtri: nessuna query", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { items: [], nextCursor: null }));
+
+    await listBacklogItems({});
+    expect(fetchMock.mock.calls[0]![0]).toBe("/api/backlog");
+  });
+
+  it("getBacklogItem: GET /api/backlog/:id (id url-encoded)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, {}));
+
+    await getBacklogItem("a/b");
+    expect(fetchMock.mock.calls[0]![0]).toBe("/api/backlog/a%2Fb");
+    expect(fetchMock.mock.calls[0]![1]?.method).toBe("GET");
+  });
+
+  it("patchBacklogItem: PATCH col body dei metadati", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, {}));
+
+    await patchBacklogItem("id1", { status: "ready", effort: 3 });
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/backlog/id1");
+    expect(init?.method).toBe("PATCH");
+    expect(init?.body).toBe(JSON.stringify({ status: "ready", effort: 3 }));
+  });
+
+  it("postBacklogItem: POST /api/backlog col draft", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(202, { queued: true }));
+
+    await expect(
+      postBacklogItem({ projectId: "p1", title: "T", body: "B" }),
+    ).resolves.toEqual({ queued: true });
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/backlog");
+    expect(init?.method).toBe("POST");
+  });
+
+  it("convertBacklogItem: POST /:id/convert senza body", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { ticketId: "t1", ticketNumber: 7 }));
+
+    await expect(convertBacklogItem("id1")).resolves.toEqual({ ticketId: "t1", ticketNumber: 7 });
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/backlog/id1/convert");
+    expect(init?.body).toBeUndefined();
+  });
+
+  it("mergeBacklogItem: POST /:id/merge col targetId", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, {}));
+
+    await mergeBacklogItem("id1", "id2");
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/backlog/id1/merge");
+    expect(init?.body).toBe(JSON.stringify({ targetId: "id2" }));
+  });
+
+  it("requestDeepDive: POST /:id/deep-dive col repositoryId", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(202, { queued: true }));
+
+    await requestDeepDive("id1", "repo1");
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/backlog/id1/deep-dive");
+    expect(init?.body).toBe(JSON.stringify({ repositoryId: "repo1" }));
+  });
+
+  it("refreshBacklogDocument / acceptSuggested / dismissSuggested: POST sui path giusti", async () => {
+    // Una Response fresca per chiamata: il body si legge una volta sola.
+    fetchMock.mockImplementation(() => Promise.resolve(jsonResponse(200, {})));
+
+    await refreshBacklogDocument("id1");
+    await acceptSuggested("id1");
+    await dismissSuggested("id1");
+    expect(fetchMock.mock.calls[0]![0]).toBe("/api/backlog/id1/refresh-document");
+    expect(fetchMock.mock.calls[1]![0]).toBe("/api/backlog/id1/suggested/accept");
+    expect(fetchMock.mock.calls[2]![0]).toBe("/api/backlog/id1/suggested/dismiss");
   });
 });

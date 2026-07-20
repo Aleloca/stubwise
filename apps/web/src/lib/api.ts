@@ -1,7 +1,12 @@
 import type {
   AlertThresholds,
+  BacklogItemSource,
+  BacklogItemStatus,
+  BacklogRisk,
+  BacklogSuggested,
   CheckStatus,
   CheckType,
+  CreateBacklogItemInput,
   CreateCheckInput,
   DiscoveredService,
   GitProviderKind,
@@ -17,6 +22,7 @@ import type {
   TicketSource,
   TicketStatus,
   TicketType,
+  UpdateBacklogItemInput,
   UpdateCheckInput,
   UpdateServerInput,
   WidgetRepositoryFilters,
@@ -25,6 +31,9 @@ import type {
 } from "@stubwise/shared";
 
 export type { PrState, WidgetSettings, WidgetUpsertBody } from "@stubwise/shared";
+// Ri-esportata dal binding locale (usata anche nelle interfacce del backlog qui
+// sotto): i consumatori la importano da "./api" come gli altri tipi di dominio.
+export type { BacklogSuggested };
 
 /**
  * Wrapper fetch tipizzato per l'API di Stubwise.
@@ -2386,4 +2395,170 @@ export function generateActivity(
   opts?: { force?: boolean },
 ): Promise<{ queued: number }> {
   return api.post(`/api/activity/generate`, { date, force: opts?.force ?? false });
+}
+
+// --- Backlog di discovery ---
+//
+// Le forme di risposta rispecchiano gli schemi del server (routes/backlog.ts):
+// la LISTA è leggera (senza `document`), la forma BASE aggiunge `document` e
+// `suggested`, il DETTAGLIO estende la base con ticket, messaggi di chat e il
+// flag di deep dive in corso. PATCH/accept/dismiss/merge/refresh tornano la
+// forma base; il dettaglio è solo GET /:id.
+
+/** Riferimento a una voce simile suggerita dal dedup (o null). */
+export interface BacklogSimilarRef {
+  id: string;
+  title: string;
+}
+
+/** Voce del backlog nella LISTA: campi leggeri per le card (senza `document`). */
+export interface BacklogItem {
+  id: string;
+  projectId: string;
+  title: string;
+  status: BacklogItemStatus;
+  /** Stima di effort (punti); null se non stimata. */
+  effort: number | null;
+  risk: BacklogRisk | null;
+  riskNote: string | null;
+  /** L'urgenza riusa la scala di priority dei ticket; null se non stimata. */
+  urgency: TicketPriority | null;
+  /** Quante volte l'idea è stata richiesta (dedup incrementa questo contatore). */
+  requestCount: number;
+  source: BacklogItemSource;
+  similarTo: BacklogSimilarRef | null;
+  /** Ticket con role=origin collegati alla voce. */
+  ticketCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Ticket collegato a una voce del backlog (join backlog_item_tickets). */
+export interface BacklogLinkedTicket {
+  id: string;
+  number: number;
+  title: string;
+  role: "origin" | "converted_to";
+}
+
+/** Messaggio della chat di raffinamento (una sola conversazione per voce). */
+export interface BacklogMessage {
+  id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  /** Citazioni RAG dell'assistant (jsonb opaco), null se assenti. */
+  citations: unknown;
+  createdAt: string;
+}
+
+/**
+ * Forma BASE di una voce: campi confermati più `document` e `suggested`
+ * (SENZA `embedding`). È la risposta di PATCH/accept/dismiss/merge/refresh e il
+ * nucleo del dettaglio.
+ */
+export interface BacklogItemBase {
+  id: string;
+  projectId: string;
+  title: string;
+  document: string;
+  status: BacklogItemStatus;
+  effort: number | null;
+  risk: BacklogRisk | null;
+  riskNote: string | null;
+  urgency: TicketPriority | null;
+  requestCount: number;
+  source: BacklogItemSource;
+  suggested: BacklogSuggested | null;
+  similarTo: BacklogSimilarRef | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * DETTAGLIO di una voce: la forma base più i ticket collegati, i messaggi di
+ * chat e il flag `deepDivePending` (deep dive queued/running → "analisi in corso").
+ */
+export interface BacklogItemDetail extends BacklogItemBase {
+  tickets: BacklogLinkedTicket[];
+  messages: BacklogMessage[];
+  deepDivePending: boolean;
+}
+
+/** Filtri della lista backlog: combaciano con i search param di /backlog. */
+export interface BacklogFilters {
+  projectId?: string;
+  status?: BacklogItemStatus;
+  urgency?: TicketPriority;
+  risk?: BacklogRisk;
+  q?: string;
+}
+
+export interface BacklogPage {
+  items: BacklogItem[];
+  nextCursor: string | null;
+}
+
+export function listBacklogItems(
+  filters: BacklogFilters,
+  cursor?: string,
+  limit?: number,
+): Promise<BacklogPage> {
+  const params = new URLSearchParams();
+  if (filters.projectId) params.set("projectId", filters.projectId);
+  if (filters.status) params.set("status", filters.status);
+  if (filters.urgency) params.set("urgency", filters.urgency);
+  if (filters.risk) params.set("risk", filters.risk);
+  if (filters.q) params.set("q", filters.q);
+  if (cursor) params.set("cursor", cursor);
+  if (limit !== undefined) params.set("limit", String(limit));
+  const query = params.toString();
+  return api.get(`/api/backlog${query ? `?${query}` : ""}`);
+}
+
+export function getBacklogItem(id: string): Promise<BacklogItemDetail> {
+  return api.get(`/api/backlog/${encodeURIComponent(id)}`);
+}
+
+export function patchBacklogItem(
+  id: string,
+  input: UpdateBacklogItemInput,
+): Promise<BacklogItemBase> {
+  return api.patch(`/api/backlog/${encodeURIComponent(id)}`, input);
+}
+
+/** Creazione manuale: NON crea la voce, accoda un job `intake` (202). */
+export function postBacklogItem(input: CreateBacklogItemInput): Promise<{ queued: true }> {
+  return api.post("/api/backlog", input);
+}
+
+/** Converte la voce in un ticket task; ritorna id e numero del ticket creato. */
+export function convertBacklogItem(
+  id: string,
+): Promise<{ ticketId: string; ticketNumber: number }> {
+  return api.post(`/api/backlog/${encodeURIComponent(id)}/convert`);
+}
+
+/** Fonde questa voce (assorbita) nella voce `targetId` (destinazione). */
+export function mergeBacklogItem(id: string, targetId: string): Promise<BacklogItemBase> {
+  return api.post(`/api/backlog/${encodeURIComponent(id)}/merge`, { targetId });
+}
+
+/** Accoda un deep dive sul repository scelto (202); 409 se già in corso. */
+export function requestDeepDive(id: string, repositoryId: string): Promise<{ queued: true }> {
+  return api.post(`/api/backlog/${encodeURIComponent(id)}/deep-dive`, { repositoryId });
+}
+
+/** Sintetizza la chat nel documento della voce (one-shot). */
+export function refreshBacklogDocument(id: string): Promise<BacklogItemBase> {
+  return api.post(`/api/backlog/${encodeURIComponent(id)}/refresh-document`);
+}
+
+/** Accetta TUTTI i metadati suggeriti dall'AI, applicandoli ai campi reali. */
+export function acceptSuggested(id: string): Promise<BacklogItemBase> {
+  return api.post(`/api/backlog/${encodeURIComponent(id)}/suggested/accept`);
+}
+
+/** Scarta i metadati suggeriti (azzera `suggested` senza applicarli). */
+export function dismissSuggested(id: string): Promise<BacklogItemBase> {
+  return api.post(`/api/backlog/${encodeURIComponent(id)}/suggested/dismiss`);
 }

@@ -4,6 +4,7 @@ import {
   getAutomationSettings,
   getAiUsageCosts,
   getAiUsageSnapshots,
+  getBacklogItem,
   getComments,
   getGitAccount,
   getGitAccounts,
@@ -31,11 +32,13 @@ import {
   getWidgetConversations,
   getWidgets,
   listAiProviders,
+  listBacklogItems,
   listMilestones,
   listSavedViews,
   listServerChecks,
   listServers,
   listTickets,
+  type BacklogFilters,
   type ServerMetricsRange,
   type TicketFilters,
 } from "./api";
@@ -123,6 +126,36 @@ export function commentsQueryOptions(ticketId: string) {
   return queryOptions({
     queryKey: ticketKeys.comments(ticketId),
     queryFn: () => getComments(ticketId),
+  });
+}
+
+/**
+ * Key factory del backlog di discovery: gerarchica come quella dei ticket.
+ * `lists()` matcha ogni lista filtrata, `detail(id)` la singola voce.
+ */
+export const backlogKeys = {
+  all: ["backlog"] as const,
+  lists: () => [...backlogKeys.all, "list"] as const,
+  list: (filters: BacklogFilters) => [...backlogKeys.lists(), filters] as const,
+  detail: (id: string) => [...backlogKeys.all, "detail", id] as const,
+};
+
+export function backlogInfiniteQueryOptions(filters: BacklogFilters) {
+  return infiniteQueryOptions({
+    // I filtri nella chiave: ogni combinazione è una lista a sé.
+    queryKey: backlogKeys.list(filters),
+    queryFn: ({ pageParam }) => listBacklogItems(filters, pageParam ?? undefined),
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) => lastPage.nextCursor,
+    staleTime: 10_000,
+  });
+}
+
+export function backlogItemQueryOptions(id: string) {
+  return queryOptions({
+    queryKey: backlogKeys.detail(id),
+    queryFn: () => getBacklogItem(id),
+    staleTime: 10_000,
   });
 }
 
