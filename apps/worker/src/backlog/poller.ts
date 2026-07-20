@@ -230,7 +230,8 @@ async function requeueBacklogJob(db: Db, jobId: string, error: string): Promise<
  * Smista un job reclamato sul suo `kind`, validando prima il payload contro la
  * forma attesa. Un payload che non combacia → {@link MalformedBacklogPayloadError}
  * (fallimento permanente). `intake` esegue l'intake (dedup + generazione voce);
- * `deep_dive` è un placeholder (Task 15).
+ * `deep_dive` esegue l'approfondimento tecnico sul worktree del repo scelto
+ * (vedi deep-dive.ts).
  */
 export async function runBacklogJob(deps: BacklogPollerDeps, job: BacklogJob): Promise<void> {
   if (job.kind === "intake") {

@@ -98,14 +98,30 @@ function outputOrThrow(result: AgentRunResult): string {
 }
 
 /**
+ * Normalizza il markdown di `analysis` PRIMA di inserirlo nel documento:
+ * retrocede le intestazioni di livello 2 (`## `) a livello 3 (`### `). Senza
+ * questa difesa un'analisi con sottotitoli `##` corromperebbe gli upsert
+ * SUCCESSIVI: la sezione si chiuderebbe al primo `##` interno e i sottotitoli
+ * resterebbero orfani fuori dalla sezione (sezioni fantasma). Il prompt chiede
+ * già "al massimo ###", ma l'output dell'agente non è garantito: la
+ * normalizzazione è la garanzia strutturale. I livelli 3+ restano invariati
+ * (`###` non matcha `^##(\s)`). Funzione pura.
+ */
+export function normalizeAnalysisHeadings(analysis: string): string {
+  return analysis.replace(/^##(\s)/gm, "###$1");
+}
+
+/**
  * Sostituisce la sezione `## Analisi tecnica` del documento (dalla sua
  * intestazione fino alla prossima intestazione di livello 2 o alla fine) con
  * `analysis`; se la sezione non esiste, la appende in fondo. Funzione pura,
  * delimitatori chiari (l'intestazione fissa). Le intestazioni `###` (livello 3+)
- * interne alla sezione NON la chiudono: solo un altro `## ` la termina.
+ * interne alla sezione NON la chiudono: solo un altro `## ` la termina — per
+ * questo `analysis` viene normalizzato ({@link normalizeAnalysisHeadings}):
+ * nessun `##` interno può troncare la sezione al run successivo.
  */
 export function upsertAnalysisSection(document: string, analysis: string): string {
-  const section = `${ANALYSIS_HEADING}\n\n${analysis.trim()}`;
+  const section = `${ANALYSIS_HEADING}\n\n${normalizeAnalysisHeadings(analysis.trim())}`;
   const lines = document.split("\n");
   const startIdx = lines.findIndex((line) => line.trim() === ANALYSIS_HEADING);
   if (startIdx === -1) {
@@ -183,19 +199,41 @@ async function loadDeepDiveContext(
  * Applica l'esito del deep dive in una transazione: documento con la sezione
  * `## Analisi tecnica` aggiornata, `suggested` sostituito, messaggio `system`
  * nella chat. `suggested` senza alcun campo utile → null (nessun suggerimento).
+ *
+ * ANTI LOST-UPDATE: il documento letto all'inizio del job è STANTIO — tra quella
+ * lettura e questa scrittura passano il run dell'agente (fino al suo timeout) e
+ * l'eventuale attesa nella catena del serializer; nel frattempo l'utente può
+ * aver aggiornato il documento (refresh, editing). Applicare l'upsert sul valore
+ * stantio annullerebbe in blocco quelle modifiche. Qui si RI-SELEZIONA la voce
+ * DENTRO la transazione con FOR UPDATE (lock di riga: nessuna scrittura
+ * concorrente tra select e update) e la sezione si inserisce nel documento
+ * FRESCO: le modifiche dell'utente sopravvivono, cambia solo l'Analisi tecnica.
+ * Voce sparita o archiviata nel frattempo → si esce SENZA scrivere (l'analisi di
+ * una voce scartata non serve più; il job chiude comunque done).
  */
 async function applyDeepDive(
   deps: BacklogDeps,
   itemId: string,
-  currentDocument: string,
   output: DeepDiveOutput,
   repositoryName: string,
   lang: Language,
 ): Promise<void> {
   const suggested: BacklogSuggested | null =
     output.suggested && Object.keys(output.suggested).length > 0 ? output.suggested : null;
-  const document = upsertAnalysisSection(currentDocument, output.analysis);
   await deps.db.transaction(async (tx) => {
+    const [fresh] = await tx
+      .select({ document: backlogItems.document, status: backlogItems.status })
+      .from(backlogItems)
+      .where(eq(backlogItems.id, itemId))
+      .for("update");
+    if (!fresh || fresh.status === "archived") {
+      deps.logger.warn(
+        { itemId },
+        "[backlog] deep dive: voce sparita o archiviata durante il run, esito scartato",
+      );
+      return;
+    }
+    const document = upsertAnalysisSection(fresh.document, output.analysis);
     await tx.update(backlogItems).set({ document, suggested }).where(eq(backlogItems.id, itemId));
     await tx.insert(backlogChatMessages).values({
       itemId,
@@ -273,6 +311,7 @@ export async function runDeepDive(
   const parsed = parseAgentJson(outputOrThrow(result), deepDiveOutputSchema);
   if (!parsed) throw new Error("deep dive: output dell'agente non parsabile");
 
-  // 7. Applica: documento + suggested + messaggio system (transazione).
-  await applyDeepDive(deps, item.id, item.document, parsed, ctx.repositoryName, lang);
+  // 7. Applica: documento + suggested + messaggio system (transazione, sul
+  //    documento FRESCO ri-letto con FOR UPDATE — vedi applyDeepDive).
+  await applyDeepDive(deps, item.id, parsed, ctx.repositoryName, lang);
 }

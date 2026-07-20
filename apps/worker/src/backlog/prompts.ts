@@ -152,7 +152,7 @@ export function buildDeepDivePrompt(input: DeepDiveInput): string {
     "",
     "FORMATO DI OUTPUT (OBBLIGATORIO): un unico oggetto JSON valido, senza testo attorno, della forma:",
     '{ "analysis": "<markdown della sezione Analisi tecnica>", "suggested": { "effort": <1-5>, "risk": "low"|"medium"|"high", "riskNote": "<nota>", "urgency": "low"|"medium"|"high"|"urgent", "reason": "<motivazione>" } }',
-    'Il markdown di "analysis" NON deve includere l\'intestazione "## Analisi tecnica" (viene aggiunta automaticamente). Ometti da "suggested" i campi su cui non hai un parere; se non proponi nulla, restituisci `"suggested": {}`.',
+    'Il markdown di "analysis" NON deve includere l\'intestazione "## Analisi tecnica" (viene aggiunta automaticamente) e per i sottotitoli deve usare al massimo il livello 3 (`###`), MAI `##` (romperebbe la struttura del documento). Ometti da "suggested" i campi su cui non hai un parere; se non proponi nulla, restituisci `"suggested": {}`.',
     "",
     `--- VOCE: TITOLO ---\n${input.title}`,
     "",

@@ -509,6 +509,15 @@ const envSchema = z.object({
   // Timeout (ms) di ogni run dell'agente del backlog (intake e deep dive).
   // Default 900000 = 15', come il run di review: un run appeso fallisce lì e il
   // job del backlog viene riaccodato/fallito dal poller.
+  // NOTA staleness: il recovery degli orfani del poller (BACKLOG_STALE_MINUTES,
+  // 15') riaccoda i `running` con startedAt oltre soglia — e startedAt parte al
+  // CLAIM, PRIMA dell'eventuale attesa nella catena del serializer, quindi un job
+  // vivo può legittimamente superarla (attesa + run fino a questo timeout). È
+  // sicuro SOLO per l'invariante SINGLE-PROCESS del poller: i tick non si
+  // sovrappongono (guard `running` in startBacklogPoller) e il recovery gira a
+  // inizio tick, quando nessun job è in volo — un `running` stantio è quindi
+  // sempre di un worker morto, mai vivo. Se il poller diventasse multi-processo
+  // servirebbe un heartbeat (pattern pr_reviews.lastActivityAt).
   BACKLOG_AGENT_TIMEOUT_MS: z.preprocess(
     emptyAsUndefined,
     z.coerce

@@ -14,7 +14,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentRunner, AgentRunOptions, AgentRunResult } from "../agent/runner.js";
 import type { ResolvedProvider } from "../providers/chain.js";
-import { runDeepDive, upsertAnalysisSection } from "./deep-dive.js";
+import { normalizeAnalysisHeadings, runDeepDive, upsertAnalysisSection } from "./deep-dive.js";
 import { MalformedBacklogPayloadError, type BacklogDeps, type BacklogJob } from "./poller.js";
 
 vi.setConfig({ testTimeout: 60_000 });
@@ -202,6 +202,37 @@ describe("upsertAnalysisSection (pura)", () => {
     const doc = "## Analisi tecnica\n\nvecchia\n\n### Dettaglio\ndd";
     expect(upsertAnalysisSection(doc, "nuova")).toBe("## Analisi tecnica\n\nnuova");
   });
+
+  it("normalizeAnalysisHeadings retrocede i ## a ### e lascia i ###+ intatti", () => {
+    expect(normalizeAnalysisHeadings("## Rischi\nx\n### Dettaglio\ny\n#### Micro\nz")).toBe(
+      "### Rischi\nx\n### Dettaglio\ny\n#### Micro\nz",
+    );
+    // Un "##" in mezzo alla riga (non a inizio riga) non viene toccato.
+    expect(normalizeAnalysisHeadings("testo con ## in mezzo")).toBe("testo con ## in mezzo");
+  });
+
+  it("analisi con ## interni: normalizzata al primo upsert, il secondo la sostituisce SENZA sezioni fantasma", () => {
+    const doc = "## Contesto\nx\n\n## Punti aperti\nz";
+    // Analisi "maleducata" con sottotitoli di livello 2: senza normalizzazione il
+    // secondo upsert chiuderebbe la sezione al primo ## interno lasciando orfani.
+    const first = upsertAnalysisSection(doc, "intro\n\n## Rischi\nr\n\n## Nodi aperti\nn");
+    // I ## interni sono stati retrocessi a ###: la sezione (appesa in fondo) è
+    // un blocco unico, senza nuove intestazioni di livello 2.
+    expect(first).toContain("### Rischi");
+    expect(first).toContain("### Nodi aperti");
+    expect(first.match(/^## .*/gm)).toEqual([
+      "## Contesto",
+      "## Punti aperti",
+      "## Analisi tecnica",
+    ]);
+
+    const second = upsertAnalysisSection(first, "SOLO nuova analisi");
+    // Nessuna sezione fantasma: la vecchia analisi (sottotitoli compresi) è sparita
+    // per intero e il resto del documento è intatto.
+    expect(second).toBe(
+      "## Contesto\nx\n\n## Punti aperti\nz\n\n## Analisi tecnica\n\nSOLO nuova analisi",
+    );
+  });
 });
 
 describe("runDeepDive — successo", () => {
@@ -245,6 +276,62 @@ describe("runDeepDive — successo", () => {
     expect(msg!.role).toBe("system");
     expect(msg!.content).toContain("Technical analysis completed");
     expect(msg!.content).toContain("Repo deep dive");
+  });
+
+  it("una modifica dell'utente DURANTE il run sopravvive (upsert sul documento fresco, no lost update)", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProjectWithRepo(db);
+    const itemId = await createItem(db, projectId, { document: "## Contesto\nORIGINALE" });
+
+    // Runner che simula un refresh-document dell'utente MENTRE l'agente gira:
+    // aggiorna il documento in DB e poi restituisce l'esito del deep dive. Il
+    // documento passato nel prompt è quello stantio, ma la scrittura finale deve
+    // partire dal valore FRESCO (ri-letto con FOR UPDATE nella transazione).
+    const runner: AgentRunner = {
+      run: vi.fn(async () => {
+        await db
+          .update(backlogItems)
+          .set({ document: "## Contesto\nMODIFICATO DALL'UTENTE" })
+          .where(eq(backlogItems.id, itemId));
+        return { output: DEEP_DIVE_JSON, exitCode: 0 } satisfies AgentRunResult;
+      }),
+    };
+
+    await runDeepDive(makeDeps(db, { runner }), fakeJob(projectId), { itemId, repositoryId });
+
+    const [item] = await db.select().from(backlogItems).where(eq(backlogItems.id, itemId));
+    // La modifica dell'utente NON è stata annullata e la sezione analisi c'è.
+    expect(item!.document).toContain("MODIFICATO DALL'UTENTE");
+    expect(item!.document).not.toContain("ORIGINALE");
+    expect(item!.document).toContain("## Analisi tecnica");
+  });
+
+  it("voce ARCHIVIATA durante il run → esito scartato, nessuna scrittura", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProjectWithRepo(db);
+    const itemId = await createItem(db, projectId, { document: "## Contesto\nx" });
+
+    // L'utente archivia la voce mentre l'agente gira: l'esito non serve più.
+    const runner: AgentRunner = {
+      run: vi.fn(async () => {
+        await db
+          .update(backlogItems)
+          .set({ status: "archived" })
+          .where(eq(backlogItems.id, itemId));
+        return { output: DEEP_DIVE_JSON, exitCode: 0 } satisfies AgentRunResult;
+      }),
+    };
+
+    await runDeepDive(makeDeps(db, { runner }), fakeJob(projectId), { itemId, repositoryId });
+
+    const [item] = await db.select().from(backlogItems).where(eq(backlogItems.id, itemId));
+    expect(item!.document).toBe("## Contesto\nx"); // intatto
+    expect(item!.suggested).toBeNull();
+    const messages = await db
+      .select()
+      .from(backlogChatMessages)
+      .where(eq(backlogChatMessages.itemId, itemId));
+    expect(messages).toHaveLength(0); // niente system message
   });
 
   it("SOSTITUISCE la sezione al secondo run (idempotente sul documento)", async () => {
