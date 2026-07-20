@@ -1,8 +1,14 @@
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "./client.js";
-import { backlogItems, backlogJobs, projects } from "./schema.js";
-import { seedRepository, startTestDb, type TestDb } from "./testing.js";
+import {
+  backlogChatMessages,
+  backlogItems,
+  backlogItemTickets,
+  backlogJobs,
+  projects,
+} from "./schema.js";
+import { seedRepository, seedTicket, startTestDb, type TestDb } from "./testing.js";
 
 /**
  * Verifica che la migrazione del backlog di discovery (enum + tabelle + toggle
@@ -82,5 +88,61 @@ describe("schema: backlog di discovery", () => {
     const [project] = await db.select().from(projects).where(eq(projects.id, projectId));
     if (!project) throw new Error("read del progetto non ha restituito la riga");
     expect(project.backlogEnabled).toBe(false);
+  });
+
+  it("il delete di una voce cascata su chat messages e legami coi ticket", async () => {
+    const { projectId, ticketId } = await seedTicket(db);
+    const [item] = await db
+      .insert(backlogItems)
+      .values({ projectId, title: "Voce da eliminare", source: "ticket" })
+      .returning();
+    if (!item) throw new Error("insert della voce di backlog non ha restituito la riga");
+
+    await db.insert(backlogItemTickets).values({ itemId: item.id, ticketId });
+    await db
+      .insert(backlogChatMessages)
+      .values({ itemId: item.id, role: "user", content: "Puoi dettagliare la richiesta?" });
+
+    await db.delete(backlogItems).where(eq(backlogItems.id, item.id));
+
+    const links = await db
+      .select()
+      .from(backlogItemTickets)
+      .where(eq(backlogItemTickets.itemId, item.id));
+    expect(links).toHaveLength(0);
+    const messages = await db
+      .select()
+      .from(backlogChatMessages)
+      .where(eq(backlogChatMessages.itemId, item.id));
+    expect(messages).toHaveLength(0);
+  });
+
+  it("il delete della voce riferita da similarToId mette a NULL il riferimento", async () => {
+    const { projectId } = await seedRepository(db);
+    const [target] = await db
+      .insert(backlogItems)
+      .values({ projectId, title: "Voce simile esistente", source: "manual" })
+      .returning();
+    if (!target) throw new Error("insert della voce target non ha restituito la riga");
+    const [referrer] = await db
+      .insert(backlogItems)
+      .values({
+        projectId,
+        title: "Voce che riferisce la simile",
+        source: "manual",
+        similarToId: target.id,
+      })
+      .returning();
+    if (!referrer) throw new Error("insert della voce referente non ha restituito la riga");
+    expect(referrer.similarToId).toBe(target.id);
+
+    await db.delete(backlogItems).where(eq(backlogItems.id, target.id));
+
+    const [readBack] = await db
+      .select()
+      .from(backlogItems)
+      .where(eq(backlogItems.id, referrer.id));
+    if (!readBack) throw new Error("read-back della voce referente non ha restituito la riga");
+    expect(readBack.similarToId).toBeNull();
   });
 });

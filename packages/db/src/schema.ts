@@ -2005,10 +2005,18 @@ export const backlogItems = pgTable(
       onDelete: "set null",
     }),
     suggested: jsonb("suggested").$type<BacklogSuggested | null>(),
+    // Volutamente SENZA indice HNSW (a differenza di doc_chunks): il dedup
+    // filtra per projectId su decine-centinaia di voci e calcola la distanza
+    // esatta — sub-millisecondo ed esatto. Un HNSW qui sarebbe approssimato e
+    // inefficiente con un filtro così selettivo. Da rivalutare solo oltre
+    // ~decine di migliaia di voci per progetto.
     embedding: vector(1024),
     source: backlogItemSource("source").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
   },
   (table) => [index("backlog_items_project_status_idx").on(table.projectId, table.status)],
 );

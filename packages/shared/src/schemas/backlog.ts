@@ -47,9 +47,9 @@ export type BacklogJobStatus = z.infer<typeof backlogJobStatusSchema>;
 export const backlogSuggestedSchema = z.object({
   effort: effortSchema.optional(),
   risk: backlogRiskSchema.optional(),
-  riskNote: z.string().optional(),
+  riskNote: z.string().max(2000).optional(),
   urgency: backlogUrgencySchema.optional(),
-  reason: z.string().optional(),
+  reason: z.string().max(2000).optional(),
 });
 export type BacklogSuggested = z.infer<typeof backlogSuggestedSchema>;
 
@@ -62,7 +62,7 @@ export const updateBacklogItemSchema = z.object({
   status: backlogItemStatusSchema.optional(),
   effort: effortSchema.nullable().optional(),
   risk: backlogRiskSchema.nullable().optional(),
-  riskNote: z.string().nullable().optional(),
+  riskNote: z.string().max(2000).nullable().optional(),
   urgency: backlogUrgencySchema.nullable().optional(),
 });
 export type UpdateBacklogItemInput = z.infer<typeof updateBacklogItemSchema>;
