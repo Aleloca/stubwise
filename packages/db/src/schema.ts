@@ -1,6 +1,12 @@
 import {
   type AlertThresholds,
+  type BacklogSuggested,
   type DiscoveredService,
+  backlogItemSourceSchema,
+  backlogItemStatusSchema,
+  backlogJobKindSchema,
+  backlogJobStatusSchema,
+  backlogRiskSchema,
   checkStatusSchema,
   checkTypeSchema,
   docGenerationStatusSchema,
@@ -21,6 +27,7 @@ import {
 } from "@stubwise/shared";
 import { type SQL, sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   bigint,
   boolean,
   check,
@@ -32,6 +39,7 @@ import {
   numeric,
   pgEnum,
   pgTable,
+  primaryKey,
   real,
   text,
   timestamp,
@@ -90,6 +98,15 @@ export const ticketType = pgEnum("ticket_type", enumValues(ticketTypeSchema));
 export const ticketPriority = pgEnum("ticket_priority", enumValues(ticketPrioritySchema));
 export const ticketStatus = pgEnum("ticket_status", enumValues(ticketStatusSchema));
 export const ticketSource = pgEnum("ticket_source", enumValues(ticketSourceSchema));
+export const backlogItemStatus = pgEnum("backlog_item_status", enumValues(backlogItemStatusSchema));
+export const backlogRisk = pgEnum("backlog_risk", enumValues(backlogRiskSchema));
+export const backlogItemSource = pgEnum("backlog_item_source", enumValues(backlogItemSourceSchema));
+export const backlogJobKind = pgEnum("backlog_job_kind", enumValues(backlogJobKindSchema));
+export const backlogJobStatus = pgEnum("backlog_job_status", enumValues(backlogJobStatusSchema));
+// Ruolo del legame voce↔ticket: `origin` (il ticket ha originato la voce) o
+// `converted_to` (la voce è stata convertita in questo ticket). Lista letterale
+// locale al DB (non passa da uno schema Zod di shared).
+export const backlogTicketRole = pgEnum("backlog_ticket_role", ["origin", "converted_to"]);
 // "system" copre le notifiche automatiche (es. "PR mergiata → ticket chiuso"):
 // non hanno un autore umano né l'AI dietro, e vanno distinte nella timeline.
 export const commentAuthorType = pgEnum("comment_author_type", ["user", "ai", "system"]);
@@ -299,6 +316,10 @@ export const projects = pgTable("projects", {
   // progetto. Default false: opt-in esplicito per non generare report (e
   // consumare run dell'agente) su progetti non interessati.
   dailyReportEnabled: boolean("daily_report_enabled").notNull().default(false),
+  // Se true, i ticket feedback/feature del progetto vengono deviati verso il
+  // backlog di discovery (voci dedup + raffinamento AI) invece di finire
+  // direttamente nella pipeline di fix. Default false: opt-in esplicito.
+  backlogEnabled: boolean("backlog_enabled").notNull().default(false),
   // Chiave di ingestion del progetto (salita da repositories in Fase 3): gli
   // errori via SDK e i feedback sono del prodotto/progetto, non di un repo — è
   // l'agente a capire quale repo sistemare. La chiave esistente è stata migrata
@@ -1950,3 +1971,111 @@ export const activityRecountJobs = pgTable("activity_recount_jobs", {
   notBefore: timestamp("not_before", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Voce del backlog di discovery (product-level): un'idea/feature deviata da un
+ * ticket (`source=ticket`) o creata a mano (`source=manual`). `document` è il
+ * testo canonico raffinato via chat; `embedding` (pgvector 1024-dim, bge-m3)
+ * serve al dedup semantico. `requestCount` conta quante richieste distinte hanno
+ * alimentato la voce. `similarToId`/`mergedIntoId` sono self-reference (una voce
+ * simile suggerita, o la voce in cui questa è stata fusa): set null alla
+ * rimozione del riferimento. `suggested` sono i metadati proposti dall'AI in
+ * attesa di conferma umana (separati dai campi confermati effort/risk/urgency).
+ */
+export const backlogItems = pgTable(
+  "backlog_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    document: text("document").notNull().default(""),
+    status: backlogItemStatus("status").notNull().default("new"),
+    effort: integer("effort"),
+    risk: backlogRisk("risk"),
+    riskNote: text("risk_note"),
+    // L'urgenza riusa l'enum ticket_priority esistente (low/medium/high/urgent).
+    urgency: ticketPriority("urgency"),
+    requestCount: integer("request_count").notNull().default(1),
+    similarToId: uuid("similar_to_id").references((): AnyPgColumn => backlogItems.id, {
+      onDelete: "set null",
+    }),
+    mergedIntoId: uuid("merged_into_id").references((): AnyPgColumn => backlogItems.id, {
+      onDelete: "set null",
+    }),
+    suggested: jsonb("suggested").$type<BacklogSuggested | null>(),
+    embedding: vector(1024),
+    source: backlogItemSource("source").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("backlog_items_project_status_idx").on(table.projectId, table.status)],
+);
+
+/**
+ * Legame N:N voce↔ticket: i ticket che hanno originato la voce (`origin`) e
+ * l'eventuale ticket in cui la voce è stata convertita (`converted_to`).
+ * Chiave composta (itemId, ticketId); cascata su entrambi i lati.
+ */
+export const backlogItemTickets = pgTable(
+  "backlog_item_tickets",
+  {
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => backlogItems.id, { onDelete: "cascade" }),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    role: backlogTicketRole("role").notNull().default("origin"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.itemId, table.ticketId] })],
+);
+
+/**
+ * Messaggi della chat di raffinamento di una voce del backlog. `citations`
+ * (jsonb) porta gli eventuali riferimenti RAG del turno assistant. Cascata sulla
+ * voce; indicizzati per (itemId, createdAt) per rileggere la conversazione in
+ * ordine.
+ */
+export const backlogChatMessages = pgTable(
+  "backlog_chat_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => backlogItems.id, { onDelete: "cascade" }),
+    role: text("role", { enum: ["user", "assistant", "system"] }).notNull(),
+    content: text("content").notNull(),
+    citations: jsonb("citations"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("backlog_chat_messages_item_idx").on(table.itemId, table.createdAt)],
+);
+
+/**
+ * Coda di job del backlog (project-scoped): `intake` (prima elaborazione di una
+ * voce: dedup + metadati suggeriti) o `deep_dive` (approfondimento sul repo).
+ * Il `payload` (jsonb) varia per kind: intake da ticket `{ ticketId }`, intake
+ * manuale `{ title, body }`, deep_dive `{ itemId, repositoryId }`. Indicizzata
+ * per (status, createdAt) per il claim in ordine FIFO.
+ */
+export const backlogJobs = pgTable(
+  "backlog_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    kind: backlogJobKind("kind").notNull(),
+    status: backlogJobStatus("status").notNull().default("queued"),
+    payload: jsonb("payload").notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [index("backlog_jobs_status_idx").on(table.status, table.createdAt)],
+);
