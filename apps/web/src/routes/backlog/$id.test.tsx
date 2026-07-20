@@ -5,6 +5,10 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BacklogItemDetail } from "../../lib/api";
 import { createAppRouter } from "../../router";
+import { setMatchMedia } from "../../test/setup";
+
+/** Breakpoint `lg`: sopra la chat è un pannello inline (non un drawer). */
+const DESKTOP_QUERY = "(min-width: 1024px)";
 
 /**
  * Test del dettaglio backlog col router vero (memory history) e fetch mockata
@@ -487,8 +491,64 @@ describe("dettaglio backlog", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Copy Markdown" }));
     await waitFor(() => expect(writeText).toHaveBeenCalled());
     const exported = String(writeText.mock.calls[0]![0]);
-    expect(exported).toContain("title: Export massivo ordini");
-    expect(exported).toContain("project: Progetto Alfa");
+    // I valori stringa liberi sono quotati (JSON.stringify): YAML sempre valido.
+    expect(exported).toContain('title: "Export massivo ordini"');
+    expect(exported).toContain('project: "Progetto Alfa"');
+  });
+
+  it("esporta .md: un titolo con ':' resta YAML valido (valore quotato)", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    mockDetailApi({ item: detailFixture({ title: "Fix: export ordini" }) });
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Copy Markdown" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    expect(String(writeText.mock.calls[0]![0])).toContain('title: "Fix: export ordini"');
+  });
+
+  it("dopo la fusione la navigazione resetta chat e notice locali (key={id})", async () => {
+    // Desktop: la chat è un pannello inline, così la storia è visibile senza
+    // aprire il drawer. La voce SORGENTE ha una storia; la destinazione no.
+    setMatchMedia(DESKTOP_QUERY, true);
+    mockDetailApi({
+      refreshStatus: 409,
+      item: detailFixture({
+        messages: [
+          {
+            id: "m1",
+            role: "user",
+            content: "vecchia domanda",
+            citations: null,
+            createdAt: "2026-06-01T10:00:00.000Z",
+          },
+        ],
+      }),
+    });
+    const { router } = renderDetail();
+
+    // La chat della sorgente mostra la sua storia.
+    expect(await screen.findByText("vecchia domanda")).toBeInTheDocument();
+
+    // Provoca un notice locale nell'ActionsPanel (409 → messaggio informativo).
+    await userEvent.click(screen.getByRole("button", { name: "Update document" }));
+    expect(await screen.findByText(/Nothing new to synthesize/i)).toBeInTheDocument();
+
+    // Fondi → navigazione alla destinazione (stessa route, id diverso).
+    await userEvent.click(screen.getByRole("button", { name: "Merge into…" }));
+    const input = await screen.findByRole("combobox", { name: /search backlog items/i });
+    await userEvent.type(input, "report");
+    await userEvent.click(await screen.findByRole("option", { name: /Report ordini/ }));
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/backlog/${TARGET_ID}`));
+
+    // key={id}: chat rimontata con la storia della destinazione (vuota) e
+    // ActionsPanel rimontato senza il notice della voce assorbita.
+    expect(await screen.findByText(/no messages yet/i)).toBeInTheDocument();
+    expect(screen.queryByText("vecchia domanda")).not.toBeInTheDocument();
+    expect(screen.queryByText(/Nothing new to synthesize/i)).not.toBeInTheDocument();
   });
 
   it("member: niente banner suggeriti né barra azioni, metadati disabilitati", async () => {

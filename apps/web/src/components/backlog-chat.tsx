@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ApiError } from "../lib/api";
 import type { BacklogMessage } from "../lib/api";
@@ -242,6 +242,8 @@ export function BacklogChat({
       <button
         type="button"
         onClick={() => setOpen(true)}
+        aria-expanded={open}
+        aria-controls="backlog-chat-drawer"
         className="w-full rounded-sm border border-line-strong bg-ink-900 px-3 py-2 font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg"
       >
         {t("backlog:chat.open")}
@@ -260,8 +262,13 @@ export function BacklogChat({
   );
 }
 
-/** Una bolla: utente (testo), assistant (markdown + fonti) o nota di sistema. */
-function ChatBubble({ message }: { message: ChatMessage }) {
+/**
+ * Una bolla: utente (testo), assistant (markdown + fonti) o nota di sistema.
+ * `memo`: durante lo streaming ogni delta ri-renderizza la lista, e senza memo
+ * il `<Markdown>` di TUTTA la storia persistita verrebbe ri-parsato a ogni
+ * frammento — memoizzare la bolla (i messaggi storici sono immutabili) basta.
+ */
+const ChatBubble = memo(function ChatBubble({ message }: { message: ChatMessage }) {
   const { t } = useTranslation();
 
   // I messaggi di sistema non sono bolle: divider/nota centrata.
@@ -328,4 +335,4 @@ function ChatBubble({ message }: { message: ChatMessage }) {
       )}
     </li>
   );
-}
+});

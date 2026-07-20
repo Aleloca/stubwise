@@ -148,4 +148,38 @@ describe("BacklogChat", () => {
     renderChat();
     expect(screen.getByText(/no messages yet/i)).toBeInTheDocument();
   });
+
+  it("durante lo streaming l'invio è disabilitato (guardia sending)", async () => {
+    // Stream pilotabile: la promise resta pendente finché il test non la rilascia.
+    let release!: () => void;
+    postBacklogChatStream.mockImplementation(
+      (_id: string, _msg: string, handlers: BacklogChatHandlers) =>
+        new Promise<void>((resolve) => {
+          handlers.onDelta("in corso");
+          release = () => {
+            handlers.onDone({});
+            resolve();
+          };
+        }),
+    );
+
+    const user = userEvent.setup();
+    renderChat();
+    await ask(user, "prima domanda");
+
+    // Mentre lo stream è aperto il bottone mostra "Thinking…" ed è disabilitato:
+    // un secondo invio non può partire.
+    const thinking = await screen.findByRole("button", { name: /thinking/i });
+    expect(thinking).toBeDisabled();
+    expect(postBacklogChatStream).toHaveBeenCalledTimes(1);
+
+    release();
+
+    // A stream chiuso il bottone torna "Send" e si può scrivere di nuovo.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^send$/i })).toBeInTheDocument(),
+    );
+    await user.type(screen.getByLabelText(/ask or refine/i), "seconda");
+    expect(screen.getByRole("button", { name: /^send$/i })).toBeEnabled();
+  });
 });

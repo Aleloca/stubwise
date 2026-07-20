@@ -9,7 +9,7 @@ import {
 } from "@stubwise/shared";
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   BACKLOG_RISK_LABEL_KEYS,
@@ -303,8 +303,14 @@ export function BacklogDetailPage() {
             </dl>
           </div>
 
+          {/*
+            key={id}: navigando tra voci (es. dopo una fusione) la route NON
+            rimonta il componente pagina — senza key la chat conserverebbe la
+            storia della voce precedente e ActionsPanel i suoi notice locali.
+          */}
           {isAdmin && (
             <ActionsPanel
+              key={`actions-${id}`}
               item={item}
               projectName={projectName}
               onApply={applyBase}
@@ -313,6 +319,7 @@ export function BacklogDetailPage() {
           )}
 
           <BacklogChat
+            key={`chat-${id}`}
             itemId={id}
             initialMessages={item.messages}
             onExchangeComplete={() =>
@@ -581,10 +588,13 @@ function ActionsPanel({
       .filter((ticket) => ticket.role === "origin")
       .map((ticket) => `#${ticket.number}`)
       .join(", ");
+    // I valori stringa liberi (titolo, nome progetto) passano da JSON.stringify:
+    // ":" e altri caratteri speciali romperebbero lo YAML se interpolati nudi
+    // (JSON è un sottoinsieme di YAML, quindi la stringa quotata è sempre valida).
     const front = [
       "---",
-      `title: ${item.title}`,
-      `project: ${projectName}`,
+      `title: ${JSON.stringify(item.title)}`,
+      `project: ${JSON.stringify(projectName)}`,
       `effort: ${item.effort ?? "-"}`,
       `risk: ${item.risk ?? "-"}`,
       `urgency: ${item.urgency ?? "-"}`,
@@ -932,6 +942,14 @@ function ModalShell({
   onClose: () => void;
   children: React.ReactNode;
 }) {
+  // Focus programmatico sul pannello all'apertura (pattern Drawer): l'handler
+  // Escape vive sull'overlay via onKeyDown, quindi senza spostare il focus dal
+  // bottone che ha aperto la dialog Escape resterebbe inerte.
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    panelRef.current?.focus();
+  }, []);
+
   return (
     <div
       className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-ink-950/80 p-3 backdrop-blur-[2px] sm:p-6"
@@ -943,6 +961,8 @@ function ModalShell({
       }}
     >
       <div
+        ref={panelRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
