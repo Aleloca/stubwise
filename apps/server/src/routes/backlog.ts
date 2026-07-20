@@ -20,13 +20,16 @@ import {
   backlogJobs,
   backlogTicketRole,
   projects,
+  repositories,
   tickets,
 } from "@stubwise/db";
 import { requireAdmin, requireAuth } from "../auth/session.js";
+import { createTicket } from "../db/tickets.js";
 import { apiError } from "../errors.js";
 import {
   BACKLOG_RETRIEVAL_K,
   buildBacklogSystemPrompt,
+  buildMergeDocumentPrompt,
   buildRefreshDocumentPrompt,
   type OriginTicketContext,
   type PromptMessage,
@@ -119,6 +122,9 @@ const chatMessageSchema = z.object({
 const backlogItemDetailSchema = backlogItemBaseSchema.extend({
   tickets: z.array(linkedTicketSchema),
   messages: z.array(chatMessageSchema),
+  // True se esiste un job deep_dive queued/running per la voce (UI: "analisi in
+  // corso" con polling).
+  deepDivePending: z.boolean(),
 });
 
 const listQuerySchema = z.object({
@@ -135,6 +141,15 @@ const idParamsSchema = z.object({ id: z.uuid() });
 
 /** Body della chat di raffinamento: un messaggio non vuoto. */
 const chatBodySchema = z.object({ message: z.string().min(1).max(8000) });
+
+/** Body di merge: la voce di destinazione che assorbe questa. */
+const mergeBodySchema = z.object({ targetId: z.uuid() });
+
+/** Body di deep dive: il repository su cui condurre l'analisi. */
+const deepDiveBodySchema = z.object({ repositoryId: z.uuid() });
+
+/** Stati di un job del backlog considerati "in corso" (per il dedup deep dive). */
+const ACTIVE_JOB_STATUSES = ["queued", "running"] as const;
 
 /**
  * Contenuto esatto del messaggio `system` che marca l'ultimo "Aggiorna
@@ -349,6 +364,26 @@ function parseRefreshOutput(raw: string): z.infer<typeof refreshOutputSchema> | 
   return result.success ? result.data : null;
 }
 
+/**
+ * True se esiste un job `deep_dive` queued/running per la voce. Il legame è nel
+ * `payload` jsonb (`payload->>'itemId'`): la coda non ha una colonna itemId (il
+ * payload varia per kind), quindi si interroga il campo con l'operatore `->>`.
+ */
+async function hasPendingDeepDive(db: Db, itemId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: backlogJobs.id })
+    .from(backlogJobs)
+    .where(
+      and(
+        eq(backlogJobs.kind, "deep_dive"),
+        inArray(backlogJobs.status, [...ACTIVE_JOB_STATUSES]),
+        sql`${backlogJobs.payload} ->> 'itemId' = ${itemId}`,
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+}
+
 /** Accumula lo stream one-shot dell'LLM in una stringa (nessun SSE). */
 async function collectStream(
   chatLlm: FastifyInstance["chatLlm"],
@@ -492,7 +527,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       const base = await loadBaseItem(app.db, id);
       if (!base) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
 
-      const [ticketRows, messageRows] = await Promise.all([
+      const [ticketRows, messageRows, deepDivePending] = await Promise.all([
         app.db
           .select({
             id: tickets.id,
@@ -509,6 +544,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
           .from(backlogChatMessages)
           .where(eq(backlogChatMessages.itemId, id))
           .orderBy(asc(backlogChatMessages.createdAt), asc(backlogChatMessages.id)),
+        hasPendingDeepDive(app.db, id),
       ]);
 
       return {
@@ -521,6 +557,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
           citations: m.citations ?? null,
           createdAt: m.createdAt.toISOString(),
         })),
+        deepDivePending,
       };
     },
   );
@@ -890,6 +927,227 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       const updated = await loadBaseItem(app.db, id);
       if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
       return updated;
+    },
+  );
+
+  // --- Converti in task ----------------------------------------------------
+  //
+  // Crea un ticket `task` col documento come corpo, priorità dall'urgenza ed
+  // effort già valorizzato, riusando createTicket (numero sequenziale per-
+  // progetto, row-lock su projects). NON accoda alcun aiJob: il gate di
+  // automazione o il run manuale decideranno. Linka con role=converted_to e
+  // porta la voce in `converted`. Tutto transazionale (createTicket apre un
+  // savepoint annidato).
+  app.post(
+    "/:id/convert",
+    {
+      preHandler: requireAdmin,
+      schema: {
+        params: idParamsSchema,
+        response: {
+          200: z.object({ ticketId: z.uuid(), ticketNumber: z.number().int() }),
+          404: errorSchema,
+          409: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const [item] = await app.db
+        .select({
+          projectId: backlogItems.projectId,
+          title: backlogItems.title,
+          document: backlogItems.document,
+          status: backlogItems.status,
+          effort: backlogItems.effort,
+          urgency: backlogItems.urgency,
+        })
+        .from(backlogItems)
+        .where(eq(backlogItems.id, id));
+      if (!item) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+      if (item.status === "converted") {
+        return apiError(reply, 409, "already_converted", "Backlog item already converted");
+      }
+
+      const result = await app.db.transaction(async (tx) => {
+        const ticket = await createTicket(tx, {
+          projectId: item.projectId,
+          title: item.title,
+          body: item.document,
+          type: "task",
+          priority: item.urgency ?? "medium",
+          source: "manual",
+        });
+        // createTicket non copre l'effort: lo propaghiamo dalla voce (già stimato).
+        if (item.effort !== null) {
+          await tx.update(tickets).set({ effort: item.effort }).where(eq(tickets.id, ticket.id));
+        }
+        await tx
+          .insert(backlogItemTickets)
+          .values({ itemId: id, ticketId: ticket.id, role: "converted_to" });
+        await tx.update(backlogItems).set({ status: "converted" }).where(eq(backlogItems.id, id));
+        return { ticketId: ticket.id, ticketNumber: ticket.number };
+      });
+
+      return result;
+    },
+  );
+
+  // --- Fondi con… (merge manuale) ------------------------------------------
+  //
+  // Fonde QUESTA voce (assorbita) in `targetId` (destinazione): sposta i link
+  // ticket (upsert per evitare conflitti PK), somma i requestCount, integra i
+  // documenti via una chiamata one-shot all'LLM, lascia un messaggio system
+  // "ponte" su entrambe le chat e archivia l'assorbita con mergedIntoId. La
+  // chiamata LLM è FUORI transazione (prima degli update); il resto è atomico.
+  app.post(
+    "/:id/merge",
+    {
+      preHandler: requireAdmin,
+      schema: {
+        params: idParamsSchema,
+        body: mergeBodySchema,
+        response: {
+          200: backlogItemBaseSchema,
+          400: errorSchema,
+          404: errorSchema,
+          409: errorSchema,
+          503: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const { targetId } = request.body;
+
+      if (id === targetId) {
+        return apiError(reply, 400, "merge_self", "Cannot merge an item into itself");
+      }
+
+      const absorbed = await loadBaseItem(app.db, id);
+      if (!absorbed) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+      const target = await loadBaseItem(app.db, targetId);
+      if (!target) return apiError(reply, 404, "target_not_found", "Target backlog item not found");
+
+      if (absorbed.projectId !== target.projectId) {
+        return apiError(reply, 400, "cross_project_merge", "Items must be in the same project");
+      }
+      if (target.status === "archived" || target.status === "converted") {
+        return apiError(reply, 409, "target_not_mergeable", "Target item is archived or converted");
+      }
+
+      if (app.chatLlm.isAvailable) {
+        const availability = await app.chatLlm.isAvailable();
+        if (!availability.available) {
+          return apiError(reply, 503, "chat_unavailable", "Backlog chat requires an API-key AI provider");
+        }
+      }
+
+      // Integrazione dei due documenti (markdown puro, non JSON): FUORI transazione.
+      const mergedDocument = await collectStream(
+        app.chatLlm,
+        buildMergeDocumentPrompt(target, absorbed),
+        "Fondi i due documenti e restituisci il Markdown del documento risultante.",
+      );
+
+      await app.db.transaction(async (tx) => {
+        // Sposta i link ticket dall'assorbita al target: upsert (onConflictDoNothing
+        // sulla PK composta) per non violare il vincolo se un ticket è già linkato
+        // a entrambe; role invariato. Poi elimina i link dell'assorbita.
+        const links = await tx
+          .select({ ticketId: backlogItemTickets.ticketId, role: backlogItemTickets.role })
+          .from(backlogItemTickets)
+          .where(eq(backlogItemTickets.itemId, id));
+        if (links.length > 0) {
+          await tx
+            .insert(backlogItemTickets)
+            .values(links.map((l) => ({ itemId: targetId, ticketId: l.ticketId, role: l.role })))
+            .onConflictDoNothing({
+              target: [backlogItemTickets.itemId, backlogItemTickets.ticketId],
+            });
+          await tx.delete(backlogItemTickets).where(eq(backlogItemTickets.itemId, id));
+        }
+
+        // requestCount del target += quello dell'assorbita; documento fuso.
+        await tx
+          .update(backlogItems)
+          .set({
+            requestCount: sql`${backlogItems.requestCount} + ${absorbed.requestCount}`,
+            document: mergedDocument,
+          })
+          .where(eq(backlogItems.id, targetId));
+
+        // Assorbita → archived, con puntatore al superstite.
+        await tx
+          .update(backlogItems)
+          .set({ status: "archived", mergedIntoId: targetId })
+          .where(eq(backlogItems.id, id));
+
+        // Messaggi "ponte" sulle due chat.
+        await tx.insert(backlogChatMessages).values([
+          { itemId: targetId, role: "system", content: `Assorbito item "${absorbed.title}".` },
+          { itemId: id, role: "system", content: `Fuso in "${target.title}".` },
+        ]);
+      });
+
+      const updated = await loadBaseItem(app.db, targetId);
+      if (!updated) return apiError(reply, 404, "target_not_found", "Target backlog item not found");
+      return updated;
+    },
+  );
+
+  // --- Analisi approfondita (deep dive) ------------------------------------
+  //
+  // Accoda un job `deep_dive` sul repository scelto (deve appartenere al
+  // progetto della voce). 409 se ce n'è già uno queued/running per la voce
+  // (dedup su payload->>'itemId'). Non attende: 202.
+  app.post(
+    "/:id/deep-dive",
+    {
+      preHandler: requireAdmin,
+      schema: {
+        params: idParamsSchema,
+        body: deepDiveBodySchema,
+        response: {
+          202: z.object({ queued: z.literal(true) }),
+          400: errorSchema,
+          404: errorSchema,
+          409: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const { repositoryId } = request.body;
+
+      const [item] = await app.db
+        .select({ projectId: backlogItems.projectId })
+        .from(backlogItems)
+        .where(eq(backlogItems.id, id));
+      if (!item) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+
+      // Il repo deve esistere ed appartenere al progetto della voce.
+      const [repo] = await app.db
+        .select({ projectId: repositories.projectId })
+        .from(repositories)
+        .where(eq(repositories.id, repositoryId));
+      if (!repo || repo.projectId !== item.projectId) {
+        return apiError(reply, 400, "repository_not_in_project", "Repository does not belong to the item's project");
+      }
+
+      if (await hasPendingDeepDive(app.db, id)) {
+        return apiError(reply, 409, "deep_dive_pending", "A deep dive is already queued or running");
+      }
+
+      await app.db.insert(backlogJobs).values({
+        projectId: item.projectId,
+        kind: "deep_dive",
+        payload: { itemId: id, repositoryId },
+      });
+      return reply.code(202).send({ queued: true });
     },
   );
 }

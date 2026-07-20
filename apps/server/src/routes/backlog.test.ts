@@ -1,7 +1,9 @@
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { createFakeEmbeddingClient } from "@stubwise/embeddings";
 import {
+  aiJobs,
   backlogChatMessages,
   backlogItems,
   backlogItemTickets,
@@ -10,13 +12,27 @@ import {
   tickets,
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedRepository, startTestDb } from "@stubwise/db/testing";
+import { seedRepository, seedRepositoryInProject, startTestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { buildApp } from "../app.js";
+import type { ChatAvailability, ChatLlm } from "./chat-llm.js";
 import { seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
+
+// Fake ChatLlm per il merge (chiamata one-shot che integra i due documenti).
+// `mergeOutput` è il markdown emesso; `availabilityOverride` esercita il 503.
+let mergeOutput = "# Documento fuso";
+let availabilityOverride: ChatAvailability | null = null;
+const fakeChatLlm: ChatLlm = {
+  async *stream(): AsyncIterable<string> {
+    yield mergeOutput;
+  },
+  async isAvailable(): Promise<ChatAvailability> {
+    return availabilityOverride ?? { available: true };
+  },
+};
 
 let testDb: TestDb;
 let app: FastifyInstance;
@@ -31,6 +47,8 @@ beforeAll(async () => {
     sessionSecret: SESSION_SECRET,
     encryptionKey: ENCRYPTION_KEY.toString("base64"),
     publicUrl: "https://stubwise.example.com",
+    embeddingClient: createFakeEmbeddingClient(),
+    chatLlm: fakeChatLlm,
   });
   ({ adminCookie, memberCookie } = await seedUsers(app));
 }, 120_000);
@@ -41,6 +59,8 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  mergeOutput = "# Documento fuso";
+  availabilityOverride = null;
   ({ projectId } = await seedRepository(testDb.db));
 });
 
@@ -49,6 +69,7 @@ afterEach(async () => {
   await testDb.db.delete(backlogItemTickets);
   await testDb.db.delete(backlogJobs);
   await testDb.db.delete(backlogItems);
+  await testDb.db.delete(aiJobs);
   await testDb.db.delete(tickets);
   await testDb.db.delete(projects);
 });
@@ -590,5 +611,391 @@ describe("POST /api/backlog/:id/suggested/dismiss", () => {
     // I metadati reali NON cambiano; solo suggested è azzerato.
     expect(body.effort).toBe(1);
     expect(body.suggested).toBeNull();
+  });
+});
+
+describe("POST /api/backlog/:id/convert", () => {
+  it("member (non admin) → 403", async () => {
+    const item = await insertItem();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/convert`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("404 se inesistente", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${crypto.randomUUID()}/convert`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("crea un task col numero sequenziale reale, link converted_to, voce→converted, nessun aiJob", async () => {
+    const item = await insertItem({
+      title: "Idea da convertire",
+      document: "# Design\n\nCorpo del documento.",
+      effort: 3,
+      urgency: "high",
+      status: "ready",
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/convert`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { ticketId: string; ticketNumber: number };
+    // Progetto nuovo: nextTicketNumber parte da 1.
+    expect(body.ticketNumber).toBe(1);
+
+    const [ticket] = await testDb.db
+      .select()
+      .from(tickets)
+      .where(eq(tickets.id, body.ticketId));
+    expect(ticket!.type).toBe("task");
+    expect(ticket!.status).toBe("open");
+    expect(ticket!.title).toBe("Idea da convertire");
+    expect(ticket!.body).toBe("# Design\n\nCorpo del documento.");
+    expect(ticket!.priority).toBe("high"); // dall'urgency
+    expect(ticket!.effort).toBe(3);
+    expect(ticket!.source).toBe("manual");
+
+    // Link converted_to.
+    const links = await testDb.db
+      .select()
+      .from(backlogItemTickets)
+      .where(eq(backlogItemTickets.itemId, item.id));
+    expect(links).toHaveLength(1);
+    expect(links[0]!.role).toBe("converted_to");
+    expect(links[0]!.ticketId).toBe(body.ticketId);
+
+    // Voce → converted.
+    const [row] = await testDb.db
+      .select({ status: backlogItems.status })
+      .from(backlogItems)
+      .where(eq(backlogItems.id, item.id));
+    expect(row!.status).toBe("converted");
+
+    // NESSUN aiJob accodato.
+    const jobs = await testDb.db.select().from(aiJobs);
+    expect(jobs).toHaveLength(0);
+  });
+
+  it("il numero prosegue la sequenza del progetto (rispetta i ticket esistenti)", async () => {
+    // Un ticket già esistente porta nextTicketNumber a 2.
+    await testDb.db
+      .update(projects)
+      .set({ nextTicketNumber: 5 })
+      .where(eq(projects.id, projectId));
+    const item = await insertItem();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/convert`,
+      headers: { cookie: adminCookie },
+    });
+    expect((res.json() as { ticketNumber: number }).ticketNumber).toBe(5);
+  });
+
+  it("409 se già converted", async () => {
+    const item = await insertItem({ status: "converted" });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/convert`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(409);
+  });
+
+  it("urgency null → priority medium", async () => {
+    const item = await insertItem({ urgency: null });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/convert`,
+      headers: { cookie: adminCookie },
+    });
+    const body = res.json() as { ticketId: string };
+    const [ticket] = await testDb.db.select().from(tickets).where(eq(tickets.id, body.ticketId));
+    expect(ticket!.priority).toBe("medium");
+  });
+});
+
+describe("POST /api/backlog/:id/merge", () => {
+  it("member (non admin) → 403", async () => {
+    const a = await insertItem();
+    const b = await insertItem();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${a.id}/merge`,
+      headers: { cookie: memberCookie },
+      payload: { targetId: b.id },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("400 se id === targetId", async () => {
+    const a = await insertItem();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${a.id}/merge`,
+      headers: { cookie: adminCookie },
+      payload: { targetId: a.id },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("404 se il target non esiste", async () => {
+    const a = await insertItem();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${a.id}/merge`,
+      headers: { cookie: adminCookie },
+      payload: { targetId: crypto.randomUUID() },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("400 se i due sono di progetti diversi", async () => {
+    const a = await insertItem();
+    const { projectId: other } = await seedRepository(testDb.db);
+    const b = await insertItem({ projectId: other });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${a.id}/merge`,
+      headers: { cookie: adminCookie },
+      payload: { targetId: b.id },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("409 se il target è archived o converted", async () => {
+    const a = await insertItem();
+    const b = await insertItem({ status: "archived" });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${a.id}/merge`,
+      headers: { cookie: adminCookie },
+      payload: { targetId: b.id },
+    });
+    expect(res.statusCode).toBe(409);
+  });
+
+  it("503 se la chat non è servibile", async () => {
+    const a = await insertItem();
+    const b = await insertItem();
+    availabilityOverride = { available: false };
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${a.id}/merge`,
+      headers: { cookie: adminCookie },
+      payload: { targetId: b.id },
+    });
+    expect(res.statusCode).toBe(503);
+  });
+
+  it("fonde: somma requestCount, sposta i link (upsert), documento AI, messaggi ponte, assorbito archived", async () => {
+    mergeOutput = "# Documento integrato";
+    const absorbed = await insertItem({ title: "Assorbito", requestCount: 2 });
+    const target = await insertItem({ title: "Destinazione", requestCount: 3, document: "# Vecchio target" });
+
+    // Ticket: t1 solo sull'assorbito, tShared su entrambi (testa l'upsert).
+    const t1 = await insertTicket(1, "solo assorbito");
+    const tShared = await insertTicket(2, "condiviso");
+    await testDb.db.insert(backlogItemTickets).values([
+      { itemId: absorbed.id, ticketId: t1, role: "origin" },
+      { itemId: absorbed.id, ticketId: tShared, role: "origin" },
+      { itemId: target.id, ticketId: tShared, role: "origin" },
+    ]);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${absorbed.id}/merge`,
+      headers: { cookie: adminCookie },
+      payload: { targetId: target.id },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { id: string; requestCount: number; document: string; status: string };
+    // Risposta = target aggiornato.
+    expect(body.id).toBe(target.id);
+    expect(body.requestCount).toBe(5); // 3 + 2
+    expect(body.document).toBe("# Documento integrato");
+
+    // Link spostati sul target: t1 (nuovo) + tShared (già presente, non duplicato).
+    const targetLinks = await testDb.db
+      .select()
+      .from(backlogItemTickets)
+      .where(eq(backlogItemTickets.itemId, target.id));
+    expect(targetLinks.map((l) => l.ticketId).sort()).toEqual([t1, tShared].sort());
+    // I link dell'assorbito sono stati rimossi.
+    const absorbedLinks = await testDb.db
+      .select()
+      .from(backlogItemTickets)
+      .where(eq(backlogItemTickets.itemId, absorbed.id));
+    expect(absorbedLinks).toHaveLength(0);
+
+    // Assorbito → archived con mergedIntoId.
+    const [absorbedRow] = await testDb.db
+      .select({ status: backlogItems.status, mergedIntoId: backlogItems.mergedIntoId })
+      .from(backlogItems)
+      .where(eq(backlogItems.id, absorbed.id));
+    expect(absorbedRow!.status).toBe("archived");
+    expect(absorbedRow!.mergedIntoId).toBe(target.id);
+
+    // Messaggi system su entrambe le chat.
+    const targetMsgs = await testDb.db
+      .select()
+      .from(backlogChatMessages)
+      .where(eq(backlogChatMessages.itemId, target.id));
+    expect(targetMsgs.some((m) => m.role === "system" && m.content.includes("Assorbito item"))).toBe(true);
+    const absorbedMsgs = await testDb.db
+      .select()
+      .from(backlogChatMessages)
+      .where(eq(backlogChatMessages.itemId, absorbed.id));
+    expect(absorbedMsgs.some((m) => m.role === "system" && m.content.includes("Fuso in"))).toBe(true);
+  });
+});
+
+describe("POST /api/backlog/:id/deep-dive", () => {
+  it("member (non admin) → 403", async () => {
+    const item = await insertItem();
+    const { repositoryId } = await seedRepository(testDb.db);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/deep-dive`,
+      headers: { cookie: memberCookie },
+      payload: { repositoryId },
+    });
+    expect(res.statusCode).toBe(403);
+  });
+
+  it("404 se la voce non esiste", async () => {
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${crypto.randomUUID()}/deep-dive`,
+      headers: { cookie: adminCookie },
+      payload: { repositoryId: repoId },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("400 se il repo appartiene a un altro progetto", async () => {
+    const item = await insertItem();
+    const { repositoryId: foreignRepo } = await seedRepository(testDb.db);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/deep-dive`,
+      headers: { cookie: adminCookie },
+      payload: { repositoryId: foreignRepo },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("202 e riga job deep_dive con payload { itemId, repositoryId }", async () => {
+    const item = await insertItem();
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/deep-dive`,
+      headers: { cookie: adminCookie },
+      payload: { repositoryId: repoId },
+    });
+    expect(res.statusCode).toBe(202);
+    expect(res.json()).toEqual({ queued: true });
+
+    const jobs = await testDb.db
+      .select()
+      .from(backlogJobs)
+      .where(eq(backlogJobs.projectId, projectId));
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.kind).toBe("deep_dive");
+    expect(jobs[0]!.status).toBe("queued");
+    expect(jobs[0]!.payload).toEqual({ itemId: item.id, repositoryId: repoId });
+  });
+
+  it("409 se c'è già un deep_dive queued/running per la voce", async () => {
+    const item = await insertItem();
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+    await testDb.db.insert(backlogJobs).values({
+      projectId,
+      kind: "deep_dive",
+      status: "running",
+      payload: { itemId: item.id, repositoryId: repoId },
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/deep-dive`,
+      headers: { cookie: adminCookie },
+      payload: { repositoryId: repoId },
+    });
+    expect(res.statusCode).toBe(409);
+  });
+
+  it("un deep_dive done non blocca un nuovo accodamento", async () => {
+    const item = await insertItem();
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+    await testDb.db.insert(backlogJobs).values({
+      projectId,
+      kind: "deep_dive",
+      status: "done",
+      payload: { itemId: item.id, repositoryId: repoId },
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/deep-dive`,
+      headers: { cookie: adminCookie },
+      payload: { repositoryId: repoId },
+    });
+    expect(res.statusCode).toBe(202);
+  });
+});
+
+describe("GET /api/backlog/:id deepDivePending", () => {
+  it("false senza job, true con un deep_dive queued/running per la voce", async () => {
+    const item = await insertItem();
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+
+    const before = await app.inject({
+      method: "GET",
+      url: `/api/backlog/${item.id}`,
+      headers: { cookie: memberCookie },
+    });
+    expect((before.json() as { deepDivePending: boolean }).deepDivePending).toBe(false);
+
+    await testDb.db.insert(backlogJobs).values({
+      projectId,
+      kind: "deep_dive",
+      status: "queued",
+      payload: { itemId: item.id, repositoryId: repoId },
+    });
+
+    const after = await app.inject({
+      method: "GET",
+      url: `/api/backlog/${item.id}`,
+      headers: { cookie: memberCookie },
+    });
+    expect((after.json() as { deepDivePending: boolean }).deepDivePending).toBe(true);
+  });
+
+  it("un deep_dive di UN'ALTRA voce non marca pending", async () => {
+    const item = await insertItem();
+    const other = await insertItem();
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+    await testDb.db.insert(backlogJobs).values({
+      projectId,
+      kind: "deep_dive",
+      status: "running",
+      payload: { itemId: other.id, repositoryId: repoId },
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/backlog/${item.id}`,
+      headers: { cookie: memberCookie },
+    });
+    expect((res.json() as { deepDivePending: boolean }).deepDivePending).toBe(false);
   });
 });
