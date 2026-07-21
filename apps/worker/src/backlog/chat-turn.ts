@@ -190,6 +190,14 @@ export async function runChatTurn(
     .from(backlogCodeSessions)
     .where(eq(backlogCodeSessions.id, payload.sessionId));
   if (!session || session.status !== "active" || session.itemId !== payload.itemId) {
+    // Cleanup MIRATO: se il worktree in registro appartiene PROPRIO a questa
+    // sessione ora chiusa (DELETE/convert/scadenza), rimuovilo subito senza
+    // aspettare lo sweep. Se invece appartiene a un'ALTRA sessione (chiusura +
+    // riapertura) NON toccarlo: è il worktree valido di quella nuova sessione.
+    const stale = deps.registry.get(payload.itemId);
+    if (stale && session && stale.sessionId === session.id) {
+      await deps.registry.remove(payload.itemId).catch(() => undefined);
+    }
     deps.logger.warn(
       { jobId: job.id, itemId: payload.itemId, sessionId: payload.sessionId },
       "[backlog] chat turn: sessione non più attiva o mismatch, no-op",

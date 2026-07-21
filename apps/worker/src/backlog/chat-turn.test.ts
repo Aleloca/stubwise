@@ -338,6 +338,38 @@ describe("runChatTurn — no-op morbido", () => {
     expect((await messagesOf(db, itemId)).filter((m) => m.role === "assistant")).toHaveLength(0);
   });
 
+  it("sessione chiusa nel frattempo → rimuove il worktree della SUA sessione dal registro", async () => {
+    const db = testDb.db;
+    const { projectId, repositoryId } = await createProjectWithRepo(db);
+    const itemId = await createItem(db, projectId);
+    const sessionId = await createSession(db, itemId, repositoryId, { status: "closed" });
+    const userMessageId = await addUserMessage(db, itemId, "Domanda");
+    const registry = createCodeSessionRegistry();
+    // Worktree in registro appartenente a QUESTA sessione (ora chiusa).
+    let removed = 0;
+    registry.set(itemId, {
+      sessionId,
+      repositoryId,
+      dir: "/tmp/wt",
+      cliSessionId: "cli-x",
+      lastUsed: Date.now(),
+      remove: async () => {
+        removed++;
+      },
+    });
+    const runner = new FakeAgentRunner();
+
+    await runChatTurn(makeDeps(db, { runner, registry }), job(projectId, { itemId, userMessageId, sessionId }), {
+      itemId,
+      userMessageId,
+      sessionId,
+    });
+
+    expect(runner.calls).toHaveLength(0);
+    expect(removed).toBe(1);
+    expect(registry.get(itemId)).toBeUndefined();
+  });
+
   it("itemId del payload diverso da quello della sessione → no-op", async () => {
     const db = testDb.db;
     const { projectId, repositoryId } = await createProjectWithRepo(db);
