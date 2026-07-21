@@ -5,6 +5,7 @@ import { createFakeEmbeddingClient } from "@stubwise/embeddings";
 import {
   aiJobs,
   backlogChatMessages,
+  backlogCodeSessions,
   backlogItems,
   backlogItemTickets,
   backlogJobs,
@@ -65,6 +66,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  await testDb.db.delete(backlogCodeSessions);
   await testDb.db.delete(backlogChatMessages);
   await testDb.db.delete(backlogItemTickets);
   await testDb.db.delete(backlogJobs);
@@ -997,5 +999,267 @@ describe("GET /api/backlog/:id deepDivePending", () => {
       headers: { cookie: memberCookie },
     });
     expect((res.json() as { deepDivePending: boolean }).deepDivePending).toBe(false);
+  });
+});
+
+describe("POST /api/backlog/:id/code-session", () => {
+  it("senza sessione → 401", async () => {
+    const item = await insertItem();
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/code-session`,
+      payload: { repositoryId: repoId },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("404 se la voce non esiste", async () => {
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${crypto.randomUUID()}/code-session`,
+      headers: { cookie: memberCookie },
+      payload: { repositoryId: repoId },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("201: crea la sessione active e un messaggio system i18n col nome del repo", async () => {
+    const item = await insertItem({ status: "new" });
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/code-session`,
+      headers: { cookie: memberCookie },
+      payload: { repositoryId: repoId },
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({ status: "active", repositoryId: repoId });
+    expect(typeof (res.json() as { startedAt: string }).startedAt).toBe("string");
+
+    // Riga sessione persistita.
+    const sessions = await testDb.db
+      .select()
+      .from(backlogCodeSessions)
+      .where(eq(backlogCodeSessions.itemId, item.id));
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]!.status).toBe("active");
+    expect(sessions[0]!.cliSessionId).toBeNull();
+
+    // Messaggio system con avviso i18n (content language default 'en').
+    const messages = await testDb.db
+      .select()
+      .from(backlogChatMessages)
+      .where(eq(backlogChatMessages.itemId, item.id));
+    expect(messages).toHaveLength(1);
+    expect(messages[0]!.role).toBe("system");
+    expect(messages[0]!.content).toContain("Code analysis session started");
+  });
+
+  it("400 se il repo appartiene a un altro progetto", async () => {
+    const item = await insertItem();
+    const { repositoryId: foreignRepo } = await seedRepository(testDb.db);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/code-session`,
+      headers: { cookie: memberCookie },
+      payload: { repositoryId: foreignRepo },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("409 se esiste già una sessione active per la voce", async () => {
+    const item = await insertItem();
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+    await testDb.db.insert(backlogCodeSessions).values({ itemId: item.id, repositoryId: repoId });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/code-session`,
+      headers: { cookie: memberCookie },
+      payload: { repositoryId: repoId },
+    });
+    expect(res.statusCode).toBe(409);
+    expect((res.json() as { code: string }).code).toBe("code_session_active");
+  });
+
+  it("409 se la voce è converted", async () => {
+    const item = await insertItem({ status: "converted" });
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/code-session`,
+      headers: { cookie: memberCookie },
+      payload: { repositoryId: repoId },
+    });
+    expect(res.statusCode).toBe(409);
+    expect((res.json() as { code: string }).code).toBe("item_closed");
+  });
+
+  it("409 se la voce è archived", async () => {
+    const item = await insertItem({ status: "archived" });
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/code-session`,
+      headers: { cookie: memberCookie },
+      payload: { repositoryId: repoId },
+    });
+    expect(res.statusCode).toBe(409);
+  });
+
+  it("una sessione closed non blocca l'avvio di una nuova", async () => {
+    const item = await insertItem();
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+    await testDb.db
+      .insert(backlogCodeSessions)
+      .values({ itemId: item.id, repositoryId: repoId, status: "closed", closedAt: new Date() });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/code-session`,
+      headers: { cookie: memberCookie },
+      payload: { repositoryId: repoId },
+    });
+    expect(res.statusCode).toBe(201);
+  });
+});
+
+describe("DELETE /api/backlog/:id/code-session", () => {
+  it("200: chiude la sessione active con closed_at e messaggio system", async () => {
+    const item = await insertItem();
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+    await testDb.db.insert(backlogCodeSessions).values({ itemId: item.id, repositoryId: repoId });
+
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/backlog/${item.id}/code-session`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ closed: true });
+
+    const [session] = await testDb.db
+      .select()
+      .from(backlogCodeSessions)
+      .where(eq(backlogCodeSessions.itemId, item.id));
+    expect(session!.status).toBe("closed");
+    expect(session!.closedAt).not.toBeNull();
+
+    const messages = await testDb.db
+      .select()
+      .from(backlogChatMessages)
+      .where(eq(backlogChatMessages.itemId, item.id));
+    expect(messages).toHaveLength(1);
+    expect(messages[0]!.role).toBe("system");
+    expect(messages[0]!.content).toContain("Code analysis session closed");
+  });
+
+  it("404 se non c'è alcuna sessione active", async () => {
+    const item = await insertItem();
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/backlog/${item.id}/code-session`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("404 se esiste solo una sessione già closed", async () => {
+    const item = await insertItem();
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+    await testDb.db
+      .insert(backlogCodeSessions)
+      .values({ itemId: item.id, repositoryId: repoId, status: "closed", closedAt: new Date() });
+
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/backlog/${item.id}/code-session`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("GET /api/backlog/:id codeSession + pendingTurn", () => {
+  it("codeSession null e pendingTurn false senza sessione né turni", async () => {
+    const item = await insertItem();
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/backlog/${item.id}`,
+      headers: { cookie: memberCookie },
+    });
+    const body = res.json() as { codeSession: unknown; pendingTurn: boolean };
+    expect(body.codeSession).toBeNull();
+    expect(body.pendingTurn).toBe(false);
+  });
+
+  it("codeSession popolata con la sessione active", async () => {
+    const item = await insertItem();
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+    await testDb.db.insert(backlogCodeSessions).values({ itemId: item.id, repositoryId: repoId });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/backlog/${item.id}`,
+      headers: { cookie: memberCookie },
+    });
+    const body = res.json() as {
+      codeSession: { status: string; repositoryId: string; startedAt: string } | null;
+    };
+    expect(body.codeSession).toMatchObject({ status: "active", repositoryId: repoId });
+    expect(typeof body.codeSession!.startedAt).toBe("string");
+  });
+
+  it("una sessione closed non compare in codeSession", async () => {
+    const item = await insertItem();
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+    await testDb.db
+      .insert(backlogCodeSessions)
+      .values({ itemId: item.id, repositoryId: repoId, status: "closed", closedAt: new Date() });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/backlog/${item.id}`,
+      headers: { cookie: memberCookie },
+    });
+    expect((res.json() as { codeSession: unknown }).codeSession).toBeNull();
+  });
+
+  it("pendingTurn true con un chat_turn queued/running per la voce", async () => {
+    const item = await insertItem();
+    await testDb.db.insert(backlogJobs).values({
+      projectId,
+      kind: "chat_turn",
+      status: "running",
+      payload: { itemId: item.id, userMessageId: crypto.randomUUID() },
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/backlog/${item.id}`,
+      headers: { cookie: memberCookie },
+    });
+    expect((res.json() as { pendingTurn: boolean }).pendingTurn).toBe(true);
+  });
+
+  it("un chat_turn di UN'ALTRA voce non marca pendingTurn", async () => {
+    const item = await insertItem();
+    const other = await insertItem();
+    await testDb.db.insert(backlogJobs).values({
+      projectId,
+      kind: "chat_turn",
+      status: "queued",
+      payload: { itemId: other.id, userMessageId: crypto.randomUUID() },
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/backlog/${item.id}`,
+      headers: { cookie: memberCookie },
+    });
+    expect((res.json() as { pendingTurn: boolean }).pendingTurn).toBe(false);
   });
 });

@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
 import {
   backlogChatMessages,
+  backlogCodeSessions,
   backlogItems,
   backlogItemTickets,
   backlogJobs,
@@ -12,7 +13,7 @@ import {
   tickets,
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedRepository, startTestDb } from "@stubwise/db/testing";
+import { seedRepository, seedRepositoryInProject, startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import type { ChatAvailability, ChatLlm, ChatLlmInput } from "./chat-llm.js";
 import { seedUsers } from "../test/fixtures.js";
@@ -107,6 +108,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  await testDb.db.delete(backlogCodeSessions);
   await testDb.db.delete(backlogChatMessages);
   await testDb.db.delete(backlogItemTickets);
   await testDb.db.delete(backlogJobs);
@@ -280,6 +282,109 @@ describe("POST /api/backlog/:id/chat", () => {
       payload: { message: "domanda" },
     });
     expect(lastChatInput!.system).toContain("Voglio esportare in PDF");
+  });
+});
+
+describe("POST /api/backlog/:id/chat in modalità CODE (sessione attiva)", () => {
+  it("202 {mode:code}: persiste user, accoda chat_turn, NIENTE SSE né chatLlm", async () => {
+    const item = await insertItem({ status: "refining" });
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+    await testDb.db.insert(backlogCodeSessions).values({ itemId: item.id, repositoryId: repoId });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/chat`,
+      headers: { cookie: memberCookie },
+      payload: { message: "come è implementata l'autenticazione?" },
+    });
+
+    expect(res.statusCode).toBe(202);
+    expect(res.headers["content-type"]).toContain("application/json");
+    expect(res.json()).toEqual({ mode: "code" });
+    // La modalità code NON tocca l'LLM RAG.
+    expect(lastChatInput).toBeNull();
+
+    // Messaggio user persistito.
+    const messages = await readMessages(item.id);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]!.role).toBe("user");
+    expect(messages[0]!.content).toBe("come è implementata l'autenticazione?");
+
+    // Job chat_turn accodato con payload {itemId, userMessageId} = id del messaggio.
+    const userId = await testDb.db
+      .select({ id: backlogChatMessages.id })
+      .from(backlogChatMessages)
+      .where(eq(backlogChatMessages.itemId, item.id));
+    const jobs = await testDb.db
+      .select()
+      .from(backlogJobs)
+      .where(eq(backlogJobs.projectId, projectId));
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.kind).toBe("chat_turn");
+    expect(jobs[0]!.status).toBe("queued");
+    expect(jobs[0]!.payload).toEqual({ itemId: item.id, userMessageId: userId[0]!.id });
+  });
+
+  it("aggiorna last_activity_at della sessione", async () => {
+    const item = await insertItem({ status: "refining" });
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+    const past = new Date("2020-01-01T00:00:00Z");
+    await testDb.db
+      .insert(backlogCodeSessions)
+      .values({ itemId: item.id, repositoryId: repoId, lastActivityAt: past });
+
+    await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/chat`,
+      headers: { cookie: memberCookie },
+      payload: { message: "domanda" },
+    });
+
+    const [session] = await testDb.db
+      .select()
+      .from(backlogCodeSessions)
+      .where(eq(backlogCodeSessions.itemId, item.id));
+    expect(session!.lastActivityAt.getTime()).toBeGreaterThan(past.getTime());
+  });
+
+  it("una voce new in modalità code passa a refining", async () => {
+    const item = await insertItem({ status: "new" });
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+    await testDb.db.insert(backlogCodeSessions).values({ itemId: item.id, repositoryId: repoId });
+
+    await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/chat`,
+      headers: { cookie: memberCookie },
+      payload: { message: "domanda" },
+    });
+
+    const [row] = await testDb.db
+      .select({ status: backlogItems.status })
+      .from(backlogItems)
+      .where(eq(backlogItems.id, item.id));
+    expect(row!.status).toBe("refining");
+  });
+
+  it("una sessione closed NON attiva la modalità code: torna al percorso SSE (DOCS)", async () => {
+    const item = await insertItem({ status: "refining" });
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+    await testDb.db
+      .insert(backlogCodeSessions)
+      .values({ itemId: item.id, repositoryId: repoId, status: "closed", closedAt: new Date() });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/chat`,
+      headers: { cookie: memberCookie },
+      payload: { message: "domanda in modalità docs" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("text/event-stream");
+    // Nessun job chat_turn accodato.
+    const jobs = await testDb.db.select().from(backlogJobs).where(eq(backlogJobs.projectId, projectId));
+    expect(jobs).toHaveLength(0);
   });
 });
 
