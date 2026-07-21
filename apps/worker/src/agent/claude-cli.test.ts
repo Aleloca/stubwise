@@ -192,6 +192,57 @@ printf '{"total_cost_usd":0.5,"modelUsage":{"m1":{"inputTokens":1,"outputTokens"
     ]);
   });
 
+  it("aggiunge --resume <id> quando resumeSessionId è fornito, lo omette altrimenti", async () => {
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(root);
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    const conResume = await runner.run({
+      cwd,
+      prompt: "domanda",
+      maxTurns: 15,
+      timeoutMs: 10_000,
+      permissionMode: "plan",
+      resumeSessionId: "sess-abc-123",
+    });
+    expect(conResume.output).toContain(
+      "ARGS:-p --output-format json --permission-mode plan --max-turns 15 --resume sess-abc-123",
+    );
+
+    const senzaResume = await runner.run({ cwd, prompt: "x", maxTurns: 1, timeoutMs: 10_000 });
+    expect(senzaResume.output).not.toContain("--resume");
+  });
+
+  it("estrae session_id dal JSON del CLI (parse difensivo), undefined se assente", async () => {
+    const root = await makeRoot();
+    // Script che emette un JSON col campo session_id (come il CLI reale).
+    const withSession = await makeFakeClaude(
+      root,
+      `#!/bin/sh
+cat > /dev/null
+printf '{"result":"risposta","session_id":"cli-sess-99"}\\n'
+`,
+    );
+    const cwd = await makeCwd(root);
+    const withRunner = new ClaudeCliRunner({ claudePath: withSession });
+    const withResult = await withRunner.run({ cwd, prompt: "x", maxTurns: 1, timeoutMs: 10_000 });
+    expect(withResult.output).toBe("risposta");
+    expect(withResult.sessionId).toBe("cli-sess-99");
+
+    // Senza session_id → undefined (fallback ri-priming del chiamante).
+    const noSession = await makeFakeClaude(
+      root,
+      `#!/bin/sh
+cat > /dev/null
+printf '{"result":"altra risposta"}\\n'
+`,
+    );
+    const noRunner = new ClaudeCliRunner({ claudePath: noSession });
+    const noResult = await noRunner.run({ cwd, prompt: "x", maxTurns: 1, timeoutMs: 10_000 });
+    expect(noResult.sessionId).toBeUndefined();
+  });
+
   it("omette --model quando non specificato", async () => {
     const root = await makeRoot();
     const claudePath = await makeFakeClaude(root);

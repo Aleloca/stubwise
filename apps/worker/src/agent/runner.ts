@@ -48,6 +48,15 @@ export interface AgentRunOptions {
   /** Timeout complessivo in millisecondi (> 0). */
   timeoutMs: number;
   /**
+   * Id di una sessione CLI claude da RIPRENDERE, mappato su `--resume <id>`. Il
+   * modello ricarica il contesto della sessione (cosa ha già esplorato) e il
+   * `prompt` è solo il nuovo turno. Usato dalla sessione di analisi sul codice
+   * del backlog: il primo turno omette resumeSessionId (nuova sessione, prompt
+   * di priming) e ne ricava il `sessionId` dal risultato; i turni successivi lo
+   * passano con la sola domanda. Omesso = nessuna ripresa (sessione nuova).
+   */
+  resumeSessionId?: string;
+  /**
    * Credenziale del provider AI da usare per QUESTO run, risolta dalla catena
    * (vedi providers/chain.ts). Determina come si autentica il CLI claude:
    *  - kind "api_key" → ANTHROPIC_API_KEY (e si esclude CLAUDE_CODE_OAUTH_TOKEN);
@@ -96,6 +105,14 @@ export interface AgentRunResult {
    * dato mancante.
    */
   usage?: AgentRunUsage;
+  /**
+   * Id della sessione CLI del run, estratto dal campo `session_id` del JSON del
+   * CLI (parse difensivo). È l'id da passare come `resumeSessionId` al turno
+   * successivo della sessione di analisi sul codice. Assente quando il CLI non
+   * lo riporta (versione vecchia, parse fallito o output non-JSON): il chiamante
+   * ricade sul ri-priming a ogni turno (degradato ma funzionante).
+   */
+  sessionId?: string;
 }
 
 export interface AgentRunner {
