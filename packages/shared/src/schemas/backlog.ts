@@ -77,14 +77,15 @@ export const backlogDeepDivePayloadSchema = z
 export type BacklogDeepDivePayload = z.infer<typeof backlogDeepDivePayloadSchema>;
 
 /**
- * Payload di un job `chat_turn`: la voce e l'id del messaggio utente che ha
- * innescato il turno. Il worker legge il CONTENUTO dal messaggio persistito
- * (`backlog_chat_messages`), non dal payload: qui basta il riferimento. Il repo
- * su cui investigare NON è nel payload — vive sulla sessione di analisi attiva
- * (`backlog_code_sessions.repository_id`), che il worker risolve dall'itemId.
+ * Payload di un job `chat_turn`: la voce, l'id del messaggio utente che ha
+ * innescato il turno e la SESSIONE di analisi in cui è stato posto. Il worker
+ * risponde in QUELLA sessione (repo, cli_session_id), non nell'eventuale
+ * sessione attiva al momento del dequeue: una chiusura+riapertura su un altro
+ * repo nel frattempo non devia la risposta. Il CONTENUTO della domanda vive nel
+ * messaggio persistito (`backlog_chat_messages`), non nel payload.
  */
 export const backlogChatTurnPayloadSchema = z
-  .object({ itemId: z.uuid(), userMessageId: z.uuid() })
+  .object({ itemId: z.uuid(), userMessageId: z.uuid(), sessionId: z.uuid() })
   .strict();
 export type BacklogChatTurnPayload = z.infer<typeof backlogChatTurnPayloadSchema>;
 
@@ -94,8 +95,8 @@ export type BacklogChatTurnPayload = z.infer<typeof backlogChatTurnPayloadSchema
  * colonna `payload` di `backlog_jobs` e validata al dequeue dal worker (un
  * payload che non combacia con nessuna forma → job fallito subito, senza retry).
  * La discriminazione resta per FORMA, non per `kind`: `deep_dive` è
- * `{itemId, repositoryId}` e `chat_turn` è `{itemId, userMessageId}`, forme
- * distinte grazie a `.strict()`.
+ * `{itemId, repositoryId}` e `chat_turn` è `{itemId, userMessageId, sessionId}`,
+ * forme distinte grazie a `.strict()`.
  */
 export const backlogJobPayloadSchema = z.union([
   backlogIntakeFromTicketPayloadSchema,

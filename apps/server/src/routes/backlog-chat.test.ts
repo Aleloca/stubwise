@@ -286,10 +286,13 @@ describe("POST /api/backlog/:id/chat", () => {
 });
 
 describe("POST /api/backlog/:id/chat in modalità CODE (sessione attiva)", () => {
-  it("202 {mode:code}: persiste user, accoda chat_turn, NIENTE SSE né chatLlm", async () => {
+  it("202 {mode:code, userMessageId}: persiste user, accoda chat_turn, NIENTE SSE né chatLlm", async () => {
     const item = await insertItem({ status: "refining" });
     const repoId = await seedRepositoryInProject(testDb.db, projectId);
-    await testDb.db.insert(backlogCodeSessions).values({ itemId: item.id, repositoryId: repoId });
+    const [session] = await testDb.db
+      .insert(backlogCodeSessions)
+      .values({ itemId: item.id, repositoryId: repoId })
+      .returning({ id: backlogCodeSessions.id });
 
     const res = await app.inject({
       method: "POST",
@@ -300,7 +303,6 @@ describe("POST /api/backlog/:id/chat in modalità CODE (sessione attiva)", () =>
 
     expect(res.statusCode).toBe(202);
     expect(res.headers["content-type"]).toContain("application/json");
-    expect(res.json()).toEqual({ mode: "code" });
     // La modalità code NON tocca l'LLM RAG.
     expect(lastChatInput).toBeNull();
 
@@ -310,11 +312,14 @@ describe("POST /api/backlog/:id/chat in modalità CODE (sessione attiva)", () =>
     expect(messages[0]!.role).toBe("user");
     expect(messages[0]!.content).toBe("come è implementata l'autenticazione?");
 
-    // Job chat_turn accodato con payload {itemId, userMessageId} = id del messaggio.
+    // La risposta echeggia l'id del messaggio persistito (dedup ottimistico UI).
     const userId = await testDb.db
       .select({ id: backlogChatMessages.id })
       .from(backlogChatMessages)
       .where(eq(backlogChatMessages.itemId, item.id));
+    expect(res.json()).toEqual({ mode: "code", userMessageId: userId[0]!.id });
+
+    // Job chat_turn accodato con payload {itemId, userMessageId, sessionId}.
     const jobs = await testDb.db
       .select()
       .from(backlogJobs)
@@ -322,7 +327,11 @@ describe("POST /api/backlog/:id/chat in modalità CODE (sessione attiva)", () =>
     expect(jobs).toHaveLength(1);
     expect(jobs[0]!.kind).toBe("chat_turn");
     expect(jobs[0]!.status).toBe("queued");
-    expect(jobs[0]!.payload).toEqual({ itemId: item.id, userMessageId: userId[0]!.id });
+    expect(jobs[0]!.payload).toEqual({
+      itemId: item.id,
+      userMessageId: userId[0]!.id,
+      sessionId: session!.id,
+    });
   });
 
   it("aggiorna last_activity_at della sessione", async () => {

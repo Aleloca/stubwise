@@ -42,7 +42,7 @@ import {
 import { streamChatResponse, TRUNCATION_MARKER } from "./docs-chat-core.js";
 import { buildCitations } from "./docs-rag.js";
 import { retrieveChunksForProject } from "./docs-retrieval.js";
-import { authErrorResponses, errorSchema } from "./shared.js";
+import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 
 /**
  * Route del backlog di discovery, montate sotto /api/backlog. La lettura (lista
@@ -831,11 +831,13 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       schema: {
         params: idParamsSchema,
         body: chatBodySchema,
-        // In modalità CODE la risposta è un 202 JSON (`{mode:"code"}`); in
-        // modalità DOCS (default) è uno stream SSE grezzo (reply.hijack), quindi
-        // niente schema 200. Restano gli errori PRIMA dello stream (404/503/auth).
+        // In modalità CODE la risposta è un 202 JSON (`{mode:"code",
+        // userMessageId}` — l'id serve alla UI per dedupare il messaggio
+        // ottimistico); in modalità DOCS (default) è uno stream SSE grezzo
+        // (reply.hijack), quindi niente schema 200. Restano gli errori PRIMA
+        // dello stream (404/503/auth).
         response: {
-          202: z.object({ mode: z.literal("code") }),
+          202: z.object({ mode: z.literal("code"), userMessageId: z.uuid() }),
           404: errorSchema,
           503: errorSchema,
           ...authErrorResponses,
@@ -849,30 +851,41 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       const item = await loadBaseItem(app.db, id);
       if (!item) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
 
-      // MODALITÀ CODE: se c'è una sessione di analisi attiva, il messaggio non va
-      // all'LLM RAG ma diventa un turno dell'agente sul repo (worker). Persiste
-      // il messaggio user, accoda un job `chat_turn` (che referenzia il messaggio
-      // appena inserito), aggiorna last_activity_at e risponde 202 SENZA SSE.
+      // MODALITÀ CODE: se c'è una sessione di analisi attiva, il messaggio non
+      // va all'LLM RAG ma diventa un turno dell'agente sul repo (worker). Tutto
+      // in UNA transazione, col TOUCH di last_activity_at come PRIMA operazione
+      // e GUARDIA anti-corsa: l'UPDATE condizionato su status='active' prende il
+      // row-lock della sessione, quindi un DELETE concorrente si serializza (o
+      // la chiude prima → 0 righe qui, o attende il commit del turno). 0 righe
+      // toccate = nessuna sessione attiva → fall-through al percorso SSE docs
+      // (come se la sessione non ci fosse mai stata: niente turno orfano).
       // NIENTE pre-flight chatLlm: il turno gira su claude CLI, non sul provider RAG.
-      const codeSession = await loadActiveCodeSession(app.db, id);
-      if (codeSession) {
+      const codeTurn = await app.db.transaction(async (tx) => {
+        const [session] = await tx
+          .update(backlogCodeSessions)
+          .set({ lastActivityAt: new Date() })
+          .where(and(eq(backlogCodeSessions.itemId, id), eq(backlogCodeSessions.status, "active")))
+          .returning({ id: backlogCodeSessions.id });
+        if (!session) return null;
+
         if (item.status === "new") {
-          await app.db.update(backlogItems).set({ status: "refining" }).where(eq(backlogItems.id, id));
+          await tx.update(backlogItems).set({ status: "refining" }).where(eq(backlogItems.id, id));
         }
-        const [userMessage] = await app.db
+        const [userMessage] = await tx
           .insert(backlogChatMessages)
           .values({ itemId: id, role: "user", content: message })
           .returning({ id: backlogChatMessages.id });
-        await app.db.insert(backlogJobs).values({
+        // `sessionId` nel payload: il worker risponde NELLA sessione in cui è
+        // stata posta la domanda, non in quella attiva al dequeue.
+        await tx.insert(backlogJobs).values({
           projectId: item.projectId,
           kind: "chat_turn",
-          payload: { itemId: id, userMessageId: userMessage!.id },
+          payload: { itemId: id, userMessageId: userMessage!.id, sessionId: session.id },
         });
-        await app.db
-          .update(backlogCodeSessions)
-          .set({ lastActivityAt: new Date() })
-          .where(and(eq(backlogCodeSessions.itemId, id), eq(backlogCodeSessions.status, "active")));
-        return reply.code(202).send({ mode: "code" as const });
+        return { userMessageId: userMessage!.id };
+      });
+      if (codeTurn) {
+        return reply.code(202).send({ mode: "code" as const, userMessageId: codeTurn.userMessageId });
       }
 
       // PRE-FLIGHT disponibilità chat, PRIMA dell'hijack: 503 JSON pulito se
@@ -985,25 +998,36 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       }
 
       const lang = await getContentLanguage(app.db);
-      const created = await app.db.transaction(async (tx) => {
-        // L'insert è la guardia anti-corsa: due avvii concorrenti si
-        // serializzano sull'indice unico parziale (il secondo → 23505). Il
-        // pre-check sopra resta per il fast-path del 409 pulito.
-        const [row] = await tx
-          .insert(backlogCodeSessions)
-          .values({ itemId: id, repositoryId, status: "active" })
-          .returning({
-            status: backlogCodeSessions.status,
-            repositoryId: backlogCodeSessions.repositoryId,
-            startedAt: backlogCodeSessions.startedAt,
+      let created: { status: "active" | "closed"; repositoryId: string; startedAt: Date };
+      try {
+        created = await app.db.transaction(async (tx) => {
+          // L'insert è la guardia anti-corsa: due avvii concorrenti si
+          // serializzano sull'indice unico parziale (il secondo → 23505,
+          // mappato a 409 nel catch). Il pre-check sopra resta per il
+          // fast-path del 409 pulito.
+          const [row] = await tx
+            .insert(backlogCodeSessions)
+            .values({ itemId: id, repositoryId, status: "active" })
+            .returning({
+              status: backlogCodeSessions.status,
+              repositoryId: backlogCodeSessions.repositoryId,
+              startedAt: backlogCodeSessions.startedAt,
+            });
+          await tx.insert(backlogChatMessages).values({
+            itemId: id,
+            role: "system",
+            content: t(lang, "backlog.codeSessionStarted", { repo: repo.name }),
           });
-        await tx.insert(backlogChatMessages).values({
-          itemId: id,
-          role: "system",
-          content: t(lang, "backlog.codeSessionStarted", { repo: repo.name }),
+          return row!;
         });
-        return row!;
-      });
+      } catch (error) {
+        // Race di doppio start sfuggita al pre-check: l'indice unico parziale
+        // respinge il secondo insert → 409 come il pre-check, non 500.
+        if (isUniqueViolation(error)) {
+          return apiError(reply, 409, "code_session_active", "A code analysis session is already active");
+        }
+        throw error;
+      }
 
       return reply
         .code(201)

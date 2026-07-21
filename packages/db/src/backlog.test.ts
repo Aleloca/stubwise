@@ -69,8 +69,8 @@ describe("schema: backlog di discovery", () => {
     expect(readBack.embedding?.[1]).toBeCloseTo(0.1);
   });
 
-  it("accoda un job chat_turn (nuovo valore enum 0055) con payload {itemId, userMessageId}", async () => {
-    const { projectId } = await seedRepository(db);
+  it("accoda un job chat_turn (nuovo valore enum 0055) con payload {itemId, userMessageId, sessionId}", async () => {
+    const { projectId, repositoryId } = await seedRepository(db);
     const [item] = await db
       .insert(backlogItems)
       .values({ projectId, title: "Voce con sessione", source: "manual" })
@@ -79,20 +79,28 @@ describe("schema: backlog di discovery", () => {
       .insert(backlogChatMessages)
       .values({ itemId: item!.id, role: "user", content: "come funziona il modulo X?" })
       .returning();
+    const [session] = await db
+      .insert(backlogCodeSessions)
+      .values({ itemId: item!.id, repositoryId })
+      .returning();
 
     const [job] = await db
       .insert(backlogJobs)
       .values({
         projectId,
         kind: "chat_turn",
-        payload: { itemId: item!.id, userMessageId: msg!.id },
+        payload: { itemId: item!.id, userMessageId: msg!.id, sessionId: session!.id },
       })
       .returning();
     if (!job) throw new Error("insert del job chat_turn non ha restituito la riga");
 
     expect(job.kind).toBe("chat_turn");
     expect(job.status).toBe("queued");
-    expect(job.payload).toEqual({ itemId: item!.id, userMessageId: msg!.id });
+    expect(job.payload).toEqual({
+      itemId: item!.id,
+      userMessageId: msg!.id,
+      sessionId: session!.id,
+    });
   });
 
   it("persiste una sessione di analisi con default (active, timestamp) e cliSessionId null", async () => {

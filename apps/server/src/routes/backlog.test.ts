@@ -1234,7 +1234,11 @@ describe("GET /api/backlog/:id codeSession + pendingTurn", () => {
       projectId,
       kind: "chat_turn",
       status: "running",
-      payload: { itemId: item.id, userMessageId: crypto.randomUUID() },
+      payload: {
+        itemId: item.id,
+        userMessageId: crypto.randomUUID(),
+        sessionId: crypto.randomUUID(),
+      },
     });
 
     const res = await app.inject({
@@ -1252,7 +1256,11 @@ describe("GET /api/backlog/:id codeSession + pendingTurn", () => {
       projectId,
       kind: "chat_turn",
       status: "queued",
-      payload: { itemId: other.id, userMessageId: crypto.randomUUID() },
+      payload: {
+        itemId: other.id,
+        userMessageId: crypto.randomUUID(),
+        sessionId: crypto.randomUUID(),
+      },
     });
 
     const res = await app.inject({
