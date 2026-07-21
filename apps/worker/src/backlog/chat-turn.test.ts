@@ -13,10 +13,10 @@ import { asc, eq } from "drizzle-orm";
 import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeAgentRunner } from "../agent/fake.js";
-import { AgentTimeoutError, type AgentRunOptions, type AgentRunResult, type AgentRunner } from "../agent/runner.js";
+import { AgentTimeoutError, type AgentRunResult, type AgentRunner } from "../agent/runner.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { runChatTurn, type ChatTurnDeps } from "./chat-turn.js";
-import { createCodeSessionRegistry, type CodeSessionRegistry } from "./code-session.js";
+import { createCodeSessionRegistry } from "./code-session.js";
 import type { BacklogJob } from "./poller.js";
 
 vi.setConfig({ testTimeout: 60_000 });
@@ -386,7 +386,7 @@ describe("runChatTurn — errore/timeout → messaggio di errore + throw (failed
     const sessionId = await createSession(db, itemId, repositoryId);
     const userMessageId = await addUserMessage(db, itemId, "Domanda");
     const runner: AgentRunner = {
-      run: async (_opts: AgentRunOptions): Promise<AgentRunResult> => {
+      run: async (): Promise<AgentRunResult> => {
         throw new AgentTimeoutError(1000, "parziale");
       },
     };

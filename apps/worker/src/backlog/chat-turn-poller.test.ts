@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentRunner } from "../agent/runner.js";
+import { runChatTurn } from "./chat-turn.js";
 import { pollChatTurnsOnce, recoverStaleChatTurnJobs, type ChatTurnPollerDeps } from "./chat-turn-poller.js";
 import { createCodeSessionRegistry } from "./code-session.js";
 
@@ -93,7 +94,7 @@ describe("pollChatTurnsOnce", () => {
     const payload = chatPayload();
     const id = await insertChatJob(db, projectId, { payload });
 
-    const runChatTurnFn = vi.fn(async () => {});
+    const runChatTurnFn = vi.fn<typeof runChatTurn>(async () => {});
     const done = await pollChatTurnsOnce(makeDeps(db, { runChatTurnFn }));
 
     expect(done).toBe(1);
@@ -176,17 +177,23 @@ describe("pollChatTurnsOnce", () => {
     await insertChatJob(db, projectId, { payload: chatPayload(randomUUID()) });
     await insertChatJob(db, projectId, { payload: chatPayload(randomUUID()) });
 
-    let active = 0;
+    // Barrier deterministica (niente timing): un turno NON può finire finché
+    // l'altro non è entrato. Se i due NON girassero in parallelo il primo
+    // resterebbe bloccato per sempre (nessuno rilascerebbe il gate) → timeout.
+    let entered = 0;
+    let releaseAll = (): void => {};
+    const gate = new Promise<void>((r) => (releaseAll = r));
     let maxConcurrent = 0;
     const runChatTurnFn = vi.fn(async () => {
-      active++;
-      maxConcurrent = Math.max(maxConcurrent, active);
-      await new Promise((r) => setTimeout(r, 40));
-      active--;
+      entered++;
+      maxConcurrent = Math.max(maxConcurrent, entered);
+      if (entered === 2) releaseAll();
+      await gate;
+      entered--;
     });
 
     await pollChatTurnsOnce(makeDeps(db, { runChatTurnFn }));
-    // Voci diverse: i due turni si sovrappongono.
+    // Voci diverse: entrambi entrati prima che uno finisse ⇒ sovrapposizione.
     expect(maxConcurrent).toBe(2);
   });
 });

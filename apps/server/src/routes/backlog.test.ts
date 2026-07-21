@@ -713,6 +713,36 @@ describe("POST /api/backlog/:id/convert", () => {
     expect(res.statusCode).toBe(409);
   });
 
+  it("chiude l'eventuale sessione di analisi active (+ messaggio system)", async () => {
+    const item = await insertItem({ status: "ready" });
+    const repoId = await seedRepositoryInProject(testDb.db, projectId);
+    await testDb.db.insert(backlogCodeSessions).values({ itemId: item.id, repositoryId: repoId });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/convert`,
+      headers: { cookie: adminCookie },
+    });
+    expect(res.statusCode).toBe(200);
+
+    // La sessione active è stata chiusa dalla conversione.
+    const [session] = await testDb.db
+      .select()
+      .from(backlogCodeSessions)
+      .where(eq(backlogCodeSessions.itemId, item.id));
+    expect(session!.status).toBe("closed");
+    expect(session!.closedAt).not.toBeNull();
+
+    // Messaggio system di chiusura sessione nella chat.
+    const messages = await testDb.db
+      .select()
+      .from(backlogChatMessages)
+      .where(eq(backlogChatMessages.itemId, item.id));
+    expect(messages.some((m) => m.role === "system" && m.content.includes("Code analysis session closed"))).toBe(
+      true,
+    );
+  });
+
   it("urgency null → priority medium", async () => {
     const item = await insertItem({ urgency: null });
     const res = await app.inject({
