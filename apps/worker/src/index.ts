@@ -5,6 +5,8 @@ import { createDb } from "@stubwise/db";
 import { createEmbeddingClient } from "@stubwise/embeddings";
 import { ClaudeCliRunner } from "./agent/claude-cli.js";
 import { startBacklogPoller } from "./backlog/poller.js";
+import { startChatTurnPoller } from "./backlog/chat-turn-poller.js";
+import { createCodeSessionRegistry, startCodeSessionSweeper } from "./backlog/code-session.js";
 import { startCredentialTester } from "./agent/credential-tester.js";
 import { startUsagePoller } from "./agent/usage-poller.js";
 import { loadWorkerConfig, type WorkerConfig } from "./config.js";
@@ -362,6 +364,43 @@ startBacklogPoller({
   signal: controller.signal,
 });
 
+// SESSIONE DI ANALISI SUL CODICE nella chat del backlog: poller VELOCE dei turni
+// (chat_turn) + sweep TTL delle sessioni inattive. Task SEPARATI dal loop dei
+// job. Il poller reclama i turni e li esegue nel serializer PER-ITEM (turni di
+// voci diverse in parallelo, stessa voce sequenziali); ogni turno gira su un
+// WORKTREE READ-ONLY persistente (plan mode) con sessione CLI ripresa via
+// --resume. Il registro in-memoria tiene i worktree aperti; lo sweep li chiude
+// (sessioni scadute/chiuse) e allo shutdown li chiude tutti (best-effort).
+// Riusa il MirrorManager e il serializer condivisi (l'apertura del worktree passa
+// dal serializer per non correre col fetch --prune). Si fermano sull'AbortSignal.
+const codeSessionRegistry = createCodeSessionRegistry();
+startChatTurnPoller({
+  db,
+  runner,
+  mirrors,
+  serializer,
+  registry: codeSessionRegistry,
+  logger: backlogLogger,
+  encryptionKey: config.encryptionKey,
+  model: config.backlogModel,
+  maxTurns: config.backlogChatTurnMaxTurns,
+  timeoutMs: config.backlogChatTurnTimeoutMs,
+  intervalSeconds: config.backlogChatTurnPollSeconds,
+  signal: controller.signal,
+});
+// Sweep TTL su un intervallo fisso (60s): scala robusta rispetto al TTL (30' di
+// default) e latenza bassa nel liberare i worktree delle sessioni chiuse via
+// DELETE/convert. Se i turni sono disabilitati (poll = 0) non ci sono worktree da
+// gestire: si spegne anche lo sweep (il close-all allo shutdown resta comunque).
+startCodeSessionSweeper({
+  db,
+  registry: codeSessionRegistry,
+  ttlMinutes: config.backlogChatSessionTtlMinutes,
+  logger: backlogLogger,
+  intervalMs: config.backlogChatTurnPollSeconds > 0 ? 60_000 : 0,
+  signal: controller.signal,
+});
+
 // Poller di ROLLUP + retention delle metriche di monitoraggio: task SEPARATO
 // dal loop dei job, sul proprio intervallo. Aggrega i campioni fini oltre le
 // 48h in bucket da 5' e applica la retention (tutto in una transazione con
@@ -395,6 +434,7 @@ console.error(
     `, limit-resume ${config.limitResumePollMinutes > 0 ? `ogni ${config.limitResumePollMinutes}'` : "disabilitato"}` +
     `, daily-report ${config.dailyReportPollMinutes > 0 ? `ogni ${config.dailyReportPollMinutes}'` : "disabilitato"}` +
     `, backlog ${config.backlogPollSeconds > 0 ? `ogni ${config.backlogPollSeconds}"` : "disabilitato"}` +
+    `, backlog-chat-turn ${config.backlogChatTurnPollSeconds > 0 ? `ogni ${config.backlogChatTurnPollSeconds}" (ttl ${config.backlogChatSessionTtlMinutes}')` : "disabilitato"}` +
     `, monitor-rollup ${config.monitorRollupIntervalMinutes > 0 ? `ogni ${config.monitorRollupIntervalMinutes}'` : "disabilitato"}` +
     `, monitor-alert ${config.monitorAlertIntervalMinutes > 0 ? `ogni ${config.monitorAlertIntervalMinutes}'` : "disabilitato"})`,
 );

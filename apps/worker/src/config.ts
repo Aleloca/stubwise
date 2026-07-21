@@ -526,6 +526,50 @@ const envSchema = z.object({
       .min(1, "deve essere un intero > 0 in millisecondi (es. 900000)")
       .default(900_000),
   ),
+  // Intervallo di poll (secondi) del poller VELOCE dei turni della sessione di
+  // analisi sul codice (chat_turn): separato dal poller lento del backlog (20s)
+  // perché i turni sono interattivi (l'utente attende la risposta in chat). È
+  // BEST-EFFORT e non tocca i timeout dei job. 0 = disabilitato. Default 2".
+  BACKLOG_CHAT_TURN_POLL_SECONDS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 0 in secondi (es. 2; 0 = disabilitato)" })
+      .int("deve essere un intero ≥ 0 in secondi (es. 2; 0 = disabilitato)")
+      .min(0, "deve essere un intero ≥ 0 in secondi (es. 2; 0 = disabilitato)")
+      .default(2),
+  ),
+  // Minuti di inattività (last_activity_at) oltre cui una sessione di analisi sul
+  // codice `active` viene chiusa dallo sweep TTL (worktree rimosso + messaggio
+  // system). Default 30'.
+  BACKLOG_CHAT_SESSION_TTL_MINUTES: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 in minuti (es. 30)" })
+      .int("deve essere un intero ≥ 1 in minuti (es. 30)")
+      .min(1, "deve essere un intero ≥ 1 in minuti (es. 30)")
+      .default(30),
+  ),
+  // Timeout (ms) del run dell'agente per un turno della sessione di analisi sul
+  // codice. Su timeout il turno fallisce (senza retry) con un messaggio di errore
+  // in chat. Default 300000 = 5'.
+  BACKLOG_CHAT_TURN_TIMEOUT_MS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero > 0 in millisecondi (es. 300000)" })
+      .int("deve essere un intero > 0 in millisecondi (es. 300000)")
+      .min(1, "deve essere un intero > 0 in millisecondi (es. 300000)")
+      .default(300_000),
+  ),
+  // Turni massimi dell'agente per un turno della sessione di analisi sul codice:
+  // limita esplorazione/iterazioni del run (costo e durata per turno). Default 15.
+  BACKLOG_CHAT_TURN_MAX_TURNS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 (es. 15)" })
+      .int("deve essere un intero ≥ 1 (es. 15)")
+      .min(1, "deve essere un intero ≥ 1 (es. 15)")
+      .default(15),
+  ),
 }).refine(
   (env) => env.BACKLOG_SIMILAR_THRESHOLD <= env.BACKLOG_MERGE_THRESHOLD,
   {
@@ -657,6 +701,16 @@ export interface WorkerConfig {
   backlogModel: string;
   /** Timeout (ms) di ogni run dell'agente del backlog (default 900000 = 15'). */
   backlogAgentTimeoutMs: number;
+  /** Intervallo in secondi del poller veloce dei turni chat_turn (default 2;
+   * 0 = disabilitato). */
+  backlogChatTurnPollSeconds: number;
+  /** Minuti di inattività oltre cui lo sweep chiude una sessione di analisi sul
+   * codice active (default 30). */
+  backlogChatSessionTtlMinutes: number;
+  /** Timeout (ms) del run dell'agente per un turno di chat (default 300000 = 5'). */
+  backlogChatTurnTimeoutMs: number;
+  /** Turni massimi dell'agente per un turno di chat (default 15). */
+  backlogChatTurnMaxTurns: number;
 }
 
 /**
@@ -727,5 +781,9 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     backlogPollSeconds: parsed.BACKLOG_POLL_SECONDS,
     backlogModel: parsed.BACKLOG_MODEL,
     backlogAgentTimeoutMs: parsed.BACKLOG_AGENT_TIMEOUT_MS,
+    backlogChatTurnPollSeconds: parsed.BACKLOG_CHAT_TURN_POLL_SECONDS,
+    backlogChatSessionTtlMinutes: parsed.BACKLOG_CHAT_SESSION_TTL_MINUTES,
+    backlogChatTurnTimeoutMs: parsed.BACKLOG_CHAT_TURN_TIMEOUT_MS,
+    backlogChatTurnMaxTurns: parsed.BACKLOG_CHAT_TURN_MAX_TURNS,
   };
 }

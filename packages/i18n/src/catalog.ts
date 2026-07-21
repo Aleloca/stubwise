@@ -54,6 +54,9 @@ export const en: Catalog = {
   "backlog.deepDiveDone": 'Technical analysis completed on repository "{repo}".',
   "backlog.codeSessionStarted": 'Code analysis session started on repository "{repo}".',
   "backlog.codeSessionClosed": "Code analysis session closed.",
+  "backlog.codeSessionExpired": "Code analysis session closed due to inactivity.",
+  "backlog.codeTurnError":
+    "The code analysis run failed. Please try sending your message again.",
 
   // --- effort.* — etichette della scala di sforzo 1–5 (allineate alle label
   // della web UI, namespace `badges.effort`). Usate nei commenti AI del triage.
@@ -167,6 +170,9 @@ export const it: Catalog = {
   "backlog.deepDiveDone": 'Analisi tecnica completata sul repository "{repo}".',
   "backlog.codeSessionStarted": 'Sessione di analisi sul codice avviata sul repository "{repo}".',
   "backlog.codeSessionClosed": "Sessione di analisi sul codice chiusa.",
+  "backlog.codeSessionExpired": "Sessione di analisi sul codice chiusa per inattività.",
+  "backlog.codeTurnError":
+    "L'analisi del codice non è riuscita. Riprova a inviare il messaggio.",
 
   // --- effort.* (etichette italiane della scala di sforzo, = EFFORT_LABELS) ---
   "effort.1": "Banale",

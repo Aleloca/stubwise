@@ -171,6 +171,14 @@ services:
       - BACKLOG_POLL_SECONDS=${BACKLOG_POLL_SECONDS:-20}
       - BACKLOG_MODEL=${BACKLOG_MODEL:-sonnet}
       - BACKLOG_AGENT_TIMEOUT_MS=${BACKLOG_AGENT_TIMEOUT_MS:-900000}
+      # --- Sessione di analisi sul codice nella chat del backlog ---
+      # Turni dell'agente claude CLI su un worktree read-only, con sessione CLI
+      # persistente (--resume). Poller VELOCE dedicato (0 = disabilitato); sweep
+      # TTL delle sessioni inattive; timeout e turni max del run per turno.
+      - BACKLOG_CHAT_TURN_POLL_SECONDS=${BACKLOG_CHAT_TURN_POLL_SECONDS:-2}
+      - BACKLOG_CHAT_SESSION_TTL_MINUTES=${BACKLOG_CHAT_SESSION_TTL_MINUTES:-30}
+      - BACKLOG_CHAT_TURN_TIMEOUT_MS=${BACKLOG_CHAT_TURN_TIMEOUT_MS:-300000}
+      - BACKLOG_CHAT_TURN_MAX_TURNS=${BACKLOG_CHAT_TURN_MAX_TURNS:-15}
       # --- Auth del CLI claude ---
       # Metodo raccomandato: gestisci le credenziali in Settings -> AI providers
       # (catena cifrata nel DB, con failover). Le due righe pass-through qui sotto

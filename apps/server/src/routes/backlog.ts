@@ -1239,6 +1239,24 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         await tx
           .insert(backlogItemTickets)
           .values({ itemId: id, ticketId: ticket.id, role: "converted_to" });
+        // Una conversione CHIUDE l'eventuale sessione di analisi sul codice
+        // active: la voce è ormai un ticket, non ha più senso investigarla in
+        // chat. Il worker (sweep/turno) rimuoverà il worktree in-memoria alla
+        // prossima riconciliazione; un chat_turn in volo trova la sessione closed
+        // → no-op morbido. Status-guarded: nessuna sessione active → 0 righe.
+        const [closedSession] = await tx
+          .update(backlogCodeSessions)
+          .set({ status: "closed", closedAt: new Date() })
+          .where(and(eq(backlogCodeSessions.itemId, id), eq(backlogCodeSessions.status, "active")))
+          .returning({ id: backlogCodeSessions.id });
+        if (closedSession) {
+          const lang = await getContentLanguage(tx);
+          await tx.insert(backlogChatMessages).values({
+            itemId: id,
+            role: "system",
+            content: t(lang, "backlog.codeSessionClosed"),
+          });
+        }
         return { ticketId: ticket.id, ticketNumber: ticket.number };
       });
 
