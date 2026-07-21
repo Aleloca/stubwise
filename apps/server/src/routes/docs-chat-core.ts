@@ -71,6 +71,20 @@ interface StreamChatResponseArgs {
   citations: Citation[];
   /** Contesto per il log degli errori LLM (repositoryId o projectId). */
   logContext: Record<string, string>;
+  /**
+   * Persistenza pluggabile del messaggio assistant: se presente sostituisce
+   * l'insert di default su `docChatMessages` (che resta il comportamento per le
+   * chat Docs). `truncated` distingue la risposta completa da quella interrotta
+   * a metà: nel default la parziale viene salvata con TRUNCATION_MARKER e senza
+   * citazioni — un chiamante custom decide da sé cosa farne. Con risposta
+   * interrotta e NESSUN testo accumulato non viene chiamato (come il default,
+   * che in quel caso non persiste nulla).
+   */
+  persistAssistantMessage?: (args: {
+    content: string;
+    citations: Citation[];
+    truncated: boolean;
+  }) => Promise<void>;
 }
 
 /**
@@ -90,7 +104,18 @@ interface StreamChatResponseArgs {
  * persistito, system/history/citations pronti. Da qui la risposta è gestita a mano.
  */
 export async function streamChatResponse(args: StreamChatResponseArgs): Promise<void> {
-  const { db, chatLlm, request, reply, sessionId, system, history, citations, logContext } = args;
+  const {
+    db,
+    chatLlm,
+    request,
+    reply,
+    sessionId,
+    system,
+    history,
+    citations,
+    logContext,
+    persistAssistantMessage,
+  } = args;
 
   // --- Streaming SSE --------------------------------------------------------
   // Da qui in poi gestiamo la risposta a mano: header SSE + scrittura grezza su
@@ -160,6 +185,15 @@ export async function streamChatResponse(args: StreamChatResponseArgs): Promise<
   //    la salviamo SENZA citazioni e con un marcatore di troncamento, così history
   //    loader e UI distinguono una risposta interrotta da una completa e non la
   //    reimmettono in storico come se fosse una risposta valida.
+  // Persistenza pluggabile: il chiamante riceve il testo grezzo e `truncated`,
+  // e decide da sé marcatori/citazioni. Il default (chat Docs) resta identico.
+  if (persistAssistantMessage) {
+    if (completed || full.length > 0) {
+      await persistAssistantMessage({ content: full, citations, truncated: !completed });
+    }
+    return;
+  }
+
   if (completed) {
     await db.insert(docChatMessages).values({
       sessionId,

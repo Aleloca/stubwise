@@ -15,6 +15,7 @@
     "nav": {
       "tickets": "Tickets",
       "board": "Board",
+      "backlog": "Backlog",
       "projects": "Projects",
       "repositories": "Repositories",
       "monitor": "Monitor",
@@ -271,6 +272,8 @@
       "createProjectFirst": "Create a project first",
       "empty": "// no tickets found",
       "emptyHint": "Try widening the filters or changing the search term.",
+      "emptyActiveHint": "Completed statuses are hidden.",
+      "showAll": "Show all",
       "loadMore": "Load more",
       "loadingMore": "Loading…"
     },
@@ -291,6 +294,8 @@
       "searchPlaceholder": "Search title, description, comments…",
       "project": "Project",
       "status": "Status",
+      "statusActive": "Active (default)",
+      "statusAll": "All",
       "type": "Type",
       "priority": "Priority",
       "milestone": "Milestone",
@@ -481,6 +486,140 @@
       "tokensOut": "Tokens out",
       "cache": "Cache",
       "cost": "Cost"
+    }
+  },
+  "backlog": {
+    "list": {
+      "title": "Backlog",
+      "subtitle": "Discovery ideas gathered from feedback and feature requests.",
+      "newItem": "New item",
+      "createProjectFirst": "Create a project first",
+      "empty": "// no backlog items",
+      "emptyHint": "Try widening the filters or changing the search term.",
+      "loadMore": "Load more",
+      "loadingMore": "Loading…",
+      "processing": "Item queued — it will appear here in a few minutes.",
+      "dismiss": "Dismiss"
+    },
+    "filters": {
+      "search": "Search",
+      "searchPlaceholder": "Search backlog items…",
+      "project": "Project",
+      "status": "Status",
+      "statusActive": "Active (default)",
+      "urgency": "Urgency",
+      "risk": "Risk",
+      "all": "All"
+    },
+    "card": {
+      "requestCount": "Requested {{count}} time",
+      "requestCount_other": "Requested {{count}} times",
+      "similarTo": "≈ similar to {{title}}",
+      "ticketCount": "{{count}} linked ticket",
+      "ticketCount_other": "{{count}} linked tickets"
+    },
+    "newDialog": {
+      "title": "New backlog item",
+      "badge": "discovery",
+      "itemTitle": "Title",
+      "titlePlaceholder": "E.g. Bulk export of orders",
+      "project": "Project",
+      "description": "Description",
+      "descriptionPlaceholder": "Describe the idea… Markdown supported.",
+      "cancel": "Cancel",
+      "submit": "Create item",
+      "submitPending": "Queuing…"
+    },
+    "source": {
+      "ticket": "From ticket",
+      "manual": "Manual"
+    },
+    "detail": {
+      "back": "Back to backlog",
+      "document": "Document",
+      "noDocument": "No document yet — refine the idea in the chat, then update the document.",
+      "linkedTickets": "Linked tickets",
+      "noLinkedTickets": "// no linked tickets",
+      "roleOrigin": "origin",
+      "roleConverted": "converted",
+      "deepDivePending": "Deep-dive analysis in progress — this may take a few minutes.",
+      "metadata": "Metadata",
+      "status": "Status",
+      "effort": "Effort",
+      "effortOption": "E{{value}}",
+      "risk": "Risk",
+      "urgency": "Urgency",
+      "riskNote": "Risk note",
+      "riskNotePlaceholder": "Notes on the implementation risk…",
+      "none": "None",
+      "createdAt": "Created",
+      "updatedAt": "Updated",
+      "requestCount": "Requests",
+      "lockedNotice": "This item is {{status}}: editing is disabled."
+    },
+    "suggested": {
+      "title": "AI suggestions",
+      "intro": "The agent suggests updating these fields:",
+      "reason": "Reason",
+      "effort": "effort {{value}}",
+      "risk": "risk {{value}}",
+      "urgency": "urgency {{value}}",
+      "riskNote": "risk note",
+      "was": "was {{value}}",
+      "wasEmpty": "was empty",
+      "accept": "Accept all",
+      "accepting": "Accepting…",
+      "dismiss": "Dismiss",
+      "dismissing": "Dismissing…"
+    },
+    "actions": {
+      "title": "Actions",
+      "refreshDocument": "Update document",
+      "refreshing": "Updating…",
+      "refreshNothingNew": "Nothing new to synthesize from the chat yet.",
+      "refreshFailed": "Could not generate the document. Try again in a moment.",
+      "deepDive": "Deep-dive analysis",
+      "deepDivePendingHint": "Analysis already in progress.",
+      "chooseRepo": "Choose a repository",
+      "chooseRepoHint": "Pick the repository the agent should analyze.",
+      "start": "Start",
+      "noRepos": "This project has no repositories to analyze.",
+      "copyMd": "Copy Markdown",
+      "copied": "Copied!",
+      "downloadMd": "Download .md",
+      "convert": "Convert to task",
+      "converting": "Converting…",
+      "convertTitle": "Convert to a task?",
+      "convertBody": "This creates a ticket in the project and marks the item as converted.",
+      "convertConfirm": "Convert",
+      "convertedLink": "View ticket #{{number}}",
+      "merge": "Merge into…",
+      "mergeHint": "Merge this item into another one; this item is absorbed.",
+      "mergePickerLabel": "Search backlog items",
+      "mergePlaceholder": "Search items…",
+      "mergeNoResults": "No matching items",
+      "mergeMore": "+{{count}} more",
+      "mergeSimilar": "suggested match",
+      "merging": "Merging…",
+      "archive": "Archive",
+      "reopen": "Reopen",
+      "cancel": "Cancel"
+    },
+    "chat": {
+      "title": "Refinement chat",
+      "subtitle": "Discuss and refine this idea with the agent.",
+      "open": "Open chat",
+      "close": "Close chat",
+      "placeholder": "Ask or refine this idea…",
+      "emptyTitle": "// no messages yet",
+      "emptyHint": "Start a conversation to refine this backlog item.",
+      "you": "You",
+      "assistant": "Agent",
+      "send": "Send",
+      "thinking": "Thinking…",
+      "error": "Something went wrong generating the answer.",
+      "unavailable": "Chat requires an API-key AI provider. Ask an admin to configure one in Settings.",
+      "sources": "Sources"
     }
   },
   "settings": {
@@ -867,13 +1006,26 @@
       "4": "Large",
       "5": "Very large"
     },
+    "backlogStatus": {
+      "new": "New",
+      "refining": "Refining",
+      "ready": "Ready",
+      "converted": "Converted",
+      "archived": "Archived"
+    },
+    "backlogRisk": {
+      "low": "Low risk",
+      "medium": "Medium risk",
+      "high": "High risk"
+    },
     "prState": {
       "open": "PR open",
       "merged": "PR merged",
       "closed_unmerged": "PR closed"
     },
     "priorityTitle": "Priority: {{label}}",
-    "sourceTitle": "Source: {{label}}"
+    "sourceTitle": "Source: {{label}}",
+    "effortTitle": "Effort: {{label}} ({{value}}/5)"
   },
   "projects": {
     "list": {
@@ -926,6 +1078,8 @@
       "docAutoUpdateHint": "// regenerates a repo's Docs when a push lands on its default branch.",
       "dailyReport": "Daily activity report",
       "dailyReportHint": "// generates a nightly standup from the day's commits across the project's repositories.",
+      "backlog": "Discovery backlog",
+      "backlogHint": "// routes feedback/feature tickets to backlog intake instead of the fix pipeline.",
       "aiProvider": "Project AI provider",
       "aiProviderAuto": "Automatic (failover chain)",
       "aiProviderHint": "// applies to Docs and fixes of all repositories; empty = chain of enabled providers.",

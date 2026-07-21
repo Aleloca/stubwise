@@ -14,6 +14,7 @@ const projects: Project[] = [
     aiProviderId: null,
     docAutoUpdate: false,
     dailyReportEnabled: false,
+    backlogEnabled: false,
     ingestionKey: "key-p1",
     nextTicketNumber: 1,
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -26,6 +27,7 @@ const projects: Project[] = [
     aiProviderId: null,
     docAutoUpdate: false,
     dailyReportEnabled: false,
+    backlogEnabled: false,
     ingestionKey: "key-p2",
     nextTicketNumber: 1,
     createdAt: "2026-01-02T00:00:00.000Z",
@@ -90,13 +92,21 @@ describe("TicketFilters", () => {
     expect(onChange).toHaveBeenCalledExactlyOnceWith({ status: "open" });
   });
 
-  it("tornare a «Tutti» azzera il filtro (undefined, sparisce dall'URL)", async () => {
+  it("tornare a «Attivi (default)» azzera il filtro (undefined, sparisce dall'URL)", async () => {
     const onChange = renderFilters({ status: "done" });
 
     expect(screen.getByLabelText(/status/i)).toHaveValue("done");
     await userEvent.selectOptions(screen.getByLabelText(/status/i), "");
 
     expect(onChange).toHaveBeenCalledExactlyOnceWith({ status: undefined });
+  });
+
+  it("selezionare «Tutti» manda status «all» (nessun filtro di stato)", async () => {
+    const onChange = renderFilters();
+
+    await userEvent.selectOptions(screen.getByLabelText(/status/i), "all");
+
+    expect(onChange).toHaveBeenCalledExactlyOnceWith({ status: "all" });
   });
 
   it("tipo, priorità e progetto chiamano onChange con la chiave giusta", async () => {

@@ -63,12 +63,14 @@ const initial: {
   aiProviderId: string | null;
   docAutoUpdate: boolean;
   dailyReportEnabled: boolean;
+  backlogEnabled: boolean;
 } = {
   name: "Acme Platform",
   description: null,
   aiProviderId: null,
   docAutoUpdate: false,
   dailyReportEnabled: false,
+  backlogEnabled: false,
 };
 
 function mockProviders() {
@@ -150,6 +152,19 @@ describe("ProjectForm (impostazioni del gruppo)", () => {
 
     const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
     expect(payload.dailyReportEnabled).toBe(true);
+  });
+
+  it("attivando il backlog, il PATCH invia backlogEnabled true", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockProviders();
+    await renderForm({ onSubmit });
+
+    await user.click(screen.getByLabelText("Discovery backlog"));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.backlogEnabled).toBe(true);
   });
 
   it("riportando il provider su 'Automatico', il PATCH invia aiProviderId null", async () => {

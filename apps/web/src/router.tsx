@@ -15,6 +15,8 @@ import {
   activityQueryOptions,
   activityReportQueryOptions,
   aiProvidersQueryOptions,
+  backlogInfiniteQueryOptions,
+  backlogItemQueryOptions,
   automationSettingsQueryOptions,
   boardTicketsQueryOptions,
   commentsQueryOptions,
@@ -44,6 +46,8 @@ import {
   widgetsQueryOptions,
 } from "./lib/queries";
 import { ActivityPage, yesterdayUtc } from "./routes/activity";
+import { BacklogDetailPage } from "./routes/backlog/$id";
+import { backlogSearchSchema, BacklogPage } from "./routes/backlog/index";
 import { boardSearchSchema, BoardPage } from "./routes/board";
 import {
   DocsManualNew,
@@ -80,7 +84,11 @@ import { SettingsUsagePage } from "./routes/settings/usage";
 import { SetupPage } from "./routes/setup";
 import { TeamPage } from "./routes/team";
 import { TicketDetailPage } from "./routes/tickets/$id";
-import { ticketSearchSchema, TicketsPage } from "./routes/tickets/index";
+import {
+  effectiveTicketFilters,
+  ticketSearchSchema,
+  TicketsPage,
+} from "./routes/tickets/index";
 
 /*
  * Routing code-based (createRoute, niente plugin file-router): l'albero è
@@ -162,7 +170,9 @@ const ticketsRoute = createRoute({
     // Prima pagina della lista e progetti (nomi + select filtro) in cache
     // prima del render: il componente usa le useSuspenseQuery senza attese.
     await Promise.all([
-      context.queryClient.ensureInfiniteQueryData(ticketsInfiniteQueryOptions(deps)),
+      context.queryClient.ensureInfiniteQueryData(
+        ticketsInfiniteQueryOptions(effectiveTicketFilters(deps)),
+      ),
       context.queryClient.ensureQueryData(projectsQueryOptions),
     ]);
   },
@@ -205,6 +215,44 @@ const boardRoute = createRoute({
     ]);
   },
   component: BoardPage,
+});
+
+/**
+ * Backlog di discovery: lista delle idee raccolte da feedback/feature. I filtri
+ * vivono nei search param (validati qui, tipati ovunque); il default della lista
+ * nasconde converted/archived. Prefetch della prima pagina filtrata + progetti
+ * (nomi + select filtro) prima del render: le useSuspenseQuery non attendono.
+ */
+const backlogRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/backlog",
+  validateSearch: (search) => backlogSearchSchema.parse(search),
+  loaderDeps: ({ search }) => search,
+  loader: async ({ context, deps }) => {
+    await Promise.all([
+      context.queryClient.ensureInfiniteQueryData(backlogInfiniteQueryOptions(deps)),
+      context.queryClient.ensureQueryData(projectsQueryOptions),
+    ]);
+  },
+  component: BacklogPage,
+});
+
+/**
+ * Dettaglio di una voce del backlog: documento, metadati suggeriti, ticket
+ * collegati e chat di raffinamento. Segmento dinamico `$id` distinto dallo
+ * statico `/backlog`. Prefetch della voce + progetti (nome nell'header) prima
+ * del render, così le useSuspenseQuery del componente non attendono.
+ */
+const backlogDetailRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/backlog/$id",
+  loader: async ({ context, params }) => {
+    await Promise.all([
+      context.queryClient.ensureQueryData(backlogItemQueryOptions(params.id)),
+      context.queryClient.ensureQueryData(projectsQueryOptions),
+    ]);
+  },
+  component: BacklogDetailPage,
 });
 
 const projectsRoute = createRoute({
@@ -587,6 +635,8 @@ const routeTree = rootRoute.addChildren([
     ticketsRoute,
     ticketDetailRoute,
     boardRoute,
+    backlogRoute,
+    backlogDetailRoute,
     projectsRoute,
     projectDetailRoute,
     widgetConversationsRoute,

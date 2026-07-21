@@ -12,6 +12,7 @@ import { dispatchNotification, type NotificationEvent } from "@stubwise/notifica
 import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "@stubwise/db";
 import { aiJobs, attachments, errorGroups, tickets } from "@stubwise/db";
+import { maybeEnqueueBacklogIntake } from "../backlog/enqueue.js";
 import { createTicket, type Ticket } from "../db/tickets.js";
 import {
   ALLOWED_ATTACHMENT_MIME_TYPES,
@@ -251,7 +252,11 @@ async function processErrorEvent(
           throw new GroupConflictError();
         }
 
-        await tx.insert(aiJobs).values({ ticketId: ticket.id });
+        // Deviazione al backlog di discovery (no-op per i bug: il tipo qui è
+        // sempre "bug", ma il punto di decisione resta unico nell'helper).
+        if (!(await maybeEnqueueBacklogIntake(tx, ticket))) {
+          await tx.insert(aiJobs).values({ ticketId: ticket.id });
+        }
         return { outcome: "created", ticket };
       });
     } catch (err) {
@@ -285,7 +290,11 @@ async function processFeedbackEvent(
       priority: "medium",
       source: "sdk_feedback",
     });
-    await tx.insert(aiJobs).values({ ticketId: ticket.id });
+    // Sui progetti con backlogEnabled il feedback va all'intake del backlog,
+    // NON alla pipeline fix.
+    if (!(await maybeEnqueueBacklogIntake(tx, ticket))) {
+      await tx.insert(aiJobs).values({ ticketId: ticket.id });
+    }
     return ticket;
   });
 }
@@ -333,7 +342,11 @@ export async function createExternalTicket(
       source: input.source,
       assigneeId: input.assigneeId ?? undefined,
     });
-    await tx.insert(aiJobs).values({ ticketId: ticket.id });
+    // Feedback/feature su progetto con backlogEnabled → intake del backlog al
+    // posto del job di automazione fix (vale per tutte le sorgenti esterne).
+    if (!(await maybeEnqueueBacklogIntake(tx, ticket))) {
+      await tx.insert(aiJobs).values({ ticketId: ticket.id });
+    }
     return ticket;
   });
 }

@@ -105,6 +105,17 @@ describe("POST /api/saved-views", () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it("status «all» (tutti gli stati) è un valore valido e fa round-trip", async () => {
+    const res = await createView({ name: "tutti-gli-stati", filters: { status: "all" } });
+    expect(res.statusCode).toBe(201);
+    expect((res.json() as SavedViewBody).filters).toEqual({ status: "all" });
+  });
+
+  it("status non nell'enum (né «all»): 400", async () => {
+    const res = await createView({ name: "stato-invalido", filters: { status: "bogus" } });
+    expect(res.statusCode).toBe(400);
+  });
+
   it("round-trip dei filtri jsonb con piu campi", async () => {
     const filters = {
       projectId: randomUUID(),

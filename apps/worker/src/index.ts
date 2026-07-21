@@ -1,6 +1,10 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createDb } from "@stubwise/db";
 import { createEmbeddingClient } from "@stubwise/embeddings";
 import { ClaudeCliRunner } from "./agent/claude-cli.js";
+import { startBacklogPoller } from "./backlog/poller.js";
 import { startCredentialTester } from "./agent/credential-tester.js";
 import { startUsagePoller } from "./agent/usage-poller.js";
 import { loadWorkerConfig, type WorkerConfig } from "./config.js";
@@ -317,6 +321,47 @@ startDailyReportPoller({
   signal: controller.signal,
 });
 
+// Poller del BACKLOG DI DISCOVERY: task SEPARATO dal loop dei job, sul proprio
+// intervallo. Reclama i job `backlog_jobs` queued (intake e deep dive) e li
+// esegue nella CATENA PER-PROGETTO (serializer condiviso col fix/doc-generation/
+// review/daily-report: niente sovrapposizione col fetch --prune del mirror).
+// L'intake gira su una dir vuota (ragiona sul testo del prompt); il deep dive
+// monta un worktree read-only del mirror (pattern PR review, plan mode). Il
+// provider AI è pinned del progetto o chain[0]. Riusa i turni max della review
+// per il deep dive. È BEST-EFFORT (non fa mai crashare il worker) e NON tocca il
+// lock/heartbeat dei job. Si ferma sullo stesso AbortSignal.
+//
+// workDir: una dir temporanea vuota e innocua (cwd dei run dell'intake, senza
+// worktree), creata all'avvio sotto os.tmpdir() come le parent dei worktree.
+const backlogWorkDir = mkdtempSync(join(tmpdir(), "stubwise-backlog-"));
+// Logger del backlog: minimale (warn/error), soddisfa anche il RetrievalLogger
+// del retrieval RAG dell'intake. Il worker non usa pino: si appoggia a console.
+const backlogLogger = {
+  warn: (obj: unknown, msg?: string) =>
+    console.error(`[stubwise-worker] ${msg ?? "backlog: warning"}`, obj),
+  error: (obj: unknown, msg?: string) =>
+    console.error(`[stubwise-worker] ${msg ?? "backlog: error"}`, obj),
+};
+startBacklogPoller({
+  db,
+  embeddingClient,
+  runner,
+  mirrors,
+  serializer,
+  logger: backlogLogger,
+  encryptionKey: config.encryptionKey,
+  mergeThreshold: config.backlogMergeThreshold,
+  similarThreshold: config.backlogSimilarThreshold,
+  model: config.backlogModel,
+  agentTimeoutMs: config.backlogAgentTimeoutMs,
+  // Il deep dive esplora il codice: riusa i turni max della review (analisi
+  // read-only sullo stesso ordine di grandezza).
+  deepDiveMaxTurns: config.prReviewMaxTurns,
+  workDir: backlogWorkDir,
+  intervalSeconds: config.backlogPollSeconds,
+  signal: controller.signal,
+});
+
 // Poller di ROLLUP + retention delle metriche di monitoraggio: task SEPARATO
 // dal loop dei job, sul proprio intervallo. Aggrega i campioni fini oltre le
 // 48h in bucket da 5' e applica la retention (tutto in una transazione con
@@ -349,6 +394,7 @@ console.error(
     `, pr-review ${config.prReviewPollSeconds > 0 ? `ogni ${config.prReviewPollSeconds}"` : "disabilitato"}` +
     `, limit-resume ${config.limitResumePollMinutes > 0 ? `ogni ${config.limitResumePollMinutes}'` : "disabilitato"}` +
     `, daily-report ${config.dailyReportPollMinutes > 0 ? `ogni ${config.dailyReportPollMinutes}'` : "disabilitato"}` +
+    `, backlog ${config.backlogPollSeconds > 0 ? `ogni ${config.backlogPollSeconds}"` : "disabilitato"}` +
     `, monitor-rollup ${config.monitorRollupIntervalMinutes > 0 ? `ogni ${config.monitorRollupIntervalMinutes}'` : "disabilitato"}` +
     `, monitor-alert ${config.monitorAlertIntervalMinutes > 0 ? `ogni ${config.monitorAlertIntervalMinutes}'` : "disabilitato"})`,
 );

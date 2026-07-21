@@ -1,4 +1,13 @@
-import { agentRuns, aiJobs, comments, instanceSettings, tickets, type Db } from "@stubwise/db";
+import {
+  agentRuns,
+  aiJobs,
+  backlogJobs,
+  comments,
+  instanceSettings,
+  projects,
+  tickets,
+  type Db,
+} from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -28,6 +37,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterEach(async () => {
+  await testDb.db.delete(backlogJobs); // FK su projectId (non su ticketId): non casca coi ticket.
   await testDb.db.delete(tickets);
   // Ripristina la lingua d'istanza al default 'en': un test che la porta a 'it'
   // non deve influenzare i successivi (la riga singleton id=1 è condivisa).
@@ -35,6 +45,12 @@ afterEach(async () => {
     .update(instanceSettings)
     .set({ contentLanguage: "en" })
     .where(eq(instanceSettings.id, 1));
+  // Il toggle backlog è per-progetto e il progetto è condiviso nel file: un test
+  // che lo abilita non deve alterare gli altri (default off).
+  await testDb.db
+    .update(projects)
+    .set({ backlogEnabled: false })
+    .where(eq(projects.id, projectId));
 });
 
 /** Porta la lingua dei contenuti d'istanza (singleton id=1) a `lang`. */
@@ -917,5 +933,74 @@ describe("runTriage — notifiche", () => {
 
     expect(outcome).toBe("held");
     expect((await getJob(db, job.id)).status).toBe("held");
+  });
+});
+
+describe("runTriage — deviazione backlog", () => {
+  async function enableBacklog(db: Db): Promise<void> {
+    await db.update(projects).set({ backlogEnabled: true }).where(eq(projects.id, projectId));
+  }
+
+  it("riclassificazione bug→feature su progetto abilitato → job skipped + intake accodato", async () => {
+    const { db } = testDb;
+    await enableBacklog(db);
+    const ticket = await createTicket(db, { type: "bug" });
+    const job = await createTriagingJob(db, ticket.id);
+    // Con backlog OFF questo darebbe held (auto-fix off per feature); con backlog
+    // ON devia al backlog e chiude il job skipped.
+    const runner = new FakeAgentRunner({ output: `{"decision":"fix","type":"feature","effort":1}` });
+
+    const outcome = await runTriage(makeDeps(runner), job);
+
+    expect(outcome).toBe("skipped");
+    expect((await getJob(db, job.id)).status).toBe("skipped");
+
+    // Intake accodato per il ticket.
+    const jobs = await db.select().from(backlogJobs).where(eq(backlogJobs.projectId, projectId));
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.kind).toBe("intake");
+    expect(jobs[0]!.status).toBe("queued");
+    expect(jobs[0]!.payload).toEqual({ ticketId: ticket.id });
+
+    // Commento AI di deviazione; il tipo riclassificato è comunque salvato.
+    const ticketComments = await db.select().from(comments).where(eq(comments.ticketId, ticket.id));
+    expect(ticketComments).toHaveLength(1);
+    expect(ticketComments[0]!.authorType).toBe("ai");
+    expect(ticketComments[0]!.body).toContain("discovery backlog");
+
+    // Il ticket NON è chiuso qui: lo chiuderà l'intake (resta 'open').
+    expect((await getTicket(db, ticket.id)).status).toBe("open");
+    expect((await getTicket(db, ticket.id)).type).toBe("feature");
+  });
+
+  it("con manualTrigger la deviazione è bypassata → prosegue in fixing", async () => {
+    const { db } = testDb;
+    await enableBacklog(db);
+    const ticket = await createTicket(db, { type: "bug" });
+    const [job] = await db
+      .insert(aiJobs)
+      .values({ ticketId: ticket.id, status: "triaging", startedAt: new Date(), manualTrigger: true })
+      .returning();
+    const runner = new FakeAgentRunner({ output: `{"decision":"fix","type":"feature","effort":1}` });
+
+    const outcome = await runTriage(makeDeps(runner), job!);
+
+    expect(outcome).toBe("fixing");
+    expect((await getJob(db, job!.id)).status).toBe("fixing");
+    // Nessun intake accodato: l'avvio manuale scavalca la deviazione.
+    expect(await db.select().from(backlogJobs).where(eq(backlogJobs.projectId, projectId))).toHaveLength(0);
+  });
+
+  it("progetto con backlog disabilitato → gate normale (feature/fix → held), niente intake", async () => {
+    const { db } = testDb;
+    // backlog OFF (default, ripristinato in afterEach).
+    const ticket = await createTicket(db, { type: "bug" });
+    const job = await createTriagingJob(db, ticket.id);
+    const runner = new FakeAgentRunner({ output: `{"decision":"fix","type":"feature","effort":1}` });
+
+    const outcome = await runTriage(makeDeps(runner), job);
+
+    expect(outcome).toBe("held");
+    expect(await db.select().from(backlogJobs).where(eq(backlogJobs.projectId, projectId))).toHaveLength(0);
   });
 });

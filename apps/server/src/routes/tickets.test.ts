@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { aiJobs, comments, ticketEvents, ticketLinks, tickets } from "@stubwise/db";
+import { aiJobs, backlogJobs, comments, projects, ticketEvents, ticketLinks, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, seedTicketRepository, startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
@@ -235,6 +235,48 @@ describe("POST /api/tickets", () => {
     });
     expect(res.statusCode).toBe(401);
   });
+
+  it("feedback manuale su progetto con backlogEnabled: accoda un job intake nel backlog", async () => {
+    const backlogProjectId = await createProject();
+    await testDb.db
+      .update(projects)
+      .set({ backlogEnabled: true })
+      .where(eq(projects.id, backlogProjectId));
+
+    const res = await postTicket({
+      projectId: backlogProjectId,
+      title: "Vorrei l'export in CSV",
+      type: "feedback",
+    });
+    expect(res.statusCode).toBe(201);
+    const ticket = res.json() as TicketBody;
+
+    const jobs = await testDb.db
+      .select()
+      .from(backlogJobs)
+      .where(eq(backlogJobs.projectId, backlogProjectId));
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.kind).toBe("intake");
+    expect(jobs[0]!.status).toBe("queued");
+    expect(jobs[0]!.payload).toEqual({ ticketId: ticket.id });
+  });
+
+  it("bug manuale su progetto con backlogEnabled: nessun job backlog (solo feedback/feature)", async () => {
+    const backlogProjectId = await createProject();
+    await testDb.db
+      .update(projects)
+      .set({ backlogEnabled: true })
+      .where(eq(projects.id, backlogProjectId));
+
+    const res = await postTicket({ projectId: backlogProjectId, title: "Crash", type: "bug" });
+    expect(res.statusCode).toBe(201);
+
+    const jobs = await testDb.db
+      .select()
+      .from(backlogJobs)
+      .where(eq(backlogJobs.projectId, backlogProjectId));
+    expect(jobs).toHaveLength(0);
+  });
 });
 
 describe("GET /api/tickets — filtri", () => {
@@ -352,6 +394,49 @@ describe("GET /api/tickets — filtri", () => {
 
   it("valore di filtro non valido: 400", async () => {
     const res = await listTickets({ projectId: filterProjectId, status: "archiviato" });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("filtro statuses (multiplo, comma-separated): solo gli stati elencati", async () => {
+    const pid = await createProject();
+    const open = await postTicket({ projectId: pid, title: "Aperto", type: "bug" });
+    const triaged = await postTicket({ projectId: pid, title: "Triaged", type: "task" });
+    const closed = await postTicket({ projectId: pid, title: "Chiuso", type: "task" });
+    await testDb.db
+      .update(tickets)
+      .set({ status: "triaged" })
+      .where(eq(tickets.id, (triaged.json() as TicketBody).id));
+    await testDb.db
+      .update(tickets)
+      .set({ status: "closed" })
+      .where(eq(tickets.id, (closed.json() as TicketBody).id));
+
+    const res = await listTickets({ projectId: pid, statuses: "open,triaged" });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as ListBody;
+    expect(body.items.map((t) => t.id).sort()).toEqual(
+      [(open.json() as TicketBody).id, (triaged.json() as TicketBody).id].sort(),
+    );
+  });
+
+  it("statuses vince su status quando presenti entrambi", async () => {
+    const pid = await createProject();
+    const open = await postTicket({ projectId: pid, title: "Aperto", type: "bug" });
+    const closed = await postTicket({ projectId: pid, title: "Chiuso", type: "task" });
+    await testDb.db
+      .update(tickets)
+      .set({ status: "closed" })
+      .where(eq(tickets.id, (closed.json() as TicketBody).id));
+
+    const res = await listTickets({ projectId: pid, status: "closed", statuses: "open" });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as ListBody).items.map((t) => t.id)).toEqual([
+      (open.json() as TicketBody).id,
+    ]);
+  });
+
+  it("statuses con un valore non valido: 400", async () => {
+    const res = await listTickets({ projectId: filterProjectId, statuses: "open,archiviato" });
     expect(res.statusCode).toBe(400);
   });
 

@@ -30,7 +30,9 @@ afterEach(() => {
 function mockApi(routes: Record<string, () => Response>) {
   fetchMock.mockImplementation((input) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    const path = url.replace(/^https?:\/\/[^/]+/, "");
+    // Solo il pathname: la query (es. i filtri di stato di /tickets) non fa
+    // parte della chiave di routing di questo smoke test.
+    const path = new URL(url, "http://test.local").pathname;
     const handler = routes[path];
     if (!handler) throw new Error(`fetch non mockato per ${url}`);
     return Promise.resolve(handler());

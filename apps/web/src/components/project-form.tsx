@@ -15,6 +15,8 @@ interface ProjectInitialValues {
   docAutoUpdate: boolean;
   /** Se true, il worker genera ogni notte uno standup dai commit del giorno. */
   dailyReportEnabled: boolean;
+  /** Se true, i ticket feedback/feature vengono deviati all'intake del backlog. */
+  backlogEnabled: boolean;
 }
 
 interface ProjectFormProps {
@@ -47,6 +49,8 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
   const [docAutoUpdate, setDocAutoUpdate] = useState(initial.docAutoUpdate);
   // Report attività giornaliero: standup notturno dai commit del giorno (default off).
   const [dailyReportEnabled, setDailyReportEnabled] = useState(initial.dailyReportEnabled);
+  // Backlog di discovery: deviazione dei ticket feedback/feature all'intake (default off).
+  const [backlogEnabled, setBacklogEnabled] = useState(initial.backlogEnabled);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -69,6 +73,8 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
         ...(docAutoUpdate !== initial.docAutoUpdate && { docAutoUpdate }),
         // dailyReportEnabled incluso solo se cambiato (toggle), per un PATCH minimo.
         ...(dailyReportEnabled !== initial.dailyReportEnabled && { dailyReportEnabled }),
+        // backlogEnabled incluso solo se cambiato (toggle), per un PATCH minimo.
+        ...(backlogEnabled !== initial.backlogEnabled && { backlogEnabled }),
       });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("common:unexpectedError"));
@@ -162,6 +168,30 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
           </label>
         </div>
         <p className="font-mono text-[11px] text-fg-faint">{t("projects:form.dailyReportHint")}</p>
+      </div>
+
+      {/*
+        Backlog di discovery: toggle (default off). Se attivo, i ticket
+        feedback/feature del progetto vengono deviati all'intake del backlog
+        invece di entrare nella pipeline di fix.
+      */}
+      <div className="flex flex-col gap-1.5 rounded-sm border border-line bg-ink-900 px-3 py-3">
+        <div className="flex items-center gap-2.5">
+          <input
+            id="project-backlog"
+            type="checkbox"
+            checked={backlogEnabled}
+            onChange={(event) => setBacklogEnabled(event.target.checked)}
+            className="h-4 w-4 shrink-0 accent-signal"
+          />
+          <label
+            htmlFor="project-backlog"
+            className="font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase"
+          >
+            {t("projects:form.backlog")}
+          </label>
+        </div>
+        <p className="font-mono text-[11px] text-fg-faint">{t("projects:form.backlogHint")}</p>
       </div>
 
       <FormError message={error} />

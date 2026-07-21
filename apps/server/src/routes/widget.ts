@@ -16,6 +16,7 @@ import {
   widgets,
 } from "@stubwise/db";
 import { keysMatch } from "../ingest/shared.js";
+import { maybeEnqueueBacklogIntake } from "../backlog/enqueue.js";
 import { createTicket } from "../db/tickets.js";
 import { errorSchema, unprocessableEntityFormatter } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
@@ -650,6 +651,12 @@ export async function widgetRoutes(
           priority: "medium",
           source: "widget",
         });
+
+        // Feedback/feature su progetto con backlogEnabled → job intake nel
+        // backlog di discovery. I ticket widget non hanno mai accodato aiJobs,
+        // quindi il valore di ritorno non deve saltare nulla: serve solo
+        // l'accodamento, atomico col ticket.
+        await maybeEnqueueBacklogIntake(tx, created);
 
         // Messaggio di conferma nella lingua dei settings, collegato al ticket, +
         // avanzamento di lastMessageAt (ordina l'elenco viewer).

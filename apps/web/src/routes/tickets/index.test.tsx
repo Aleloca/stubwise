@@ -164,6 +164,32 @@ describe("lista ticket", () => {
     expect(await screen.findByText(/no tickets found/i)).toBeInTheDocument();
   });
 
+  it("stato vuoto col default «Attivi»: mostra l'hint e «Mostra tutti» imposta status=all", async () => {
+    mockApi({
+      ...baseHandlers,
+      "/api/tickets": () => jsonResponse(200, { items: [], nextCursor: null }),
+    });
+
+    const router = renderApp("/tickets");
+    await screen.findByText(/no tickets found/i);
+    // Col default (status assente) gli stati completati sono nascosti: c'è l'hint.
+    expect(screen.getByText(/completed statuses are hidden/i)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /show all/i }));
+    await waitFor(() => expect(router.state.location.search).toEqual({ status: "all" }));
+  });
+
+  it("stato vuoto con status esplicito: nessun hint «Mostra tutti»", async () => {
+    mockApi({
+      ...baseHandlers,
+      "/api/tickets": () => jsonResponse(200, { items: [], nextCursor: null }),
+    });
+
+    renderApp("/tickets?status=done");
+    await screen.findByText(/no tickets found/i);
+    expect(screen.queryByRole("button", { name: /show all/i })).not.toBeInTheDocument();
+  });
+
   it("i filtri nell'URL arrivano ai controlli e alla richiesta API", async () => {
     const seen: string[] = [];
     mockApi({
@@ -180,6 +206,145 @@ describe("lista ticket", () => {
     expect(screen.getByRole("searchbox", { name: /search/i })).toHaveValue("export");
     expect(seen[0]).toContain("status=done");
     expect(seen[0]).toContain("q=export");
+  });
+
+  it("senza status di default chiede solo gli stati attivi (statuses), non status singolo", async () => {
+    let seen: URLSearchParams | undefined;
+    mockApi({
+      ...baseHandlers,
+      "/api/tickets": (url) => {
+        seen = url.searchParams;
+        return jsonResponse(200, { items: [], nextCursor: null });
+      },
+    });
+
+    renderApp("/tickets");
+
+    await screen.findByText(/no tickets found/i);
+    // Multi-stato comma-separated: robusto rispetto all'encoding (%2C) perché
+    // leggiamo il valore già decodificato da URLSearchParams.
+    expect(seen?.get("statuses")).toBe("open,triaged,in_progress,in_review");
+    expect(seen?.get("status")).toBeNull();
+  });
+
+  it("con status=all non manda alcun parametro di stato", async () => {
+    let seen: URLSearchParams | undefined;
+    mockApi({
+      ...baseHandlers,
+      "/api/tickets": (url) => {
+        seen = url.searchParams;
+        return jsonResponse(200, { items: [], nextCursor: null });
+      },
+    });
+
+    renderApp("/tickets?status=all");
+
+    await screen.findByText(/no tickets found/i);
+    expect(screen.getByLabelText(/status/i)).toHaveValue("all");
+    expect(seen?.get("status")).toBeNull();
+    expect(seen?.get("statuses")).toBeNull();
+  });
+
+  it("con status=done manda solo status singolo (nessun default statuses)", async () => {
+    let seen: URLSearchParams | undefined;
+    mockApi({
+      ...baseHandlers,
+      "/api/tickets": (url) => {
+        seen = url.searchParams;
+        return jsonResponse(200, { items: [], nextCursor: null });
+      },
+    });
+
+    renderApp("/tickets?status=done");
+
+    await screen.findByText(/no tickets found/i);
+    expect(seen?.get("status")).toBe("done");
+    expect(seen?.get("statuses")).toBeNull();
+  });
+
+  it("una vista salvata su «Tutti» riapplica status=all (nessun parametro stato in fetch)", async () => {
+    const seen: URLSearchParams[] = [];
+    const view = {
+      id: "55555555-5555-4555-8555-555555555555",
+      name: "Tutto il backlog",
+      filters: { status: "all" },
+      shared: false,
+      ownerId: "u1",
+      isOwn: true,
+      createdAt: "2026-06-01T10:00:00.000Z",
+    };
+    mockApi({
+      ...baseHandlers,
+      "/api/saved-views": () => jsonResponse(200, [view]),
+      "/api/tickets": (url) => {
+        seen.push(url.searchParams);
+        return jsonResponse(200, { items: [], nextCursor: null });
+      },
+    });
+
+    const router = renderApp("/tickets?status=done");
+    await screen.findByText(/no tickets found/i);
+    expect(seen.at(-1)?.get("status")).toBe("done");
+
+    await userEvent.click(screen.getByRole("button", { name: "Apply Tutto il backlog" }));
+
+    await waitFor(() => expect(router.state.location.search).toEqual({ status: "all" }));
+    // La riapplicazione mostra TUTTI gli stati: nessun parametro stato.
+    await waitFor(() => {
+      const last = seen.at(-1);
+      expect(last?.get("status")).toBeNull();
+      expect(last?.get("statuses")).toBeNull();
+    });
+  });
+
+  it("salvare una vista su «Tutti» persiste status=all; una con stato esplicito resta invariata", async () => {
+    const user = userEvent.setup();
+    const createdBodies: unknown[] = [];
+    const doneView = {
+      id: "66666666-6666-4666-8666-666666666666",
+      name: "Chiusi",
+      filters: { status: "done" },
+      shared: false,
+      ownerId: "u1",
+      isOwn: true,
+      createdAt: "2026-06-01T10:00:00.000Z",
+    };
+    fetchMock.mockImplementation((input, init) => {
+      const raw =
+        typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      const url = new URL(raw, "http://test.local");
+      const method = init?.method ?? "GET";
+      if (url.pathname === "/api/saved-views" && method === "POST") {
+        createdBodies.push(JSON.parse(String(init?.body)));
+        return Promise.resolve(jsonResponse(201, doneView));
+      }
+      if (url.pathname === "/api/saved-views") {
+        return Promise.resolve(jsonResponse(200, [doneView]));
+      }
+      if (url.pathname === "/api/tickets") {
+        return Promise.resolve(jsonResponse(200, { items: [], nextCursor: null }));
+      }
+      const handler = baseHandlers[url.pathname as keyof typeof baseHandlers];
+      if (!handler) throw new Error(`fetch non mockata per ${method} ${raw}`);
+      return Promise.resolve(handler());
+    });
+
+    const router = renderApp("/tickets?status=all");
+    await screen.findByText(/no tickets found/i);
+
+    // Salva la combinazione corrente ("Tutti"): il body deve portare status=all.
+    await user.type(screen.getByLabelText("View name"), "Tutto");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(createdBodies).toHaveLength(1));
+    expect(createdBodies[0]).toEqual({
+      name: "Tutto",
+      filters: { status: "all" },
+      shared: false,
+    });
+
+    // Una vista con stato esplicito continua a riapplicare quel singolo stato.
+    await user.click(screen.getByRole("button", { name: "Apply Chiusi" }));
+    await waitFor(() => expect(router.state.location.search).toEqual({ status: "done" }));
   });
 
   it("un search param malformato viene scartato invece di rompere la route", async () => {

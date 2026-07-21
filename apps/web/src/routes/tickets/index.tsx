@@ -14,7 +14,7 @@ import { useTranslation } from "react-i18next";
 import { z } from "zod";
 import { NewTicketDialog } from "../../components/new-ticket-dialog";
 import { SavedViews } from "../../components/saved-views";
-import { TicketFilters } from "../../components/ticket-filters";
+import { TicketFilters, type TicketFiltersState } from "../../components/ticket-filters";
 import { TicketRow } from "../../components/ticket-row";
 import {
   postTicket,
@@ -35,7 +35,12 @@ import {
  */
 export const ticketSearchSchema = z.object({
   projectId: z.uuid().optional().catch(undefined),
-  status: ticketStatusSchema.optional().catch(undefined),
+  // Oltre ai singoli stati, `"all"` (tutti gli stati) è un valore valido:
+  // status assente = default "stati attivi", `"all"` = nessun filtro di stato.
+  status: z
+    .union([ticketStatusSchema, z.literal("all")])
+    .optional()
+    .catch(undefined),
   type: ticketTypeSchema.optional().catch(undefined),
   priority: ticketPrioritySchema.optional().catch(undefined),
   milestoneId: z.uuid().optional().catch(undefined),
@@ -43,6 +48,30 @@ export const ticketSearchSchema = z.object({
 });
 
 export type TicketSearch = z.infer<typeof ticketSearchSchema>;
+
+/**
+ * Stati "attivi" mostrati di default quando l'URL non fissa uno stato: nasconde
+ * done/closed. Mandati al server come `statuses` (multi-stato comma-separated).
+ */
+export const DEFAULT_ACTIVE_STATUSES = [
+  "open",
+  "triaged",
+  "in_progress",
+  "in_review",
+] as const;
+
+/**
+ * Traduce i search param della lista nei filtri API. Regole sullo stato:
+ * assente → default `statuses` = stati attivi (done/closed nascosti); `"all"` →
+ * nessun filtro di stato; un valore → filtro sul singolo stato. Condivisa tra il
+ * loader della route e il componente così la query key coincide (nessun refetch).
+ */
+export function effectiveTicketFilters(search: TicketSearch): TicketFiltersValue {
+  const { status, ...rest } = search;
+  if (status === undefined) return { ...rest, statuses: [...DEFAULT_ACTIVE_STATUSES] };
+  if (status === "all") return { ...rest };
+  return { ...rest, status };
+}
 
 // L'id della route include il layout autenticato (id "authed").
 const route = getRouteApi("/authed/tickets");
@@ -61,13 +90,13 @@ export function TicketsPage() {
 
   const { data: projects } = useSuspenseQuery(projectsQueryOptions);
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage } = useSuspenseInfiniteQuery(
-    ticketsInfiniteQueryOptions(search),
+    ticketsInfiniteQueryOptions(effectiveTicketFilters(search)),
   );
 
   const tickets = data.pages.flatMap((page) => page.items);
   const projectNames = new Map(projects.map((project) => [project.id, project.name]));
 
-  function handleFiltersChange(patch: Partial<TicketFiltersValue>) {
+  function handleFiltersChange(patch: Partial<TicketFiltersState>) {
     void navigate({
       search: (prev) => ({ ...prev, ...patch }),
       // I filtri non devono intasare la history: avanti/indietro naviga tra
@@ -82,6 +111,11 @@ export function TicketsPage() {
   // lista: non compare nello schema dei search param, quindi non è incluso.
   const currentFilters: SavedViewFilters = {
     ...(search.projectId !== undefined && { projectId: search.projectId }),
+    // `"all"` è salvabile come gli stati singoli: una vista salvata su "Tutti"
+    // deve riaprire tutti gli stati, non il default. Le viste SENZA `status`
+    // (incluse quelle salvate prima del default "stati attivi") seguono invece
+    // il default corrente della lista: alla riapplicazione mostrano gli Attivi
+    // — comportamento voluto, coerente col nuovo default.
     ...(search.status !== undefined && { status: search.status }),
     ...(search.type !== undefined && { type: search.type }),
     ...(search.priority !== undefined && { priority: search.priority }),
@@ -157,6 +191,24 @@ export function TicketsPage() {
             {t("tickets:list.empty")}
           </p>
           <p className="mt-2 text-sm text-fg-muted">{t("tickets:list.emptyHint")}</p>
+          {/*
+            Col filtro di stato al default "Attivi" (status assente) e nessun
+            risultato, gli stati completati sono nascosti: offriamo un'azione
+            esplicita per mostrarli tutti (status=all) invece di lasciare l'utente
+            a chiedersi dove siano i ticket done/closed.
+          */}
+          {search.status === undefined && (
+            <p className="mt-2 text-sm text-fg-muted">
+              {t("tickets:list.emptyActiveHint")}{" "}
+              <button
+                type="button"
+                onClick={() => handleFiltersChange({ status: "all" })}
+                className="text-signal underline underline-offset-2 transition-colors hover:text-signal-bright"
+              >
+                {t("tickets:list.showAll")}
+              </button>
+            </p>
+          )}
         </div>
       ) : (
         <div className="mt-6 rounded-sm border border-line bg-ink-900">

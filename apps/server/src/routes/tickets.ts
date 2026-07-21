@@ -4,6 +4,7 @@ import {
   ticketSourceSchema,
   ticketStatusSchema,
   ticketTypeSchema,
+  type TicketStatus,
 } from "@stubwise/shared";
 import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
@@ -26,6 +27,7 @@ import {
   tickets,
   users,
 } from "@stubwise/db";
+import { maybeEnqueueBacklogIntake } from "../backlog/enqueue.js";
 import { createTicket, ProjectNotFoundError, type Ticket } from "../db/tickets.js";
 import { apiError } from "../errors.js";
 import {
@@ -115,6 +117,10 @@ const updateTicketBodySchema = z.object({
 const listTicketsQuerySchema = z.object({
   projectId: z.uuid().optional(),
   status: ticketStatusSchema.optional(),
+  // Filtro multi-stato: lista comma-separated di stati (es. "open,triaged").
+  // Ogni valore è validato nel handler con ticketStatusSchema (400 se invalido).
+  // Mutuamente esclusivo con `status`: se presenti entrambi, vince `statuses`.
+  statuses: z.string().optional(),
   type: ticketTypeSchema.optional(),
   priority: ticketPrioritySchema.optional(),
   assigneeId: z.uuid().optional(),
@@ -303,6 +309,9 @@ async function loadTicketRepositories(
  * Cursore di paginazione decodificato: il timestamp resta la stringa
  * testuale di Postgres (precisione al microsecondo, che un Date JS
  * perderebbe) e viene ricastato a timestamptz solo nella query.
+ *
+ * NB: gli helper cursor qui sotto sono replicati in backlog.ts — tenere i due
+ * file in sync (l'estrazione in shared.ts è rimandata).
  */
 interface Cursor {
   createdAt: string;
@@ -440,17 +449,25 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         // Il ticket nasce a livello di PROGETTO (Fase 3): niente repository
         // bersaglio, il numero è per-progetto (row-lock su projects dentro
         // createTicket). L'agente sceglierà da sé i repo da toccare.
-        const ticket = await createTicket(app.db, {
-          projectId,
-          title,
-          body,
-          type,
-          priority,
-          // Da questa route nascono solo ticket manuali: l'eventuale source
-          // nel payload del client viene ignorato dallo schema.
-          source: "manual",
-          assigneeId,
-          labels,
+        const ticket = await app.db.transaction(async (tx) => {
+          const created = await createTicket(tx, {
+            projectId,
+            title,
+            body,
+            type,
+            priority,
+            // Da questa route nascono solo ticket manuali: l'eventuale source
+            // nel payload del client viene ignorato dallo schema.
+            source: "manual",
+            assigneeId,
+            labels,
+          });
+          // Feedback/feature su progetto con backlogEnabled → job intake nel
+          // backlog di discovery. La creazione manuale non ha mai accodato
+          // aiJobs (l'automazione parte da POST /:id/run-ai): qui si AGGIUNGE
+          // solo la deviazione al backlog, atomica col ticket.
+          await maybeEnqueueBacklogIntake(tx, created);
+          return created;
         });
         return await reply.code(201).send(toPublicTicket(ticket));
       } catch (error) {
@@ -477,12 +494,25 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { projectId, status, type, priority, assigneeId, milestoneId, q, cursor, limit } =
+      const { projectId, status, statuses, type, priority, assigneeId, milestoneId, q, cursor, limit } =
         request.query;
 
       const conditions: SQL[] = [];
       if (projectId) conditions.push(eq(tickets.projectId, projectId));
-      if (status) conditions.push(eq(tickets.status, status));
+      // Multi-stato: `statuses` (comma-separated, ogni valore validato) vince
+      // sul singolo `status` se presenti entrambi.
+      if (statuses !== undefined) {
+        const values: TicketStatus[] = [];
+        for (const raw of statuses.split(",")) {
+          const parsed = ticketStatusSchema.safeParse(raw);
+          if (!parsed.success) {
+            return apiError(reply, 400, "invalid_statuses", "Invalid status value in statuses");
+          }
+          values.push(parsed.data);
+        }
+        // Dedup: evita bind param ripetuti con ?statuses=open,open,...
+        conditions.push(inArray(tickets.status, [...new Set(values)]));
+      } else if (status) conditions.push(eq(tickets.status, status));
       if (type) conditions.push(eq(tickets.type, type));
       if (priority) conditions.push(eq(tickets.priority, priority));
       if (assigneeId) conditions.push(eq(tickets.assigneeId, assigneeId));

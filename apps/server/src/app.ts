@@ -32,6 +32,7 @@ import { docsRoutes } from "./routes/docs.js";
 import { gitAccountRoutes } from "./routes/git-accounts.js";
 import { gitIdentityRoutes } from "./routes/git-identity-routes.js";
 import { activityRoutes } from "./routes/activity-routes.js";
+import { backlogRoutes } from "./routes/backlog.js";
 import { inboundRoutes } from "./routes/inbound.js";
 import { ingestRoutes } from "./routes/ingest.js";
 import { widgetRoutes } from "./routes/widget.js";
@@ -483,6 +484,11 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Lettura dei report di attività (daily standup) per data: viste per-progetto
   // e per-dev. Visibile a tutti i membri (requireAuth), non solo admin.
   void app.register(activityRoutes, { prefix: "/api/activity" });
+
+  // Backlog di discovery: lista/dettaglio (requireAuth), modifica metadati e
+  // accept/dismiss dei suggerimenti (requireAdmin), creazione manuale che accoda
+  // un job intake come i ticket deviati.
+  void app.register(backlogRoutes, { prefix: "/api/backlog" });
 
   app.get("/health", async () => ({ status: "ok" }));
 

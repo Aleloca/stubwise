@@ -81,6 +81,9 @@ function toPublicProject(row: ProjectRow): z.infer<typeof projectSchema> {
     // Standup giornaliero (report attività): se true il worker genera ogni
     // notte lo standup dai commit del giorno dei repository del progetto.
     dailyReportEnabled: row.dailyReportEnabled,
+    // Backlog di discovery: se true i ticket feedback/feature vengono deviati
+    // all'intake del backlog invece di entrare nella pipeline fix.
+    backlogEnabled: row.backlogEnabled,
     // Ingestion di prodotto (Fase 3): la chiave con cui gli SDK inviano
     // errori/feedback e il contatore ticket per-progetto, saliti dal repo.
     ingestionKey: row.ingestionKey,
@@ -112,7 +115,8 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { name, description, aiProviderId, docAutoUpdate, dailyReportEnabled } = request.body;
+      const { name, description, aiProviderId, docAutoUpdate, dailyReportEnabled, backlogEnabled } =
+        request.body;
 
       // Provider AI opzionale: se valorizzato deve riferire una riga esistente
       // (non serve enabled: è configurazione, l'enabled si valuta all'esecuzione).
@@ -142,6 +146,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
               aiProviderId: aiProviderId ?? null,
               ...(docAutoUpdate !== undefined ? { docAutoUpdate } : {}),
               ...(dailyReportEnabled !== undefined ? { dailyReportEnabled } : {}),
+              ...(backlogEnabled !== undefined ? { backlogEnabled } : {}),
               // Chiave di ingestion del progetto per gli SDK (Fase 3): 32 hex,
               // stesso generatore usato finora per i repository. UNIQUE: in caso
               // di collisione (astronomicamente improbabile) l'insert rilancia e
@@ -223,7 +228,8 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { name, description, aiProviderId, docAutoUpdate, dailyReportEnabled } = request.body;
+      const { name, description, aiProviderId, docAutoUpdate, dailyReportEnabled, backlogEnabled } =
+        request.body;
       const updates: Partial<ProjectRow> = {};
       if (name !== undefined) updates.name = name;
       // null azzera la descrizione, una stringa la imposta; omesso lascia.
@@ -232,6 +238,8 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       if (docAutoUpdate !== undefined) updates.docAutoUpdate = docAutoUpdate;
       // Toggle standup giornaliero (report attività): omesso lo lascia invariato.
       if (dailyReportEnabled !== undefined) updates.dailyReportEnabled = dailyReportEnabled;
+      // Toggle backlog di discovery: omesso lo lascia invariato.
+      if (backlogEnabled !== undefined) updates.backlogEnabled = backlogEnabled;
       // Provider AI del progetto (Docs e fix). null lo azzera (automatico); un
       // uuid deve riferire una riga ai_providers esistente; omesso lo lascia.
       if (aiProviderId !== undefined) {

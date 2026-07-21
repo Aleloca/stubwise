@@ -65,6 +65,7 @@ function listItem(overrides: Partial<ProjectListItem> = {}): ProjectListItem {
     aiProviderId: null,
     docAutoUpdate: false,
     dailyReportEnabled: false,
+    backlogEnabled: false,
     ingestionKey: "0123456789abcdef0123456789abcdef",
     nextTicketNumber: 1,
     repositoryCount: 2,
@@ -82,6 +83,7 @@ function detail(overrides: Partial<ProjectDetail> = {}): ProjectDetail {
     aiProviderId: null,
     docAutoUpdate: false,
     dailyReportEnabled: false,
+    backlogEnabled: false,
     ingestionKey: "0123456789abcdef0123456789abcdef",
     nextTicketNumber: 1,
     repositories: [

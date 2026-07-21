@@ -61,6 +61,76 @@ describe("loadWorkerConfig", () => {
     expect(config.dailyReportPollMinutes).toBe(15);
     expect(config.dailyReportMaxAuthorsPerProject).toBe(25);
     expect(config.dailyReportRetentionDays).toBe(90);
+    // Backlog di discovery: soglie 0.90/0.78, poll 20", modello sonnet, timeout 15'.
+    expect(config.backlogMergeThreshold).toBe(0.9);
+    expect(config.backlogSimilarThreshold).toBe(0.78);
+    expect(config.backlogPollSeconds).toBe(20);
+    expect(config.backlogModel).toBe("sonnet");
+    expect(config.backlogAgentTimeoutMs).toBe(900_000);
+  });
+
+  it("rispetta le soglie del backlog e le rifiuta fuori 0–1", () => {
+    const config = loadWorkerConfig({
+      ...VALID,
+      BACKLOG_MERGE_THRESHOLD: "0.95",
+      BACKLOG_SIMILAR_THRESHOLD: "0.8",
+    });
+    expect(config.backlogMergeThreshold).toBe(0.95);
+    expect(config.backlogSimilarThreshold).toBe(0.8);
+    // Vuote (es. da .env.example) usano i default.
+    const defaults = loadWorkerConfig({
+      ...VALID,
+      BACKLOG_MERGE_THRESHOLD: "",
+      BACKLOG_SIMILAR_THRESHOLD: "",
+    });
+    expect(defaults.backlogMergeThreshold).toBe(0.9);
+    expect(defaults.backlogSimilarThreshold).toBe(0.78);
+    expect(() => loadWorkerConfig({ ...VALID, BACKLOG_MERGE_THRESHOLD: "1.5" })).toThrow(
+      /BACKLOG_MERGE_THRESHOLD/,
+    );
+    expect(() => loadWorkerConfig({ ...VALID, BACKLOG_SIMILAR_THRESHOLD: "-0.1" })).toThrow(
+      /BACKLOG_SIMILAR_THRESHOLD/,
+    );
+  });
+
+  it("rifiuta similar > merge con un errore chiaro", () => {
+    expect(() =>
+      loadWorkerConfig({
+        ...VALID,
+        BACKLOG_MERGE_THRESHOLD: "0.7",
+        BACKLOG_SIMILAR_THRESHOLD: "0.8",
+      }),
+    ).toThrow(/BACKLOG_SIMILAR_THRESHOLD.*≤.*BACKLOG_MERGE_THRESHOLD/s);
+  });
+
+  it("rispetta BACKLOG_POLL_SECONDS, BACKLOG_MODEL e BACKLOG_AGENT_TIMEOUT_MS", () => {
+    const config = loadWorkerConfig({
+      ...VALID,
+      BACKLOG_POLL_SECONDS: "30",
+      BACKLOG_MODEL: "haiku",
+      BACKLOG_AGENT_TIMEOUT_MS: "120000",
+    });
+    expect(config.backlogPollSeconds).toBe(30);
+    expect(config.backlogModel).toBe("haiku");
+    expect(config.backlogAgentTimeoutMs).toBe(120_000);
+    // 0 = poller disabilitato.
+    expect(loadWorkerConfig({ ...VALID, BACKLOG_POLL_SECONDS: "0" }).backlogPollSeconds).toBe(0);
+    // Vuoti (es. da .env.example) usano i default.
+    const defaults = loadWorkerConfig({
+      ...VALID,
+      BACKLOG_POLL_SECONDS: "",
+      BACKLOG_MODEL: "",
+      BACKLOG_AGENT_TIMEOUT_MS: "",
+    });
+    expect(defaults.backlogPollSeconds).toBe(20);
+    expect(defaults.backlogModel).toBe("sonnet");
+    expect(defaults.backlogAgentTimeoutMs).toBe(900_000);
+    expect(() => loadWorkerConfig({ ...VALID, BACKLOG_POLL_SECONDS: "-1" })).toThrow(
+      /BACKLOG_POLL_SECONDS/,
+    );
+    expect(() => loadWorkerConfig({ ...VALID, BACKLOG_AGENT_TIMEOUT_MS: "0" })).toThrow(
+      /BACKLOG_AGENT_TIMEOUT_MS/,
+    );
   });
 
   it("rispetta DAILY_REPORT_POLL_MINUTES esplicito, 0 = disabilitato e rifiuta i non validi", () => {

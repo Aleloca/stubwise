@@ -372,6 +372,20 @@
       "when": 1784204914669,
       "tag": "0052_activity_recount",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1784557078811,
+      "tag": "0053_backlog_discovery",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1784565362880,
+      "tag": "0054_backlog_jobs_partial_index",
+      "breakpoints": true
     }
   ]
 }
