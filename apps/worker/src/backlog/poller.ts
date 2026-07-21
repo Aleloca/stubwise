@@ -5,7 +5,7 @@ import {
   type BacklogDeepDivePayload,
   type BacklogIntakePayload,
 } from "@stubwise/shared";
-import { and, eq, gte, lt, sql } from "drizzle-orm";
+import { and, eq, gte, lt, ne, sql } from "drizzle-orm";
 import type { EmbeddingProvider } from "@stubwise/db";
 import type { AgentRunner } from "../agent/runner.js";
 import type { MirrorManager } from "../git/mirrors.js";
@@ -157,13 +157,52 @@ export async function claimNextBacklogJob(
   db: Db,
   excludeIds: string[] = [],
 ): Promise<BacklogJob | null> {
-  const subquery =
+  // Il poller lento (20s) claima SOLO intake/deep_dive: i turni di chat (kind
+  // `chat_turn`) hanno un poller VELOCE dedicato (chat-turn-poller.ts) così una
+  // domanda non aspetta l'intervallo lungo. Tiebreaker `created_at, id`: due job
+  // con lo STESSO created_at (stesso istante) hanno comunque un ordine stabile.
+  const exclude =
     excludeIds.length === 0
-      ? sql`(SELECT id FROM backlog_jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED)`
-      : sql`(SELECT id FROM backlog_jobs WHERE status = 'queued' AND id NOT IN (${sql.join(
+      ? sql``
+      : sql` AND id NOT IN (${sql.join(
           excludeIds.map((id) => sql`${id}`),
           sql`, `,
-        )}) ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED)`;
+        )})`;
+  const subquery = sql`(SELECT id FROM backlog_jobs WHERE status = 'queued' AND kind IN ('intake', 'deep_dive')${exclude} ORDER BY created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED)`;
+  const [job] = await db
+    .update(backlogJobs)
+    .set({
+      status: "running",
+      startedAt: sql`now()`,
+      attempts: sql`${backlogJobs.attempts} + 1`,
+    })
+    .where(eq(backlogJobs.id, subquery))
+    .returning();
+  return job ?? null;
+}
+
+/**
+ * Reclama atomicamente il prossimo turno di chat (`kind = 'chat_turn'`) più
+ * vecchio, con lo STESSO claim atomico di claimNextBacklogJob (`FOR UPDATE SKIP
+ * LOCKED`, incremento attempts, tiebreaker `created_at, id`). Query sull'indice
+ * parziale dei `queued`: costo trascurabile a ogni tick del poller veloce.
+ * `excludeIds` esclude gli id già gestiti nel tick corrente (come il claim
+ * lento). L'ORDINE dei turni conta (una sessione CLI è sequenziale): il
+ * tiebreaker garantisce che due turni con lo stesso created_at abbiano comunque
+ * un ordine deterministico.
+ */
+export async function claimNextChatTurnJob(
+  db: Db,
+  excludeIds: string[] = [],
+): Promise<BacklogJob | null> {
+  const exclude =
+    excludeIds.length === 0
+      ? sql``
+      : sql` AND id NOT IN (${sql.join(
+          excludeIds.map((id) => sql`${id}`),
+          sql`, `,
+        )})`;
+  const subquery = sql`(SELECT id FROM backlog_jobs WHERE status = 'queued' AND kind = 'chat_turn'${exclude} ORDER BY created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED)`;
   const [job] = await db
     .update(backlogJobs)
     .set({
@@ -183,6 +222,14 @@ export async function claimNextBacklogJob(
  * ramo dipende da `attempts`). Il poller è single-process e i tick non si
  * sovrappongono (guard `running` in startBacklogPoller), quindi un `running`
  * stantio è sempre orfano, mai vivo.
+ *
+ * KIND `chat_turn` ESCLUSO (simmetrico al filtro di claimNextBacklogJob): il
+ * ciclo di vita dei turni di chat è interamente del FAST poller
+ * (recoverStaleChatTurnJobs, chat-turn-poller.ts), che li FALLISCE senza retry
+ * (un turno non si ritenta). Senza questo filtro un chat_turn orfano con
+ * attempts<3 verrebbe rimesso `queued` qui e ri-eseguito dal fast poller,
+ * violando l'invariante "un turno NON si retry-a" e creando una race coi due
+ * recovery (lento 20s / veloce 2s).
  */
 export async function recoverStaleBacklogJobs(
   db: Db,
@@ -190,14 +237,15 @@ export async function recoverStaleBacklogJobs(
   maxAttempts: number,
 ): Promise<void> {
   const stale = sql`${backlogJobs.startedAt} < now() - make_interval(mins => ${staleMinutes}::int)`;
+  const notChatTurn = ne(backlogJobs.kind, "chat_turn");
   await db
     .update(backlogJobs)
     .set({ status: "queued", startedAt: null })
-    .where(and(eq(backlogJobs.status, "running"), stale, lt(backlogJobs.attempts, maxAttempts)));
+    .where(and(eq(backlogJobs.status, "running"), notChatTurn, stale, lt(backlogJobs.attempts, maxAttempts)));
   await db
     .update(backlogJobs)
     .set({ status: "failed", error: "max attempts", finishedAt: sql`now()` })
-    .where(and(eq(backlogJobs.status, "running"), stale, gte(backlogJobs.attempts, maxAttempts)));
+    .where(and(eq(backlogJobs.status, "running"), notChatTurn, stale, gte(backlogJobs.attempts, maxAttempts)));
 }
 
 /**

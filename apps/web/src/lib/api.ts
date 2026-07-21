@@ -2488,13 +2488,29 @@ export interface BacklogItemBase {
 }
 
 /**
+ * Sessione di analisi sul codice ATTIVA di una voce (o null nel dettaglio). In
+ * modalità code ogni messaggio della chat diventa un turno dell'agente sul repo.
+ * Forma allineata allo schema risposta del server (`codeSessionSchema`).
+ */
+export interface BacklogCodeSession {
+  status: "active" | "closed";
+  repositoryId: string;
+  startedAt: string;
+}
+
+/**
  * DETTAGLIO di una voce: la forma base più i ticket collegati, i messaggi di
  * chat e il flag `deepDivePending` (deep dive queued/running → "analisi in corso").
+ * `codeSession` è la sessione di analisi attiva (o null → chat in modalità DOCS);
+ * `pendingTurn` è vero mentre un turno `chat_turn` è queued/running (UI: "sta
+ * investigando nel codice…" con polling).
  */
 export interface BacklogItemDetail extends BacklogItemBase {
   tickets: BacklogLinkedTicket[];
   messages: BacklogMessage[];
   deepDivePending: boolean;
+  codeSession: BacklogCodeSession | null;
+  pendingTurn: boolean;
 }
 
 /** Filtri della lista backlog: combaciano con i search param di /backlog. */
@@ -2564,6 +2580,39 @@ export function requestDeepDive(id: string, repositoryId: string): Promise<{ que
 /** Sintetizza la chat nel documento della voce (one-shot). */
 export function refreshBacklogDocument(id: string): Promise<BacklogItemBase> {
   return api.post(`/api/backlog/${encodeURIComponent(id)}/refresh-document`);
+}
+
+/**
+ * Avvia una sessione di analisi sul codice sul repository scelto: da qui in poi
+ * la chat è in modalità CODE (ogni messaggio è un turno dell'agente). 201 con la
+ * sessione creata; 400 repo estraneo al progetto; 409 se già attiva o la voce è
+ * convertita/archiviata.
+ */
+export function startCodeSession(
+  id: string,
+  repositoryId: string,
+): Promise<BacklogCodeSession> {
+  return api.post(`/api/backlog/${encodeURIComponent(id)}/code-session`, { repositoryId });
+}
+
+/** Chiude la sessione di analisi attiva della voce (torna in modalità DOCS). */
+export function stopCodeSession(id: string): Promise<{ closed: true }> {
+  return api.delete(`/api/backlog/${encodeURIComponent(id)}/code-session`);
+}
+
+/**
+ * Invia un messaggio in modalità CODE (sessione attiva): il POST allo stesso
+ * endpoint della chat risponde 202 JSON `{mode:"code", userMessageId}` invece di
+ * uno stream SSE. `userMessageId` è l'id server del messaggio utente persistito,
+ * usato dalla UI per dedupare il messaggio ottimistico contro il GET rifetchato.
+ * DISTINTA da {@link postBacklogChatStream}: il chiamante sceglie in base alla
+ * presenza di una sessione di analisi attiva.
+ */
+export function postBacklogChatTurn(
+  id: string,
+  message: string,
+): Promise<{ mode: "code"; userMessageId: string }> {
+  return api.post(`/api/backlog/${encodeURIComponent(id)}/chat`, { message });
 }
 
 /** Accetta TUTTI i metadati suggeriti dall'AI, applicandoli ai campi reali. */

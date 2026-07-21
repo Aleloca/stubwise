@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Db } from "./client.js";
 import {
   backlogChatMessages,
+  backlogCodeSessions,
   backlogItems,
   backlogItemTickets,
   backlogJobs,
@@ -66,6 +67,115 @@ describe("schema: backlog di discovery", () => {
     if (!readBack) throw new Error("read-back della voce di backlog non ha restituito la riga");
     expect(readBack.embedding).toHaveLength(1024);
     expect(readBack.embedding?.[1]).toBeCloseTo(0.1);
+  });
+
+  it("accoda un job chat_turn (nuovo valore enum 0055) con payload {itemId, userMessageId, sessionId}", async () => {
+    const { projectId, repositoryId } = await seedRepository(db);
+    const [item] = await db
+      .insert(backlogItems)
+      .values({ projectId, title: "Voce con sessione", source: "manual" })
+      .returning();
+    const [msg] = await db
+      .insert(backlogChatMessages)
+      .values({ itemId: item!.id, role: "user", content: "come funziona il modulo X?" })
+      .returning();
+    const [session] = await db
+      .insert(backlogCodeSessions)
+      .values({ itemId: item!.id, repositoryId })
+      .returning();
+
+    const [job] = await db
+      .insert(backlogJobs)
+      .values({
+        projectId,
+        kind: "chat_turn",
+        payload: { itemId: item!.id, userMessageId: msg!.id, sessionId: session!.id },
+      })
+      .returning();
+    if (!job) throw new Error("insert del job chat_turn non ha restituito la riga");
+
+    expect(job.kind).toBe("chat_turn");
+    expect(job.status).toBe("queued");
+    expect(job.payload).toEqual({
+      itemId: item!.id,
+      userMessageId: msg!.id,
+      sessionId: session!.id,
+    });
+  });
+
+  it("persiste una sessione di analisi con default (active, timestamp) e cliSessionId null", async () => {
+    const { projectId, repositoryId } = await seedRepository(db);
+    const [item] = await db
+      .insert(backlogItems)
+      .values({ projectId, title: "Voce da analizzare", source: "manual" })
+      .returning();
+
+    const [session] = await db
+      .insert(backlogCodeSessions)
+      .values({ itemId: item!.id, repositoryId })
+      .returning();
+    if (!session) throw new Error("insert della sessione non ha restituito la riga");
+
+    expect(session.status).toBe("active");
+    expect(session.cliSessionId).toBeNull();
+    expect(session.closedAt).toBeNull();
+    expect(session.startedAt).toBeInstanceOf(Date);
+    expect(session.lastActivityAt).toBeInstanceOf(Date);
+  });
+
+  it("indice unico parziale: due sessioni active sulla stessa voce → errore", async () => {
+    const { projectId, repositoryId } = await seedRepository(db);
+    const [item] = await db
+      .insert(backlogItems)
+      .values({ projectId, title: "Voce con una sola sessione attiva", source: "manual" })
+      .returning();
+
+    await db.insert(backlogCodeSessions).values({ itemId: item!.id, repositoryId });
+    await expect(
+      db.insert(backlogCodeSessions).values({ itemId: item!.id, repositoryId }),
+    ).rejects.toThrow();
+  });
+
+  it("indice unico parziale: una closed + una active sulla stessa voce → ok", async () => {
+    const { projectId, repositoryId } = await seedRepository(db);
+    const [item] = await db
+      .insert(backlogItems)
+      .values({ projectId, title: "Voce con storico di sessioni", source: "manual" })
+      .returning();
+
+    // Una sessione chiusa (non partecipa all'indice parziale)…
+    await db
+      .insert(backlogCodeSessions)
+      .values({ itemId: item!.id, repositoryId, status: "closed", closedAt: new Date() });
+    // …e poi una attiva: consentito.
+    const [active] = await db
+      .insert(backlogCodeSessions)
+      .values({ itemId: item!.id, repositoryId })
+      .returning();
+    expect(active!.status).toBe("active");
+
+    const rows = await db
+      .select()
+      .from(backlogCodeSessions)
+      .where(eq(backlogCodeSessions.itemId, item!.id));
+    expect(rows).toHaveLength(2);
+  });
+
+  it("il delete della voce cascata sulle sessioni di analisi", async () => {
+    const { projectId, repositoryId } = await seedRepository(db);
+    const [item] = await db
+      .insert(backlogItems)
+      .values({ projectId, title: "Voce con sessione da eliminare", source: "manual" })
+      .returning();
+    await db.insert(backlogCodeSessions).values({ itemId: item!.id, repositoryId });
+
+    await db.delete(backlogItems).where(eq(backlogItems.id, item!.id));
+
+    const rows = await db
+      .select()
+      .from(backlogCodeSessions)
+      .where(eq(backlogCodeSessions.itemId, item!.id));
+    expect(rows).toHaveLength(0);
   });
 
   it("accoda un job intake con status queued di default", async () => {

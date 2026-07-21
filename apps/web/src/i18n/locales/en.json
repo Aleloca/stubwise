@@ -620,7 +620,23 @@
       "thinking": "Thinking…",
       "error": "Something went wrong generating the answer.",
       "unavailable": "Chat requires an API-key AI provider. Ask an admin to configure one in Settings.",
-      "sources": "Sources"
+      "sources": "Sources",
+      "modeLabel": "Chat mode",
+      "modeDocs": "DOCS",
+      "modeCode": "CODE — {{repo}}",
+      "modeCodeGeneric": "CODE",
+      "startSession": "Start analysis session",
+      "starting": "Starting…",
+      "stopSession": "Close session",
+      "stopping": "Closing…",
+      "investigating": "Investigating the code…",
+      "investigatingShort": "Investigating…",
+      "chooseRepo": "Choose a repository",
+      "chooseRepoHint": "Pick the repository the agent should analyze.",
+      "startAnalysis": "Start session",
+      "cancel": "Cancel",
+      "noRepos": "This project has no repositories to analyze.",
+      "sessionError": "Could not update the analysis session. Try again."
     }
   },
   "settings": {

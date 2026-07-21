@@ -386,6 +386,13 @@
       "when": 1784565362880,
       "tag": "0054_backlog_jobs_partial_index",
       "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1784640717663,
+      "tag": "0055_backlog_code_sessions",
+      "breakpoints": true
     }
   ]
 }

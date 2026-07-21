@@ -1,4 +1,5 @@
 import type { RetrievedChunk } from "@stubwise/db";
+import type { Language } from "@stubwise/shared";
 
 /**
  * Prompt dell'intake del backlog di discovery.
@@ -160,4 +161,82 @@ export function buildDeepDivePrompt(input: DeepDiveInput): string {
     "",
     `--- VOCE: DOCUMENTO ---\n${input.document || "(vuoto)"}`,
   ].join("\n");
+}
+
+/** Nome della lingua in cui l'agente deve rispondere in chat (dalla lingua dei
+ * contenuti d'istanza). */
+const LANGUAGE_NAME: Record<Language, string> = { en: "English", it: "Italian" };
+
+/** Un messaggio della conversazione passato nel priming del turno di chat. */
+export interface CodeChatMessage {
+  role: "user" | "assistant" | "system";
+  content: string;
+}
+
+/** Voce del backlog + conversazione in ingresso al PRIMO turno della sessione di
+ * analisi sul codice (priming). I turni successivi passano la sola domanda. */
+export interface CodeChatPrimingInput {
+  title: string;
+  document: string;
+  effort: number | null;
+  risk: string | null;
+  urgency: string | null;
+  /** Ultimi messaggi della chat (esclusa la domanda corrente), già capati dal
+   * chiamante. In ordine cronologico. */
+  history: CodeChatMessage[];
+  /** La domanda corrente (l'ultimo messaggio utente che ha innescato il turno). */
+  question: string;
+  /** Lingua in cui rispondere (contenuti d'istanza). */
+  language: Language;
+}
+
+/**
+ * Prompt di PRIMING del PRIMO turno di una sessione di analisi sul codice: dà
+ * all'agente il contesto della voce del backlog (titolo, documento, metadati) e
+ * la conversazione finora, poi la domanda corrente. Come il deep dive gira in
+ * `permissionMode: "plan"` su un worktree read-only del repo: l'agente ESPLORA
+ * il codice reale (Read/Grep/Glob) per rispondere. A differenza di intake/deep
+ * dive l'output NON è JSON ma la risposta in prosa (diventa il messaggio
+ * assistant in chat). La sessione CLI mantiene il contesto: i turni successivi
+ * passano solo la nuova domanda (buildCodeChatFollowupPrompt).
+ *
+ * INJECTION: documento, storia e domanda sono input non fidato (i membri del
+ * progetto li controllano). Come il deep dive il caso peggiore è che l'agente
+ * legga il repo — che sta già leggendo per design, read-only, nessuna scrittura.
+ */
+export function buildCodeChatPrimingPrompt(input: CodeChatPrimingInput): string {
+  const meta = [
+    `- effort: ${input.effort ?? "non stimato"} (scala 1–5)`,
+    `- rischio: ${input.risk ?? "non stimato"}`,
+    `- urgenza: ${input.urgency ?? "non stimata"}`,
+  ].join("\n");
+  const history =
+    input.history.length > 0
+      ? input.history.map((m) => `[${m.role}] ${m.content}`).join("\n\n")
+      : "(nessun messaggio precedente)";
+  return [
+    "Sei un ingegnere senior che affianca il team nel raffinamento di una voce del backlog di prodotto. Ti trovi nella radice del repository collegato (working tree READ-ONLY): quando serve, ESPLORA il codice reale (Read/Grep/Glob) per fondare le risposte sui fatti invece che su ipotesi. NON modificare file, NON eseguire comandi che cambiano lo stato.",
+    "",
+    `Rispondi SEMPRE in ${LANGUAGE_NAME[input.language]}, in prosa Markdown discorsiva (niente JSON). Cita percorsi e simboli reali che hai visto nel repo. Se una risposta non è nel codice, dillo con chiarezza invece di inventare.`,
+    "",
+    `--- VOCE DEL BACKLOG: TITOLO ---\n${input.title}`,
+    "",
+    `--- VOCE: METADATI ---\n${meta}`,
+    "",
+    `--- VOCE: DOCUMENTO ---\n${input.document || "(vuoto)"}`,
+    "",
+    `--- CONVERSAZIONE FINORA ---\n${history}`,
+    "",
+    `--- DOMANDA CORRENTE ---\n${input.question}`,
+  ].join("\n");
+}
+
+/**
+ * Prompt dei turni SUCCESSIVI (la sessione CLI è ripresa con `--resume`, quindi
+ * il modello ha già in memoria il contesto e ciò che ha esplorato): passa la
+ * sola nuova domanda. Funzione minimale, esplicita per simmetria col priming e
+ * per un unico punto in cui evolvere il formato del turno.
+ */
+export function buildCodeChatFollowupPrompt(question: string): string {
+  return question;
 }

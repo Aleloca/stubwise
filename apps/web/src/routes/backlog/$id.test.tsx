@@ -42,6 +42,8 @@ function detailFixture(overrides: Partial<BacklogItemDetail> = {}): BacklogItemD
     tickets: [],
     messages: [],
     deepDivePending: false,
+    codeSession: null,
+    pendingTurn: false,
     createdAt: "2026-06-01T10:00:00.000Z",
     updatedAt: "2026-06-02T10:00:00.000Z",
     ...overrides,
@@ -130,12 +132,14 @@ function mockDetailApi(
       { id: REPO_B, name: "Repo B", slug: "repo-b", projectId: PROJECT_ID, provider: "github" },
     ];
 
-  /** La forma BASE della voce (senza tickets/messages/deepDivePending). */
+  /** La forma BASE della voce (senza tickets/messages/deepDivePending/…). */
   const base = () => {
     const rest: Partial<BacklogItemDetail> = { ...state.item };
     delete rest.tickets;
     delete rest.messages;
     delete rest.deepDivePending;
+    delete rest.codeSession;
+    delete rest.pendingTurn;
     return rest;
   };
 

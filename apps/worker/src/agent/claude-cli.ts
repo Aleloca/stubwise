@@ -167,6 +167,19 @@ function pickNumber(obj: Record<string, unknown>, ...keys: string[]): number | u
   return undefined;
 }
 
+/**
+ * Estrae una stringa non vuota da un oggetto provando più nomi di chiave
+ * (snake_case e camelCase, come pickNumber). Undefined se nessuna chiave è una
+ * stringa non vuota.
+ */
+function pickString(obj: Record<string, unknown>, ...keys: string[]): string | undefined {
+  for (const key of keys) {
+    const value = obj[key];
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+  return undefined;
+}
+
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -209,11 +222,15 @@ export function extractUsage(parsed: Record<string, unknown>): AgentRunUsage | u
 
 /**
  * Interpreta lo stdout del CLI in modalità `--output-format json`. Difensivo:
- * se non è JSON valido restituisce `output` = stdout grezzo e usage undefined;
- * se `result` manca, `output` ricade sullo stdout grezzo ma usage viene
- * comunque estratto se presente. Non lancia mai.
+ * se non è JSON valido restituisce `output` = stdout grezzo e usage/sessionId
+ * undefined; se `result` manca, `output` ricade sullo stdout grezzo ma usage e
+ * sessionId vengono comunque estratti se presenti. Il `session_id` (anche
+ * `sessionId` per robustezza tra versioni) serve al `--resume` della sessione di
+ * analisi sul codice. Non lancia mai.
  */
-export function parseCliJson(stdout: string): { output: string; usage?: AgentRunUsage } {
+export function parseCliJson(
+  stdout: string,
+): { output: string; usage?: AgentRunUsage; sessionId?: string } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(stdout);
@@ -225,7 +242,12 @@ export function parseCliJson(stdout: string): { output: string; usage?: AgentRun
   const result = record["result"];
   const output = typeof result === "string" ? result : stdout;
   const usage = extractUsage(record);
-  return usage !== undefined ? { output, usage } : { output };
+  const sessionId = pickString(record, "session_id", "sessionId");
+  return {
+    output,
+    ...(usage !== undefined ? { usage } : {}),
+    ...(sessionId !== undefined ? { sessionId } : {}),
+  };
 }
 
 export class ClaudeCliRunner implements AgentRunner {
@@ -259,6 +281,12 @@ export class ClaudeCliRunner implements AgentRunner {
       "--max-turns",
       String(opts.maxTurns),
     ];
+    // Ripresa di una sessione CLI esistente (sessione di analisi sul codice del
+    // backlog): il modello ricarica il contesto e il prompt è solo il nuovo
+    // turno. Lo id è generato dal CLI stesso (mai contenuto del ticket).
+    if (opts.resumeSessionId !== undefined) {
+      args.push("--resume", opts.resumeSessionId);
+    }
     if (opts.model !== undefined) {
       args.push("--model", opts.model);
     }
@@ -295,6 +323,7 @@ export class ClaudeCliRunner implements AgentRunner {
         output,
         exitCode: exitCode ?? 0,
         ...(parsed.usage !== undefined ? { usage: parsed.usage } : {}),
+        ...(parsed.sessionId !== undefined ? { sessionId: parsed.sessionId } : {}),
       };
     } catch (error) {
       const e = error as {
@@ -316,6 +345,7 @@ export class ClaudeCliRunner implements AgentRunner {
           output: e.all ?? "",
           exitCode: e.exitCode,
           ...(parsed.usage !== undefined ? { usage: parsed.usage } : {}),
+          ...(parsed.sessionId !== undefined ? { sessionId: parsed.sessionId } : {}),
         };
       }
       // Spawn fallito (binario mancante, permessi) o kill da segnale esterno.

@@ -3,6 +3,7 @@ import {
   type BacklogJobPayload,
   type BacklogSuggested,
   type DiscoveredService,
+  backlogCodeSessionStatusSchema,
   backlogItemSourceSchema,
   backlogItemStatusSchema,
   backlogJobKindSchema,
@@ -104,6 +105,10 @@ export const backlogRisk = pgEnum("backlog_risk", enumValues(backlogRiskSchema))
 export const backlogItemSource = pgEnum("backlog_item_source", enumValues(backlogItemSourceSchema));
 export const backlogJobKind = pgEnum("backlog_job_kind", enumValues(backlogJobKindSchema));
 export const backlogJobStatus = pgEnum("backlog_job_status", enumValues(backlogJobStatusSchema));
+export const backlogCodeSessionStatus = pgEnum(
+  "backlog_code_session_status",
+  enumValues(backlogCodeSessionStatusSchema),
+);
 // Ruolo del legame voce↔ticket: `origin` (il ticket ha originato la voce) o
 // `converted_to` (la voce è stata convertita in questo ticket). Lista letterale
 // locale al DB (non passa da uno schema Zod di shared).
@@ -2095,5 +2100,43 @@ export const backlogJobs = pgTable(
     index("backlog_jobs_queued_created_at_idx")
       .on(table.createdAt)
       .where(sql`status = 'queued'`),
+  ],
+);
+
+/**
+ * Sessione di analisi sul codice di una voce del backlog: quando è `active`,
+ * ogni messaggio della chat di raffinamento diventa un turno dell'agente claude
+ * CLI che investiga in diretta il repository scelto (worktree read-only). Una
+ * sola sessione `active` per voce (indice unico PARZIALE su `item_id` filtrato
+ * su status='active'): le sessioni `closed` restano come storico, senza vincolo.
+ * `cliSessionId` è null finché il primo turno non lo assegna (il worker vi
+ * salva l'id della sessione CLI per il `--resume` dei turni successivi).
+ * `lastActivityAt` alimenta lo sweep TTL del worker (chiusura per inattività).
+ */
+export const backlogCodeSessions = pgTable(
+  "backlog_code_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    itemId: uuid("item_id")
+      .notNull()
+      .references(() => backlogItems.id, { onDelete: "cascade" }),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    status: backlogCodeSessionStatus("status").notNull().default("active"),
+    // Id della sessione claude CLI, assegnato dal primo turno del worker
+    // (`--resume`). Null finché nessun turno è stato eseguito.
+    cliSessionId: text("cli_session_id"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+  },
+  (table) => [
+    // Al più una sessione attiva per voce. Indice unico PARZIALE (filtrato su
+    // status='active'): le righe `closed` non partecipano, quindi la storia può
+    // accumulare N sessioni chiuse sulla stessa voce.
+    uniqueIndex("backlog_code_sessions_active_item_unique")
+      .on(table.itemId)
+      .where(sql`status = 'active'`),
   ],
 );
