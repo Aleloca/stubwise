@@ -104,3 +104,109 @@ describe("streamChatResponse — persistAssistantMessage", () => {
     expect(insert).not.toHaveBeenCalled();
   });
 });
+
+describe("streamChatResponse — la persistenza precede la chiusura della risposta", () => {
+  // Le UI fanno refetch dello storico appena ricevono `done`: se l'insert
+  // avvenisse dopo reply.raw.end(), il refetch potrebbe non vedere l'ultimo
+  // messaggio assistant (race osservata come flake in CI su docs-chat.test.ts).
+  // Quando `done` viene emesso, lo storico DEVE già essere consistente.
+
+  function orderProbes(reply: FastifyReply) {
+    const raw = reply.raw as unknown as {
+      end: ReturnType<typeof vi.fn>;
+      write: ReturnType<typeof vi.fn>;
+    };
+    return {
+      endCalled: () => raw.end.mock.calls.length > 0,
+      doneWritten: () =>
+        raw.write.mock.calls.some((c) => String(c[0]).includes('"done"')),
+    };
+  }
+
+  const okStream = async function* () {
+    yield "risposta";
+  };
+
+  it("callback custom: atteso PRIMA di done e di end", async () => {
+    const reply = fakeReply();
+    const probes = orderProbes(reply);
+    let endAtPersist: boolean | null = null;
+    let doneAtPersist: boolean | null = null;
+    const persist = vi.fn(async () => {
+      endAtPersist = probes.endCalled();
+      doneAtPersist = probes.doneWritten();
+    });
+    const { db } = fakeDb();
+    await streamChatResponse({
+      db,
+      chatLlm: fakeChatLlm(okStream),
+      request: fakeRequest(),
+      reply,
+      sessionId: "22222222-2222-4222-8222-222222222222",
+      system: "system",
+      history: [{ role: "user", content: "domanda" }],
+      citations: CITATIONS,
+      logContext: { repositoryId: "r" },
+      persistAssistantMessage: persist,
+    });
+    expect(persist).toHaveBeenCalledTimes(1);
+    expect(endAtPersist).toBe(false);
+    expect(doneAtPersist).toBe(false);
+    // La risposta viene comunque chiusa con il `done` dopo la persistenza.
+    expect(probes.doneWritten()).toBe(true);
+    expect(probes.endCalled()).toBe(true);
+  });
+
+  it("default (insert su docChatMessages): atteso PRIMA di done e di end", async () => {
+    const reply = fakeReply();
+    const probes = orderProbes(reply);
+    let endAtInsert: boolean | null = null;
+    let doneAtInsert: boolean | null = null;
+    const values = vi.fn(async () => {
+      endAtInsert = probes.endCalled();
+      doneAtInsert = probes.doneWritten();
+    });
+    const db = { insert: vi.fn(() => ({ values })) } as unknown as Db;
+    await streamChatResponse({
+      db,
+      chatLlm: fakeChatLlm(okStream),
+      request: fakeRequest(),
+      reply,
+      sessionId: "22222222-2222-4222-8222-222222222222",
+      system: "system",
+      history: [{ role: "user", content: "domanda" }],
+      citations: CITATIONS,
+      logContext: { repositoryId: "r" },
+    });
+    expect(values).toHaveBeenCalledTimes(1);
+    expect(endAtInsert).toBe(false);
+    expect(doneAtInsert).toBe(false);
+    expect(probes.doneWritten()).toBe(true);
+    expect(probes.endCalled()).toBe(true);
+  });
+
+  it("persistenza che FALLISCE: niente done (il client tratta la risposta come troncata), stream comunque chiuso", async () => {
+    const reply = fakeReply();
+    const probes = orderProbes(reply);
+    const persist = vi.fn().mockRejectedValue(new Error("db down"));
+    const { db } = fakeDb();
+    const request = fakeRequest();
+    await streamChatResponse({
+      db,
+      chatLlm: fakeChatLlm(okStream),
+      request,
+      reply,
+      sessionId: "22222222-2222-4222-8222-222222222222",
+      system: "system",
+      history: [{ role: "user", content: "domanda" }],
+      citations: CITATIONS,
+      logContext: { repositoryId: "r" },
+      persistAssistantMessage: persist,
+    });
+    expect(probes.doneWritten()).toBe(false);
+    expect(probes.endCalled()).toBe(true);
+    expect(
+      (request.log.error as ReturnType<typeof vi.fn>).mock.calls.length,
+    ).toBeGreaterThan(0);
+  });
+});

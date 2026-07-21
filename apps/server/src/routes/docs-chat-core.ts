@@ -144,71 +144,81 @@ export async function streamChatResponse(args: StreamChatResponseArgs): Promise<
   // disconnessione a metà). Solo in quel caso la risposta è "completa" e tiene
   // le citazioni; altrimenti è parziale e va marcata come interrotta.
   let completed = false;
+  // La persistenza è fallita: il `done` va soppresso (vedi sotto).
+  let persistFailed = false;
   try {
-    for await (const delta of chatLlm.stream({
-      system,
-      messages: history,
-      signal: controller.signal,
-    })) {
-      if (clientGone) break;
-      full += delta;
-      writeSseEvent(reply, { type: "delta", text: delta });
+    try {
+      for await (const delta of chatLlm.stream({
+        system,
+        messages: history,
+        signal: controller.signal,
+      })) {
+        if (clientGone) break;
+        full += delta;
+        writeSseEvent(reply, { type: "delta", text: delta });
+      }
+      completed = !clientGone;
+    } catch (error) {
+      // Errore dell'LLM a metà stream: lo segnaliamo al client con un evento
+      // `error` e abortiamo la generazione sottostante (no token sprecati).
+      // Logghiamo per intero lato server (mai nel body).
+      controller.abort();
+      request.log.error({ err: error, ...logContext, sessionId }, "chat LLM error");
+      if (!clientGone) {
+        writeSseEvent(reply, { type: "error", message: "Chat generation failed" });
+      }
     }
-    completed = !clientGone;
-  } catch (error) {
-    // Errore dell'LLM a metà stream: lo segnaliamo al client con un evento
-    // `error` e abortiamo la generazione sottostante (no token sprecati).
-    // Logghiamo per intero lato server (mai nel body).
-    controller.abort();
-    request.log.error({ err: error, ...logContext, sessionId }, "chat LLM error");
-    if (!clientGone) {
-      writeSseEvent(reply, { type: "error", message: "Chat generation failed" });
+
+    // Persistenza del messaggio assistant — PRIMA della chiusura della risposta.
+    // Le UI fanno refetch dello storico appena ricevono `done` (o vedono lo
+    // stream chiudersi): al momento della chiusura lo storico DEVE già essere
+    // consistente, altrimenti il refetch può non vedere l'ultimo messaggio
+    // (race osservata come flake in CI). Un errore di persistenza sopprime il
+    // `done`: il client tratta la risposta come troncata (contratto già gestito).
+    //  - Risposta COMPLETA: testo + citazioni (storico/UI la trattano come tale).
+    //  - Risposta PARZIALE (errore o disconnessione a metà con testo accumulato):
+    //    la salviamo SENZA citazioni e con un marcatore di troncamento, così
+    //    history loader e UI distinguono una risposta interrotta da una completa.
+    // Persistenza pluggabile: il chiamante riceve il testo grezzo e `truncated`,
+    // e decide da sé marcatori/citazioni. Il default (chat Docs) resta identico.
+    try {
+      if (persistAssistantMessage) {
+        if (completed || full.length > 0) {
+          await persistAssistantMessage({ content: full, citations, truncated: !completed });
+        }
+      } else if (completed) {
+        await db.insert(docChatMessages).values({
+          sessionId,
+          role: "assistant",
+          content: full,
+          citations,
+        });
+      } else if (full.length > 0) {
+        await db.insert(docChatMessages).values({
+          sessionId,
+          role: "assistant",
+          content: full + TRUNCATION_MARKER,
+          // Niente citazioni su risposta interrotta: non sono "giustificate" da
+          // un ragionamento completato.
+          citations: null,
+        });
+      }
+    } catch (error) {
+      persistFailed = true;
+      request.log.error({ err: error, ...logContext, sessionId }, "chat persist error");
     }
   } finally {
     // Lo stream HTTP grezzo va SEMPRE chiuso, anche su throw inatteso dopo
     // hijack(): senza questo il socket resterebbe appeso. Su disconnessione del
     // client la connessione è già chiusa, quindi non scriviamo/chiudiamo.
     if (!clientGone) {
-      if (completed) {
-        // Risposta completa: evento finale con le citazioni e il sessionId, così
-        // il client può persistere la sessione (nuova al primo turno) e riusarla
-        // nei turni successivi (multi-turn).
+      if (completed && !persistFailed) {
+        // Risposta completa e persistita: evento finale con le citazioni e il
+        // sessionId, così il client può persistere la sessione (nuova al primo
+        // turno) e riusarla nei turni successivi (multi-turn).
         writeSseEvent(reply, { type: "done", sessionId, citations });
       }
       reply.raw.end();
     }
-  }
-
-  // Persistenza del messaggio assistant.
-  //  - Risposta COMPLETA: testo + citazioni (storico/UI la trattano come tale).
-  //  - Risposta PARZIALE (errore o disconnessione a metà con testo accumulato):
-  //    la salviamo SENZA citazioni e con un marcatore di troncamento, così history
-  //    loader e UI distinguono una risposta interrotta da una completa e non la
-  //    reimmettono in storico come se fosse una risposta valida.
-  // Persistenza pluggabile: il chiamante riceve il testo grezzo e `truncated`,
-  // e decide da sé marcatori/citazioni. Il default (chat Docs) resta identico.
-  if (persistAssistantMessage) {
-    if (completed || full.length > 0) {
-      await persistAssistantMessage({ content: full, citations, truncated: !completed });
-    }
-    return;
-  }
-
-  if (completed) {
-    await db.insert(docChatMessages).values({
-      sessionId,
-      role: "assistant",
-      content: full,
-      citations,
-    });
-  } else if (full.length > 0) {
-    await db.insert(docChatMessages).values({
-      sessionId,
-      role: "assistant",
-      content: full + TRUNCATION_MARKER,
-      // Niente citazioni su risposta interrotta: non sono "giustificate" da un
-      // ragionamento completato.
-      citations: null,
-    });
   }
 }

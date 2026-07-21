@@ -262,18 +262,37 @@ export async function streamWidgetChatResponse(
   // come ultimo delta prima del done.
   let visible = full;
   let proposal: TicketProposal | null = null;
+  // La persistenza è fallita: `done` (e proposta) vanno soppressi (vedi sotto).
+  let persistFailed = false;
   try {
     if (completed) {
       ({ visible, proposal } = extractProposal(full));
-      if (!clientGone) {
-        if (visible.length > forwarded) {
-          writeSseEvent(reply, { type: "delta", text: visible.slice(forwarded) });
-        }
-        if (proposal) {
-          writeSseEvent(reply, { type: "ticket_proposal", proposal });
-        }
-        writeSseEvent(reply, { type: "done", conversationId, citations });
+    }
+
+    // Persistenza dell'assistant — PRIMA della chiusura della risposta (stessa
+    // garanzia di docs-chat-core: il client fa refetch dello storico dopo il
+    // `done`, che quindi deve trovare il messaggio già scritto). Un errore di
+    // persistenza sopprime done/proposta: il client tratta la risposta come
+    // troncata. Completo (content = visible + citazioni) oppure parziale (testo
+    // accumulato + marcatore, senza citazioni) su interruzione.
+    try {
+      await persistAssistant();
+    } catch (error) {
+      persistFailed = true;
+      request.log.error(
+        { err: error, ...logContext, conversationId },
+        "widget chat persist error",
+      );
+    }
+
+    if (completed && !persistFailed && !clientGone) {
+      if (visible.length > forwarded) {
+        writeSseEvent(reply, { type: "delta", text: visible.slice(forwarded) });
       }
+      if (proposal) {
+        writeSseEvent(reply, { type: "ticket_proposal", proposal });
+      }
+      writeSseEvent(reply, { type: "done", conversationId, citations });
     }
   } finally {
     // Lo stream HTTP grezzo va SEMPRE chiuso, anche su throw inatteso dopo
@@ -284,20 +303,19 @@ export async function streamWidgetChatResponse(
     }
   }
 
-  // Persistenza dell'assistant: completo (content = visible + citazioni) oppure
-  // parziale (testo accumulato + marcatore, senza citazioni) su interruzione.
-  if (completed) {
-    await db.insert(widgetMessages).values({
-      conversationId,
-      role: "assistant",
-      content: visible,
-      citations,
-    });
-    await db
-      .update(widgetConversations)
-      .set({ lastMessageAt: new Date() })
-      .where(eq(widgetConversations.id, conversationId));
-  } else if (full.length > 0) {
+  async function persistAssistant(): Promise<void> {
+    if (completed) {
+      await db.insert(widgetMessages).values({
+        conversationId,
+        role: "assistant",
+        content: visible,
+        citations,
+      });
+      await db
+        .update(widgetConversations)
+        .set({ lastMessageAt: new Date() })
+        .where(eq(widgetConversations.id, conversationId));
+    } else if (full.length > 0) {
     // Il testo accumulato può contenere un blocco sentinel parziale/completo (il
     // marcatore sta in coda alla risposta, esattamente dove cadono le
     // interruzioni): persistere `full` verbatim lo esporrebbe nello storico GET.
@@ -315,4 +333,5 @@ export async function streamWidgetChatResponse(
       .set({ lastMessageAt: new Date() })
       .where(eq(widgetConversations.id, conversationId));
   }
+}
 }

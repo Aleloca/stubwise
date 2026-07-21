@@ -4,11 +4,15 @@
  * L'integrazione (route SSE, persistenza, cap) vive in widget.test.ts.
  */
 
-import { describe, expect, it } from "vitest";
+import type { FastifyReply, FastifyRequest } from "fastify";
+import { describe, expect, it, vi } from "vitest";
+import type { Db } from "@stubwise/db";
+import type { ChatLlm } from "./chat-llm.js";
 import {
   buildWidgetSystemPrompt,
   extractProposal,
   safeForwardLength,
+  streamWidgetChatResponse,
 } from "./widget-chat.js";
 
 const START = "<<<TICKET_PROPOSAL";
@@ -171,5 +175,62 @@ describe("extractProposal", () => {
     // Tutto ciò che segue l'apertura è scartato (era destinato alla proposta).
     expect(visible).toBe("Risposta parziale.");
     expect(visible).not.toContain(START);
+  });
+});
+
+describe("streamWidgetChatResponse — la persistenza precede la chiusura della risposta", () => {
+  // Stessa garanzia di docs-chat-core: il widget fa refetch dello storico dopo
+  // il `done`; l'insert dell'assistant deve quindi avvenire PRIMA della chiusura
+  // dello stream (race osservata come flake CI sul gemello docs-chat).
+
+  function fakeReply() {
+    const raw = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn() };
+    return {
+      reply: { hijack: vi.fn(), raw } as unknown as FastifyReply,
+      endCalled: () => raw.end.mock.calls.length > 0,
+      doneWritten: () => raw.write.mock.calls.some((c) => String(c[0]).includes('"done"')),
+    };
+  }
+
+  it("insert dell'assistant atteso PRIMA di done e di end", async () => {
+    const { reply, endCalled, doneWritten } = fakeReply();
+    let endAtInsert: boolean | null = null;
+    let doneAtInsert: boolean | null = null;
+    const values = vi.fn(async () => {
+      endAtInsert = endCalled();
+      doneAtInsert = doneWritten();
+    });
+    const where = vi.fn().mockResolvedValue(undefined);
+    const db = {
+      insert: vi.fn(() => ({ values })),
+      update: vi.fn(() => ({ set: vi.fn(() => ({ where })) })),
+    } as unknown as Db;
+    const request = {
+      raw: { on: vi.fn() },
+      log: { error: vi.fn() },
+    } as unknown as FastifyRequest;
+    const chatLlm = {
+      stream: async function* () {
+        yield "risposta widget";
+      },
+    } as unknown as ChatLlm;
+
+    await streamWidgetChatResponse({
+      db,
+      chatLlm,
+      request,
+      reply,
+      conversationId: "33333333-3333-4333-8333-333333333333",
+      system: "system",
+      history: [{ role: "user", content: "domanda" }],
+      citations: [],
+      logContext: { widgetId: "w" },
+    });
+
+    expect(values).toHaveBeenCalledTimes(1);
+    expect(endAtInsert).toBe(false);
+    expect(doneAtInsert).toBe(false);
+    expect(doneWritten()).toBe(true);
+    expect(endCalled()).toBe(true);
   });
 });
