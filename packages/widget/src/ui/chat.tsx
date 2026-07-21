@@ -159,10 +159,22 @@ export function Chat({
     // (il pannello si smonta/rimonta all'apri/chiudi). Le dipendenze sono stabili.
   }, []);
 
-  // Autoscroll in fondo a ogni cambiamento della timeline.
+  // Scroll pinning: l'autoscroll segue lo stream SOLO se l'utente è agganciato
+  // al fondo (stesso pattern delle chat della SPA): scrollare in su durante lo
+  // streaming non viene più sovrascritto a ogni delta; il follow riprende
+  // tornando vicino al fondo o inviando un messaggio.
+  const pinnedRef = useRef(true);
+
+  function handleScroll() {
+    const el = messagesRef.current;
+    if (!el) return;
+    pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+  }
+
+  // Autoscroll in fondo a ogni cambiamento della timeline — solo se agganciati.
   useEffect(() => {
     const el = messagesRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && pinnedRef.current) el.scrollTop = el.scrollHeight;
   }, [items]);
 
   /** Assicura una conversazione (crea lazy al primo invio, poi la persiste). */
@@ -179,6 +191,8 @@ export function Chat({
     if (!text || streaming) return;
     setDraft("");
     setStreaming(true);
+    // Un invio esplicito ri-aggancia al fondo: l'utente vuole vedere la risposta.
+    pinnedRef.current = true;
 
     const userItem: ChatItem = { kind: "user", id: nextId(), text };
     const assistantId = nextId();
@@ -261,7 +275,7 @@ export function Chat({
 
   return (
     <>
-      <div class="sw-messages" ref={messagesRef}>
+      <div class="sw-messages" ref={messagesRef} onScroll={handleScroll}>
         {items.map((it) => {
           if (it.kind === "ticket") {
             return (

@@ -121,9 +121,20 @@ export function DocsChat({
   // sempre l'ultimo valore senza ricreare la closure.
   const sessionIdRef = useRef<string | undefined>(undefined);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Scroll pinning: l'autoscroll segue lo stream SOLO se l'utente è agganciato
+  // al fondo (vedi backlog-chat.tsx, stesso pattern): scrollare in su durante lo
+  // streaming non viene più sovrascritto a ogni delta.
+  const pinnedRef = useRef(true);
 
-  // Autoscroll in fondo a ogni nuovo frammento/messaggio.
+  function handleScroll() {
+    const el = scrollRef.current;
+    if (!el) return;
+    pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+  }
+
+  // Autoscroll in fondo a ogni nuovo frammento/messaggio — solo se agganciati.
   useEffect(() => {
+    if (!pinnedRef.current) return;
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages]);
 
@@ -148,6 +159,8 @@ export function DocsChat({
     setMessages((prev) => [...prev, userMessage, assistantMessage]);
     setInput("");
     setSending(true);
+    // Un invio esplicito ri-aggancia al fondo: l'utente vuole vedere la risposta.
+    pinnedRef.current = true;
 
     /** Aggiorna il messaggio assistant in corso (per id). */
     const patchAssistant = (patch: Partial<ChatMessage>) => {
@@ -247,7 +260,11 @@ export function DocsChat({
         </button>
       </header>
 
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="min-h-0 flex-1 overflow-y-auto px-4 py-3"
+      >
         {messages.length === 0 ? (
           <div className="grid h-full place-items-center text-center">
             <div>

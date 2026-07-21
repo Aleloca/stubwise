@@ -90,9 +90,24 @@ export function BacklogChat({
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Scroll pinning: l'autoscroll segue lo stream SOLO se l'utente è agganciato
+  // al fondo. Se scrolla verso l'alto per leggere durante lo streaming, non lo
+  // trasciniamo giù a ogni delta; il follow riprende quando torna vicino al
+  // fondo o invia un nuovo messaggio. Ref (non state): cambia a ogni scroll o
+  // delta e non deve causare re-render.
+  const pinnedRef = useRef(true);
 
-  // Autoscroll in fondo a ogni nuovo frammento/messaggio.
+  function handleScroll() {
+    const el = scrollRef.current;
+    if (!el) return;
+    // Soglia generosa (~48px): "quasi in fondo" conta come agganciato, così il
+    // follow non si stacca per una riga di differenza dovuta al rendering.
+    pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+  }
+
+  // Autoscroll in fondo a ogni nuovo frammento/messaggio — solo se agganciati.
   useEffect(() => {
+    if (!pinnedRef.current) return;
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages]);
 
@@ -111,6 +126,8 @@ export function BacklogChat({
     setMessages((prev) => [...prev, userMessage, assistantMessage]);
     setInput("");
     setSending(true);
+    // Un invio esplicito ri-aggancia al fondo: l'utente vuole vedere la risposta.
+    pinnedRef.current = true;
 
     const patchAssistant = (patch: Partial<ChatMessage>) => {
       setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, ...patch } : m)));
@@ -167,7 +184,11 @@ export function BacklogChat({
         )}
       </header>
 
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="min-h-0 flex-1 overflow-y-auto px-4 py-3"
+      >
         {messages.length === 0 ? (
           <div className="grid h-full place-items-center text-center">
             <div>
