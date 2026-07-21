@@ -354,8 +354,11 @@ describe("AiProvidersSection — usage residuo abbonamento", () => {
     renderSection();
 
     const row = (await screen.findByText("Account Max")).closest("li") as HTMLElement;
-    // 38% sessione, 72% settimanale (percentRemaining).
-    expect(within(row).getByText(/38%/)).toBeInTheDocument();
+    // 38% sessione, 72% settimanale (percentRemaining). Gli snapshot arrivano da
+    // una query non-suspense SEPARATA da quella dei provider: la riga può essere
+    // già montata mentre gli usage sono ancora in volo, quindi la PRIMA assert
+    // derivata dallo snapshot deve attendere (findByText) — sync era flaky in CI.
+    expect(await within(row).findByText(/38%/)).toBeInTheDocument();
     expect(within(row).getByText(/72%/)).toBeInTheDocument();
     // Il reset è la label testuale della TUI (non-ISO), mostrata tale-e-quale.
     expect(within(row).getByText(/2:39pm \(Europe\/Rome\)/)).toBeInTheDocument();
@@ -369,7 +372,8 @@ describe("AiProvidersSection — usage residuo abbonamento", () => {
     renderSection();
 
     const row = (await screen.findByText("Account Max")).closest("li") as HTMLElement;
-    expect(within(row).getByText(/estimated \(fallback\)/i)).toBeInTheDocument();
+    // findByText: dato dallo snapshot (query separata), vedi test sopra.
+    expect(await within(row).findByText(/estimated \(fallback\)/i)).toBeInTheDocument();
   });
 
   it("senza etichetta fallback quando source=deterministic", async () => {
@@ -377,6 +381,10 @@ describe("AiProvidersSection — usage residuo abbonamento", () => {
     renderSection();
 
     const row = (await screen.findByText("Account Max")).closest("li") as HTMLElement;
+    // Prima si attende un dato DERIVATO dallo snapshot (le percentuali): solo a
+    // quel punto l'assenza dell'etichetta è significativa (non vacuamente vera
+    // mentre la query usage è ancora in volo).
+    await within(row).findByText(/38%/);
     expect(within(row).queryByText(/estimated \(fallback\)/i)).not.toBeInTheDocument();
   });
 
@@ -403,8 +411,9 @@ describe("AiProvidersSection — usage residuo abbonamento", () => {
     renderSection();
 
     const row = (await screen.findByText("Account Max")).closest("li") as HTMLElement;
-    // Avviso di parsing fallito + hint sul parser deterministico.
-    expect(within(row).getByText(/parsing of \/usage failed/i)).toBeInTheDocument();
+    // Avviso di parsing fallito + hint sul parser deterministico (findByText:
+    // dato dallo snapshot, query separata — vedi test del residuo).
+    expect(await within(row).findByText(/parsing of \/usage failed/i)).toBeInTheDocument();
     expect(within(row).getByText(/usage-parser\.ts/)).toBeInTheDocument();
     // Il testo grezzo è mostrato (blocco monospace).
     expect(within(row).getByText(/windows: \?\?\?/)).toBeInTheDocument();
@@ -415,6 +424,8 @@ describe("AiProvidersSection — usage residuo abbonamento", () => {
     renderSection();
 
     const row = (await screen.findByText("Account Max")).closest("li") as HTMLElement;
+    // Come sopra: si attende un dato dello snapshot prima di asserire l'assenza.
+    await within(row).findByText(/38%/);
     expect(within(row).queryByText(/parsing of \/usage failed/i)).not.toBeInTheDocument();
   });
 
