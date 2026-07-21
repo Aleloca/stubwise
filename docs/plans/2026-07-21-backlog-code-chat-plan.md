@@ -171,3 +171,21 @@ codeSession/pendingTurn; unique parziale (closed+active ok, doppia active no).
   UI. Streaming dei turni = evoluzione successiva (fuori scope).
 - Worktree persistenti + riavvio worker: le sessioni NON bloccano il riavvio
   (ri-bootstrap trasparente) — nessun nuovo vincolo operativo.
+
+## Follow-up noti (dalle review, non bloccanti)
+
+- **Falso-orfano pre-ingresso per pileup 3+ same-item**: un turno reclamato ma
+  accodato dietro 3+ turni della stessa voce (ognuno ~timeout) può superare la
+  soglia `2×timeout+5` mentre è ancora IN CODA (started_at al claim, non ancora
+  rinfrescato) → recovery lo marca failed + messaggio d'errore, poi il turno gira
+  comunque (runFn non gatea sul refresh) e scrive la risposta reale → doppio
+  messaggio benigno (completeChatTurnJob è status-guarded, job resta failed).
+  Non corruttivo, nessuna perdita dati né doppio --resume. Scenario irrealistico
+  in uso normale: la UI blocca l'invio di un 2° messaggio code finché il turno è
+  in volo (guardia turnInFlight), quindi il pileup richiede API dirette o più tab.
+  Tensione di design intrinseca (il claim DEVE settare started_at per recuperare
+  un worker morto prima dell'ingresso). Se mai un problema: heartbeat sul turno in
+  esecuzione, o recovery consapevole della sessione in-memory attiva.
+- Estrazione della logica di merge/dedup della chat web (`isReconciliation`,
+  effetto di riconciliazione) in un modulo testabile in isolamento (backlog-chat
+  è ~730 righe).
