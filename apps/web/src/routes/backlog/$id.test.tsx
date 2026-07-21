@@ -270,19 +270,26 @@ function renderDetail(initialPath = `/backlog/${ITEM_ID}`) {
 }
 
 describe("dettaglio backlog", () => {
-  it("header: titolo, badge di stato/effort/rischio/urgenza e progetto", async () => {
+  it("header: titolo, badge di stato, progetto/contatore e metadati inline", async () => {
     mockDetailApi();
     renderDetail();
 
     expect(await screen.findByRole("heading", { name: "Export massivo ordini" })).toBeInTheDocument();
     const header = screen.getByRole("banner");
-    expect(within(header).getByText("Refining")).toBeInTheDocument();
-    expect(within(header).getByText("E2")).toBeInTheDocument();
-    expect(within(header).getByText("Low risk")).toBeInTheDocument();
-    expect(within(header).getByText("Medium")).toBeInTheDocument();
+    // Progetto e contatore richieste vivono nella prima riga dell'header.
     expect(within(header).getByText("Progetto Alfa")).toBeInTheDocument();
     expect(within(header).getByText("×3")).toBeInTheDocument();
+    // Effort/risk/urgency (prima badge) ora sono select inline col valore corrente.
+    expect(screen.getByLabelText("Status")).toHaveValue("refining");
+    expect(screen.getByLabelText("Effort")).toHaveValue("2");
+    expect(screen.getByLabelText("Risk")).toHaveValue("low");
+    expect(screen.getByLabelText("Urgency")).toHaveValue("medium");
   });
+
+  /** Le azioni secondarie ora vivono dietro al menu "⋯": aprilo prima di cliccarle. */
+  async function openActionsMenu() {
+    await userEvent.click(await screen.findByRole("button", { name: "More actions" }));
+  }
 
   it("documento reso in markdown", async () => {
     mockDetailApi();
@@ -436,6 +443,7 @@ describe("dettaglio backlog", () => {
     const state = mockDetailApi();
     const { router } = renderDetail();
 
+    await openActionsMenu();
     await userEvent.click(await screen.findByRole("button", { name: "Merge into…" }));
     const input = await screen.findByRole("combobox", { name: /search backlog items/i });
     await userEvent.type(input, "report");
@@ -449,8 +457,32 @@ describe("dettaglio backlog", () => {
     const state = mockDetailApi();
     renderDetail();
 
+    await openActionsMenu();
     await userEvent.click(await screen.findByRole("button", { name: "Archive" }));
     await waitFor(() => expect(state.patches).toEqual([{ status: "archived" }]));
+  });
+
+  it("menu ⋯: apre, mostra le azioni secondarie e Escape chiude", async () => {
+    mockDetailApi();
+    renderDetail();
+
+    const trigger = await screen.findByRole("button", { name: "More actions" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+
+    // Le azioni secondarie (export/fusione/archivia) vivono nel menu.
+    expect(screen.getByRole("button", { name: "Copy Markdown" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download .md" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Merge into…" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Archive" })).toBeInTheDocument();
+
+    // Escape chiude e riporta lo stato del trigger.
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Copy Markdown" })).not.toBeInTheDocument(),
+    );
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
   });
 
   it("voce convertita: metadati read-only e azioni di modifica nascoste", async () => {
@@ -464,10 +496,13 @@ describe("dettaglio backlog", () => {
 
     expect(await screen.findByLabelText("Status")).toBeDisabled();
     expect(screen.getByLabelText("Effort")).toBeDisabled();
-    // Le azioni di modifica non ci sono; l'export resta.
+    // Le azioni di modifica non ci sono; l'export resta (nel menu ⋯).
     expect(screen.queryByRole("button", { name: "Convert to task" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Update document" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Download .md" })).toBeInTheDocument();
+    await openActionsMenu();
+    expect(await screen.findByRole("button", { name: "Download .md" })).toBeInTheDocument();
+    // Fusione/archivia non compaiono su una voce bloccata.
+    expect(screen.queryByRole("button", { name: "Merge into…" })).not.toBeInTheDocument();
     expect(screen.getByText(/This item is Converted/i)).toBeInTheDocument();
   });
 
@@ -475,6 +510,7 @@ describe("dettaglio backlog", () => {
     const state = mockDetailApi({ item: detailFixture({ status: "archived" }) });
     renderDetail();
 
+    await openActionsMenu();
     await userEvent.click(await screen.findByRole("button", { name: "Reopen" }));
     await waitFor(() => expect(state.patches).toEqual([{ status: "refining" }]));
   });
@@ -488,6 +524,7 @@ describe("dettaglio backlog", () => {
     mockDetailApi();
     renderDetail();
 
+    await openActionsMenu();
     await userEvent.click(await screen.findByRole("button", { name: "Copy Markdown" }));
     await waitFor(() => expect(writeText).toHaveBeenCalled());
     const exported = String(writeText.mock.calls[0]![0]);
@@ -505,6 +542,7 @@ describe("dettaglio backlog", () => {
     mockDetailApi({ item: detailFixture({ title: "Fix: export ordini" }) });
     renderDetail();
 
+    await openActionsMenu();
     await userEvent.click(await screen.findByRole("button", { name: "Copy Markdown" }));
     await waitFor(() => expect(writeText).toHaveBeenCalled());
     expect(String(writeText.mock.calls[0]![0])).toContain('title: "Fix: export ordini"');
@@ -538,7 +576,8 @@ describe("dettaglio backlog", () => {
     expect(await screen.findByText(/Nothing new to synthesize/i)).toBeInTheDocument();
 
     // Fondi → navigazione alla destinazione (stessa route, id diverso).
-    await userEvent.click(screen.getByRole("button", { name: "Merge into…" }));
+    await openActionsMenu();
+    await userEvent.click(await screen.findByRole("button", { name: "Merge into…" }));
     const input = await screen.findByRole("combobox", { name: /search backlog items/i });
     await userEvent.type(input, "report");
     await userEvent.click(await screen.findByRole("option", { name: /Report ordini/ }));

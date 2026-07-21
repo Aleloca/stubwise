@@ -228,12 +228,15 @@ export function BacklogChat({
     </div>
   );
 
-  // Desktop (`lg+`): pannello inline in colonna (altezza fissa, corpo scrollabile).
+  // Desktop (`lg+`): pannello inline a piena altezza del contenitore (la cella
+  // destra dello split del dettaglio backlog), col corpo scrollabile. L'altezza
+  // la governa il chiamante via il track della grid; qui riempiamo con `h-full`
+  // (+ `min-h-0` così il corpo interno può scrollare invece di sfondare).
   if (isDesktop) {
     return (
       <section
         aria-label={t("backlog:chat.title")}
-        className="flex h-[32rem] flex-col overflow-hidden rounded-sm border border-line bg-ink-900"
+        className="flex h-full min-h-0 flex-col overflow-hidden rounded-sm border border-line bg-ink-900"
       >
         {body}
       </section>

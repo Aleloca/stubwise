@@ -9,16 +9,13 @@ import {
 } from "@stubwise/shared";
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode, type SelectHTMLAttributes } from "react";
 import { useTranslation } from "react-i18next";
 import {
   BACKLOG_RISK_LABEL_KEYS,
   BACKLOG_STATUS_LABEL_KEYS,
-  BacklogEffortBadge,
-  BacklogRiskBadge,
   BacklogStatusBadge,
   PRIORITY_LABEL_KEYS,
-  PriorityBadge,
 } from "../../components/badges";
 import { BacklogChat } from "../../components/backlog-chat";
 import { ComboboxPicker } from "../../components/combobox-picker";
@@ -39,7 +36,6 @@ import {
   type BacklogSuggested,
 } from "../../lib/api";
 import { meQueryOptions } from "../../lib/auth";
-import { formatDateTime } from "../../lib/format";
 import {
   backlogItemQueryOptions,
   backlogKeys,
@@ -62,10 +58,14 @@ const sectionTitleClass =
   "mb-3 font-mono text-[11px] font-medium tracking-[0.16em] text-fg-muted uppercase";
 
 /**
- * Dettaglio di una voce del backlog di discovery. Colonna principale: documento
- * markdown, banner dei metadati suggeriti dall'AI, avviso di analisi in corso e
- * ticket collegati. Colonna laterale: metadati editabili, barra azioni (solo
- * admin) e la chat di raffinamento. Il loader ha precaricato voce e progetti.
+ * Dettaglio di una voce del backlog di discovery, layout "workspace" su `lg+`:
+ * header compatto NON scrollante (titolo + badge, metadati editabili inline e
+ * barra azioni con menu "⋯"), poi uno split a piena altezza — documento a
+ * sinistra (~60%, scroll proprio) e chat a destra (~40%, piena altezza). La
+ * PAGINA non scrolla: scrollano i due pannelli (il `<main>` dell'app-layout è
+ * lo scroller, qui riempiamo con `h-full`). Sotto `lg` torna uno stack che
+ * scrolla come prima (header, banner, documento, ticket, bottone chat+drawer).
+ * Il loader ha precaricato voce e progetti.
  */
 export function BacklogDetailPage() {
   const { t } = useTranslation();
@@ -101,22 +101,27 @@ export function BacklogDetailPage() {
     onSuccess: applyBase,
   });
 
-  return (
-    <div className="page">
-      <Link
-        to="/backlog"
-        className="font-mono text-[11px] tracking-[0.14em] text-fg-faint uppercase transition-colors hover:text-fg-muted"
-      >
-        {t("backlog:detail.back")}
-      </Link>
+  const metaDisabled = !isAdmin || isLocked || patchMutation.isPending;
 
-      <header className="mt-3 border-b border-line pb-5">
-        <h1 className="text-xl font-semibold">{item.title}</h1>
-        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+  return (
+    // `.page` per il padding standard; su `lg+` diventa una colonna a piena
+    // altezza (`h-full min-h-0`) così lo split figlio può riempire il viewport
+    // e delegare lo scroll ai pannelli. Sotto `lg` resta un blocco che cresce
+    // e scrolla nel `<main>` (stack mobile).
+    <div className="page flex flex-col lg:h-full lg:min-h-0">
+      <header className="shrink-0 border-b border-line pb-4">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <Link
+            to="/backlog"
+            className="font-mono text-[11px] tracking-[0.14em] text-fg-faint uppercase transition-colors hover:text-fg-muted"
+          >
+            ← {t("backlog:detail.back")}
+          </Link>
+          <span className="text-line" aria-hidden>
+            /
+          </span>
+          <h1 className="min-w-0 text-lg font-semibold">{item.title}</h1>
           <BacklogStatusBadge status={item.status} />
-          {item.effort !== null && <BacklogEffortBadge effort={item.effort} />}
-          {item.risk !== null && <BacklogRiskBadge risk={item.risk} />}
-          {item.urgency !== null && <PriorityBadge priority={item.urgency} />}
           {/* Sorgente con chiavi i18n dedicate al backlog (ticket/manual). */}
           <span
             className="font-mono text-[11px] text-fg-faint"
@@ -127,30 +132,156 @@ export function BacklogDetailPage() {
           <span className="font-mono text-[11px] text-fg-muted">{projectName}</span>
           {item.requestCount > 1 && (
             <span
-              className="font-mono text-[11px] text-signal"
+              className="rounded-sm border border-line px-1.5 py-px font-mono text-[11px] text-signal"
               aria-label={t("backlog:card.requestCount", { count: item.requestCount })}
             >
               ×{item.requestCount}
             </span>
           )}
         </div>
+
+        <div className="mt-3 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+          {/* Metadati editabili inline (orizzontali). getByLabelText continua a
+              trovarli: label+select restano associati per id. */}
+          <div className="flex min-w-0 flex-wrap items-end gap-x-3 gap-y-2">
+            <InlineSelectField
+              id="backlog-status"
+              label={t("backlog:detail.status")}
+              value={EDITABLE_STATUSES.includes(item.status) ? item.status : ""}
+              disabled={metaDisabled}
+              onChange={(event) =>
+                patchMutation.mutate({ status: event.target.value as BacklogItemStatus })
+              }
+              options={[
+                // Stato corrente non-editabile (converted/archived): opzione
+                // fantasma così il select mostra il valore reale invece di uno a caso.
+                ...(EDITABLE_STATUSES.includes(item.status)
+                  ? []
+                  : [{ value: "", label: t(BACKLOG_STATUS_LABEL_KEYS[item.status]) }]),
+                ...backlogItemStatusSchema.options
+                  .filter((status) => EDITABLE_STATUSES.includes(status))
+                  .map((status) => ({ value: status, label: t(BACKLOG_STATUS_LABEL_KEYS[status]) })),
+              ]}
+            />
+
+            <InlineSelectField
+              id="backlog-effort"
+              label={t("backlog:detail.effort")}
+              value={item.effort === null ? "" : String(item.effort)}
+              disabled={metaDisabled}
+              onChange={(event) =>
+                patchMutation.mutate({
+                  effort: event.target.value === "" ? null : Number(event.target.value),
+                })
+              }
+              options={[
+                { value: "", label: t("backlog:detail.none") },
+                ...EFFORT_OPTIONS.map((effort) => ({
+                  value: String(effort),
+                  label: t("backlog:detail.effortOption", { value: effort }),
+                })),
+              ]}
+            />
+
+            <InlineSelectField
+              id="backlog-risk"
+              label={t("backlog:detail.risk")}
+              value={item.risk ?? ""}
+              disabled={metaDisabled}
+              onChange={(event) =>
+                patchMutation.mutate({
+                  risk: event.target.value === "" ? null : (event.target.value as BacklogRisk),
+                })
+              }
+              options={[
+                { value: "", label: t("backlog:detail.none") },
+                ...backlogRiskSchema.options.map((risk) => ({
+                  value: risk,
+                  label: t(BACKLOG_RISK_LABEL_KEYS[risk]),
+                })),
+              ]}
+            />
+
+            <InlineSelectField
+              id="backlog-urgency"
+              label={t("backlog:detail.urgency")}
+              value={item.urgency ?? ""}
+              disabled={metaDisabled}
+              onChange={(event) =>
+                patchMutation.mutate({
+                  urgency:
+                    event.target.value === "" ? null : (event.target.value as TicketPriority),
+                })
+              }
+              options={[
+                { value: "", label: t("backlog:detail.none") },
+                ...ticketPrioritySchema.options.map((priority) => ({
+                  value: priority,
+                  label: t(PRIORITY_LABEL_KEYS[priority]),
+                })),
+              ]}
+            />
+
+            <RiskNoteField
+              value={item.riskNote ?? ""}
+              disabled={metaDisabled}
+              onCommit={(riskNote) => patchMutation.mutate({ riskNote: riskNote || null })}
+            />
+          </div>
+
+          {/*
+            key={id}: navigando tra voci (es. dopo una fusione) la route NON
+            rimonta il componente pagina — senza key ActionsPanel conserverebbe
+            i suoi notice locali (e la chat la storia della voce precedente).
+          */}
+          {isAdmin && (
+            <ActionsPanel
+              key={`actions-${id}`}
+              item={item}
+              projectName={projectName}
+              onApply={applyBase}
+              navigate={navigate}
+            />
+          )}
+        </div>
+
+        {isLocked && (
+          <p className="mt-3 font-mono text-[11px] text-fg-muted">
+            {t("backlog:detail.lockedNotice", {
+              status: t(BACKLOG_STATUS_LABEL_KEYS[item.status]),
+            })}
+          </p>
+        )}
+
+        {patchMutation.isError && (
+          <p role="alert" className="mt-2 font-mono text-[12px] text-danger">
+            {patchMutation.error.message}
+          </p>
+        )}
       </header>
 
-      <div className="mt-6 grid gap-8 lg:grid-cols-[minmax(0,1fr)_24rem]">
-        <div className="min-w-0 space-y-6">
-          {isAdmin && !isLocked && item.suggested && (
-            <SuggestedBanner item={item} onApply={applyBase} />
-          )}
+      {/* Banner suggeriti + avviso analisi: a tutta larghezza, subito sotto
+          l'header (shrink-0, non entrano nello scroll dei pannelli). */}
+      {isAdmin && !isLocked && item.suggested && (
+        <div className="mt-4 shrink-0">
+          <SuggestedBanner item={item} onApply={applyBase} />
+        </div>
+      )}
+      {item.deepDivePending && (
+        <div
+          role="status"
+          className="mt-4 shrink-0 rounded-sm border border-signal-dim/40 bg-ink-900 px-4 py-3 text-sm text-fg-muted"
+        >
+          {t("backlog:detail.deepDivePending")}
+        </div>
+      )}
 
-          {item.deepDivePending && (
-            <div
-              role="status"
-              className="rounded-sm border border-signal-dim/40 bg-ink-900 px-4 py-3 text-sm text-fg-muted"
-            >
-              {t("backlog:detail.deepDivePending")}
-            </div>
-          )}
-
+      {/* Split a piena altezza (lg+): documento ~60% / chat ~40%, scroll
+          indipendenti. Sotto lg è uno stack che scrolla nel <main>. Il track
+          `minmax(0,1fr)` + i `min-h-0` sui pannelli sono ciò che permette lo
+          scroll interno invece di sfondare l'altezza. */}
+      <div className="mt-6 flex flex-1 flex-col gap-6 lg:grid lg:min-h-0 lg:grid-cols-[3fr_2fr] lg:grid-rows-[minmax(0,1fr)]">
+        <div className="min-w-0 space-y-6 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
           <section aria-label={t("backlog:detail.document")}>
             <h2 className={sectionTitleClass}>{t("backlog:detail.document")}</h2>
             {item.document.trim() === "" ? (
@@ -194,145 +325,65 @@ export function BacklogDetailPage() {
           </section>
         </div>
 
-        <aside className="space-y-6 lg:border-l lg:border-line lg:pl-6">
-          <div className="space-y-5">
-            <h2 className={sectionTitleClass}>{t("backlog:detail.metadata")}</h2>
-
-            {isLocked && (
-              <p className="rounded-sm border border-line-strong bg-ink-900 px-3 py-2 font-mono text-[11px] text-fg-muted">
-                {t("backlog:detail.lockedNotice", {
-                  status: t(BACKLOG_STATUS_LABEL_KEYS[item.status]),
-                })}
-              </p>
-            )}
-
-            <SelectField
-              id="backlog-status"
-              label={t("backlog:detail.status")}
-              value={EDITABLE_STATUSES.includes(item.status) ? item.status : ""}
-              disabled={!isAdmin || isLocked || patchMutation.isPending}
-              onChange={(event) =>
-                patchMutation.mutate({ status: event.target.value as BacklogItemStatus })
-              }
-              options={[
-                // Stato corrente non-editabile (converted/archived): opzione
-                // fantasma così il select mostra il valore reale invece di uno a caso.
-                ...(EDITABLE_STATUSES.includes(item.status)
-                  ? []
-                  : [{ value: "", label: t(BACKLOG_STATUS_LABEL_KEYS[item.status]) }]),
-                ...backlogItemStatusSchema.options
-                  .filter((status) => EDITABLE_STATUSES.includes(status))
-                  .map((status) => ({ value: status, label: t(BACKLOG_STATUS_LABEL_KEYS[status]) })),
-              ]}
-            />
-
-            <SelectField
-              id="backlog-effort"
-              label={t("backlog:detail.effort")}
-              value={item.effort === null ? "" : String(item.effort)}
-              disabled={!isAdmin || isLocked || patchMutation.isPending}
-              onChange={(event) =>
-                patchMutation.mutate({
-                  effort: event.target.value === "" ? null : Number(event.target.value),
-                })
-              }
-              options={[
-                { value: "", label: t("backlog:detail.none") },
-                ...EFFORT_OPTIONS.map((effort) => ({
-                  value: String(effort),
-                  label: t("backlog:detail.effortOption", { value: effort }),
-                })),
-              ]}
-            />
-
-            <SelectField
-              id="backlog-risk"
-              label={t("backlog:detail.risk")}
-              value={item.risk ?? ""}
-              disabled={!isAdmin || isLocked || patchMutation.isPending}
-              onChange={(event) =>
-                patchMutation.mutate({
-                  risk: event.target.value === "" ? null : (event.target.value as BacklogRisk),
-                })
-              }
-              options={[
-                { value: "", label: t("backlog:detail.none") },
-                ...backlogRiskSchema.options.map((risk) => ({
-                  value: risk,
-                  label: t(BACKLOG_RISK_LABEL_KEYS[risk]),
-                })),
-              ]}
-            />
-
-            <SelectField
-              id="backlog-urgency"
-              label={t("backlog:detail.urgency")}
-              value={item.urgency ?? ""}
-              disabled={!isAdmin || isLocked || patchMutation.isPending}
-              onChange={(event) =>
-                patchMutation.mutate({
-                  urgency:
-                    event.target.value === "" ? null : (event.target.value as TicketPriority),
-                })
-              }
-              options={[
-                { value: "", label: t("backlog:detail.none") },
-                ...ticketPrioritySchema.options.map((priority) => ({
-                  value: priority,
-                  label: t(PRIORITY_LABEL_KEYS[priority]),
-                })),
-              ]}
-            />
-
-            <RiskNoteField
-              value={item.riskNote ?? ""}
-              disabled={!isAdmin || isLocked || patchMutation.isPending}
-              onCommit={(riskNote) => patchMutation.mutate({ riskNote: riskNote || null })}
-            />
-
-            {patchMutation.isError && (
-              <p role="alert" className="font-mono text-[12px] text-danger">
-                {patchMutation.error.message}
-              </p>
-            )}
-
-            <dl className="space-y-1.5 border-t border-line pt-4">
-              <MetaRow label={t("backlog:detail.createdAt")} value={formatDateTime(item.createdAt)} />
-              <MetaRow label={t("backlog:detail.updatedAt")} value={formatDateTime(item.updatedAt)} />
-              <MetaRow label={t("backlog:detail.requestCount")} value={String(item.requestCount)} />
-            </dl>
-          </div>
-
-          {/*
-            key={id}: navigando tra voci (es. dopo una fusione) la route NON
-            rimonta il componente pagina — senza key la chat conserverebbe la
-            storia della voce precedente e ActionsPanel i suoi notice locali.
-          */}
-          {isAdmin && (
-            <ActionsPanel
-              key={`actions-${id}`}
-              item={item}
-              projectName={projectName}
-              onApply={applyBase}
-              navigate={navigate}
-            />
-          )}
-
-          <BacklogChat
-            key={`chat-${id}`}
-            itemId={id}
-            initialMessages={item.messages}
-            onExchangeComplete={() =>
-              void queryClient.invalidateQueries({ queryKey: backlogKeys.detail(id) })
-            }
-          />
-        </aside>
+        {/* Chat: su lg riempie la cella destra (h-full interno); su mobile è il
+            bottone che apre il drawer. La cella grid dà l'altezza (stretch sul
+            track 1fr), il componente ci si adatta. */}
+        <BacklogChat
+          key={`chat-${id}`}
+          itemId={id}
+          initialMessages={item.messages}
+          onExchangeComplete={() =>
+            void queryClient.invalidateQueries({ queryKey: backlogKeys.detail(id) })
+          }
+        />
       </div>
     </div>
   );
 }
 
-/** Nota sul rischio: textarea che invia la PATCH al blur (se cambiata). */
+/** Label mono maiuscoletto compatta, condivisa dai controlli inline dell'header. */
+const inlineLabelClass =
+  "font-mono text-[10px] font-medium tracking-[0.12em] text-fg-faint uppercase";
+
+/**
+ * Select compatto dell'header workspace: label piccola sopra un select a
+ * larghezza-contenuto (gemello di {@link SelectField} ma senza full-width), così
+ * i quattro metadati stanno in fila. label+select restano associati via `id`.
+ */
+function InlineSelectField({
+  id,
+  label,
+  options,
+  ...selectProps
+}: {
+  id: string;
+  label: string;
+  options: { value: string; label: string }[];
+} & SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <div className="flex flex-col gap-1">
+      <label htmlFor={id} className={inlineLabelClass}>
+        {label}
+      </label>
+      <select
+        id={id}
+        className="rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1 font-mono text-[12px] text-fg transition-colors hover:border-ink-700 focus-visible:border-signal-dim disabled:cursor-not-allowed disabled:opacity-50"
+        {...selectProps}
+      >
+        {options.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+/**
+ * Nota sul rischio: campo compatto inline (una riga, espandibile) che invia la
+ * PATCH al blur se cambiata. Stessa `id`/label di prima, così resta labelabile.
+ */
 function RiskNoteField({
   value,
   disabled,
@@ -353,16 +404,13 @@ function RiskNoteField({
   }
 
   return (
-    <div className="flex flex-col gap-1.5">
-      <label
-        htmlFor="backlog-risk-note"
-        className="font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase"
-      >
+    <div className="flex flex-col gap-1">
+      <label htmlFor="backlog-risk-note" className={inlineLabelClass}>
         {t("backlog:detail.riskNote")}
       </label>
       <textarea
         id="backlog-risk-note"
-        rows={3}
+        rows={1}
         value={draft}
         disabled={disabled}
         placeholder={t("backlog:detail.riskNotePlaceholder")}
@@ -371,18 +419,8 @@ function RiskNoteField({
           const next = draft.trim();
           if (next !== value.trim()) onCommit(next);
         }}
-        className="resize-none rounded-sm border border-line-strong bg-ink-950/70 px-3 py-2 text-[13px] text-fg placeholder:text-fg-faint transition-colors hover:border-ink-700 focus-visible:border-signal-dim disabled:cursor-not-allowed disabled:opacity-50"
+        className="w-52 resize-y rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1 text-[12px] text-fg placeholder:text-fg-faint transition-colors hover:border-ink-700 focus-visible:border-signal-dim disabled:cursor-not-allowed disabled:opacity-50"
       />
-    </div>
-  );
-}
-
-/** Riga di metadati chiave/valore, gemella di quella del dettaglio ticket. */
-function MetaRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-3">
-      <dt className="font-mono text-[11px] tracking-[0.1em] text-fg-faint uppercase">{label}</dt>
-      <dd className="font-mono text-[12px] text-fg-muted">{value}</dd>
     </div>
   );
 }
@@ -636,22 +674,11 @@ function ActionsPanel({
   }
 
   return (
-    <div className="space-y-3 border-t border-line pt-5">
-      <h2 className={sectionTitleClass}>{t("backlog:actions.title")}</h2>
-
-      {convertedTo && (
-        <p className="rounded-sm border border-ok/30 bg-ink-900 px-3 py-2 text-[12px] text-fg-muted">
-          <Link
-            to="/tickets/$id"
-            params={{ id: convertedTo.ticketId }}
-            className="text-signal transition-colors hover:text-signal-bright"
-          >
-            {t("backlog:actions.convertedLink", { number: convertedTo.ticketNumber })}
-          </Link>
-        </p>
-      )}
-
-      <div className="flex flex-col gap-2">
+    <div className="flex flex-col items-stretch gap-2 lg:items-end">
+      {/* Barra azioni orizzontale: primarie visibili + menu "⋯" per le
+          secondarie (export/fusione/archivia/riapri). Su voci bloccate le
+          azioni di modifica spariscono; l'export resta (sempre nel menu). */}
+      <div className="flex flex-wrap items-center gap-2 lg:justify-end">
         {!isLocked && (
           <>
             <button
@@ -664,11 +691,6 @@ function ActionsPanel({
                 ? t("backlog:actions.refreshing")
                 : t("backlog:actions.refreshDocument")}
             </button>
-            {refreshNotice && (
-              <p role="status" className="font-mono text-[11px] text-fg-muted">
-                {refreshNotice}
-              </p>
-            )}
 
             <button
               type="button"
@@ -678,34 +700,7 @@ function ActionsPanel({
             >
               {t("backlog:actions.deepDive")}
             </button>
-            {item.deepDivePending && (
-              <p className="font-mono text-[11px] text-fg-muted">
-                {t("backlog:actions.deepDivePendingHint")}
-              </p>
-            )}
-            {repos.length === 0 && (
-              <p className="font-mono text-[11px] text-fg-faint">{t("backlog:actions.noRepos")}</p>
-            )}
-            {deepDiveMutation.isError && (
-              <p role="alert" className="font-mono text-[11px] text-danger">
-                {deepDiveMutation.error.message}
-              </p>
-            )}
-          </>
-        )}
 
-        {/* Export: sempre disponibile, anche su voci bloccate (sola lettura). */}
-        <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => void copyMarkdown()} className={actionButtonClass}>
-            {copied ? t("backlog:actions.copied") : t("backlog:actions.copyMd")}
-          </button>
-          <button type="button" onClick={downloadMarkdown} className={actionButtonClass}>
-            {t("backlog:actions.downloadMd")}
-          </button>
-        </div>
-
-        {!isLocked && (
-          <>
             <button
               type="button"
               disabled={convertMutation.isPending}
@@ -716,36 +711,100 @@ function ActionsPanel({
                 ? t("backlog:actions.converting")
                 : t("backlog:actions.convert")}
             </button>
-            {convertMutation.isError && (
-              <p role="alert" className="font-mono text-[11px] text-danger">
-                {convertMutation.error.message}
-              </p>
-            )}
-
-            <button type="button" onClick={() => setMergeOpen(true)} className={actionButtonClass}>
-              {t("backlog:actions.merge")}
-            </button>
-
-            <button
-              type="button"
-              disabled={statusMutation.isPending}
-              onClick={() => statusMutation.mutate("archived")}
-              className={actionButtonClass}
-            >
-              {t("backlog:actions.archive")}
-            </button>
           </>
         )}
 
-        {isArchived && (
-          <button
-            type="button"
-            disabled={statusMutation.isPending}
-            onClick={() => statusMutation.mutate("refining")}
-            className={actionButtonClass}
-          >
-            {t("backlog:actions.reopen")}
-          </button>
+        <OverflowMenu label={t("backlog:actions.more")}>
+          {(close) => (
+            <>
+              <MenuButton
+                onClick={() => {
+                  close();
+                  void copyMarkdown();
+                }}
+              >
+                {copied ? t("backlog:actions.copied") : t("backlog:actions.copyMd")}
+              </MenuButton>
+              <MenuButton
+                onClick={() => {
+                  close();
+                  downloadMarkdown();
+                }}
+              >
+                {t("backlog:actions.downloadMd")}
+              </MenuButton>
+              {!isLocked && (
+                <>
+                  <MenuButton
+                    onClick={() => {
+                      close();
+                      setMergeOpen(true);
+                    }}
+                  >
+                    {t("backlog:actions.merge")}
+                  </MenuButton>
+                  <MenuButton
+                    disabled={statusMutation.isPending}
+                    onClick={() => {
+                      close();
+                      statusMutation.mutate("archived");
+                    }}
+                  >
+                    {t("backlog:actions.archive")}
+                  </MenuButton>
+                </>
+              )}
+              {isArchived && (
+                <MenuButton
+                  disabled={statusMutation.isPending}
+                  onClick={() => {
+                    close();
+                    statusMutation.mutate("refining");
+                  }}
+                >
+                  {t("backlog:actions.reopen")}
+                </MenuButton>
+              )}
+            </>
+          )}
+        </OverflowMenu>
+      </div>
+
+      {/* Notice/errori delle azioni: sotto la barra, allineati a destra su lg. */}
+      <div className="flex flex-col gap-1 lg:items-end lg:text-right">
+        {convertedTo && (
+          <p className="rounded-sm border border-ok/30 bg-ink-900 px-3 py-2 text-[12px] text-fg-muted">
+            <Link
+              to="/tickets/$id"
+              params={{ id: convertedTo.ticketId }}
+              className="text-signal transition-colors hover:text-signal-bright"
+            >
+              {t("backlog:actions.convertedLink", { number: convertedTo.ticketNumber })}
+            </Link>
+          </p>
+        )}
+        {refreshNotice && (
+          <p role="status" className="font-mono text-[11px] text-fg-muted">
+            {refreshNotice}
+          </p>
+        )}
+        {item.deepDivePending && !isLocked && (
+          <p className="font-mono text-[11px] text-fg-muted">
+            {t("backlog:actions.deepDivePendingHint")}
+          </p>
+        )}
+        {repos.length === 0 && !isLocked && (
+          <p className="font-mono text-[11px] text-fg-faint">{t("backlog:actions.noRepos")}</p>
+        )}
+        {deepDiveMutation.isError && (
+          <p role="alert" className="font-mono text-[11px] text-danger">
+            {deepDiveMutation.error.message}
+          </p>
+        )}
+        {convertMutation.isError && (
+          <p role="alert" className="font-mono text-[11px] text-danger">
+            {convertMutation.error.message}
+          </p>
         )}
       </div>
 
@@ -786,6 +845,94 @@ const actionButtonClass =
 
 const actionPrimaryClass =
   "rounded-sm bg-signal px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright disabled:cursor-not-allowed disabled:bg-signal-dim disabled:opacity-60";
+
+/**
+ * Menu "⋯" minimale accessibile per le azioni secondarie: trigger con
+ * `aria-haspopup`/`aria-expanded` e un pannello (render-prop, riceve `close`)
+ * che si chiude con Escape o click fuori. Pattern focus preso da ModalShell:
+ * il focus va sul pannello all'apertura così Escape (sul pannello) è attivo, e
+ * torna al trigger alla chiusura.
+ */
+function OverflowMenu({
+  label,
+  children,
+}: {
+  label: string;
+  children: (close: () => void) => ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  const close = () => setOpen(false);
+
+  useEffect(() => {
+    if (!open) return;
+    panelRef.current?.focus();
+    const onDown = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-haspopup="true"
+        aria-expanded={open}
+        aria-label={label}
+        onClick={() => setOpen((value) => !value)}
+        className={`${actionButtonClass} px-3`}
+      >
+        ⋯
+      </button>
+      {open && (
+        <div
+          ref={panelRef}
+          tabIndex={-1}
+          aria-label={label}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              setOpen(false);
+              triggerRef.current?.focus();
+            }
+          }}
+          className="absolute right-0 z-20 mt-1 flex min-w-[12rem] flex-col border border-line bg-ink-900 py-1 shadow-[0_18px_40px_-20px_rgba(0,0,0,0.9)]"
+        >
+          {children(close)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Voce del menu "⋯": bottone full-width in stile terminal. */
+function MenuButton({
+  onClick,
+  disabled,
+  children,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="px-3 py-2 text-left font-mono text-[12px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:bg-ink-800 hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {children}
+    </button>
+  );
+}
 
 /** Piccola dialog di scelta del repository per il deep dive (progetto multi-repo). */
 function RepoChoiceDialog({
