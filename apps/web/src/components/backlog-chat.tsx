@@ -187,7 +187,11 @@ export function BacklogChat({
       </div>
 
       <form
-        className="border-t border-line p-3"
+        // `relative`: la label `sr-only` qui dentro è position:absolute — senza
+        // un antenato posizionato si ancorerebbe al documento (fuori dallo
+        // scroller del main), allungando la pagina di tutta la sua posizione
+        // statica (bug: scroll oltre il contenuto sul dettaglio backlog).
+        className="relative border-t border-line p-3"
         onSubmit={(event) => {
           event.preventDefault();
           void send();

@@ -258,7 +258,12 @@ export function AppLayout() {
           onOpenSearch={() => setSearchOpen(true)}
           searchLabel={t("search:label")}
         />
-        <main className="min-w-0 flex-1 overflow-y-auto">
+        {/* `relative`: il main è lo scroller delle pagine. Senza un contesto di
+            posizionamento, un elemento absolute renderizzato dalle pagine (es.
+            le label `sr-only`, che sono position:absolute) si ancorerebbe al
+            documento, sfuggendo a scroll/clipping e allungando l'html oltre il
+            viewport (bug: scroll oltre il contenuto sul dettaglio backlog). */}
+        <main className="relative min-w-0 flex-1 overflow-y-auto">
           <Outlet />
         </main>
       </div>
