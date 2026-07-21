@@ -30,9 +30,11 @@ export type BacklogItemSource = z.infer<typeof backlogItemSourceSchema>;
 
 /**
  * Tipo di job del backlog: `intake` (prima elaborazione di una voce: dedup +
- * metadati suggeriti) o `deep_dive` (approfondimento sul repo collegato).
+ * metadati suggeriti), `deep_dive` (approfondimento sul repo collegato) o
+ * `chat_turn` (un turno della sessione di analisi sul codice: il worker investiga
+ * il repo in diretta via claude CLI e risponde in chat).
  */
-export const backlogJobKindSchema = z.enum(["intake", "deep_dive"]);
+export const backlogJobKindSchema = z.enum(["intake", "deep_dive", "chat_turn"]);
 export type BacklogJobKind = z.infer<typeof backlogJobKindSchema>;
 
 /** Stato di un job del backlog nella coda del worker. */
@@ -75,17 +77,48 @@ export const backlogDeepDivePayloadSchema = z
 export type BacklogDeepDivePayload = z.infer<typeof backlogDeepDivePayloadSchema>;
 
 /**
+ * Payload di un job `chat_turn`: la voce e l'id del messaggio utente che ha
+ * innescato il turno. Il worker legge il CONTENUTO dal messaggio persistito
+ * (`backlog_chat_messages`), non dal payload: qui basta il riferimento. Il repo
+ * su cui investigare NON è nel payload — vive sulla sessione di analisi attiva
+ * (`backlog_code_sessions.repository_id`), che il worker risolve dall'itemId.
+ */
+export const backlogChatTurnPayloadSchema = z
+  .object({ itemId: z.uuid(), userMessageId: z.uuid() })
+  .strict();
+export type BacklogChatTurnPayload = z.infer<typeof backlogChatTurnPayloadSchema>;
+
+/**
  * Union discriminata-per-forma del payload di QUALSIASI job del backlog: intake
- * (da ticket o manuale) o deep_dive. Applicata come `.$type<>` sulla colonna
- * `payload` di `backlog_jobs` e validata al dequeue dal worker (un payload che
- * non combacia con nessuna forma → job fallito subito, senza retry).
+ * (da ticket o manuale), deep_dive o chat_turn. Applicata come `.$type<>` sulla
+ * colonna `payload` di `backlog_jobs` e validata al dequeue dal worker (un
+ * payload che non combacia con nessuna forma → job fallito subito, senza retry).
+ * La discriminazione resta per FORMA, non per `kind`: `deep_dive` è
+ * `{itemId, repositoryId}` e `chat_turn` è `{itemId, userMessageId}`, forme
+ * distinte grazie a `.strict()`.
  */
 export const backlogJobPayloadSchema = z.union([
   backlogIntakeFromTicketPayloadSchema,
   backlogIntakeManualPayloadSchema,
   backlogDeepDivePayloadSchema,
+  backlogChatTurnPayloadSchema,
 ]);
 export type BacklogJobPayload = z.infer<typeof backlogJobPayloadSchema>;
+
+/**
+ * Stato di una sessione di analisi sul codice: `active` (aperta, i messaggi
+ * della chat diventano turni dell'agente sul repo) o `closed` (chiusa a mano o
+ * scaduta per inattività). L'enum Postgres deriva da questo schema.
+ */
+export const backlogCodeSessionStatusSchema = z.enum(["active", "closed"]);
+export type BacklogCodeSessionStatus = z.infer<typeof backlogCodeSessionStatusSchema>;
+
+/**
+ * Input per avviare una sessione di analisi sul codice: il repository su cui
+ * l'agente investigherà (deve appartenere al progetto della voce).
+ */
+export const startCodeSessionSchema = z.object({ repositoryId: z.uuid() }).strict();
+export type StartCodeSessionInput = z.infer<typeof startCodeSessionSchema>;
 
 /**
  * Metadati suggeriti dall'AI in attesa di conferma umana. Restano separati dai
