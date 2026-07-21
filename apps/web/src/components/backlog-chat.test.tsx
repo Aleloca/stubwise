@@ -373,6 +373,141 @@ describe("BacklogChat", () => {
     expect(screen.getAllByText("Sessione di analisi avviata su Repo A.")).toHaveLength(1);
   });
 
+  it("chiusura sessione con turno in volo: il placeholder orfano sparisce", async () => {
+    // Turno in volo (202 risolto, placeholder presente) ma NESSUNA risposta
+    // ancora: chiudere la sessione (codeSession → null) deve pulire il placeholder.
+    postBacklogChatTurn.mockResolvedValue({
+      mode: "code",
+      userMessageId: "99999999-9999-4999-8999-999999999999",
+    });
+
+    const user = userEvent.setup();
+    const { view } = renderChat({ codeSession: ACTIVE_SESSION, serverMessages: [] });
+
+    await ask(user, "domanda lunga");
+    expect(await screen.findByText(/investigating the code/i)).toBeInTheDocument();
+
+    // La sessione viene chiusa mentre il turno è ancora in volo.
+    view.rerender(
+      <BacklogChat
+        itemId={ITEM_ID}
+        serverMessages={[]}
+        onExchangeComplete={vi.fn()}
+        codeSession={null}
+        pendingTurn={false}
+        repos={REPOS}
+        onStartSession={vi.fn()}
+        onStopSession={vi.fn()}
+        sessionPending={false}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByText(/investigating the code/i)).not.toBeInTheDocument(),
+    );
+    // Torna in modalità DOCS.
+    expect(screen.getByText("DOCS")).toBeInTheDocument();
+  });
+
+  it("merge DOCS: l'assistant persistito (identico) non duplica lo streamato", async () => {
+    postBacklogChatStream.mockImplementation(
+      async (_id: string, _msg: string, handlers: BacklogChatHandlers) => {
+        handlers.onDelta("Il login ");
+        handlers.onDelta("usa i cookie.");
+        handlers.onDone({});
+      },
+    );
+
+    const user = userEvent.setup();
+    const { view } = renderChat({ serverMessages: [] });
+    await ask(user, "come funziona il login?");
+    expect(await screen.findByText("Il login usa i cookie.")).toBeInTheDocument();
+
+    // Refetch del dettaglio: il server ha persistito user + assistant (contenuto
+    // IDENTICO allo streamato). L'euristica ruolo+contenuto li adotta, niente dup.
+    const persisted: BacklogMessage[] = [
+      {
+        id: "aaaaaaaa-0000-4000-8000-000000000010",
+        role: "user",
+        content: "come funziona il login?",
+        citations: null,
+        createdAt: "2026-07-21T10:00:00.000Z",
+      },
+      {
+        id: "aaaaaaaa-0000-4000-8000-000000000011",
+        role: "assistant",
+        content: "Il login usa i cookie.",
+        citations: null,
+        createdAt: "2026-07-21T10:00:05.000Z",
+      },
+    ];
+    view.rerender(
+      <BacklogChat
+        itemId={ITEM_ID}
+        serverMessages={persisted}
+        onExchangeComplete={vi.fn()}
+        codeSession={null}
+        pendingTurn={false}
+        repos={REPOS}
+        onStartSession={vi.fn()}
+        onStopSession={vi.fn()}
+        sessionPending={false}
+      />,
+    );
+
+    expect(screen.getAllByText("Il login usa i cookie.")).toHaveLength(1);
+    expect(screen.getAllByText("come funziona il login?")).toHaveLength(1);
+  });
+
+  it("merge DOCS: l'assistant persistito TRONCATO (col marker) non duplica lo streamato", async () => {
+    postBacklogChatStream.mockImplementation(
+      async (_id: string, _msg: string, handlers: BacklogChatHandlers) => {
+        handlers.onDelta("Risposta parziale");
+        // Stream troncato: chiude senza `done` (contratto).
+      },
+    );
+
+    const user = userEvent.setup();
+    const { view } = renderChat({ serverMessages: [] });
+    await ask(user, "domanda");
+    expect(await screen.findByText("Risposta parziale")).toBeInTheDocument();
+
+    // Il server persiste il parziale col marker di troncamento: lo streamato è
+    // PREFISSO del persistito → adozione per prefisso, niente duplicato.
+    const persisted: BacklogMessage[] = [
+      {
+        id: "bbbbbbbb-0000-4000-8000-000000000020",
+        role: "user",
+        content: "domanda",
+        citations: null,
+        createdAt: "2026-07-21T10:00:00.000Z",
+      },
+      {
+        id: "bbbbbbbb-0000-4000-8000-000000000021",
+        role: "assistant",
+        content: "Risposta parziale\n\n_(risposta troncata)_",
+        citations: null,
+        createdAt: "2026-07-21T10:00:05.000Z",
+      },
+    ];
+    view.rerender(
+      <BacklogChat
+        itemId={ITEM_ID}
+        serverMessages={persisted}
+        onExchangeComplete={vi.fn()}
+        codeSession={null}
+        pendingTurn={false}
+        repos={REPOS}
+        onStartSession={vi.fn()}
+        onStopSession={vi.fn()}
+        sessionPending={false}
+      />,
+    );
+
+    // Una sola bolla assistant: il testo streamato non è duplicato dal persistito.
+    expect(screen.getAllByText(/Risposta parziale/)).toHaveLength(1);
+  });
+
   it("pendingTurn senza placeholder locale (reload a turno in volo) mostra l'indicatore", () => {
     renderChat({
       codeSession: ACTIVE_SESSION,

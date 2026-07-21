@@ -127,9 +127,12 @@ async function completeChatTurnJob(db: Db, jobId: string): Promise<void> {
  * (dentro il serializer per-item, dopo l'eventuale attesa in coda dietro altri
  * turni della stessa voce). Il claim l'aveva messo a now() AL CLAIM; qui lo
  * rinfresca quando il turno parte davvero, così recoverStaleChatTurnJobs misura
- * il tempo di ESECUZIONE e non l'attesa in coda → nessun falso-orfano a qualunque
- * profondità di pileup. Status-guarded: se il job non è più `running` (già chiuso
- * o marcato dalla recovery) l'UPDATE non tocca nulla.
+ * il tempo di ESECUZIONE e non l'attesa in coda → nessun falso-orfano una volta
+ * IN ESECUZIONE (a qualunque profondità di pileup). Resta la sola finestra
+ * PRE-INGRESSO (turno reclamato ma ancora in coda, `started_at` al claim), coperta
+ * al margine dal 2× della soglia derivata (vedi chatTurnStaleMinutes). Status-
+ * guarded: se il job non è più `running` (già chiuso o marcato dalla recovery)
+ * l'UPDATE non tocca nulla.
  */
 async function refreshChatTurnStartedAt(db: Db, jobId: string): Promise<void> {
   await db

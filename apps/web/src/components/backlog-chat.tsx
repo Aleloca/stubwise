@@ -222,6 +222,20 @@ export function BacklogChat({
     });
   }, [serverMessages]);
 
+  // Uscita da code mode (chiusura sessione): rimuovi la bolla placeholder di un
+  // turno eventualmente in volo. `dropPlaceholder` nella riconciliazione scatta
+  // solo all'arrivo di un assistant server nuovo, che per un turno abbandonato
+  // (sessione chiusa) non arriva mai → senza questo cleanup il "sta
+  // investigando…" resterebbe visibile fino al reload.
+  useEffect(() => {
+    if (inCodeMode) return;
+    setMessages((prev) =>
+      prev.some((message) => message.placeholder)
+        ? prev.filter((message) => !message.placeholder)
+        : prev,
+    );
+  }, [inCodeMode]);
+
   function handleScroll() {
     const el = scrollRef.current;
     if (!el) return;
