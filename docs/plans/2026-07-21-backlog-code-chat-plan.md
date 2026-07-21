@@ -57,6 +57,24 @@ codeSession/pendingTurn; unique parziale (closed+active ok, doppia active no).
 
 ## Blocco 2 — Worker
 
+**Requisiti aggiunti dalla review del Blocco 1 (obbligatori):**
+- **Serializzazione per-item dei chat_turn**: due turni della stessa voce non
+  devono mai girare in parallelo (un `--resume` concorrente della stessa
+  sessione CLI, o doppia creazione sessione al primo turno). Serializer
+  keyed per itemId (pattern createProjectSerializer) nel fast poller.
+- **Turno orfano = fallimento morbido**: chat_turn la cui sessione non è più
+  active → job done no-op silenzioso (niente errore rumoroso): la race col
+  DELETE è ammessa dal server.
+- **`sessionId` nel payload** del chat_turn (il server lo mette — coordinato
+  col fix del Blocco 1): il turno risponde NELLA sessione in cui è stato
+  posto; se la sessione del payload non è più quella active → no-op (evita
+  risposte sul repo sbagliato dopo chiusura+riapertura).
+- **Tiebreaker nel claim**: `ORDER BY created_at, id` (l'ordine dei turni
+  conta).
+- **Convert chiude la sessione**: valutato e DECISO — la conversione di una
+  voce chiude l'eventuale sessione active con messaggio system (fix piccolo
+  lato server nel Blocco 2 o ripreso qui; scegliere e dichiarare).
+
 **Files:**
 - Modify: `apps/worker/src/agent/runner.ts` — `AgentRunOptions.resumeSessionId?:
   string`; il risultato del run espone `sessionId` (dal JSON del CLI).
