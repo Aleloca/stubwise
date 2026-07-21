@@ -41,8 +41,6 @@ export interface CodeSessionEntry {
   /** Id della sessione claude CLI per il `--resume`; null finché il primo turno
    * non lo assegna (o dopo un ri-bootstrap, prima del run). */
   cliSessionId: string | null;
-  /** Epoch ms dell'ultimo uso (aggiornato a ogni turno); alimenta lo sweep. */
-  lastUsed: number;
   /** Chiude il worktree (worktree + branch effimero + dir temporanea).
    * Idempotente: una doppia chiamata non fa danni. */
   remove: () => Promise<void>;

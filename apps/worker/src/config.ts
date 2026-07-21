@@ -551,7 +551,10 @@ const envSchema = z.object({
   ),
   // Timeout (ms) del run dell'agente per un turno della sessione di analisi sul
   // codice. Su timeout il turno fallisce (senza retry) con un messaggio di errore
-  // in chat. Default 300000 = 5'.
+  // in chat. Default 300000 = 5'. NOTA staleness (niente trappola WORKER_STALE):
+  // il recovery degli orfani del fast poller deriva la soglia da QUESTO timeout
+  // (chatTurnStaleMinutes = max(15, 2×ceil(timeout/60') + 5)), quindi alzarlo NON
+  // rischia di far recuperare un turno ancora vivo — la soglia si adegua da sola.
   BACKLOG_CHAT_TURN_TIMEOUT_MS: z.preprocess(
     emptyAsUndefined,
     z.coerce

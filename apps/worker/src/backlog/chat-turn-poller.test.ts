@@ -1,9 +1,16 @@
-import { backlogJobs, projects, type Db } from "@stubwise/db";
+import {
+  backlogChatMessages,
+  backlogItems,
+  backlogJobs,
+  projects,
+  type Db,
+} from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { AgentRunner } from "../agent/runner.js";
+import { createProjectSerializer, type ProjectSerializer } from "../handler.js";
 import { runChatTurn } from "./chat-turn.js";
 import { pollChatTurnsOnce, recoverStaleChatTurnJobs, type ChatTurnPollerDeps } from "./chat-turn-poller.js";
 import { createCodeSessionRegistry } from "./code-session.js";
@@ -32,6 +39,9 @@ const explodingRunner: AgentRunner = {
   },
 };
 
+/** Piccola attesa per lasciar entrare i turni dispatchati (non attesi dal poller). */
+const settle = (ms = 15): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
 async function createProject(db: Db): Promise<string> {
   const [p] = await db
     .insert(projects)
@@ -40,7 +50,15 @@ async function createProject(db: Db): Promise<string> {
   return p!.id;
 }
 
-function chatPayload(itemId = randomUUID()) {
+async function createItem(db: Db, projectId: string): Promise<string> {
+  const [item] = await db
+    .insert(backlogItems)
+    .values({ projectId, title: "V", document: "d", source: "manual" })
+    .returning({ id: backlogItems.id });
+  return item!.id;
+}
+
+function chatPayload(itemId: string = randomUUID()) {
   return { itemId, userMessageId: randomUUID(), sessionId: randomUUID() };
 }
 
@@ -87,6 +105,13 @@ function makeDeps(db: Db, overrides: Partial<ChatTurnPollerDeps> = {}): ChatTurn
   };
 }
 
+/** Reclama e ATTENDE i turni dispatchati; ritorna il numero completato con successo. */
+async function drain(deps: ChatTurnPollerDeps, serializer: ProjectSerializer): Promise<number> {
+  const dispatched = await pollChatTurnsOnce(deps, serializer);
+  const results = await Promise.all(dispatched);
+  return results.filter(Boolean).length;
+}
+
 describe("pollChatTurnsOnce", () => {
   it("esegue un chat_turn e lo chiude done", async () => {
     const db = testDb.db;
@@ -95,7 +120,7 @@ describe("pollChatTurnsOnce", () => {
     const id = await insertChatJob(db, projectId, { payload });
 
     const runChatTurnFn = vi.fn<typeof runChatTurn>(async () => {});
-    const done = await pollChatTurnsOnce(makeDeps(db, { runChatTurnFn }));
+    const done = await drain(makeDeps(db, { runChatTurnFn }), createProjectSerializer());
 
     expect(done).toBe(1);
     expect(runChatTurnFn).toHaveBeenCalledOnce();
@@ -111,7 +136,7 @@ describe("pollChatTurnsOnce", () => {
     const runChatTurnFn = vi.fn(async () => {
       throw new Error("boom del turno");
     });
-    const done = await pollChatTurnsOnce(makeDeps(db, { runChatTurnFn }));
+    const done = await drain(makeDeps(db, { runChatTurnFn }), createProjectSerializer());
 
     expect(done).toBe(0);
     const job = await getJob(db, id);
@@ -129,7 +154,7 @@ describe("pollChatTurnsOnce", () => {
     });
 
     const runChatTurnFn = vi.fn(async () => {});
-    await pollChatTurnsOnce(makeDeps(db, { runChatTurnFn }));
+    await drain(makeDeps(db, { runChatTurnFn }), createProjectSerializer());
 
     expect(runChatTurnFn).not.toHaveBeenCalled();
     const job = await getJob(db, id);
@@ -143,7 +168,7 @@ describe("pollChatTurnsOnce", () => {
     const intakeId = await insertChatJob(db, projectId, { kind: "intake", payload: { ticketId: randomUUID() } as never });
 
     const runChatTurnFn = vi.fn(async () => {});
-    const done = await pollChatTurnsOnce(makeDeps(db, { runChatTurnFn }));
+    const done = await drain(makeDeps(db, { runChatTurnFn }), createProjectSerializer());
 
     expect(done).toBe(0);
     expect((await getJob(db, intakeId)).status).toBe("queued");
@@ -161,11 +186,11 @@ describe("pollChatTurnsOnce", () => {
     const runChatTurnFn = vi.fn(async () => {
       active++;
       maxConcurrent = Math.max(maxConcurrent, active);
-      await new Promise((r) => setTimeout(r, 40));
+      await settle(40);
       active--;
     });
 
-    const done = await pollChatTurnsOnce(makeDeps(db, { runChatTurnFn }));
+    const done = await drain(makeDeps(db, { runChatTurnFn }), createProjectSerializer());
     expect(done).toBe(2);
     // Mai due turni della stessa voce in parallelo.
     expect(maxConcurrent).toBe(1);
@@ -192,24 +217,129 @@ describe("pollChatTurnsOnce", () => {
       entered--;
     });
 
-    await pollChatTurnsOnce(makeDeps(db, { runChatTurnFn }));
+    await drain(makeDeps(db, { runChatTurnFn }), createProjectSerializer());
     // Voci diverse: entrambi entrati prima che uno finisse ⇒ sovrapposizione.
     expect(maxConcurrent).toBe(2);
   });
 });
 
-describe("recoverStaleChatTurnJobs", () => {
-  it("fallisce (senza retry) i chat_turn running orfani oltre la soglia", async () => {
+describe("pollChatTurnsOnce — nessuna barriera di tick (serializer condiviso)", () => {
+  it("un turno di una VOCE NUOVA in un tick successivo parte SENZA attendere un turno lungo di un'ALTRA voce", async () => {
     const db = testDb.db;
     const projectId = await createProject(db);
-    const stale = new Date(Date.now() - 60 * 60_000);
-    const id = await insertChatJob(db, projectId, { status: "running", startedAt: stale });
+    const itemA = randomUUID();
+    const itemB = randomUUID();
+    const serializer = createProjectSerializer(); // CONDIVISO fra i due tick
 
-    await recoverStaleChatTurnJobs(db, 15);
+    let aEntered = false;
+    let bEntered = false;
+    let releaseA = (): void => {};
+    const gateA = new Promise<void>((r) => (releaseA = r));
+    const runChatTurnFn = vi.fn<typeof runChatTurn>(async (_deps, _job, payload) => {
+      if (payload.itemId === itemA) {
+        aEntered = true;
+        await gateA; // A resta a lungo in volo
+      } else {
+        bEntered = true;
+      }
+    });
+    const deps = makeDeps(db, { runChatTurnFn });
+
+    // Tick 1: turno lungo sulla voce A (dispatchato, NON atteso).
+    await insertChatJob(db, projectId, { payload: chatPayload(itemA) });
+    const d1 = await pollChatTurnsOnce(deps, serializer);
+    await settle();
+    expect(aEntered).toBe(true);
+
+    // Tick 2: turno sulla voce B. Deve partire subito, senza aspettare A.
+    await insertChatJob(db, projectId, { payload: chatPayload(itemB) });
+    const d2 = await pollChatTurnsOnce(deps, serializer);
+    await settle();
+    expect(bEntered).toBe(true);
+
+    // Chiusura pulita: sblocca A e attende tutto.
+    releaseA();
+    await Promise.all([...d1, ...d2]);
+  });
+
+  it("un turno della STESSA voce in un tick successivo ATTENDE quello ancora in volo (serializer condiviso)", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const itemId = randomUUID();
+    const serializer = createProjectSerializer();
+
+    let firstEntered = false;
+    let secondEntered = false;
+    let releaseFirst = (): void => {};
+    const gate = new Promise<void>((r) => (releaseFirst = r));
+    const runChatTurnFn = vi.fn<typeof runChatTurn>(async () => {
+      if (!firstEntered) {
+        firstEntered = true;
+        await gate; // il primo turno resta in volo
+      } else {
+        secondEntered = true;
+      }
+    });
+    const deps = makeDeps(db, { runChatTurnFn });
+
+    // Tick 1: primo turno (resta in volo sul gate).
+    await insertChatJob(db, projectId, { payload: chatPayload(itemId) });
+    const d1 = await pollChatTurnsOnce(deps, serializer);
+    await settle();
+    expect(firstEntered).toBe(true);
+
+    // Tick 2: secondo turno STESSA voce → accodato dietro il primo, NON entra.
+    await insertChatJob(db, projectId, { payload: chatPayload(itemId) });
+    const d2 = await pollChatTurnsOnce(deps, serializer);
+    await settle();
+    expect(secondEntered).toBe(false);
+
+    // Sblocca il primo: il secondo può ora entrare.
+    releaseFirst();
+    await Promise.all([...d1, ...d2]);
+    expect(secondEntered).toBe(true);
+  });
+});
+
+describe("recoverStaleChatTurnJobs", () => {
+  it("fallisce (senza retry) i chat_turn running orfani oltre la soglia e lascia un messaggio di errore in chat", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const itemId = await createItem(db, projectId);
+    const stale = new Date(Date.now() - 60 * 60_000);
+    const id = await insertChatJob(db, projectId, {
+      status: "running",
+      startedAt: stale,
+      payload: chatPayload(itemId),
+    });
+
+    await recoverStaleChatTurnJobs(db, 15, silentLogger);
 
     const job = await getJob(db, id);
     expect(job.status).toBe("failed");
     expect(job.error).toContain("worker crash");
+    // Messaggio assistant di errore i18n (en: "...run failed...").
+    const [msg] = await db
+      .select()
+      .from(backlogChatMessages)
+      .where(eq(backlogChatMessages.itemId, itemId));
+    expect(msg!.role).toBe("assistant");
+    expect(msg!.content).toContain("failed");
+  });
+
+  it("orfano con voce inesistente → failed comunque, nessun crash (best-effort sul messaggio)", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    // payload.itemId random (voce inesistente): l'insert del messaggio viola la FK
+    // ma il recovery non deve crashare.
+    const id = await insertChatJob(db, projectId, {
+      status: "running",
+      startedAt: new Date(Date.now() - 60 * 60_000),
+    });
+
+    await recoverStaleChatTurnJobs(db, 15, silentLogger);
+
+    expect((await getJob(db, id)).status).toBe("failed");
   });
 
   it("non tocca i running recenti né gli altri kind", async () => {
@@ -223,7 +353,7 @@ describe("recoverStaleChatTurnJobs", () => {
       startedAt: new Date(Date.now() - 60 * 60_000),
     });
 
-    await recoverStaleChatTurnJobs(db, 15);
+    await recoverStaleChatTurnJobs(db, 15, silentLogger);
 
     expect((await getJob(db, recent)).status).toBe("running");
     expect((await getJob(db, intakeStale)).status).toBe("running"); // altro kind: non toccato

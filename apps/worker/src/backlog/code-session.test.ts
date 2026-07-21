@@ -86,7 +86,6 @@ function entryWithSpy(sessionId: string, repositoryId: string): CodeSessionEntry
       repositoryId,
       dir: "/tmp/fake",
       cliSessionId: null,
-      lastUsed: Date.now(),
       remove: async () => {
         state.removes++;
       },

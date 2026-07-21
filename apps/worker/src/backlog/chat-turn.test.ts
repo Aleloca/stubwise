@@ -352,7 +352,6 @@ describe("runChatTurn — no-op morbido", () => {
       repositoryId,
       dir: "/tmp/wt",
       cliSessionId: "cli-x",
-      lastUsed: Date.now(),
       remove: async () => {
         removed++;
       },

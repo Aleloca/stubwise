@@ -267,7 +267,6 @@ export async function runChatTurn(
       // Ri-bootstrap ⇒ NUOVA sessione CLI: si IGNORA il cli_session_id storico in
       // DB (worktree e sessione CLI precedenti persi) → primo run senza --resume.
       cliSessionId: null,
-      lastUsed: Date.now(),
       remove: handle.remove,
     };
     deps.registry.set(payload.itemId, opened);
@@ -333,7 +332,6 @@ export async function runChatTurn(
       "[backlog] chat turn: session_id assente nel risultato del CLI, il prossimo turno ri-priming",
     );
   }
-  entry.lastUsed = Date.now();
 
   await db.transaction(async (tx) => {
     await tx.insert(backlogChatMessages).values({
