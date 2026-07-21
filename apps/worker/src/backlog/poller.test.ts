@@ -8,6 +8,7 @@ import type { AgentRunner } from "../agent/runner.js";
 import { createProjectSerializer } from "../handler.js";
 import {
   claimNextBacklogJob,
+  claimNextChatTurnJob,
   MAX_BACKLOG_ATTEMPTS,
   pollBacklogJobsOnce,
   recoverStaleBacklogJobs,
@@ -53,7 +54,7 @@ async function createProject(db: Db): Promise<string> {
 
 interface InsertJobOpts {
   projectId: string;
-  kind?: "intake" | "deep_dive";
+  kind?: "intake" | "deep_dive" | "chat_turn";
   payload?: BacklogJobPayload;
   status?: "queued" | "running" | "done" | "failed";
   attempts?: number;
@@ -165,6 +166,69 @@ describe("claimNextBacklogJob", () => {
     const nulls = results.filter((r) => r === null);
     expect(nonNull).toHaveLength(1);
     expect(nulls).toHaveLength(1);
+  });
+});
+
+describe("claim per kind (poller lento ↔ poller veloce)", () => {
+  const chatPayload = () => ({
+    itemId: randomUUID(),
+    userMessageId: randomUUID(),
+    sessionId: randomUUID(),
+  });
+
+  it("claimNextBacklogJob NON reclama i chat_turn (solo intake/deep_dive)", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const chatId = await insertJob(db, { projectId, kind: "chat_turn", payload: chatPayload() });
+
+    // Solo un chat_turn in coda: il claim lento non deve prenderlo.
+    expect(await claimNextBacklogJob(db)).toBeNull();
+    // Ma il claim veloce sì.
+    const chat = await claimNextChatTurnJob(db);
+    expect(chat?.id).toBe(chatId);
+  });
+
+  it("claimNextChatTurnJob NON reclama intake/deep_dive (solo chat_turn)", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const intakeId = await insertJob(db, { projectId, kind: "intake" });
+
+    // Solo un intake in coda: il claim veloce non deve prenderlo.
+    expect(await claimNextChatTurnJob(db)).toBeNull();
+    // Ma il claim lento sì.
+    const intake = await claimNextBacklogJob(db);
+    expect(intake?.id).toBe(intakeId);
+  });
+
+  it("con code kind mescolati ognuno prende solo il proprio", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const intakeId = await insertJob(db, { projectId, kind: "intake" });
+    const chatId = await insertJob(db, { projectId, kind: "chat_turn", payload: chatPayload() });
+
+    const chat = await claimNextChatTurnJob(db);
+    const slow = await claimNextBacklogJob(db);
+    expect(chat?.id).toBe(chatId);
+    expect(slow?.id).toBe(intakeId);
+    // Entrambe le code ora vuote (per il rispettivo kind).
+    expect(await claimNextChatTurnJob(db)).toBeNull();
+    expect(await claimNextBacklogJob(db)).toBeNull();
+  });
+
+  it("claimNextChatTurnJob è FIFO su created_at (con tiebreaker), marca running e incrementa attempts", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const first = await insertJob(db, { projectId, kind: "chat_turn", payload: chatPayload() });
+    await new Promise((r) => setTimeout(r, 5));
+    await insertJob(db, { projectId, kind: "chat_turn", payload: chatPayload() });
+
+    const a = await claimNextChatTurnJob(db);
+    expect(a?.id).toBe(first);
+    expect(a?.status).toBe("running");
+    expect(a?.attempts).toBe(1);
+    const b = await claimNextChatTurnJob(db);
+    expect(b?.id).not.toBe(first);
+    expect(await claimNextChatTurnJob(db)).toBeNull();
   });
 });
 

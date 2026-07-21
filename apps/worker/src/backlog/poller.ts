@@ -157,13 +157,52 @@ export async function claimNextBacklogJob(
   db: Db,
   excludeIds: string[] = [],
 ): Promise<BacklogJob | null> {
-  const subquery =
+  // Il poller lento (20s) claima SOLO intake/deep_dive: i turni di chat (kind
+  // `chat_turn`) hanno un poller VELOCE dedicato (chat-turn-poller.ts) così una
+  // domanda non aspetta l'intervallo lungo. Tiebreaker `created_at, id`: due job
+  // con lo STESSO created_at (stesso istante) hanno comunque un ordine stabile.
+  const exclude =
     excludeIds.length === 0
-      ? sql`(SELECT id FROM backlog_jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED)`
-      : sql`(SELECT id FROM backlog_jobs WHERE status = 'queued' AND id NOT IN (${sql.join(
+      ? sql``
+      : sql` AND id NOT IN (${sql.join(
           excludeIds.map((id) => sql`${id}`),
           sql`, `,
-        )}) ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED)`;
+        )})`;
+  const subquery = sql`(SELECT id FROM backlog_jobs WHERE status = 'queued' AND kind IN ('intake', 'deep_dive')${exclude} ORDER BY created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED)`;
+  const [job] = await db
+    .update(backlogJobs)
+    .set({
+      status: "running",
+      startedAt: sql`now()`,
+      attempts: sql`${backlogJobs.attempts} + 1`,
+    })
+    .where(eq(backlogJobs.id, subquery))
+    .returning();
+  return job ?? null;
+}
+
+/**
+ * Reclama atomicamente il prossimo turno di chat (`kind = 'chat_turn'`) più
+ * vecchio, con lo STESSO claim atomico di claimNextBacklogJob (`FOR UPDATE SKIP
+ * LOCKED`, incremento attempts, tiebreaker `created_at, id`). Query sull'indice
+ * parziale dei `queued`: costo trascurabile a ogni tick del poller veloce.
+ * `excludeIds` esclude gli id già gestiti nel tick corrente (come il claim
+ * lento). L'ORDINE dei turni conta (una sessione CLI è sequenziale): il
+ * tiebreaker garantisce che due turni con lo stesso created_at abbiano comunque
+ * un ordine deterministico.
+ */
+export async function claimNextChatTurnJob(
+  db: Db,
+  excludeIds: string[] = [],
+): Promise<BacklogJob | null> {
+  const exclude =
+    excludeIds.length === 0
+      ? sql``
+      : sql` AND id NOT IN (${sql.join(
+          excludeIds.map((id) => sql`${id}`),
+          sql`, `,
+        )})`;
+  const subquery = sql`(SELECT id FROM backlog_jobs WHERE status = 'queued' AND kind = 'chat_turn'${exclude} ORDER BY created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED)`;
   const [job] = await db
     .update(backlogJobs)
     .set({
