@@ -284,6 +284,47 @@ describe("recoverStaleBacklogJobs", () => {
     const job = await getJob(db, id);
     expect(job.status).toBe("running");
   });
+
+  it("NON tocca gli orfani chat_turn (ciclo di vita del solo fast poller)", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const stale = new Date(Date.now() - 60 * 60 * 1000);
+    // chat_turn orfano con tentativi residui: il poller lento NON deve
+    // riaccodarlo (violerebbe "un turno non si retry-a").
+    const requeuable = await insertJob(db, {
+      projectId,
+      kind: "chat_turn",
+      payload: { itemId: randomUUID(), userMessageId: randomUUID(), sessionId: randomUUID() },
+      status: "running",
+      attempts: 1,
+      startedAt: stale,
+    });
+    // chat_turn orfano coi tentativi esauriti: nemmeno failed dal poller lento.
+    const exhausted = await insertJob(db, {
+      projectId,
+      kind: "chat_turn",
+      payload: { itemId: randomUUID(), userMessageId: randomUUID(), sessionId: randomUUID() },
+      status: "running",
+      attempts: MAX_BACKLOG_ATTEMPTS,
+      startedAt: stale,
+    });
+    // Controllo: un intake orfano nello stesso tick DEVE essere recuperato.
+    const intake = await insertJob(db, {
+      projectId,
+      kind: "intake",
+      status: "running",
+      attempts: 1,
+      startedAt: stale,
+    });
+
+    await recoverStaleBacklogJobs(db, 15, MAX_BACKLOG_ATTEMPTS);
+
+    // I chat_turn restano intatti (running): li gestisce recoverStaleChatTurnJobs.
+    expect((await getJob(db, requeuable)).status).toBe("running");
+    expect((await getJob(db, exhausted)).status).toBe("running");
+    // L'intake orfano è invece recuperato come prima.
+    expect((await getJob(db, intake)).status).toBe("queued");
+  });
 });
 
 describe("pollBacklogJobsOnce", () => {

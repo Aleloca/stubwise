@@ -5,7 +5,7 @@ import {
   type BacklogDeepDivePayload,
   type BacklogIntakePayload,
 } from "@stubwise/shared";
-import { and, eq, gte, lt, sql } from "drizzle-orm";
+import { and, eq, gte, lt, ne, sql } from "drizzle-orm";
 import type { EmbeddingProvider } from "@stubwise/db";
 import type { AgentRunner } from "../agent/runner.js";
 import type { MirrorManager } from "../git/mirrors.js";
@@ -222,6 +222,14 @@ export async function claimNextChatTurnJob(
  * ramo dipende da `attempts`). Il poller è single-process e i tick non si
  * sovrappongono (guard `running` in startBacklogPoller), quindi un `running`
  * stantio è sempre orfano, mai vivo.
+ *
+ * KIND `chat_turn` ESCLUSO (simmetrico al filtro di claimNextBacklogJob): il
+ * ciclo di vita dei turni di chat è interamente del FAST poller
+ * (recoverStaleChatTurnJobs, chat-turn-poller.ts), che li FALLISCE senza retry
+ * (un turno non si ritenta). Senza questo filtro un chat_turn orfano con
+ * attempts<3 verrebbe rimesso `queued` qui e ri-eseguito dal fast poller,
+ * violando l'invariante "un turno NON si retry-a" e creando una race coi due
+ * recovery (lento 20s / veloce 2s).
  */
 export async function recoverStaleBacklogJobs(
   db: Db,
@@ -229,14 +237,15 @@ export async function recoverStaleBacklogJobs(
   maxAttempts: number,
 ): Promise<void> {
   const stale = sql`${backlogJobs.startedAt} < now() - make_interval(mins => ${staleMinutes}::int)`;
+  const notChatTurn = ne(backlogJobs.kind, "chat_turn");
   await db
     .update(backlogJobs)
     .set({ status: "queued", startedAt: null })
-    .where(and(eq(backlogJobs.status, "running"), stale, lt(backlogJobs.attempts, maxAttempts)));
+    .where(and(eq(backlogJobs.status, "running"), notChatTurn, stale, lt(backlogJobs.attempts, maxAttempts)));
   await db
     .update(backlogJobs)
     .set({ status: "failed", error: "max attempts", finishedAt: sql`now()` })
-    .where(and(eq(backlogJobs.status, "running"), stale, gte(backlogJobs.attempts, maxAttempts)));
+    .where(and(eq(backlogJobs.status, "running"), notChatTurn, stale, gte(backlogJobs.attempts, maxAttempts)));
 }
 
 /**
