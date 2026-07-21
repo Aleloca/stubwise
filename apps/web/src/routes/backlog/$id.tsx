@@ -30,6 +30,8 @@ import {
   patchBacklogItem,
   refreshBacklogDocument,
   requestDeepDive,
+  startCodeSession,
+  stopCodeSession,
   type BacklogItem,
   type BacklogItemBase,
   type BacklogItemDetail,
@@ -100,6 +102,32 @@ export function BacklogDetailPage() {
     mutationFn: (patch: UpdateBacklogItemInput) => patchBacklogItem(id, patch),
     onSuccess: applyBase,
   });
+
+  // Repository del progetto: nome del repo nel badge modalità + picker di avvio
+  // sessione. Query cache-condivisa con ActionsPanel (stessa chiave). Non-suspense
+  // così un caricamento/errore non blocca il dettaglio.
+  const { data: chatRepos = [] } = useQuery(repositoriesQueryOptions(item.projectId));
+
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const invalidateDetail = () =>
+    void queryClient.invalidateQueries({ queryKey: backlogKeys.detail(id) });
+
+  const startSessionMutation = useMutation({
+    mutationFn: (repositoryId: string) => startCodeSession(id, repositoryId),
+    onMutate: () => setSessionError(null),
+    // Il 201 crea la sessione: rileggi il dettaglio così `codeSession` compare e
+    // la chat passa in modalità CODE (badge + messaggio system d'avvio).
+    onSuccess: invalidateDetail,
+    onError: () => setSessionError(t("backlog:chat.sessionError")),
+  });
+
+  const stopSessionMutation = useMutation({
+    mutationFn: () => stopCodeSession(id),
+    onMutate: () => setSessionError(null),
+    onSuccess: invalidateDetail,
+    onError: () => setSessionError(t("backlog:chat.sessionError")),
+  });
+  const sessionPending = startSessionMutation.isPending || stopSessionMutation.isPending;
 
   const metaDisabled = !isAdmin || isLocked || patchMutation.isPending;
 
@@ -331,10 +359,15 @@ export function BacklogDetailPage() {
         <BacklogChat
           key={`chat-${id}`}
           itemId={id}
-          initialMessages={item.messages}
-          onExchangeComplete={() =>
-            void queryClient.invalidateQueries({ queryKey: backlogKeys.detail(id) })
-          }
+          serverMessages={item.messages}
+          onExchangeComplete={invalidateDetail}
+          codeSession={item.codeSession}
+          pendingTurn={item.pendingTurn}
+          repos={chatRepos}
+          onStartSession={(repositoryId) => startSessionMutation.mutate(repositoryId)}
+          onStopSession={() => stopSessionMutation.mutate()}
+          sessionPending={sessionPending}
+          sessionError={sessionError}
         />
       </div>
     </div>

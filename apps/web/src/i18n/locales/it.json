@@ -620,7 +620,23 @@
       "thinking": "Sto pensando…",
       "error": "Qualcosa è andato storto nel generare la risposta.",
       "unavailable": "La chat richiede un provider AI con API key. Chiedi a un admin di configurarne uno nelle Impostazioni.",
-      "sources": "Fonti"
+      "sources": "Fonti",
+      "modeLabel": "Modalità chat",
+      "modeDocs": "DOCS",
+      "modeCode": "CODE — {{repo}}",
+      "modeCodeGeneric": "CODE",
+      "startSession": "Avvia sessione di analisi",
+      "starting": "Avvio…",
+      "stopSession": "Chiudi sessione",
+      "stopping": "Chiusura…",
+      "investigating": "Sto investigando nel codice…",
+      "investigatingShort": "Investigo…",
+      "chooseRepo": "Scegli un repository",
+      "chooseRepoHint": "Scegli il repository che l'agente deve analizzare.",
+      "startAnalysis": "Avvia sessione",
+      "cancel": "Annulla",
+      "noRepos": "Questo progetto non ha repository da analizzare.",
+      "sessionError": "Impossibile aggiornare la sessione di analisi. Riprova."
     }
   },
   "settings": {
