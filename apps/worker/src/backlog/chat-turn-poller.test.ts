@@ -299,6 +299,52 @@ describe("pollChatTurnsOnce — nessuna barriera di tick (serializer condiviso)"
     await Promise.all([...d1, ...d2]);
     expect(secondEntered).toBe(true);
   });
+
+  it("un turno accodato a lungo RINFRESCA started_at all'ingresso (niente falso-orfano)", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const itemId = randomUUID();
+    const serializer = createProjectSerializer();
+
+    let firstEntered = false;
+    let releaseFirst = (): void => {};
+    const gate = new Promise<void>((r) => (releaseFirst = r));
+    const runChatTurnFn = vi.fn<typeof runChatTurn>(async () => {
+      if (!firstEntered) {
+        firstEntered = true;
+        await gate;
+      }
+    });
+    const deps = makeDeps(db, { runChatTurnFn });
+
+    // T1 in volo (blocca la catena della voce).
+    await insertChatJob(db, projectId, { payload: chatPayload(itemId) });
+    const d1 = await pollChatTurnsOnce(deps, serializer);
+    await settle();
+
+    // T2 stessa voce, accodato dietro T1.
+    const t2 = await insertChatJob(db, projectId, { payload: chatPayload(itemId) });
+    const d2 = await pollChatTurnsOnce(deps, serializer);
+    await settle();
+
+    // Simula una LUNGA attesa in coda: started_at di T2 spinto 1h indietro. Se la
+    // recovery misurasse questo valore lo marcherebbe orfano; ma all'INGRESSO il
+    // turno rinfresca started_at.
+    const oldTime = new Date(Date.now() - 60 * 60_000);
+    await db.update(backlogJobs).set({ startedAt: oldTime }).where(eq(backlogJobs.id, t2));
+
+    // Sblocca T1 → T2 entra in esecuzione e rinfresca started_at.
+    releaseFirst();
+    await Promise.all([...d1, ...d2]);
+
+    const job = await getJob(db, t2);
+    expect(job.status).toBe("done");
+    // started_at rinfrescato all'ingresso: recente, NON il valore vecchio.
+    expect(job.startedAt).not.toBeNull();
+    expect(job.startedAt!.getTime()).toBeGreaterThan(Date.now() - 60_000);
+    // Una recovery a soglia stretta NON avrebbe potuto marcarlo orfano: il suo
+    // started_at all'ingresso è fresco (qui è done, verifica diretta sul valore).
+  });
 });
 
 describe("recoverStaleChatTurnJobs", () => {

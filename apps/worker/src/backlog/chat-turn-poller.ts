@@ -43,11 +43,15 @@ import { claimNextChatTurnJob, type BacklogJob, type BacklogLogger } from "./pol
 export const CHAT_TURN_STALE_MINUTES = 15;
 
 /**
- * Soglia di staleness derivata dal timeout del turno: un turno può ATTENDERE in
- * coda dietro un altro turno della STESSA voce (fino al timeout) e poi GIRARE
- * (fino al timeout) = 2× timeout, più margine. Mai sotto CHAT_TURN_STALE_MINUTES.
+ * Soglia di staleness derivata dal timeout del turno. Poiché `started_at` viene
+ * RINFRESCATO all'ingresso effettivo del turno in esecuzione (vedi
+ * processChatTurnJob), la recovery misura il tempo di ESECUZIONE, non l'attesa
+ * in coda: basterebbe `ceil(timeout/60') + 5` (un run + margine). Teniamo il 2×
+ * come difesa in profondità per la sola FINESTRA PRE-INGRESSO (un turno reclamato
+ * ma ancora accodato dietro uno-due turni della stessa voce, il cui `started_at`
+ * resta al valore del claim finché non entra). Mai sotto CHAT_TURN_STALE_MINUTES.
  * Evita la trappola di WORKER_STALE_MINUTES: alzando BACKLOG_CHAT_TURN_TIMEOUT_MS
- * oltre ~15' la soglia si adegua da sola (nessun recovery di un turno ancora vivo).
+ * la soglia si adegua da sola (nessun recovery di un turno ancora vivo).
  */
 export function chatTurnStaleMinutes(timeoutMs: number): number {
   return Math.max(CHAT_TURN_STALE_MINUTES, 2 * Math.ceil(timeoutMs / 60_000) + 5);
@@ -63,9 +67,16 @@ function errText(err: unknown): string {
  * UPDATE status-guarded con `returning` per, PER OGNI orfano, lasciare in chat il
  * messaggio assistant di errore (come il path in-process): la voce non resta con
  * la domanda "appesa" senza risposta. L'inserimento è best-effort (la voce
- * potrebbe essere sparita); i log via `logger` se fornito. Il poller è
- * single-process e i tick non si sovrappongono, quindi un `running` stantio è
- * sempre orfano, mai vivo.
+ * potrebbe essere sparita); i log via `logger` se fornito.
+ *
+ * GARANZIA di non-falso-orfano (NON più "i tick non si sovrappongono": col
+ * dispatch fire-and-forget i turni sopravvivono ai tick): `started_at` viene
+ * RINFRESCATO a now() all'ingresso effettivo del turno in esecuzione
+ * (refreshChatTurnStartedAt, dentro il serializer per-item), quindi riflette
+ * l'INIZIO ESECUZIONE, non il claim né l'attesa in coda; con la soglia derivata
+ * dal timeout (chatTurnStaleMinutes > durata max di un turno) un `running` oltre
+ * soglia è sempre di un worker morto, mai un turno vivo (né in esecuzione né in
+ * coda dietro pochi turni della stessa voce — coperti dal margine 2×).
  */
 export async function recoverStaleChatTurnJobs(
   db: Db,
@@ -111,6 +122,22 @@ async function completeChatTurnJob(db: Db, jobId: string): Promise<void> {
     .where(and(eq(backlogJobs.id, jobId), eq(backlogJobs.status, "running")));
 }
 
+/**
+ * Riporta `started_at` a `now()` all'INGRESSO effettivo del turno in esecuzione
+ * (dentro il serializer per-item, dopo l'eventuale attesa in coda dietro altri
+ * turni della stessa voce). Il claim l'aveva messo a now() AL CLAIM; qui lo
+ * rinfresca quando il turno parte davvero, così recoverStaleChatTurnJobs misura
+ * il tempo di ESECUZIONE e non l'attesa in coda → nessun falso-orfano a qualunque
+ * profondità di pileup. Status-guarded: se il job non è più `running` (già chiuso
+ * o marcato dalla recovery) l'UPDATE non tocca nulla.
+ */
+async function refreshChatTurnStartedAt(db: Db, jobId: string): Promise<void> {
+  await db
+    .update(backlogJobs)
+    .set({ startedAt: sql`now()` })
+    .where(and(eq(backlogJobs.id, jobId), eq(backlogJobs.status, "running")));
+}
+
 /** Fallisce il turno SENZA riaccodarlo (un turno non si ritenta mai). */
 async function failChatTurnJob(db: Db, jobId: string, error: string): Promise<void> {
   await db
@@ -149,7 +176,12 @@ async function processChatTurnJob(
   }
   const runFn = deps.runChatTurnFn ?? runChatTurn;
   try {
-    await serializer.run(parsed.data.itemId, () => runFn(deps, job, parsed.data));
+    await serializer.run(parsed.data.itemId, async () => {
+      // PRIMA operazione del turno serializzato: rinfresca started_at all'ingresso
+      // effettivo (dopo l'attesa in coda), così la recovery misura l'esecuzione.
+      await refreshChatTurnStartedAt(deps.db, job.id);
+      return runFn(deps, job, parsed.data);
+    });
     await completeChatTurnJob(deps.db, job.id);
     return true;
   } catch (err) {
