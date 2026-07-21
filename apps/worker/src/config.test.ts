@@ -67,6 +67,40 @@ describe("loadWorkerConfig", () => {
     expect(config.backlogPollSeconds).toBe(20);
     expect(config.backlogModel).toBe("sonnet");
     expect(config.backlogAgentTimeoutMs).toBe(900_000);
+    // Sessione di analisi sul codice: poll 2", TTL 30', timeout 5', 15 turni.
+    expect(config.backlogChatTurnPollSeconds).toBe(2);
+    expect(config.backlogChatSessionTtlMinutes).toBe(30);
+    expect(config.backlogChatTurnTimeoutMs).toBe(300_000);
+    expect(config.backlogChatTurnMaxTurns).toBe(15);
+  });
+
+  it("rispetta gli override e i default della sessione di analisi sul codice", () => {
+    const config = loadWorkerConfig({
+      ...VALID,
+      BACKLOG_CHAT_TURN_POLL_SECONDS: "0",
+      BACKLOG_CHAT_SESSION_TTL_MINUTES: "45",
+      BACKLOG_CHAT_TURN_TIMEOUT_MS: "120000",
+      BACKLOG_CHAT_TURN_MAX_TURNS: "8",
+    });
+    expect(config.backlogChatTurnPollSeconds).toBe(0);
+    expect(config.backlogChatSessionTtlMinutes).toBe(45);
+    expect(config.backlogChatTurnTimeoutMs).toBe(120_000);
+    expect(config.backlogChatTurnMaxTurns).toBe(8);
+    // Vuote (da .env.example) → default.
+    const defaults = loadWorkerConfig({
+      ...VALID,
+      BACKLOG_CHAT_TURN_POLL_SECONDS: "",
+      BACKLOG_CHAT_SESSION_TTL_MINUTES: "",
+    });
+    expect(defaults.backlogChatTurnPollSeconds).toBe(2);
+    expect(defaults.backlogChatSessionTtlMinutes).toBe(30);
+    // TTL < 1 e turni < 1 rifiutati.
+    expect(() => loadWorkerConfig({ ...VALID, BACKLOG_CHAT_SESSION_TTL_MINUTES: "0" })).toThrow(
+      /BACKLOG_CHAT_SESSION_TTL_MINUTES/,
+    );
+    expect(() => loadWorkerConfig({ ...VALID, BACKLOG_CHAT_TURN_MAX_TURNS: "0" })).toThrow(
+      /BACKLOG_CHAT_TURN_MAX_TURNS/,
+    );
   });
 
   it("rispetta le soglie del backlog e le rifiuta fuori 0–1", () => {
