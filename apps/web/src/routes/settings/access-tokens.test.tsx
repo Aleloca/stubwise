@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PatView, PatWithToken } from "../../lib/api";
@@ -139,6 +139,79 @@ describe("Impostazioni — token di accesso", () => {
     expect(screen.getByRole("button", { name: "Create token" })).toBeInTheDocument();
   });
 
+  it("blocca il submit e mostra l'errore quando la scadenza è nel passato", async () => {
+    const user = userEvent.setup();
+    let posted = false;
+    mockApi({
+      "GET /api/auth/me": meHandler(),
+      "GET /api/pats": () => jsonResponse(200, []),
+      "POST /api/pats": () => {
+        posted = true;
+        return jsonResponse(201, patWithToken());
+      },
+    });
+
+    renderApp("/settings/access-tokens");
+
+    await user.type(await screen.findByLabelText("Name"), "past token");
+    // datetime-local nel passato: la validazione client deve bloccare l'invio.
+    fireEvent.change(screen.getByLabelText("Expiry (optional)"), {
+      target: { value: "2020-01-01T00:00" },
+    });
+    await user.click(screen.getByRole("button", { name: "Create token" }));
+
+    expect(await screen.findByText("The expiry must be in the future.")).toBeInTheDocument();
+    // Nessuna POST è partita.
+    expect(posted).toBe(false);
+  });
+
+  it("invia expiresAt come stringa ISO futura quando la scadenza è valida", async () => {
+    const user = userEvent.setup();
+    let postBody: { name: string; expiresAt: string | null } | undefined;
+    mockApi({
+      "GET /api/auth/me": meHandler(),
+      "GET /api/pats": () => jsonResponse(200, []),
+      "POST /api/pats": (_url, init) => {
+        postBody = JSON.parse(String(init?.body));
+        return jsonResponse(201, patWithToken({ name: "future token" }));
+      },
+    });
+
+    renderApp("/settings/access-tokens");
+
+    await user.type(await screen.findByLabelText("Name"), "future token");
+    // Anno lontano: sicuramente nel futuro a prescindere dal fuso.
+    fireEvent.change(screen.getByLabelText("Expiry (optional)"), {
+      target: { value: "2999-01-01T12:00" },
+    });
+    await user.click(screen.getByRole("button", { name: "Create token" }));
+
+    await waitFor(() => expect(postBody).toBeDefined());
+    expect(postBody?.name).toBe("future token");
+    const iso = postBody?.expiresAt;
+    expect(typeof iso).toBe("string");
+    expect(Number.isNaN(Date.parse(iso as string))).toBe(false);
+    expect(new Date(iso as string).getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it("mostra l'errore localizzato quando la creazione fallisce", async () => {
+    const user = userEvent.setup();
+    mockApi({
+      "GET /api/auth/me": meHandler(),
+      "GET /api/pats": () => jsonResponse(200, []),
+      "POST /api/pats": () => jsonResponse(400, { code: "forbidden", message: "Forbidden" }),
+    });
+
+    renderApp("/settings/access-tokens");
+
+    await user.type(await screen.findByLabelText("Name"), "boom");
+    await user.click(screen.getByRole("button", { name: "Create token" }));
+
+    // Il `code` noto viene tradotto (errors:forbidden), non mostrato grezzo.
+    expect(await screen.findByText("Administrators only")).toBeInTheDocument();
+    expect(screen.queryByText("Forbidden")).not.toBeInTheDocument();
+  });
+
   it("revoca un token con conferma e lo rimuove dalla lista", async () => {
     const user = userEvent.setup();
     let deleted = false;
@@ -158,9 +231,10 @@ describe("Impostazioni — token di accesso", () => {
 
     expect(await screen.findByText("to revoke")).toBeInTheDocument();
 
-    // Revoca a due passi: prima "Revoke", poi la conferma.
-    await user.click(screen.getByRole("button", { name: "Revoke" }));
-    await user.click(screen.getByRole("button", { name: "Confirm revoke" }));
+    // Revoca a due passi: prima "Revoke", poi la conferma. I bottoni hanno un
+    // aria-label per-riga che include il nome del token.
+    await user.click(screen.getByRole("button", { name: "Revoke token to revoke" }));
+    await user.click(screen.getByRole("button", { name: "Confirm revoking token to revoke" }));
 
     await waitFor(() => expect(deletePath).toBe("/api/pats/pat-9"));
     await waitFor(() => expect(screen.queryByText("to revoke")).not.toBeInTheDocument());

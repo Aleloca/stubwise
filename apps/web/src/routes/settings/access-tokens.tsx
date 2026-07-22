@@ -1,10 +1,12 @@
 import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { useRef, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { FormError, SubmitButton, TextField } from "../../components/field";
 import { createPat, deletePat, type PatView, type PatWithToken } from "../../lib/api";
 import { formatDate } from "../../lib/format";
 import { patsQueryOptions } from "../../lib/queries";
+import { translateApiError } from "../../lib/translate-api-error";
+import { useCopyWithFallback } from "../../lib/use-copy-with-fallback";
 
 /**
  * Sotto-pagina "Token di accesso" (per-utente, visibile a tutti): elenco dei
@@ -114,7 +116,7 @@ function TokenRow({ pat }: { pat: PatView }) {
             </dd>
           </div>
         </dl>
-        <FormError message={deletion.error instanceof Error ? deletion.error.message : null} />
+        <FormError message={deletion.error ? translateApiError(deletion.error, t) : null} />
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {confirming ? (
@@ -123,6 +125,7 @@ function TokenRow({ pat }: { pat: PatView }) {
               type="button"
               onClick={() => deletion.mutate()}
               disabled={deletion.isPending}
+              aria-label={t("settings:accessTokens.deleteConfirmAria", { name: pat.name })}
               className="rounded-sm border border-danger/30 bg-ink-950/70 px-3 py-1.5 font-mono text-[11px] font-medium tracking-[0.08em] text-danger uppercase transition-colors hover:border-danger/60 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {t("settings:accessTokens.deleteConfirm")}
@@ -130,6 +133,7 @@ function TokenRow({ pat }: { pat: PatView }) {
             <button
               type="button"
               onClick={() => setConfirming(false)}
+              aria-label={t("settings:accessTokens.cancelDeleteAria", { name: pat.name })}
               className="rounded-sm border border-line-strong bg-ink-950/70 px-3 py-1.5 font-mono text-[11px] font-medium tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg"
             >
               {t("common:cancel")}
@@ -139,6 +143,7 @@ function TokenRow({ pat }: { pat: PatView }) {
           <button
             type="button"
             onClick={() => setConfirming(true)}
+            aria-label={t("settings:accessTokens.deleteAria", { name: pat.name })}
             className="rounded-sm border border-danger/30 bg-ink-950/70 px-3 py-1.5 font-mono text-[11px] font-medium tracking-[0.08em] text-danger uppercase transition-colors hover:border-danger/60"
           >
             {t("settings:accessTokens.delete")}
@@ -147,6 +152,17 @@ function TokenRow({ pat }: { pat: PatView }) {
       </div>
     </li>
   );
+}
+
+/**
+ * Ora corrente in formato `YYYY-MM-DDTHH:mm` (ora locale) per l'attributo `min`
+ * dell'input datetime-local: il picker nativo scoraggia le date passate. Solo
+ * cosmetico — la validazione JS in `handleSubmit` resta la sorgente di verità.
+ */
+function minDateTimeLocal(): string {
+  const now = new Date();
+  const offsetMs = now.getTimezoneOffset() * 60_000;
+  return new Date(now.getTime() - offsetMs).toISOString().slice(0, 16);
 }
 
 /**
@@ -194,6 +210,7 @@ function CreateTokenForm({ onCreated }: { onCreated: (pat: PatWithToken) => void
         id="new-pat-name"
         label={t("settings:accessTokens.nameLabel")}
         required
+        maxLength={100}
         placeholder={t("settings:accessTokens.namePlaceholder")}
         value={name}
         onChange={(event) => setName(event.target.value)}
@@ -203,6 +220,7 @@ function CreateTokenForm({ onCreated }: { onCreated: (pat: PatWithToken) => void
           id="new-pat-expires"
           label={t("settings:accessTokens.expiresLabel")}
           type="datetime-local"
+          min={minDateTimeLocal()}
           value={expiresAt}
           onChange={(event) => {
             setExpiresAt(event.target.value);
@@ -214,9 +232,7 @@ function CreateTokenForm({ onCreated }: { onCreated: (pat: PatWithToken) => void
         </p>
       </div>
       <FormError
-        message={
-          validationError ?? (mutation.error instanceof Error ? mutation.error.message : null)
-        }
+        message={validationError ?? (mutation.error ? translateApiError(mutation.error, t) : null)}
       />
       <div className="flex flex-wrap items-center gap-3">
         <SubmitButton pending={mutation.isPending} disabled={name.trim() === ""}>
@@ -237,37 +253,7 @@ function CreateTokenForm({ onCreated }: { onCreated: (pat: PatWithToken) => void
  */
 function RevealPanel({ pat, onDone }: { pat: PatWithToken; onDone: () => void }) {
   const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
-  const [manualHint, setManualHint] = useState(false);
-  const preRef = useRef<HTMLPreElement>(null);
-
-  /** Seleziona il token (fallback quando la copia automatica manca). */
-  function selectToken() {
-    const node = preRef.current;
-    const selection = window.getSelection();
-    if (!node || !selection) return;
-    const range = document.createRange();
-    range.selectNodeContents(node);
-    selection.removeAllRanges();
-    selection.addRange(range);
-  }
-
-  async function copy() {
-    // Clipboard API assente (contesto non sicuro, tipico self-hosted su http):
-    // niente falso "Copiato", si seleziona il token e si invita a copiarlo.
-    if (!navigator.clipboard) {
-      selectToken();
-      setManualHint(true);
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(pat.token);
-      setCopied(true);
-    } catch {
-      selectToken();
-      setManualHint(true);
-    }
-  }
+  const { copied, manualHint, copy, targetRef } = useCopyWithFallback(pat.token);
 
   return (
     <div className="space-y-3">
@@ -275,7 +261,7 @@ function RevealPanel({ pat, onDone }: { pat: PatWithToken; onDone: () => void })
         {t("settings:accessTokens.createdTitle")}
       </h3>
       <pre
-        ref={preRef}
+        ref={targetRef}
         className="overflow-x-auto rounded-sm border border-line-strong bg-ink-950/70 px-3 py-3 font-mono text-[13px] leading-relaxed break-all whitespace-pre-wrap text-fg"
       >
         {pat.token}
