@@ -299,6 +299,20 @@ describe("list_tickets", () => {
     expect(firstText(res)).toContain("/stubwise:init");
     expect(client.listTickets).not.toHaveBeenCalled();
   });
+
+  it("cattura StubwiseApiError del client in un ToolResult d'errore", async () => {
+    const client = makeClient();
+    client.getProjectBySlug.mockResolvedValue(fakeProject({ slug: "acme" }));
+    client.listTickets.mockRejectedValue(
+      new StubwiseApiError("Errore interno su Stubwise", 500, "internal_error"),
+    );
+    const { ctx } = makeCtx(client, { projectSlug: "acme" });
+
+    const res = await tool("list_tickets").handler({}, ctx);
+
+    expect(res.isError).toBe(true);
+    expect(firstText(res)).toContain("Errore interno");
+  });
 });
 
 describe("get_ticket", () => {
@@ -326,6 +340,19 @@ describe("get_ticket", () => {
     expect(res.isError).toBeUndefined();
     expect(firstText(res)).toContain("Login rotto");
     expect(firstText(res)).toContain("auth");
+  });
+
+  it("cattura StubwiseApiError 404 in un ToolResult d'errore", async () => {
+    const client = makeClient();
+    client.getTicket.mockRejectedValue(
+      new StubwiseApiError("Risorsa non trovata su Stubwise", 404, "not_found"),
+    );
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("get_ticket").handler({ id: TICKET_ID }, ctx);
+
+    expect(res.isError).toBe(true);
+    expect(firstText(res)).toContain("non trovata");
   });
 });
 

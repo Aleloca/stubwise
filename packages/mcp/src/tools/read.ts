@@ -29,7 +29,7 @@ function normalizeStatuses(value: string[] | string | undefined): string[] | und
 const listProjects: ToolDef = {
   name: "list_projects",
   description:
-    "Elenca i progetti Stubwise visibili al tuo token (id, slug, name). Usalo per scoprire lo slug di un progetto da passare agli altri tool o per capire a cosa hai accesso.",
+    "Elenca tutti i progetti Stubwise dell'istanza (id, slug, name). Usa lo slug per collegare un repo con /stubwise:init o per i filtri degli altri tool.",
   inputSchema: {},
   handler: (_args, ctx): Promise<ToolResult> =>
     runTool(async () => {
@@ -47,8 +47,14 @@ const listBacklogInput = {
     .string()
     .optional()
     .describe("Slug del progetto. Se omesso, usa il progetto collegato al repo corrente."),
-  status: z.string().optional().describe("Filtra per stato dell'item di backlog."),
-  urgency: z.string().optional().describe("Filtra per urgenza (scala priority)."),
+  status: z
+    .string()
+    .optional()
+    .describe("Filtra per stato dell'item di backlog: new, refining, ready, converted, archived."),
+  urgency: z
+    .string()
+    .optional()
+    .describe("Filtra per urgenza (scala priority): low, medium, high, urgent."),
   q: z.string().optional().describe("Ricerca testuale libera."),
   limit: z.number().int().positive().optional().describe("Numero massimo di item."),
 };
@@ -130,9 +136,17 @@ const listTicketsInput = {
   statuses: z
     .union([z.array(z.string()), z.string()])
     .optional()
-    .describe("Filtra per stati (array di stringhe o CSV)."),
-  type: z.string().optional().describe("Filtra per tipo di ticket (bug, feature, ...)."),
-  priority: z.string().optional().describe("Filtra per priorità."),
+    .describe(
+      "Filtra per stati (array di stringhe o CSV): open, triaged, in_progress, in_review, done, closed.",
+    ),
+  type: z
+    .string()
+    .optional()
+    .describe("Filtra per tipo di ticket: bug, feature, task, feedback, review."),
+  priority: z
+    .string()
+    .optional()
+    .describe("Filtra per priorità: low, medium, high, urgent."),
   q: z.string().optional().describe("Ricerca testuale libera."),
   limit: z.number().int().positive().optional().describe("Numero massimo di ticket."),
 };
@@ -175,7 +189,7 @@ const listTickets: ToolDef = {
 // --- get_ticket -------------------------------------------------------------
 
 const getTicketInput = {
-  id: z.string().describe("UUID del ticket."),
+  id: z.string().uuid().describe("UUID del ticket."),
 };
 
 const getTicket: ToolDef = {
