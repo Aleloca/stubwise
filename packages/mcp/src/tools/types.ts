@@ -13,6 +13,20 @@ import type { StubwiseConfig } from "../config.js";
 export interface ToolContext {
   client: StubwiseClient;
   config: StubwiseConfig;
+  /**
+   * Funzione di attesa usata dal polling di `create_backlog_item`. Iniettabile
+   * per i test: di default è un'attesa reale (`setTimeout`), nei test viene
+   * sostituita con una che risolve subito, così il polling è deterministico e
+   * veloce senza attese reali. Opzionale: i tool di lettura la ignorano.
+   */
+  sleep?: (ms: number) => Promise<void>;
+  /**
+   * Parametri del polling di `create_backlog_item` (intervallo tra i poll e
+   * timeout complessivo). Iniettabili per i test (valori piccoli → timeout
+   * raggiungibile in modo deterministico). Opzionali: default reali applicati
+   * nel tool.
+   */
+  pollOptions?: { intervalMs?: number; timeoutMs?: number };
 }
 
 /**
