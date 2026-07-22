@@ -500,13 +500,16 @@ describe("POST /api/backlog", () => {
       payload: { projectId, title: "Idea manuale", body: "corpo della richiesta" },
     });
     expect(res.statusCode).toBe(202);
-    expect(res.json()).toEqual({ queued: true });
+    const body = res.json();
+    expect(body.queued).toBe(true);
+    expect(typeof body.jobId).toBe("string");
 
     const jobs = await testDb.db
       .select()
       .from(backlogJobs)
       .where(eq(backlogJobs.projectId, projectId));
     expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.id).toBe(body.jobId);
     expect(jobs[0]!.kind).toBe("intake");
     expect(jobs[0]!.status).toBe("queued");
     expect(jobs[0]!.payload).toEqual({ title: "Idea manuale", body: "corpo della richiesta" });

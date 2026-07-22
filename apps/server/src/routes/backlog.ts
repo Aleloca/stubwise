@@ -717,7 +717,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       schema: {
         body: createBacklogItemSchema,
         response: {
-          202: z.object({ queued: z.literal(true) }),
+          202: z.object({ queued: z.literal(true), jobId: z.uuid() }),
           404: errorSchema,
           ...authErrorResponses,
         },
@@ -731,10 +731,11 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         .where(eq(projects.id, projectId));
       if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
 
-      await app.db
+      const [job] = await app.db
         .insert(backlogJobs)
-        .values({ projectId, kind: "intake", payload: { title, body } });
-      return reply.code(202).send({ queued: true });
+        .values({ projectId, kind: "intake", payload: { title, body } })
+        .returning({ id: backlogJobs.id });
+      return reply.code(202).send({ queued: true, jobId: job!.id });
     },
   );
 
