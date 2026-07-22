@@ -22,6 +22,11 @@ export function generateServerKey(): string {
   return `sk_${randomBytes(24).toString("hex")}`;
 }
 
+/** Personal Access Token: `stw_pat_` + 24 byte esadecimali. In DB si salva solo hashServerKey(token). */
+export function generatePat(): string {
+  return `stw_pat_${randomBytes(24).toString("hex")}`;
+}
+
 /**
  * Hash sha256 (hex) della chiave dell'agente: è ciò che si persiste in
  * `servers.key_hash`. All'ingest si ri-hasha la chiave ricevuta e si cerca la
