@@ -31,10 +31,12 @@ export function generatePat(): string {
 }
 
 /**
- * Hash sha256 (hex) della chiave dell'agente: è ciò che si persiste in
- * `servers.key_hash`. All'ingest si ri-hasha la chiave ricevuta e si cerca la
- * riga sulla colonna unique — nessun confronto in tempo variabile utile a un
- * attaccante e nessuna chiave in chiaro a riposo.
+ * Hash sha256 (hex) di un segreto ad alta entropia: è ciò che si persiste al
+ * posto del segreto in chiaro — usato per le server key (`servers.key_hash`) e
+ * per i personal access token (`personal_access_tokens.token_hash`). All'ingest
+ * si ri-hasha il segreto ricevuto e si cerca la riga sulla colonna unique —
+ * nessun confronto in tempo variabile utile a un attaccante e nessun segreto in
+ * chiaro a riposo.
  */
 export function hashServerKey(key: string): string {
   return createHash("sha256").update(key).digest("hex");

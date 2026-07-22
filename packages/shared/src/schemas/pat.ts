@@ -5,10 +5,15 @@ import { z } from "zod";
  * e una scadenza opzionale in ISO 8601. `expiresAt` null oppure omesso = token
  * senza scadenza (vive finché non viene revocato).
  */
-export const createPatSchema = z.object({
-  name: z.string().min(1).max(100),
-  expiresAt: z.string().datetime().nullable().optional(),
-});
+export const createPatSchema = z
+  .object({
+    name: z.string().min(1).max(100),
+    expiresAt: z.iso.datetime().nullable().optional(),
+  })
+  .refine((v) => v.expiresAt == null || new Date(v.expiresAt).getTime() > Date.now(), {
+    message: "expiresAt must be in the future",
+    path: ["expiresAt"],
+  });
 export type CreatePatInput = z.infer<typeof createPatSchema>;
 
 /**
@@ -18,9 +23,9 @@ export type CreatePatInput = z.infer<typeof createPatSchema>;
 export const patViewSchema = z.object({
   id: z.uuid(),
   name: z.string(),
-  lastUsedAt: z.string().datetime().nullable(),
-  expiresAt: z.string().datetime().nullable(),
-  createdAt: z.string().datetime(),
+  lastUsedAt: z.iso.datetime().nullable(),
+  expiresAt: z.iso.datetime().nullable(),
+  createdAt: z.iso.datetime(),
 });
 export type PatView = z.infer<typeof patViewSchema>;
 

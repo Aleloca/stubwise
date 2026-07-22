@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
-import { seedUsers } from "../test/fixtures.js";
+import { seedUsers, sessionCookie } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -69,6 +69,17 @@ describe("POST /api/pats", () => {
     const res = await createPat({});
     expect(res.statusCode).toBe(400);
   });
+
+  it("con expiresAt ISO nel passato: 400 (token morto all'origine rifiutato)", async () => {
+    const expiresAt = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const res = await createPat({ name: "scaduto", expiresAt });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("con expiresAt malformato (non ISO): 400", async () => {
+    const res = await createPat({ name: "malformato", expiresAt: "domani" });
+    expect(res.statusCode).toBe(400);
+  });
 });
 
 describe("GET /api/pats", () => {
@@ -84,6 +95,37 @@ describe("GET /api/pats", () => {
     expect(found).toBeDefined();
     expect(found).not.toHaveProperty("token");
     expect(JSON.stringify(body)).not.toContain("stw_pat_");
+  });
+
+  it("utente senza PAT: 200 con array vuoto", async () => {
+    // Utente fresco, dedicato: non ha mai creato PAT, così l'asserto vuoto è
+    // indipendente dall'ordine degli altri test del file.
+    const invite = await app.inject({
+      method: "POST",
+      url: "/api/auth/invites",
+      headers: { cookie: adminCookie },
+      payload: { email: "nopat@example.com" },
+    });
+    await app.inject({
+      method: "POST",
+      url: "/api/auth/register",
+      payload: {
+        token: (invite.json() as { token: string }).token,
+        email: "nopat@example.com",
+        password: "password-nopat",
+      },
+    });
+    const login = await app.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: "nopat@example.com", password: "password-nopat" },
+    });
+    const noPatCookie = sessionCookie(login);
+
+    const res = await listPats(noPatCookie);
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as unknown[];
+    expect(body).toEqual([]);
   });
 });
 
@@ -110,6 +152,24 @@ describe("DELETE /api/pats/:id", () => {
       headers: { authorization: `Bearer ${token}` },
     });
     expect(after.statusCode).toBe(401);
+  });
+
+  it("id non-UUID (es. \"abc\"): 400 (validazione params)", async () => {
+    const del = await app.inject({
+      method: "DELETE",
+      url: "/api/pats/abc",
+      headers: { cookie: adminCookie },
+    });
+    expect(del.statusCode).toBe(400);
+  });
+
+  it("id UUID inesistente: 404", async () => {
+    const del = await app.inject({
+      method: "DELETE",
+      url: "/api/pats/00000000-0000-0000-0000-000000000000",
+      headers: { cookie: adminCookie },
+    });
+    expect(del.statusCode).toBe(404);
   });
 });
 
