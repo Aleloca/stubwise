@@ -13,6 +13,8 @@ import {
   aiUsageSnapshots,
   attachments,
   automationRules,
+  backlogItems,
+  backlogJobs,
   comments,
   docGenerationJobs,
   docGenerations,
@@ -23,6 +25,7 @@ import {
   invites,
   milestones,
   notificationSettings,
+  personalAccessTokens,
   projectEnvFiles,
   projectEnvVars,
   projects,
@@ -1075,6 +1078,124 @@ describe("schema: saved_views", () => {
 
     const after = await db.select().from(savedViews).where(eq(savedViews.ownerId, ownerId));
     expect(after.length).toBe(0);
+  });
+});
+
+/**
+ * Verifica la tabella personal_access_tokens: persistenza di un token per un
+ * utente (round-trip del tokenHash, default null di lastUsedAt/expiresAt).
+ */
+describe("schema: personal_access_tokens", () => {
+  let testDb: TestDb;
+  let db: Db;
+
+  beforeAll(async () => {
+    testDb = await startTestDb();
+    db = testDb.db;
+  });
+
+  afterAll(async () => {
+    await testDb.stop();
+  });
+
+  it("persiste e rilegge un personal access token", async () => {
+    const [user] = await db
+      .insert(users)
+      .values({ email: `pat-${randomUUID()}@example.com`, passwordHash: "x", role: "member" })
+      .returning();
+    const [pat] = await db
+      .insert(personalAccessTokens)
+      .values({ userId: user!.id, name: "laptop", tokenHash: `deadbeef-${randomUUID()}` })
+      .returning();
+    expect(pat!.tokenHash).toContain("deadbeef");
+    expect(pat!.lastUsedAt).toBeNull();
+    expect(pat!.expiresAt).toBeNull();
+  });
+
+  it("tokenHash è unique tra token diversi", async () => {
+    const [user] = await db
+      .insert(users)
+      .values({ email: `pat-${randomUUID()}@example.com`, passwordHash: "x", role: "member" })
+      .returning();
+    const tokenHash = `sha256-${randomUUID()}`;
+    await db.insert(personalAccessTokens).values({ userId: user!.id, name: "primo", tokenHash });
+
+    // Stesso sha256 → viola l'unique (un hash mappa a un solo token).
+    await expect(
+      db.insert(personalAccessTokens).values({ userId: user!.id, name: "duplicato", tokenHash }),
+    ).rejects.toThrow();
+  });
+
+  it("cascade su delete user: i token dell'utente spariscono", async () => {
+    const [user] = await db
+      .insert(users)
+      .values({ email: `pat-${randomUUID()}@example.com`, passwordHash: "x", role: "member" })
+      .returning();
+    await db
+      .insert(personalAccessTokens)
+      .values({ userId: user!.id, name: "laptop", tokenHash: `sha256-${randomUUID()}` });
+
+    await db.delete(users).where(eq(users.id, user!.id));
+    const rows = await db
+      .select()
+      .from(personalAccessTokens)
+      .where(eq(personalAccessTokens.userId, user!.id));
+    expect(rows).toHaveLength(0);
+  });
+});
+
+/**
+ * Verifica la colonna additiva `backlog_jobs.result_item_id` (migrazione 0057):
+ * legame job → voce prodotta dall'intake. È NULLABLE (null finché il job non è
+ * done) e la FK è `on delete set null` (cancellando l'item, il job resta ma
+ * perde il riferimento).
+ */
+describe("schema: backlog_jobs.result_item_id", () => {
+  let testDb: TestDb;
+  let db: Db;
+
+  beforeAll(async () => {
+    testDb = await startTestDb();
+    db = testDb.db;
+  });
+
+  afterAll(async () => {
+    await testDb.stop();
+  });
+
+  it("accoda un intake job con resultItemId null di default", async () => {
+    const { projectId } = await seedRepository(db);
+    const [job] = await db
+      .insert(backlogJobs)
+      .values({ projectId, kind: "intake", payload: { title: "Nuova idea", body: "corpo" } })
+      .returning();
+    if (!job) throw new Error("insert del backlog job non ha restituito la riga");
+    expect(job.resultItemId).toBeNull();
+  });
+
+  it("collega il job all'item prodotto e la FK fa set null alla cancellazione dell'item", async () => {
+    const { projectId } = await seedRepository(db);
+    const [item] = await db
+      .insert(backlogItems)
+      .values({ projectId, title: "Voce prodotta dall'intake", source: "manual" })
+      .returning();
+    if (!item) throw new Error("insert della voce di backlog non ha restituito la riga");
+
+    const [job] = await db
+      .insert(backlogJobs)
+      .values({ projectId, kind: "intake", payload: { title: "x", body: "y" } })
+      .returning();
+    if (!job) throw new Error("insert del backlog job non ha restituito la riga");
+
+    await db.update(backlogJobs).set({ resultItemId: item.id }).where(eq(backlogJobs.id, job.id));
+
+    const [linked] = await db.select().from(backlogJobs).where(eq(backlogJobs.id, job.id));
+    expect(linked!.resultItemId).toBe(item.id);
+
+    // FK on delete set null: cancellando l'item, il job resta ma perde il riferimento.
+    await db.delete(backlogItems).where(eq(backlogItems.id, item.id));
+    const [afterDelete] = await db.select().from(backlogJobs).where(eq(backlogJobs.id, job.id));
+    expect(afterDelete!.resultItemId).toBeNull();
   });
 });
 

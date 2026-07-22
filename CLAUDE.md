@@ -89,3 +89,20 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   `NODE_ENV=production` (ometterebbe le devDeps → exit 127).
 - **File `.env` per progetto:** cifrati, materializzati nel worktree prima di
   install/test; il safeguard anti-leak è l'esclusione da TUTTI i `git add`/`status`.
+
+## Integrazione Claude Code (MCP)
+
+Stubwise si integra con Claude Code via il server MCP `@stubwise/mcp`
+(`packages/mcp`, configurato in `.mcp.json`): espone backlog e ticket come tool.
+
+- Skill **`stubwise`** (`.claude/skills/stubwise/`): quando e come usare i tool
+  per collegare design/piani a backlog e ticket (crea voci di backlog dai doc,
+  converti in ticket, avanza gli stati `in_progress`/`in_review`; `done` solo
+  on-demand).
+- Comando **`/stubwise:init`**: collega una o più repo a un progetto Stubwise
+  scrivendo `.stubwise.json` (`{ "project": "<slug>" }`) nella radice.
+- Serve un Personal Access Token (`stw_pat_...`, dalle impostazioni Stubwise) in
+  `STUBWISE_TOKEN`; `STUBWISE_URL` punta all'istanza (default
+  `http://localhost:3000`). Finché il pacchetto non è pubblicato su npm,
+  `.mcp.json` punta al build locale (`packages/mcp/dist/index.js`): esegui
+  `pnpm --filter @stubwise/mcp build`.

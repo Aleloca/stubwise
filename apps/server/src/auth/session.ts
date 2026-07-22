@@ -1,12 +1,21 @@
 import { randomBytes } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, lt, or } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Db } from "@stubwise/db";
-import { sessions, users } from "@stubwise/db";
+import { personalAccessTokens, sessions, users } from "@stubwise/db";
 import type { Language } from "@stubwise/shared";
 import { apiError } from "../errors.js";
+import { hashServerKey, PAT_PREFIX } from "../routes/shared.js";
 
 export const SESSION_COOKIE = "stubwise_session";
+
+/**
+ * Finestra di debounce dell'update di `lastUsedAt`: si riscrive la colonna solo
+ * se è null o più vecchia di questo intervallo. Evita la contesa sulla riga (e
+ * l'amplificazione del WAL) quando un client MCP fa fan-out parallelo di
+ * richieste con lo stesso PAT.
+ */
+const LAST_USED_DEBOUNCE_MS = 5 * 60 * 1000;
 
 /** Durata della sessione: 30 giorni. */
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -98,10 +107,77 @@ export function sessionIdFromRequest(request: FastifyRequest): string | null {
 }
 
 /**
+ * Risolve un utente da `Authorization: Bearer stw_pat_...` (Personal Access
+ * Token, autenticazione machine-to-machine per il server MCP). Ritorna null se
+ * l'header è assente, non è un Bearer, non ha il prefisso PAT, non corrisponde
+ * ad alcun token o è scaduto. La verifica è una lookup sull'hash sha256 del
+ * token nella colonna unique `token_hash` (stesso schema delle server key in
+ * monitor.ts: nessun confronto in tempo variabile a riposo). Aggiorna
+ * `lastUsedAt` best-effort e con debounce (solo se null o più vecchio di
+ * {@link LAST_USED_DEBOUNCE_MS}; un errore di update non fa fallire l'auth). Il
+ * SessionUser prodotto è identico a quello di findSessionUser: il PAT eredita
+ * i permessi dell'utente.
+ */
+export async function findPatUser(
+  db: Db,
+  authorization: string | undefined,
+): Promise<SessionUser | null> {
+  if (!authorization) return null;
+  const match = /^Bearer\s+(.+)$/i.exec(authorization);
+  const token = match?.[1];
+  if (!token || !token.startsWith(PAT_PREFIX)) return null;
+  const tokenHash = hashServerKey(token);
+  const [row] = await db
+    .select({
+      patId: personalAccessTokens.id,
+      expiresAt: personalAccessTokens.expiresAt,
+      id: users.id,
+      email: users.email,
+      role: users.role,
+      language: users.language,
+      avatarUrl: users.slackAvatarUrl,
+      slackUserId: users.slackUserId,
+    })
+    .from(personalAccessTokens)
+    .innerJoin(users, eq(personalAccessTokens.userId, users.id))
+    .where(eq(personalAccessTokens.tokenHash, tokenHash));
+  if (!row) return null;
+  if (row.expiresAt && row.expiresAt.getTime() <= Date.now()) return null;
+  await db
+    .update(personalAccessTokens)
+    .set({ lastUsedAt: new Date() })
+    .where(
+      and(
+        eq(personalAccessTokens.id, row.patId),
+        or(
+          isNull(personalAccessTokens.lastUsedAt),
+          lt(personalAccessTokens.lastUsedAt, new Date(Date.now() - LAST_USED_DEBOUNCE_MS)),
+        ),
+      ),
+    )
+    .catch(() => undefined);
+  return {
+    id: row.id,
+    email: row.email,
+    role: row.role,
+    language: row.language,
+    avatarUrl: row.avatarUrl,
+    slackUserId: row.slackUserId,
+  };
+}
+
+/**
  * preHandler riusabile: richiede una sessione valida e attacca `request.user`.
- * Da usare nelle route con `preHandler: requireAuth`.
+ * Da usare nelle route con `preHandler: requireAuth`. Accetta sia il cookie di
+ * sessione (browser) sia un Bearer Personal Access Token (m2m): il PAT è
+ * provato per primo, così ogni route già protetta lo accetta senza modifiche.
  */
 export async function requireAuth(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  const patUser = await findPatUser(request.server.db, request.headers.authorization);
+  if (patUser) {
+    request.user = patUser;
+    return;
+  }
   const sessionId = sessionIdFromRequest(request);
   const user = sessionId ? await findSessionUser(request.server.db, sessionId) : null;
   if (!user) {

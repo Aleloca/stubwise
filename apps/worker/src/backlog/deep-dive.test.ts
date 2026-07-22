@@ -166,6 +166,7 @@ function fakeJob(projectId: string): BacklogJob {
     payload: { itemId: randomUUID(), repositoryId: randomUUID() },
     attempts: 1,
     error: null,
+    resultItemId: null,
     createdAt: new Date(),
     startedAt: new Date(),
     finishedAt: null,

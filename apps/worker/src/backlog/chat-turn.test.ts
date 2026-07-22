@@ -186,6 +186,7 @@ function job(projectId: string, payload: { itemId: string; userMessageId: string
     payload,
     attempts: 1,
     error: null,
+    resultItemId: null,
     createdAt: new Date(),
     startedAt: new Date(),
     finishedAt: null,

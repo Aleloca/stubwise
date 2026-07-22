@@ -500,16 +500,88 @@ describe("POST /api/backlog", () => {
       payload: { projectId, title: "Idea manuale", body: "corpo della richiesta" },
     });
     expect(res.statusCode).toBe(202);
-    expect(res.json()).toEqual({ queued: true });
+    const body = res.json();
+    expect(body.queued).toBe(true);
+    expect(typeof body.jobId).toBe("string");
 
     const jobs = await testDb.db
       .select()
       .from(backlogJobs)
       .where(eq(backlogJobs.projectId, projectId));
     expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.id).toBe(body.jobId);
     expect(jobs[0]!.kind).toBe("intake");
     expect(jobs[0]!.status).toBe("queued");
     expect(jobs[0]!.payload).toEqual({ title: "Idea manuale", body: "corpo della richiesta" });
+  });
+});
+
+describe("GET /api/backlog/jobs/:jobId", () => {
+  it("senza sessione → 401", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/backlog/jobs/${crypto.randomUUID()}`,
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("job appena accodato → 200 status queued, resultItemId/error null", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/backlog",
+      headers: { cookie: memberCookie },
+      payload: { projectId, title: "Idea", body: "corpo" },
+    });
+    const { jobId } = created.json() as { jobId: string };
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/backlog/jobs/${jobId}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ status: "queued", resultItemId: null, error: null });
+  });
+
+  it("riflette status done + resultItemId dopo l'intake", async () => {
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/backlog",
+      headers: { cookie: memberCookie },
+      payload: { projectId, title: "Idea", body: "corpo" },
+    });
+    const { jobId } = created.json() as { jobId: string };
+    const item = await insertItem();
+    await testDb.db
+      .update(backlogJobs)
+      .set({ status: "done", resultItemId: item.id })
+      .where(eq(backlogJobs.id, jobId));
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/backlog/jobs/${jobId}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ status: "done", resultItemId: item.id, error: null });
+  });
+
+  it("404 se il job non esiste", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/backlog/jobs/${crypto.randomUUID()}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("400 se jobId non è un uuid", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/backlog/jobs/non-un-uuid",
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(400);
   });
 });
 

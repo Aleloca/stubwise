@@ -2,6 +2,7 @@ import {
   backlogCodeSessionStatusSchema,
   backlogItemSourceSchema,
   backlogItemStatusSchema,
+  backlogJobStatusSchema,
   backlogRiskSchema,
   backlogSuggestedSchema,
   backlogUrgencySchema,
@@ -576,6 +577,44 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
+  // Stato di un job intake per il polling del server MCP: dato il jobId (Task
+  // B3 lo ritorna dal POST /), restituisce status + resultItemId + error. Il
+  // client MCP fa polling finché `status` è `done`, poi legge `resultItemId`
+  // per scrivere il riferimento all'item creato. requireAuth basta: espone solo
+  // metadati di coda, non dati sensibili. Registrata PRIMA di `/:id` per
+  // fugare ogni dubbio di shadowing (in Fastify le due profondità non
+  // collidono comunque: `/jobs/:jobId` è a due segmenti, `/:id` a uno).
+  app.get(
+    "/jobs/:jobId",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: z.object({ jobId: z.uuid() }),
+        response: {
+          200: z.object({
+            status: backlogJobStatusSchema,
+            resultItemId: z.uuid().nullable(),
+            error: z.string().nullable(),
+          }),
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const [job] = await app.db
+        .select({
+          status: backlogJobs.status,
+          resultItemId: backlogJobs.resultItemId,
+          error: backlogJobs.error,
+        })
+        .from(backlogJobs)
+        .where(eq(backlogJobs.id, request.params.jobId));
+      if (!job) return apiError(reply, 404, "job_not_found", "Job not found");
+      return { status: job.status, resultItemId: job.resultItemId, error: job.error };
+    },
+  );
+
   app.get(
     "/:id",
     {
@@ -717,7 +756,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       schema: {
         body: createBacklogItemSchema,
         response: {
-          202: z.object({ queued: z.literal(true) }),
+          202: z.object({ queued: z.literal(true), jobId: z.uuid() }),
           404: errorSchema,
           ...authErrorResponses,
         },
@@ -731,10 +770,11 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         .where(eq(projects.id, projectId));
       if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
 
-      await app.db
+      const [job] = await app.db
         .insert(backlogJobs)
-        .values({ projectId, kind: "intake", payload: { title, body } });
-      return reply.code(202).send({ queued: true });
+        .values({ projectId, kind: "intake", payload: { title, body } })
+        .returning({ id: backlogJobs.id });
+      return reply.code(202).send({ queued: true, jobId: job!.id });
     },
   );
 

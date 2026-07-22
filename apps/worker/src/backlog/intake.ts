@@ -2,6 +2,7 @@ import {
   backlogChatMessages,
   backlogItems,
   backlogItemTickets,
+  backlogJobs,
   comments,
   retrieveChunksForProject,
   tickets,
@@ -169,6 +170,7 @@ function outputOrThrow(result: AgentRunResult, phase: string): string {
  */
 async function mergeIntoItem(
   deps: BacklogDeps,
+  jobId: string,
   item: BestMatch,
   input: { title: string; body: string },
   ticket: OriginTicket | null,
@@ -202,6 +204,9 @@ async function mergeIntoItem(
         : t(lang, "backlog.mergedManual"),
     });
     if (ticket) await closeOriginTicket(tx, ticket, item.id, item.title, lang);
+    // Auto-merge: il job punta alla voce CANONICA in cui il feedback è confluito
+    // (lo stesso id usato per il link del ticket), così jobId → itemId è coerente.
+    await tx.update(backlogJobs).set({ resultItemId: item.id }).where(eq(backlogJobs.id, jobId));
   });
 }
 
@@ -213,6 +218,7 @@ async function mergeIntoItem(
  */
 async function createNewItem(
   deps: BacklogDeps,
+  jobId: string,
   projectId: string,
   input: { title: string; body: string },
   vec: number[],
@@ -270,6 +276,9 @@ async function createNewItem(
       .returning({ id: backlogItems.id, title: backlogItems.title });
     const item = inserted!;
     if (ticket) await closeOriginTicket(tx, ticket, item.id, item.title, lang);
+    // Collega il job alla voce appena creata (jobId → itemId), nella stessa
+    // transazione dell'insert: item e link committano insieme (atomicità).
+    await tx.update(backlogJobs).set({ resultItemId: item.id }).where(eq(backlogJobs.id, jobId));
   });
 }
 
@@ -359,8 +368,8 @@ export async function runIntake(
 
   // 4/5. Merge sopra soglia, altrimenti nuova voce.
   if (best && best.similarity >= deps.mergeThreshold) {
-    await mergeIntoItem(deps, best, input, ticket, lang, provider);
+    await mergeIntoItem(deps, job.id, best, input, ticket, lang, provider);
   } else {
-    await createNewItem(deps, projectId, input, vec, best, ticket, lang, provider);
+    await createNewItem(deps, job.id, projectId, input, vec, best, ticket, lang, provider);
   }
 }

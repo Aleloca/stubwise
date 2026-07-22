@@ -1,7 +1,7 @@
 import { checkTypeSchema, type CheckType } from "@stubwise/shared";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useRef, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
   ApiError,
@@ -18,6 +18,7 @@ import {
   type ServerWithKey,
 } from "../../lib/api";
 import { serverKeys } from "../../lib/queries";
+import { useCopyWithFallback } from "../../lib/use-copy-with-fallback";
 import { FormError, SelectField, SubmitButton, TextField } from "../../components/field";
 import { Drawer } from "../../components/drawer";
 
@@ -130,39 +131,8 @@ export function NewServerForm({
 export function KeyPanel({ server, onClose }: { server: ServerWithKey; onClose: () => void }) {
   const { t } = useTranslation();
   const command = dockerRunCommand(server.key);
-  const [copied, setCopied] = useState(false);
-  const [manualHint, setManualHint] = useState(false);
+  const { copied, manualHint, copy, targetRef } = useCopyWithFallback(command);
   const [dockerOpen, setDockerOpen] = useState(false);
-  const preRef = useRef<HTMLPreElement>(null);
-
-  /** Seleziona il testo del comando (fallback quando la copia automatica manca). */
-  function selectCommand() {
-    const node = preRef.current;
-    const selection = window.getSelection();
-    if (!node || !selection) return;
-    const range = document.createRange();
-    range.selectNodeContents(node);
-    selection.removeAllRanges();
-    selection.addRange(range);
-  }
-
-  async function copy() {
-    // Clipboard API assente: writeText su undefined non lancerebbe con
-    // l'optional chaining e "Copiato" mentirebbe su una chiave one-shot.
-    if (!navigator.clipboard) {
-      selectCommand();
-      setManualHint(true);
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(command);
-      setCopied(true);
-    } catch {
-      // writeText rifiutata (permessi): stesso fallback manuale.
-      selectCommand();
-      setManualHint(true);
-    }
-  }
 
   return (
     <Drawer
@@ -184,7 +154,7 @@ export function KeyPanel({ server, onClose }: { server: ServerWithKey; onClose: 
           {/* Chiave one-shot: comando completo + avviso ambra + copia. */}
           <div className="space-y-3">
             <pre
-              ref={preRef}
+              ref={targetRef}
               className="overflow-x-auto rounded-sm border border-line-strong bg-ink-950/70 px-3 py-3 font-mono text-[12px] leading-relaxed whitespace-pre text-fg"
             >
               {command}

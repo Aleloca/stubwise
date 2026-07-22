@@ -42,6 +42,7 @@ import { projectDocsRoutes } from "./routes/project-docs.js";
 import { projectEnvFileRoutes } from "./routes/project-env-files.js";
 import { projectRoutes } from "./routes/projects.js";
 import { repositoryRoutes } from "./routes/repositories.js";
+import { patRoutes } from "./routes/pat.js";
 import { serverRoutes } from "./routes/servers.js";
 import { serverCheckRoutes } from "./routes/servers-checks.js";
 import { savedViewRoutes } from "./routes/saved-views.js";
@@ -403,6 +404,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Download e delete per id di allegato, non vincolati al path del ticket.
   void app.register(attachmentRoutes, { prefix: "/api/attachments" });
   void app.register(userRoutes, { prefix: "/api/users" });
+  // Personal Access Token per-utente (auth m2m, es. Claude Code / MCP): CRUD dei
+  // propri token, con token in chiaro mostrato una sola volta alla creazione.
+  void app.register(patRoutes, { prefix: "/api/pats" });
   // Impostazioni di automazione AI (regole per tipo): solo admin.
   void app.register(settingsRoutes, { prefix: "/api/settings" });
   // Provider AI (credenziali del worker, secret cifrata write-only): solo admin.

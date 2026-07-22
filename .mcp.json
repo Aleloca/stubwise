@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "stubwise": {
+      "command": "node",
+      "args": ["./packages/mcp/dist/index.js"],
+      "env": {
+        "STUBWISE_TOKEN": "${STUBWISE_TOKEN}",
+        "STUBWISE_URL": "${STUBWISE_URL}"
+      }
+    }
+  }
+}

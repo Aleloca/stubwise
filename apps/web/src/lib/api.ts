@@ -11,6 +11,8 @@ import type {
   DiscoveredService,
   GitProviderKind,
   Language,
+  PatView,
+  PatWithToken,
   PrState,
   RecordSearchHistoryBody,
   SearchDocsSemanticResults,
@@ -30,7 +32,7 @@ import type {
   WidgetUpsertBody,
 } from "@stubwise/shared";
 
-export type { PrState, WidgetSettings, WidgetUpsertBody } from "@stubwise/shared";
+export type { PatView, PatWithToken, PrState, WidgetSettings, WidgetUpsertBody } from "@stubwise/shared";
 // Ri-esportata dal binding locale (usata anche nelle interfacce del backlog qui
 // sotto): i consumatori la importano da "./api" come gli altri tipi di dominio.
 export type { BacklogSuggested };
@@ -168,6 +170,32 @@ export function postLogout(): Promise<void> {
  */
 export function patchMyLanguage(language: Language): Promise<{ language: Language }> {
   return api.patch("/api/auth/me", { language });
+}
+
+// --- Personal Access Tokens ---
+
+/**
+ * Personal Access Token dell'utente corrente (proiezione senza il segreto):
+ * elencati in Impostazioni → Token. Il token in chiaro (`stw_pat_…`) esiste solo
+ * nella risposta di creazione ({@link PatWithToken}), mai qui. Isolamento
+ * per-utente: il server ricava sempre l'id dalla sessione.
+ */
+export function listPats(): Promise<PatView[]> {
+  return api.get("/api/pats");
+}
+
+/**
+ * Crea un PAT: la risposta include il token in chiaro, mostrato una sola volta.
+ * `expiresAt` è una data ISO nel futuro oppure null (nessuna scadenza). Una
+ * scadenza nel passato → 400 dal server.
+ */
+export function createPat(name: string, expiresAt: string | null): Promise<PatWithToken> {
+  return api.post("/api/pats", { name, expiresAt });
+}
+
+/** Revoca un PAT dell'utente corrente: 204 (404 se non è suo). */
+export function deletePat(id: string): Promise<void> {
+  return request("DELETE", `/api/pats/${encodeURIComponent(id)}`);
 }
 
 export interface Invite {
