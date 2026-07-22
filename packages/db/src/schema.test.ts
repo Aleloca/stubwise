@@ -23,6 +23,7 @@ import {
   invites,
   milestones,
   notificationSettings,
+  personalAccessTokens,
   projectEnvFiles,
   projectEnvVars,
   projects,
@@ -1075,6 +1076,38 @@ describe("schema: saved_views", () => {
 
     const after = await db.select().from(savedViews).where(eq(savedViews.ownerId, ownerId));
     expect(after.length).toBe(0);
+  });
+});
+
+/**
+ * Verifica la tabella personal_access_tokens: persistenza di un token per un
+ * utente (round-trip del tokenHash, default null di lastUsedAt/expiresAt).
+ */
+describe("schema: personal_access_tokens", () => {
+  let testDb: TestDb;
+  let db: Db;
+
+  beforeAll(async () => {
+    testDb = await startTestDb();
+    db = testDb.db;
+  });
+
+  afterAll(async () => {
+    await testDb.stop();
+  });
+
+  it("persiste e rilegge un personal access token", async () => {
+    const [user] = await db
+      .insert(users)
+      .values({ email: `pat-${randomUUID()}@example.com`, passwordHash: "x", role: "member" })
+      .returning();
+    const [pat] = await db
+      .insert(personalAccessTokens)
+      .values({ userId: user!.id, name: "laptop", tokenHash: `deadbeef-${randomUUID()}` })
+      .returning();
+    expect(pat!.tokenHash).toContain("deadbeef");
+    expect(pat!.lastUsedAt).toBeNull();
+    expect(pat!.expiresAt).toBeNull();
   });
 });
 

@@ -271,6 +271,28 @@ export const sessions = pgTable(
 );
 
 /**
+ * Personal Access Token: autentica l'API di Stubwise senza cookie di sessione
+ * (es. Claude Code / MCP). Si salva solo lo sha256 hex del token in chiaro
+ * `stw_pat_…` (mostrato una sola volta alla creazione), mai il token stesso.
+ */
+export const personalAccessTokens = pgTable(
+  "personal_access_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    tokenHash: text("token_hash").notNull().unique(), // sha256 hex del token stw_pat_…
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  // Lookup dei token di un utente (lista/revoca in UI) + pulizia in cascata.
+  (table) => [index("personal_access_tokens_user_id_idx").on(table.userId)],
+);
+
+/**
  * Account git riutilizzabile: contiene le credenziali (cifrate AES-256-GCM)
  * di accesso a un provider, slegate dal singolo progetto. Un account può
  * essere usato da più progetti; il worker e la configurazione webhook leggono
