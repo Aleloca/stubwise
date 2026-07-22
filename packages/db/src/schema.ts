@@ -272,8 +272,9 @@ export const sessions = pgTable(
 
 /**
  * Personal Access Token: autentica l'API di Stubwise senza cookie di sessione
- * (es. Claude Code / MCP). Si salva solo lo sha256 hex del token in chiaro
- * `stw_pat_…` (mostrato una sola volta alla creazione), mai il token stesso.
+ * (es. Claude Code / MCP). Il token in chiaro `stw_pat_…` è mostrato una sola
+ * volta alla creazione e NON viene mai persistito: qui si salva soltanto il suo
+ * sha256 (hex), usato per il confronto ad ogni richiesta.
  */
 export const personalAccessTokens = pgTable(
   "personal_access_tokens",
@@ -283,7 +284,7 @@ export const personalAccessTokens = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
-    tokenHash: text("token_hash").notNull().unique(), // sha256 hex del token stw_pat_…
+    tokenHash: text("token_hash").notNull().unique(),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

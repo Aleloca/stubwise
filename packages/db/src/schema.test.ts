@@ -1109,6 +1109,37 @@ describe("schema: personal_access_tokens", () => {
     expect(pat!.lastUsedAt).toBeNull();
     expect(pat!.expiresAt).toBeNull();
   });
+
+  it("tokenHash è unique tra token diversi", async () => {
+    const [user] = await db
+      .insert(users)
+      .values({ email: `pat-${randomUUID()}@example.com`, passwordHash: "x", role: "member" })
+      .returning();
+    const tokenHash = `sha256-${randomUUID()}`;
+    await db.insert(personalAccessTokens).values({ userId: user!.id, name: "primo", tokenHash });
+
+    // Stesso sha256 → viola l'unique (un hash mappa a un solo token).
+    await expect(
+      db.insert(personalAccessTokens).values({ userId: user!.id, name: "duplicato", tokenHash }),
+    ).rejects.toThrow();
+  });
+
+  it("cascade su delete user: i token dell'utente spariscono", async () => {
+    const [user] = await db
+      .insert(users)
+      .values({ email: `pat-${randomUUID()}@example.com`, passwordHash: "x", role: "member" })
+      .returning();
+    await db
+      .insert(personalAccessTokens)
+      .values({ userId: user!.id, name: "laptop", tokenHash: `sha256-${randomUUID()}` });
+
+    await db.delete(users).where(eq(users.id, user!.id));
+    const rows = await db
+      .select()
+      .from(personalAccessTokens)
+      .where(eq(personalAccessTokens.userId, user!.id));
+    expect(rows).toHaveLength(0);
+  });
 });
 
 /**
