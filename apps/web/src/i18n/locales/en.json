@@ -334,6 +334,9 @@
     },
     "detail": {
       "back": "← All tickets",
+      "copyMd": "Copy .md",
+      "copied": "Copied!",
+      "downloadMd": "Download .md",
       "effortTitle": "AI triage effort estimate",
       "effort": "Effort: {{label}} ({{value}}/5)",
       "occurrences": "Deduplicated occurrences",

@@ -595,6 +595,28 @@ describe("dettaglio ticket", () => {
     expect(within(header).getByText("×12")).toBeInTheDocument();
   });
 
+  it("export .md: copia negli appunti frontmatter + corpo del ticket", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    mockDetailApi();
+    renderDetail();
+
+    await screen.findByRole("heading", { name: "TypeError al checkout" });
+    await userEvent.click(screen.getByRole("button", { name: "Copy .md" }));
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    const md = writeText.mock.calls[0]![0] as string;
+    expect(md).toContain('ticket: "#7"');
+    expect(md).toContain('title: "TypeError al checkout"');
+    expect(md).toContain("type: bug");
+    expect(md).toContain("status: open");
+    expect(md).toContain("priority: high");
+    // Il corpo del ticket è incluso dopo il frontmatter.
+    expect(md).toContain("Il bottone **Paga ora** lancia un'eccezione.");
+    // Feedback "Copied!" dopo la copia.
+    expect(await screen.findByRole("button", { name: "Copied!" })).toBeInTheDocument();
+  });
+
   it("sezione Repository/PR: elenca repo, stato PR e link alla PR (fix eseguito)", async () => {
     mockDetailApi({ ticket: { ...ticketFixture, repositories: ticketRepositoriesFixture } });
     renderDetail();

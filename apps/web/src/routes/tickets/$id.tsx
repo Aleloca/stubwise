@@ -11,6 +11,7 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityFeed } from "../../components/activity-feed";
 import { AIJobTimeline } from "../../components/ai-job-timeline";
@@ -97,6 +98,68 @@ export function TicketDetailPage() {
   const milestoneNames = new Map(milestones.map((milestone) => [milestone.id, milestone.name]));
   const currentMilestoneName =
     ticket.milestoneId !== null ? milestoneNames.get(ticket.milestoneId) : undefined;
+
+  // Export del ticket in markdown (frontmatter + corpo), da copiare/scaricare per
+  // darlo in pasto a un agente locale. Stesso pattern dell'export del backlog:
+  // i valori stringa liberi passano da JSON.stringify (":"/caratteri speciali
+  // romperebbero lo YAML se interpolati nudi; JSON è un sottoinsieme di YAML).
+  const [copiedMd, setCopiedMd] = useState(false);
+
+  function exportMarkdown(): string {
+    const front = [
+      "---",
+      `ticket: "#${ticket.number}"`,
+      `title: ${JSON.stringify(ticket.title)}`,
+      `type: ${ticket.type}`,
+      `status: ${ticket.status}`,
+      `priority: ${ticket.priority}`,
+      `effort: ${ticket.effort ?? "-"}`,
+      `project: ${JSON.stringify(projectName)}`,
+      `milestone: ${currentMilestoneName ? JSON.stringify(currentMilestoneName) : "-"}`,
+      `assignee: ${assignee ? JSON.stringify(assignee.email) : "-"}`,
+      `labels: ${ticket.labels.length > 0 ? JSON.stringify(ticket.labels.join(", ")) : "-"}`,
+      `source: ${ticket.source}`,
+      "---",
+      "",
+      `# #${ticket.number} ${ticket.title}`,
+      "",
+      ticket.body.trim() === "" ? "_(nessuna descrizione)_" : ticket.body,
+    ].join("\n");
+    return front;
+  }
+
+  function slugifyTicket(): string {
+    const slug = ticket.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    return `ticket-${ticket.number}${slug ? `-${slug}` : ""}`;
+  }
+
+  async function copyMarkdown() {
+    try {
+      await navigator.clipboard?.writeText(exportMarkdown());
+      setCopiedMd(true);
+      setTimeout(() => setCopiedMd(false), 2000);
+    } catch {
+      // Clipboard non disponibile/negata: nessun crash, il download resta.
+    }
+  }
+
+  function downloadMarkdown() {
+    const blob = new Blob([exportMarkdown()], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${slugifyTicket()}.md`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  const exportButtonClass =
+    "rounded-sm border border-line-strong px-2.5 py-1 font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:text-fg";
 
   const patchMutation = useMutation({
     mutationFn: (patch: TicketPatch) => patchTicket(id, patch),
@@ -199,9 +262,19 @@ export function TicketDetailPage() {
       </Link>
 
       <header className="mt-3 border-b border-line pb-5">
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <span className="font-mono text-lg text-signal">#{ticket.number}</span>
-          <h1 className="text-xl font-semibold">{ticket.title}</h1>
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+            <span className="font-mono text-lg text-signal">#{ticket.number}</span>
+            <h1 className="text-xl font-semibold">{ticket.title}</h1>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <button type="button" onClick={() => void copyMarkdown()} className={exportButtonClass}>
+              {copiedMd ? t("tickets:detail.copied") : t("tickets:detail.copyMd")}
+            </button>
+            <button type="button" onClick={downloadMarkdown} className={exportButtonClass}>
+              {t("tickets:detail.downloadMd")}
+            </button>
+          </div>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5">
           <StatusBadge status={ticket.status} />

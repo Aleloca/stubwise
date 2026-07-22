@@ -334,6 +334,9 @@
     },
     "detail": {
       "back": "← Tutti i ticket",
+      "copyMd": "Copia .md",
+      "copied": "Copiato!",
+      "downloadMd": "Scarica .md",
       "effortTitle": "Stima di sforzo del triage AI",
       "effort": "Effort: {{label}} ({{value}}/5)",
       "occurrences": "Occorrenze deduplicate",
