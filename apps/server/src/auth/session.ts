@@ -1,15 +1,21 @@
-import { createHash, randomBytes } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { randomBytes } from "node:crypto";
+import { and, eq, isNull, lt, or } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Db } from "@stubwise/db";
 import { personalAccessTokens, sessions, users } from "@stubwise/db";
 import type { Language } from "@stubwise/shared";
 import { apiError } from "../errors.js";
-
-/** Prefisso dei Personal Access Token (vedi generatePat in routes/shared.ts). */
-const PAT_PREFIX = "stw_pat_";
+import { hashServerKey, PAT_PREFIX } from "../routes/shared.js";
 
 export const SESSION_COOKIE = "stubwise_session";
+
+/**
+ * Finestra di debounce dell'update di `lastUsedAt`: si riscrive la colonna solo
+ * se è null o più vecchia di questo intervallo. Evita la contesa sulla riga (e
+ * l'amplificazione del WAL) quando un client MCP fa fan-out parallelo di
+ * richieste con lo stesso PAT.
+ */
+const LAST_USED_DEBOUNCE_MS = 5 * 60 * 1000;
 
 /** Durata della sessione: 30 giorni. */
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -107,7 +113,8 @@ export function sessionIdFromRequest(request: FastifyRequest): string | null {
  * ad alcun token o è scaduto. La verifica è una lookup sull'hash sha256 del
  * token nella colonna unique `token_hash` (stesso schema delle server key in
  * monitor.ts: nessun confronto in tempo variabile a riposo). Aggiorna
- * `lastUsedAt` best-effort (un errore di update non fa fallire l'auth). Il
+ * `lastUsedAt` best-effort e con debounce (solo se null o più vecchio di
+ * {@link LAST_USED_DEBOUNCE_MS}; un errore di update non fa fallire l'auth). Il
  * SessionUser prodotto è identico a quello di findSessionUser: il PAT eredita
  * i permessi dell'utente.
  */
@@ -116,10 +123,10 @@ export async function findPatUser(
   authorization: string | undefined,
 ): Promise<SessionUser | null> {
   if (!authorization) return null;
-  const match = /^Bearer\s+(.+)$/.exec(authorization);
+  const match = /^Bearer\s+(.+)$/i.exec(authorization);
   const token = match?.[1];
   if (!token || !token.startsWith(PAT_PREFIX)) return null;
-  const tokenHash = createHash("sha256").update(token).digest("hex");
+  const tokenHash = hashServerKey(token);
   const [row] = await db
     .select({
       patId: personalAccessTokens.id,
@@ -139,7 +146,15 @@ export async function findPatUser(
   await db
     .update(personalAccessTokens)
     .set({ lastUsedAt: new Date() })
-    .where(eq(personalAccessTokens.id, row.patId))
+    .where(
+      and(
+        eq(personalAccessTokens.id, row.patId),
+        or(
+          isNull(personalAccessTokens.lastUsedAt),
+          lt(personalAccessTokens.lastUsedAt, new Date(Date.now() - LAST_USED_DEBOUNCE_MS)),
+        ),
+      ),
+    )
     .catch(() => undefined);
   return {
     id: row.id,

@@ -22,9 +22,12 @@ export function generateServerKey(): string {
   return `sk_${randomBytes(24).toString("hex")}`;
 }
 
-/** Personal Access Token: `stw_pat_` + 24 byte esadecimali. In DB si salva solo hashServerKey(token). */
+/** Prefisso dei Personal Access Token: unica fonte di verità, usata anche in auth/session.ts. */
+export const PAT_PREFIX = "stw_pat_";
+
+/** Personal Access Token: {@link PAT_PREFIX} + 24 byte esadecimali. In DB si salva solo hashServerKey(token). */
 export function generatePat(): string {
-  return `stw_pat_${randomBytes(24).toString("hex")}`;
+  return `${PAT_PREFIX}${randomBytes(24).toString("hex")}`;
 }
 
 /**
