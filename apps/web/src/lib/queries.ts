@@ -12,6 +12,7 @@ import {
   getInvites,
   getNotificationSettings,
   getObservedAuthors,
+  listPats,
   getProject,
   getProjects,
   getRepositories,
@@ -236,6 +237,17 @@ export const usersQueryOptions = queryOptions({
 export const invitesQueryOptions = queryOptions({
   queryKey: ["team", "invites"],
   queryFn: getInvites,
+  staleTime: 30_000,
+});
+
+/**
+ * Personal Access Token dell'utente corrente (Impostazioni → Token). Isolamento
+ * per-utente lato server; niente refetch periodico (la lista cambia solo su
+ * azione dell'utente, che invalida la chiave).
+ */
+export const patsQueryOptions = queryOptions({
+  queryKey: ["pats"],
+  queryFn: listPats,
   staleTime: 30_000,
 });
 

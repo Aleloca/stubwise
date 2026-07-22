@@ -28,6 +28,7 @@ import {
   invitesQueryOptions,
   milestonesQueryOptions,
   notificationSettingsQueryOptions,
+  patsQueryOptions,
   projectDocSpacesQueryOptions,
   projectQueryOptions,
   projectsQueryOptions,
@@ -72,6 +73,7 @@ import { RepositoriesListPage } from "./routes/repositories/index";
 import { NewRepositoryPage } from "./routes/repositories/new";
 import { NewRepositoryStandalonePage } from "./routes/repositories/new-standalone";
 import { registerSearchSchema, RegisterPage } from "./routes/register";
+import { SettingsAccessTokensPage } from "./routes/settings/access-tokens";
 import { SettingsAccountPage } from "./routes/settings/account";
 import { SettingsAiProvidersPage } from "./routes/settings/ai-providers";
 import { SettingsAutomationPage } from "./routes/settings/automation";
@@ -551,6 +553,20 @@ const settingsAccountRoute = createRoute({
 });
 
 /**
+ * Token di accesso personali (per-utente): visibile a tutti, niente
+ * `requireAdmin`. Prefetch best-effort della lista prima del render, così la
+ * `useSuspenseQuery` del componente non attende; un errore non blocca la pagina.
+ */
+const settingsAccessTokensRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/access-tokens",
+  loader: async ({ context }) => {
+    await context.queryClient.ensureQueryData(patsQueryOptions).catch(() => undefined);
+  },
+  component: SettingsAccessTokensPage,
+});
+
+/**
  * Guardia comune alle sotto-rotte admin: un member che digita l'URL viene
  * rimandato ad Account invece di montare una sezione che il server rifiuterebbe.
  */
@@ -659,6 +675,7 @@ const routeTree = rootRoute.addChildren([
     settingsRoute.addChildren([
       settingsIndexRoute,
       settingsAccountRoute,
+      settingsAccessTokensRoute,
       settingsAutomationRoute,
       settingsNotificationsRoute,
       settingsUsageRoute,
