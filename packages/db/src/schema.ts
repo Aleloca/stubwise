@@ -2112,6 +2112,11 @@ export const backlogJobs = pgTable(
     payload: jsonb("payload").$type<BacklogJobPayload>().notNull(),
     attempts: integer("attempts").notNull().default(0),
     error: text("error"),
+    // itemId prodotto dall'intake (o item su cui è avvenuto l'auto-merge). Null
+    // finché il job non è done; set null se l'item viene poi cancellato.
+    resultItemId: uuid("result_item_id").references(() => backlogItems.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     startedAt: timestamp("started_at", { withTimezone: true }),
     finishedAt: timestamp("finished_at", { withTimezone: true }),

@@ -1,0 +1,2 @@
+ALTER TABLE "backlog_jobs" ADD COLUMN "result_item_id" uuid;--> statement-breakpoint
+ALTER TABLE "backlog_jobs" ADD CONSTRAINT "backlog_jobs_result_item_id_backlog_items_id_fk" FOREIGN KEY ("result_item_id") REFERENCES "public"."backlog_items"("id") ON DELETE set null ON UPDATE no action;
