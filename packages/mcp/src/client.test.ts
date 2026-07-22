@@ -9,6 +9,31 @@ const CONFIG: StubwiseConfig = {
   projectSlug: null,
 };
 
+// UUID validi per i mock: gli schemi di validazione runtime usano z.uuid(), quindi
+// jobId/resultItemId/ticketId nelle risposte finte devono essere UUID veri.
+const JOB_ID = "11111111-1111-4111-8111-111111111111";
+const ITEM_ID = "22222222-2222-4222-8222-222222222222";
+const TICKET_ID = "33333333-3333-4333-8333-333333333333";
+
+/** Costruisce un progetto pubblico completo (forma reale di GET /api/projects). */
+function makeProject(over: { id: string; slug: string; name: string }): Record<string, unknown> {
+  return {
+    id: over.id,
+    name: over.name,
+    slug: over.slug,
+    description: null,
+    aiProviderId: null,
+    docAutoUpdate: false,
+    dailyReportEnabled: false,
+    backlogEnabled: false,
+    ingestionKey: "ingest_key",
+    nextTicketNumber: 1,
+    createdAt: "2026-07-22T00:00:00.000Z",
+    // Campo extra reale della lista: deve essere ignorato dalla validazione.
+    repositoryCount: 0,
+  };
+}
+
 /** Costruisce una Response finta con corpo JSON. */
 function jsonResponse(body: unknown, init: { status?: number } = {}): Response {
   const status = init.status ?? 200;
@@ -25,7 +50,7 @@ function makeClient(fetchMock: ReturnType<typeof vi.fn>) {
 
 describe("StubwiseClient", () => {
   it("invia l'header Authorization Bearer e content-type sul body", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ queued: true, jobId: "job-1" }));
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ queued: true, jobId: JOB_ID }));
     const client = makeClient(fetchMock);
 
     await client.createBacklogItem({ projectId: "p1", title: "T", body: "B" });
@@ -39,11 +64,25 @@ describe("StubwiseClient", () => {
   });
 
   it("createBacklogItem ritorna il jobId", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ queued: true, jobId: "job-42" }));
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ queued: true, jobId: JOB_ID }));
     const client = makeClient(fetchMock);
 
     const result = await client.createBacklogItem({ projectId: "p1", title: "T", body: "B" });
-    expect(result).toEqual({ queued: true, jobId: "job-42" });
+    expect(result).toEqual({ queued: true, jobId: JOB_ID });
+  });
+
+  it("createBacklogItem lancia invalid_response su risposta malformata", async () => {
+    // jobId assente: la validazione runtime deve trasformarlo in errore parlante.
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ queued: true }));
+    const client = makeClient(fetchMock);
+
+    const err = await client
+      .createBacklogItem({ projectId: "p1", title: "T", body: "B" })
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(StubwiseApiError);
+    expect(err.code).toBe("invalid_response");
+    expect(err.status).toBe(0);
+    expect(err.message).toContain("Risposta inattesa");
   });
 
   it("costruisce URL e query string omettendo i filtri undefined", async () => {
@@ -145,15 +184,17 @@ describe("StubwiseClient", () => {
   });
 
   it("getProjectBySlug filtra per slug e cacha la lista", async () => {
+    const idA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const idB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
     const projects = [
-      { id: "id-a", slug: "alpha", name: "Alpha" },
-      { id: "id-b", slug: "beta", name: "Beta" },
+      makeProject({ id: idA, slug: "alpha", name: "Alpha" }),
+      makeProject({ id: idB, slug: "beta", name: "Beta" }),
     ];
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(projects));
     const client = makeClient(fetchMock);
 
     const found = await client.getProjectBySlug("beta");
-    expect(found?.id).toBe("id-b");
+    expect(found?.id).toBe(idB);
 
     const missing = await client.getProjectBySlug("gamma");
     expect(missing).toBeNull();
@@ -165,13 +206,44 @@ describe("StubwiseClient", () => {
   it("getBacklogJob legge lo stato del job", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValue(jsonResponse({ status: "done", resultItemId: "item-9", error: null }));
+      .mockResolvedValue(jsonResponse({ status: "done", resultItemId: ITEM_ID, error: null }));
     const client = makeClient(fetchMock);
 
-    const job = await client.getBacklogJob("job-1");
-    expect(job).toEqual({ status: "done", resultItemId: "item-9", error: null });
+    const job = await client.getBacklogJob(JOB_ID);
+    expect(job).toEqual({ status: "done", resultItemId: ITEM_ID, error: null });
     expect(fetchMock.mock.calls[0]![0]).toBe(
-      "https://stubwise.example.com/api/backlog/jobs/job-1",
+      `https://stubwise.example.com/api/backlog/jobs/${JOB_ID}`,
     );
+  });
+
+  it("getBacklogJob lancia invalid_response su status sconosciuto", async () => {
+    // status fuori dall'enum backlogJobStatusSchema: errore di validazione chiaro.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ status: "boom", resultItemId: null, error: null }));
+    const client = makeClient(fetchMock);
+
+    const err = await client.getBacklogJob(JOB_ID).catch((e) => e);
+    expect(err).toBeInstanceOf(StubwiseApiError);
+    expect(err.code).toBe("invalid_response");
+    expect(err.status).toBe(0);
+    expect(err.message).toContain("lo stato del job");
+  });
+
+  it("convertBacklogToTicket valida ticketId/ticketNumber", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ ticketId: TICKET_ID, ticketNumber: 7 }));
+    const client = makeClient(fetchMock);
+
+    const result = await client.convertBacklogToTicket(ITEM_ID);
+    expect(result).toEqual({ ticketId: TICKET_ID, ticketNumber: 7 });
+
+    const bad = vi.fn().mockResolvedValue(jsonResponse({ ticketId: TICKET_ID }));
+    const err = await makeClient(bad)
+      .convertBacklogToTicket(ITEM_ID)
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(StubwiseApiError);
+    expect(err.code).toBe("invalid_response");
   });
 });

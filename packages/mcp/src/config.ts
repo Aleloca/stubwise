@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, parse as parsePath } from "node:path";
 import { z } from "zod";
 
@@ -28,6 +28,14 @@ export interface LoadConfigOptions {
 const DEFAULT_BASE_URL = "http://localhost:3000";
 
 const STUBWISE_FILE = ".stubwise.json";
+
+/**
+ * Cap difensivo sulla dimensione di `.stubwise.json`: il file è un banale
+ * `{ "project": "slug" }`, mai grande. Un file patologico (o un symlink verso
+ * qualcosa di enorme) verrebbe altrimenti letto per intero in memoria. Oltre
+ * questa soglia lo ignoriamo (best-effort, non fatale).
+ */
+const MAX_STUBWISE_FILE_BYTES = 64 * 1024;
 
 /** Forma attesa di `.stubwise.json`. Campi estranei ignorati (non `.strict()`). */
 const stubwiseFileSchema = z.object({ project: z.string().min(1) });
@@ -60,6 +68,21 @@ function findStubwiseFile(cwd: string): string | null {
 function readProjectSlug(cwd: string): string | null {
   const filePath = findStubwiseFile(cwd);
   if (!filePath) return null;
+
+  // Cap difensivo sulla dimensione PRIMA di leggere: evita di caricare in
+  // memoria un file patologico. statSync che fallisce non è fatale: proseguiamo
+  // e lasciamo che sia readFileSync a segnalare l'eventuale errore.
+  try {
+    const size = statSync(filePath).size;
+    if (size > MAX_STUBWISE_FILE_BYTES) {
+      process.stderr.write(
+        `stubwise-mcp: ${filePath} troppo grande (${size} byte > ${MAX_STUBWISE_FILE_BYTES}), ignoro il progetto di default\n`,
+      );
+      return null;
+    }
+  } catch {
+    // Ignora: la readFileSync sotto riproverà e riporterà l'errore vero.
+  }
 
   let raw: string;
   try {
@@ -103,6 +126,14 @@ function stripTrailingSlash(url: string): string {
  */
 export function loadConfig({ cwd, env }: LoadConfigOptions): StubwiseConfig {
   const baseUrl = stripTrailingSlash(env.STUBWISE_URL?.trim() || DEFAULT_BASE_URL);
+
+  // Valida SUBITO che baseUrl sia un URL ben formato: un valore rotto darebbe
+  // altrimenti un TypeError oscuro molto più a valle, dentro fetch.
+  try {
+    new URL(baseUrl);
+  } catch {
+    throw new Error(`STUBWISE_URL non è un URL valido: ${baseUrl}`);
+  }
 
   const token = env.STUBWISE_TOKEN?.trim();
   if (!token) {

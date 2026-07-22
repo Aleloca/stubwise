@@ -30,6 +30,15 @@ describe("loadConfig", () => {
     expect(config.baseUrl).toBe("https://stubwise.example.com");
   });
 
+  it("lancia un errore chiaro quando STUBWISE_URL non è un URL valido", () => {
+    expect(() =>
+      loadConfig({
+        cwd: dir,
+        env: { STUBWISE_TOKEN: "stw_pat_abc", STUBWISE_URL: "non e un url" },
+      }),
+    ).toThrow(/STUBWISE_URL non è un URL valido/);
+  });
+
   it("lancia un errore chiaro quando STUBWISE_TOKEN manca", () => {
     expect(() => loadConfig({ cwd: dir, env: {} })).toThrow(/STUBWISE_TOKEN non impostato/);
   });
@@ -72,5 +81,15 @@ describe("loadConfig", () => {
     writeFileSync(join(dir, ".stubwise.json"), JSON.stringify({ foo: "bar" }));
     const config = loadConfig({ cwd: dir, env: { STUBWISE_TOKEN: "stw_pat_abc" } });
     expect(config.projectSlug).toBeNull();
+  });
+
+  it("ignora (senza leggerlo) un .stubwise.json oltre il cap di dimensione", () => {
+    const warn = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    // Oltre 64KB: JSON valido con campo project ma volutamente enorme.
+    const padding = "x".repeat(70 * 1024);
+    writeFileSync(join(dir, ".stubwise.json"), JSON.stringify({ project: "big", padding }));
+    const config = loadConfig({ cwd: dir, env: { STUBWISE_TOKEN: "stw_pat_abc" } });
+    expect(config.projectSlug).toBeNull();
+    expect(warn).toHaveBeenCalled();
   });
 });

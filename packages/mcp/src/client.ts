@@ -1,3 +1,4 @@
+import { backlogJobStatusSchema, projectSchema } from "@stubwise/shared";
 import type {
   BacklogItemStatus,
   Project,
@@ -5,6 +6,7 @@ import type {
   TicketStatus,
   TicketType,
 } from "@stubwise/shared";
+import { z } from "zod";
 
 import type { StubwiseConfig } from "./config.js";
 
@@ -50,14 +52,39 @@ export interface Ticket {
   updatedAt: string;
 }
 
-/** Voce del backlog nelle risposte di lista/dettaglio (forma difensiva). */
-export interface BacklogItem {
+/**
+ * Voce del backlog nelle risposte di LISTA (forma difensiva, leggera). La lista
+ * (`GET /api/backlog`) volutamente NON include `document`: per il contenuto si
+ * usa il dettaglio ({@link BacklogItemDetail}).
+ */
+export interface BacklogItemSummary {
   id: string;
   projectId: string;
   title: string;
   status: BacklogItemStatus;
   effort: number | null;
   risk: string | null;
+  urgency: Urgency | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Voce del backlog nella risposta di DETTAGLIO (`GET /api/backlog/:id`): oltre
+ * ai metadati porta `document`, il contenuto testuale dell'item, che i tool MCP
+ * (es. `get_backlog_item`) devono poter leggere. Forma difensiva: i campi
+ * pesanti/accessori del server (tickets, messages, suggested, embedding, ...)
+ * restano ignorati.
+ */
+export interface BacklogItemDetail {
+  id: string;
+  projectId: string;
+  title: string;
+  document: string;
+  status: BacklogItemStatus;
+  effort: number | null;
+  risk: string | null;
+  riskNote: string | null;
   urgency: Urgency | null;
   createdAt: string;
   updatedAt: string;
@@ -70,6 +97,27 @@ export interface BacklogJob {
   error: string | null;
 }
 
+// --- Schemi di validazione runtime delle risposte del flusso critico --------
+// Validiamo le risposte piccole ad alto valore (polling job, create, convert,
+// progetti): una risposta malformata/di forma diversa dà un errore parlante
+// invece di propagare "garbage" tipizzato a forza. Le risposte GROSSE (dettaglio
+// backlog, liste di ticket/backlog) NON sono validate: lo schema condiviso non
+// combacerebbe campo-per-campo con la forma difensiva del client e il costo di
+// tenerli allineati supererebbe il valore → cast tipizzato documentato.
+
+/** `POST /api/backlog` → job accodato. */
+const createBacklogResultSchema = z.object({ queued: z.literal(true), jobId: z.uuid() });
+
+/** `GET /api/backlog/jobs/:jobId` → stato del job. */
+const backlogJobResultSchema = z.object({
+  status: backlogJobStatusSchema,
+  resultItemId: z.uuid().nullable(),
+  error: z.string().nullable(),
+});
+
+/** `POST /api/backlog/:id/convert` → ticket creato. */
+const convertResultSchema = z.object({ ticketId: z.uuid(), ticketNumber: z.number().int() });
+
 /** Pagina generica cursor-based dell'API. */
 export interface Page<T> {
   items: T[];
@@ -78,7 +126,7 @@ export interface Page<T> {
 
 export interface ListBacklogParams {
   projectId: string;
-  status?: string;
+  status?: BacklogItemStatus;
   urgency?: Urgency;
   q?: string;
   limit?: number;
@@ -203,6 +251,28 @@ export class StubwiseClient {
     return JSON.parse(text) as T;
   }
 
+  /**
+   * Valida una risposta già parsata contro uno schema zod. Su fallimento lancia
+   * un `StubwiseApiError` parlante (`invalid_response`, status 0) invece di
+   * lasciar propagare dati di forma sbagliata: chi chiama vede subito che è il
+   * SERVER ad aver risposto in modo inatteso, non un bug del client.
+   */
+  private parseResponse<S extends z.ZodType>(
+    schema: S,
+    data: unknown,
+    operation: string,
+  ): z.infer<S> {
+    const result = schema.safeParse(data);
+    if (!result.success) {
+      throw new StubwiseApiError(
+        `Risposta inattesa dal server per ${operation}`,
+        0,
+        "invalid_response",
+      );
+    }
+    return result.data;
+  }
+
   /** Traduce una risposta non-2xx in un `StubwiseApiError` parlante. */
   private async toApiError(response: Response): Promise<StubwiseApiError> {
     const errorBody = await this.readErrorBody(response);
@@ -253,7 +323,11 @@ export class StubwiseClient {
 
   async listProjects(): Promise<Project[]> {
     if (this.projectsCache) return this.projectsCache;
-    const projects = await this.request<Project[]>("/api/projects");
+    // La risposta reale di GET /api/projects è projectSchema + repositoryCount:
+    // valida l'intero projectSchema (i campi extra sono ignorati, lo schema non
+    // è strict) così uno slug→id risolto su dati skewed fallisce parlante.
+    const raw = await this.request<unknown>("/api/projects");
+    const projects = this.parseResponse(projectSchema.array(), raw, "l'elenco dei progetti");
     this.projectsCache = projects;
     return projects;
   }
@@ -266,8 +340,10 @@ export class StubwiseClient {
 
   // --- Backlog ------------------------------------------------------------
 
-  async listBacklog(params: ListBacklogParams): Promise<Page<BacklogItem>> {
-    return this.request<Page<BacklogItem>>("/api/backlog", {
+  // Risposta di lista grande e con forma difensiva ≠ schema condiviso: cast
+  // tipizzato, nessuna validazione runtime (vedi nota sugli schemi sopra).
+  async listBacklog(params: ListBacklogParams): Promise<Page<BacklogItemSummary>> {
+    return this.request<Page<BacklogItemSummary>>("/api/backlog", {
       query: {
         projectId: params.projectId,
         status: params.status,
@@ -278,30 +354,25 @@ export class StubwiseClient {
     });
   }
 
-  async getBacklogItem(id: string): Promise<BacklogItem> {
-    return this.request<BacklogItem>(`/api/backlog/${id}`);
+  // Dettaglio grande (document + tickets + messages + ...): cast tipizzato sulla
+  // forma difensiva {@link BacklogItemDetail}, nessuna validazione runtime.
+  async getBacklogItem(id: string): Promise<BacklogItemDetail> {
+    return this.request<BacklogItemDetail>(`/api/backlog/${id}`);
   }
 
-  async createBacklogItem(
-    params: CreateBacklogItemParams,
-  ): Promise<{ queued: boolean; jobId: string }> {
-    return this.request<{ queued: boolean; jobId: string }>("/api/backlog", {
-      method: "POST",
-      body: params,
-    });
+  async createBacklogItem(params: CreateBacklogItemParams): Promise<{ queued: true; jobId: string }> {
+    const raw = await this.request<unknown>("/api/backlog", { method: "POST", body: params });
+    return this.parseResponse(createBacklogResultSchema, raw, "la creazione della voce di backlog");
   }
 
   async getBacklogJob(jobId: string): Promise<BacklogJob> {
-    return this.request<BacklogJob>(`/api/backlog/jobs/${jobId}`);
+    const raw = await this.request<unknown>(`/api/backlog/jobs/${jobId}`);
+    return this.parseResponse(backlogJobResultSchema, raw, "lo stato del job di backlog");
   }
 
-  async convertBacklogToTicket(
-    id: string,
-  ): Promise<{ ticketId: string; ticketNumber: number }> {
-    return this.request<{ ticketId: string; ticketNumber: number }>(
-      `/api/backlog/${id}/convert`,
-      { method: "POST" },
-    );
+  async convertBacklogToTicket(id: string): Promise<{ ticketId: string; ticketNumber: number }> {
+    const raw = await this.request<unknown>(`/api/backlog/${id}/convert`, { method: "POST" });
+    return this.parseResponse(convertResultSchema, raw, "la conversione della voce in ticket");
   }
 
   // --- Ticket -------------------------------------------------------------
