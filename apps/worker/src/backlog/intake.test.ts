@@ -2,6 +2,7 @@ import {
   backlogChatMessages,
   backlogItems,
   backlogItemTickets,
+  backlogJobs,
   comments,
   projects,
   tickets,
@@ -127,10 +128,28 @@ function fakeJob(projectId: string): BacklogJob {
     payload: { ticketId: randomUUID() },
     attempts: 1,
     error: null,
+    resultItemId: null,
     createdAt: new Date(),
     startedAt: new Date(),
     finishedAt: null,
   };
+}
+
+/**
+ * Job intake REALE in DB (a differenza di `fakeJob`, la cui riga non esiste): serve
+ * quando il test deve rileggere il job per verificarne il `resultItemId` che
+ * l'intake vi scrive (l'update mira `backlogJobs.id`).
+ */
+async function insertJob(
+  db: Db,
+  projectId: string,
+  payload: BacklogIntakePayload,
+): Promise<BacklogJob> {
+  const [job] = await db
+    .insert(backlogJobs)
+    .values({ projectId, kind: "intake", status: "running", payload })
+    .returning();
+  return job!;
 }
 
 const INTAKE_JSON = JSON.stringify({
@@ -222,6 +241,25 @@ describe("runIntake — nuova voce", () => {
     expect(item!.similarToId).toBeNull();
     // Nessun ticket creato/collegato.
     expect(await db.select().from(backlogItemTickets)).toHaveLength(0);
+  });
+
+  it("(g) collega il job del backlog alla voce creata (resultItemId)", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const payload: BacklogIntakePayload = { title: "Idea", body: "Descrizione dell'idea" };
+    const feedback = "Idea\n\nDescrizione dell'idea";
+    const job = await insertJob(db, projectId, payload);
+
+    const deps = makeDeps(db, {
+      embeddingClient: embeddingClient({ [feedback]: vecOrtho }),
+      runner: fakeRunner(INTAKE_JSON),
+    });
+    await runIntake(deps, job, payload);
+
+    const [item] = await db.select().from(backlogItems).where(eq(backlogItems.projectId, projectId));
+    expect(item).toBeDefined();
+    const [reloaded] = await db.select().from(backlogJobs).where(eq(backlogJobs.id, job.id));
+    expect(reloaded!.resultItemId).toBe(item!.id);
   });
 });
 
@@ -348,6 +386,36 @@ describe("runIntake — merge (dedup sopra soglia)", () => {
     expect(items).toHaveLength(1); // merge, nessuna voce nuova
     expect(items[0]!.document).toBe("fuso");
     expect(items[0]!.requestCount).toBe(2);
+  });
+
+  it("auto-merge → resultItemId punta all'item CANONICO in cui si è fuso", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const [existing] = await db
+      .insert(backlogItems)
+      .values({
+        projectId,
+        title: "Idea esistente",
+        document: "## Contesto\nvecchio",
+        source: "manual",
+        embedding: vecA,
+      })
+      .returning({ id: backlogItems.id });
+    const payload: BacklogIntakePayload = { title: "Stessa idea", body: "altri dettagli" };
+    const feedback = "Stessa idea\n\naltri dettagli";
+    const job = await insertJob(db, projectId, payload);
+
+    const deps = makeDeps(db, {
+      embeddingClient: embeddingClient({ [feedback]: vecA }), // similarità 1.0 → merge
+      runner: fakeRunner(JSON.stringify({ document: "## Contesto\nvecchio + nuovo" })),
+    });
+    await runIntake(deps, job, payload);
+
+    // Nessuna voce nuova: il job punta alla voce canonica (quella esistente).
+    const items = await db.select().from(backlogItems).where(eq(backlogItems.projectId, projectId));
+    expect(items).toHaveLength(1);
+    const [reloaded] = await db.select().from(backlogJobs).where(eq(backlogJobs.id, job.id));
+    expect(reloaded!.resultItemId).toBe(existing!.id);
   });
 });
 
