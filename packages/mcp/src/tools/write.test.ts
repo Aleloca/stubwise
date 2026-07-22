@@ -318,6 +318,76 @@ describe("create_backlog_item (polling)", () => {
     expect(firstText(res)).toContain(`${BASE_URL}/backlog/${CANONICAL_ID}`);
   });
 
+  it("(e) errore mid-poll transitorio (2 blip sotto soglia) poi 'done' → successo, il blip è tollerato", async () => {
+    const client = makeClient();
+    client.getProjectBySlug.mockResolvedValue(fakeProject({ slug: "acme" }));
+    client.createBacklogItem.mockResolvedValue({ queued: true, jobId: JOB_ID });
+    client.getBacklogJob
+      .mockRejectedValueOnce(new StubwiseApiError("blip di rete", 502, "bad_gateway"))
+      .mockRejectedValueOnce(new StubwiseApiError("altro blip", 503, "unavailable"))
+      .mockResolvedValueOnce({ status: "done", resultItemId: ITEM_ID, error: null });
+    const sleep = countingSleep();
+    const { ctx } = makeCtx(client, { sleep, pollOptions: { intervalMs: 5, timeoutMs: 10_000 } });
+
+    const res = await tool("create_backlog_item").handler(
+      { project: "acme", title: "Idea", body: "Descrizione" },
+      ctx,
+    );
+
+    // I due errori consecutivi sono sotto la soglia: il polling continua e
+    // l'esito è il successo, NON un errore.
+    expect(res.isError).toBeUndefined();
+    expect(firstText(res)).toContain(ITEM_ID);
+    expect(firstText(res)).toContain(`${BASE_URL}/backlog/${ITEM_ID}`);
+    // 3 chiamate (2 in errore + 1 done), con un'attesa dopo ogni blip.
+    expect(client.getBacklogJob).toHaveBeenCalledTimes(3);
+    expect(sleep).toHaveBeenCalledTimes(2);
+  });
+
+  it("(f) errori mid-poll PERSISTENTI (> soglia) → 'accodata' NON isError con jobId, si ferma presto", async () => {
+    const client = makeClient();
+    client.getProjectBySlug.mockResolvedValue(fakeProject({ slug: "acme" }));
+    client.createBacklogItem.mockResolvedValue({ queued: true, jobId: JOB_ID });
+    client.getBacklogJob.mockRejectedValue(new StubwiseApiError("rete giù", 502, "bad_gateway"));
+    const sleep = countingSleep();
+    // Timeout ampio: la terminazione è per errori consecutivi, NON per timeout.
+    const { ctx } = makeCtx(client, { sleep, pollOptions: { intervalMs: 5, timeoutMs: 10_000 } });
+
+    const res = await tool("create_backlog_item").handler(
+      { project: "acme", title: "Idea", body: "Descrizione" },
+      ctx,
+    );
+
+    // Esito PENDING non-eccezionale, con jobId referenziabile e nota sulla verifica.
+    expect(res.isError).toBeUndefined();
+    expect(firstText(res)).toContain("accodata");
+    expect(firstText(res)).toContain(JOB_ID);
+    expect(firstText(res)).toContain("verifica dello stato non riuscita");
+    // Si ferma dopo MAX_CONSECUTIVE_POLL_ERRORS (3) + 1 tick, non fino al timeout
+    // (che con intervalMs 5 / timeout 10_000 sarebbero ~2000 poll).
+    expect(client.getBacklogJob).toHaveBeenCalledTimes(4);
+    expect(sleep).toHaveBeenCalledTimes(3);
+  });
+
+  it("(g) 'done' senza resultItemId → errorResult (guardia)", async () => {
+    const client = makeClient();
+    client.getProjectBySlug.mockResolvedValue(fakeProject({ slug: "acme" }));
+    client.createBacklogItem.mockResolvedValue({ queued: true, jobId: JOB_ID });
+    client.getBacklogJob.mockResolvedValue({ status: "done", resultItemId: null, error: null });
+    const sleep = countingSleep();
+    const { ctx } = makeCtx(client, { sleep, pollOptions: { intervalMs: 5, timeoutMs: 10_000 } });
+
+    const res = await tool("create_backlog_item").handler(
+      { project: "acme", title: "Idea", body: "Descrizione" },
+      ctx,
+    );
+
+    expect(res.isError).toBe(true);
+    expect(firstText(res)).toContain("senza id risultante");
+    expect(firstText(res)).toContain(JOB_ID);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
   it("senza progetto risolvibile ritorna errore /stubwise:init e non accoda nulla", async () => {
     const client = makeClient();
     const { ctx } = makeCtx(client, { config: { projectSlug: null } as StubwiseConfig });

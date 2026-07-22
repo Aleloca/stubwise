@@ -10,6 +10,13 @@ import type { ToolContext, ToolDef, ToolResult } from "./types.js";
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
 /** Timeout complessivo di default del polling dell'intake backlog. */
 const DEFAULT_POLL_TIMEOUT_MS = 120_000;
+/**
+ * Numero massimo di errori CONSECUTIVI di `getBacklogJob` tollerati durante il
+ * polling prima di arrendersi. Un blip transitorio (StubwiseApiError, timeout di
+ * rete) su un singolo tick non deve far perdere il `jobId`: la voce è GIÀ stata
+ * accodata, va solo referenziata più tardi. Un tick riuscito azzera il contatore.
+ */
+const MAX_CONSECUTIVE_POLL_ERRORS = 3;
 
 /** Attesa reale (default): usata in produzione, sostituita nei test. */
 function realSleep(ms: number): Promise<void> {
@@ -137,16 +144,50 @@ const createBacklogItem: ToolDef = {
       });
 
       const sleep = ctx.sleep ?? realSleep;
-      const intervalMs = ctx.pollOptions?.intervalMs ?? DEFAULT_POLL_INTERVAL_MS;
+      // Guard su `intervalMs`: un valore 0 (config solo-test) non deve mai
+      // avanzare l'elapsed a passi nulli → loop infinito. Min 1ms.
+      const interval = Math.max(1, ctx.pollOptions?.intervalMs ?? DEFAULT_POLL_INTERVAL_MS);
       const timeoutMs = ctx.pollOptions?.timeoutMs ?? DEFAULT_POLL_TIMEOUT_MS;
 
-      // Polling a intervallo fisso. Il tempo trascorso è tracciato accumulando
-      // `intervalMs` a ogni attesa (NON via wall-clock): così i test possono
-      // iniettare uno `sleep` che risolve subito e forzare il timeout in modo
-      // deterministico con un `timeoutMs` piccolo, senza attese reali.
+      // Polling a intervallo fisso. `elapsedMs` è un BUDGET di attese/poll: accumula
+      // solo `interval` a ogni attesa (NON il wall-clock, quindi NON il tempo reale
+      // delle round-trip HTTP). È deterministico per i test (uno `sleep` iniettato
+      // che risolve subito forza il timeout con un `timeoutMs` piccolo e zero attese
+      // reali), ma NON è un limite wall-clock stretto: con API lente la durata reale
+      // del polling può superare il `timeoutMs` nominale.
       let elapsedMs = 0;
+      // Errori di rete CONSECUTIVI su `getBacklogJob`. Non fanno perdere il jobId:
+      // sotto soglia si continua (il tick successivo può risolvere il blip),
+      // superata la soglia si esce con un esito PENDING non-eccezionale.
+      let consecutiveErrors = 0;
       for (;;) {
-        const job = await ctx.client.getBacklogJob(jobId);
+        let job: Awaited<ReturnType<typeof ctx.client.getBacklogJob>>;
+        try {
+          job = await ctx.client.getBacklogJob(jobId);
+          // Tick riuscito: un eventuale blip precedente è rientrato.
+          consecutiveErrors = 0;
+        } catch {
+          // Blip transitorio (rete, StubwiseApiError): NON propagare — la voce è
+          // già stata accodata, l'eccezione qui farebbe perdere il jobId a Claude.
+          consecutiveErrors += 1;
+          if (consecutiveErrors > MAX_CONSECUTIVE_POLL_ERRORS) {
+            // Troppi errori di fila: smetti di fare polling, ma NON è un errore
+            // fatale. Restituisci l'esito PENDING con il jobId così Claude può
+            // referenziare la voce più tardi.
+            return textResult(
+              `Voce accodata (job ${jobId}), elaborazione ancora in corso: il riferimento andrà aggiunto più tardi. (verifica dello stato non riuscita)`,
+            );
+          }
+          // Sotto soglia: aspetta e riprova, consumando comunque il budget.
+          if (elapsedMs + interval > timeoutMs) {
+            return textResult(
+              `Voce accodata (job ${jobId}), elaborazione ancora in corso: il riferimento andrà aggiunto più tardi.`,
+            );
+          }
+          await sleep(interval);
+          elapsedMs += interval;
+          continue;
+        }
 
         if (job.status === "done") {
           // resultItemId è l'id della voce elaborata; in caso di auto-merge con
@@ -170,7 +211,7 @@ const createBacklogItem: ToolDef = {
         }
 
         // queued | running: continua a fare polling finché non scade il timeout.
-        if (elapsedMs + intervalMs > timeoutMs) {
+        if (elapsedMs + interval > timeoutMs) {
           // Timeout: NON è un errore fatale. La voce è accodata; Claude può
           // procedere (committare il doc) e aggiungere il riferimento più tardi.
           return textResult(
@@ -178,8 +219,8 @@ const createBacklogItem: ToolDef = {
           );
         }
 
-        await sleep(intervalMs);
-        elapsedMs += intervalMs;
+        await sleep(interval);
+        elapsedMs += interval;
       }
     }),
 };
