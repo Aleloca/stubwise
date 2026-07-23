@@ -2199,9 +2199,9 @@ describe("PUT/DELETE /api/tickets/:id/design", () => {
     expect(res.statusCode).toBe(404);
   });
 
-  it("content oltre 20k: 400", async () => {
+  it("content oltre 200k: 400", async () => {
     const id = await freshTicket();
-    const res = await putDesign(id, "a".repeat(20_001));
+    const res = await putDesign(id, "a".repeat(200_001));
     expect(res.statusCode).toBe(400);
   });
 });
@@ -2280,9 +2280,9 @@ describe("PUT/DELETE /api/tickets/:id/plan", () => {
     expect(res.statusCode).toBe(404);
   });
 
-  it("content oltre 20k: 400", async () => {
+  it("content oltre 200k: 400", async () => {
     const id = await freshTicket();
-    const res = await putPlan(id, "a".repeat(20_001));
+    const res = await putPlan(id, "a".repeat(200_001));
     expect(res.statusCode).toBe(400);
   });
 });

@@ -865,13 +865,13 @@ describe("PUT/DELETE /api/backlog/:id/design", () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it("400 se content supera i 20k caratteri", async () => {
+  it("400 se content supera i 200k caratteri", async () => {
     const item = await insertItem({ document: "# Vecchio" });
     const res = await app.inject({
       method: "PUT",
       url: `/api/backlog/${item.id}/design`,
       headers: { cookie: memberCookie },
-      payload: { content: "x".repeat(20_001) },
+      payload: { content: "x".repeat(200_001) },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -955,13 +955,13 @@ describe("PUT/DELETE /api/backlog/:id/plan", () => {
     expect(res.statusCode).toBe(404);
   });
 
-  it("400 se content supera i 20k caratteri", async () => {
+  it("400 se content supera i 200k caratteri", async () => {
     const item = await insertItem();
     const res = await app.inject({
       method: "PUT",
       url: `/api/backlog/${item.id}/plan`,
       headers: { cookie: memberCookie },
-      payload: { content: "x".repeat(20_001) },
+      payload: { content: "x".repeat(200_001) },
     });
     expect(res.statusCode).toBe(400);
   });
