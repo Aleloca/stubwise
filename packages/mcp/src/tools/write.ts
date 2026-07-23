@@ -225,12 +225,104 @@ const createBacklogItem: ToolDef = {
     }),
 };
 
+// --- design / piano (backlog e ticket) --------------------------------------
+//
+// Quattro tool che collegano un DESIGN doc o un PIANO di implementazione a una
+// voce di backlog o a un ticket, per id. `target` sceglie la risorsa. Operano su
+// un id specifico → nessun resolveProject. L'URL nel messaggio usa il path SPA
+// (`/backlog/:id` o `/tickets/:id`).
+
+/** Path SPA del dettaglio della risorsa per il target. */
+function targetUrl(baseUrl: string, target: string, id: string): string {
+  const segment = target === "backlog" ? "backlog" : "tickets";
+  return `${baseUrl}/${segment}/${id}`;
+}
+
+const setContentInput = {
+  target: z.enum(["backlog", "ticket"]).describe("Risorsa su cui operare: 'backlog' o 'ticket'."),
+  id: z.string().uuid().describe("UUID della voce di backlog o del ticket."),
+  content: z.string().describe("Contenuto markdown da salvare."),
+};
+
+const targetIdInput = {
+  target: z.enum(["backlog", "ticket"]).describe("Risorsa su cui operare: 'backlog' o 'ticket'."),
+  id: z.string().uuid().describe("UUID della voce di backlog o del ticket."),
+};
+
+const setDesign: ToolDef = {
+  name: "set_design",
+  description:
+    "Collega un documento di design a una voce di backlog o a un ticket: SOSTITUISCE il corpo con 'content', preservando (una sola volta) il testo originale come origine ripristinabile. Usalo per allineare la descrizione della risorsa a un design rifinito. 'target' è 'backlog' o 'ticket'.",
+  inputSchema: setContentInput,
+  handler: (args, ctx): Promise<ToolResult> =>
+    runTool(async () => {
+      const target = args.target as "backlog" | "ticket";
+      const id = args.id as string;
+      await ctx.client.setDesign(target, id, args.content as string);
+      return textResult(
+        `Design aggiornato su ${target} ${id}.\nURL: ${targetUrl(ctx.config.baseUrl, target, id)}`,
+      );
+    }),
+};
+
+const deleteDesign: ToolDef = {
+  name: "delete_design",
+  description:
+    "Rimuove il design collegato a una voce di backlog o a un ticket: RIPRISTINA il corpo originale preservato. Fallisce (404) se non c'è alcun design attivo. 'target' è 'backlog' o 'ticket'.",
+  inputSchema: targetIdInput,
+  handler: (args, ctx): Promise<ToolResult> =>
+    runTool(async () => {
+      const target = args.target as "backlog" | "ticket";
+      const id = args.id as string;
+      await ctx.client.deleteDesign(target, id);
+      return textResult(
+        `Design rimosso da ${target} ${id} (corpo d'origine ripristinato).\nURL: ${targetUrl(ctx.config.baseUrl, target, id)}`,
+      );
+    }),
+};
+
+const setPlan: ToolDef = {
+  name: "set_plan",
+  description:
+    "Salva o aggiorna il piano di implementazione (markdown) di una voce di backlog o di un ticket. Usalo per allegare i passi tecnici pianificati. 'target' è 'backlog' o 'ticket'.",
+  inputSchema: setContentInput,
+  handler: (args, ctx): Promise<ToolResult> =>
+    runTool(async () => {
+      const target = args.target as "backlog" | "ticket";
+      const id = args.id as string;
+      await ctx.client.setPlan(target, id, args.content as string);
+      return textResult(
+        `Piano di implementazione aggiornato su ${target} ${id}.\nURL: ${targetUrl(ctx.config.baseUrl, target, id)}`,
+      );
+    }),
+};
+
+const deletePlan: ToolDef = {
+  name: "delete_plan",
+  description:
+    "Azzera il piano di implementazione di una voce di backlog o di un ticket. 'target' è 'backlog' o 'ticket'.",
+  inputSchema: targetIdInput,
+  handler: (args, ctx): Promise<ToolResult> =>
+    runTool(async () => {
+      const target = args.target as "backlog" | "ticket";
+      const id = args.id as string;
+      await ctx.client.deletePlan(target, id);
+      return textResult(
+        `Piano di implementazione rimosso da ${target} ${id}.\nURL: ${targetUrl(ctx.config.baseUrl, target, id)}`,
+      );
+    }),
+};
+
 /** Tutti i tool di scrittura, nell'ordine di registrazione. */
 export const writeTools: ToolDef[] = [
   createTicket,
   convertBacklogToTicket,
   setTicketStatus,
   createBacklogItem,
+  setDesign,
+  deleteDesign,
+  setPlan,
+  deletePlan,
 ];
 
 /**

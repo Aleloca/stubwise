@@ -207,6 +207,8 @@ describe("get_backlog_item", () => {
       risk: "medium",
       riskNote: null,
       urgency: "high",
+      implementationPlan: "1. Indicizza\n2. Interfaccia",
+      originContent: "Testo originale della voce.",
       createdAt: "2026-07-22T00:00:00.000Z",
       updatedAt: "2026-07-22T00:00:00.000Z",
     });
@@ -218,6 +220,33 @@ describe("get_backlog_item", () => {
     expect(res.isError).toBeUndefined();
     expect(firstText(res)).toContain("Contenuto del refinement");
     expect(firstText(res)).toContain(ITEM_ID);
+    expect(firstText(res)).toContain("1. Indicizza");
+    expect(firstText(res)).toContain("Testo originale della voce.");
+  });
+
+  it("mostra un empty state quando implementationPlan/originContent sono null", async () => {
+    const client = makeClient();
+    client.getBacklogItem.mockResolvedValue({
+      id: ITEM_ID,
+      projectId: PROJECT_ID,
+      title: "Idea grezza",
+      document: "# Bozza",
+      status: "new",
+      effort: null,
+      risk: null,
+      riskNote: null,
+      urgency: null,
+      implementationPlan: null,
+      originContent: null,
+      createdAt: "2026-07-22T00:00:00.000Z",
+      updatedAt: "2026-07-22T00:00:00.000Z",
+    });
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("get_backlog_item").handler({ id: ITEM_ID }, ctx);
+
+    expect(firstText(res)).toContain("Piano di implementazione");
+    expect(firstText(res)).toContain("Contenuto d'origine");
   });
 
   it("cattura StubwiseApiError 404 in un ToolResult d'errore", async () => {
@@ -329,6 +358,8 @@ describe("get_ticket", () => {
       status: "open",
       assigneeId: null,
       labels: ["auth"],
+      implementationPlan: "1. Ripara la sessione",
+      originContent: "Segnalazione originale utente.",
       createdAt: "2026-07-22T00:00:00.000Z",
       updatedAt: "2026-07-22T00:00:00.000Z",
     });
@@ -340,6 +371,8 @@ describe("get_ticket", () => {
     expect(res.isError).toBeUndefined();
     expect(firstText(res)).toContain("Login rotto");
     expect(firstText(res)).toContain("auth");
+    expect(firstText(res)).toContain("1. Ripara la sessione");
+    expect(firstText(res)).toContain("Segnalazione originale utente.");
   });
 
   it("cattura StubwiseApiError 404 in un ToolResult d'errore", async () => {

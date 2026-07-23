@@ -64,6 +64,10 @@ function makeClient() {
     setTicketStatus: vi.fn(),
     createBacklogItem: vi.fn(),
     getBacklogJob: vi.fn(),
+    setDesign: vi.fn(),
+    deleteDesign: vi.fn(),
+    setPlan: vi.fn(),
+    deletePlan: vi.fn(),
   };
 }
 
@@ -400,6 +404,88 @@ describe("create_backlog_item (polling)", () => {
   });
 });
 
+describe("set_design / delete_design / set_plan / delete_plan", () => {
+  it("set_design chiama client.setDesign(target, id, content) e conferma con URL", async () => {
+    const client = makeClient();
+    client.setDesign.mockResolvedValue({ id: ITEM_ID });
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("set_design").handler(
+      { target: "backlog", id: ITEM_ID, content: "# Design" },
+      ctx,
+    );
+
+    expect(client.setDesign).toHaveBeenCalledWith("backlog", ITEM_ID, "# Design");
+    expect(res.isError).toBeUndefined();
+    expect(firstText(res)).toContain(`${BASE_URL}/backlog/${ITEM_ID}`);
+  });
+
+  it("set_design su ticket usa l'URL /tickets nel messaggio", async () => {
+    const client = makeClient();
+    client.setDesign.mockResolvedValue({ id: TICKET_ID });
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("set_design").handler(
+      { target: "ticket", id: TICKET_ID, content: "corpo" },
+      ctx,
+    );
+
+    expect(client.setDesign).toHaveBeenCalledWith("ticket", TICKET_ID, "corpo");
+    expect(firstText(res)).toContain(`${BASE_URL}/tickets/${TICKET_ID}`);
+  });
+
+  it("delete_design chiama client.deleteDesign(target, id)", async () => {
+    const client = makeClient();
+    client.deleteDesign.mockResolvedValue({ id: ITEM_ID });
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("delete_design").handler({ target: "backlog", id: ITEM_ID }, ctx);
+
+    expect(client.deleteDesign).toHaveBeenCalledWith("backlog", ITEM_ID);
+    expect(res.isError).toBeUndefined();
+    expect(firstText(res)).toContain(`${BASE_URL}/backlog/${ITEM_ID}`);
+  });
+
+  it("set_plan chiama client.setPlan(target, id, content)", async () => {
+    const client = makeClient();
+    client.setPlan.mockResolvedValue({ id: TICKET_ID });
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("set_plan").handler(
+      { target: "ticket", id: TICKET_ID, content: "step 1" },
+      ctx,
+    );
+
+    expect(client.setPlan).toHaveBeenCalledWith("ticket", TICKET_ID, "step 1");
+    expect(res.isError).toBeUndefined();
+    expect(firstText(res)).toContain(`${BASE_URL}/tickets/${TICKET_ID}`);
+  });
+
+  it("delete_plan chiama client.deletePlan(target, id)", async () => {
+    const client = makeClient();
+    client.deletePlan.mockResolvedValue({ id: ITEM_ID });
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("delete_plan").handler({ target: "backlog", id: ITEM_ID }, ctx);
+
+    expect(client.deletePlan).toHaveBeenCalledWith("backlog", ITEM_ID);
+    expect(res.isError).toBeUndefined();
+  });
+
+  it("un errore del client (404 nessun design) diventa un ToolResult isError, non lancia", async () => {
+    const client = makeClient();
+    client.deleteDesign.mockRejectedValue(
+      new StubwiseApiError("No active design to remove", 404, "no_active_design"),
+    );
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("delete_design").handler({ target: "ticket", id: TICKET_ID }, ctx);
+
+    expect(res.isError).toBe(true);
+    expect(firstText(res)).toContain("No active design to remove");
+  });
+});
+
 describe("registerWriteTools", () => {
   it("registra tutti i tool di scrittura con i nomi attesi", () => {
     const client = makeClient();
@@ -409,13 +495,17 @@ describe("registerWriteTools", () => {
 
     registerWriteTools(server, ctx);
 
-    expect(registerTool).toHaveBeenCalledTimes(4);
+    expect(registerTool).toHaveBeenCalledTimes(8);
     const names = registerTool.mock.calls.map((c) => c[0]);
     expect(names).toEqual([
       "create_ticket",
       "convert_backlog_to_ticket",
       "set_ticket_status",
       "create_backlog_item",
+      "set_design",
+      "delete_design",
+      "set_plan",
+      "delete_plan",
     ]);
     for (const call of registerTool.mock.calls) {
       expect(call[1]).toHaveProperty("description");
