@@ -57,6 +57,10 @@ fuori dalla ricerca (corretto). Prossima migrazione: **0058** (l'ultima è 0057)
 **Semantica delete:**
 - *elimina design* → `document`/`body` = `origin_content`; `origin_content` = null
   (si esce dallo "stato design"). 404 se non c'è un design attivo.
+  Nota: ripristina la **richiesta originale** catturata al primo `set_design`, e
+  quindi SCARTA eventuali edit manuali del corpo (PATCH body / refresh-document)
+  fatti mentre il design era attivo. È voluto: "elimina design → torna
+  all'origine", non "torna all'ultimo corpo modificato".
 - *elimina piano* → `implementation_plan` = null.
 
 ## Endpoint (server)

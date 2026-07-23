@@ -153,6 +153,9 @@ momento in cui leggi, ma è la direzione — salva pure il piano sul ticket.)
 Su richiesta esplicita dell'utente:
 
 - **`delete_design({ target, id })`** — rimuove il design e **ripristina
-  l'origine** (`originContent`) come corpo principale della voce/ticket.
+  l'origine** (`originContent`) come corpo principale della voce/ticket. Attenzione:
+  ripristina la richiesta ORIGINALE catturata al primo `set_design`, scartando
+  eventuali edit manuali del corpo (PATCH / refresh-document) fatti mentre il
+  design era attivo — è voluto ("elimina design → torna all'origine").
 - **`delete_plan({ target, id })`** — azzera il piano di implementazione (non
   tocca design né corpo).
