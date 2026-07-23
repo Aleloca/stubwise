@@ -1,4 +1,3 @@
-import { backlogJobStatusSchema, projectSchema } from "@stubwise/shared";
 import type {
   BacklogItemStatus,
   Project,
@@ -9,6 +8,20 @@ import type {
 import { z } from "zod";
 
 import type { StubwiseConfig } from "./config.js";
+
+// Inline: il pacchetto pubblicato non deve dipendere dal package shared a
+// runtime. Questi due schemi erano gli unici import di VALORE dallo shared;
+// li replichiamo qui nella forma minima che il client legge (i restanti
+// import dallo shared sono `import type`, cancellati a runtime).
+
+/** Stato di un job del backlog (enum condiviso, replicato localmente). */
+const backlogJobStatusSchema = z.enum(["queued", "running", "done", "failed"]);
+
+/**
+ * Progetto nelle risposte API, forma permissiva: valida i soli campi che il
+ * client legge (id/slug/name) e ignora gli extra (repositoryCount, flag, ...).
+ */
+const projectSchema = z.object({ id: z.string(), slug: z.string(), name: z.string() }).loose();
 
 /**
  * Errore parlante di un'operazione contro l'API Stubwise. Porta lo `status`
@@ -327,7 +340,13 @@ export class StubwiseClient {
     // valida l'intero projectSchema (i campi extra sono ignorati, lo schema non
     // è strict) così uno slug→id risolto su dati skewed fallisce parlante.
     const raw = await this.request<unknown>("/api/projects");
-    const projects = this.parseResponse(projectSchema.array(), raw, "l'elenco dei progetti");
+    // projectSchema è permissivo (id/slug/name + extra ignorati): il suo tipo
+    // inferito è più largo di Project, ma la forma reale della lista è quella.
+    const projects = this.parseResponse(
+      projectSchema.array(),
+      raw,
+      "l'elenco dei progetti",
+    ) as Project[];
     this.projectsCache = projects;
     return projects;
   }
