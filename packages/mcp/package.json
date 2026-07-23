@@ -11,7 +11,7 @@
     "dist"
   ],
   "bin": {
-    "stubwise-mcp": "./dist/index.js"
+    "stubwise-mcp": "dist/index.js"
   },
   "exports": {
     ".": {

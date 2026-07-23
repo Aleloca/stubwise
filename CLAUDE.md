@@ -103,6 +103,8 @@ Stubwise si integra con Claude Code via il server MCP `@stubwise/mcp`
   scrivendo `.stubwise.json` (`{ "project": "<slug>" }`) nella radice.
 - Serve un Personal Access Token (`stw_pat_...`, dalle impostazioni Stubwise) in
   `STUBWISE_TOKEN`; `STUBWISE_URL` punta all'istanza (default
-  `http://localhost:3000`). Finché il pacchetto non è pubblicato su npm,
-  `.mcp.json` punta al build locale (`packages/mcp/dist/index.js`): esegui
-  `pnpm --filter @stubwise/mcp build`.
+  `http://localhost:3000`). Il pacchetto è pubblicato su npm come
+  `@stubwise/mcp`: `.mcp.json` lo avvia via `npx -y @stubwise/mcp` (nessun build
+  locale necessario). Pubblicazione di nuove versioni: `npm publish` da
+  `packages/mcp` (il `prepublishOnly` ribuilda; serve login npm sullo scope
+  `@stubwise`).
