@@ -631,14 +631,10 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         .from(tickets)
         .where(eq(tickets.id, request.params.id));
       if (!row) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
-      // Stato PR per-repo (Fase 3): vuoto finché l'agente non apre PR.
-      const repositoriesState = await loadTicketRepositories(app.db, row.id);
-      return {
-        ...toPublicTicket(row),
-        implementationPlan: row.implementationPlan,
-        originContent: row.originContent,
-        repositories: repositoriesState,
-      };
+      // Unica fonte della forma di dettaglio (design/piano + stato PR per-repo,
+      // vuoto finché l'agente non apre PR): la stessa risposta prodotta dagli
+      // endpoint design/plan (helper condiviso, niente duplicazione).
+      return ticketDetailResponse(app.db, row);
     },
   );
 
@@ -1065,7 +1061,11 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   // l'origine e azzera `originContent`. Poiché il set/rimozione del design cambia
   // il `body`, si genera un evento `body_changed` di AUDIT con lo stesso
   // meccanismo della PATCH (diffTicketEvents), così il cambio resta tracciato.
-  // requireAuth (non admin): collegare un design è lavoro quotidiano. Transazionale.
+  // requireAuth (non admin): collegare un design è lavoro quotidiano. Transazionale
+  // con SELECT ... FOR UPDATE: il lock serve al read-modify-write su
+  // originContent (preserve-once — l'origine si salva una sola volta leggendo
+  // il valore precedente); la PATCH non deriva stato dal valore precedente e
+  // non lo richiede.
   app.put(
     "/:id/design",
     {

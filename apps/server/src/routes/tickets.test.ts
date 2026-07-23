@@ -2006,6 +2006,35 @@ describe("PUT/DELETE /api/tickets/:id/design", () => {
     expect(rows[0]?.actorId).toBe(users.memberId);
   });
 
+  it("PUT design con content identico al body corrente: NESSUN evento di audit", async () => {
+    const id = await freshTicket("Corpo identico");
+    // content === body attuale → diffTicketEvents non rileva alcun cambiamento.
+    const res = await putDesign(id, "Corpo identico");
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as TicketBody & { originContent: string | null };
+    expect(body.body).toBe("Corpo identico");
+    // Origine comunque preservata (una volta), ma il body non è cambiato.
+    expect(body.originContent).toBe("Corpo identico");
+    const rows = await eventsOf(id);
+    expect(rows).toHaveLength(0);
+  });
+
+  it("DELETE design genera un evento body_changed di audit con actorId del loggato", async () => {
+    const id = await freshTicket("Corpo pre-design");
+    await putDesign(id, "## Design da rimuovere");
+    // Dopo il PUT c'è già un evento body_changed (set del design).
+    expect(await eventsOf(id)).toHaveLength(1);
+
+    const del = await deleteDesign(id);
+    expect(del.statusCode).toBe(200);
+    // Il ripristino del body dall'origine produce un SECONDO evento body_changed
+    // (l'ordine di ritorno non è garantito: verifico l'insieme, non l'indice).
+    const rows = await eventsOf(id);
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.kind === "body_changed")).toBe(true);
+    expect(rows.every((r) => r.actorId === users.memberId)).toBe(true);
+  });
+
   it("DELETE design ripristina il body da originContent e lo azzera", async () => {
     const id = await freshTicket("Corpo da ripristinare");
     await putDesign(id, "## Design temporaneo");
@@ -2070,6 +2099,19 @@ describe("PUT/DELETE /api/tickets/:id/plan", () => {
       (set.json() as { implementationPlan: string | null }).implementationPlan,
     ).toBe("## Piano\n1. step");
 
+    const del = await app.inject({
+      method: "DELETE",
+      url: `/api/tickets/${id}/plan`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(del.statusCode).toBe(200);
+    expect(
+      (del.json() as { implementationPlan: string | null }).implementationPlan,
+    ).toBeNull();
+  });
+
+  it("DELETE plan senza piano impostato: 200 idempotente (no-op), non 404", async () => {
+    const id = await freshTicket();
     const del = await app.inject({
       method: "DELETE",
       url: `/api/tickets/${id}/plan`,
