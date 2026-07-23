@@ -2502,6 +2502,16 @@ export interface BacklogItemBase {
   projectId: string;
   title: string;
   document: string;
+  /**
+   * Piano di implementazione collegato alla voce (testo libero, null finché non
+   * impostato da Claude Code). Solo render/delete lato SPA.
+   */
+  implementationPlan: string | null;
+  /**
+   * Documento d'origine preservato quando un design ne sostituisce il `document`
+   * (null se nessun design è attivo). DELETE del design ripristina questo valore.
+   */
+  originContent: string | null;
   status: BacklogItemStatus;
   effort: number | null;
   risk: BacklogRisk | null;
@@ -2608,6 +2618,29 @@ export function requestDeepDive(id: string, repositoryId: string): Promise<{ que
 /** Sintetizza la chat nel documento della voce (one-shot). */
 export function refreshBacklogDocument(id: string): Promise<BacklogItemBase> {
   return api.post(`/api/backlog/${encodeURIComponent(id)}/refresh-document`);
+}
+
+/**
+ * Collega un design alla voce: sostituisce `document` col design, preservando
+ * l'origine in `originContent` (una sola volta). Ritorna la forma BASE.
+ */
+export function setBacklogDesign(id: string, content: string): Promise<BacklogItemBase> {
+  return api.put(`/api/backlog/${encodeURIComponent(id)}/design`, { content });
+}
+
+/** Rimuove il design collegato: ripristina `document` dall'origine. 404 se assente. */
+export function deleteBacklogDesign(id: string): Promise<BacklogItemBase> {
+  return api.delete(`/api/backlog/${encodeURIComponent(id)}/design`);
+}
+
+/** Imposta il piano di implementazione della voce. Ritorna la forma BASE. */
+export function setBacklogPlan(id: string, content: string): Promise<BacklogItemBase> {
+  return api.put(`/api/backlog/${encodeURIComponent(id)}/plan`, { content });
+}
+
+/** Azzera il piano di implementazione della voce. Ritorna la forma BASE. */
+export function deleteBacklogPlan(id: string): Promise<BacklogItemBase> {
+  return api.delete(`/api/backlog/${encodeURIComponent(id)}/plan`);
 }
 
 /**

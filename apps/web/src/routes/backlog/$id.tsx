@@ -25,6 +25,8 @@ import {
   acceptSuggested,
   ApiError,
   convertBacklogItem,
+  deleteBacklogDesign,
+  deleteBacklogPlan,
   dismissSuggested,
   mergeBacklogItem,
   patchBacklogItem,
@@ -128,6 +130,19 @@ export function BacklogDetailPage() {
     onError: () => setSessionError(t("backlog:chat.sessionError")),
   });
   const sessionPending = startSessionMutation.isPending || stopSessionMutation.isPending;
+
+  // Delete di design/piano: gli endpoint sono requireAuth (non admin) — collegare
+  // e scollegare design/piano è lavoro quotidiano come la chat. Tornano la forma
+  // BASE (document ripristinato dall'origine / implementationPlan azzerato), che
+  // `applyBase` fonde nel dettaglio e poi invalida.
+  const deleteDesignMutation = useMutation({
+    mutationFn: () => deleteBacklogDesign(id),
+    onSuccess: applyBase,
+  });
+  const deletePlanMutation = useMutation({
+    mutationFn: () => deleteBacklogPlan(id),
+    onSuccess: applyBase,
+  });
 
   const metaDisabled = !isAdmin || isLocked || patchMutation.isPending;
 
@@ -310,14 +325,71 @@ export function BacklogDetailPage() {
           scroll interno invece di sfondare l'altezza. */}
       <div className="mt-6 flex flex-1 flex-col gap-6 lg:grid lg:min-h-0 lg:grid-cols-[3fr_2fr] lg:grid-rows-[minmax(0,1fr)]">
         <div className="min-w-0 space-y-6 lg:min-h-0 lg:overflow-y-auto lg:pr-1">
-          <section aria-label={t("backlog:detail.document")}>
-            <h2 className={sectionTitleClass}>{t("backlog:detail.document")}</h2>
+          {/* Documento della voce: è il DESIGN se collegato (l'origine è
+              preservata in `originContent` e mostrata sotto in un blocco
+              collassabile), altrimenti il documento sintetizzato dalla chat. */}
+          <section aria-label={t("backlog:detail.design")}>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className={sectionTitleClass}>{t("backlog:detail.design")}</h2>
+              {!isLocked && item.originContent !== null && (
+                <ConfirmDeleteButton
+                  label={t("backlog:detail.deleteDesign")}
+                  confirmAria={t("backlog:detail.deleteDesignConfirmAria")}
+                  pending={deleteDesignMutation.isPending}
+                  onConfirm={() => deleteDesignMutation.mutate()}
+                />
+              )}
+            </div>
             {item.document.trim() === "" ? (
               <p className="font-mono text-[12px] text-fg-faint">{t("backlog:detail.noDocument")}</p>
             ) : (
               <Markdown source={item.document} />
             )}
+            {deleteDesignMutation.isError && (
+              <p role="alert" className="mt-2 font-mono text-[12px] text-danger">
+                {deleteDesignMutation.error.message}
+              </p>
+            )}
           </section>
+
+          {/* Piano di implementazione: reso in Markdown, con empty state quando
+              nessun piano è collegato. Solo render/delete (si crea da Claude Code). */}
+          <section aria-label={t("backlog:detail.plan")}>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className={sectionTitleClass}>{t("backlog:detail.plan")}</h2>
+              {!isLocked && item.implementationPlan !== null && (
+                <ConfirmDeleteButton
+                  label={t("backlog:detail.deletePlan")}
+                  confirmAria={t("backlog:detail.deletePlanConfirmAria")}
+                  pending={deletePlanMutation.isPending}
+                  onConfirm={() => deletePlanMutation.mutate()}
+                />
+              )}
+            </div>
+            {item.implementationPlan === null ? (
+              <p className="font-mono text-[12px] text-fg-faint">{t("backlog:detail.noPlan")}</p>
+            ) : (
+              <Markdown source={item.implementationPlan} />
+            )}
+            {deletePlanMutation.isError && (
+              <p role="alert" className="mt-2 font-mono text-[12px] text-danger">
+                {deletePlanMutation.error.message}
+              </p>
+            )}
+          </section>
+
+          {/* Richiesta originale: presente solo quando un design ha sostituito il
+              documento. Collassata di default (dettaglio secondario). */}
+          {item.originContent !== null && (
+            <details className="rounded-sm border border-line bg-ink-900">
+              <summary className="cursor-pointer list-none px-4 py-3 font-mono text-[11px] font-medium tracking-[0.16em] text-fg-muted uppercase select-none marker:content-none hover:text-fg">
+                {t("backlog:detail.originalRequest")}
+              </summary>
+              <div className="border-t border-line px-4 py-3">
+                <Markdown source={item.originContent} />
+              </div>
+            </details>
+          )}
 
           <section aria-label={t("backlog:detail.linkedTickets")}>
             <h2 className={sectionTitleClass}>{t("backlog:detail.linkedTickets")}</h2>
@@ -457,6 +529,58 @@ function RiskNoteField({
     </div>
   );
 }
+
+/**
+ * Bottone di rimozione a due passi (pattern access-tokens): il primo click
+ * rivela "Conferma"/"Annulla"; solo il secondo esegue. Stile terminal, tono
+ * danger. Usato per scollegare design e piano dalla voce.
+ */
+function ConfirmDeleteButton({
+  label,
+  confirmAria,
+  pending,
+  onConfirm,
+}: {
+  label: string;
+  /** aria-label del bottone di conferma: distingue design da piano per gli AT. */
+  confirmAria: string;
+  pending: boolean;
+  onConfirm: () => void;
+}) {
+  const { t } = useTranslation();
+  const [confirming, setConfirming] = useState(false);
+
+  if (!confirming) {
+    return (
+      <button type="button" onClick={() => setConfirming(true)} className={deleteButtonClass}>
+        {label}
+      </button>
+    );
+  }
+  return (
+    <span className="flex items-center gap-2">
+      <button
+        type="button"
+        disabled={pending}
+        aria-label={confirmAria}
+        onClick={onConfirm}
+        className={deleteButtonClass}
+      >
+        {t("backlog:detail.confirmRemove")}
+      </button>
+      <button
+        type="button"
+        onClick={() => setConfirming(false)}
+        className="rounded-sm border border-line-strong px-2.5 py-1 font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg"
+      >
+        {t("backlog:actions.cancel")}
+      </button>
+    </span>
+  );
+}
+
+const deleteButtonClass =
+  "rounded-sm border border-danger/30 bg-ink-950/70 px-2.5 py-1 font-mono text-[11px] tracking-[0.08em] text-danger uppercase transition-colors hover:border-danger/60 disabled:cursor-not-allowed disabled:opacity-50";
 
 /**
  * Banner dei metadati suggeriti dall'AI: mostra i campi proposti col valore
@@ -673,7 +797,11 @@ function ActionsPanel({
       "---",
       "",
     ].join("\n");
-    return `${front}${item.document}`;
+    // Il piano, se presente, segue il documento come sezione dedicata.
+    const plan = item.implementationPlan
+      ? `\n\n## ${t("backlog:detail.plan")}\n\n${item.implementationPlan}`
+      : "";
+    return `${front}${item.document}${plan}`;
   }
 
   function slugify(value: string): string {
