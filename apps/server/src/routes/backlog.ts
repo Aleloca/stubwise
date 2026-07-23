@@ -95,6 +95,10 @@ const backlogItemBaseSchema = z.object({
   projectId: z.uuid(),
   title: z.string(),
   document: z.string(),
+  // Piano di implementazione e contenuto d'origine (design/piano collegati alla
+  // voce): testo libero, null finché non impostati.
+  implementationPlan: z.string().nullable(),
+  originContent: z.string().nullable(),
   status: backlogItemStatusSchema,
   effort: z.number().int().nullable(),
   risk: backlogRiskSchema.nullable(),
@@ -193,6 +197,8 @@ const baseColumns = {
   projectId: backlogItems.projectId,
   title: backlogItems.title,
   document: backlogItems.document,
+  implementationPlan: backlogItems.implementationPlan,
+  originContent: backlogItems.originContent,
   status: backlogItems.status,
   effort: backlogItems.effort,
   risk: backlogItems.risk,
@@ -254,6 +260,8 @@ async function loadBaseItem(
     projectId: row.projectId,
     title: row.title,
     document: row.document,
+    implementationPlan: row.implementationPlan,
+    originContent: row.originContent,
     status: row.status,
     effort: row.effort,
     risk: row.risk,

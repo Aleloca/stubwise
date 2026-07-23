@@ -47,6 +47,10 @@ export const ticketSchema = z.object({
   number: z.number().int(),
   title: z.string(),
   body: z.string(),
+  // Piano di implementazione e contenuto d'origine (design/piano collegati al
+  // ticket): testo libero, null finché non impostati.
+  implementationPlan: z.string().nullable(),
+  originContent: z.string().nullable(),
   type: ticketTypeSchema,
   priority: ticketPrioritySchema,
   status: ticketStatusSchema,
@@ -255,6 +259,8 @@ function toPublicTicket(row: Ticket): z.infer<typeof ticketSchema> {
     number: row.number,
     title: row.title,
     body: row.body,
+    implementationPlan: row.implementationPlan,
+    originContent: row.originContent,
     type: row.type,
     priority: row.priority,
     status: row.status,
