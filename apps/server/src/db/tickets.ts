@@ -35,6 +35,16 @@ export interface CreateTicketInput {
   assigneeId?: string;
   labels?: string[];
   technicalPayload?: unknown;
+  /**
+   * Piano di implementazione collegato (testo libero, opzionale): propagato ad
+   * es. dalla conversione di una voce di backlog. Default non impostato → null.
+   */
+  implementationPlan?: string | null;
+  /**
+   * Contenuto d'origine preservato quando un design sostituisce il corpo
+   * (opzionale): propagato ad es. dalla conversione di una voce di backlog.
+   */
+  originContent?: string | null;
 }
 
 /**
@@ -74,6 +84,8 @@ export async function createTicket(db: Db, input: CreateTicketInput): Promise<Ti
         assigneeId: input.assigneeId,
         labels: input.labels,
         technicalPayload: input.technicalPayload,
+        implementationPlan: input.implementationPlan,
+        originContent: input.originContent,
       })
       .returning();
 
