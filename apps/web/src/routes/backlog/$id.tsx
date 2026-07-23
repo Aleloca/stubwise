@@ -20,6 +20,7 @@ import {
 import { BacklogChat } from "../../components/backlog-chat";
 import { CollapsibleSection } from "../../components/collapsible-section";
 import { ComboboxPicker } from "../../components/combobox-picker";
+import { ConfirmDeleteButton } from "../../components/confirm-delete-button";
 import { SelectField } from "../../components/field";
 import { Markdown } from "../../components/markdown";
 import {
@@ -336,6 +337,7 @@ export function BacklogDetailPage() {
               {!isLocked && item.originContent !== null && (
                 <ConfirmDeleteButton
                   label={t("backlog:detail.deleteDesign")}
+                  confirmLabel={t("backlog:detail.confirmRemove")}
                   confirmAria={t("backlog:detail.deleteDesignConfirmAria")}
                   pending={deleteDesignMutation.isPending}
                   onConfirm={() => deleteDesignMutation.mutate()}
@@ -362,6 +364,7 @@ export function BacklogDetailPage() {
               {!isLocked && item.implementationPlan !== null && (
                 <ConfirmDeleteButton
                   label={t("backlog:detail.deletePlan")}
+                  confirmLabel={t("backlog:detail.confirmRemove")}
                   confirmAria={t("backlog:detail.deletePlanConfirmAria")}
                   pending={deletePlanMutation.isPending}
                   onConfirm={() => deletePlanMutation.mutate()}
@@ -526,58 +529,6 @@ function RiskNoteField({
     </div>
   );
 }
-
-/**
- * Bottone di rimozione a due passi (pattern access-tokens): il primo click
- * rivela "Conferma"/"Annulla"; solo il secondo esegue. Stile terminal, tono
- * danger. Usato per scollegare design e piano dalla voce.
- */
-function ConfirmDeleteButton({
-  label,
-  confirmAria,
-  pending,
-  onConfirm,
-}: {
-  label: string;
-  /** aria-label del bottone di conferma: distingue design da piano per gli AT. */
-  confirmAria: string;
-  pending: boolean;
-  onConfirm: () => void;
-}) {
-  const { t } = useTranslation();
-  const [confirming, setConfirming] = useState(false);
-
-  if (!confirming) {
-    return (
-      <button type="button" onClick={() => setConfirming(true)} className={deleteButtonClass}>
-        {label}
-      </button>
-    );
-  }
-  return (
-    <span className="flex items-center gap-2">
-      <button
-        type="button"
-        disabled={pending}
-        aria-label={confirmAria}
-        onClick={onConfirm}
-        className={deleteButtonClass}
-      >
-        {t("backlog:detail.confirmRemove")}
-      </button>
-      <button
-        type="button"
-        onClick={() => setConfirming(false)}
-        className="rounded-sm border border-line-strong px-2.5 py-1 font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg"
-      >
-        {t("backlog:actions.cancel")}
-      </button>
-    </span>
-  );
-}
-
-const deleteButtonClass =
-  "rounded-sm border border-danger/30 bg-ink-950/70 px-2.5 py-1 font-mono text-[11px] tracking-[0.08em] text-danger uppercase transition-colors hover:border-danger/60 disabled:cursor-not-allowed disabled:opacity-50";
 
 /**
  * Banner dei metadati suggeriti dall'AI: mostra i campi proposti col valore

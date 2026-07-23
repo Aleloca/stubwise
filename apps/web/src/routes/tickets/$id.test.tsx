@@ -79,6 +79,9 @@ const ticketFixture: Ticket = {
   lastSeenAt: "2026-06-08T10:00:00.000Z",
   createdAt: "2026-06-01T10:00:00.000Z",
   updatedAt: "2026-06-08T10:00:00.000Z",
+  // Design/piano non collegati di default (solo nel dettaglio).
+  implementationPlan: null,
+  originContent: null,
   // Vuoto di default: il fix non ha ancora toccato repository (placeholder).
   repositories: [],
 };
@@ -259,6 +262,10 @@ interface MockState {
   createdLinks: unknown[];
   /** linkId passati a DELETE /links/:linkId. */
   deletedLinks: string[];
+  /** Quante volte è stato chiamato DELETE /design. */
+  designDeletes: number;
+  /** Quante volte è stato chiamato DELETE /plan. */
+  planDeletes: number;
 }
 
 /**
@@ -316,6 +323,8 @@ function mockDetailApi(
     links: overrides.links ?? [],
     createdLinks: [],
     deletedLinks: [],
+    designDeletes: 0,
+    planDeletes: 0,
   };
 
   mockApi({
@@ -413,6 +422,21 @@ function mockDetailApi(
     [`POST /api/tickets/${TICKET_ID}/reject-plan`]: () => {
       state.rejectCalls += 1;
       return jsonResponse(202, { jobId: "j3" });
+    },
+    [`DELETE /api/tickets/${TICKET_ID}/design`]: () => {
+      state.designDeletes += 1;
+      // Ripristina l'origine nel body e azzera originContent (forma dettaglio).
+      state.ticket = {
+        ...state.ticket,
+        body: state.ticket.originContent ?? state.ticket.body,
+        originContent: null,
+      };
+      return jsonResponse(200, state.ticket);
+    },
+    [`DELETE /api/tickets/${TICKET_ID}/plan`]: () => {
+      state.planDeletes += 1;
+      state.ticket = { ...state.ticket, implementationPlan: null };
+      return jsonResponse(200, state.ticket);
     },
     [`GET /api/tickets/${TICKET_ID}/attachments`]: () => jsonResponse(200, []),
     "GET /api/settings/instance": () =>
@@ -615,6 +639,123 @@ describe("dettaglio ticket", () => {
     expect(md).toContain("Il bottone **Paga ora** lancia un'eccezione.");
     // Feedback "Copied!" dopo la copia.
     expect(await screen.findByRole("button", { name: "Copied!" })).toBeInTheDocument();
+  });
+
+  it("export .md: include il piano come sezione dedicata quando presente", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    mockDetailApi({
+      ticket: { ...ticketFixture, implementationPlan: "1. Aggiungi retry al gateway." },
+    });
+    renderDetail();
+
+    await screen.findByRole("heading", { name: "TypeError al checkout" });
+    await userEvent.click(screen.getByRole("button", { name: "Copy .md" }));
+
+    const md = writeText.mock.calls[0]![0] as string;
+    // Il piano segue il corpo come sezione "## Implementation plan" (label i18n).
+    expect(md).toContain("## Implementation plan");
+    expect(md).toContain("1. Aggiungi retry al gateway.");
+  });
+
+  it("piano di implementazione: reso in markdown quando presente", async () => {
+    mockDetailApi({
+      ticket: { ...ticketFixture, implementationPlan: "1. Aggiungi endpoint **/retry**." },
+    });
+    renderDetail();
+
+    const section = await screen.findByRole("region", { name: "Implementation plan" });
+    const bold = within(section).getByText("/retry");
+    expect(bold.tagName).toBe("STRONG");
+  });
+
+  it("piano di implementazione: empty state quando assente", async () => {
+    mockDetailApi();
+    renderDetail();
+
+    const section = await screen.findByRole("region", { name: "Implementation plan" });
+    expect(within(section).getByText(/No implementation plan yet/i)).toBeInTheDocument();
+  });
+
+  it("richiesta originale: blocco collassabile con originContent, assente se null", async () => {
+    mockDetailApi({
+      ticket: {
+        ...ticketFixture,
+        body: "Design collegato.",
+        originContent: "La **richiesta** iniziale.",
+      },
+    });
+    renderDetail();
+
+    // Il corpo mostra il design; l'origine è nel blocco collassabile, montato
+    // solo da aperto (CollapsibleSection).
+    const toggle = await screen.findByRole("button", { name: /Original request/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(toggle);
+    const bold = await screen.findByText("richiesta");
+    expect(bold.tagName).toBe("STRONG");
+  });
+
+  it("richiesta originale: assente quando originContent è null", async () => {
+    mockDetailApi();
+    renderDetail();
+
+    await screen.findByRole("heading", { name: "TypeError al checkout" });
+    expect(screen.queryByText("Original request")).not.toBeInTheDocument();
+  });
+
+  it("elimina design: conferma a due passi chiama la DELETE e ripristina l'origine", async () => {
+    const state = mockDetailApi({
+      ticket: { ...ticketFixture, body: "Design collegato.", originContent: "Origine." },
+    });
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Remove design" }));
+    // Secondo passo: conferma.
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Confirm removing the design" }),
+    );
+
+    await waitFor(() => expect(state.designDeletes).toBe(1));
+    // L'origine torna nel corpo e il blocco "Richiesta originale" sparisce.
+    await waitFor(() => expect(screen.getByText("Origine.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByText("Original request")).not.toBeInTheDocument());
+  });
+
+  it("elimina piano: conferma a due passi chiama la DELETE", async () => {
+    const state = mockDetailApi({
+      ticket: { ...ticketFixture, implementationPlan: "Passi del piano." },
+    });
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Remove plan" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Confirm removing the plan" }),
+    );
+
+    await waitFor(() => expect(state.planDeletes).toBe(1));
+    const section = await screen.findByRole("region", { name: "Implementation plan" });
+    await waitFor(() =>
+      expect(within(section).getByText(/No implementation plan yet/i)).toBeInTheDocument(),
+    );
+  });
+
+  it("elimina design/piano: nessun bottone quando i campi sono null o il ticket è chiuso", async () => {
+    mockDetailApi({
+      ticket: {
+        ...ticketFixture,
+        status: "closed",
+        body: "Design.",
+        originContent: "Origine.",
+        implementationPlan: "Piano.",
+      },
+    });
+    renderDetail();
+
+    await screen.findByRole("heading", { name: "TypeError al checkout" });
+    // Ticket chiuso: le azioni di rimozione sono nascoste anche se i campi ci sono.
+    expect(screen.queryByRole("button", { name: "Remove design" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove plan" })).not.toBeInTheDocument();
   });
 
   it("sezione Repository/PR: elenca repo, stato PR e link alla PR (fix eseguito)", async () => {

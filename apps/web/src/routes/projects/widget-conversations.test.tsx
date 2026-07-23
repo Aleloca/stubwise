@@ -322,6 +322,8 @@ describe("ticket widget → conversazione", () => {
       lastSeenAt: NOW,
       createdAt: NOW,
       updatedAt: NOW,
+      implementationPlan: null,
+      originContent: null,
       repositories: [],
     };
   }

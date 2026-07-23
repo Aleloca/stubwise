@@ -300,6 +300,17 @@ export interface TicketBase {
  * finché il fix non è stato eseguito.
  */
 export interface Ticket extends TicketBase {
+  /**
+   * Piano di implementazione collegato al ticket (testo libero, null finché non
+   * impostato da Claude Code). Solo nel DETTAGLIO. Solo render/delete lato SPA.
+   */
+  implementationPlan: string | null;
+  /**
+   * Contenuto d'origine preservato quando un design ne sostituisce il `body`
+   * (null se nessun design è attivo). DELETE del design ripristina questo valore.
+   * Solo nel DETTAGLIO.
+   */
+  originContent: string | null;
   repositories: TicketRepository[];
 }
 
@@ -373,6 +384,29 @@ export function getTicket(id: string): Promise<Ticket> {
 
 export function patchTicket(id: string, patch: TicketPatch): Promise<TicketBase> {
   return api.patch(`/api/tickets/${id}`, patch);
+}
+
+/**
+ * Collega un design al ticket: sostituisce `body` col design, preservando
+ * l'origine in `originContent` (una sola volta). Ritorna la forma DETTAGLIO.
+ */
+export function setTicketDesign(id: string, content: string): Promise<Ticket> {
+  return api.put(`/api/tickets/${encodeURIComponent(id)}/design`, { content });
+}
+
+/** Rimuove il design collegato: ripristina `body` dall'origine. 404 se assente. */
+export function deleteTicketDesign(id: string): Promise<Ticket> {
+  return api.delete(`/api/tickets/${encodeURIComponent(id)}/design`);
+}
+
+/** Imposta il piano di implementazione del ticket. Ritorna la forma DETTAGLIO. */
+export function setTicketPlan(id: string, content: string): Promise<Ticket> {
+  return api.put(`/api/tickets/${encodeURIComponent(id)}/plan`, { content });
+}
+
+/** Azzera il piano di implementazione del ticket. Ritorna la forma DETTAGLIO. */
+export function deleteTicketPlan(id: string): Promise<Ticket> {
+  return api.delete(`/api/tickets/${encodeURIComponent(id)}/plan`);
 }
 
 /**
