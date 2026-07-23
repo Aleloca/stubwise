@@ -1939,3 +1939,215 @@ describe("POST /api/tickets/:id/reject-plan", () => {
     expect(cmts).toHaveLength(0);
   });
 });
+
+describe("PUT/DELETE /api/tickets/:id/design", () => {
+  async function freshTicket(bodyText = "Corpo originale"): Promise<string> {
+    const res = await postTicket({
+      projectId,
+      title: "Design ticket",
+      type: "task",
+      body: bodyText,
+    });
+    expect(res.statusCode).toBe(201);
+    return (res.json() as TicketBody).id;
+  }
+
+  function putDesign(id: string, content: string, cookie = users.memberCookie) {
+    return app.inject({
+      method: "PUT",
+      url: `/api/tickets/${id}/design`,
+      headers: { cookie },
+      payload: { content },
+    });
+  }
+
+  function deleteDesign(id: string, cookie = users.memberCookie) {
+    return app.inject({
+      method: "DELETE",
+      url: `/api/tickets/${id}/design`,
+      headers: { cookie },
+    });
+  }
+
+  function eventsOf(id: string) {
+    return testDb.db.select().from(ticketEvents).where(eq(ticketEvents.ticketId, id));
+  }
+
+  it("PUT imposta il body al design e preserva il corpo originale (una sola volta)", async () => {
+    const id = await freshTicket("Corpo iniziale");
+
+    const first = await putDesign(id, "## Design v1");
+    expect(first.statusCode).toBe(200);
+    const b1 = first.json() as TicketBody & {
+      implementationPlan: string | null;
+      originContent: string | null;
+    };
+    expect(b1.body).toBe("## Design v1");
+    expect(b1.originContent).toBe("Corpo iniziale");
+    // La risposta ha la forma di DETTAGLIO (repositories presente).
+    expect(b1.repositories).toEqual([]);
+
+    // Secondo PUT: NON ri-preserva l'origine (resta il corpo iniziale).
+    const second = await putDesign(id, "## Design v2");
+    expect(second.statusCode).toBe(200);
+    const b2 = second.json() as TicketBody & { originContent: string | null };
+    expect(b2.body).toBe("## Design v2");
+    expect(b2.originContent).toBe("Corpo iniziale");
+  });
+
+  it("PUT design genera un evento body_changed di audit con actorId del loggato", async () => {
+    const id = await freshTicket("Corpo per audit");
+    const res = await putDesign(id, "## Design audit");
+    expect(res.statusCode).toBe(200);
+
+    const rows = await eventsOf(id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.kind).toBe("body_changed");
+    expect(rows[0]?.actorId).toBe(users.memberId);
+  });
+
+  it("DELETE design ripristina il body da originContent e lo azzera", async () => {
+    const id = await freshTicket("Corpo da ripristinare");
+    await putDesign(id, "## Design temporaneo");
+
+    const del = await deleteDesign(id);
+    expect(del.statusCode).toBe(200);
+    const body = del.json() as TicketBody & { originContent: string | null };
+    expect(body.body).toBe("Corpo da ripristinare");
+    expect(body.originContent).toBeNull();
+  });
+
+  it("DELETE design senza design attivo: 404", async () => {
+    const id = await freshTicket();
+    const del = await deleteDesign(id);
+    expect(del.statusCode).toBe(404);
+  });
+
+  it("senza sessione: 401", async () => {
+    const id = await freshTicket();
+    const res = await app.inject({
+      method: "PUT",
+      url: `/api/tickets/${id}/design`,
+      payload: { content: "x" },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("ticket inesistente: 404", async () => {
+    const res = await putDesign(randomUUID(), "x");
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("content oltre 20k: 400", async () => {
+    const id = await freshTicket();
+    const res = await putDesign(id, "a".repeat(20_001));
+    expect(res.statusCode).toBe(400);
+  });
+});
+
+describe("PUT/DELETE /api/tickets/:id/plan", () => {
+  async function freshTicket(): Promise<string> {
+    const res = await postTicket({ projectId, title: "Plan ticket", type: "task" });
+    expect(res.statusCode).toBe(201);
+    return (res.json() as TicketBody).id;
+  }
+
+  function putPlan(id: string, content: string, cookie = users.memberCookie) {
+    return app.inject({
+      method: "PUT",
+      url: `/api/tickets/${id}/plan`,
+      headers: { cookie },
+      payload: { content },
+    });
+  }
+
+  it("PUT imposta implementationPlan e DELETE lo azzera", async () => {
+    const id = await freshTicket();
+
+    const set = await putPlan(id, "## Piano\n1. step");
+    expect(set.statusCode).toBe(200);
+    expect(
+      (set.json() as { implementationPlan: string | null }).implementationPlan,
+    ).toBe("## Piano\n1. step");
+
+    const del = await app.inject({
+      method: "DELETE",
+      url: `/api/tickets/${id}/plan`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(del.statusCode).toBe(200);
+    expect(
+      (del.json() as { implementationPlan: string | null }).implementationPlan,
+    ).toBeNull();
+  });
+
+  it("PUT plan NON genera eventi di audit (il body non cambia)", async () => {
+    const id = await freshTicket();
+    await putPlan(id, "## Piano senza audit");
+    const rows = await testDb.db
+      .select()
+      .from(ticketEvents)
+      .where(eq(ticketEvents.ticketId, id));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("senza sessione: 401", async () => {
+    const id = await freshTicket();
+    const res = await app.inject({
+      method: "PUT",
+      url: `/api/tickets/${id}/plan`,
+      payload: { content: "x" },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("ticket inesistente: 404", async () => {
+    const res = await putPlan(randomUUID(), "x");
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("content oltre 20k: 400", async () => {
+    const id = await freshTicket();
+    const res = await putPlan(id, "a".repeat(20_001));
+    expect(res.statusCode).toBe(400);
+  });
+});
+
+describe("GET /api/tickets/:id — campi design/piano", () => {
+  it("espone implementationPlan e originContent impostati", async () => {
+    const created = await postTicket({
+      projectId,
+      title: "Detail campi",
+      type: "task",
+      body: "Corpo base",
+    });
+    const id = (created.json() as TicketBody).id;
+
+    await app.inject({
+      method: "PUT",
+      url: `/api/tickets/${id}/design`,
+      headers: { cookie: users.memberCookie },
+      payload: { content: "## Design nel detail" },
+    });
+    await app.inject({
+      method: "PUT",
+      url: `/api/tickets/${id}/plan`,
+      headers: { cookie: users.memberCookie },
+      payload: { content: "## Piano nel detail" },
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/tickets/${id}`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as TicketBody & {
+      implementationPlan: string | null;
+      originContent: string | null;
+    };
+    expect(body.body).toBe("## Design nel detail");
+    expect(body.originContent).toBe("Corpo base");
+    expect(body.implementationPlan).toBe("## Piano nel detail");
+  });
+});

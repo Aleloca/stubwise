@@ -4,6 +4,7 @@ import {
   ticketSourceSchema,
   ticketStatusSchema,
   ticketTypeSchema,
+  setContentSchema,
   type TicketStatus,
 } from "@stubwise/shared";
 import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
@@ -433,6 +434,25 @@ function diffTicketEvents(current: Ticket, updates: Partial<Ticket>): PendingEve
  * e tutte aperte a qualunque utente autenticato: la gestione dei ticket è
  * il lavoro quotidiano dei member, non un privilegio admin.
  */
+/**
+ * Risposta di DETTAGLIO di un ticket (la stessa forma di GET /:id): forma
+ * pubblica + i campi design/piano (implementationPlan/originContent) + lo stato
+ * PR per-repo. Riusata dagli endpoint design/plan così espongono i campi appena
+ * scritti esattamente come fa il GET di dettaglio.
+ */
+async function ticketDetailResponse(
+  db: Db,
+  row: Ticket,
+): Promise<z.infer<typeof ticketDetailSchema>> {
+  const repositoriesState = await loadTicketRepositories(db, row.id);
+  return {
+    ...toPublicTicket(row),
+    implementationPlan: row.implementationPlan,
+    originContent: row.originContent,
+    repositories: repositoriesState,
+  };
+}
+
 export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
@@ -1033,6 +1053,174 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         }
         throw error;
       }
+    },
+  );
+
+  // --- Design collegato (body) ---------------------------------------------
+  //
+  // PUT sostituisce il `body` del ticket con un design fornito dall'esterno
+  // (es. dalla skill/MCP che collega un doc a un ticket) PRESERVANDO il corpo
+  // originale in `originContent` — una sola volta: se un design è già attivo
+  // (`originContent` non null) l'origine NON viene sovrascritta. DELETE ripristina
+  // l'origine e azzera `originContent`. Poiché il set/rimozione del design cambia
+  // il `body`, si genera un evento `body_changed` di AUDIT con lo stesso
+  // meccanismo della PATCH (diffTicketEvents), così il cambio resta tracciato.
+  // requireAuth (non admin): collegare un design è lavoro quotidiano. Transazionale.
+  app.put(
+    "/:id/design",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        body: setContentSchema,
+        response: {
+          200: ticketDetailSchema,
+          400: errorSchema,
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const { content } = request.body;
+
+      const result = await app.db.transaction(async (tx) => {
+        const [current] = await tx
+          .select()
+          .from(tickets)
+          .where(eq(tickets.id, id))
+          .for("update");
+        if (!current) return null;
+        // Preserva l'origine UNA SOLA VOLTA: se già impostata resta com'è.
+        const origin = current.originContent ?? current.body;
+        const [updated] = await tx
+          .update(tickets)
+          .set({ body: content, originContent: origin })
+          .where(eq(tickets.id, id))
+          .returning();
+        // AUDIT: il set del design cambia il `body` → evento body_changed (stesso
+        // diff della PATCH). Se il contenuto coincide col corpo attuale, 0 eventi.
+        const events = diffTicketEvents(current, { body: content });
+        if (events.length > 0) {
+          await tx
+            .insert(ticketEvents)
+            .values(events.map((event) => ({ ...event, ticketId: id, actorId: request.user!.id })));
+        }
+        return updated!;
+      });
+      if (!result) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
+      return ticketDetailResponse(app.db, result);
+    },
+  );
+
+  // Rimuove il design collegato: ripristina il `body` da `originContent` e lo
+  // azzera. 404 se non c'è alcun design attivo (`originContent` null). Anche il
+  // ripristino del `body` produce un evento body_changed di audit.
+  app.delete(
+    "/:id/design",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        response: {
+          200: ticketDetailSchema,
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+
+      const result = await app.db.transaction(async (tx) => {
+        const [current] = await tx
+          .select()
+          .from(tickets)
+          .where(eq(tickets.id, id))
+          .for("update");
+        if (!current) return "missing" as const;
+        // Nessun design attivo: niente da rimuovere.
+        if (current.originContent === null) return "no_design" as const;
+        const [updated] = await tx
+          .update(tickets)
+          .set({ body: current.originContent, originContent: null })
+          .where(eq(tickets.id, id))
+          .returning();
+        const events = diffTicketEvents(current, { body: current.originContent });
+        if (events.length > 0) {
+          await tx
+            .insert(ticketEvents)
+            .values(events.map((event) => ({ ...event, ticketId: id, actorId: request.user!.id })));
+        }
+        return updated!;
+      });
+      if (result === "missing") return apiError(reply, 404, "ticket_not_found", "Ticket not found");
+      if (result === "no_design") {
+        return apiError(reply, 404, "no_active_design", "No active design to remove");
+      }
+      return ticketDetailResponse(app.db, result);
+    },
+  );
+
+  // --- Piano di implementazione --------------------------------------------
+  //
+  // PUT imposta `implementationPlan`, DELETE lo azzera. requireAuth (non admin).
+  // Il piano è un campo a sé e NON tocca il `body`: nessun evento di audit
+  // (diffTicketEvents non contempla i nuovi campi; l'audit resta focalizzato sul
+  // cambio di body del design).
+  app.put(
+    "/:id/plan",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        body: setContentSchema,
+        response: {
+          200: ticketDetailSchema,
+          400: errorSchema,
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const { content } = request.body;
+
+      const [row] = await app.db
+        .update(tickets)
+        .set({ implementationPlan: content })
+        .where(eq(tickets.id, id))
+        .returning();
+      if (!row) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
+      return ticketDetailResponse(app.db, row);
+    },
+  );
+
+  app.delete(
+    "/:id/plan",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        response: {
+          200: ticketDetailSchema,
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+
+      const [row] = await app.db
+        .update(tickets)
+        .set({ implementationPlan: null })
+        .where(eq(tickets.id, id))
+        .returning();
+      if (!row) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
+      return ticketDetailResponse(app.db, row);
     },
   );
 
