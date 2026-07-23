@@ -299,6 +299,67 @@ describe("createHandler", () => {
     expect(openPullRequest).toHaveBeenCalledTimes(1);
   });
 
+  it("job che INIZIA queued con resume_mode=execute + planText: esegue direttamente dal piano, niente triage né pianificazione", async () => {
+    // È il caso "run-ai su ticket con implementationPlan salvato": il job nasce
+    // già in execute-diretto (resumeMode=execute + planText) SENZA una fase di
+    // pianificazione pregressa. resolveFixMode → execute-only: il worker crea il
+    // proprio worktree dal mirror e fa UN SOLO run (execute), niente triage
+    // (haiku) né plan run (opus/plan).
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const repo = await createRepository(db, upstream.url);
+    const PLAN = "## Piano salvato\n1. Correggi il segno in sum\n2. Aggiungi un test";
+    const ticketId = await createQueuedJob(db, repo, "sum sbaglia il segno", 21, {
+      resumeMode: "execute",
+      planText: PLAN,
+    });
+
+    const REPORT = "## Processo di indagine\nok\n## Causa radice\nok\n## Soluzione\nok\n## Motivazione\nok\n";
+    const runner = new FakeAgentRunner({
+      script: async (opts: AgentRunOptions) => {
+        // Né triage (haiku) né pianificazione (permission-mode plan) devono
+        // girare: se accadesse, questi rami intercetterebbero e il test
+        // fallirebbe sulle asserzioni sotto.
+        if (opts.model === "haiku") {
+          return { output: `{"decision":"fix","type":"bug","effort":3}`, exitCode: 0 };
+        }
+        // Il prompt di execute deve contenere il piano salvato: prova che il
+        // worker esegue DAL piano fornito, non da uno ripianificato.
+        expect(opts.prompt).toContain(PLAN);
+        await writeFixDiff(opts.cwd, upstream.url, REPORT);
+        return { output: "fix applicato", exitCode: 0 };
+      },
+    });
+    const openPullRequest = vi.fn().mockResolvedValue({ url: "https://github.com/acme/repo/pull/21" });
+
+    const handler = createHandler({
+      db,
+      runner,
+      mirrors,
+      encryptionKey: ENCRYPTION_KEY,
+      getProviderFn: () => ({ openPullRequest }) as never,
+    });
+
+    const job = await claim(db);
+    await handler(job);
+
+    // UN SOLO run: l'execute (sonnet, acceptEdits). Niente triage (haiku),
+    // niente plan run (permission-mode plan).
+    expect(runner.calls).toHaveLength(1);
+    expect(runner.calls.map((c) => c.model)).not.toContain("haiku");
+    expect(runner.calls.map((c) => c.permissionMode)).not.toContain("plan");
+    expect(runner.calls[0]?.model).toBe("sonnet");
+    expect(runner.calls[0]?.permissionMode).toBe("acceptEdits");
+
+    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter?.status).toBe("pr_opened");
+    expect(jobAfter?.prUrl).toBe("https://github.com/acme/repo/pull/21");
+    const [ticketAfter] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
+    expect(ticketAfter?.status).toBe("in_review");
+    expect(openPullRequest).toHaveBeenCalledTimes(1);
+  });
+
   it("resume_mode=fix con ownership persa: markFixing fallisce → il fix NON parte", async () => {
     const { db } = testDb;
     const mirrors = await makeMirrors();

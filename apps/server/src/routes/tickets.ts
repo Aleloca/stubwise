@@ -1229,6 +1229,15 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   // procede SCAVALCANDO il gate di automazione (soglia/auto-fix). Se il ticket
   // non ha ancora job, ne crea uno queued+manuale. Aperta a ogni utente
   // autenticato: lanciare il fix è lavoro quotidiano, non un privilegio admin.
+  //
+  // ESECUZIONE DIRETTA DAL PIANO SALVATO: se il ticket ha un
+  // `implementationPlan` salvato e il body NON forza il flusso normale
+  // (`mode:"ai_plan"`), il job parte già in modalità execute-diretta
+  // (resume_mode="execute", plan_text = implementationPlan): il worker salta
+  // triage/pianificazione/approvazione ed esegue direttamente dal piano. È
+  // esattamente lo stato che approve-plan produce, quindi il percorso
+  // execute-only del worker (che crea il proprio worktree dal mirror) lo gestisce
+  // senza modifiche. Con `mode:"ai_plan"` o senza piano salvato → flusso normale.
   app.post(
     "/:id/run-ai",
     {
@@ -1237,20 +1246,37 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         params: idParamsSchema,
         // nullish (non optional): fastify-type-provider-zod passa `null` quando
         // la POST arriva senza corpo, e un `.optional()` puro lo rifiuterebbe.
-        body: z.object({ withInstructions: z.boolean().optional() }).nullish(),
+        body: z
+          .object({
+            withInstructions: z.boolean().optional(),
+            // "ai_plan" forza il flusso normale (triage/pianificazione) anche se
+            // il ticket ha un piano salvato: l'unico valore ammesso.
+            mode: z.literal("ai_plan").optional(),
+          })
+          .nullish(),
         response: { 202: z.object({ jobId: z.uuid() }), 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
       const { id } = request.params;
-      // withInstructions=true => il worker riprende sul fix scavalcando il
-      // triage (resume_mode=fix). Altrimenti si rifà il triage da capo.
-      const resume = request.body?.withInstructions ? "fix" : null;
       const [ticket] = await app.db
-        .select({ id: tickets.id })
+        .select({ id: tickets.id, implementationPlan: tickets.implementationPlan })
         .from(tickets)
         .where(eq(tickets.id, id));
       if (!ticket) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
+
+      // Esecuzione diretta dal piano salvato: ticket con piano e senza forzatura
+      // del flusso normale. Ha precedenza su withInstructions (è la scelta più
+      // forte: c'è già un piano approvato da eseguire).
+      const useSavedPlan =
+        ticket.implementationPlan !== null && request.body?.mode !== "ai_plan";
+      // resume_mode: "execute" con piano salvato; altrimenti "fix" se
+      // withInstructions=true (riprende sul fix scavalcando il triage), else null
+      // (si rifà il triage da capo).
+      const resume = useSavedPlan ? "execute" : request.body?.withInstructions ? "fix" : null;
+      // plan_text: il piano salvato in esecuzione diretta, altrimenti azzerato
+      // (un piano residuo di un run precedente non deve sopravvivere al re-triage).
+      const planText = useSavedPlan ? ticket.implementationPlan : null;
 
       // L'ultimo job del ticket (per createdAt, id come spareggio): è quello
       // che la timeline mostra in cima e che l'utente intende rilanciare.
@@ -1268,7 +1294,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
             status: "queued",
             manualTrigger: true,
             resumeMode: resume,
-            planText: null,
+            planText,
             startedAt: null,
             finishedAt: null,
             error: null,
@@ -1280,7 +1306,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
 
       const [created] = await app.db
         .insert(aiJobs)
-        .values({ ticketId: id, status: "queued", manualTrigger: true, resumeMode: resume, planText: null })
+        .values({ ticketId: id, status: "queued", manualTrigger: true, resumeMode: resume, planText })
         .returning({ id: aiJobs.id });
       return reply.code(202).send({ jobId: created!.id });
     },
