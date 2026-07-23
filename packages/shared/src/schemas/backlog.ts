@@ -155,7 +155,7 @@ export type UpdateBacklogItemInput = z.infer<typeof updateBacklogItemSchema>;
  * vuoto entro il tetto dei corpi lunghi. Condiviso tra le quattro superfici
  * (design/piano × backlog/ticket) perché la forma del payload è identica.
  */
-export const setContentSchema = z.object({ content: z.string().min(1).max(20_000) });
+export const setContentSchema = z.object({ content: z.string().min(1).max(200_000) });
 export type SetContentInput = z.infer<typeof setContentSchema>;
 
 /** Creazione manuale di una voce del backlog (non deviata da un ticket). */

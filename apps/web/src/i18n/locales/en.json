@@ -348,7 +348,6 @@
       "deleteDesignConfirmAria": "Confirm removing the design",
       "deletePlan": "Remove plan",
       "deletePlanConfirmAria": "Confirm removing the plan",
-      "description": "Description",
       "designDescription": "Design / Description",
       "downloadMd": "Download .md",
       "effort": "Effort: {{label}} ({{value}}/5)",

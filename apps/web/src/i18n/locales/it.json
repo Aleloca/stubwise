@@ -348,7 +348,6 @@
       "deleteDesignConfirmAria": "Conferma la rimozione del design",
       "deletePlan": "Rimuovi piano",
       "deletePlanConfirmAria": "Conferma la rimozione del piano",
-      "description": "Descrizione",
       "designDescription": "Design / Descrizione",
       "downloadMd": "Scarica .md",
       "effort": "Effort: {{label}} ({{value}}/5)",

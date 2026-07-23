@@ -241,7 +241,13 @@ function targetUrl(baseUrl: string, target: string, id: string): string {
 const setContentInput = {
   target: z.enum(["backlog", "ticket"]).describe("Risorsa su cui operare: 'backlog' o 'ticket'."),
   id: z.string().uuid().describe("UUID della voce di backlog o del ticket."),
-  content: z.string().describe("Contenuto markdown da salvare."),
+  // Limite allineato a setContentSchema lato server (max ~200k caratteri); tenuto
+  // come literal inline per NON reintrodurre un import runtime dal package shared
+  // nel bundle MCP.
+  content: z
+    .string()
+    .max(200_000)
+    .describe("Contenuto markdown da salvare (max ~200k caratteri)."),
 };
 
 const targetIdInput = {
@@ -252,7 +258,7 @@ const targetIdInput = {
 const setDesign: ToolDef = {
   name: "set_design",
   description:
-    "Collega un documento di design a una voce di backlog o a un ticket: SOSTITUISCE il corpo con 'content', preservando (una sola volta) il testo originale come origine ripristinabile. Usalo per allineare la descrizione della risorsa a un design rifinito. 'target' è 'backlog' o 'ticket'.",
+    "Collega un documento di design a una voce di backlog o a un ticket: SOSTITUISCE il corpo con 'content', preservando (una sola volta) il testo originale come origine ripristinabile. Usalo per allineare la descrizione della risorsa a un design rifinito. 'target' è 'backlog' o 'ticket'. Il contenuto ha un limite massimo di ~200k caratteri.",
   inputSchema: setContentInput,
   handler: (args, ctx): Promise<ToolResult> =>
     runTool(async () => {
@@ -284,7 +290,7 @@ const deleteDesign: ToolDef = {
 const setPlan: ToolDef = {
   name: "set_plan",
   description:
-    "Salva o aggiorna il piano di implementazione (markdown) di una voce di backlog o di un ticket. Usalo per allegare i passi tecnici pianificati. 'target' è 'backlog' o 'ticket'.",
+    "Salva o aggiorna il piano di implementazione (markdown) di una voce di backlog o di un ticket. Usalo per allegare i passi tecnici pianificati. 'target' è 'backlog' o 'ticket'. Il contenuto ha un limite massimo di ~200k caratteri.",
   inputSchema: setContentInput,
   handler: (args, ctx): Promise<ToolResult> =>
     runTool(async () => {
