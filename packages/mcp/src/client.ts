@@ -46,11 +46,17 @@ export class StubwiseApiError extends Error {
 export type Urgency = TicketPriority;
 
 /**
- * Forma difensiva di un ticket nelle risposte API: solo i campi che ci servono,
- * tipizzati dalle enum condivise. Campi extra del server (technicalPayload,
- * occurrences, ...) restano ignorati.
+ * Forma difensiva di un ticket nelle risposte di LISTA/CREATE (`listTickets`,
+ * `createTicket`) e nelle PATCH (`patchTicket`/`setTicketStatus`): solo i campi
+ * che ci servono, tipizzati dalle enum condivise. Campi extra del server
+ * (technicalPayload, occurrences, repositoryCount, ...) restano ignorati.
+ *
+ * NON include `implementationPlan`/`originContent`: quei due campi sono nel
+ * SOLO dettaglio del server (`ticketDetailSchema`), non nelle risposte base
+ * (`ticketSchema`/`ticketListItemSchema`) → a runtime sarebbero `undefined`,
+ * non `null`. Per leggerli si usa {@link TicketDetail}.
  */
-export interface Ticket {
+export interface TicketSummary {
   id: string;
   projectId: string;
   number: number;
@@ -61,13 +67,22 @@ export interface Ticket {
   status: TicketStatus;
   assigneeId: string | null;
   labels: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Forma difensiva di un ticket nelle risposte di DETTAGLIO (`getTicket`) e in
+ * quelle degli endpoint design/piano (`setDesign`/`deleteDesign`/`setPlan`/
+ * `deletePlan`, che rispondono col dettaglio): la forma base più i due campi
+ * design/piano, garantiti presenti (`string | null`) solo qui.
+ */
+export type TicketDetail = TicketSummary & {
   /** Piano di implementazione collegato (markdown), o null se assente. */
   implementationPlan: string | null;
   /** Corpo originale preservato quando un design ne ha sostituito il body, o null. */
   originContent: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
+};
 
 /**
  * Voce del backlog nelle risposte di LISTA (forma difensiva, leggera). La lista
@@ -407,16 +422,16 @@ export class StubwiseClient {
 
   // --- Ticket -------------------------------------------------------------
 
-  async createTicket(params: CreateTicketParams): Promise<Ticket> {
-    return this.request<Ticket>("/api/tickets", { method: "POST", body: params });
+  async createTicket(params: CreateTicketParams): Promise<TicketSummary> {
+    return this.request<TicketSummary>("/api/tickets", { method: "POST", body: params });
   }
 
-  async getTicket(id: string): Promise<Ticket> {
-    return this.request<Ticket>(`/api/tickets/${id}`);
+  async getTicket(id: string): Promise<TicketDetail> {
+    return this.request<TicketDetail>(`/api/tickets/${id}`);
   }
 
-  async listTickets(params: ListTicketsParams): Promise<Page<Ticket>> {
-    return this.request<Page<Ticket>>("/api/tickets", {
+  async listTickets(params: ListTicketsParams): Promise<Page<TicketSummary>> {
+    return this.request<Page<TicketSummary>>("/api/tickets", {
       query: {
         projectId: params.projectId,
         statuses: params.statuses?.join(","),
@@ -428,12 +443,14 @@ export class StubwiseClient {
     });
   }
 
-  async patchTicket(id: string, patch: TicketPatch): Promise<Ticket> {
-    return this.request<Ticket>(`/api/tickets/${id}`, { method: "PATCH", body: patch });
+  // PATCH risponde con la forma base (`toPublicTicket`), senza i campi
+  // design/piano → TicketSummary (non TicketDetail).
+  async patchTicket(id: string, patch: TicketPatch): Promise<TicketSummary> {
+    return this.request<TicketSummary>(`/api/tickets/${id}`, { method: "PATCH", body: patch });
   }
 
   /** Scorciatoia per il cambio di stato (PATCH con solo `{ status }`). */
-  async setTicketStatus(id: string, status: TicketStatus): Promise<Ticket> {
+  async setTicketStatus(id: string, status: TicketStatus): Promise<TicketSummary> {
     return this.patchTicket(id, { status });
   }
 
@@ -455,16 +472,16 @@ export class StubwiseClient {
     target: DesignPlanTarget,
     id: string,
     content: string,
-  ): Promise<BacklogItemDetail | Ticket> {
-    return this.request<BacklogItemDetail | Ticket>(`${this.basePath(target)}/${id}/design`, {
+  ): Promise<BacklogItemDetail | TicketDetail> {
+    return this.request<BacklogItemDetail | TicketDetail>(`${this.basePath(target)}/${id}/design`, {
       method: "PUT",
       body: { content },
     });
   }
 
   /** DELETE del design: ripristina il corpo d'origine e azzera `originContent` lato server. */
-  async deleteDesign(target: DesignPlanTarget, id: string): Promise<BacklogItemDetail | Ticket> {
-    return this.request<BacklogItemDetail | Ticket>(`${this.basePath(target)}/${id}/design`, {
+  async deleteDesign(target: DesignPlanTarget, id: string): Promise<BacklogItemDetail | TicketDetail> {
+    return this.request<BacklogItemDetail | TicketDetail>(`${this.basePath(target)}/${id}/design`, {
       method: "DELETE",
     });
   }
@@ -474,16 +491,16 @@ export class StubwiseClient {
     target: DesignPlanTarget,
     id: string,
     content: string,
-  ): Promise<BacklogItemDetail | Ticket> {
-    return this.request<BacklogItemDetail | Ticket>(`${this.basePath(target)}/${id}/plan`, {
+  ): Promise<BacklogItemDetail | TicketDetail> {
+    return this.request<BacklogItemDetail | TicketDetail>(`${this.basePath(target)}/${id}/plan`, {
       method: "PUT",
       body: { content },
     });
   }
 
   /** DELETE del piano di implementazione: azzera `implementationPlan`. */
-  async deletePlan(target: DesignPlanTarget, id: string): Promise<BacklogItemDetail | Ticket> {
-    return this.request<BacklogItemDetail | Ticket>(`${this.basePath(target)}/${id}/plan`, {
+  async deletePlan(target: DesignPlanTarget, id: string): Promise<BacklogItemDetail | TicketDetail> {
+    return this.request<BacklogItemDetail | TicketDetail>(`${this.basePath(target)}/${id}/plan`, {
       method: "DELETE",
     });
   }

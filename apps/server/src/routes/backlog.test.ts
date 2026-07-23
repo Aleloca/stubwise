@@ -966,6 +966,17 @@ describe("PUT/DELETE /api/backlog/:id/plan", () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it("400 se content è vuoto (setContentSchema min(1))", async () => {
+    const item = await insertItem();
+    const res = await app.inject({
+      method: "PUT",
+      url: `/api/backlog/${item.id}/plan`,
+      headers: { cookie: memberCookie },
+      payload: { content: "" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
   it("PUT plan: implementationPlan = content", async () => {
     const item = await insertItem();
     const res = await app.inject({
@@ -998,6 +1009,19 @@ describe("PUT/DELETE /api/backlog/:id/plan", () => {
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(404);
+  });
+
+  it("DELETE plan idempotente: 200 anche se implementationPlan è già null (no-op)", async () => {
+    // Nessun piano mai impostato: la DELETE è un no-op ma l'UPDATE matcha comunque
+    // la riga esistente → 200 idempotente, NON 404.
+    const item = await insertItem();
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/backlog/${item.id}/plan`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { implementationPlan: string | null }).implementationPlan).toBeNull();
   });
 });
 
