@@ -4,6 +4,7 @@ import {
   ticketSourceSchema,
   ticketStatusSchema,
   ticketTypeSchema,
+  setContentSchema,
   type TicketStatus,
 } from "@stubwise/shared";
 import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
@@ -72,6 +73,11 @@ export const ticketSchema = z.object({
  * ticket↔repo: il ticket appartiene solo al progetto.
  */
 export const ticketDetailSchema = ticketSchema.extend({
+  // Piano di implementazione e contenuto d'origine (design/piano collegati al
+  // ticket): testo libero, null finché non impostati. Solo nel dettaglio: sono
+  // potenzialmente grandi e fuori posto nelle liste.
+  implementationPlan: z.string().nullable(),
+  originContent: z.string().nullable(),
   repositories: z.array(ticketRepositorySchema),
 });
 
@@ -428,6 +434,25 @@ function diffTicketEvents(current: Ticket, updates: Partial<Ticket>): PendingEve
  * e tutte aperte a qualunque utente autenticato: la gestione dei ticket è
  * il lavoro quotidiano dei member, non un privilegio admin.
  */
+/**
+ * Risposta di DETTAGLIO di un ticket (la stessa forma di GET /:id): forma
+ * pubblica + i campi design/piano (implementationPlan/originContent) + lo stato
+ * PR per-repo. Riusata dagli endpoint design/plan così espongono i campi appena
+ * scritti esattamente come fa il GET di dettaglio.
+ */
+async function ticketDetailResponse(
+  db: Db,
+  row: Ticket,
+): Promise<z.infer<typeof ticketDetailSchema>> {
+  const repositoriesState = await loadTicketRepositories(db, row.id);
+  return {
+    ...toPublicTicket(row),
+    implementationPlan: row.implementationPlan,
+    originContent: row.originContent,
+    repositories: repositoriesState,
+  };
+}
+
 export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
@@ -606,9 +631,10 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         .from(tickets)
         .where(eq(tickets.id, request.params.id));
       if (!row) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
-      // Stato PR per-repo (Fase 3): vuoto finché l'agente non apre PR.
-      const repositoriesState = await loadTicketRepositories(app.db, row.id);
-      return { ...toPublicTicket(row), repositories: repositoriesState };
+      // Unica fonte della forma di dettaglio (design/piano + stato PR per-repo,
+      // vuoto finché l'agente non apre PR): la stessa risposta prodotta dagli
+      // endpoint design/plan (helper condiviso, niente duplicazione).
+      return ticketDetailResponse(app.db, row);
     },
   );
 
@@ -1026,11 +1052,192 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
+  // --- Design collegato (body) ---------------------------------------------
+  //
+  // PUT sostituisce il `body` del ticket con un design fornito dall'esterno
+  // (es. dalla skill/MCP che collega un doc a un ticket) PRESERVANDO il corpo
+  // originale in `originContent` — una sola volta: se un design è già attivo
+  // (`originContent` non null) l'origine NON viene sovrascritta. DELETE ripristina
+  // l'origine e azzera `originContent`. Poiché il set/rimozione del design cambia
+  // il `body`, si genera un evento `body_changed` di AUDIT con lo stesso
+  // meccanismo della PATCH (diffTicketEvents), così il cambio resta tracciato.
+  // requireAuth (non admin): collegare un design è lavoro quotidiano. Transazionale
+  // con SELECT ... FOR UPDATE: il lock serve al read-modify-write su
+  // originContent (preserve-once — l'origine si salva una sola volta leggendo
+  // il valore precedente); la PATCH non deriva stato dal valore precedente e
+  // non lo richiede.
+  app.put(
+    "/:id/design",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        body: setContentSchema,
+        response: {
+          200: ticketDetailSchema,
+          400: errorSchema,
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const { content } = request.body;
+
+      const result = await app.db.transaction(async (tx) => {
+        const [current] = await tx
+          .select()
+          .from(tickets)
+          .where(eq(tickets.id, id))
+          .for("update");
+        if (!current) return null;
+        // Preserva l'origine UNA SOLA VOLTA: se già impostata resta com'è.
+        const origin = current.originContent ?? current.body;
+        const [updated] = await tx
+          .update(tickets)
+          .set({ body: content, originContent: origin })
+          .where(eq(tickets.id, id))
+          .returning();
+        // AUDIT: il set del design cambia il `body` → evento body_changed (stesso
+        // diff della PATCH). Se il contenuto coincide col corpo attuale, 0 eventi.
+        const events = diffTicketEvents(current, { body: content });
+        if (events.length > 0) {
+          await tx
+            .insert(ticketEvents)
+            .values(events.map((event) => ({ ...event, ticketId: id, actorId: request.user!.id })));
+        }
+        return updated!;
+      });
+      if (!result) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
+      return ticketDetailResponse(app.db, result);
+    },
+  );
+
+  // Rimuove il design collegato: ripristina il `body` da `originContent` e lo
+  // azzera. 404 se non c'è alcun design attivo (`originContent` null). Anche il
+  // ripristino del `body` produce un evento body_changed di audit.
+  app.delete(
+    "/:id/design",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        response: {
+          200: ticketDetailSchema,
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+
+      const result = await app.db.transaction(async (tx) => {
+        const [current] = await tx
+          .select()
+          .from(tickets)
+          .where(eq(tickets.id, id))
+          .for("update");
+        if (!current) return "missing" as const;
+        // Nessun design attivo: niente da rimuovere.
+        if (current.originContent === null) return "no_design" as const;
+        const [updated] = await tx
+          .update(tickets)
+          .set({ body: current.originContent, originContent: null })
+          .where(eq(tickets.id, id))
+          .returning();
+        const events = diffTicketEvents(current, { body: current.originContent });
+        if (events.length > 0) {
+          await tx
+            .insert(ticketEvents)
+            .values(events.map((event) => ({ ...event, ticketId: id, actorId: request.user!.id })));
+        }
+        return updated!;
+      });
+      if (result === "missing") return apiError(reply, 404, "ticket_not_found", "Ticket not found");
+      if (result === "no_design") {
+        return apiError(reply, 404, "no_active_design", "No active design to remove");
+      }
+      return ticketDetailResponse(app.db, result);
+    },
+  );
+
+  // --- Piano di implementazione --------------------------------------------
+  //
+  // PUT imposta `implementationPlan`, DELETE lo azzera. requireAuth (non admin).
+  // Il piano è un campo a sé e NON tocca il `body`: nessun evento di audit
+  // (diffTicketEvents non contempla i nuovi campi; l'audit resta focalizzato sul
+  // cambio di body del design).
+  app.put(
+    "/:id/plan",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        body: setContentSchema,
+        response: {
+          200: ticketDetailSchema,
+          400: errorSchema,
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const { content } = request.body;
+
+      const [row] = await app.db
+        .update(tickets)
+        .set({ implementationPlan: content })
+        .where(eq(tickets.id, id))
+        .returning();
+      if (!row) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
+      return ticketDetailResponse(app.db, row);
+    },
+  );
+
+  app.delete(
+    "/:id/plan",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        response: {
+          200: ticketDetailSchema,
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+
+      const [row] = await app.db
+        .update(tickets)
+        .set({ implementationPlan: null })
+        .where(eq(tickets.id, id))
+        .returning();
+      if (!row) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
+      return ticketDetailResponse(app.db, row);
+    },
+  );
+
   // Avvio manuale dell'AI: rimette in coda l'ultimo job del ticket con il
   // flag manual_trigger, così il worker rifà il triage e, su decisione "fix",
   // procede SCAVALCANDO il gate di automazione (soglia/auto-fix). Se il ticket
   // non ha ancora job, ne crea uno queued+manuale. Aperta a ogni utente
   // autenticato: lanciare il fix è lavoro quotidiano, non un privilegio admin.
+  //
+  // ESECUZIONE DIRETTA DAL PIANO SALVATO: se il ticket ha un
+  // `implementationPlan` salvato e il body NON forza il flusso normale
+  // (`mode:"ai_plan"`), il job parte già in modalità execute-diretta
+  // (resume_mode="execute", plan_text = implementationPlan): il worker salta
+  // triage/pianificazione/approvazione ed esegue direttamente dal piano. È
+  // esattamente lo stato che approve-plan produce, quindi il percorso
+  // execute-only del worker (che crea il proprio worktree dal mirror) lo gestisce
+  // senza modifiche. Con `mode:"ai_plan"` o senza piano salvato → flusso normale.
   app.post(
     "/:id/run-ai",
     {
@@ -1039,20 +1246,37 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         params: idParamsSchema,
         // nullish (non optional): fastify-type-provider-zod passa `null` quando
         // la POST arriva senza corpo, e un `.optional()` puro lo rifiuterebbe.
-        body: z.object({ withInstructions: z.boolean().optional() }).nullish(),
+        body: z
+          .object({
+            withInstructions: z.boolean().optional(),
+            // "ai_plan" forza il flusso normale (triage/pianificazione) anche se
+            // il ticket ha un piano salvato: l'unico valore ammesso.
+            mode: z.literal("ai_plan").optional(),
+          })
+          .nullish(),
         response: { 202: z.object({ jobId: z.uuid() }), 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
       const { id } = request.params;
-      // withInstructions=true => il worker riprende sul fix scavalcando il
-      // triage (resume_mode=fix). Altrimenti si rifà il triage da capo.
-      const resume = request.body?.withInstructions ? "fix" : null;
       const [ticket] = await app.db
-        .select({ id: tickets.id })
+        .select({ id: tickets.id, implementationPlan: tickets.implementationPlan })
         .from(tickets)
         .where(eq(tickets.id, id));
       if (!ticket) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
+
+      // Esecuzione diretta dal piano salvato: ticket con piano e senza forzatura
+      // del flusso normale. Ha precedenza su withInstructions (è la scelta più
+      // forte: c'è già un piano approvato da eseguire).
+      const useSavedPlan =
+        ticket.implementationPlan !== null && request.body?.mode !== "ai_plan";
+      // resume_mode: "execute" con piano salvato; altrimenti "fix" se
+      // withInstructions=true (riprende sul fix scavalcando il triage), else null
+      // (si rifà il triage da capo).
+      const resume = useSavedPlan ? "execute" : request.body?.withInstructions ? "fix" : null;
+      // plan_text: il piano salvato in esecuzione diretta, altrimenti azzerato
+      // (un piano residuo di un run precedente non deve sopravvivere al re-triage).
+      const planText = useSavedPlan ? ticket.implementationPlan : null;
 
       // L'ultimo job del ticket (per createdAt, id come spareggio): è quello
       // che la timeline mostra in cima e che l'utente intende rilanciare.
@@ -1070,7 +1294,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
             status: "queued",
             manualTrigger: true,
             resumeMode: resume,
-            planText: null,
+            planText,
             startedAt: null,
             finishedAt: null,
             error: null,
@@ -1082,7 +1306,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
 
       const [created] = await app.db
         .insert(aiJobs)
-        .values({ ticketId: id, status: "queued", manualTrigger: true, resumeMode: resume, planText: null })
+        .values({ ticketId: id, status: "queued", manualTrigger: true, resumeMode: resume, planText })
         .returning({ id: aiJobs.id });
       return reply.code(202).send({ jobId: created!.id });
     },

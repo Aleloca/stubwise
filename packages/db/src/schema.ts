@@ -463,6 +463,11 @@ export const tickets = pgTable(
     number: integer("number").notNull(),
     title: text("title").notNull(),
     body: text("body").notNull().default(""),
+    // Piano di implementazione dedicato (null finché non prodotto) e corpo
+    // originale preservato quando un design doc ne sostituisce il corpo. Il
+    // corpo principale resta `body`. Entrambe additive/nullable.
+    implementationPlan: text("implementation_plan"),
+    originContent: text("origin_content"),
     type: ticketType("type").notNull(),
     priority: ticketPriority("priority").notNull(),
     status: ticketStatus("status").notNull().default("open"),
@@ -2020,6 +2025,11 @@ export const backlogItems = pgTable(
       .references(() => projects.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
     document: text("document").notNull().default(""),
+    // Piano di implementazione dedicato (null finché non prodotto) e corpo
+    // originale preservato quando un design doc ne sostituisce il corpo. Il
+    // corpo canonico resta `document`. Entrambe additive/nullable.
+    implementationPlan: text("implementation_plan"),
+    originContent: text("origin_content"),
     status: backlogItemStatus("status").notNull().default("new"),
     effort: integer("effort"),
     risk: backlogRisk("risk"),

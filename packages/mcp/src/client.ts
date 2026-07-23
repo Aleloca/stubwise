@@ -61,6 +61,10 @@ export interface Ticket {
   status: TicketStatus;
   assigneeId: string | null;
   labels: string[];
+  /** Piano di implementazione collegato (markdown), o null se assente. */
+  implementationPlan: string | null;
+  /** Corpo originale preservato quando un design ne ha sostituito il body, o null. */
+  originContent: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -99,9 +103,16 @@ export interface BacklogItemDetail {
   risk: string | null;
   riskNote: string | null;
   urgency: Urgency | null;
+  /** Piano di implementazione collegato (markdown), o null se assente. */
+  implementationPlan: string | null;
+  /** Documento originale preservato quando un design ne ha sostituito il body, o null. */
+  originContent: string | null;
   createdAt: string;
   updatedAt: string;
 }
+
+/** Bersaglio delle operazioni design/plan: una voce di backlog o un ticket. */
+export type DesignPlanTarget = "backlog" | "ticket";
 
 /** Stato di un job del backlog per il polling dell'intake. */
 export interface BacklogJob {
@@ -424,5 +435,56 @@ export class StubwiseClient {
   /** Scorciatoia per il cambio di stato (PATCH con solo `{ status }`). */
   async setTicketStatus(id: string, status: TicketStatus): Promise<Ticket> {
     return this.patchTicket(id, { status });
+  }
+
+  // --- Design / piano (backlog e ticket) ----------------------------------
+  //
+  // Superficie unificata sulle risorse omogenee `backlog`/`ticket`: entrambe
+  // espongono gli stessi endpoint `/:id/design` e `/:id/plan`. Il target sceglie
+  // solo il prefisso di path. Le risposte (l'oggetto aggiornato) sono grandi e di
+  // forma difensiva ≠ schema condiviso → cast tipizzato, nessuna validazione
+  // runtime (stessa scelta di getBacklogItem/getTicket).
+
+  /** Prefisso di path per il target (`/api/backlog` o `/api/tickets`). */
+  private basePath(target: DesignPlanTarget): string {
+    return target === "backlog" ? "/api/backlog" : "/api/tickets";
+  }
+
+  /** PUT del design: sostituisce il corpo con `content`, preservando l'origine lato server. */
+  async setDesign(
+    target: DesignPlanTarget,
+    id: string,
+    content: string,
+  ): Promise<BacklogItemDetail | Ticket> {
+    return this.request<BacklogItemDetail | Ticket>(`${this.basePath(target)}/${id}/design`, {
+      method: "PUT",
+      body: { content },
+    });
+  }
+
+  /** DELETE del design: ripristina il corpo d'origine e azzera `originContent` lato server. */
+  async deleteDesign(target: DesignPlanTarget, id: string): Promise<BacklogItemDetail | Ticket> {
+    return this.request<BacklogItemDetail | Ticket>(`${this.basePath(target)}/${id}/design`, {
+      method: "DELETE",
+    });
+  }
+
+  /** PUT del piano di implementazione: imposta/aggiorna `implementationPlan`. */
+  async setPlan(
+    target: DesignPlanTarget,
+    id: string,
+    content: string,
+  ): Promise<BacklogItemDetail | Ticket> {
+    return this.request<BacklogItemDetail | Ticket>(`${this.basePath(target)}/${id}/plan`, {
+      method: "PUT",
+      body: { content },
+    });
+  }
+
+  /** DELETE del piano di implementazione: azzera `implementationPlan`. */
+  async deletePlan(target: DesignPlanTarget, id: string): Promise<BacklogItemDetail | Ticket> {
+    return this.request<BacklogItemDetail | Ticket>(`${this.basePath(target)}/${id}/plan`, {
+      method: "DELETE",
+    });
   }
 }

@@ -149,6 +149,15 @@ export const updateBacklogItemSchema = z.object({
 });
 export type UpdateBacklogItemInput = z.infer<typeof updateBacklogItemSchema>;
 
+/**
+ * Body degli endpoint che impostano un campo di CONTENUTO libero (design doc o
+ * piano di implementazione) su una voce di backlog o su un ticket: un testo non
+ * vuoto entro il tetto dei corpi lunghi. Condiviso tra le quattro superfici
+ * (design/piano × backlog/ticket) perché la forma del payload è identica.
+ */
+export const setContentSchema = z.object({ content: z.string().min(1).max(200_000) });
+export type SetContentInput = z.infer<typeof setContentSchema>;
+
 /** Creazione manuale di una voce del backlog (non deviata da un ticket). */
 export const createBacklogItemSchema = z.object({
   projectId: z.uuid(),

@@ -29,6 +29,7 @@ import {
   TypeBadge,
 } from "../../components/badges";
 import { CollapsibleSection } from "../../components/collapsible-section";
+import { ConfirmDeleteButton } from "../../components/confirm-delete-button";
 import { SelectField } from "../../components/field";
 import { LabelsEditor } from "../../components/labels-editor";
 import { Markdown } from "../../components/markdown";
@@ -37,10 +38,13 @@ import { TicketLinks } from "../../components/ticket-links";
 import { UsagePanel } from "../../components/usage-panel";
 import {
   approvePlan,
+  deleteTicketDesign,
+  deleteTicketPlan,
   patchTicket,
   postComment,
   postRunAi,
   rejectPlan,
+  type Ticket,
   type TicketPatch,
 } from "../../lib/api";
 import { formatDateTime } from "../../lib/format";
@@ -125,7 +129,11 @@ export function TicketDetailPage() {
       "",
       ticket.body.trim() === "" ? "_(nessuna descrizione)_" : ticket.body,
     ].join("\n");
-    return front;
+    // Il piano, se presente, segue il corpo come sezione dedicata.
+    const plan = ticket.implementationPlan
+      ? `\n\n## ${t("tickets:detail.plan")}\n\n${ticket.implementationPlan}`
+      : "";
+    return `${front}${plan}`;
   }
 
   function slugifyTicket(): string {
@@ -167,11 +175,14 @@ export function TicketDetailPage() {
       // Un refetch del dettaglio già in volo risolverebbe DOPO il
       // setQueryData, sovrascrivendolo con dati stantii: prima si cancella.
       await queryClient.cancelQueries({ queryKey: ticketKeys.detail(id) });
-      // La PATCH restituisce il ticket base (senza lo stato per-repo): si fonde
-      // conservando `repositories` dalla cache del dettaglio, che una PATCH di
-      // metadati non tocca. L'invalidate qui sotto riconcilia comunque col server.
+      // La PATCH restituisce il ticket base (senza lo stato per-repo né
+      // design/piano): si fonde conservando `repositories`, `implementationPlan`
+      // e `originContent` dalla cache del dettaglio, che una PATCH di metadati
+      // non tocca. L'invalidate qui sotto riconcilia comunque col server.
       queryClient.setQueryData(ticketQueryOptions(id).queryKey, (previous) =>
-        previous ? { ...previous, ...updated } : { ...updated, repositories: [] },
+        previous
+          ? { ...previous, ...updated }
+          : { ...updated, implementationPlan: null, originContent: null, repositories: [] },
       );
       // Il dettaglio resta fresco per i prossimi mount; liste e board
       // mostrano status/priorità/label e le loro cache sono da rifare
@@ -183,6 +194,32 @@ export function TicketDetailPage() {
       // audit: il feed va riconciliato col backend.
       void queryClient.invalidateQueries({ queryKey: ticketKeys.activity(id) });
     },
+  });
+
+  // Ticket chiuso: le azioni di rimozione di design/piano sono nascoste (come
+  // il backlog nasconde le rimozioni sulle voci bloccate). Design/piano restano
+  // comunque leggibili.
+  const isClosed = ticket.status === "closed";
+
+  // Delete di design/piano: gli endpoint sono requireAuth (non admin) —
+  // collegare e scollegare design/piano è lavoro quotidiano. Tornano la forma
+  // DETTAGLIO (body ripristinato dall'origine / implementationPlan azzerato),
+  // che si scrive in cache; poi si invalida per riconciliare col server. La
+  // rimozione del design genera anche un evento di audit → invalida il feed.
+  const applyDetail = async (updated: Ticket) => {
+    await queryClient.cancelQueries({ queryKey: ticketKeys.detail(id) });
+    queryClient.setQueryData(ticketQueryOptions(id).queryKey, updated);
+    void queryClient.invalidateQueries({ queryKey: ticketKeys.detail(id) });
+    void queryClient.invalidateQueries({ queryKey: ticketKeys.activity(id) });
+  };
+
+  const deleteDesignMutation = useMutation({
+    mutationFn: () => deleteTicketDesign(id),
+    onSuccess: applyDetail,
+  });
+  const deletePlanMutation = useMutation({
+    mutationFn: () => deleteTicketPlan(id),
+    onSuccess: applyDetail,
   });
 
   const commentMutation = useMutation({
@@ -318,14 +355,68 @@ export function TicketDetailPage() {
 
       <div className="mt-6 grid gap-8 lg:grid-cols-[minmax(0,1fr)_17rem]">
         <div className="min-w-0 space-y-6">
-          <section>
-            <h2 className={sectionTitleClass}>{t("tickets:detail.description")}</h2>
+          {/* Descrizione: è il DESIGN se collegato (l'origine è preservata in
+              `originContent` e mostrata sotto in un blocco collassabile),
+              altrimenti la descrizione originale del ticket. */}
+          <section aria-label={t("tickets:detail.designDescription")}>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className={sectionTitleBase}>{t("tickets:detail.designDescription")}</h2>
+              {!isClosed && ticket.originContent !== null && (
+                <ConfirmDeleteButton
+                  label={t("tickets:detail.deleteDesign")}
+                  confirmLabel={t("tickets:detail.confirmRemove")}
+                  confirmAria={t("tickets:detail.deleteDesignConfirmAria")}
+                  pending={deleteDesignMutation.isPending}
+                  onConfirm={() => deleteDesignMutation.mutate()}
+                />
+              )}
+            </div>
             {ticket.body.trim() === "" ? (
               <p className="font-mono text-[12px] text-fg-faint">{t("tickets:detail.noDescription")}</p>
             ) : (
               <Markdown source={ticket.body} />
             )}
+            {deleteDesignMutation.isError && (
+              <p role="alert" className="mt-2 font-mono text-[12px] text-danger">
+                {deleteDesignMutation.error.message}
+              </p>
+            )}
           </section>
+
+          {/* Piano di implementazione: reso in Markdown, con empty state quando
+              nessun piano è collegato. Solo render/delete (si crea da Claude Code). */}
+          <section aria-label={t("tickets:detail.plan")}>
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className={sectionTitleBase}>{t("tickets:detail.plan")}</h2>
+              {!isClosed && ticket.implementationPlan !== null && (
+                <ConfirmDeleteButton
+                  label={t("tickets:detail.deletePlan")}
+                  confirmLabel={t("tickets:detail.confirmRemove")}
+                  confirmAria={t("tickets:detail.deletePlanConfirmAria")}
+                  pending={deletePlanMutation.isPending}
+                  onConfirm={() => deletePlanMutation.mutate()}
+                />
+              )}
+            </div>
+            {ticket.implementationPlan === null ? (
+              <p className="font-mono text-[12px] text-fg-faint">{t("tickets:detail.noPlan")}</p>
+            ) : (
+              <Markdown source={ticket.implementationPlan} />
+            )}
+            {deletePlanMutation.isError && (
+              <p role="alert" className="mt-2 font-mono text-[12px] text-danger">
+                {deletePlanMutation.error.message}
+              </p>
+            )}
+          </section>
+
+          {/* Richiesta originale: presente solo quando un design ha sostituito la
+              descrizione. Collassata di default (dettaglio secondario). */}
+          {ticket.originContent !== null && (
+            <CollapsibleSection title={t("tickets:detail.originalRequest")}>
+              <Markdown source={ticket.originContent} />
+            </CollapsibleSection>
+          )}
 
           {ticket.technicalPayload !== null && (
             <CollapsibleSection title={t("tickets:detail.technicalPayload")} meta={t(SOURCE_LABEL_KEYS[ticket.source])}>
@@ -594,8 +685,9 @@ export function TicketDetailPage() {
   );
 }
 
-const sectionTitleClass =
-  "mb-3 font-mono text-[11px] font-medium tracking-[0.16em] text-fg-muted uppercase";
+const sectionTitleBase =
+  "font-mono text-[11px] font-medium tracking-[0.16em] text-fg-muted uppercase";
+const sectionTitleClass = `mb-3 ${sectionTitleBase}`;
 
 /**
  * Sezione allegati del ticket: lista (con anteprime) + caricamento. Per la v1

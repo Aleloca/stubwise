@@ -246,4 +246,99 @@ describe("StubwiseClient", () => {
     expect(err).toBeInstanceOf(StubwiseApiError);
     expect(err.code).toBe("invalid_response");
   });
+
+  // --- design / plan --------------------------------------------------------
+
+  it("setDesign('backlog', ...) fa PUT /api/backlog/:id/design con body { content } e Authorization", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: ITEM_ID }));
+    const client = makeClient(fetchMock);
+
+    await client.setDesign("backlog", ITEM_ID, "# Design\nCorpo");
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(`https://stubwise.example.com/api/backlog/${ITEM_ID}/design`);
+    expect(init.method).toBe("PUT");
+    expect(init.headers.authorization).toBe("Bearer stw_pat_secret");
+    expect(JSON.parse(init.body)).toEqual({ content: "# Design\nCorpo" });
+  });
+
+  it("setDesign('ticket', ...) fa PUT /api/tickets/:id/design", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: TICKET_ID }));
+    const client = makeClient(fetchMock);
+
+    await client.setDesign("ticket", TICKET_ID, "corpo");
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(`https://stubwise.example.com/api/tickets/${TICKET_ID}/design`);
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body)).toEqual({ content: "corpo" });
+  });
+
+  it("deleteDesign('ticket', ...) fa DELETE /api/tickets/:id/design senza body", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: TICKET_ID }));
+    const client = makeClient(fetchMock);
+
+    await client.deleteDesign("ticket", TICKET_ID);
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(`https://stubwise.example.com/api/tickets/${TICKET_ID}/design`);
+    expect(init.method).toBe("DELETE");
+    expect(init.headers.authorization).toBe("Bearer stw_pat_secret");
+    expect(init.body).toBeUndefined();
+  });
+
+  it("deleteDesign('backlog', ...) fa DELETE /api/backlog/:id/design", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: ITEM_ID }));
+    const client = makeClient(fetchMock);
+
+    await client.deleteDesign("backlog", ITEM_ID);
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(`https://stubwise.example.com/api/backlog/${ITEM_ID}/design`);
+    expect(init.method).toBe("DELETE");
+  });
+
+  it("setPlan('backlog', ...) fa PUT /api/backlog/:id/plan con body { content }", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: ITEM_ID }));
+    const client = makeClient(fetchMock);
+
+    await client.setPlan("backlog", ITEM_ID, "step 1");
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(`https://stubwise.example.com/api/backlog/${ITEM_ID}/plan`);
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body)).toEqual({ content: "step 1" });
+  });
+
+  it("setPlan('ticket', ...) fa PUT /api/tickets/:id/plan", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: TICKET_ID }));
+    const client = makeClient(fetchMock);
+
+    await client.setPlan("ticket", TICKET_ID, "step 1");
+
+    const url = fetchMock.mock.calls[0]![0];
+    expect(url).toBe(`https://stubwise.example.com/api/tickets/${TICKET_ID}/plan`);
+  });
+
+  it("deletePlan('ticket', ...) fa DELETE /api/tickets/:id/plan", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: TICKET_ID }));
+    const client = makeClient(fetchMock);
+
+    await client.deletePlan("ticket", TICKET_ID);
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(`https://stubwise.example.com/api/tickets/${TICKET_ID}/plan`);
+    expect(init.method).toBe("DELETE");
+  });
+
+  it("deletePlan('backlog', ...) fa DELETE /api/backlog/:id/plan", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: ITEM_ID }));
+    const client = makeClient(fetchMock);
+
+    await client.deletePlan("backlog", ITEM_ID);
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(`https://stubwise.example.com/api/backlog/${ITEM_ID}/plan`);
+    expect(init.method).toBe("DELETE");
+  });
 });

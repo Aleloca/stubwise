@@ -30,6 +30,8 @@ function detailFixture(overrides: Partial<BacklogItemDetail> = {}): BacklogItemD
     projectId: PROJECT_ID,
     title: "Export massivo ordini",
     document: "Serve un **export CSV** degli ordini.",
+    implementationPlan: null,
+    originContent: null,
     status: "refining",
     effort: 2,
     risk: "low",
@@ -97,6 +99,8 @@ interface MockState {
   deepDives: unknown[];
   converts: number;
   merges: unknown[];
+  designDeletes: number;
+  planDeletes: number;
   /** Esito da far tornare al refresh-document (default 200). */
   refreshStatus: number;
   /** Esito da far tornare al deep-dive (default 202; 409 = già in corso). */
@@ -121,6 +125,8 @@ function mockDetailApi(
     deepDives: [],
     converts: 0,
     merges: [],
+    designDeletes: 0,
+    planDeletes: 0,
     refreshStatus: overrides.refreshStatus ?? 200,
     deepDiveStatus: overrides.deepDiveStatus ?? 202,
   };
@@ -255,6 +261,21 @@ function mockDetailApi(
       state.merges.push(JSON.parse(String(init?.body)));
       return Promise.resolve(jsonResponse(200, base()));
     }
+    if (path === `/api/backlog/${ITEM_ID}/design` && method === "DELETE") {
+      state.designDeletes += 1;
+      // Ripristina l'origine nel document e azzera originContent.
+      state.item = {
+        ...state.item,
+        document: state.item.originContent ?? state.item.document,
+        originContent: null,
+      };
+      return Promise.resolve(jsonResponse(200, base()));
+    }
+    if (path === `/api/backlog/${ITEM_ID}/plan` && method === "DELETE") {
+      state.planDeletes += 1;
+      state.item = { ...state.item, implementationPlan: null };
+      return Promise.resolve(jsonResponse(200, base()));
+    }
 
     throw new Error(`fetch non mockata per ${method} ${path}`);
   });
@@ -301,6 +322,106 @@ describe("dettaglio backlog", () => {
 
     const bold = await screen.findByText("export CSV");
     expect(bold.tagName).toBe("STRONG");
+  });
+
+  it("piano di implementazione: reso in markdown quando presente", async () => {
+    mockDetailApi({
+      item: detailFixture({ implementationPlan: "1. Aggiungi endpoint **/export**." }),
+    });
+    renderDetail();
+
+    const section = await screen.findByRole("region", { name: "Implementation plan" });
+    const bold = within(section).getByText("/export");
+    expect(bold.tagName).toBe("STRONG");
+  });
+
+  it("piano di implementazione: empty state quando assente", async () => {
+    mockDetailApi();
+    renderDetail();
+
+    const section = await screen.findByRole("region", { name: "Implementation plan" });
+    expect(within(section).getByText(/No implementation plan yet/i)).toBeInTheDocument();
+  });
+
+  it("richiesta originale: blocco collassabile con originContent, assente se null", async () => {
+    mockDetailApi({
+      item: detailFixture({
+        document: "Design collegato.",
+        originContent: "La **richiesta** iniziale.",
+      }),
+    });
+    renderDetail();
+
+    // Il documento mostra il design; l'origine è nel blocco collassabile,
+    // il cui contenuto è montato solo da aperto (CollapsibleSection).
+    const toggle = await screen.findByRole("button", { name: /Original request/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(toggle);
+    const bold = await screen.findByText("richiesta");
+    expect(bold.tagName).toBe("STRONG");
+  });
+
+  it("richiesta originale: assente quando originContent è null", async () => {
+    mockDetailApi();
+    renderDetail();
+
+    await screen.findByRole("heading", { name: "Export massivo ordini" });
+    expect(screen.queryByText("Original request")).not.toBeInTheDocument();
+  });
+
+  it("elimina design: conferma a due passi chiama la DELETE e ripristina l'origine", async () => {
+    const state = mockDetailApi({
+      item: detailFixture({ document: "Design collegato.", originContent: "Origine." }),
+    });
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Remove design" }));
+    // Secondo passo: conferma.
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Confirm removing the design" }),
+    );
+
+    await waitFor(() => expect(state.designDeletes).toBe(1));
+    // L'origine torna nel documento e il blocco "Richiesta originale" sparisce.
+    await waitFor(() => expect(screen.getByText("Origine.")).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByText("Original request")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("elimina piano: conferma a due passi chiama la DELETE", async () => {
+    const state = mockDetailApi({
+      item: detailFixture({ implementationPlan: "Passi del piano." }),
+    });
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Remove plan" }));
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Confirm removing the plan" }),
+    );
+
+    await waitFor(() => expect(state.planDeletes).toBe(1));
+    const section = await screen.findByRole("region", { name: "Implementation plan" });
+    await waitFor(() =>
+      expect(within(section).getByText(/No implementation plan yet/i)).toBeInTheDocument(),
+    );
+  });
+
+  it("elimina design/piano: nessun bottone quando i campi sono null o la voce è bloccata", async () => {
+    mockDetailApi({
+      item: detailFixture({
+        status: "converted",
+        document: "Design.",
+        originContent: "Origine.",
+        implementationPlan: "Piano.",
+      }),
+    });
+    renderDetail();
+
+    await screen.findByRole("heading", { name: "Export massivo ordini" });
+    // Voce convertita: le azioni di rimozione sono nascoste anche se i campi ci sono.
+    expect(screen.queryByRole("button", { name: "Remove design" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove plan" })).not.toBeInTheDocument();
   });
 
   it("ticket collegati: link al ticket e badge del ruolo", async () => {
@@ -550,6 +671,26 @@ describe("dettaglio backlog", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Copy Markdown" }));
     await waitFor(() => expect(writeText).toHaveBeenCalled());
     expect(String(writeText.mock.calls[0]![0])).toContain('title: "Fix: export ordini"');
+  });
+
+  it("esporta .md: include il piano come sezione dedicata quando presente", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    mockDetailApi({
+      item: detailFixture({ implementationPlan: "1. Aggiungi endpoint **/export**." }),
+    });
+    renderDetail();
+
+    await openActionsMenu();
+    await userEvent.click(await screen.findByRole("button", { name: "Copy Markdown" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    const exported = String(writeText.mock.calls[0]![0]);
+    // Il piano segue il documento come sezione "## Implementation plan" (label i18n).
+    expect(exported).toContain("## Implementation plan");
+    expect(exported).toContain("1. Aggiungi endpoint **/export**.");
   });
 
   it("dopo la fusione la navigazione resetta chat e notice locali (key={id})", async () => {

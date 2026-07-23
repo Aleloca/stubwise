@@ -1200,6 +1200,83 @@ describe("schema: backlog_jobs.result_item_id", () => {
 });
 
 /**
+ * Verifica le colonne additive `implementation_plan` + `origin_content`
+ * (migrazione 0058) su `backlog_items` e `tickets`: entrambe NULLABLE (null di
+ * default), scrivibili in update e rileggibili. Il corpo principale resta il
+ * campo esistente (`backlog_items.document` / `tickets.body`): queste due sono
+ * il piano di implementazione dedicato e il corpo originale preservato quando un
+ * design ne sostituisce il corpo.
+ */
+describe("schema: implementation_plan + origin_content (backlog_items + tickets)", () => {
+  let testDb: TestDb;
+  let db: Db;
+
+  beforeAll(async () => {
+    testDb = await startTestDb();
+    db = testDb.db;
+  });
+
+  afterAll(async () => {
+    await testDb.stop();
+  });
+
+  it("lascia implementationPlan e originContent null di default su un backlog_item", async () => {
+    const { projectId } = await seedRepository(db);
+    const [item] = await db
+      .insert(backlogItems)
+      .values({ projectId, title: "Voce senza piano", source: "manual" })
+      .returning();
+    if (!item) throw new Error("insert della voce di backlog non ha restituito la riga");
+    expect(item.implementationPlan).toBeNull();
+    expect(item.originContent).toBeNull();
+  });
+
+  it("scrive e rilegge implementationPlan e originContent su un backlog_item", async () => {
+    const { projectId } = await seedRepository(db);
+    const [item] = await db
+      .insert(backlogItems)
+      .values({ projectId, title: "Voce con design", source: "manual" })
+      .returning();
+    if (!item) throw new Error("insert della voce di backlog non ha restituito la riga");
+
+    await db
+      .update(backlogItems)
+      .set({
+        implementationPlan: "## Piano\n1. Step uno\n2. Step due",
+        originContent: "Corpo originale prima del design",
+      })
+      .where(eq(backlogItems.id, item.id));
+
+    const [read] = await db.select().from(backlogItems).where(eq(backlogItems.id, item.id));
+    expect(read?.implementationPlan).toBe("## Piano\n1. Step uno\n2. Step due");
+    expect(read?.originContent).toBe("Corpo originale prima del design");
+  });
+
+  it("lascia implementationPlan e originContent null di default su un ticket", async () => {
+    const { ticketId } = await seedTicketRow(db);
+    const [read] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
+    expect(read?.implementationPlan).toBeNull();
+    expect(read?.originContent).toBeNull();
+  });
+
+  it("scrive e rilegge implementationPlan e originContent su un ticket", async () => {
+    const { ticketId } = await seedTicketRow(db);
+
+    await db
+      .update(tickets)
+      .set({
+        implementationPlan: "## Piano di implementazione\n- Modifica A\n- Modifica B",
+        originContent: "Testo originale del ticket prima del design doc",
+      })
+      .where(eq(tickets.id, ticketId));
+
+    const [read] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
+    expect(read?.implementationPlan).toBe("## Piano di implementazione\n- Modifica A\n- Modifica B");
+    expect(read?.originContent).toBe("Testo originale del ticket prima del design doc");
+  });
+});
+
+/**
  * Verifica le colonne di identità Slack: users.slack_user_id (unique, nullable)
  * + users.slack_avatar_url, e invites.slack_user_id (NON unique) +
  * invites.slack_avatar_url. In particolare l'unique su users.slack_user_id

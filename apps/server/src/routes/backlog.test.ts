@@ -712,6 +712,8 @@ describe("POST /api/backlog/:id/convert", () => {
     const item = await insertItem({
       title: "Idea da convertire",
       document: "# Design\n\nCorpo del documento.",
+      implementationPlan: "## Piano\n1. Step",
+      originContent: "Testo di partenza",
       effort: 3,
       urgency: "high",
       status: "ready",
@@ -738,6 +740,9 @@ describe("POST /api/backlog/:id/convert", () => {
     expect(ticket!.priority).toBe("high"); // dall'urgency
     expect(ticket!.effort).toBe(3);
     expect(ticket!.source).toBe("manual");
+    // Il ticket eredita design (originContent) e piano di implementazione.
+    expect(ticket!.implementationPlan).toBe("## Piano\n1. Step");
+    expect(ticket!.originContent).toBe("Testo di partenza");
 
     // Link converted_to.
     const links = await testDb.db
@@ -825,6 +830,193 @@ describe("POST /api/backlog/:id/convert", () => {
     const body = res.json() as { ticketId: string };
     const [ticket] = await testDb.db.select().from(tickets).where(eq(tickets.id, body.ticketId));
     expect(ticket!.priority).toBe("medium");
+  });
+});
+
+describe("PUT/DELETE /api/backlog/:id/design", () => {
+  it("senza sessione → 401", async () => {
+    const item = await insertItem({ document: "# Vecchio" });
+    const res = await app.inject({
+      method: "PUT",
+      url: `/api/backlog/${item.id}/design`,
+      payload: { content: "# Nuovo design" },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("404 se la voce non esiste", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: `/api/backlog/${crypto.randomUUID()}/design`,
+      headers: { cookie: memberCookie },
+      payload: { content: "# Nuovo design" },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("400 se content è vuoto", async () => {
+    const item = await insertItem({ document: "# Vecchio" });
+    const res = await app.inject({
+      method: "PUT",
+      url: `/api/backlog/${item.id}/design`,
+      headers: { cookie: memberCookie },
+      payload: { content: "" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("400 se content supera i 20k caratteri", async () => {
+    const item = await insertItem({ document: "# Vecchio" });
+    const res = await app.inject({
+      method: "PUT",
+      url: `/api/backlog/${item.id}/design`,
+      headers: { cookie: memberCookie },
+      payload: { content: "x".repeat(20_001) },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("PUT design: document diventa content, originContent preserva il vecchio document", async () => {
+    const item = await insertItem({ document: "# Documento originale" });
+    const res = await app.inject({
+      method: "PUT",
+      url: `/api/backlog/${item.id}/design`,
+      headers: { cookie: memberCookie },
+      payload: { content: "# Design generato" },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { document: string; originContent: string | null };
+    expect(body.document).toBe("# Design generato");
+    expect(body.originContent).toBe("# Documento originale");
+
+    // Un SECONDO PUT aggiorna il document ma NON tocca originContent.
+    const res2 = await app.inject({
+      method: "PUT",
+      url: `/api/backlog/${item.id}/design`,
+      headers: { cookie: memberCookie },
+      payload: { content: "# Design rivisto" },
+    });
+    expect(res2.statusCode).toBe(200);
+    const body2 = res2.json() as { document: string; originContent: string | null };
+    expect(body2.document).toBe("# Design rivisto");
+    // originContent INVARIATO: si preserva una sola volta.
+    expect(body2.originContent).toBe("# Documento originale");
+  });
+
+  it("DELETE design: document torna a originContent, originContent → null", async () => {
+    const item = await insertItem({ document: "# Originale" });
+    await app.inject({
+      method: "PUT",
+      url: `/api/backlog/${item.id}/design`,
+      headers: { cookie: memberCookie },
+      payload: { content: "# Design" },
+    });
+
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/backlog/${item.id}/design`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { document: string; originContent: string | null };
+    expect(body.document).toBe("# Originale");
+    expect(body.originContent).toBeNull();
+  });
+
+  it("DELETE design senza design attivo (originContent null) → 404", async () => {
+    const item = await insertItem({ document: "# Solo documento" });
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/backlog/${item.id}/design`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("PUT/DELETE /api/backlog/:id/plan", () => {
+  it("senza sessione → 401", async () => {
+    const item = await insertItem();
+    const res = await app.inject({
+      method: "PUT",
+      url: `/api/backlog/${item.id}/plan`,
+      payload: { content: "## Piano" },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("404 se la voce non esiste", async () => {
+    const res = await app.inject({
+      method: "PUT",
+      url: `/api/backlog/${crypto.randomUUID()}/plan`,
+      headers: { cookie: memberCookie },
+      payload: { content: "## Piano" },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("400 se content supera i 20k caratteri", async () => {
+    const item = await insertItem();
+    const res = await app.inject({
+      method: "PUT",
+      url: `/api/backlog/${item.id}/plan`,
+      headers: { cookie: memberCookie },
+      payload: { content: "x".repeat(20_001) },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("PUT plan: implementationPlan = content", async () => {
+    const item = await insertItem();
+    const res = await app.inject({
+      method: "PUT",
+      url: `/api/backlog/${item.id}/plan`,
+      headers: { cookie: memberCookie },
+      payload: { content: "## Piano\n1. Uno\n2. Due" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { implementationPlan: string | null }).implementationPlan).toBe(
+      "## Piano\n1. Uno\n2. Due",
+    );
+  });
+
+  it("DELETE plan: implementationPlan → null", async () => {
+    const item = await insertItem({ implementationPlan: "## Piano esistente" });
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/backlog/${item.id}/plan`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { implementationPlan: string | null }).implementationPlan).toBeNull();
+  });
+
+  it("DELETE plan 404 se la voce non esiste", async () => {
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/backlog/${crypto.randomUUID()}/plan`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("GET /api/backlog/:id espone implementationPlan e originContent", () => {
+  it("ritorna i due campi valorizzati", async () => {
+    const item = await insertItem({
+      document: "# Design attivo",
+      implementationPlan: "## Piano di implementazione",
+      originContent: "Corpo originale",
+    });
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/backlog/${item.id}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { implementationPlan: string | null; originContent: string | null };
+    expect(body.implementationPlan).toBe("## Piano di implementazione");
+    expect(body.originContent).toBe("Corpo originale");
   });
 });
 

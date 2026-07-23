@@ -7,6 +7,7 @@ import {
   backlogSuggestedSchema,
   backlogUrgencySchema,
   createBacklogItemSchema,
+  setContentSchema,
   startCodeSessionSchema,
   updateBacklogItemSchema,
   type BacklogSuggested,
@@ -95,6 +96,10 @@ const backlogItemBaseSchema = z.object({
   projectId: z.uuid(),
   title: z.string(),
   document: z.string(),
+  // Piano di implementazione e contenuto d'origine (design/piano collegati alla
+  // voce): testo libero, null finché non impostati.
+  implementationPlan: z.string().nullable(),
+  originContent: z.string().nullable(),
   status: backlogItemStatusSchema,
   effort: z.number().int().nullable(),
   risk: backlogRiskSchema.nullable(),
@@ -193,6 +198,8 @@ const baseColumns = {
   projectId: backlogItems.projectId,
   title: backlogItems.title,
   document: backlogItems.document,
+  implementationPlan: backlogItems.implementationPlan,
+  originContent: backlogItems.originContent,
   status: backlogItems.status,
   effort: backlogItems.effort,
   risk: backlogItems.risk,
@@ -254,6 +261,8 @@ async function loadBaseItem(
     projectId: row.projectId,
     title: row.title,
     document: row.document,
+    implementationPlan: row.implementationPlan,
+    originContent: row.originContent,
     status: row.status,
     effort: row.effort,
     risk: row.risk,
@@ -741,6 +750,166 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       }
       const updated = await loadBaseItem(app.db, id);
       // La voce può sparire tra l'update e la rilettura (race con una delete).
+      if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+      return updated;
+    },
+  );
+
+  // --- Design collegato (document) -----------------------------------------
+  //
+  // PUT sostituisce il `document` con un design fornito dall'esterno (es. dalla
+  // skill/MCP che collega un doc a una voce) PRESERVANDO il documento originale
+  // in `originContent` — una sola volta: se un design è già attivo
+  // (`originContent` non null) l'origine NON viene sovrascritta. DELETE ripristina
+  // l'origine e azzera `originContent`. requireAuth (non admin): collegare un
+  // design è lavoro quotidiano come la chat. Transazionale.
+  app.put(
+    "/:id/design",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        body: setContentSchema,
+        response: {
+          200: backlogItemBaseSchema,
+          400: errorSchema,
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const { content } = request.body;
+
+      const found = await app.db.transaction(async (tx) => {
+        const [item] = await tx
+          .select({ document: backlogItems.document, originContent: backlogItems.originContent })
+          .from(backlogItems)
+          .where(eq(backlogItems.id, id))
+          .for("update");
+        if (!item) return false;
+        // Preserva l'origine UNA SOLA VOLTA: se già impostata resta com'è.
+        const origin = item.originContent ?? item.document;
+        await tx
+          .update(backlogItems)
+          .set({ document: content, originContent: origin })
+          .where(eq(backlogItems.id, id));
+        return true;
+      });
+      if (!found) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+
+      const updated = await loadBaseItem(app.db, id);
+      if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+      return updated;
+    },
+  );
+
+  // Rimuove il design collegato: ripristina il `document` da `originContent` e lo
+  // azzera. 404 se non c'è alcun design attivo (`originContent` null).
+  app.delete(
+    "/:id/design",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        response: {
+          200: backlogItemBaseSchema,
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+
+      const found = await app.db.transaction(async (tx) => {
+        const [item] = await tx
+          .select({ originContent: backlogItems.originContent })
+          .from(backlogItems)
+          .where(eq(backlogItems.id, id))
+          .for("update");
+        if (!item) return "missing" as const;
+        // Nessun design attivo: niente da rimuovere.
+        if (item.originContent === null) return "no_design" as const;
+        await tx
+          .update(backlogItems)
+          .set({ document: item.originContent, originContent: null })
+          .where(eq(backlogItems.id, id));
+        return "ok" as const;
+      });
+      if (found === "missing") {
+        return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+      }
+      if (found === "no_design") {
+        return apiError(reply, 404, "no_active_design", "No active design to remove");
+      }
+
+      const updated = await loadBaseItem(app.db, id);
+      if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+      return updated;
+    },
+  );
+
+  // --- Piano di implementazione --------------------------------------------
+  //
+  // PUT imposta `implementationPlan`, DELETE lo azzera. requireAuth (non admin).
+  app.put(
+    "/:id/plan",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        body: setContentSchema,
+        response: {
+          200: backlogItemBaseSchema,
+          400: errorSchema,
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const { content } = request.body;
+
+      const [row] = await app.db
+        .update(backlogItems)
+        .set({ implementationPlan: content })
+        .where(eq(backlogItems.id, id))
+        .returning({ id: backlogItems.id });
+      if (!row) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+
+      const updated = await loadBaseItem(app.db, id);
+      if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+      return updated;
+    },
+  );
+
+  app.delete(
+    "/:id/plan",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        response: {
+          200: backlogItemBaseSchema,
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+
+      const [row] = await app.db
+        .update(backlogItems)
+        .set({ implementationPlan: null })
+        .where(eq(backlogItems.id, id))
+        .returning({ id: backlogItems.id });
+      if (!row) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+
+      const updated = await loadBaseItem(app.db, id);
       if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
       return updated;
     },
@@ -1240,6 +1409,8 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
           projectId: backlogItems.projectId,
           title: backlogItems.title,
           document: backlogItems.document,
+          implementationPlan: backlogItems.implementationPlan,
+          originContent: backlogItems.originContent,
           status: backlogItems.status,
           effort: backlogItems.effort,
           urgency: backlogItems.urgency,
@@ -1271,6 +1442,9 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
           type: "task",
           priority: item.urgency ?? "medium",
           source: "manual",
+          // Il ticket eredita design (originContent) e piano dalla voce.
+          implementationPlan: item.implementationPlan,
+          originContent: item.originContent,
         });
         // createTicket non copre l'effort: lo propaghiamo dalla voce (già stimato).
         if (item.effort !== null) {

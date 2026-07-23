@@ -120,8 +120,12 @@ const getBacklogItem: ToolDef = {
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
       };
+      const plan = item.implementationPlan ?? "(nessun piano di implementazione)";
+      const origin = item.originContent ?? "(nessun contenuto d'origine: nessun design attivo)";
       return textResult(
-        `${JSON.stringify(meta, null, 2)}\n\n--- Documento ---\n${item.document}`,
+        `${JSON.stringify(meta, null, 2)}\n\n--- Documento ---\n${item.document}` +
+          `\n\n--- Piano di implementazione ---\n${plan}` +
+          `\n\n--- Contenuto d'origine ---\n${origin}`,
       );
     }),
 };
@@ -200,7 +204,16 @@ const getTicket: ToolDef = {
   handler: (args, ctx): Promise<ToolResult> =>
     runTool(async () => {
       const ticket = await ctx.client.getTicket(args.id as string);
-      return textResult(JSON.stringify(ticket, null, 2));
+      // Corpo e piano/origine possono essere lunghi: fuori dal JSON dei metadati,
+      // in sezioni leggibili con empty state esplicito quando null.
+      const { implementationPlan, originContent, ...meta } = ticket;
+      const plan = implementationPlan ?? "(nessun piano di implementazione)";
+      const origin = originContent ?? "(nessun contenuto d'origine: nessun design attivo)";
+      return textResult(
+        `${JSON.stringify(meta, null, 2)}` +
+          `\n\n--- Piano di implementazione ---\n${plan}` +
+          `\n\n--- Contenuto d'origine ---\n${origin}`,
+      );
     }),
 };
 
