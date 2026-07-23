@@ -47,10 +47,6 @@ export const ticketSchema = z.object({
   number: z.number().int(),
   title: z.string(),
   body: z.string(),
-  // Piano di implementazione e contenuto d'origine (design/piano collegati al
-  // ticket): testo libero, null finché non impostati.
-  implementationPlan: z.string().nullable(),
-  originContent: z.string().nullable(),
   type: ticketTypeSchema,
   priority: ticketPrioritySchema,
   status: ticketStatusSchema,
@@ -76,6 +72,11 @@ export const ticketSchema = z.object({
  * ticket↔repo: il ticket appartiene solo al progetto.
  */
 export const ticketDetailSchema = ticketSchema.extend({
+  // Piano di implementazione e contenuto d'origine (design/piano collegati al
+  // ticket): testo libero, null finché non impostati. Solo nel dettaglio: sono
+  // potenzialmente grandi e fuori posto nelle liste.
+  implementationPlan: z.string().nullable(),
+  originContent: z.string().nullable(),
   repositories: z.array(ticketRepositorySchema),
 });
 
@@ -259,8 +260,6 @@ function toPublicTicket(row: Ticket): z.infer<typeof ticketSchema> {
     number: row.number,
     title: row.title,
     body: row.body,
-    implementationPlan: row.implementationPlan,
-    originContent: row.originContent,
     type: row.type,
     priority: row.priority,
     status: row.status,
@@ -614,7 +613,12 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       if (!row) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
       // Stato PR per-repo (Fase 3): vuoto finché l'agente non apre PR.
       const repositoriesState = await loadTicketRepositories(app.db, row.id);
-      return { ...toPublicTicket(row), repositories: repositoriesState };
+      return {
+        ...toPublicTicket(row),
+        implementationPlan: row.implementationPlan,
+        originContent: row.originContent,
+        repositories: repositoriesState,
+      };
     },
   );
 
