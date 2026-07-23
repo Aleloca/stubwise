@@ -352,10 +352,12 @@ describe("dettaglio backlog", () => {
     });
     renderDetail();
 
-    // Il documento mostra il design; l'origine è nel blocco collassabile.
-    const toggle = await screen.findByText("Original request");
-    expect(toggle).toBeInTheDocument();
-    const bold = screen.getByText("richiesta");
+    // Il documento mostra il design; l'origine è nel blocco collassabile,
+    // il cui contenuto è montato solo da aperto (CollapsibleSection).
+    const toggle = await screen.findByRole("button", { name: /Original request/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(toggle);
+    const bold = await screen.findByText("richiesta");
     expect(bold.tagName).toBe("STRONG");
   });
 
@@ -669,6 +671,26 @@ describe("dettaglio backlog", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Copy Markdown" }));
     await waitFor(() => expect(writeText).toHaveBeenCalled());
     expect(String(writeText.mock.calls[0]![0])).toContain('title: "Fix: export ordini"');
+  });
+
+  it("esporta .md: include il piano come sezione dedicata quando presente", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    mockDetailApi({
+      item: detailFixture({ implementationPlan: "1. Aggiungi endpoint **/export**." }),
+    });
+    renderDetail();
+
+    await openActionsMenu();
+    await userEvent.click(await screen.findByRole("button", { name: "Copy Markdown" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    const exported = String(writeText.mock.calls[0]![0]);
+    // Il piano segue il documento come sezione "## Implementation plan" (label i18n).
+    expect(exported).toContain("## Implementation plan");
+    expect(exported).toContain("1. Aggiungi endpoint **/export**.");
   });
 
   it("dopo la fusione la navigazione resetta chat e notice locali (key={id})", async () => {

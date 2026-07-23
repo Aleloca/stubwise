@@ -539,7 +539,6 @@
     },
     "detail": {
       "back": "Back to backlog",
-      "document": "Document",
       "design": "Design / Description",
       "noDocument": "No document yet — refine the idea in the chat, then update the document.",
       "plan": "Implementation plan",

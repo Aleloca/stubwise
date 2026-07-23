@@ -18,6 +18,7 @@ import {
   PRIORITY_LABEL_KEYS,
 } from "../../components/badges";
 import { BacklogChat } from "../../components/backlog-chat";
+import { CollapsibleSection } from "../../components/collapsible-section";
 import { ComboboxPicker } from "../../components/combobox-picker";
 import { SelectField } from "../../components/field";
 import { Markdown } from "../../components/markdown";
@@ -58,8 +59,9 @@ const route = getRouteApi("/authed/backlog/$id");
 const EDITABLE_STATUSES: BacklogItemStatus[] = ["new", "refining", "ready"];
 const EFFORT_OPTIONS = [1, 2, 3, 4, 5] as const;
 
-const sectionTitleClass =
-  "mb-3 font-mono text-[11px] font-medium tracking-[0.16em] text-fg-muted uppercase";
+const sectionTitleBase =
+  "font-mono text-[11px] font-medium tracking-[0.16em] text-fg-muted uppercase";
+const sectionTitleClass = `mb-3 ${sectionTitleBase}`;
 
 /**
  * Dettaglio di una voce del backlog di discovery, layout "workspace" su `lg+`:
@@ -330,7 +332,7 @@ export function BacklogDetailPage() {
               collassabile), altrimenti il documento sintetizzato dalla chat. */}
           <section aria-label={t("backlog:detail.design")}>
             <div className="mb-3 flex items-center justify-between gap-3">
-              <h2 className={sectionTitleClass}>{t("backlog:detail.design")}</h2>
+              <h2 className={sectionTitleBase}>{t("backlog:detail.design")}</h2>
               {!isLocked && item.originContent !== null && (
                 <ConfirmDeleteButton
                   label={t("backlog:detail.deleteDesign")}
@@ -356,7 +358,7 @@ export function BacklogDetailPage() {
               nessun piano è collegato. Solo render/delete (si crea da Claude Code). */}
           <section aria-label={t("backlog:detail.plan")}>
             <div className="mb-3 flex items-center justify-between gap-3">
-              <h2 className={sectionTitleClass}>{t("backlog:detail.plan")}</h2>
+              <h2 className={sectionTitleBase}>{t("backlog:detail.plan")}</h2>
               {!isLocked && item.implementationPlan !== null && (
                 <ConfirmDeleteButton
                   label={t("backlog:detail.deletePlan")}
@@ -381,14 +383,9 @@ export function BacklogDetailPage() {
           {/* Richiesta originale: presente solo quando un design ha sostituito il
               documento. Collassata di default (dettaglio secondario). */}
           {item.originContent !== null && (
-            <details className="rounded-sm border border-line bg-ink-900">
-              <summary className="cursor-pointer list-none px-4 py-3 font-mono text-[11px] font-medium tracking-[0.16em] text-fg-muted uppercase select-none marker:content-none hover:text-fg">
-                {t("backlog:detail.originalRequest")}
-              </summary>
-              <div className="border-t border-line px-4 py-3">
-                <Markdown source={item.originContent} />
-              </div>
-            </details>
+            <CollapsibleSection title={t("backlog:detail.originalRequest")}>
+              <Markdown source={item.originContent} />
+            </CollapsibleSection>
           )}
 
           <section aria-label={t("backlog:detail.linkedTickets")}>
