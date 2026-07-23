@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { loadConfig } from "./config.js";
+import { loadConfig, readProjectSlug } from "./config.js";
 
 describe("loadConfig", () => {
   let dir: string;
@@ -91,5 +91,35 @@ describe("loadConfig", () => {
     const config = loadConfig({ cwd: dir, env: { STUBWISE_TOKEN: "stw_pat_abc" } });
     expect(config.projectSlug).toBeNull();
     expect(warn).toHaveBeenCalled();
+  });
+});
+
+// readProjectSlug è esportata perché va rieseguita FRESCA a ogni tool call
+// (vedi resolveProject): copertura diretta della funzione riusata.
+describe("readProjectSlug", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "stubwise-mcp-slug-"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  it("trova lo slug da .stubwise.json nella cwd", () => {
+    writeFileSync(join(dir, ".stubwise.json"), JSON.stringify({ project: "found" }));
+    expect(readProjectSlug(dir)).toBe("found");
+  });
+
+  it("ritorna null quando il file è assente", () => {
+    expect(readProjectSlug(dir)).toBeNull();
+  });
+
+  it("ritorna null (senza crashare) su JSON malformato", () => {
+    vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    writeFileSync(join(dir, ".stubwise.json"), "{ this is not json ");
+    expect(readProjectSlug(dir)).toBeNull();
   });
 });

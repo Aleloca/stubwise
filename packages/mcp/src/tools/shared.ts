@@ -1,6 +1,7 @@
 import type { Project } from "@stubwise/shared";
 
 import { StubwiseApiError } from "../client.js";
+import { readProjectSlug } from "../config.js";
 import type { ToolContext, ToolResult } from "./types.js";
 
 /** Costruisce un `ToolResult` di successo con un unico blocco di testo. */
@@ -42,7 +43,14 @@ export type ProjectResolution =
 /**
  * Risolve il progetto su cui operare, con questa precedenza:
  *  1. lo slug passato esplicitamente nell'argomento del tool (`argSlug`),
- *  2. altrimenti il `projectSlug` di default della config (da `.stubwise.json`).
+ *  2. altrimenti la rilettura FRESCA di `.stubwise.json` dalla cwd corrente,
+ *  3. altrimenti il `projectSlug` caricato all'avvio (fallback finale).
+ *
+ * La rilettura per-chiamata (punto 2) fa funzionare il flusso `/stubwise:init`
+ * → uso immediato senza riavviare Claude Code: il file può essere creato DOPO
+ * l'avvio del server, quando `ctx.config.projectSlug` è ancora `null`.
+ * `process.cwd()` del server MCP è la radice del repo in cui Claude Code è stato
+ * aperto, quindi la rilettura da lì è corretta; la lettura è minima, niente cache.
  *
  * Se nessuno slug è disponibile → errore che invita a `/stubwise:init` o a
  * passare `project`. Se lo slug non corrisponde a nessun progetto → errore
@@ -53,7 +61,7 @@ export async function resolveProject(
   argSlug: string | undefined,
   ctx: ToolContext,
 ): Promise<ProjectResolution> {
-  const slug = argSlug?.trim() || ctx.config.projectSlug;
+  const slug = argSlug?.trim() || readProjectSlug(process.cwd()) || ctx.config.projectSlug;
   if (!slug) {
     return {
       ok: false,

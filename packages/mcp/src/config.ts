@@ -64,8 +64,13 @@ function findStubwiseFile(cwd: string): string | null {
  * un errore fatale: file assente, JSON malformato o schema errato → `null`
  * (con un warning su stderr per i casi malformati, così l'utente capisce
  * perché il default di progetto non viene applicato).
+ *
+ * Esportata perché va rieseguita FRESCA a ogni tool call (vedi `resolveProject`):
+ * il server MCP carica lo slug una sola volta all'avvio, ma `.stubwise.json` può
+ * essere creato DOPO (flusso `/stubwise:init` → uso immediato), quindi la
+ * rilettura per-chiamata evita di dover riavviare Claude Code.
  */
-function readProjectSlug(cwd: string): string | null {
+export function readProjectSlug(cwd: string): string | null {
   const filePath = findStubwiseFile(cwd);
   if (!filePath) return null;
 
