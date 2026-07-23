@@ -1519,6 +1519,32 @@ describe("POST /api/tickets/:id/run-ai", () => {
     expect(job?.resumeMode).toBeNull();
     expect(job?.planText).toBeNull();
   });
+
+  it("ticket CON implementationPlan + withInstructions:true: il piano salvato VINCE (resumeMode=execute, planText=piano)", async () => {
+    const created = (
+      await postTicket({ projectId, title: "Run AI piano vs withInstructions", type: "feature" })
+    ).json() as { id: string };
+    const piano = "## Piano salvato\n1. Passo A\n2. Passo B";
+    await testDb.db
+      .update(tickets)
+      .set({ implementationPlan: piano })
+      .where(eq(tickets.id, created.id));
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/run-ai`,
+      headers: { cookie: users.memberCookie },
+      payload: { withInstructions: true },
+    });
+    expect(res.statusCode).toBe(202);
+    const { jobId } = res.json() as { jobId: string };
+
+    const [job] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
+    expect(job?.status).toBe("queued");
+    expect(job?.manualTrigger).toBe(true);
+    expect(job?.resumeMode).toBe("execute");
+    expect(job?.planText).toBe(piano);
+  });
 });
 
 describe("relazioni tra ticket — /api/tickets/:id/links", () => {
