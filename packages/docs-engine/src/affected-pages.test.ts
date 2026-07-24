@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mapAffectedPages, type PageRef } from "./affected-pages.js";
+import { isConfigLike, mapAffectedPages, type PageRef } from "./affected-pages.js";
 
 /** Helper per costruire una PageRef con default sensati. */
 function page(over: Partial<PageRef> & { id: string }): PageRef {
@@ -13,6 +13,57 @@ function page(over: Partial<PageRef> & { id: string }): PageRef {
 }
 
 const HIGH_CAP = 100;
+
+describe("isConfigLike", () => {
+  it("treats known config/manifest basenames as config, anywhere in the tree", () => {
+    for (const p of [
+      ".stubwise.json",
+      "audin-api/package.json",
+      "audin-api/tsconfig.json",
+      "packages/db/tsconfig.build.json",
+      "Dockerfile",
+      "apps/worker/Dockerfile.agent",
+      ".dockerignore",
+      ".gitignore",
+      ".npmrc",
+      ".nvmrc",
+      "pnpm-workspace.yaml",
+      ".editorconfig",
+      ".prettierrc",
+      ".prettierrc.json",
+      ".eslintrc.cjs",
+      "eslint.config.js",
+    ]) {
+      expect(isConfigLike(p), p).toBe(true);
+    }
+  });
+
+  it("treats *.config.{js,ts,mjs,cjs,json} as config", () => {
+    for (const p of [
+      "vite.config.ts",
+      "apps/web/vitest.config.ts",
+      "tailwind.config.js",
+      "drizzle.config.mjs",
+      "some.config.cjs",
+      "app.config.json",
+    ]) {
+      expect(isConfigLike(p), p).toBe(true);
+    }
+  });
+
+  it("does NOT treat source or docs files as config", () => {
+    for (const p of [
+      "audin-api/src/orders/service.ts",
+      "audin-webapp/src/main.tsx",
+      "packages/database/schema.ts",
+      "README.md",
+      "configuration.ts",
+      "src/config/index.ts",
+    ]) {
+      expect(isConfigLike(p), p).toBe(false);
+    }
+  });
+});
 
 describe("mapAffectedPages", () => {
   it("covers a file by an exact sourcePath match", () => {
@@ -79,6 +130,24 @@ describe("mapAffectedPages", () => {
     expect(res.newAreas).toEqual(["src/billing/invoice.ts"]);
   });
 
+  it("does NOT put an uncovered config file into newAreas", () => {
+    const res = mapAffectedPages(
+      [".stubwise.json", "audin-api/package.json", "audin-api/tsconfig.json"],
+      [],
+      HIGH_CAP,
+    );
+    expect(res.newAreas).toEqual([]);
+  });
+
+  it("keeps uncovered CODE files in newAreas but drops config from a mixed push", () => {
+    const res = mapAffectedPages(
+      ["audin-api/package.json", "audin-api/src/orders/service.ts"],
+      [],
+      HIGH_CAP,
+    );
+    expect(res.newAreas).toEqual(["audin-api/src/orders/service.ts"]);
+  });
+
   it("ignores pages with a null sourcePath when covering files", () => {
     const pages = [page({ id: "overview", sourcePath: null })];
     const res = mapAffectedPages(["src/auth/login.ts"], pages, HIGH_CAP);
@@ -97,6 +166,17 @@ describe("mapAffectedPages", () => {
     const pages = [page({ id: "auth", sourcePath: "src/auth" })];
     const res = mapAffectedPages(["/src/auth/login.ts"], pages, HIGH_CAP);
     expect(res.affected.map((p) => p.id)).toEqual(["auth"]);
+  });
+
+  it("breaks ties deterministically (by slug) when two pages share the same sourcePath", () => {
+    const a = page({ id: "a", slug: "a-page", sourcePath: "audin-api/src" });
+    const z = page({ id: "z", slug: "z-page", sourcePath: "audin-api/src" });
+    const file = ["audin-api/src/x.ts"];
+    // Indipendente dall'ordine dell'array di input: vince sempre lo slug minore.
+    const res1 = mapAffectedPages(file, [a, z], HIGH_CAP);
+    const res2 = mapAffectedPages(file, [z, a], HIGH_CAP);
+    expect(res1.affected.map((p) => p.id)).toEqual(["a"]);
+    expect(res2.affected.map((p) => p.id)).toEqual(["a"]);
   });
 
   it("dedups affected pages across multiple files hitting the same page", () => {

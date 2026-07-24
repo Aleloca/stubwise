@@ -127,6 +127,48 @@ export function aggregateNewAreas(files: string[], opts?: AggregateOptions): New
 }
 
 /**
+ * Decide, per ogni PROPOSTA della Fase 3, il `sourcePath` da PERSISTERE sulla pagina creata,
+ * dato l'`unitRef` scelto dall'agente (il primo `sourcePaths` della proposta) e le AREE
+ * aggregate. Pura e deterministica.
+ *
+ * Regola (ibrida): se un'area è coperta da UNA SOLA proposta, quella pagina persiste il path
+ * dell'AREA (più largo dell'unitRef, potenzialmente più stretto) → i file FRATELLI futuri
+ * dell'area risultano coperti da `pathCovers` (ancestor-only) e l'area non si ripresenta come
+ * "nuova". Se più proposte suddividono la stessa area (struttura fine voluta), ciascuna
+ * mantiene il proprio unitRef. Un unitRef che non appartiene ad alcuna area resta invariato.
+ *
+ * Chiude il ciclo di ripetizione delle "aree nuove" nel caso comune (una pagina per area),
+ * allineando lo svuotamento del residuo alla copertura futura.
+ */
+export function resolveGrowSourcePaths(areas: NewArea[], unitRefs: string[]): string[] {
+  // Per ogni unitRef: indice dell'area PIÙ SPECIFICA che lo contiene (o -1 se nessuna).
+  const areaOf = unitRefs.map((ref) => {
+    let bestIdx = -1;
+    let bestLen = -1;
+    areas.forEach((a, idx) => {
+      if (covers(a.path, ref) && a.path.length > bestLen) {
+        bestIdx = idx;
+        bestLen = a.path.length;
+      }
+    });
+    return bestIdx;
+  });
+
+  // Quante proposte mappano su ciascuna area.
+  const countByArea = new Map<number, number>();
+  for (const idx of areaOf) {
+    if (idx >= 0) countByArea.set(idx, (countByArea.get(idx) ?? 0) + 1);
+  }
+
+  // Allarga al path dell'area solo se quell'area è coperta da UNA sola proposta.
+  return unitRefs.map((ref, i) => {
+    const idx = areaOf[i] ?? -1;
+    if (idx >= 0 && countByArea.get(idx) === 1) return areas[idx]?.path ?? ref;
+    return ref;
+  });
+}
+
+/**
  * Fonde le aree ANNIDATE: se un path copre un altro (prefisso di cartella), i file
  * confluiscono nell'ANTENATO più corto, così le aree restano DISGIUNTE. Pura: costruisce
  * una nuova mappa senza mutare l'input. Chiamabile più volte (idempotente su input già

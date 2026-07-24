@@ -1131,6 +1131,51 @@ describe("runAutoUpdate — creazione incrementale (Fase 3)", () => {
     expect(visible).toHaveLength(1);
   });
 
+  it("proposta PIÙ STRETTA dell'area (copertura 1:1) → la pagina persiste il path dell'AREA e l'area non è più segnalata", async () => {
+    const { db } = testDb;
+    // billing/invoice.ts + billing/payment.ts → un'unica area aggregata `billing`.
+    const upstream = await makeUpstream({
+      extraFiles: {
+        "billing/invoice.ts": "export const inv = 1;\n",
+        "billing/payment.ts": "export const pay = 2;\n",
+      },
+    });
+    const mirrors = await makeMirrors();
+    const repositoryId = await createRepository(db, upstream.url);
+    const { generationId } = await seedGenerationWithPages(db, repositoryId, upstream.fromSha, [
+      { slug: "app-module", title: "App Module", sourcePath: "src", body: "Pagina app." },
+    ]);
+
+    const runner = new FakeAgentRunner({
+      script: growScript({
+        // La proposta cita un SOTTOINSIEME (un solo file) dell'area aggregata `billing`.
+        orient: growProposal({ title: "Fatturazione", kind: "functional", paths: "billing/invoice.ts" }),
+        explore: exploreOutput({ paths: ["billing/invoice.ts"] }),
+      }),
+    });
+    await runAutoUpdate(baseDeps(db, mirrors, runner, { maxNewPages: 5 }), {
+      id: "job-g-widen",
+      repositoryId,
+      fromSha: upstream.fromSha,
+      toSha: upstream.toSha,
+    });
+
+    const [page] = await db
+      .select()
+      .from(docPages)
+      .where(and(eq(docPages.generationId, generationId), eq(docPages.slug, "fatturazione")));
+    // Allargato all'AREA `billing`, NON al sottoinsieme `billing/invoice.ts`: così i file
+    // fratelli futuri (billing/payment.ts, …) sono coperti e l'area non si ripresenta.
+    expect(page?.sourcePath).toBe("billing");
+
+    // Coerentemente, l'area `billing` esce dal residuo → nessuna sezione "Aree nuove".
+    const [release] = await db
+      .select()
+      .from(docPages)
+      .where(and(eq(docPages.repositoryId, repositoryId), eq(docPages.kind, "releases")));
+    expect(release?.body ?? "").not.toContain("Aree nuove non documentate");
+  });
+
   it("slug collidente col titolo di una pagina esistente → suffisso -2", async () => {
     const { db } = testDb;
     const upstream = await makeUpstream({
