@@ -93,23 +93,44 @@ resta il tuo testo.
 > riferimento più tardi (ritrovi la voce con `list_backlog`; se è stata unita a
 > una simile, l'id restituito è quello canonico).
 
-### 2. Avvio di un piano con backlog esistente
+### 2. Avvio esecuzione di un piano — con backlog esistente
 
-Quando l'utente decide di implementare una voce di backlog già presente:
+Quando l'utente ti chiede di **implementare / eseguire un piano** che nasce da una
+voce di backlog, PRIMA di scrivere codice esegui SEMPRE questa checklist (oppure
+lancia il comando **`/stubwise:start`**, che la esegue per te):
 
-1. `convert_backlog_to_ticket` con l'`id` della voce → ottieni il ticket.
-2. `set_ticket_status` a `in_progress`.
-3. Scrivi il riferimento al ticket (`ticket` + URL) nel frontmatter del piano.
-4. A implementazione finita → `set_ticket_status` a `in_review`.
+1. **Assicura design e piano SULLA VOCE prima del convert.** Se hai un design doc
+   finalizzato in locale, caricalo con
+   `set_design({ target: "backlog", id, content: <markdown del design> })`; se hai
+   un piano di implementazione, `set_plan({ target: "backlog", id, content })`.
+   ⚠️ Questo passo è quello che spesso viene dimenticato: `convert` porta sul
+   ticket ciò che è GIÀ sulla voce, quindi senza `set_design`/`set_plan` prima, il
+   ticket eredita il documento VECCHIO della voce, non il tuo design/piano finale.
+2. **Converti** la voce in ticket: `convert_backlog_to_ticket({ id })` → ottieni il
+   ticket (che eredita il design come corpo e il piano nel campo dedicato).
+3. **`set_ticket_status({ id, status: "in_progress" })`**.
+4. Scrivi il riferimento al ticket (`ticket` + URL) nel frontmatter del piano.
+5. A implementazione finita → `set_ticket_status` a `in_review`.
 
-### 3. Avvio di un piano SENZA backlog
+### 3. Avvio esecuzione di un piano — senza backlog
 
-Quando c'è un piano ma nessuna voce di backlog:
+Quando c'è un piano ma nessuna voce/ticket a cui è collegato (stessa checklist,
+via `/stubwise:start`):
 
-1. `create_ticket` con `type: task` e `body` = il piano → ottieni il ticket.
-2. `set_ticket_status` a `in_progress`.
-3. Riferimento al ticket nel frontmatter del piano.
-4. A implementazione finita → `in_review`.
+1. **Crea il ticket** con il design come corpo:
+   `create_ticket({ type: "task", title, body: <design/piano> })` → ottieni il
+   ticket. (In alternativa, se vuoi che resti anche nel backlog:
+   `create_backlog_from_design` → poi `convert_backlog_to_ticket`.)
+2. **Piano**: se il piano è separato dal corpo, salvalo con
+   `set_plan({ target: "ticket", id, content })`.
+3. **`set_ticket_status({ id, status: "in_progress" })`**.
+4. Riferimento al ticket nel frontmatter del piano.
+5. A implementazione finita → `in_review`.
+
+> **Non saltare i passi 1–3.** Il feedback ricorrente è che, avviando un piano,
+> a volte NON si crea/converte il ticket o NON si caricano design e piano. Quando
+> l'utente dice "eseguiamo/implementiamo questo piano" (o simili), tratta questi
+> passi come OBBLIGATORI prima di toccare il codice.
 
 ### 4. Consultazione del backlog
 
