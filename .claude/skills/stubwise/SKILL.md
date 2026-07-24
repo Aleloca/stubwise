@@ -15,8 +15,11 @@ Lettura: `list_projects`, `list_backlog`, `get_backlog_item`, `list_tickets`,
 `implementationPlan` (il piano salvato) e `originContent` (il corpo/feedback
 originale, se il design ha sostituito il corpo principale).
 
-Scrittura: `create_ticket`, `convert_backlog_to_ticket`, `set_ticket_status`,
-`create_backlog_item`. Su voci/ticket ESISTENTI: `set_design`, `delete_design`,
+Scrittura: `create_ticket`, `convert_backlog_to_ticket`, `set_ticket_status`.
+Per creare una voce di backlog ci sono DUE tool distinti (vedi § "Portare
+contenuto in una voce di backlog"): `create_backlog_from_design` (design GIÀ
+pronto, salvato verbatim) e `create_backlog_item` (feedback/idea grezza, che
+l'intake AI RIASSUME). Su voci/ticket ESISTENTI: `set_design`, `delete_design`,
 `set_plan`, `delete_plan` — tutti con firma `{ target: "backlog" | "ticket", id,
 content? }` (`content` obbligatorio solo nei `set_*`).
 
@@ -48,24 +51,47 @@ Compila solo i campi pertinenti al flusso in corso.
 - `done`: SOLO on-demand. Non chiuderlo mai da solo: aspetta che l'utente
   confermi il rilascio (es. "ho rilasciato il ticket X", "chiudi il ticket").
 
+## Portare contenuto in una voce di backlog
+
+Ci sono TRE modi, e scegliere quello giusto è importante: usare lo strumento
+sbagliato APPIATTISCE un design curato.
+
+1. **Hai un design GIÀ completo** (un doc di design/piano finito, tipicamente in
+   `docs/plans/`) → **`create_backlog_from_design`**. Salva il design VERBATIM
+   come corpo della nuova voce e usa l'AI SOLO per stimare i metadati (urgenza,
+   tipo, ecc.). È il DEFAULT quando parti da un documento pronto. **NON** usare
+   `create_backlog_item` per un design pronto: il suo intake lo RIASSUMEREBBE,
+   perdendo struttura e dettagli.
+2. **Hai un feedback o un'idea grezza** (poche righe, non ancora strutturate) →
+   **`create_backlog_item`**. Un intake AI asincrono la SINTETIZZA in un
+   documento conciso: **NON conserva il testo verbatim**, ed è voluto (serve a
+   dare forma a input grezzi).
+3. **Vuoi arricchire una voce/ticket che ESISTE già** → **`set_design`** (o
+   **`set_plan`** per il piano). Vedi § "Caricare il design definitivo su una
+   voce/ticket ESISTENTE" e § "Salvare / rigenerare il piano". Se stai lavorando
+   su qualcosa che esiste, NON creare un doppione con i tool di creazione.
+
 ## I flussi
 
-### 1. Design/piano → backlog
+### 1. Design/piano → nuova voce di backlog
 
 Dopo aver scritto un documento di design o di piano (tipicamente in
-`docs/plans/`), crea una voce di backlog con **`create_backlog_item`**:
+`docs/plans/`) e NON c'è ancora una voce/ticket a cui collegarlo, crea una voce
+di backlog con **`create_backlog_from_design`** (percorso 1 qui sopra):
 
 - `title` = titolo del piano.
-- `body` = contenuto del documento (markdown).
+- `design` = contenuto del documento (markdown) — salvato **verbatim**.
 
-ATTENZIONE — è asincrono:
+Ritorna **id** e URL: scrivi il riferimento (`backlogItem` + URL) nel
+frontmatter del doc. I metadati (urgenza/tipo) vengono stimati dall'AI, il corpo
+resta il tuo testo.
 
-- Se ritorna un **id** (voce elaborata), scrivi il riferimento (`backlogItem` +
-  URL) nel frontmatter del doc.
-- Se ritorna **"accodata / in corso"** (pending), NON è un errore: committa
-  comunque il documento e aggiungi il riferimento più tardi (puoi ritrovare la
-  voce con `list_backlog`). Se la voce è stata unita a una simile esistente,
-  l'id restituito è quello canonico da referenziare.
+> Usa `create_backlog_item` (invece di `create_backlog_from_design`) SOLO quando
+> l'input è grezzo/non strutturato (feedback, appunto). È **asincrono**: se
+> ritorna un **id** referenzialo nel frontmatter; se ritorna **"accodata / in
+> corso"** (pending) NON è un errore — committa comunque il doc e aggiungi il
+> riferimento più tardi (ritrovi la voce con `list_backlog`; se è stata unita a
+> una simile, l'id restituito è quello canonico).
 
 ### 2. Avvio di un piano con backlog esistente
 
@@ -110,15 +136,19 @@ design con **`set_design`**:
 set_design({ target: "backlog" | "ticket", id, content: <markdown del design> })
 ```
 
-- **Sostituisce il corpo principale** della voce/ticket con il design doc, così
+- **Sostituisce il corpo VERBATIM** della voce/ticket con il design doc, così
   non resta discordanza tra la richiesta iniziale e ciò che è stato deciso.
 - L'**origine** (il vecchio corpo / feedback iniziale) NON va persa: viene
   preservata in `originContent`, consultabile con `get_backlog_item`/`get_ticket`.
-- È il modo di "caricare il design definitivo" su qualcosa che esiste già.
+- È il modo di "caricare il design definitivo" su qualcosa che esiste già, e
+  **funziona anche su una voce appena creata** (es. per allineare il corpo a un
+  design rifinito dopo).
 
-Distinguo importante: **`create_backlog_item` crea una voce NUOVA** (flusso 1);
-**`set_design` arricchisce una voce/ticket ESISTENTE**. Se stai lavorando su una
-voce/ticket già presente, usa `set_design`, non creare un doppione.
+Distinguo importante: i tool di CREAZIONE (`create_backlog_from_design` per un
+design pronto, `create_backlog_item` per un input grezzo) fanno una voce NUOVA
+(flusso 1); **`set_design` arricchisce una voce/ticket ESISTENTE** preservando
+l'origine. Se stai lavorando su una voce/ticket già presente, usa `set_design`,
+non creare un doppione.
 
 Ricorda comunque il riferimento nel frontmatter del doc locale (§ "Frontmatter
 di riferimento"): il doc continua a referenziare la voce/ticket di origine.
