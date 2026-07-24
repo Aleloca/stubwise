@@ -130,7 +130,7 @@ const createBacklogItemInput = {
 const createBacklogItem: ToolDef = {
   name: "create_backlog_item",
   description:
-    "Crea una voce nel backlog di discovery di un progetto e ne segue l'elaborazione (intake asincrono). Risolve il progetto dallo slug 'project' o dal repo collegato. In caso di successo ritorna l'id della voce e l'URL, da referenziare nel frontmatter del documento. Se l'elaborazione non termina entro il timeout, ritorna 'accodata, in corso' (non è un errore): puoi procedere e aggiungere il riferimento più tardi.",
+    "Crea una voce nel backlog di discovery di un progetto da FEEDBACK o IDEE GREZZE e ne segue l'elaborazione (intake asincrono). ATTENZIONE: l'intake AI SINTETIZZA/RIASSUME il testo in un documento conciso — NON lo conserva verbatim. Per un DESIGN GIÀ PRONTO usa invece create_backlog_from_design (che lo salva verbatim). Risolve il progetto dallo slug 'project' o dal repo collegato. In caso di successo ritorna l'id della voce e l'URL, da referenziare nel frontmatter del documento. Se l'elaborazione non termina entro il timeout, ritorna 'accodata, in corso' (non è un errore): puoi procedere e aggiungere il riferimento più tardi.",
   inputSchema: createBacklogItemInput,
   handler: (args, ctx): Promise<ToolResult> =>
     runTool(async () => {
@@ -225,6 +225,43 @@ const createBacklogItem: ToolDef = {
     }),
 };
 
+// --- create_backlog_from_design ---------------------------------------------
+
+const createBacklogFromDesignInput = {
+  project: z
+    .string()
+    .optional()
+    .describe("Slug del progetto. Se omesso, usa il progetto collegato al repo corrente."),
+  title: z.string().min(1).describe("Titolo della voce di backlog."),
+  // Limite allineato al design lato server (max ~200k caratteri); literal inline
+  // per NON reintrodurre un import runtime dal package shared nel bundle MCP.
+  design: z
+    .string()
+    .max(200_000)
+    .describe("Design doc completo (markdown), salvato verbatim (max ~200k caratteri)."),
+};
+
+const createBacklogFromDesign: ToolDef = {
+  name: "create_backlog_from_design",
+  description:
+    "Crea una NUOVA voce di backlog da un design doc GIÀ COMPLETO: salva il design VERBATIM come corpo della voce e usa l'AI solo per stimare i metadati. Usa QUESTO quando hai già un design finito. NON usare create_backlog_item (che è per feedback/idee grezze e li RIASSUME con l'AI, appiattendo un design pronto). Risolve il progetto dallo slug 'project' o dal repo collegato. Ritorna l'id della voce e l'URL del dettaglio.",
+  inputSchema: createBacklogFromDesignInput,
+  handler: (args, ctx): Promise<ToolResult> =>
+    runTool(async () => {
+      const resolved = await resolveProject(args.project as string | undefined, ctx);
+      if (!resolved.ok) return resolved.result;
+
+      const { itemId, url } = await ctx.client.createBacklogFromDesign(
+        resolved.project.id,
+        args.title as string,
+        args.design as string,
+      );
+      return textResult(
+        `Voce di backlog creata dal design (id: ${itemId}).\nURL: ${url}\nIl design è stato salvato verbatim; i metadati verranno stimati dall'AI.`,
+      );
+    }),
+};
+
 // --- design / piano (backlog e ticket) --------------------------------------
 //
 // Quattro tool che collegano un DESIGN doc o un PIANO di implementazione a una
@@ -258,7 +295,7 @@ const targetIdInput = {
 const setDesign: ToolDef = {
   name: "set_design",
   description:
-    "Collega un documento di design a una voce di backlog o a un ticket: SOSTITUISCE il corpo con 'content', preservando (una sola volta) il testo originale come origine ripristinabile. Usalo per allineare la descrizione della risorsa a un design rifinito. 'target' è 'backlog' o 'ticket'. Il contenuto ha un limite massimo di ~200k caratteri.",
+    "Sostituisce il corpo VERBATIM di una voce di backlog o di un ticket GIÀ ESISTENTE (per id) con 'content', preservando (una sola volta) il testo originale come origine ripristinabile. Funziona anche su una voce appena creata. Usalo per allineare la descrizione di una risorsa esistente a un design rifinito; per CREARE una nuova voce da un design usa invece create_backlog_from_design. 'target' è 'backlog' o 'ticket'. Il contenuto ha un limite massimo di ~200k caratteri.",
   inputSchema: setContentInput,
   handler: (args, ctx): Promise<ToolResult> =>
     runTool(async () => {
@@ -325,6 +362,7 @@ export const writeTools: ToolDef[] = [
   convertBacklogToTicket,
   setTicketStatus,
   createBacklogItem,
+  createBacklogFromDesign,
   setDesign,
   deleteDesign,
   setPlan,

@@ -230,6 +230,39 @@ describe("StubwiseClient", () => {
     expect(err.message).toContain("lo stato del job");
   });
 
+  it("createBacklogFromDesign fa POST /api/backlog/from-design con body { projectId, title, design } e Authorization", async () => {
+    const url = `https://stubwise.example.com/backlog/${ITEM_ID}`;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ itemId: ITEM_ID, url }, { status: 201 }));
+    const client = makeClient(fetchMock);
+
+    const result = await client.createBacklogFromDesign("p1", "Titolo", "# Design\nCorpo");
+    expect(result).toEqual({ itemId: ITEM_ID, url });
+
+    const [reqUrl, init] = fetchMock.mock.calls[0]!;
+    expect(reqUrl).toBe("https://stubwise.example.com/api/backlog/from-design");
+    expect(init.method).toBe("POST");
+    expect(init.headers.authorization).toBe("Bearer stw_pat_secret");
+    expect(init.headers["content-type"]).toBe("application/json");
+    expect(JSON.parse(init.body)).toEqual({
+      projectId: "p1",
+      title: "Titolo",
+      design: "# Design\nCorpo",
+    });
+  });
+
+  it("createBacklogFromDesign lancia invalid_response su risposta malformata", async () => {
+    // url assente: la validazione runtime deve trasformarlo in errore parlante.
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ itemId: ITEM_ID }));
+    const client = makeClient(fetchMock);
+
+    const err = await client.createBacklogFromDesign("p1", "T", "D").catch((e) => e);
+    expect(err).toBeInstanceOf(StubwiseApiError);
+    expect(err.code).toBe("invalid_response");
+    expect(err.status).toBe(0);
+  });
+
   it("convertBacklogToTicket valida ticketId/ticketNumber", async () => {
     const fetchMock = vi
       .fn()
