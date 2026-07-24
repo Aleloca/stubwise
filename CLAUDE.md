@@ -105,6 +105,11 @@ Stubwise si integra con Claude Code via il server MCP `@stubwise/mcp`
   `STUBWISE_TOKEN`; `STUBWISE_URL` punta all'istanza (default
   `http://localhost:3000`). Il pacchetto è pubblicato su npm come
   `@stubwise/mcp`: `.mcp.json` lo avvia via `npx -y @stubwise/mcp` (nessun build
-  locale necessario). Pubblicazione di nuove versioni: `npm publish` da
-  `packages/mcp` (il `prepublishOnly` ribuilda; serve login npm sullo scope
-  `@stubwise`).
+  locale necessario). Il pacchetto è autonomo a runtime (bundle, nessuna dep
+  `workspace:` residua). Pubblicazione di nuove versioni: **automatica via
+  Changesets** — aggiungi un changeset (`.changeset/*.md`), pusha, poi mergia la
+  PR di versioning che il workflow `release.yml` apre/aggiorna (changesets/action,
+  "chore: versiona i package rilasciabili") → al merge la CI esegue `pnpm
+  changeset publish`. NON usare `npm publish` a mano (non risolve i
+  `workspace:` del monorepo pnpm). Il secret `NPM_TOKEN` è un granular token con
+  bypass-2FA sullo scope `@stubwise`.
