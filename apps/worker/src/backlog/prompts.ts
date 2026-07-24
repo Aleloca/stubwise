@@ -115,6 +115,37 @@ export function buildMergePrompt(currentDocument: string, newFeedback: string): 
   ].join("\n");
 }
 
+/**
+ * Prompt per STIMARE i soli metadati di una voce del backlog dal suo documento
+ * GIÀ PRONTO (voce nata "from-design": documento = design verbatim, stime NULL).
+ * A DIFFERENZA di {@link buildIntakePrompt}, NON chiede né titolo né documento —
+ * quelli esistono già e NON vanno toccati: solo `{ effort, risk, riskNote?,
+ * urgency }`. Riusa la sezione "LE STIME" dell'intake. OUTPUT JSON parsato in
+ * modo difensivo da estimate.ts.
+ *
+ * INJECTION: il documento è input NON FIDATO (chi crea la voce ne controlla il
+ * contenuto). Come l'intake il run gira in `permissionMode: "default"` su una
+ * dir vuota (nessun tool): il caso peggiore residuo è una stima fuorviante, mai
+ * un'azione sul sistema.
+ */
+export function buildEstimatePrompt(document: string): string {
+  return [
+    "Sei un co-progettista di prodotto. Leggi il documento di design di una voce del backlog di discovery e stimane i metadati. NON riscrivere il documento e NON proporre un titolo: produci SOLO le stime.",
+    "",
+    "LE STIME:",
+    "- `effort` è lo sforzo su scala 1–5: 1 = poche ore, 2 = un giorno, 3 = qualche giorno, 4 = una-due settimane, 5 = oltre / molto incerto.",
+    "- `risk` è low|medium|high (rischio tecnico/di regressione); `riskNote` spiega brevemente il rischio se non è low.",
+    "- `urgency` è low|medium|high|urgent.",
+    "Stima con quello che sai; nel dubbio resta conservativo.",
+    "",
+    "FORMATO DI OUTPUT (OBBLIGATORIO): un unico oggetto JSON valido, senza testo attorno, della forma:",
+    '{ "effort": <1-5>, "risk": "low"|"medium"|"high", "riskNote": "<nota, opzionale>", "urgency": "low"|"medium"|"high"|"urgent" }',
+    'Ometti "riskNote" se il rischio è low o non hai nulla da aggiungere.',
+    "",
+    `--- DOCUMENTO DELLA VOCE ---\n${document || "(vuoto)"}`,
+  ].join("\n");
+}
+
 /** Voce del backlog in ingresso al deep dive: documento e metadati correnti. */
 export interface DeepDiveInput {
   title: string;

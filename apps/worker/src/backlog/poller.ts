@@ -1,8 +1,10 @@
 import { backlogJobs, type Db } from "@stubwise/db";
 import {
   backlogDeepDivePayloadSchema,
+  backlogEstimatePayloadSchema,
   backlogIntakePayloadSchema,
   type BacklogDeepDivePayload,
+  type BacklogEstimatePayload,
   type BacklogIntakePayload,
 } from "@stubwise/shared";
 import { and, eq, gte, lt, ne, sql } from "drizzle-orm";
@@ -12,6 +14,7 @@ import type { MirrorManager } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
 import { loadProviderById, loadProviderChain } from "../providers/chain.js";
 import { runDeepDive } from "./deep-dive.js";
+import { runEstimate } from "./estimate.js";
 import { runIntake } from "./intake.js";
 
 /**
@@ -112,6 +115,16 @@ export type RunDeepDiveFn = (
   payload: BacklogDeepDivePayload,
 ) => Promise<void>;
 
+/**
+ * Esecutore dell'estimate. Default: {@link runEstimate}; iniettabile via
+ * `BacklogPollerDeps.runEstimateFn` per testare la sola coda con un fake.
+ */
+export type RunEstimateFn = (
+  deps: BacklogDeps,
+  job: BacklogJob,
+  payload: BacklogEstimatePayload,
+) => Promise<void>;
+
 export interface BacklogPollerDeps extends BacklogDeps {
   /** "adesso" iniettabile nei test. Default new Date(). */
   now?: () => Date;
@@ -121,6 +134,8 @@ export interface BacklogPollerDeps extends BacklogDeps {
   runIntakeFn?: RunIntakeFn;
   /** Esecutore del deep dive, iniettabile nei test. Default runDeepDive. */
   runDeepDiveFn?: RunDeepDiveFn;
+  /** Esecutore dell'estimate, iniettabile nei test. Default runEstimate. */
+  runEstimateFn?: RunEstimateFn;
   /** Stop cooperativo: interrompe il drain a metà tick. */
   signal?: AbortSignal;
 }
@@ -168,7 +183,7 @@ export async function claimNextBacklogJob(
           excludeIds.map((id) => sql`${id}`),
           sql`, `,
         )})`;
-  const subquery = sql`(SELECT id FROM backlog_jobs WHERE status = 'queued' AND kind IN ('intake', 'deep_dive')${exclude} ORDER BY created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED)`;
+  const subquery = sql`(SELECT id FROM backlog_jobs WHERE status = 'queued' AND kind IN ('intake', 'deep_dive', 'estimate')${exclude} ORDER BY created_at, id LIMIT 1 FOR UPDATE SKIP LOCKED)`;
   const [job] = await db
     .update(backlogJobs)
     .set({
@@ -278,8 +293,9 @@ async function requeueBacklogJob(db: Db, jobId: string, error: string): Promise<
  * Smista un job reclamato sul suo `kind`, validando prima il payload contro la
  * forma attesa. Un payload che non combacia → {@link MalformedBacklogPayloadError}
  * (fallimento permanente). `intake` esegue l'intake (dedup + generazione voce);
- * `deep_dive` esegue l'approfondimento tecnico sul worktree del repo scelto
- * (vedi deep-dive.ts).
+ * `estimate` stima i soli metadati + embedding di una voce già pronta (vedi
+ * estimate.ts); `deep_dive` esegue l'approfondimento tecnico sul worktree del
+ * repo scelto (vedi deep-dive.ts).
  */
 export async function runBacklogJob(deps: BacklogPollerDeps, job: BacklogJob): Promise<void> {
   if (job.kind === "intake") {
@@ -289,6 +305,17 @@ export async function runBacklogJob(deps: BacklogPollerDeps, job: BacklogJob): P
       throw new MalformedBacklogPayloadError(`payload intake non valido: ${parsed.error.message}`);
     }
     await runIntakeFn(deps, job, parsed.data);
+    return;
+  }
+  if (job.kind === "estimate") {
+    const runEstimateFn = deps.runEstimateFn ?? runEstimate;
+    const parsed = backlogEstimatePayloadSchema.safeParse(job.payload);
+    if (!parsed.success) {
+      throw new MalformedBacklogPayloadError(
+        `payload estimate non valido: ${parsed.error.message}`,
+      );
+    }
+    await runEstimateFn(deps, job, parsed.data);
     return;
   }
   // deep_dive
