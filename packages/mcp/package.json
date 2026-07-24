@@ -1,6 +1,6 @@
 {
   "name": "@stubwise/mcp",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Stubwise MCP server (stdio transport): lets Claude Code talk to a self-hosted Stubwise instance.",
   "license": "MIT",
   "type": "module",
