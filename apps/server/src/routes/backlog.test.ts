@@ -516,6 +516,95 @@ describe("POST /api/backlog", () => {
   });
 });
 
+describe("POST /api/backlog/from-design", () => {
+  it("senza sessione → 401", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/backlog/from-design",
+      payload: { projectId, title: "Design pronto", design: "# Design\ncorpo" },
+    });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("progetto inesistente → 404", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/backlog/from-design",
+      headers: { cookie: memberCookie },
+      payload: { projectId: crypto.randomUUID(), title: "Design", design: "corpo" },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("design vuoto → 400", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/backlog/from-design",
+      headers: { cookie: memberCookie },
+      payload: { projectId, title: "Design", design: "" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("design oltre 200_000 caratteri → 400", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/backlog/from-design",
+      headers: { cookie: memberCookie },
+      payload: { projectId, title: "Design", design: "x".repeat(200_001) },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("title mancante → 400", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/backlog/from-design",
+      headers: { cookie: memberCookie },
+      payload: { projectId, design: "corpo" },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("crea la voce SINCRONA (document verbatim) e accoda un job estimate", async () => {
+    const design = "# Design pronto\n\nParagrafo con **markdown** e dettagli tecnici.\n";
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/backlog/from-design",
+      headers: { cookie: memberCookie },
+      payload: { projectId, title: "Voce da design", design },
+    });
+    expect(res.statusCode).toBe(201);
+    const body = res.json();
+    expect(typeof body.itemId).toBe("string");
+    expect(body.url).toBe(`https://stubwise.example.com/backlog/${body.itemId}`);
+
+    const [item] = await testDb.db
+      .select()
+      .from(backlogItems)
+      .where(eq(backlogItems.id, body.itemId));
+    expect(item).toBeDefined();
+    expect(item!.projectId).toBe(projectId);
+    expect(item!.title).toBe("Voce da design");
+    expect(item!.document).toBe(design);
+    expect(item!.source).toBe("manual");
+    expect(item!.status).toBe("new");
+    expect(item!.effort).toBeNull();
+    expect(item!.risk).toBeNull();
+    expect(item!.urgency).toBeNull();
+    expect(item!.embedding).toBeNull();
+
+    const jobs = await testDb.db
+      .select()
+      .from(backlogJobs)
+      .where(eq(backlogJobs.projectId, projectId));
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.kind).toBe("estimate");
+    expect(jobs[0]!.status).toBe("queued");
+    expect(jobs[0]!.payload).toEqual({ itemId: body.itemId });
+  });
+});
+
 describe("GET /api/backlog/jobs/:jobId", () => {
   it("senza sessione → 401", async () => {
     const res = await app.inject({

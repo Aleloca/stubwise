@@ -157,6 +157,9 @@ const backlogJobResultSchema = z.object({
 /** `POST /api/backlog/:id/convert` → ticket creato. */
 const convertResultSchema = z.object({ ticketId: z.uuid(), ticketNumber: z.number().int() });
 
+/** `POST /api/backlog/from-design` → voce creata sincrona (id + URL del dettaglio). */
+const fromDesignResultSchema = z.object({ itemId: z.uuid(), url: z.string() });
+
 /** Pagina generica cursor-based dell'API. */
 export interface Page<T> {
   items: T[];
@@ -408,6 +411,24 @@ export class StubwiseClient {
   async createBacklogItem(params: CreateBacklogItemParams): Promise<{ queued: true; jobId: string }> {
     const raw = await this.request<unknown>("/api/backlog", { method: "POST", body: params });
     return this.parseResponse(createBacklogResultSchema, raw, "la creazione della voce di backlog");
+  }
+
+  /**
+   * Crea una voce di backlog da un design doc GIÀ COMPLETO: il server salva il
+   * design VERBATIM come corpo della voce (nessuna sintesi AI) e accoda un job
+   * async che stima solo i metadati. Risposta piccola ad alto valore → validata
+   * runtime (id + URL del dettaglio) come gli altri metodi critici.
+   */
+  async createBacklogFromDesign(
+    projectId: string,
+    title: string,
+    design: string,
+  ): Promise<{ itemId: string; url: string }> {
+    const raw = await this.request<unknown>("/api/backlog/from-design", {
+      method: "POST",
+      body: { projectId, title, design },
+    });
+    return this.parseResponse(fromDesignResultSchema, raw, "la creazione della voce da design");
   }
 
   async getBacklogJob(jobId: string): Promise<BacklogJob> {

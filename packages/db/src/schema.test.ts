@@ -1200,6 +1200,45 @@ describe("schema: backlog_jobs.result_item_id", () => {
 });
 
 /**
+ * Verifica il valore additivo `estimate` dell'enum `backlog_job_kind`
+ * (migrazione 0059): un job che stima una voce di backlog a partire dal design.
+ * Conferma che l'enum Postgres accetti il nuovo valore e che il payload
+ * `{ itemId }` si salvi e si rilegga.
+ */
+describe("schema: backlog_jobs kind estimate", () => {
+  let testDb: TestDb;
+  let db: Db;
+
+  beforeAll(async () => {
+    testDb = await startTestDb();
+    db = testDb.db;
+  });
+
+  afterAll(async () => {
+    await testDb.stop();
+  });
+
+  it("accoda un job kind estimate con payload { itemId } e lo rilegge", async () => {
+    const { projectId } = await seedRepository(db);
+    const [item] = await db
+      .insert(backlogItems)
+      .values({ projectId, title: "Voce da stimare dal design", source: "manual" })
+      .returning();
+    if (!item) throw new Error("insert della voce di backlog non ha restituito la riga");
+
+    const [job] = await db
+      .insert(backlogJobs)
+      .values({ projectId, kind: "estimate", payload: { itemId: item.id } })
+      .returning();
+    if (!job) throw new Error("insert del backlog job non ha restituito la riga");
+
+    const [read] = await db.select().from(backlogJobs).where(eq(backlogJobs.id, job.id));
+    expect(read?.kind).toBe("estimate");
+    expect(read?.payload).toEqual({ itemId: item.id });
+  });
+});
+
+/**
  * Verifica le colonne additive `implementation_plan` + `origin_content`
  * (migrazione 0058) su `backlog_items` e `tickets`: entrambe NULLABLE (null di
  * default), scrivibili in update e rileggibili. Il corpo principale resta il

@@ -63,6 +63,7 @@ function makeClient() {
     convertBacklogToTicket: vi.fn(),
     setTicketStatus: vi.fn(),
     createBacklogItem: vi.fn(),
+    createBacklogFromDesign: vi.fn(),
     getBacklogJob: vi.fn(),
     setDesign: vi.fn(),
     deleteDesign: vi.fn(),
@@ -404,6 +405,62 @@ describe("create_backlog_item (polling)", () => {
   });
 });
 
+describe("create_backlog_from_design", () => {
+  it("risolve il progetto, salva il design verbatim e ritorna itemId + URL", async () => {
+    const client = makeClient();
+    client.getProjectBySlug.mockResolvedValue(fakeProject({ slug: "acme" }));
+    const url = `${BASE_URL}/backlog/${ITEM_ID}`;
+    client.createBacklogFromDesign.mockResolvedValue({ itemId: ITEM_ID, url });
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("create_backlog_from_design").handler(
+      { project: "acme", title: "Feature X", design: "# Design\nCorpo completo" },
+      ctx,
+    );
+
+    expect(client.getProjectBySlug).toHaveBeenCalledWith("acme");
+    expect(client.createBacklogFromDesign).toHaveBeenCalledWith(
+      PROJECT_ID,
+      "Feature X",
+      "# Design\nCorpo completo",
+    );
+    expect(res.isError).toBeUndefined();
+    expect(firstText(res)).toContain(ITEM_ID);
+    expect(firstText(res)).toContain(url);
+  });
+
+  it("un errore del client diventa un ToolResult isError, non lancia", async () => {
+    const client = makeClient();
+    client.getProjectBySlug.mockResolvedValue(fakeProject({ slug: "acme" }));
+    client.createBacklogFromDesign.mockRejectedValue(
+      new StubwiseApiError("Errore Stubwise (HTTP 500)", 500, "api_error"),
+    );
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("create_backlog_from_design").handler(
+      { project: "acme", title: "T", design: "D" },
+      ctx,
+    );
+
+    expect(res.isError).toBe(true);
+    expect(firstText(res)).toContain("Errore Stubwise");
+  });
+
+  it("senza progetto risolvibile ritorna errore /stubwise:init e non crea nulla", async () => {
+    const client = makeClient();
+    const { ctx } = makeCtx(client, { config: { projectSlug: null } as StubwiseConfig });
+
+    const res = await tool("create_backlog_from_design").handler(
+      { title: "X", design: "Y" },
+      ctx,
+    );
+
+    expect(res.isError).toBe(true);
+    expect(firstText(res)).toContain("/stubwise:init");
+    expect(client.createBacklogFromDesign).not.toHaveBeenCalled();
+  });
+});
+
 describe("set_design / delete_design / set_plan / delete_plan", () => {
   it("set_design chiama client.setDesign(target, id, content) e conferma con URL", async () => {
     const client = makeClient();
@@ -495,13 +552,14 @@ describe("registerWriteTools", () => {
 
     registerWriteTools(server, ctx);
 
-    expect(registerTool).toHaveBeenCalledTimes(8);
+    expect(registerTool).toHaveBeenCalledTimes(9);
     const names = registerTool.mock.calls.map((c) => c[0]);
     expect(names).toEqual([
       "create_ticket",
       "convert_backlog_to_ticket",
       "set_ticket_status",
       "create_backlog_item",
+      "create_backlog_from_design",
       "set_design",
       "delete_design",
       "set_plan",

@@ -15,6 +15,7 @@ import {
   type BacklogLogger,
   type BacklogPollerDeps,
   type RunDeepDiveFn,
+  type RunEstimateFn,
   type RunIntakeFn,
 } from "./poller.js";
 
@@ -54,7 +55,7 @@ async function createProject(db: Db): Promise<string> {
 
 interface InsertJobOpts {
   projectId: string;
-  kind?: "intake" | "deep_dive" | "chat_turn";
+  kind?: "intake" | "deep_dive" | "chat_turn" | "estimate";
   payload?: BacklogJobPayload;
   status?: "queued" | "running" | "done" | "failed";
   attempts?: number;
@@ -110,6 +111,10 @@ function makeDeps(db: Db, overrides: Partial<BacklogPollerDeps> = {}): BacklogPo
     // così i test non montano worktree né chiamano l'agente.
     runDeepDiveFn: () => {
       throw new Error("il deep dive reale non deve girare nei test della coda");
+    },
+    // Idem per l'estimate reale (coperto da estimate.test.ts).
+    runEstimateFn: () => {
+      throw new Error("l'estimate reale non deve girare nei test della coda");
     },
     ...overrides,
   };
@@ -186,6 +191,21 @@ describe("claim per kind (poller lento ↔ poller veloce)", () => {
     // Ma il claim veloce sì.
     const chat = await claimNextChatTurnJob(db);
     expect(chat?.id).toBe(chatId);
+  });
+
+  it("claimNextBacklogJob reclama anche gli estimate (poller lento)", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const estimateId = await insertJob(db, {
+      projectId,
+      kind: "estimate",
+      payload: { itemId: randomUUID() },
+    });
+
+    const claimed = await claimNextBacklogJob(db);
+    expect(claimed?.id).toBe(estimateId);
+    // Il claim veloce NON deve prenderlo.
+    expect(await claimNextChatTurnJob(db)).toBeNull();
   });
 
   it("claimNextChatTurnJob NON reclama intake/deep_dive (solo chat_turn)", async () => {
@@ -373,6 +393,39 @@ describe("pollBacklogJobsOnce", () => {
 
     expect(runDeepDiveFn.mock.calls[0]![2]).toEqual(payload);
     expect((await getJob(db, id)).status).toBe("done");
+  });
+
+  it("smista un job estimate a runEstimateFn e lo chiude done", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const itemId = randomUUID();
+    const id = await insertJob(db, { projectId, kind: "estimate", payload: { itemId } });
+
+    const runEstimateFn = vi.fn<RunEstimateFn>(async () => {});
+    const done = await pollBacklogJobsOnce(makeDeps(db, { runEstimateFn }));
+
+    expect(done).toBe(1);
+    expect(runEstimateFn).toHaveBeenCalledOnce();
+    expect(runEstimateFn.mock.calls[0]![2]).toEqual({ itemId });
+    expect((await getJob(db, id)).status).toBe("done");
+  });
+
+  it("estimate con payload malformato → failed subito, niente retry", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    // kind estimate ma payload vuoto: non combacia con backlogEstimatePayloadSchema.
+    const id = await insertJob(db, {
+      projectId,
+      kind: "estimate",
+      payload: {} as unknown as BacklogJobPayload,
+    });
+
+    await pollBacklogJobsOnce(makeDeps(db));
+
+    const job = await getJob(db, id);
+    expect(job.status).toBe("failed");
+    expect(job.attempts).toBe(1); // un solo tentativo, nessun riaccodamento
+    expect(job.error).toContain("payload estimate non valido");
   });
 
   it("deep_dive che lancia → riaccodato (tentativi residui)", async () => {
