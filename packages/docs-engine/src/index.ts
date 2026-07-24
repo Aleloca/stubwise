@@ -122,6 +122,7 @@ export type { RefreshPageInput, RefreshedPage } from "./refresh-page.js";
 // ── Auto-aggiornamento Docs (Fase 3): aggregazione aree nuove + mini-orient ───────────
 export {
   aggregateNewAreas,
+  resolveGrowSourcePaths,
   buildGrowOrientPrompt,
   parseGrowOrientOutput,
   GROW_PROPOSAL_START_MARKER,

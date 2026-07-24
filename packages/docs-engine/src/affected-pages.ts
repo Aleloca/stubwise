@@ -45,6 +45,41 @@ export interface AffectedPagesResult {
   truncated: number;
 }
 
+/** Basename di config/manifest esatti (a qualunque livello dell'albero). */
+const CONFIG_BASENAMES = new Set<string>([
+  ".stubwise.json",
+  "package.json",
+  ".dockerignore",
+  ".gitignore",
+  ".npmrc",
+  ".nvmrc",
+  "pnpm-workspace.yaml",
+  ".editorconfig",
+]);
+
+/** Pattern di basename di config/manifest (famiglie con suffissi variabili). */
+const CONFIG_BASENAME_PATTERNS: RegExp[] = [
+  /^tsconfig.*\.json$/, // tsconfig.json, tsconfig.build.json
+  /^Dockerfile(\..*)?$/, // Dockerfile, Dockerfile.agent
+  /^\.prettierrc(\..*)?$/, // .prettierrc, .prettierrc.json
+  /^\.eslintrc(\..*)?$/, // .eslintrc.cjs, .eslintrc.json
+  /^.*\.config\.(js|ts|mjs|cjs|json)$/, // *.config.{js,ts,mjs,cjs,json} (incl. eslint.config.*)
+];
+
+/**
+ * true se il path è un file di CONFIG/MANIFEST (per basename/estensione), a qualunque livello.
+ * Questi file NON descrivono un'area di codice documentabile: vanno esclusi dal calcolo delle
+ * `newAreas` (altrimenti verrebbero segnalati come "aree nuove non documentate" a ogni push, e
+ * nessun agente creerebbe mai una pagina per un file di config). NON è il filtro `isNoise` del
+ * worker: i config restano "materiali" per la nota di rilascio, sono solo esclusi dalle aree.
+ */
+export function isConfigLike(path: string): boolean {
+  const base = path.split("/").filter((s) => s !== "").pop() ?? "";
+  if (base === "") return false;
+  if (CONFIG_BASENAMES.has(base)) return true;
+  return CONFIG_BASENAME_PATTERNS.some((re) => re.test(base));
+}
+
 /** Numero di segmenti di un path normalizzato: misura la SPECIFICITÀ del `sourcePath`. */
 function segmentCount(path: string): number {
   const trimmed = path.trim().replace(/^\/+|\/+$/g, "");
@@ -104,15 +139,21 @@ export function mapAffectedPages(
       // sourcePath è non-null per costruzione (coveringPages).
       if (!pathCovers(page.sourcePath as string, file)) continue;
       const depth = segmentCount(page.sourcePath as string);
-      if (depth > bestDepth) {
+      // A parità di profondità (es. due pagine con lo STESSO sourcePath — possibile ora che
+      // la Fase 3 allarga i sourcePath all'area) tie-break deterministico sullo slug minore,
+      // così l'esito non dipende dall'ordine dell'array in input.
+      if (depth > bestDepth || (depth === bestDepth && best !== null && page.slug < best.slug)) {
         best = page;
         bestDepth = depth;
       }
     }
 
     if (best === null) {
-      // Nessuna pagina copre il file → area nuova.
-      newAreasSet.add(file);
+      // Nessuna pagina copre il file → area nuova, MA i file di config/manifest non
+      // descrivono un'area documentabile: si escludono qui (restano "materiali" per la
+      // nota di rilascio, gestita altrove nel worker), così non vengono mai segnalati
+      // come "aree nuove non documentate".
+      if (!isConfigLike(file)) newAreasSet.add(file);
       continue;
     }
 

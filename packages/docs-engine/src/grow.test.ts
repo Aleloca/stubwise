@@ -5,8 +5,51 @@ import {
   GROW_PROPOSAL_START_MARKER,
   GROW_PROPOSAL_END_MARKER,
   parseGrowOrientOutput,
+  resolveGrowSourcePaths,
   type NewArea,
 } from "./grow.js";
+
+/** Helper per costruire una NewArea (i file non contano per resolveGrowSourcePaths). */
+function area(path: string): NewArea {
+  return { path, files: [] };
+}
+
+describe("resolveGrowSourcePaths", () => {
+  it("allarga il sourcePath all'AREA quando una sola proposta la copre", () => {
+    const areas = [area("audin-api/src")];
+    expect(resolveGrowSourcePaths(areas, ["audin-api/src/orders"])).toEqual([
+      "audin-api/src",
+    ]);
+  });
+
+  it("lascia invariato il sourcePath se già uguale al path dell'area", () => {
+    const areas = [area("packages/db")];
+    expect(resolveGrowSourcePaths(areas, ["packages/db"])).toEqual(["packages/db"]);
+  });
+
+  it("NON allarga quando più proposte coprono la STESSA area (struttura fine)", () => {
+    const areas = [area("audin-api/src")];
+    expect(
+      resolveGrowSourcePaths(areas, [
+        "audin-api/src/orders",
+        "audin-api/src/users",
+      ]),
+    ).toEqual(["audin-api/src/orders", "audin-api/src/users"]);
+  });
+
+  it("allarga ciascuna proposta alla propria area quando sono aree diverse", () => {
+    const areas = [area("a/src"), area("b/src")];
+    expect(resolveGrowSourcePaths(areas, ["a/src/x", "b/src/y"])).toEqual([
+      "a/src",
+      "b/src",
+    ]);
+  });
+
+  it("lascia invariato un unitRef che non appartiene ad alcuna area", () => {
+    const areas = [area("a/src")];
+    expect(resolveGrowSourcePaths(areas, ["b/src/x"])).toEqual(["b/src/x"]);
+  });
+});
 
 describe("aggregateNewAreas", () => {
   it("lista vuota → []", () => {

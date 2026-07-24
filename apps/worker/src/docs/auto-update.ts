@@ -10,6 +10,7 @@ import {
 } from "@stubwise/db";
 import {
   aggregateNewAreas,
+  resolveGrowSourcePaths,
   buildExplorePrompt,
   buildGrowOrientPrompt,
   buildRefreshPagePrompt,
@@ -733,8 +734,17 @@ async function growNewAreaPages(
     return { createdPages, cost, chunkCount, residualAreas: Array.from(residual).sort() };
   }
 
+  // sourcePath da PERSISTERE per ciascuna proposta: allargato al path dell'AREA quando quella
+  // proposta è l'UNICA a coprirla (copertura 1:1), altrimenti l'unitRef scelto dall'agente.
+  // Allargando all'area, i file fratelli futuri risultano coperti da `pathCovers` (ancestor-only)
+  // e l'area non si ripresenta come "nuova" a ogni push (chiude il ciclo di ripetizione).
+  const pageSourcePaths = resolveGrowSourcePaths(
+    areas,
+    proposals.map((p) => p.sourcePaths[0] ?? ""),
+  );
+
   // 2) Un run EXPLORE per proposta (cap già applicato): SOLO il body, i figli ignorati.
-  for (const proposal of proposals) {
+  for (const [proposalIndex, proposal] of proposals.entries()) {
     // Sanificazione: sourcePaths validi (già normalizzati dal parser); parentSlug tra gli
     // slug reali, altrimenti radice (null). Una proposta senza sourcePaths è SCARTATA: non
     // ripieghiamo su `areas[0]?.path` perché per la 2ª+ proposta sarebbe l'area SBAGLIATA e
@@ -774,13 +784,11 @@ async function growNewAreaPages(
       if ("reason" in parsed) continue;
       const body = parsed.body;
 
-      // sourcePath della pagina: il path folder-level della PROPOSTA, e solo in sua assenza
-      // quello (potenzialmente più stretto) dell'explore. È un loop di feedback sulla
-      // copertura: il sourcePath persistito determina quali file futuri l'area considera già
-      // coperti. Un path dell'explore ristretto a un singolo file lascerebbe scoperti i
-      // fratelli dell'area → tornerebbero in newAreas e il mini-orient (che vede solo
-      // radici + primo livello) ripropone la stessa pagina → duplicati `-2` accumulati.
-      const pageSourcePath = sourcePaths[0] ?? parsed.sourcePaths[0] ?? null;
+      // sourcePath della pagina: quello risolto da `resolveGrowSourcePaths` (allargato all'area
+      // se copertura 1:1), e solo in sua assenza quello (potenzialmente più stretto) dell'explore.
+      // Il sourcePath persistito determina quali file futuri l'area considera già coperti; è
+      // allineato allo svuotamento del residuo qui sotto (ancestor-only, come `pathCovers`).
+      const pageSourcePath = pageSourcePaths[proposalIndex] || parsed.sourcePaths[0] || null;
 
       // 3) INSERT in transazione: slug dedupato (slug FRESCHI della generazione), parentId
       // dal parentSlug, position = max(position)+1 della generazione, chunk embeddati.
@@ -842,11 +850,15 @@ async function growNewAreaPages(
 
       createdPages.push({ slug: inserted.slug, title: proposal.title });
       chunkCount += inserted.chunks;
-      // L'area documentata esce dal residuo: rimuovi le aree i cui path sono coperti da
-      // uno dei sourcePaths della pagina.
-      for (const area of areas) {
-        if (sourcePaths.some((sp) => area.path === sp || area.path.startsWith(`${sp}/`) || sp.startsWith(`${area.path}/`))) {
-          residual.delete(area.path);
+      // L'area documentata esce dal residuo SOLO se il sourcePath PERSISTITO la copre nel senso
+      // ANCESTOR-ONLY di `pathCovers` (antenato-o-uguale): così "coperta adesso" ⇔ "coperta ai
+      // push futuri". Un sourcePath più stretto dell'area (suddivisione fine) NON la rimuove →
+      // resta segnalata onestamente finché non è coperta del tutto.
+      if (pageSourcePath !== null) {
+        for (const area of areas) {
+          if (area.path === pageSourcePath || area.path.startsWith(`${pageSourcePath}/`)) {
+            residual.delete(area.path);
+          }
         }
       }
     } catch (err) {
