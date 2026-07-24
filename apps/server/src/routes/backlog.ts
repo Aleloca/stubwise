@@ -6,6 +6,7 @@ import {
   backlogRiskSchema,
   backlogSuggestedSchema,
   backlogUrgencySchema,
+  createBacklogFromDesignSchema,
   createBacklogItemSchema,
   setContentSchema,
   startCodeSessionSchema,
@@ -944,6 +945,46 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         .values({ projectId, kind: "intake", payload: { title, body } })
         .returning({ id: backlogJobs.id });
       return reply.code(202).send({ queued: true, jobId: job!.id });
+    },
+  );
+
+  // Creazione da design pronto: a differenza dell'intake, crea la voce SINCRONA
+  // col design come `document` verbatim (nessun agente che riassume) e accoda un
+  // job `estimate` che riempie titolo affinato/stime/embedding. Insert + job
+  // nella STESSA transazione per atomicità (niente voce senza il suo estimate).
+  app.post(
+    "/from-design",
+    {
+      preHandler: requireAuth,
+      schema: {
+        body: createBacklogFromDesignSchema,
+        response: {
+          201: z.object({ itemId: z.uuid(), url: z.string() }),
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { projectId, title, design } = request.body;
+      const [project] = await app.db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(eq(projects.id, projectId));
+      if (!project) return apiError(reply, 404, "project_not_found", "Project not found");
+
+      const itemId = await app.db.transaction(async (tx) => {
+        const [item] = await tx
+          .insert(backlogItems)
+          .values({ projectId, title, document: design, source: "manual" })
+          .returning({ id: backlogItems.id });
+        await tx
+          .insert(backlogJobs)
+          .values({ projectId, kind: "estimate", payload: { itemId: item!.id } });
+        return item!.id;
+      });
+
+      return reply.code(201).send({ itemId, url: `${app.publicUrl}/backlog/${itemId}` });
     },
   );
 
