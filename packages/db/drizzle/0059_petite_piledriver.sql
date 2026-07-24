@@ -1,0 +1,1 @@
+ALTER TYPE "public"."backlog_job_kind" ADD VALUE 'estimate';

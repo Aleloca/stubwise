@@ -34,7 +34,7 @@ export type BacklogItemSource = z.infer<typeof backlogItemSourceSchema>;
  * `chat_turn` (un turno della sessione di analisi sul codice: il worker investiga
  * il repo in diretta via claude CLI e risponde in chat).
  */
-export const backlogJobKindSchema = z.enum(["intake", "deep_dive", "chat_turn"]);
+export const backlogJobKindSchema = z.enum(["intake", "deep_dive", "chat_turn", "estimate"]);
 export type BacklogJobKind = z.infer<typeof backlogJobKindSchema>;
 
 /** Stato di un job del backlog nella coda del worker. */
@@ -89,6 +89,10 @@ export const backlogChatTurnPayloadSchema = z
   .strict();
 export type BacklogChatTurnPayload = z.infer<typeof backlogChatTurnPayloadSchema>;
 
+/** Payload di un job `estimate`: la voce di backlog da stimare a partire dal design. */
+export const backlogEstimatePayloadSchema = z.object({ itemId: z.uuid() }).strict();
+export type BacklogEstimatePayload = z.infer<typeof backlogEstimatePayloadSchema>;
+
 /**
  * Union discriminata-per-forma del payload di QUALSIASI job del backlog: intake
  * (da ticket o manuale), deep_dive o chat_turn. Applicata come `.$type<>` sulla
@@ -103,6 +107,7 @@ export const backlogJobPayloadSchema = z.union([
   backlogIntakeManualPayloadSchema,
   backlogDeepDivePayloadSchema,
   backlogChatTurnPayloadSchema,
+  backlogEstimatePayloadSchema,
 ]);
 export type BacklogJobPayload = z.infer<typeof backlogJobPayloadSchema>;
 
@@ -165,3 +170,15 @@ export const createBacklogItemSchema = z.object({
   body: z.string().min(1).max(20_000),
 });
 export type CreateBacklogItemInput = z.infer<typeof createBacklogItemSchema>;
+
+/**
+ * Creazione di una voce del backlog A PARTIRE DA UN DESIGN GIÀ PRONTO: il testo
+ * del design è il contenuto (fino al tetto dei corpi lunghi), da cui il worker
+ * ricava titolo e stime. Deviazione dal percorso di intake standard.
+ */
+export const createBacklogFromDesignSchema = z.object({
+  projectId: z.uuid(),
+  title: z.string().min(1).max(300),
+  design: z.string().min(1).max(200_000),
+});
+export type CreateBacklogFromDesignInput = z.infer<typeof createBacklogFromDesignSchema>;
