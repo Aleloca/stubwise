@@ -105,23 +105,34 @@ the launch config is versioned.
 
 ## 3. Install the command and skill (recommended)
 
-Stubwise provides a slash command and a skill that make Claude use the tools at
+Stubwise provides two slash commands and a skill that make Claude use the tools at
 the right moments. Fetch them into your user config so they work in every repo.
 **You don't need to clone the Stubwise repository** — the server comes from npm,
-and these two files are downloaded directly:
+and these files are downloaded directly:
 
 ```bash
 mkdir -p ~/.claude/commands/stubwise ~/.claude/skills/stubwise
 curl -fsSL https://raw.githubusercontent.com/Aleloca/stubwise/main/.claude/commands/stubwise/init.md \
   -o ~/.claude/commands/stubwise/init.md
+curl -fsSL https://raw.githubusercontent.com/Aleloca/stubwise/main/.claude/commands/stubwise/start.md \
+  -o ~/.claude/commands/stubwise/start.md
 curl -fsSL https://raw.githubusercontent.com/Aleloca/stubwise/main/.claude/skills/stubwise/SKILL.md \
   -o ~/.claude/skills/stubwise/SKILL.md
 ```
 
 - **`/stubwise:init`** — links a repository to a Stubwise project.
+- **`/stubwise:start`** — run this when you begin implementing a plan: it makes
+  sure a ticket exists (converting a backlog item or creating a task), loads the
+  finalized **design** and **implementation plan** onto it, and moves it to
+  `in_progress` — before you touch the code.
 - **`stubwise` skill** — teaches Claude the everyday flows (below): move state on
   start/finish, attach designs and plans, keep the local doc's frontmatter linked
   to its Stubwise counterpart.
+
+:::tip[Re-fetch after updates]
+When the command or skill changes, re-run the relevant `curl` above and restart
+Claude Code to pick up the new version.
+:::
 
 These are optional conveniences — the tools work without them — but they make the
 experience much smoother.
@@ -205,12 +216,15 @@ The `stubwise` skill drives these; you can also trigger them in plain language.
   implementation plan in a dedicated field. To rewrite only the plan later (the
   code changed in the meantime), it calls `set_plan` again — the design is
   untouched.
-- **Start executing a plan.** If the work maps to a backlog item, Claude converts
-  it to a ticket and moves it to `in_progress`; if there's no backlog item, it
-  creates a `task` ticket with the plan as the body. When the implementation is
-  done, it moves the ticket to `in_review`. Marking a ticket `done` is on-demand
-  (you tell Claude once it's actually released — the release usually happens
-  outside the editor session).
+- **Start executing a plan** — run **`/stubwise:start`**. It makes sure a ticket
+  exists (converting the backlog item, or creating a `task`), loads the finalized
+  **design** and **implementation plan** onto it, and moves it to `in_progress` —
+  all before you touch the code. Running the command is the reliable way to do
+  this: the skill also nudges Claude to do it, but an explicit command doesn't
+  depend on Claude remembering mid-session. When the implementation is done, the
+  ticket moves to `in_review`. Marking a ticket `done` is on-demand (you tell
+  Claude once it's actually released — the release usually happens outside the
+  editor session).
 
 :::tip[A saved plan can run the fix pipeline]
 For a **ticket** that has a saved implementation plan, clicking **Run AI** in
