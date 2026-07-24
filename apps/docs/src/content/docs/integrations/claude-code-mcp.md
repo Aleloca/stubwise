@@ -106,13 +106,16 @@ the launch config is versioned.
 ## 3. Install the command and skill (recommended)
 
 Stubwise provides a slash command and a skill that make Claude use the tools at
-the right moments. Copy them to your user config so they work in every repo:
+the right moments. Fetch them into your user config so they work in every repo.
+**You don't need to clone the Stubwise repository** — the server comes from npm,
+and these two files are downloaded directly:
 
 ```bash
 mkdir -p ~/.claude/commands/stubwise ~/.claude/skills/stubwise
-# from a checkout of the Stubwise repository:
-cp .claude/commands/stubwise/init.md  ~/.claude/commands/stubwise/
-cp .claude/skills/stubwise/SKILL.md   ~/.claude/skills/stubwise/
+curl -fsSL https://raw.githubusercontent.com/Aleloca/stubwise/main/.claude/commands/stubwise/init.md \
+  -o ~/.claude/commands/stubwise/init.md
+curl -fsSL https://raw.githubusercontent.com/Aleloca/stubwise/main/.claude/skills/stubwise/SKILL.md \
+  -o ~/.claude/skills/stubwise/SKILL.md
 ```
 
 - **`/stubwise:init`** — links a repository to a Stubwise project.
