@@ -125,10 +125,12 @@ export default defineConfig({
         {
           label: "Integrations",
           items: [
+            { label: "Claude Code (MCP)", slug: "integrations/claude-code-mcp" },
             { label: "Inbound webhook", slug: "integrations/inbound-webhook" },
             { label: "Customer service widget", slug: "integrations/widget" },
             { label: "Slack", slug: "integrations/slack" },
           ],
+
         },
         {
           label: "AI pipeline",
