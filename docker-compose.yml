@@ -139,12 +139,19 @@ services:
       - EMBEDDING_BASE_URL=${EMBEDDING_BASE_URL:-http://ollama:11434/v1}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-bge-m3}
       - EMBEDDING_API_KEY
+      # --- Auto-update Docs: rigenerazione mirata (Fase 2) ---
+      # Ad ogni push, tetto al numero di pagine ESISTENTI che vengono riscritte perché
+      # impattate dal diff. 0 = disabilita la rigenerazione mirata (solo entry release).
+      # Default codice 10; qui alzato per NON limitare l'auto-generazione (ogni pagina
+      # = un run agente serializzato: valore alto = più lavoro possibile per push).
+      - DOCS_AUTOUPDATE_MAX_PAGES=${DOCS_AUTOUPDATE_MAX_PAGES:-100000}
       # --- Auto-update Docs: creazione incrementale (Fase 3) ---
       # Ad ogni push, per le AREE del repo non ancora coperte da alcuna pagina, un
       # mini-orient propone fino a questo numero di pagine NUOVE e le crea nella
       # generazione corrente. 0 = disabilita (le aree nuove restano solo segnalate
-      # nella entry release, con invito alla rigenerazione completa). Default 5.
-      - DOCS_AUTOUPDATE_MAX_NEW_PAGES=${DOCS_AUTOUPDATE_MAX_NEW_PAGES:-5}
+      # nella entry release, con invito alla rigenerazione completa). Default codice 5;
+      # qui alzato per NON limitare l'auto-generazione.
+      - DOCS_AUTOUPDATE_MAX_NEW_PAGES=${DOCS_AUTOUPDATE_MAX_NEW_PAGES:-100000}
       # --- Docs: classe product (Fase B) ---
       # Dopo la chiusura dei due alberi interni, per ogni superficie PUBBLICA UI del brief
       # si genera una verticale pubblica (radice + guide per journey + FAQ), fino a questo
