@@ -1394,7 +1394,11 @@
       "eyebrow": "Project documentation",
       "subtitle": "Ask across all the project's repositories, with citations to the source repo.",
       "spacesHeading": "All the project's repositories",
-      "spacesEmpty": "No repository in this project has documentation yet."
+      "spacesEmpty": "No repository in this project has documentation yet.",
+      "mainSpace": "Main repository overview",
+      "suggested1": "What does this project do?",
+      "suggested2": "How is the architecture organised?",
+      "suggested3": "What are the main features?"
     },
     "space": {
       "back": "Documentation",
@@ -1510,7 +1514,8 @@
       "sources": "Sources",
       "error": "Something went wrong generating the answer.",
       "unavailable": "Docs chat needs an API-key AI provider. Ask an admin to add one in settings (account/OAuth providers don't work here).",
-      "newChat": "New chat"
+      "newChat": "New chat",
+      "openProject": "Ask the docs"
     },
     "brief": {
       "link": "Project brief",

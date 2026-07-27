@@ -1394,7 +1394,11 @@
       "eyebrow": "Documentazione di progetto",
       "subtitle": "Interroga tutti i repository del progetto, con citazioni al repo d'origine.",
       "spacesHeading": "Tutti i repository del progetto",
-      "spacesEmpty": "Nessun repository di questo progetto ha ancora documentazione."
+      "spacesEmpty": "Nessun repository di questo progetto ha ancora documentazione.",
+      "mainSpace": "Panoramica del repository principale",
+      "suggested1": "Di cosa si occupa questo progetto?",
+      "suggested2": "Come è organizzata l'architettura?",
+      "suggested3": "Quali sono le funzionalità principali?"
     },
     "space": {
       "back": "Documentazione",
@@ -1510,7 +1514,8 @@
       "sources": "Fonti",
       "error": "Qualcosa è andato storto nel generare la risposta.",
       "unavailable": "La chat dei docs richiede un provider AI con API key. Chiedi a un admin di aggiungerne uno nelle impostazioni (i provider account/OAuth non funzionano qui).",
-      "newChat": "Nuova chat"
+      "newChat": "Nuova chat",
+      "openProject": "Chiedi ai docs"
     },
     "brief": {
       "link": "Brief di prodotto",

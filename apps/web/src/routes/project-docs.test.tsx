@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setMatchMedia } from "../test/setup";
@@ -71,6 +71,35 @@ function meHandler(): Handler {
   return () => jsonResponse(200, { user: { id: "u1", email: "ada@example.com", role: "member" } });
 }
 
+/** Highlights di progetto: changelog cross-repo + pagine più lette. */
+function highlightsHandler(releases: unknown[] = []): Handler {
+  return () =>
+    jsonResponse(200, {
+      countsByKind: { technical: 0, functional: 0, product: 0, manual: 0, releases: releases.length },
+      topViewed: [],
+      latestReleases: releases,
+    });
+}
+
+/** Brief del repo principale (identity = sintesi mostrata nell'hero). */
+function briefHandler(identity: string): Handler {
+  return () =>
+    jsonResponse(200, {
+      brief: {
+        identity,
+        actors: [],
+        surfaces: [],
+        glossary: [],
+        invariants: [],
+        confidentialFacts: [],
+        journeys: [],
+        existingSources: [],
+      },
+      generation: { createdAt: "2026-06-20T10:00:00.000Z", commitSha: "abc1234" },
+      productExclusions: [],
+    });
+}
+
 function renderApp(initialPath: string) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const router = createAppRouter(
@@ -118,6 +147,23 @@ describe("landing documentazione di progetto", () => {
             lastCommitSha: null,
           },
         ]),
+      "GET /api/projects/11111111-1111-4111-8111-111111111111/docs/highlights":
+        highlightsHandler([
+          {
+            slug: "release-20260724-1000-abc1234",
+            title: "Nuova ricerca cross-repo",
+            createdAt: "2026-07-24T10:00:00.000Z",
+            significant: true,
+            commitSha: null,
+            repositoryId: REPO_WEB,
+            repositorySlug: "web",
+            repositoryName: "Web",
+          },
+        ]),
+      // Il brief del repo principale (API, più pagine) alimenta l'hero.
+      "GET /api/repositories/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/docs/brief": briefHandler(
+        "Acme è la piattaforma di fatturazione interna.",
+      ),
     });
 
     renderApp(`/docs/project/${PROJECT_ID}`);
@@ -125,10 +171,118 @@ describe("landing documentazione di progetto", () => {
     expect(await screen.findByRole("heading", { name: "Acme" })).toBeInTheDocument();
     expect(screen.getByText("All the project's repositories")).toBeInTheDocument();
 
-    const apiLink = screen.getByRole("link", { name: /API/ });
-    const webLink = screen.getByRole("link", { name: /Web/ });
-    expect(apiLink).toHaveAttribute("href", `/docs/${REPO_API}`);
-    expect(webLink).toHaveAttribute("href", `/docs/${REPO_WEB}`);
+    // Card repo: dentro la sezione dei repository del progetto.
+    const repos = screen.getByRole("region", { name: /all the project's repositories/i });
+    expect(within(repos).getByRole("link", { name: /API/ })).toHaveAttribute(
+      "href",
+      `/docs/${REPO_API}`,
+    );
+    expect(within(repos).getByRole("link", { name: /Web/ })).toHaveAttribute(
+      "href",
+      `/docs/${REPO_WEB}`,
+    );
+  });
+
+  it("l'hero mostra la sintesi dal brief e i punti d'ingresso, non la frase generica", async () => {
+    mockApi({
+      "GET /api/auth/me": meHandler(),
+      "GET /api/projects/11111111-1111-4111-8111-111111111111": () =>
+        jsonResponse(200, {
+          id: PROJECT_ID,
+          name: "Acme",
+          slug: "acme",
+          description: null,
+          aiProviderId: null,
+          docAutoUpdate: false,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          repositories: [],
+        }),
+      "GET /api/projects/11111111-1111-4111-8111-111111111111/docs/spaces": () =>
+        jsonResponse(200, [
+          {
+            repositoryId: REPO_API,
+            slug: "api",
+            name: "API",
+            pageCount: 8,
+            lastGenerationAt: "2026-06-20T10:00:00.000Z",
+            lastCommitSha: "abc1234",
+          },
+        ]),
+      "GET /api/projects/11111111-1111-4111-8111-111111111111/docs/highlights":
+        highlightsHandler([
+          {
+            slug: "release-20260724-1000-abc1234",
+            title: "Nuova ricerca cross-repo",
+            createdAt: "2026-07-24T10:00:00.000Z",
+            significant: true,
+            commitSha: null,
+            repositoryId: REPO_API,
+            repositorySlug: "api",
+            repositoryName: "API",
+          },
+        ]),
+      "GET /api/repositories/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/docs/brief": briefHandler(
+        "Acme è la piattaforma di fatturazione interna.",
+      ),
+    });
+
+    renderApp(`/docs/project/${PROJECT_ID}`);
+
+    // Sintesi dal brief al posto del sottotitolo boilerplate.
+    expect(
+      await screen.findByText("Acme è la piattaforma di fatturazione interna."),
+    ).toBeInTheDocument();
+
+    // "Inizia da qui": brief del repo principale + overview del repo.
+    const start = await screen.findByRole("region", { name: /start here/i });
+    expect(within(start).getByRole("link", { name: /brief/i })).toHaveAttribute(
+      "href",
+      `/docs/${REPO_API}/brief`,
+    );
+
+    // Novità: changelog cross-repo con data e link alla vista release del repo.
+    const news = screen.getByRole("region", { name: /what.s new/i });
+    expect(within(news).getByText("Nuova ricerca cross-repo")).toBeInTheDocument();
+    expect(within(news).getByText("24/07/2026")).toBeInTheDocument();
+    expect(within(news).getByRole("link", { name: "API" })).toHaveAttribute(
+      "href",
+      `/docs/${REPO_API}/releases`,
+    );
+  });
+
+  it("la chat non è aperta di default: si richiama e mostra le domande suggerite", async () => {
+    mockApi({
+      "GET /api/auth/me": meHandler(),
+      "GET /api/projects/11111111-1111-4111-8111-111111111111": () =>
+        jsonResponse(200, {
+          id: PROJECT_ID,
+          name: "Acme",
+          slug: "acme",
+          description: null,
+          aiProviderId: null,
+          docAutoUpdate: false,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          repositories: [],
+        }),
+      "GET /api/projects/11111111-1111-4111-8111-111111111111/docs/spaces": () =>
+        jsonResponse(200, []),
+      "GET /api/projects/11111111-1111-4111-8111-111111111111/docs/highlights":
+        highlightsHandler(),
+    });
+
+    const user = userEvent.setup();
+    renderApp(`/docs/project/${PROJECT_ID}`);
+
+    await screen.findByRole("heading", { name: "Acme" });
+    // Chiusa: nessun input di chat montato.
+    expect(screen.queryByLabelText(/ask about this project/i)).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /ask the docs/i }));
+    expect(await screen.findByLabelText(/ask about this project/i)).toBeInTheDocument();
+    // Domande suggerite come chip cliccabili nell'empty state.
+    expect(
+      screen.getByRole("button", { name: "What does this project do?" }),
+    ).toBeInTheDocument();
   });
 
   it("la chat cross-repo cita il repository e linka alla pagina nel repo giusto", async () => {
@@ -156,6 +310,10 @@ describe("landing documentazione di progetto", () => {
             lastCommitSha: null,
           },
         ]),
+      "GET /api/projects/11111111-1111-4111-8111-111111111111/docs/highlights":
+        highlightsHandler(),
+      "GET /api/repositories/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/docs/brief": () =>
+        jsonResponse(404, { code: "doc_brief_not_found", message: "No brief" }),
       "POST /api/projects/11111111-1111-4111-8111-111111111111/docs/chat": () =>
         sseResponse([
           sse({ type: "delta", text: "Billing lives in the web repo." }),
@@ -179,7 +337,8 @@ describe("landing documentazione di progetto", () => {
     const user = userEvent.setup();
     renderApp(`/docs/project/${PROJECT_ID}`);
 
-    // La chat di progetto è montata (titolo/placeholder dedicati).
+    // La chat si apre dal pulsante (non è più aperta di default).
+    await user.click(await screen.findByRole("button", { name: /ask the docs/i }));
     const input = await screen.findByLabelText(/ask about this project/i);
     await user.type(input, "where is billing?");
     await user.click(screen.getByRole("button", { name: /^send$/i }));
