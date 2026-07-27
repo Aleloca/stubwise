@@ -115,6 +115,10 @@ const treeNodeSchema = z.object({
   position: z.number().int(),
   sourcePath: z.string().nullable(),
   isManual: z.boolean(),
+  createdAt: z.string(),
+  viewCount: z.number().int(),
+  // Solo per kind="releases": significatività della release; null altrove.
+  significant: z.boolean().nullable(),
 });
 
 /**
@@ -144,6 +148,10 @@ const pageSchema = z.object({
   // o generazioni del vecchio motore senza cross-link).
   links: z.array(docPageLinkSchema).nullable(),
   updatedAt: z.string(),
+  createdAt: z.string(),
+  viewCount: z.number().int(),
+  // Solo per kind="releases": significatività della release; null altrove.
+  significant: z.boolean().nullable(),
 });
 
 type DocPageRow = typeof docPages.$inferSelect;
@@ -169,6 +177,9 @@ function toPage(row: DocPageRow, commitSha: string | null = null): z.infer<typeo
     commitSha,
     links: parsedLinks.success ? parsedLinks.data : null,
     updatedAt: row.updatedAt.toISOString(),
+    createdAt: row.createdAt.toISOString(),
+    viewCount: row.viewCount,
+    significant: row.significant,
   };
 }
 
@@ -678,12 +689,15 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
           position: docPages.position,
           sourcePath: docPages.sourcePath,
           isManual: docPages.isManual,
+          createdAt: docPages.createdAt,
+          viewCount: docPages.viewCount,
+          significant: docPages.significant,
         })
         .from(docPages)
         .where(and(eq(docPages.repositoryId, repositoryId), genFilter))
         .orderBy(asc(docPages.kind), asc(docPages.position), asc(docPages.title));
 
-      return rows;
+      return rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() }));
     },
   );
 

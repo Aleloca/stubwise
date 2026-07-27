@@ -711,6 +711,46 @@ describe("GET /api/repositories/:projectId/docs/tree", () => {
     expect(body.find((n) => n.slug === "nota-manuale")!.isManual).toBe(true);
   });
 
+  it("espone createdAt, viewCount e significant su ogni nodo", async () => {
+    const project = await insertProject(testDb.db);
+    await seedSucceededGeneration(testDb.db, project.id);
+    // Una release (pagina persistente, generationId null) marcata come minore.
+    await testDb.db.insert(docPages).values({
+      repositoryId: project.id,
+      generationId: null,
+      kind: "releases",
+      slug: "release-20260724-1200-abc1234",
+      title: "Release di prova",
+      body: "note",
+      significant: false,
+      viewCount: 7,
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/repositories/${project.id}/docs/tree`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      slug: string;
+      kind: string;
+      createdAt: string;
+      viewCount: number;
+      significant: boolean | null;
+    }[];
+    for (const node of body) {
+      expect(typeof node.createdAt).toBe("string");
+      expect(new Date(node.createdAt).getTime()).not.toBeNaN();
+      expect(typeof node.viewCount).toBe("number");
+    }
+    const release = body.find((n) => n.kind === "releases")!;
+    expect(release.significant).toBe(false);
+    expect(release.viewCount).toBe(7);
+    // Le pagine non-release non hanno significatività.
+    expect(body.find((n) => n.kind === "technical")!.significant).toBeNull();
+  });
+
   it("esclude le pagine di generazioni NON correnti, include sempre le manuali", async () => {
     const project = await insertProject(testDb.db);
     // Vecchia generazione (non corrente).
@@ -765,6 +805,27 @@ describe("GET /api/repositories/:projectId/docs/pages/:slug", () => {
     expect(body.body).toContain("Dettagli tecnici");
     expect(body.commitSha).toBe("page999");
     expect(body.kind).toBe("technical");
+  });
+
+  it("espone createdAt, viewCount e significant sulla pagina", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await seedSucceededGeneration(testDb.db, project.id, { commitSha: "meta0001" });
+    const slug = `tech-overview-${genId.slice(0, 8)}`;
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/repositories/${project.id}/docs/pages/${slug}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      createdAt: string;
+      viewCount: number;
+      significant: boolean | null;
+    };
+    expect(new Date(body.createdAt).getTime()).not.toBeNaN();
+    expect(body.viewCount).toBe(0);
+    expect(body.significant).toBeNull();
   });
 
   it("ritorna i cross-link (links) della pagina raggruppabili per type", async () => {
