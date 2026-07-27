@@ -34,6 +34,7 @@ Idee di funzionalità valutate dopo la prima fase di sviluppo + deploy in produz
 - **Vista job falliti** con motivo + re-run di gruppo.
 - **Scaling multi-worker** (oggi worker singolo con lock in-process): coda distribuita se serve throughput.
 - **Quota/rate AI per progetto**: evitare che un progetto rumoroso saturi capacità/budget.
+- **Integrazione graphify (fase 1)**: knowledge graph del codice per repository (tree-sitter, zero LLM) generato dal worker e tenuto fresco sul push; PR di setup sul repo target (graph committato + skill + config MCP: i dev pullano e hanno tutto); tab "Grafo" nella sezione Docs (GRAPH_REPORT.md + graph.html interattivo); container `graphify serve` HTTP nel compose per i futuri consumatori (chat backlog/docs). Design validato in docs/plans/2026-07-27-graphify-integration-design.md (con prova empirica sul monorepo: 41s, 5.701 nodi, 0 token). Fasi successive fuori scope: retrieval ibrido nella chat RAG, impatto grafo nella PR review, orient Docs seedato dal grafo.
 
 ---
 
