@@ -3,18 +3,19 @@ import { Link, useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { DocTreeNode } from "../lib/docs-api";
-import { CollapsibleSection } from "./collapsible-section";
 
 /**
- * Albero di navigazione dello spazio: tre gruppi (Tecnico/Funzionale/Manuale),
- * ciascuno una sezione collassabile (riuso `CollapsibleSection`). Dentro ogni
- * gruppo i nodi sono annidati per `parentId` e ordinati per `position`.
+ * Albero di navigazione dello spazio: le categorie (Tecnico/Funzionale/Prodotto/
+ * Manuale) sono TAB e se ne mostra una per volta — con repo da centinaia di
+ * pagine, quattro alberi impilati erano una parete di titoli. Dentro la
+ * categoria attiva i nodi sono annidati per `parentId` e ordinati per
+ * `position`.
  *
  * La gerarchia è resa esplicita da una guida verticale (rail) per livello e da
  * un chevron su ogni nodo con figli, che li collassa/espande senza navigare (il
- * titolo resta un Link). Un toggle "comprimi/espandi tutto" per gruppo doma gli
- * alberi grandi; gli antenati della pagina attiva si riespandono da soli così
- * la selezione corrente resta sempre visibile (es. arrivando dalla ricerca).
+ * titolo resta un Link). Un toggle "comprimi/espandi tutto" doma gli alberi
+ * grandi; gli antenati della pagina attiva si riespandono da soli così la
+ * selezione corrente resta sempre visibile (es. arrivando dalla ricerca).
  */
 
 /**
