@@ -6,10 +6,12 @@ import { DocsSearchTrigger } from "./docs-search-trigger";
 import { DocsTree } from "./docs-tree";
 
 /**
- * Contenuto della sidebar dello spazio Docs (back link + pannello generazione +
- * trigger ricerca + albero + "nuova pagina"). Estratto in un componente
- * condiviso così l'aside desktop (`hidden lg:flex`) e il drawer mobile rendono
- * esattamente le stesse cose senza duplicazione.
+ * Contenuto della sidebar dello spazio Docs: back link, ricerca, brief, release,
+ * albero e — IN FONDO — il box delle azioni sullo spazio (stato/trigger della
+ * generazione + "nuova pagina manuale"). L'ordine segue la frequenza d'uso: si
+ * naviga a ogni visita, si rigenera la documentazione una volta ogni tanto.
+ * Estratto in un componente condiviso così l'aside desktop e il drawer mobile
+ * rendono esattamente le stesse cose senza duplicazione.
  *
  * `onNavigate` permette al drawer mobile di chiudersi quando si tocca un link
  * (back, una pagina dell'albero o "nuova pagina"); la chiusura su navigazione a
@@ -40,7 +42,6 @@ export function DocsSidebar({
       >
         ← {t("docs:space.back")}
       </Link>
-      <DocsGenerationPanel projectId={projectId} />
       <DocsSearchTrigger onOpen={onOpenSearch} />
       <Link
         to="/docs/$projectId/brief"
@@ -64,14 +65,23 @@ export function DocsSidebar({
         <span className="text-fg-faint">{releaseCount}</span>
       </Link>
       <DocsTree projectId={projectId} nodes={tree} onNavigate={onNavigate} />
-      <Link
-        to="/docs/$projectId/new"
-        params={{ projectId }}
-        onClick={onNavigate}
-        className="mt-3 block rounded-sm border border-dashed border-line-strong px-2 py-1.5 text-center font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg"
-      >
-        + {t("docs:manual.newPage")}
-      </Link>
+      {/* Azioni sullo spazio, ancorate in fondo (`mt-auto`): con l'albero corto
+          restano a piè di colonna invece di galleggiare a metà. */}
+      <div className="mt-auto pt-4">
+        <DocsGenerationPanel
+          projectId={projectId}
+          action={
+            <Link
+              to="/docs/$projectId/new"
+              params={{ projectId }}
+              onClick={onNavigate}
+              className="block rounded-sm border border-dashed border-line-strong px-2 py-1.5 text-center font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg"
+            >
+              + {t("docs:manual.newPage")}
+            </Link>
+          }
+        />
+      </div>
     </div>
   );
 }

@@ -51,7 +51,18 @@ const JOB_STATUS_KEY: Record<DocJobStatus, string> = {
   held: "docs:generation.statusHeld",
 };
 
-export function DocsGenerationPanel({ projectId }: { projectId: string }) {
+export function DocsGenerationPanel({
+  projectId,
+  action,
+}: {
+  projectId: string;
+  /**
+   * Azione extra in coda al box (la sidebar ci mette "nuova pagina manuale"):
+   * le due cose che si FANNO su uno spazio stanno insieme, in fondo, sotto la
+   * navigazione che è ciò che si usa a ogni visita.
+   */
+  action?: React.ReactNode;
+}) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { data: me } = useSuspenseQuery(meQueryOptions);
@@ -87,7 +98,7 @@ export function DocsGenerationPanel({ projectId }: { projectId: string }) {
   const isPaused = gen?.status === "paused";
 
   return (
-    <section className="mb-4 rounded-sm border border-line bg-ink-900 p-3">
+    <section className="rounded-sm border border-line bg-ink-900 p-3">
       <h2 className="font-mono text-[11px] tracking-[0.14em] text-fg-muted uppercase">
         {t("docs:generation.title")}
       </h2>
@@ -186,6 +197,7 @@ export function DocsGenerationPanel({ projectId }: { projectId: string }) {
           {t("docs:generation.error")}
         </p>
       )}
+      {action && <div className="mt-3">{action}</div>}
     </section>
   );
 }
