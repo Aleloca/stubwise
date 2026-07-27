@@ -59,6 +59,9 @@ function node(
     position: 0,
     sourcePath: null,
     isManual: overrides.kind === "manual",
+    createdAt: "2026-06-20T10:00:00.000Z",
+    viewCount: 0,
+    significant: null,
     ...overrides,
   };
 }
@@ -78,6 +81,9 @@ function makePage(overrides: Partial<DocPage> & Pick<DocPage, "slug" | "title" |
     isManual: overrides.kind === "manual",
     commitSha: null,
     updatedAt: "2026-06-20T10:00:00.000Z",
+    createdAt: "2026-06-20T10:00:00.000Z",
+    viewCount: 0,
+    significant: null,
     ...overrides,
   };
 }
