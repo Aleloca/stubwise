@@ -827,6 +827,35 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
+  /**
+   * Increment del contatore viste di una pagina (fire-and-forget dal client
+   * all'apertura). L'increment è atomico via SQL (niente read-modify-write, no
+   * race). Lo stesso slug può esistere in più generazioni storiche: l'update le
+   * tocca tutte, il contatore è per-slug logico e sopravvive alle rigenerazioni.
+   */
+  app.post(
+    "/repositories/:repositoryId/docs/pages/:slug/view",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: slugParamsSchema,
+        response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { repositoryId, slug } = request.params;
+      const updated = await app.db
+        .update(docPages)
+        .set({ viewCount: sql`${docPages.viewCount} + 1` })
+        .where(and(eq(docPages.repositoryId, repositoryId), eq(docPages.slug, slug)))
+        .returning({ id: docPages.id });
+      if (updated.length === 0) {
+        return apiError(reply, 404, "doc_page_not_found", "Documentation page not found");
+      }
+      return reply.code(204).send();
+    },
+  );
+
   // --- M6.3: CRUD pagine manuali -----------------------------------------
 
   /**

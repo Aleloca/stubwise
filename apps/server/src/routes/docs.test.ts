@@ -944,6 +944,49 @@ describe("GET /api/repositories/:projectId/docs/pages/:slug", () => {
   });
 });
 
+describe("POST /api/repositories/:repositoryId/docs/pages/:slug/view", () => {
+  it("incrementa il contatore viste: 204 e viewCount +1", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await seedSucceededGeneration(testDb.db, project.id, { commitSha: "views001" });
+    const slug = `tech-overview-${genId.slice(0, 8)}`;
+
+    for (let i = 0; i < 2; i++) {
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/repositories/${project.id}/docs/pages/${slug}/view`,
+        headers: { cookie: memberCookie },
+      });
+      expect(res.statusCode).toBe(204);
+    }
+
+    const page = await app.inject({
+      method: "GET",
+      url: `/api/repositories/${project.id}/docs/pages/${slug}`,
+      headers: { cookie: memberCookie },
+    });
+    expect((page.json() as { viewCount: number }).viewCount).toBe(2);
+  });
+
+  it("slug inesistente: 404", async () => {
+    const project = await insertProject(testDb.db);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/repositories/${project.id}/docs/pages/non-esiste/view`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("senza sessione: 401", async () => {
+    const project = await insertProject(testDb.db);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/repositories/${project.id}/docs/pages/qualsiasi/view`,
+    });
+    expect(res.statusCode).toBe(401);
+  });
+});
+
 describe("manual pages CRUD", () => {
   it("crea una pagina manuale: 201, isManual true, kind manual, slug derivato", async () => {
     const project = await insertProject(testDb.db);
