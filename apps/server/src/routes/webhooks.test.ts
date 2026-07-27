@@ -9,6 +9,7 @@ import {
   comments,
   docAutoUpdateJobs,
   docGenerations,
+  graphJobs,
   instanceSettings,
   notificationSettings,
   prReviewJobs,
@@ -1571,6 +1572,192 @@ describe("POST /webhooks/git/:projectSlug — push (recount report attività)", 
     const res = await postPush(project.slug, project.webhookSecret, body);
     expect(res.statusCode).toBe(204);
     expect(await recountJob(project.projectId)).toBeUndefined();
+  });
+});
+
+describe("POST /webhooks/git/:projectSlug — push (build del grafo)", () => {
+  const SHA = (c: string) => c.repeat(40);
+
+  /** Porta il toggle graphEnabled del REPOSITORY (non del progetto). */
+  async function setGraphEnabled(repositoryId: string, value: boolean): Promise<void> {
+    await testDb.db
+      .update(repositories)
+      .set({ graphEnabled: value })
+      .where(eq(repositories.id, repositoryId));
+  }
+
+  /** Tutti i job del grafo del repository, dal più vecchio. */
+  async function graphJobsOf(repositoryId: string) {
+    return testDb.db
+      .select()
+      .from(graphJobs)
+      .where(eq(graphJobs.repositoryId, repositoryId))
+      .orderBy(asc(graphJobs.createdAt));
+  }
+
+  function postPush(slug: string, secret: string, body: string) {
+    return app.inject({
+      method: "POST",
+      url: `/webhooks/git/${slug}`,
+      headers: {
+        "content-type": "application/json",
+        "x-github-event": "push",
+        "x-hub-signature-256": sign(secret, body),
+      },
+      payload: body,
+    });
+  }
+
+  it("push sul defaultBranch con graphEnabled=true → job build queued (not_before ~ now+60s)", async () => {
+    const project = await createProject({
+      name: "Graph On",
+      provider: "github",
+      repoUrl: "https://github.com/acme/graph-on",
+      defaultBranch: "main",
+      credentials: { token: "tok" },
+    });
+    await setGraphEnabled(project.id, true);
+    const body = githubPushPayload("main", SHA("a"), SHA("b"));
+
+    const before = Date.now();
+    const res = await postPush(project.slug, project.webhookSecret, body);
+    expect(res.statusCode).toBe(204);
+
+    const jobs = await graphJobsOf(project.id);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.kind).toBe("build");
+    expect(jobs[0]!.status).toBe("queued");
+    // Il payload del push non dice quali file sono stati cancellati: il webhook
+    // non chiede mai `--force` (lo fa la generazione manuale).
+    expect(jobs[0]!.force).toBe(false);
+    expect(jobs[0]!.notBefore!.getTime()).toBeGreaterThan(before);
+    expect(jobs[0]!.notBefore!.getTime()).toBeLessThanOrEqual(before + 60_000 + 5_000);
+  });
+
+  it("secondo push ravvicinato → STESSO job, not_before spostato avanti", async () => {
+    const project = await createProject({
+      name: "Graph Debounce",
+      provider: "github",
+      repoUrl: "https://github.com/acme/graph-debounce",
+      defaultBranch: "main",
+      credentials: { token: "tok" },
+    });
+    await setGraphEnabled(project.id, true);
+
+    const r1 = await postPush(
+      project.slug,
+      project.webhookSecret,
+      githubPushPayload("main", SHA("a"), SHA("b")),
+    );
+    expect(r1.statusCode).toBe(204);
+    const first = (await graphJobsOf(project.id))[0]!;
+
+    const r2 = await postPush(
+      project.slug,
+      project.webhookSecret,
+      githubPushPayload("main", SHA("b"), SHA("c")),
+    );
+    expect(r2.statusCode).toBe(204);
+
+    const jobs = await graphJobsOf(project.id);
+    expect(jobs).toHaveLength(1);
+    // Stesso job (nessun secondo insert), finestra di debounce spostata avanti.
+    expect(jobs[0]!.id).toBe(first.id);
+    expect(jobs[0]!.notBefore!.getTime()).toBeGreaterThanOrEqual(first.notBefore!.getTime());
+    expect(jobs[0]!.updatedAt.getTime()).toBeGreaterThanOrEqual(first.updatedAt.getTime());
+  });
+
+  it("job running esistente → nessun nuovo job, il running resta intatto", async () => {
+    const project = await createProject({
+      name: "Graph Running",
+      provider: "github",
+      repoUrl: "https://github.com/acme/graph-running",
+      defaultBranch: "main",
+      credentials: { token: "tok" },
+    });
+    await setGraphEnabled(project.id, true);
+    const [running] = await testDb.db
+      .insert(graphJobs)
+      .values({ repositoryId: project.id, kind: "build", status: "running" })
+      .returning();
+
+    const res = await postPush(
+      project.slug,
+      project.webhookSecret,
+      githubPushPayload("main", SHA("a"), SHA("b")),
+    );
+    expect(res.statusCode).toBe(204);
+
+    const jobs = await graphJobsOf(project.id);
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.id).toBe(running!.id);
+    expect(jobs[0]!.status).toBe("running");
+    // La build in corso non viene toccata (né not_before né updated_at).
+    expect(jobs[0]!.notBefore).toBeNull();
+    expect(jobs[0]!.updatedAt.getTime()).toBe(running!.updatedAt.getTime());
+  });
+
+  it("graphEnabled=false → nessun job", async () => {
+    const project = await createProject({
+      name: "Graph Off",
+      provider: "github",
+      repoUrl: "https://github.com/acme/graph-off",
+      defaultBranch: "main",
+      credentials: { token: "tok" },
+    });
+    // toggle lasciato a false (default).
+    const res = await postPush(
+      project.slug,
+      project.webhookSecret,
+      githubPushPayload("main", SHA("a"), SHA("b")),
+    );
+    expect(res.statusCode).toBe(204);
+    expect(await graphJobsOf(project.id)).toHaveLength(0);
+  });
+
+  it("push su branch != defaultBranch → nessun job (il grafo è del default branch)", async () => {
+    const project = await createProject({
+      name: "Graph Altro Branch",
+      provider: "github",
+      repoUrl: "https://github.com/acme/graph-altro-branch",
+      defaultBranch: "main",
+      credentials: { token: "tok" },
+    });
+    await setGraphEnabled(project.id, true);
+
+    const res = await postPush(
+      project.slug,
+      project.webhookSecret,
+      githubPushPayload("feature/x", SHA("a"), SHA("b")),
+    );
+    expect(res.statusCode).toBe(204);
+    expect(await graphJobsOf(project.id)).toHaveLength(0);
+  });
+
+  it("errore nell'accodamento → il webhook risponde comunque 204 (best-effort)", async () => {
+    const project = await createProject({
+      name: "Graph Errore",
+      provider: "github",
+      repoUrl: "https://github.com/acme/graph-errore",
+      defaultBranch: "main",
+      credentials: { token: "tok" },
+    });
+    await setGraphEnabled(project.id, true);
+    // docAutoUpdate e dailyReport restano spenti: l'unico insert del ramo push
+    // è quello del job del grafo, quindi il mock colpisce solo lui.
+    const spy = vi.spyOn(testDb.db, "insert").mockImplementationOnce(() => {
+      throw new Error("db giù");
+    });
+
+    const res = await postPush(
+      project.slug,
+      project.webhookSecret,
+      githubPushPayload("main", SHA("a"), SHA("b")),
+    );
+    expect(res.statusCode).toBe(204);
+    expect(spy).toHaveBeenCalled();
+    spy.mockRestore();
+    expect(await graphJobsOf(project.id)).toHaveLength(0);
   });
 });
 
