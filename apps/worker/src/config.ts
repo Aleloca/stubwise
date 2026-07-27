@@ -610,6 +610,19 @@ const envSchema = z.object({
       .min(1, "deve essere un intero ≥ 1 in minuti (es. 20)")
       .default(20),
   ),
+  // Intervallo di poll (secondi) del poller della coda `graph_jobs` (task
+  // separato dal loop dei job, vedi graph/poller.ts): reclama i job queued
+  // scaduti (debounce del webhook push) ed esegue la build del grafo nella
+  // CATENA PER-PROGETTO (serializer condiviso). È BEST-EFFORT e non tocca i
+  // timeout dei job. 0 = disabilitato (nessuna build automatica). Default 20".
+  GRAPH_POLL_SECONDS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 0 in secondi (es. 20; 0 = disabilitato)" })
+      .int("deve essere un intero ≥ 0 in secondi (es. 20; 0 = disabilitato)")
+      .min(0, "deve essere un intero ≥ 0 in secondi (es. 20; 0 = disabilitato)")
+      .default(20),
+  ),
 }).refine(
   (env) => env.BACKLOG_SIMILAR_THRESHOLD <= env.BACKLOG_MERGE_THRESHOLD,
   {
@@ -760,6 +773,9 @@ export interface WorkerConfig {
   /** Timeout (ms) di ogni invocazione del CLI graphify (da
    * GRAPH_BUILD_TIMEOUT_MINUTES, default 20' = 1200000). */
   graphBuildTimeoutMs: number;
+  /** Intervallo in secondi del poller della coda `graph_jobs` (default 20;
+   * 0 = disabilitato). */
+  graphPollSeconds: number;
 }
 
 /**
@@ -839,5 +855,6 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     graphifyBin: parsed.GRAPHIFY_BIN,
     // Minuti → ms: il runner del CLI vuole millisecondi.
     graphBuildTimeoutMs: parsed.GRAPH_BUILD_TIMEOUT_MINUTES * 60_000,
+    graphPollSeconds: parsed.GRAPH_POLL_SECONDS,
   };
 }

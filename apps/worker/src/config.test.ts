@@ -78,6 +78,7 @@ describe("loadWorkerConfig", () => {
     expect(config.graphLabelEnabled).toBe(true);
     expect(config.graphifyBin).toBe("graphify");
     expect(config.graphBuildTimeoutMs).toBe(1_200_000);
+    expect(config.graphPollSeconds).toBe(20);
   });
 
   it("rispetta gli override del knowledge graph e rifiuta i valori assurdi", () => {
@@ -87,7 +88,9 @@ describe("loadWorkerConfig", () => {
       GRAPH_LABEL_ENABLED: "false",
       GRAPHIFY_BIN: "/opt/graphify/bin/graphify",
       GRAPH_BUILD_TIMEOUT_MINUTES: "45",
+      GRAPH_POLL_SECONDS: "45",
     });
+    expect(config.graphPollSeconds).toBe(45);
     expect(config.graphsDir).toBe("/srv/graphs");
     expect(config.graphLabelEnabled).toBe(false);
     expect(config.graphifyBin).toBe("/opt/graphify/bin/graphify");
@@ -100,7 +103,9 @@ describe("loadWorkerConfig", () => {
       GRAPH_LABEL_ENABLED: "",
       GRAPHIFY_BIN: "",
       GRAPH_BUILD_TIMEOUT_MINUTES: "",
+      GRAPH_POLL_SECONDS: "",
     });
+    expect(defaults.graphPollSeconds).toBe(20);
     expect(defaults.graphsDir).toBe("/graphs");
     expect(defaults.graphLabelEnabled).toBe(true);
     expect(defaults.graphifyBin).toBe("graphify");
@@ -111,6 +116,11 @@ describe("loadWorkerConfig", () => {
     );
     expect(() => loadWorkerConfig({ ...VALID, GRAPH_LABEL_ENABLED: "si" })).toThrow(
       /GRAPH_LABEL_ENABLED/,
+    );
+    // 0 = poller disattivato (valore ammesso); negativo rifiutato.
+    expect(loadWorkerConfig({ ...VALID, GRAPH_POLL_SECONDS: "0" }).graphPollSeconds).toBe(0);
+    expect(() => loadWorkerConfig({ ...VALID, GRAPH_POLL_SECONDS: "-1" })).toThrow(
+      /GRAPH_POLL_SECONDS/,
     );
   });
 
