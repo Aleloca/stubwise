@@ -232,6 +232,150 @@ describe("GET /api/projects/:projectId/docs/spaces", () => {
   });
 });
 
+describe("GET /api/projects/:projectId/docs/highlights", () => {
+  it("changelog unificato cross-repo per data desc, topViewed aggregato, conteggi per kind", async () => {
+    const projectId = await seedProject(testDb.db);
+    const repoA = await seedRepoInProject(testDb.db, projectId, "Repo Alfa");
+    const repoB = await seedRepoInProject(testDb.db, projectId, "Repo Beta");
+    const genA = await seedGeneration(testDb.db, repoA.id);
+    const genB = await seedGeneration(testDb.db, repoB.id);
+
+    // Pagine viste: la più vista sta in Beta.
+    await testDb.db.insert(docPages).values([
+      {
+        repositoryId: repoA.id,
+        generationId: genA,
+        kind: "technical",
+        slug: "alfa-arch",
+        title: "Architettura Alfa",
+        body: "x",
+        viewCount: 5,
+      },
+      {
+        repositoryId: repoB.id,
+        generationId: genB,
+        kind: "product",
+        slug: "beta-start",
+        title: "Beta Getting Started",
+        body: "x",
+        viewCount: 30,
+      },
+    ]);
+
+    // Release nei due repo con date diverse (createdAt esplicito).
+    await testDb.db.insert(docPages).values([
+      {
+        repositoryId: repoA.id,
+        generationId: null,
+        kind: "releases",
+        slug: "release-20260720-0900-aaa1111",
+        title: "Alfa vecchia",
+        body: "note",
+        position: -20,
+        significant: false,
+        createdAt: new Date("2026-07-20T09:00:00Z"),
+      },
+      {
+        repositoryId: repoB.id,
+        generationId: null,
+        kind: "releases",
+        slug: "release-20260724-1200-bbb2222",
+        title: "Beta recente",
+        body: "note",
+        position: -10,
+        significant: true,
+        createdAt: new Date("2026-07-24T12:00:00Z"),
+      },
+    ]);
+
+    // Un altro progetto che NON deve contaminare l'aggregato.
+    const otherProject = await seedProject(testDb.db);
+    const otherRepo = await seedRepoInProject(testDb.db, otherProject, "Estraneo");
+    await testDb.db.insert(docPages).values({
+      repositoryId: otherRepo.id,
+      generationId: null,
+      kind: "releases",
+      slug: "release-20260726-0800-ccc3333",
+      title: "Release estranea",
+      body: "note",
+      position: -5,
+      createdAt: new Date("2026-07-26T08:00:00Z"),
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/docs/highlights`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      countsByKind: Record<string, number>;
+      topViewed: { slug: string; repositoryId: string; repositoryName: string; kind: string }[];
+      latestReleases: {
+        slug: string;
+        title: string;
+        createdAt: string;
+        significant: boolean | null;
+        repositoryId: string;
+        repositoryName: string;
+      }[];
+    };
+
+    expect(body.countsByKind.technical).toBe(1);
+    expect(body.countsByKind.product).toBe(1);
+    expect(body.countsByKind.releases).toBe(2);
+
+    // Changelog cross-repo per createdAt desc, solo repo del progetto.
+    expect(body.latestReleases.map((r) => r.slug)).toEqual([
+      "release-20260724-1200-bbb2222",
+      "release-20260720-0900-aaa1111",
+    ]);
+    expect(body.latestReleases[0]!.repositoryName).toBe("Repo Beta");
+    expect(body.latestReleases[0]!.significant).toBe(true);
+
+    // topViewed aggregato: la pagina più vista del progetto, col repo d'origine.
+    expect(body.topViewed[0]!.slug).toBe("beta-start");
+    expect(body.topViewed[0]!.repositoryId).toBe(repoB.id);
+    expect(body.topViewed.some((p) => p.kind === "releases")).toBe(false);
+  });
+
+  it("progetto senza repo: conteggi a zero e liste vuote", async () => {
+    const projectId = await seedProject(testDb.db);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/docs/highlights`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      countsByKind: Record<string, number>;
+      topViewed: unknown[];
+      latestReleases: unknown[];
+    };
+    expect(body.countsByKind.releases).toBe(0);
+    expect(body.topViewed).toEqual([]);
+    expect(body.latestReleases).toEqual([]);
+  });
+
+  it("progetto inesistente: 404", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${randomUUID()}/docs/highlights`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("senza sessione: 401", async () => {
+    const projectId = await seedProject(testDb.db);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/docs/highlights`,
+    });
+    expect(res.statusCode).toBe(401);
+  });
+});
+
 describe("GET /api/projects/:projectId/docs/search", () => {
   it("ricerca cross-repo: risultati da più repo col repository annotato, nessuna riga in doc_search_history", async () => {
     const projectId = await seedProject(testDb.db);
