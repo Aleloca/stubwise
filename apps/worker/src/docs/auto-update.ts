@@ -1144,12 +1144,13 @@ export async function runAutoUpdate(deps: RunAutoUpdateDeps, job: AutoUpdateJob)
     return;
   }
 
-  // Entry release: pagina PERSISTENTE (generationId null, come le manuali). Titolo col
-  // prefisso "[minore]" quando NON significativa; position decrescente nel tempo così le
-  // più recenti sono in cima all'albero.
+  // Entry release: pagina PERSISTENTE (generationId null, come le manuali). La
+  // significatività vive nella colonna `significant` (filtrabile dalla vista changelog),
+  // non più come prefisso "[minore]" nel titolo; position decrescente nel tempo così le
+  // più recenti sono in cima.
   const now = new Date();
   const slug = await uniqueReleaseSlug(deps.db, job.repositoryId, job.toSha, now);
-  const title = notes.significant ? notes.title : `[minore] ${notes.title}`;
+  const title = notes.title;
   // Cross-link related = unione DETERMINISTICA degli slug aggiornati in-place (Fase 2), degli
   // slug delle pagine CREATE (Fase 3) e degli affectedSlugs dell'agente, filtrati alle pagine
   // note (buildRelatedLinks deduplica e scarta gli slug inventati). Le pagine create NON sono
@@ -1183,6 +1184,7 @@ export async function runAutoUpdate(deps: RunAutoUpdateDeps, job: AutoUpdateJob)
       position: -Math.floor(now.getTime() / 1000),
       sourcePath: null,
       body,
+      significant: notes.significant,
       links: links.length > 0 ? links : null,
     });
   } catch (err) {

@@ -564,6 +564,7 @@ describe("runAutoUpdate", () => {
     expect(page.generationId).toBeNull();
     expect(page.isManual).toBe(false);
     expect(page.title).toBe("Nuova capability app");
+    expect(page.significant).toBe(true);
     expect(page.body).toContain("nuova capability");
     expect(page.slug).toMatch(/^release-\d{8}-\d{4}-[0-9a-f]+$/);
     expect(page.position).toBeLessThan(0);
@@ -575,7 +576,7 @@ describe("runAutoUpdate", () => {
     expect(gen?.commitSha).toBe(upstream.toSha);
   });
 
-  it("agente significant=false → titolo con prefisso [minore]", async () => {
+  it("agente significant=false → significant persistito, titolo senza prefisso", async () => {
     const { db } = testDb;
     const upstream = await makeUpstream();
     const mirrors = await makeMirrors();
@@ -593,7 +594,9 @@ describe("runAutoUpdate", () => {
       .select()
       .from(docPages)
       .where(and(eq(docPages.repositoryId, repositoryId), eq(docPages.kind, "releases")));
-    expect(page?.title).toBe("[minore] Refactor interno");
+    // La significatività è una colonna filtrabile, non più un prefisso nel titolo.
+    expect(page?.title).toBe("Refactor interno");
+    expect(page?.significant).toBe(false);
     expect(page?.links).toBeNull();
   });
 
