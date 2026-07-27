@@ -22,6 +22,7 @@ import {
 } from "../../lib/queries";
 import { useCloseOnRouteChange } from "../../lib/use-close-on-route-change";
 import { useMediaQuery } from "../../lib/use-media-query";
+import { useViewPing } from "../../lib/use-view-ping";
 
 /**
  * Spazio di documentazione di un progetto: layout a tre zone (M7.2).
@@ -403,6 +404,8 @@ export function DocsPageView() {
   // spinner), ma un 404 — pagina rimossa da una rigenerazione — lo gestiamo
   // inline qui invece di farlo esplodere nel pannello d'errore della route.
   const { data: page, error } = useQuery({ ...docPageQueryOptions(projectId, slug), retry: false });
+  // Conteggio viste: fire-and-forget, con anti-rimbalzo per slug (vedi hook).
+  useViewPing(projectId, slug);
 
   const [editing, setEditing] = useState(false);
 
