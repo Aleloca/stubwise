@@ -233,6 +233,36 @@ services:
     cpus: 2
     logging: *default-logging
 
+  # Server MCP di graphify in Streamable HTTP sui grafi del volume `graphs`
+  # (montato read-only: l'unico produttore resta il worker). È multi-progetto:
+  # non ha un grafo di default, i client passano `project_path=/graphs/
+  # <repositoryId>` a ogni tool e graphify ci cerca sotto graphify-out/graph.json.
+  #
+  # OGGI NESSUN SERVIZIO INTERNO LO USA: è una predisposizione voluta dal design
+  # per la chat/gli agent futuri, che potranno interrogare il grafo via MCP su
+  # http://graphify:8080/mcp. Per questo non pubblica porte sull'host e non ha
+  # rotte su Caddy: vive solo sulla rete interna del compose (e quindi gira anche
+  # senza --api-key).
+  #
+  # Nessun healthcheck: il transport MCP risponde solo a POST JSON-RPC su /mcp
+  # (con Accept: application/json, text/event-stream) e l'immagine non ha curl —
+  # una probe sarebbe più fragile del servizio che sorveglia. Verifica a mano:
+  #   docker compose exec graphify python -c "import urllib.request,json; \
+  #     r=urllib.request.Request('http://127.0.0.1:8080/mcp', \
+  #     data=json.dumps({'jsonrpc':'2.0','id':1,'method':'initialize','params': \
+  #     {'protocolVersion':'2025-03-26','capabilities':{},'clientInfo': \
+  #     {'name':'probe','version':'1'}}}).encode(), headers={'Content-Type': \
+  #     'application/json','Accept':'application/json, text/event-stream'}); \
+  #     print(urllib.request.urlopen(r).status)"
+  graphify:
+    build:
+      context: .
+      dockerfile: Dockerfile.graphify
+    restart: unless-stopped
+    volumes:
+      - graphs:/graphs:ro
+    logging: *default-logging
+
   caddy:
     build:
       context: .

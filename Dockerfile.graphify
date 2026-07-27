@@ -1,0 +1,42 @@
+# syntax=docker/dockerfile:1
+
+# Server MCP di graphify in modalità Streamable HTTP (`python -m graphify.serve
+# --transport http`): espone i tool di interrogazione del grafo (query_graph,
+# impact, ecc.) sulla rete interna del compose, leggendo i grafi dal volume
+# condiviso `graphs` (montato read-only: l'unico produttore è il worker).
+#
+# È un server MULTI-PROGETTO: non gli si passa nessun grafo di default, quindi
+# ogni tool riceve il `project_path` dal client (`/graphs/<repositoryId>`, sotto
+# cui graphify cerca `graphify-out/graph.json`). Il ramo è esplicito nel sorgente
+# di serve.py: se il grafo di default non esiste all'avvio il server parte lo
+# stesso come "pure multi-project server" e i tool richiedono project_path.
+#
+# Versione PINNATA alla stessa del CLI nel worker (apps/worker/Dockerfile) e di
+# quella usata da `uvx` nel job di setup-PR: un grafo scritto da una versione e
+# letto da un'altra è un rischio di formato inutile. L'extra [mcp] porta il
+# transport HTTP (mcp + starlette + uvicorn), [sql] allinea il parser SQL al
+# worker.
+FROM python:3.12-slim
+
+RUN pip install --no-cache-dir "graphifyy[mcp,sql]==0.9.28"
+
+# Utente non-root: il processo legge soltanto il volume dei grafi (montato :ro)
+# e non scrive nulla su disco.
+RUN useradd --no-create-home --uid 10001 graphify
+
+# WORKDIR "vuota" di proposito: il path di default del grafo è relativo alla cwd
+# (`graphify-out/graph.json`), qui non esiste e il server parte multi-progetto.
+WORKDIR /app
+USER graphify
+
+EXPOSE 8080
+
+# --stateless: nessuno stato di sessione per client, così il server regge
+# riavvii/più consumatori senza sessioni orfane. Nessun --api-key: il servizio
+# non pubblica porte sull'host e vive solo sulla rete interna del compose.
+CMD ["python", "-m", "graphify.serve", \
+     "--transport", "http", \
+     "--host", "0.0.0.0", \
+     "--port", "8080", \
+     "--path", "/mcp", \
+     "--stateless"]
