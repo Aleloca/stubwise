@@ -19,11 +19,11 @@ import { CollapsibleSection } from "./collapsible-section";
 
 /**
  * Ordine dei gruppi nella sidebar (registri tecnico → funzionale → product →
- * manuale → release). Product è la classe PUBBLICA (verticali per superficie);
- * le release stanno in coda: changelog/note di rilascio aggiornate in
- * automatico ai push.
+ * manuale). Product è la classe PUBBLICA (verticali per superficie). Le release
+ * NON sono un gruppo dell'albero: sono eventi datati, non capitoli di manuale, e
+ * vivono nella vista changelog dedicata (`/docs/$projectId/releases`).
  */
-const GROUP_ORDER: DocPageKind[] = ["technical", "functional", "product", "manual", "releases"];
+const GROUP_ORDER: DocPageKind[] = ["technical", "functional", "product", "manual"];
 
 const GROUP_LABEL_KEY: Record<DocPageKind, string> = {
   technical: "docs:space.groupTechnical",

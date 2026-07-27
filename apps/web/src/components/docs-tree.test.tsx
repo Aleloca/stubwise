@@ -74,11 +74,12 @@ describe("DocsTree", () => {
       node({ id: "r1", slug: "v1-0", title: "v1.0", kind: "releases" }),
     ]);
 
-    // Quattro gruppi con conteggio nel meta.
+    // Gruppi dell'albero con conteggio nel meta. Le release NON sono un gruppo
+    // dell'albero: hanno la vista changelog dedicata.
     expect(await screen.findByRole("button", { name: /Technical 3/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Functional 1/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Manual 1/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Releases 1/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Releases/ })).not.toBeInTheDocument();
 
     // Annidamento: Module A e B sono dentro l'<li> di Technical overview.
     const overviewItem = screen.getByRole("link", { name: "Technical overview" }).closest("li")!;
@@ -91,22 +92,15 @@ describe("DocsTree", () => {
     ]);
   });
 
-  it("una pagina releases compare nel gruppo Releases", async () => {
+  it("le pagine releases NON compaiono nell'albero (vista changelog dedicata)", async () => {
     renderTree([
       node({ id: "t1", slug: "tech", title: "Tech", kind: "technical" }),
       node({ id: "r1", slug: "v2-0", title: "v2.0 release notes", kind: "releases" }),
     ]);
 
-    // Il gruppo Releases ha conteggio 1 ed è aperto di default (non vuoto): la
-    // pagina è visibile come link dentro la sua sezione.
-    const releasesGroup = await screen.findByRole("button", { name: /Releases 1/ });
-    expect(releasesGroup).toBeInTheDocument();
-    const releasePage = screen.getByRole("link", { name: "v2.0 release notes" });
-    expect(releasePage).toBeInTheDocument();
-    expect(releasePage).toHaveAttribute(
-      "href",
-      `/docs/${PROJECT_ID}/v2-0`,
-    );
+    expect(await screen.findByRole("link", { name: "Tech" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "v2.0 release notes" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Releases/ })).not.toBeInTheDocument();
   });
 
   it("annida tre livelli (root → child → grandchild) via parentId", async () => {
