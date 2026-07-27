@@ -26,7 +26,16 @@ describe("loadConfig", () => {
       // Default dei tetti giornalieri del widget.
       widgetDailyMessageCap: 200,
       widgetDailyTicketCap: 50,
+      // Default del volume dei grafi graphify (stesso path del worker).
+      graphsDir: "/graphs",
     });
+  });
+
+  it("legge GRAPHS_DIR dall'env, con /graphs come default", () => {
+    expect(loadConfig(validEnv).graphsDir).toBe("/graphs");
+    expect(loadConfig({ ...validEnv, GRAPHS_DIR: "/srv/graphs" }).graphsDir).toBe("/srv/graphs");
+    // Stringa vuota (es. `GRAPHS_DIR=` copiata da .env.example) → default.
+    expect(loadConfig({ ...validEnv, GRAPHS_DIR: "" }).graphsDir).toBe("/graphs");
   });
 
   it("legge WIDGET_DAILY_*_CAP dall'env quando presenti", () => {

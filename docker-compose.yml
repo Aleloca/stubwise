@@ -81,6 +81,13 @@ services:
       # pannello impostazioni del progetto.
       WIDGET_DAILY_MESSAGE_CAP: ${WIDGET_DAILY_MESSAGE_CAP:-200}
       WIDGET_DAILY_TICKET_CAP: ${WIDGET_DAILY_TICKET_CAP:-50}
+      # Volume dei grafi graphify: il server lo legge (report/html/json serviti
+      # alla SPA). Stesso path del worker, che invece ci scrive.
+      GRAPHS_DIR: /graphs
+    volumes:
+      # Output di graphify: il server lo monta READ-ONLY (:ro). L'unico
+      # produttore è il worker; qui si serve solo il contenuto.
+      - graphs:/graphs:ro
     logging: *default-logging
     # Il server applica le migrazioni all'avvio (runMigrations): worker e Caddy
     # lo aspettano sano. Healthcheck definito nell'immagine (hit /health).

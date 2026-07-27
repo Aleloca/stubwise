@@ -60,6 +60,9 @@ const updateRepositorySchema = z.object({
   testCommand: z.string().trim().min(1).max(500).nullable().optional(),
   // Comando di installazione delle dipendenze: null lo azzera, omesso lo lascia invariato.
   installCommand: z.string().trim().min(1).max(500).nullable().optional(),
+  // Toggle del knowledge graph (graphify) per questo repository. Vive qui, con
+  // gli altri flag del repository: le route del grafo lo leggono soltanto.
+  graphEnabled: z.boolean().optional(),
 });
 
 const slugParamsSchema = z.object({ slug: z.string().min(1) });
@@ -131,6 +134,7 @@ function toPublicRepository(
     testCommand: row.testCommand,
     installCommand: row.installCommand,
     webhookConfiguredAt: row.webhookConfiguredAt?.toISOString() ?? null,
+    graphEnabled: row.graphEnabled,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -358,7 +362,7 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
       },
     },
     async (request, reply) => {
-      const { name, repoUrl, defaultBranch, gitAccountId, testCommand, installCommand } =
+      const { name, repoUrl, defaultBranch, gitAccountId, testCommand, installCommand, graphEnabled } =
         request.body;
       const updates: Partial<RepositoryRow> = {};
       if (name !== undefined) updates.name = name;
@@ -368,6 +372,8 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
       if (testCommand !== undefined) updates.testCommand = testCommand;
       // Stessa semantica di testCommand: null azzera, stringa imposta, omesso lascia.
       if (installCommand !== undefined) updates.installCommand = installCommand;
+      // Toggle del knowledge graph: booleano puro, omesso lo lascia invariato.
+      if (graphEnabled !== undefined) updates.graphEnabled = graphEnabled;
       // Cambio di account: valida l'esistenza e ri-denormalizza il provider.
       if (gitAccountId !== undefined) {
         const [account] = await app.db

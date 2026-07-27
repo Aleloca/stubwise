@@ -33,6 +33,7 @@ const app = buildApp({
   ...(config.embeddingApiKey !== undefined ? { embeddingApiKey: config.embeddingApiKey } : {}),
   widgetDailyMessageCap: config.widgetDailyMessageCap,
   widgetDailyTicketCap: config.widgetDailyTicketCap,
+  graphsDir: config.graphsDir,
 });
 
 try {
