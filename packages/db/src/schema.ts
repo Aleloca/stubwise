@@ -410,6 +410,10 @@ export const repositories = pgTable("repositories", {
   // hard (repositories↔doc_generations) per evitare problemi d'ordine in
   // migrazione: l'integrità è validata a livello applicativo. Null = nessuna doc.
   currentDocGenerationId: uuid("current_doc_generation_id"),
+  // Integrazione graphify: attiva la costruzione del knowledge graph del codice
+  // per questo repository (build al push + tab "Grafo" nella sezione Docs).
+  // Default false: nessun repository esistente cambia comportamento al deploy.
+  graphEnabled: boolean("graph_enabled").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -2184,3 +2188,85 @@ export const backlogCodeSessions = pgTable(
       .where(sql`status = 'active'`),
   ],
 );
+
+/**
+ * Metadati del knowledge graph di un repository (integrazione graphify). I file
+ * veri del grafo (nodi, archi, comunità) NON stanno qui: vivono su un volume
+ * accanto al worker; questa riga è solo lo stato osservabile dalla UI. Una riga
+ * per repository (`repository_id` è anche la primary key), cancellata in cascata
+ * col repository. I contatori sono null finché la prima build non li popola;
+ * `labeled` dice se le comunità hanno già un'etichetta leggibile.
+ */
+export const repoGraphs = pgTable("repo_graphs", {
+  repositoryId: uuid("repository_id")
+    .primaryKey()
+    .references(() => repositories.id, { onDelete: "cascade" }),
+  // Stato dell'ultima build: none (mai costruito) | queued | running | done |
+  // failed. Colonna `text` (nessun enum Postgres): il vincolo è compile-time.
+  status: text("status", { enum: ["none", "queued", "running", "done", "failed"] })
+    .notNull()
+    .default("none"),
+  // Commit del repository da cui il grafo è stato estratto: serve a capire se il
+  // grafo è aggiornato rispetto al default branch.
+  commitSha: text("commit_sha"),
+  nodeCount: integer("node_count"),
+  edgeCount: integer("edge_count"),
+  communityCount: integer("community_count"),
+  labeled: boolean("labeled").notNull().default(false),
+  // PR di setup aperta sul repository (config graphify); null se mai aperta.
+  setupPrUrl: text("setup_pr_url"),
+  // Errore dell'ultima build fallita, mostrato in UI. Null quando status != failed.
+  error: text("error"),
+  generatedAt: timestamp("generated_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Coda di job del grafo (repository-scoped): `build` (estrazione del grafo dal
+ * worktree) o `setup_pr` (apertura della PR di configurazione graphify). Il
+ * poller del worker li claima con `FOR UPDATE SKIP LOCKED` rispettando
+ * `notBefore` (debounce del webhook push).
+ */
+export const graphJobs = pgTable(
+  "graph_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    // Colonne `text` con enum compile-time (come `backlog_chat_messages.role`):
+    // nessun enum Postgres né CHECK, il worker rivalida al dequeue.
+    kind: text("kind", { enum: ["build", "setup_pr"] }).notNull(),
+    status: text("status", { enum: ["queued", "running", "done", "failed"] })
+      .notNull()
+      .default("queued"),
+    attempts: integer("attempts").notNull().default(0),
+    // Non prima di questo istante: il debounce del webhook push lo sposta in
+    // avanti sul job queued esistente invece di accodarne un secondo. Null =
+    // claimabile subito.
+    notBefore: timestamp("not_before", { withTimezone: true }),
+    // Passa `--force` a graphify: rifà l'estrazione da zero ignorando il
+    // manifest incrementale. È solo l'escape hatch manuale ("Rigenera da zero"
+    // del POST generate); il webhook push non lo accende mai.
+    force: boolean("force").notNull().default(false),
+    error: text("error"),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Al più un job ATTIVO per (repository, kind). Indice unico PARZIALE
+    // (filtrato sugli stati vivi): i job done/failed non partecipano, quindi lo
+    // storico può accumulare N build sullo stesso repository. È il vincolo su
+    // cui poggia il debounce del webhook (UPDATE del queued esistente).
+    uniqueIndex("graph_jobs_active_unique")
+      .on(table.repositoryId, table.kind)
+      .where(sql`status IN ('queued', 'running')`),
+  ],
+);
+
+/** Riga di `repo_graphs`: stato del knowledge graph di un repository. */
+export type RepoGraph = typeof repoGraphs.$inferSelect;
+/** Riga di `graph_jobs`: un job di build/setup del grafo in coda. */
+export type GraphJob = typeof graphJobs.$inferSelect;

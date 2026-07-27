@@ -96,6 +96,17 @@ const envSchema = z.object({
       .min(1, "deve essere un numero intero positivo (es. 50)")
       .default(50),
   ),
+  // Radice del VOLUME condiviso dei grafi (graphify). Il worker ci SCRIVE
+  // `<GRAPHS_DIR>/<repositoryId>/graphify-out/`, il server lo monta READ-ONLY e
+  // ne serve report/html/json alla SPA. Stesso default del worker (/graphs):
+  // devono puntare allo stesso volume.
+  GRAPHS_DIR: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .string({ error: "deve essere il path della directory dei grafi" })
+      .min(1)
+      .default("/graphs"),
+  ),
 });
 
 export interface Config {
@@ -116,6 +127,8 @@ export interface Config {
   widgetDailyMessageCap: number;
   /** Tetto giornaliero per progetto delle segnalazioni dal widget (default 50). */
   widgetDailyTicketCap: number;
+  /** Radice del volume dei grafi graphify, montato read-only (default /graphs). */
+  graphsDir: string;
 }
 
 /**
@@ -150,5 +163,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     embeddingApiKey: parsed.EMBEDDING_API_KEY,
     widgetDailyMessageCap: parsed.WIDGET_DAILY_MESSAGE_CAP,
     widgetDailyTicketCap: parsed.WIDGET_DAILY_TICKET_CAP,
+    graphsDir: parsed.GRAPHS_DIR,
   };
 }

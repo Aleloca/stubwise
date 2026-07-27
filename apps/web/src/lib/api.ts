@@ -65,6 +65,29 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Costruisce l'{@link ApiError} di una risposta non-ok leggendone il body.
+ *
+ * Il server risponde `{ code, message }` sugli errori user-facing (code assente
+ * sugli errori di validazione Zod); il fallback copre risposte non-JSON (proxy,
+ * gateway, artefatti serviti in streaming, …). Caso raro e senza code: message
+ * in inglese (coerente con "API in inglese, UI traduce per code").
+ */
+async function errorFromResponse(response: Response): Promise<ApiError> {
+  const fallback = `Error ${response.status}`;
+  const { message, code } = await response
+    .json()
+    .then((data: unknown) => {
+      const obj = typeof data === "object" && data !== null ? (data as Record<string, unknown>) : {};
+      return {
+        message: "message" in obj ? String(obj.message) : fallback,
+        code: typeof obj.code === "string" ? obj.code : undefined,
+      };
+    })
+    .catch(() => ({ message: fallback, code: undefined }));
+  return new ApiError(response.status, message, code);
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const init: RequestInit = { method, credentials: "include" };
   if (body !== undefined) {
@@ -88,24 +111,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     throw error;
   }
 
-  if (!response.ok) {
-    // Il server risponde { code, message } sugli errori user-facing (code
-    // assente sugli errori di validazione Zod); il fallback copre risposte
-    // non-JSON (proxy, gateway, ecc.). Caso raro e senza code: message in
-    // inglese (coerente con "API in inglese, UI traduce per code").
-    const fallback = `Error ${response.status}`;
-    const { message, code } = await response
-      .json()
-      .then((data: unknown) => {
-        const obj = typeof data === "object" && data !== null ? (data as Record<string, unknown>) : {};
-        return {
-          message: "message" in obj ? String(obj.message) : fallback,
-          code: typeof obj.code === "string" ? obj.code : undefined,
-        };
-      })
-      .catch(() => ({ message: fallback, code: undefined }));
-    throw new ApiError(response.status, message, code);
-  }
+  if (!response.ok) throw await errorFromResponse(response);
 
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
@@ -625,20 +631,7 @@ export async function uploadAttachment(
     }
     throw error;
   }
-  if (!response.ok) {
-    const fallback = `Error ${response.status}`;
-    const { message, code } = await response
-      .json()
-      .then((data: unknown) => {
-        const obj = typeof data === "object" && data !== null ? (data as Record<string, unknown>) : {};
-        return {
-          message: "message" in obj ? String(obj.message) : fallback,
-          code: typeof obj.code === "string" ? obj.code : undefined,
-        };
-      })
-      .catch(() => ({ message: fallback, code: undefined }));
-    throw new ApiError(response.status, message, code);
-  }
+  if (!response.ok) throw await errorFromResponse(response);
   return (await response.json()) as Attachment;
 }
 
@@ -1007,6 +1000,11 @@ export interface Repository {
   testCommand: string | null;
   /** Comando di installazione dipendenze custom; null = auto-detect (dal lockfile). */
   installCommand: string | null;
+  /**
+   * Toggle del knowledge graph (graphify) di questo repository: con il toggle
+   * spento nessun grafo viene generato, né ai push né a mano. Default false.
+   */
+  graphEnabled: boolean;
   createdAt: string;
 }
 
@@ -1046,6 +1044,8 @@ export interface RepositoryPatch {
   testCommand?: string | null;
   /** null = svuota (torna all'auto-detect dal lockfile); assente = invariato. */
   installCommand?: string | null;
+  /** Toggle del knowledge graph (graphify) del repository; assente = invariato. */
+  graphEnabled?: boolean;
 }
 
 /** Elenca i repository, opzionalmente filtrati per progetto (gruppo). */
@@ -1079,6 +1079,127 @@ export function postRepository(draft: RepositoryDraft): Promise<Repository> {
 
 export function patchRepository(slug: string, patch: RepositoryPatch): Promise<Repository> {
   return api.patch(`/api/repositories/${encodeURIComponent(slug)}`, patch);
+}
+
+// --- Repository knowledge graph (graphify) ---
+
+/**
+ * Stato della BUILD del grafo. `none` = mai generato (o artefatti spariti dal
+ * volume: il server riconcilia una riga `done` senza `graph.json` riportandola
+ * qui). Non descrive la PR di setup, che ha un ciclo di vita suo.
+ */
+export type RepoGraphStatus = "none" | "queued" | "running" | "done" | "failed";
+
+/**
+ * Stato del knowledge graph di un repository (GET /api/repositories/:id/graph).
+ *
+ * Due cicli di vita distinti: `status`/`error`/`jobPending` descrivono la build
+ * del grafo, `setupPrUrl`/`setupPrJobPending`/`setupPrError` la PR che porta la
+ * configurazione graphify dentro il repository — una PR fallita NON tocca lo
+ * stato del grafo (che resta `done`), perciò ha un campo d'errore suo.
+ *
+ * I contatori e `commitSha` sono null finché non c'è una build riuscita; a
+ * `status: "failed"` restano quelli dell'ultima build andata a buon fine.
+ */
+export interface RepoGraph {
+  /** Toggle `graphEnabled` del repository: spento, nulla viene mai generato. */
+  enabled: boolean;
+  status: RepoGraphStatus;
+  /** Commit su cui il grafo è stato estratto; null se mai generato. */
+  commitSha: string | null;
+  nodeCount: number | null;
+  edgeCount: number | null;
+  communityCount: number | null;
+  /** true se le comunità hanno etichette AI (il report è leggibile). */
+  labeled: boolean;
+  /** ISO della fine dell'ultima build riuscita; null se mai generato. */
+  generatedAt: string | null;
+  /** URL della PR di setup aperta sul provider; null se mai aperta. */
+  setupPrUrl: string | null;
+  /** Errore dell'ultima build fallita; null altrimenti. */
+  error: string | null;
+  /** Esiste un job `build` queued/running: la UI fa polling finché è true. */
+  jobPending: boolean;
+  /** Esiste un job `setup_pr` queued/running. */
+  setupPrJobPending: boolean;
+  /** Errore dell'ULTIMO job `setup_pr` se è fallito; null se è andato a buon fine. */
+  setupPrError: string | null;
+}
+
+/** Esito degli endpoint di accodamento del grafo: 202 + job in coda. */
+export interface RepoGraphQueued {
+  queued: true;
+}
+
+/**
+ * Stato del grafo di un repository. Il `:id` dell'URL è il repositoryId (non lo
+ * slug), come per i file d'ambiente. Lettura per ogni utente autenticato.
+ */
+export function getRepoGraph(repositoryId: string): Promise<RepoGraph> {
+  return api.get(`/api/repositories/${encodeURIComponent(repositoryId)}/graph`);
+}
+
+/**
+ * Accoda una (ri)generazione del grafo (solo admin). `force` rifà il grafo da
+ * zero invece che in incrementale. Il body è sempre presente perché la route lo
+ * valida come oggetto. Errori attesi: 412 `graph_disabled` (toggle spento), 409
+ * `graph_job_pending` (build già in coda).
+ */
+export function generateRepoGraph(
+  repositoryId: string,
+  opts?: { force?: boolean },
+): Promise<RepoGraphQueued> {
+  return api.post(`/api/repositories/${encodeURIComponent(repositoryId)}/graph/generate`, {
+    force: opts?.force === true,
+  });
+}
+
+/**
+ * Accoda la PR di setup della configurazione graphify sul repository (solo
+ * admin). Errori attesi: 412 `graph_not_ready` (nessun grafo `done` da
+ * committare), 409 `graph_job_pending`.
+ */
+export function openRepoGraphSetupPr(repositoryId: string): Promise<RepoGraphQueued> {
+  return api.post(`/api/repositories/${encodeURIComponent(repositoryId)}/graph/setup-pr`);
+}
+
+/**
+ * URL della vista interattiva del grafo, pensato per un `<iframe sandbox>`: il
+ * server la serve dal volume con una CSP stretta. È un URL same-origin dietro
+ * la sessione, quindi il browser lo carica da sé (nessun fetcher).
+ */
+export function repoGraphHtmlUrl(repositoryId: string): string {
+  return `/api/repositories/${encodeURIComponent(repositoryId)}/graph/html`;
+}
+
+/** URL di download del grafo grezzo (`graph.json`), per un `<a href download>`. */
+export function repoGraphJsonUrl(repositoryId: string): string {
+  return `/api/repositories/${encodeURIComponent(repositoryId)}/graph/json`;
+}
+
+/** URL del report delle comunità (`GRAPH_REPORT.md`), servito come markdown. */
+export function repoGraphReportUrl(repositoryId: string): string {
+  return `/api/repositories/${encodeURIComponent(repositoryId)}/graph/report`;
+}
+
+/**
+ * Report delle comunità in markdown, come TESTO: la risposta è
+ * `text/markdown`, non JSON, quindi non passa dal wrapper `request` (che
+ * parserebbe il body). Un 404 (artefatto assente) è un esito atteso e arriva
+ * come {@link ApiError}, che il chiamante gestisce senza retry.
+ */
+export async function getRepoGraphReport(repositoryId: string): Promise<string> {
+  let response: Response;
+  try {
+    response = await fetch(repoGraphReportUrl(repositoryId), { credentials: "include" });
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new ApiError(0, "Unable to reach the server", "network_error", { cause: error });
+    }
+    throw error;
+  }
+  if (!response.ok) throw await errorFromResponse(response);
+  return await response.text();
 }
 
 // --- Projects (gruppi: raggruppano 1:N repository) ---

@@ -81,6 +81,7 @@ function makeRepo(overrides: Partial<Repository> = {}): Repository {
     webhookConfiguredAt: null,
     testCommand: null,
     installCommand: null,
+    graphEnabled: false,
     createdAt: "2026-06-01T10:00:00.000Z",
     ...overrides,
   };
@@ -148,6 +149,45 @@ describe("dettaglio repository", () => {
     });
   });
 
+  it("admin: il toggle del knowledge graph riflette lo stato e finisce nella PATCH", async () => {
+    const user = userEvent.setup();
+    let patchBody: unknown;
+    const repo = makeRepo({ graphEnabled: true });
+    mockApi({
+      "GET /api/auth/me": meHandler("admin"),
+      "GET /api/repositories/demo-shop": () => jsonResponse(200, repo),
+      "GET /api/projects": () => jsonResponse(200, []),
+      "GET /api/git-accounts": () => jsonResponse(200, [ACCOUNT]),
+      "GET /api/git-accounts/11111111-1111-4111-8111-111111111111/branches": () =>
+        jsonResponse(200, { branches: ["main"], defaultBranch: "main" }),
+      [`GET /api/repositories/${REPO_ID}/env-files`]: () => jsonResponse(200, []),
+      "GET /api/repositories/demo-shop/webhook": () =>
+        jsonResponse(200, { webhookSecret: "s3cr3t", webhookPath: "/webhooks/git/demo-shop" }),
+      "PATCH /api/repositories/demo-shop": (_url, init) => {
+        patchBody = JSON.parse(String(init?.body));
+        return jsonResponse(200, { ...repo, graphEnabled: false });
+      },
+    });
+
+    renderApp("/repositories/demo-shop");
+
+    // Stato corrente del repository (acceso) riflesso nella checkbox.
+    const toggle = await screen.findByLabelText("Code knowledge graph");
+    expect(toggle).toBeChecked();
+
+    await user.click(toggle);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(await screen.findByText("Changes saved.")).toBeInTheDocument();
+    // Solo i campi cambiati: il toggle spento e i tre campi sempre inviati.
+    expect(patchBody).toEqual({
+      name: "Demo Shop",
+      repoUrl: "https://github.com/acme/demo-shop",
+      defaultBranch: "main",
+      graphEnabled: false,
+    });
+  });
+
   it("admin: webhook configurato mostra il banner e il pannello webhook git (niente ingestion)", async () => {
     const repo = makeRepo({ webhookConfiguredAt: "2026-06-05T09:30:00.000Z" });
     mockApi({
@@ -191,6 +231,8 @@ describe("dettaglio repository", () => {
     await screen.findByText("https://github.com/acme/demo-shop");
     expect(screen.queryByLabelText("Name")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save changes" })).not.toBeInTheDocument();
+    // Il toggle del knowledge graph vive nel form: al member non compare affatto.
+    expect(screen.queryByLabelText("Code knowledge graph")).not.toBeInTheDocument();
     // Ingestion e webhook non compaiono sul repo per il member.
     expect(screen.queryByTestId("init-snippet")).not.toBeInTheDocument();
     expect(screen.queryByTestId("webhook-config")).not.toBeInTheDocument();

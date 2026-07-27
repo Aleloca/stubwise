@@ -72,6 +72,56 @@ describe("loadWorkerConfig", () => {
     expect(config.backlogChatSessionTtlMinutes).toBe(30);
     expect(config.backlogChatTurnTimeoutMs).toBe(300_000);
     expect(config.backlogChatTurnMaxTurns).toBe(15);
+    // Knowledge graph (graphify): volume /graphs, labeling on, binario
+    // `graphify` in PATH, timeout di una invocazione 20'.
+    expect(config.graphsDir).toBe("/graphs");
+    expect(config.graphLabelEnabled).toBe(true);
+    expect(config.graphifyBin).toBe("graphify");
+    expect(config.graphBuildTimeoutMs).toBe(1_200_000);
+    expect(config.graphPollSeconds).toBe(20);
+  });
+
+  it("rispetta gli override del knowledge graph e rifiuta i valori assurdi", () => {
+    const config = loadWorkerConfig({
+      ...VALID,
+      GRAPHS_DIR: "/srv/graphs",
+      GRAPH_LABEL_ENABLED: "false",
+      GRAPHIFY_BIN: "/opt/graphify/bin/graphify",
+      GRAPH_BUILD_TIMEOUT_MINUTES: "45",
+      GRAPH_POLL_SECONDS: "45",
+    });
+    expect(config.graphPollSeconds).toBe(45);
+    expect(config.graphsDir).toBe("/srv/graphs");
+    expect(config.graphLabelEnabled).toBe(false);
+    expect(config.graphifyBin).toBe("/opt/graphify/bin/graphify");
+    // Minuti → ms.
+    expect(config.graphBuildTimeoutMs).toBe(2_700_000);
+    // Vuote (da .env.example) → default.
+    const defaults = loadWorkerConfig({
+      ...VALID,
+      GRAPHS_DIR: "",
+      GRAPH_LABEL_ENABLED: "",
+      GRAPHIFY_BIN: "",
+      GRAPH_BUILD_TIMEOUT_MINUTES: "",
+      GRAPH_POLL_SECONDS: "",
+    });
+    expect(defaults.graphPollSeconds).toBe(20);
+    expect(defaults.graphsDir).toBe("/graphs");
+    expect(defaults.graphLabelEnabled).toBe(true);
+    expect(defaults.graphifyBin).toBe("graphify");
+    expect(defaults.graphBuildTimeoutMs).toBe(1_200_000);
+    // Timeout < 1 minuto rifiutato; un booleano non riconosciuto pure.
+    expect(() => loadWorkerConfig({ ...VALID, GRAPH_BUILD_TIMEOUT_MINUTES: "0" })).toThrow(
+      /GRAPH_BUILD_TIMEOUT_MINUTES/,
+    );
+    expect(() => loadWorkerConfig({ ...VALID, GRAPH_LABEL_ENABLED: "si" })).toThrow(
+      /GRAPH_LABEL_ENABLED/,
+    );
+    // 0 = poller disattivato (valore ammesso); negativo rifiutato.
+    expect(loadWorkerConfig({ ...VALID, GRAPH_POLL_SECONDS: "0" }).graphPollSeconds).toBe(0);
+    expect(() => loadWorkerConfig({ ...VALID, GRAPH_POLL_SECONDS: "-1" })).toThrow(
+      /GRAPH_POLL_SECONDS/,
+    );
   });
 
   it("rispetta gli override e i default della sessione di analisi sul codice", () => {

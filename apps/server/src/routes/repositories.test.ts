@@ -101,6 +101,8 @@ describe("POST /api/projects", () => {
       testCommand: null,
       installCommand: null,
       webhookConfiguredAt: null,
+      // Knowledge graph spento alla creazione: si accende dalla PATCH.
+      graphEnabled: false,
       createdAt: expect.any(String),
     });
     expect(res.body).not.toContain("webhookSecret");
@@ -439,7 +441,34 @@ describe("PATCH /api/projects/:slug", () => {
   });
 
   // I toggle di prodotto (docAutoUpdate, aiProviderId) sono saliti al PROGETTO:
-  // le relative PATCH sono testate in projects.test.ts, non più qui.
+  // le relative PATCH sono testate in projects.test.ts, non più qui. Il toggle
+  // del knowledge graph invece è PER REPOSITORY e vive su questa PATCH.
+  it("accende graphEnabled, lo espone e lo lascia invariato se omesso", async () => {
+    const on = await app.inject({
+      method: "PATCH",
+      url: "/api/repositories/api-backend",
+      headers: { cookie: adminCookie },
+      payload: { graphEnabled: true },
+    });
+    expect(on.statusCode).toBe(200);
+    expect((on.json() as { graphEnabled: boolean }).graphEnabled).toBe(true);
+
+    const untouched = await app.inject({
+      method: "PATCH",
+      url: "/api/repositories/api-backend",
+      headers: { cookie: adminCookie },
+      payload: { name: "API Backend v5" },
+    });
+    expect((untouched.json() as { graphEnabled: boolean }).graphEnabled).toBe(true);
+
+    const off = await app.inject({
+      method: "PATCH",
+      url: "/api/repositories/api-backend",
+      headers: { cookie: adminCookie },
+      payload: { graphEnabled: false },
+    });
+    expect((off.json() as { graphEnabled: boolean }).graphEnabled).toBe(false);
+  });
 
   it("un member non può aggiornare: 403", async () => {
     const res = await app.inject({

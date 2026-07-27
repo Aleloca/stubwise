@@ -81,6 +81,13 @@ services:
       # pannello impostazioni del progetto.
       WIDGET_DAILY_MESSAGE_CAP: ${WIDGET_DAILY_MESSAGE_CAP:-200}
       WIDGET_DAILY_TICKET_CAP: ${WIDGET_DAILY_TICKET_CAP:-50}
+      # Volume dei grafi graphify: il server lo legge (report/html/json serviti
+      # alla SPA). Stesso path del worker, che invece ci scrive.
+      GRAPHS_DIR: /graphs
+    volumes:
+      # Output di graphify: il server lo monta READ-ONLY (:ro). L'unico
+      # produttore è il worker; qui si serve solo il contenuto.
+      - graphs:/graphs:ro
     logging: *default-logging
     # Il server applica le migrazioni all'avvio (runMigrations): worker e Caddy
     # lo aspettano sano. Healthcheck definito nell'immagine (hit /health).
@@ -186,6 +193,21 @@ services:
       - BACKLOG_CHAT_SESSION_TTL_MINUTES=${BACKLOG_CHAT_SESSION_TTL_MINUTES:-30}
       - BACKLOG_CHAT_TURN_TIMEOUT_MS=${BACKLOG_CHAT_TURN_TIMEOUT_MS:-300000}
       - BACKLOG_CHAT_TURN_MAX_TURNS=${BACKLOG_CHAT_TURN_MAX_TURNS:-15}
+      # --- Grafo delle dipendenze (graphify) ---
+      # Il worker esegue il CLI graphify (nell'immagine, vedi apps/worker/
+      # Dockerfile) su una worktree del mirror e scrive l'output in
+      # <GRAPHS_DIR>/<repositoryId>/graphify-out/ sul volume condiviso `graphs`.
+      # Il path DEVE coincidere col mount qui sotto.
+      - GRAPHS_DIR=/graphs
+      # Poller della coda graph_jobs, in secondi (0 = disabilitato: nessuna build
+      # automatica del grafo sul push). Timeout in minuti di OGNI invocazione del
+      # CLI: il passo lungo è il labeling delle comunità, non l'extract.
+      - GRAPH_POLL_SECONDS=${GRAPH_POLL_SECONDS:-20}
+      - GRAPH_BUILD_TIMEOUT_MINUTES=${GRAPH_BUILD_TIMEOUT_MINUTES:-20}
+      # Nomi veri delle comunità via il backend claude-cli di graphify (usa lo
+      # stesso claude CLI del worker). false = grafo valido coi placeholder
+      # "Community N", senza spendere chiamate LLM.
+      - GRAPH_LABEL_ENABLED=${GRAPH_LABEL_ENABLED:-true}
       # --- Auth del CLI claude ---
       # Metodo raccomandato: gestisci le credenziali in Settings -> AI providers
       # (catena cifrata nel DB, con failover). Le due righe pass-through qui sotto
@@ -199,6 +221,8 @@ services:
     volumes:
       - mirrors:/var/stubwise/mirrors
       - claude-config:/home/worker/.claude
+      # Output di graphify: il worker ci SCRIVE (unico produttore).
+      - graphs:/graphs
     # Limiti di risorse: un agent build puo' durare ~30 min e clonare/buildare
     # repo grandi. Senza tetti, un run impazzito affamerebbe postgres/caddy
     # sullo stesso host. Valori conservativi e TUNABLE in base alla macchina e
@@ -207,6 +231,36 @@ services:
     #   cpus: frazione di CPU (2 = due core pieni).
     mem_limit: 4g
     cpus: 2
+    logging: *default-logging
+
+  # Server MCP di graphify in Streamable HTTP sui grafi del volume `graphs`
+  # (montato read-only: l'unico produttore resta il worker). È multi-progetto:
+  # non ha un grafo di default, i client passano `project_path=/graphs/
+  # <repositoryId>` a ogni tool e graphify ci cerca sotto graphify-out/graph.json.
+  #
+  # OGGI NESSUN SERVIZIO INTERNO LO USA: è una predisposizione voluta dal design
+  # per la chat/gli agent futuri, che potranno interrogare il grafo via MCP su
+  # http://graphify:8080/mcp. Per questo non pubblica porte sull'host e non ha
+  # rotte su Caddy: vive solo sulla rete interna del compose (e quindi gira anche
+  # senza --api-key).
+  #
+  # Nessun healthcheck: il transport MCP risponde solo a POST JSON-RPC su /mcp
+  # (con Accept: application/json, text/event-stream) e l'immagine non ha curl —
+  # una probe sarebbe più fragile del servizio che sorveglia. Verifica a mano:
+  #   docker compose exec graphify python -c "import urllib.request,json; \
+  #     r=urllib.request.Request('http://127.0.0.1:8080/mcp', \
+  #     data=json.dumps({'jsonrpc':'2.0','id':1,'method':'initialize','params': \
+  #     {'protocolVersion':'2025-03-26','capabilities':{},'clientInfo': \
+  #     {'name':'probe','version':'1'}}}).encode(), headers={'Content-Type': \
+  #     'application/json','Accept':'application/json, text/event-stream'}); \
+  #     print(urllib.request.urlopen(r).status)"
+  graphify:
+    build:
+      context: .
+      dockerfile: Dockerfile.graphify
+    restart: unless-stopped
+    volumes:
+      - graphs:/graphs:ro
     logging: *default-logging
 
   caddy:
@@ -237,3 +291,7 @@ volumes:
   caddy-config:
   # Modelli scaricati da Ollama (es. bge-m3): persistono tra i riavvii.
   ollama:
+  # Grafi delle dipendenze prodotti da graphify (un sottoalbero per repository):
+  # scritti dal worker, rigenerati a ogni build. Non sono un dato di verità (si
+  # possono ricostruire dai mirror), ma persisterli evita di rifare il lavoro.
+  graphs:

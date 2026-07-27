@@ -573,6 +573,56 @@ const envSchema = z.object({
       .min(1, "deve essere un intero ≥ 1 (es. 15)")
       .default(15),
   ),
+  // Radice del VOLUME condiviso dei grafi (graphify): il worker ci scrive
+  // `<GRAPHS_DIR>/<repositoryId>/graphify-out/`, il server lo monta read-only
+  // per servire report/html/json alla SPA. Niente blob in Postgres.
+  GRAPHS_DIR: z.preprocess(
+    emptyAsUndefined,
+    z
+      .string({ error: "deve essere il path della directory dei grafi" })
+      .min(1)
+      .default("/graphs"),
+  ),
+  // Labeling delle comunità del grafo col backend `claude-cli` di graphify (usa
+  // il claude CLI già presente nel worker). Spegnendolo il grafo resta valido
+  // con i placeholder "Community N": il labeling è un extra, mai bloccante.
+  GRAPH_LABEL_ENABLED: z.preprocess(
+    (value) => (value === "" ? undefined : value === "true" ? true : value === "false" ? false : value),
+    z.boolean({ error: "deve essere true o false" }).default(true),
+  ),
+  // Binario del CLI graphify (nome in PATH o path assoluto). Nell'immagine del
+  // worker è installato in un venv dedicato e linkato in /usr/local/bin.
+  GRAPHIFY_BIN: z.preprocess(
+    emptyAsUndefined,
+    z
+      .string({ error: "deve essere il nome o il path del binario graphify (es. graphify)" })
+      .min(1)
+      .default("graphify"),
+  ),
+  // Timeout (minuti) di OGNI invocazione del CLI graphify (extract, clustering,
+  // export). Default 20': l'extract code-only di un monorepo grande sta sotto il
+  // minuto, ma il labeling con claude-cli è una serie di chiamate LLM.
+  GRAPH_BUILD_TIMEOUT_MINUTES: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 in minuti (es. 20)" })
+      .int("deve essere un intero ≥ 1 in minuti (es. 20)")
+      .min(1, "deve essere un intero ≥ 1 in minuti (es. 20)")
+      .default(20),
+  ),
+  // Intervallo di poll (secondi) del poller della coda `graph_jobs` (task
+  // separato dal loop dei job, vedi graph/poller.ts): reclama i job queued
+  // scaduti (debounce del webhook push) ed esegue la build del grafo nella
+  // CATENA PER-PROGETTO (serializer condiviso). È BEST-EFFORT e non tocca i
+  // timeout dei job. 0 = disabilitato (nessuna build automatica). Default 20".
+  GRAPH_POLL_SECONDS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 0 in secondi (es. 20; 0 = disabilitato)" })
+      .int("deve essere un intero ≥ 0 in secondi (es. 20; 0 = disabilitato)")
+      .min(0, "deve essere un intero ≥ 0 in secondi (es. 20; 0 = disabilitato)")
+      .default(20),
+  ),
 }).refine(
   (env) => env.BACKLOG_SIMILAR_THRESHOLD <= env.BACKLOG_MERGE_THRESHOLD,
   {
@@ -714,6 +764,18 @@ export interface WorkerConfig {
   backlogChatTurnTimeoutMs: number;
   /** Turni massimi dell'agente per un turno di chat (default 15). */
   backlogChatTurnMaxTurns: number;
+  /** Radice del volume condiviso dei grafi graphify (default "/graphs"). */
+  graphsDir: string;
+  /** Labeling delle comunità col backend claude-cli (default true). */
+  graphLabelEnabled: boolean;
+  /** Binario del CLI graphify, nome in PATH o path assoluto (default "graphify"). */
+  graphifyBin: string;
+  /** Timeout (ms) di ogni invocazione del CLI graphify (da
+   * GRAPH_BUILD_TIMEOUT_MINUTES, default 20' = 1200000). */
+  graphBuildTimeoutMs: number;
+  /** Intervallo in secondi del poller della coda `graph_jobs` (default 20;
+   * 0 = disabilitato). */
+  graphPollSeconds: number;
 }
 
 /**
@@ -788,5 +850,11 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     backlogChatSessionTtlMinutes: parsed.BACKLOG_CHAT_SESSION_TTL_MINUTES,
     backlogChatTurnTimeoutMs: parsed.BACKLOG_CHAT_TURN_TIMEOUT_MS,
     backlogChatTurnMaxTurns: parsed.BACKLOG_CHAT_TURN_MAX_TURNS,
+    graphsDir: parsed.GRAPHS_DIR,
+    graphLabelEnabled: parsed.GRAPH_LABEL_ENABLED,
+    graphifyBin: parsed.GRAPHIFY_BIN,
+    // Minuti → ms: il runner del CLI vuole millisecondi.
+    graphBuildTimeoutMs: parsed.GRAPH_BUILD_TIMEOUT_MINUTES * 60_000,
+    graphPollSeconds: parsed.GRAPH_POLL_SECONDS,
   };
 }

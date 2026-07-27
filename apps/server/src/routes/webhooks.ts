@@ -3,12 +3,14 @@ import { t } from "@stubwise/i18n";
 import { dispatchNotification } from "@stubwise/notifications";
 import { and, count, desc, eq, isNotNull, ne, notInArray, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { Db } from "@stubwise/db";
 import {
   activityRecountJobs,
   aiJobs,
   comments,
   docAutoUpdateJobs,
   docGenerations,
+  graphJobs,
   instanceSettings,
   prReviewJobs,
   prReviews,
@@ -57,6 +59,60 @@ const PR_REVIEW_DEBOUNCE_MS = 90 * 1000;
  * un'aggregazione leggera e conviene tenerlo reattivo.
  */
 const ACTIVITY_RECOUNT_DEBOUNCE_MS = 60 * 1000;
+
+/**
+ * Debounce della build del knowledge graph: ogni push sul branch di default di
+ * un repository con `graphEnabled` sposta il `not_before` del job `build`
+ * queued, così una raffica di push produce una sola estrazione (il poller del
+ * worker reclama i job solo quando `not_before` è passato). Stessa finestra del
+ * recount: la build è incrementale e conviene tenerla reattiva.
+ */
+const GRAPH_BUILD_DEBOUNCE_MS = 60 * 1000;
+
+/**
+ * Accoda (in debounce) una build del grafo per il repository. Non usa un
+ * `ON CONFLICT` sull'indice unico parziale `graph_jobs_active_unique` ma la
+ * forma UPDATE-poi-INSERT, perché il target dell'upsert non è filtrabile per
+ * stato: un job `running` matcherebbe il conflitto e il SET ne sposterebbe il
+ * `not_before` mentre la build è in corso. Qui invece:
+ *
+ *  - esiste un job `queued` → UPDATE del solo `not_before` (+ `updated_at`, che
+ *    lo schema non mantiene da solo): la finestra di debounce scorre in avanti;
+ *  - esiste un job `running` → l'INSERT viola l'indice parziale e il
+ *    `onConflictDoNothing` lo assorbe: nessun secondo job, la build in corso
+ *    resta intatta. Sta lavorando su uno sha vecchio, ma il push successivo (o
+ *    la generazione manuale) riaccoderà;
+ *  - nessun job attivo → INSERT del job `queued`.
+ *
+ * `force` non viene mai chiesto dal webhook: servirebbe l'elenco dei file
+ * CANCELLATI dal push, che il contratto `PushWebhookEvent` di @stubwise/git non
+ * espone (i suoi `commits` hanno solo sha e messaggio) e che il payload
+ * Bitbucket `repo:push` non contiene affatto — scoprirlo richiederebbe una
+ * chiamata API in più al provider. L'UPDATE non tocca quindi il campo, così un
+ * `force` acceso altrove (generazione manuale) non viene spento da un push.
+ */
+async function enqueueGraphBuildOnPush(db: Db, repositoryId: string): Promise<void> {
+  const notBefore = new Date(Date.now() + GRAPH_BUILD_DEBOUNCE_MS);
+  const updated = await db
+    .update(graphJobs)
+    .set({ notBefore, updatedAt: new Date() })
+    .where(
+      and(
+        eq(graphJobs.repositoryId, repositoryId),
+        eq(graphJobs.kind, "build"),
+        eq(graphJobs.status, "queued"),
+      ),
+    )
+    .returning({ id: graphJobs.id });
+  if (updated.length > 0) return;
+
+  await db
+    .insert(graphJobs)
+    .values({ repositoryId, kind: "build", notBefore })
+    // Senza target: assorbe la violazione dell'indice parziale sia per un job
+    // `running` sia per la corsa con un push concorrente che ha appena inserito.
+    .onConflictDoNothing();
+}
 
 /**
  * Normalizza gli header Fastify (string | string[] | undefined) nella
@@ -171,6 +227,7 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
             defaultBranch: repositories.defaultBranch,
             docAutoUpdate: projects.docAutoUpdate,
             dailyReportEnabled: projects.dailyReportEnabled,
+            graphEnabled: repositories.graphEnabled,
             currentDocGenerationId: repositories.currentDocGenerationId,
           })
           .from(repositories)
@@ -191,6 +248,20 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
               target: activityRecountJobs.projectId,
               set: { notBefore: recountNotBefore },
             });
+        }
+
+        // Build del grafo: indipendente dal toggle Docs (ha il suo, per
+        // repository) ma limitata al branch di default, perché il job estrae il
+        // grafo dalla HEAD del default branch — un push su un branch di feature
+        // rifarebbe la stessa build. Best-effort: l'accodamento non deve far
+        // fallire la risposta al provider (un webhook in errore verrebbe
+        // ri-consegnato e ripeterebbe anche il resto del ramo push).
+        if (repository?.graphEnabled === true && push.branch === repository.defaultBranch) {
+          try {
+            await enqueueGraphBuildOnPush(instance.db, context.repositoryId);
+          } catch (error) {
+            instance.log.error({ err: error }, "accodamento della build del grafo fallito");
+          }
         }
 
         // Gate: si agisce solo sui push al branch di default di un repository il

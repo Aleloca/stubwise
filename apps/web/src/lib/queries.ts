@@ -15,6 +15,8 @@ import {
   listPats,
   getProject,
   getProjects,
+  getRepoGraph,
+  getRepoGraphReport,
   getRepositories,
   getRepository,
   getRepositoryWebhook,
@@ -40,6 +42,7 @@ import {
   listServers,
   listTickets,
   type BacklogFilters,
+  type RepoGraph,
   type ServerMetricsRange,
   type TicketFilters,
 } from "./api";
@@ -759,6 +762,69 @@ export function docProjectHighlightsQueryOptions(projectId: string) {
     queryKey: docsKeys.projectHighlights(projectId),
     queryFn: () => getProjectHighlights(projectId),
     staleTime: 30_000,
+  });
+}
+
+/**
+ * Key factory del knowledge graph (graphify), per-repository. Sotto-albero a sé
+ * e non figlio di `docsKeys`: la tab vive nella sezione Docs ma i dati vengono
+ * dal dominio repository (nessuna rigenerazione dei Docs tocca il grafo, e
+ * viceversa). `detail(id)` è la chiave da invalidare dopo generate/setup-pr.
+ */
+export const graphKeys = {
+  all: ["repo-graph"] as const,
+  detail: (repositoryId: string) => [...graphKeys.all, repositoryId] as const,
+  report: (repositoryId: string) => [...graphKeys.detail(repositoryId), "report"] as const,
+};
+
+/** Cadenza del polling del grafo mentre un job è vivo. */
+const GRAPH_POLL_MS = 10_000;
+
+/**
+ * Intervallo di refetch dello stato del grafo: 10s finché c'è del lavoro in
+ * corso, nessun polling altrimenti. Funzione pura (testabile a sé) usata dal
+ * `refetchInterval` di {@link repoGraphQueryOptions}.
+ *
+ * "Lavoro in corso" include ENTRAMBI i cicli di vita: la build (`status`
+ * queued/running, o `jobPending` per il job accodato prima che la riga
+ * `repo_graphs` esista) e la PR di setup (`setupPrJobPending`), che avanza senza
+ * toccare `status` — senza quest'ultima la UI resterebbe ferma su "PR in corso".
+ */
+export function repoGraphRefetchInterval(graph: RepoGraph | undefined): number | false {
+  if (!graph) return false;
+  const busy =
+    graph.status === "queued" ||
+    graph.status === "running" ||
+    graph.jobPending ||
+    graph.setupPrJobPending;
+  return busy ? GRAPH_POLL_MS : false;
+}
+
+/**
+ * Stato del grafo di un repository (metadati, toggle, job in corso): alimenta
+ * la tab "Grafo". `staleTime` breve perché il worker lo aggiorna in modo
+ * asincrono; il polling si accende da sé finché un job è vivo.
+ */
+export function repoGraphQueryOptions(repositoryId: string) {
+  return queryOptions({
+    queryKey: graphKeys.detail(repositoryId),
+    queryFn: () => getRepoGraph(repositoryId),
+    staleTime: 10_000,
+    refetchInterval: (query) => repoGraphRefetchInterval(query.state.data),
+  });
+}
+
+/**
+ * Report delle comunità (markdown) dell'ultima build. Cambia solo a una nuova
+ * generazione → `staleTime` largo. `retry: false`: un 404 (grafo mai generato o
+ * volume ricreato) è un esito atteso, non un errore transitorio da ritentare.
+ */
+export function repoGraphReportQueryOptions(repositoryId: string) {
+  return queryOptions({
+    queryKey: graphKeys.report(repositoryId),
+    queryFn: () => getRepoGraphReport(repositoryId),
+    staleTime: 60_000,
+    retry: false,
   });
 }
 

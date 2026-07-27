@@ -16,6 +16,8 @@ import { createDocHandler, failDocJobOnError } from "./docs/handler.js";
 import { dispatchNode } from "./docs/recursive/node-dispatch.js";
 import { createGenerationWorktreeRegistry } from "./docs/recursive/registry.js";
 import { MirrorManager } from "./git/mirrors.js";
+import { createGraphifyRunner } from "./graph/graphify-cli.js";
+import { startGraphPoller } from "./graph/poller.js";
 import { createHandler, createProjectSerializer } from "./handler.js";
 import { startMonitorAlertPoller } from "./monitor/alerts.js";
 import { startMonitorRollupPoller } from "./monitor/rollup.js";
@@ -401,6 +403,35 @@ startCodeSessionSweeper({
   signal: controller.signal,
 });
 
+// Poller della coda del KNOWLEDGE GRAPH (graphify): task SEPARATO dal loop dei
+// job, sul proprio intervallo. Reclama i `graph_jobs` queued claimabili (il
+// webhook push fa debounce spostando notBefore) ed esegue la build nella CATENA
+// PER-PROGETTO (serializer condiviso col fix/doc-generation/review/backlog: la
+// build apre un worktree sul mirror e il labeling usa il claude CLI, quindi non
+// deve sovrapporsi agli altri job dello stesso progetto). Riusa il MirrorManager
+// condiviso; il CLI graphify è invocato da un runner dedicato (nessun agente).
+// È BEST-EFFORT (non fa mai crashare il worker) e NON tocca il lock/heartbeat né
+// i timeout dei job. Si ferma sullo stesso AbortSignal.
+const graphLogger = {
+  warn: (obj: unknown, msg?: string) =>
+    console.error(`[stubwise-worker] ${msg ?? "graph: warning"}`, obj),
+  error: (obj: unknown, msg?: string) =>
+    console.error(`[stubwise-worker] ${msg ?? "graph: error"}`, obj),
+};
+startGraphPoller({
+  db,
+  mirrors,
+  graphify: createGraphifyRunner(config.graphifyBin),
+  logger: graphLogger,
+  encryptionKey: config.encryptionKey,
+  graphsDir: config.graphsDir,
+  labelEnabled: config.graphLabelEnabled,
+  timeoutMs: config.graphBuildTimeoutMs,
+  serializer,
+  intervalSeconds: config.graphPollSeconds,
+  signal: controller.signal,
+});
+
 // Poller di ROLLUP + retention delle metriche di monitoraggio: task SEPARATO
 // dal loop dei job, sul proprio intervallo. Aggrega i campioni fini oltre le
 // 48h in bucket da 5' e applica la retention (tutto in una transazione con
@@ -435,6 +466,7 @@ console.error(
     `, daily-report ${config.dailyReportPollMinutes > 0 ? `ogni ${config.dailyReportPollMinutes}'` : "disabilitato"}` +
     `, backlog ${config.backlogPollSeconds > 0 ? `ogni ${config.backlogPollSeconds}"` : "disabilitato"}` +
     `, backlog-chat-turn ${config.backlogChatTurnPollSeconds > 0 ? `ogni ${config.backlogChatTurnPollSeconds}" (ttl ${config.backlogChatSessionTtlMinutes}')` : "disabilitato"}` +
+    `, graph ${config.graphPollSeconds > 0 ? `ogni ${config.graphPollSeconds}"` : "disabilitato"}` +
     `, monitor-rollup ${config.monitorRollupIntervalMinutes > 0 ? `ogni ${config.monitorRollupIntervalMinutes}'` : "disabilitato"}` +
     `, monitor-alert ${config.monitorAlertIntervalMinutes > 0 ? `ogni ${config.monitorAlertIntervalMinutes}'` : "disabilitato"})`,
 );

@@ -589,15 +589,34 @@ export class MirrorManager {
    * con refspec esplicito. `clone --mirror` imposta remote.origin.mirror=true,
    * che trasformerebbe ogni push in un `push --mirror` (tutti i ref, con
    * delete inclusi): lo disattiviamo per-invocazione con -c.
+   *
+   * `force`: push forzato, per i branch a nome FISSO ricreati da capo a ogni run
+   * (es. `stubwise/graphify-setup` della PR di setup del grafo), che non sono mai
+   * fast-forward rispetto al remoto. Non si usa `--force-with-lease` perché in un
+   * clone `--mirror` il refspec `+refs/*:refs/*` mappa il branch su sé stesso:
+   * non esiste un remote-tracking ref indipendente su cui il lease possa dire
+   * qualcosa. La protezione è il namespace `stubwise/` (imposto da
+   * assertBranchName), di proprietà esclusiva di Stubwise.
    */
-  async pushBranch(project: MirrorProject, branchName: string): Promise<void> {
+  async pushBranch(
+    project: MirrorProject,
+    branchName: string,
+    opts?: { force?: boolean }
+  ): Promise<void> {
     assertBranchName(branchName);
     const mirrorDir = this.mirrorDirFor(project);
     if (!existsSync(join(mirrorDir, "HEAD"))) {
       throw new MirrorNotFoundError(mirrorRemoteUrl(project));
     }
     await this.git(
-      ["-c", "remote.origin.mirror=false", "push", "origin", `${branchName}:refs/heads/${branchName}`],
+      [
+        "-c",
+        "remote.origin.mirror=false",
+        "push",
+        ...(opts?.force === true ? ["--force"] : []),
+        "origin",
+        `${branchName}:refs/heads/${branchName}`,
+      ],
       { cwd: mirrorDir, auth: project }
     );
   }

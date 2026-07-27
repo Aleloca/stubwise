@@ -81,6 +81,7 @@ function repo(overrides: Partial<Repository> = {}): Repository {
     webhookConfiguredAt: null,
     testCommand: null,
     installCommand: null,
+    graphEnabled: false,
     createdAt: "2026-06-01T10:00:00.000Z",
     ...overrides,
   };

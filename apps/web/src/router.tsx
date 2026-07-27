@@ -58,6 +58,7 @@ import {
   DocsSpaceLayout,
 } from "./routes/docs/$projectId";
 import { DocsBriefView } from "./routes/docs/brief.$projectId";
+import { DocsGraphView } from "./routes/docs/graph.$projectId";
 import { DocsPage } from "./routes/docs/index";
 import { ProjectDocsLanding } from "./routes/docs/project.$projectId";
 import { LoginPage } from "./routes/login";
@@ -448,6 +449,19 @@ const docsBriefRoute = createRoute({
 });
 
 /**
+ * Tab "Grafo" dello spazio (`/docs/$projectId/graph`): knowledge graph del
+ * codice (graphify). Rotta statica, ha priorità sul segmento dinamico `$slug`
+ * (nessuna pagina di documentazione può avere slug "graph"). Nessun loader: la
+ * vista fa polling da sé e i suoi stati (toggle spento, mai generato, in corso)
+ * non sono errori da anticipare.
+ */
+const docsGraphRoute = createRoute({
+  getParentRoute: () => docsSpaceRoute,
+  path: "/graph",
+  component: DocsGraphView,
+});
+
+/**
  * Vista changelog dello spazio (`/docs/$projectId/releases`): timeline delle
  * release. Rotta statica, ha priorità sul segmento dinamico `$slug` (gli slug
  * delle release sono `release-…`, nessuna pagina si chiama "releases").
@@ -678,6 +692,7 @@ const routeTree = rootRoute.addChildren([
       docsSpaceIndexRoute,
       docsManualNewRoute,
       docsBriefRoute,
+      docsGraphRoute,
       docsReleasesRoute,
       docsPageRoute,
     ]),

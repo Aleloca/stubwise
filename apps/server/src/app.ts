@@ -42,6 +42,7 @@ import { projectDocsRoutes } from "./routes/project-docs.js";
 import { projectEnvFileRoutes } from "./routes/project-env-files.js";
 import { projectRoutes } from "./routes/projects.js";
 import { repositoryRoutes } from "./routes/repositories.js";
+import { repoGraphRoutes } from "./routes/repo-graph.js";
 import { patRoutes } from "./routes/pat.js";
 import { serverRoutes } from "./routes/servers.js";
 import { serverCheckRoutes } from "./routes/servers-checks.js";
@@ -188,6 +189,13 @@ export interface BuildAppOptions {
    * Override pensato per i test; default 600 richieste al minuto.
    */
   monitorRateLimit?: RateLimitConfig;
+  /**
+   * Radice del volume condiviso dei grafi graphify (GRAPHS_DIR), montato
+   * read-only: da qui le route del grafo servono report/html/json scritti dal
+   * worker. Default "/graphs" (stesso default del worker). Nei test si passa una
+   * directory temporanea.
+   */
+  graphsDir?: string;
 }
 
 /**
@@ -364,6 +372,13 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // File d'ambiente, materializzati nel worktree del repo: sono repository-level
   // (il parametro :id dell'URL è il repositoryId).
   void app.register(projectEnvFileRoutes, { prefix: "/api/repositories" });
+  // Knowledge graph del repository (graphify): stato/azioni + contenuti letti dal
+  // volume condiviso `graphs` (montato read-only sul server). Stesso prefisso dei
+  // repository, `:id` = repositoryId.
+  void app.register(repoGraphRoutes, {
+    prefix: "/api/repositories",
+    graphsDir: opts.graphsDir ?? "/graphs",
+  });
   // Monitoraggio server: CRUD interno dei server monitorati (chiave agente
   // one-shot, associazione N:M ai progetti, soglie alert). API della SPA,
   // distinta dalla superficie pubblica /monitor usata dall'agente.

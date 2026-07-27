@@ -17,6 +17,8 @@ interface RepositoryInitialValues {
   testCommand: string | null;
   /** Comando di installazione custom; null = auto-detect (dal lockfile). */
   installCommand: string | null;
+  /** Toggle del knowledge graph (graphify) del repository; default false. */
+  graphEnabled: boolean;
 }
 
 interface RepositoryFormProps {
@@ -46,6 +48,8 @@ export function RepositoryForm({ initial, onSubmit }: RepositoryFormProps) {
   const [testCommand, setTestCommand] = useState(initial.testCommand ?? "");
   // Comando di installazione come stringa controllata: vuoto = auto-detect (dal lockfile).
   const [installCommand, setInstallCommand] = useState(initial.installCommand ?? "");
+  // Knowledge graph del repository: spento, nessuna build parte (né ai push né a mano).
+  const [graphEnabled, setGraphEnabled] = useState(initial.graphEnabled);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -75,6 +79,8 @@ export function RepositoryForm({ initial, onSubmit }: RepositoryFormProps) {
         ...(nextInstallCommand !== (initial.installCommand ?? null) && {
           installCommand: nextInstallCommand,
         }),
+        // graphEnabled incluso solo se cambiato (toggle), per un PATCH minimo.
+        ...(graphEnabled !== initial.graphEnabled && { graphEnabled }),
       });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("common:unexpectedError"));
@@ -154,6 +160,30 @@ export function RepositoryForm({ initial, onSubmit }: RepositoryFormProps) {
       <p className="-mt-1 font-mono text-[11px] text-fg-faint">
         {t("repositories:form.installCommandHint")}
       </p>
+
+      {/*
+        Knowledge graph (graphify) del repository: toggle (default off). Se
+        attivo, il worker estrae il grafo del codice a ogni push sul branch di
+        default e lo espone nella tab "Grafo" dello spazio Docs.
+      */}
+      <div className="flex flex-col gap-1.5 rounded-sm border border-line bg-ink-900 px-3 py-3">
+        <div className="flex items-center gap-2.5">
+          <input
+            id="repository-graph-enabled"
+            type="checkbox"
+            checked={graphEnabled}
+            onChange={(event) => setGraphEnabled(event.target.checked)}
+            className="h-4 w-4 shrink-0 accent-signal"
+          />
+          <label
+            htmlFor="repository-graph-enabled"
+            className="font-mono text-[11px] font-medium tracking-[0.14em] text-fg-muted uppercase"
+          >
+            {t("repositories:form.graph")}
+          </label>
+        </div>
+        <p className="font-mono text-[11px] text-fg-faint">{t("repositories:form.graphHint")}</p>
+      </div>
 
       <FormError message={error} />
       <SubmitButton pending={pending}>

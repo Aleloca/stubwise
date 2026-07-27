@@ -54,6 +54,7 @@ const initial = {
   gitAccountId: ACCOUNT_A.id,
   testCommand: null,
   installCommand: null,
+  graphEnabled: false,
 };
 
 type Handler = (url: URL) => Response;
@@ -250,6 +251,44 @@ describe("RepositoryForm in modifica", () => {
 
     const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
     expect("testCommand" in payload).toBe(false);
+  });
+
+  it("accendendo il knowledge graph, il PATCH include graphEnabled", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockAccounts([ACCOUNT_A]);
+    await renderForm({ onSubmit });
+
+    const toggle = screen.getByLabelText("Code knowledge graph");
+    expect(toggle).not.toBeChecked();
+    await user.click(toggle);
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload.graphEnabled).toBe(true);
+  });
+
+  it("il knowledge graph invariato NON entra nel PATCH", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockAccounts([ACCOUNT_A]);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RepositoryForm initial={{ ...initial, graphEnabled: true }} onSubmit={onSubmit as never} />
+      </QueryClientProvider>,
+    );
+    await screen.findByLabelText("Name");
+    await waitFor(() => {
+      expect(screen.getByLabelText("Default branch").tagName).toBe("SELECT");
+    });
+
+    // Lo stato acceso del repository è riflesso dalla checkbox.
+    expect(screen.getByLabelText("Code knowledge graph")).toBeChecked();
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
+    expect("graphEnabled" in payload).toBe(false);
   });
 
   it("un rigetto di onSubmit mostra l'errore", async () => {

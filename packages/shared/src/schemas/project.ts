@@ -51,6 +51,10 @@ export const repositorySchema = z.object({
   // della pipeline (es. "pnpm install"). null = nessun comando configurato.
   installCommand: z.string().min(1).nullable(),
   webhookConfiguredAt: z.iso.datetime().nullable(),
+  // Knowledge graph (graphify) attivo su questo repository: abilita la build ai
+  // push sul branch di default e la generazione manuale. Vive sul REPOSITORY
+  // (non sul progetto) perché il grafo è estratto da un singolo codebase.
+  graphEnabled: z.boolean(),
   // Il segreto HMAC del webhook git NON fa parte della proiezione pubblica:
   // è un segreto che permetterebbe di forgiare webhook di merge e forzare i
   // ticket a "done". Si legge solo via l'endpoint admin GET /:slug/webhook.
