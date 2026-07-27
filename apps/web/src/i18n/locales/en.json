@@ -1423,7 +1423,8 @@
       "expand": "Expand “{{title}}”",
       "collapseAll": "Collapse all",
       "expandAll": "Expand all",
-      "downloadCategory": "Download {{category}} (.md, zip)"
+      "downloadCategory": "Download {{category}} (.md, zip)",
+      "resizeSidebar": "Resize sidebar"
     },
     "manual": {
       "newPage": "New manual page",

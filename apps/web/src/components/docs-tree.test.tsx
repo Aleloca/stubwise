@@ -107,6 +107,25 @@ describe("DocsTree", () => {
     expect(screen.queryByRole("button", { name: /Releases/ })).not.toBeInTheDocument();
   });
 
+  it("ogni voce espone il titolo completo come tooltip nativo", async () => {
+    renderTree([
+      node({
+        id: "t1",
+        slug: "tech",
+        title: "Un titolo di pagina molto lungo che verrà troncato nella sidebar",
+        kind: "technical",
+      }),
+    ]);
+
+    const link = await screen.findByRole("link", {
+      name: "Un titolo di pagina molto lungo che verrà troncato nella sidebar",
+    });
+    expect(link).toHaveAttribute(
+      "title",
+      "Un titolo di pagina molto lungo che verrà troncato nella sidebar",
+    );
+  });
+
   it("annida tre livelli (root → child → grandchild) via parentId", async () => {
     renderTree([
       node({ id: "l0", slug: "root", title: "Root", kind: "technical" }),

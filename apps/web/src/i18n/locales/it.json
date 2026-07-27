@@ -1423,7 +1423,8 @@
       "expand": "Espandi «{{title}}»",
       "collapseAll": "Comprimi tutto",
       "expandAll": "Espandi tutto",
-      "downloadCategory": "Scarica {{category}} (.md, zip)"
+      "downloadCategory": "Scarica {{category}} (.md, zip)",
+      "resizeSidebar": "Ridimensiona la sidebar"
     },
     "manual": {
       "newPage": "Nuova pagina manuale",

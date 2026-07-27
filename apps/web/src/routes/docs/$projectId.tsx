@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, Outlet, useNavigate, useParams } from "@tanstack/react-router";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { DocsChat } from "../../components/docs-chat";
 import { DocsManualForm } from "../../components/docs-manual-form";
@@ -119,13 +119,13 @@ export function DocsSpaceLayout() {
         {/* Desktop (`lg+`): sidebar come aside fisso. Mobile: stessa DocsSidebar
             dentro un drawer. Una sola variante montata per non duplicare gli id. */}
         {isDesktop ? (
-          <aside className="flex w-72 shrink-0 flex-col border-r border-line bg-ink-950">
+          <ResizableSidebar projectId={projectId}>
             <DocsSidebar
               projectId={projectId}
               tree={tree}
               onOpenSearch={() => setSearchOpen(true)}
             />
-          </aside>
+          </ResizableSidebar>
         ) : (
           <Drawer
             open={treeOpen}
@@ -181,6 +181,94 @@ export function DocsSpaceIndex() {
         <p className="mt-2 text-sm text-fg-muted">{t("docs:space.selectPageHint")}</p>
       </div>
     </div>
+  );
+}
+
+/** Larghezze ammesse della sidebar desktop (px) e default. */
+const SIDEBAR_MIN_WIDTH = 200;
+const SIDEBAR_MAX_WIDTH = 560;
+const SIDEBAR_DEFAULT_WIDTH = 288; // = w-72, la larghezza storica
+
+function sidebarWidthKey(projectId: string): string {
+  return `stubwise:docs:sidebarWidth:${projectId}`;
+}
+
+/**
+ * Aside della sidebar desktop, ridimensionabile per trascinamento del bordo
+ * destro. Gli alberi di repo grandi hanno titoli lunghi: poter allargare la
+ * colonna evita di leggere solo troncature. La larghezza è ricordata PER
+ * REPOSITORY (alberi diversi hanno bisogni diversi). Su mobile la sidebar vive
+ * in un drawer: questo componente non viene montato affatto.
+ */
+function ResizableSidebar({
+  projectId,
+  children,
+}: {
+  projectId: string;
+  children: React.ReactNode;
+}) {
+  const { t } = useTranslation();
+  const [width, setWidth] = useState(() => {
+    const stored = Number(globalThis.localStorage?.getItem(sidebarWidthKey(projectId)));
+    return Number.isFinite(stored) && stored >= SIDEBAR_MIN_WIDTH && stored <= SIDEBAR_MAX_WIDTH
+      ? stored
+      : SIDEBAR_DEFAULT_WIDTH;
+  });
+  const [dragging, setDragging] = useState(false);
+  const asideRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    if (!dragging) return;
+    const clamp = (value: number) =>
+      Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, value));
+    const onMove = (event: MouseEvent) => {
+      const left = asideRef.current?.getBoundingClientRect().left ?? 0;
+      setWidth(clamp(event.clientX - left));
+    };
+    const onUp = () => setDragging(false);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    // Durante il drag il cursore resta quello del resize anche fuori dall'handle
+    // e il testo non si seleziona.
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+  }, [dragging]);
+
+  // Persiste solo a drag finito: niente scritture a ogni pixel.
+  useEffect(() => {
+    if (dragging) return;
+    globalThis.localStorage?.setItem(sidebarWidthKey(projectId), String(width));
+  }, [dragging, width, projectId]);
+
+  return (
+    <aside
+      ref={asideRef}
+      style={{ width }}
+      className="relative flex shrink-0 flex-col border-r border-line bg-ink-950"
+    >
+      {children}
+      {/* Handle di trascinamento sul bordo destro: la doppia larghezza invisibile
+          rende il bersaglio comodo senza spostare il bordo visibile. */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={t("docs:space.resizeSidebar")}
+        onMouseDown={(event) => {
+          event.preventDefault();
+          setDragging(true);
+        }}
+        onDoubleClick={() => setWidth(SIDEBAR_DEFAULT_WIDTH)}
+        className={`absolute inset-y-0 -right-1 w-2 cursor-col-resize transition-colors hover:bg-signal/30 ${
+          dragging ? "bg-signal/40" : ""
+        }`}
+      />
+    </aside>
   );
 }
 

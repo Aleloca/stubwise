@@ -146,6 +146,9 @@ function TreeNodes({
                 to="/docs/$projectId/$slug"
                 params={{ projectId, slug: item.slug }}
                 onClick={onNavigate}
+                // I titoli lunghi sono troncati: il tooltip nativo li mostra per
+                // intero senza dover allargare la sidebar.
+                title={item.title}
                 className={`block min-w-0 flex-1 truncate rounded-sm px-1.5 py-1 text-[13px] transition-colors hover:bg-ink-850 hover:text-fg ${
                   hasChildren ? "text-fg" : "text-fg-muted"
                 }`}
