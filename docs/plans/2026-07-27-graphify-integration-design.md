@@ -1,10 +1,7 @@
 # Integrazione graphify: grafo del codice per repo, PR di setup e tab "Grafo"
 
-```yaml
-stubwise:
-  project: TBD   # nessun progetto Stubwise sull'istanza al momento della stesura
-  backlogItem: TBD
-```
+> Nota: questo repo non è collegato all'istanza Stubwise (scelta del 27 lug 2026):
+> il tracking della feature vive in `feature-backlog.md`, nessuna voce di backlog/ticket.
 
 ## Contesto e obiettivo
 
