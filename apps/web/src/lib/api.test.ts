@@ -7,14 +7,18 @@ import {
   createServer,
   createServerCheck,
   dismissSuggested,
+  generateRepoGraph,
   getBacklogItem,
   getMe,
+  getRepoGraph,
+  getRepoGraphReport,
   getServerMetrics,
   getSetupStatus,
   listBacklogItems,
   listServers,
   listTickets,
   mergeBacklogItem,
+  openRepoGraphSetupPr,
   patchBacklogItem,
   postBacklogItem,
   postLogin,
@@ -356,5 +360,69 @@ describe("funzioni backlog", () => {
     expect(fetchMock.mock.calls[0]![0]).toBe("/api/backlog/id1/refresh-document");
     expect(fetchMock.mock.calls[1]![0]).toBe("/api/backlog/id1/suggested/accept");
     expect(fetchMock.mock.calls[2]![0]).toBe("/api/backlog/id1/suggested/dismiss");
+  });
+});
+
+describe("funzioni grafo del repository", () => {
+  it("getRepoGraph: GET sul repositoryId", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { enabled: true, status: "done" }));
+
+    await expect(getRepoGraph("repo1")).resolves.toMatchObject({ status: "done" });
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/repositories/repo1/graph");
+    expect(init?.method).toBe("GET");
+  });
+
+  it("generateRepoGraph: POST col force esplicito (il body è obbligatorio per la route)", async () => {
+    fetchMock.mockImplementation(() => Promise.resolve(jsonResponse(202, { queued: true })));
+
+    await expect(generateRepoGraph("repo1")).resolves.toEqual({ queued: true });
+    await generateRepoGraph("repo1", { force: true });
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/repositories/repo1/graph/generate");
+    expect(init?.body).toBe(JSON.stringify({ force: false }));
+    expect(fetchMock.mock.calls[1]![1]?.body).toBe(JSON.stringify({ force: true }));
+  });
+
+  it("openRepoGraphSetupPr: POST /setup-pr senza body", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(202, { queued: true }));
+
+    await expect(openRepoGraphSetupPr("repo1")).resolves.toEqual({ queued: true });
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/repositories/repo1/graph/setup-pr");
+    expect(init?.body).toBeUndefined();
+  });
+
+  it("getRepoGraphReport: restituisce il markdown come testo (non JSON)", async () => {
+    fetchMock.mockResolvedValue(
+      new Response("# Communities\n", {
+        status: 200,
+        headers: { "content-type": "text/markdown; charset=utf-8" },
+      }),
+    );
+
+    await expect(getRepoGraphReport("repo1")).resolves.toBe("# Communities\n");
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/repositories/repo1/graph/report");
+    expect(init?.credentials).toBe("include");
+  });
+
+  it("getRepoGraphReport: 404 dell'artefatto → ApiError con code", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(404, { code: "graph_artifact_not_found", message: "Graph artifact not found" }),
+    );
+
+    await expect(getRepoGraphReport("repo1")).rejects.toMatchObject({
+      status: 404,
+      code: "graph_artifact_not_found",
+    });
+  });
+
+  it("getRepoGraphReport: id con caratteri speciali → path encodato", async () => {
+    fetchMock.mockResolvedValue(new Response("x", { status: 200 }));
+
+    await getRepoGraphReport("a/b");
+    expect(fetchMock.mock.calls[0]![0]).toBe("/api/repositories/a%2Fb/graph/report");
   });
 });
