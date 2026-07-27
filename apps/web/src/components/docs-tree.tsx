@@ -34,6 +34,19 @@ const GROUP_LABEL_KEY: Record<DocPageKind, string> = {
   releases: "docs:space.groupReleases",
 };
 
+/**
+ * Etichette CORTE per le tab: i nomi per esteso con il conteggio mandavano la
+ * riga a capo già con tre categorie in una sidebar di larghezza normale. Il nome
+ * completo e il conteggio restano nel tooltip e nel nome accessibile.
+ */
+const GROUP_SHORT_LABEL_KEY: Record<DocPageKind, string> = {
+  technical: "docs:space.groupTechnicalShort",
+  functional: "docs:space.groupFunctionalShort",
+  product: "docs:space.groupProductShort",
+  manual: "docs:space.groupManualShort",
+  releases: "docs:space.groupReleases",
+};
+
 /** Nodo dell'albero con i figli già risolti (gerarchia + ordinamento). */
 export interface TreeItem extends DocTreeNode {
   children: TreeItem[];
@@ -317,25 +330,36 @@ export function DocsTree({
           (tablist/tab + sottolineatura sull'attiva): il solo sfondo diverso non
           bastava a far capire che si può cambiare vista. */}
       <div className="-mx-1 flex items-end justify-between gap-2 border-b border-line-strong px-1">
-        <div role="tablist" aria-label={t("docs:space.categories")} className="flex min-w-0 flex-wrap">
+        <div
+          role="tablist"
+          aria-label={t("docs:space.categories")}
+          className="flex min-w-0 flex-nowrap overflow-x-auto"
+        >
           {available.map((kind) => {
             const count = nodes.filter((node) => node.kind === kind).length;
             const isActive = kind === activeKind;
+            const fullLabel = t(GROUP_LABEL_KEY[kind]);
             return (
               <button
                 key={kind}
                 type="button"
                 role="tab"
                 aria-selected={isActive}
+                // Nome accessibile e tooltip completi: la label visibile è corta
+                // per stare su una riga, l'informazione piena resta disponibile.
+                aria-label={`${fullLabel} ${count}`}
+                title={`${fullLabel} · ${count}`}
                 onClick={() => selectKind(kind)}
-                className={`-mb-px border-b-2 px-2 py-1.5 font-mono text-[10px] tracking-[0.1em] uppercase transition-colors ${
+                className={`-mb-px shrink-0 border-b-2 px-2 py-1.5 font-mono text-[10px] tracking-[0.08em] whitespace-nowrap uppercase transition-colors ${
                   isActive
                     ? "border-signal text-fg"
                     : "border-transparent text-fg-faint hover:border-line-strong hover:text-fg-muted"
                 }`}
               >
-                {t(GROUP_LABEL_KEY[kind])}{" "}
-                <span className={isActive ? "text-signal" : "text-fg-faint"}>{count}</span>
+                {t(GROUP_SHORT_LABEL_KEY[kind])}
+                {/* Il conteggio solo sull'attiva: sulle altre è rumore che fa
+                    traboccare la riga (il tooltip lo mostra comunque). */}
+                {isActive && <span className="ml-1 text-signal">{count}</span>}
               </button>
             );
           })}

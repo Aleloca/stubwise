@@ -228,6 +228,22 @@ describe("DocsTree", () => {
     expect(screen.queryByRole("link", { name: "Tech page" })).not.toBeInTheDocument();
   });
 
+  it("le tab usano label corte e mostrano il conteggio solo sull'attiva (una sola riga)", async () => {
+    renderTree([
+      node({ id: "t1", slug: "tech", title: "Tech page", kind: "technical" }),
+      node({ id: "f1", slug: "func", title: "Func page", kind: "functional" }),
+    ]);
+
+    const technical = await screen.findByRole("tab", { name: /Technical 1/ });
+    const functional = screen.getByRole("tab", { name: /Functional 1/ });
+    // Testo VISIBILE abbreviato; il nome completo resta nel tooltip e nel nome
+    // accessibile (su cui si basano gli altri test).
+    expect(technical.textContent).toBe("Tech1");
+    expect(technical).toHaveAttribute("title", "Technical · 1");
+    // Conteggio solo sull'attiva: sulle altre resta solo la sigla.
+    expect(functional.textContent).toBe("Func");
+  });
+
   it("la tab attiva segue il kind della pagina aperta", async () => {
     renderTree(
       [

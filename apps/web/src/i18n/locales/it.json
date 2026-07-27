@@ -1428,7 +1428,11 @@
       "downloadCategory": "Scarica {{category}} (.md, zip)",
       "resizeSidebar": "Ridimensiona la sidebar",
       "updatedOn": "aggiornata il {{date}}",
-      "categories": "Categorie"
+      "categories": "Categorie",
+      "groupTechnicalShort": "Tech",
+      "groupFunctionalShort": "Funz",
+      "groupProductShort": "Prod",
+      "groupManualShort": "Man"
     },
     "manual": {
       "newPage": "Nuova pagina manuale",
