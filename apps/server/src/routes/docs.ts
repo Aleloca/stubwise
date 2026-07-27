@@ -949,7 +949,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       if (updated.length === 0) {
         return apiError(reply, 404, "doc_page_not_found", "Documentation page not found");
       }
-      return reply.code(204).send();
+      return reply.code(204).send(null);
     },
   );
 
