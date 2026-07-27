@@ -31,7 +31,7 @@ repo, ricerca vettoriale e chat RAG.
 ## Architettura runtime (docker-compose)
 
 Servizi: `postgres` (pgvector/pgvector:pg17), `ollama` (embedding bge-m3,
-1024-dim, via API OpenAI-compatibile), `server`, `worker`, `caddy`.
+1024-dim, via API OpenAI-compatibile), `server`, `worker`, `graphify`, `caddy`.
 **Non esiste un servizio `web`.** Caddy fa da reverse proxy verso il server e
 serve gli statici: SPA da `/srv/web` (root) e Starlight da `/srv/docs` (`/guide`).
 Entrambi i bundle sono buildati dentro l'immagine caddy (`Dockerfile.caddy`).
@@ -44,6 +44,13 @@ di monitoraggio (auth con chiave per-server `sk_…`), proxate al server; il res
 di `/monitor` è la sezione SPA. L'agente (`packages/agent`) gira SUGLI host
 monitorati come container a sé (`Dockerfile.agent` → immagine `stubwise/agent`,
 un singolo bundle esbuild), non nel compose di Stubwise.
+`graphify` (`Dockerfile.graphify`) è il server MCP HTTP sui knowledge graph, solo
+sulla rete interna (`http://graphify:8080/mcp`, nessuna porta né rotta Caddy). I
+grafi stanno sul volume condiviso `graphs`, per repository in
+`/graphs/<repositoryId>/graphify-out/`: li scrive il **worker** (rw, unico
+produttore) col CLI graphify, `server` e `graphify` lo montano `:ro`. La build è
+un job `build` della coda `graph_jobs`, accodato dal webhook push con debounce,
+sotto il toggle per-repository `graphEnabled` (default off).
 
 ## Deploy (prod)
 
@@ -63,6 +70,11 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   --push .` (serve `docker login`). Gli host NON si auto-aggiornano: `docker pull`
   + ricrea il container. Se cambi anche il comando mostrato dalla UI
   (`apps/web/.../settings/servers.tsx`), ribuilda pure `caddy`.
+- Modifica al **grafo** (`apps/worker/src/graph`) → ribuilda `worker`; a
+  `Dockerfile.graphify` → ribuilda `graphify`; alla tab UI → `caddy`. Il pin
+  `graphifyy==0.9.28` va tenuto ALLINEATO in 3 punti quando si aggiorna:
+  `apps/worker/Dockerfile`, `Dockerfile.graphify` e `GRAPHIFY_VERSION` in
+  `apps/worker/src/graph/setup-pr.ts`.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.

@@ -193,8 +193,12 @@ async function markDone(
 /**
  * Estrazione del grafo. Unico passo BLOCCANTE: un exit non-zero fa fallire la
  * build (l'output catturato finisce nell'errore, già troncato dal runner e poi
- * da failGraphJob). `--force` solo quando il job lo richiede (push con
- * cancellazioni: senza, lo shrink-guard di graphify rifiuterebbe la scrittura).
+ * da failGraphJob). `--force` solo quando il job lo richiede: è l'escape hatch
+ * manuale ("Rigenera da zero" → POST generate), che rifà l'estrazione ignorando
+ * il manifest incrementale. Il webhook push non lo chiede MAI, e non serve per
+ * le cancellazioni: quando l'estrazione è completa graphify scrive comunque
+ * (`_force_write = not _extraction_incomplete`), quindi lo shrink-guard non
+ * scatta.
  */
 async function runExtract(
   deps: GraphBuildDeps,

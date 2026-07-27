@@ -2246,8 +2246,9 @@ export const graphJobs = pgTable(
     // avanti sul job queued esistente invece di accodarne un secondo. Null =
     // claimabile subito.
     notBefore: timestamp("not_before", { withTimezone: true }),
-    // Passa `--force` a graphify: serve quando il push contiene cancellazioni,
-    // che la build incrementale non saprebbe riconciliare.
+    // Passa `--force` a graphify: rifà l'estrazione da zero ignorando il
+    // manifest incrementale. È solo l'escape hatch manuale ("Rigenera da zero"
+    // del POST generate); il webhook push non lo accende mai.
     force: boolean("force").notNull().default(false),
     error: text("error"),
     claimedAt: timestamp("claimed_at", { withTimezone: true }),
