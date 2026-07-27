@@ -944,6 +944,120 @@ describe("GET /api/repositories/:projectId/docs/pages/:slug", () => {
   });
 });
 
+describe("GET /api/repositories/:repositoryId/docs/highlights", () => {
+  it("conta per kind, ordina topViewed/recentlyUpdated ed espone le release", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await seedSucceededGeneration(testDb.db, project.id, { commitSha: "high001" });
+    // Una pagina molto vista e una manuale poco vista.
+    await testDb.db.insert(docPages).values([
+      {
+        repositoryId: project.id,
+        generationId: genId,
+        kind: "product",
+        slug: "getting-started",
+        title: "Getting Started",
+        body: "# Start",
+        viewCount: 42,
+      },
+      {
+        repositoryId: project.id,
+        generationId: null,
+        kind: "manual",
+        slug: "nota",
+        title: "Nota",
+        isManual: true,
+        body: "x",
+        viewCount: 3,
+      },
+      {
+        repositoryId: project.id,
+        generationId: null,
+        kind: "releases",
+        slug: "release-20260724-1200-abc1234",
+        title: "Release recente",
+        body: "note",
+        position: -100,
+        significant: true,
+        // Le release sono le più viste in assoluto: NON devono entrare in topViewed.
+        viewCount: 999,
+      },
+      {
+        repositoryId: project.id,
+        generationId: null,
+        kind: "releases",
+        slug: "release-20260720-0900-def5678",
+        title: "Release vecchia",
+        body: "note",
+        position: -50,
+        significant: false,
+      },
+    ]);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/repositories/${project.id}/docs/highlights`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      countsByKind: Record<string, number>;
+      topViewed: { slug: string; kind: string; viewCount: number }[];
+      recentlyUpdated: { slug: string }[];
+      latestReleases: { slug: string; title: string; createdAt: string; significant: boolean | null }[];
+    };
+
+    expect(body.countsByKind.technical).toBe(1);
+    expect(body.countsByKind.functional).toBe(1);
+    expect(body.countsByKind.product).toBe(1);
+    expect(body.countsByKind.manual).toBe(1);
+    expect(body.countsByKind.releases).toBe(2);
+
+    // topViewed: per viewCount desc, senza release.
+    expect(body.topViewed.map((p) => p.slug)[0]).toBe("getting-started");
+    expect(body.topViewed.some((p) => p.kind === "releases")).toBe(false);
+    expect(body.topViewed[0]!.viewCount).toBe(42);
+
+    // recentlyUpdated: non-release, non vuoto.
+    expect(body.recentlyUpdated.length).toBeGreaterThan(0);
+    expect(body.recentlyUpdated.some((p) => p.slug.startsWith("release-"))).toBe(false);
+
+    // latestReleases: position asc → la più recente per prima, con metadati.
+    expect(body.latestReleases.map((r) => r.slug)).toEqual([
+      "release-20260724-1200-abc1234",
+      "release-20260720-0900-def5678",
+    ]);
+    expect(body.latestReleases[0]!.significant).toBe(true);
+    expect(new Date(body.latestReleases[0]!.createdAt).getTime()).not.toBeNaN();
+  });
+
+  it("repository senza documentazione: conteggi a zero e liste vuote", async () => {
+    const project = await insertProject(testDb.db);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/repositories/${project.id}/docs/highlights`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      countsByKind: Record<string, number>;
+      topViewed: unknown[];
+      latestReleases: unknown[];
+    };
+    expect(body.countsByKind.technical).toBe(0);
+    expect(body.topViewed).toEqual([]);
+    expect(body.latestReleases).toEqual([]);
+  });
+
+  it("repository inesistente: 404", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/repositories/00000000-0000-0000-0000-000000000000/docs/highlights",
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
 describe("POST /api/repositories/:repositoryId/docs/pages/:slug/view", () => {
   it("incrementa il contatore viste: 204 e viewCount +1", async () => {
     const project = await insertProject(testDb.db);

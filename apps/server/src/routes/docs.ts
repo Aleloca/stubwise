@@ -6,7 +6,7 @@ import {
   productExclusionSchema,
   projectBriefSchema,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, ne, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -22,6 +22,11 @@ import type { Db } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { aiProviderKindSchema } from "./ai-providers.js";
 import { buildDocsExportZip, safeFilenamePart } from "./docs-export-zip.js";
+import {
+  emptyCountsByKind,
+  HIGHLIGHT_LIMITS,
+  repoHighlightsSchema,
+} from "./docs-highlights.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 
 const repositoryIdParamsSchema = z.object({ repositoryId: z.uuid() });
@@ -698,6 +703,98 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         .orderBy(asc(docPages.kind), asc(docPages.position), asc(docPages.title));
 
       return rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() }));
+    },
+  );
+
+  /**
+   * Highlights del repository: i dati dell'overview che orienta chi apre i Docs
+   * senza conoscere il prodotto — quante pagine per categoria, quali sono le più
+   * lette, quali le più fresche e le ultime release. Stesso scope della sidebar
+   * (generazione corrente + pagine manuali). Le release sono escluse da
+   * `topViewed`/`recentlyUpdated`: hanno una vista dedicata (changelog).
+   */
+  app.get(
+    "/repositories/:repositoryId/docs/highlights",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: repositoryIdParamsSchema,
+        response: { 200: repoHighlightsSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { repositoryId } = request.params;
+
+      const [repository] = await app.db
+        .select({ id: repositories.id, currentDocGenerationId: repositories.currentDocGenerationId })
+        .from(repositories)
+        .where(eq(repositories.id, repositoryId));
+      if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
+
+      const currentGen = repository.currentDocGenerationId;
+      const genFilter = currentGen
+        ? or(eq(docPages.generationId, currentGen), isNull(docPages.generationId))
+        : isNull(docPages.generationId);
+      const visible = and(eq(docPages.repositoryId, repositoryId), genFilter);
+      const visibleNonRelease = and(visible, ne(docPages.kind, "releases"));
+
+      const [counts, topViewed, recentlyUpdated, releases] = await Promise.all([
+        app.db
+          .select({ kind: docPages.kind, count: sql<number>`count(*)::int` })
+          .from(docPages)
+          .where(visible)
+          .groupBy(docPages.kind),
+        app.db
+          .select({
+            slug: docPages.slug,
+            title: docPages.title,
+            kind: docPages.kind,
+            viewCount: docPages.viewCount,
+          })
+          .from(docPages)
+          .where(visibleNonRelease)
+          .orderBy(desc(docPages.viewCount), asc(docPages.title))
+          .limit(HIGHLIGHT_LIMITS.repoTopViewed),
+        app.db
+          .select({
+            slug: docPages.slug,
+            title: docPages.title,
+            kind: docPages.kind,
+            viewCount: docPages.viewCount,
+          })
+          .from(docPages)
+          .where(visibleNonRelease)
+          .orderBy(desc(docPages.updatedAt))
+          .limit(HIGHLIGHT_LIMITS.repoRecentlyUpdated),
+        app.db
+          .select({
+            slug: docPages.slug,
+            title: docPages.title,
+            createdAt: docPages.createdAt,
+            significant: docPages.significant,
+          })
+          .from(docPages)
+          // Le release sono persistenti (generationId null): position decrescente
+          // nel tempo, quindi `position asc` mette in cima le più recenti.
+          .where(and(eq(docPages.repositoryId, repositoryId), eq(docPages.kind, "releases")))
+          .orderBy(asc(docPages.position))
+          .limit(HIGHLIGHT_LIMITS.repoReleases),
+      ]);
+
+      const countsByKind = emptyCountsByKind();
+      for (const row of counts) countsByKind[row.kind] = row.count;
+
+      return {
+        countsByKind,
+        topViewed,
+        recentlyUpdated,
+        latestReleases: releases.map((r) => ({
+          ...r,
+          createdAt: r.createdAt.toISOString(),
+          // Le release non appartengono a una generazione: nessun commitSha.
+          commitSha: null,
+        })),
+      };
     },
   );
 
