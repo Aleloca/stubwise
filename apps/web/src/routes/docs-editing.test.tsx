@@ -208,8 +208,8 @@ describe("editing pagine manuali (M7.3)", () => {
     await userEvent.click(screen.getByRole("button", { name: "Delete" }));
 
     await waitFor(() => expect(deleted).toBe(true));
-    // Indice dello spazio: placeholder "seleziona una pagina".
-    expect(await screen.findByText("Select a page")).toBeInTheDocument();
+    // Indice dello spazio: l'overview del repo (non più il placeholder).
+    expect(await screen.findByText("Documentation space")).toBeInTheDocument();
   });
 
   it("conflitto di slug (409): mostra l'errore dedicato", async () => {

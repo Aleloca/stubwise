@@ -1404,8 +1404,6 @@
       "groupManual": "Manuale",
       "groupReleases": "Releases",
       "groupEmpty": "// vuoto",
-      "selectPage": "Seleziona una pagina",
-      "selectPageHint": "Scegli una pagina dall'albero per leggerne la documentazione.",
       "documents": "documenta {{path}}",
       "generatedAtCommit": "generato al commit {{commit}}",
       "manualBadge": "pagina manuale",
@@ -1560,6 +1558,16 @@
       "impacted": "Pagine impattate",
       "bodyUnavailable": "Contenuto della release non disponibile.",
       "link": "Release"
+    },
+    "overview": {
+      "eyebrow": "Spazio documentazione",
+      "noBrief": "Nessun brief disponibile per questo repository: genera la documentazione per ottenerne una sintesi.",
+      "startHere": "Inizia da qui",
+      "briefMeta": "sintesi del prodotto",
+      "categories": "Categorie",
+      "whatsNew": "Novità",
+      "recentlyUpdated": "Aggiornate di recente",
+      "topViewed": "Più lette"
     }
   },
   "search": {

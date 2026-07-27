@@ -1404,8 +1404,6 @@
       "groupManual": "Manual",
       "groupReleases": "Releases",
       "groupEmpty": "// empty",
-      "selectPage": "Select a page",
-      "selectPageHint": "Pick a page from the tree to read its documentation.",
       "documents": "documents {{path}}",
       "generatedAtCommit": "generated at commit {{commit}}",
       "manualBadge": "manual page",
@@ -1560,6 +1558,16 @@
       "impacted": "Impacted pages",
       "bodyUnavailable": "Release content unavailable.",
       "link": "Releases"
+    },
+    "overview": {
+      "eyebrow": "Documentation space",
+      "noBrief": "No brief available for this repository: generate the documentation to get a summary.",
+      "startHere": "Start here",
+      "briefMeta": "product summary",
+      "categories": "Categories",
+      "whatsNew": "What's new",
+      "recentlyUpdated": "Recently updated",
+      "topViewed": "Most read"
     }
   },
   "search": {

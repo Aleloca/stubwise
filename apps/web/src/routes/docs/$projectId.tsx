@@ -5,13 +5,21 @@ import { useTranslation } from "react-i18next";
 import { DocsChat } from "../../components/docs-chat";
 import { DocsManualForm } from "../../components/docs-manual-form";
 import { DocsReleases } from "../../components/docs-releases";
+import { DocsRepoOverview } from "../../components/docs-repo-overview";
 import { DocsSidebar } from "../../components/docs-sidebar";
 import { Drawer } from "../../components/drawer";
 import { GlobalSearchPalette } from "../../components/global-search-palette";
 import { Markdown } from "../../components/markdown";
 import { ApiError } from "../../lib/api";
 import { type DocPage, type DocPageLink, deleteManualPage } from "../../lib/docs-api";
-import { docPageQueryOptions, docsKeys, docTreeQueryOptions } from "../../lib/queries";
+import {
+  docBriefQueryOptions,
+  docPageQueryOptions,
+  docRepoHighlightsQueryOptions,
+  docsKeys,
+  docSpacesQueryOptions,
+  docTreeQueryOptions,
+} from "../../lib/queries";
 import { useCloseOnRouteChange } from "../../lib/use-close-on-route-change";
 import { useMediaQuery } from "../../lib/use-media-query";
 
@@ -165,22 +173,32 @@ export function DocsSpaceLayout() {
 }
 
 /**
- * Indice dello spazio (`/docs/$projectId`, nessuno slug): stato "seleziona una
- * pagina". L'overview tecnica eventuale resta raggiungibile dall'albero; non
- * facciamo redirect automatico per non rincorrere uno slug che potrebbe non
- * esistere (es. spazi con sole pagine manuali).
+ * Indice dello spazio (`/docs/$projectId`, nessuno slug): l'OVERVIEW del repo —
+ * di cosa parla, da dove si comincia, cosa è cambiato. Niente redirect
+ * automatico a una pagina: lo slug "giusto" potrebbe non esistere (es. spazi con
+ * sole pagine manuali) e l'overview orienta meglio di una pagina a caso.
+ *
+ * Highlights e brief sono best-effort (`useQuery` non-suspense, niente retry sul
+ * brief che può legittimamente 404): l'overview si degrada, non esplode.
  */
 export function DocsSpaceIndex() {
-  const { t } = useTranslation();
+  const { projectId } = useParams({ from: "/authed/docs/$projectId" });
+  const { data: tree } = useSuspenseQuery(docTreeQueryOptions(projectId));
+  const { data: highlights } = useQuery(docRepoHighlightsQueryOptions(projectId));
+  const { data: briefResponse } = useQuery({ ...docBriefQueryOptions(projectId), retry: false });
+  // Il nome del repository vive nell'hub degli spazi (già in cache arrivando da
+  // /docs); se non c'è, l'overview mostra il fallback.
+  const { data: spaces } = useQuery(docSpacesQueryOptions);
+  const repoName = spaces?.find((space) => space.repositoryId === projectId)?.name;
+
   return (
-    <div className="grid h-full place-items-center p-8">
-      <div className="text-center">
-        <p className="font-mono text-[12px] tracking-[0.18em] text-fg-faint uppercase">
-          {t("docs:space.selectPage")}
-        </p>
-        <p className="mt-2 text-sm text-fg-muted">{t("docs:space.selectPageHint")}</p>
-      </div>
-    </div>
+    <DocsRepoOverview
+      projectId={projectId}
+      repoName={repoName}
+      tree={tree}
+      highlights={highlights}
+      brief={briefResponse?.brief ?? null}
+    />
   );
 }
 
