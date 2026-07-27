@@ -10,6 +10,7 @@ import { patchRepository, type RepositoryPatch } from "../../lib/api";
 import { meQueryOptions } from "../../lib/auth";
 import { formatDateTime } from "../../lib/format";
 import {
+  graphKeys,
   projectQueryOptions,
   repositoryQueryOptions,
   repositoryWebhookQueryOptions,
@@ -49,6 +50,11 @@ export function RepositoryDetailPage() {
     await queryClient.invalidateQueries({
       queryKey: projectQueryOptions(repository.projectId).queryKey,
     });
+    // Il toggle del knowledge graph decide cosa mostra la tab "Grafo" dello
+    // spazio Docs: si rilegge subito invece di aspettare lo staleTime.
+    if (patch.graphEnabled !== undefined) {
+      await queryClient.invalidateQueries({ queryKey: graphKeys.detail(repository.id) });
+    }
     setSaved(true);
   }
 
@@ -115,6 +121,7 @@ export function RepositoryDetailPage() {
                   gitAccountId: repository.gitAccountId,
                   testCommand: repository.testCommand,
                   installCommand: repository.installCommand,
+                  graphEnabled: repository.graphEnabled,
                 }}
                 onSubmit={handleSubmit}
               />

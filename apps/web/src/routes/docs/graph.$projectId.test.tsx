@@ -6,7 +6,7 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RepoGraph } from "../../lib/api";
@@ -23,14 +23,21 @@ import { DocsGraphView } from "./graph.$projectId";
  * dedicato, l'iframe sandbox e il report markdown nello stato pronto.
  */
 
-const { getMe, getRepoGraph, generateRepoGraph, openRepoGraphSetupPr, getRepoGraphReport } =
-  vi.hoisted(() => ({
-    getMe: vi.fn(),
-    getRepoGraph: vi.fn(),
-    generateRepoGraph: vi.fn(),
-    openRepoGraphSetupPr: vi.fn(),
-    getRepoGraphReport: vi.fn(),
-  }));
+const {
+  getMe,
+  getRepoGraph,
+  generateRepoGraph,
+  openRepoGraphSetupPr,
+  getRepoGraphReport,
+  getRepositories,
+} = vi.hoisted(() => ({
+  getMe: vi.fn(),
+  getRepoGraph: vi.fn(),
+  generateRepoGraph: vi.fn(),
+  openRepoGraphSetupPr: vi.fn(),
+  getRepoGraphReport: vi.fn(),
+  getRepositories: vi.fn(),
+}));
 
 vi.mock("../../lib/api", async (importActual) => {
   const actual = await importActual<typeof import("../../lib/api")>();
@@ -41,6 +48,7 @@ vi.mock("../../lib/api", async (importActual) => {
     generateRepoGraph,
     openRepoGraphSetupPr,
     getRepoGraphReport,
+    getRepositories,
   };
 });
 
@@ -77,16 +85,26 @@ function renderGraph(role: "admin" | "member" = "admin") {
     path: "/graph",
     component: DocsGraphView,
   });
-  // La CTA dello stato "spento" punta a /team: la rotta deve esistere nel
-  // router di test, altrimenti il Link non risolve l'href.
-  const teamRoute = createRoute({
+  // La CTA dello stato "spento" punta al dettaglio del repository (per slug),
+  // con l'elenco come ripiego: entrambe le rotte devono esistere nel router di
+  // test, altrimenti il Link non risolve l'href.
+  const repositoriesRoute = createRoute({
     getParentRoute: () => authedRoute,
-    path: "/team",
+    path: "/repositories",
+    component: () => null,
+  });
+  const repositoryRoute = createRoute({
+    getParentRoute: () => authedRoute,
+    path: "/repositories/$slug",
     component: () => null,
   });
   const router = createRouter({
     routeTree: rootRoute.addChildren([
-      authedRoute.addChildren([spaceRoute.addChildren([graphRoute]), teamRoute]),
+      authedRoute.addChildren([
+        spaceRoute.addChildren([graphRoute]),
+        repositoriesRoute,
+        repositoryRoute,
+      ]),
     ]),
     history: createMemoryHistory({ initialEntries: [`/docs/${REPO_ID}/graph`] }),
   });
@@ -101,6 +119,8 @@ beforeEach(() => {
   generateRepoGraph.mockResolvedValue({ queued: true });
   openRepoGraphSetupPr.mockResolvedValue({ queued: true });
   getRepoGraphReport.mockResolvedValue("## Community 1\n\nAuth and sessions.");
+  // La CTA "spento" traduce l'id del repository in slug via la lista.
+  getRepositories.mockResolvedValue([{ id: REPO_ID, slug: "demo-shop" }]);
 });
 
 afterEach(() => {
@@ -109,29 +129,49 @@ afterEach(() => {
   generateRepoGraph.mockReset();
   openRepoGraphSetupPr.mockReset();
   getRepoGraphReport.mockReset();
+  getRepositories.mockReset();
 });
 
 describe("DocsGraphView", () => {
-  it("toggle spento (admin): spiegazione + link a /team, nessun bottone di generazione", async () => {
+  it("toggle spento (admin): spiegazione + link al repository, nessun bottone di generazione", async () => {
     getRepoGraph.mockResolvedValue(graph({ enabled: false, status: "none" }));
     renderGraph("admin");
 
     expect(await screen.findByText("Graph not enabled")).toBeInTheDocument();
     expect(screen.getByText("This repository has no code graph yet.")).toBeInTheDocument();
-    const cta = screen.getByRole("link", { name: "Enable it in Team" });
-    expect(cta).toHaveAttribute("href", "/team");
+    // La CTA porta dove vive il toggle: il dettaglio del repository.
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: "Enable it in the repository" })).toHaveAttribute(
+        "href",
+        "/repositories/demo-shop",
+      ),
+    );
     expect(screen.queryByRole("button", { name: "Generate graph" })).not.toBeInTheDocument();
   });
 
-  it("toggle spento (membro): nota 'chiedi a un admin', nessuna CTA a /team", async () => {
+  it("toggle spento (admin): senza lo slug in lista la CTA ripiega sull'elenco", async () => {
+    getRepoGraph.mockResolvedValue(graph({ enabled: false, status: "none" }));
+    getRepositories.mockResolvedValue([]);
+    renderGraph("admin");
+
+    expect(await screen.findByText("Graph not enabled")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Enable it in the repository" })).toHaveAttribute(
+      "href",
+      "/repositories",
+    );
+  });
+
+  it("toggle spento (membro): nota 'chiedi a un admin', nessuna CTA al repository", async () => {
     getRepoGraph.mockResolvedValue(graph({ enabled: false, status: "none" }));
     renderGraph("member");
 
     expect(await screen.findByText("Graph not enabled")).toBeInTheDocument();
+    expect(screen.getByText("Ask an admin to enable it for this repository.")).toBeInTheDocument();
     expect(
-      screen.getByText("Ask an admin to enable it for this repository."),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Enable it in Team" })).not.toBeInTheDocument();
+      screen.queryByRole("link", { name: "Enable it in the repository" }),
+    ).not.toBeInTheDocument();
+    // Il membro non deve nemmeno interrogare la lista dei repository.
+    expect(getRepositories).not.toHaveBeenCalled();
   });
 
   it("mai generato (admin): il bottone accoda una build NON forzata", async () => {

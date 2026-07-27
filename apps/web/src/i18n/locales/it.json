@@ -1186,6 +1186,8 @@
       "testCommandHint": "// vuoto = auto-detect (script test del package.json).",
       "installCommand": "Comando di installazione (opzionale)",
       "installCommandHint": "// vuoto = auto-rilevato dal lockfile.",
+      "graph": "Knowledge graph del codice",
+      "graphHint": "// estrae il grafo del codice a ogni push sul branch di default; lo trovi nella tab \"Grafo\" della documentazione.",
       "save": "Salva modifiche",
       "saving": "Salvataggio…"
     },
@@ -1487,7 +1489,7 @@
       "description": "Una mappa dei simboli del repository e delle loro relazioni, estratta dal codice da graphify.",
       "disabledTitle": "Grafo non abilitato",
       "disabledHint": "Questo repository non ha ancora un grafo del codice.",
-      "disabledCta": "Abilitalo in Team",
+      "disabledCta": "Abilitalo nel repository",
       "disabledMemberHint": "Chiedi a un admin di abilitarlo per questo repository.",
       "neverTitle": "Grafo mai generato",
       "neverHint": "Generalo per esplorare la struttura del repository e ottenere il report delle sue comunità.",

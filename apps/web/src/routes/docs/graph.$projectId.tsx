@@ -13,7 +13,12 @@ import {
 } from "../../lib/api";
 import { meQueryOptions } from "../../lib/auth";
 import { formatDateTime, formatRelativeTime } from "../../lib/format";
-import { graphKeys, repoGraphQueryOptions, repoGraphReportQueryOptions } from "../../lib/queries";
+import {
+  graphKeys,
+  repoGraphQueryOptions,
+  repoGraphReportQueryOptions,
+  repositoriesQueryOptions,
+} from "../../lib/queries";
 
 /**
  * TAB "GRAFO" dello spazio Docs (`/docs/$projectId/graph`, dove `$projectId` è
@@ -21,7 +26,8 @@ import { graphKeys, repoGraphQueryOptions, repoGraphReportQueryOptions } from ".
  * graph del codice estratto da graphify.
  *
  * Cinque stati, dallo stesso `repoGraphQueryOptions`:
- * 1. toggle spento → spiegazione + rimando a /team (solo admin);
+ * 1. toggle spento → spiegazione + rimando al dettaglio del repository, dove
+ *    vive il toggle `graphEnabled` (solo admin);
  * 2. mai generato → descrizione + "Genera grafo" (solo admin);
  * 3. build in corso (queued/running o `jobPending`) → badge di stato; il
  *    polling è già nel `refetchInterval` delle query options, la pagina si
@@ -78,7 +84,7 @@ export function DocsGraphView() {
       </header>
 
       {!graph.enabled ? (
-        <DisabledPanel isAdmin={isAdmin} />
+        <DisabledPanel isAdmin={isAdmin} repositoryId={projectId} />
       ) : graph.status === "done" ? (
         <ReadyView
           repositoryId={projectId}
@@ -198,23 +204,32 @@ function GenerateError() {
 
 /**
  * Toggle `graphEnabled` spento: nulla è mai stato generato. All'admin diamo il
- * link a /team (dove vive il toggle per repository), al membro l'indicazione di
- * chiederlo a un admin.
+ * link al dettaglio del repository (dove vive il toggle, accanto ai comandi di
+ * install/test), al membro l'indicazione di chiederlo a un admin.
+ *
+ * Il dettaglio si raggiunge per SLUG mentre qui abbiamo solo l'id: lo traduce
+ * la lista dei repository (già in cache nella maggior parte dei percorsi).
+ * Finché non è disponibile la CTA punta all'elenco, che resta navigabile.
  */
-function DisabledPanel({ isAdmin }: { isAdmin: boolean }) {
+function DisabledPanel({ isAdmin, repositoryId }: { isAdmin: boolean; repositoryId: string }) {
   const { t } = useTranslation();
+  const { data: repositories } = useQuery({ ...repositoriesQueryOptions(), enabled: isAdmin });
+  const slug = repositories?.find((repository) => repository.id === repositoryId)?.slug;
+  const ctaClass =
+    "mt-3 inline-block rounded-sm border border-line-strong px-2 py-1 font-mono text-[11px] tracking-[0.06em] text-fg-muted uppercase transition-colors hover:border-signal/40 hover:text-signal";
   return (
     <Panel title={t("docs:graph.disabledTitle")}>
       <p className="text-sm text-fg-muted">{t("docs:graph.disabledHint")}</p>
-      {isAdmin ? (
-        <Link
-          to="/team"
-          className="mt-3 inline-block rounded-sm border border-line-strong px-2 py-1 font-mono text-[11px] tracking-[0.06em] text-fg-muted uppercase transition-colors hover:border-signal/40 hover:text-signal"
-        >
+      {!isAdmin ? (
+        <p className="mt-2 text-sm text-fg-muted">{t("docs:graph.disabledMemberHint")}</p>
+      ) : slug ? (
+        <Link to="/repositories/$slug" params={{ slug }} className={ctaClass}>
           {t("docs:graph.disabledCta")}
         </Link>
       ) : (
-        <p className="mt-2 text-sm text-fg-muted">{t("docs:graph.disabledMemberHint")}</p>
+        <Link to="/repositories" className={ctaClass}>
+          {t("docs:graph.disabledCta")}
+        </Link>
       )}
     </Panel>
   );

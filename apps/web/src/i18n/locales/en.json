@@ -1186,6 +1186,8 @@
       "testCommandHint": "// empty = auto-detect (package.json test script).",
       "installCommand": "Install command (optional)",
       "installCommandHint": "// empty = auto-detected from the lockfile.",
+      "graph": "Code knowledge graph",
+      "graphHint": "// extracts the code graph on every push to the default branch; you find it in the \"Graph\" tab of the documentation.",
       "save": "Save changes",
       "saving": "Saving…"
     },
@@ -1487,7 +1489,7 @@
       "description": "A map of the repository's symbols and their relationships, extracted from the code by graphify.",
       "disabledTitle": "Graph not enabled",
       "disabledHint": "This repository has no code graph yet.",
-      "disabledCta": "Enable it in Team",
+      "disabledCta": "Enable it in the repository",
       "disabledMemberHint": "Ask an admin to enable it for this repository.",
       "neverTitle": "Graph never generated",
       "neverHint": "Generate it to explore the repository's structure and get a report of its communities.",
