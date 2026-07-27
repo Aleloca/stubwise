@@ -172,22 +172,24 @@ describe("spazio documentazione", () => {
     expect(screen.getByRole("button", { name: /Functional \d/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Manual \d/ })).toBeInTheDocument();
 
-    // Le pagine dell'albero (overview tecnica + modulo annidato, funzionale, manuale).
+    // La categoria attiva (technical) mostra le sue pagine, incluso l'annidamento.
     const overview = screen.getByRole("link", { name: "Technical overview" });
     const authModule = screen.getByRole("link", { name: "Auth module" });
     expect(overview).toBeInTheDocument();
     expect(authModule).toBeInTheDocument();
+    // Le altre categorie sono dietro la loro tab: una sola per volta.
+    expect(screen.queryByRole("link", { name: "Functional overview" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Functional \d/ }));
     expect(screen.getByRole("link", { name: "Functional overview" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Manual \d/ }));
     expect(screen.getByRole("link", { name: "Getting started" })).toBeInTheDocument();
 
     // I link puntano allo slug.
-    expect(authModule).toHaveAttribute(
+    await userEvent.click(screen.getByRole("button", { name: /Technical \d/ }));
+    expect(screen.getByRole("link", { name: "Auth module" })).toHaveAttribute(
       "href",
       `/docs/${PROJECT_ID}/module-auth`,
     );
-
-    // Indice: placeholder "seleziona una pagina".
-    expect(screen.getByText("Select a page")).toBeInTheDocument();
   });
 
   it("naviga a una pagina: render markdown + badge sorgente/commit", async () => {
@@ -215,8 +217,8 @@ describe("spazio documentazione", () => {
     const authModule = await screen.findByRole("link", { name: "Auth module" });
     await waitFor(() => expect(authModule).toHaveAttribute("data-status", "active"));
 
-    // Un'altra pagina non è attiva.
-    expect(screen.getByRole("link", { name: "Functional overview" })).not.toHaveAttribute(
+    // Un'altra pagina della stessa categoria non è attiva.
+    expect(screen.getByRole("link", { name: "Technical overview" })).not.toHaveAttribute(
       "data-status",
       "active",
     );

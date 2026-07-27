@@ -7,7 +7,7 @@ import {
 } from "@tanstack/react-router";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { DocTreeNode } from "../lib/docs-api";
 import { DocsTree } from "./docs-tree";
 
@@ -35,7 +35,7 @@ function node(
   };
 }
 
-function renderTree(nodes: DocTreeNode[]) {
+function renderTree(nodes: DocTreeNode[], initialPath = "/") {
   const rootRoute = createRootRoute({
     component: () => <DocsTree projectId={PROJECT_ID} nodes={nodes} />,
   });
@@ -44,12 +44,16 @@ function renderTree(nodes: DocTreeNode[]) {
   const pageRoute = createRoute({ getParentRoute: () => spaceRoute, path: "/$slug" });
   const router = createRouter({
     routeTree: rootRoute.addChildren([spaceRoute.addChildren([pageRoute])]),
-    history: createMemoryHistory({ initialEntries: ["/"] }),
+    history: createMemoryHistory({ initialEntries: [initialPath] }),
   });
   render(<RouterProvider router={router} />);
 }
 
 describe("DocsTree", () => {
+  // La categoria scelta è ricordata per repository: azzeriamo tra i test così
+  // ognuno parte dal default (prima categoria disponibile).
+  beforeEach(() => localStorage.clear());
+
   it("rende i quattro gruppi con conteggio e annida i figli sotto il parent", async () => {
     renderTree([
       node({ id: "t1", slug: "tech-overview", title: "Technical overview", kind: "technical" }),
@@ -181,16 +185,45 @@ describe("DocsTree", () => {
     expect(screen.getByRole("link", { name: "Sibling" })).toBeInTheDocument();
   });
 
-  it("gruppo vuoto: mostra il placeholder vuoto", async () => {
+  it("categoria senza pagine: nessuna tab per quella categoria", async () => {
     renderTree([node({ id: "t1", slug: "t", title: "Tech", kind: "technical" })]);
 
-    // Manuale è vuoto: chiuso di default, lo si apre per vedere il placeholder.
-    const manual = await screen.findByRole("button", { name: /Manual 0/ });
-    await userEvent.click(manual);
-    expect(screen.getByText("// empty")).toBeInTheDocument();
+    // Solo la tab Technical: le categorie vuote non compaiono affatto.
+    expect(await screen.findByRole("button", { name: /Technical 1/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Manual/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Functional/ })).not.toBeInTheDocument();
   });
 
-  it("mostra il bottone di download ZIP accanto alle categorie con pagine, con l'href corretto", async () => {
+  it("mostra una categoria per volta e cambia contenuto al click sulla tab", async () => {
+    renderTree([
+      node({ id: "t1", slug: "tech", title: "Tech page", kind: "technical" }),
+      node({ id: "f1", slug: "func", title: "Func page", kind: "functional" }),
+    ]);
+
+    // All'ingresso senza pagina attiva: prima categoria disponibile (technical).
+    expect(await screen.findByRole("link", { name: "Tech page" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Func page" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /Functional 1/ }));
+    expect(screen.getByRole("link", { name: "Func page" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Tech page" })).not.toBeInTheDocument();
+  });
+
+  it("la tab attiva segue il kind della pagina aperta", async () => {
+    renderTree(
+      [
+        node({ id: "t1", slug: "tech", title: "Tech page", kind: "technical" }),
+        node({ id: "p1", slug: "prod", title: "Product page", kind: "product" }),
+      ],
+      "/docs/" + PROJECT_ID + "/prod",
+    );
+
+    // Entrando su una pagina product, l'albero mostra la categoria Product.
+    expect(await screen.findByRole("link", { name: "Product page" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Tech page" })).not.toBeInTheDocument();
+  });
+
+  it("mostra il download ZIP della categoria attiva, con l'href corretto", async () => {
     renderTree([
       node({ id: "t1", slug: "tech", title: "Tech", kind: "technical" }),
       node({ id: "f1", slug: "func", title: "Func", kind: "functional" }),
@@ -203,8 +236,9 @@ describe("DocsTree", () => {
     );
     expect(techDownload).toHaveAttribute("download");
 
-    const funcDownload = screen.getByRole("link", { name: /Functional/i });
-    expect(funcDownload).toHaveAttribute(
+    // Cambiando categoria il download segue la tab attiva.
+    await userEvent.click(screen.getByRole("button", { name: /Functional 1/ }));
+    expect(screen.getByRole("link", { name: /Functional/i })).toHaveAttribute(
       "href",
       `/api/repositories/${PROJECT_ID}/docs/export?kind=functional`,
     );
@@ -214,11 +248,11 @@ describe("DocsTree", () => {
     renderTree([node({ id: "t1", slug: "tech", title: "Tech", kind: "technical" })]);
 
     await screen.findByRole("button", { name: /Technical 1/ });
-    // Manual/Functional/Releases sono vuoti: nessun link di export per loro.
+    // Manual/Functional/Releases sono vuoti: nessuna tab, quindi nessun export.
     expect(
       screen.queryByRole("link", { name: /Manual.*\.md.*zip|Manual.*zip/i }),
     ).not.toBeInTheDocument();
-    // Un solo link di download in totale (solo la technical).
+    // Un solo link di download in totale (la categoria attiva).
     const downloads = screen
       .getAllByRole("link")
       .filter((l) => l.getAttribute("href")?.includes("/docs/export"));
@@ -226,15 +260,4 @@ describe("DocsTree", () => {
     expect(downloads[0]).toHaveAttribute("href", expect.stringContaining("kind=technical"));
   });
 
-  it("cliccare il download non apre/chiude la sezione (non triggera il toggle)", async () => {
-    renderTree([node({ id: "t1", slug: "tech", title: "Tech", kind: "technical" })]);
-
-    // La sezione technical è aperta di default (ha pagine): il link è visibile.
-    const link = await screen.findByRole("link", { name: "Tech" });
-    expect(link).toBeInTheDocument();
-
-    // Click sul download: la sezione resta aperta (il contenuto resta montato).
-    await userEvent.click(screen.getByRole("link", { name: /Technical/i }));
-    expect(screen.getByRole("link", { name: "Tech" })).toBeInTheDocument();
-  });
 });
