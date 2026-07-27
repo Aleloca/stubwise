@@ -2,6 +2,7 @@ import { repositories, type Db, type GraphJob } from "@stubwise/db";
 import { eq } from "drizzle-orm";
 import type { ProjectSerializer } from "../handler.js";
 import { runGraphBuild, type GraphBuildDeps } from "./build.js";
+import { runGraphSetupPr, type GraphSetupPrDeps } from "./setup-pr.js";
 import {
   claimNextGraphJob,
   completeGraphJob,
@@ -25,12 +26,13 @@ import {
  *  - il labeling delle comunità usa il claude CLI, quindi una build non deve
  *    sovrapporsi ai run agente dello stesso progetto.
  *
- * DIVISIONE COL RUNNER (vedi build.ts): `runGraphBuild` ritorna `true` = build
- * riuscita, e la chiusura `done` la fa QUI (uniforme per tutti i kind);
- * `false` = fallita e GIÀ chiusa `failed` dal runner (con `repo_graphs`
- * allineato), quindi il poller non tocca più il job. Solo un'eccezione
- * IMPREVISTA (il runner cattura tutto il resto) risale fin qui e viene chiusa
- * `failed` dal poller.
+ * DIVISIONE COL RUNNER (vedi build.ts e setup-pr.ts): entrambi i runner tornano
+ * `true` = riuscito, e la chiusura `done` la fa QUI (uniforme per tutti i kind);
+ * `false` = fallito e GIÀ chiuso `failed` dal runner, quindi il poller non tocca
+ * più il job. Differenza tra i due: la build allinea anche `repo_graphs`
+ * (`failed`), la PR di setup NO — il grafo resta `done` e valido, a fallire è
+ * solo la PR. Solo un'eccezione IMPREVISTA (i runner catturano tutto il resto)
+ * risale fin qui e viene chiusa `failed` dal poller.
  *
  * TENTATIVI: a differenza del backlog, `attempts` NON si incrementa al claim ma
  * nel RECOVERY (vedi queue.ts) — un job portato a termine nel giro normale non
@@ -57,13 +59,21 @@ import {
  */
 export type RunGraphBuildFn = (deps: GraphBuildDeps, job: GraphJob) => Promise<boolean>;
 
-export interface GraphPollerDeps extends GraphBuildDeps {
+/**
+ * Esecutore della PR di setup. Default: {@link runGraphSetupPr}; iniettabile via
+ * `GraphPollerDeps.runGraphSetupPrFn` per testare la sola coda con un fake.
+ */
+export type RunGraphSetupPrFn = (deps: GraphSetupPrDeps, job: GraphJob) => Promise<boolean>;
+
+export interface GraphPollerDeps extends GraphSetupPrDeps {
   /** Catena per-progetto CONDIVISA col fix/doc-generation/review/backlog. */
   serializer: ProjectSerializer;
   /** Minuti oltre cui un `running` è orfano. Default GRAPH_STALE_MINUTES. */
   staleMinutes?: number;
   /** Esecutore della build, iniettabile nei test. Default runGraphBuild. */
   runGraphBuildFn?: RunGraphBuildFn;
+  /** Esecutore della PR di setup, iniettabile nei test. Default runGraphSetupPr. */
+  runGraphSetupPrFn?: RunGraphSetupPrFn;
   /** Stop cooperativo: interrompe il drain a metà tick. */
   signal?: AbortSignal;
 }
@@ -101,11 +111,13 @@ async function dispatchGraphJob(deps: GraphPollerDeps, job: GraphJob): Promise<b
     return true;
   }
   if (job.kind === "setup_pr") {
-    // TODO(Task 7): apertura della PR di configurazione graphify sul repository.
-    // Finché non esiste il runner, il job viene chiuso `failed` con un errore
-    // esplicito invece di restare in coda per sempre.
-    await failGraphJob(deps.db, job.id, "setup_pr non ancora implementato");
-    return false;
+    const runGraphSetupPrFn = deps.runGraphSetupPrFn ?? runGraphSetupPr;
+    const ok = await runGraphSetupPrFn(deps, job);
+    // false = il runner ha già chiuso il job `failed`. A differenza della build
+    // NON tocca `repo_graphs`: il grafo resta `done` (vedi setup-pr.ts).
+    if (!ok) return false;
+    await completeGraphJob(deps.db, job.id);
+    return true;
   }
   // Difensivo: `kind` è vincolato a compile-time (colonna text con enum TS), ma
   // una riga scritta da una versione futura non deve bloccare la coda.

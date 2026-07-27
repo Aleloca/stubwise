@@ -11,6 +11,7 @@ import {
   claimNextGraphJob,
   completeGraphJob,
   failGraphJob,
+  failGraphJobOnly,
   GRAPH_ERROR_MAX_CHARS,
   GRAPH_STALE_MINUTES,
   MAX_GRAPH_ATTEMPTS,
@@ -342,5 +343,45 @@ describe("failGraphJob", () => {
     expect((await getJob(db, id)).status).toBe("queued");
     // Nessuna scrittura collaterale sullo stato del grafo.
     expect(await getGraph(db, repositoryId)).toBeUndefined();
+  });
+});
+
+describe("failGraphJobOnly", () => {
+  it("fallisce SOLO il job: repo_graphs resta com'è (grafo done e valido)", async () => {
+    const db = testDb.db;
+    const { repositoryId } = await seedRepository(db);
+    await db.insert(repoGraphs).values({ repositoryId, status: "done", commitSha: "abc1234" });
+    const id = await insertJob(db, { repositoryId, kind: "setup_pr" });
+    await claimNextGraphJob(db);
+
+    const returned = await failGraphJobOnly(db, id, "apertura PR fallita: 403");
+
+    expect(returned).toBe(repositoryId);
+    const job = await getJob(db, id);
+    expect(job.status).toBe("failed");
+    expect(job.error).toBe("apertura PR fallita: 403");
+    const graph = await getGraph(db, repositoryId);
+    expect(graph?.status).toBe("done");
+    expect(graph?.error).toBeNull();
+  });
+
+  it("tronca l'errore come failGraphJob", async () => {
+    const db = testDb.db;
+    const { repositoryId } = await seedRepository(db);
+    const id = await insertJob(db, { repositoryId });
+    await claimNextGraphJob(db);
+
+    await failGraphJobOnly(db, id, "y".repeat(GRAPH_ERROR_MAX_CHARS * 2));
+
+    expect((await getJob(db, id)).error!.length).toBeLessThanOrEqual(GRAPH_ERROR_MAX_CHARS + 40);
+  });
+
+  it("non tocca un job che non è più running e restituisce null", async () => {
+    const db = testDb.db;
+    const { repositoryId } = await seedRepository(db);
+    const id = await insertJob(db, { repositoryId, status: "queued" });
+
+    expect(await failGraphJobOnly(db, id, "boom")).toBeNull();
+    expect((await getJob(db, id)).status).toBe("queued");
   });
 });

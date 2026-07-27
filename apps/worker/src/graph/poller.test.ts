@@ -1,16 +1,18 @@
-import { gitAccounts, graphJobs, projects, type Db, type GraphJob } from "@stubwise/db";
+import { gitAccounts, graphJobs, projects, repoGraphs, type Db, type GraphJob } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { randomBytes } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createProjectSerializer, type ProjectSerializer } from "../handler.js";
 import type { GraphBuildDeps } from "./build.js";
-import { failGraphJob, GRAPH_STALE_MINUTES, MAX_GRAPH_ATTEMPTS } from "./queue.js";
+import type { GraphSetupPrDeps } from "./setup-pr.js";
+import { failGraphJob, failGraphJobOnly, GRAPH_STALE_MINUTES, MAX_GRAPH_ATTEMPTS } from "./queue.js";
 import {
   pollGraphJobsOnce,
   startGraphPoller,
   type GraphPollerDeps,
   type RunGraphBuildFn,
+  type RunGraphSetupPrFn,
 } from "./poller.js";
 
 vi.setConfig({ testTimeout: 60_000 });
@@ -35,15 +37,16 @@ afterAll(async () => {
 
 const silentLogger = { warn: () => {}, error: () => {} };
 
-/** Mirror/CLI non devono MAI essere toccati: il runner della build è mockato. */
+/** Mirror/CLI non devono MAI essere toccati: i runner del grafo sono mockati. */
+const boom = async (): Promise<never> => {
+  throw new Error("mirrors non deve essere usato: i runner del grafo sono mockati");
+};
 const explodingMirrors = {
-  resolveDefaultBranchHead: async () => {
-    throw new Error("mirrors non deve essere usato: runGraphBuild è mockato");
-  },
-  withWorktreeAtSha: async () => {
-    throw new Error("mirrors non deve essere usato: runGraphBuild è mockato");
-  },
-} as unknown as GraphBuildDeps["mirrors"];
+  resolveDefaultBranchHead: boom,
+  withWorktreeAtSha: boom,
+  openWorktree: boom,
+  pushBranch: boom,
+} as unknown as GraphPollerDeps["mirrors"];
 
 const explodingGraphify: GraphBuildDeps["graphify"] = async () => {
   throw new Error("il CLI graphify non deve essere invocato: runGraphBuild è mockato");
@@ -157,19 +160,44 @@ describe("pollGraphJobsOnce", () => {
     expect(job.error).toBe("extract fallito");
   });
 
-  it("kind setup_pr: fallito con 'non ancora implementato' (arriva col Task 7)", async () => {
+  it("kind setup_pr: esegue il runner della PR di setup e chiude done", async () => {
     const db = testDb.db;
     const { repositoryId } = await seedRepository(db);
     const id = await insertJob(db, { repositoryId, kind: "setup_pr" });
 
-    const runGraphBuildFn = vi.fn(async () => true);
-    const done = await pollGraphJobsOnce(makeDeps(db, { runGraphBuildFn }));
+    const runGraphBuildFn = vi.fn<RunGraphBuildFn>(async () => true);
+    const runGraphSetupPrFn = vi.fn<RunGraphSetupPrFn>(async () => true);
+    const done = await pollGraphJobsOnce(makeDeps(db, { runGraphBuildFn, runGraphSetupPrFn }));
+
+    expect(done).toBe(1);
+    expect(runGraphBuildFn).not.toHaveBeenCalled();
+    expect(runGraphSetupPrFn).toHaveBeenCalledTimes(1);
+    expect(runGraphSetupPrFn.mock.calls[0]![1]).toMatchObject({ id, kind: "setup_pr", status: "running" });
+    const job = await getJob(db, id);
+    expect(job.status).toBe("done");
+    expect(job.error).toBeNull();
+  });
+
+  it("PR di setup fallita (false): job failed, ma repo_graphs NON viene toccata", async () => {
+    const db = testDb.db;
+    const { repositoryId } = await seedRepository(db);
+    // Grafo pronto: un fallimento della PR non deve invalidarlo.
+    await db.insert(repoGraphs).values({ repositoryId, status: "done" });
+    const id = await insertJob(db, { repositoryId, kind: "setup_pr" });
+
+    // Contratto del runner: su fallimento chiude LUI il job (solo il job).
+    const runGraphSetupPrFn = vi.fn(async (deps: GraphSetupPrDeps, job: GraphJob) => {
+      await failGraphJobOnly(deps.db, job.id, "apertura PR fallita");
+      return false;
+    });
+    const done = await pollGraphJobsOnce(makeDeps(db, { runGraphSetupPrFn }));
 
     expect(done).toBe(0);
-    expect(runGraphBuildFn).not.toHaveBeenCalled();
     const job = await getJob(db, id);
     expect(job.status).toBe("failed");
-    expect(job.error).toMatch(/non ancora implementato/i);
+    expect(job.error).toBe("apertura PR fallita");
+    const [graph] = await db.select().from(repoGraphs).where(eq(repoGraphs.repositoryId, repositoryId));
+    expect(graph?.status).toBe("done");
   });
 
   it("un'eccezione del runner fallisce SOLO quel job e il tick prosegue col successivo", async () => {

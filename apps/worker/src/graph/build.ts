@@ -115,9 +115,14 @@ export function parseExtractCounts(output: string): GraphCounts | null {
 /**
  * Carica il MirrorProject del repository (credenziali git decifrate). Repository
  * inesistente o credenziali illeggibili → throw: la build fallisce con un errore
- * leggibile in UI (nessun retry applicativo, il job è terminale).
+ * leggibile in UI (nessun retry applicativo, il job è terminale). Condivisa col
+ * runner della PR di setup (`setup-pr.ts`): chiede solo db + chiave, non l'intero
+ * set di dipendenze della build.
  */
-async function loadMirrorProject(deps: GraphBuildDeps, repositoryId: string): Promise<MirrorProject> {
+export async function loadMirrorProject(
+  deps: Pick<GraphBuildDeps, "db" | "encryptionKey">,
+  repositoryId: string,
+): Promise<MirrorProject> {
   const [row] = await deps.db
     .select({ repository: repositories, account: gitAccounts })
     .from(repositories)

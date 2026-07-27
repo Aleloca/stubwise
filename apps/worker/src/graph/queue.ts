@@ -148,18 +148,36 @@ export async function completeGraphJob(db: Db, jobId: string): Promise<void> {
 }
 
 /**
- * Chiude il job come `failed` con l'errore (troncato) e riflette il fallimento
- * su `repo_graphs`. Status-guarded su `running` come completeGraphJob: se il job
- * non è più suo non si scrive nulla, nemmeno lo stato del grafo (sarebbe un
- * fallimento fantasma per la UI).
+ * Chiude SOLO il job come `failed` con l'errore (troncato), senza toccare
+ * `repo_graphs`. Status-guarded su `running` come completeGraphJob: se il job non
+ * è più suo non si scrive nulla. Restituisce il `repositoryId` del job chiuso, o
+ * null se non c'era nulla da chiudere.
+ *
+ * È la variante da usare quando il fallimento NON riguarda il grafo: il job
+ * `setup_pr` fallisce (worktree, git, provider) mentre il grafo estratto resta
+ * `done` e perfettamente valido — marcarlo `failed` mostrerebbe in UI un grafo
+ * rotto che rotto non è. L'errore del setup si legge dallo stato del JOB (che il
+ * server espone a parte).
  */
-export async function failGraphJob(db: Db, jobId: string, error: string): Promise<void> {
+export async function failGraphJobOnly(db: Db, jobId: string, error: string): Promise<string | null> {
   const message = truncateError(error);
   const [job] = await db
     .update(graphJobs)
     .set({ status: "failed", error: message, updatedAt: sql`now()` })
     .where(and(eq(graphJobs.id, jobId), eq(graphJobs.status, "running")))
     .returning({ repositoryId: graphJobs.repositoryId });
-  if (!job) return;
-  await markRepoGraphFailed(db, job.repositoryId, message);
+  return job?.repositoryId ?? null;
+}
+
+/**
+ * Chiude il job come `failed` con l'errore (troncato) e riflette il fallimento
+ * su `repo_graphs`. Status-guarded su `running` come completeGraphJob: se il job
+ * non è più suo non si scrive nulla, nemmeno lo stato del grafo (sarebbe un
+ * fallimento fantasma per la UI). Per i fallimenti che NON invalidano il grafo
+ * usare {@link failGraphJobOnly}.
+ */
+export async function failGraphJob(db: Db, jobId: string, error: string): Promise<void> {
+  const repositoryId = await failGraphJobOnly(db, jobId, error);
+  if (!repositoryId) return;
+  await markRepoGraphFailed(db, repositoryId, truncateError(error));
 }
