@@ -313,34 +313,39 @@ export function DocsTree({
   return (
     <nav className="flex min-w-0 flex-col gap-2" aria-label={t("docs:space.back")}>
       {/* Tab di categoria: una sola categoria per volta, così l'albero resta
-          corto e leggibile anche su repo con centinaia di pagine. */}
-      <div className="flex flex-wrap items-center gap-x-1 gap-y-1 border-b border-line pb-2">
-        {available.map((kind) => {
-          const count = nodes.filter((node) => node.kind === kind).length;
-          const isActive = kind === activeKind;
-          return (
-            <button
-              key={kind}
-              type="button"
-              onClick={() => selectKind(kind)}
-              aria-pressed={isActive}
-              className={`rounded-sm px-1.5 py-1 font-mono text-[10px] tracking-[0.1em] uppercase transition-colors ${
-                isActive
-                  ? "bg-ink-800 text-fg"
-                  : "text-fg-faint hover:bg-ink-850 hover:text-fg-muted"
-              }`}
-            >
-              {t(GROUP_LABEL_KEY[kind])}{" "}
-              <span className={isActive ? "text-fg-muted" : "text-fg-faint"}>{count}</span>
-            </button>
-          );
-        })}
+          corto e leggibile anche su repo con centinaia di pagine. Sono TAB vere
+          (tablist/tab + sottolineatura sull'attiva): il solo sfondo diverso non
+          bastava a far capire che si può cambiare vista. */}
+      <div className="-mx-1 flex items-end justify-between gap-2 border-b border-line-strong px-1">
+        <div role="tablist" aria-label={t("docs:space.categories")} className="flex min-w-0 flex-wrap">
+          {available.map((kind) => {
+            const count = nodes.filter((node) => node.kind === kind).length;
+            const isActive = kind === activeKind;
+            return (
+              <button
+                key={kind}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => selectKind(kind)}
+                className={`-mb-px border-b-2 px-2 py-1.5 font-mono text-[10px] tracking-[0.1em] uppercase transition-colors ${
+                  isActive
+                    ? "border-signal text-fg"
+                    : "border-transparent text-fg-faint hover:border-line-strong hover:text-fg-muted"
+                }`}
+              >
+                {t(GROUP_LABEL_KEY[kind])}{" "}
+                <span className={isActive ? "text-signal" : "text-fg-faint"}>{count}</span>
+              </button>
+            );
+          })}
+        </div>
         <a
           href={`/api/repositories/${projectId}/docs/export?kind=${activeKind}`}
           download
           aria-label={downloadLabel}
           title={downloadLabel}
-          className="ml-auto flex items-center gap-1 rounded-sm px-1.5 py-1 font-mono text-[10px] tracking-[0.1em] text-fg-faint uppercase transition-colors hover:bg-ink-800 hover:text-fg"
+          className="mb-1 flex shrink-0 items-center gap-1 rounded-sm px-1.5 py-1 font-mono text-[10px] tracking-[0.1em] text-fg-faint uppercase transition-colors hover:bg-ink-800 hover:text-fg"
         >
           <span aria-hidden>MD</span>
           <span aria-hidden className="text-[11px] leading-none">

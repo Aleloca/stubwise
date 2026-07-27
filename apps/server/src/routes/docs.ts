@@ -6,6 +6,7 @@ import {
   productExclusionSchema,
   projectBriefSchema,
 } from "@stubwise/shared";
+import { commitWebUrl } from "@stubwise/git";
 import { and, asc, desc, eq, isNull, ne, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -149,6 +150,9 @@ const pageSchema = z.object({
   isManual: z.boolean(),
   // commitSha della generazione di appartenenza; null per le pagine manuali.
   commitSha: z.string().nullable(),
+  // URL web del commit sul provider (GitHub/Bitbucket): null per le pagine
+  // manuali, o se il repoUrl non è parsabile (la UI mostra il solo sha).
+  commitUrl: z.string().nullable(),
   // Cross-link risolti a fine generazione; null se non calcolati (es. manuali
   // o generazioni del vecchio motore senza cross-link).
   links: z.array(docPageLinkSchema).nullable(),
@@ -165,7 +169,11 @@ type DocPageRow = typeof docPages.$inferSelect;
  * Serializza una pagina (DTO completo). `commitSha` è quello della generazione
  * di appartenenza; null per le pagine manuali (passare null o ometterlo).
  */
-function toPage(row: DocPageRow, commitSha: string | null = null): z.infer<typeof pageSchema> {
+function toPage(
+  row: DocPageRow,
+  commitSha: string | null = null,
+  commitUrl: string | null = null,
+): z.infer<typeof pageSchema> {
   // `links` è jsonb (unknown a runtime): valida col contratto e scarta voci
   // malformate. Una colonna null o non-array → null (nessun cross-link).
   const parsedLinks = z.array(docPageLinkSchema).safeParse(row.links);
@@ -180,6 +188,7 @@ function toPage(row: DocPageRow, commitSha: string | null = null): z.infer<typeo
     body: row.body,
     isManual: row.isManual,
     commitSha,
+    commitUrl,
     links: parsedLinks.success ? parsedLinks.data : null,
     updatedAt: row.updatedAt.toISOString(),
     createdAt: row.createdAt.toISOString(),
@@ -888,7 +897,12 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       const { repositoryId, slug } = request.params;
 
       const [repository] = await app.db
-        .select({ id: repositories.id, currentDocGenerationId: repositories.currentDocGenerationId })
+        .select({
+          id: repositories.id,
+          currentDocGenerationId: repositories.currentDocGenerationId,
+          repoUrl: repositories.repoUrl,
+          provider: repositories.provider,
+        })
         .from(repositories)
         .where(eq(repositories.id, repositoryId));
       if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
@@ -920,7 +934,12 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         commitSha = gen?.commitSha ?? null;
       }
 
-      return toPage(page, commitSha);
+      // Link al commit sul provider: solo per le pagine autogenerate (le manuali
+      // non hanno un commit di riferimento).
+      const commitUrl = commitSha
+        ? commitWebUrl(repository.provider, repository.repoUrl, commitSha)
+        : null;
+      return toPage(page, commitSha, commitUrl);
     },
   );
 

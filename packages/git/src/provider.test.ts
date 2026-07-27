@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { BitbucketProvider } from "./bitbucket.js";
 import { GitHubProvider } from "./github.js";
-import { getProvider, parseRepoUrl } from "./index.js";
+import { commitWebUrl, getProvider, parseRepoUrl } from "./index.js";
 
 describe("getProvider", () => {
   it("returns the Bitbucket implementation for 'bitbucket'", () => {
@@ -60,5 +60,27 @@ describe("parseRepoUrl", () => {
       owner: "octo",
       repo: "repo",
     });
+  });
+});
+
+describe("commitWebUrl", () => {
+  it("costruisce l'URL del commit per GitHub (/commit/) e Bitbucket (/commits/)", () => {
+    expect(commitWebUrl("github", "https://github.com/acme/api.git", "abc1234")).toBe(
+      "https://github.com/acme/api/commit/abc1234",
+    );
+    expect(commitWebUrl("bitbucket", "https://bitbucket.org/acme/api", "abc1234")).toBe(
+      "https://bitbucket.org/acme/api/commits/abc1234",
+    );
+  });
+
+  it("host self-hosted preservato", () => {
+    expect(commitWebUrl("github", "https://git.example.com/acme/api", "deadbee")).toBe(
+      "https://git.example.com/acme/api/commit/deadbee",
+    );
+  });
+
+  it("repoUrl non parsabile o sha vuoto → null (la UI mostra il solo sha)", () => {
+    expect(commitWebUrl("github", "git@github.com:acme/api.git", "abc1234")).toBeNull();
+    expect(commitWebUrl("github", "https://github.com/acme/api", "")).toBeNull();
   });
 });

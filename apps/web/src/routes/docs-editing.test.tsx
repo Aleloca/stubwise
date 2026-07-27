@@ -80,6 +80,7 @@ function makePage(overrides: Partial<DocPage> & Pick<DocPage, "slug" | "title" |
     body: `# ${overrides.title}\n\nBody.`,
     isManual: overrides.kind === "manual",
     commitSha: null,
+    commitUrl: null,
     updatedAt: "2026-06-20T10:00:00.000Z",
     createdAt: "2026-06-20T10:00:00.000Z",
     viewCount: 0,
@@ -284,8 +285,8 @@ describe("trigger generazione + stato (M7.4)", () => {
     mockApi(baseHandlers("member"));
     renderApp(`/docs/${PROJECT_ID}`);
 
-    // Aspetta che la sidebar sia montata.
-    await screen.findByRole("button", { name: /Technical/ });
+    // Aspetta che la sidebar sia montata (le categorie sono tab).
+    await screen.findByRole("tab", { name: /Technical/ });
     expect(
       screen.queryByRole("button", { name: "Generate documentation" }),
     ).not.toBeInTheDocument();

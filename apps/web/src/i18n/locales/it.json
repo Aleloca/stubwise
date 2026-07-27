@@ -1426,7 +1426,9 @@
       "collapseAll": "Comprimi tutto",
       "expandAll": "Espandi tutto",
       "downloadCategory": "Scarica {{category}} (.md, zip)",
-      "resizeSidebar": "Ridimensiona la sidebar"
+      "resizeSidebar": "Ridimensiona la sidebar",
+      "updatedOn": "aggiornata il {{date}}",
+      "categories": "Categorie"
     },
     "manual": {
       "newPage": "Nuova pagina manuale",
@@ -1515,7 +1517,8 @@
       "error": "Qualcosa è andato storto nel generare la risposta.",
       "unavailable": "La chat dei docs richiede un provider AI con API key. Chiedi a un admin di aggiungerne uno nelle impostazioni (i provider account/OAuth non funzionano qui).",
       "newChat": "Nuova chat",
-      "openProject": "Chiedi ai docs"
+      "openProject": "Chiedi ai docs",
+      "resize": "Ridimensiona la chat"
     },
     "brief": {
       "link": "Brief di prodotto",

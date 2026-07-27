@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { Link, Outlet, useNavigate, useParams } from "@tanstack/react-router";
+import { Link, Outlet, useLocation, useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { DocsChat } from "../../components/docs-chat";
@@ -10,7 +10,9 @@ import { DocsSidebar } from "../../components/docs-sidebar";
 import { Drawer } from "../../components/drawer";
 import { GlobalSearchPalette } from "../../components/global-search-palette";
 import { Markdown } from "../../components/markdown";
+import { ResizablePanel } from "../../components/resizable-panel";
 import { ApiError } from "../../lib/api";
+import { formatDate, formatDateTime } from "../../lib/format";
 import { type DocPage, type DocPageLink, deleteManualPage } from "../../lib/docs-api";
 import {
   docBriefQueryOptions,
@@ -74,6 +76,15 @@ export function DocsSpaceLayout() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  // Il contenuto centrale ha il PROPRIO scroll (la pagina non scrolla): cambiando
+  // pagina resterebbe alla posizione di quella precedente, facendo atterrare a
+  // metà documento. Riportiamolo in cima a ogni cambio di rotta.
+  const contentRef = useRef<HTMLElement>(null);
+  const { pathname } = useLocation();
+  useEffect(() => {
+    contentRef.current?.scrollTo({ top: 0 });
+  }, [pathname]);
+
   // Dal drawer mobile: apri la palette E chiudi il drawer albero (come fa
   // `onNavigate`); su desktop il drawer non c'è e `closeTree` è un no-op innocuo.
   const openSearchFromDrawer = useCallback(() => {
@@ -128,13 +139,21 @@ export function DocsSpaceLayout() {
         {/* Desktop (`lg+`): sidebar come aside fisso. Mobile: stessa DocsSidebar
             dentro un drawer. Una sola variante montata per non duplicare gli id. */}
         {isDesktop ? (
-          <ResizableSidebar projectId={projectId}>
+          <ResizablePanel
+            storageKey={`stubwise:docs:sidebarWidth:${projectId}`}
+            side="left"
+            defaultWidth={SIDEBAR_DEFAULT_WIDTH}
+            minWidth={SIDEBAR_MIN_WIDTH}
+            maxWidth={SIDEBAR_MAX_WIDTH}
+            label={t("docs:space.resizeSidebar")}
+            className="flex flex-col border-r border-line bg-ink-950"
+          >
             <DocsSidebar
               projectId={projectId}
               tree={tree}
               onOpenSearch={() => setSearchOpen(true)}
             />
-          </ResizableSidebar>
+          </ResizablePanel>
         ) : (
           <Drawer
             open={treeOpen}
@@ -153,7 +172,7 @@ export function DocsSpaceLayout() {
           </Drawer>
         )}
 
-        <section className="min-w-0 flex-1 overflow-y-auto">
+        <section ref={contentRef} className="min-w-0 flex-1 overflow-y-auto">
           <Outlet />
         </section>
 
@@ -208,89 +227,6 @@ const SIDEBAR_MIN_WIDTH = 200;
 const SIDEBAR_MAX_WIDTH = 560;
 const SIDEBAR_DEFAULT_WIDTH = 288; // = w-72, la larghezza storica
 
-function sidebarWidthKey(projectId: string): string {
-  return `stubwise:docs:sidebarWidth:${projectId}`;
-}
-
-/**
- * Aside della sidebar desktop, ridimensionabile per trascinamento del bordo
- * destro. Gli alberi di repo grandi hanno titoli lunghi: poter allargare la
- * colonna evita di leggere solo troncature. La larghezza è ricordata PER
- * REPOSITORY (alberi diversi hanno bisogni diversi). Su mobile la sidebar vive
- * in un drawer: questo componente non viene montato affatto.
- */
-function ResizableSidebar({
-  projectId,
-  children,
-}: {
-  projectId: string;
-  children: React.ReactNode;
-}) {
-  const { t } = useTranslation();
-  const [width, setWidth] = useState(() => {
-    const stored = Number(globalThis.localStorage?.getItem(sidebarWidthKey(projectId)));
-    return Number.isFinite(stored) && stored >= SIDEBAR_MIN_WIDTH && stored <= SIDEBAR_MAX_WIDTH
-      ? stored
-      : SIDEBAR_DEFAULT_WIDTH;
-  });
-  const [dragging, setDragging] = useState(false);
-  const asideRef = useRef<HTMLElement>(null);
-
-  useEffect(() => {
-    if (!dragging) return;
-    const clamp = (value: number) =>
-      Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, value));
-    const onMove = (event: MouseEvent) => {
-      const left = asideRef.current?.getBoundingClientRect().left ?? 0;
-      setWidth(clamp(event.clientX - left));
-    };
-    const onUp = () => setDragging(false);
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    // Durante il drag il cursore resta quello del resize anche fuori dall'handle
-    // e il testo non si seleziona.
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-  }, [dragging]);
-
-  // Persiste solo a drag finito: niente scritture a ogni pixel.
-  useEffect(() => {
-    if (dragging) return;
-    globalThis.localStorage?.setItem(sidebarWidthKey(projectId), String(width));
-  }, [dragging, width, projectId]);
-
-  return (
-    <aside
-      ref={asideRef}
-      style={{ width }}
-      className="relative flex shrink-0 flex-col border-r border-line bg-ink-950"
-    >
-      {children}
-      {/* Handle di trascinamento sul bordo destro: la doppia larghezza invisibile
-          rende il bersaglio comodo senza spostare il bordo visibile. */}
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label={t("docs:space.resizeSidebar")}
-        onMouseDown={(event) => {
-          event.preventDefault();
-          setDragging(true);
-        }}
-        onDoubleClick={() => setWidth(SIDEBAR_DEFAULT_WIDTH)}
-        className={`absolute inset-y-0 -right-1 w-2 cursor-col-resize transition-colors hover:bg-signal/30 ${
-          dragging ? "bg-signal/40" : ""
-        }`}
-      />
-    </aside>
-  );
-}
-
 /**
  * Vista changelog dello spazio (`/docs/$projectId/releases`): le entry release
  * dell'albero già in cache, rese come timeline. Sta fuori dall'albero perché una
@@ -312,23 +248,56 @@ function MetaBadge({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Riga badge: documenta `sourcePath` + commit di generazione (quando presenti). */
+/**
+ * Variante linkabile del badge: stessa forma, ma è un `<a>` verso il provider
+ * (commit su GitHub/Bitbucket). Apre in una nuova scheda — si sta consultando
+ * la documentazione, non ci si vuole perdere la pagina.
+ */
+function MetaBadgeLink({ href, title, children }: { href: string; title: string; children: React.ReactNode }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer noopener"
+      title={title}
+      className="inline-flex items-center rounded-sm border border-line bg-ink-900 px-2 py-1 font-mono text-[11px] tracking-[0.04em] text-fg-muted transition-colors hover:border-signal/40 hover:text-signal"
+    >
+      {children}
+    </a>
+  );
+}
+
+/**
+ * Riga badge: sorgente documentata, commit di generazione (linkato al provider
+ * quando l'URL è ricostruibile) e data di ultimo aggiornamento — il commit da
+ * solo non dice QUANDO la pagina è stata scritta, che è la prima domanda di chi
+ * si chiede se sta leggendo qualcosa di aggiornato.
+ */
 function PageBadges({ page }: { page: DocPage }) {
   const { t } = useTranslation();
   const hasSource = Boolean(page.sourcePath);
   const hasCommit = Boolean(page.commitSha);
-  if (!hasSource && !hasCommit && !page.isManual) return null;
 
   return (
     <div className="mt-2 flex flex-wrap items-center gap-2">
       {hasSource && (
         <MetaBadge>{t("docs:space.documents", { path: page.sourcePath })}</MetaBadge>
       )}
-      {hasCommit && (
-        <MetaBadge>
-          {t("docs:space.generatedAtCommit", { commit: page.commitSha!.slice(0, 7) })}
-        </MetaBadge>
-      )}
+      {hasCommit &&
+        (page.commitUrl ? (
+          <MetaBadgeLink href={page.commitUrl} title={page.commitSha!}>
+            {t("docs:space.generatedAtCommit", { commit: page.commitSha!.slice(0, 7) })} ↗
+          </MetaBadgeLink>
+        ) : (
+          <MetaBadge>
+            {t("docs:space.generatedAtCommit", { commit: page.commitSha!.slice(0, 7) })}
+          </MetaBadge>
+        ))}
+      <MetaBadge>
+        <time dateTime={page.updatedAt} title={formatDateTime(page.updatedAt)}>
+          {t("docs:space.updatedOn", { date: formatDate(page.updatedAt) })}
+        </time>
+      </MetaBadge>
       {page.isManual && <MetaBadge>{t("docs:space.manualBadge")}</MetaBadge>}
     </div>
   );

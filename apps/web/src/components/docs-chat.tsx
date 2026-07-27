@@ -7,6 +7,7 @@ import { type DocChatCitation, postDocChat, postProjectDocChat } from "../lib/do
 import { useMediaQuery } from "../lib/use-media-query";
 import { Drawer } from "./drawer";
 import { Markdown } from "./markdown";
+import { ResizablePanel } from "./resizable-panel";
 
 /**
  * Widget chat RAG dello spazio (M7.5): un drawer nella zona destra dello spazio
@@ -71,6 +72,11 @@ function nextLocalId(): string {
   localIdSeq += 1;
   return `local-${localIdSeq}`;
 }
+
+/** Larghezze ammesse della colonna chat su desktop (px) e default (= w-96). */
+const CHAT_MIN_WIDTH = 280;
+const CHAT_MAX_WIDTH = 720;
+const CHAT_DEFAULT_WIDTH = 384;
 
 export function DocsChat({
   projectId,
@@ -257,14 +263,18 @@ export function DocsChat({
           </h2>
           <p className="mt-0.5 text-[11px] text-fg-faint">{t(subtitleKey)}</p>
         </div>
-        <button
-          type="button"
-          onClick={() => setOpen(false)}
-          aria-label={t("docs:chat.close")}
-          className="rounded-sm border border-line-strong px-2 py-1 font-mono text-[11px] tracking-[0.06em] text-fg-muted uppercase transition-colors hover:text-fg"
-        >
-          ✕
-        </button>
+        {/* Chiusura solo nel drawer mobile: su desktop la chat è una colonna
+            stabile del layout (si stringe col resize, non si chiude). */}
+        {!isDesktop && (
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            aria-label={t("docs:chat.close")}
+            className="rounded-sm border border-line-strong px-2 py-1 font-mono text-[11px] tracking-[0.06em] text-fg-muted uppercase transition-colors hover:text-fg"
+          >
+            ✕
+          </button>
+        )}
       </header>
 
       <div
@@ -347,8 +357,9 @@ export function DocsChat({
 
   return (
     <>
-      {/* FAB: apre la chat. Visibile (sia su desktop sia su mobile) quando chiusa. */}
-      {!open && (
+      {/* FAB: apre la chat nel drawer mobile. Su desktop non serve — la colonna
+          chat è sempre presente. */}
+      {!isDesktop && !open && (
         <button
           type="button"
           onClick={() => setOpen(true)}
@@ -361,11 +372,17 @@ export function DocsChat({
       {/* Desktop (`lg+`): colonna affiancata. Mobile: drawer da destra a piena
           altezza. Si monta una sola variante per non duplicare il corpo chat. */}
       {isDesktop ? (
-        open && (
-          <aside className="flex w-96 shrink-0 flex-col border-l border-line bg-ink-950">
-            {body}
-          </aside>
-        )
+        <ResizablePanel
+          storageKey={`stubwise:docs:chatWidth:${scope}:${projectId}`}
+          side="right"
+          defaultWidth={CHAT_DEFAULT_WIDTH}
+          minWidth={CHAT_MIN_WIDTH}
+          maxWidth={CHAT_MAX_WIDTH}
+          label={t("docs:chat.resize")}
+          className="flex flex-col border-l border-line bg-ink-950"
+        >
+          {body}
+        </ResizablePanel>
       ) : (
         <Drawer
           open={open}

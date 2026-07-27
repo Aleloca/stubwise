@@ -94,6 +94,7 @@ function makePage(overrides: Partial<DocPage> & Pick<DocPage, "slug" | "title" |
     body: `# ${overrides.title}\n\nBody for ${overrides.slug}.`,
     isManual: overrides.kind === "manual",
     commitSha: null,
+    commitUrl: null,
     updatedAt: "2026-06-20T10:00:00.000Z",
     createdAt: "2026-06-20T10:00:00.000Z",
     viewCount: 0,
@@ -131,16 +132,17 @@ const PAGES: Record<string, DocPage> = {
   }),
 };
 
-function treeHandlers(): Record<string, Handler> {
+function treeHandlers(overrides: Record<string, DocPage> = {}): Record<string, Handler> {
+  const pages = { ...PAGES, ...overrides };
   return {
     "GET /api/auth/me": meHandler(),
     [`GET /api/repositories/${PROJECT_ID}/docs/tree`]: () => jsonResponse(200, TREE),
     [`GET /api/repositories/${PROJECT_ID}/docs/pages/module-auth`]: () =>
-      jsonResponse(200, PAGES["module-auth"]),
+      jsonResponse(200, pages["module-auth"]),
     [`GET /api/repositories/${PROJECT_ID}/docs/pages/getting-started`]: () =>
-      jsonResponse(200, PAGES["getting-started"]),
+      jsonResponse(200, pages["getting-started"]),
     [`GET /api/repositories/${PROJECT_ID}/docs/pages/func-overview`]: () =>
-      jsonResponse(200, PAGES["func-overview"]),
+      jsonResponse(200, pages["func-overview"]),
   };
 }
 
@@ -168,9 +170,9 @@ describe("spazio documentazione", () => {
 
     // I tre gruppi (header con conteggio: il regex col numero esclude i chevron
     // dei nodi, le cui aria-label contengono il titolo es. "Technical overview").
-    expect(await screen.findByRole("button", { name: /Technical \d/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Functional \d/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Manual \d/ })).toBeInTheDocument();
+    expect(await screen.findByRole("tab", { name: /Technical \d/ })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Functional \d/ })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Manual \d/ })).toBeInTheDocument();
 
     // La categoria attiva (technical) mostra le sue pagine, incluso l'annidamento.
     const overview = screen.getByRole("link", { name: "Technical overview" });
@@ -179,13 +181,13 @@ describe("spazio documentazione", () => {
     expect(authModule).toBeInTheDocument();
     // Le altre categorie sono dietro la loro tab: una sola per volta.
     expect(screen.queryByRole("link", { name: "Functional overview" })).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /Functional \d/ }));
+    await userEvent.click(screen.getByRole("tab", { name: /Functional \d/ }));
     expect(screen.getByRole("link", { name: "Functional overview" })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /Manual \d/ }));
+    await userEvent.click(screen.getByRole("tab", { name: /Manual \d/ }));
     expect(screen.getByRole("link", { name: "Getting started" })).toBeInTheDocument();
 
     // I link puntano allo slug.
-    await userEvent.click(screen.getByRole("button", { name: /Technical \d/ }));
+    await userEvent.click(screen.getByRole("tab", { name: /Technical \d/ }));
     expect(screen.getByRole("link", { name: "Auth module" })).toHaveAttribute(
       "href",
       `/docs/${PROJECT_ID}/module-auth`,
@@ -205,9 +207,47 @@ describe("spazio documentazione", () => {
     const article = screen.getByRole("article");
     expect(within(article.querySelector("header")!).getByText("Auth module")).toBeInTheDocument();
 
-    // Badge: documenta source_path + commit (sha breve).
+    // Badge: documenta source_path + commit (sha breve) + data di aggiornamento.
     expect(screen.getByText("documents src/auth")).toBeInTheDocument();
-    expect(screen.getByText("generated at commit abc1234")).toBeInTheDocument();
+    expect(screen.getByText(/generated at commit abc1234/)).toBeInTheDocument();
+    expect(screen.getByText("updated on 20/06/2026")).toBeInTheDocument();
+  });
+
+  it("il commit è un link al provider quando il server espone commitUrl", async () => {
+    mockApi(
+      treeHandlers({
+        "module-auth": makePage({
+          slug: "module-auth",
+          title: "Auth module",
+          kind: "technical",
+          sourcePath: "src/auth",
+          commitSha: "abc1234",
+          commitUrl: "https://github.com/acme/api/commit/abc1234",
+        }),
+      }),
+    );
+    renderApp(`/docs/${PROJECT_ID}/module-auth`);
+
+    const link = await screen.findByRole("link", { name: /generated at commit abc1234/ });
+    expect(link).toHaveAttribute("href", "https://github.com/acme/api/commit/abc1234");
+    expect(link).toHaveAttribute("target", "_blank");
+  });
+
+  it("cambiando pagina il contenuto centrale torna in cima", async () => {
+    const scrollTo = vi.fn();
+    // happy-dom non implementa Element.scrollTo: lo stubbiamo e verifichiamo la
+    // chiamata (il container centrale ha il proprio scroll, non la finestra).
+    Object.defineProperty(Element.prototype, "scrollTo", {
+      value: scrollTo,
+      writable: true,
+      configurable: true,
+    });
+    mockApi(treeHandlers());
+    renderApp(`/docs/${PROJECT_ID}`);
+
+    await userEvent.click(await screen.findByRole("link", { name: "Auth module" }));
+    await screen.findByRole("article");
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0 });
   });
 
   it("la pagina attiva è evidenziata", async () => {

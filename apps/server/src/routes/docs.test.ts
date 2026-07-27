@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { commitWebUrl } from "@stubwise/git";
 import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -805,6 +806,38 @@ describe("GET /api/repositories/:projectId/docs/pages/:slug", () => {
     expect(body.body).toContain("Dettagli tecnici");
     expect(body.commitSha).toBe("page999");
     expect(body.kind).toBe("technical");
+  });
+
+  it("espone commitUrl verso il commit sul provider; null per le pagine manuali", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await seedSucceededGeneration(testDb.db, project.id, { commitSha: "c0ffee1" });
+    // Il seed usa un repoUrl senza owner/repo (non parsabile): qui serve un URL
+    // completo, quello da cui si costruisce il link al commit.
+    await testDb.db
+      .update(repositories)
+      .set({ repoUrl: "https://github.com/acme/api.git", provider: "github" })
+      .where(eq(repositories.id, project.id));
+
+    const auto = await app.inject({
+      method: "GET",
+      url: `/api/repositories/${project.id}/docs/pages/tech-overview-${genId.slice(0, 8)}`,
+      headers: { cookie: memberCookie },
+    });
+    const body = auto.json() as { commitSha: string; commitUrl: string | null };
+    expect(body.commitSha).toBe("c0ffee1");
+    expect(body.commitUrl).toBe(
+      commitWebUrl("github", "https://github.com/acme/api.git", "c0ffee1"),
+    );
+    expect(body.commitUrl).toBe("https://github.com/acme/api/commit/c0ffee1");
+
+    // Pagina manuale: nessun commit di riferimento, quindi nessun link.
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/repositories/${project.id}/docs/manual`,
+      headers: { cookie: memberCookie },
+      payload: { title: "Nota senza commit", body: "x" },
+    });
+    expect((created.json() as { commitUrl: string | null }).commitUrl).toBeNull();
   });
 
   it("espone createdAt, viewCount e significant sulla pagina", async () => {

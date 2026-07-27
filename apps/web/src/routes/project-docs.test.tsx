@@ -250,7 +250,7 @@ describe("landing documentazione di progetto", () => {
     );
   });
 
-  it("la chat non è aperta di default: si richiama e mostra le domande suggerite", async () => {
+  it("su desktop la chat è già aperta e mostra le domande suggerite", async () => {
     mockApi({
       "GET /api/auth/me": meHandler(),
       "GET /api/projects/11111111-1111-4111-8111-111111111111": () =>
@@ -270,15 +270,12 @@ describe("landing documentazione di progetto", () => {
         highlightsHandler(),
     });
 
-    const user = userEvent.setup();
     renderApp(`/docs/project/${PROJECT_ID}`);
 
     await screen.findByRole("heading", { name: "Acme" });
-    // Chiusa: nessun input di chat montato.
-    expect(screen.queryByLabelText(/ask about this project/i)).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: /ask the docs/i }));
+    // Colonna chat montata subito (desktop), senza pulsante di apertura.
     expect(await screen.findByLabelText(/ask about this project/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /ask the docs/i })).not.toBeInTheDocument();
     // Domande suggerite come chip cliccabili nell'empty state.
     expect(
       screen.getByRole("button", { name: "What does this project do?" }),
@@ -337,8 +334,7 @@ describe("landing documentazione di progetto", () => {
     const user = userEvent.setup();
     renderApp(`/docs/project/${PROJECT_ID}`);
 
-    // La chat si apre dal pulsante (non è più aperta di default).
-    await user.click(await screen.findByRole("button", { name: /ask the docs/i }));
+    // Su desktop la chat è già montata: si scrive direttamente.
     const input = await screen.findByLabelText(/ask about this project/i);
     await user.type(input, "where is billing?");
     await user.click(screen.getByRole("button", { name: /^send$/i }));

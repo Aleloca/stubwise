@@ -103,6 +103,11 @@ export interface DocPage {
   body: string;
   isManual: boolean;
   commitSha: string | null;
+  /**
+   * URL del commit sul provider (GitHub/Bitbucket), per linkarlo dal badge.
+   * Null per le pagine manuali o se il repoUrl non è ricostruibile.
+   */
+  commitUrl: string | null;
   links?: DocPageLink[] | null;
   updatedAt: string;
   createdAt: string;

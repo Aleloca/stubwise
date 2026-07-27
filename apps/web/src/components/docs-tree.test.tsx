@@ -80,10 +80,10 @@ describe("DocsTree", () => {
 
     // Gruppi dell'albero con conteggio nel meta. Le release NON sono un gruppo
     // dell'albero: hanno la vista changelog dedicata.
-    expect(await screen.findByRole("button", { name: /Technical 3/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Functional 1/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Manual 1/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Releases/ })).not.toBeInTheDocument();
+    expect(await screen.findByRole("tab", { name: /Technical 3/ })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Functional 1/ })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Manual 1/ })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /Releases/ })).not.toBeInTheDocument();
 
     // Annidamento: Module A e B sono dentro l'<li> di Technical overview.
     const overviewItem = screen.getByRole("link", { name: "Technical overview" }).closest("li")!;
@@ -104,7 +104,7 @@ describe("DocsTree", () => {
 
     expect(await screen.findByRole("link", { name: "Tech" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "v2.0 release notes" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Releases/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /Releases/ })).not.toBeInTheDocument();
   });
 
   it("ogni voce espone il titolo completo come tooltip nativo", async () => {
@@ -208,9 +208,9 @@ describe("DocsTree", () => {
     renderTree([node({ id: "t1", slug: "t", title: "Tech", kind: "technical" })]);
 
     // Solo la tab Technical: le categorie vuote non compaiono affatto.
-    expect(await screen.findByRole("button", { name: /Technical 1/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Manual/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Functional/ })).not.toBeInTheDocument();
+    expect(await screen.findByRole("tab", { name: /Technical 1/ })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /Manual/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: /Functional/ })).not.toBeInTheDocument();
   });
 
   it("mostra una categoria per volta e cambia contenuto al click sulla tab", async () => {
@@ -223,7 +223,7 @@ describe("DocsTree", () => {
     expect(await screen.findByRole("link", { name: "Tech page" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Func page" })).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: /Functional 1/ }));
+    await userEvent.click(screen.getByRole("tab", { name: /Functional 1/ }));
     expect(screen.getByRole("link", { name: "Func page" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Tech page" })).not.toBeInTheDocument();
   });
@@ -256,7 +256,7 @@ describe("DocsTree", () => {
     expect(techDownload).toHaveAttribute("download");
 
     // Cambiando categoria il download segue la tab attiva.
-    await userEvent.click(screen.getByRole("button", { name: /Functional 1/ }));
+    await userEvent.click(screen.getByRole("tab", { name: /Functional 1/ }));
     expect(screen.getByRole("link", { name: /Functional/i })).toHaveAttribute(
       "href",
       `/api/repositories/${PROJECT_ID}/docs/export?kind=functional`,
@@ -266,7 +266,7 @@ describe("DocsTree", () => {
   it("non mostra il bottone di download per le categorie vuote", async () => {
     renderTree([node({ id: "t1", slug: "tech", title: "Tech", kind: "technical" })]);
 
-    await screen.findByRole("button", { name: /Technical 1/ });
+    await screen.findByRole("tab", { name: /Technical 1/ });
     // Manual/Functional/Releases sono vuoti: nessuna tab, quindi nessun export.
     expect(
       screen.queryByRole("link", { name: /Manual.*\.md.*zip|Manual.*zip/i }),

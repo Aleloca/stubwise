@@ -283,16 +283,18 @@ describe("DocsChat", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
-  it("desktop (lg+): la chat aperta è una colonna affiancata, non un drawer", async () => {
+  it("desktop (lg+): la chat è una colonna sempre presente, senza drawer né chiusura", async () => {
     setMatchMedia(DESKTOP_QUERY, true);
-    const user = userEvent.setup();
     renderChat();
 
-    await user.click(await screen.findByRole("button", { name: /open chat/i }));
-
-    // Niente dialog/drawer: la chat è un aside con la textarea.
+    // Montata subito, senza bisogno di aprirla: è parte del layout.
     expect(await screen.findByLabelText(/ask about this project/i)).toBeInTheDocument();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    // Niente FAB di apertura né pulsante di chiusura: si ridimensiona, non si chiude.
+    expect(screen.queryByRole("button", { name: /open chat|ask the docs/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /close chat/i })).not.toBeInTheDocument();
+    // L'handle di resize è al suo posto.
+    expect(screen.getByRole("separator", { name: /resize chat/i })).toBeInTheDocument();
   });
 
   it("più citazioni: tutte renderizzate come link distinti", async () => {

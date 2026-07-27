@@ -473,3 +473,25 @@ export async function readJsonResponse(response: Response, provider: string): Pr
     );
   }
 }
+
+/**
+ * URL web del commit sul provider, per linkarlo dalla UI. GitHub usa
+ * `/commit/<sha>`, Bitbucket `/commits/<sha>` (plurale). Restituisce null se
+ * `repoUrl` non è parsabile (repo configurati a mano, URL ssh): il chiamante
+ * mostra il solo sha senza link invece di rompersi.
+ */
+export function commitWebUrl(
+  provider: GitProviderKind,
+  repoUrl: string,
+  sha: string,
+): string | null {
+  if (sha.length === 0) return null;
+  let parsed: ParsedRepoUrl;
+  try {
+    parsed = parseRepoUrl(repoUrl);
+  } catch {
+    return null;
+  }
+  const path = provider === "github" ? "commit" : "commits";
+  return `https://${parsed.host}/${parsed.owner}/${parsed.repo}/${path}/${sha}`;
+}
