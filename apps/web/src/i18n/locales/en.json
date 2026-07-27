@@ -1542,6 +1542,23 @@
       "sectionExclusions": "Pages excluded from public documentation",
       "exclusionsNote": "The confidentiality checker blocked these product pages: either they still contained or could reveal a confidential fact after one rewrite, or the check itself could not be completed. Either way they were not published.",
       "exclusionReason": "Reason"
+    },
+    "releases": {
+      "eyebrow": "Changelog",
+      "heading": "Releases",
+      "subtitle": "What changed in the repository, over time: each entry is generated when commits are pushed.",
+      "searchPlaceholder": "Search releases…",
+      "onlySignificant": "Significant only",
+      "minorBadge": "minor",
+      "count_one": "{{count}} release",
+      "count_other": "{{count}} releases",
+      "empty": "// no releases yet",
+      "emptyHint": "Releases appear here on the first push after the documentation is generated.",
+      "noMatch": "// no release matches the filters",
+      "loading": "Loading…",
+      "impacted": "Impacted pages",
+      "bodyUnavailable": "Release content unavailable.",
+      "link": "Releases"
     }
   },
   "search": {

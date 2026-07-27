@@ -1542,6 +1542,23 @@
       "sectionExclusions": "Pagine escluse dalla documentazione pubblica",
       "exclusionsNote": "Il verificatore dei segreti ha bloccato queste pagine product: o dopo una riscrittura contenevano ancora (o potevano rivelare) un fatto riservato, oppure la verifica stessa non è riuscita. In entrambi i casi non sono state pubblicate.",
       "exclusionReason": "Motivo"
+    },
+    "releases": {
+      "eyebrow": "Changelog",
+      "heading": "Release",
+      "subtitle": "Cosa è cambiato nel repository, in ordine di tempo: ogni voce è generata al push dei commit.",
+      "searchPlaceholder": "Cerca nelle release…",
+      "onlySignificant": "Solo significative",
+      "minorBadge": "minore",
+      "count_one": "{{count}} release",
+      "count_other": "{{count}} release",
+      "empty": "// nessuna release",
+      "emptyHint": "Le release compaiono qui al primo push dopo la generazione della documentazione.",
+      "noMatch": "// nessuna release corrisponde ai filtri",
+      "loading": "Caricamento…",
+      "impacted": "Pagine impattate",
+      "bodyUnavailable": "Contenuto della release non disponibile.",
+      "link": "Release"
     }
   },
   "search": {

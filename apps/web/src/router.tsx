@@ -53,6 +53,7 @@ import { boardSearchSchema, BoardPage } from "./routes/board";
 import {
   DocsManualNew,
   DocsPageView,
+  DocsReleasesView,
   DocsSpaceIndex,
   DocsSpaceLayout,
 } from "./routes/docs/$projectId";
@@ -447,6 +448,17 @@ const docsBriefRoute = createRoute({
 });
 
 /**
+ * Vista changelog dello spazio (`/docs/$projectId/releases`): timeline delle
+ * release. Rotta statica, ha priorità sul segmento dinamico `$slug` (gli slug
+ * delle release sono `release-…`, nessuna pagina si chiama "releases").
+ */
+const docsReleasesRoute = createRoute({
+  getParentRoute: () => docsSpaceRoute,
+  path: "/releases",
+  component: DocsReleasesView,
+});
+
+/**
  * Pagina singola dello spazio: render markdown + badge sorgente/commit.
  * Prefetch best-effort della pagina (un 404 — pagina rimossa da una
  * rigenerazione — lo gestisce il componente inline, non il pannello d'errore).
@@ -666,6 +678,7 @@ const routeTree = rootRoute.addChildren([
       docsSpaceIndexRoute,
       docsManualNewRoute,
       docsBriefRoute,
+      docsReleasesRoute,
       docsPageRoute,
     ]),
     monitorRoute,

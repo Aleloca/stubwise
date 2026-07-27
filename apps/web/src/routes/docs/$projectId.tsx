@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { DocsChat } from "../../components/docs-chat";
 import { DocsManualForm } from "../../components/docs-manual-form";
+import { DocsReleases } from "../../components/docs-releases";
 import { DocsSidebar } from "../../components/docs-sidebar";
 import { Drawer } from "../../components/drawer";
 import { GlobalSearchPalette } from "../../components/global-search-palette";
@@ -181,6 +182,18 @@ export function DocsSpaceIndex() {
       </div>
     </div>
   );
+}
+
+/**
+ * Vista changelog dello spazio (`/docs/$projectId/releases`): le entry release
+ * dell'albero già in cache, rese come timeline. Sta fuori dall'albero perché una
+ * release è un evento datato, non un capitolo di manuale.
+ */
+export function DocsReleasesView() {
+  const { projectId } = useParams({ from: "/authed/docs/$projectId/releases" });
+  const { data: tree } = useSuspenseQuery(docTreeQueryOptions(projectId));
+  const releases = tree.filter((node) => node.kind === "releases");
+  return <DocsReleases projectId={projectId} releases={releases} />;
 }
 
 /** Badge mono dello stile dell'app (sorgente/commit/manuale). */
