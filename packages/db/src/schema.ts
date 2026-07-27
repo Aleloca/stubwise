@@ -1270,6 +1270,12 @@ export const docPages = pgTable(
     // per type (implements/implemented_by/related). Null finché non calcolati.
     links: jsonb("links"),
     isManual: boolean("is_manual").notNull().default(false),
+    // Contatore visualizzazioni (increment fire-and-forget all'apertura pagina).
+    viewCount: integer("view_count").notNull().default(0),
+    // Solo per kind="releases": true se la release è "significativa" (calcolata dal
+    // worker via parseReleaseNotes). Null per le pagine non-release. Sostituisce il
+    // prefisso "[minore]" nel titolo come segnale filtrabile.
+    significant: boolean("significant"),
     // Autore della pagina manuale; null per le autogenerate o autore eliminato.
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     updatedAt: timestamp("updated_at", { withTimezone: true })
