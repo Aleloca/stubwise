@@ -186,6 +186,21 @@ services:
       - BACKLOG_CHAT_SESSION_TTL_MINUTES=${BACKLOG_CHAT_SESSION_TTL_MINUTES:-30}
       - BACKLOG_CHAT_TURN_TIMEOUT_MS=${BACKLOG_CHAT_TURN_TIMEOUT_MS:-300000}
       - BACKLOG_CHAT_TURN_MAX_TURNS=${BACKLOG_CHAT_TURN_MAX_TURNS:-15}
+      # --- Grafo delle dipendenze (graphify) ---
+      # Il worker esegue il CLI graphify (nell'immagine, vedi apps/worker/
+      # Dockerfile) su una worktree del mirror e scrive l'output in
+      # <GRAPHS_DIR>/<repositoryId>/graphify-out/ sul volume condiviso `graphs`.
+      # Il path DEVE coincidere col mount qui sotto.
+      - GRAPHS_DIR=/graphs
+      # Poller della coda graph_jobs, in secondi (0 = disabilitato: nessuna build
+      # automatica del grafo sul push). Timeout in minuti di OGNI invocazione del
+      # CLI: il passo lungo è il labeling delle comunità, non l'extract.
+      - GRAPH_POLL_SECONDS=${GRAPH_POLL_SECONDS:-20}
+      - GRAPH_BUILD_TIMEOUT_MINUTES=${GRAPH_BUILD_TIMEOUT_MINUTES:-20}
+      # Nomi veri delle comunità via il backend claude-cli di graphify (usa lo
+      # stesso claude CLI del worker). false = grafo valido coi placeholder
+      # "Community N", senza spendere chiamate LLM.
+      - GRAPH_LABEL_ENABLED=${GRAPH_LABEL_ENABLED:-true}
       # --- Auth del CLI claude ---
       # Metodo raccomandato: gestisci le credenziali in Settings -> AI providers
       # (catena cifrata nel DB, con failover). Le due righe pass-through qui sotto
@@ -199,6 +214,8 @@ services:
     volumes:
       - mirrors:/var/stubwise/mirrors
       - claude-config:/home/worker/.claude
+      # Output di graphify: il worker ci SCRIVE (unico produttore).
+      - graphs:/graphs
     # Limiti di risorse: un agent build puo' durare ~30 min e clonare/buildare
     # repo grandi. Senza tetti, un run impazzito affamerebbe postgres/caddy
     # sullo stesso host. Valori conservativi e TUNABLE in base alla macchina e
@@ -237,3 +254,7 @@ volumes:
   caddy-config:
   # Modelli scaricati da Ollama (es. bge-m3): persistono tra i riavvii.
   ollama:
+  # Grafi delle dipendenze prodotti da graphify (un sottoalbero per repository):
+  # scritti dal worker, rigenerati a ogni build. Non sono un dato di verità (si
+  # possono ricostruire dai mirror), ma persisterli evita di rifare il lavoro.
+  graphs:

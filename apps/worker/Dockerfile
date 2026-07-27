@@ -5,6 +5,8 @@
 #  - git CLI: il worker clona/aggiorna i mirror ed esegue worktree effimere.
 #  - claude CLI (@anthropic-ai/claude-code): l'AgentRunner lo invoca per
 #    triage e fix.
+#  - graphify CLI (pacchetto Python graphifyy): costruisce il grafo delle
+#    dipendenze del repo (job graph_build), installato in un venv dedicato.
 #  - una HOME scrivibile per l'utente: il login OAuth/MAX di claude scrive
 #    ~/.claude (montata come volume nel compose, vedi CLAUDE_CONFIG_DIR).
 
@@ -68,7 +70,9 @@ ENV COREPACK_HOME=/opt/corepack
 WORKDIR /app
 
 # git per i mirror; claude CLI installato globalmente. ca-certificates per le
-# connessioni HTTPS (clone su provider git, API Anthropic).
+# connessioni HTTPS (clone su provider git, API Anthropic). python3 + python3-venv
+# per il CLI graphify (installato nel venv dallo step successivo): il venv ha
+# bisogno di ensurepip, che su Debian sta nel pacchetto python3-venv separato.
 # corepack enable crea gli shim pnpm/yarn sul PATH: la pipeline di fix
 # auto-rileva il package manager dal lockfile del repo per installare le
 # dipendenze nel worktree; npm è già presente, corepack fornisce pnpm/yarn.
@@ -84,13 +88,23 @@ WORKDIR /app
 # scaricare quella versione a runtime (richiede egress) — il pre-pull copre il
 # caso comune (repo senza pin o pinnati alla stessa versione del default).
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git ca-certificates \
+  && apt-get install -y --no-install-recommends git ca-certificates python3 python3-venv \
   && rm -rf /var/lib/apt/lists/* \
   && npm install -g @anthropic-ai/claude-code \
   && npm cache clean --force \
   && corepack enable \
   && corepack install -g pnpm@10.9.0 yarn@1.22.22 \
   && chmod -R a+rX /opt/corepack
+
+# CLI graphify in un venv DEDICATO (niente pip nel Python di sistema, che su
+# Debian bookworm è "externally managed"), con versione PINNATA per build
+# riproducibili. L'extra [sql] aggiunge il parser SQL: i file di migrazione .sql
+# del repo target entrano nel grafo. Un solo symlink in /usr/local/bin espone
+# `graphify` sul PATH (GRAPHIFY_BIN di default) SENZA anteporre il venv al PATH:
+# così il `python3`/`node` di sistema e il claude CLI restano quelli attesi.
+RUN python3 -m venv /opt/graphify \
+  && /opt/graphify/bin/pip install --no-cache-dir "graphifyy[sql]==0.9.28" \
+  && ln -s /opt/graphify/bin/graphify /usr/local/bin/graphify
 
 # Utente non-root con HOME: claude vi scrive le credenziali del login.
 RUN useradd --create-home --uid 10001 worker
@@ -99,6 +113,14 @@ COPY --from=base --chown=worker:worker /app /app
 # Directory dei mirror git persistenti (montata come volume nel compose).
 RUN mkdir -p /var/stubwise/mirrors && chown -R worker:worker /var/stubwise
 ENV MIRRORS_DIR=/var/stubwise/mirrors
+
+# Directory dei grafi graphify (volume `graphs` nel compose, che il server monta
+# in sola lettura per servire report/html/json). Come per .claude qui sotto, va
+# creata con ownership worker PRIMA di USER: un volume nominato vuoto eredita
+# l'ownership della dir dell'immagine al primo mount, altrimenti Docker la crea
+# root-owned e il worker (uid 10001) non può scriverci l'output di graphify.
+RUN mkdir -p /graphs && chown worker:worker /graphs
+ENV GRAPHS_DIR=/graphs
 
 # Directory di config di claude (montata come volume claude-config nel compose).
 # Va creata con ownership worker PRIMA che USER cambi: un volume nominato vuoto
