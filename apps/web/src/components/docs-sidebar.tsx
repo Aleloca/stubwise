@@ -64,6 +64,20 @@ export function DocsSidebar({
         <span>{t("docs:releases.link")}</span>
         <span className="text-fg-faint">{releaseCount}</span>
       </Link>
+      {/* Grafo del codice (graphify): voce di primo livello accanto a brief e
+          changelog — è un'altra LETTURA del repository, non un capitolo del
+          manuale. Sempre visibile: la vista spiega da sé il caso "non
+          abilitato" (e come abilitarlo), che è anche il modo in cui la feature
+          si fa scoprire. */}
+      <Link
+        to="/docs/$projectId/graph"
+        params={{ projectId }}
+        onClick={onNavigate}
+        activeProps={{ "data-active": "true" }}
+        className="mb-3 block rounded-sm border border-line px-2 py-1.5 text-center font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg data-[active=true]:border-signal/40 data-[active=true]:text-signal"
+      >
+        {t("docs:graph.tab")}
+      </Link>
       <DocsTree projectId={projectId} nodes={tree} onNavigate={onNavigate} />
       {/* Azioni sullo spazio, ancorate in fondo (`mt-auto`): con l'albero corto
           restano a piè di colonna invece di galleggiare a metà. */}

@@ -1527,7 +1527,8 @@
       "downloadJson": "Scarica graph.json",
       "queryTitle": "Interrogalo dal terminale",
       "queryHint": "Con graphify installato in locale, chiedi al grafo invece di fare grep.",
-      "queryCommand": "graphify query \"dove vive l'autenticazione?\""
+      "queryCommand": "graphify query \"dove vive l'autenticazione?\"",
+      "copyCommand": "Copia il comando graphify"
     },
     "search": {
       "kindTechnical": "tecnico",

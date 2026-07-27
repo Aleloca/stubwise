@@ -1527,7 +1527,8 @@
       "downloadJson": "Download graph.json",
       "queryTitle": "Query it from the terminal",
       "queryHint": "With graphify installed locally, ask the graph instead of grepping.",
-      "queryCommand": "graphify query \"where does authentication live?\""
+      "queryCommand": "graphify query \"where does authentication live?\"",
+      "copyCommand": "Copy the graphify command"
     },
     "search": {
       "kindTechnical": "technical",
