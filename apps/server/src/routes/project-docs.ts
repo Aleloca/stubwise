@@ -16,7 +16,7 @@
  */
 
 import { docPageKindSchema } from "@stubwise/shared";
-import { and, asc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, ne, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -31,6 +31,11 @@ import {
 } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { loadHistory, streamChatResponse } from "./docs-chat-core.js";
+import {
+  emptyCountsByKind,
+  HIGHLIGHT_LIMITS,
+  projectHighlightsSchema,
+} from "./docs-highlights.js";
 import { buildCitations, buildDocsSystemPrompt } from "./docs-rag.js";
 import { retrieveChunksForProject } from "./docs-retrieval.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
@@ -160,6 +165,94 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
         lastGenerationAt: r.lastGenerationAt ? r.lastGenerationAt.toISOString() : null,
         lastCommitSha: r.lastCommitSha,
       }));
+    },
+  );
+
+  /**
+   * Highlights AGGREGATE del progetto: alimentano la home orientante. Il
+   * changelog è unificato cross-repo (ordinato per data della entry, non per
+   * `position` che è per-repo) e ogni voce porta il repository d'origine.
+   * `topViewed` aggrega le pagine più lette di tutti i repo, escluse le release.
+   * Scope pagine: generazione corrente di ciascun repo + pagine manuali.
+   */
+  app.get(
+    "/projects/:projectId/docs/highlights",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: projectIdParamsSchema,
+        response: { 200: projectHighlightsSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { projectId } = request.params;
+      if (!(await projectExists(projectId))) {
+        return apiError(reply, 404, "project_not_found", "Project not found");
+      }
+
+      // Pagine VISIBILI dei repo del progetto: generazione corrente del repo o
+      // pagina manuale/persistente (generationId null, incluse le release).
+      const visible = and(
+        eq(repositories.projectId, projectId),
+        or(
+          eq(docPages.generationId, repositories.currentDocGenerationId),
+          isNull(docPages.generationId),
+        ),
+      );
+      const pageFields = {
+        slug: docPages.slug,
+        title: docPages.title,
+        kind: docPages.kind,
+        viewCount: docPages.viewCount,
+        repositoryId: repositories.id,
+        repositorySlug: repositories.slug,
+        repositoryName: repositories.name,
+      };
+
+      const [counts, topViewed, releases] = await Promise.all([
+        app.db
+          .select({ kind: docPages.kind, count: sql<number>`count(*)::int` })
+          .from(docPages)
+          .innerJoin(repositories, eq(repositories.id, docPages.repositoryId))
+          .where(visible)
+          .groupBy(docPages.kind),
+        app.db
+          .select(pageFields)
+          .from(docPages)
+          .innerJoin(repositories, eq(repositories.id, docPages.repositoryId))
+          .where(and(visible, ne(docPages.kind, "releases")))
+          .orderBy(desc(docPages.viewCount), asc(docPages.title))
+          .limit(HIGHLIGHT_LIMITS.projectTopViewed),
+        app.db
+          .select({
+            slug: docPages.slug,
+            title: docPages.title,
+            createdAt: docPages.createdAt,
+            significant: docPages.significant,
+            repositoryId: repositories.id,
+            repositorySlug: repositories.slug,
+            repositoryName: repositories.name,
+          })
+          .from(docPages)
+          .innerJoin(repositories, eq(repositories.id, docPages.repositoryId))
+          .where(and(eq(repositories.projectId, projectId), eq(docPages.kind, "releases")))
+          .orderBy(desc(docPages.createdAt))
+          .limit(HIGHLIGHT_LIMITS.projectReleases),
+      ]);
+
+      const countsByKind = emptyCountsByKind();
+      for (const row of counts) countsByKind[row.kind] = row.count;
+
+      return {
+        countsByKind,
+        topViewed,
+        latestReleases: releases.map((r) => ({
+          ...r,
+          createdAt: r.createdAt.toISOString(),
+          // Le release sono persistenti: non appartengono a una generazione.
+          commitSha: null,
+        })),
+      };
     },
   );
 

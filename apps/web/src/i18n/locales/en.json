@@ -1394,7 +1394,11 @@
       "eyebrow": "Project documentation",
       "subtitle": "Ask across all the project's repositories, with citations to the source repo.",
       "spacesHeading": "All the project's repositories",
-      "spacesEmpty": "No repository in this project has documentation yet."
+      "spacesEmpty": "No repository in this project has documentation yet.",
+      "mainSpace": "Main repository overview",
+      "suggested1": "What does this project do?",
+      "suggested2": "How is the architecture organised?",
+      "suggested3": "What are the main features?"
     },
     "space": {
       "back": "Documentation",
@@ -1404,8 +1408,6 @@
       "groupManual": "Manual",
       "groupReleases": "Releases",
       "groupEmpty": "// empty",
-      "selectPage": "Select a page",
-      "selectPageHint": "Pick a page from the tree to read its documentation.",
       "documents": "documents {{path}}",
       "generatedAtCommit": "generated at commit {{commit}}",
       "manualBadge": "manual page",
@@ -1423,7 +1425,8 @@
       "expand": "Expand “{{title}}”",
       "collapseAll": "Collapse all",
       "expandAll": "Expand all",
-      "downloadCategory": "Download {{category}} (.md, zip)"
+      "downloadCategory": "Download {{category}} (.md, zip)",
+      "resizeSidebar": "Resize sidebar"
     },
     "manual": {
       "newPage": "New manual page",
@@ -1511,7 +1514,8 @@
       "sources": "Sources",
       "error": "Something went wrong generating the answer.",
       "unavailable": "Docs chat needs an API-key AI provider. Ask an admin to add one in settings (account/OAuth providers don't work here).",
-      "newChat": "New chat"
+      "newChat": "New chat",
+      "openProject": "Ask the docs"
     },
     "brief": {
       "link": "Project brief",
@@ -1542,6 +1546,33 @@
       "sectionExclusions": "Pages excluded from public documentation",
       "exclusionsNote": "The confidentiality checker blocked these product pages: either they still contained or could reveal a confidential fact after one rewrite, or the check itself could not be completed. Either way they were not published.",
       "exclusionReason": "Reason"
+    },
+    "releases": {
+      "eyebrow": "Changelog",
+      "heading": "Releases",
+      "subtitle": "What changed in the repository, over time: each entry is generated when commits are pushed.",
+      "searchPlaceholder": "Search releases…",
+      "onlySignificant": "Significant only",
+      "minorBadge": "minor",
+      "count_one": "{{count}} release",
+      "count_other": "{{count}} releases",
+      "empty": "// no releases yet",
+      "emptyHint": "Releases appear here on the first push after the documentation is generated.",
+      "noMatch": "// no release matches the filters",
+      "loading": "Loading…",
+      "impacted": "Impacted pages",
+      "bodyUnavailable": "Release content unavailable.",
+      "link": "Releases"
+    },
+    "overview": {
+      "eyebrow": "Documentation space",
+      "noBrief": "No brief available for this repository: generate the documentation to get a summary.",
+      "startHere": "Start here",
+      "briefMeta": "product summary",
+      "categories": "Categories",
+      "whatsNew": "What's new",
+      "recentlyUpdated": "Recently updated",
+      "topViewed": "Most read"
     }
   },
   "search": {

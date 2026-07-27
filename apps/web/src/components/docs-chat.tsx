@@ -77,6 +77,7 @@ export function DocsChat({
   scope = "repo",
   open: openProp,
   onOpenChange,
+  suggestedQuestions,
 }: {
   /** repositoryId quando `scope="repo"`, projectId quando `scope="project"`. */
   projectId: string;
@@ -85,6 +86,11 @@ export function DocsChat({
   /** Stato aperto controllato (sub-barra Docs); se assente, è gestito internamente. */
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /**
+   * Domande di esempio mostrate come chip nell'empty state: danno un punto di
+   * partenza a chi non sa cosa chiedere. Un click invia subito la domanda.
+   */
+  suggestedQuestions?: string[];
 }) {
   const { t } = useTranslation();
   // Su `lg+` la chat è una colonna affiancata; sotto, un drawer da destra. Si
@@ -113,6 +119,7 @@ export function DocsChat({
   const subtitleKey = isProject ? "docs:chat.projectSubtitle" : "docs:chat.subtitle";
   const placeholderKey = isProject ? "docs:chat.projectPlaceholder" : "docs:chat.placeholder";
   const emptyHintKey = isProject ? "docs:chat.projectEmptyHint" : "docs:chat.emptyHint";
+  const openKey = isProject ? "docs:chat.openProject" : "docs:chat.open";
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sending, setSending] = useState(false);
@@ -138,8 +145,8 @@ export function DocsChat({
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages]);
 
-  async function send() {
-    const question = input.trim();
+  async function send(text?: string) {
+    const question = (text ?? input).trim();
     if (!question || sending) return;
 
     const userMessage: ChatMessage = {
@@ -272,6 +279,22 @@ export function DocsChat({
                 {t("docs:chat.emptyTitle")}
               </p>
               <p className="mt-2 text-[12px] text-fg-muted">{t(emptyHintKey)}</p>
+              {suggestedQuestions && suggestedQuestions.length > 0 && (
+                <ul className="mt-4 flex flex-col gap-1.5">
+                  {suggestedQuestions.map((question) => (
+                    <li key={question}>
+                      <button
+                        type="button"
+                        onClick={() => void send(question)}
+                        disabled={sending}
+                        className="w-full rounded-sm border border-line px-2.5 py-1.5 text-left text-[12px] text-fg-muted transition-colors hover:border-ink-700 hover:bg-ink-900 hover:text-fg disabled:opacity-60"
+                      >
+                        {question}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           </div>
         ) : (
@@ -331,7 +354,7 @@ export function DocsChat({
           onClick={() => setOpen(true)}
           className="absolute right-4 bottom-4 z-20 rounded-sm border border-line-strong bg-ink-900 px-3 py-2 font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg"
         >
-          {t("docs:chat.open")}
+          {t(openKey)}
         </button>
       )}
 

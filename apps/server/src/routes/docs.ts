@@ -6,7 +6,7 @@ import {
   productExclusionSchema,
   projectBriefSchema,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, ne, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -22,6 +22,11 @@ import type { Db } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { aiProviderKindSchema } from "./ai-providers.js";
 import { buildDocsExportZip, safeFilenamePart } from "./docs-export-zip.js";
+import {
+  emptyCountsByKind,
+  HIGHLIGHT_LIMITS,
+  repoHighlightsSchema,
+} from "./docs-highlights.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 
 const repositoryIdParamsSchema = z.object({ repositoryId: z.uuid() });
@@ -115,6 +120,10 @@ const treeNodeSchema = z.object({
   position: z.number().int(),
   sourcePath: z.string().nullable(),
   isManual: z.boolean(),
+  createdAt: z.string(),
+  viewCount: z.number().int(),
+  // Solo per kind="releases": significatività della release; null altrove.
+  significant: z.boolean().nullable(),
 });
 
 /**
@@ -144,6 +153,10 @@ const pageSchema = z.object({
   // o generazioni del vecchio motore senza cross-link).
   links: z.array(docPageLinkSchema).nullable(),
   updatedAt: z.string(),
+  createdAt: z.string(),
+  viewCount: z.number().int(),
+  // Solo per kind="releases": significatività della release; null altrove.
+  significant: z.boolean().nullable(),
 });
 
 type DocPageRow = typeof docPages.$inferSelect;
@@ -169,6 +182,9 @@ function toPage(row: DocPageRow, commitSha: string | null = null): z.infer<typeo
     commitSha,
     links: parsedLinks.success ? parsedLinks.data : null,
     updatedAt: row.updatedAt.toISOString(),
+    createdAt: row.createdAt.toISOString(),
+    viewCount: row.viewCount,
+    significant: row.significant,
   };
 }
 
@@ -678,12 +694,107 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
           position: docPages.position,
           sourcePath: docPages.sourcePath,
           isManual: docPages.isManual,
+          createdAt: docPages.createdAt,
+          viewCount: docPages.viewCount,
+          significant: docPages.significant,
         })
         .from(docPages)
         .where(and(eq(docPages.repositoryId, repositoryId), genFilter))
         .orderBy(asc(docPages.kind), asc(docPages.position), asc(docPages.title));
 
-      return rows;
+      return rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() }));
+    },
+  );
+
+  /**
+   * Highlights del repository: i dati dell'overview che orienta chi apre i Docs
+   * senza conoscere il prodotto — quante pagine per categoria, quali sono le più
+   * lette, quali le più fresche e le ultime release. Stesso scope della sidebar
+   * (generazione corrente + pagine manuali). Le release sono escluse da
+   * `topViewed`/`recentlyUpdated`: hanno una vista dedicata (changelog).
+   */
+  app.get(
+    "/repositories/:repositoryId/docs/highlights",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: repositoryIdParamsSchema,
+        response: { 200: repoHighlightsSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { repositoryId } = request.params;
+
+      const [repository] = await app.db
+        .select({ id: repositories.id, currentDocGenerationId: repositories.currentDocGenerationId })
+        .from(repositories)
+        .where(eq(repositories.id, repositoryId));
+      if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
+
+      const currentGen = repository.currentDocGenerationId;
+      const genFilter = currentGen
+        ? or(eq(docPages.generationId, currentGen), isNull(docPages.generationId))
+        : isNull(docPages.generationId);
+      const visible = and(eq(docPages.repositoryId, repositoryId), genFilter);
+      const visibleNonRelease = and(visible, ne(docPages.kind, "releases"));
+
+      const [counts, topViewed, recentlyUpdated, releases] = await Promise.all([
+        app.db
+          .select({ kind: docPages.kind, count: sql<number>`count(*)::int` })
+          .from(docPages)
+          .where(visible)
+          .groupBy(docPages.kind),
+        app.db
+          .select({
+            slug: docPages.slug,
+            title: docPages.title,
+            kind: docPages.kind,
+            viewCount: docPages.viewCount,
+          })
+          .from(docPages)
+          .where(visibleNonRelease)
+          .orderBy(desc(docPages.viewCount), asc(docPages.title))
+          .limit(HIGHLIGHT_LIMITS.repoTopViewed),
+        app.db
+          .select({
+            slug: docPages.slug,
+            title: docPages.title,
+            kind: docPages.kind,
+            viewCount: docPages.viewCount,
+          })
+          .from(docPages)
+          .where(visibleNonRelease)
+          .orderBy(desc(docPages.updatedAt))
+          .limit(HIGHLIGHT_LIMITS.repoRecentlyUpdated),
+        app.db
+          .select({
+            slug: docPages.slug,
+            title: docPages.title,
+            createdAt: docPages.createdAt,
+            significant: docPages.significant,
+          })
+          .from(docPages)
+          // Le release sono persistenti (generationId null): position decrescente
+          // nel tempo, quindi `position asc` mette in cima le più recenti.
+          .where(and(eq(docPages.repositoryId, repositoryId), eq(docPages.kind, "releases")))
+          .orderBy(asc(docPages.position))
+          .limit(HIGHLIGHT_LIMITS.repoReleases),
+      ]);
+
+      const countsByKind = emptyCountsByKind();
+      for (const row of counts) countsByKind[row.kind] = row.count;
+
+      return {
+        countsByKind,
+        topViewed,
+        recentlyUpdated,
+        latestReleases: releases.map((r) => ({
+          ...r,
+          createdAt: r.createdAt.toISOString(),
+          // Le release non appartengono a una generazione: nessun commitSha.
+          commitSha: null,
+        })),
+      };
     },
   );
 
@@ -810,6 +921,35 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       }
 
       return toPage(page, commitSha);
+    },
+  );
+
+  /**
+   * Increment del contatore viste di una pagina (fire-and-forget dal client
+   * all'apertura). L'increment è atomico via SQL (niente read-modify-write, no
+   * race). Lo stesso slug può esistere in più generazioni storiche: l'update le
+   * tocca tutte, il contatore è per-slug logico e sopravvive alle rigenerazioni.
+   */
+  app.post(
+    "/repositories/:repositoryId/docs/pages/:slug/view",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: slugParamsSchema,
+        response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { repositoryId, slug } = request.params;
+      const updated = await app.db
+        .update(docPages)
+        .set({ viewCount: sql`${docPages.viewCount} + 1` })
+        .where(and(eq(docPages.repositoryId, repositoryId), eq(docPages.slug, slug)))
+        .returning({ id: docPages.id });
+      if (updated.length === 0) {
+        return apiError(reply, 404, "doc_page_not_found", "Documentation page not found");
+      }
+      return reply.code(204).send(null);
     },
   );
 

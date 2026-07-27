@@ -30,6 +30,7 @@ export function DocsSidebar({
   onOpenSearch: () => void;
 }) {
   const { t } = useTranslation();
+  const releaseCount = tree.filter((node) => node.kind === "releases").length;
   return (
     <div className="flex h-full min-h-0 flex-col overflow-y-auto p-4">
       <Link
@@ -49,6 +50,18 @@ export function DocsSidebar({
         className="mb-3 block rounded-sm border border-line px-2 py-1.5 text-center font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg data-[active=true]:border-signal/40 data-[active=true]:text-signal"
       >
         {t("docs:brief.link")}
+      </Link>
+      {/* Changelog: voce di primo livello, fuori dall'albero (le release sono
+          eventi datati). Il conteggio dà subito la misura della storia del repo. */}
+      <Link
+        to="/docs/$projectId/releases"
+        params={{ projectId }}
+        onClick={onNavigate}
+        activeProps={{ "data-active": "true" }}
+        className="mb-3 flex items-center justify-between gap-2 rounded-sm border border-line px-2 py-1.5 font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-ink-700 hover:text-fg data-[active=true]:border-signal/40 data-[active=true]:text-signal"
+      >
+        <span>{t("docs:releases.link")}</span>
+        <span className="text-fg-faint">{releaseCount}</span>
       </Link>
       <DocsTree projectId={projectId} nodes={tree} onNavigate={onNavigate} />
       <Link

@@ -35,6 +35,9 @@ function node(overrides: Partial<DocTreeNode> & { id: string }): DocTreeNode {
     position: 0,
     sourcePath: null,
     isManual: false,
+    createdAt: "2026-06-20T10:00:00.000Z",
+    viewCount: 0,
+    significant: null,
     ...overrides,
   };
 }

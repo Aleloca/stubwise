@@ -1394,7 +1394,11 @@
       "eyebrow": "Documentazione di progetto",
       "subtitle": "Interroga tutti i repository del progetto, con citazioni al repo d'origine.",
       "spacesHeading": "Tutti i repository del progetto",
-      "spacesEmpty": "Nessun repository di questo progetto ha ancora documentazione."
+      "spacesEmpty": "Nessun repository di questo progetto ha ancora documentazione.",
+      "mainSpace": "Panoramica del repository principale",
+      "suggested1": "Di cosa si occupa questo progetto?",
+      "suggested2": "Come è organizzata l'architettura?",
+      "suggested3": "Quali sono le funzionalità principali?"
     },
     "space": {
       "back": "Documentazione",
@@ -1404,8 +1408,6 @@
       "groupManual": "Manuale",
       "groupReleases": "Releases",
       "groupEmpty": "// vuoto",
-      "selectPage": "Seleziona una pagina",
-      "selectPageHint": "Scegli una pagina dall'albero per leggerne la documentazione.",
       "documents": "documenta {{path}}",
       "generatedAtCommit": "generato al commit {{commit}}",
       "manualBadge": "pagina manuale",
@@ -1423,7 +1425,8 @@
       "expand": "Espandi «{{title}}»",
       "collapseAll": "Comprimi tutto",
       "expandAll": "Espandi tutto",
-      "downloadCategory": "Scarica {{category}} (.md, zip)"
+      "downloadCategory": "Scarica {{category}} (.md, zip)",
+      "resizeSidebar": "Ridimensiona la sidebar"
     },
     "manual": {
       "newPage": "Nuova pagina manuale",
@@ -1511,7 +1514,8 @@
       "sources": "Fonti",
       "error": "Qualcosa è andato storto nel generare la risposta.",
       "unavailable": "La chat dei docs richiede un provider AI con API key. Chiedi a un admin di aggiungerne uno nelle impostazioni (i provider account/OAuth non funzionano qui).",
-      "newChat": "Nuova chat"
+      "newChat": "Nuova chat",
+      "openProject": "Chiedi ai docs"
     },
     "brief": {
       "link": "Brief di prodotto",
@@ -1542,6 +1546,33 @@
       "sectionExclusions": "Pagine escluse dalla documentazione pubblica",
       "exclusionsNote": "Il verificatore dei segreti ha bloccato queste pagine product: o dopo una riscrittura contenevano ancora (o potevano rivelare) un fatto riservato, oppure la verifica stessa non è riuscita. In entrambi i casi non sono state pubblicate.",
       "exclusionReason": "Motivo"
+    },
+    "releases": {
+      "eyebrow": "Changelog",
+      "heading": "Release",
+      "subtitle": "Cosa è cambiato nel repository, in ordine di tempo: ogni voce è generata al push dei commit.",
+      "searchPlaceholder": "Cerca nelle release…",
+      "onlySignificant": "Solo significative",
+      "minorBadge": "minore",
+      "count_one": "{{count}} release",
+      "count_other": "{{count}} release",
+      "empty": "// nessuna release",
+      "emptyHint": "Le release compaiono qui al primo push dopo la generazione della documentazione.",
+      "noMatch": "// nessuna release corrisponde ai filtri",
+      "loading": "Caricamento…",
+      "impacted": "Pagine impattate",
+      "bodyUnavailable": "Contenuto della release non disponibile.",
+      "link": "Release"
+    },
+    "overview": {
+      "eyebrow": "Spazio documentazione",
+      "noBrief": "Nessun brief disponibile per questo repository: genera la documentazione per ottenerne una sintesi.",
+      "startHere": "Inizia da qui",
+      "briefMeta": "sintesi del prodotto",
+      "categories": "Categorie",
+      "whatsNew": "Novità",
+      "recentlyUpdated": "Aggiornate di recente",
+      "topViewed": "Più lette"
     }
   },
   "search": {

@@ -50,6 +50,8 @@ import {
   getDocStatus,
   getDocTree,
   getProjectDocSpaces,
+  getProjectHighlights,
+  getRepoHighlights,
 } from "./docs-api";
 
 /**
@@ -651,10 +653,13 @@ export const docsKeys = {
     [...docsKeys.space(repositoryId), "page", slug] as const,
   status: (repositoryId: string) => [...docsKeys.space(repositoryId), "status"] as const,
   brief: (repositoryId: string) => [...docsKeys.space(repositoryId), "brief"] as const,
+  highlights: (repositoryId: string) => [...docsKeys.space(repositoryId), "highlights"] as const,
   // Sotto-albero della documentazione di PROGETTO (Fase 2): scoped al projectId,
   // distinto dallo spazio per-repository sopra.
   project: (projectId: string) => [...docsKeys.all, "project", projectId] as const,
   projectSpaces: (projectId: string) => [...docsKeys.project(projectId), "spaces"] as const,
+  projectHighlights: (projectId: string) =>
+    [...docsKeys.project(projectId), "highlights"] as const,
 };
 
 /**
@@ -729,6 +734,31 @@ export function docBriefQueryOptions(repositoryId: string) {
     queryFn: () => getDocBrief(repositoryId),
     staleTime: 60_000,
     retry: false,
+  });
+}
+
+/**
+ * Highlights del repository (conteggi per categoria, pagine più lette/fresche,
+ * ultime release): alimentano l'overview dello spazio. Vista "novità" → stale
+ * time breve, così un push che genera una release si vede al rientro.
+ */
+export function docRepoHighlightsQueryOptions(repositoryId: string) {
+  return queryOptions({
+    queryKey: docsKeys.highlights(repositoryId),
+    queryFn: () => getRepoHighlights(repositoryId),
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * Highlights aggregate del progetto (changelog cross-repo + pagine più lette):
+ * alimentano la home di progetto. Stessa freschezza della versione per-repo.
+ */
+export function docProjectHighlightsQueryOptions(projectId: string) {
+  return queryOptions({
+    queryKey: docsKeys.projectHighlights(projectId),
+    queryFn: () => getProjectHighlights(projectId),
+    staleTime: 30_000,
   });
 }
 

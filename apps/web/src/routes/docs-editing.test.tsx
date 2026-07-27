@@ -59,6 +59,9 @@ function node(
     position: 0,
     sourcePath: null,
     isManual: overrides.kind === "manual",
+    createdAt: "2026-06-20T10:00:00.000Z",
+    viewCount: 0,
+    significant: null,
     ...overrides,
   };
 }
@@ -78,6 +81,9 @@ function makePage(overrides: Partial<DocPage> & Pick<DocPage, "slug" | "title" |
     isManual: overrides.kind === "manual",
     commitSha: null,
     updatedAt: "2026-06-20T10:00:00.000Z",
+    createdAt: "2026-06-20T10:00:00.000Z",
+    viewCount: 0,
+    significant: null,
     ...overrides,
   };
 }
@@ -202,8 +208,8 @@ describe("editing pagine manuali (M7.3)", () => {
     await userEvent.click(screen.getByRole("button", { name: "Delete" }));
 
     await waitFor(() => expect(deleted).toBe(true));
-    // Indice dello spazio: placeholder "seleziona una pagina".
-    expect(await screen.findByText("Select a page")).toBeInTheDocument();
+    // Indice dello spazio: l'overview del repo (non più il placeholder).
+    expect(await screen.findByText("Documentation space")).toBeInTheDocument();
   });
 
   it("conflitto di slug (409): mostra l'errore dedicato", async () => {

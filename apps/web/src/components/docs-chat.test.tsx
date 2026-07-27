@@ -95,9 +95,12 @@ function renderProjectChat() {
   render(<RouterProvider router={router} />);
 }
 
-/** Apre il drawer (è chiuso di default) e restituisce la textarea. */
+/**
+ * Apre il drawer (è chiuso di default) e restituisce la textarea. La copy del
+ * pulsante è scope-aware: "Open chat" per-repo, "Ask the docs" di progetto.
+ */
 async function openChat(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(await screen.findByRole("button", { name: /open chat/i }));
+  await user.click(await screen.findByRole("button", { name: /open chat|ask the docs/i }));
   return screen.findByLabelText(/ask about this project/i);
 }
 

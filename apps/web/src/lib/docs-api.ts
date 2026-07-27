@@ -61,6 +61,12 @@ export interface DocTreeNode {
   position: number;
   sourcePath: string | null;
   isManual: boolean;
+  /** Data di creazione della pagina (per le release = data della entry). */
+  createdAt: string;
+  /** Visualizzazioni cumulate (increment all'apertura). */
+  viewCount: number;
+  /** Solo per kind="releases": significatività; null per le altre pagine. */
+  significant: boolean | null;
 }
 
 /** Albero delle pagine di uno spazio (generazione corrente + manuali). */
@@ -99,6 +105,10 @@ export interface DocPage {
   commitSha: string | null;
   links?: DocPageLink[] | null;
   updatedAt: string;
+  createdAt: string;
+  viewCount: number;
+  /** Solo per kind="releases": significatività; null per le altre pagine. */
+  significant: boolean | null;
 }
 
 /** Una pagina dello spazio per slug. */
@@ -106,6 +116,83 @@ export function getDocPage(repositoryId: string, slug: string): Promise<DocPage>
   return api.get(
     `/api/repositories/${encodeURIComponent(repositoryId)}/docs/pages/${encodeURIComponent(slug)}`,
   );
+}
+
+/**
+ * Segnala l'apertura di una pagina (increment del contatore viste). Chiamata
+ * fire-and-forget: gli errori sono ignorati di proposito — un contatore mancato
+ * non deve mai disturbare la lettura.
+ */
+export function pingPageView(repositoryId: string, slug: string): void {
+  void api
+    .post(
+      `/api/repositories/${encodeURIComponent(repositoryId)}/docs/pages/${encodeURIComponent(slug)}/view`,
+    )
+    .catch(() => {
+      /* il conteggio viste è best-effort */
+    });
+}
+
+// --- Highlights (home orientanti di repo e progetto) ---
+
+/** Riferimento leggero a una pagina in una lista di highlights. */
+export interface DocHighlightRef {
+  slug: string;
+  title: string;
+  kind: DocPageKind;
+  viewCount: number;
+}
+
+/**
+ * Una release nel changelog. `createdAt` è la data della entry; `significant`
+ * distingue le release rilevanti da quelle minori (null per le release create
+ * prima dell'introduzione della colonna). `commitSha` è sempre null per le
+ * release: il commit si legge dallo slug `release-YYYYMMDD-HHmm-<sha>`.
+ */
+export interface DocReleaseRef {
+  slug: string;
+  title: string;
+  createdAt: string;
+  significant: boolean | null;
+  commitSha: string | null;
+}
+
+/** Conteggio pagine per categoria: tutte le chiavi sempre presenti. */
+export type DocCountsByKind = Record<DocPageKind, number>;
+
+/** Highlights di un repository: alimentano l'overview dello spazio. */
+export interface DocHighlights {
+  countsByKind: DocCountsByKind;
+  topViewed: DocHighlightRef[];
+  recentlyUpdated: DocHighlightRef[];
+  latestReleases: DocReleaseRef[];
+}
+
+/** Repository d'origine, annesso alle voci aggregate di progetto. */
+interface DocRepoOrigin {
+  repositoryId: string;
+  repositorySlug: string;
+  repositoryName: string;
+}
+
+export type DocProjectHighlightRef = DocHighlightRef & DocRepoOrigin;
+export type DocProjectReleaseRef = DocReleaseRef & DocRepoOrigin;
+
+/** Highlights aggregate di progetto: changelog cross-repo + pagine più lette. */
+export interface DocProjectHighlights {
+  countsByKind: DocCountsByKind;
+  topViewed: DocProjectHighlightRef[];
+  latestReleases: DocProjectReleaseRef[];
+}
+
+/** Highlights del repository (conteggi, pagine top, ultime release). */
+export function getRepoHighlights(repositoryId: string): Promise<DocHighlights> {
+  return api.get(`/api/repositories/${encodeURIComponent(repositoryId)}/docs/highlights`);
+}
+
+/** Highlights aggregate del progetto (changelog cross-repo, pagine più lette). */
+export function getProjectHighlights(projectId: string): Promise<DocProjectHighlights> {
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/docs/highlights`);
 }
 
 // --- Stato/trigger generazione ---

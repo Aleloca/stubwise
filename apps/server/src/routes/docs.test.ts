@@ -711,6 +711,46 @@ describe("GET /api/repositories/:projectId/docs/tree", () => {
     expect(body.find((n) => n.slug === "nota-manuale")!.isManual).toBe(true);
   });
 
+  it("espone createdAt, viewCount e significant su ogni nodo", async () => {
+    const project = await insertProject(testDb.db);
+    await seedSucceededGeneration(testDb.db, project.id);
+    // Una release (pagina persistente, generationId null) marcata come minore.
+    await testDb.db.insert(docPages).values({
+      repositoryId: project.id,
+      generationId: null,
+      kind: "releases",
+      slug: "release-20260724-1200-abc1234",
+      title: "Release di prova",
+      body: "note",
+      significant: false,
+      viewCount: 7,
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/repositories/${project.id}/docs/tree`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      slug: string;
+      kind: string;
+      createdAt: string;
+      viewCount: number;
+      significant: boolean | null;
+    }[];
+    for (const node of body) {
+      expect(typeof node.createdAt).toBe("string");
+      expect(new Date(node.createdAt).getTime()).not.toBeNaN();
+      expect(typeof node.viewCount).toBe("number");
+    }
+    const release = body.find((n) => n.kind === "releases")!;
+    expect(release.significant).toBe(false);
+    expect(release.viewCount).toBe(7);
+    // Le pagine non-release non hanno significatività.
+    expect(body.find((n) => n.kind === "technical")!.significant).toBeNull();
+  });
+
   it("esclude le pagine di generazioni NON correnti, include sempre le manuali", async () => {
     const project = await insertProject(testDb.db);
     // Vecchia generazione (non corrente).
@@ -765,6 +805,27 @@ describe("GET /api/repositories/:projectId/docs/pages/:slug", () => {
     expect(body.body).toContain("Dettagli tecnici");
     expect(body.commitSha).toBe("page999");
     expect(body.kind).toBe("technical");
+  });
+
+  it("espone createdAt, viewCount e significant sulla pagina", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await seedSucceededGeneration(testDb.db, project.id, { commitSha: "meta0001" });
+    const slug = `tech-overview-${genId.slice(0, 8)}`;
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/repositories/${project.id}/docs/pages/${slug}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      createdAt: string;
+      viewCount: number;
+      significant: boolean | null;
+    };
+    expect(new Date(body.createdAt).getTime()).not.toBeNaN();
+    expect(body.viewCount).toBe(0);
+    expect(body.significant).toBeNull();
   });
 
   it("ritorna i cross-link (links) della pagina raggruppabili per type", async () => {
@@ -880,6 +941,163 @@ describe("GET /api/repositories/:projectId/docs/pages/:slug", () => {
     expect(body.title).toBe("Auto Condivisa");
     expect(body.isManual).toBe(false);
     expect(body.commitSha).toBe("shared99");
+  });
+});
+
+describe("GET /api/repositories/:repositoryId/docs/highlights", () => {
+  it("conta per kind, ordina topViewed/recentlyUpdated ed espone le release", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await seedSucceededGeneration(testDb.db, project.id, { commitSha: "high001" });
+    // Una pagina molto vista e una manuale poco vista.
+    await testDb.db.insert(docPages).values([
+      {
+        repositoryId: project.id,
+        generationId: genId,
+        kind: "product",
+        slug: "getting-started",
+        title: "Getting Started",
+        body: "# Start",
+        viewCount: 42,
+      },
+      {
+        repositoryId: project.id,
+        generationId: null,
+        kind: "manual",
+        slug: "nota",
+        title: "Nota",
+        isManual: true,
+        body: "x",
+        viewCount: 3,
+      },
+      {
+        repositoryId: project.id,
+        generationId: null,
+        kind: "releases",
+        slug: "release-20260724-1200-abc1234",
+        title: "Release recente",
+        body: "note",
+        position: -100,
+        significant: true,
+        // Le release sono le più viste in assoluto: NON devono entrare in topViewed.
+        viewCount: 999,
+      },
+      {
+        repositoryId: project.id,
+        generationId: null,
+        kind: "releases",
+        slug: "release-20260720-0900-def5678",
+        title: "Release vecchia",
+        body: "note",
+        position: -50,
+        significant: false,
+      },
+    ]);
+
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/repositories/${project.id}/docs/highlights`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      countsByKind: Record<string, number>;
+      topViewed: { slug: string; kind: string; viewCount: number }[];
+      recentlyUpdated: { slug: string }[];
+      latestReleases: { slug: string; title: string; createdAt: string; significant: boolean | null }[];
+    };
+
+    expect(body.countsByKind.technical).toBe(1);
+    expect(body.countsByKind.functional).toBe(1);
+    expect(body.countsByKind.product).toBe(1);
+    expect(body.countsByKind.manual).toBe(1);
+    expect(body.countsByKind.releases).toBe(2);
+
+    // topViewed: per viewCount desc, senza release.
+    expect(body.topViewed.map((p) => p.slug)[0]).toBe("getting-started");
+    expect(body.topViewed.some((p) => p.kind === "releases")).toBe(false);
+    expect(body.topViewed[0]!.viewCount).toBe(42);
+
+    // recentlyUpdated: non-release, non vuoto.
+    expect(body.recentlyUpdated.length).toBeGreaterThan(0);
+    expect(body.recentlyUpdated.some((p) => p.slug.startsWith("release-"))).toBe(false);
+
+    // latestReleases: position asc → la più recente per prima, con metadati.
+    expect(body.latestReleases.map((r) => r.slug)).toEqual([
+      "release-20260724-1200-abc1234",
+      "release-20260720-0900-def5678",
+    ]);
+    expect(body.latestReleases[0]!.significant).toBe(true);
+    expect(new Date(body.latestReleases[0]!.createdAt).getTime()).not.toBeNaN();
+  });
+
+  it("repository senza documentazione: conteggi a zero e liste vuote", async () => {
+    const project = await insertProject(testDb.db);
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/repositories/${project.id}/docs/highlights`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as {
+      countsByKind: Record<string, number>;
+      topViewed: unknown[];
+      latestReleases: unknown[];
+    };
+    expect(body.countsByKind.technical).toBe(0);
+    expect(body.topViewed).toEqual([]);
+    expect(body.latestReleases).toEqual([]);
+  });
+
+  it("repository inesistente: 404", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/repositories/00000000-0000-0000-0000-000000000000/docs/highlights",
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("POST /api/repositories/:repositoryId/docs/pages/:slug/view", () => {
+  it("incrementa il contatore viste: 204 e viewCount +1", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await seedSucceededGeneration(testDb.db, project.id, { commitSha: "views001" });
+    const slug = `tech-overview-${genId.slice(0, 8)}`;
+
+    for (let i = 0; i < 2; i++) {
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/repositories/${project.id}/docs/pages/${slug}/view`,
+        headers: { cookie: memberCookie },
+      });
+      expect(res.statusCode).toBe(204);
+    }
+
+    const page = await app.inject({
+      method: "GET",
+      url: `/api/repositories/${project.id}/docs/pages/${slug}`,
+      headers: { cookie: memberCookie },
+    });
+    expect((page.json() as { viewCount: number }).viewCount).toBe(2);
+  });
+
+  it("slug inesistente: 404", async () => {
+    const project = await insertProject(testDb.db);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/repositories/${project.id}/docs/pages/non-esiste/view`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("senza sessione: 401", async () => {
+    const project = await insertProject(testDb.db);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/repositories/${project.id}/docs/pages/qualsiasi/view`,
+    });
+    expect(res.statusCode).toBe(401);
   });
 });
 
