@@ -17,6 +17,9 @@ import type { GitProvider } from "@stubwise/git";
 import type { NotificationEvent } from "@stubwise/notifications";
 import { eq } from "drizzle-orm";
 import { randomBytes, randomUUID } from "node:crypto";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   AgentTimeoutError,
@@ -24,6 +27,7 @@ import {
   type AgentRunResult,
 } from "../agent/runner.js";
 import type { MirrorManager } from "../git/mirrors.js";
+import { GRAPHIFY_AGENT_ALLOWED_TOOLS } from "../graph/agent-hint.js";
 import {
   PR_REVIEW_COMMENT_MARKER,
   runPrReview,
@@ -701,5 +705,186 @@ describe("runPrReview", () => {
     expect(fakes.runner.run).not.toHaveBeenCalled();
     expect(fakes.upsertPrComment).not.toHaveBeenCalled();
     expect(fakes.dispatched).toHaveLength(0);
+  });
+});
+
+describe("runPrReview — grafo del codice (fase 2d graphify)", () => {
+  let graphsDir: string;
+
+  beforeAll(async () => {
+    graphsDir = await mkdtemp(join(tmpdir(), "stubwise-review-graphs-"));
+  });
+
+  afterAll(async () => {
+    await rm(graphsDir, { recursive: true, force: true });
+  });
+
+  /** Scrive il graph.json del repository sul "volume" della fixture. */
+  async function writeRepoGraph(repositoryId: string, content: string): Promise<void> {
+    const outDir = join(graphsDir, repositoryId, "graphify-out");
+    await mkdir(outDir, { recursive: true });
+    await writeFile(join(outDir, "graph.json"), content);
+  }
+
+  /**
+   * Grafo minimo ma realistico: `buildApp()` in src/app.ts collegato a 12 route
+   * (grado 12 ⇒ god node) e due utility nello stesso file di src/utils/slug.ts.
+   */
+  function starGraphJson(): string {
+    const nodes: unknown[] = [
+      {
+        id: "hub",
+        label: "buildApp()",
+        source_file: "src/app.ts",
+        community: 1,
+        community_name: "Core",
+      },
+    ];
+    const links: unknown[] = [];
+    for (let i = 1; i <= 12; i++) {
+      nodes.push({
+        id: `leaf${i}`,
+        label: `route${i}()`,
+        source_file: `src/routes/route${i}.ts`,
+        community: 2,
+        community_name: "Routes",
+      });
+      links.push({ source: "hub", target: `leaf${i}` });
+    }
+    return JSON.stringify({ directed: true, multigraph: false, nodes, links });
+  }
+
+  /** Diff che tocca un file del grafo e uno fuori. */
+  const DIFF = [
+    "diff --git a/src/app.ts b/src/app.ts",
+    "@@ -1 +1 @@",
+    "-a",
+    "+b",
+    "diff --git a/README.md b/README.md",
+    "@@ -1 +1 @@",
+    "+doc",
+  ].join("\n");
+
+  it("repo col grafo: blocchi nel prompt, allowlist sul run e sezione nei commenti", async () => {
+    const { repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db);
+    await writeRepoGraph(repositoryId, starGraphJson());
+    const fakes = makeFakes({ graphsDir });
+    fakes.mirrors.getPrDiff.mockResolvedValue({ diff: DIFF, truncated: false });
+
+    await runPrReview(fakes.deps, makeJob(repositoryId));
+
+    // Prompt: blocco CODE GRAPH col path del volume + impatto deterministico.
+    const runArgs = fakes.runner.run.mock.calls[0]![0] as {
+      prompt: string;
+      allowedTools?: string[];
+    };
+    expect(runArgs.prompt).toContain("CODE GRAPH:");
+    expect(runArgs.prompt).toContain(join(graphsDir, repositoryId, "graphify-out", "graph.json"));
+    expect(runArgs.prompt).toContain("## Code graph impact");
+    expect(runArgs.prompt).toContain("Core (files: 1, symbols: 1)");
+    expect(runArgs.prompt).toContain("`buildApp()` (degree 12)");
+    // Allowlist dei comandi read-only del CLI sul run plan-mode.
+    expect(runArgs.allowedTools).toEqual(GRAPHIFY_AGENT_ALLOWED_TOOLS);
+
+    // Sezione "Impatto sul codice" (lingua d'istanza: en nei test) appesa DOPO
+    // l'output dell'agente, sia sul commento del ticket sia su quello della PR.
+    const [ticketComment] = await testDb.db.select().from(comments);
+    expect(ticketComment!.body).toContain("Code impact");
+    expect(ticketComment!.body).toContain("Areas crossed: Core (files: 1, symbols: 1)");
+    expect(ticketComment!.body).toContain("`buildApp()` (degree 12)");
+    expect(ticketComment!.body).toContain("Files touched: 1 in the graph, 1 outside it");
+    // L'ordine è: verdetto, testo dell'agente, sezione deterministica.
+    expect(ticketComment!.body.indexOf("src/x.ts:3")).toBeLessThan(
+      ticketComment!.body.indexOf("Code impact"),
+    );
+
+    const prBody = fakes.upsertPrComment.mock.calls[0]![3] as string;
+    expect(prBody).toContain("Code impact");
+    expect(prBody).toContain("Stubwise PR Review");
+
+    // La riga pr_reviews conserva la summary PURA dell'agente (l'impatto è
+    // una decorazione dei commenti, non un dato prodotto dalla review).
+    const [review] = await testDb.db.select().from(prReviews);
+    expect(review!.status).toBe("completed");
+    expect(review!.summary).toBe("- `src/x.ts:3`: bug nella condizione");
+  });
+
+  it("nessun file del diff nel grafo: niente sezione, review invariata", async () => {
+    const { repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db);
+    await writeRepoGraph(repositoryId, starGraphJson());
+    const fakes = makeFakes({ graphsDir });
+    fakes.mirrors.getPrDiff.mockResolvedValue({
+      diff: "diff --git a/README.md b/README.md\n@@ -1 +1 @@\n+doc",
+      truncated: false,
+    });
+
+    await runPrReview(fakes.deps, makeJob(repositoryId));
+
+    const runArgs = fakes.runner.run.mock.calls[0]![0] as { prompt: string };
+    expect(runArgs.prompt).toContain("CODE GRAPH:"); // il grafo c'è comunque
+    expect(runArgs.prompt).not.toContain("## Code graph impact");
+    const [ticketComment] = await testDb.db.select().from(comments);
+    expect(ticketComment!.body).not.toContain("Code impact");
+  });
+
+  it("fail-open: graph.json corrotto → review completata senza sezione", async () => {
+    const { repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db);
+    await writeRepoGraph(repositoryId, '{"nodes": [ {"id": "rotto"');
+    const fakes = makeFakes({ graphsDir });
+    fakes.mirrors.getPrDiff.mockResolvedValue({ diff: DIFF, truncated: false });
+
+    await runPrReview(fakes.deps, makeJob(repositoryId));
+
+    const [review] = await testDb.db.select().from(prReviews);
+    expect(review!.status).toBe("completed");
+    const runArgs = fakes.runner.run.mock.calls[0]![0] as {
+      prompt: string;
+      allowedTools?: string[];
+    };
+    // Il file esiste: l'hint e l'allowlist restano (il CLI se la vedrà con un
+    // grafo illeggibile); solo l'impatto deterministico sparisce.
+    expect(runArgs.prompt).toContain("CODE GRAPH:");
+    expect(runArgs.allowedTools).toEqual(GRAPHIFY_AGENT_ALLOWED_TOOLS);
+    expect(runArgs.prompt).not.toContain("## Code graph impact");
+    const [ticketComment] = await testDb.db.select().from(comments);
+    expect(ticketComment!.body).not.toContain("Code impact");
+    expect(fakes.upsertPrComment).toHaveBeenCalledTimes(1);
+  });
+
+  it("repo senza grafo (o graphsDir non cablata): review byte-identica a prima", async () => {
+    const { repositoryId } = await createRepository(testDb.db);
+    await enableReview(testDb.db);
+    // graphsDir cablata ma NESSUN graph.json per questo repository.
+    const withDir = makeFakes({ graphsDir });
+    withDir.mirrors.getPrDiff.mockResolvedValue({ diff: DIFF, truncated: false });
+    await runPrReview(withDir.deps, makeJob(repositoryId));
+
+    const withDirArgs = withDir.runner.run.mock.calls[0]![0] as {
+      prompt: string;
+      allowedTools?: string[];
+    };
+    expect(withDirArgs.prompt).not.toContain("CODE GRAPH");
+    expect(withDirArgs.prompt).not.toContain("## Code graph impact");
+    expect(withDirArgs.allowedTools).toBeUndefined();
+    const [ticketComment] = await testDb.db.select().from(comments);
+    expect(ticketComment!.body).not.toContain("Code impact");
+    const withDirPrBody = withDir.upsertPrComment.mock.calls[0]![3] as string;
+
+    // Stesso job SENZA graphsDir: prompt e commento pubblicato identici.
+    const { repositoryId: otherRepo } = await createRepository(testDb.db);
+    const withoutDir = makeFakes();
+    withoutDir.mirrors.getPrDiff.mockResolvedValue({ diff: DIFF, truncated: false });
+    await runPrReview(withoutDir.deps, makeJob(otherRepo));
+
+    const withoutDirArgs = withoutDir.runner.run.mock.calls[0]![0] as {
+      prompt: string;
+      allowedTools?: string[];
+    };
+    expect(withoutDirArgs.prompt).toBe(withDirArgs.prompt);
+    expect(withoutDirArgs.allowedTools).toBeUndefined();
+    expect(withoutDir.upsertPrComment.mock.calls[0]![3]).toBe(withDirPrBody);
   });
 });

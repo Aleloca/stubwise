@@ -19,6 +19,13 @@ import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AgentRunner, AgentRunUsage } from "../agent/runner.js";
 import type { MirrorManager, MirrorProject } from "../git/mirrors.js";
+import { GRAPHIFY_AGENT_ALLOWED_TOOLS, resolveRepoGraphJson } from "../graph/agent-hint.js";
+import {
+  computeBlastRadius,
+  parseChangedFiles,
+  renderBlastRadiusSection,
+  type BlastRadius,
+} from "../graph/blast-radius.js";
 import { toSingleLine } from "../pipeline/prompts.js";
 import { notify, ticketUrl, type DispatchFn } from "../pipeline/notify.js";
 import {
@@ -52,7 +59,10 @@ import { buildReviewPrompt, parseReviewOutput } from "./prompts.js";
  *  5. provider AI: pinned del progetto o chain[0]; pinned non risolvibile →
  *     riga `failed` senza fallback (come l'auto-update);
  *  6. riga `pr_reviews` RUNNING + heartbeat su lastActivityAt (60s, unref);
- *  7. diff dal mirror + agente read-only (plan) nel worktree alla head;
+ *  7. diff dal mirror + agente read-only (plan) nel worktree alla head; se il
+ *     repository ha un grafo sul volume (fase 2d graphify) il prompt riceve il
+ *     blocco CODE GRAPH e l'impatto deterministico del diff (blast radius), e
+ *     il run l'allowlist dei comandi read-only del CLI;
  *  8. registrazione consumi in `agent_runs` (phase "review") — PRIMA di cap e
  *     parse: i costi sono reali anche se l'output è inusabile; poi GUARDIE sul
  *     run: limite di rate/usage del provider → `failed` + job RIACCODATO con
@@ -66,7 +76,9 @@ import { buildReviewPrompt, parseReviewOutput } from "./prompts.js";
  *     ticket vuoti) — ma prima di creare lo stato PR viene RI-verificato:
  *     chiusa nel frattempo → riga `completed` con verdict/summary e ticketId
  *     null, niente pubblicazioni (race col webhook di chiusura);
- * 12. transazione: commento AI sul ticket + riga → `completed`;
+ * 12. transazione: commento AI sul ticket + riga → `completed`; al testo
+ *     dell'agente si appende la sezione "Impatto sul codice" (blast radius),
+ *     omessa se il calcolo non ha prodotto nulla;
  * 13. commento sticky sulla PR (best-effort, fuori transazione);
  * 14. notifica `review.completed` (best-effort).
  */
@@ -116,6 +128,9 @@ export interface RunPrReviewDeps {
   agentTimeoutMs: number;
   /** URL pubblico dell'istanza (per il link al ticket nella notifica). */
   publicUrl?: string;
+  /** Radice del volume dei grafi (GRAPHS_DIR). Assente o repo senza grafo →
+   * review identica a prima (nessun blocco nel prompt, nessuna sezione). */
+  graphsDir?: string;
   /** Provider git iniettabile nei test (default: getProvider). */
   getProviderFn?: (
     kind: GitProviderKind,
@@ -539,6 +554,19 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
   }, HEARTBEAT_INTERVAL_MS);
   heartbeat.unref();
 
+  // Grafo del repository sul volume (fase 2d graphify): quando esiste, il
+  // prompt riceve il blocco CODE GRAPH e il run l'allowlist dei comandi
+  // read-only del CLI (prima apertura Bash di questo run plan-mode, stesso
+  // razionale del deep dive). Assente → tutto identico a prima.
+  const graphJsonPath =
+    deps.graphsDir !== undefined ? resolveRepoGraphJson(deps.graphsDir, job.repositoryId) : null;
+  // Impatto deterministico del diff sul grafo: calcolato prima del run (finisce
+  // nel prompt) e riusato dopo (sezione del commento pubblicato). Mai lancia:
+  // computeBlastRadius è fail-open per contratto. Se il diff è TRONCATO il
+  // calcolo copre solo i file arrivati fin lì (e l'ultimo header, se tagliato a
+  // metà, conta come file fuori dal grafo): parziale, mai fuorviante.
+  let blastRadius: BlastRadius | null = null;
+
   try {
     // 7. Diff dal mirror + agente read-only nel worktree alla head della PR.
     let result;
@@ -548,6 +576,12 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
         job.headSha,
         job.targetBranch,
       );
+      if (graphJsonPath !== null) {
+        blastRadius = await computeBlastRadius({
+          graphJsonPath,
+          changedFiles: parseChangedFiles(diff),
+        });
+      }
       const prompt = buildReviewPrompt({
         prTitle: job.prTitle,
         prBody: job.prBody,
@@ -556,6 +590,8 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
         diff,
         diffTruncated: truncated,
         language: lang,
+        ...(graphJsonPath !== null ? { graphJsonPath } : {}),
+        blastRadius,
       });
       result = await deps.mirrors.withWorktreeAtSha(ctx.mirrorProject, job.headSha, (dir) =>
         deps.runner.run({
@@ -565,6 +601,7 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
           permissionMode: "plan",
           maxTurns: deps.maxTurns,
           timeoutMs: deps.agentTimeoutMs,
+          ...(graphJsonPath !== null ? { allowedTools: GRAPHIFY_AGENT_ALLOWED_TOOLS } : {}),
           ...(resolved.provider !== undefined ? { provider: resolved.provider } : {}),
         }),
       );
@@ -666,11 +703,18 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
         : "comment.reviewVerdict.requestChanges",
       { url: job.prUrl },
     );
+    // Sezione "Impatto sul codice" (fase 2d): appesa DETERMINISTICAMENTE dopo
+    // l'output dell'agente, mai prodotta da lui. Stringa vuota (sezione omessa)
+    // senza grafo, con grafo illeggibile o se nessun file del diff sta nel
+    // grafo. Va in ENTRAMBI i commenti: ticket e PR mostrano lo stesso testo,
+    // convenzione già in vigore per verdetto e summary.
+    const impact = renderBlastRadiusSection(lang, blastRadius);
+    const reviewBody = `${verdictText}\n\n${parsed.summary}${impact ? `\n\n${impact}` : ""}`;
     await deps.db.transaction(async (tx) => {
       await tx.insert(comments).values({
         ticketId: ticket.id,
         authorType: "ai",
-        body: `${verdictText}\n\n${parsed.summary}`,
+        body: reviewBody,
       });
       await tx
         .update(prReviews)
@@ -692,7 +736,7 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
         ctx.mirrorProject,
         job.prNumber,
         PR_REVIEW_COMMENT_MARKER,
-        `${PR_REVIEW_COMMENT_MARKER}\n\n${verdictText}\n\n${parsed.summary}\n\n_— Stubwise PR Review_`,
+        `${PR_REVIEW_COMMENT_MARKER}\n\n${reviewBody}\n\n_— Stubwise PR Review_`,
       );
     } catch (err) {
       console.error(

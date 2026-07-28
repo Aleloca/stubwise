@@ -47,6 +47,17 @@ export const en: Catalog = {
   "comment.reviewVerdict.approve": "🔎 **PR Review** — approval suggested ({url})",
   "comment.reviewVerdict.requestChanges": "🔎 **PR Review** — changes requested ({url})",
   "comment.reviewTicketBody": "Automatic review of pull request {url} (branch `{branch}`).",
+  // Sezione "Impatto sul codice" appesa al commento di review: dato
+  // DETERMINISTICO calcolato sul knowledge graph (mai prodotto dall'agente).
+  // I conteggi sono in forma `etichetta: N` per restare corretti anche al
+  // singolare (il catalogo non ha regole di plurale).
+  "comment.reviewImpact.title": "**Code impact** (computed from the code graph)",
+  "comment.reviewImpact.files":
+    "Files touched: {inGraph} in the graph, {outside} outside it — symbols touched: {nodes}",
+  "comment.reviewImpact.communities": "Areas crossed: {list}",
+  "comment.reviewImpact.communityEntry": "{name} (files: {files}, symbols: {nodes})",
+  "comment.reviewImpact.godNodes": "Highly connected symbols touched: {list}",
+  "comment.reviewImpact.godNodeEntry": "`{label}` (degree {degree})",
 
   // --- backlog.* — messaggi `system` nella chat di una voce del backlog ---
   "backlog.mergedFromTicket": "New feedback integrated from ticket #{number}.",
@@ -163,6 +174,14 @@ export const it: Catalog = {
   "comment.reviewVerdict.approve": "🔎 **PR Review** — approvazione suggerita ({url})",
   "comment.reviewVerdict.requestChanges": "🔎 **PR Review** — modifiche richieste ({url})",
   "comment.reviewTicketBody": "Review automatica della pull request {url} (branch `{branch}`).",
+  // Sezione "Impatto sul codice" del commento di review (vedi nota in `en`).
+  "comment.reviewImpact.title": "**Impatto sul codice** (calcolato dal grafo del codice)",
+  "comment.reviewImpact.files":
+    "File toccati: {inGraph} nel grafo, {outside} fuori — simboli toccati: {nodes}",
+  "comment.reviewImpact.communities": "Aree attraversate: {list}",
+  "comment.reviewImpact.communityEntry": "{name} (file: {files}, simboli: {nodes})",
+  "comment.reviewImpact.godNodes": "Simboli molto connessi toccati: {list}",
+  "comment.reviewImpact.godNodeEntry": "`{label}` (grado {degree})",
 
   // --- backlog.* (messaggi `system` nella chat di una voce del backlog) ---
   "backlog.mergedFromTicket": "Nuovo feedback integrato dal ticket #{number}.",
