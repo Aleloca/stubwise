@@ -16,6 +16,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import type { AgentRunResult } from "../agent/runner.js";
 import type { MirrorProject } from "../git/mirrors.js";
+import { GRAPHIFY_AGENT_ALLOWED_TOOLS, resolveRepoGraphJson } from "../graph/agent-hint.js";
 import { getContentLanguage } from "../settings.js";
 import { MalformedBacklogPayloadError, type BacklogDeps, type BacklogJob } from "./poller.js";
 import { buildDeepDivePrompt } from "./prompts.js";
@@ -289,6 +290,12 @@ export async function runDeepDive(
   // 5. Sha di HEAD del default branch + run read-only nel worktree (pattern PR
   //    review): l'agente esplora il codice reale in plan mode.
   const headSha = await deps.mirrors.resolveDefaultBranchHead(ctx.mirrorProject);
+  // Grafo del repo sul volume (fase 2a graphify): blocco nel prompt + allowlist
+  // read-only del CLI. È la prima apertura Bash di questo run plan-mode.
+  const graphJsonPath =
+    deps.graphsDir !== undefined
+      ? resolveRepoGraphJson(deps.graphsDir, payload.repositoryId)
+      : null;
   const result = await deps.mirrors.withWorktreeAtSha(ctx.mirrorProject, headSha, (dir) =>
     deps.runner.run({
       cwd: dir,
@@ -298,7 +305,9 @@ export async function runDeepDive(
         effort: item.effort,
         risk: item.risk,
         urgency: item.urgency,
+        ...(graphJsonPath !== null ? { graphJsonPath } : {}),
       }),
+      ...(graphJsonPath !== null ? { allowedTools: GRAPHIFY_AGENT_ALLOWED_TOOLS } : {}),
       ...(deps.model !== undefined ? { model: deps.model } : {}),
       permissionMode: "plan",
       maxTurns: deps.deepDiveMaxTurns,

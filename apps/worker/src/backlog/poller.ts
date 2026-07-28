@@ -65,6 +65,10 @@ export interface BacklogLogger {
  * il merge/intake ragionano solo sul testo passato nel prompt.
  */
 export interface BacklogDeps {
+  /** Radice del volume dei knowledge graph (GRAPHS_DIR): quando presente, deep
+   * dive e sessioni di analisi ricevono il blocco GRAFO DEL CODICE nel prompt e
+   * l'allowlist read-only di graphify (vedi graph/agent-hint.ts). */
+  graphsDir?: string;
   db: Db;
   embeddingClient: EmbeddingProvider;
   runner: AgentRunner;

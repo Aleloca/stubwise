@@ -51,6 +51,9 @@ export interface HandlerDeps {
   /** Dispatch delle notifiche iniettabile nei test. Default:
    * dispatchNotification (best-effort, non lancia mai). */
   dispatch?: DispatchFn;
+  /** Radice del volume dei knowledge graph (GRAPHS_DIR): passata al fix per il
+   * blocco CODE GRAPH nei prompt (vedi graph/agent-hint.ts). */
+  graphsDir?: string;
   /** Override delle opzioni di triage (model/maxTurns/timeoutMs). */
   triage?: { model?: string; maxTurns?: number; timeoutMs?: number };
   /** Override delle opzioni di fix (modelli, due fasi, timeout, allowedTools,
@@ -99,6 +102,7 @@ async function runJobWithProvider(
     mirrors: deps.mirrors,
     encryptionKey: deps.encryptionKey,
     ...(deps.getProviderFn ? { getProviderFn: deps.getProviderFn } : {}),
+    ...(deps.graphsDir !== undefined ? { graphsDir: deps.graphsDir } : {}),
     ...providerOpt,
     ...notifyOpts,
     ...deps.fix,

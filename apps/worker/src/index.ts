@@ -131,6 +131,7 @@ const handler = createHandler(
     runner,
     mirrors,
     encryptionKey: config.encryptionKey,
+    graphsDir: config.graphsDir,
     // URL pubblico per i link nelle notifiche webhook (vuoto = solo path).
     publicUrl: config.publicUrl,
     fix: {
@@ -354,6 +355,7 @@ startBacklogPoller({
   serializer,
   logger: backlogLogger,
   encryptionKey: config.encryptionKey,
+  graphsDir: config.graphsDir,
   mergeThreshold: config.backlogMergeThreshold,
   similarThreshold: config.backlogSimilarThreshold,
   model: config.backlogModel,
@@ -384,6 +386,7 @@ startChatTurnPoller({
   registry: codeSessionRegistry,
   logger: backlogLogger,
   encryptionKey: config.encryptionKey,
+  graphsDir: config.graphsDir,
   model: config.backlogModel,
   maxTurns: config.backlogChatTurnMaxTurns,
   timeoutMs: config.backlogChatTurnTimeoutMs,

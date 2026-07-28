@@ -27,6 +27,7 @@ import {
   type AgentRunUsage,
 } from "../agent/runner.js";
 import { mirrorSlug, MirrorManager, type MirrorProject } from "../git/mirrors.js";
+import { GRAPHIFY_AGENT_ALLOWED_TOOLS, resolveRepoGraphJson } from "../graph/agent-hint.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { isLimitError, ProviderLimitError } from "../providers/limit.js";
 import {
@@ -232,6 +233,10 @@ export interface FixDeps extends NotifyDeps {
   timeoutMs?: number;
   /** Override dei tool extra consentiti (default DEFAULT_FIX_ALLOWED_TOOLS). */
   allowedTools?: string[];
+  /** Radice del volume dei knowledge graph (GRAPHS_DIR): quando presente, i
+   * repo con un grafo costruito ricevono nel prompt il blocco CODE GRAPH e
+   * nell'allowlist i comandi read-only di graphify. Assente nei test legacy. */
+  graphsDir?: string;
   /** Intervallo dell'heartbeat in ms (default HEARTBEAT_INTERVAL_MS).
    * Iniettabile nei test per verificare il bump senza attendere 60s. */
   heartbeatIntervalMs?: number;
@@ -671,10 +676,30 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   const repoByUrl = new Map(preparedRepos.map((r) => [r.mirrorProject.repoUrl, r]));
   // Etichette dei repo per il prompt (sottocartella + nome leggibile). Con un solo
   // repo renderProjectReposBlock ritorna comunque vuoto → cornice classica.
-  const promptRepos = preparedRepos.map((r) => ({
-    dir: mirrorSlug(r.mirrorProject.repoUrl),
-    name: r.name,
-  }));
+  const promptRepos = preparedRepos.map((r) => {
+    // Grafo del repo sul volume (fase 2a graphify): quando esiste, il prompt
+    // riceve il blocco CODE GRAPH e l'allowlist i comandi di interrogazione.
+    const graphJsonPath =
+      deps.graphsDir !== undefined
+        ? resolveRepoGraphJson(deps.graphsDir, r.repositoryId)
+        : null;
+    return {
+      dir: mirrorSlug(r.mirrorProject.repoUrl),
+      name: r.name,
+      ...(graphJsonPath !== null ? { graphJsonPath } : {}),
+    };
+  });
+  // Allowlist dei run: i comandi read-only di graphify si aggiungono SOLO se
+  // almeno un repo ha un grafo (i pattern non citati nel prompt sono rumore).
+  const hasCodeGraph = promptRepos.some((r) => r.graphJsonPath !== undefined);
+  const executeAllowedTools = hasCodeGraph
+    ? [...allowedTools, ...GRAPHIFY_AGENT_ALLOWED_TOOLS]
+    : allowedTools;
+  // I run di PIANIFICAZIONE sono read-only e oggi senza Bash: si apre SOLO
+  // graphify (niente comandi di test in plan mode).
+  const planAllowedToolsOpt = hasCodeGraph
+    ? { allowedTools: GRAPHIFY_AGENT_ALLOWED_TOOLS }
+    : {};
   const branch = `stubwise/ticket-${ticket.number}`;
   const titleLine = toSingleLine(ticket.title, TITLE_MAX_CHARS);
   const prTitle = `fix: ${titleLine} (#${ticket.number})`;
@@ -869,6 +894,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
               permissionMode: "plan",
               maxTurns: DEFAULT_PLAN_MAX_TURNS,
               timeoutMs: planTimeoutMs,
+              ...planAllowedToolsOpt,
               ...providerOpt,
             });
             fixUsages.push(planResult.usage);
@@ -901,6 +927,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
               permissionMode: "plan",
               maxTurns: DEFAULT_PLAN_MAX_TURNS,
               timeoutMs: planTimeoutMs,
+              ...planAllowedToolsOpt,
               ...providerOpt,
             });
             fixUsages.push(planResult.usage);
@@ -937,7 +964,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
             permissionMode: "acceptEdits",
             maxTurns,
             timeoutMs,
-            allowedTools,
+            allowedTools: executeAllowedTools,
             ...providerOpt,
           });
           output = result.output;

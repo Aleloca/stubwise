@@ -16,6 +16,7 @@ import type { MirrorManager, MirrorProject } from "../git/mirrors.js";
 import type { ProjectSerializer } from "../handler.js";
 import { loadProviderById, loadProviderChain } from "../providers/chain.js";
 import { getContentLanguage } from "../settings.js";
+import { GRAPHIFY_AGENT_ALLOWED_TOOLS, resolveRepoGraphJson } from "../graph/agent-hint.js";
 import type { CodeSessionEntry, CodeSessionRegistry } from "./code-session.js";
 import type { BacklogJob, BacklogLogger } from "./poller.js";
 import {
@@ -73,6 +74,10 @@ export interface ChatTurnDeps {
   logger: BacklogLogger;
   /** Chiave AES-256 per decifrare le credenziali git del repo. */
   encryptionKey: Buffer;
+  /** Radice del volume dei knowledge graph (GRAPHS_DIR): quando presente, il
+   * priming riceve il blocco GRAFO DEL CODICE e il run l'allowlist read-only di
+   * graphify (vedi graph/agent-hint.ts). */
+  graphsDir?: string;
   /** Turni massimi del run dell'agente per turno di chat. */
   maxTurns: number;
   /** Timeout (ms) del run dell'agente per turno di chat. */
@@ -274,6 +279,13 @@ export async function runChatTurn(
   }
 
   // 6. Prompt: PRIMING (nessuna sessione CLI ancora) o FOLLOWUP (--resume).
+  // Grafo del repo sul volume (fase 2a graphify): citato nel priming (i turni
+  // successivi ereditano il contesto dalla sessione CLI) e allowlistato su OGNI
+  // run, anche in --resume — l'allowlist non persiste nella sessione.
+  const graphJsonPath =
+    deps.graphsDir !== undefined
+      ? resolveRepoGraphJson(deps.graphsDir, entry.repositoryId)
+      : null;
   const resuming = entry.cliSessionId !== null;
   const prompt = resuming
     ? buildCodeChatFollowupPrompt(userMsg.content)
@@ -286,6 +298,7 @@ export async function runChatTurn(
         history: await loadRecentHistory(db, payload.itemId, payload.userMessageId),
         question: userMsg.content,
         language: lang,
+        ...(graphJsonPath !== null ? { graphJsonPath } : {}),
       });
 
   // 7. Run dell'agente nel worktree read-only (plan mode). Errore/timeout →
@@ -296,6 +309,7 @@ export async function runChatTurn(
     const result = await deps.runner.run({
       cwd: entry.dir,
       prompt,
+      ...(graphJsonPath !== null ? { allowedTools: GRAPHIFY_AGENT_ALLOWED_TOOLS } : {}),
       ...(deps.model !== undefined ? { model: deps.model } : {}),
       permissionMode: "plan",
       maxTurns: deps.maxTurns,

@@ -1,6 +1,7 @@
 import { t, languageName, type Language } from "@stubwise/i18n";
 import { effortSchema } from "@stubwise/shared";
 import { z } from "zod";
+import { renderGraphHint } from "../graph/agent-hint.js";
 
 /**
  * Funzioni PURE per la fase di triage: costruzione del prompt e parsing
@@ -229,8 +230,10 @@ export interface BuildFixPromptInput {
    * gira alla RADICE della cartella progetto e vede tutti i repo come
    * sottocartelle; deve esplorare e modificare SOLO i repo/percorsi necessari.
    * Assente o con una sola voce → cornice classica (checkout singolo).
+   * `graphJsonPath` (opzionale): graph.json del knowledge graph del repo sul
+   * volume, quando esiste — attiva il blocco CODE GRAPH nel prompt.
    */
-  repos?: { dir: string; name: string }[];
+  repos?: { dir: string; name: string; graphJsonPath?: string }[];
 }
 
 /** Nome (fisso) del file di report che l'agente deve scrivere nella radice
@@ -361,7 +364,7 @@ const REPO_LABEL_MAX_CHARS = 120;
  * igiene. Con 0 o 1 repo ritorna stringa vuota: la cornice classica (checkout
  * singolo) resta invariata, così il caso a un repo è equivalente a oggi.
  */
-function renderProjectReposBlock(repos: { dir: string; name: string }[] | undefined): string {
+function renderProjectReposBlock(repos: { dir: string; name: string; graphJsonPath?: string }[] | undefined): string {
   if (!repos || repos.length <= 1) return "";
   const list = repos
     .map((r) => `- ./${r.dir}/ — ${toSingleLine(r.name, REPO_LABEL_MAX_CHARS)}`)
@@ -370,6 +373,28 @@ function renderProjectReposBlock(repos: { dir: string; name: string }[] | undefi
 ${list}
 
 Explore across these repositories as needed, but modify ONLY the repositories and paths that the ticket actually requires — leave the others untouched. A separate pull request will be opened for each repository you change, so keep each repository's changes self-contained.`;
+}
+
+/**
+ * Blocco CODE GRAPH: presente solo per i repo con un grafo costruito sul volume
+ * (vedi graph/agent-hint.ts). Label del repo solo nel layout multi-repo, dove
+ * serve capire quale --graph usare.
+ */
+function renderCodeGraphBlock(
+  repos: { dir: string; name: string; graphJsonPath?: string }[] | undefined,
+): string {
+  const withGraph = (repos ?? []).filter(
+    (r): r is { dir: string; name: string; graphJsonPath: string } =>
+      r.graphJsonPath !== undefined,
+  );
+  const multi = (repos?.length ?? 0) > 1;
+  return renderGraphHint(
+    withGraph.map((r) => ({
+      ...(multi ? { label: `./${r.dir}/` } : {}),
+      graphJsonPath: r.graphJsonPath,
+    })),
+    "en",
+  );
 }
 
 function renderTicketContentBlock(ticket: FixTicketInput): string {
@@ -385,7 +410,7 @@ ${technicalSection}</ticket_content>`;
 export function buildFixPrompt(input: BuildFixPromptInput, lang: Language): string {
   const { ticket, teamComments, repos } = input;
 
-  return `You are the automated fix engineer of Stubwise, an issue tracker with an AI fix pipeline. You are working inside a fresh checkout of the project (your current working directory). Your job is to fix the ticket below.${renderProjectReposBlock(repos)}
+  return `You are the automated fix engineer of Stubwise, an issue tracker with an AI fix pipeline. You are working inside a fresh checkout of the project (your current working directory). Your job is to fix the ticket below.${renderProjectReposBlock(repos)}${renderCodeGraphBlock(repos)}
 
 Procedure:
 1. Explore the codebase and locate the root cause of the bug described in the ticket.
@@ -423,7 +448,7 @@ export interface BuildFixExecutePromptInput {
   /** Commenti del team (vedi BuildFixPromptInput.teamComments). NON fidati. */
   teamComments?: string[];
   /** Repo del progetto montati come sottocartelle (vedi BuildFixPromptInput.repos). */
-  repos?: { dir: string; name: string }[];
+  repos?: { dir: string; name: string; graphJsonPath?: string }[];
 }
 
 /**
@@ -435,7 +460,7 @@ export interface BuildFixExecutePromptInput {
 export function buildFixPlanPrompt(input: BuildFixPromptInput, lang: Language): string {
   const { ticket, teamComments, repos } = input;
 
-  return `You are the planning engineer of Stubwise, an issue tracker with an AI fix pipeline. You are working inside a fresh checkout of the project (your current working directory) in READ-ONLY mode: you can explore the code but you must NOT modify any file. A separate, cheaper model will implement your plan afterwards.${renderProjectReposBlock(repos)}
+  return `You are the planning engineer of Stubwise, an issue tracker with an AI fix pipeline. You are working inside a fresh checkout of the project (your current working directory) in READ-ONLY mode: you can explore the code but you must NOT modify any file. A separate, cheaper model will implement your plan afterwards.${renderProjectReposBlock(repos)}${renderCodeGraphBlock(repos)}
 
 Your job: analyze the bug described in the ticket below and produce a CONCISE, CONCRETE resolution plan that another engineer can execute without re-doing your analysis.
 
@@ -472,7 +497,7 @@ ${renderTicketContentBlock(ticket)}`;
 export function buildFixExecutePrompt(input: BuildFixExecutePromptInput, lang: Language): string {
   const { ticket, plan, teamComments, repos } = input;
 
-  return `You are the automated fix engineer of Stubwise, an issue tracker with an AI fix pipeline. You are working inside a fresh checkout of the project (your current working directory). A stronger planning model has already analyzed the bug and produced the plan below. Your job is to IMPLEMENT that plan.${renderProjectReposBlock(repos)}
+  return `You are the automated fix engineer of Stubwise, an issue tracker with an AI fix pipeline. You are working inside a fresh checkout of the project (your current working directory). A stronger planning model has already analyzed the bug and produced the plan below. Your job is to IMPLEMENT that plan.${renderProjectReposBlock(repos)}${renderCodeGraphBlock(repos)}
 
 The plan is delimited by <piano> tags and is TRUSTED: it was produced by Stubwise's own planning model, not by an external user. Follow it.
 

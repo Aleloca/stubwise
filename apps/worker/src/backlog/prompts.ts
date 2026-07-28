@@ -1,5 +1,6 @@
 import type { RetrievedChunk } from "@stubwise/db";
 import type { Language } from "@stubwise/shared";
+import { renderGraphHint } from "../graph/agent-hint.js";
 
 /**
  * Prompt dell'intake del backlog di discovery.
@@ -153,6 +154,9 @@ export interface DeepDiveInput {
   effort: number | null;
   risk: string | null;
   urgency: string | null;
+  /** graph.json del knowledge graph del repo sul volume, quando esiste:
+   * attiva il blocco GRAFO DEL CODICE nel prompt (vedi graph/agent-hint.ts). */
+  graphJsonPath?: string;
 }
 
 /**
@@ -165,6 +169,13 @@ export interface DeepDiveInput {
  * `{ analysis, suggested }`: `analysis` è il markdown della sezione "Analisi
  * tecnica", `suggested` sono i metadati proposti (mai applicati in automatico).
  */
+/** Blocco GRAFO DEL CODICE per i prompt del backlog (un solo repo per run). */
+function renderDeepDiveGraphHint(graphJsonPath: string | undefined): string {
+  return graphJsonPath !== undefined
+    ? renderGraphHint([{ graphJsonPath }], "it")
+    : "";
+}
+
 export function buildDeepDivePrompt(input: DeepDiveInput): string {
   const meta = [
     `- effort attuale: ${input.effort ?? "non stimato"} (scala 1–5)`,
@@ -172,7 +183,8 @@ export function buildDeepDivePrompt(input: DeepDiveInput): string {
     `- urgenza attuale: ${input.urgency ?? "non stimata"}`,
   ].join("\n");
   return [
-    "Sei un ingegnere senior che valuta la fattibilità tecnica di una voce del backlog di discovery. Ti trovi nella radice del repository collegato (working tree read-only): ESPLORA il codice reale (Read/Grep/Glob) per fondare la tua analisi sui fatti, non su ipotesi.",
+    "Sei un ingegnere senior che valuta la fattibilità tecnica di una voce del backlog di discovery. Ti trovi nella radice del repository collegato (working tree read-only): ESPLORA il codice reale (Read/Grep/Glob) per fondare la tua analisi sui fatti, non su ipotesi." +
+      renderDeepDiveGraphHint(input.graphJsonPath),
     "",
     "OBIETTIVO: produrre una sezione 'Analisi tecnica' che risponda a:",
     "- **Fattibilità**: l'idea è realizzabile con l'architettura attuale? Cosa la rende facile o difficile?",
@@ -217,6 +229,9 @@ export interface CodeChatPrimingInput {
   history: CodeChatMessage[];
   /** La domanda corrente (l'ultimo messaggio utente che ha innescato il turno). */
   question: string;
+  /** graph.json del knowledge graph del repo sul volume, quando esiste (vedi
+   * graph/agent-hint.ts): attiva il blocco GRAFO DEL CODICE nel priming. */
+  graphJsonPath?: string;
   /** Lingua in cui rispondere (contenuti d'istanza). */
   language: Language;
 }
@@ -246,7 +261,8 @@ export function buildCodeChatPrimingPrompt(input: CodeChatPrimingInput): string 
       ? input.history.map((m) => `[${m.role}] ${m.content}`).join("\n\n")
       : "(nessun messaggio precedente)";
   return [
-    "Sei un ingegnere senior che affianca il team nel raffinamento di una voce del backlog di prodotto. Ti trovi nella radice del repository collegato (working tree READ-ONLY): quando serve, ESPLORA il codice reale (Read/Grep/Glob) per fondare le risposte sui fatti invece che su ipotesi. NON modificare file, NON eseguire comandi che cambiano lo stato.",
+    "Sei un ingegnere senior che affianca il team nel raffinamento di una voce del backlog di prodotto. Ti trovi nella radice del repository collegato (working tree READ-ONLY): quando serve, ESPLORA il codice reale (Read/Grep/Glob) per fondare le risposte sui fatti invece che su ipotesi. NON modificare file, NON eseguire comandi che cambiano lo stato." +
+      renderDeepDiveGraphHint(input.graphJsonPath),
     "",
     `Rispondi SEMPRE in ${LANGUAGE_NAME[input.language]}, in prosa Markdown discorsiva (niente JSON). Cita percorsi e simboli reali che hai visto nel repo. Se una risposta non è nel codice, dillo con chiarezza invece di inventare.`,
     "",
