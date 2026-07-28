@@ -220,7 +220,9 @@ function PrimaryButton({
   );
 }
 
-/** Bottone secondario (bordo, niente riempimento): azioni meno frequenti. */
+/** Bottone secondario (bordo, niente riempimento): azioni meno frequenti.
+ * Stessi padding e corpo del primario, così i bottoni affiancati sono alti
+ * uguali e cambia solo il peso visivo. */
 function SecondaryButton({
   onClick,
   label,
@@ -235,20 +237,33 @@ function SecondaryButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="rounded-sm border border-line-strong px-2 py-1 font-mono text-[11px] tracking-[0.06em] text-fg-muted uppercase transition-colors hover:text-fg disabled:cursor-not-allowed disabled:opacity-60"
+      className="rounded-sm border border-line-strong px-3 py-2 font-mono text-[12px] tracking-[0.06em] text-fg-muted uppercase transition-colors hover:text-fg disabled:cursor-not-allowed disabled:opacity-60"
     >
       {label}
     </button>
   );
 }
 
-/** Badge mono dei metadati (contatori, commit, data). */
-function MetaBadge({ children }: { children: ReactNode }) {
+/** Badge mono dei metadati. `accent` distingue le proprietà del grafo (come è
+ * etichettato, come si aggiorna) dai numeri puri: stessa forma, tinta diversa. */
+function MetaBadge({ children, accent }: { children: ReactNode; accent?: boolean }) {
   return (
-    <span className="inline-flex items-center rounded-sm border border-line bg-ink-900 px-2 py-1 font-mono text-[11px] tracking-[0.04em] text-fg-muted">
+    <span
+      className={
+        accent
+          ? "inline-flex items-center rounded-sm border border-signal/30 bg-ink-900 px-2 py-1 font-mono text-[11px] tracking-[0.04em] text-signal/90"
+          : "inline-flex items-center rounded-sm border border-line bg-ink-900 px-2 py-1 font-mono text-[11px] tracking-[0.04em] text-fg-muted"
+      }
+    >
       {children}
     </span>
   );
+}
+
+/** Separatore verticale tra i gruppi di badge (ambiti diversi: build,
+ * dimensioni, proprietà). Sparisce quando il flex-wrap va a capo comunque. */
+function MetaDivider() {
+  return <span aria-hidden className="hidden h-4 w-px bg-line-strong sm:block" />;
 }
 
 /** Messaggio d'errore della mutation di generazione (accodamento fallito). */
@@ -409,29 +424,44 @@ function ReadyView({
 
   return (
     <>
-      {/* Metadati: quando, su che commit, quanto è grande, com'è etichettato. */}
-      <div className="mt-6 flex flex-wrap items-center gap-2">
-        {graph.generatedAt !== null && (
-          <MetaBadge>
-            <time dateTime={graph.generatedAt} title={formatDateTime(graph.generatedAt)}>
-              {t("docs:graph.generatedAt", { date: formatRelativeTime(graph.generatedAt) })}
-            </time>
+      {/* Metadati in TRE gruppi separati, perché sono ambiti diversi: quando/su
+          che commit (build), quanto è grande (dimensioni), come si comporta
+          (proprietà, con tinta accent). Tutti uguali sulla stessa riga si
+          leggevano come un'unica cosa. */}
+      <div className="mt-6 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {graph.generatedAt !== null && (
+            <MetaBadge>
+              <time dateTime={graph.generatedAt} title={formatDateTime(graph.generatedAt)}>
+                {t("docs:graph.generatedAt", { date: formatRelativeTime(graph.generatedAt) })}
+              </time>
+            </MetaBadge>
+          )}
+          {graph.commitSha !== null && graph.commitSha !== "" && (
+            <MetaBadge>
+              {t("docs:graph.atCommit", { commit: graph.commitSha.slice(0, 7) })}
+            </MetaBadge>
+          )}
+        </div>
+        <MetaDivider />
+        <div className="flex flex-wrap items-center gap-1.5">
+          {graph.nodeCount !== null && (
+            <MetaBadge>{t("docs:graph.nodes", { count: graph.nodeCount })}</MetaBadge>
+          )}
+          {graph.edgeCount !== null && (
+            <MetaBadge>{t("docs:graph.edges", { count: graph.edgeCount })}</MetaBadge>
+          )}
+          {graph.communityCount !== null && (
+            <MetaBadge>{t("docs:graph.communities", { count: graph.communityCount })}</MetaBadge>
+          )}
+        </div>
+        <MetaDivider />
+        <div className="flex flex-wrap items-center gap-1.5">
+          <MetaBadge accent>
+            {graph.labeled ? t("docs:graph.labeled") : t("docs:graph.unlabeled")}
           </MetaBadge>
-        )}
-        {graph.commitSha !== null && graph.commitSha !== "" && (
-          <MetaBadge>{t("docs:graph.atCommit", { commit: graph.commitSha.slice(0, 7) })}</MetaBadge>
-        )}
-        {graph.nodeCount !== null && (
-          <MetaBadge>{t("docs:graph.nodes", { count: graph.nodeCount })}</MetaBadge>
-        )}
-        {graph.edgeCount !== null && (
-          <MetaBadge>{t("docs:graph.edges", { count: graph.edgeCount })}</MetaBadge>
-        )}
-        {graph.communityCount !== null && (
-          <MetaBadge>{t("docs:graph.communities", { count: graph.communityCount })}</MetaBadge>
-        )}
-        <MetaBadge>{graph.labeled ? t("docs:graph.labeled") : t("docs:graph.unlabeled")}</MetaBadge>
-        <MetaBadge>{t("docs:graph.autoUpdate")}</MetaBadge>
+          <MetaBadge accent>{t("docs:graph.autoUpdate")}</MetaBadge>
+        </div>
       </div>
 
       {/* Rigenerazione già in coda: badge in testa, il grafo sotto resta quello
@@ -444,11 +474,41 @@ function ReadyView({
 
       {isAdmin && (
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <PrimaryButton
-            onClick={() => onGenerate(false)}
-            disabled={generating || buildPending}
-            label={generating ? t("docs:graph.generating") : t("docs:graph.regenerate")}
-          />
+          {/* Il prossimo passo naturale guida la riga: finché la PR di setup
+              non è stata aperta è LEI l'azione primaria (il grafo c'è già,
+              portarlo ai dev è ciò che manca); da lì in poi torna primaria la
+              rigenerazione. Con il job della PR in corso si ricade sulla
+              rigenerazione primaria + badge di stato. */}
+          {graph.setupPrUrl === null && !graph.setupPrJobPending ? (
+            <>
+              <SetupPrAction
+                graph={graph}
+                onSetupPr={onSetupPr}
+                starting={setupPrStarting}
+                failed={setupPrFailed}
+                primary
+              />
+              <SecondaryButton
+                onClick={() => onGenerate(false)}
+                disabled={generating || buildPending}
+                label={generating ? t("docs:graph.generating") : t("docs:graph.regenerate")}
+              />
+            </>
+          ) : (
+            <>
+              <PrimaryButton
+                onClick={() => onGenerate(false)}
+                disabled={generating || buildPending}
+                label={generating ? t("docs:graph.generating") : t("docs:graph.regenerate")}
+              />
+              <SetupPrAction
+                graph={graph}
+                onSetupPr={onSetupPr}
+                starting={setupPrStarting}
+                failed={setupPrFailed}
+              />
+            </>
+          )}
           {/* Volutamente secondaria: rifare tutto da zero costa, l'incrementale
               è la scelta giusta quasi sempre. */}
           <SecondaryButton
@@ -456,18 +516,14 @@ function ReadyView({
             disabled={generating || buildPending}
             label={t("docs:graph.regenerateForce")}
           />
-          <SetupPrAction
-            graph={graph}
-            onSetupPr={onSetupPr}
-            starting={setupPrStarting}
-            failed={setupPrFailed}
-          />
+          <DownloadJsonLink repositoryId={repositoryId} />
         </div>
       )}
-      {/* Al membro resta il link alla PR di setup, se già aperta. */}
-      {!isAdmin && graph.setupPrUrl !== null && (
-        <div className="mt-4">
-          <SetupPrLink url={graph.setupPrUrl} />
+      {/* Al membro restano il download e, se già aperta, il link alla PR. */}
+      {!isAdmin && (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          {graph.setupPrUrl !== null && <SetupPrLink url={graph.setupPrUrl} />}
+          <DownloadJsonLink repositoryId={repositoryId} />
         </div>
       )}
       {generateFailed && <GenerateError />}
@@ -479,16 +535,10 @@ function ReadyView({
           non parte quando l'artefatto non esiste e non prende un 404. */}
       <GraphReport repositoryId={repositoryId} />
 
-      {/* Uscite: il grafo grezzo e l'interrogazione dal terminale. */}
+      {/* L'interrogazione dal terminale (il download del grafo grezzo sta
+          sopra, insieme alle altre azioni). */}
       <section aria-label={t("docs:graph.queryTitle")} className="mt-10 border-t border-line pt-6">
-        <a
-          href={repoGraphJsonUrl(repositoryId)}
-          download
-          className="inline-block rounded-sm border border-line-strong px-2 py-1 font-mono text-[11px] tracking-[0.06em] text-fg-muted uppercase transition-colors hover:border-signal/40 hover:text-signal"
-        >
-          {t("docs:graph.downloadJson")}
-        </a>
-        <h2 className="mt-6 font-mono text-[11px] tracking-[0.18em] text-fg-faint uppercase">
+        <h2 className="font-mono text-[11px] tracking-[0.18em] text-fg-faint uppercase">
           {t("docs:graph.queryTitle")}
         </h2>
         <p className="mt-2 text-[12px] text-fg-muted">{t("docs:graph.queryHint")}</p>
@@ -512,11 +562,15 @@ function SetupPrAction({
   onSetupPr,
   starting,
   failed,
+  primary,
 }: {
   graph: RepoGraph;
   onSetupPr: () => void;
   starting: boolean;
   failed: boolean;
+  /** Rende il bottone d'apertura come azione primaria (finché la PR non c'è
+   * è il prossimo passo naturale del flusso). */
+  primary?: boolean;
 }) {
   const { t } = useTranslation();
   if (graph.setupPrUrl !== null) return <SetupPrLink url={graph.setupPrUrl} />;
@@ -527,9 +581,10 @@ function SetupPrAction({
       </span>
     );
   }
+  const Button = primary ? PrimaryButton : SecondaryButton;
   return (
     <>
-      <SecondaryButton
+      <Button
         onClick={onSetupPr}
         disabled={starting}
         label={starting ? t("docs:graph.setupPrPending") : t("docs:graph.setupPr")}
@@ -546,6 +601,21 @@ function SetupPrAction({
   );
 }
 
+/** Download del graph.json grezzo: sta nella riga delle azioni, con la stessa
+ * altezza dei bottoni (è un'uscita, non un'azione sul grafo). */
+function DownloadJsonLink({ repositoryId }: { repositoryId: string }) {
+  const { t } = useTranslation();
+  return (
+    <a
+      href={repoGraphJsonUrl(repositoryId)}
+      download
+      className="inline-block rounded-sm border border-line-strong px-3 py-2 font-mono text-[12px] tracking-[0.06em] text-fg-muted uppercase transition-colors hover:border-signal/40 hover:text-signal"
+    >
+      {t("docs:graph.downloadJson")}
+    </a>
+  );
+}
+
 /** Link alla PR di setup già aperta sul provider (nuova scheda). */
 function SetupPrLink({ url }: { url: string }) {
   const { t } = useTranslation();
@@ -554,7 +624,7 @@ function SetupPrLink({ url }: { url: string }) {
       href={url}
       target="_blank"
       rel="noreferrer noopener"
-      className="rounded-sm border border-line-strong px-2 py-1 font-mono text-[11px] tracking-[0.06em] text-fg-muted uppercase transition-colors hover:border-signal/40 hover:text-signal"
+      className="rounded-sm border border-line-strong px-3 py-2 font-mono text-[12px] tracking-[0.06em] text-fg-muted uppercase transition-colors hover:border-signal/40 hover:text-signal"
     >
       {t("docs:graph.setupPrOpen")} ↗
     </a>

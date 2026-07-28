@@ -108,7 +108,7 @@ function renderGraph(role: "admin" | "member" = "admin") {
     ]),
     history: createMemoryHistory({ initialEntries: [`/docs/${REPO_ID}/graph`] }),
   });
-  render(
+  return render(
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
     </QueryClientProvider>,
@@ -309,6 +309,26 @@ describe("DocsGraphView", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Open setup PR" }));
     expect(openRepoGraphSetupPr).toHaveBeenCalledWith(REPO_ID);
+  });
+
+  it("priorità delle azioni: senza PR di setup è LEI la primaria; con la PR aperta lo è Rigenera", async () => {
+    // Fixture di default: setupPrUrl null → il prossimo passo è aprire la PR.
+    getRepoGraph.mockResolvedValue(graph());
+    const first = renderGraph("admin");
+    const setupPrButton = await screen.findByRole("button", { name: "Open setup PR" });
+    // Il primario è il bottone pieno (bg-signal), i secondari sono solo bordo.
+    expect(setupPrButton.className).toContain("bg-signal");
+    expect(screen.getByRole("button", { name: "Regenerate" }).className).not.toContain(
+      "bg-signal",
+    );
+    first.unmount();
+
+    // Con la PR già aperta la primaria torna la rigenerazione.
+    getRepoGraph.mockResolvedValue(graph({ setupPrUrl: "https://github.com/acme/app/pull/7" }));
+    renderGraph("admin");
+    expect((await screen.findByRole("button", { name: "Regenerate" })).className).toContain(
+      "bg-signal",
+    );
   });
 
   it("PR di setup già aperta: link al provider al posto del bottone", async () => {
