@@ -60,6 +60,13 @@ RUN pnpm --filter @stubwise/server deploy --prod --legacy /app
 FROM node:22-slim AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
+# git CLI: il retrieval dal grafo nelle chat (apps/server/src/graph-chat) legge
+# gli snippet di codice dai mirror bare del worker, montati READ-ONLY nel
+# compose (`git --git-dir=<MIRRORS_DIR>/<slug> show <sha>:<path>`). Serve nel
+# RUNTIME, non solo in build. Il server non clona nulla: legge e basta.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git \
+  && rm -rf /var/lib/apt/lists/*
 # Utente non-root.
 RUN useradd --create-home --uid 10001 stubwise
 COPY --from=base --chown=stubwise:stubwise /app /app
