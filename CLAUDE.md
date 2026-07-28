@@ -51,6 +51,11 @@ grafi stanno sul volume condiviso `graphs`, per repository in
 produttore) col CLI graphify, `server` e `graphify` lo montano `:ro`. La build è
 un job `build` della coda `graph_jobs`, accodato dal webhook push con debounce,
 sotto il toggle per-repository `graphEnabled` (default off).
+Il consumatore di `graphify` è il **server**: le chat interne (Docs repo e
+progetto, refinement del backlog, `/docs` di Slack — il widget NO) gli chiedono
+via MCP il sottografo della domanda e allegano gli snippet di codice letti dai
+mirror git, che il server monta `:ro` (`apps/server/src/graph-chat`, fail-open:
+spegnibile con `GRAPHIFY_MCP_URL=` vuota).
 
 ## Deploy (prod)
 
@@ -75,6 +80,8 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   `graphifyy==0.9.28` va tenuto ALLINEATO in 3 punti quando si aggiorna:
   `apps/worker/Dockerfile`, `Dockerfile.graphify` e `GRAPHIFY_VERSION` in
   `apps/worker/src/graph/setup-pr.ts`.
+- Modifica al **retrieval dal grafo nelle chat** (`apps/server/src/graph-chat`) →
+  ribuilda `server`.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.

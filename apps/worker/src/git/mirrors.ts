@@ -1,7 +1,7 @@
 import { getProvider, parseRepoUrl, type ProjectGitConfig } from "@stubwise/git";
 import type { GitProviderKind } from "@stubwise/shared";
+import { mirrorSlug } from "@stubwise/shared/mirror-slug";
 import { execa } from "execa";
-import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { chmod, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -164,22 +164,13 @@ export class GitCommandError extends Error {
 }
 
 /**
- * Slug stabile e filesystem-safe per la directory del mirror: parte
- * leggibile (URL sanitizzato) + suffisso sha256 dell'URL originale. Il
- * suffisso garantisce l'assenza di collisioni anche quando la sanitizzazione
- * appiattirebbe URL diversi sulla stessa stringa (es. `my_repo` vs `my-repo`,
- * o trattini che si confondono con i separatori host/owner/repo).
+ * Lo slug della directory del mirror vive in `@stubwise/shared`: lo usa anche
+ * il server, che monta lo stesso volume in read-only per leggere gli snippet
+ * di codice. Ri-esportato qui perché i chiamatori worker non cambino import
+ * (l'import è separato dall'export: serve anche nello scope di questo modulo,
+ * `export … from` non lo legherebbe localmente).
  */
-export function mirrorSlug(repoUrl: string): string {
-  const hash = createHash("sha256").update(repoUrl).digest("hex").slice(0, 12);
-  const readable = repoUrl
-    .replace(/^[a-z+.-]+:\/\//i, "")
-    .replace(/[^A-Za-z0-9._-]+/g, "-")
-    .replace(/^[-.]+|[-.]+$/g, "")
-    .toLowerCase()
-    .slice(0, 100);
-  return readable.length > 0 ? `${readable}-${hash}` : hash;
-}
+export { mirrorSlug };
 
 /**
  * URL remoto credential-free da salvare nella config del mirror. Per https

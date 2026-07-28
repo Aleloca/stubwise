@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatLlm, ChatLlmInput } from "./chat-llm.js";
 import type { RetrievedChunk } from "./docs-retrieval.js";
 
@@ -10,6 +10,19 @@ const retrieveChunksForProjectMock = vi.fn();
 vi.mock("./docs-retrieval.js", () => ({
   retrieveChunks: (...args: unknown[]) => retrieveChunksMock(...args),
   retrieveChunksForProject: (...args: unknown[]) => retrieveChunksForProjectMock(...args),
+}));
+
+// Mock del retrieval dal grafo (fase 2b): qui si verifica l'INNESTO (parallelo
+// + blocco appeso in coda), non la logica di gating/lettura dei mirror, che ha
+// i suoi test su Postgres vero in graph-chat/context.test.ts. `appendGraphContext`
+// resta invece l'implementazione REALE (importOriginal): è ciò che asseriamo.
+const retrieveGraphContextMock = vi.fn();
+const retrieveGraphContextForProjectMock = vi.fn();
+vi.mock("../graph-chat/context.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../graph-chat/context.js")>()),
+  retrieveGraphContext: (...args: unknown[]) => retrieveGraphContextMock(...args),
+  retrieveGraphContextForProject: (...args: unknown[]) =>
+    retrieveGraphContextForProjectMock(...args),
 }));
 
 // Import DOPO il vi.mock così il modulo sotto test lega la versione mockata.
@@ -214,5 +227,110 @@ describe("answerProjectDocsQuestion", () => {
       "proj-2",
       "Domanda di progetto.",
     );
+  });
+});
+
+describe("retrieval dal grafo nei flussi one-shot (fase 2b)", () => {
+  /** Blocco finto, nella forma prodotta da buildGraphContextBlock. */
+  const GRAPH_BLOCK =
+    "--- STRUTTURA DEL CODICE (knowledge graph al commit abcdef1) ---\nNODE login() [src=src/auth.ts loc=L12]";
+
+  /**
+   * Deps del grafo come le passa un chiamante interno (`app.graphChat` + il
+   * logger della richiesta). Client e config sono opachi: qui il retrieval è
+   * mockato, conta solo che l'oggetto venga inoltrato con `db` in testa.
+   */
+  const graphDeps = {
+    client: { __client: true } as never,
+    config: { __config: true } as never,
+    logger: { debug: (): void => undefined },
+  };
+
+  beforeEach(() => {
+    lastChatInput = null;
+    retrieveGraphContextMock.mockReset();
+    retrieveGraphContextForProjectMock.mockReset();
+  });
+
+  it("answerDocsQuestion con deps graph: blocco appeso IN CODA al system", async () => {
+    retrieveChunksMock.mockResolvedValueOnce([chunk({ slug: "auth", title: "Autenticazione" })]);
+    retrieveGraphContextMock.mockResolvedValueOnce(GRAPH_BLOCK);
+
+    await answerDocsQuestion(
+      { db: fakeDb, embeddingClient: fakeEmbeddingClient, chatLlm: fakeChatLlm, graph: graphDeps },
+      { repositoryId: "repo-1", question: "Chi crea la sessione?" },
+    );
+
+    // Deps composte con il db del flusso RAG; domanda utente passata verbatim.
+    expect(retrieveGraphContextMock).toHaveBeenCalledWith(
+      { db: fakeDb, ...graphDeps },
+      { repositoryId: "repo-1", question: "Chi crea la sessione?" },
+    );
+    const system = lastChatInput!.system;
+    expect(system).toContain("STRUTTURA DEL CODICE");
+    expect(system.indexOf("--- CONTESTO RECUPERATO ---")).toBeLessThan(
+      system.indexOf("STRUTTURA DEL CODICE"),
+    );
+  });
+
+  it("answerDocsQuestion SENZA deps graph: nessuna query e system identico a prima", async () => {
+    const chunks = [chunk({ slug: "auth", title: "Autenticazione" })];
+    retrieveChunksMock.mockResolvedValueOnce(chunks);
+    // Il grafo AVREBBE materiale da dare: senza deps non viene interrogato.
+    retrieveGraphContextMock.mockResolvedValue(GRAPH_BLOCK);
+
+    await answerDocsQuestion(
+      { db: fakeDb, embeddingClient: fakeEmbeddingClient, chatLlm: fakeChatLlm },
+      { repositoryId: "repo-1", question: "Chi crea la sessione?" },
+    );
+    const withoutDeps = lastChatInput!.system;
+    expect(retrieveGraphContextMock).not.toHaveBeenCalled();
+    expect(withoutDeps).not.toContain("STRUTTURA DEL CODICE");
+
+    // Stessa domanda CON le deps ma col grafo a vuoto (fail-open): il system
+    // deve tornare identico byte per byte a quello senza deps.
+    retrieveChunksMock.mockResolvedValueOnce(chunks);
+    retrieveGraphContextMock.mockResolvedValue(null);
+    await answerDocsQuestion(
+      { db: fakeDb, embeddingClient: fakeEmbeddingClient, chatLlm: fakeChatLlm, graph: graphDeps },
+      { repositoryId: "repo-1", question: "Chi crea la sessione?" },
+    );
+    expect(retrieveGraphContextMock).toHaveBeenCalledTimes(1);
+    expect(lastChatInput!.system).toBe(withoutDeps);
+  });
+
+  it("answerProjectDocsQuestion con deps graph: variante ForProject, blocco in coda", async () => {
+    retrieveChunksForProjectMock.mockResolvedValueOnce([
+      chunk({ slug: "auth", title: "Autenticazione" }),
+    ]);
+    retrieveGraphContextForProjectMock.mockResolvedValueOnce(GRAPH_BLOCK);
+
+    await answerProjectDocsQuestion(
+      { db: fakeDb, embeddingClient: fakeEmbeddingClient, chatLlm: fakeChatLlm, graph: graphDeps },
+      { projectId: "proj-1", question: "Come sono collegati i moduli?" },
+    );
+
+    expect(retrieveGraphContextForProjectMock).toHaveBeenCalledWith(
+      { db: fakeDb, ...graphDeps },
+      { projectId: "proj-1", question: "Come sono collegati i moduli?" },
+    );
+    // La variante per-repo NON è quella usata dal flusso di progetto.
+    expect(retrieveGraphContextMock).not.toHaveBeenCalled();
+    const system = lastChatInput!.system;
+    expect(system.endsWith(GRAPH_BLOCK)).toBe(true);
+  });
+
+  it("answerProjectDocsQuestion SENZA deps graph: nessuna query, niente blocco", async () => {
+    retrieveChunksForProjectMock.mockResolvedValueOnce([
+      chunk({ slug: "auth", title: "Autenticazione" }),
+    ]);
+
+    await answerProjectDocsQuestion(
+      { db: fakeDb, embeddingClient: fakeEmbeddingClient, chatLlm: fakeChatLlm },
+      { projectId: "proj-1", question: "Come sono collegati i moduli?" },
+    );
+
+    expect(retrieveGraphContextForProjectMock).not.toHaveBeenCalled();
+    expect(lastChatInput!.system).not.toContain("STRUTTURA DEL CODICE");
   });
 });

@@ -10,13 +10,15 @@ import {
   backlogItemTickets,
   backlogJobs,
   projects,
+  repoGraphs,
+  repositories,
   tickets,
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, seedRepositoryInProject, startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import type { ChatAvailability, ChatLlm, ChatLlmInput } from "./chat-llm.js";
-import { seedUsers } from "../test/fixtures.js";
+import { createFakeGraphMcpClient, seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -43,6 +45,9 @@ const fakeChatLlm: ChatLlm = {
     return availabilityOverride ?? { available: true };
   },
 };
+
+// Client MCP finto verso graphify (fase 2b): nessuna rete, risponde a comando.
+const fakeGraphClient = createFakeGraphMcpClient();
 
 let testDb: TestDb;
 let app: FastifyInstance;
@@ -91,6 +96,7 @@ beforeAll(async () => {
     publicUrl: "https://stubwise.example.com",
     embeddingClient,
     chatLlm: fakeChatLlm,
+    graphMcpClient: fakeGraphClient,
   });
   ({ adminCookie, memberCookie } = await seedUsers(app));
 }, 120_000);
@@ -104,6 +110,7 @@ beforeEach(async () => {
   lastChatInput = null;
   streamOverride = null;
   availabilityOverride = null;
+  fakeGraphClient.reset();
   ({ projectId } = await seedRepository(testDb.db));
 });
 
@@ -553,5 +560,66 @@ describe("POST /api/backlog/:id/refresh-document", () => {
       headers: { cookie: adminCookie },
     });
     expect(second.statusCode).toBe(409);
+  });
+});
+
+describe("POST /api/backlog/:id/chat — retrieval dal grafo (fase 2b)", () => {
+  /** Sottografo finto senza righe `NODE`: nessuna lettura dai mirror nei test. */
+  const FAKE_SUBGRAPH = "TRAVERSAL da 'notifiche' (2 nodi)\nEDGE notify() -> sendEmail()";
+
+  /** Accende il toggle e registra un grafo `done` per il repository. */
+  async function seedGraph(repositoryId: string): Promise<void> {
+    await testDb.db
+      .update(repositories)
+      .set({ graphEnabled: true })
+      .where(eq(repositories.id, repositoryId));
+    await testDb.db
+      .insert(repoGraphs)
+      .values({ repositoryId, status: "done", commitSha: "abcdef1234567890" });
+  }
+
+  it("repo del progetto col grafo done: blocco nel system dopo la documentazione", async () => {
+    const item = await insertItem();
+    const repositoryId = await seedRepositoryInProject(testDb.db, projectId);
+    await seedGraph(repositoryId);
+    fakeGraphClient.response = FAKE_SUBGRAPH;
+    const question = "Chi manda le notifiche via email?";
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/chat`,
+      headers: { cookie: memberCookie },
+      payload: { message: question },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const system = lastChatInput!.system;
+    expect(system).toContain("STRUTTURA DEL CODICE");
+    expect(system).toContain(FAKE_SUBGRAPH);
+    // Il blocco cita "la documentazione recuperata sopra": deve venire dopo.
+    expect(system.indexOf("--- DOCUMENTAZIONE RECUPERATA ---")).toBeLessThan(
+      system.indexOf("STRUTTURA DEL CODICE"),
+    );
+    // Le voci di backlog sono PROJECT-level (nessun repositoryId): si interrogano
+    // i grafi di tutti i repo del progetto, come per il retrieval documentale.
+    expect(fakeGraphClient.calls.length).toBe(1);
+    expect(fakeGraphClient.calls[0]!.question).toBe(question);
+    expect(fakeGraphClient.calls[0]!.projectPath).toBe(`/graphs/${repositoryId}`);
+  });
+
+  it("nessun grafo nel progetto: system senza blocco e nessuna query", async () => {
+    const item = await insertItem();
+    fakeGraphClient.response = FAKE_SUBGRAPH;
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/chat`,
+      headers: { cookie: memberCookie },
+      payload: { message: "Chi manda le notifiche via email?" },
+    });
+    expect(res.statusCode).toBe(200);
+
+    expect(fakeGraphClient.calls.length).toBe(0);
+    expect(lastChatInput!.system).not.toContain("STRUTTURA DEL CODICE");
   });
 });

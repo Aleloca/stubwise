@@ -34,6 +34,13 @@ const app = buildApp({
   widgetDailyMessageCap: config.widgetDailyMessageCap,
   widgetDailyTicketCap: config.widgetDailyTicketCap,
   graphsDir: config.graphsDir,
+  // Retrieval dal grafo nelle chat interne: senza GRAPHIFY_MCP_URL (o con la
+  // variabile vuota) la chiave non viene passata e la feature resta spenta.
+  ...(config.graphifyMcpUrl !== undefined ? { graphifyMcpUrl: config.graphifyMcpUrl } : {}),
+  graphChatTokenBudget: config.graphChatTokenBudget,
+  graphChatSnippetMaxChars: config.graphChatSnippetMaxChars,
+  graphChatSnippetNodes: config.graphChatSnippetNodes,
+  mirrorsDir: config.mirrorsDir,
 });
 
 try {

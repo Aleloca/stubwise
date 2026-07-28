@@ -10,7 +10,7 @@ import { resolveReporter, resolveReporterBySlackId } from "../ingest/reporter.js
 import { publicUrlOrUndefined, ticketUrl } from "../ingest/shared.js";
 import { apiError } from "../errors.js";
 import type { ChatLlm } from "../routes/chat-llm.js";
-import { answerProjectDocsQuestion } from "../routes/docs-rag.js";
+import { answerProjectDocsQuestion, type DocsGraphDeps } from "../routes/docs-rag.js";
 import { isUniqueViolation } from "../routes/shared.js";
 import { ACTION_IDS, BLOCK_IDS, buildTicketModal } from "./modal.js";
 import {
@@ -197,6 +197,12 @@ async function answerAndPostToSlack(
     chatLlm: ChatLlm;
     postResponse: (url: string, payload: unknown) => Promise<void>;
     publicUrl?: string;
+    /**
+     * Retrieval dal knowledge graph (fase 2b): `app.graphChat` + il logger
+     * della richiesta. Slack `/docs` è una superficie INTERNA al team, quindi
+     * riceve il blocco `STRUTTURA DEL CODICE` come le chat Docs della SPA.
+     */
+    graph?: DocsGraphDeps;
   },
   input: { projectId: string; question: string; responseUrl: string },
 ): Promise<void> {
@@ -216,7 +222,12 @@ async function answerAndPostToSlack(
 
   try {
     const { text, citations } = await answerProjectDocsQuestion(
-      { db: deps.db, embeddingClient: deps.embeddingClient, chatLlm: deps.chatLlm },
+      {
+        db: deps.db,
+        embeddingClient: deps.embeddingClient,
+        chatLlm: deps.chatLlm,
+        ...(deps.graph ? { graph: deps.graph } : {}),
+      },
       { projectId: input.projectId, question: input.question },
     );
 
@@ -540,7 +551,17 @@ export async function slackRoutes(
         const ackReply = ack(reply);
         const responseUrl = meta.responseUrl;
         void answerAndPostToSlack(
-          { db: instance.db, embeddingClient, chatLlm, postResponse, publicUrl },
+          {
+            db: instance.db,
+            embeddingClient,
+            chatLlm,
+            postResponse,
+            publicUrl,
+            // Stesso runtime del grafo delle chat interne (fase 2b): il logger
+            // è quello della richiesta — la generazione prosegue dopo l'ack, ma
+            // il log resta correlato alla view_submission.
+            graph: { ...instance.graphChat, logger: request.log },
+          },
           { projectId: docsProjectId!, question: question!, responseUrl },
         ).catch((err) => {
           request.log.warn({ err }, "[slack] docs answer failed");

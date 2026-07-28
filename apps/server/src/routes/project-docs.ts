@@ -38,6 +38,7 @@ import {
 } from "./docs-highlights.js";
 import { buildCitations, buildDocsSystemPrompt } from "./docs-rag.js";
 import { retrieveChunksForProject } from "./docs-retrieval.js";
+import { appendGraphContext, retrieveGraphContextForProject } from "../graph-chat/context.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 const projectIdParamsSchema = z.object({ projectId: z.uuid() });
@@ -403,15 +404,20 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
       // RETRIEVAL cross-repo riusato (no reimplementazione): stesso scope/ranking
       // della ricerca di progetto. k proporzionale ai repo documentati (default).
       // Se l'embedding è down, fa fallback full-text-only e non lancia.
-      const chunks = await retrieveChunksForProject(
-        app.db,
-        app.embeddingClient,
-        projectId,
-        message,
-        { logger: request.log },
-      );
+      // IN PARALLELO il retrieval strutturale dai knowledge graph del progetto
+      // (fase 2b): un blocco per repository col grafo pronto, budget diviso fra
+      // loro. Fail-open totale — `null` = system identico a prima.
+      const [chunks, graphBlock] = await Promise.all([
+        retrieveChunksForProject(app.db, app.embeddingClient, projectId, message, {
+          logger: request.log,
+        }),
+        retrieveGraphContextForProject(
+          { db: app.db, logger: request.log, ...app.graphChat },
+          { projectId, question: message },
+        ),
+      ]);
       const citations = buildCitations(chunks);
-      const system = buildDocsSystemPrompt(chunks);
+      const system = appendGraphContext(buildDocsSystemPrompt(chunks), graphBlock);
       const history = await loadHistory(app.db, resolvedSessionId);
 
       // Streaming SSE + persistenza del messaggio assistant: cuore condiviso con

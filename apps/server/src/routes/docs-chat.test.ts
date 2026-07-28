@@ -11,12 +11,13 @@ import {
   docChunks,
   docGenerations,
   docPages,
+  repoGraphs,
   repositories,
 } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
-import { seedUsers } from "../test/fixtures.js";
+import { createFakeGraphMcpClient, seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -56,6 +57,9 @@ const fakeChatLlm: ChatLlm = {
     return availabilityOverride ?? { available: true };
   },
 };
+
+// Client MCP finto verso graphify (fase 2b): nessuna rete, risponde a comando.
+const fakeGraphClient = createFakeGraphMcpClient();
 
 let testDb: TestDb;
 let app: FastifyInstance;
@@ -142,6 +146,7 @@ beforeAll(async () => {
     publicUrl: "https://stubwise.example.com",
     embeddingClient,
     chatLlm: fakeChatLlm,
+    graphMcpClient: fakeGraphClient,
   });
   ({ adminCookie, memberCookie } = await seedUsers(app));
 }, 120_000);
@@ -155,6 +160,7 @@ beforeEach(() => {
   lastChatInput = null;
   streamOverride = null;
   availabilityOverride = null;
+  fakeGraphClient.reset();
 });
 
 describe("POST /api/repositories/:projectId/docs/chat", () => {
@@ -579,5 +585,110 @@ describe("GET /api/repositories/:projectId/docs/chat/sessions[/:id/messages]", (
       headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("POST /api/repositories/:repositoryId/docs/chat — retrieval dal grafo (fase 2b)", () => {
+  /**
+   * Sottografo finto: volutamente SENZA righe `NODE ... [src=... loc=L..]`, così
+   * il parser non produce ancore e l'estrattore di snippet non lancia `git` su
+   * un mirror inesistente. Qui si verifica l'INNESTO nel prompt, non la lettura
+   * dai mirror (coperta da snippets.test.ts su un bare repo vero).
+   */
+  const FAKE_SUBGRAPH = "TRAVERSAL da 'sessione' (2 nodi)\nEDGE login() -> createSession()";
+
+  /** Accende il toggle e registra un grafo dello stato dato per il repository. */
+  async function seedGraph(
+    db: Db,
+    repositoryId: string,
+    values: Partial<typeof repoGraphs.$inferInsert> = {},
+  ): Promise<void> {
+    await db
+      .update(repositories)
+      .set({ graphEnabled: true })
+      .where(eq(repositories.id, repositoryId));
+    await db
+      .insert(repoGraphs)
+      .values({ repositoryId, status: "done", commitSha: "abcdef1234567890", ...values });
+  }
+
+  async function ask(repositoryId: string, message: string): Promise<number> {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/repositories/${repositoryId}/docs/chat`,
+      headers: { cookie: memberCookie },
+      payload: { message },
+    });
+    return res.statusCode;
+  }
+
+  it("grafo done: il blocco entra nel system DOPO le pagine, con la domanda corrente", async () => {
+    const project = await insertProject(testDb.db);
+    const genId = await insertCurrentGeneration(testDb.db, project.id);
+    const question = "Chi crea la sessione al login?";
+    await insertPageWithChunk(testDb.db, project.id, genId, {
+      title: "Sessioni",
+      body: "Pagina sessioni.",
+      chunkContent: question,
+    });
+    await seedGraph(testDb.db, project.id);
+    fakeGraphClient.response = FAKE_SUBGRAPH;
+
+    expect(await ask(project.id, question)).toBe(200);
+
+    const system = lastChatInput!.system;
+    expect(system).toContain("STRUTTURA DEL CODICE");
+    expect(system).toContain(FAKE_SUBGRAPH);
+    // ORDINE: il blocco cita "la documentazione recuperata sopra", quindi deve
+    // stare DOPO il contesto documentale.
+    expect(system.indexOf("--- CONTESTO RECUPERATO ---")).toBeLessThan(
+      system.indexOf("STRUTTURA DEL CODICE"),
+    );
+
+    // Una sola query, con la DOMANDA UTENTE e il project_path del repository.
+    expect(fakeGraphClient.calls.length).toBe(1);
+    expect(fakeGraphClient.calls[0]!.question).toBe(question);
+    expect(fakeGraphClient.calls[0]!.projectPath).toBe(`/graphs/${project.id}`);
+  });
+
+  it("nessun grafo per il repository: system senza blocco, chat normale", async () => {
+    const project = await insertProject(testDb.db);
+    await insertCurrentGeneration(testDb.db, project.id);
+    fakeGraphClient.response = FAKE_SUBGRAPH;
+
+    expect(await ask(project.id, "Chi crea la sessione al login?")).toBe(200);
+
+    expect(lastChatInput!.system).not.toContain("STRUTTURA DEL CODICE");
+    // Gating in SQL: senza riga repo_graphs non si interroga nemmeno graphify.
+    expect(fakeGraphClient.calls.length).toBe(0);
+  });
+
+  it("grafo done ma query a vuoto (graphify giù / grafo vuoto): system senza blocco", async () => {
+    const project = await insertProject(testDb.db);
+    await insertCurrentGeneration(testDb.db, project.id);
+    await seedGraph(testDb.db, project.id);
+    // Il client fail-open ritorna null: la chat non deve accorgersene.
+    fakeGraphClient.response = null;
+
+    expect(await ask(project.id, "Chi crea la sessione al login?")).toBe(200);
+
+    expect(fakeGraphClient.calls.length).toBe(1);
+    expect(lastChatInput!.system).not.toContain("STRUTTURA DEL CODICE");
+  });
+
+  it("toggle graphEnabled spento (grafo done residuo): non si interroga il grafo", async () => {
+    const project = await insertProject(testDb.db);
+    await insertCurrentGeneration(testDb.db, project.id);
+    await seedGraph(testDb.db, project.id);
+    await testDb.db
+      .update(repositories)
+      .set({ graphEnabled: false })
+      .where(eq(repositories.id, project.id));
+    fakeGraphClient.response = FAKE_SUBGRAPH;
+
+    expect(await ask(project.id, "Chi crea la sessione al login?")).toBe(200);
+
+    expect(fakeGraphClient.calls.length).toBe(0);
+    expect(lastChatInput!.system).not.toContain("STRUTTURA DEL CODICE");
   });
 });

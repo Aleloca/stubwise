@@ -10,6 +10,7 @@ import {
   encrypt,
   instanceSettings,
   projects,
+  repoGraphs,
   repositories,
   tickets,
   users,
@@ -19,7 +20,7 @@ import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import type { ChatAvailability, ChatLlm, ChatLlmInput } from "../routes/chat-llm.js";
-import { seedUsers } from "../test/fixtures.js";
+import { createFakeGraphMcpClient, seedUsers } from "../test/fixtures.js";
 import type { SlackClient } from "./api.js";
 import type { SlackClientFactory } from "./routes.js";
 import { ACTION_IDS, BLOCK_IDS, CREATE_TICKET_CALLBACK_ID } from "./modal.js";
@@ -78,14 +79,20 @@ let streamOverride: ((input: ChatLlmInput) => AsyncIterable<string>) | null = nu
 async function* defaultStream(): AsyncIterable<string> {
   for (const d of FAKE_DELTAS) yield d;
 }
+let lastChatInput: ChatLlmInput | null = null;
 const fakeChatLlm: ChatLlm = {
   stream(input: ChatLlmInput): AsyncIterable<string> {
+    lastChatInput = input;
     return (streamOverride ?? defaultStream)(input);
   },
   async isAvailable(): Promise<ChatAvailability> {
     return availabilityOverride ?? { available: true };
   },
 };
+
+// Client MCP finto verso graphify: /docs via Slack è una superficie INTERNA e
+// riceve il blocco del grafo come le chat Docs della SPA (fase 2b).
+const fakeGraphClient = createFakeGraphMcpClient();
 
 // Spy della POST differita verso il response_url di Slack (niente rete).
 const postResponse = vi.fn<(url: string, payload: unknown) => Promise<void>>(async () => {});
@@ -326,6 +333,7 @@ beforeAll(async () => {
     embeddingClient,
     chatLlm: fakeChatLlm,
     slackPostResponse: postResponse,
+    graphMcpClient: fakeGraphClient,
   });
   ({ adminCookie } = await seedUsers(app));
   ({ projectId: ticketProjectId } = await createProject("slack-proj"));
@@ -348,6 +356,8 @@ afterEach(async () => {
   postResponse.mockClear();
   availabilityOverride = null;
   streamOverride = null;
+  lastChatInput = null;
+  fakeGraphClient.reset();
   emailToReturn = null;
   avatarToReturn = null;
   // Ripristina lo stato del reporter: i test di auto-link mutano slack_user_id
@@ -983,5 +993,75 @@ describe("POST /api/slack/interactions — view_submission docs_query", () => {
     const p = payload as { response_type: string; text: string };
     expect(p.response_type).toBe("ephemeral");
     expect(p.text).toContain("Errore durante la ricerca");
+  });
+
+  it("repo del progetto col grafo done → il system contiene il blocco STRUTTURA DEL CODICE", async () => {
+    // Slack /docs è una superficie INTERNA al team: riceve il retrieval dal
+    // knowledge graph come le chat Docs della SPA (fase 2b).
+    await linkSubmitter();
+    const { projectId, repositoryId } = await createProject(`graph-${randomUUID().slice(0, 8)}`);
+    await seedDocsForRepo(testDb.db, repositoryId, {
+      title: "Sessioni",
+      slug: `graph-page-${randomUUID().slice(0, 8)}`,
+      content: "La sessione nasce al login.",
+    });
+    await testDb.db
+      .update(repositories)
+      .set({ graphEnabled: true })
+      .where(eq(repositories.id, repositoryId));
+    await testDb.db
+      .insert(repoGraphs)
+      .values({ repositoryId, status: "done", commitSha: "abcdef1234567890" });
+    // Sottografo finto SENZA righe `NODE`: nessuna lettura dai mirror nei test.
+    const subgraph = "TRAVERSAL da 'sessione'\nEDGE login() -> createSession()";
+    fakeGraphClient.response = subgraph;
+
+    const question = "Chi crea la sessione al login?";
+    const body = docsSubmissionBody({
+      projectId,
+      question,
+      meta: { responseUrl: RESPONSE_URL, slackUserId: META_USER },
+    });
+    const res = await slackPost("/api/slack/interactions", body);
+    expect(res.statusCode).toBe(200);
+    await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
+
+    const system = lastChatInput!.system;
+    expect(system).toContain("STRUTTURA DEL CODICE");
+    expect(system).toContain(subgraph);
+    // Il blocco resta in coda, dopo le pagine di documentazione.
+    expect(system.indexOf("--- CONTESTO RECUPERATO ---")).toBeLessThan(
+      system.indexOf("STRUTTURA DEL CODICE"),
+    );
+    // Una query, sulla domanda dell'utente e sul grafo del repo del progetto.
+    expect(fakeGraphClient.calls.length).toBe(1);
+    expect(fakeGraphClient.calls[0]!.question).toBe(question);
+    expect(fakeGraphClient.calls[0]!.projectPath).toBe(`/graphs/${repositoryId}`);
+  });
+
+  it("nessun grafo nel progetto: nessuna query e system senza blocco (risposta invariata)", async () => {
+    await linkSubmitter();
+    const { projectId, repositoryId } = await createProject(`nograph-${randomUUID().slice(0, 8)}`);
+    await seedDocsForRepo(testDb.db, repositoryId, {
+      title: "Sessioni",
+      slug: `nograph-page-${randomUUID().slice(0, 8)}`,
+      content: "La sessione nasce al login.",
+    });
+    fakeGraphClient.response = "TRAVERSAL mai richiesto";
+
+    const body = docsSubmissionBody({
+      projectId,
+      question: "Chi crea la sessione al login?",
+      meta: { responseUrl: RESPONSE_URL, slackUserId: META_USER },
+    });
+    const res = await slackPost("/api/slack/interactions", body);
+    expect(res.statusCode).toBe(200);
+    await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
+
+    expect(fakeGraphClient.calls.length).toBe(0);
+    expect(lastChatInput!.system).not.toContain("STRUTTURA DEL CODICE");
+    // La risposta è quella di sempre.
+    const [, payload] = postResponse.mock.calls[0]!;
+    expect(JSON.stringify(payload)).toContain("Risposta dai docs.");
   });
 });

@@ -27,6 +27,8 @@ import {
 import { authRoutes } from "./routes/auth.js";
 import { commentRoutes } from "./routes/comments.js";
 import { createAnthropicChatLlm, type ChatLlm } from "./routes/chat-llm.js";
+import { createGraphMcpClient, type GraphMcpClient } from "./graph-chat/client.js";
+import type { GraphChatRuntime } from "./graph-chat/context.js";
 import { docsChatRoutes } from "./routes/docs-chat.js";
 import { docsRoutes } from "./routes/docs.js";
 import { gitAccountRoutes } from "./routes/git-accounts.js";
@@ -86,6 +88,17 @@ declare module "fastify" {
      * (fake deterministico, senza rete); altrimenti costruito dalla config.
      */
     embeddingClient: EmbeddingClient;
+    /**
+     * Retrieval strutturale dal knowledge graph (fase 2b): client MCP verso
+     * graphify — `null` quando la feature è spenta — e i tetti del contesto.
+     * Costruito UNA volta per processo e letto SOLO dalle superfici di chat
+     * INTERNE (Docs per-repo, Docs di progetto, refinement del backlog).
+     *
+     * PERIMETRO: la chat del widget è pubblica e NON deve mai vedere il grafo
+     * (percorsi di file e codice sorgente); il suo percorso di retrieval
+     * (routes/widget-chat.ts) non tocca questo decorator.
+     */
+    graphChat: GraphChatRuntime;
   }
 }
 
@@ -196,6 +209,29 @@ export interface BuildAppOptions {
    * directory temporanea.
    */
   graphsDir?: string;
+  /**
+   * URL del server MCP graphify (GRAPHIFY_MCP_URL) da cui le chat interne
+   * recuperano il sottografo del codice. Assente = feature SPENTA: nessun
+   * client viene costruito e le chat restano quelle di prima della fase 2b.
+   */
+  graphifyMcpUrl?: string;
+  /**
+   * Client MCP già costruito. Ha la precedenza su {@link graphifyMcpUrl};
+   * pensato per i test (fake che non tocca la rete né richiede il container).
+   */
+  graphMcpClient?: GraphMcpClient;
+  /** Budget di token del sottografo per domanda (default 1200, come la config). */
+  graphChatTokenBudget?: number;
+  /** Tetto dei caratteri di codice allegati a una risposta (default 6000). */
+  graphChatSnippetMaxChars?: number;
+  /** Massimo numero di nodi del sottografo da cui estrarre snippet (default 6). */
+  graphChatSnippetNodes?: number;
+  /**
+   * Radice dei mirror git bare montata read-only sul server (MIRRORS_DIR), da
+   * cui si leggono gli estratti di codice. Default "/var/stubwise/mirrors"
+   * (stesso default del worker: devono puntare allo stesso volume).
+   */
+  mirrorsDir?: string;
 }
 
 /**
@@ -313,6 +349,32 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
       },
     };
   app.decorate("chatLlm", chatLlm);
+
+  // Retrieval dal knowledge graph nelle chat INTERNE (fase 2b). Il client MCP
+  // nasce UNA volta per processo (la connessione dentro al client è pigra e
+  // cached) e SOLO se la feature è accesa: senza URL resta `null` e ogni
+  // retrieveGraphContext ritorna null senza toccare il db — è il rollback
+  // switch documentato in config.ts (`GRAPHIFY_MCP_URL=` vuota). Nei test si
+  // inietta direttamente un fake.
+  const graphMcpClient: GraphMcpClient | null =
+    opts.graphMcpClient ??
+    (opts.graphifyMcpUrl
+      ? createGraphMcpClient({ url: opts.graphifyMcpUrl, logger: app.log })
+      : null);
+  app.decorate("graphChat", {
+    client: graphMcpClient,
+    config: {
+      graphChatTokenBudget: opts.graphChatTokenBudget ?? 1200,
+      graphChatSnippetMaxChars: opts.graphChatSnippetMaxChars ?? 6000,
+      graphChatSnippetNodes: opts.graphChatSnippetNodes ?? 6,
+      mirrorsDir: opts.mirrorsDir ?? "/var/stubwise/mirrors",
+    },
+  });
+  // Chiude la connessione MCP cached allo spegnimento (anche in test, dove ogni
+  // file chiude la sua app): senza, il processo resterebbe appeso al transport.
+  app.addHook("onClose", async () => {
+    await graphMcpClient?.close();
+  });
 
   // Senza secret il plugin si registra comunque (parsing dei cookie), ma
   // firmare il cookie di sessione fallisce: stesso spirito del getter su db.

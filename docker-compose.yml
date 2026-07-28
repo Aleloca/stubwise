@@ -84,10 +84,35 @@ services:
       # Volume dei grafi graphify: il server lo legge (report/html/json serviti
       # alla SPA). Stesso path del worker, che invece ci scrive.
       GRAPHS_DIR: /graphs
+      # --- Retrieval dal grafo nelle chat interne (Docs repo/progetto, backlog,
+      # /docs di Slack) ---
+      # Server MCP del container `graphify`, solo rete interna: le chat gli
+      # chiedono il sottografo della domanda. ATTENZIONE: qui la stringa VUOTA
+      # NON significa "usa il default" ma "feature spenta" → è il ROLLBACK
+      # (GRAPHIFY_MCP_URL= nel .env + restart, le chat tornano al solo pgvector).
+      # Per questo la sostituzione usa `-` e non `:-`: con `:-` una variabile
+      # definita ma vuota ricadrebbe sul default e lo spegnimento non funzionerebbe.
+      GRAPHIFY_MCP_URL: ${GRAPHIFY_MCP_URL-http://graphify:8080/mcp}
+      # Mirror git del worker: il server ci legge i blob citati dal sottografo
+      # per allegare gli snippet di codice. Deve coincidere col path del worker
+      # e col mount qui sotto.
+      MIRRORS_DIR: /var/stubwise/mirrors
+      # Budget di token del sottografo per domanda (diviso per il numero di repo
+      # nelle chat di progetto); quanti nodi diventano snippet e tetto
+      # complessivo dei caratteri di codice allegati a una risposta.
+      GRAPH_CHAT_TOKEN_BUDGET: ${GRAPH_CHAT_TOKEN_BUDGET:-1200}
+      GRAPH_CHAT_SNIPPET_MAX_CHARS: ${GRAPH_CHAT_SNIPPET_MAX_CHARS:-6000}
+      GRAPH_CHAT_SNIPPET_NODES: ${GRAPH_CHAT_SNIPPET_NODES:-6}
     volumes:
       # Output di graphify: il server lo monta READ-ONLY (:ro). L'unico
       # produttore è il worker; qui si serve solo il contenuto.
       - graphs:/graphs:ro
+      # Mirror git: READ-ONLY anche questi. Il server LEGGE i blob per gli
+      # snippet della chat; l'unico scrittore (clone/fetch) resta il worker.
+      # NB: funziona perché l'utente non-root delle DUE immagini ha lo stesso
+      # uid 10001 — con uid diversi git rifiuterebbe i mirror per "dubious
+      # ownership" e gli snippet sparirebbero (in silenzio, fail-open).
+      - mirrors:/var/stubwise/mirrors:ro
     logging: *default-logging
     # Il server applica le migrazioni all'avvio (runMigrations): worker e Caddy
     # lo aspettano sano. Healthcheck definito nell'immagine (hit /health).
@@ -238,11 +263,11 @@ services:
   # non ha un grafo di default, i client passano `project_path=/graphs/
   # <repositoryId>` a ogni tool e graphify ci cerca sotto graphify-out/graph.json.
   #
-  # OGGI NESSUN SERVIZIO INTERNO LO USA: è una predisposizione voluta dal design
-  # per la chat/gli agent futuri, che potranno interrogare il grafo via MCP su
-  # http://graphify:8080/mcp. Per questo non pubblica porte sull'host e non ha
-  # rotte su Caddy: vive solo sulla rete interna del compose (e quindi gira anche
-  # senza --api-key).
+  # Il consumatore interno è il SERVER: le chat (Docs repo/progetto, backlog,
+  # /docs di Slack) gli chiedono il sottografo della domanda su
+  # http://graphify:8080/mcp (env GRAPHIFY_MCP_URL del servizio `server`). Per
+  # questo non pubblica porte sull'host e non ha rotte su Caddy: vive solo sulla
+  # rete interna del compose (e quindi gira anche senza --api-key).
   #
   # Nessun healthcheck: il transport MCP risponde solo a POST JSON-RPC su /mcp
   # (con Accept: application/json, text/event-stream) e l'immagine non ha curl —

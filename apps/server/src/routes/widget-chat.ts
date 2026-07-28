@@ -114,6 +114,11 @@ export function extractProposal(full: string): {
  * `ticket_proposal` documentato in coda. Modellato su
  * {@link ./docs-rag.ts#buildDocsSystemPrompt} ma con regole diverse (niente
  * dettagli interni, niente doppio registro tecnico).
+ *
+ * PERIMETRO (fase 2b): qui NON entra il retrieval dal knowledge graph. Il grafo
+ * porta percorsi di file ed estratti di codice, e questa superficie è PUBBLICA
+ * (embeddata nei siti dei clienti): il blocco `STRUTTURA DEL CODICE` vive solo
+ * nelle chat interne. Regressione coperta da widget.test.ts.
  */
 export function buildWidgetSystemPrompt(
   chunks: RetrievedChunk[],

@@ -11,6 +11,7 @@ import {
   docGenerations,
   docPages,
   projects,
+  repoGraphs,
   repositories,
   tickets,
   widgetConversations,
@@ -19,6 +20,7 @@ import {
 } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import { generateIngestionKey } from "./shared.js";
+import { createFakeGraphMcpClient } from "../test/fixtures.js";
 import type { TestDb } from "@stubwise/db/testing";
 import {
   seedRepository,
@@ -60,6 +62,11 @@ const fakeChatLlm: ChatLlm = {
     return availabilityOverride ?? { available: true };
   },
 };
+
+// Client MCP finto verso graphify. Il widget è una superficie PUBBLICA: il
+// retrieval dal grafo (fase 2b) NON deve toccarla mai, quindi qui il fake serve
+// a dimostrare che non viene interrogato.
+const fakeGraphClient = createFakeGraphMcpClient();
 
 let testDb: TestDb;
 let app: FastifyInstance;
@@ -179,6 +186,7 @@ beforeAll(async () => {
     publicUrl: "https://stubwise.example.com",
     embeddingClient,
     chatLlm: fakeChatLlm,
+    graphMcpClient: fakeGraphClient,
   });
   // Seconda istanza con cap giornaliero = 1 per il test del limite (stesso db).
   capApp = buildApp({
@@ -213,6 +221,7 @@ beforeEach(() => {
   availabilityOverride = null;
   availabilityThrows = false;
   lastChatInput = null;
+  fakeGraphClient.reset();
   streamOverride = null;
 });
 
@@ -1399,6 +1408,43 @@ describe("POST /widget/:slug/conversations/:conversationId/messages", () => {
     expect(citations.some((c) => c.slug === pageA.slug)).toBe(true);
     // repoB resta escluso: il filtro per un repo fuori whitelist è inerte.
     expect(citations.some((c) => c.slug === pageB.slug)).toBe(false);
+  });
+
+  it("PERIMETRO fase 2b: col grafo done il widget NON riceve il blocco né interroga graphify", async () => {
+    // Requisito di SICUREZZA del design (§3): il retrieval dal grafo vive solo
+    // nelle superfici interne. Il widget è pubblico e il grafo contiene percorsi
+    // di file e codice sorgente: non deve trafilarci nulla, nemmeno con il grafo
+    // pronto sul repository whitelisted.
+    const { project, widget, conversationId, genId } = await setupChat(testDb.db);
+    const question = "Come attivo le notifiche via email?";
+    await seedPageWithChunk(testDb.db, project.repositoryId, genId, {
+      title: "Notifiche email",
+      chunkContent: question,
+    });
+    await testDb.db
+      .update(repositories)
+      .set({ graphEnabled: true })
+      .where(eq(repositories.id, project.repositoryId));
+    await testDb.db.insert(repoGraphs).values({
+      repositoryId: project.repositoryId,
+      status: "done",
+      commitSha: "abcdef1234567890",
+    });
+    fakeGraphClient.response = "TRAVERSAL da 'notifiche'\nEDGE notify() -> sendEmail()";
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/widget/${project.slug}/conversations/${conversationId}/messages`,
+      headers: { "x-stubwise-key": widget.key },
+      payload: { content: question, userId: "visitor-1" },
+    });
+    expect(res.statusCode).toBe(200);
+
+    expect(fakeGraphClient.calls.length).toBe(0);
+    expect(lastChatInput!.system).not.toContain("STRUTTURA DEL CODICE");
+    expect(lastChatInput!.system).not.toContain("EDGE notify()");
+    // La chat del widget resta quella di sempre (registro customer service).
+    expect(lastChatInput!.system).toContain("customer-support");
   });
 });
 
