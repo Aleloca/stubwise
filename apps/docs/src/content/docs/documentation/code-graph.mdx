@@ -86,9 +86,14 @@ the **user level** instead — once per machine, works from any folder:
 
 ```sh
 claude mcp add -s user graphify -- uvx --from "graphifyy[mcp]==0.9.28" python -m graphify.serve
-uvx --from "graphifyy[mcp]==0.9.28" python -c "import graphify"   # pre-warm, see below
-graphify install   # optional: user-level /graphify skill
+uvx --from "graphifyy[mcp]==0.9.28" python -c "import graphify"
+graphify install
 ```
+
+The three lines: register the server, **pre-warm** the `uvx` cache, and
+(optionally) install the user-level `/graphify` skill. No inline comments in
+the block on purpose: default `zsh` passes `# …` to the command as arguments
+when pasted interactively.
 
 The **pre-warm line matters**: the very first `uvx` run downloads and builds the
 server's environment (it can take minutes), while Claude Code gives an MCP
