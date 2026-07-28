@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { CopyButton } from "../../components/copy-button";
 import { Markdown } from "../../components/markdown";
@@ -121,6 +121,65 @@ export function DocsGraphView() {
 }
 
 /** Riquadro in stile terminal: intestazione mono + contenuto. */
+/**
+ * Grafo interattivo: pagina statica servita dal volume, isolata in un iframe
+ * sandbox (solo script, nessun accesso all'origin della SPA). È same-origin
+ * dietro sessione: il cookie viaggia da sé.
+ *
+ * "Espandi" porta l'iframe a tutta pagina con un overlay fixed (niente
+ * Fullscreen API: l'overlay resta dentro la finestra, si chiude con il bottone
+ * o con Escape, e non richiede permessi aggiuntivi all'iframe sandboxato).
+ * L'iframe è UNO solo, spostato di classe: espandere/chiudere non lo rimonta,
+ * quindi la simulazione del grafo non riparte da capo.
+ */
+function GraphFrame({ repositoryId }: { repositoryId: string }) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setExpanded(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [expanded]);
+
+  return (
+    <section
+      aria-label={t("docs:graph.viewTitle")}
+      className={
+        expanded
+          ? "fixed inset-0 z-50 flex flex-col bg-ink-950 p-4"
+          : "mt-8"
+      }
+    >
+      <div className="flex items-center justify-between">
+        <h2 className="font-mono text-[11px] tracking-[0.18em] text-fg-faint uppercase">
+          {t("docs:graph.viewTitle")}
+        </h2>
+        <button
+          type="button"
+          onClick={() => setExpanded((prev) => !prev)}
+          className="rounded-sm border border-line px-2 py-1 font-mono text-[11px] tracking-[0.06em] text-fg-muted uppercase transition-colors hover:border-signal/40 hover:text-signal"
+        >
+          {expanded ? t("docs:graph.collapseView") : t("docs:graph.expandView")}
+        </button>
+      </div>
+      <iframe
+        src={repoGraphHtmlUrl(repositoryId)}
+        sandbox="allow-scripts"
+        title={t("docs:graph.viewLabel")}
+        className={
+          expanded
+            ? "mt-3 w-full flex-1 rounded-sm border border-line bg-ink-950"
+            : "mt-3 h-[70vh] w-full rounded-sm border border-line bg-ink-950"
+        }
+      />
+    </section>
+  );
+}
+
 function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section aria-label={title} className="mt-8 rounded-sm border border-line bg-ink-900 p-4">
@@ -414,20 +473,7 @@ function ReadyView({
       {generateFailed && <GenerateError />}
       {isAdmin && <p className="mt-2 text-[12px] text-fg-faint">{t("docs:graph.setupPrHint")}</p>}
 
-      {/* Grafo interattivo: pagina statica servita dal volume, isolata in un
-          iframe sandbox (solo script, nessun accesso all'origin della SPA).
-          È same-origin dietro sessione: il cookie viaggia da sé. */}
-      <section aria-label={t("docs:graph.viewTitle")} className="mt-8">
-        <h2 className="font-mono text-[11px] tracking-[0.18em] text-fg-faint uppercase">
-          {t("docs:graph.viewTitle")}
-        </h2>
-        <iframe
-          src={repoGraphHtmlUrl(repositoryId)}
-          sandbox="allow-scripts"
-          title={t("docs:graph.viewLabel")}
-          className="mt-3 h-[70vh] w-full rounded-sm border border-line bg-ink-950"
-        />
-      </section>
+      <GraphFrame repositoryId={repositoryId} />
 
       {/* Report delle comunità: montato SOLO qui (status done), così la query
           non parte quando l'artefatto non esiste e non prende un 404. */}

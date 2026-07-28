@@ -262,6 +262,29 @@ describe("DocsGraphView", () => {
     ).toBeInTheDocument();
   });
 
+  it("pronto: Espandi porta l'iframe a tutta pagina e si chiude con Escape", async () => {
+    getRepoGraph.mockResolvedValue(graph());
+    renderGraph("member");
+
+    // Da collassato l'overlay non c'è; il bottone fa il toggle.
+    const section = (await screen.findByTitle("Interactive graph of the repository")).closest(
+      "section",
+    );
+    expect(section?.className).not.toContain("fixed");
+
+    await userEvent.click(screen.getByRole("button", { name: "Expand" }));
+    expect(section?.className).toContain("fixed");
+    expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
+    // L'iframe è lo stesso nodo (nessun rimontaggio: la simulazione non riparte).
+    expect(screen.getByTitle("Interactive graph of the repository").closest("section")).toBe(
+      section,
+    );
+
+    await userEvent.keyboard("{Escape}");
+    expect(section?.className).not.toContain("fixed");
+    expect(screen.getByRole("button", { name: "Expand" })).toBeInTheDocument();
+  });
+
   it("pronto (membro): nessuna azione admin", async () => {
     getRepoGraph.mockResolvedValue(graph());
     renderGraph("member");

@@ -31,6 +31,13 @@
 		-Server
 	}
 
+	# Eccezione al DENY globale: la vista HTML del grafo graphify DEVE stare
+	# nell'<iframe sandbox> della tab Grafo della SPA (same-origin). Il framing
+	# resta comunque vincolato: il server manda `frame-ancestors 'self'` nella
+	# CSP di quella risposta, che nei browser moderni e la fonte di verita.
+	@graphHtml path_regexp ^/api/repositories/[0-9a-fA-F-]+/graph/html$
+	header @graphHtml -X-Frame-Options
+
 	# Superficie API/ingest/webhook -> server. Caddy aggiunge X-Forwarded-Proto
 	# e X-Forwarded-For: il server con TRUST_PROXY=true li onora (cookie Secure).
 	# Dentro un `handle` (mutuamente esclusivo con gli altri handle sotto) così

@@ -40,6 +40,11 @@ const GRAPH_HTML_CSP = [
   "style-src 'unsafe-inline'",
   "script-src 'unsafe-inline' https://unpkg.com",
   "img-src data:",
+  // Framing consentito SOLO alla SPA stessa (l'<iframe> della tab Grafo).
+  // Nei browser moderni frame-ancestors ha la precedenza sull'X-Frame-Options
+  // che caddy imposta globalmente (DENY) — che comunque il Caddyfile ora
+  // rimuove su questa route: senza questa direttiva l'iframe viene rifiutato.
+  "frame-ancestors 'self'",
 ].join("; ");
 
 /**

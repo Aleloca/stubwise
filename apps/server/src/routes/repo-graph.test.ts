@@ -414,6 +414,10 @@ describe("contenuti dal volume", () => {
     expect(csp).toContain("sandbox allow-scripts");
     expect(csp).toContain("default-src 'none'");
     expect(csp).toContain("'unsafe-inline'");
+    // Il framing è consentito SOLO alla SPA: senza frame-ancestors l'iframe
+    // della tab Grafo verrebbe rifiutato (caddy mette X-Frame-Options: DENY
+    // globale, e nei browser moderni è questa direttiva a decidere).
+    expect(csp).toContain("frame-ancestors 'self'");
     expect(res.body).toContain("<!DOCTYPE html>");
   });
 

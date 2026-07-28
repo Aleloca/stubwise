@@ -1523,6 +1523,8 @@
       "setupPrError": "Impossibile aprire la PR di setup.",
       "viewTitle": "Grafo interattivo",
       "viewLabel": "Grafo interattivo del repository",
+      "expandView": "Espandi",
+      "collapseView": "Chiudi",
       "reportTitle": "Comunità",
       "reportEmpty": "Nessun report delle comunità disponibile.",
       "reportError": "Impossibile caricare il report delle comunità.",
