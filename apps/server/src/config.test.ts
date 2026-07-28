@@ -28,7 +28,72 @@ describe("loadConfig", () => {
       widgetDailyTicketCap: 50,
       // Default del volume dei grafi graphify (stesso path del worker).
       graphsDir: "/graphs",
+      // Default del retrieval dal grafo nelle chat (feature accesa).
+      graphifyMcpUrl: "http://graphify:8080/mcp",
+      graphChatTokenBudget: 1200,
+      graphChatSnippetMaxChars: 6000,
+      graphChatSnippetNodes: 6,
+      // Default del volume dei mirror git (stesso path del worker).
+      mirrorsDir: "/var/stubwise/mirrors",
     });
+  });
+
+  it("legge GRAPHIFY_MCP_URL dall'env, col server MCP in-rete come default", () => {
+    expect(loadConfig(validEnv).graphifyMcpUrl).toBe("http://graphify:8080/mcp");
+    expect(
+      loadConfig({ ...validEnv, GRAPHIFY_MCP_URL: "http://localhost:9090/mcp" }).graphifyMcpUrl,
+    ).toBe("http://localhost:9090/mcp");
+  });
+
+  it("con GRAPHIFY_MCP_URL vuota spegne la feature (undefined, NON il default)", () => {
+    // Rollback switch: a differenza delle altre variabili, qui la stringa vuota
+    // NON ricade sul default — disattiva il retrieval dal grafo.
+    expect(loadConfig({ ...validEnv, GRAPHIFY_MCP_URL: "" }).graphifyMcpUrl).toBeUndefined();
+    expect(loadConfig({ ...validEnv, GRAPHIFY_MCP_URL: "   " }).graphifyMcpUrl).toBeUndefined();
+  });
+
+  it("legge i GRAPH_CHAT_* dall'env quando presenti", () => {
+    const config = loadConfig({
+      ...validEnv,
+      GRAPH_CHAT_TOKEN_BUDGET: "2000",
+      GRAPH_CHAT_SNIPPET_MAX_CHARS: "10000",
+      GRAPH_CHAT_SNIPPET_NODES: "3",
+    });
+    expect(config.graphChatTokenBudget).toBe(2000);
+    expect(config.graphChatSnippetMaxChars).toBe(10000);
+    expect(config.graphChatSnippetNodes).toBe(3);
+  });
+
+  it("usa i default dei GRAPH_CHAT_* anche con le variabili vuote", () => {
+    const config = loadConfig({
+      ...validEnv,
+      GRAPH_CHAT_TOKEN_BUDGET: "",
+      GRAPH_CHAT_SNIPPET_MAX_CHARS: "",
+      GRAPH_CHAT_SNIPPET_NODES: "",
+    });
+    expect(config.graphChatTokenBudget).toBe(1200);
+    expect(config.graphChatSnippetMaxChars).toBe(6000);
+    expect(config.graphChatSnippetNodes).toBe(6);
+  });
+
+  it("rifiuta i GRAPH_CHAT_* non interi o non positivi", () => {
+    expect(() => loadConfig({ ...validEnv, GRAPH_CHAT_TOKEN_BUDGET: "abc" })).toThrowError(
+      /GRAPH_CHAT_TOKEN_BUDGET/,
+    );
+    expect(() => loadConfig({ ...validEnv, GRAPH_CHAT_SNIPPET_NODES: "0" })).toThrowError(
+      /GRAPH_CHAT_SNIPPET_NODES/,
+    );
+    expect(() => loadConfig({ ...validEnv, GRAPH_CHAT_SNIPPET_MAX_CHARS: "1.5" })).toThrowError(
+      /GRAPH_CHAT_SNIPPET_MAX_CHARS/,
+    );
+  });
+
+  it("legge MIRRORS_DIR dall'env, con lo stesso default del worker", () => {
+    expect(loadConfig(validEnv).mirrorsDir).toBe("/var/stubwise/mirrors");
+    expect(loadConfig({ ...validEnv, MIRRORS_DIR: "/srv/mirrors" }).mirrorsDir).toBe(
+      "/srv/mirrors",
+    );
+    expect(loadConfig({ ...validEnv, MIRRORS_DIR: "" }).mirrorsDir).toBe("/var/stubwise/mirrors");
   });
 
   it("legge GRAPHS_DIR dall'env, con /graphs come default", () => {

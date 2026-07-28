@@ -107,6 +107,57 @@ const envSchema = z.object({
       .min(1)
       .default("/graphs"),
   ),
+  // URL del server MCP graphify (container `graphify`, solo rete interna) da cui
+  // le chat interne recuperano il sottografo del codice. ATTENZIONE: qui la
+  // stringa VUOTA non significa "usa il default" come nelle altre variabili, ma
+  // "feature spenta" → è il ROLLBACK SWITCH del retrieval dal grafo: basta
+  // `GRAPHIFY_MCP_URL=` nel .env e le chat tornano al solo retrieval pgvector,
+  // senza ridistribuire nulla.
+  GRAPHIFY_MCP_URL: z
+    .string({ error: "deve essere l'URL del server MCP graphify (vuota per disattivare)" })
+    .default("http://graphify:8080/mcp")
+    .transform((value) => (value.trim() === "" ? undefined : value.trim())),
+  // Budget di token chiesto a `query_graph` per il sottografo di UNA domanda.
+  // Nelle chat di progetto viene diviso per il numero di repo interrogati.
+  GRAPH_CHAT_TOKEN_BUDGET: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.coerce
+      .number({ error: "deve essere un numero intero positivo (es. 1200)" })
+      .int("deve essere un numero intero positivo (es. 1200)")
+      .min(1, "deve essere un numero intero positivo (es. 1200)")
+      .default(1200),
+  ),
+  // Tetto complessivo dei caratteri di codice allegati a una risposta: oltre,
+  // si smette di aggiungere snippet (il sottografo resta comunque intero).
+  GRAPH_CHAT_SNIPPET_MAX_CHARS: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.coerce
+      .number({ error: "deve essere un numero intero positivo (es. 6000)" })
+      .int("deve essere un numero intero positivo (es. 6000)")
+      .min(1, "deve essere un numero intero positivo (es. 6000)")
+      .default(6000),
+  ),
+  // Quanti nodi del sottografo, al massimo, diventano uno snippet di codice.
+  GRAPH_CHAT_SNIPPET_NODES: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.coerce
+      .number({ error: "deve essere un numero intero positivo (es. 6)" })
+      .int("deve essere un numero intero positivo (es. 6)")
+      .min(1, "deve essere un numero intero positivo (es. 6)")
+      .default(6),
+  ),
+  // Radice del volume dei mirror git bare. Li CLONA il worker; il server lo
+  // monta READ-ONLY per leggere i blob citati negli snippet
+  // (`git --git-dir=<MIRRORS_DIR>/<mirrorSlug> show <sha>:<path>`). Stesso
+  // default del worker (/var/stubwise/mirrors): devono puntare allo stesso
+  // volume, altrimenti gli snippet spariscono silenziosamente.
+  MIRRORS_DIR: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .string({ error: "deve essere il path della directory dei mirror git" })
+      .min(1)
+      .default("/var/stubwise/mirrors"),
+  ),
 });
 
 export interface Config {
@@ -129,6 +180,19 @@ export interface Config {
   widgetDailyTicketCap: number;
   /** Radice del volume dei grafi graphify, montato read-only (default /graphs). */
   graphsDir: string;
+  /**
+   * URL del server MCP graphify per il retrieval dal grafo nelle chat.
+   * `undefined` = feature spenta (variabile impostata a stringa vuota).
+   */
+  graphifyMcpUrl?: string;
+  /** Budget di token del sottografo chiesto a `query_graph` (default 1200). */
+  graphChatTokenBudget: number;
+  /** Tetto dei caratteri di codice allegati a una risposta (default 6000). */
+  graphChatSnippetMaxChars: number;
+  /** Massimo numero di nodi del sottografo da cui estrarre snippet (default 6). */
+  graphChatSnippetNodes: number;
+  /** Radice del volume dei mirror git bare, montato read-only (default /var/stubwise/mirrors). */
+  mirrorsDir: string;
 }
 
 /**
@@ -164,5 +228,10 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     widgetDailyMessageCap: parsed.WIDGET_DAILY_MESSAGE_CAP,
     widgetDailyTicketCap: parsed.WIDGET_DAILY_TICKET_CAP,
     graphsDir: parsed.GRAPHS_DIR,
+    graphifyMcpUrl: parsed.GRAPHIFY_MCP_URL,
+    graphChatTokenBudget: parsed.GRAPH_CHAT_TOKEN_BUDGET,
+    graphChatSnippetMaxChars: parsed.GRAPH_CHAT_SNIPPET_MAX_CHARS,
+    graphChatSnippetNodes: parsed.GRAPH_CHAT_SNIPPET_NODES,
+    mirrorsDir: parsed.MIRRORS_DIR,
   };
 }
