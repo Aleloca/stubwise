@@ -16,6 +16,13 @@
  *
  * Il retrieval (scope/ranking) resta in {@link ./docs-retrieval.ts}: qui lo si
  * richiama con gli stessi parametri della chat web.
+ *
+ * PERIMETRO (fase 2b): il retrieval dal knowledge graph è appeso al system
+ * prompt SOLO se il chiamante passa le deps `graph` ({@link DocsGraphDeps}).
+ * Oggi lo fa il solo consumatore di questo modulo, Slack `/docs` (superficie
+ * interna al team). La chat pubblica del widget NON passa da qui — ha il suo
+ * prompt in {@link ./widget-chat.ts} — e comunque, senza `graph`, non vedrebbe
+ * nulla del codice.
  */
 
 import type { ChatLlm } from "./chat-llm.js";
@@ -24,6 +31,12 @@ import {
   retrieveChunksForProject,
   type RetrievedChunk,
 } from "./docs-retrieval.js";
+import {
+  appendGraphContext,
+  retrieveGraphContext,
+  retrieveGraphContextForProject,
+  type GraphContextDeps,
+} from "../graph-chat/context.js";
 import type { EmbeddingClient } from "@stubwise/embeddings";
 import type { Db } from "@stubwise/db";
 
@@ -121,6 +134,19 @@ export interface DocsAnswer {
 }
 
 /**
+ * Dipendenze del retrieval strutturale dal knowledge graph (fase 2b) per i
+ * flussi one-shot: il runtime decorato sull'app (`app.graphChat`) più il logger
+ * del chiamante. È il `GraphContextDeps` senza `db`, che arriva dalle deps del
+ * flusso RAG.
+ *
+ * OPZIONALE per costruzione: un chiamante che non lo passa ottiene esattamente
+ * la risposta di prima della fase 2b — nessun blocco, nessuna query a graphify.
+ * Così una nuova superficie è fail-open (e fuori perimetro) per default, e solo
+ * chi è INTERNO lo abilita esplicitamente.
+ */
+export type DocsGraphDeps = Omit<GraphContextDeps, "db">;
+
+/**
  * Flusso RAG completo NON-streaming per una singola domanda one-shot (es. Slack).
  *
  * Stesso cuore della chat web ({@link ../routes/docs-chat.ts}) — stesso retrieval
@@ -133,18 +159,30 @@ export interface DocsAnswer {
  *    del {@link ChatLlm} sono concatenati e restituiti come testo completo.
  */
 export async function answerDocsQuestion(
-  deps: { db: Db; embeddingClient: EmbeddingClient; chatLlm: ChatLlm },
+  deps: {
+    db: Db;
+    embeddingClient: EmbeddingClient;
+    chatLlm: ChatLlm;
+    /** Retrieval dal grafo (fase 2b). Assente = risposta identica a prima. */
+    graph?: DocsGraphDeps;
+  },
   input: { repositoryId: string; question: string },
 ): Promise<DocsAnswer> {
-  const chunks = await retrieveChunks(
-    deps.db,
-    deps.embeddingClient,
-    input.repositoryId,
-    input.question,
-    { k: CHAT_RETRIEVAL_K },
-  );
+  // Grafo e pgvector in PARALLELO, come nelle route delle chat: la query al
+  // grafo è più veloce dell'embedding, quindi la latenza resta quella di prima.
+  const [chunks, graphBlock] = await Promise.all([
+    retrieveChunks(deps.db, deps.embeddingClient, input.repositoryId, input.question, {
+      k: CHAT_RETRIEVAL_K,
+    }),
+    deps.graph
+      ? retrieveGraphContext(
+          { db: deps.db, ...deps.graph },
+          { repositoryId: input.repositoryId, question: input.question },
+        )
+      : null,
+  ]);
 
-  const system = buildDocsSystemPrompt(chunks);
+  const system = appendGraphContext(buildDocsSystemPrompt(chunks), graphBlock);
   // Niente history: solo la domanda corrente come unico messaggio utente.
   const messages = [{ role: "user" as const, content: input.question }];
 
@@ -171,17 +209,28 @@ export async function answerDocsQuestion(
  * proporzione al numero di repo documentati (D6).
  */
 export async function answerProjectDocsQuestion(
-  deps: { db: Db; embeddingClient: EmbeddingClient; chatLlm: ChatLlm },
+  deps: {
+    db: Db;
+    embeddingClient: EmbeddingClient;
+    chatLlm: ChatLlm;
+    /** Retrieval dal grafo (fase 2b). Assente = risposta identica a prima. */
+    graph?: DocsGraphDeps;
+  },
   input: { projectId: string; question: string },
 ): Promise<DocsAnswer> {
-  const chunks = await retrieveChunksForProject(
-    deps.db,
-    deps.embeddingClient,
-    input.projectId,
-    input.question,
-  );
+  // Grafo (di tutti i repo del progetto col grafo pronto) e pgvector in
+  // PARALLELO, come nella chat Docs di progetto.
+  const [chunks, graphBlock] = await Promise.all([
+    retrieveChunksForProject(deps.db, deps.embeddingClient, input.projectId, input.question),
+    deps.graph
+      ? retrieveGraphContextForProject(
+          { db: deps.db, ...deps.graph },
+          { projectId: input.projectId, question: input.question },
+        )
+      : null,
+  ]);
 
-  const system = buildDocsSystemPrompt(chunks);
+  const system = appendGraphContext(buildDocsSystemPrompt(chunks), graphBlock);
   // Niente history: solo la domanda corrente come unico messaggio utente.
   const messages = [{ role: "user" as const, content: input.question }];
 
