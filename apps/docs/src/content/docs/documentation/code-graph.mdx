@@ -86,8 +86,16 @@ the **user level** instead — once per machine, works from any folder:
 
 ```sh
 claude mcp add -s user graphify -- uvx --from "graphifyy[mcp]==0.9.28" python -m graphify.serve
+uvx --from "graphifyy[mcp]==0.9.28" python -c "import graphify"   # pre-warm, see below
 graphify install   # optional: user-level /graphify skill
 ```
+
+The **pre-warm line matters**: the very first `uvx` run downloads and builds the
+server's environment (it can take minutes), while Claude Code gives an MCP
+server ~30 seconds to start — so without pre-warming, the first session shows
+the server as **failed**. Run the pre-warm once (or just pick *Reconnect* in
+`/mcp` after the environment finishes building); every later start takes about
+a second, straight from the cache.
 
 Started outside a repository the server runs in **multi-project mode**: every
 tool accepts a `project_path` argument — the absolute path of the repository
@@ -106,6 +114,14 @@ graphify query "where is authentication handled?" --graph path/to/repo/graphify-
   Claude Code from: project `.mcp.json` files only load from the startup
   directory (see the user-level registration above), and new project servers
   must be approved once.
+- **`/mcp` shows the server as failed** — almost always the first-run cold
+  start: `uvx` is still building the environment and Claude Code's ~30s startup
+  timeout fires first. Run the pre-warm command above (or wait a minute), then
+  *Reconnect*.
+- **`graphify hook install` targets the wrong repository** — the hook installs
+  into the repository of the *current directory*: run it from the root of the
+  repo whose graph you want rebuilt on commit (`graphify hook uninstall`
+  removes a misplaced one).
 - **The graph looks out of date** — pushes to non-default branches do not
   trigger rebuilds; use **Regenerate** in the Graph tab, or check that the
   repository webhook is delivering push events.
