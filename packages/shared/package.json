@@ -31,6 +31,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./mirror-slug": {
+      "types": "./dist/mirror-slug.d.ts",
+      "default": "./dist/mirror-slug.js"
     }
   },
   "scripts": {
@@ -43,6 +47,7 @@
     "zod": "^4.1.5"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "vitest": "^3.2.0"
   }
 }
