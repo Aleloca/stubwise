@@ -10,6 +10,7 @@ import { execa } from "execa";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { GraphMcpClient } from "./client.js";
 import {
+  appendGraphContext,
   buildGraphContextBlock,
   retrieveGraphContext,
   retrieveGraphContextForProject,
@@ -179,6 +180,25 @@ describe("buildGraphContextBlock", () => {
     );
 
     expect(block).toContain("````\n" + code + "\n````");
+  });
+});
+
+describe("appendGraphContext", () => {
+  it("blocco null: il system resta identico byte per byte", () => {
+    const system = "SYSTEM PROMPT\n--- CONTESTO RECUPERATO ---\n[1] pagina";
+    expect(appendGraphContext(system, null)).toBe(system);
+  });
+
+  it("blocco presente: appeso IN CODA (le sue istruzioni citano la documentazione sopra)", () => {
+    const system = "SYSTEM PROMPT\n--- CONTESTO RECUPERATO ---\n[1] pagina";
+    const block = buildGraphContextBlock(SUBGRAPH, [], "0123456789abcdef");
+    const merged = appendGraphContext(system, block);
+
+    expect(merged.startsWith(system)).toBe(true);
+    expect(merged.endsWith(block)).toBe(true);
+    expect(merged.indexOf("--- CONTESTO RECUPERATO ---")).toBeLessThan(
+      merged.indexOf("--- STRUTTURA DEL CODICE"),
+    );
   });
 });
 

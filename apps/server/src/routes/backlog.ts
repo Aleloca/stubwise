@@ -45,6 +45,7 @@ import {
 import { streamChatResponse, TRUNCATION_MARKER } from "./docs-chat-core.js";
 import { buildCitations } from "./docs-rag.js";
 import { retrieveChunksForProject } from "./docs-retrieval.js";
+import { appendGraphContext, retrieveGraphContextForProject } from "../graph-chat/context.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 
 /**
@@ -1158,16 +1159,28 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
 
       // Retrieval sulla documentazione del PROGETTO (cross-repo), stesso motore
       // condiviso della chat Docs. Se l'embedding è down → fallback full-text.
-      const chunks = await retrieveChunksForProject(
-        app.db,
-        app.embeddingClient,
-        item.projectId,
-        message,
-        { k: BACKLOG_RETRIEVAL_K, logger: request.log },
-      );
+      // IN PARALLELO il retrieval dal knowledge graph (fase 2b), anch'esso di
+      // PROGETTO: una voce di backlog NON ha un repository (backlog_items ha
+      // solo project_id — il repo si sceglie caso per caso, per la sessione di
+      // analisi sul codice o il deep dive), quindi si interrogano i grafi di
+      // tutti i repo del progetto, esattamente come per le pagine di
+      // documentazione. Fail-open: `null` = system identico a prima.
+      const [chunks, graphBlock] = await Promise.all([
+        retrieveChunksForProject(app.db, app.embeddingClient, item.projectId, message, {
+          k: BACKLOG_RETRIEVAL_K,
+          logger: request.log,
+        }),
+        retrieveGraphContextForProject(
+          { db: app.db, logger: request.log, ...app.graphChat },
+          { projectId: item.projectId, question: message },
+        ),
+      ]);
       const citations = buildCitations(chunks);
       const originTickets = await loadOriginTickets(app.db, id);
-      const system = buildBacklogSystemPrompt(item, originTickets, chunks);
+      const system = appendGraphContext(
+        buildBacklogSystemPrompt(item, originTickets, chunks),
+        graphBlock,
+      );
       const history = await loadBacklogHistory(app.db, id);
 
       // Streaming SSE + persistenza dell'assistant su backlog_chat_messages.

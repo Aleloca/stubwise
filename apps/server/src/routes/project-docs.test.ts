@@ -13,13 +13,14 @@ import {
   docPages,
   gitAccounts,
   projects,
+  repoGraphs,
   repositories,
   searchHistory,
 } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
-import { seedUsers } from "../test/fixtures.js";
+import { createFakeGraphMcpClient, seedUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 const ENCRYPTION_KEY = randomBytes(32);
@@ -47,6 +48,9 @@ const fakeChatLlm: ChatLlm = {
     return availabilityOverride ?? { available: true };
   },
 };
+
+// Client MCP finto verso graphify (fase 2b): nessuna rete, risponde a comando.
+const fakeGraphClient = createFakeGraphMcpClient();
 
 let testDb: TestDb;
 let app: FastifyInstance;
@@ -162,6 +166,7 @@ beforeAll(async () => {
     publicUrl: "https://stubwise.example.com",
     embeddingClient,
     chatLlm: fakeChatLlm,
+    graphMcpClient: fakeGraphClient,
   });
   ({ adminCookie, memberCookie } = await seedUsers(app));
 }, 120_000);
@@ -175,6 +180,7 @@ beforeEach(() => {
   lastChatInput = null;
   streamOverride = null;
   availabilityOverride = null;
+  fakeGraphClient.reset();
 });
 
 describe("GET /api/projects/:projectId/docs/spaces", () => {
@@ -763,5 +769,99 @@ describe("GET /api/projects/:projectId/docs/chat/sessions[/:id/messages]", () =>
       headers: { cookie: adminCookie },
     });
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("POST /api/projects/:projectId/docs/chat — retrieval dal grafo (fase 2b)", () => {
+  /** Sottografo finto senza righe `NODE`: nessuna lettura dai mirror nei test. */
+  const FAKE_SUBGRAPH = "TRAVERSAL da 'fatturazione' (3 nodi)\nEDGE invoice() -> total()";
+
+  /** Accende il toggle e registra un grafo `done` per il repository. */
+  async function seedGraph(db: Db, repositoryId: string): Promise<void> {
+    await db
+      .update(repositories)
+      .set({ graphEnabled: true })
+      .where(eq(repositories.id, repositoryId));
+    await db
+      .insert(repoGraphs)
+      .values({ repositoryId, status: "done", commitSha: "abcdef1234567890" });
+  }
+
+  it("un repo del progetto col grafo done: blocco nel system, dopo le pagine", async () => {
+    const projectId = await seedProject(testDb.db);
+    const repoA = await seedRepoInProject(testDb.db, projectId, "Repo Alfa");
+    const genA = await seedGeneration(testDb.db, repoA.id);
+    const question = "Dove si calcola il totale della fattura?";
+    await seedPageWithChunk(testDb.db, repoA.id, genA, {
+      title: "Fatturazione",
+      body: "Pagina fatture.",
+      chunkContent: question,
+    });
+    await seedGraph(testDb.db, repoA.id);
+    fakeGraphClient.response = FAKE_SUBGRAPH;
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/docs/chat`,
+      headers: { cookie: memberCookie },
+      payload: { message: question },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const system = lastChatInput!.system;
+    expect(system).toContain("STRUTTURA DEL CODICE");
+    expect(system).toContain(FAKE_SUBGRAPH);
+    // Nella variante di progetto ogni blocco è etichettato col repository.
+    expect(system).toContain('=== Repository "Repo Alfa" ===');
+    expect(system.indexOf("--- CONTESTO RECUPERATO ---")).toBeLessThan(
+      system.indexOf("STRUTTURA DEL CODICE"),
+    );
+    expect(fakeGraphClient.calls.length).toBe(1);
+    expect(fakeGraphClient.calls[0]!.question).toBe(question);
+    expect(fakeGraphClient.calls[0]!.projectPath).toBe(`/graphs/${repoA.id}`);
+  });
+
+  it("due repo col grafo: una query per repo, budget diviso, blocchi in ordine di nome", async () => {
+    const projectId = await seedProject(testDb.db);
+    const repoB = await seedRepoInProject(testDb.db, projectId, "Repo Beta");
+    const repoA = await seedRepoInProject(testDb.db, projectId, "Repo Alfa");
+    await seedGraph(testDb.db, repoA.id);
+    await seedGraph(testDb.db, repoB.id);
+    fakeGraphClient.response = FAKE_SUBGRAPH;
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/docs/chat`,
+      headers: { cookie: memberCookie },
+      payload: { message: "Come sono collegati i due moduli?" },
+    });
+    expect(res.statusCode).toBe(200);
+
+    expect(fakeGraphClient.calls.length).toBe(2);
+    // Budget di default (1200) diviso per i repo interrogati: il prompt resta
+    // della taglia della chat per-repo.
+    expect(fakeGraphClient.calls.every((c) => c.tokenBudget === 600)).toBe(true);
+    const system = lastChatInput!.system;
+    expect(system.indexOf('=== Repository "Repo Alfa" ===')).toBeLessThan(
+      system.indexOf('=== Repository "Repo Beta" ==='),
+    );
+  });
+
+  it("nessun repo col grafo: system senza blocco e nessuna query", async () => {
+    const projectId = await seedProject(testDb.db);
+    const repoA = await seedRepoInProject(testDb.db, projectId, "Repo Alfa");
+    await seedGeneration(testDb.db, repoA.id);
+    fakeGraphClient.response = FAKE_SUBGRAPH;
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/docs/chat`,
+      headers: { cookie: memberCookie },
+      payload: { message: "Dove si calcola il totale della fattura?" },
+    });
+    expect(res.statusCode).toBe(200);
+
+    expect(fakeGraphClient.calls.length).toBe(0);
+    expect(lastChatInput!.system).not.toContain("STRUTTURA DEL CODICE");
   });
 });

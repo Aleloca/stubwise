@@ -35,6 +35,7 @@ import type { ChatLlm } from "./chat-llm.js";
 import { retrieveChunks } from "./docs-retrieval.js";
 import { buildCitations, buildDocsSystemPrompt, CHAT_RETRIEVAL_K } from "./docs-rag.js";
 import { loadHistory, streamChatResponse } from "./docs-chat-core.js";
+import { appendGraphContext, retrieveGraphContext } from "../graph-chat/context.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 declare module "fastify" {
@@ -158,12 +159,22 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
       // RETRIEVAL riusato (no reimplementazione): stesso scope/ranking della
       // ricerca M6.4. Se l'embedding è down, retrieveChunks fa fallback
       // full-text-only e non lancia — la chat resta servibile.
-      const chunks = await retrieveChunks(app.db, app.embeddingClient, repositoryId, message, {
-        k: CHAT_RETRIEVAL_K,
-        logger: request.log,
-      });
+      // IN PARALLELO il retrieval strutturale dal knowledge graph (fase 2b):
+      // stessa domanda dell'utente, latenza invariata (la query al grafo è più
+      // veloce dell'embedding) e fail-open totale — `null` = system identico a
+      // prima. Il blocco va DOPO i chunk (vedi appendGraphContext).
+      const [chunks, graphBlock] = await Promise.all([
+        retrieveChunks(app.db, app.embeddingClient, repositoryId, message, {
+          k: CHAT_RETRIEVAL_K,
+          logger: request.log,
+        }),
+        retrieveGraphContext(
+          { db: app.db, logger: request.log, ...app.graphChat },
+          { repositoryId, question: message },
+        ),
+      ]);
       const citations = buildCitations(chunks);
-      const system = buildDocsSystemPrompt(chunks);
+      const system = appendGraphContext(buildDocsSystemPrompt(chunks), graphBlock);
       const history = await loadHistory(app.db, resolvedSessionId);
 
       // Streaming SSE + persistenza del messaggio assistant: cuore condiviso con

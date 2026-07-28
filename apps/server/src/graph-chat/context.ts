@@ -44,6 +44,17 @@ export interface GraphContextDeps {
 }
 
 /**
+ * La parte di {@link GraphContextDeps} che vive per l'INTERO processo (client
+ * MCP e tetti di config), decorata sull'app Fastify come `app.graphChat`. Le
+ * route la completano con `db` e il logger della richiesta:
+ * `{ db: app.db, logger: request.log, ...app.graphChat }`.
+ */
+export interface GraphChatRuntime {
+  client: GraphMcpClient | null;
+  config: GraphChatConfig;
+}
+
+/**
  * Radice dei grafi **dentro il container `graphify`**, dove è montato il volume
  * condiviso `graphs`. NON è un path del server (che monta lo stesso volume, ma
  * il suo `GRAPHS_DIR` serve a servire gli artefatti via HTTP e potrebbe
@@ -109,6 +120,18 @@ export function buildGraphContextBlock(
   }
 
   return parts.join("\n");
+}
+
+/**
+ * Appende il blocco del grafo al system prompt di una chat, se c'è.
+ *
+ * L'ORDINE è vincolante: le istruzioni del blocco rimandano alla
+ * "documentazione recuperata sopra", quindi il grafo va SEMPRE dopo il contesto
+ * documentale. Con `null` (feature spenta, grafo assente, graphify giù) il
+ * system torna identico byte per byte a quello di prima della fase 2b.
+ */
+export function appendGraphContext(system: string, block: string | null): string {
+  return block === null ? system : `${system}\n\n${block}`;
 }
 
 /** Riga di gating: quel che serve per interrogare il grafo di un repository. */
