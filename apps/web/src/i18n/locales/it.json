@@ -1525,6 +1525,7 @@
       "viewLabel": "Grafo interattivo del repository",
       "expandView": "Espandi",
       "collapseView": "Chiudi",
+      "fullGuide": "Leggi la guida: come funziona e come si configura",
       "reportTitle": "Comunità",
       "reportEmpty": "Nessun report delle comunità disponibile.",
       "reportError": "Impossibile caricare il report delle comunità.",

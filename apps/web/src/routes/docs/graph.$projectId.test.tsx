@@ -133,6 +133,15 @@ afterEach(() => {
 });
 
 describe("DocsGraphView", () => {
+  it("header: il link alla guida è visibile in ogni stato (anche a toggle spento)", async () => {
+    getRepoGraph.mockResolvedValue(graph({ enabled: false, status: "none" }));
+    renderGraph("member");
+    const guide = await screen.findByRole("link", {
+      name: /Read the guide: how it works and how to set it up/,
+    });
+    expect(guide).toHaveAttribute("href", "/guide/documentation/code-graph/");
+  });
+
   it("toggle spento (admin): spiegazione + link al repository, nessun bottone di generazione", async () => {
     getRepoGraph.mockResolvedValue(graph({ enabled: false, status: "none" }));
     renderGraph("admin");

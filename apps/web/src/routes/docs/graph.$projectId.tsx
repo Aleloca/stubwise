@@ -81,6 +81,18 @@ export function DocsGraphView() {
       <header className="border-b border-line pb-4">
         <h1 className="text-xl font-semibold">{t("docs:graph.title")}</h1>
         <p className="mt-2 max-w-prose text-sm text-fg-muted">{t("docs:graph.description")}</p>
+        {/* Link alla guida SEMPRE visibile nell'header (in ogni stato): senza,
+            l'utente si aspetta che tutto funzioni da sé — requisiti e setup
+            (MCP, hook, workspace multi-repo) vivono lì. Naviga fuori dalla SPA
+            (pattern del footer di monitor/server-admin). */}
+        <a
+          href="/guide/documentation/code-graph/"
+          target="_blank"
+          rel="noreferrer noopener"
+          className="mt-2 inline-block font-mono text-[12px] text-signal underline-offset-2 hover:underline"
+        >
+          {t("docs:graph.fullGuide")} ↗
+        </a>
       </header>
 
       {!graph.enabled ? (
