@@ -142,6 +142,16 @@ describe("DocsGraphView", () => {
     expect(guide).toHaveAttribute("href", "/guide/documentation/code-graph/");
   });
 
+  it("toggle spento: cos'è il grafo + crediti graphify con link a GitHub", async () => {
+    getRepoGraph.mockResolvedValue(graph({ enabled: false, status: "none" }));
+    renderGraph("member");
+
+    expect(await screen.findByText(/maps every class, function and file/)).toBeInTheDocument();
+    expect(screen.getByText(/rebuilds itself on every push/)).toBeInTheDocument();
+    const credits = screen.getByRole("link", { name: "graphify" });
+    expect(credits).toHaveAttribute("href", "https://github.com/Graphify-Labs/graphify");
+  });
+
   it("toggle spento (admin): spiegazione + link al repository, nessun bottone di generazione", async () => {
     getRepoGraph.mockResolvedValue(graph({ enabled: false, status: "none" }));
     renderGraph("admin");

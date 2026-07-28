@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import { CopyButton } from "../../components/copy-button";
 import { Markdown } from "../../components/markdown";
 import {
@@ -306,6 +306,30 @@ function DisabledPanel({ isAdmin, repositoryId }: { isAdmin: boolean; repository
   return (
     <Panel title={t("docs:graph.disabledTitle")}>
       <p className="text-sm text-fg-muted">{t("docs:graph.disabledHint")}</p>
+      {/* Cos'è e perché abilitarlo: chi arriva qui a toggle spento non ha mai
+          visto un grafo, la CTA da sola non basta a fargli capire il valore. */}
+      <p className="mt-3 max-w-prose text-sm text-fg-muted">
+        {t("docs:graph.disabledAbout1")}
+      </p>
+      <p className="mt-2 max-w-prose text-sm text-fg-muted">
+        {t("docs:graph.disabledAbout2")}
+      </p>
+      {/* Crediti al progetto open source (Trans: il link sta DENTRO la frase
+          tradotta, come slot <0>). */}
+      <p className="mt-3 max-w-prose text-[12px] text-fg-faint">
+        <Trans
+          i18nKey="docs:graph.disabledCredits"
+          components={[
+            <a
+              key="graphify"
+              href="https://github.com/Graphify-Labs/graphify"
+              target="_blank"
+              rel="noreferrer noopener"
+              className="text-signal underline-offset-2 hover:underline"
+            />,
+          ]}
+        />
+      </p>
       {!isAdmin ? (
         <p className="mt-2 text-sm text-fg-muted">{t("docs:graph.disabledMemberHint")}</p>
       ) : slug ? (
