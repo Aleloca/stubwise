@@ -280,6 +280,7 @@ startPrReviewPoller({
   maxTurns: config.prReviewMaxTurns,
   agentTimeoutMs: config.prReviewTimeoutMs,
   publicUrl: config.publicUrl,
+  graphsDir: config.graphsDir,
   staleMinutes: config.staleAfterMinutes,
   serializer,
   intervalSeconds: config.prReviewPollSeconds,

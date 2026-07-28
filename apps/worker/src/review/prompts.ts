@@ -1,6 +1,8 @@
 import { languageName, type Language } from "@stubwise/i18n";
 import { z } from "zod";
 
+import { renderGraphHint } from "../graph/agent-hint.js";
+import { renderBlastRadiusPromptBlock, type BlastRadius } from "../graph/blast-radius.js";
 import { toSingleLine, truncate } from "../pipeline/prompts.js";
 
 /**
@@ -80,6 +82,11 @@ export interface ReviewPromptInput {
   /** true se il diff nel prompt è stato troncato: l'agente lo legge dal worktree. */
   diffTruncated: boolean;
   language: Language;
+  /** Path del graph.json del repo sul volume (fase 2d graphify): quando c'è, il
+   * prompt guadagna il blocco CODE GRAPH coi comandi di interrogazione. */
+  graphJsonPath?: string;
+  /** Impatto deterministico del diff sul grafo; null/assente = nessun blocco. */
+  blastRadius?: BlastRadius | null;
 }
 
 /**
@@ -99,6 +106,14 @@ export interface ReviewPromptInput {
  * trovarsi a inizio riga e chiudere il fence ```diff.
  */
 export function buildReviewPrompt(input: ReviewPromptInput): string {
+  // Blocchi del knowledge graph (fase 2d): l'hint coi comandi di interrogazione
+  // (in inglese come tutto il prompt) e l'impatto deterministico del diff.
+  // Entrambi vuoti quando il repo non ha un grafo → prompt identico a prima.
+  const graphHint =
+    input.graphJsonPath !== undefined
+      ? renderGraphHint([{ graphJsonPath: input.graphJsonPath }], "en").trim()
+      : "";
+  const impact = renderBlastRadiusPromptBlock(input.blastRadius ?? null);
   return [
     `You are a senior code reviewer. Review the following pull request critically.`,
     ``,
@@ -113,6 +128,8 @@ export function buildReviewPrompt(input: ReviewPromptInput): string {
     "```diff",
     input.diff,
     "```",
+    ...(graphHint ? [``, graphHint] : []),
+    ...(impact ? [``, impact] : []),
     ``,
     `## Instructions`,
     `- The working directory is the repository checked out at the PR head: navigate the codebase to judge the impact of the changes (callers, conventions, tests).`,

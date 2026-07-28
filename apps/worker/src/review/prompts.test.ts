@@ -149,6 +149,72 @@ describe("buildReviewPrompt", () => {
     expect(prompt).not.toContain("B".repeat(6001));
   });
 
+  it("con grafo e blast radius: blocchi CODE GRAPH e Code graph impact", () => {
+    const prompt = buildReviewPrompt({
+      prTitle: "t",
+      prBody: "d",
+      sourceBranch: "a",
+      targetBranch: "b",
+      diff: "diff --git a/src/app.ts b/src/app.ts",
+      diffTruncated: false,
+      language: "it",
+      graphJsonPath: "/graphs/repo-1/graphify-out/graph.json",
+      blastRadius: {
+        communities: [{ name: "Core", filesTouched: 1, nodesTouched: 2 }],
+        godNodes: [{ label: "buildApp()", degree: 12 }],
+        nodesTouched: 2,
+        filesInGraph: 1,
+        filesNotInGraph: 0,
+      },
+    });
+    // Blocco del grafo in inglese come il resto del prompt di review.
+    expect(prompt).toContain("CODE GRAPH:");
+    expect(prompt).toContain("/graphs/repo-1/graphify-out/graph.json");
+    expect(prompt).toContain("graphify query");
+    // Blocco deterministico dell'impatto.
+    expect(prompt).toContain("## Code graph impact");
+    expect(prompt).toContain("Core (files: 1, symbols: 2)");
+    expect(prompt).toContain("`buildApp()` (degree 12)");
+    // L'ordine resta: diff, blocchi del grafo, istruzioni finali.
+    expect(prompt.indexOf("## Diff")).toBeLessThan(prompt.indexOf("## Code graph impact"));
+    expect(prompt.indexOf("## Code graph impact")).toBeLessThan(
+      prompt.indexOf("## Instructions"),
+    );
+  });
+
+  it("con grafo ma senza blast radius utile: solo il blocco CODE GRAPH", () => {
+    const prompt = buildReviewPrompt({
+      prTitle: "t",
+      prBody: "d",
+      sourceBranch: "a",
+      targetBranch: "b",
+      diff: "d",
+      diffTruncated: false,
+      language: "en",
+      graphJsonPath: "/graphs/repo-1/graphify-out/graph.json",
+      blastRadius: null,
+    });
+    expect(prompt).toContain("CODE GRAPH:");
+    expect(prompt).not.toContain("## Code graph impact");
+  });
+
+  it("senza grafo: nessun blocco (prompt identico a prima)", () => {
+    const base = {
+      prTitle: "t",
+      prBody: "d",
+      sourceBranch: "a",
+      targetBranch: "b",
+      diff: "d",
+      diffTruncated: false,
+      language: "en" as const,
+    };
+    const prompt = buildReviewPrompt(base);
+    expect(prompt).not.toContain("CODE GRAPH");
+    expect(prompt).not.toContain("## Code graph impact");
+    // Passare esplicitamente blastRadius null senza grafo non cambia nulla.
+    expect(buildReviewPrompt({ ...base, blastRadius: null })).toBe(prompt);
+  });
+
   it("le Instructions avvertono che titolo e descrizione sono UNTRUSTED", () => {
     const prompt = buildReviewPrompt({
       prTitle: "t",
