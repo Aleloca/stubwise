@@ -8,6 +8,11 @@ import {
 } from "@stubwise/docs-engine";
 import { eq, sql } from "drizzle-orm";
 import type { AgentRunner } from "../../agent/runner.js";
+import {
+  GRAPHIFY_AGENT_ALLOWED_TOOLS,
+  renderGraphHint,
+  resolveRepoGraphJson,
+} from "../../graph/agent-hint.js";
 import type { ResolvedProvider } from "../../providers/chain.js";
 import { isLimitError } from "../../providers/limit.js";
 import {
@@ -66,6 +71,14 @@ export interface RunExploreDeps {
   maxNodes: number;
   /** Credenziale AI risolta dalla catena (prima voce); undefined = auth storica. */
   provider?: ResolvedProvider;
+  /**
+   * Radice del volume dei knowledge graph (`GRAPHS_DIR`, fase 2c graphify). Se cablata E
+   * il repository del nodo ha un grafo, il run di esplorazione riceve nel prompt i
+   * COMANDI per interrogarlo (query mirate sulla SUA area — la mappa intera del repo
+   * sarebbe rumore qui, quella va all'orientamento) e l'allowlist read-only del CLI.
+   * Assente (o repo senza grafo) → prompt e run BYTE-IDENTICI a prima.
+   */
+  graphsDir?: string;
 }
 
 export type ExploreOutcome = "branch" | "leaf" | "failed" | "limit";
@@ -139,6 +152,7 @@ async function runExploreAgent(
   deps: RunExploreDeps,
   node: DocNode,
   prompt: string,
+  hasGraph: boolean,
 ): Promise<{ explore: ExploreOutput; costUsd: number } | { limit: true; costUsd: number } | null> {
   const providerOpt = deps.provider !== undefined ? { provider: deps.provider } : {};
   let costUsd = 0;
@@ -150,6 +164,9 @@ async function runExploreAgent(
       permissionMode: "plan",
       maxTurns: deps.maxTurns,
       timeoutMs: deps.agentTimeoutMs,
+      // Col grafo: i soli pattern Bash read-only del CLI (in plan mode è l'unica
+      // apertura Bash del run). Senza grafo la chiave non compare affatto.
+      ...(hasGraph ? { allowedTools: GRAPHIFY_AGENT_ALLOWED_TOOLS } : {}),
       ...providerOpt,
     });
     costUsd += result.usage?.totalCostUsd ?? 0;
@@ -251,6 +268,15 @@ export async function runExplore(deps: RunExploreDeps, node: DocNode): Promise<E
   // `product` sono generati dall'handler product dedicato e non raggiungono questo
   // path. Difesa in profondità: un tree fuori dai due alberi ricade su "functional".
   const tree = node.tree === "technical" ? "technical" : "functional";
+  // Knowledge graph del repository (fase 2c, PURAMENTE ADDITIVO): il blocco coi comandi
+  // di interrogazione entra nel prompt SOLO se il volume è cablato e il grafo esiste;
+  // altrimenti `undefined` → prompt byte-identico a prima.
+  const graphJsonPath =
+    deps.graphsDir !== undefined
+      ? resolveRepoGraphJson(deps.graphsDir, node.repositoryId)
+      : null;
+  const graphContext =
+    graphJsonPath !== null ? renderGraphHint([{ graphJsonPath }], "en").trim() : undefined;
   const prompt = buildExplorePrompt(
     {
       tree,
@@ -260,9 +286,10 @@ export async function runExplore(deps: RunExploreDeps, node: DocNode): Promise<E
       ancestorTitles: ctx.ancestorTitles,
     },
     briefContext,
+    graphContext,
   );
 
-  const run = await runExploreAgent(deps, node, prompt);
+  const run = await runExploreAgent(deps, node, prompt, graphJsonPath !== null);
   // Run al limite del provider: il nodo NON è failed (resta in lavorazione, sarà il
   // dispatcher a riaccodarlo e a mettere in pausa la generazione).
   if (run && "limit" in run) {

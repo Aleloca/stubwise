@@ -22,6 +22,12 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { AgentRunner } from "../../agent/runner.js";
 import { MirrorManager, type MirrorProject } from "../../git/mirrors.js";
+import {
+  GRAPHIFY_AGENT_ALLOWED_TOOLS,
+  renderGraphHint,
+  resolveRepoGraphJson,
+} from "../../graph/agent-hint.js";
+import { summarizeGraphForDocs } from "../../graph/docs-summary.js";
 import type { ResolvedProvider } from "../../providers/chain.js";
 import { isLimitError } from "../../providers/limit.js";
 import { openGenerationWorktree, type GenerationWorktree } from "../generation-worktree.js";
@@ -91,6 +97,14 @@ export interface RunOrientationDeps {
    * (un registro fittizio è comunque accettato).
    */
   registry?: GenerationWorktreeRegistry;
+  /**
+   * Radice del volume dei knowledge graph (`GRAPHS_DIR`, fase 2c graphify). Se cablata
+   * E il repository ha un grafo costruito, i run di brief e orientamento ricevono il
+   * grafo nel prompt (mappa delle aree per l'orientamento, comandi di interrogazione
+   * per entrambi) e l'allowlist read-only del CLI. Assente (o repo senza grafo) →
+   * prompt e run BYTE-IDENTICI a prima: la pipeline Docs non cambia di una virgola.
+   */
+  graphsDir?: string;
 }
 
 export type OrientationOutcome = "seeded" | "failed" | "skipped" | "held";
@@ -283,6 +297,42 @@ const TECHNICAL_ROOT_TITLE = "Architecture Overview";
 const FUNCTIONAL_ROOT_TITLE = "Capability Map";
 
 /**
+ * CONTESTO DEL KNOWLEDGE GRAPH per i run di orientamento (fase 2c graphify). `null` =
+ * nessun grafo (deps senza `graphsDir`, o repository senza grafo costruito): i chiamanti
+ * ricadono ESATTAMENTE sul comportamento precedente.
+ */
+interface DocsGraphContext {
+  /** Comandi di interrogazione del grafo (`renderGraphHint`, inglese, già trimmato). */
+  hint: string;
+  /** Mappa delle aree (comunità + god node); `null` se il grafo non è leggibile. */
+  map: string | null;
+}
+
+/**
+ * Risolve il contesto del grafo del repository. Non lancia MAI: `resolveRepoGraphJson` è
+ * un solo `existsSync` e `summarizeGraphForDocs` è fail-open (null a ogni problema). Un
+ * grafo presente ma corrotto lascia comunque i comandi di interrogazione (l'agente può
+ * interrogarlo: sarà il CLI a dire se non è utilizzabile).
+ */
+async function loadGraphContext(
+  deps: RunOrientationDeps,
+  repositoryId: string,
+): Promise<DocsGraphContext | null> {
+  if (deps.graphsDir === undefined) return null;
+  const graphJsonPath = resolveRepoGraphJson(deps.graphsDir, repositoryId);
+  if (graphJsonPath === null) return null;
+  return {
+    hint: renderGraphHint([{ graphJsonPath }], "en").trim(),
+    map: await summarizeGraphForDocs(graphJsonPath),
+  };
+}
+
+/** Opzione `allowedTools` dei run: i pattern read-only del CLI solo col grafo. */
+function graphAllowedTools(graph: DocsGraphContext | null): { allowedTools?: string[] } {
+  return graph !== null ? { allowedTools: GRAPHIFY_AGENT_ALLOWED_TOOLS } : {};
+}
+
+/**
  * PROJECT BRIEF — primo step dell'orientamento (Fase A). Esegue UN run agente read-only
  * (`permissionMode:"plan"`, stesso modello/timeout/maxTurns dell'orientamento) col prompt
  * del "documentarista" e ne parsa l'output. Ritorna sempre `{ brief, costUsd }`:
@@ -297,16 +347,21 @@ async function runBriefAgent(
   deps: RunOrientationDeps,
   job: DocJob,
   dir: string,
+  graph: DocsGraphContext | null,
 ): Promise<{ brief: ProjectBrief | null; costUsd: number }> {
   const providerOpt = deps.provider !== undefined ? { provider: deps.provider } : {};
   try {
     const result = await deps.runner.run({
       cwd: dir,
-      prompt: buildBriefPrompt({}),
+      // Al documentarista servono i COMANDI di interrogazione (per trovare superfici e
+      // attori senza grep alla cieca), non la mappa delle aree: la sua unità di lavoro è
+      // il prodotto, non la decomposizione del codice.
+      prompt: buildBriefPrompt(graph !== null ? { graphContext: graph.hint } : {}),
       model: deps.model,
       permissionMode: "plan",
       maxTurns: deps.maxTurns,
       timeoutMs: deps.agentTimeoutMs,
+      ...graphAllowedTools(graph),
       ...providerOpt,
     });
     await touchDocJob(deps.db, job.id);
@@ -351,6 +406,7 @@ async function runOrientAgent(
   job: DocJob,
   dir: string,
   prompt: string,
+  graph: DocsGraphContext | null,
 ): Promise<{ plan: OrientPlan; costUsd: number } | { limit: true; costUsd: number } | null> {
   const providerOpt = deps.provider !== undefined ? { provider: deps.provider } : {};
   let costUsd = 0;
@@ -363,6 +419,7 @@ async function runOrientAgent(
       permissionMode: "plan",
       maxTurns: deps.maxTurns,
       timeoutMs: deps.agentTimeoutMs,
+      ...graphAllowedTools(graph),
       ...providerOpt,
     });
     costUsd += result.usage?.totalCostUsd ?? 0;
@@ -520,12 +577,17 @@ export async function runOrientation(
       .where(eq(docGenerations.id, ctx.generationId));
     await touchDocJob(db, job.id);
 
+    // Knowledge graph del repository (fase 2c, PURAMENTE ADDITIVO): risolto UNA volta e
+    // condiviso da brief e orientamento. `null` (nessun volume cablato, nessun grafo
+    // costruito) → prompt e run identici a prima, in ogni ramo sottostante.
+    const graph = await loadGraphContext(deps, ctx.repositoryId);
+
     // STEP 1 — PROJECT BRIEF (Fase A): un run del "documentarista" PRIMA della semina.
     // Best-effort e NON-fatale: se produce un brief valido lo persistiamo su
     // doc_generations.brief e lo iniettiamo nel contesto dell'orientamento; se fallisce/
     // non è parsabile si prosegue con brief null (la generazione non si rompe mai per il
     // brief). Il suo costo va accumulato con quello dell'orientamento.
-    const briefRun = await runBriefAgent(deps, job, worktree.dir);
+    const briefRun = await runBriefAgent(deps, job, worktree.dir, graph);
     const briefCostUsd = briefRun.costUsd;
     if (briefRun.brief !== null) {
       await db
@@ -540,9 +602,18 @@ export async function runOrientation(
     // senza brief `briefPromptContext` non viene chiamato e il prompt è identico a prima.
     const briefContext =
       briefRun.brief !== null ? briefPromptContext(briefRun.brief) : undefined;
-    const prompt = buildOrientPrompt(survey, briefContext);
+    // Contesto del grafo per l'orientamento: prima i comandi per interrogarlo, poi la
+    // MAPPA delle aree — così l'istruzione finale di `buildOrientPrompt` ("tratta la
+    // mappa QUI SOPRA come un'ipotesi") ha davvero la mappa subito sopra di sé. Senza
+    // grafo (o con mappa non calcolabile) i pezzi mancanti semplicemente non entrano:
+    // `undefined` → prompt identico a quello di un repo senza grafo.
+    const graphContext =
+      graph !== null
+        ? [graph.hint, graph.map].filter((part): part is string => !!part).join("\n\n")
+        : "";
+    const prompt = buildOrientPrompt(survey, briefContext, graphContext || undefined);
 
-    const orient = await runOrientAgent(deps, job, worktree.dir, prompt);
+    const orient = await runOrientAgent(deps, job, worktree.dir, prompt, graph);
     // LIMITE del provider durante l'orientamento: il DAG non esiste ancora,
     // quindi la "pausa" della generazione non è definita qui (nessun nodo da
     // riprendere). Il trigger va HELD con held_reason "limit" (il resume poller

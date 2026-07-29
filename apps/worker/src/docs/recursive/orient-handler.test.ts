@@ -37,7 +37,7 @@ import {
 import { eq } from "drizzle-orm";
 import { execa } from "execa";
 import { randomBytes } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -45,6 +45,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { FakeAgentRunner } from "../../agent/fake.js";
 import type { AgentRunUsage } from "../../agent/runner.js";
 import { MirrorManager } from "../../git/mirrors.js";
+import { GRAPHIFY_AGENT_ALLOWED_TOOLS } from "../../graph/agent-hint.js";
 import { type DocJob } from "../queue.js";
 import { runOrientation, type RunOrientationDeps } from "./orient-handler.js";
 import { createGenerationWorktreeRegistry } from "./registry.js";
@@ -321,6 +322,154 @@ describe("runOrientation", () => {
     const [jobAfter] = await db.select().from(docGenerationJobs).where(eq(docGenerationJobs.id, job.id));
     expect(jobAfter?.status).toBe("succeeded");
     expect(jobAfter?.generationId).toBe(gen!.id);
+  });
+
+  // ── Knowledge graph (fase 2c): mappa nel prompt + allowlist, SOLO col grafo ────────
+  describe("grafo del repository (fase 2c)", () => {
+    /** Scrive un graph.json plausibile per `repositoryId` sotto `graphsDir`. */
+    async function seedGraph(graphsDir: string, repositoryId: string): Promise<void> {
+      const outDir = join(graphsDir, repositoryId, "graphify-out");
+      await mkdir(outDir, { recursive: true });
+      const nodes = [
+        {
+          id: "hub",
+          label: "buildApp()",
+          source_file: "src/core/app.ts",
+          community: 1,
+          community_name: "Core runtime",
+        },
+      ];
+      const links: { source: string; target: string }[] = [];
+      for (let i = 1; i <= 12; i++) {
+        nodes.push({
+          id: `r${i}`,
+          label: `route${i}()`,
+          source_file: `src/api/route${i}.ts`,
+          community: 2,
+          community_name: "HTTP API",
+        });
+        links.push({ source: "hub", target: `r${i}` });
+      }
+      await writeFile(join(outDir, "graph.json"), JSON.stringify({ nodes, links }));
+    }
+
+    async function makeGraphsDir(): Promise<string> {
+      const dir = await mkdtemp(join(tmpdir(), "stubwise-orient-graphs-"));
+      cleanups.push(() => rm(dir, { recursive: true, force: true }));
+      return dir;
+    }
+
+    it("col grafo: mappa nel prompt di orientamento, hint nel brief, allowlist graphify su entrambi i run", async () => {
+      const { db } = testDb;
+      const upstream = await makeUpstream();
+      const mirrors = await makeMirrors();
+      const repositoryId = await createRepository(db, upstream.url);
+      const graphsDir = await makeGraphsDir();
+      await seedGraph(graphsDir, repositoryId);
+      const job = await enqueueTrigger(db, repositoryId);
+
+      const runner = new FakeAgentRunner({
+        script: scriptBriefThenOrient(VALID_BRIEF, VALID_PLAN),
+      });
+      const outcome = await runOrientation(
+        { ...baseDeps(db, mirrors, runner), graphsDir },
+        job,
+      );
+      expect(outcome).toBe("seeded");
+      expect(runner.calls).toHaveLength(2);
+
+      const briefCall = runner.calls[0];
+      const orientCall = runner.calls[1];
+      const graphJson = join(graphsDir, repositoryId, "graphify-out", "graph.json");
+
+      // ORIENTAMENTO: la MAPPA (comunità + god node) + i comandi di interrogazione.
+      expect(orientCall?.prompt).toContain("CODE GRAPH MAP");
+      expect(orientCall?.prompt).toContain("HTTP API");
+      expect(orientCall?.prompt).toContain("buildApp()");
+      expect(orientCall?.prompt).toContain(graphJson);
+      // Presentata come IPOTESI da verificare, dopo il survey.
+      expect(orientCall?.prompt.toLowerCase()).toContain("hypothesis");
+      expect(orientCall!.prompt.indexOf("REPOSITORY SURVEY:")).toBeLessThan(
+        orientCall!.prompt.indexOf("CODE GRAPH MAP"),
+      );
+
+      // BRIEF: solo i comandi del grafo (niente mappa intera: il documentarista esplora).
+      expect(briefCall?.prompt).toContain("graphify query");
+      expect(briefCall?.prompt).toContain(graphJson);
+      expect(briefCall?.prompt).not.toContain("CODE GRAPH MAP");
+
+      // Allowlist read-only del CLI su ENTRAMBI i run (in plan mode è la sola apertura Bash).
+      expect(briefCall?.allowedTools).toEqual(GRAPHIFY_AGENT_ALLOWED_TOOLS);
+      expect(orientCall?.allowedTools).toEqual(GRAPHIFY_AGENT_ALLOWED_TOOLS);
+      // Il resto del run è invariato.
+      expect(orientCall?.permissionMode).toBe("plan");
+    });
+
+    it("graphsDir cablata ma repo SENZA grafo: prompt e run identici a prima (fail-open)", async () => {
+      const { db } = testDb;
+      const upstream = await makeUpstream();
+      const mirrors = await makeMirrors();
+      const repositoryId = await createRepository(db, upstream.url);
+      const graphsDir = await makeGraphsDir(); // nessun graph.json per questo repository
+      const job = await enqueueTrigger(db, repositoryId);
+
+      const runner = new FakeAgentRunner({
+        script: scriptBriefThenOrient(VALID_BRIEF, VALID_PLAN),
+      });
+      const outcome = await runOrientation(
+        { ...baseDeps(db, mirrors, runner), graphsDir },
+        job,
+      );
+      expect(outcome).toBe("seeded");
+      for (const call of runner.calls) {
+        expect(call.prompt).not.toContain("CODE GRAPH");
+        expect(call.prompt).not.toContain("graphify");
+        expect(call.allowedTools).toBeUndefined();
+      }
+    });
+
+    it("grafo corrotto: nessuna mappa, ma i comandi e l'allowlist restano (fail-open)", async () => {
+      const { db } = testDb;
+      const upstream = await makeUpstream();
+      const mirrors = await makeMirrors();
+      const repositoryId = await createRepository(db, upstream.url);
+      const graphsDir = await makeGraphsDir();
+      const outDir = join(graphsDir, repositoryId, "graphify-out");
+      await mkdir(outDir, { recursive: true });
+      await writeFile(join(outDir, "graph.json"), "{ questo non è JSON");
+      const job = await enqueueTrigger(db, repositoryId);
+
+      const runner = new FakeAgentRunner({
+        script: scriptBriefThenOrient(VALID_BRIEF, VALID_PLAN),
+      });
+      const outcome = await runOrientation(
+        { ...baseDeps(db, mirrors, runner), graphsDir },
+        job,
+      );
+      // La generazione non si accorge di nulla: seminata come sempre.
+      expect(outcome).toBe("seeded");
+      const orientCall = runner.calls[1];
+      expect(orientCall?.prompt).not.toContain("CODE GRAPH MAP");
+      expect(orientCall?.prompt).toContain("graphify query");
+      expect(orientCall?.allowedTools).toEqual(GRAPHIFY_AGENT_ALLOWED_TOOLS);
+    });
+
+    it("senza graphsDir: comportamento invariato (nessun accesso al volume)", async () => {
+      const { db } = testDb;
+      const upstream = await makeUpstream();
+      const mirrors = await makeMirrors();
+      const repositoryId = await createRepository(db, upstream.url);
+      const job = await enqueueTrigger(db, repositoryId);
+
+      const runner = new FakeAgentRunner({
+        script: scriptBriefThenOrient(VALID_BRIEF, VALID_PLAN),
+      });
+      expect(await runOrientation(baseDeps(db, mirrors, runner), job)).toBe("seeded");
+      for (const call of runner.calls) {
+        expect(call.prompt).not.toContain("CODE GRAPH");
+        expect(call.allowedTools).toBeUndefined();
+      }
+    });
   });
 
   it("con pinnedProviderId: la riga doc_generations seminata ha pinned_provider_id valorizzato", async () => {

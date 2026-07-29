@@ -178,6 +178,9 @@ const docHandler = createDocHandler(
     model: config.docGenerationModel,
     agentTimeoutMs: config.docAgentTimeoutMs,
     maxTurns: config.docModuleMaxTurns,
+    // Volume dei knowledge graph (fase 2c): col grafo del repository l'orientamento
+    // semina i prompt con la mappa delle aree; senza, tutto identico a prima.
+    graphsDir: config.graphsDir,
   },
   serializer,
 );
@@ -200,6 +203,9 @@ const dispatchNodeFn = (track: (work: Promise<void>) => void): Promise<boolean> 
       maxNodes: config.docMaxNodes,
       maxProductPages: config.docProductMaxPages,
       encryptionKey: config.encryptionKey,
+      // Volume dei knowledge graph (fase 2c): i run di esplorazione dei nodi possono
+      // interrogare il grafo sulla propria area; senza grafo nulla cambia.
+      graphsDir: config.graphsDir,
       publicUrl: config.publicUrl,
     },
     track,
