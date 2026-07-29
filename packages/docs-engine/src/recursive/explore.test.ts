@@ -111,6 +111,53 @@ describe("buildExplorePrompt (briefContext)", () => {
   });
 });
 
+/**
+ * ADDITIVITÀ del blocco CODE GRAPH (fase 2c graphify): senza `graphContext` il prompt
+ * resta BYTE-IDENTICO a prima (snapshot generati PRIMA di introdurre il parametro).
+ * Il nodo riceve i COMANDI di interrogazione del grafo (query mirate sulla SUA area),
+ * non la mappa intera del repo (rumore per un nodo singolo).
+ */
+describe("buildExplorePrompt (graphContext)", () => {
+  const GRAPH = [
+    "CODE GRAPH: a pre-built knowledge graph of the code is available.",
+    '- `graphify query "<question>" --graph <path>` — relevant subgraph for a question',
+  ].join("\n");
+
+  it("senza graphContext: prompt byte-identico al riferimento pre-2c (technical)", () => {
+    expect(buildExplorePrompt(input())).toMatchSnapshot();
+  });
+
+  it("senza graphContext: prompt byte-identico al riferimento pre-2c (functional + brief)", () => {
+    const brief = "PROJECT CONTEXT — use this glossary and terminology consistently:\nGlossary:\n- Ticket: a unit of work.";
+    expect(
+      buildExplorePrompt(input({ tree: "functional", unitRef: "Search", title: "Search" }), brief),
+    ).toMatchSnapshot();
+  });
+
+  it("terzo parametro undefined/vuoto = ometterlo", () => {
+    expect(buildExplorePrompt(input(), undefined, undefined)).toBe(buildExplorePrompt(input()));
+    expect(buildExplorePrompt(input(), undefined, "  \n ")).toBe(buildExplorePrompt(input()));
+  });
+
+  it("con graphContext: i comandi del grafo entrano dopo le istruzioni del nodo e prima del contratto", () => {
+    const prompt = buildExplorePrompt(input(), undefined, GRAPH);
+    expect(prompt).toContain("CODE GRAPH:");
+    expect(prompt).toContain("graphify query");
+    expect(prompt.indexOf("Unit reference:")).toBeLessThan(prompt.indexOf("CODE GRAPH:"));
+    expect(prompt.indexOf("CODE GRAPH:")).toBeLessThan(prompt.indexOf("OUTPUT CONTRACT"));
+  });
+
+  it("con graphContext: vale anche per la variante funzionale", () => {
+    const prompt = buildExplorePrompt(
+      input({ tree: "functional", unitRef: "Search", title: "Search" }),
+      undefined,
+      GRAPH,
+    );
+    expect(prompt).toContain("graphify query");
+    expect(prompt.indexOf("CODE GRAPH:")).toBeLessThan(prompt.indexOf("OUTPUT CONTRACT"));
+  });
+});
+
 describe("buildExplorePrompt (functional)", () => {
   it("mirrors the strong plain-language / exhaustive / grounding instructions", () => {
     const prompt = buildExplorePrompt(

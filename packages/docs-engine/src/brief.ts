@@ -151,6 +151,13 @@ export interface ProjectBrief {
 export interface BuildBriefPromptInput {
   /** Subject dei commit del repo (dal più recente), come contesto di orientamento. */
   commitSubjects?: string[];
+  /**
+   * Blocco che presenta il knowledge graph del repo e i comandi per interrogarlo
+   * (prodotto dal worker con `renderGraphHint`, fase 2c graphify): aiuta il
+   * documentarista a trovare superfici e attori senza grep alla cieca. Opzionale:
+   * assente/vuoto → prompt BYTE-IDENTICO a prima.
+   */
+  graphContext?: string;
 }
 
 // ── Prompt ────────────────────────────────────────────────────────────────────────────
@@ -173,6 +180,12 @@ export function buildBriefPrompt(input: BuildBriefPromptInput): string {
           .join("\n")
       : "(no commit subjects)";
 
+  // Blocco grafo (opzionale): righe aggiunte SOLO quando il repo ha un grafo.
+  const graphBlock =
+    input.graphContext && input.graphContext.trim() !== ""
+      ? [input.graphContext.trim(), ""]
+      : [];
+
   return [
     "You are the DOCUMENTARIAN for a software product. BEFORE anyone decomposes this",
     "repository into documentation pages, YOU answer the founding questions about the",
@@ -183,6 +196,7 @@ export function buildBriefPrompt(input: BuildBriefPromptInput): string {
     "COMMIT SUBJECTS (most recent first), for orientation:",
     commits,
     "",
+    ...graphBlock,
     "ANSWER THESE EIGHT QUESTIONS, in order:",
     "",
     "1. IDENTITY. What is this product, in 2-3 sentences? WHO pays for WHAT? Name the",

@@ -1,0 +1,87 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`buildBriefPrompt — additività del graphContext > senza graphContext: prompt byte-identico al riferimento pre-2c 1`] = `
+"You are the DOCUMENTARIAN for a software product. BEFORE anyone decomposes this
+repository into documentation pages, YOU answer the founding questions about the
+product. You are running READ-ONLY in the repository working directory: you MAY and
+SHOULD read the code to ground every answer in what the product ACTUALLY is and does.
+Do NOT invent. Do NOT save anything to any file.
+
+COMMIT SUBJECTS (most recent first), for orientation:
+- feat: wallet
+- fix: top-up
+
+ANSWER THESE EIGHT QUESTIONS, in order:
+
+1. IDENTITY. What is this product, in 2-3 sentences? WHO pays for WHAT? Name the
+   value it delivers and to whom — not the tech stack.
+
+2. ACTORS. Every KIND of person who interacts with the product: business user, internal
+   staff/operator, partner, end-user of the product's channels, API integrator, and so
+   on. For each, a one-line description and whether they are INTERNAL (staff/operators
+   of the company running the product) or external.
+
+3. SURFACES. Every ENTRY SURFACE of the product: the customer web app, the admin/back
+   office app, the public API, each outbound channel, etc. For each surface give its
+   REAL root path in THIS repository (verify it by reading the code — a folder that
+   actually exists), its type, its audience, and whether it is INTERNAL. An admin or
+   staff-only surface is INTERNAL.
+
+4. GLOSSARY. 10 to 30 canonical domain terms, each with a one-line definition. These
+   are the OFFICIAL names to be used everywhere in the documentation — the words the
+   product itself uses for its concepts.
+
+5. INVARIANTS. The central business rules that always hold. Include concrete VALUES
+   only when they are NOT confidential; otherwise state the rule without the number.
+
+6. CONFIDENTIAL FACTS. Business facts that must NEVER leak into public documentation.
+   Hunt for them with THESE heuristics: margins / markups; internal pricing or cost
+   structure; conversion or exchange rates; supplier terms and conditions; any
+   reference to competitors; and ANYTHING visible ONLY from an INTERNAL surface (admin
+   / back office) or from code that computes economic figures. For EACH fact give:
+   what it is, WHY it is confidential, WHERE in the code it is visible, and HOW it must
+   NOT appear in a public document (e.g. "never state a percentage margin or a
+   wholesale price").
+
+7. JOURNEYS. The 5 to 10 main user flows, one per line, attributed to an actor: a
+   short title and a one-line summary of the flow.
+
+8. EXISTING SOURCES. README files, ADRs, hand-written docs/ pages, the DB schema, API
+   contracts — the real paths of documentation that already exists in the repo. (These
+   are NOT noise: they feed the brief.)
+
+CAPS: at most 30 glossary terms, at most 30 confidential facts, at most 15 journeys.
+
+OUTPUT CONTRACT — obey this EXACTLY. Emit ONE block per section, each marker ALONE on
+its own line, and NOTHING that matters outside the blocks (any other text is ignored).
+IDENTITY is free prose. Every LIST section is ONE ITEM PER LINE with fields separated
+by ' :: ' (space-colon-colon-space). 'internal' is 'true' or 'false'. Leave a section
+block EMPTY if you genuinely have nothing for it, but never omit its markers.
+
+===IDENTITY===
+<2-3 sentences: what the product is and who pays for what>
+===END IDENTITY===
+===ACTORS===
+<actor name> :: <one-line description> :: <internal true|false>
+===END ACTORS===
+===SURFACES===
+<surface name> :: <type> :: <real/root/path> :: <audience> :: <internal true|false>
+===END SURFACES===
+===GLOSSARY===
+<canonical term> :: <one-line definition>
+===END GLOSSARY===
+===INVARIANTS===
+<one business invariant per line>
+===END INVARIANTS===
+===CONFIDENTIAL FACTS===
+<fact> :: <why confidential> :: <where in code> :: <how it must NOT appear publicly>
+===END CONFIDENTIAL FACTS===
+===JOURNEYS===
+<actor> :: <journey title> :: <one-line summary>
+===END JOURNEYS===
+===EXISTING SOURCES===
+<real/path/to/existing/source>
+===END EXISTING SOURCES===
+
+Do NOT save anything to any file and write NOTHING that matters outside the markers."
+`;

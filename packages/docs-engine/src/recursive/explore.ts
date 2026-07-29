@@ -110,15 +110,28 @@ function contextLines(input: ExploreInput): string[] {
  * `briefContext` (opzionale, prodotto da `briefPromptContext`) è anteposto come sezione
  * PROJECT CONTEXT PRIMA delle istruzioni specifiche, così l'agente usa glossario/attori/
  * invarianti del prodotto in modo coerente. Assente/vuoto → prompt byte-identico a prima.
+ *
+ * `graphContext` (opzionale, prodotto dal worker con `renderGraphHint`) presenta il
+ * knowledge graph del repo e i COMANDI per interrogarlo: al nodo servono query MIRATE
+ * sulla sua area, non la mappa intera del repo (che è rumore qui — quella va
+ * all'orientamento). Entra DOPO le istruzioni del nodo e PRIMA del contratto di output.
+ * Assente/vuoto → prompt byte-identico a prima.
  */
-export function buildExplorePrompt(input: ExploreInput, briefContext?: string): string {
+export function buildExplorePrompt(
+  input: ExploreInput,
+  briefContext?: string,
+  graphContext?: string,
+): string {
   const head =
     input.tree === "technical"
       ? technicalLines(input)
       : functionalLines(input);
+  const graphBlock =
+    graphContext && graphContext.trim() !== "" ? ["", graphContext.trim()] : [];
   return [
     ...briefContextSection(briefContext),
     ...head,
+    ...graphBlock,
     "",
     ...outputContractLines(),
   ].join("\n");
