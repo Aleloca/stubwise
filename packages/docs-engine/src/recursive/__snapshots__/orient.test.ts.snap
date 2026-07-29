@@ -1,0 +1,138 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`buildOrientPrompt — additività del graphContext > senza graphContext: prompt byte-identico al riferimento pre-2c (con brief) 1`] = `
+"You are ORIENTING yourself in a software repository to plan its documentation.
+You are running READ-ONLY in the repository working directory: inspect files as
+needed (manifests, config, entry points, folder structure) to ground your plan in
+what the repository ACTUALLY is. Do not invent structure that is not there.
+
+PROJECT CONTEXT — use this glossary and terminology consistently:
+
+Glossary (use these exact terms):
+- Wallet: prepaid balance
+
+Below is a compact survey of the repository (top-level entries + key manifests).
+Use it as a starting point, then read further as needed.
+
+REPOSITORY SURVEY:
+TOP-LEVEL ENTRIES:
+- apps/
+- packages/
+- package.json
+
+DO THREE THINGS:
+
+1. DETECT THE STACK / FRAMEWORK and reason about its conventions. State what stack
+   and framework(s) this is, and how that shapes where the real architecture lives
+   (e.g. a Next.js app-router app keeps user-facing code under its routes folder; a
+   monorepo keeps deployable units under apps/ and shared code under packages/).
+
+2. CLASSIFY the top-level folders as ARCHITECTURE vs PROCESS-NOISE, and EXPLAIN each
+   classification briefly (this is auditable). PROCESS-NOISE = session/process
+   scratch artifacts that are NOT product architecture and MUST be excluded from the
+   technical documentation: planning notes and scratch dirs (e.g. folders like
+   plans/, scratch/). Documentation WRITTEN BY DEVELOPERS about the product — README
+   files, ADRs, hand-written docs/ pages — is NOT noise: it is a SOURCE to consider
+   when planning the pages. However, such documentation is a SOURCE, not
+   ARCHITECTURE: it must NOT itself appear as a technical unit or capability.
+   ARCHITECTURE = the code that is the actual product/system.
+   Only ARCHITECTURE folders may appear as technical units.
+
+3. PRODUCE THE PLAN as TWO child-lists:
+   - TECHNICAL UNITS: the first-level units of the codebase that each deserve their
+     own page (the natural top-level decomposition of the ARCHITECTURE — never the
+     PROCESS-NOISE nor the developer-written documentation). One per line.
+   - FUNCTIONAL CAPABILITIES: the first-level product capabilities (what the product
+     lets users do), described from the user's point of view. One per line.
+
+OUTPUT CONTRACT — obey this EXACTLY. Put EVERYTHING between the PLAN markers.
+Write no free prose outside the markers. Inside the PLAN block, your classification/
+reasoning prose goes BEFORE the first child-list. Each child-list is delimited by its
+own markers, each marker ALONE on its own line.
+
+Each child line uses this EXACT format (fields separated by ' :: ', a leading '- '):
+  - <title> :: <paths> :: <why>
+where <title> is a short human label, <paths> is the source path(s) covered (a single
+path for a technical unit; one or more comma-separated paths that IMPLEMENT a
+capability for a functional one), and <why> is a brief reason. Title is required;
+why may be brief but include it.
+
+===ORIENTATION PLAN===
+<your stack detection + folder classification/reasoning prose here>
+===TECHNICAL UNITS===
+- <technical unit title> :: <path> :: <why this is a first-level unit>
+===END TECHNICAL UNITS===
+===FUNCTIONAL CAPABILITIES===
+- <capability title> :: <path(s) implementing it> :: <why this is a capability>
+===END FUNCTIONAL CAPABILITIES===
+===END ORIENTATION PLAN===
+
+Do NOT save anything to any file, do NOT mention plan files, and write NOTHING
+outside the PLAN markers."
+`;
+
+exports[`buildOrientPrompt — additività del graphContext > senza graphContext: prompt byte-identico al riferimento pre-2c (nessun brief) 1`] = `
+"You are ORIENTING yourself in a software repository to plan its documentation.
+You are running READ-ONLY in the repository working directory: inspect files as
+needed (manifests, config, entry points, folder structure) to ground your plan in
+what the repository ACTUALLY is. Do not invent structure that is not there.
+
+Below is a compact survey of the repository (top-level entries + key manifests).
+Use it as a starting point, then read further as needed.
+
+REPOSITORY SURVEY:
+TOP-LEVEL ENTRIES:
+- apps/
+- packages/
+- package.json
+
+DO THREE THINGS:
+
+1. DETECT THE STACK / FRAMEWORK and reason about its conventions. State what stack
+   and framework(s) this is, and how that shapes where the real architecture lives
+   (e.g. a Next.js app-router app keeps user-facing code under its routes folder; a
+   monorepo keeps deployable units under apps/ and shared code under packages/).
+
+2. CLASSIFY the top-level folders as ARCHITECTURE vs PROCESS-NOISE, and EXPLAIN each
+   classification briefly (this is auditable). PROCESS-NOISE = session/process
+   scratch artifacts that are NOT product architecture and MUST be excluded from the
+   technical documentation: planning notes and scratch dirs (e.g. folders like
+   plans/, scratch/). Documentation WRITTEN BY DEVELOPERS about the product — README
+   files, ADRs, hand-written docs/ pages — is NOT noise: it is a SOURCE to consider
+   when planning the pages. However, such documentation is a SOURCE, not
+   ARCHITECTURE: it must NOT itself appear as a technical unit or capability.
+   ARCHITECTURE = the code that is the actual product/system.
+   Only ARCHITECTURE folders may appear as technical units.
+
+3. PRODUCE THE PLAN as TWO child-lists:
+   - TECHNICAL UNITS: the first-level units of the codebase that each deserve their
+     own page (the natural top-level decomposition of the ARCHITECTURE — never the
+     PROCESS-NOISE nor the developer-written documentation). One per line.
+   - FUNCTIONAL CAPABILITIES: the first-level product capabilities (what the product
+     lets users do), described from the user's point of view. One per line.
+
+OUTPUT CONTRACT — obey this EXACTLY. Put EVERYTHING between the PLAN markers.
+Write no free prose outside the markers. Inside the PLAN block, your classification/
+reasoning prose goes BEFORE the first child-list. Each child-list is delimited by its
+own markers, each marker ALONE on its own line.
+
+Each child line uses this EXACT format (fields separated by ' :: ', a leading '- '):
+  - <title> :: <paths> :: <why>
+where <title> is a short human label, <paths> is the source path(s) covered (a single
+path for a technical unit; one or more comma-separated paths that IMPLEMENT a
+capability for a functional one), and <why> is a brief reason. Title is required;
+why may be brief but include it.
+
+===ORIENTATION PLAN===
+<your stack detection + folder classification/reasoning prose here>
+===TECHNICAL UNITS===
+- <technical unit title> :: <path> :: <why this is a first-level unit>
+===END TECHNICAL UNITS===
+===FUNCTIONAL CAPABILITIES===
+- <capability title> :: <path(s) implementing it> :: <why this is a capability>
+===END FUNCTIONAL CAPABILITIES===
+===END ORIENTATION PLAN===
+
+Do NOT save anything to any file, do NOT mention plan files, and write NOTHING
+outside the PLAN markers."
+`;

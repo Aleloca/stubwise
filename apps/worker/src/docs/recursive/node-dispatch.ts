@@ -117,6 +117,12 @@ export interface DispatchNodeDeps {
   ) => Promise<ResolvedProvider | null>;
   /** Chiave AES-256 per la catena di provider (stessa del fix/orientamento). */
   encryptionKey: Buffer;
+  /**
+   * Radice del volume dei knowledge graph (`GRAPHS_DIR`, fase 2c graphify), inoltrata
+   * ai run di ESPLORAZIONE: col grafo il nodo può interrogarlo sulla propria area.
+   * Assente (o repository senza grafo) → run di esplorazione identici a prima.
+   */
+  graphsDir?: string;
   /** URL pubblico dell'istanza (PUBLIC_URL, senza slash finali) per i link
    * delle notifiche; assente/vuoto = il link alla pagina Docs è il solo path. */
   publicUrl?: string;
@@ -241,6 +247,7 @@ async function runClaimedNode(deps: DispatchNodeDeps, claimed: ClaimedNode): Pro
         maxTurns: deps.maxTurns,
         maxDepth: deps.maxDepth,
         maxNodes: deps.maxNodes,
+        ...(deps.graphsDir !== undefined ? { graphsDir: deps.graphsDir } : {}),
         ...(provider !== undefined ? { provider } : {}),
       };
       const r = await runExplore(exploreDeps, node);

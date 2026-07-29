@@ -59,6 +59,12 @@ export interface DocHandlerDeps {
   agentTimeoutMs: number;
   /** Turni massimi del run dell'agente di orientamento (config.docModuleMaxTurns). */
   maxTurns: number;
+  /**
+   * Radice del volume dei knowledge graph (`GRAPHS_DIR`, fase 2c graphify): inoltrata
+   * all'orientamento, che col grafo semina i prompt di brief/orientamento con la mappa
+   * delle aree e i comandi di interrogazione. Assente → generazione identica a prima.
+   */
+  graphsDir?: string;
   /** Caricatore della catena di provider AI (iniettabile nei test). Default:
    * loadProviderChain. La PRIMA voce della catena è la credenziale usata. */
   loadProviderChainFn?: (db: Db, encryptionKey: Buffer) => Promise<ResolvedProvider[]>;
@@ -157,6 +163,7 @@ export function createDocHandler(
           model: deps.model,
           agentTimeoutMs: deps.agentTimeoutMs,
           maxTurns: deps.maxTurns,
+          ...(deps.graphsDir !== undefined ? { graphsDir: deps.graphsDir } : {}),
           ...(provider !== undefined ? { provider } : {}),
           // Il provider del progetto è propagato alla generazione: l'orientamento lo semina
           // su doc_generations.pinned_provider_id, i job-nodo lo rileggono per blindarsi

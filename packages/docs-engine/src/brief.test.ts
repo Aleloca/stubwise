@@ -97,6 +97,35 @@ describe("buildBriefPrompt", () => {
   });
 });
 
+/**
+ * ADDITIVITÀ del blocco CODE GRAPH (fase 2c graphify): senza `graphContext` il prompt
+ * del documentarista resta BYTE-IDENTICO a prima (snapshot generato PRIMA di
+ * introdurre il campo).
+ */
+describe("buildBriefPrompt — additività del graphContext", () => {
+  const GRAPH = [
+    "CODE GRAPH: a pre-built knowledge graph of the code is available.",
+    '- `graphify query "<question>" --graph /graphs/r/graphify-out/graph.json`',
+  ].join("\n");
+
+  it("senza graphContext: prompt byte-identico al riferimento pre-2c", () => {
+    expect(buildBriefPrompt({ commitSubjects: ["feat: wallet", "fix: top-up"] })).toMatchSnapshot();
+  });
+
+  it("campo assente/vuoto = nessun blocco grafo", () => {
+    const base = buildBriefPrompt({ commitSubjects: ["feat: wallet"] });
+    expect(buildBriefPrompt({ commitSubjects: ["feat: wallet"], graphContext: undefined })).toBe(base);
+    expect(buildBriefPrompt({ commitSubjects: ["feat: wallet"], graphContext: " \n " })).toBe(base);
+    expect(base).not.toContain("CODE GRAPH");
+  });
+
+  it("con graphContext: il blocco entra prima delle otto domande", () => {
+    const prompt = buildBriefPrompt({ commitSubjects: ["feat: wallet"], graphContext: GRAPH });
+    expect(prompt).toContain("graphify query");
+    expect(prompt.indexOf("CODE GRAPH:")).toBeLessThan(prompt.indexOf("ANSWER THESE EIGHT QUESTIONS"));
+  });
+});
+
 describe("parseBriefOutput — output completo valido", () => {
   const brief = parseBriefOutput(FULL_OUTPUT);
 

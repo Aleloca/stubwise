@@ -40,7 +40,10 @@ import {
  * (entry top-level + manifest chiave) preparata dal chiamante. `briefContext` è la
  * porzione compatta del PROJECT BRIEF (`briefPromptContext`) prodotto dal documentarista
  * nel primo step dell'orientamento — opzionale: senza brief il prompt è identico a prima
- * (retrocompatibilità). Il prompt istruisce a:
+ * (retrocompatibilità). `graphContext` è la MAPPA del knowledge graph del repo (comunità
+ * + god node) preparata dal chiamante (worker, `summarizeGraphForDocs`) quando il grafo
+ * esiste — anch'esso opzionale e con la stessa regola: assente/vuoto → prompt
+ * BYTE-IDENTICO a quello senza grafo. Il prompt istruisce a:
  * (1) rilevare lo stack/framework e ragionare sulle sue convenzioni;
  * (2) classificare le cartelle top-level ARCHITETTURA vs RUMORE-DI-PROCESSO, SPIEGANDO
  *     (la documentazione scritta dagli sviluppatori — README, ADR, docs/ — NON è rumore:
@@ -48,10 +51,29 @@ import {
  * (3) produrre il piano con le due child-list nel formato del contratto, niente prosa
  *     fuori dai marcatori.
  */
-export function buildOrientPrompt(survey: string, briefContext?: string): string {
+export function buildOrientPrompt(
+  survey: string,
+  briefContext?: string,
+  graphContext?: string,
+): string {
   const briefBlock =
     briefContext && briefContext.trim() !== ""
       ? [briefContext.trim(), ""]
+      : [];
+  // Mappa del grafo: entra DOPO il survey, come IPOTESI di decomposizione da verificare.
+  // Le comunità del grafo sono un clustering del codice, non unità documentali: vanno
+  // confermate/fuse/scartate leggendo il repo, mai copiate alla cieca.
+  const graphBlock =
+    graphContext && graphContext.trim() !== ""
+      ? [
+          graphContext.trim(),
+          "",
+          "Treat the map above as a HYPOTHESIS for the decomposition, not as the answer:",
+          "graph communities are a clustering of the code and do not necessarily coincide",
+          "with documentation units. VERIFY it against the repository — confirm, merge,",
+          "split or ignore those areas according to what the code actually is.",
+          "",
+        ]
       : [];
   return [
     "You are ORIENTING yourself in a software repository to plan its documentation.",
@@ -66,6 +88,7 @@ export function buildOrientPrompt(survey: string, briefContext?: string): string
     "REPOSITORY SURVEY:",
     survey.trim() || "(no survey provided)",
     "",
+    ...graphBlock,
     "DO THREE THINGS:",
     "",
     "1. DETECT THE STACK / FRAMEWORK and reason about its conventions. State what stack",

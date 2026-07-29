@@ -9,9 +9,13 @@ import {
   SOURCE_PATHS_START_MARKER,
 } from "@stubwise/docs-engine";
 import { eq } from "drizzle-orm";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FakeAgentRunner } from "../../agent/fake.js";
 import type { AgentRunUsage } from "../../agent/runner.js";
+import { GRAPHIFY_AGENT_ALLOWED_TOOLS } from "../../graph/agent-hint.js";
 import type { ProjectBrief } from "@stubwise/docs-engine";
 import { claimNextNode, type DocNode } from "../nodes.js";
 import { clearBriefContextCache } from "./brief-context.js";
@@ -406,5 +410,88 @@ describe("runExplore", () => {
     const prompt = runner.calls[0]?.prompt ?? "";
     expect(prompt).not.toContain("PROJECT CONTEXT");
     expect(prompt.startsWith("You are writing ONE deep page of TECHNICAL")).toBe(true);
+  });
+
+  // ── Knowledge graph (fase 2c): comandi di interrogazione + allowlist, SOLO col grafo ──
+  describe("grafo del repository (fase 2c)", () => {
+    const graphDirs: string[] = [];
+
+    afterEach(async () => {
+      while (graphDirs.length > 0) {
+        const dir = graphDirs.pop();
+        if (dir) await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    async function makeGraphsDir(withGraph: boolean): Promise<string> {
+      const dir = await mkdtemp(join(tmpdir(), "stubwise-explore-graphs-"));
+      graphDirs.push(dir);
+      if (withGraph) {
+        const outDir = join(dir, repositoryId, "graphify-out");
+        await mkdir(outDir, { recursive: true });
+        await writeFile(
+          join(outDir, "graph.json"),
+          JSON.stringify({
+            nodes: [
+              { id: "a", label: "run()", source_file: "src/core/run.ts", community_name: "Core" },
+            ],
+            links: [],
+          }),
+        );
+      }
+      return dir;
+    }
+
+    it("col grafo: comandi di interrogazione nel prompt + allowlist graphify sul run", async () => {
+      const { db } = testDb;
+      const graphsDir = await makeGraphsDir(true);
+      await insertNode(db, { title: "Core", unitRef: "src/core", depth: 1 });
+      const node = await claim(db);
+
+      const runner = new FakeAgentRunner({
+        script: () => ({ output: exploreOutput({ children: [], paths: ["src/core"] }), exitCode: 0, usage: USAGE }),
+      });
+      await runExplore(baseDeps(db, runner, { graphsDir }), node);
+
+      const call = runner.calls[0];
+      expect(call?.prompt).toContain("CODE GRAPH:");
+      expect(call?.prompt).toContain("graphify query");
+      expect(call?.prompt).toContain(join(graphsDir, repositoryId, "graphify-out", "graph.json"));
+      // Al nodo NON serve la mappa intera del repo (rumore): quella va all'orientamento.
+      expect(call?.prompt).not.toContain("CODE GRAPH MAP");
+      expect(call?.allowedTools).toEqual(GRAPHIFY_AGENT_ALLOWED_TOOLS);
+      expect(call?.permissionMode).toBe("plan");
+    });
+
+    it("graphsDir cablata ma repo SENZA grafo: prompt e run identici a prima", async () => {
+      const { db } = testDb;
+      const graphsDir = await makeGraphsDir(false);
+      await insertNode(db, { title: "Core", unitRef: "src/core", depth: 1 });
+      const node = await claim(db);
+
+      const runner = new FakeAgentRunner({
+        script: () => ({ output: exploreOutput({ children: [], paths: ["src/core"] }), exitCode: 0, usage: USAGE }),
+      });
+      await runExplore(baseDeps(db, runner, { graphsDir }), node);
+
+      const call = runner.calls[0];
+      expect(call?.prompt).not.toContain("CODE GRAPH");
+      expect(call?.prompt).not.toContain("graphify");
+      expect(call?.allowedTools).toBeUndefined();
+    });
+
+    it("senza graphsDir: comportamento invariato", async () => {
+      const { db } = testDb;
+      await insertNode(db, { title: "Core", unitRef: "src/core", depth: 1 });
+      const node = await claim(db);
+
+      const runner = new FakeAgentRunner({
+        script: () => ({ output: exploreOutput({ children: [], paths: ["src/core"] }), exitCode: 0, usage: USAGE }),
+      });
+      await runExplore(baseDeps(db, runner), node);
+
+      expect(runner.calls[0]?.prompt).not.toContain("CODE GRAPH");
+      expect(runner.calls[0]?.allowedTools).toBeUndefined();
+    });
   });
 });

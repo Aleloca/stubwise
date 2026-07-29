@@ -75,6 +75,63 @@ describe("buildOrientPrompt", () => {
   });
 });
 
+/**
+ * ADDITIVITÀ del blocco CODE GRAPH MAP (fase 2c graphify): senza `graphContext` il
+ * prompt deve restare BYTE-IDENTICO a quello di prima della fase 2c. Gli snapshot
+ * sono stati generati PRIMA di introdurre il parametro: se un giorno il blocco
+ * grafo (o altro) trapelasse nel percorso "senza grafo", questi test falliscono.
+ */
+describe("buildOrientPrompt — additività del graphContext", () => {
+  const SURVEY = "TOP-LEVEL ENTRIES:\n- apps/\n- packages/\n- package.json";
+  const BRIEF = "PROJECT CONTEXT — use this glossary and terminology consistently:\n\nGlossary (use these exact terms):\n- Wallet: prepaid balance";
+  const GRAPH_MAP = [
+    "CODE GRAPH MAP (deterministic, derived from the repository's pre-built code graph):",
+    "",
+    "Areas (graph communities), largest first:",
+    "- Job queue (42 symbols): apps/worker/src/queue.ts, apps/worker/src/index.ts",
+    "",
+    "This map is derived from the graph, not from reading the repository: verify it.",
+  ].join("\n");
+
+  it("senza graphContext: prompt byte-identico al riferimento pre-2c (nessun brief)", () => {
+    expect(buildOrientPrompt(SURVEY)).toMatchSnapshot();
+  });
+
+  it("senza graphContext: prompt byte-identico al riferimento pre-2c (con brief)", () => {
+    expect(buildOrientPrompt(SURVEY, BRIEF)).toMatchSnapshot();
+  });
+
+  it("terzo parametro undefined = ometterlo", () => {
+    expect(buildOrientPrompt(SURVEY, undefined, undefined)).toBe(buildOrientPrompt(SURVEY));
+    expect(buildOrientPrompt(SURVEY, BRIEF, undefined)).toBe(buildOrientPrompt(SURVEY, BRIEF));
+    // Blocco vuoto/di soli spazi = assente (nessun rumore nel prompt).
+    expect(buildOrientPrompt(SURVEY, undefined, "   \n ")).toBe(buildOrientPrompt(SURVEY));
+  });
+
+  it("con graphContext: la mappa entra DOPO il survey e prima delle istruzioni", () => {
+    const prompt = buildOrientPrompt(SURVEY, undefined, GRAPH_MAP);
+    expect(prompt).toContain("CODE GRAPH MAP");
+    expect(prompt).toContain("Job queue (42 symbols)");
+    // Ordine: survey → mappa → istruzioni.
+    expect(prompt.indexOf("REPOSITORY SURVEY:")).toBeLessThan(prompt.indexOf("CODE GRAPH MAP"));
+    expect(prompt.indexOf("CODE GRAPH MAP")).toBeLessThan(prompt.indexOf("DO THREE THINGS:"));
+  });
+
+  it("con graphContext: la mappa è presentata come IPOTESI da verificare", () => {
+    const lower = buildOrientPrompt(SURVEY, undefined, GRAPH_MAP).toLowerCase();
+    expect(lower).toMatch(/hypothesis/);
+    expect(lower).toMatch(/verify/);
+    // Le comunità del grafo NON coincidono necessariamente con le unità documentali.
+    expect(lower).toMatch(/do not necessarily|not necessarily/);
+  });
+
+  it("con brief E graphContext: entrambi i blocchi presenti, brief prima del survey", () => {
+    const prompt = buildOrientPrompt(SURVEY, BRIEF, GRAPH_MAP);
+    expect(prompt.indexOf("PROJECT CONTEXT")).toBeLessThan(prompt.indexOf("REPOSITORY SURVEY:"));
+    expect(prompt.indexOf("REPOSITORY SURVEY:")).toBeLessThan(prompt.indexOf("CODE GRAPH MAP"));
+  });
+});
+
 describe("parseOrientPlan", () => {
   it("extracts both lists with their fields, plus the classification notes", () => {
     const parsed = parseOrientPlan(plan());
