@@ -8,6 +8,7 @@ import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { MirrorManager } from "../git/mirrors.js";
 import { loadMirrorProject, type GraphBuildDeps } from "./build.js";
+import { PLATFORM_GRAPHIFYIGNORE } from "./graphifyignore.js";
 import { failGraphJobOnly } from "./queue.js";
 
 /**
@@ -99,13 +100,10 @@ const GITIGNORE_LINES = [`${GRAPHIFY_OUT_DIR}/cost.json`, `${GRAPHIFY_OUT_DIR}/c
 /** Riga aggiunta al `.gitattributes`: merge driver del grafo. */
 const GITATTRIBUTES_LINE = `${GRAPHIFY_OUT_DIR}/graph.json merge=graphify-union`;
 
-/** Starter minimale di `.graphifyignore`, scritto SOLO se il file non esiste. */
-const GRAPHIFYIGNORE_STARTER = `# Percorsi esclusi dall'estrazione del grafo (graphify).
-node_modules/
-dist/
-build/
-coverage/
-`;
+/** Starter di `.graphifyignore`, scritto SOLO se il file non esiste: è il
+ * default di piattaforma condiviso con la build del worker (vedi
+ * graphifyignore.ts — devono produrre lo stesso grafo). */
+const GRAPHIFYIGNORE_STARTER = PLATFORM_GRAPHIFYIGNORE;
 
 /** Titolo della PR di setup. */
 const PR_TITLE = "Configura il knowledge graph graphify";

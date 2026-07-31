@@ -11,6 +11,10 @@ import {
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
 import { randomBytes, randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { runGraphBuild, type GraphBuildDeps } from "./build.js";
 import type { GraphifyRunOptions, GraphifyRunResult } from "./graphify-cli.js";
@@ -67,7 +71,7 @@ function fakeGraphify(
 }
 
 /** Fake MirrorManager: HEAD fisso e worktree effimero che conta aperture/chiusure. */
-function fakeMirrors(): GraphBuildDeps["mirrors"] & {
+function fakeMirrors(dir: string = WORKTREE_DIR): GraphBuildDeps["mirrors"] & {
   readonly opens: number;
   readonly closes: number;
   readonly shas: string[];
@@ -88,7 +92,7 @@ function fakeMirrors(): GraphBuildDeps["mirrors"] & {
       state.opens++;
       state.shas.push(sha);
       try {
-        return await fn(WORKTREE_DIR);
+        return await fn(dir);
       } finally {
         state.closes++;
       }
@@ -161,6 +165,55 @@ async function getJob(db: Db, id: string) {
   const [row] = await db.select().from(graphJobs).where(eq(graphJobs.id, id));
   return row!;
 }
+
+describe("runGraphBuild — esclusioni di piattaforma (.graphifyignore)", () => {
+  it("repo SENZA .graphifyignore: il default di piattaforma è nel worktree PRIMA dell'extract", async () => {
+    const db = testDb.db;
+    const { repositoryId } = await createRepo(db);
+    const job = await claimedJob(db, repositoryId);
+    const dir = await mkdtemp(join(tmpdir(), "graph-wt-"));
+    try {
+      // Cattura l'esistenza del file NEL momento dell'extract: l'ordine conta
+      // (scritto dopo non escluderebbe nulla).
+      let presentAtExtract = false;
+      const graphify = fakeGraphify((args) => {
+        if (args[0] === "extract") presentAtExtract = existsSync(join(dir, ".graphifyignore"));
+        return { exitCode: 0, output: "" };
+      });
+
+      const ok = await runGraphBuild(
+        makeDeps(db, { graphify: graphify.runner, mirrors: fakeMirrors(dir) }),
+        job,
+      );
+
+      expect(ok).toBe(true);
+      expect(presentAtExtract).toBe(true);
+      const content = await readFile(join(dir, ".graphifyignore"), "utf8");
+      expect(content).toContain("**/migration.sql");
+      expect(content).toContain("**/migrations/**");
+      expect(content).toContain("node_modules/");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("repo CON .graphifyignore proprio: il file del team resta intatto", async () => {
+    const db = testDb.db;
+    const { repositoryId } = await createRepo(db);
+    const job = await claimedJob(db, repositoryId);
+    const dir = await mkdtemp(join(tmpdir(), "graph-wt-"));
+    try {
+      await writeFile(join(dir, ".graphifyignore"), "solo-del-team/\n", "utf8");
+
+      const ok = await runGraphBuild(makeDeps(db, { mirrors: fakeMirrors(dir) }), job);
+
+      expect(ok).toBe(true);
+      expect(await readFile(join(dir, ".graphifyignore"), "utf8")).toBe("solo-del-team/\n");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("runGraphBuild", () => {
   it("estrae, etichetta ed esporta l'html, poi porta repo_graphs a done con i contatori", async () => {

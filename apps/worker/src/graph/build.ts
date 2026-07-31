@@ -1,9 +1,12 @@
 import { decrypt, gitAccounts, repoGraphs, repositories, type Db, type GraphJob } from "@stubwise/db";
 import { eq, sql } from "drizzle-orm";
+import { existsSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import type { MirrorManager, MirrorProject } from "../git/mirrors.js";
 import type { GraphifyRunner } from "./graphify-cli.js";
+import { PLATFORM_GRAPHIFYIGNORE } from "./graphifyignore.js";
 import { failGraphJob } from "./queue.js";
 
 /**
@@ -191,6 +194,21 @@ async function markDone(
 }
 
 /**
+ * Scrive il default di piattaforma di `.graphifyignore` nel worktree, SOLO se il
+ * repo non ne ha uno proprio. Best-effort: un errore di scrittura non blocca la
+ * build (si estrae senza esclusioni di piattaforma, come prima del 31 lug 2026).
+ */
+async function writePlatformGraphifyignore(worktreeDir: string): Promise<void> {
+  const path = join(worktreeDir, ".graphifyignore");
+  if (existsSync(path)) return;
+  try {
+    await writeFile(path, PLATFORM_GRAPHIFYIGNORE, "utf8");
+  } catch {
+    // Fail-open: worktree non scrivibile → build senza esclusioni di piattaforma.
+  }
+}
+
+/**
  * Estrazione del grafo. Unico passo BLOCCANTE: un exit non-zero fa fallire la
  * build (l'output catturato finisce nell'errore, già troncato dal runner e poi
  * da failGraphJob). `--force` solo quando il job lo richiede: è l'escape hatch
@@ -310,6 +328,13 @@ export async function runGraphBuild(deps: GraphBuildDeps, job: GraphJob): Promis
     // l'estrazione lancia.
     const headSha = await deps.mirrors.resolveDefaultBranchHead(project);
     const { counts, labeled } = await deps.mirrors.withWorktreeAtSha(project, headSha, async (dir) => {
+      // Esclusioni di piattaforma (migration ecc.): se il repo NON ha un
+      // .graphifyignore committato, lo si scrive nel worktree EFFIMERO prima
+      // dell'extract (file non tracciato, scartato con il worktree — la
+      // convenzione read-only riguarda i ref, non la working dir temporanea).
+      // Un .graphifyignore del repo VINCE sempre: scelta del team, non si tocca.
+      // Stesso contenuto dello starter della PR di setup (vedi graphifyignore.ts).
+      await writePlatformGraphifyignore(dir);
       const extracted = await runExtract(deps, job, dir, outDir);
       const isLabeled = await runClustering(deps, job, dir, outDir);
       await runExportHtml(deps, job, dir, outDir);
