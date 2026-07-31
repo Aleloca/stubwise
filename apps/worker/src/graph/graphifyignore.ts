@@ -67,6 +67,19 @@ coverage/
 **/migration.sql
 **/migrations/**
 `,
+  // v2b — lo snippet suggerito a mano (chat del 31 lug 2026) e committato così
+  // com'era su audin-ai: v1 + le righe migration col commento breve. È testo
+  // NOSTRO, non una personalizzazione del team.
+  `# Percorsi esclusi dall'estrazione del grafo (graphify).
+node_modules/
+dist/
+build/
+coverage/
+
+# Migration del database: storia dello schema, non architettura.
+**/migration.sql
+**/migrations/**
+`,
 ];
 
 /** Confronto tollerante a spazi finali/newline di coda (editor e piattaforme

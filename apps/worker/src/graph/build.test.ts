@@ -221,6 +221,27 @@ describe("runGraphBuild — esclusioni di piattaforma (.graphifyignore)", () => 
     }
   });
 
+  it("variante v2b (snippet suggerito in chat, com'è su audin): aggiornata al corrente", async () => {
+    const db = testDb.db;
+    const { repositoryId } = await createRepo(db);
+    const job = await claimedJob(db, repositoryId);
+    const dir = await mkdtemp(join(tmpdir(), "graph-wt-"));
+    try {
+      await writeFile(
+        join(dir, ".graphifyignore"),
+        "# Percorsi esclusi dall'estrazione del grafo (graphify).\nnode_modules/\ndist/\nbuild/\ncoverage/\n\n# Migration del database: storia dello schema, non architettura.\n**/migration.sql\n**/migrations/**\n",
+        "utf8",
+      );
+
+      const ok = await runGraphBuild(makeDeps(db, { mirrors: fakeMirrors(dir) }), job);
+
+      expect(ok).toBe(true);
+      expect(await readFile(join(dir, ".graphifyignore"), "utf8")).toContain("tsconfig*.json");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("repo CON .graphifyignore proprio: il file del team resta intatto", async () => {
     const db = testDb.db;
     const { repositoryId } = await createRepo(db);
