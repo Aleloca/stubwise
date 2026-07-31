@@ -8,7 +8,7 @@ import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { MirrorManager } from "../git/mirrors.js";
 import { loadMirrorProject, type GraphBuildDeps } from "./build.js";
-import { PLATFORM_GRAPHIFYIGNORE } from "./graphifyignore.js";
+import { isPlatformManagedGraphifyignore, PLATFORM_GRAPHIFYIGNORE } from "./graphifyignore.js";
 import { failGraphJobOnly } from "./queue.js";
 
 /**
@@ -266,8 +266,14 @@ async function writeSetupFiles(outDir: string, worktreeDir: string): Promise<str
 
   // .graphifyignore: SOLO se assente — un file già presente è una scelta del
   // cliente, non va sovrascritta con lo starter.
+  // Scritto se assente O se quello committato è un nostro starter di versione
+  // precedente (mai personalizzato → la PR lo aggiorna al default corrente).
+  // Un file personalizzato dal team non viene toccato (vedi graphifyignore.ts).
   const graphifyignorePath = join(worktreeDir, ".graphifyignore");
-  if (!existsSync(graphifyignorePath)) {
+  if (
+    !existsSync(graphifyignorePath) ||
+    isPlatformManagedGraphifyignore(await readFile(graphifyignorePath, "utf8"))
+  ) {
     await writeFile(graphifyignorePath, GRAPHIFYIGNORE_STARTER);
   }
   paths.push(".graphifyignore");

@@ -432,7 +432,7 @@ describe("runGraphSetupPr", () => {
     expect(gitattributes.match(/merge=graphify-union/g)).toHaveLength(1);
   });
 
-  it(".graphifyignore esistente: NON viene toccato", async () => {
+  it(".graphifyignore PERSONALIZZATO dal team: NON viene toccato", async () => {
     const db = testDb.db;
     const { job } = await readyRepo(db);
     await writeFile(join(worktreeDir, ".graphifyignore"), "solo-mio/\n");
@@ -440,6 +440,21 @@ describe("runGraphSetupPr", () => {
     await runGraphSetupPr(makeDeps(db), job);
 
     expect(await read(".graphifyignore")).toBe("solo-mio/\n");
+  });
+
+  it(".graphifyignore = starter legacy di piattaforma: la PR lo aggiorna al corrente", async () => {
+    const db = testDb.db;
+    const { job } = await readyRepo(db);
+    await writeFile(
+      join(worktreeDir, ".graphifyignore"),
+      "# Percorsi esclusi dall'estrazione del grafo (graphify).\nnode_modules/\ndist/\nbuild/\ncoverage/\n",
+    );
+
+    await runGraphSetupPr(makeDeps(db), job);
+
+    const content = await read(".graphifyignore");
+    expect(content).toContain("**/migration.sql");
+    expect(content).toContain("tsconfig*.json");
   });
 
   it("installa la skill project-scoped nel worktree", async () => {

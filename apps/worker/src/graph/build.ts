@@ -1,12 +1,12 @@
 import { decrypt, gitAccounts, repoGraphs, repositories, type Db, type GraphJob } from "@stubwise/db";
 import { eq, sql } from "drizzle-orm";
 import { existsSync } from "node:fs";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import type { MirrorManager, MirrorProject } from "../git/mirrors.js";
 import type { GraphifyRunner } from "./graphify-cli.js";
-import { PLATFORM_GRAPHIFYIGNORE } from "./graphifyignore.js";
+import { isPlatformManagedGraphifyignore, PLATFORM_GRAPHIFYIGNORE } from "./graphifyignore.js";
 import { failGraphJob } from "./queue.js";
 
 /**
@@ -194,17 +194,23 @@ async function markDone(
 }
 
 /**
- * Scrive il default di piattaforma di `.graphifyignore` nel worktree, SOLO se il
- * repo non ne ha uno proprio. Best-effort: un errore di scrittura non blocca la
- * build (si estrae senza esclusioni di piattaforma, come prima del 31 lug 2026).
+ * Scrive il default di piattaforma di `.graphifyignore` nel worktree quando il
+ * repo non ne ha uno proprio O quando quello committato è ESATTAMENTE un nostro
+ * starter di una versione precedente (mai personalizzato → la piattaforma lo
+ * aggiorna; vedi graphifyignore.ts). Un file personalizzato dal team resta
+ * intatto. Best-effort: un errore di lettura/scrittura non blocca la build
+ * (si estrae con le esclusioni che ci sono, come prima del 31 lug 2026).
  */
 async function writePlatformGraphifyignore(worktreeDir: string): Promise<void> {
   const path = join(worktreeDir, ".graphifyignore");
-  if (existsSync(path)) return;
   try {
+    if (existsSync(path)) {
+      const existing = await readFile(path, "utf8");
+      if (!isPlatformManagedGraphifyignore(existing)) return;
+    }
     await writeFile(path, PLATFORM_GRAPHIFYIGNORE, "utf8");
   } catch {
-    // Fail-open: worktree non scrivibile → build senza esclusioni di piattaforma.
+    // Fail-open: worktree non leggibile/scrivibile → build con le esclusioni presenti.
   }
 }
 

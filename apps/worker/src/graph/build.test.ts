@@ -197,6 +197,30 @@ describe("runGraphBuild — esclusioni di piattaforma (.graphifyignore)", () => 
     }
   });
 
+  it("repo con lo starter LEGACY di piattaforma: aggiornato al default corrente", async () => {
+    const db = testDb.db;
+    const { repositoryId } = await createRepo(db);
+    const job = await claimedJob(db, repositoryId);
+    const dir = await mkdtemp(join(tmpdir(), "graph-wt-"));
+    try {
+      // Lo starter v1 (fase 1): mai personalizzato → gestito dalla piattaforma.
+      await writeFile(
+        join(dir, ".graphifyignore"),
+        "# Percorsi esclusi dall'estrazione del grafo (graphify).\nnode_modules/\ndist/\nbuild/\ncoverage/\n",
+        "utf8",
+      );
+
+      const ok = await runGraphBuild(makeDeps(db, { mirrors: fakeMirrors(dir) }), job);
+
+      expect(ok).toBe(true);
+      const content = await readFile(join(dir, ".graphifyignore"), "utf8");
+      expect(content).toContain("**/migration.sql");
+      expect(content).toContain("tsconfig*.json");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it("repo CON .graphifyignore proprio: il file del team resta intatto", async () => {
     const db = testDb.db;
     const { repositoryId } = await createRepo(db);
