@@ -149,6 +149,13 @@ export default defineConfig({
           ],
         },
         {
+          label: "Team & planning",
+          items: [
+            { label: "Backlog discovery", slug: "team/backlog" },
+            { label: "Daily activity reports", slug: "team/activity" },
+          ],
+        },
+        {
           label: "Notifications",
           items: [{ label: "Outgoing webhook", slug: "notifications" }],
         },

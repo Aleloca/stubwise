@@ -27,6 +27,24 @@ the invite and completes the sign-up. Invited users have the **member** role
 (not admin): they see the project configuration read-only and cannot create new
 ones.
 
+## Git, Bitbucket & Slack identities
+
+From the team page, each member can be linked to their external identities:
+
+- **Git emails** (**Link git**): the author emails the member commits with —
+  more than one per member is fine. The picker suggests the authors actually
+  seen in the connected repositories. This is what resolves commit authors in
+  the [daily activity reports](/docs/team/activity/); unresolved authors can
+  also be linked inline from the report.
+- **Bitbucket username** (**Link Bitbucket**): used to match Bitbucket
+  activity to the member.
+- **Slack identity** (**Link Slack**): matches the Slack user, so tickets
+  opened [from Slack](/docs/integrations/slack/) are attributed to the member.
+  Requires the Slack integration to be configured.
+
+Each identity can be unlinked at any time; an identity can belong to only one
+member.
+
 ## Language & localization
 
 Stubwise distinguishes two independent language settings: the **UI language**,

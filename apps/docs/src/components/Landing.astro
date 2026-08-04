@@ -176,8 +176,9 @@ const features = [
         <p class="pillar-index">02 · plan</p>
         <h4>Backlog</h4>
         <p>
-          User feedback distilled into backlog items, refined in chat and synced
-          with your editor via
+          User feedback distilled into a
+          <a href={l("team/backlog/")}>deduplicated backlog</a>, refined in
+          chat and synced with your editor via
           <a href={l("integrations/claude-code-mcp/")}>Claude Code (MCP)</a>.
         </p>
       </article>
@@ -194,9 +195,10 @@ const features = [
         <p class="pillar-index">04 · watch</p>
         <h4>Awareness</h4>
         <p>
-          Daily AI activity reports from your commits,
-          <a href={l("monitoring/")}>server monitoring</a> with a push agent,
-          and <a href={l("notifications/")}>notifications</a> on what matters.
+          Daily <a href={l("team/activity/")}>AI activity reports</a> from your
+          commits, <a href={l("monitoring/")}>server monitoring</a> with a push
+          agent, and <a href={l("notifications/")}>notifications</a> on what
+          matters.
         </p>
       </article>
     </div>
@@ -247,6 +249,7 @@ const features = [
             implementation plans, convert items into tickets and advance their
             status while you code.
           </p>
+          <a class="step-link" href={l("team/backlog/")}>Backlog discovery →</a>
           <a class="step-link" href={l("integrations/claude-code-mcp/")}>Claude Code integration →</a>
         </div>
         <div class="snippet" data-lang="claude code">
