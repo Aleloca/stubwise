@@ -2,51 +2,8 @@
 title: Stubwise
 description: Self-hostable issue tracker with an AI pipeline that turns errors into pull requests.
 template: splash
-hero:
-  tagline: Self-hostable issue tracker with an AI pipeline. Errors arriving from the SDKs become tickets, and a worker powered by the Claude CLI tries to triage them and propose a fix by opening a pull request.
-  actions:
-    - text: Self-hosting in 5 minutes
-      link: /docs/getting-started/self-hosting/
-      icon: right-arrow
-      variant: primary
-    - text: Integrate the SDK
-      link: /docs/sdk/installation/
-      icon: external
-      variant: minimal
 ---
 
-import { Card, CardGrid } from "@astrojs/starlight/components";
+import Landing from "../../components/Landing.astro";
 
-## What is Stubwise
-
-Stubwise is an issue tracker you install on your own server. It has three parts
-that work together:
-
-- an **SDK** that captures errors (and feedback) from your application and sends
-  them to the instance;
-- a complete **issue tracker** (projects, tickets, Kanban board, comments) to
-  manage them by hand;
-- an **optional AI pipeline** that tries to resolve tickets automatically,
-  opening a pull request that a human reviews before merging.
-
-The AI is **optional**: without authenticating the Claude CLI, Stubwise stays a
-perfectly functional self-hostable issue tracker.
-
-<CardGrid stagger>
-  <Card title="Self-hosting" icon="rocket">
-    The stack runs in four Docker containers: Postgres, server, worker and Caddy.
-    [Stand it up](/docs/getting-started/self-hosting/) with Docker Compose.
-  </Card>
-  <Card title="SDK" icon="seti:javascript">
-    One line of `init()` and your app's errors become tickets.
-    [Integrate browser or Node](/docs/sdk/installation/).
-  </Card>
-  <Card title="AI pipeline" icon="open-book">
-    Triage → fix in an ephemeral worktree → pull request with a report.
-    [How it works](/docs/ai-pipeline/how-it-works/).
-  </Card>
-  <Card title="Reference" icon="setting">
-    [Environment variables](/docs/reference/configuration/) and
-    [HTTP API](/docs/reference/api/) generated from the server's schemas.
-  </Card>
-</CardGrid>
+<Landing />

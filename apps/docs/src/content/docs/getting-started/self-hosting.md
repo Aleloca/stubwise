@@ -3,14 +3,19 @@ title: Self-hosting with Docker Compose
 description: Install Stubwise on your own server in a few minutes with Docker Compose, from the secrets to the first login.
 ---
 
-Stubwise self-hosts with Docker Compose. The stack runs in **four
+Stubwise self-hosts with Docker Compose. The stack runs in **six
 containers**:
 
-- **`postgres`** — the database (tickets, projects, users, job queues);
+- **`postgres`** — the database, PostgreSQL with pgvector (tickets, projects,
+  users, docs, embeddings, job queues);
+- **`ollama`** — the local embedding model (`bge-m3`) behind an
+  OpenAI-compatible API, used by vector search and the RAG chats;
 - **`server`** — the Fastify API; it **applies the database migrations on
   startup**;
 - **`worker`** — the AI pipeline (requires `git` and the `claude` CLI); it
   starts only after the server is healthy;
+- **`graphify`** — the MCP server over the code knowledge graphs, on the
+  internal network only (see [Code graph](/docs/documentation/code-graph/));
 - **`caddy`** — serves the static web app and the documentation, and acts as a
   reverse proxy to the server, with automatic HTTPS.
 
@@ -82,6 +87,18 @@ docker compose up -d --build
 The server applies the database migrations on startup; the worker and Caddy
 wait for it to be healthy. Once it's up, open `https://DOMAIN` in the browser.
 
+Then download the embedding model **once** (the `ollama` volume persists it
+across restarts):
+
+```bash
+docker compose exec ollama ollama pull bge-m3
+```
+
+:::note[Until the model is present]
+Embedding calls fail and docs generation errors out; everything else keeps
+working.
+:::
+
 ## 3. Initial setup from the UI
 
 1. On first open you create the **admin** user: the first to register is the admin.
@@ -128,12 +145,14 @@ until they fill the host's disk.
 
 ## Backup
 
-The persistent data lives in two Docker volumes:
+The persistent data lives in the Docker volumes:
 
-- **`pgdata`** — the database (tickets, projects, users, job queues): it's the
-  unrecoverable data, it goes in the backup.
+- **`pgdata`** — the database (tickets, projects, users, docs, embeddings, job
+  queues): it's the unrecoverable data, it goes in the backup.
 - **`mirrors`** — the git mirrors of the project repositories: rebuildable from
   scratch, but the backup avoids a full re-clone.
+- **`graphs`** — the generated code knowledge graphs: rebuildable.
+- **`ollama`** — the downloaded embedding model: re-downloadable.
 
 Database dump:
 
