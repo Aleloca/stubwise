@@ -1,18 +1,27 @@
 # Stubwise
 
-Self-hostable, open-source issue tracker with a built-in AI pipeline: errors
-captured by the SDKs become tickets, and a worker built on the
-[Claude Code](https://claude.com/claude-code) CLI triages the bug and proposes a
-fix by opening a pull request on your repository.
+Connect your repos. Stubwise **documents**, **plans**, **fixes** and
+**watches** them.
 
-In short: a Jira-style ticket tracker that, when a bug comes in, tries to fix it
-on its own — all on **your** infrastructure, with **your** data.
+Stubwise is a self-hosted, open-source platform built around your
+repositories, with an AI worker (powered by the
+[Claude Code](https://claude.com/claude-code) CLI) that works for your team in
+the background:
 
-Around that core, Stubwise has grown into a small self-hosted product suite:
-AI-generated documentation with RAG chat, an embeddable customer-service
-widget, product backlog discovery from user feedback, daily activity reports,
-server monitoring, per-repository knowledge graphs and a Claude Code
-integration via MCP.
+- **documents** — Confluence-like docs and dated release notes generated from
+  your code, refreshed on every push, with vector search and a RAG chat
+  grounded by per-repository knowledge graphs;
+- **plans** — user feedback distilled into a deduplicated backlog, refined in
+  chat and synced with Claude Code via MCP;
+- **fixes** — a complete issue tracker where errors captured by the SDKs
+  become tickets, and the worker proposes the fix as a pull request a human
+  reviews and merges;
+- **watches** — daily AI activity reports from your commits, server monitoring
+  with a push agent, and notifications on the events you care about.
+
+All on **your** infrastructure, with **your** data. Every capability is an
+opt-in toggle per project or repository — and without authenticating the AI,
+Stubwise still works as a complete self-hosted issue tracker.
 
 > Status: young project. The core (ingestion, ticketing, AI pipeline,
 > self-hosting) is complete and tested; issues and contributions are welcome.
@@ -21,7 +30,31 @@ integration via MCP.
 
 ## Features
 
-### Ticketing & error tracking
+### Document — living docs
+
+- **AI-generated documentation** for each connected repository: a
+  Confluence-like "Docs" section with technical, functional and product pages,
+  kept up to date incrementally on every push — plus release notes collected
+  into a dated changelog.
+- **Vector search and RAG chat** over your docs and code, powered by pgvector
+  and local embeddings (Ollama, `bge-m3`) — nothing leaves your
+  infrastructure.
+- **Knowledge graphs** (optional, per repository): the worker builds a code
+  knowledge graph that enriches chat answers with the relevant subgraph and
+  code snippets.
+
+### Plan — backlog & Claude Code
+
+- **Backlog discovery**: feedback and feature-request tickets are distilled into
+  deduplicated backlog items (embedding-based merge), refined via chat — with
+  optional read-only code-analysis sessions and technical deep dives — and
+  converted into actionable tickets.
+- **Claude Code integration**: the [`@stubwise/mcp`](https://www.npmjs.com/package/@stubwise/mcp)
+  MCP server exposes backlog and tickets as tools — consult the backlog, attach
+  designs and implementation plans, convert items into tickets and advance
+  their status without leaving your coding session.
+
+### Fix — ticketing & intake
 
 - **Error capture SDKs** for browser and Node.js, with automatic breadcrumbs,
   release and environment tagging. The SDK also collects explicit **user
@@ -36,11 +69,14 @@ integration via MCP.
   completion progress.
 - **Saved views**: save a combination of ticket-list filters as a private or
   team-shared view and re-apply it in one click.
-- **Inbound channels beyond the SDK**: manual tickets, an inbound webhook, the
-  customer-service widget and Slack (`/stubwise` slash command and a
-  "Create Stubwise ticket" message action).
+- **Inbound channels beyond the SDK**: manual tickets, an inbound webhook and
+  Slack (`/stubwise` slash command and a "Create Stubwise ticket" message
+  action).
+- **Customer-service widget**: an embeddable chat widget (`/widget.js`) that
+  answers from your docs via RAG and can open tickets from user reports.
+  Multiple widgets per project, per-widget keys, path filters and daily caps.
 
-### AI pipeline
+### Fix — AI pipeline
 
 - **Automatic triage** of incoming tickets, and — when it makes sense — a pull
   request with a proposed fix, opened on your git provider.
@@ -60,27 +96,8 @@ integration via MCP.
 - **Usage dashboard**: AI consumption broken down by day, model, project and
   provider.
 
-### Documentation (Docs)
+### Watch — reports, monitoring & alerts
 
-- **AI-generated documentation** for each connected repository: a
-  Confluence-like "Docs" section with technical, functional and product pages,
-  kept up to date incrementally on every push.
-- **Vector search and RAG chat** over your docs and code, powered by pgvector
-  and local embeddings (Ollama, `bge-m3`) — nothing leaves your
-  infrastructure.
-- **Knowledge graphs** (optional, per repository): the worker builds a code
-  knowledge graph that enriches chat answers with the relevant subgraph and
-  code snippets.
-
-### Product & team
-
-- **Customer-service widget**: an embeddable chat widget (`/widget.js`) that
-  answers from your docs via RAG and can open tickets from user reports.
-  Multiple widgets per project, per-widget keys, path filters and daily caps.
-- **Backlog discovery**: feedback and feature-request tickets are distilled into
-  deduplicated backlog items (embedding-based merge), refined via chat — with
-  optional read-only code-analysis sessions and technical deep dives — and
-  converted into actionable tickets.
 - **Daily activity reports**: an AI-written description for every commit of the
   day, rolled up into per-project and per-developer summaries.
 - **Server monitoring**: a lightweight agent container
@@ -92,9 +109,6 @@ integration via MCP.
 - **Notifications**: an outgoing webhook (Slack, Discord or generic JSON) on the
   key events — new ticket, PR opened/closed, held job, plan to approve, failed
   fix, and more.
-- **Claude Code integration**: the [`@stubwise/mcp`](https://www.npmjs.com/package/@stubwise/mcp)
-  MCP server exposes backlog and tickets as tools, so you can drive Stubwise
-  from your coding sessions.
 
 ### Platform
 
