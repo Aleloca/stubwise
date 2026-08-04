@@ -17,6 +17,8 @@ integration via MCP.
 > Status: young project. The core (ingestion, ticketing, AI pipeline,
 > self-hosting) is complete and tested; issues and contributions are welcome.
 
+**📖 Documentation: <https://aleloca.github.io/stubwise/>**
+
 ## Features
 
 ### Ticketing & error tracking
@@ -367,14 +369,16 @@ your Stubwise settings:
 }
 ```
 
-See the [integration guide](apps/docs/src/content/docs/integrations/claude-code-mcp.md)
+See the [integration guide](https://aleloca.github.io/stubwise/integrations/claude-code-mcp/)
 for the full tool list.
 
 ## Documentation
 
-The documentation site (Astro Starlight) lives in `apps/docs` and covers
-self-hosting, configuration, the SDK, the AI pipeline, the Docs section,
-monitoring, notifications and the API reference. To read it locally:
+The documentation site (Astro Starlight) is published at
+**<https://aleloca.github.io/stubwise/>** and covers self-hosting,
+configuration, the SDK, the AI pipeline, the Docs section, monitoring,
+notifications and the API reference. It lives in `apps/docs`; to read it
+locally:
 
 ```bash
 pnpm --filter @stubwise/docs dev
