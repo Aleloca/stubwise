@@ -1,0 +1,125 @@
+---
+/**
+ * FAQ section: native <details>/<summary> accordions, no JS. Unnumbered
+ * (sits between the toolbox grid and the final CTA).
+ */
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+const l = (path: string) => `${base}/${path}`;
+---
+
+<section class="section">
+  <p class="section-eyebrow"><span class="t-dim">&gt;</span> faq</p>
+  <h3 class="section-title rise">The questions we get first.</h3>
+
+  <div class="faq rise">
+    <details>
+      <summary>Is the AI mandatory?</summary>
+      <p>
+        No. Without authenticating the <code>claude</code> CLI, Stubwise is a
+        complete self-hosted issue tracker: ingestion, board, comments,
+        milestones all work. AI jobs just stay queued.
+      </p>
+    </details>
+    <details>
+      <summary>Which AI does it use?</summary>
+      <p>
+        The worker drives the Claude Code CLI. You authenticate with an API key
+        or a Claude subscription login, and can configure an
+        <a href={l("getting-started/claude-setup/")}>ordered chain of
+        credentials</a> with failover. Models are configurable per phase
+        (planning vs execution).
+      </p>
+    </details>
+    <details>
+      <summary>Does my code leave my server?</summary>
+      <p>
+        Only where you point it: your git provider and your AI provider, with
+        your credentials. Search, embeddings, docs and knowledge graphs are
+        computed and stored on your host.
+      </p>
+    </details>
+    <details>
+      <summary>What does it take to run?</summary>
+      <p>
+        Docker Compose, one <code>.env</code>, six containers. Migrations apply
+        themselves on startup; the embedding model is a one-time
+        <code>ollama pull</code>. See the
+        <a href={l("getting-started/self-hosting/")}>self-hosting guide</a>.
+      </p>
+    </details>
+    <details>
+      <summary>Which git providers are supported?</summary>
+      <p>
+        GitHub and Bitbucket Cloud, behind a <code>GitProvider</code> interface
+        designed to be extended — adding one is a documented contribution path.
+      </p>
+    </details>
+    <details>
+      <summary>How does it relate to Claude Code?</summary>
+      <p>
+        Twice over: the worker <em>uses</em> the Claude Code CLI to do its
+        jobs, and the <code>@stubwise/mcp</code> server lets Claude Code
+        <em>drive</em> Stubwise — backlog, designs, plans and tickets — from
+        your <a href={l("integrations/claude-code-mcp/")}>coding session</a>.
+      </p>
+    </details>
+  </div>
+</section>
+
+<style>
+  .faq {
+    max-width: 52rem;
+  }
+  .faq details {
+    border: 1px solid var(--border);
+    background: var(--panel);
+    margin-bottom: 0.6rem;
+    transition: border-color 0.2s ease;
+  }
+  .faq details:hover,
+  .faq details[open] {
+    border-color: var(--amber);
+  }
+  .faq summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.95rem 1.2rem;
+    cursor: pointer;
+    list-style: none;
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--text);
+  }
+  .faq summary::-webkit-details-marker {
+    display: none;
+  }
+  .faq summary::marker {
+    content: none;
+  }
+  /* Starlight styles .sl-markdown-content details with a ::before caret. */
+  .faq summary::before {
+    display: none;
+  }
+  .faq summary::after {
+    content: "+";
+    flex: none;
+    font-weight: 700;
+    color: var(--amber);
+  }
+  .faq details[open] summary::after {
+    content: "×";
+  }
+  .faq details p {
+    margin: 0;
+    padding: 0 1.2rem 1.05rem;
+    font-size: 0.85rem;
+    line-height: 1.7;
+    color: var(--dim);
+  }
+  .faq details code {
+    color: var(--amber);
+    background: none;
+  }
+</style>

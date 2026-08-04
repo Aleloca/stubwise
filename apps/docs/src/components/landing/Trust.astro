@@ -1,0 +1,167 @@
+---
+/**
+ * Trust section: why self-hosted. ✗/✓ comparison pairs plus a 4-column trust
+ * strip. Every claim here must correspond to actual behavior in the codebase
+ * (see the design doc) — no unverifiable marketing.
+ */
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+const l = (path: string) => `${base}/${path}`;
+const GITHUB = "https://github.com/Aleloca/stubwise";
+---
+
+<section class="section" id="self-hosted">
+  <p class="section-eyebrow"><span class="t-dim">&gt;</span> why self-hosted <span class="t-dim">[06/09]</span></p>
+  <h3 class="section-title rise">Your code never leaves your server.</h3>
+  <p class="lead rise">
+    The tracker, the docs, the embeddings, the graphs, the reports: one compose
+    stack on your host. The only things that go out are the ones
+    <strong>you</strong> decide — pushes to your git provider, and the worker's
+    calls to the AI provider with your credentials.
+  </p>
+
+  <div class="xy rise">
+    <div class="xy-row">
+      <p class="xy-x">
+        <span class="xy-mark">✗</span>
+        A SaaS tracker keeps your stack traces — and your users' messages — in
+        someone else's cloud.
+      </p>
+      <p class="xy-y">
+        <span class="xy-mark">✓</span>
+        Stubwise stores events, tickets, docs and reports in your Postgres, on
+        your volumes.
+      </p>
+    </div>
+    <div class="xy-row">
+      <p class="xy-x">
+        <span class="xy-mark">✗</span>
+        Hosted “AI docs” tools ship your code to their embedding pipeline.
+      </p>
+      <p class="xy-y">
+        <span class="xy-mark">✓</span>
+        Embeddings run on the box (Ollama, bge-m3): search and RAG never leave
+        the host.
+      </p>
+    </div>
+    <div class="xy-row">
+      <p class="xy-x">
+        <span class="xy-mark">✗</span>
+        Per-seat pricing meters your team.
+      </p>
+      <p class="xy-y">
+        <span class="xy-mark">✓</span>
+        MIT license: your infra, your AI usage, nothing else to pay.
+      </p>
+    </div>
+  </div>
+
+  <div class="trust rise">
+    <div class="trust-col">
+      <p class="trust-k">Self-hosted</p>
+      <p class="trust-v">
+        Six containers, automatic HTTPS, backups = a couple of Docker volumes.
+      </p>
+    </div>
+    <div class="trust-col">
+      <p class="trust-k">Your AI credentials</p>
+      <p class="trust-v">
+        API key or Claude subscription login; an ordered provider chain with
+        failover.
+      </p>
+    </div>
+    <div class="trust-col">
+      <p class="trust-k">Encrypted at rest</p>
+      <p class="trust-v">
+        Git credentials and per-project <code>.env</code> files are encrypted
+        with your key.
+      </p>
+    </div>
+    <div class="trust-col">
+      <p class="trust-k">Open source (MIT)</p>
+      <p class="trust-v">
+        You don't have to trust this page: read what the code does.
+        <a href={GITHUB}>Read the source ↗</a>
+      </p>
+    </div>
+  </div>
+
+  <p class="rise">
+    <a class="step-link" href={l("ai-pipeline/security/")}>How we think about security →</a>
+  </p>
+</section>
+
+<style>
+  .xy {
+    margin: 0 0 2.6rem;
+    border-top: 1px solid var(--border);
+  }
+  .xy-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 2rem;
+    padding: 1.1rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .xy-row p {
+    margin: 0;
+    font-size: 0.87rem;
+    line-height: 1.65;
+  }
+  .xy-x {
+    color: var(--dim);
+  }
+  .xy-y {
+    color: var(--text);
+  }
+  .xy-mark {
+    display: inline-block;
+    margin-right: 0.5em;
+    font-weight: 700;
+  }
+  .xy-x .xy-mark {
+    color: var(--red);
+  }
+  .xy-y .xy-mark {
+    color: var(--green);
+  }
+
+  .trust {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 1.6rem;
+    margin: 0 0 2rem;
+  }
+  .trust-k {
+    margin: 0 0 0.4rem;
+    padding-top: 0.8rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .trust-v {
+    margin: 0;
+    font-size: 0.8rem;
+    line-height: 1.65;
+    color: var(--dim);
+  }
+  .trust-v code {
+    color: var(--amber);
+    background: none;
+  }
+
+  @media (max-width: 60rem) {
+    .xy-row {
+      grid-template-columns: 1fr;
+      gap: 0.5rem;
+    }
+    .trust {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+  @media (max-width: 38rem) {
+    .trust {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
