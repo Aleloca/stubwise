@@ -1,0 +1,224 @@
+---
+/**
+ * Deep section: PLAN. Reconstructed backlog item + refinement chat (CODE
+ * mode), and the Claude Code MCP flow as a snippet. Shared primitives come
+ * from Landing.astro's global styles.
+ */
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+const l = (path: string) => `${base}/${path}`;
+---
+
+<section class="section" id="plan">
+  <p class="section-eyebrow"><span class="t-dim">&gt;</span> plan <span class="t-dim">[03/09]</span></p>
+  <h3 class="section-title rise">From recurring feedback to a plan.</h3>
+  <p class="lead rise">
+    Feedback and feature requests skip the fix pipeline: an agent distills them
+    into backlog items, embeddings keep the backlog <strong>deduplicated</strong>,
+    and every item carries its own design document, estimates and refinement
+    chat. When it's ready, it becomes a ticket — from the web UI or straight
+    from Claude Code.
+  </p>
+
+  <div class="mockwrap rise">
+    <div class="plan-grid" aria-hidden="true">
+      <div class="term">
+        <div class="term-bar">
+          <span class="tl tl-red"></span><span class="tl tl-yellow"></span><span class="tl tl-green"></span>
+          <span class="term-title">backlog · item</span>
+        </div>
+        <div class="item-body">
+          <p class="item-badges">
+            <span class="chip chip-amber">Refining</span>
+            <span class="chip">E3</span>
+            <span class="chip">High urgency</span>
+            <span class="chip">Medium risk</span>
+          </p>
+          <p class="item-title">Bulk CSV export</p>
+          <p class="item-meta">
+            Requested <span class="t-bold">7</span> times
+            <span class="t-dim">·</span> ≈ similar to
+            <span class="t-amber">“Excel export”</span>
+          </p>
+          <p class="item-doc">
+            Users want order exports for accounting. Scope: filtered list →
+            CSV stream; respect column visibility…
+          </p>
+          <div class="item-suggest">
+            <p class="suggest-k">ai suggestions</p>
+            <p>
+              effort 3 <span class="t-dim">→</span> <span class="t-amber">4</span>
+              <span class="t-dim">· Reason: export touches billing</span>
+            </p>
+            <p class="suggest-actions">
+              <span class="chip chip-green">Accept all</span>
+              <span class="chip">Dismiss</span>
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="term">
+        <div class="term-bar">
+          <span class="tl tl-red"></span><span class="tl tl-yellow"></span><span class="tl tl-green"></span>
+          <span class="term-title">refinement chat</span>
+        </div>
+        <div class="chat-body">
+          <p class="chat-modes">
+            <span class="chip">DOCS</span>
+            <span class="chip chip-amber">CODE — acme-api</span>
+          </p>
+          <p class="msg-you"><span class="t-dim">you ·</span> Where would the export hook in?</p>
+          <p class="msg-status">⚙ Investigating the code…</p>
+          <p class="msg-agent">
+            <span class="t-dim">agent ·</span> <span class="t-amber">orders/list.ts</span>
+            already streams filtered rows; a CSV writer can reuse the same
+            query and column set.
+            <span class="chip">orders/list.ts:41</span>
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <p class="callout" style="top: -1.2rem; left: 32%">
+      <span class="callout-k">dedup</span>
+      ≥ 0.90 similarity merges into the existing item; the grey zone gets
+      flagged “similar to”.
+    </p>
+    <p class="callout" style="bottom: -1.2rem; right: 24%">
+      <span class="callout-k">code sessions</span>
+      A read-only agent session investigates the repo and keeps its context
+      across turns.
+    </p>
+  </div>
+
+  <div class="mcp-row rise">
+    <div class="snippet" data-lang="claude code">
+      <pre><code><span class="t-dim">&gt;</span> /stubwise:start
+<span class="t-green">✓</span> item <span class="t-amber">"Bulk CSV export"</span> <span class="t-dim">→</span> ticket <span class="t-bold">#218</span>
+<span class="t-green">✓</span> design + implementation plan attached
+<span class="t-blue">⚙</span> status <span class="t-dim">→</span> in_progress</code></pre>
+    </div>
+    <p class="mcp-note">
+      <span class="callout-k">mcp</span>
+      <code>@stubwise/mcp</code> brings the backlog into Claude Code: consult
+      items, attach designs and plans, convert to tickets, advance status —
+      without leaving the editor.
+    </p>
+  </div>
+
+  <div class="kv rise">
+    <div class="kv-row">
+      <p class="kv-k">Every channel</p>
+      <p class="kv-v">
+        SDK feedback, widget, Slack, inbound webhook, manual tickets: they all
+        funnel into the same intake; the origin ticket is closed automatically.
+      </p>
+    </div>
+    <div class="kv-row">
+      <p class="kv-k">Deep dive</p>
+      <p class="kv-v">
+        On demand, the agent analyzes a repository on a read-only worktree and
+        writes a technical-analysis section into the document.
+      </p>
+    </div>
+    <div class="kv-row">
+      <p class="kv-k">Exit ready</p>
+      <p class="kv-v">Convert to task, export as markdown, or keep refining.</p>
+    </div>
+  </div>
+
+  <p class="rise">
+    <a class="step-link" href={l("team/backlog/")}>Backlog discovery →</a>
+    <a class="step-link" href={l("integrations/claude-code-mcp/")}>Claude Code integration →</a>
+  </p>
+</section>
+
+<style>
+  .plan-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+    gap: 1rem;
+    align-items: start;
+  }
+  .item-body,
+  .chat-body {
+    padding: 1rem 1.2rem 1.1rem;
+    font-size: 0.8rem;
+    line-height: 1.8;
+  }
+  .item-body p,
+  .chat-body p {
+    margin: 0 0 0.5rem;
+  }
+  .item-badges,
+  .chat-modes {
+    margin-bottom: 0.7rem !important;
+  }
+  .item-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #e9eaee;
+  }
+  .item-meta {
+    font-size: 0.74rem;
+    color: #8a90a0;
+  }
+  .item-doc {
+    color: #c6cad3;
+  }
+  .item-suggest {
+    margin-top: 0.9rem;
+    padding: 0.7rem 0.9rem;
+    border: 1px solid #23262e;
+    border-radius: 8px;
+    background: #0e1016;
+    color: #c6cad3;
+  }
+  .item-suggest p {
+    margin: 0 0 0.35rem;
+  }
+  .suggest-k {
+    font-size: 0.66rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: #6b7284;
+  }
+  .suggest-actions {
+    margin-top: 0.45rem !important;
+  }
+  .msg-you {
+    color: #dfe2e9;
+  }
+  .msg-status {
+    color: #6cb2ff;
+    font-style: italic;
+  }
+  .msg-agent {
+    color: #c6cad3;
+  }
+
+  .mcp-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+    gap: 1.4rem;
+    align-items: center;
+    margin: 0 0 2.4rem;
+  }
+  .mcp-note {
+    margin: 0;
+    font-size: 0.82rem;
+    line-height: 1.65;
+    color: var(--dim);
+  }
+  .mcp-note code {
+    color: var(--amber);
+    background: none;
+  }
+
+  @media (max-width: 60rem) {
+    .plan-grid,
+    .mcp-row {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
