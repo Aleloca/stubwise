@@ -1,0 +1,104 @@
+---
+/**
+ * Deep section: SLACK — tickets from Slack. Reconstructed slash-command flow.
+ */
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+const l = (path: string) => `${base}/${path}`;
+---
+
+<section class="section" id="slack">
+  <p class="section-eyebrow"><span class="t-dim">&gt;</span> slack <span class="t-dim">[10/15]</span></p>
+  <h3 class="section-title rise">Tickets without leaving Slack.</h3>
+  <p class="lead rise">
+    Bugs get reported where your team talks. The Slack integration turns any
+    conversation into a proper ticket — either with the
+    <code>/stubwise</code> slash command or with a <strong>message
+    action</strong> on what someone already wrote.
+  </p>
+
+  <div class="mockwrap rise">
+    <div class="term mock-slack" aria-hidden="true">
+      <div class="term-bar">
+        <span class="tl tl-red"></span><span class="tl tl-yellow"></span><span class="tl tl-green"></span>
+        <span class="term-title">#support · slack</span>
+      </div>
+      <div class="slk">
+        <p class="slk-msg"><span class="t-bold">sara</span> <span class="t-dim">14:02</span> Export breaks on Safari again 😩</p>
+        <p class="slk-msg"><span class="t-bold">marco</span> <span class="t-dim">14:03</span> /stubwise</p>
+        <div class="slk-modal">
+          <p class="slk-modal-h">Create Stubwise ticket</p>
+          <p><span class="t-dim">project ·</span> acme-api <span class="t-dim">· type ·</span> bug</p>
+          <p><span class="t-dim">title ·</span> Export fails on Safari</p>
+          <p><span class="chip chip-amber">Create</span> <span class="chip">Cancel</span></p>
+        </div>
+        <p class="slk-ok"><span class="t-green">✓</span> Ticket <span class="t-bold">#217</span> created <span class="t-dim">· attributed to marco · view in Stubwise</span></p>
+      </div>
+    </div>
+
+    <p class="callout" style="top: -1.2rem; right: 12%">
+      <span class="callout-k">two entry points</span>
+      The /stubwise command, or "Create Stubwise ticket" from any message's ⋯
+      menu — same modal.
+    </p>
+    <p class="callout" style="bottom: -1.4rem; right: 26%">
+      <span class="callout-k">identity-linked</span>
+      Tickets are attributed through the Slack identities linked to your team
+      members.
+    </p>
+  </div>
+
+  <div class="kv rise">
+    <div class="kv-row">
+      <p class="kv-k">Minutes to set up</p>
+      <p class="kv-v">
+        A Slack app with a signing secret and bot token, pasted in Settings →
+        Slack.
+      </p>
+    </div>
+    <div class="kv-row">
+      <p class="kv-k">Invite from Slack</p>
+      <p class="kv-v">
+        Team members can be invited and linked straight from the Slack roster.
+      </p>
+    </div>
+  </div>
+
+  <p class="rise">
+    <a class="step-link" href={l("integrations/slack/")}>Slack integration →</a>
+  </p>
+</section>
+
+<style>
+  .mock-slack {
+    max-width: 44rem;
+  }
+  .slk {
+    padding: 1rem 1.2rem 1.1rem;
+    font-size: 0.79rem;
+    line-height: 1.9;
+  }
+  .slk p {
+    margin: 0 0 0.45rem;
+    color: #dfe2e9;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .slk-modal {
+    margin: 0.4rem 0 0.6rem;
+    padding: 0.7rem 0.9rem;
+    border: 1px solid #23262e;
+    border-radius: 8px;
+    background: #0e1016;
+  }
+  .slk-modal p {
+    color: #c6cad3;
+  }
+  .slk-modal-h {
+    font-weight: 700;
+    color: #e9eaee !important;
+  }
+  .slk-ok {
+    color: #aab0bc;
+  }
+</style>

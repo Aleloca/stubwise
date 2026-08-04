@@ -1,0 +1,121 @@
+---
+/**
+ * Deep section: CAPTURE — the SDK. Init snippet next to the ingest flow
+ * (events → fingerprint → one ticket), plus feedback and structured tickets.
+ */
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+const l = (path: string) => `${base}/${path}`;
+---
+
+<section class="section" id="capture">
+  <p class="section-eyebrow"><span class="t-dim">&gt;</span> capture <span class="t-dim">[03/15]</span></p>
+  <h3 class="section-title rise">Every error, one line away.</h3>
+  <p class="lead rise">
+    One <code>init()</code> and unhandled errors become tickets on your
+    instance — with breadcrumbs, release and environment attached. Similar
+    events collapse by <strong>fingerprint</strong> into a single ticket, so a
+    bug that fires a thousand times is still one conversation.
+  </p>
+
+  <div class="mockwrap rise">
+    <div class="cap-grid" aria-hidden="true">
+      <div class="snippet" data-lang="js">
+        <pre><code><span class="t-blue">import</span> {"{ init, captureFeedback }"} <span class="t-blue">from</span> <span class="t-green">"@stubwise/sdk/browser"</span>;
+
+<span class="t-fn">init</span>({"{"}
+  dsn: <span class="t-green">"https://KEY@your-host/p/app"</span>,
+  release: <span class="t-green">"1.4.2"</span>,
+  environment: <span class="t-green">"production"</span>,
+{"}"});
+
+<span class="t-dim">// beyond crashes: the user's voice</span>
+<span class="t-fn">captureFeedback</span>({"{"} message: <span class="t-green">"love the new board!"</span> {"}"});</code></pre>
+      </div>
+      <div class="term">
+        <div class="term-bar">
+          <span class="tl tl-red"></span><span class="tl tl-yellow"></span><span class="tl tl-green"></span>
+          <span class="term-title">ingest</span>
+        </div>
+        <div class="cap-flow">
+          <p><span class="t-red">✗</span> TypeError: cart is undefined <span class="chip">×12</span></p>
+          <p><span class="t-dim">fingerprint</span> a3f9c2 <span class="t-dim">→ grouped</span></p>
+          <p><span class="t-amber">●</span> ticket <span class="t-bold">#142</span> <span class="t-dim">· 12 events, 1 ticket</span></p>
+          <p class="cap-sep"><span class="t-dim">———</span></p>
+          <p><span class="t-green">✚</span> feedback <span class="t-dim">·</span> "love the new board!"</p>
+          <p><span class="t-blue">⚙</span> <span class="t-dim">routed →</span> backlog intake</p>
+        </div>
+      </div>
+    </div>
+
+    <p class="callout" style="top: -1.2rem; right: 10%">
+      <span class="callout-k">fingerprint</span>
+      Similar errors collapse into one group and one ticket — no duplicate
+      noise, ever.
+    </p>
+    <p class="callout" style="bottom: -1.4rem; right: 30%">
+      <span class="callout-k">send-only key</span>
+      The DSN's ingestion key can only send events. Safe to ship in client-side
+      code.
+    </p>
+  </div>
+
+  <div class="kv rise">
+    <div class="kv-row">
+      <p class="kv-k">Browser &amp; Node</p>
+      <p class="kv-v">
+        Global handlers registered for you (errors, unhandled rejections),
+        automatic breadcrumbs, plus helpers for Express and Fastify.
+      </p>
+    </div>
+    <div class="kv-row">
+      <p class="kv-k">Feedback too</p>
+      <p class="kv-v">
+        <code>captureFeedback</code> collects what users write — and with the
+        backlog enabled it feeds discovery instead of the fix pipeline.
+      </p>
+    </div>
+    <div class="kv-row">
+      <p class="kv-k">Structured tickets</p>
+      <p class="kv-v">
+        <code>createTicket</code> creates typed tickets programmatically, for
+        reports your app generates itself.
+      </p>
+    </div>
+  </div>
+
+  <p class="rise">
+    <a class="step-link" href={l("sdk/error-capture/")}>Error capture →</a>
+    <a class="step-link" href={l("sdk/feedback/")}>Feedback →</a>
+    <a class="step-link" href={l("sdk/api-tickets/")}>Tickets via API →</a>
+  </p>
+</section>
+
+<style>
+  .cap-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+    gap: 1rem;
+    align-items: start;
+  }
+  .cap-flow {
+    padding: 1rem 1.2rem 1.1rem;
+    font-size: 0.8rem;
+    line-height: 2;
+  }
+  .cap-flow p {
+    margin: 0;
+    color: #dfe2e9;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .cap-sep {
+    opacity: 0.5;
+  }
+
+  @media (max-width: 60rem) {
+    .cap-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

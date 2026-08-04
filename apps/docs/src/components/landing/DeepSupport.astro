@@ -1,0 +1,115 @@
+---
+/**
+ * Deep section: SUPPORT — the customer-service widget. Reconstructed chat
+ * window with a RAG answer and the ticket-with-consent flow.
+ */
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+const l = (path: string) => `${base}/${path}`;
+---
+
+<section class="section" id="support">
+  <p class="section-eyebrow"><span class="t-dim">&gt;</span> support <span class="t-dim">[07/15]</span></p>
+  <h3 class="section-title rise">Support that has read your docs.</h3>
+  <p class="lead rise">
+    One script tag embeds a chat widget in your product. It answers from the
+    documentation Stubwise generated — with citations — and when an answer
+    isn't enough, it turns the conversation into a ticket, <strong>with the
+    user's consent</strong>.
+  </p>
+
+  <div class="mockwrap rise">
+    <div class="term mock-support" aria-hidden="true">
+      <div class="term-bar">
+        <span class="tl tl-red"></span><span class="tl tl-yellow"></span><span class="tl tl-green"></span>
+        <span class="term-title">widget · acme support</span>
+      </div>
+      <div class="wchat">
+        <p class="wq"><span class="t-dim">user ·</span> How do I rotate the API key?</p>
+        <p class="wa">
+          <span class="t-dim">widget ·</span> Settings → API keys → Regenerate.
+          The old key stops working immediately.
+          <span class="chip">Keys &amp; rotation</span>
+        </p>
+        <p class="wq"><span class="t-dim">user ·</span> It still fails after rotating.</p>
+        <p class="wa">
+          <span class="t-dim">widget ·</span> That sounds like a bug on our
+          side. Want me to open a ticket for the team?
+          <span class="chip chip-amber">Create ticket</span>
+          <span class="chip">No thanks</span>
+        </p>
+        <p class="wok"><span class="t-green">✓</span> ticket <span class="t-bold">#219</span> created <span class="t-dim">· source: widget · conversation attached</span></p>
+      </div>
+    </div>
+
+    <p class="callout" style="top: -1.2rem; right: 10%">
+      <span class="callout-k">grounded answers</span>
+      RAG over the docs space of the repositories you whitelist, citations
+      included.
+    </p>
+    <p class="callout" style="top: 44%; right: -1rem">
+      <span class="callout-k">consent first</span>
+      The widget never files a ticket silently: the user confirms, the
+      conversation is attached.
+    </p>
+    <p class="callout" style="bottom: -1.4rem; left: 16%">
+      <span class="callout-k">caps &amp; filters</span>
+      Per-widget keys, daily message and ticket caps, and path filters to
+      scope a monorepo's docs.
+    </p>
+  </div>
+
+  <div class="kv rise">
+    <div class="kv-row">
+      <p class="kv-k">One script tag</p>
+      <p class="kv-v">
+        <code>/widget.js</code> is served by your own instance — no external
+        CDN in your users' browsers.
+      </p>
+    </div>
+    <div class="kv-row">
+      <p class="kv-k">Many widgets</p>
+      <p class="kv-v">
+        Multiple widgets per project, each with its own key, caps and doc
+        scope; deleting one keeps its conversations.
+      </p>
+    </div>
+    <div class="kv-row">
+      <p class="kv-k">Into the funnel</p>
+      <p class="kv-v">
+        Widget tickets enter triage like any other — and feedback flows to the
+        backlog when discovery is enabled.
+      </p>
+    </div>
+  </div>
+
+  <p class="rise">
+    <a class="step-link" href={l("integrations/widget/")}>Customer-service widget →</a>
+  </p>
+</section>
+
+<style>
+  .mock-support {
+    max-width: 44rem;
+  }
+  .wchat {
+    padding: 1rem 1.2rem 1.1rem;
+    font-size: 0.79rem;
+    line-height: 1.9;
+  }
+  .wchat p {
+    margin: 0 0 0.55rem;
+  }
+  .wq {
+    color: #dfe2e9;
+  }
+  .wa {
+    color: #c6cad3;
+    padding: 0.5rem 0.8rem;
+    border: 1px solid #23262e;
+    border-radius: 8px;
+    background: #0e1016;
+  }
+  .wok {
+    color: #aab0bc;
+  }
+</style>

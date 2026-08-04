@@ -323,3 +323,44 @@ Accordion nativo (`<details>/<summary>`, niente JS). 6 domande:
 - **Nessuna dipendenza nuova, nessun asset esterno.**
 - Le ancore `#document/#plan/#fix/#watch` vengono linkate dagli indici dei
   pilastri in [01/09].
+
+---
+
+## Revisione 2 (feedback 4 ago sera)
+
+Direttive: **niente sezioni-recap** (via "The platform" e "The rest of the
+toolbox"), **tutto diventa sezione di dettaglio** (lunghezza pagina
+irrilevante), **Watch splittata** (report giornaliero ≠ monitoring), **header
+stile graphify** (pill flottante), **footer mega stile graphify**.
+
+### Nuova architettura
+
+| #       | id          | Sezione                                    |
+| ------- | ----------- | ------------------------------------------ |
+| hero    | —           | invariata                                  |
+| [01/15] | #document   | Document — docs autogenerate (esistente)   |
+| [02/15] | #plan       | Plan — backlog + MCP (esistente)           |
+| [03/15] | #capture    | **Capture — SDK** (nuova): snippet init + flusso evento→fingerprint→ticket; callout fingerprint/breadcrumbs/DSN-safe; feedback e createTicket |
+| [04/15] | #track      | **Track — Tickets & Kanban** (nuova): mock board 4 colonne + chip milestone/saved views; callout saved-views/milestones/activity-timeline |
+| [05/15] | #fix        | Fix — pipeline (esistente)                 |
+| [06/15] | #review     | **Review — PR review** (nuova): mock verdetto su PR; callout on-every-push/read-only/verdict; off by default |
+| [07/15] | #support    | **Support — widget** (nuova): mock chat widget con risposta RAG citata e conferma "create ticket"; callout RAG/consenso/caps+filtri |
+| [08/15] | #report     | **Report — daily activity** (split da Watch): card activity ampliata |
+| [09/15] | #monitor    | **Monitor — server monitoring** (split): card monitor ampliata |
+| [10/15] | #slack      | **Slack** (nuova): mock /stubwise → modal → conferma; callout due entry point/identità |
+| [11/15] | #notify     | **Notify — notifiche** (nuova): mock payload Slack + lista toggle eventi; callout 3 formati/toggle per-evento/master switch |
+| [12/15] | #automate   | **Automate — API & inbound webhook** (nuova, unico raggruppamento rimasto: stessa storia "accesso programmatico"): mock curl POST /api/inbound/{slug}/ticket con X-Stubwise-Key → 201; callout OpenAPI-da-Zod/PAT/rate-limit |
+| [13/15] | #self-hosted| Why self-hosted (esistente)                |
+| [14/15] | #how        | How it works (esistente)                   |
+| FAQ     | #faq        | FAQ (esistente)                            |
+| [15/15] | —           | Get started (esistente)                    |
+| footer  | —           | **Footer mega** (nuovo): brand+tagline, colonne Platform (anchor alle sezioni), Developers, Integrations, Resources; riga finale © MIT |
+
+### Header (pill graphify-style)
+
+Override condizionale del componente `Header` di Starlight
+(`components.Header` in astro.config): sulla SOLA landing (match su
+`Astro.url.pathname === base`), pill flottante centrata (wordmark, link
+Platform/How it works/FAQ/Docs, pill GitHub ★, CTA "Get started"); le altre
+pagine mantengono l'header Starlight di default (con ricerca). Il CSS della
+landing azzera lo sfondo/bordo dell'header nativo via `:has(.sw-landing)`.

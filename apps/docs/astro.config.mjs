@@ -60,6 +60,8 @@ export default defineConfig({
       // stays for metadata/SEO (browser tab, canonical, og:title).
       components: {
         SiteTitle: "./src/components/SiteTitle.astro",
+        // Conditional: floating pill nav on the landing, default elsewhere.
+        Header: "./src/components/Header.astro",
       },
       title: "Stubwise",
       // Favicon shared with the web app: the amber "S_" on a dark square.

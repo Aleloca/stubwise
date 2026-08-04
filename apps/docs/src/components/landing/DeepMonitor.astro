@@ -1,0 +1,171 @@
+---
+/**
+ * Deep section: MONITOR — server monitoring. Reconstructed server card with
+ * meters, services, checks; push-agent story.
+ */
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+const l = (path: string) => `${base}/${path}`;
+---
+
+<section class="section" id="monitor">
+  <p class="section-eyebrow"><span class="t-dim">&gt;</span> monitor <span class="t-dim">[09/15]</span></p>
+  <h3 class="section-title rise">Your hosts, phoning home.</h3>
+  <p class="lead rise">
+    A lightweight agent container on each of your hosts <strong>pushes</strong>
+    metrics, service states and explicit checks to your instance — no inbound
+    ports on the monitored machines, no third-party service. Thresholds turn
+    into alerts on the notification channels you already use.
+  </p>
+
+  <div class="mockwrap rise">
+    <div class="term mock-monitor" aria-hidden="true">
+      <div class="term-bar">
+        <span class="tl tl-red"></span><span class="tl tl-yellow"></span><span class="tl tl-green"></span>
+        <span class="term-title">monitor · vps-01</span>
+      </div>
+      <div class="mcard">
+        <div class="mgrid">
+          <div>
+            <div class="meter">
+              <p class="meter-label">cpu <span class="t-dim">38%</span></p>
+              <div class="bar"><span class="bar-fill" style="width: 38%"></span><span class="bar-tick" style="left: 90%"></span></div>
+            </div>
+            <div class="meter">
+              <p class="meter-label">ram <span class="t-dim">71%</span></p>
+              <div class="bar"><span class="bar-fill" style="width: 71%"></span><span class="bar-tick" style="left: 90%"></span></div>
+            </div>
+            <div class="meter">
+              <p class="meter-label">disk /dev/sda <span class="t-amber">82%</span></p>
+              <div class="bar"><span class="bar-fill warn" style="width: 82%"></span><span class="bar-tick" style="left: 80%"></span></div>
+            </div>
+          </div>
+          <div>
+            <p class="svc"><span class="t-dim">services (docker)</span></p>
+            <p class="svc">postgres <span class="t-green">✓ running</span></p>
+            <p class="svc">caddy <span class="t-green">✓ running</span></p>
+            <p class="svc">worker <span class="t-green">✓ running</span></p>
+            <p class="svc"><span class="t-dim">pm2</span> api <span class="t-green">✓ online</span></p>
+          </div>
+        </div>
+        <p class="svc mchecks">
+          <span class="t-dim">check ·</span> https://api.example.com
+          <span class="t-green">✓ 200</span> <span class="t-dim">· 84ms</span>
+          <span class="t-dim">· every 60s</span>
+        </p>
+        <p class="svc t-dim">last push 12s ago · agent key sk_…9f2 · no inbound ports</p>
+      </div>
+    </div>
+
+    <p class="callout" style="top: 6%; right: -1rem">
+      <span class="callout-k">push agent</span>
+      One container per host pushes data out. Nothing to expose, nothing to
+      NAT.
+    </p>
+    <p class="callout" style="top: 46%; right: 6%">
+      <span class="callout-k">discovery</span>
+      Docker containers and PM2 processes are discovered automatically and
+      reported with their state.
+    </p>
+    <p class="callout" style="bottom: -1.4rem; left: 20%">
+      <span class="callout-k">thresholds</span>
+      CPU, RAM, disk and check alerts land on your notification webhook —
+      Slack, Discord or JSON.
+    </p>
+  </div>
+
+  <div class="kv rise">
+    <div class="kv-row">
+      <p class="kv-k">One container</p>
+      <p class="kv-v">
+        The agent ships as a multi-arch Docker image
+        (<code>alelocadev/stubwise-agent</code>), authenticated with a
+        per-server key you can revoke and regenerate.
+      </p>
+    </div>
+    <div class="kv-row">
+      <p class="kv-k">Charts &amp; history</p>
+      <p class="kv-v">
+        Each server has a detail page with metric charts, services, disks and
+        checks; projects get their own aggregated view.
+      </p>
+    </div>
+    <div class="kv-row">
+      <p class="kv-k">Explicit checks</p>
+      <p class="kv-v">
+        HTTP checks with status and latency, alongside the passive metrics.
+      </p>
+    </div>
+  </div>
+
+  <p class="rise">
+    <a class="step-link" href={l("monitoring/")}>Server monitoring →</a>
+    <a class="step-link" href={l("monitoring/agent-install/")}>Installing the agent →</a>
+  </p>
+</section>
+
+<style>
+  .mock-monitor {
+    max-width: 48rem;
+  }
+  .mcard {
+    padding: 1rem 1.2rem 1.1rem;
+    font-size: 0.78rem;
+    line-height: 1.8;
+  }
+  .mgrid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+    gap: 1.4rem;
+  }
+  .mcard p {
+    margin: 0 0 0.4rem;
+  }
+  .meter {
+    margin-bottom: 0.6rem;
+  }
+  .meter-label {
+    margin: 0 0 0.2rem !important;
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #aab0bc;
+  }
+  .bar {
+    position: relative;
+    height: 0.5rem;
+    background: #171a21;
+    border: 1px solid #23262e;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: #3d7bbf;
+  }
+  .bar-fill.warn {
+    background: var(--amber);
+  }
+  .bar-tick {
+    position: absolute;
+    top: -1px;
+    bottom: -1px;
+    width: 2px;
+    background: #ff6b61;
+  }
+  .svc {
+    color: #dfe2e9;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mchecks {
+    margin-top: 0.7rem !important;
+  }
+
+  @media (max-width: 38rem) {
+    .mgrid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

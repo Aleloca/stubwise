@@ -1,0 +1,110 @@
+---
+/**
+ * Deep section: REVIEW — automatic PR review. Reconstructed review card with
+ * verdict and comments.
+ */
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+const l = (path: string) => `${base}/${path}`;
+---
+
+<section class="section" id="review">
+  <p class="section-eyebrow"><span class="t-dim">&gt;</span> review <span class="t-dim">[06/15]</span></p>
+  <h3 class="section-title rise">Every PR gets read.</h3>
+  <p class="lead rise">
+    Not just the AI's own pull requests: with PR review enabled, every opened
+    or updated PR on your repositories gets a <strong>read-only AI review</strong>
+    — a verdict, focused comments, and a notification on your channels. Human
+    code review still happens; it just starts warmer.
+  </p>
+
+  <div class="mockwrap rise">
+    <div class="term mock-review" aria-hidden="true">
+      <div class="term-bar">
+        <span class="tl tl-red"></span><span class="tl tl-yellow"></span><span class="tl tl-green"></span>
+        <span class="term-title">pr review · acme-api</span>
+      </div>
+      <div class="rvcard">
+        <p class="rv-head">
+          <span class="t-bold">PR #91</span> feat: bulk export
+          <span class="t-dim">· updated 2m ago</span>
+          <span class="chip chip-green">✓ approve with suggestions</span>
+        </p>
+        <p class="rv-item">
+          <span class="t-amber">−</span> export stream ignores the saved column
+          order <span class="chip">orders/csv.ts:57</span>
+        </p>
+        <p class="rv-item">
+          <span class="t-amber">−</span> no test covers the empty-filter case
+          <span class="chip">export.test.ts</span>
+        </p>
+        <p class="rv-foot">
+          <span class="t-green">✓</span> review comment posted
+          <span class="t-dim">→ Slack notified · review.completed</span>
+        </p>
+      </div>
+    </div>
+
+    <p class="callout" style="top: -1.2rem; right: 12%">
+      <span class="callout-k">every push</span>
+      Opened and updated PRs enter a debounced queue; force-pushes don't spam
+      reviews.
+    </p>
+    <p class="callout" style="bottom: -1.4rem; right: 24%">
+      <span class="callout-k">read-only</span>
+      The review agent analyzes; it never writes to your repository.
+    </p>
+  </div>
+
+  <div class="kv rise">
+    <div class="kv-row">
+      <p class="kv-k">Off by default</p>
+      <p class="kv-v">A per-project toggle: enable it only where you want it.</p>
+    </div>
+    <div class="kv-row">
+      <p class="kv-k">Cheap by design</p>
+      <p class="kv-v">
+        Runs on an economical model with bounded turns and a hard timeout —
+        tune it with the <code>PR_REVIEW_*</code> variables.
+      </p>
+    </div>
+    <div class="kv-row">
+      <p class="kv-k">Wired in</p>
+      <p class="kv-v">
+        The verdict lands as a PR comment and a <code>review.completed</code>
+        notification.
+      </p>
+    </div>
+  </div>
+
+  <p class="rise">
+    <a class="step-link" href={l("ai-pipeline/automation/")}>Automation &amp; gates →</a>
+  </p>
+</section>
+
+<style>
+  .mock-review {
+    max-width: 46rem;
+  }
+  .rvcard {
+    padding: 1rem 1.2rem 1.1rem;
+    font-size: 0.79rem;
+    line-height: 1.9;
+  }
+  .rvcard p {
+    margin: 0 0 0.4rem;
+    color: #dfe2e9;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .rv-head {
+    margin-bottom: 0.7rem !important;
+  }
+  .rv-item {
+    color: #c6cad3;
+  }
+  .rv-foot {
+    margin-top: 0.7rem !important;
+    color: #aab0bc;
+  }
+</style>

@@ -1,0 +1,114 @@
+---
+/**
+ * Deep section: NOTIFY — outgoing notifications. Payload preview next to the
+ * per-event toggles.
+ */
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+const l = (path: string) => `${base}/${path}`;
+---
+
+<section class="section" id="notify">
+  <p class="section-eyebrow"><span class="t-dim">&gt;</span> notify <span class="t-dim">[11/15]</span></p>
+  <h3 class="section-title rise">One webhook, every signal.</h3>
+  <p class="lead rise">
+    Everything the platform does can announce itself on <strong>one outgoing
+    webhook</strong> — formatted for Slack, Discord or as generic JSON for
+    anything else. You pick the events; the master switch pauses them all
+    without losing the configuration.
+  </p>
+
+  <div class="mockwrap rise">
+    <div class="ntf-grid" aria-hidden="true">
+      <div class="term">
+        <div class="term-bar">
+          <span class="tl tl-red"></span><span class="tl tl-yellow"></span><span class="tl tl-green"></span>
+          <span class="term-title">payload · slack format</span>
+        </div>
+        <div class="ntf-msg">
+          <p><span class="t-amber">↗</span> <span class="t-bold">PR #87 opened</span> — fix: guard empty cart on checkout</p>
+          <p class="t-dim">ticket #142 · acme-api · by the AI pipeline</p>
+          <p class="ntf-link"><span class="t-dim">→</span> https://stubwise.example.com/tickets/142</p>
+        </div>
+      </div>
+      <div class="term">
+        <div class="term-bar">
+          <span class="tl tl-red"></span><span class="tl tl-yellow"></span><span class="tl tl-green"></span>
+          <span class="term-title">settings · events</span>
+        </div>
+        <div class="ntf-toggles">
+          <p><span class="t-green">✓</span> ticket.created</p>
+          <p><span class="t-green">✓</span> job.pr_opened</p>
+          <p><span class="t-green">✓</span> job.plan_review</p>
+          <p><span class="t-green">✓</span> job.failed</p>
+          <p><span class="t-green">✓</span> review.completed</p>
+          <p><span class="t-dim">○</span> <span class="t-dim">job.held</span></p>
+          <p><span class="t-dim">○</span> <span class="t-dim">docs.limit_paused</span></p>
+        </div>
+      </div>
+    </div>
+
+    <p class="callout" style="top: -1.2rem; right: 8%">
+      <span class="callout-k">three formats</span>
+      Slack blocks, Discord embeds or a generic JSON body — with a preview per
+      format in settings.
+    </p>
+    <p class="callout" style="bottom: -1.4rem; left: 24%">
+      <span class="callout-k">per-event toggles</span>
+      Nine events today, each with its own switch — subscribe to exactly what
+      you care about.
+    </p>
+  </div>
+
+  <div class="kv rise">
+    <div class="kv-row">
+      <p class="kv-k">The whole platform</p>
+      <p class="kv-v">
+        New tickets, PRs opened and closed, plans to approve, failed fixes,
+        budget holds, completed reviews, paused docs generations.
+      </p>
+    </div>
+    <div class="kv-row">
+      <p class="kv-k">Monitoring alerts too</p>
+      <p class="kv-v">
+        Threshold and check alerts from server monitoring ride the same
+        channel.
+      </p>
+    </div>
+  </div>
+
+  <p class="rise">
+    <a class="step-link" href={l("notifications/")}>Notifications →</a>
+  </p>
+</section>
+
+<style>
+  .ntf-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+    gap: 1rem;
+    align-items: start;
+  }
+  .ntf-msg,
+  .ntf-toggles {
+    padding: 1rem 1.2rem 1.1rem;
+    font-size: 0.79rem;
+    line-height: 1.9;
+  }
+  .ntf-msg p,
+  .ntf-toggles p {
+    margin: 0 0 0.4rem;
+    color: #dfe2e9;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ntf-link {
+    color: #6cb2ff !important;
+  }
+
+  @media (max-width: 60rem) {
+    .ntf-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

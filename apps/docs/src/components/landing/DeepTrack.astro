@@ -1,0 +1,139 @@
+---
+/**
+ * Deep section: TRACK — the issue tracker. Reconstructed Kanban board with
+ * saved-view chips and a milestone bar.
+ */
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+const l = (path: string) => `${base}/${path}`;
+---
+
+<section class="section" id="track">
+  <p class="section-eyebrow"><span class="t-dim">&gt;</span> track <span class="t-dim">[04/15]</span></p>
+  <h3 class="section-title rise">A tracker your team actually uses.</h3>
+  <p class="lead rise">
+    Underneath the AI there's a complete, fast issue tracker: projects, a
+    Kanban board, comments with markdown, milestones with progress, saved
+    views, attachments — and one <strong>activity timeline</strong> per ticket
+    that merges comments, events and AI jobs into a single stream.
+  </p>
+
+  <div class="mockwrap rise">
+    <div class="term mock-track" aria-hidden="true">
+      <div class="term-bar">
+        <span class="tl tl-red"></span><span class="tl tl-yellow"></span><span class="tl tl-green"></span>
+        <span class="term-title">acme-api · board</span>
+      </div>
+      <div class="tcard">
+        <p class="tviews">
+          <span class="chip chip-amber">★ mine · high priority</span>
+          <span class="chip">team: frontend</span>
+          <span class="t-dim">·</span>
+          <span class="chip">milestone v1.5 · 8/13 done</span>
+        </p>
+        <div class="board">
+          <div class="col">
+            <p class="col-h">open <span class="t-dim">3</span></p>
+            <div class="card"><span class="t-dim">#144</span> Safari export fails <span class="chip">bug</span></div>
+            <div class="card"><span class="t-dim">#145</span> Add CSV column picker <span class="chip">feature</span></div>
+          </div>
+          <div class="col">
+            <p class="col-h">triaged <span class="t-dim">2</span></p>
+            <div class="card"><span class="t-dim">#143</span> Webhook retry queue <span class="chip chip-amber">high</span></div>
+          </div>
+          <div class="col">
+            <p class="col-h">in progress <span class="t-dim">1</span></p>
+            <div class="card card-ai"><span class="t-dim">#142</span> Guard empty cart <span class="chip chip-blue">AI · fixing</span></div>
+          </div>
+          <div class="col">
+            <p class="col-h">in review <span class="t-dim">1</span></p>
+            <div class="card"><span class="t-dim">#141</span> Bump pg pool <span class="chip chip-green">PR #86</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p class="callout" style="top: -1.2rem; right: 8%">
+      <span class="callout-k">saved views</span>
+      Save a filter combination as a private or team-shared view; re-apply it
+      in one click.
+    </p>
+    <p class="callout" style="bottom: -1.4rem; left: 12%">
+      <span class="callout-k">milestones</span>
+      Group tickets with a due date and completion progress — any member can
+      manage them.
+    </p>
+    <p class="callout" style="bottom: -1.4rem; right: 6%">
+      <span class="callout-k">one timeline</span>
+      Comments, status changes and AI jobs merge into a single chronological
+      stream per ticket.
+    </p>
+  </div>
+
+  <div class="kv rise">
+    <div class="kv-row">
+      <p class="kv-k">Attachments</p>
+      <p class="kv-v">Files on tickets, stored on an S3-compatible bucket you configure.</p>
+    </div>
+    <div class="kv-row">
+      <p class="kv-k">Relations</p>
+      <p class="kv-v">
+        Blocks / blocked by / relates to / parent / child — linked both ways,
+        recorded in the timeline.
+      </p>
+    </div>
+    <div class="kv-row">
+      <p class="kv-k">Two languages</p>
+      <p class="kv-v">English and Italian UI, per user; content language per instance.</p>
+    </div>
+  </div>
+
+  <p class="rise">
+    <a class="step-link" href={l("getting-started/web-app/")}>The web app →</a>
+    <a class="step-link" href={l("getting-started/milestones/")}>Milestones →</a>
+    <a class="step-link" href={l("getting-started/saved-views/")}>Saved views →</a>
+  </p>
+</section>
+
+<style>
+  .mock-track {
+    max-width: 56rem;
+  }
+  .tcard {
+    padding: 1rem 1.2rem 1.2rem;
+    font-size: 0.76rem;
+  }
+  .tviews {
+    margin: 0 0 0.9rem;
+    color: #8a90a0;
+  }
+  .board {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.7rem;
+  }
+  .col-h {
+    margin: 0 0 0.5rem;
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #8a90a0;
+  }
+  .card {
+    margin-bottom: 0.55rem;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid #23262e;
+    border-radius: 8px;
+    background: #0e1016;
+    color: #dfe2e9;
+    line-height: 1.6;
+  }
+  .card-ai {
+    border-color: rgb(108 178 255 / 0.45);
+  }
+
+  @media (max-width: 60rem) {
+    .board {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+</style>

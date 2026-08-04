@@ -1,0 +1,163 @@
+---
+/**
+ * Deep section: REPORT — daily activity reports. Reconstructed activity card
+ * with view tabs, summary, per-commit AI descriptions and the stale badge.
+ */
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+const l = (path: string) => `${base}/${path}`;
+---
+
+<section class="section" id="report">
+  <p class="section-eyebrow"><span class="t-dim">&gt;</span> report <span class="t-dim">[08/15]</span></p>
+  <h3 class="section-title rise">Yesterday, already written up.</h3>
+  <p class="lead rise">
+    Every night the worker reads the day's commits and writes the standup: a
+    <strong>description per commit from the actual diff</strong>, a summary per
+    project, a rollup per developer. No meeting, no "what did I do yesterday".
+  </p>
+
+  <div class="mockwrap rise">
+    <div class="term mock-report" aria-hidden="true">
+      <div class="term-bar">
+        <span class="tl tl-red"></span><span class="tl tl-yellow"></span><span class="tl tl-green"></span>
+        <span class="term-title">activity · Aug 3</span>
+      </div>
+      <div class="rcard">
+        <p class="rtabs">
+          <span class="chip chip-amber">By project</span>
+          <span class="chip">By developer</span>
+          <span class="t-dim">· Previous day · Next day</span>
+        </p>
+        <p class="rhead">
+          <span class="t-bold">acme-api</span>
+          <span class="t-dim">· 34 commits · 3 authors</span>
+          <span class="chip chip-amber">3 new commits</span>
+        </p>
+        <p class="rsummary">
+          Checkout hardening and the export epic dominated the day; the billing
+          webhook got a retry queue and the flaky e2e was quarantined…
+        </p>
+        <p class="commit">
+          <span class="chip">a3f9c2</span> fix: guard empty cart
+          <span class="t-dim">· sara</span>
+        </p>
+        <div class="commit-open">
+          <p class="commit">
+            <span class="chip">1e07bd</span> feat: csv export stream
+            <span class="t-dim">· marco</span>
+          </p>
+          <p class="commit-desc">
+            Adds a streaming CSV writer on the filtered orders query;
+            backpressure-aware, reuses column visibility.
+          </p>
+        </div>
+        <p class="commit">
+          <span class="chip">88c1aa</span> chore: bump pg pool
+          <span class="t-dim">· sara</span>
+        </p>
+        <p class="rfoot">
+          <span class="t-dim">devs ·</span> sara <span class="t-dim">18</span>
+          · marco <span class="t-dim">11</span>
+          · <span class="t-amber">unknown@ci</span>
+          <span class="chip">Link team member</span>
+        </p>
+      </div>
+    </div>
+
+    <p class="callout" style="top: 8%; right: -1rem">
+      <span class="callout-k">from the diff</span>
+      Descriptions read the change itself, not the commit message. One agent
+      run per commit, adaptive length.
+    </p>
+    <p class="callout" style="top: 48%; right: 4%">
+      <span class="callout-k">late pushes</span>
+      Commits pushed after generation raise a "N new commits" badge; admins
+      press Regenerate.
+    </p>
+    <p class="callout" style="bottom: -1.4rem; left: 18%">
+      <span class="callout-k">incremental</span>
+      Regenerating reuses the descriptions of unchanged commits — only new
+      ones get AI runs.
+    </p>
+  </div>
+
+  <div class="kv rise">
+    <div class="kv-row">
+      <p class="kv-k">Identity-aware</p>
+      <p class="kv-v">
+        Authors resolve through the git identities linked in the team page;
+        unresolved ones can be linked inline from the report.
+      </p>
+    </div>
+    <div class="kv-row">
+      <p class="kv-k">Two views</p>
+      <p class="kv-v">
+        By project (summary + commits) and by developer (cross-project rollup,
+        written when the whole day is done).
+      </p>
+    </div>
+    <div class="kv-row">
+      <p class="kv-k">On demand</p>
+      <p class="kv-v">
+        Admins can generate any past day manually; retention is configurable
+        (90 days by default).
+      </p>
+    </div>
+  </div>
+
+  <p class="rise">
+    <a class="step-link" href={l("team/activity/")}>Daily activity reports →</a>
+  </p>
+</section>
+
+<style>
+  .mock-report {
+    max-width: 48rem;
+  }
+  .rcard {
+    padding: 1rem 1.2rem 1.1rem;
+    font-size: 0.78rem;
+    line-height: 1.8;
+  }
+  .rcard p {
+    margin: 0 0 0.5rem;
+  }
+  .rtabs {
+    margin-bottom: 0.8rem !important;
+    color: #8a90a0;
+  }
+  .rhead {
+    color: #e9eaee;
+  }
+  .rsummary {
+    color: #c6cad3;
+    max-width: 34rem;
+  }
+  .commit {
+    color: #dfe2e9;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .commit-open {
+    margin: 0 0 0.5rem;
+    padding: 0.55rem 0.8rem;
+    border: 1px solid #23262e;
+    border-radius: 8px;
+    background: #0e1016;
+  }
+  .commit-open .commit {
+    margin-bottom: 0.25rem;
+  }
+  .commit-desc {
+    margin: 0;
+    color: #99a0ac;
+  }
+  .rfoot {
+    margin-top: 0.8rem !important;
+    color: #aab0bc;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+</style>

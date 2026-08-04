@@ -1,0 +1,80 @@
+---
+/**
+ * Deep section: AUTOMATE — HTTP API and inbound webhook. One story:
+ * programmatic access. Facts: POST /api/inbound/{slug}/ticket with
+ * X-Stubwise-Key; OpenAPI 3.1 derived from the routes' Zod schemas.
+ */
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+const l = (path: string) => `${base}/${path}`;
+---
+
+<section class="section" id="automate">
+  <p class="section-eyebrow"><span class="t-dim">&gt;</span> automate <span class="t-dim">[12/15]</span></p>
+  <h3 class="section-title rise">Everything has an API.</h3>
+  <p class="lead rise">
+    The web app runs on the same HTTP API you can script against — described
+    by an <strong>OpenAPI 3.1 spec derived from the routes' Zod schemas</strong>,
+    so it can't drift from the code. And for tools that just need to open a
+    ticket, one authenticated POST is enough.
+  </p>
+
+  <div class="mockwrap rise">
+    <div class="snippet mock-api" data-lang="sh">
+      <button class="copy" data-copy={`curl -X POST https://stubwise.example.com/api/inbound/acme-api/ticket \\\n  -H "X-Stubwise-Key: <ingestion key>" \\\n  -H "Content-Type: application/json" \\\n  -d '{"title":"Nightly import failed","type":"bug"}'`} aria-label="Copy request">copy</button>
+      <pre><code><span class="t-dim">$</span> curl -X POST https://stubwise.example.com<span class="t-amber">/api/inbound/acme-api/ticket</span> \
+    -H <span class="t-green">"X-Stubwise-Key: &lt;ingestion key&gt;"</span> \
+    -H <span class="t-green">"Content-Type: application/json"</span> \
+    -d <span class="t-green">'{"{"}"title":"Nightly import failed","type":"bug"{"}"}'</span>
+<span class="t-dim">→</span> <span class="t-green">201</span> · ticket <span class="t-bold">#220</span> created <span class="t-dim">— enters triage like any other</span>
+
+<span class="t-dim">$</span> curl https://stubwise.example.com<span class="t-amber">/api/openapi.json</span>
+<span class="t-dim">→</span> OpenAPI 3.1 <span class="t-dim">· generated from the server's Zod schemas</span></code></pre>
+    </div>
+
+    <p class="callout" style="top: -1.2rem; right: 8%">
+      <span class="callout-k">zapier-ready</span>
+      Zapier, n8n, cron jobs, shell scripts: anything that can POST can open a
+      ticket.
+    </p>
+    <p class="callout" style="bottom: -1.4rem; right: 20%">
+      <span class="callout-k">rate-limited</span>
+      Authenticated with the project's send-only ingestion key, rate-limited
+      per key (300 req/min by default).
+    </p>
+  </div>
+
+  <div class="kv rise">
+    <div class="kv-row">
+      <p class="kv-k">Always in sync</p>
+      <p class="kv-v">
+        The docs' API reference is generated from the same spec at build time
+        — endpoint pages can't lie.
+      </p>
+    </div>
+    <div class="kv-row">
+      <p class="kv-k">Personal access tokens</p>
+      <p class="kv-v">
+        Privileged scripts and the <code>@stubwise/mcp</code> server
+        authenticate with PATs (<code>stw_pat_…</code>) from your settings.
+      </p>
+    </div>
+    <div class="kv-row">
+      <p class="kv-k">Into the pipeline</p>
+      <p class="kv-v">
+        Inbound tickets go through triage and your automation rules exactly
+        like SDK ones.
+      </p>
+    </div>
+  </div>
+
+  <p class="rise">
+    <a class="step-link" href={l("integrations/inbound-webhook/")}>Inbound webhook →</a>
+    <a class="step-link" href={l("reference/api/")}>HTTP API →</a>
+  </p>
+</section>
+
+<style>
+  .mock-api {
+    max-width: 56rem;
+  }
+</style>
