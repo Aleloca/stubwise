@@ -1,0 +1,173 @@
+---
+/**
+ * Deep section: FIX. A reconstructed "AI activity" timeline of one ticket,
+ * from triage to merged PR, with annotation callouts. Shared primitives come
+ * from Landing.astro's global styles.
+ */
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+const l = (path: string) => `${base}/${path}`;
+---
+
+<section class="section" id="fix">
+  <p class="section-eyebrow"><span class="t-dim">&gt;</span> fix <span class="t-dim">[04/09]</span></p>
+  <h3 class="section-title rise">A fix that earns its merge.</h3>
+  <p class="lead rise">
+    Errors from the SDKs collapse into <strong>one ticket per fingerprint</strong>.
+    The worker triages it, plans with a strong model in read-only mode,
+    executes with a cheaper one in an ephemeral worktree, and runs
+    <strong>your</strong> tests — the pull request opens only when they pass.
+    You review, you merge.
+  </p>
+
+  <div class="mockwrap rise">
+    <div class="term mock-fix" aria-hidden="true">
+      <div class="term-bar">
+        <span class="tl tl-red"></span><span class="tl tl-yellow"></span><span class="tl tl-green"></span>
+        <span class="term-title">ticket #142 · ai activity</span>
+      </div>
+      <div class="tlx">
+        <div class="tlx-row">
+          <p class="tlx-time">12:04</p>
+          <p class="tlx-dot t-blue">⚙</p>
+          <p class="tlx-text"><span class="t-bold">triage</span> <span class="t-dim">·</span> bug · high · effort 2/5</p>
+        </div>
+        <div class="tlx-row">
+          <p class="tlx-time">12:06</p>
+          <p class="tlx-dot t-blue">⚙</p>
+          <p class="tlx-text">
+            <span class="t-bold">plan</span> <span class="t-dim">· opus · read-only</span>
+            <span class="chip chip-amber">human gate: plan approved</span>
+          </p>
+        </div>
+        <div class="tlx-row">
+          <p class="tlx-time">12:16</p>
+          <p class="tlx-dot t-blue">⚙</p>
+          <p class="tlx-text"><span class="t-bold">execute</span> <span class="t-dim">· sonnet · ephemeral worktree</span></p>
+        </div>
+        <div class="tlx-row">
+          <p class="tlx-time">12:31</p>
+          <p class="tlx-dot t-red">✗</p>
+          <p class="tlx-text">
+            <span class="t-bold">tests</span> <span class="t-dim">·</span> 1 failing
+            <span class="t-dim">→</span> self-repair #1
+            <span class="t-dim">(failure fed back)</span>
+          </p>
+        </div>
+        <div class="tlx-row">
+          <p class="tlx-time">12:39</p>
+          <p class="tlx-dot t-green">✓</p>
+          <p class="tlx-text"><span class="t-bold">tests</span> <span class="t-dim">·</span> 41 passed</p>
+        </div>
+        <div class="tlx-row">
+          <p class="tlx-time">12:40</p>
+          <p class="tlx-dot t-amber">↗</p>
+          <p class="tlx-text">
+            <span class="t-bold">PR #87</span>
+            <span class="t-dim">·</span> fix: guard empty cart on checkout
+          </p>
+        </div>
+        <div class="tlx-row">
+          <p class="tlx-time">13:02</p>
+          <p class="tlx-dot t-green">✓</p>
+          <p class="tlx-text"><span class="t-bold">merged</span> <span class="t-dim">→ ticket closed (webhook)</span></p>
+        </div>
+      </div>
+    </div>
+
+    <p class="callout" style="top: 6%; right: -1rem">
+      <span class="callout-k">two-phase</span>
+      A strong model plans, a cheap one executes. Usage is logged per model,
+      per job.
+    </p>
+    <p class="callout" style="top: 42%; right: 12%">
+      <span class="callout-k">self-repair</span>
+      The worker runs your test command itself and feeds failures back to the
+      agent, up to N retries.
+    </p>
+    <p class="callout" style="bottom: 2%; right: -1rem">
+      <span class="callout-k">in control</span>
+      Gates by type and effort, plan approval, per-ticket and monthly budgets,
+      held jobs.
+    </p>
+  </div>
+
+  <div class="kv rise">
+    <div class="kv-row">
+      <p class="kv-k">One ticket, not twelve</p>
+      <p class="kv-v">Similar errors collapse by fingerprint before any AI runs.</p>
+    </div>
+    <div class="kv-row">
+      <p class="kv-k">Limit-aware</p>
+      <p class="kv-v">
+        At the provider's usage limit, running work pauses and resumes on its
+        own.
+      </p>
+    </div>
+    <div class="kv-row">
+      <p class="kv-k">PR review too</p>
+      <p class="kv-v">
+        Incoming pull requests can get an AI review with a verdict (off by
+        default).
+      </p>
+    </div>
+  </div>
+
+  <p class="rise">
+    <a class="step-link" href={l("ai-pipeline/how-it-works/")}>How the pipeline works →</a>
+    <a class="step-link" href={l("ai-pipeline/automation/")}>Automation &amp; gates →</a>
+  </p>
+</section>
+
+<style>
+  .mock-fix {
+    max-width: 46rem;
+  }
+  .tlx {
+    padding: 1.1rem 1.3rem 1.2rem;
+    font-size: 0.8rem;
+  }
+  .tlx-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: 3.2rem 1.4rem minmax(0, 1fr);
+    gap: 0.4rem;
+    padding: 0.42rem 0;
+  }
+  /* Connector line through the dot column. */
+  .tlx-row::before {
+    content: "";
+    position: absolute;
+    left: calc(3.2rem + 0.4rem + 0.65rem);
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    background: #23262e;
+  }
+  .tlx-row:first-child::before {
+    top: 50%;
+  }
+  .tlx-row:last-child::before {
+    bottom: 50%;
+  }
+  .tlx-row p {
+    margin: 0;
+    line-height: 1.7;
+  }
+  .tlx-time {
+    color: #6b7284;
+    font-size: 0.72rem;
+    line-height: 2 !important;
+  }
+  .tlx-dot {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    background: var(--term-bg);
+  }
+  .tlx-text {
+    color: #dfe2e9;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+</style>
