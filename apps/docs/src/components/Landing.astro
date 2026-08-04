@@ -304,6 +304,13 @@ const features = [
     padding: 0;
     border: 0;
   }
+  /* Full-bleed: the landing paints its own textured background, so it must
+     span the whole main column — otherwise its edge shows as a seam against
+     the page background. Inner sections keep their own centered max-width. */
+  main:has(.sw-landing) .sl-container {
+    max-width: none;
+    margin-inline: 0;
+  }
   main:has(.sw-landing) h1#_top {
     position: absolute;
     width: 1px;
