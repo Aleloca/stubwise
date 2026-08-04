@@ -275,6 +275,14 @@ const GITHUB = "https://github.com/Aleloca/stubwise";
     max-width: none;
     margin-inline: 0;
   }
+  /* The landing brings its own footer: hide Starlight's default one and the
+     main bottom padding so no dark band shows under it. */
+  main:has(.sw-landing) {
+    padding-bottom: 0 !important;
+  }
+  main:has(.sw-landing) footer.sl-flex {
+    display: none;
+  }
   main:has(.sw-landing) h1#_top {
     position: absolute;
     width: 1px;
@@ -303,6 +311,12 @@ const GITHUB = "https://github.com/Aleloca/stubwise";
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
     padding: 0;
+  }
+  /* The fixed header is transparent: pull the landing up underneath it so its
+     textured background runs edge-to-edge behind the pill (no flat band). */
+  .sw-landing {
+    margin-top: calc(-1 * var(--sl-nav-height));
+    padding-top: var(--sl-nav-height);
   }
 
   @keyframes sw-tline-in {
