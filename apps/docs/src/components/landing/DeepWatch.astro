@@ -1,0 +1,226 @@
+---
+/**
+ * Deep section: WATCH. Two reconstructed cards — a daily activity report and
+ * a monitored server — with annotation callouts. Shared primitives come from
+ * Landing.astro's global styles.
+ */
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+const l = (path: string) => `${base}/${path}`;
+---
+
+<section class="section" id="watch">
+  <p class="section-eyebrow"><span class="t-dim">&gt;</span> watch <span class="t-dim">[05/09]</span></p>
+  <h3 class="section-title rise">Yesterday, already written up.</h3>
+  <p class="lead rise">
+    Every night the worker reads the day's commits and writes the standup: a
+    <strong>description per commit</strong> from the actual diff, a summary per
+    project, a rollup per developer. And a lightweight agent on your hosts
+    pushes metrics, services and checks into the same place — with alerts on
+    your webhook.
+  </p>
+
+  <div class="mockwrap rise">
+    <div class="watch-grid" aria-hidden="true">
+      <div class="term">
+        <div class="term-bar">
+          <span class="tl tl-red"></span><span class="tl tl-yellow"></span><span class="tl tl-green"></span>
+          <span class="term-title">activity · Aug 3</span>
+        </div>
+        <div class="wcard">
+          <p class="wcard-head">
+            <span class="t-bold">acme-api</span>
+            <span class="t-dim">· 34 commits · 3 authors</span>
+            <span class="chip chip-amber">3 new commits</span>
+          </p>
+          <p class="wcard-summary">
+            Checkout hardening and the export epic dominated the day; the
+            billing webhook got a retry queue…
+          </p>
+          <p class="commit">
+            <span class="chip">a3f9c2</span> fix: guard empty cart
+            <span class="t-dim">· sara</span>
+          </p>
+          <div class="commit-open">
+            <p class="commit">
+              <span class="chip">1e07bd</span> feat: csv export stream
+              <span class="t-dim">· marco</span>
+            </p>
+            <p class="commit-desc">
+              Adds a streaming CSV writer on the filtered orders query;
+              backpressure-aware, reuses column visibility.
+            </p>
+          </div>
+          <p class="commit">
+            <span class="chip">88c1aa</span> chore: bump pg pool
+            <span class="t-dim">· sara</span>
+          </p>
+        </div>
+      </div>
+
+      <div class="term">
+        <div class="term-bar">
+          <span class="tl tl-red"></span><span class="tl tl-yellow"></span><span class="tl tl-green"></span>
+          <span class="term-title">monitor · vps-01</span>
+        </div>
+        <div class="wcard">
+          <div class="meter">
+            <p class="meter-label">cpu <span class="t-dim">38%</span></p>
+            <div class="bar"><span class="bar-fill" style="width: 38%"></span><span class="bar-tick" style="left: 90%"></span></div>
+          </div>
+          <div class="meter">
+            <p class="meter-label">ram <span class="t-dim">71%</span></p>
+            <div class="bar"><span class="bar-fill" style="width: 71%"></span><span class="bar-tick" style="left: 90%"></span></div>
+          </div>
+          <div class="meter">
+            <p class="meter-label">disk <span class="t-amber">82%</span></p>
+            <div class="bar"><span class="bar-fill warn" style="width: 82%"></span><span class="bar-tick" style="left: 80%"></span></div>
+          </div>
+          <p class="svc">
+            <span class="t-dim">services ·</span>
+            postgres <span class="t-green">✓</span>
+            caddy <span class="t-green">✓</span>
+            worker <span class="t-green">✓</span>
+            <span class="t-dim">(docker)</span>
+          </p>
+          <p class="svc">
+            <span class="t-dim">check ·</span> https://api.example.com
+            <span class="t-green">✓ 200</span> <span class="t-dim">· 84ms</span>
+          </p>
+          <p class="svc t-dim">last push 12s ago · no inbound ports</p>
+        </div>
+      </div>
+    </div>
+
+    <p class="callout" style="top: -1.2rem; left: 26%">
+      <span class="callout-k">from the diff</span>
+      Descriptions read the change itself, not the commit message.
+    </p>
+    <p class="callout" style="bottom: -3rem; right: 34%">
+      <span class="callout-k">push agent</span>
+      One container per host pushes data out. No inbound ports, no third-party
+      service.
+    </p>
+    <p class="callout" style="top: 30%; right: -1rem">
+      <span class="callout-k">thresholds</span>
+      CPU, RAM, disk and check alerts land on your notification webhook.
+    </p>
+  </div>
+
+  <div class="kv rise">
+    <div class="kv-row">
+      <p class="kv-k">Incremental</p>
+      <p class="kv-v">
+        Regenerating a day reuses the descriptions of unchanged commits; only
+        new ones get AI runs.
+      </p>
+    </div>
+    <div class="kv-row">
+      <p class="kv-k">Identity-aware</p>
+      <p class="kv-v">
+        Commit authors resolve through the git identities linked in the team
+        page.
+      </p>
+    </div>
+    <div class="kv-row">
+      <p class="kv-k">Docker &amp; PM2</p>
+      <p class="kv-v">
+        The agent discovers services on its own and reports their state.
+      </p>
+    </div>
+  </div>
+
+  <p class="rise">
+    <a class="step-link" href={l("team/activity/")}>Daily activity reports →</a>
+    <a class="step-link" href={l("monitoring/")}>Server monitoring →</a>
+  </p>
+</section>
+
+<style>
+  .watch-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+    gap: 1rem;
+    align-items: start;
+  }
+  .wcard {
+    padding: 1rem 1.2rem 1.1rem;
+    font-size: 0.78rem;
+    line-height: 1.8;
+  }
+  .wcard p {
+    margin: 0 0 0.5rem;
+  }
+  .wcard-head {
+    color: #e9eaee;
+  }
+  .wcard-summary {
+    color: #c6cad3;
+    max-width: 30rem;
+  }
+  .commit {
+    color: #dfe2e9;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .commit-open {
+    margin: 0 0 0.5rem;
+    padding: 0.55rem 0.8rem;
+    border: 1px solid #23262e;
+    border-radius: 8px;
+    background: #0e1016;
+  }
+  .commit-open .commit {
+    margin-bottom: 0.25rem;
+  }
+  .commit-desc {
+    margin: 0;
+    color: #99a0ac;
+  }
+
+  .meter {
+    margin-bottom: 0.55rem;
+  }
+  .meter-label {
+    margin: 0 0 0.2rem !important;
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #aab0bc;
+  }
+  .bar {
+    position: relative;
+    height: 0.5rem;
+    background: #171a21;
+    border: 1px solid #23262e;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .bar-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: #3d7bbf;
+  }
+  .bar-fill.warn {
+    background: var(--amber);
+  }
+  .bar-tick {
+    position: absolute;
+    top: -1px;
+    bottom: -1px;
+    width: 2px;
+    background: #ff6b61;
+  }
+  .svc {
+    color: #dfe2e9;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  @media (max-width: 60rem) {
+    .watch-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

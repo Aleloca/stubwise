@@ -24,6 +24,7 @@ import "@fontsource/ibm-plex-mono/700.css";
 import DeepDocs from "./landing/DeepDocs.astro";
 import DeepPlan from "./landing/DeepPlan.astro";
 import DeepFix from "./landing/DeepFix.astro";
+import DeepWatch from "./landing/DeepWatch.astro";
 
 const base = import.meta.env.BASE_URL.replace(/\/$/, "");
 const l = (path: string) => `${base}/${path}`;
@@ -221,6 +222,7 @@ const features = [
   <DeepDocs />
   <DeepPlan />
   <DeepFix />
+  <DeepWatch />
 
   <!-- ============================ IN DEPTH ============================ -->
   <section class="section">
