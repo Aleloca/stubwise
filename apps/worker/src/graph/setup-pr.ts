@@ -66,12 +66,22 @@ const OPTIONAL_ARTIFACTS = ["graph.html"] as const;
 /** Versione di graphify pinnata nella voce MCP (allineata all'immagine worker). */
 const GRAPHIFY_VERSION = "0.9.28";
 
+/**
+ * Vincolo sull'SDK Python `mcp`: graphifyy 0.9.28 non lo pinna e mcp 2.0.0 ha
+ * rimosso `AnyUrl` da `mcp.types` → senza vincolo il server crasha all'avvio
+ * su ogni installazione fresca. Da rimuovere quando il pin di graphifyy
+ * salirà a una versione compatibile con mcp 2.x.
+ */
+const MCP_SDK_CONSTRAINT = "mcp<2";
+
 /** Voce `mcpServers.graphify` scritta/aggiornata in `.mcp.json`. */
 const MCP_ENTRY = {
   command: "uvx",
   args: [
     "--from",
     `graphifyy[mcp]==${GRAPHIFY_VERSION}`,
+    "--with",
+    MCP_SDK_CONSTRAINT,
     "python",
     "-m",
     "graphify.serve",
@@ -352,8 +362,8 @@ function prBody(): string {
     "sessione, da qualunque cartella:",
     "",
     "```sh",
-    `claude mcp add -s user graphify -- uvx --from "graphifyy[mcp]==${GRAPHIFY_VERSION}" python -m graphify.serve`,
-    `uvx --from "graphifyy[mcp]==${GRAPHIFY_VERSION}" python -c "import graphify"`,
+    `claude mcp add -s user graphify -- uvx --from "graphifyy[mcp]==${GRAPHIFY_VERSION}" --with "${MCP_SDK_CONSTRAINT}" python -m graphify.serve`,
+    `uvx --from "graphifyy[mcp]==${GRAPHIFY_VERSION}" --with "${MCP_SDK_CONSTRAINT}" python -c "import graphify"`,
     "graphify install",
     "```",
     "",

@@ -284,6 +284,8 @@ describe("runGraphSetupPr", () => {
       args: [
         "--from",
         "graphifyy[mcp]==0.9.28",
+        "--with",
+        "mcp<2",
         "python",
         "-m",
         "graphify.serve",

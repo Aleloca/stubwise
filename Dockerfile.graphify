@@ -18,7 +18,11 @@
 # worker.
 FROM python:3.12-slim
 
-RUN pip install --no-cache-dir "graphifyy[mcp,sql]==0.9.28"
+# "mcp<2": graphifyy non pinna l'SDK mcp e la 2.0.0 ha rimosso AnyUrl da
+# mcp.types → il server crasherebbe all'avvio. Stesso vincolo nella voce MCP
+# della setup-PR (apps/worker/src/graph/setup-pr.ts); da togliere insieme
+# all'aggiornamento del pin di graphifyy a una versione compatibile con mcp 2.x.
+RUN pip install --no-cache-dir "graphifyy[mcp,sql]==0.9.28" "mcp<2"
 
 # Utente non-root: il processo legge soltanto il volume dei grafi (montato :ro)
 # e non scrive nulla su disco.

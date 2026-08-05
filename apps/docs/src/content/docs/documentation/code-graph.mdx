@@ -85,10 +85,15 @@ Code only reads it from the directory it was started in. Register the server at
 the **user level** instead — once per machine, works from any folder:
 
 ```sh
-claude mcp add -s user graphify -- uvx --from "graphifyy[mcp]==0.9.28" python -m graphify.serve
-uvx --from "graphifyy[mcp]==0.9.28" python -c "import graphify"
+claude mcp add -s user graphify -- uvx --from "graphifyy[mcp]==0.9.28" --with "mcp<2" python -m graphify.serve
+uvx --from "graphifyy[mcp]==0.9.28" --with "mcp<2" python -c "import graphify"
 graphify install
 ```
+
+The `--with "mcp<2"` constraint matters: graphifyy 0.9.28 does not pin its `mcp`
+SDK dependency, and `mcp` 2.0.0 removed an import the server relies on — without
+the constraint a fresh install crashes on startup (the server shows up as
+**failed** immediately, before the ~30s timeout).
 
 The three lines: register the server, **pre-warm** the `uvx` cache, and
 (optionally) install the user-level `/graphify` skill. No inline comments in
