@@ -1,10 +1,26 @@
-import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import { StubwiseApiError, type StubwiseClient } from "../client.js";
 import type { StubwiseConfig } from "../config.js";
 import type { ToolContext, ToolDef, ToolResult } from "./types.js";
 import { registerWriteTools, writeTools } from "./write.js";
+
+// La risoluzione del progetto rilegge `.stubwise.json` risalendo da
+// process.cwd(): senza questo isolamento i test cambierebbero esito a seconda
+// che il repo di sviluppo abbia (o meno) un .stubwise.json committato.
+let cwdDir: string;
+beforeEach(() => {
+  cwdDir = mkdtempSync(join(tmpdir(), "stubwise-mcp-write-"));
+  vi.spyOn(process, "cwd").mockReturnValue(cwdDir);
+});
+afterEach(() => {
+  vi.restoreAllMocks();
+  rmSync(cwdDir, { recursive: true, force: true });
+});
 
 /** Testo del primo blocco di contenuto (i tool ne emettono sempre uno). */
 function firstText(res: ToolResult): string {
