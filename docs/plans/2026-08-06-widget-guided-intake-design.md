@@ -2,6 +2,7 @@
 stubwise:
   project: stubwise
   backlogItem: 9091d1d0-4481-4807-8678-2eb2e482525b # https://stubwise.thecove.it/backlog/9091d1d0-4481-4807-8678-2eb2e482525b
+  ticket: 1 # https://stubwise.thecove.it/tickets/20782021-7e5b-488c-8ddf-3a9850111731
 ---
 
 # Intake guidato del widget: domande di chiarimento prima del ticket

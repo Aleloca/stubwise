@@ -108,6 +108,24 @@ describe("buildWidgetSystemPrompt", () => {
     expect(prompt).not.toContain(INSTR_HEADING);
     expect(prompt).toContain("GROUND YOUR ANSWERS ONLY IN THE DOCUMENTATION");
   });
+
+  it("intake guidato: domande prima della proposta, sintesi strutturata nel body", () => {
+    const prompt = buildWidgetSystemPrompt([], { language: "it" });
+
+    // Le regole di intake precedono il formato della sentinel.
+    const intakeIdx = prompt.indexOf("GUIDED TICKET INTAKE");
+    const proposalIdx = prompt.indexOf("TICKET PROPOSAL:");
+    expect(intakeIdx).toBeGreaterThan(-1);
+    expect(proposalIdx).toBeGreaterThan(intakeIdx);
+
+    // Tetto alle domande e vie d'uscita (skip su messaggio completo/fretta).
+    expect(prompt).toContain("MAXIMUM of 3 questions");
+    expect(prompt).toContain("SKIP the questions");
+
+    // Il body della proposta sintetizza l'intera conversazione, senza inventare.
+    expect(prompt).toContain("SYNTHESIZE THE WHOLE CONVERSATION");
+    expect(prompt).toContain("never invent details");
+  });
 });
 
 describe("extractProposal", () => {

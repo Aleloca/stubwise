@@ -49,8 +49,12 @@ export interface WidgetRoutesOptions {
 /** Numero massimo di coppie (user+assistant) di storico passate all'LLM. */
 const WIDGET_HISTORY_PAIRS = 10;
 
-/** Numero di messaggi della conversazione inclusi nella trascrizione del ticket. */
-const WIDGET_TICKET_TRANSCRIPT_MESSAGES = 10;
+/**
+ * Numero di messaggi della conversazione inclusi nella trascrizione del ticket.
+ * Dimensionato sull'intake guidato: fino a 3 scambi di domande di chiarimento
+ * prima della proposta, che con 10 taglierebbero l'inizio della conversazione.
+ */
+const WIDGET_TICKET_TRANSCRIPT_MESSAGES = 20;
 
 /** Troncamento di ogni messaggio nella trascrizione, per non gonfiare il body. */
 const WIDGET_TICKET_MESSAGE_MAXLEN = 500;

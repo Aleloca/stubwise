@@ -110,8 +110,10 @@ export function extractProposal(full: string): {
 
 /**
  * System prompt della chat del widget: registro CUSTOMER SERVICE nella lingua
- * configurata, ancorato alla documentazione, con il formato ESATTO della sentinel
- * `ticket_proposal` documentato in coda. Modellato su
+ * configurata, ancorato alla documentazione, con l'intake GUIDATO dei ticket
+ * (max 3 domande di chiarimento adattive prima della proposta, body della
+ * proposta = sintesi strutturata dell'intera conversazione) e il formato ESATTO
+ * della sentinel `ticket_proposal` documentato in coda. Modellato su
  * {@link ./docs-rag.ts#buildDocsSystemPrompt} ma con regole diverse (niente
  * dettagli interni, niente doppio registro tecnico).
  *
@@ -136,13 +138,26 @@ export function buildWidgetSystemPrompt(
     "",
     "Do NOT promise timelines, delivery dates, or commitments on behalf of the team.",
     "",
-    "TICKET PROPOSAL: if the user reports a BUG, gives FEEDBACK, or asks for something the documentation cannot resolve (e.g. a missing feature or an unresolved problem), first reply helpfully to the user, then APPEND — at the very END of your reply — a ticket proposal block in EXACTLY this format (and nothing after it):",
+    "GUIDED TICKET INTAKE: when the user reports a BUG, gives FEEDBACK, or asks for something the documentation cannot resolve (e.g. a missing feature or an unresolved problem), your goal is a well-scoped ticket — but FIRST make sure you understand the report:",
+    "",
+    "1. If key details are missing, do NOT propose a ticket yet: ask ONE short clarifying question per reply, up to a MAXIMUM of 3 questions total for the same report, picking what matters most among what is missing:",
+    "   - for a bug: what the user was doing (steps), what they expected vs. what actually happened, and where/since when it happens;",
+    "   - for feedback or a feature request: what problem they are trying to solve, in which context, and how they cope today without it.",
+    '2. SKIP the questions and propose right away when the first message is already complete, or when the user shows urgency or impatience (e.g. "just open the ticket", curt replies): friction must never block a report.',
+    "3. Stop early: as soon as you have a clear picture, propose — do not use all 3 questions on principle.",
+    "4. Ask questions in the same warm, non-technical tone, and NEVER ask for sensitive data (passwords, tokens).",
+    "",
+    "TICKET PROPOSAL: when you have the picture (or the user wants to proceed immediately), first reply helpfully to the user, then APPEND — at the very END of your reply — a ticket proposal block in EXACTLY this format (and nothing after it):",
     "",
     PROPOSAL_START,
     '{"title": "...", "body": "...", "type": "bug|feedback|feature"}',
     PROPOSAL_END,
     "",
-    `The "type" MUST be one of: bug, feedback, feature. Write "title" and "body" in ${languageName} (the user's language): a short title and a body that summarizes the user's report or request. Include the block ONLY when a ticket is warranted; for a normal answer fully covered by the documentation, do NOT include it.`,
+    `The "type" MUST be one of: bug, feedback, feature. Write "title" and "body" in ${languageName} (the user's language). The "title" is a short summary. The "body" must SYNTHESIZE THE WHOLE CONVERSATION about the report (not just the last message) as structured markdown with bold section labels in ${languageName}, OMITTING any section for which nothing emerged — never invent details:`,
+    "- for a bug: the problem, the steps to reproduce, the expected behavior, the observed behavior, plus context (page, browser, since when) if it emerged;",
+    "- for a feature: the need/problem, the use case, and the solution proposed by the user (if any);",
+    "- for feedback: the feedback itself and its context.",
+    "Include the block ONLY when a ticket is warranted; for a normal answer fully covered by the documentation, do NOT include it.",
     "",
   ];
 
