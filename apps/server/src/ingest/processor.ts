@@ -8,7 +8,7 @@ import type {
   TicketSource,
   TicketType,
 } from "@stubwise/shared";
-import { dispatchNotification, type NotificationEvent } from "@stubwise/notifications";
+import { publishNotification } from "@stubwise/notifications";
 import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "@stubwise/db";
 import { aiJobs, attachments, errorGroups, tickets } from "@stubwise/db";
@@ -36,8 +36,8 @@ export interface ProcessResult {
   deduped: number;
 }
 
-/** Firma del dispatch di notifica iniettabile (default: dispatchNotification). */
-export type DispatchFn = (db: Db, event: NotificationEvent) => Promise<void>;
+/** Firma della publish di notifica iniettabile (default: publishNotification). */
+export type PublishFn = typeof publishNotification;
 
 /**
  * Resolver dello storage attivo, iniettato dal chiamante (in produzione
@@ -132,8 +132,8 @@ async function saveScreenshotAttachment(
 /**
  * Opzioni di processEvents. Oltre agli hook di test, trasportano il contesto
  * necessario alla notifica `ticket.created`: l'URL pubblico per comporre il
- * link al ticket e il nome del progetto da mostrare nel messaggio. `dispatch`
- * è iniettabile nei test (default: la dispatchNotification reale, best-effort).
+ * link al ticket e il nome del progetto da mostrare nel messaggio. `publish`
+ * è iniettabile nei test (default: la publishNotification reale, best-effort).
  */
 export interface ProcessOptions {
   /** Hook di test: chiamato nel percorso errore quando la SELECT non trova il
@@ -144,9 +144,9 @@ export interface ProcessOptions {
   publicUrl?: string;
   /** Nome del progetto da mostrare nella notifica. */
   projectName?: string;
-  /** Dispatch della notifica (iniettabile nei test). Default:
-   * dispatchNotification (best-effort, non lancia mai). */
-  dispatch?: DispatchFn;
+  /** Publish della notifica (iniettabile nei test). Default:
+   * publishNotification (best-effort, non lancia mai). */
+  publish?: PublishFn;
   /** Resolver dello storage attivo per salvare lo screenshot del feedback come
    * allegato (best-effort). Assente = nessuno screenshot salvato. */
   storage?: StorageResolver;
@@ -384,8 +384,12 @@ function ticketUrl(publicUrl: string | undefined, ticketId: string): string {
  * Notifica `ticket.created` per un ticket SDK appena creato (best-effort, DOPO
  * il commit della transazione). Solo per le sorgenti SDK (sdk_error /
  * sdk_feedback): i ticket api/manuali non generano notifica per evitare rumore.
- * Il dispatch reale non lancia mai; il try/catch difende comunque da un
- * dispatch iniettato che lancia, così una notifica non rompe l'ingestion.
+ * La publish reale non lancia mai; il try/catch difende comunque da una publish
+ * iniettata che lancia, così una notifica non rompe l'ingestion.
+ *
+ * ANCORE: progetto e ticket appena creato. NIENTE jobId — il job accodato
+ * dall'ingestion non ha un richiedente umano, quindi non aggiungerebbe
+ * destinatari (il routing lo usa solo per `requested_by_user_id`).
  */
 async function notifyTicketCreated(
   db: Db,
@@ -393,16 +397,20 @@ async function notifyTicketCreated(
   opts: ProcessOptions | undefined,
 ): Promise<void> {
   if (ticket.source !== "sdk_error" && ticket.source !== "sdk_feedback") return;
-  const dispatch = opts?.dispatch ?? dispatchNotification;
+  const publish = opts?.publish ?? publishNotification;
   try {
-    await dispatch(db, {
-      kind: "ticket.created",
-      ticketNumber: ticket.number,
-      ticketTitle: ticket.title,
-      projectName: opts?.projectName ?? "",
-      source: ticket.source,
-      ticketUrl: ticketUrl(opts?.publicUrl, ticket.id),
-    });
+    await publish(
+      db,
+      {
+        kind: "ticket.created",
+        ticketNumber: ticket.number,
+        ticketTitle: ticket.title,
+        projectName: opts?.projectName ?? "",
+        source: ticket.source,
+        ticketUrl: ticketUrl(opts?.publicUrl, ticket.id),
+      },
+      { projectId: ticket.projectId, ticketId: ticket.id },
+    );
   } catch {
     // Best-effort: una notifica fallita non deve mai disfare l'ingestion.
   }

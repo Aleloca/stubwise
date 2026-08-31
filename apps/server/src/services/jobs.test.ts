@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { asc, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { aiJobs, comments, instanceSettings, users, type Db } from "@stubwise/db";
+import { aiJobs, comments, instanceSettings, notifications, users, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { t } from "@stubwise/i18n";
@@ -132,6 +132,49 @@ describe("startRun", () => {
     expect(job?.resumeMode).toBeNull();
     expect(job?.planText).toBeNull();
     expect(job?.requestedByUserId).toBe(operator.id);
+  });
+
+  it("member + piano salvato → notifica job.plan_review in inbox all'admin, agganciata al job", async () => {
+    const ticketId = await seedTicket("## Piano dell'operatore da approvare");
+
+    const result = await startRun(db, {
+      ticketId,
+      actor: operator,
+      publicUrl: "https://stubwise.example.com",
+    });
+    expect(result).toEqual({
+      ok: true,
+      jobId: expect.any(String),
+      status: "awaiting_plan_approval",
+    });
+    const jobId = result.ok ? result.jobId : "";
+
+    // Il parcheggio è la richiesta di approvazione: chi può approvare (admin)
+    // se la deve trovare in inbox, agganciata a progetto, ticket e job.
+    const rows = await db.select().from(notifications).where(eq(notifications.jobId, jobId));
+    expect(rows).toHaveLength(1);
+    const row = rows[0]!;
+    expect(row.userId).toBe(maintainer.id);
+    expect(row.kind).toBe("job.plan_review");
+    expect(row.projectId).toBe(projectId);
+    expect(row.ticketId).toBe(ticketId);
+    expect(row.event).toMatchObject({
+      kind: "job.plan_review",
+      ticketUrl: `https://stubwise.example.com/tickets/${ticketId}`,
+    });
+  });
+
+  it("admin che lancia (nessun parcheggio) → nessuna notifica job.plan_review", async () => {
+    const ticketId = await seedTicket("## Piano che parte subito");
+
+    const result = await startRun(db, { ticketId, actor: maintainer });
+    expect(result.ok && result.status).toBe("queued");
+
+    const rows = await db
+      .select()
+      .from(notifications)
+      .where(eq(notifications.jobId, result.ok ? result.jobId : ""));
+    expect(rows).toHaveLength(0);
   });
 
   it("member + piano salvato + mode:ai_plan → flusso normale queued (il piano non si usa)", async () => {

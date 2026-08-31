@@ -1,5 +1,6 @@
 import { agentRuns, aiJobs, automationRules, comments, encrypt, gitAccounts, instanceSettings, projects, repositories, ticketRepositories, tickets, type Db } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
+import type { PublishOpts } from "@stubwise/notifications";
 import { asc, eq } from "drizzle-orm";
 import { execa } from "execa";
 import { randomBytes } from "node:crypto";
@@ -1710,6 +1711,13 @@ describe("runFix — install delle dipendenze (Task 4)", () => {
   });
 });
 
+/** Cattura di una publish iniettata: evento E riferimenti (le due metà che
+ * ogni punto di emissione deve produrre). */
+interface Published<E> {
+  event: E;
+  opts: PublishOpts;
+}
+
 describe("runFix — notifiche", () => {
   interface Dispatched {
     kind: string;
@@ -1718,7 +1726,7 @@ describe("runFix — notifiche", () => {
     error?: string;
   }
 
-  it("dispatcha job.pr_opened con prUrl e link al ticket sul successo", async () => {
+  it("pubblica job.pr_opened con prUrl, link al ticket e riferimenti sul successo", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
     const ticket = await createTicket(db, fixture);
@@ -1727,14 +1735,15 @@ describe("runFix — notifiche", () => {
       fileChanges: fixChanges(fixture),
     });
     const provider = makeProvider("https://github.com/acme/repo/pull/77");
-    const calls: Dispatched[] = [];
+    const calls: Published<Dispatched>[] = [];
 
     const outcome = await runFix(
       makeDeps(fixture, runner, provider, {
         twoPhase: false,
         publicUrl: "https://stubwise.example.com",
-        dispatch: async (_db, event) => {
-          calls.push(event as unknown as Dispatched);
+        publish: async (_db, event, opts) => {
+          calls.push({ event: event as unknown as Dispatched, opts: opts ?? {} });
+          return { published: 1 };
         },
       }),
       job,
@@ -1742,12 +1751,19 @@ describe("runFix — notifiche", () => {
 
     expect(outcome).toBe("pr_opened");
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.kind).toBe("job.pr_opened");
-    expect(calls[0]!.prUrl).toBe("https://github.com/acme/repo/pull/77");
-    expect(calls[0]!.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
+    expect(calls[0]!.event.kind).toBe("job.pr_opened");
+    expect(calls[0]!.event.prUrl).toBe("https://github.com/acme/repo/pull/77");
+    expect(calls[0]!.event.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
+    // I RIFERIMENTI sono la metà che instrada la notifica: progetto del ticket,
+    // ticket e job del run devono arrivare tutti e tre alla publish.
+    expect(calls[0]!.opts).toEqual({
+      projectId: fixture.projectId,
+      ticketId: ticket.id,
+      jobId: job.id,
+    });
   });
 
-  it("dispatcha job.failed sul fallimento (nessuna modifica)", async () => {
+  it("pubblica job.failed sul fallimento (nessuna modifica)", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
     const ticket = await createTicket(db, fixture);
@@ -1755,14 +1771,15 @@ describe("runFix — notifiche", () => {
     // Nessun file change → NoChangesError → failJob.
     const runner = new FakeAgentRunner();
     const provider = makeProvider();
-    const calls: Dispatched[] = [];
+    const calls: Published<Dispatched>[] = [];
 
     const outcome = await runFix(
       makeDeps(fixture, runner, provider, {
         twoPhase: false,
         publicUrl: "https://stubwise.example.com",
-        dispatch: async (_db, event) => {
-          calls.push(event as unknown as Dispatched);
+        publish: async (_db, event, opts) => {
+          calls.push({ event: event as unknown as Dispatched, opts: opts ?? {} });
+          return { published: 1 };
         },
       }),
       job,
@@ -1770,12 +1787,12 @@ describe("runFix — notifiche", () => {
 
     expect(outcome).toBe("failed");
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.kind).toBe("job.failed");
-    expect(calls[0]!.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
-    expect(typeof calls[0]!.error).toBe("string");
+    expect(calls[0]!.event.kind).toBe("job.failed");
+    expect(calls[0]!.event.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
+    expect(typeof calls[0]!.event.error).toBe("string");
   });
 
-  it("un dispatch che lancia non altera l'esito (best-effort)", async () => {
+  it("una publish che lancia non altera l'esito (best-effort)", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
     const ticket = await createTicket(db, fixture);
@@ -1788,7 +1805,7 @@ describe("runFix — notifiche", () => {
     const outcome = await runFix(
       makeDeps(fixture, runner, provider, {
         twoPhase: false,
-        dispatch: async () => {
+        publish: async () => {
           throw new Error("notifica esplosa");
         },
       }),
@@ -1800,7 +1817,7 @@ describe("runFix — notifiche", () => {
     expect(jobAfter.status).toBe("pr_opened");
   });
 
-  it("plan-only dispatcha job.plan_review con link al ticket", async () => {
+  it("plan-only pubblica job.plan_review con link al ticket", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
     await db.update(automationRules).set({ planApprovalMinEffort: 3 }).where(eq(automationRules.type, "bug"));
@@ -1808,13 +1825,14 @@ describe("runFix — notifiche", () => {
     const job = await createFixingJob(db, ticket.id);
     const runner = new FakeAgentRunner({ results: [{ output: "PIANO", exitCode: 0 }] });
     const provider = makeProvider();
-    const calls: Dispatched[] = [];
+    const calls: Published<Dispatched>[] = [];
 
     const outcome = await runFix(
       makeDeps(fixture, runner, provider, {
         publicUrl: "https://stubwise.example.com",
-        dispatch: async (_db, event) => {
-          calls.push(event as unknown as Dispatched);
+        publish: async (_db, event, opts) => {
+          calls.push({ event: event as unknown as Dispatched, opts: opts ?? {} });
+          return { published: 1 };
         },
       }),
       job,
@@ -1822,8 +1840,8 @@ describe("runFix — notifiche", () => {
 
     expect(outcome).toBe("awaiting_approval");
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.kind).toBe("job.plan_review");
-    expect(calls[0]!.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
+    expect(calls[0]!.event.kind).toBe("job.plan_review");
+    expect(calls[0]!.event.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
   });
 });
 
@@ -1853,15 +1871,16 @@ describe("runFix — budget di costo (Task 6)", () => {
       fileChanges: fixChanges(fixture),
     });
     const provider = makeProvider();
-    const calls: BudgetDispatched[] = [];
+    const calls: Published<BudgetDispatched>[] = [];
 
     const outcome = await runFix(
       makeDeps(fixture, runner, provider, {
         publicUrl: "https://stubwise.example.com",
         monthlyCostUsdFn: async () => 12, // >= 10 → sforato
         ticketCostUsdFn: async () => 0,
-        dispatch: async (_db, event) => {
-          calls.push(event as unknown as BudgetDispatched);
+        publish: async (_db, event, opts) => {
+          calls.push({ event: event as unknown as BudgetDispatched, opts: opts ?? {} });
+          return { published: 1 };
         },
       }),
       job,
@@ -1888,11 +1907,11 @@ describe("runFix — budget di costo (Task 6)", () => {
     expect(ticketComments[0]?.body).toContain("10.0000");
     // Notifica job.budget_held scope monthly con limit/spent.
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.kind).toBe("job.budget_held");
-    expect(calls[0]!.scope).toBe("monthly");
-    expect(calls[0]!.limitUsd).toBe(10);
-    expect(calls[0]!.spentUsd).toBe(12);
-    expect(calls[0]!.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
+    expect(calls[0]!.event.kind).toBe("job.budget_held");
+    expect(calls[0]!.event.scope).toBe("monthly");
+    expect(calls[0]!.event.limitUsd).toBe(10);
+    expect(calls[0]!.event.spentUsd).toBe(12);
+    expect(calls[0]!.event.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
   });
 
   it("pre-fix oltre il tetto-TICKET → job held, notifica scope ticket, niente run né PR", async () => {
@@ -1905,15 +1924,16 @@ describe("runFix — budget di costo (Task 6)", () => {
       fileChanges: fixChanges(fixture),
     });
     const provider = makeProvider();
-    const calls: BudgetDispatched[] = [];
+    const calls: Published<BudgetDispatched>[] = [];
 
     const outcome = await runFix(
       makeDeps(fixture, runner, provider, {
         publicUrl: "https://stubwise.example.com",
         monthlyCostUsdFn: async () => 0, // mensile non impostato/non sforato
         ticketCostUsdFn: async () => 3, // >= 2.5 → sforato
-        dispatch: async (_db, event) => {
-          calls.push(event as unknown as BudgetDispatched);
+        publish: async (_db, event, opts) => {
+          calls.push({ event: event as unknown as BudgetDispatched, opts: opts ?? {} });
+          return { published: 1 };
         },
       }),
       job,
@@ -1928,10 +1948,10 @@ describe("runFix — budget di costo (Task 6)", () => {
     const ticketComments = await db.select().from(comments).where(eq(comments.ticketId, ticket.id));
     expect(ticketComments[0]?.body).toContain("ticket");
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.kind).toBe("job.budget_held");
-    expect(calls[0]!.scope).toBe("ticket");
-    expect(calls[0]!.limitUsd).toBe(2.5);
-    expect(calls[0]!.spentUsd).toBe(3);
+    expect(calls[0]!.event.kind).toBe("job.budget_held");
+    expect(calls[0]!.event.scope).toBe("ticket");
+    expect(calls[0]!.event.limitUsd).toBe(2.5);
+    expect(calls[0]!.event.spentUsd).toBe(3);
   });
 
   it("manualTrigger=true con costi oltre ENTRAMBI i tetti → controlli saltati, il fix procede e apre la PR", async () => {
@@ -1998,7 +2018,7 @@ describe("runFix — budget di costo (Task 6)", () => {
       ],
     });
     const provider = makeProvider();
-    const calls: BudgetDispatched[] = [];
+    const calls: Published<BudgetDispatched>[] = [];
     // Test sempre rossi: senza il budget il loop ri-tenterebbe fino a maxAttempts.
     const runTestCommand = vi.fn(async () => ({ exitCode: 1, output: "FAIL sempre rosso" }));
 
@@ -2009,8 +2029,9 @@ describe("runFix — budget di costo (Task 6)", () => {
         selfRepairMaxAttempts: 2,
         ticketCostUsdFn: async () => 0, // storico vuoto
         monthlyCostUsdFn: async () => 0,
-        dispatch: async (_db, event) => {
-          calls.push(event as unknown as BudgetDispatched);
+        publish: async (_db, event, opts) => {
+          calls.push({ event: event as unknown as BudgetDispatched, opts: opts ?? {} });
+          return { published: 1 };
         },
       }),
       job,
@@ -2037,10 +2058,10 @@ describe("runFix — budget di costo (Task 6)", () => {
     expect(branches).toBe("");
     // Notifica budget_held scope ticket con la spesa STIMATA (0.2) e il tetto (0.15).
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.kind).toBe("job.budget_held");
-    expect(calls[0]!.scope).toBe("ticket");
-    expect(calls[0]!.limitUsd).toBe(0.15);
-    expect(calls[0]!.spentUsd).toBeCloseTo(0.2, 5);
+    expect(calls[0]!.event.kind).toBe("job.budget_held");
+    expect(calls[0]!.event.scope).toBe("ticket");
+    expect(calls[0]!.event.limitUsd).toBe(0.15);
+    expect(calls[0]!.event.spentUsd).toBeCloseTo(0.2, 5);
   });
 });
 

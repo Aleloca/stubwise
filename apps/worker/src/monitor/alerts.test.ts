@@ -1,10 +1,10 @@
-import { serverMetrics, servers, serviceChecks, type Db } from "@stubwise/db";
-import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { serverMetrics, serverProjects, servers, serviceChecks, type Db } from "@stubwise/db";
+import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { AlertThresholds } from "@stubwise/shared";
-import type { MonitorCondition, NotificationEvent } from "@stubwise/notifications";
+import type { MonitorCondition, NotificationEvent, PublishOpts } from "@stubwise/notifications";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { evaluateMonitorAlertsOnce, startMonitorAlertPoller } from "./alerts.js";
+import { evaluateMonitorAlertsOnce, startMonitorAlertPoller, type PublishFn } from "./alerts.js";
 
 // Un container Postgres per file (l'avvio costa secondi). Isolamento tra test:
 // cancella i server in afterEach (cascade FK → metriche e check).
@@ -26,13 +26,21 @@ const NOW = new Date("2026-07-13T12:00:00Z");
 const PUBLIC_URL = "https://stub.example";
 const INTERVAL = 30; // secondi
 
-// Dispatch fake che accumula gli eventi emessi.
-function collector(): { events: NotificationEvent[]; dispatch: (db: Db, e: NotificationEvent) => Promise<void> } {
+/** Publish fake che accumula gli eventi emessi e i loro riferimenti. */
+function collector(): {
+  events: NotificationEvent[];
+  opts: PublishOpts[];
+  publish: PublishFn;
+} {
   const events: NotificationEvent[] = [];
+  const opts: PublishOpts[] = [];
   return {
     events,
-    dispatch: async (_db, e) => {
+    opts,
+    publish: async (_db, e, o) => {
       events.push(e);
+      opts.push(o ?? {});
+      return { published: 1 };
     },
   };
 }
@@ -159,7 +167,7 @@ describe("evaluateMonitorAlertsOnce — offline", () => {
     const serverId = await seedServer(db, { name: "srv-off", lastSeenAt: offlineSeen });
 
     const c1 = collector();
-    await evaluateMonitorAlertsOnce({ db, dispatch: c1.dispatch, publicUrl: PUBLIC_URL }, NOW);
+    await evaluateMonitorAlertsOnce({ db, publish: c1.publish, publicUrl: PUBLIC_URL }, NOW);
     expect(c1.events).toHaveLength(1);
     const ev = c1.events[0]!;
     expect(ev.kind).toBe("monitor.alert");
@@ -172,13 +180,13 @@ describe("evaluateMonitorAlertsOnce — offline", () => {
 
     // Seconda valutazione, ancora offline: nessun nuovo evento (anti-spam).
     const c2 = collector();
-    await evaluateMonitorAlertsOnce({ db, dispatch: c2.dispatch, publicUrl: PUBLIC_URL }, NOW);
+    await evaluateMonitorAlertsOnce({ db, publish: c2.publish, publicUrl: PUBLIC_URL }, NOW);
     expect(c2.events).toHaveLength(0);
 
     // Torna online: recovered e chiave rimossa.
     await db.update(servers).set({ lastSeenAt: NOW }).where(eq(servers.id, serverId));
     const c3 = collector();
-    await evaluateMonitorAlertsOnce({ db, dispatch: c3.dispatch, publicUrl: PUBLIC_URL }, NOW);
+    await evaluateMonitorAlertsOnce({ db, publish: c3.publish, publicUrl: PUBLIC_URL }, NOW);
     expect(c3.events).toHaveLength(1);
     expect(c3.events[0]!.kind).toBe("monitor.recovered");
     expect(conditionsOf(c3.events)).toEqual(["offline"]);
@@ -190,7 +198,7 @@ describe("evaluateMonitorAlertsOnce — offline", () => {
     const { db } = testDb;
     const serverId = await seedServer(db, { lastSeenAt: null });
     const c = collector();
-    await evaluateMonitorAlertsOnce({ db, dispatch: c.dispatch, publicUrl: PUBLIC_URL }, NOW);
+    await evaluateMonitorAlertsOnce({ db, publish: c.publish, publicUrl: PUBLIC_URL }, NOW);
     expect(c.events).toHaveLength(0);
     expect(await readActiveAlerts(db, serverId)).toEqual({});
   });
@@ -208,7 +216,7 @@ describe("evaluateMonitorAlertsOnce — soglie sostenute", () => {
     await seedWindow(db, serverId, 6, { cpuPct: 97 });
 
     const c = collector();
-    await evaluateMonitorAlertsOnce({ db, dispatch: c.dispatch, publicUrl: PUBLIC_URL }, NOW);
+    await evaluateMonitorAlertsOnce({ db, publish: c.publish, publicUrl: PUBLIC_URL }, NOW);
     expect(c.events).toHaveLength(1);
     expect(c.events[0]!.kind).toBe("monitor.alert");
     expect(conditionsOf(c.events)).toEqual(["cpu"]);
@@ -222,7 +230,7 @@ describe("evaluateMonitorAlertsOnce — soglie sostenute", () => {
     await seedWindow(db, serverId, 8, (i) => ({ cpuPct: i < 5 ? 99 : 20 }));
 
     const c = collector();
-    await evaluateMonitorAlertsOnce({ db, dispatch: c.dispatch, publicUrl: PUBLIC_URL }, NOW);
+    await evaluateMonitorAlertsOnce({ db, publish: c.publish, publicUrl: PUBLIC_URL }, NOW);
     expect(c.events).toHaveLength(0);
     expect((await readActiveAlerts(db, serverId)).cpu).toBeUndefined();
   });
@@ -234,7 +242,7 @@ describe("evaluateMonitorAlertsOnce — soglie sostenute", () => {
     await seedWindow(db, serverId, 3, { cpuPct: 99 });
 
     const c = collector();
-    await evaluateMonitorAlertsOnce({ db, dispatch: c.dispatch, publicUrl: PUBLIC_URL }, NOW);
+    await evaluateMonitorAlertsOnce({ db, publish: c.publish, publicUrl: PUBLIC_URL }, NOW);
     expect(c.events).toHaveLength(0);
   });
 
@@ -246,7 +254,7 @@ describe("evaluateMonitorAlertsOnce — soglie sostenute", () => {
     await seedWindow(db, serverId, 8, { cpuPct: 100 });
 
     const c = collector();
-    await evaluateMonitorAlertsOnce({ db, dispatch: c.dispatch, publicUrl: PUBLIC_URL }, NOW);
+    await evaluateMonitorAlertsOnce({ db, publish: c.publish, publicUrl: PUBLIC_URL }, NOW);
     expect(c.events).toHaveLength(0);
   });
 
@@ -257,7 +265,7 @@ describe("evaluateMonitorAlertsOnce — soglie sostenute", () => {
     await seedWindow(db, serverId, 6, { memUsedBytes: 950, memTotalBytes: 1000 });
 
     const c = collector();
-    await evaluateMonitorAlertsOnce({ db, dispatch: c.dispatch, publicUrl: PUBLIC_URL }, NOW);
+    await evaluateMonitorAlertsOnce({ db, publish: c.publish, publicUrl: PUBLIC_URL }, NOW);
     expect(conditionsOf(c.events)).toContain("mem");
   });
 
@@ -267,7 +275,7 @@ describe("evaluateMonitorAlertsOnce — soglie sostenute", () => {
     await seedWindow(db, serverId, 6, { diskUsedBytes: 950, diskTotalBytes: 1000 });
 
     const c = collector();
-    await evaluateMonitorAlertsOnce({ db, dispatch: c.dispatch, publicUrl: PUBLIC_URL }, NOW);
+    await evaluateMonitorAlertsOnce({ db, publish: c.publish, publicUrl: PUBLIC_URL }, NOW);
     expect(conditionsOf(c.events)).toContain("disk");
   });
 
@@ -277,7 +285,7 @@ describe("evaluateMonitorAlertsOnce — soglie sostenute", () => {
     await seedWindow(db, serverId, 6, { cpuPct: 97 });
 
     const c1 = collector();
-    await evaluateMonitorAlertsOnce({ db, dispatch: c1.dispatch, publicUrl: PUBLIC_URL }, NOW);
+    await evaluateMonitorAlertsOnce({ db, publish: c1.publish, publicUrl: PUBLIC_URL }, NOW);
     expect((await readActiveAlerts(db, serverId)).cpu).toBeDefined();
 
     // Sostituisci con campioni sotto soglia.
@@ -285,7 +293,7 @@ describe("evaluateMonitorAlertsOnce — soglie sostenute", () => {
     await seedWindow(db, serverId, 6, { cpuPct: 20 });
 
     const c2 = collector();
-    await evaluateMonitorAlertsOnce({ db, dispatch: c2.dispatch, publicUrl: PUBLIC_URL }, NOW);
+    await evaluateMonitorAlertsOnce({ db, publish: c2.publish, publicUrl: PUBLIC_URL }, NOW);
     expect(c2.events).toHaveLength(1);
     expect(c2.events[0]!.kind).toBe("monitor.recovered");
     expect(conditionsOf(c2.events)).toEqual(["cpu"]);
@@ -296,7 +304,7 @@ describe("evaluateMonitorAlertsOnce — soglie sostenute", () => {
     const { db } = testDb;
     const serverId = await seedServer(db);
     await seedWindow(db, serverId, 6, { cpuPct: 97 });
-    await evaluateMonitorAlertsOnce({ db, dispatch: collector().dispatch, publicUrl: PUBLIC_URL }, NOW);
+    await evaluateMonitorAlertsOnce({ db, publish: collector().publish, publicUrl: PUBLIC_URL }, NOW);
     expect((await readActiveAlerts(db, serverId)).cpu).toBeDefined();
 
     // Finestra con evidenza insufficiente: 2 campioni sotto soglia (< 50% dei
@@ -305,7 +313,7 @@ describe("evaluateMonitorAlertsOnce — soglie sostenute", () => {
     await seedWindow(db, serverId, 2, { cpuPct: 20 });
 
     const c = collector();
-    await evaluateMonitorAlertsOnce({ db, dispatch: c.dispatch, publicUrl: PUBLIC_URL }, NOW);
+    await evaluateMonitorAlertsOnce({ db, publish: c.publish, publicUrl: PUBLIC_URL }, NOW);
     expect(c.events).toHaveLength(0);
     expect((await readActiveAlerts(db, serverId)).cpu).toBeDefined();
   });
@@ -314,7 +322,7 @@ describe("evaluateMonitorAlertsOnce — soglie sostenute", () => {
     const { db } = testDb;
     const serverId = await seedServer(db);
     await seedWindow(db, serverId, 6, { cpuPct: 97 });
-    await evaluateMonitorAlertsOnce({ db, dispatch: collector().dispatch, publicUrl: PUBLIC_URL }, NOW);
+    await evaluateMonitorAlertsOnce({ db, publish: collector().publish, publicUrl: PUBLIC_URL }, NOW);
     expect((await readActiveAlerts(db, serverId)).cpu).toBeDefined();
 
     // L'utente disattiva la soglia cpu mentre l'alert è attivo.
@@ -324,7 +332,7 @@ describe("evaluateMonitorAlertsOnce — soglie sostenute", () => {
       .where(eq(servers.id, serverId));
 
     const c = collector();
-    await evaluateMonitorAlertsOnce({ db, dispatch: c.dispatch, publicUrl: PUBLIC_URL }, NOW);
+    await evaluateMonitorAlertsOnce({ db, publish: c.publish, publicUrl: PUBLIC_URL }, NOW);
     // Nessun recovered (disattivare una soglia non è un rientro) e chiave pulita.
     expect(c.events).toHaveLength(0);
     expect((await readActiveAlerts(db, serverId)).cpu).toBeUndefined();
@@ -335,7 +343,7 @@ describe("evaluateMonitorAlertsOnce — soglie sostenute", () => {
     const serverId = await seedServer(db);
     await seedWindow(db, serverId, 6, { cpuPct: 97 });
     // Prima valutazione online: scatta l'alert cpu.
-    await evaluateMonitorAlertsOnce({ db, dispatch: collector().dispatch, publicUrl: PUBLIC_URL }, NOW);
+    await evaluateMonitorAlertsOnce({ db, publish: collector().publish, publicUrl: PUBLIC_URL }, NOW);
     expect((await readActiveAlerts(db, serverId)).cpu).toBeDefined();
 
     // Ora il server va offline (nessun campione recente sopra soglia da valutare).
@@ -344,7 +352,7 @@ describe("evaluateMonitorAlertsOnce — soglie sostenute", () => {
       .set({ lastSeenAt: new Date(NOW.getTime() - 4 * INTERVAL * 1000) })
       .where(eq(servers.id, serverId));
     const c = collector();
-    await evaluateMonitorAlertsOnce({ db, dispatch: c.dispatch, publicUrl: PUBLIC_URL }, NOW);
+    await evaluateMonitorAlertsOnce({ db, publish: c.publish, publicUrl: PUBLIC_URL }, NOW);
     // L'alert cpu NON viene risolto (non valutabile da offline); scatta offline.
     expect(conditionsOf(c.events)).toContain("offline");
     expect(c.events.map((e) => e.kind)).not.toContain("monitor.recovered");
@@ -368,7 +376,7 @@ describe("evaluateMonitorAlertsOnce — check down", () => {
     });
 
     const c1 = collector();
-    await evaluateMonitorAlertsOnce({ db, dispatch: c1.dispatch, publicUrl: PUBLIC_URL }, NOW);
+    await evaluateMonitorAlertsOnce({ db, publish: c1.publish, publicUrl: PUBLIC_URL }, NOW);
     expect(c1.events).toHaveLength(1);
     expect(c1.events[0]!.kind).toBe("monitor.alert");
     expect(conditionsOf(c1.events)).toEqual(["check_down"]);
@@ -380,7 +388,7 @@ describe("evaluateMonitorAlertsOnce — check down", () => {
 
     // Già notificato: niente.
     const c2 = collector();
-    await evaluateMonitorAlertsOnce({ db, dispatch: c2.dispatch, publicUrl: PUBLIC_URL }, NOW);
+    await evaluateMonitorAlertsOnce({ db, publish: c2.publish, publicUrl: PUBLIC_URL }, NOW);
     expect(c2.events).toHaveLength(0);
   });
 
@@ -393,7 +401,7 @@ describe("evaluateMonitorAlertsOnce — check down", () => {
     });
 
     const c = collector();
-    await evaluateMonitorAlertsOnce({ db, dispatch: c.dispatch, publicUrl: PUBLIC_URL }, NOW);
+    await evaluateMonitorAlertsOnce({ db, publish: c.publish, publicUrl: PUBLIC_URL }, NOW);
     expect(c.events).toHaveLength(1);
     expect(c.events[0]!.kind).toBe("monitor.recovered");
     expect(conditionsOf(c.events)).toEqual(["check_down"]);
@@ -409,8 +417,56 @@ describe("evaluateMonitorAlertsOnce — check down", () => {
     const serverId = await seedServer(db);
     await seedCheck(db, serverId, { enabled: false, lastStatus: "down", downNotifiedAt: null });
     const c = collector();
-    await evaluateMonitorAlertsOnce({ db, dispatch: c.dispatch, publicUrl: PUBLIC_URL }, NOW);
+    await evaluateMonitorAlertsOnce({ db, publish: c.publish, publicUrl: PUBLIC_URL }, NOW);
     expect(c.events).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Ancore (riferimenti) degli eventi monitor.*
+// ---------------------------------------------------------------------------
+
+describe("evaluateMonitorAlertsOnce — riferimenti dell'evento", () => {
+  it("server legato a UN progetto → l'evento porta quel projectId", async () => {
+    const { db } = testDb;
+    const { projectId } = await seedRepository(db);
+    const serverId = await seedServer(db, {
+      lastSeenAt: new Date(NOW.getTime() - 4 * INTERVAL * 1000),
+    });
+    await db.insert(serverProjects).values({ serverId, projectId });
+
+    const c = collector();
+    await evaluateMonitorAlertsOnce({ db, publish: c.publish, publicUrl: PUBLIC_URL }, NOW);
+    expect(conditionsOf(c.events)).toEqual(["offline"]);
+    expect(c.opts[0]).toEqual({ projectId });
+  });
+
+  it("server condiviso tra PIÙ progetti → nessuna ancora (legame ambiguo)", async () => {
+    const { db } = testDb;
+    const a = await seedRepository(db);
+    const b = await seedRepository(db);
+    const serverId = await seedServer(db, {
+      lastSeenAt: new Date(NOW.getTime() - 4 * INTERVAL * 1000),
+    });
+    await db.insert(serverProjects).values([
+      { serverId, projectId: a.projectId },
+      { serverId, projectId: b.projectId },
+    ]);
+
+    const c = collector();
+    await evaluateMonitorAlertsOnce({ db, publish: c.publish, publicUrl: PUBLIC_URL }, NOW);
+    expect(conditionsOf(c.events)).toEqual(["offline"]);
+    expect(c.opts[0]).toEqual({});
+  });
+
+  it("server senza progetti → nessuna ancora (gli admin la vedono comunque)", async () => {
+    const { db } = testDb;
+    await seedServer(db, { lastSeenAt: new Date(NOW.getTime() - 4 * INTERVAL * 1000) });
+
+    const c = collector();
+    await evaluateMonitorAlertsOnce({ db, publish: c.publish, publicUrl: PUBLIC_URL }, NOW);
+    expect(conditionsOf(c.events)).toEqual(["offline"]);
+    expect(c.opts[0]).toEqual({});
   });
 });
 
@@ -435,7 +491,7 @@ describe("evaluateMonitorAlertsOnce — robustezza", () => {
 
     const c = collector();
     await expect(
-      evaluateMonitorAlertsOnce({ db, dispatch: c.dispatch, publicUrl: PUBLIC_URL }, NOW),
+      evaluateMonitorAlertsOnce({ db, publish: c.publish, publicUrl: PUBLIC_URL }, NOW),
     ).resolves.toBeUndefined();
     const offline = c.events.filter(isMonitor).find((e) => e.condition === "offline");
     expect(offline).toBeDefined();
@@ -443,18 +499,18 @@ describe("evaluateMonitorAlertsOnce — robustezza", () => {
     expect(offline!.url).toBe(`${PUBLIC_URL}/monitor/servers/${goodId}`);
   });
 
-  it("un dispatch che lancia non propaga e lo stato anti-spam risulta comunque persistito", async () => {
+  it("una publish che lancia non propaga e lo stato anti-spam risulta comunque persistito", async () => {
     const { db } = testDb;
     const serverId = await seedServer(db, {
       lastSeenAt: new Date(NOW.getTime() - 4 * INTERVAL * 1000),
     });
-    const throwing = async (): Promise<void> => {
+    const throwing: PublishFn = async () => {
       throw new Error("boom");
     };
     await expect(
-      evaluateMonitorAlertsOnce({ db, dispatch: throwing, publicUrl: PUBLIC_URL }, NOW),
+      evaluateMonitorAlertsOnce({ db, publish: throwing, publicUrl: PUBLIC_URL }, NOW),
     ).resolves.toBeUndefined();
-    // Persist-before-notify: activeAlerts è scritto PRIMA del dispatch, quindi
+    // Persist-before-notify: activeAlerts è scritto PRIMA della publish, quindi
     // anche con la notifica fallita l'anti-spam riflette realtà committata
     // (meglio una notifica persa di un doppio alert).
     expect((await readActiveAlerts(db, serverId)).offline).toBeDefined();
@@ -493,7 +549,7 @@ describe("startMonitorAlertPoller", () => {
     const controller = new AbortController();
     const stop = startMonitorAlertPoller({
       db,
-      dispatch: c.dispatch,
+      publish: c.publish,
       publicUrl: PUBLIC_URL,
       intervalMinutes: 0.001,
       signal: controller.signal,

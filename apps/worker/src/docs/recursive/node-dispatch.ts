@@ -1,7 +1,7 @@
 import { docGenerations, projects, repositories, type Db } from "@stubwise/db";
 import { eq } from "drizzle-orm";
 import type { AgentRunner } from "../../agent/runner.js";
-import { notify, type DispatchFn } from "../../pipeline/notify.js";
+import { notify, type PublishFn } from "../../pipeline/notify.js";
 import {
   loadProviderById,
   loadProviderChain,
@@ -126,8 +126,8 @@ export interface DispatchNodeDeps {
   /** URL pubblico dell'istanza (PUBLIC_URL, senza slash finali) per i link
    * delle notifiche; assente/vuoto = il link alla pagina Docs è il solo path. */
   publicUrl?: string;
-  /** Dispatch delle notifiche (iniettabile nei test). Default: dispatchNotification. */
-  dispatch?: DispatchFn;
+  /** Publish delle notifiche (iniettabile nei test). Default: publishNotification. */
+  publish?: PublishFn;
 }
 
 /**
@@ -332,14 +332,18 @@ async function notifyLimitPaused(deps: DispatchNodeDeps, repositoryId: string): 
   const { db } = deps;
   try {
     const [row] = await db
-      .select({ repositoryName: repositories.name, projectName: projects.name })
+      .select({
+        repositoryName: repositories.name,
+        projectName: projects.name,
+        projectId: projects.id,
+      })
       .from(repositories)
       .innerJoin(projects, eq(projects.id, repositories.projectId))
       .where(eq(repositories.id, repositoryId));
     if (!row) return;
     const base = (deps.publicUrl ?? "").replace(/\/+$/, "");
     await notify(
-      { ...(deps.dispatch !== undefined ? { dispatch: deps.dispatch } : {}) },
+      { ...(deps.publish !== undefined ? { publish: deps.publish } : {}) },
       db,
       {
         kind: "docs.limit_paused",
@@ -348,6 +352,9 @@ async function notifyLimitPaused(deps: DispatchNodeDeps, repositoryId: string): 
         docsUrl: `${base}/docs/${repositoryId}`,
         reason: LIMIT_PAUSE_REASON,
       },
+      // Nessun ticket né job dietro una generazione Docs: l'unica ancora è il
+      // progetto del repository (la stessa select che dà i nomi).
+      { projectId: row.projectId },
     );
   } catch (error) {
     console.error(

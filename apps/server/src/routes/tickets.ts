@@ -29,6 +29,7 @@ import {
   users,
 } from "@stubwise/db";
 import { maybeEnqueueBacklogIntake } from "../backlog/enqueue.js";
+import { publicUrlOrUndefined } from "../ingest/shared.js";
 import { createTicket, ProjectNotFoundError, type Ticket } from "../db/tickets.js";
 import { apiError } from "../errors.js";
 import { resolvePlan, startRun, type ResolvePlanResult } from "../services/jobs.js";
@@ -1266,6 +1267,9 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         actor: request.user!,
         mode: request.body?.mode,
         withInstructions: request.body?.withInstructions,
+        // Serve al link della notifica job.plan_review quando il run di un
+        // operator nasce già parcheggiato sul gate del piano.
+        publicUrl: publicUrlOrUndefined(app),
       });
       if (!result.ok) {
         if (result.error === "ticket_not_found") {

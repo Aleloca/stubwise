@@ -1,8 +1,9 @@
-import { serverMetrics, servers, serviceChecks, type Db } from "@stubwise/db";
+import { serverMetrics, serverProjects, servers, serviceChecks, type Db } from "@stubwise/db";
 import {
-  dispatchNotification,
+  publishNotification,
   type MonitorCondition,
   type NotificationEvent,
+  type PublishOpts,
 } from "@stubwise/notifications";
 import {
   alertThresholdsSchema,
@@ -37,11 +38,18 @@ import { and, eq, gte } from "drizzle-orm";
  *
  * Robustezza: try/catch PER SERVER e PER CHECK — un dato sporco (es. thresholds
  * jsonb malformati) non ferma gli altri. La funzione non lancia MAI. Le notifiche
- * sono best-effort: un dispatch che lancia viene inghiottito.
+ * sono best-effort: una publish che lancia viene inghiottita.
+ *
+ * ANCORE degli eventi `monitor.*`: non c'è né ticket né job dietro un alert. Un
+ * server può essere condiviso da più progetti (`server_projects` è N:M): si
+ * passa `projectId` solo quando il legame è NON AMBIGUO (esattamente un
+ * progetto), altrimenti nessuna ancora. Il pubblico non cambia comunque — i
+ * `monitor.*` sono admin-only — cambia solo il progetto a cui la notifica
+ * risulta agganciata.
  */
 
-/** Firma del dispatch iniettabile (default: dispatchNotification). */
-export type DispatchFn = (db: Db, event: NotificationEvent) => Promise<void>;
+/** Firma della publish iniettabile (default: publishNotification). */
+export type PublishFn = typeof publishNotification;
 
 /** Chiavi di `activeAlerts` gestite come condizioni con isteresi. */
 type ThresholdKey = "cpu" | "mem" | "disk";
@@ -64,18 +72,49 @@ function pctOf(used: number, total: number): number | null {
 }
 
 /** Emette una notifica best-effort: mai propaga (una notifica non altera lo stato). */
-async function safeDispatch(dispatch: DispatchFn, db: Db, event: NotificationEvent): Promise<void> {
+async function safePublish(
+  publish: PublishFn,
+  db: Db,
+  event: NotificationEvent,
+  opts: PublishOpts,
+): Promise<void> {
   try {
-    await dispatch(db, event);
+    await publish(db, event, opts);
   } catch {
     // Best-effort: la notifica non deve mai far fallire la valutazione.
   }
 }
 
+/**
+ * Ancore dell'evento per un server: il progetto collegato SE ne esiste
+ * esattamente uno (vedi docblock del modulo). Il risultato è memoizzato dal
+ * chiamante per server, così un giro senza alert non paga la query.
+ */
+async function serverRefs(db: Db, serverId: string): Promise<PublishOpts> {
+  try {
+    const rows = await db
+      .select({ projectId: serverProjects.projectId })
+      .from(serverProjects)
+      .where(eq(serverProjects.serverId, serverId))
+      .limit(2);
+    return rows.length === 1 ? { projectId: rows[0]!.projectId } : {};
+  } catch {
+    // Best-effort come tutto il resto della notifica: senza ancora si pubblica
+    // lo stesso (gli admin la vedono comunque).
+    return {};
+  }
+}
+
+/** Memoizza `serverRefs`: UNA query per server, e solo se serve davvero. */
+function lazyServerRefs(db: Db, serverId: string): () => Promise<PublishOpts> {
+  let pending: Promise<PublishOpts> | undefined;
+  return () => (pending ??= serverRefs(db, serverId));
+}
+
 export interface EvaluateMonitorAlertsDeps {
   db: Db;
-  /** Dispatch iniettabile nei test. Default: dispatchNotification. */
-  dispatch?: DispatchFn;
+  /** Publish iniettabile nei test. Default: publishNotification. */
+  publish?: PublishFn;
   /** URL pubblico dell'istanza (senza slash finali): base dei link nei payload. */
   publicUrl: string;
 }
@@ -89,7 +128,7 @@ export async function evaluateMonitorAlertsOnce(
   now: Date = new Date(),
 ): Promise<void> {
   const { db } = deps;
-  const dispatch = deps.dispatch ?? dispatchNotification;
+  const publish = deps.publish ?? publishNotification;
   const base = deps.publicUrl.replace(/\/+$/, "");
 
   let allServers: (typeof servers.$inferSelect)[];
@@ -102,9 +141,11 @@ export async function evaluateMonitorAlertsOnce(
 
   for (const server of allServers) {
     const url = `${base}/monitor/servers/${server.id}`;
+    // Ancore risolte al massimo UNA volta per server (e solo se si notifica).
+    const refs = lazyServerRefs(db, server.id);
     // Stato host (offline + soglie): isolato dai check, isolato dagli altri server.
     try {
-      await evaluateServerStatus(db, dispatch, server, url, now);
+      await evaluateServerStatus(db, publish, refs, server, url, now);
     } catch (err) {
       console.error(
         `[stubwise-worker] monitor-alerts: server ${server.id} fallito: ${errText(err)}`,
@@ -118,7 +159,7 @@ export async function evaluateMonitorAlertsOnce(
         .where(eq(serviceChecks.serverId, server.id));
       for (const check of checks) {
         try {
-          await evaluateCheck(db, dispatch, server.name, check, url, now);
+          await evaluateCheck(db, publish, refs, server.name, check, url, now);
         } catch (err) {
           console.error(
             `[stubwise-worker] monitor-alerts: check ${check.id} fallito: ${errText(err)}`,
@@ -136,7 +177,8 @@ export async function evaluateMonitorAlertsOnce(
 /** Valuta offline + soglie sostenute per un server, aggiornando `activeAlerts`. */
 async function evaluateServerStatus(
   db: Db,
-  dispatch: DispatchFn,
+  publish: PublishFn,
+  refs: () => Promise<PublishOpts>,
   server: typeof servers.$inferSelect,
   url: string,
   now: Date,
@@ -256,8 +298,11 @@ async function evaluateServerStatus(
   if (changed) {
     await db.update(servers).set({ activeAlerts: active }).where(eq(servers.id, server.id));
   }
-  for (const event of pending) {
-    await safeDispatch(dispatch, db, event);
+  if (pending.length > 0) {
+    const opts = await refs();
+    for (const event of pending) {
+      await safePublish(publish, db, event, opts);
+    }
   }
 }
 
@@ -305,7 +350,8 @@ async function loadWindowSamples(
  */
 async function evaluateCheck(
   db: Db,
-  dispatch: DispatchFn,
+  publish: PublishFn,
+  refs: () => Promise<PublishOpts>,
   serverName: string,
   check: typeof serviceChecks.$inferSelect,
   url: string,
@@ -316,13 +362,12 @@ async function evaluateCheck(
     const detail = check.lastError
       ? `Check "${check.name}" non raggiungibile: ${check.lastError}`
       : `Check "${check.name}" non raggiungibile`;
-    await safeDispatch(dispatch, db, {
-      kind: "monitor.alert",
-      serverName,
-      condition: "check_down",
-      detail,
-      url,
-    });
+    await safePublish(
+      publish,
+      db,
+      { kind: "monitor.alert", serverName, condition: "check_down", detail, url },
+      await refs(),
+    );
     return;
   }
   if (
@@ -333,19 +378,24 @@ async function evaluateCheck(
       .update(serviceChecks)
       .set({ downNotifiedAt: null })
       .where(eq(serviceChecks.id, check.id));
-    await safeDispatch(dispatch, db, {
-      kind: "monitor.recovered",
-      serverName,
-      condition: "check_down",
-      detail: `Check "${check.name}" di nuovo raggiungibile`,
-      url,
-    });
+    await safePublish(
+      publish,
+      db,
+      {
+        kind: "monitor.recovered",
+        serverName,
+        condition: "check_down",
+        detail: `Check "${check.name}" di nuovo raggiungibile`,
+        url,
+      },
+      await refs(),
+    );
   }
 }
 
 export interface StartMonitorAlertPollerOptions {
   db: Db;
-  dispatch?: DispatchFn;
+  publish?: PublishFn;
   publicUrl: string;
   /** Intervallo di poll in minuti. ≤ 0 = disabilitato (non avvia nulla). */
   intervalMinutes: number;
@@ -370,7 +420,7 @@ export function startMonitorAlertPoller(opts: StartMonitorAlertPollerOptions): (
     try {
       await evaluateMonitorAlertsOnce({
         db: opts.db,
-        dispatch: opts.dispatch,
+        publish: opts.publish,
         publicUrl: opts.publicUrl,
       });
     } catch (err) {

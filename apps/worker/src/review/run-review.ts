@@ -27,7 +27,7 @@ import {
   type BlastRadius,
 } from "../graph/blast-radius.js";
 import { toSingleLine } from "../pipeline/prompts.js";
-import { notify, ticketUrl, type DispatchFn } from "../pipeline/notify.js";
+import { notify, ticketUrl, type PublishFn } from "../pipeline/notify.js";
 import {
   loadProviderById,
   loadProviderChain,
@@ -141,8 +141,8 @@ export interface RunPrReviewDeps {
   loadProviderChainFn?: typeof loadProviderChain;
   /** Costo mensile dell'istanza (iniettabile). Default: monthlyCostUsd. */
   monthlyCostUsdFn?: (db: Db) => Promise<number>;
-  /** Dispatch delle notifiche (iniettabile). Default: dispatchNotification. */
-  dispatch?: DispatchFn;
+  /** Publish delle notifiche (iniettabile). Default: publishNotification. */
+  publish?: PublishFn;
 }
 
 function errText(err: unknown): string {
@@ -750,7 +750,7 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
       {
         ...(deps.publicUrl !== undefined ? { publicUrl: deps.publicUrl } : {}),
         projectName: ctx.repositoryName,
-        ...(deps.dispatch !== undefined ? { dispatch: deps.dispatch } : {}),
+        ...(deps.publish !== undefined ? { publish: deps.publish } : {}),
       },
       deps.db,
       {
@@ -762,6 +762,11 @@ export async function runPrReview(deps: RunPrReviewDeps, job: PrReviewJobRow): P
         prUrl: job.prUrl,
         verdict: parsed.verdict,
       },
+      // NIENTE jobId: il "job" della review è una riga `pr_review_jobs`, mentre
+      // `notifications.job_id` ha la FK su `ai_jobs` — passarlo qui farebbe
+      // fallire l'insert (e la notifica sparirebbe in silenzio). Le ancore
+      // vere sono progetto e ticket collegato.
+      { projectId: ctx.projectId, ticketId: ticket.id },
     );
   } catch (err) {
     // Errore inatteso: chiudi la riga running e logga, MAI propagare.

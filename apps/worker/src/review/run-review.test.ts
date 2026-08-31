@@ -14,7 +14,7 @@ import {
 } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { GitProvider } from "@stubwise/git";
-import type { NotificationEvent } from "@stubwise/notifications";
+import type { NotificationEvent, PublishOpts } from "@stubwise/notifications";
 import { eq } from "drizzle-orm";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -165,7 +165,8 @@ interface Fakes {
   };
   upsertPrComment: ReturnType<typeof vi.fn>;
   getPullRequestState: ReturnType<typeof vi.fn>;
-  dispatched: NotificationEvent[];
+  /** Notifiche pubblicate: evento + riferimenti. */
+  dispatched: { event: NotificationEvent; opts: PublishOpts }[];
 }
 
 function makeFakes(overrides: Partial<RunPrReviewDeps> = {}): Fakes {
@@ -179,7 +180,7 @@ function makeFakes(overrides: Partial<RunPrReviewDeps> = {}): Fakes {
   const runner = { run: vi.fn(async () => makeRunResult()) };
   const upsertPrComment = vi.fn(async () => {});
   const getPullRequestState = vi.fn(async () => "open" as const);
-  const dispatched: NotificationEvent[] = [];
+  const dispatched: { event: NotificationEvent; opts: PublishOpts }[] = [];
   const deps: RunPrReviewDeps = {
     db: testDb.db,
     mirrors: mirrors as unknown as Pick<MirrorManager, "withWorktreeAtSha" | "getPrDiff">,
@@ -191,8 +192,9 @@ function makeFakes(overrides: Partial<RunPrReviewDeps> = {}): Fakes {
     publicUrl: "https://stubwise.example.com",
     getProviderFn: () =>
       ({ upsertPrComment, getPullRequestState }) as unknown as GitProvider,
-    dispatch: async (_db, event) => {
-      dispatched.push(event);
+    publish: async (_db, event, opts) => {
+      dispatched.push({ event, opts: opts ?? {} });
+      return { published: 1 };
     },
     ...overrides,
   };
@@ -269,15 +271,18 @@ describe("runPrReview", () => {
     expect(runs[0]!.jobId).toBeNull();
     expect(Number(runs[0]!.costUsd)).toBeCloseTo(0.5);
 
-    // Notifica review.completed dispatchata.
+    // Notifica review.completed pubblicata.
     expect(fakes.dispatched).toHaveLength(1);
-    const event = fakes.dispatched[0]!;
+    const event = fakes.dispatched[0]!.event;
     expect(event.kind).toBe("review.completed");
     if (event.kind === "review.completed") {
       expect(event.verdict).toBe("request_changes");
       expect(event.prUrl).toBe(job.prUrl);
       expect(event.ticketNumber).toBe(ticket.number);
     }
+    // Riferimenti: progetto e ticket della review. NIENTE jobId — il "job"
+    // della review non è un ai_job (FK di notifications.job_id).
+    expect(fakes.dispatched[0]!.opts).toEqual({ projectId, ticketId: ticket.id });
   });
 
   it("PR stubwise: commenta il ticket esistente senza crearne uno nuovo", async () => {

@@ -10,9 +10,11 @@
  *  - `member` = OPERATOR: propone il lavoro, ma non lo approva. Ogni run che
  *    chiede si ferma sul gate del piano prima di toccare il codice.
  */
-import { aiJobs, comments, tickets, type Db } from "@stubwise/db";
+import { aiJobs, comments, projects, tickets, type Db } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
+import { publishNotification } from "@stubwise/notifications";
 import { and, desc, eq, notInArray, sql } from "drizzle-orm";
+import { ticketUrl } from "../ingest/shared.js";
 import { getContentLanguage } from "../settings.js";
 
 /** Chi chiede l'azione: `id` per l'audit sul job, `role` per i permessi. */
@@ -44,6 +46,13 @@ export interface StartRunInput {
    * commenti del team lasciati sul ticket. Perde contro il piano salvato.
    */
   withInstructions?: boolean;
+  /**
+   * URL pubblico dell'istanza (PUBLIC_URL), per il link al ticket nella
+   * notifica `job.plan_review` del ramo parcheggiato. Assente = il link è il
+   * solo path (stessa convenzione di `ingest/shared.ts`). Il servizio non
+   * conosce fastify: la rotta glielo passa con `publicUrlOrUndefined(app)`.
+   */
+  publicUrl?: string;
 }
 
 /**
@@ -64,6 +73,10 @@ export interface StartRunInput {
  * `planApprovalRequired`, così il worker si fermerà a piano pronto (gate letto
  * dal worker in `resolveFixMode`: Task 3 della fase 0).
  *
+ * Nel ramo che parcheggia subito (operator + piano salvato) è QUESTA funzione a
+ * pubblicare `job.plan_review`: è l'unico `awaiting_plan_approval` che non nasce
+ * dal worker, e senza la notifica la richiesta di approvazione resterebbe muta.
+ *
  * Tutta la decisione (lettura dell'ultimo job + UPDATE o INSERT) sta in una
  * transazione aperta da un lock advisory sul ticket: due rilanci concorrenti si
  * serializzano, così il secondo VEDE il job appena accodato dal primo e risponde
@@ -72,8 +85,17 @@ export interface StartRunInput {
 export async function startRun(db: Db, input: StartRunInput): Promise<StartRunResult> {
   const { ticketId, actor } = input;
   const [ticket] = await db
-    .select({ id: tickets.id, implementationPlan: tickets.implementationPlan })
+    .select({
+      id: tickets.id,
+      implementationPlan: tickets.implementationPlan,
+      // Il resto serve alla notifica del ramo parcheggiato (vedi in fondo).
+      number: tickets.number,
+      title: tickets.title,
+      projectId: tickets.projectId,
+      projectName: projects.name,
+    })
     .from(tickets)
+    .innerJoin(projects, eq(projects.id, tickets.projectId))
     .where(eq(tickets.id, ticketId));
   if (!ticket) return { ok: false, error: "ticket_not_found" };
 
@@ -99,7 +121,7 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
     planApprovalRequired: isOperator,
   } as const;
 
-  return db.transaction(async (tx): Promise<StartRunResult> => {
+  const result = await db.transaction(async (tx): Promise<StartRunResult> => {
     // Lock advisory di transazione sul ticket (stesso pattern del setup admin
     // in routes/auth.ts): serializza i rilanci concorrenti SULLO STESSO ticket
     // e si rilascia da solo al commit. Senza, due richieste su un ticket senza
@@ -153,6 +175,27 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
       .returning({ id: aiJobs.id });
     return { ok: true, jobId: created!.id, status };
   });
+
+  // Il ramo che parcheggia SUBITO il job di un operator (piano salvato) è
+  // l'unico punto in cui un `awaiting_plan_approval` nasce senza passare dal
+  // worker: se non notificasse qui, la richiesta di approvazione resterebbe
+  // muta (il worker emette `job.plan_review` solo quando pianifica lui).
+  // Best-effort e FUORI transazione: l'esito della rotta non dipende dalla
+  // notifica (publishNotification non lancia comunque mai).
+  if (result.ok && result.status === "awaiting_plan_approval") {
+    await publishNotification(
+      db,
+      {
+        kind: "job.plan_review",
+        ticketNumber: ticket.number,
+        ticketTitle: ticket.title,
+        projectName: ticket.projectName,
+        ticketUrl: ticketUrl(input.publicUrl, ticket.id),
+      },
+      { projectId: ticket.projectId, ticketId: ticket.id, jobId: result.jobId },
+    );
+  }
+  return result;
 }
 
 export type ResolvePlanResult =

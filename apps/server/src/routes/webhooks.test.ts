@@ -11,6 +11,8 @@ import {
   docGenerations,
   graphJobs,
   instanceSettings,
+  notificationDeliveries,
+  notifications,
   notificationSettings,
   prReviewJobs,
   prReviews,
@@ -30,6 +32,7 @@ const PUBLIC_URL = "https://stubwise.example.com";
 let testDb: TestDb;
 let app: FastifyInstance;
 let adminCookie: string;
+let adminId: string;
 
 beforeAll(async () => {
   testDb = await startTestDb();
@@ -39,10 +42,10 @@ beforeAll(async () => {
     encryptionKey: ENCRYPTION_KEY.toString("base64"),
     // publicUrl configurato: senza, il getter instance.publicUrl lancerebbe e
     // il try/catch best-effort della route inghiottirebbe l'eccezione PRIMA di
-    // raggiungere dispatchNotification — il dispatch non verrebbe mai esercitato.
+    // raggiungere publishNotification — la publish non verrebbe mai esercitata.
     publicUrl: PUBLIC_URL,
   });
-  ({ adminCookie } = await seedUsers(app));
+  ({ adminCookie, adminId } = await seedUsers(app));
 }, 120_000);
 
 afterAll(async () => {
@@ -53,7 +56,8 @@ afterAll(async () => {
 afterEach(async () => {
   vi.restoreAllMocks();
   // Riporta il singleton di notifica allo stato seedato (webhookUrl null =
-  // dispatch no-op), così la configurazione di un test non perde nei successivi.
+  // nessuna consegna webhook), così la configurazione di un test non perde nei
+  // successivi.
   await testDb.db
     .update(notificationSettings)
     .set({ webhookUrl: null })
@@ -284,9 +288,9 @@ const NOTIFY_WEBHOOK_URL = "https://hooks.example.com/stubwise";
 
 /**
  * Configura il singleton `notification_settings` (id=1, seedato dalla
- * migrazione) per il dispatch reale: webhook URL + formato `generic`
- * (payload a campi piatti, comodo da asserire) e gating del solo toggle
- * `notifyPrClosed`. enabled=true, gli altri toggle off (irrilevanti qui).
+ * migrazione): webhook URL + formato `generic` e gating del solo toggle
+ * `notifyPrClosed`, che decide se la publish scrive la consegna webhook in
+ * outbox. enabled=true, gli altri toggle off (irrilevanti qui).
  */
 async function configureNotifications(notifyPrClosed: boolean): Promise<void> {
   await testDb.db
@@ -301,11 +305,11 @@ async function configureNotifications(notifyPrClosed: boolean): Promise<void> {
 }
 
 /**
- * Intercetta il POST del webhook di notifica sostituendo il `fetch` globale
- * (quello che dispatchNotification usa di default): cattura url e body parsato
- * e risponde 200. Restituisce l'array delle chiamate catturate, popolato in
- * modo asincrono dal dispatch best-effort. vi.restoreAllMocks (afterEach)
- * ripristina il fetch originale.
+ * Intercetta il POST del webhook di notifica sostituendo il `fetch` globale.
+ * Dalla Fase 0 la rotta PUBBLICA soltanto (inbox + outbox) e l'invio è del
+ * poller: l'array deve restare VUOTO — è la prova che nessuna chiamata di rete
+ * parte più dalla richiesta HTTP. vi.restoreAllMocks (afterEach) ripristina il
+ * fetch originale.
  */
 function captureNotificationPosts(): Array<{ url: string; body: Record<string, unknown> }> {
   const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
@@ -319,6 +323,38 @@ function captureNotificationPosts(): Array<{ url: string; body: Record<string, u
     },
   );
   return calls;
+}
+
+/** Notifiche in inbox per un ticket, dalla più vecchia. */
+async function notificationsOfTicket(ticketId: string) {
+  return testDb.db
+    .select()
+    .from(notifications)
+    .where(eq(notifications.ticketId, ticketId))
+    .orderBy(asc(notifications.createdAt), asc(notifications.id));
+}
+
+/**
+ * Consegne webhook d'istanza (outbox) relative a UN ticket. La riga webhook non
+ * punta a una notifica (l'evento è copiato sulla riga, vedi i CHECK della
+ * tabella): il legame col ticket si ricava dal `ticketUrl` dell'evento — che
+ * contiene l'id — e serve a non contare le righe lasciate dagli altri test.
+ */
+async function webhookDeliveriesForTicket(ticketId: string) {
+  const rows = await testDb.db
+    .select()
+    .from(notificationDeliveries)
+    .where(eq(notificationDeliveries.channel, "webhook"));
+  return rows.filter((r) => String((r.event as { ticketUrl?: string })?.ticketUrl ?? "").includes(ticketId));
+}
+
+/** Progetto (gruppo) a cui appartiene un repository. */
+async function projectIdOfRepository(repositoryId: string): Promise<string> {
+  const [row] = await testDb.db
+    .select({ projectId: repositories.projectId })
+    .from(repositories)
+    .where(eq(repositories.id, repositoryId));
+  return row!.projectId;
 }
 
 function bitbucketPayload(branch: string, prUrl = "https://bitbucket.org/acme/repo/pull-requests/7") {
@@ -854,7 +890,7 @@ describe("POST /webhooks/git/:projectSlug", () => {
     expect(job.finishedAt).not.toBeNull();
   });
 
-  it("PR chiusa senza merge su ticket in_review → dispatch reale job.pr_closed con i campi corretti", async () => {
+  it("PR chiusa senza merge su ticket in_review → job.pr_closed pubblicato in inbox e in outbox", async () => {
     const project = await createProject({
       name: "Webhook Notify Dispatch",
       provider: "github",
@@ -862,9 +898,11 @@ describe("POST /webhooks/git/:projectSlug", () => {
       credentials: { token: "tok" },
     });
     await configureNotifications(true);
+    // Nessun POST parte più da qui: la publish scrive soltanto, l'invio è del
+    // poller. Il fetch resta intercettato per dimostrarlo.
     const calls = captureNotificationPosts();
     const ticketId = await insertTicket(project.id, 1, "in_review");
-    await insertJob(ticketId, "pr_opened");
+    const jobId = await insertJob(ticketId, "pr_opened");
     const body = githubClosedUnmergedPayload("stubwise/ticket-1");
 
     const res = await app.inject({
@@ -879,21 +917,33 @@ describe("POST /webhooks/git/:projectSlug", () => {
     });
 
     expect(res.statusCode).toBe(204);
-    // Il dispatch reale è stato esercitato: un solo POST al webhook configurato.
-    expect(calls).toHaveLength(1);
-    expect(calls[0]!.url).toBe(NOTIFY_WEBHOOK_URL);
-    const payload = calls[0]!.body;
-    // Formato generic: campi piatti, ben asseribili.
-    expect(payload.event).toBe("job.pr_closed");
-    expect(payload.ticketNumber).toBe(1);
-    expect(payload.title).toBe("Ticket 1");
-    expect(payload.projectName).toBe("Webhook Notify Dispatch");
-    expect(payload.prUrl).toBe("https://github.com/acme/repo/pull/7");
-    // ticketUrl assoluto e ben formato a partire dal PUBLIC_URL dell'istanza.
-    expect(payload.ticketUrl).toBe(`${PUBLIC_URL}/tickets/${ticketId}`);
+    expect(calls).toHaveLength(0);
+
+    // INBOX: una riga per l'admin, ancorata a progetto, ticket e job riallineato.
+    const inbox = await notificationsOfTicket(ticketId);
+    expect(inbox).toHaveLength(1);
+    expect(inbox[0]!.userId).toBe(adminId);
+    expect(inbox[0]!.kind).toBe("job.pr_closed");
+    expect(inbox[0]!.projectId).toBe(await projectIdOfRepository(project.id));
+    expect(inbox[0]!.jobId).toBe(jobId);
+    expect(inbox[0]!.event).toMatchObject({
+      kind: "job.pr_closed",
+      ticketNumber: 1,
+      ticketTitle: "Ticket 1",
+      projectName: "Webhook Notify Dispatch",
+      prUrl: "https://github.com/acme/repo/pull/7",
+      // ticketUrl assoluto e ben formato a partire dal PUBLIC_URL dell'istanza.
+      ticketUrl: `${PUBLIC_URL}/tickets/${ticketId}`,
+    });
+
+    // OUTBOX: col toggle acceso nasce la consegna webhook d'istanza (una per
+    // evento, con l'evento copiato sulla riga).
+    const webhookDeliveries = await webhookDeliveriesForTicket(ticketId);
+    expect(webhookDeliveries).toHaveLength(1);
+    expect(webhookDeliveries[0]!.event).toMatchObject({ kind: "job.pr_closed" });
   });
 
-  it("toggle notifyPrClosed off → riapertura avviene ma nessun dispatch", async () => {
+  it("toggle notifyPrClosed off → inbox comunque scritta, nessuna consegna webhook", async () => {
     const project = await createProject({
       name: "Webhook Notify Off",
       provider: "github",
@@ -921,8 +971,12 @@ describe("POST /webhooks/git/:projectSlug", () => {
     expect(res.statusCode).toBe(204);
     // La riapertura avviene comunque...
     expect(await ticketStatus(ticketId)).toBe("triaged");
-    // ...ma il toggle off taglia il POST: nessun dispatch.
     expect(calls).toHaveLength(0);
+    // ...e l'inbox pure: il toggle governa SOLO il webhook d'istanza, non le
+    // notifiche delle persone.
+    const inbox = await notificationsOfTicket(ticketId);
+    expect(inbox).toHaveLength(1);
+    expect(await webhookDeliveriesForTicket(ticketId)).toHaveLength(0);
   });
 
   it("Bitbucket pullrequest:rejected firmato per ticket in_review → ticket triaged + job pr_closed", async () => {

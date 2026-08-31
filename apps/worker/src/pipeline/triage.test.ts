@@ -9,6 +9,7 @@ import {
   type Db,
 } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
+import type { PublishOpts } from "@stubwise/notifications";
 import { eq } from "drizzle-orm";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -834,6 +835,11 @@ describe("runTriage", () => {
 });
 
 describe("runTriage — notifiche", () => {
+  /** Cattura di una publish iniettata: evento E riferimenti. */
+  interface Published {
+    event: Dispatched;
+    opts: PublishOpts;
+  }
   interface Dispatched {
     kind: string;
     type?: string;
@@ -842,7 +848,7 @@ describe("runTriage — notifiche", () => {
     ticketUrl: string;
   }
 
-  it("dispatcha job.held sull'esito HELD con tipo, effort e link", async () => {
+  it("pubblica job.held sull'esito HELD con tipo, effort, link e riferimenti", async () => {
     const { db } = testDb;
     const ticket = await createTicket(db);
     const job = await createTriagingJob(db, ticket.id);
@@ -850,13 +856,14 @@ describe("runTriage — notifiche", () => {
     const runner = new FakeAgentRunner({
       output: `{"decision":"fix","type":"feature","effort":3}`,
     });
-    const calls: Dispatched[] = [];
+    const calls: Published[] = [];
 
     const outcome = await runTriage(
       makeDeps(runner, {
         publicUrl: "https://stubwise.example.com",
-        dispatch: async (_db, event) => {
-          calls.push(event as unknown as Dispatched);
+        publish: async (_db, event, opts) => {
+          calls.push({ event: event as unknown as Dispatched, opts: opts ?? {} });
+          return { published: 1 };
         },
       }),
       job,
@@ -864,24 +871,27 @@ describe("runTriage — notifiche", () => {
 
     expect(outcome).toBe("held");
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.kind).toBe("job.held");
-    expect(calls[0]!.type).toBe("feature");
-    expect(calls[0]!.effort).toBe(3);
-    expect(calls[0]!.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
+    expect(calls[0]!.event.kind).toBe("job.held");
+    expect(calls[0]!.event.type).toBe("feature");
+    expect(calls[0]!.event.effort).toBe(3);
+    expect(calls[0]!.event.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
+    // Riferimenti: progetto del ticket, ticket e job del triage.
+    expect(calls[0]!.opts).toEqual({ projectId, ticketId: ticket.id, jobId: job.id });
   });
 
-  it("dispatcha job.failed quando il triage fallisce (output non valido)", async () => {
+  it("pubblica job.failed quando il triage fallisce (output non valido)", async () => {
     const { db } = testDb;
     const ticket = await createTicket(db);
     const job = await createTriagingJob(db, ticket.id);
     const runner = new FakeAgentRunner({ output: "non è JSON" });
-    const calls: Dispatched[] = [];
+    const calls: Published[] = [];
 
     const outcome = await runTriage(
       makeDeps(runner, {
         publicUrl: "https://stubwise.example.com",
-        dispatch: async (_db, event) => {
-          calls.push(event as unknown as Dispatched);
+        publish: async (_db, event, opts) => {
+          calls.push({ event: event as unknown as Dispatched, opts: opts ?? {} });
+          return { published: 1 };
         },
       }),
       job,
@@ -889,22 +899,23 @@ describe("runTriage — notifiche", () => {
 
     expect(outcome).toBe("failed");
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.kind).toBe("job.failed");
-    expect(calls[0]!.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
+    expect(calls[0]!.event.kind).toBe("job.failed");
+    expect(calls[0]!.event.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket.id}`);
   });
 
-  it("NON dispatcha quando l'esito è fixing (la notifica pr_opened arriva dal fix)", async () => {
+  it("NON pubblica quando l'esito è fixing (la notifica pr_opened arriva dal fix)", async () => {
     const { db } = testDb;
     const ticket = await createTicket(db);
     const job = await createTriagingJob(db, ticket.id);
     // bug: auto_fix true, max_effort 3, effort 2 → fixing.
     const runner = new FakeAgentRunner({ output: `{"decision":"fix","type":"bug","effort":2}` });
-    const calls: Dispatched[] = [];
+    const calls: Published[] = [];
 
     const outcome = await runTriage(
       makeDeps(runner, {
-        dispatch: async (_db, event) => {
-          calls.push(event as unknown as Dispatched);
+        publish: async (_db, event, opts) => {
+          calls.push({ event: event as unknown as Dispatched, opts: opts ?? {} });
+          return { published: 1 };
         },
       }),
       job,
@@ -914,7 +925,7 @@ describe("runTriage — notifiche", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("un dispatch che lancia non altera l'esito held (best-effort)", async () => {
+  it("una publish che lancia non altera l'esito held (best-effort)", async () => {
     const { db } = testDb;
     const ticket = await createTicket(db);
     const job = await createTriagingJob(db, ticket.id);
@@ -924,7 +935,7 @@ describe("runTriage — notifiche", () => {
 
     const outcome = await runTriage(
       makeDeps(runner, {
-        dispatch: async () => {
+        publish: async () => {
           throw new Error("notifica esplosa");
         },
       }),

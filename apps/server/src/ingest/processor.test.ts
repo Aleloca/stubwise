@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { aiJobs, attachments, backlogJobs, errorGroups, projects, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
+import type { PublishOpts } from "@stubwise/notifications";
 import type { ObjectStorage } from "../storage/index.js";
 import { processEvents } from "./processor.js";
 
@@ -530,29 +531,33 @@ describe("processEvents — notifica ticket.created", () => {
     ticketUrl: string;
   }
 
-  it("dispatcha ticket.created per un errore SDK nuovo, con URL e nome progetto", async () => {
+  it("pubblica ticket.created per un errore SDK nuovo, con URL, nome progetto e riferimenti", async () => {
     const project = await createProject();
-    const calls: DispatchedEvent[] = [];
+    const calls: { event: DispatchedEvent; opts: PublishOpts }[] = [];
     const result = await processEvents(testDb.db, project, [errorEvent()], {
       publicUrl: "https://stubwise.example.com",
       projectName: "Acme",
-      dispatch: async (_db, event) => {
-        calls.push(event as unknown as DispatchedEvent);
+      publish: async (_db, event, opts) => {
+        calls.push({ event: event as unknown as DispatchedEvent, opts: opts ?? {} });
+        return { published: 1 };
       },
     });
     expect(result).toEqual({ created: 1, deduped: 0 });
     const [ticket] = await projectTickets(project.id);
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.kind).toBe("ticket.created");
-    expect(calls[0]!.source).toBe("sdk_error");
-    expect(calls[0]!.projectName).toBe("Acme");
-    expect(calls[0]!.ticketNumber).toBe(ticket!.number);
-    expect(calls[0]!.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket!.id}`);
+    expect(calls[0]!.event.kind).toBe("ticket.created");
+    expect(calls[0]!.event.source).toBe("sdk_error");
+    expect(calls[0]!.event.projectName).toBe("Acme");
+    expect(calls[0]!.event.ticketNumber).toBe(ticket!.number);
+    expect(calls[0]!.event.ticketUrl).toBe(`https://stubwise.example.com/tickets/${ticket!.id}`);
+    // Riferimenti: progetto e ticket appena creato (nessun job: quello
+    // dell'ingestion non ha un richiedente umano).
+    expect(calls[0]!.opts).toEqual({ projectId: project.id, ticketId: ticket!.id });
   });
 
-  it("dispatcha ticket.created per un feedback SDK nuovo (source sdk_feedback)", async () => {
+  it("pubblica ticket.created per un feedback SDK nuovo (source sdk_feedback)", async () => {
     const project = await createProject();
-    const calls: DispatchedEvent[] = [];
+    const calls: { event: DispatchedEvent; opts: PublishOpts }[] = [];
     await processEvents(
       testDb.db,
       project,
@@ -560,33 +565,35 @@ describe("processEvents — notifica ticket.created", () => {
       {
         publicUrl: "https://stubwise.example.com",
         projectName: "Acme",
-        dispatch: async (_db, event) => {
-          calls.push(event as unknown as DispatchedEvent);
+        publish: async (_db, event, opts) => {
+          calls.push({ event: event as unknown as DispatchedEvent, opts: opts ?? {} });
+          return { published: 1 };
         },
       },
     );
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.source).toBe("sdk_feedback");
+    expect(calls[0]!.event.source).toBe("sdk_feedback");
   });
 
-  it("NON dispatcha sul dedup di un errore (solo sui ticket genuinamente nuovi)", async () => {
+  it("NON pubblica sul dedup di un errore (solo sui ticket genuinamente nuovi)", async () => {
     const project = await createProject();
     await processEvents(testDb.db, project, [errorEvent()]);
-    const calls: DispatchedEvent[] = [];
+    const calls: { event: DispatchedEvent; opts: PublishOpts }[] = [];
     const result = await processEvents(testDb.db, project, [errorEvent()], {
       publicUrl: "https://stubwise.example.com",
       projectName: "Acme",
-      dispatch: async (_db, event) => {
-        calls.push(event as unknown as DispatchedEvent);
+      publish: async (_db, event, opts) => {
+        calls.push({ event: event as unknown as DispatchedEvent, opts: opts ?? {} });
+        return { published: 1 };
       },
     });
     expect(result).toEqual({ created: 0, deduped: 1 });
     expect(calls).toHaveLength(0);
   });
 
-  it("NON dispatcha per i ticket api (solo sorgenti SDK)", async () => {
+  it("NON pubblica per i ticket api (solo sorgenti SDK)", async () => {
     const project = await createProject();
-    const calls: DispatchedEvent[] = [];
+    const calls: { event: DispatchedEvent; opts: PublishOpts }[] = [];
     await processEvents(
       testDb.db,
       project,
@@ -594,24 +601,25 @@ describe("processEvents — notifica ticket.created", () => {
       {
         publicUrl: "https://stubwise.example.com",
         projectName: "Acme",
-        dispatch: async (_db, event) => {
-          calls.push(event as unknown as DispatchedEvent);
+        publish: async (_db, event, opts) => {
+          calls.push({ event: event as unknown as DispatchedEvent, opts: opts ?? {} });
+          return { published: 1 };
         },
       },
     );
     expect(calls).toHaveLength(0);
   });
 
-  it("un dispatch che lancia non rompe il batch (best-effort)", async () => {
+  it("una publish che lancia non rompe il batch (best-effort)", async () => {
     const project = await createProject();
     const result = await processEvents(testDb.db, project, [errorEvent()], {
       publicUrl: "https://stubwise.example.com",
       projectName: "Acme",
-      dispatch: async () => {
+      publish: async () => {
         throw new Error("notifica esplosa");
       },
     });
-    // L'ingestion è andata a buon fine nonostante il dispatch rotto.
+    // L'ingestion è andata a buon fine nonostante la publish rotta.
     expect(result).toEqual({ created: 1, deduped: 0 });
     expect(await projectTickets(project.id)).toHaveLength(1);
   });

@@ -1,6 +1,6 @@
 import { getProvider } from "@stubwise/git";
 import { t } from "@stubwise/i18n";
-import { dispatchNotification } from "@stubwise/notifications";
+import { publishNotification } from "@stubwise/notifications";
 import { and, count, desc, eq, isNotNull, ne, notInArray, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Db } from "@stubwise/db";
@@ -455,6 +455,8 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
           status: tickets.status,
           number: tickets.number,
           title: tickets.title,
+          // Ancora della notifica job.pr_closed (vedi in fondo al ramo).
+          projectId: tickets.projectId,
         })
         .from(tickets)
         .innerJoin(repositories, eq(repositories.projectId, tickets.projectId))
@@ -572,6 +574,10 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
       // o un ticket già ripreso/concluso a mano, non deve produrre effetti.
       if (!ticket || ticket.status !== "in_review") return reply.code(204).send();
 
+      // Job AI riallineato dalla transazione qui sotto: è l'ancora `jobId` della
+      // notifica (nessuna riga = nessun job `pr_opened`, l'evento resta legato
+      // a ticket e progetto).
+      let closedJobId: string | undefined;
       await instance.db.transaction(async (tx) => {
         // Marca la riga ticket_repositories di QUESTO repo come
         // `closed_unmerged`, senza toccare le righe/PR degli altri repo (lo
@@ -600,19 +606,22 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
         // Allinea il job AI: la PR aperta dalla pipeline è stata chiusa senza
         // merge. Si tocca SOLO il job `pr_opened` (idempotenza: una ri-consegna
         // non trova righe), gli altri stati restano intatti.
-        await tx
+        const closed = await tx
           .update(aiJobs)
           .set({
             status: "pr_closed",
             finishedAt: sql`coalesce(${aiJobs.finishedAt}, now())`,
             lastActivityAt: sql`now()`,
           })
-          .where(and(eq(aiJobs.ticketId, ticket.id), eq(aiJobs.status, "pr_opened")));
+          .where(and(eq(aiJobs.ticketId, ticket.id), eq(aiJobs.status, "pr_opened")))
+          .returning({ id: aiJobs.id });
+        closedJobId = closed[0]?.id;
       });
 
       // Notifica best-effort job.pr_closed DOPO il commit (riflette realtà
-      // committata). Il gating del toggle `notifyPrClosed` è centralizzato in
-      // dispatchNotification, qui non si decide nulla. dispatchNotification non
+      // committata). Il gating del toggle `notifyPrClosed` decide solo la
+      // consegna al webhook d'istanza ed è centralizzato dentro
+      // publishNotification: qui non si decide nulla. publishNotification non
       // lancia mai, ma il nome del progetto è in una query a parte: la
       // racchiudiamo comunque in try/catch per non far fallire la 204.
       try {
@@ -620,14 +629,22 @@ export async function webhookRoutes(instance: FastifyInstance): Promise<void> {
           .select({ name: repositories.name })
           .from(repositories)
           .where(eq(repositories.id, context.repositoryId));
-        await dispatchNotification(instance.db, {
-          kind: "job.pr_closed",
-          ticketNumber: ticket.number,
-          ticketTitle: ticket.title,
-          projectName: repository?.name ?? "",
-          prUrl: event.prUrl,
-          ticketUrl: ticketUrl(instance.publicUrl, ticket.id),
-        });
+        await publishNotification(
+          instance.db,
+          {
+            kind: "job.pr_closed",
+            ticketNumber: ticket.number,
+            ticketTitle: ticket.title,
+            projectName: repository?.name ?? "",
+            prUrl: event.prUrl,
+            ticketUrl: ticketUrl(instance.publicUrl, ticket.id),
+          },
+          {
+            projectId: ticket.projectId,
+            ticketId: ticket.id,
+            ...(closedJobId !== undefined ? { jobId: closedJobId } : {}),
+          },
+        );
       } catch {
         // Best-effort: una notifica mancata non deve disfare la riapertura.
       }
