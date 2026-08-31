@@ -199,6 +199,13 @@ services:
       # emissione monitor.alert/recovered). Più frequente del rollup: allarmi
       # reattivi. 0 = disabilitato. Default 1'. Max 60.
       - MONITOR_ALERT_INTERVAL_MINUTES=${MONITOR_ALERT_INTERVAL_MINUTES:-1}
+      # --- Outbox delle notifiche (notification_deliveries) ---
+      # Poller che spedisce le consegne dovute sul loro canale (webhook
+      # d'istanza; i canali Slack arriveranno). Il gating dei toggle è già
+      # applicato alla pubblicazione: qui si invia soltanto, con backoff
+      # 30s x 2^n e 5 tentativi. Breve perché una notifica deve arrivare subito.
+      # 0 = disabilitato (le consegne si accumulano senza partire). Default 5".
+      - NOTIFY_POLL_SECONDS=${NOTIFY_POLL_SECONDS:-5}
       # --- Backlog di discovery (poller separato dal loop dei job) ---
       # Reclama i job backlog_jobs (intake + deep dive) ed esegue gli agenti nella
       # catena PER-PROGETTO. Soglie del dedup semantico: merge (fusione automatica)

@@ -20,6 +20,7 @@ import { createGraphifyRunner } from "./graph/graphify-cli.js";
 import { startGraphPoller } from "./graph/poller.js";
 import { createHandler, createProjectSerializer } from "./handler.js";
 import { startMonitorAlertPoller } from "./monitor/alerts.js";
+import { startDeliveriesPoller } from "./notify/deliveries-poller.js";
 import { startMonitorRollupPoller } from "./monitor/rollup.js";
 import { startLimitResumePoller } from "./providers/limit-resume-poller.js";
 import { startDailyReportPoller } from "./reports/daily-report-poller.js";
@@ -306,6 +307,28 @@ startLimitResumePoller({
   headroomPercent: config.limitResumeHeadroomPercent,
   cooldownMs: config.limitResumeCooldownMs,
   intervalMinutes: config.limitResumePollMinutes,
+  signal: controller.signal,
+});
+
+// Poller dell'OUTBOX delle notifiche (`notification_deliveries`): task SEPARATO
+// dal loop dei job, sul proprio intervallo breve (default 5"). `publishNotification`
+// scrive inbox e outbox ma non invia nulla: è QUESTO poller a spedire le consegne
+// dovute sul loro canale — oggi il webhook d'istanza (il gating dei toggle è già
+// stato applicato al publish), i canali Slack sono chiusi `skipped` finché non
+// verranno implementati. Il claim pre-schedula il ritentativo (backoff 30s×2^n,
+// 5 tentativi) quindi un crash a metà invio non perde la consegna. È BEST-EFFORT
+// (non fa mai crashare il worker) e NON tocca il lock/heartbeat dei job. Si ferma
+// sullo stesso AbortSignal.
+const notifyLogger = {
+  warn: (obj: unknown, msg?: string) =>
+    console.error(`[stubwise-worker] ${msg ?? "notify: warning"}`, obj),
+  error: (obj: unknown, msg?: string) =>
+    console.error(`[stubwise-worker] ${msg ?? "notify: error"}`, obj),
+};
+startDeliveriesPoller({
+  db,
+  logger: notifyLogger,
+  intervalSeconds: config.notifyPollSeconds,
   signal: controller.signal,
 });
 

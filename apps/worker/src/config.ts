@@ -623,6 +623,20 @@ const envSchema = z.object({
       .min(0, "deve essere un intero ≥ 0 in secondi (es. 20; 0 = disabilitato)")
       .default(20),
   ),
+  // Intervallo di poll (secondi) del poller dell'OUTBOX delle notifiche
+  // (`notification_deliveries`, vedi notify/deliveries-poller.ts): reclama le
+  // consegne dovute e le spedisce sul loro canale (oggi il webhook d'istanza).
+  // Breve perché una notifica deve arrivare subito; il tick è quasi sempre a
+  // vuoto (una SELECT sull'indice parziale delle pending). 0 = disabilitato
+  // (le consegne si accumulano in outbox senza partire). Default 5".
+  NOTIFY_POLL_SECONDS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 0 in secondi (es. 5; 0 = disabilitato)" })
+      .int("deve essere un intero ≥ 0 in secondi (es. 5; 0 = disabilitato)")
+      .min(0, "deve essere un intero ≥ 0 in secondi (es. 5; 0 = disabilitato)")
+      .default(5),
+  ),
 }).refine(
   (env) => env.BACKLOG_SIMILAR_THRESHOLD <= env.BACKLOG_MERGE_THRESHOLD,
   {
@@ -776,6 +790,9 @@ export interface WorkerConfig {
   /** Intervallo in secondi del poller della coda `graph_jobs` (default 20;
    * 0 = disabilitato). */
   graphPollSeconds: number;
+  /** Intervallo in secondi del poller dell'outbox delle notifiche
+   * (`notification_deliveries`) (default 5; 0 = disabilitato). */
+  notifyPollSeconds: number;
 }
 
 /**
@@ -856,5 +873,6 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     // Minuti → ms: il runner del CLI vuole millisecondi.
     graphBuildTimeoutMs: parsed.GRAPH_BUILD_TIMEOUT_MINUTES * 60_000,
     graphPollSeconds: parsed.GRAPH_POLL_SECONDS,
+    notifyPollSeconds: parsed.NOTIFY_POLL_SECONDS,
   };
 }
