@@ -9,7 +9,7 @@ import {
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { loadSettings, shouldSendWebhook, type DbOrTx } from "./dispatch.js";
 import type { NotificationEvent } from "./format.js";
-import { isAdminOnlyKind, recipientsFor, type RoutingContext } from "./routing.js";
+import { audienceFor, recipientsFor, type RoutingContext } from "./routing.js";
 
 /**
  * PUBBLICAZIONE di una notifica: il punto d'ingresso unico della Fase 0.
@@ -131,9 +131,11 @@ export async function publishNotification(
 }
 
 /**
- * Risolve in id utente il contesto che serve al routing. Per i kind destinati
- * ai SOLI admin si ferma agli admin: follower, ticket e job non cambierebbero
- * l'esito, e sono tre query in meno per notifica.
+ * Risolve in id utente il contesto che serve al routing, leggendo SOLO ciò che
+ * il pubblico del kind userà davvero: per i kind ai soli admin si ferma agli
+ * admin, per quelli rivolti al richiedente aggiunge la sola query sul job.
+ * Sono query in meno per notifica, non un'ottimizzazione prematura: `publish`
+ * gira dentro la transazione di chi emette l'evento.
  */
 async function resolveRoutingContext(
   db: DbOrTx,
@@ -146,7 +148,14 @@ async function resolveRoutingContext(
     .where(eq(users.role, "admin"))
     .then((rows) => rows.map((row) => row.id));
 
-  if (isAdminOnlyKind(event.kind)) return { admins, followers: [] };
+  const audience = audienceFor(event.kind);
+  if (audience === "admins") return { admins, followers: [] };
+
+  // Pubblico `requester`: bastano gli admin e chi ha lanciato il job. Le query
+  // su follower e ticket non cambierebbero l'esito, quindi non si fanno.
+  if (audience === "requester") {
+    return { admins, followers: [], requestedBy: await resolveRequestedBy(db, opts.jobId) };
+  }
 
   const followers = opts.projectId
     ? await db
@@ -156,13 +165,7 @@ async function resolveRoutingContext(
         .then((rows) => rows.map((row) => row.userId))
     : [];
 
-  const requestedBy = opts.jobId
-    ? await db
-        .select({ userId: aiJobs.requestedByUserId })
-        .from(aiJobs)
-        .where(eq(aiJobs.id, opts.jobId))
-        .then((rows) => rows[0]?.userId ?? undefined)
-    : undefined;
+  const requestedBy = await resolveRequestedBy(db, opts.jobId);
 
   // `reporter` non ha ancora una colonna in `tickets` (i ticket nascono da
   // ingestion/widget/Slack, senza autore interno): il routing lo prevede, qui
@@ -176,6 +179,20 @@ async function resolveRoutingContext(
     : undefined;
 
   return { admins, followers, requestedBy, assignee };
+}
+
+/**
+ * Operatore che ha lanciato il job (`ai_jobs.requested_by_user_id`), se il
+ * chiamante ha dichiarato il job d'origine. Estratta perché la usano due
+ * pubblici diversi (`broadcast` e `requester`).
+ */
+async function resolveRequestedBy(db: DbOrTx, jobId?: string): Promise<string | undefined> {
+  if (!jobId) return undefined;
+  return await db
+    .select({ userId: aiJobs.requestedByUserId })
+    .from(aiJobs)
+    .where(eq(aiJobs.id, jobId))
+    .then((rows) => rows[0]?.userId ?? undefined);
 }
 
 /**

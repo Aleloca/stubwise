@@ -97,6 +97,19 @@ describe("publishNotification", () => {
     ticketUrl: "https://stubwise.example.com/tickets/1",
   };
 
+  const awaitingInput: NotificationEvent = {
+    kind: "job.awaiting_input",
+    ticketNumber: 1,
+    ticketTitle: "Ticket di test",
+    projectName: "Progetto di test",
+    ticketUrl: "https://stubwise.example.com/tickets/1",
+    questionId: "0f2a1c7d-1111-4222-8333-444455556666",
+    round: 1,
+    question: "Invalidare tutte le sessioni o solo quella corrente?",
+    options: [{ label: "Tutte" }, { label: "Solo la corrente" }],
+    allowFreeText: true,
+  };
+
   it("scrive una notifica per admin e follower, con evento e riferimenti", async () => {
     const { projectId, ticketId, adminId, followerId, outsiderId } = await seedScenario();
 
@@ -217,6 +230,56 @@ describe("publishNotification", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.userId).toBe(adminId);
     expect(rows[0]?.kind).toBe("job.plan_review");
+  });
+
+  it("manda job.awaiting_input al richiedente e agli admin, con inbox e consegne", async () => {
+    const { projectId, ticketId, adminId, followerId, outsiderId } = await seedScenario();
+    const [job] = await db
+      .insert(aiJobs)
+      .values({ ticketId, requestedByUserId: outsiderId })
+      .returning();
+    if (!job) throw new Error("insert del job di test non ha restituito la riga");
+    await db.update(notificationSettings).set({ webhookUrl: "https://hooks.example.com/abc" });
+
+    const result = await publishNotification(db, awaitingInput, {
+      projectId,
+      ticketId,
+      jobId: job.id,
+    });
+
+    // Admin + richiedente. Il follower del progetto NON riceve la domanda:
+    // rispondere è una decisione, non un aggiornamento di avanzamento.
+    expect(result).toEqual({ published: 2 });
+    const rows = await db.select().from(notifications);
+    expect(rows.map((row) => row.userId).sort()).toEqual([adminId, outsiderId].sort());
+    expect(rows.map((row) => row.userId)).not.toContain(followerId);
+    for (const row of rows) {
+      expect(row.kind).toBe("job.awaiting_input");
+      expect(row.event).toEqual(awaitingInput);
+      expect(row.jobId).toBe(job.id);
+    }
+    // Outbox: il DM Slack del solo admin (l'unico con identità Slack) e la
+    // consegna webhook d'istanza, che il toggle `notifyAwaitingInput` consente.
+    const deliveries = await db.select().from(notificationDeliveries);
+    const slackDm = deliveries.filter((row) => row.channel === "slack_dm");
+    expect(slackDm).toHaveLength(1);
+    expect(deliveries.filter((row) => row.channel === "webhook")).toHaveLength(1);
+  });
+
+  it("senza richiedente (automazione) job.awaiting_input resta ai soli admin", async () => {
+    const { projectId, ticketId, adminId } = await seedScenario();
+    const [job] = await db.insert(aiJobs).values({ ticketId }).returning();
+    if (!job) throw new Error("insert del job di test non ha restituito la riga");
+
+    const result = await publishNotification(db, awaitingInput, {
+      projectId,
+      ticketId,
+      jobId: job.id,
+    });
+
+    expect(result).toEqual({ published: 1 });
+    const rows = await db.select().from(notifications);
+    expect(rows[0]?.userId).toBe(adminId);
   });
 
   it("inserisce DENTRO la transazione ricevuta (il rollback annulla tutto)", async () => {

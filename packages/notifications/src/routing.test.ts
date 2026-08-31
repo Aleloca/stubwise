@@ -58,6 +58,36 @@ describe("recipientsFor", () => {
     }
   });
 
+  it("manda la domanda dell'AI al richiedente e agli admin, MAI ai follower", () => {
+    expect(recipientsFor(eventOfKind("job.awaiting_input"), CTX)).toEqual([
+      "admin-1",
+      "admin-2",
+      "member-requester",
+    ]);
+  });
+
+  it("senza richiedente (run dell'automazione) la domanda resta ai soli admin", () => {
+    expect(
+      recipientsFor(eventOfKind("job.awaiting_input"), {
+        admins: ["admin-1"],
+        followers: ["follower-1"],
+        assignee: "member-assignee",
+        reporter: "member-reporter",
+      }),
+    ).toEqual(["admin-1"]);
+  });
+
+  it("la domanda non raggiunge follower, assegnatario e reporter nemmeno col richiedente", () => {
+    const recipients = recipientsFor(eventOfKind("job.awaiting_input"), {
+      admins: [],
+      followers: ["follower-1"],
+      requestedBy: "member-requester",
+      assignee: "member-assignee",
+      reporter: "member-reporter",
+    });
+    expect(recipients).toEqual(["member-requester"]);
+  });
+
   it("non duplica chi compare in più ruoli", () => {
     const recipients = recipientsFor(eventOfKind("job.pr_opened"), {
       admins: ["u1"],
@@ -105,6 +135,9 @@ describe("isAdminOnlyKind", () => {
     expect(isAdminOnlyKind("job.pr_closed")).toBe(false);
     expect(isAdminOnlyKind("job.failed")).toBe(false);
     expect(isAdminOnlyKind("review.completed")).toBe(false);
+    // `job.awaiting_input` ha un pubblico proprio (richiedente ∪ admin): non è
+    // "solo admin", altrimenti `publish` salterebbe la risoluzione del job.
+    expect(isAdminOnlyKind("job.awaiting_input")).toBe(false);
   });
 });
 

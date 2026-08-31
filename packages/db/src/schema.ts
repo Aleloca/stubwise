@@ -904,6 +904,9 @@ export const notificationKind = pgEnum("notification_kind", [
   "docs.limit_paused",
   "monitor.alert",
   "monitor.recovered",
+  // Fase 1: l'agente che pianifica un fix si è fermato con una domanda per un
+  // umano (il job è parcheggiato in `awaiting_input`).
+  "job.awaiting_input",
 ]);
 
 // Stato di una notifica nell'inbox del destinatario: `open` (da smaltire),
@@ -958,6 +961,9 @@ export const notificationSettings = pgTable("notification_settings", {
   // Notifica alert/ripristino del monitoraggio server (unico toggle per entrambi
   // gli eventi monitor.alert e monitor.recovered).
   notifyMonitor: boolean("notify_monitor").notNull().default(true),
+  // Notifica quando la pianificazione AI si ferma con una domanda per un umano
+  // (`job.awaiting_input`).
+  notifyAwaitingInput: boolean("notify_awaiting_input").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()

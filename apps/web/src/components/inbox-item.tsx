@@ -38,6 +38,7 @@ export const INBOX_KIND_LABEL_KEYS: Record<InboxItem["kind"], string> = {
   "docs.limit_paused": "inbox:kinds.docsLimitPaused",
   "monitor.alert": "inbox:kinds.monitorAlert",
   "monitor.recovered": "inbox:kinds.monitorRecovered",
+  "job.awaiting_input": "inbox:kinds.awaitingInput",
 };
 
 /** Le tre azioni che fanno di una notifica una DECISIONE (sezione "Da decidere"). */

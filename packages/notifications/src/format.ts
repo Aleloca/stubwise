@@ -76,6 +76,43 @@ export interface JobPlanReviewEvent {
 }
 
 /**
+ * Una singola scelta offerta dalla domanda dell'agente: l'etichetta che l'umano
+ * vede sul bottone e, quando serve, la conseguenza che quella scelta comporta.
+ */
+export interface AgentQuestionOption {
+  label: string;
+  consequence?: string;
+}
+
+/**
+ * La pianificazione AI si è fermata su un bivio: l'agente ha posto una domanda
+ * strutturata e il job è parcheggiato in `awaiting_input` finché non arriva una
+ * risposta.
+ *
+ * L'evento porta la domanda INTERA (non solo il suo id) perché ogni superficie
+ * — inbox web, DM Slack, webhook — deve poterla rendere senza risalire ad
+ * `agent_questions`.
+ */
+export interface JobAwaitingInputEvent {
+  kind: "job.awaiting_input";
+  ticketNumber: number;
+  ticketTitle: string;
+  projectName: string;
+  ticketUrl: string;
+  /** Id della riga `agent_questions`: è l'ancora su cui si risponde. */
+  questionId: string;
+  /** Round di domanda del run di pianificazione (1 = la prima). */
+  round: number;
+  question: string;
+  /** Da 2 a 4 opzioni, nell'ordine in cui vanno mostrate. */
+  options: AgentQuestionOption[];
+  /** Indice dell'opzione consigliata dall'agente, se ne ha una. */
+  recommendedIndex?: number;
+  /** L'agente accetta anche una risposta in testo libero. */
+  allowFreeText: boolean;
+}
+
+/**
  * Il budget di spesa AI è stato superato: il job resta in pausa finché un umano
  * non lo avvia manualmente per forzare. Lo `scope` indica se il limite sforato è
  * quello del singolo ticket o quello mensile dell'istanza.
@@ -167,7 +204,8 @@ export type NotificationEvent =
   | JobFailedEvent
   | DocsLimitPausedEvent
   | MonitorAlertEvent
-  | MonitorRecoveredEvent;
+  | MonitorRecoveredEvent
+  | JobAwaitingInputEvent;
 
 /**
  * Eventi SENZA ticket (`docs.limit_paused`, `monitor.*`): non hanno
@@ -238,6 +276,7 @@ const EMOJI: Record<NotificationKind, string> = {
   "docs.limit_paused": "⏸️",
   "monitor.alert": "🔴",
   "monitor.recovered": "🟢",
+  "job.awaiting_input": "❓",
 };
 
 /** Rende un link nel markup del formato (mai chiamato per `generic`). */
@@ -294,6 +333,10 @@ function linkParam(
       return renderLink(format, event.ticketUrl, t(lang, "notify.linkOpen"));
     case "job.failed":
       return renderLink(format, event.ticketUrl, t(lang, "notify.linkOpen"));
+    case "job.awaiting_input":
+      // Si risponde dalla pagina del ticket (o dalla card d'inbox): il link
+      // porta lì, come per gli altri eventi che chiedono un intervento umano.
+      return renderLink(format, event.ticketUrl, t(lang, "notify.linkOpen"));
     case "docs.limit_paused":
       // Nessun ticket: il link porta alla pagina Docs del repository.
       return renderLink(format, event.docsUrl, t(lang, "notify.linkDocs"));
@@ -317,6 +360,7 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   "docs.limit_paused": "notify.docsLimitPaused",
   "monitor.alert": "notify.monitorAlert",
   "monitor.recovered": "notify.monitorRecovered",
+  "job.awaiting_input": "notify.awaitingInput",
 };
 
 /** Params (oltre a ref/link/cost) specifici per evento, passati a `t()`. */
@@ -373,6 +417,8 @@ function textParams(
       };
     case "job.failed":
       return { ...base, error: event.error };
+    case "job.awaiting_input":
+      return { ...base, question: event.question };
     default:
       return base;
   }
@@ -485,6 +531,18 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
       return { ...base, prUrl: event.prUrl, verdict: event.verdict };
     case "job.failed":
       return { ...base, error: event.error };
+    case "job.awaiting_input":
+      // La domanda INTERA nel payload: un consumatore del webhook deve poter
+      // capire cosa si sta chiedendo senza chiamare l'API.
+      return {
+        ...base,
+        questionId: event.questionId,
+        round: event.round,
+        question: event.question,
+        options: event.options,
+        recommendedIndex: event.recommendedIndex ?? null,
+        allowFreeText: event.allowFreeText,
+      };
   }
 }
 
@@ -606,6 +664,22 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       condition: "disk",
       detail: "disco rientrato al 72%",
       url: `${base}/monitor/servers/9c2f7d3a-2222-4333-8444-555566667777`,
+    },
+    {
+      kind: "job.awaiting_input",
+      ticketNumber: 131,
+      ticketTitle: "Aggiungere export CSV allo storico ordini",
+      projectName: "negozio-web",
+      ticketUrl: `${base}/tickets/131`,
+      questionId: "7d4e9a1b-3333-4444-8555-666677778888",
+      round: 1,
+      question: "L'export deve includere gli ordini annullati?",
+      options: [
+        { label: "Solo gli ordini validi", consequence: "Il totale coincide con il fatturato." },
+        { label: "Tutti, con una colonna di stato" },
+      ],
+      recommendedIndex: 0,
+      allowFreeText: true,
     },
   ];
 }

@@ -55,14 +55,22 @@ export {
   type UpdateMessageInput,
 } from "./slack-client.js";
 
-export { isAdminOnlyKind, recipientsFor, type RoutingContext } from "./routing.js";
+export {
+  audienceFor,
+  isAdminOnlyKind,
+  recipientsFor,
+  type Audience,
+  type RoutingContext,
+} from "./routing.js";
 
 export {
   formatNotification,
   formatNotificationText,
   sampleEvents,
+  type AgentQuestionOption,
   type DocsLimitPausedEvent,
   type FormattedNotification,
+  type JobAwaitingInputEvent,
   type JobFailedEvent,
   type JobHeldEvent,
   type JobPlanReviewEvent,

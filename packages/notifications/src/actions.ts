@@ -78,6 +78,9 @@ const DECISION_FOR_KIND: Record<NotificationKind, { actions: ActionId[]; adminOn
   "docs.limit_paused": { actions: [], adminOnly: false },
   "monitor.alert": { actions: [], adminOnly: false },
   "monitor.recovered": { actions: [], adminOnly: false },
+  // La domanda dell'AI si chiude rispondendo, con un'azione `answer` dedicata
+  // che non esiste ancora: fino ad allora la card offre solo apri/rinvia/archivia.
+  "job.awaiting_input": { actions: [], adminOnly: false },
 };
 
 /** Azioni disponibili su OGNI notifica: sono igiene dell'inbox, non decisioni. */
@@ -172,6 +175,7 @@ export function openUrl(event: NotificationEvent): string {
     case "job.plan_review":
     case "job.budget_held":
     case "job.failed":
+    case "job.awaiting_input":
       return event.ticketUrl;
   }
 }

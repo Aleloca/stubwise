@@ -961,7 +961,8 @@
       "reviewCompleted": "Review PR completata",
       "jobFailed": "Fix fallito",
       "docsLimitPaused": "Generazione Docs in pausa (limite di utilizzo)",
-      "monitor": "Alert di monitoraggio"
+      "monitor": "Alert di monitoraggio",
+      "awaitingInput": "Domanda dell'AI in attesa di risposta"
     },
     "samples": {
       "ticketCreated": "Nuovo ticket",
@@ -971,7 +972,8 @@
       "planReview": "Piano in attesa",
       "reviewCompleted": "Review PR",
       "jobFailed": "Fix fallito",
-      "docsLimitPaused": "Docs in pausa"
+      "docsLimitPaused": "Docs in pausa",
+      "awaitingInput": "Domanda dell'AI"
     },
     "slack": {
       "step1Prefix": "Vai su",
@@ -1033,7 +1035,8 @@
       "jobFailed": "Fix fallito",
       "docsLimitPaused": "Docs in pausa",
       "monitorAlert": "Allarme",
-      "monitorRecovered": "Rientrato"
+      "monitorRecovered": "Rientrato",
+      "awaitingInput": "Domanda a cui rispondere"
     },
     "actions": {
       "approvePlan": "Approva piano",

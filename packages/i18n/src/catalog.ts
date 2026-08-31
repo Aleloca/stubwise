@@ -92,6 +92,10 @@ export const en: Catalog = {
     "{ref} awaiting review — {ticketTitle} ({type}, effort {effort}/5). {link}",
   "notify.planReview":
     "Plan awaiting approval — {ref} — {ticketTitle} ({projectName}). {link}",
+  // Domanda dell'AI durante la pianificazione: `{question}` è il testo posto
+  // dall'agente (le opzioni vivono nel payload, non nella frase).
+  "notify.awaitingInput":
+    "AI has a question on {ref} — {ticketTitle}: {question} {link}",
   "notify.jobFailed": "AI fix failed on {ref} — {ticketTitle}: {error}. {link}",
   "notify.budgetHeld":
     "Budget exceeded ({scope}) — {ref} {ticketTitle} ({projectName}): spent ${spent} of ${limit} limit. Job on hold; start it manually to override. {link}",
@@ -250,6 +254,8 @@ export const it: Catalog = {
     "{ref} in attesa di revisione — {ticketTitle} ({type}, effort {effort}/5). {link}",
   "notify.planReview":
     "Piano in attesa di approvazione — {ref} — {ticketTitle} ({projectName}). {link}",
+  "notify.awaitingInput":
+    "L'AI ha una domanda su {ref} — {ticketTitle}: {question} {link}",
   "notify.jobFailed": "Fix AI fallito su {ref} — {ticketTitle}: {error}. {link}",
   "notify.budgetHeld":
     "Budget superato ({scope}) — {ref} {ticketTitle} ({projectName}): spesi ${spent} sul limite di ${limit}. Job in pausa; avvialo manualmente per forzare. {link}",

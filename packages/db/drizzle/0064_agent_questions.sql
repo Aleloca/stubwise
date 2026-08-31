@@ -36,4 +36,9 @@ CREATE UNIQUE INDEX "agent_questions_open_job_unique" ON "agent_questions" USING
 CREATE INDEX "agent_questions_ticket_idx" ON "agent_questions" USING btree ("ticket_id","asked_at");--> statement-breakpoint
 -- La risposta e il suo istante stanno o cadono insieme: una domanda è chiusa se
 -- e solo se ha una risposta.
-ALTER TABLE "agent_questions" ADD CONSTRAINT "agent_questions_answer_chk" CHECK ((answer IS NULL) = (answered_at IS NULL));
+ALTER TABLE "agent_questions" ADD CONSTRAINT "agent_questions_answer_chk" CHECK ((answer IS NULL) = (answered_at IS NULL));--> statement-breakpoint
+-- Notifica della domanda: kind nuovo dell'inbox/webhook e suo toggle.
+-- ⚠️ Come gli ADD VALUE in testa, 'job.awaiting_input' NON va usato da nessuno
+-- statement di questa migrazione (stessa transazione).
+ALTER TYPE "public"."notification_kind" ADD VALUE 'job.awaiting_input';--> statement-breakpoint
+ALTER TABLE "notification_settings" ADD COLUMN "notify_awaiting_input" boolean DEFAULT true NOT NULL;

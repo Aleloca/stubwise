@@ -31,6 +31,7 @@ const BASE_ROW: NotificationSettingsRow = {
   notifyReviewCompleted: true,
   notifyDocsLimitPaused: true,
   notifyMonitor: true,
+  notifyAwaitingInput: true,
 };
 
 /**

@@ -34,6 +34,7 @@ export const notificationKindSchema = z.enum([
   "docs.limit_paused",
   "monitor.alert",
   "monitor.recovered",
+  "job.awaiting_input",
 ]);
 
 /**

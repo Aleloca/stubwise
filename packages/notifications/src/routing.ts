@@ -30,16 +30,20 @@ export interface RoutingContext {
   reporter?: string;
 }
 
+/** I pubblici possibili di un kind (vedi {@link AUDIENCE_FOR_KIND}). */
+export type Audience = "admins" | "broadcast" | "requester";
+
 /**
  * Pubblico di un kind: `admins` per gli eventi che richiedono una DECISIONE
  * (solo chi può prenderla) o che non hanno un progetto dietro; `broadcast` per
  * gli eventi di AVANZAMENTO, che interessano anche le persone del ticket e chi
- * segue il progetto.
+ * segue il progetto; `requester` per le domande dell'AI, che riguardano chi ha
+ * lanciato il job (più gli admin, che possono sempre sbloccarlo).
  *
  * Record esaustivo su `NotificationKind`: un kind nuovo non compila finché non
  * gli si sceglie un pubblico.
  */
-const AUDIENCE_FOR_KIND: Record<NotificationKind, "admins" | "broadcast"> = {
+const AUDIENCE_FOR_KIND: Record<NotificationKind, Audience> = {
   // Decisionali: qualcuno deve approvare il piano o sbloccare un job fermo.
   "job.plan_review": "admins",
   "job.held": "admins",
@@ -54,11 +58,21 @@ const AUDIENCE_FOR_KIND: Record<NotificationKind, "admins" | "broadcast"> = {
   "docs.limit_paused": "admins",
   "monitor.alert": "admins",
   "monitor.recovered": "admins",
+  // La domanda dell'AI è rivolta a chi ha chiesto quel lavoro: chi segue il
+  // progetto, l'assegnatario e il reporter non c'entrano — rispondere è una
+  // decisione sul come procedere, non un aggiornamento da leggere.
+  "job.awaiting_input": "requester",
 };
 
+/** Pubblico del kind. Unico punto in cui si legge {@link AUDIENCE_FOR_KIND}. */
+export function audienceFor(kind: NotificationKind): Audience {
+  return AUDIENCE_FOR_KIND[kind];
+}
+
 /**
- * True se il kind raggiunge i soli admin. Usato da `publish` per NON eseguire
- * le query di contesto (follower, ticket, job) quando non servirebbero.
+ * True se il kind raggiunge i SOLI admin. Scorciatoia di {@link audienceFor}
+ * per chi deve solo sapere se un evento è riservato ai maintainer; `publish`
+ * usa direttamente il pubblico, perché deve distinguere anche `requester`.
  */
 export function isAdminOnlyKind(kind: NotificationKind): boolean {
   return AUDIENCE_FOR_KIND[kind] === "admins";
@@ -70,14 +84,22 @@ export function isAdminOnlyKind(kind: NotificationKind): boolean {
  * significato funzionale ma rende deterministici test e insert.
  */
 export function recipientsFor(event: NotificationEvent, ctx: RoutingContext): string[] {
-  if (isAdminOnlyKind(event.kind)) return dedupe(ctx.admins);
-  return dedupe([
-    ...ctx.admins,
-    ctx.requestedBy,
-    ctx.assignee,
-    ctx.reporter,
-    ...ctx.followers,
-  ]);
+  switch (audienceFor(event.kind)) {
+    case "admins":
+      return dedupe(ctx.admins);
+    case "requester":
+      // Chi ha lanciato il job più gli admin. Senza richiedente (run
+      // dell'automazione) restano i soli admin: qualcuno deve pur rispondere.
+      return dedupe([...ctx.admins, ctx.requestedBy]);
+    case "broadcast":
+      return dedupe([
+        ...ctx.admins,
+        ctx.requestedBy,
+        ctx.assignee,
+        ctx.reporter,
+        ...ctx.followers,
+      ]);
+  }
 }
 
 /** Scarta i valori non risolti e i doppioni, preservando la prima occorrenza. */

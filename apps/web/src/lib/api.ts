@@ -1758,6 +1758,8 @@ export interface NotificationSettings {
   notifyDocsLimitPaused: boolean;
   /** Alert di monitoraggio server (allarme superamento soglia/offline e recovery). */
   notifyMonitor: boolean;
+  /** La pianificazione AI si è fermata con una domanda in attesa di risposta. */
+  notifyAwaitingInput: boolean;
 }
 
 /** Esito dell'invio di una notifica di test (lo restituisce l'endpoint /test). */
@@ -1795,6 +1797,8 @@ export function putNotificationSettings(
     notifyDocsLimitPaused: settings.notifyDocsLimitPaused,
     // Default server true: inviarlo sempre esplicitamente per non resettarlo.
     notifyMonitor: settings.notifyMonitor,
+    // Idem: default server true, va inviato sempre.
+    notifyAwaitingInput: settings.notifyAwaitingInput,
   });
 }
 
