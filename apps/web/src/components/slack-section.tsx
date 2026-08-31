@@ -155,6 +155,13 @@ export function SlackSection() {
           {t("settings:slack.setupHint", { commandsUrl, interactionsUrl })}
         </p>
 
+        {/* Gli scope chat:write/im:write servono SOLO alle notifiche in DM: la
+            riga spiega a cosa li si aggiunge e ricorda che su un'app esistente
+            la reinstallazione cambia il bot token (va risalvato qui sopra). */}
+        <p className="font-mono text-[11px] leading-relaxed text-fg-faint">
+          {t("settings:slack.dmHint")}
+        </p>
+
         <FormError message={mutation.error instanceof Error ? mutation.error.message : null} />
         <div className="flex flex-wrap items-center gap-3">
           <SubmitButton pending={mutation.isPending}>

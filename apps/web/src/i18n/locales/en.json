@@ -840,7 +840,8 @@
       "removeSigningSecret": "Remove stored signing secret",
       "removeBotToken": "Remove stored bot token",
       "secretHint": "// the secrets are encrypted at rest and never shown again. Leave empty to keep the stored one.",
-      "setupHint": "Create a Slack app at api.slack.com, paste the Signing Secret and Bot Token here, set the Slash Command request URL to {{commandsUrl}} and the Interactivity request URL to {{interactionsUrl}}, and add the scopes commands, users:read, users:read.email.",
+      "setupHint": "Create a Slack app at api.slack.com, paste the Signing Secret and Bot Token here, set the Slash Command request URL to {{commandsUrl}} and the Interactivity request URL to {{interactionsUrl}}, and add the scopes commands, users:read, users:read.email, chat:write, im:write.",
+      "dmHint": "// with chat:write and im:write, Stubwise can also send you notifications as a Slack DM with action buttons (approve a plan, relaunch, snooze). After adding scopes to an existing app you must reinstall it in the workspace and paste the new Bot Token here.",
       "save": "Save",
       "saving": "Saving…",
       "saved": "Saved"
@@ -909,6 +910,7 @@
     "title": "Notifications",
     "viewDocs": "View documentation →",
     "subtitle": "An outgoing webhook receives a message on key events (new SDK ticket, PR opened, PR closed, on hold, plan to approve, fix failed).",
+    "dmHint": "The webhook is the instance-wide group channel: every enabled event goes to that single destination. Personal notifications with action buttons are delivered instead as a Slack DM, to members who linked their Slack account and left the DM preference on — see Settings → Slack.",
     "formatGeneric": "Generic JSON",
     "enabled": "Enabled",
     "format": "Format",

@@ -840,7 +840,8 @@
       "removeSigningSecret": "Rimuovi il signing secret salvato",
       "removeBotToken": "Rimuovi il bot token salvato",
       "secretHint": "// i segreti sono cifrati a riposo e non vengono più mostrati. Lascia vuoto per mantenere quello salvato.",
-      "setupHint": "Crea una Slack app su api.slack.com, incolla qui il Signing Secret e il Bot Token, imposta la request URL dello Slash Command a {{commandsUrl}} e la request URL della Interactivity a {{interactionsUrl}}, e aggiungi gli scope commands, users:read, users:read.email.",
+      "setupHint": "Crea una Slack app su api.slack.com, incolla qui il Signing Secret e il Bot Token, imposta la request URL dello Slash Command a {{commandsUrl}} e la request URL della Interactivity a {{interactionsUrl}}, e aggiungi gli scope commands, users:read, users:read.email, chat:write, im:write.",
+      "dmHint": "// con chat:write e im:write Stubwise può inviarti anche le notifiche in DM su Slack con i bottoni delle azioni (approva un piano, rilancia, rinvia). Se aggiungi gli scope a un'app già esistente devi reinstallarla nel workspace e incollare qui il nuovo Bot Token.",
       "save": "Salva",
       "saving": "Salvataggio…",
       "saved": "Salvato"
@@ -909,6 +910,7 @@
     "title": "Notifiche",
     "viewDocs": "Vedi documentazione →",
     "subtitle": "Un webhook in uscita riceve un messaggio sugli eventi chiave (nuovo ticket SDK, PR aperta, PR chiusa, in attesa, piano da approvare, fix fallito).",
+    "dmHint": "Il webhook è il canale di GRUPPO dell'istanza: ogni evento abilitato finisce in quell'unica destinazione. Le notifiche personali con i bottoni delle azioni arrivano invece in DM su Slack, a chi ha collegato il proprio account Slack e ha lasciato attiva la preferenza — vedi Impostazioni → Slack.",
     "formatGeneric": "JSON generico",
     "enabled": "Abilitate",
     "format": "Formato",

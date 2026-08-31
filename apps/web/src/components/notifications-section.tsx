@@ -337,6 +337,11 @@ export function NotificationsSection() {
           </a>
         </div>
         <p className="mt-1 font-mono text-[11px] text-fg-faint">{t("notifications:subtitle")}</p>
+        {/* Il webhook è il canale di GRUPPO: le notifiche personali con le
+            azioni sono un canale diverso (DM Slack), configurato altrove. */}
+        <p className="mt-1 font-mono text-[11px] leading-relaxed text-fg-faint">
+          {t("notifications:dmHint")}
+        </p>
       </header>
 
       <div className="space-y-4 px-4 py-4">

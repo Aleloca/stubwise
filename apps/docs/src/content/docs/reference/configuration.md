@@ -53,6 +53,7 @@ plus:
 | `DATABASE_POOL_MAX`     | No       | `10`                     | Worker Postgres pool size. Raise it in proportion to `WORKER_CONCURRENCY`; stay below Postgres `max_connections` (default 100). |
 | `USAGE_POLL_MINUTES`    | No       | `5`                      | Poll interval of the **usage snapshot** task for `account` providers (runs the free `/usage` command). Separate, best-effort task. `0` disables it. |
 | `CREDENTIAL_TEST_POLL_SECONDS` | No | `5`                      | Poll interval of the credential **Test** button queue (Settings → AI providers): runs a minimal `claude -p` with the credential. Separate, best-effort task. `0` disables it. |
+| `NOTIFY_POLL_SECONDS`   | No       | `5`                      | Poll interval of the [notification](/docs/notifications/) delivery outbox: claims the due deliveries and sends them on their channel (instance webhook, Slack DM). Short on purpose — a notification must arrive right away. Separate, best-effort task. `0` disables it (deliveries pile up unsent). |
 | `ANTHROPIC_API_KEY`     | No       | —                        | Auth of the `claude` CLI (via API key). Alternative: OAuth/MAX login. See below.           |
 | `CLAUDE_CONFIG_DIR`     | No       | —                        | Config home of the `claude` CLI. In the compose it's `/home/worker/.claude` (persistent volume). |
 
