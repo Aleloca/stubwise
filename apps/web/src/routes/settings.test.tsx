@@ -61,11 +61,21 @@ afterEach(() => {
 type Handler = (url: URL, init?: RequestInit) => Response;
 
 function mockApi(handlers: Record<string, Handler>) {
+  // Il loader di /settings/account precarica anche progetti, follow e
+  // preferenze di notifica (sezioni "Progetti seguiti" e "Notifiche"): default
+  // vuoti qui, i test dedicati a quelle sezioni vivono in settings/account.test.tsx.
+  const withDefaults: Record<string, Handler> = {
+    "GET /api/projects": () => jsonResponse(200, []),
+    "GET /api/me/follows": () => jsonResponse(200, { projectIds: [] }),
+    "GET /api/me/notification-prefs": () =>
+      jsonResponse(200, { slackDm: false, slackLinked: false }),
+    ...handlers,
+  };
   fetchMock.mockImplementation((input, init) => {
     const raw = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     const url = new URL(raw, "http://test.local");
     const method = init?.method ?? "GET";
-    const handler = handlers[`${method} ${url.pathname}`];
+    const handler = withDefaults[`${method} ${url.pathname}`];
     if (!handler) throw new Error(`fetch non mockata per ${method} ${raw}`);
     return Promise.resolve(handler(url, init));
   });
@@ -693,7 +703,10 @@ describe("impostazioni: /settings/notifications (admin)", () => {
 
     expect(await screen.findByText("Operator")).toBeInTheDocument();
     await waitFor(() => expect(router.state.location.pathname).toBe("/settings/account"));
-    expect(screen.queryByText("Notifications")).not.toBeInTheDocument();
+    // Il titolo "Notifications" non basta più a distinguere: la pagina Account
+    // ha una sua sezione Notifiche (preferenze personali). Si cerca il testo
+    // della pagina ADMIN, cioè il webhook uscente.
+    expect(screen.queryByText(/An outgoing webhook/i)).not.toBeInTheDocument();
   });
 });
 

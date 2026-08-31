@@ -42,6 +42,8 @@ function mockApi(handlers: Record<string, Handler>) {
     // La sezione Server legge i server associati al progetto: vuota di default
     // (il riuso della ServerCard e il filtro per progetto vivono in un test a parte).
     "GET /api/servers": () => jsonResponse(200, []),
+    // Il bottone Segui dell'header legge i progetti seguiti: nessuno di default.
+    "GET /api/me/follows": () => jsonResponse(200, { projectIds: [] }),
     ...handlers,
   };
   fetchMock.mockImplementation((input, init) => {
@@ -300,6 +302,55 @@ describe("dettaglio progetto (gruppo)", () => {
     await user.click(screen.getByRole("button", { name: "Yes, delete" }));
 
     await waitFor(() => expect(router.state.location.pathname).toBe("/projects"));
+  });
+
+  it("bottone Segui: dallo stato non seguito manda l'insieme con questo progetto", async () => {
+    const puts: unknown[] = [];
+    // Il mock dei follow è STATEFUL: dopo la PUT la mutazione riallinea l'insieme
+    // col server (onSettled), e una GET statica riporterebbe indietro l'etichetta.
+    let followed: string[] = [];
+    mockApi({
+      "GET /api/auth/me": meHandler("member"),
+      [`GET /api/projects/${PROJECT_ID}`]: () => jsonResponse(200, detail()),
+      "GET /api/milestones": () => jsonResponse(200, []),
+      "GET /api/me/follows": () => jsonResponse(200, { projectIds: followed }),
+      "PUT /api/me/follows": (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as { projectIds: string[] };
+        puts.push(body);
+        followed = body.projectIds;
+        return new Response(null, { status: 204 });
+      },
+    });
+
+    renderApp(`/projects/${PROJECT_ID}`);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Follow" }));
+
+    // La PUT sostituisce l'insieme completo: qui il solo progetto corrente.
+    await waitFor(() => expect(puts).toEqual([{ projectIds: [PROJECT_ID] }]));
+    // Ottimistico: l'etichetta si ribalta senza aspettare il refetch.
+    expect(await screen.findByRole("button", { name: "Unfollow" })).toBeInTheDocument();
+  });
+
+  it("bottone Non seguire: su un progetto seguito manda l'insieme senza di esso", async () => {
+    const puts: unknown[] = [];
+    const other = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    mockApi({
+      "GET /api/auth/me": meHandler("member"),
+      [`GET /api/projects/${PROJECT_ID}`]: () => jsonResponse(200, detail()),
+      "GET /api/milestones": () => jsonResponse(200, []),
+      "GET /api/me/follows": () => jsonResponse(200, { projectIds: [PROJECT_ID, other] }),
+      "PUT /api/me/follows": (_url, init) => {
+        puts.push(JSON.parse(String(init?.body)));
+        return new Response(null, { status: 204 });
+      },
+    });
+
+    renderApp(`/projects/${PROJECT_ID}`);
+
+    await userEvent.click(await screen.findByRole("button", { name: "Unfollow" }));
+
+    await waitFor(() => expect(puts).toEqual([{ projectIds: [other] }]));
   });
 
   it("member: sola lettura, niente form né eliminazione", async () => {

@@ -48,6 +48,7 @@ import {
   type TicketPatch,
 } from "../../lib/api";
 import { formatDateTime } from "../../lib/format";
+import { translateApiError } from "../../lib/translate-api-error";
 import { meQueryOptions } from "../../lib/auth";
 import {
   commentsQueryOptions,
@@ -85,6 +86,10 @@ export function TicketDetailPage() {
   const { data: users } = useSuspenseQuery(usersQueryOptions);
   const { data: projects } = useSuspenseQuery(projectsQueryOptions);
   const { data: me } = useSuspenseQuery(meQueryOptions);
+  // Ruolo: approvare/rifiutare un piano è una decisione da MAINTAINER (il
+  // server risponde 403 a un operatore). La UI non fa da guardia — la guardia è
+  // il server — ma non mostra un bottone che sappiamo fallirebbe.
+  const isAdmin = me.user.role === "admin";
   // Milestone del progetto del ticket: alimentano il select del pannello, il
   // badge del dettaglio e la risoluzione id→nome del feed. useQuery (non
   // suspense): un fallimento o un caricamento in corso degrada il select a
@@ -246,14 +251,27 @@ export function TicketDetailPage() {
     onSuccess: invalidateJobAndDetail,
   });
 
+  // "Rifiuta" non spara subito: apre un campo istruzioni inline (il testo
+  // diventa un commento del team che il re-plan rilegge). Aperto/chiuso e
+  // contenuto vivono qui perché il bottone e il campo sono nella stessa card.
+  const [rejecting, setRejecting] = useState(false);
+  const [rejectInstructions, setRejectInstructions] = useState("");
+
   const approvePlanMutation = useMutation({
     mutationFn: () => approvePlan(id),
     onSuccess: invalidateJobAndDetail,
   });
 
   const rejectPlanMutation = useMutation({
-    mutationFn: () => rejectPlan(id),
-    onSuccess: invalidateJobAndDetail,
+    // Istruzioni FACOLTATIVE: vuote (o soli spazi) il body parte senza la
+    // chiave, come fa la card dell'inbox.
+    mutationFn: (instructions?: string) =>
+      rejectPlan(id, instructions ? { instructions } : undefined),
+    onSuccess: () => {
+      setRejecting(false);
+      setRejectInstructions("");
+      invalidateJobAndDetail();
+    },
   });
 
   // Il job più recente è il primo della lista (ordinata desc dal server).
@@ -279,15 +297,34 @@ export function TicketDetailPage() {
   // non avrebbe nuove indicazioni da incorporare. Non blocca, solo guida.
   const hasUserComment = comments.some((comment) => comment.authorType === "user");
 
-  // "Rifiuta" porta il focus al box commento: l'utente scrive cosa correggere
-  // e il prossimo run ne tiene conto.
-  const focusCommentBox = () => {
-    const box = document.getElementById("comment-body");
-    if (box instanceof HTMLTextAreaElement) {
-      box.focus();
-      box.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
-  };
+  /**
+   * Contorno dei bottoni di avvio/rilancio, identico nei due blocchi: l'avviso
+   * per l'OPERATORE (il suo run non parte, si ferma sul gate del piano), la
+   * conferma dell'esito quando il 202 dice `awaiting_plan_approval` e l'errore.
+   *
+   * L'errore passa da {@link translateApiError}: il `code` è contratto, il
+   * `message` del server no (ed è in inglese) — così il 409 `job_in_flight`
+   * diventa una frase localizzata invece di "A job is already in flight".
+   */
+  const runAiFeedback = (
+    <>
+      {!isAdmin && (
+        <p className="font-mono text-[11px] text-fg-muted">
+          {t("tickets:detail.memberRunHint")}
+        </p>
+      )}
+      {runAiMutation.data?.status === "awaiting_plan_approval" && (
+        <p role="status" className="font-mono text-[11px] text-signal">
+          {t("tickets:detail.runAwaitingApproval")}
+        </p>
+      )}
+      {runAiMutation.isError && (
+        <span role="alert" className="font-mono text-[12px] text-danger">
+          {translateApiError(runAiMutation.error, t)}
+        </span>
+      )}
+    </>
+  );
 
   return (
     <div className="page">
@@ -442,11 +479,7 @@ export function TicketDetailPage() {
                       : t("tickets:detail.startFix")}
                   </button>
                 </div>
-                {runAiMutation.isError && (
-                  <span role="alert" className="font-mono text-[12px] text-danger">
-                    {runAiMutation.error.message}
-                  </span>
-                )}
+                {runAiFeedback}
               </div>
             )}
             {/* Rilancio (job in stato terminale): avvio + rilancio con istruzioni. */}
@@ -477,14 +510,18 @@ export function TicketDetailPage() {
                     {t("tickets:detail.addCommentHint")}
                   </p>
                 )}
-                {runAiMutation.isError && (
-                  <span role="alert" className="font-mono text-[12px] text-danger">
-                    {runAiMutation.error.message}
-                  </span>
-                )}
+                {runAiFeedback}
               </div>
             )}
-            {awaitingPlanApproval && (
+            {/* Piano in attesa: la DECISIONE è dei maintainer. All'operatore si
+                dice solo che il piano è fermo lì, senza bottoni che il server
+                rifiuterebbe con un 403. */}
+            {awaitingPlanApproval && !isAdmin && (
+              <p className="mt-3 font-mono text-[12px] text-fg-muted">
+                {t("tickets:detail.awaitingMaintainer")}
+              </p>
+            )}
+            {awaitingPlanApproval && isAdmin && (
               <div className="mt-3 space-y-2">
                 <div className="flex flex-wrap items-center gap-3">
                   <button
@@ -500,10 +537,8 @@ export function TicketDetailPage() {
                   <button
                     type="button"
                     disabled={approvePlanMutation.isPending || rejectPlanMutation.isPending}
-                    onClick={() => {
-                      focusCommentBox();
-                      rejectPlanMutation.mutate();
-                    }}
+                    aria-expanded={rejecting}
+                    onClick={() => setRejecting((open) => !open)}
                     className="rounded-sm border border-line-strong px-3 py-2 font-mono text-[12px] font-semibold tracking-[0.08em] text-fg-muted uppercase transition-colors hover:border-danger hover:text-danger disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {rejectPlanMutation.isPending
@@ -511,17 +546,53 @@ export function TicketDetailPage() {
                       : t("tickets:detail.reject")}
                   </button>
                 </div>
+                {rejecting && (
+                  <div>
+                    <label
+                      htmlFor="reject-instructions"
+                      className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase"
+                    >
+                      {t("tickets:detail.rejectInstructionsLabel")}
+                    </label>
+                    <textarea
+                      id="reject-instructions"
+                      rows={3}
+                      value={rejectInstructions}
+                      onChange={(event) => setRejectInstructions(event.target.value)}
+                      placeholder={t("tickets:detail.rejectInstructionsPlaceholder")}
+                      className="mt-1 w-full rounded-sm border border-line-strong bg-ink-950/70 px-2 py-1.5 text-sm text-fg transition-colors focus-visible:border-signal-dim"
+                    />
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={rejectPlanMutation.isPending}
+                        onClick={() => rejectPlanMutation.mutate(rejectInstructions.trim() || undefined)}
+                        className="rounded-sm bg-signal px-3 py-2 font-mono text-[11px] font-semibold tracking-[0.08em] text-ink-950 uppercase transition-colors hover:bg-signal-bright disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {t("tickets:detail.rejectSubmit")}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={rejectPlanMutation.isPending}
+                        onClick={() => setRejecting(false)}
+                        className="rounded-sm border border-line-strong px-3 py-2 font-mono text-[11px] tracking-[0.08em] text-fg-muted uppercase transition-colors hover:text-fg disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {t("tickets:detail.rejectCancel")}
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <p className="font-mono text-[11px] text-fg-muted">
                   {t("tickets:detail.rejectHint")}
                 </p>
                 {approvePlanMutation.isError && (
                   <span role="alert" className="font-mono text-[12px] text-danger">
-                    {approvePlanMutation.error.message}
+                    {translateApiError(approvePlanMutation.error, t)}
                   </span>
                 )}
                 {rejectPlanMutation.isError && (
                   <span role="alert" className="font-mono text-[12px] text-danger">
-                    {rejectPlanMutation.error.message}
+                    {translateApiError(rejectPlanMutation.error, t)}
                   </span>
                 )}
               </div>
@@ -576,7 +647,7 @@ export function TicketDetailPage() {
 
           <section aria-label={t("tickets:attachments.title")}>
             <h2 className={sectionTitleClass}>{t("tickets:attachments.title")}</h2>
-            <TicketAttachments ticketId={id} isAdmin={me.user.role === "admin"} />
+            <TicketAttachments ticketId={id} isAdmin={isAdmin} />
           </section>
 
           <section aria-label={t("tickets:activity.title")}>

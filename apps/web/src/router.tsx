@@ -28,6 +28,8 @@ import {
   instanceSettingsQueryOptions,
   invitesQueryOptions,
   milestonesQueryOptions,
+  myFollowsQueryOptions,
+  notificationPrefsQueryOptions,
   notificationSettingsQueryOptions,
   patsQueryOptions,
   projectDocSpacesQueryOptions,
@@ -278,6 +280,9 @@ const projectDetailRoute = createRoute({
       projectQueryOptions(params.projectId),
     );
     await context.queryClient.ensureQueryData(milestonesQueryOptions(project.id));
+    // I progetti seguiti alimentano il bottone Segui dell'header: si precaricano
+    // qui (best-effort, il dettaglio si vede comunque se la GET fallisce).
+    await context.queryClient.ensureQueryData(myFollowsQueryOptions).catch(() => undefined);
   },
   component: ProjectDetailPage,
 });
@@ -601,6 +606,16 @@ const settingsIndexRoute = createRoute({
 const settingsAccountRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/account",
+  // Progetti seguiti e preferenze di notifica sono sezioni della pagina: si
+  // precaricano qui insieme alla lista progetti (che alimenta le checkbox), così
+  // le useSuspenseQuery della pagina non attendono.
+  loader: async ({ context }) => {
+    await Promise.all([
+      context.queryClient.ensureQueryData(projectsQueryOptions),
+      context.queryClient.ensureQueryData(myFollowsQueryOptions),
+      context.queryClient.ensureQueryData(notificationPrefsQueryOptions),
+    ]);
+  },
   component: SettingsAccountPage,
 });
 

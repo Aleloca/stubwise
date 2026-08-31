@@ -12,6 +12,8 @@ import {
   getInboxUnreadCount,
   getInstanceSettings,
   getInvites,
+  getMyFollows,
+  getNotificationPrefs,
   getNotificationSettings,
   getObservedAuthors,
   listPats,
@@ -939,3 +941,34 @@ export function inboxUnreadQueryOptions() {
     refetchInterval: 30_000,
   });
 }
+
+/**
+ * Preferenze PERSONALI dell'utente corrente (`/api/me`): i progetti seguiti e
+ * i canali di notifica. Chiave radice `["me", "prefs"]` così una mutazione può
+ * invalidarle entrambe; sottochiavi distinte perché le due risorse hanno
+ * consumatori diversi (i follow anche l'header del progetto, le preferenze solo
+ * la pagina Account).
+ */
+export const mePrefsKeys = {
+  all: ["me", "prefs"] as const,
+  follows: () => [...mePrefsKeys.all, "follows"] as const,
+  notifications: () => [...mePrefsKeys.all, "notifications"] as const,
+};
+
+/**
+ * Progetti seguiti dall'utente: l'insieme COMPLETO (il PUT lo sostituisce).
+ * `staleTime` generoso — cambia solo per mano dell'utente stesso, e chi lo
+ * cambia scrive comunque la cache.
+ */
+export const myFollowsQueryOptions = queryOptions({
+  queryKey: mePrefsKeys.follows(),
+  queryFn: getMyFollows,
+  staleTime: 60_000,
+});
+
+/** Preferenze di notifica + `slackLinked` (contesto per rendere il toggle DM). */
+export const notificationPrefsQueryOptions = queryOptions({
+  queryKey: mePrefsKeys.notifications(),
+  queryFn: getNotificationPrefs,
+  staleTime: 60_000,
+});

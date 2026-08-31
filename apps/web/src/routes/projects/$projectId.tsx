@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { getRouteApi, Link, useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { ProviderBadge } from "../../components/badges";
@@ -8,10 +8,10 @@ import { MilestoneManager } from "../../components/milestone-manager";
 import { ProjectForm } from "../../components/project-form";
 import { ProjectServersSection } from "../../components/project-servers-section";
 import { WidgetsSection } from "../../components/widgets-section";
-import { deleteProject, patchProject, type ProjectPatch } from "../../lib/api";
+import { deleteProject, patchProject, putMyFollows, type ProjectPatch } from "../../lib/api";
 import { meQueryOptions } from "../../lib/auth";
 import { formatDateTime } from "../../lib/format";
-import { projectQueryOptions } from "../../lib/queries";
+import { myFollowsQueryOptions, projectQueryOptions } from "../../lib/queries";
 
 // L'id della route include il layout autenticato (id "authed").
 const route = getRouteApi("/authed/projects/$projectId");
@@ -70,9 +70,12 @@ export function ProjectDetailPage() {
       </Link>
 
       <header className="mt-3 border-b border-line pb-5">
-        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-          <h1 className="text-xl font-semibold">{project.name}</h1>
-          <span className="font-mono text-[12px] text-fg-faint">{project.slug}</span>
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h1 className="text-xl font-semibold">{project.name}</h1>
+            <span className="font-mono text-[12px] text-fg-faint">{project.slug}</span>
+          </div>
+          <FollowProjectButton projectId={project.id} />
         </div>
         {project.description && (
           <p className="mt-2 text-sm text-fg-muted">{project.description}</p>
@@ -273,6 +276,66 @@ export function ProjectDetailPage() {
         </section>
       )}
     </div>
+  );
+}
+
+/**
+ * Bottone Segui / Non seguire del progetto.
+ *
+ * I follow sono l'ingresso dell'instradamento delle notifiche: seguire un
+ * progetto significa riceverne gli eventi in inbox (e in DM, se attivo). La PUT
+ * SOSTITUISCE l'insieme completo, quindi si manda l'insieme corrente più/meno
+ * questo progetto — mai un delta.
+ *
+ * `useQuery` (non suspense) e nessun bottone finché l'insieme non è noto: se la
+ * GET fallisce non si mostra uno stato inventato, e il dettaglio del progetto
+ * resta comunque leggibile. Aggiornamento ottimistico con rollback: il click si
+ * vede subito e torna indietro se il server rifiuta.
+ */
+function FollowProjectButton({ projectId }: { projectId: string }) {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const { data: follows } = useQuery(myFollowsQueryOptions);
+
+  const mutation = useMutation({
+    mutationFn: (projectIds: string[]) => putMyFollows(projectIds),
+    onMutate: async (projectIds) => {
+      await queryClient.cancelQueries({ queryKey: myFollowsQueryOptions.queryKey });
+      const previous = queryClient.getQueryData(myFollowsQueryOptions.queryKey);
+      queryClient.setQueryData(myFollowsQueryOptions.queryKey, { projectIds });
+      return { previous };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(myFollowsQueryOptions.queryKey, context.previous);
+      }
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: myFollowsQueryOptions.queryKey }),
+  });
+
+  if (follows === undefined) return null;
+
+  const following = follows.projectIds.includes(projectId);
+
+  return (
+    <button
+      type="button"
+      disabled={mutation.isPending}
+      aria-pressed={following}
+      onClick={() => {
+        const next = new Set(follows.projectIds);
+        if (following) next.delete(projectId);
+        else next.add(projectId);
+        mutation.mutate([...next]);
+      }}
+      className={`shrink-0 rounded-sm border px-3 py-2 font-mono text-[12px] tracking-[0.08em] uppercase transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+        following
+          ? "border-signal-dim/40 text-signal hover:border-signal"
+          : "border-line-strong text-fg-muted hover:border-ink-700 hover:text-fg"
+      }`}
+    >
+      {following ? t("projects:detail.unfollow") : t("projects:detail.follow")}
+    </button>
   );
 }
 

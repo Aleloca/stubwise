@@ -529,7 +529,7 @@ describe("WidgetsSection", () => {
     expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Delete widget" })).not.toBeInTheDocument();
     expect(
-      screen.getByText("Only administrators can change these settings."),
+      screen.getByText("Only maintainers can change these settings."),
     ).toBeInTheDocument();
   });
 });

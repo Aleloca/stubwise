@@ -637,7 +637,7 @@ describe("pagina team", () => {
     await user.selectOptions(roleSelect, "admin");
 
     expect(
-      await screen.findByText("You cannot demote the last admin"),
+      await screen.findByText("You cannot demote the last maintainer"),
     ).toBeInTheDocument();
   });
 

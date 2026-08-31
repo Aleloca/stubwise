@@ -777,9 +777,16 @@ export function approvePlan(ticketId: string): Promise<{ jobId: string }> {
 /**
  * Rifiuta il piano in attesa: il worker ri-pianifica (resume_mode=fix, piano
  * azzerato), incorporando gli eventuali commenti utente. 409 se nessun piano.
+ *
+ * Le `instructions` opzionali (max 4000) diventano un commento del team sul
+ * ticket — cioè proprio quello che il re-plan rilegge: è il modo per dire al
+ * prossimo piano cosa correggere senza scrivere un commento a parte.
  */
-export function rejectPlan(ticketId: string): Promise<{ jobId: string }> {
-  return api.post(`/api/tickets/${ticketId}/reject-plan`);
+export function rejectPlan(
+  ticketId: string,
+  body?: { instructions?: string },
+): Promise<{ jobId: string }> {
+  return api.post(`/api/tickets/${ticketId}/reject-plan`, body);
 }
 
 /** Consumo aggregato di un singolo modello sui job AI del ticket. */
