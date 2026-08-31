@@ -876,6 +876,10 @@ export const notificationFormat = pgEnum("notification_format", ["slack", "disco
 // `NotificationEvent` (@stubwise/notifications/format): la lista è ripetuta qui
 // come letterale perché `db` NON può importare da `notifications` (è
 // `notifications` a dipendere da `db`; l'inverso sarebbe un ciclo).
+// Aggiungere un kind richiede `ALTER TYPE ... ADD VALUE` in una migrazione che
+// NON usa il valore nuovo nello stesso batch: il migratore esegue tutte le
+// migrazioni pendenti in UNA transazione e Postgres rifiuta l'uso di un valore
+// enum aggiunto nella stessa (vedi CLAUDE.md, "Trappola migrazioni drizzle").
 export const notificationKind = pgEnum("notification_kind", [
   "ticket.created",
   "job.pr_opened",
@@ -2362,13 +2366,25 @@ export const notifications = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    // Inbox di un utente, dalla più recente. Indice PARZIALE sulle sole notifiche
-    // aperte: resta piccolo anche con uno storico grande di gestite/rinviate.
-    index("notifications_user_open_idx")
-      .on(table.userId, table.createdAt.desc())
-      .where(sql`status = 'open'`),
+    // Inbox di un utente filtrata per stato, dalla più recente. NON parziale su
+    // 'open': lo stesso indice serve le liste per stato e la riapertura lazy
+    // degli snooze scaduti (che leggono status <> 'open'). `id DESC` è il
+    // tiebreaker della paginazione keyset, `created_at` non è univoco.
+    index("notifications_user_status_created_idx").on(
+      table.userId,
+      table.status,
+      table.createdAt.desc(),
+      table.id.desc(),
+    ),
     // Fan-in dal job: da un evento si risale a tutti i destinatari avvisati.
     index("notifications_job_id_idx").on(table.jobId),
+    // Stesso fan-in per gli eventi ancorati a un ticket (nessun job dietro).
+    index("notifications_ticket_id_idx").on(table.ticketId),
+    // Una notifica rinviata ha sempre una scadenza, altrimenti resterebbe fuori
+    // dall'inbox per sempre.
+    check("notifications_snoozed_until_chk", sql`status <> 'snoozed' OR snoozed_until IS NOT NULL`),
+    // `handled_at` valorizzato se e solo se lo stato è `handled`.
+    check("notifications_handled_at_chk", sql`(status = 'handled') = (handled_at IS NOT NULL)`),
   ],
 );
 
@@ -2412,6 +2428,20 @@ export const notificationDeliveries = pgTable(
     index("notification_deliveries_pending_idx")
       .on(table.nextAttemptAt)
       .where(sql`status = 'pending'`),
+    // Consegne di una notifica: sostiene la cascata del delete e la lettura
+    // dello stato di recapito dal dettaglio di una notifica.
+    index("notification_deliveries_notification_id_idx").on(table.notificationId),
+    // Forma della riga garantita dal DB, non solo dal codice: `webhook` è per
+    // EVENTO (nessuna notifica dietro, payload in `event`), gli altri canali
+    // sono per DESTINATARIO (notifica obbligatoria, payload letto da lì).
+    check(
+      "notification_deliveries_channel_shape_chk",
+      sql`(channel = 'webhook') = (notification_id IS NULL)`,
+    ),
+    check(
+      "notification_deliveries_webhook_event_chk",
+      sql`channel <> 'webhook' OR event IS NOT NULL`,
+    ),
   ],
 );
 

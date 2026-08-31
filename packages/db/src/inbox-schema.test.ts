@@ -10,15 +10,15 @@ import {
   projects,
   users,
 } from "./schema.js";
-import { seedTicket as seedTicketRow, startTestDb, type TestDb } from "./testing.js";
+import { seedTicket, startTestDb, type TestDb } from "./testing.js";
 
 /**
  * Verifica che la migrazione delle fondamenta dell'inbox (colonne su `ai_jobs`
  * e `users`, `notifications`, `notification_deliveries`, `project_follows`) sia
  * applicabile su un Postgres reale: default delle colonne nuove, una notifica
  * per utente sullo stesso job, outbox per canale (riga di webhook senza
- * notifica associata), enum degli stati di consegna e chiave composta dei
- * progetti seguiti.
+ * notifica associata), enum e CHECK di coerenza (forma della riga di outbox,
+ * stato della notifica) e chiave composta dei progetti seguiti.
  */
 describe("schema: fondamenta dell'inbox di notifiche", () => {
   let testDb: TestDb;
@@ -32,6 +32,24 @@ describe("schema: fondamenta dell'inbox di notifiche", () => {
   afterAll(async () => {
     await testDb.stop();
   });
+
+  /**
+   * Esegue una query che deve fallire e ne verifica il codice SQLSTATE, così il
+   * test non passa per un errore diverso da quello atteso (23514 = violazione di
+   * CHECK, 23505 = violazione di unique/PK, 22P02 = valore fuori enum). drizzle
+   * incarta l'errore del driver in un `DrizzleQueryError`: il `PostgresError`
+   * con il codice arriva come `cause`.
+   */
+  async function expectSqlState(query: PromiseLike<unknown>, sqlState: string): Promise<void> {
+    try {
+      await query;
+    } catch (err) {
+      const cause = (err as { cause?: unknown }).cause ?? err;
+      expect((cause as { code?: string }).code).toBe(sqlState);
+      return;
+    }
+    throw new Error(`la query doveva fallire con SQLSTATE ${sqlState}, invece è riuscita`);
+  }
 
   async function seedUser(): Promise<string> {
     const [user] = await db
@@ -47,7 +65,7 @@ describe("schema: fondamenta dell'inbox di notifiche", () => {
   }
 
   it("ai_jobs: requestedByUserId nullable e planApprovalRequired default false", async () => {
-    const { ticketId } = await seedTicketRow(db);
+    const { ticketId } = await seedTicket(db);
 
     const [automatico] = await db.insert(aiJobs).values({ ticketId }).returning();
     if (!automatico) throw new Error("insert del job automatico non ha restituito la riga");
@@ -83,7 +101,7 @@ describe("schema: fondamenta dell'inbox di notifiche", () => {
   });
 
   it("una notifica per destinatario sullo stesso job, rileggibile per job_id", async () => {
-    const { projectId, ticketId } = await seedTicketRow(db);
+    const { projectId, ticketId } = await seedTicket(db);
     const [job] = await db.insert(aiJobs).values({ ticketId }).returning();
     if (!job) throw new Error("insert del job non ha restituito la riga");
     const primo = await seedUser();
@@ -120,7 +138,7 @@ describe("schema: fondamenta dell'inbox di notifiche", () => {
   });
 
   it("la notifica cascata sul delete dell'utente destinatario", async () => {
-    const { projectId, ticketId } = await seedTicketRow(db);
+    const { projectId, ticketId } = await seedTicket(db);
     const userId = await seedUser();
     const [notifica] = await db
       .insert(notifications)
@@ -160,7 +178,7 @@ describe("schema: fondamenta dell'inbox di notifiche", () => {
   });
 
   it("consegna slack_dm: legata a una notifica, cascata sul delete della notifica", async () => {
-    const { projectId, ticketId } = await seedTicketRow(db);
+    const { projectId, ticketId } = await seedTicket(db);
     const userId = await seedUser();
     const [notifica] = await db
       .insert(notifications)
@@ -190,31 +208,98 @@ describe("schema: fondamenta dell'inbox di notifiche", () => {
     expect(rimaste).toHaveLength(0);
   });
 
-  it("delivery_status rifiuta i valori fuori enum", async () => {
-    // Insert raw: il tipo drizzle vieterebbe già il valore a compile-time,
-    // qui si verifica che sia l'enum Postgres a farlo rispettare a runtime.
-    await expect(
+  it("delivery_channel e delivery_status rifiutano i valori fuori enum", async () => {
+    // Insert raw: il tipo drizzle vieterebbe già il valore a compile-time, qui
+    // si verifica che sia l'enum Postgres a farlo rispettare a runtime.
+    await expectSqlState(
       db.execute(
-        sql`insert into notification_deliveries (channel, status) values ('webhook', 'inviata')`,
+        sql`insert into notification_deliveries (channel, event) values ('email', '{}'::jsonb)`,
       ),
-    ).rejects.toThrow();
-    await expect(
-      db.execute(sql`insert into notification_deliveries (channel) values ('email')`),
-    ).rejects.toThrow();
+      "22P02",
+    );
+    await expectSqlState(
+      db.execute(
+        sql`insert into notification_deliveries (channel, event, status)
+            values ('webhook', '{}'::jsonb, 'inviata')`,
+      ),
+      "22P02",
+    );
+  });
+
+  it("CHECK channel_shape: solo il webhook è senza notifica dietro", async () => {
+    const { projectId, ticketId } = await seedTicket(db);
+    const userId = await seedUser();
+    const [notifica] = await db
+      .insert(notifications)
+      .values({ userId, projectId, ticketId, kind: "ticket.created", event: {} })
+      .returning();
+    if (!notifica) throw new Error("insert della notifica non ha restituito la riga");
+
+    // Webhook CON notifica: il webhook è per evento, non per destinatario.
+    await expectSqlState(
+      db.execute(
+        sql`insert into notification_deliveries (channel, notification_id, event)
+            values ('webhook', ${notifica.id}, '{}'::jsonb)`,
+      ),
+      "23514",
+    );
+    // DM SENZA notifica: non saprebbe né a chi recapitare né cosa.
+    await expectSqlState(
+      db.execute(sql`insert into notification_deliveries (channel) values ('slack_dm')`),
+      "23514",
+    );
+  });
+
+  it("CHECK webhook_event: la consegna webhook porta sempre il payload", async () => {
+    await expectSqlState(
+      db.execute(sql`insert into notification_deliveries (channel) values ('webhook')`),
+      "23514",
+    );
+  });
+
+  it("CHECK snoozed_until: una notifica rinviata ha sempre una scadenza", async () => {
+    const userId = await seedUser();
+    await expectSqlState(
+      db.execute(
+        sql`insert into notifications (user_id, kind, event, status)
+            values (${userId}, 'ticket.created', '{}'::jsonb, 'snoozed')`,
+      ),
+      "23514",
+    );
+  });
+
+  it("CHECK handled_at: valorizzato se e solo se lo stato è handled", async () => {
+    const userId = await seedUser();
+    // handled senza istante di chiusura.
+    await expectSqlState(
+      db.execute(
+        sql`insert into notifications (user_id, kind, event, status)
+            values (${userId}, 'ticket.created', '{}'::jsonb, 'handled')`,
+      ),
+      "23514",
+    );
+    // Istante di chiusura su una notifica ancora aperta.
+    await expectSqlState(
+      db.execute(
+        sql`insert into notifications (user_id, kind, event, handled_at)
+            values (${userId}, 'ticket.created', '{}'::jsonb, now())`,
+      ),
+      "23514",
+    );
   });
 
   it("project_follows: chiave composta (utente, progetto), duplicato rifiutato", async () => {
-    const { projectId } = await seedTicketRow(db);
+    const { projectId } = await seedTicket(db);
     const userId = await seedUser();
 
     const [follow] = await db.insert(projectFollows).values({ userId, projectId }).returning();
     if (!follow) throw new Error("insert del follow non ha restituito la riga");
     expect(follow.createdAt).toBeInstanceOf(Date);
 
-    await expect(db.insert(projectFollows).values({ userId, projectId })).rejects.toThrow();
+    await expectSqlState(db.insert(projectFollows).values({ userId, projectId }), "23505");
 
     // Un secondo progetto per lo stesso utente convive.
-    const { projectId: altroProgetto } = await seedTicketRow(db);
+    const { projectId: altroProgetto } = await seedTicket(db);
     await db.insert(projectFollows).values({ userId, projectId: altroProgetto });
     const follows = await db.select().from(projectFollows).where(eq(projectFollows.userId, userId));
     expect(follows).toHaveLength(2);

@@ -51,13 +51,30 @@ ALTER TABLE "notification_deliveries" ADD CONSTRAINT "notification_deliveries_no
 ALTER TABLE "project_follows" ADD CONSTRAINT "project_follows_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "project_follows" ADD CONSTRAINT "project_follows_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "ai_jobs" ADD CONSTRAINT "ai_jobs_requested_by_user_id_users_id_fk" FOREIGN KEY ("requested_by_user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
--- Inbox di un utente: le notifiche ancora da smaltire, dalla più recente.
--- Indice PARZIALE su status = 'open': resta piccolo anche quando lo storico
--- delle notifiche gestite/rinviate cresce.
-CREATE INDEX "notifications_user_open_idx" ON "notifications" USING btree ("user_id","created_at" DESC) WHERE status = 'open';--> statement-breakpoint
+-- Inbox di un utente: le notifiche di uno stato, dalla più recente. Indice
+-- COMPLETO (non parziale su 'open'): serve anche alle liste per stato e alla
+-- riapertura lazy degli snooze scaduti, che leggono status <> 'open'. `id DESC`
+-- è il tiebreaker della paginazione keyset (created_at non è univoco).
+CREATE INDEX "notifications_user_status_created_idx" ON "notifications" USING btree ("user_id","status","created_at" DESC,"id" DESC);--> statement-breakpoint
 -- Fan-in dal job: da un evento si risale a tutti i destinatari avvisati (per
 -- aggiornare in blocco le notifiche di un job che è stato risolto).
 CREATE INDEX "notifications_job_id_idx" ON "notifications" USING btree ("job_id");--> statement-breakpoint
+-- Stesso fan-in per gli eventi ancorati a un ticket (nessun job dietro).
+CREATE INDEX "notifications_ticket_id_idx" ON "notifications" USING btree ("ticket_id");--> statement-breakpoint
 -- Claim dell'outbox: la prossima consegna dovuta. Indice parziale sugli invii
 -- ancora in sospeso, quelli conclusi non partecipano.
-CREATE INDEX "notification_deliveries_pending_idx" ON "notification_deliveries" USING btree ("next_attempt_at") WHERE status = 'pending';
+CREATE INDEX "notification_deliveries_pending_idx" ON "notification_deliveries" USING btree ("next_attempt_at") WHERE status = 'pending';--> statement-breakpoint
+-- Consegne di una notifica: sostiene la cascata del delete e la lettura dello
+-- stato di recapito dal dettaglio di una notifica.
+CREATE INDEX "notification_deliveries_notification_id_idx" ON "notification_deliveries" USING btree ("notification_id");--> statement-breakpoint
+-- Forma della riga di outbox, garantita dal DB e non solo dal codice: le
+-- consegne `webhook` sono per EVENTO (nessuna notifica dietro, payload nella
+-- colonna `event`), tutte le altre sono per DESTINATARIO (notifica
+-- obbligatoria, payload letto da `notifications.event`).
+ALTER TABLE "notification_deliveries" ADD CONSTRAINT "notification_deliveries_channel_shape_chk" CHECK ((channel = 'webhook') = (notification_id IS NULL));--> statement-breakpoint
+ALTER TABLE "notification_deliveries" ADD CONSTRAINT "notification_deliveries_webhook_event_chk" CHECK (channel <> 'webhook' OR event IS NOT NULL);--> statement-breakpoint
+-- Coerenza dello stato di una notifica: una rinviata ha sempre una scadenza
+-- (altrimenti non tornerebbe mai a galla) e `handled_at` è valorizzato se e
+-- solo se lo stato è `handled`.
+ALTER TABLE "notifications" ADD CONSTRAINT "notifications_snoozed_until_chk" CHECK (status <> 'snoozed' OR snoozed_until IS NOT NULL);--> statement-breakpoint
+ALTER TABLE "notifications" ADD CONSTRAINT "notifications_handled_at_chk" CHECK ((status = 'handled') = (handled_at IS NOT NULL));

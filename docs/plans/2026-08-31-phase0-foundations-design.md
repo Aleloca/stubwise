@@ -93,7 +93,9 @@ indice `(job_id)` per la propagazione di `handled`.
 **`notification_deliveries`** (outbox per canale):
 `id`, `notification_id?` (null per la delivery `webhook`, che è per evento non
 per destinatario; in quel caso `event jsonb` è copiato qui), `channel` enum
-`webhook | slack_dm`, `status` enum `pending | sent | failed | skipped`,
+`webhook | slack_dm | slack_update` (`slack_update` = aggiornamento del
+messaggio delle altre copie dopo un'azione), `status` enum
+`pending | sent | failed | skipped`,
 `attempts int`, `next_attempt_at`, `error?`, `external_ref?` (ts del messaggio
 Slack), `created_at`, `sent_at?`. Indice parziale su `(next_attempt_at) where
 status = 'pending'`.
