@@ -36,6 +36,10 @@ Idee di funzionalità valutate dopo la prima fase di sviluppo + deploy in produz
 - **Quota/rate AI per progetto**: evitare che un progetto rumoroso saturi capacità/budget.
 - **Integrazione graphify (fase 1)**: knowledge graph del codice per repository (tree-sitter, zero LLM) generato dal worker e tenuto fresco sul push; PR di setup sul repo target (graph committato + skill + config MCP: i dev pullano e hanno tutto); tab "Grafo" nella sezione Docs (GRAPH_REPORT.md + graph.html interattivo); container `graphify serve` HTTP nel compose per i futuri consumatori (chat backlog/docs). Design validato in docs/plans/2026-07-27-graphify-integration-design.md (con prova empirica sul monorepo: 41s, 5.701 nodi, 0 token). → ✅ **FATTA** (fase 1 deployata 27 lug + fase 2a "agenti query-first sul grafo" 28 lug 2026). ~~Fase 2b: retrieval strutturale dal grafo nelle chat~~ → ✅ **FATTA** (deployata 28 lug 2026, merge 8f441c8; design+piano docs/plans/2026-07-28-graphify-chat-retrieval-*.md; rollback: GRAPHIFY_MCP_URL= vuota). ~~Fase 2d: impatto del grafo nella PR review~~ → ✅ **IMPLEMENTATA** (blast radius deterministico dal diff + blocco CODE GRAPH e allowlist nel run della review, sezione "Impatto sul codice" nel commento pubblicato; design docs/plans/2026-07-28-graphify-review-impact-design.md; deploy: solo `worker`). ~~2c: orient Docs seedato dal grafo~~ → ✅ **FATTA** (deployata 29 lug 2026, merge 7bd2306; puramente additiva, design docs/plans/2026-07-29-graphify-docs-orient-design.md). **PERCORSO GRAPHIFY COMPLETO (1, 2a, 2b, 2c, 2d).** Follow-up minore: cablare graphsDir nel mini-orient dell'auto-update aree nuove (~15 righe, solo prompt+allowlist).
 
+## 5. Programma centro nevralgico
+
+- **Fase 0 — Fondamenta** ✅ (ruoli maintainer/operator, inbox azionabile per-utente con outbox e DM Slack con bottoni, run_ticket + /stubwise:run; design e piano in docs/plans/2026-08-31-phase0-foundations-*).
+
 ---
 
 **Le tre da fare per prime (raccomandazione iniziale):**

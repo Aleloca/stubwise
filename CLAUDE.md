@@ -85,6 +85,13 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   skill, riscritto da `graphify claude install`.
 - Modifica al **retrieval dal grafo nelle chat** (`apps/server/src/graph-chat`) →
   ribuilda `server`.
+- **Fase 0 (inbox/notifiche)**: rebuild **server+worker+caddy insieme**
+  (migrazione 0063 all'avvio del server; senza il worker nuovo le notifiche
+  restano in outbox); env opzionale `NOTIFY_POLL_SECONDS` (default 5, 0 = spegne
+  la consegna, webhook incluso); app Slack: aggiungere gli scope `chat:write` e
+  `im:write`, reinstallarla nel workspace e risalvare il bot token in
+  Impostazioni → Slack; poi collegare gli account Slack in /team (chi è collegato
+  inizia a ricevere DM subito, preferenza disattivabile dall'Account).
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
