@@ -325,17 +325,26 @@ type Ticket = typeof tickets.$inferSelect;
  * del ticket:
  * - `execute-only`: il piano è già stato approvato (resumeMode="execute" con un
  *   planText): si salta la pianificazione e si esegue direttamente dal piano.
- * - `plan-only`: per il tipo del ticket è impostata una soglia di approvazione
- *   del piano (`plan_approval_min_effort`) e l'effort stimato la raggiunge: si
- *   pianifica e ci si ferma in attesa dell'approvazione umana.
+ * - `plan-only`: il job porta il gate `plan_approval_required` (è stato chiesto
+ *   da un operatore, vedi sotto) OPPURE per il tipo del ticket è impostata una
+ *   soglia di approvazione del piano (`plan_approval_min_effort`) e l'effort
+ *   stimato la raggiunge: si pianifica e ci si ferma in attesa dell'ok umano.
  * - `full`: comportamento storico (plan + execute in fila).
  *
  * NOTA: il gate di approvazione del piano è ORTOGONALE a `manualTrigger`. Un
- * avvio a mano NON aggira l'approvazione: un fix rischioso (effort alto) deve
- * comunque proporre un piano e attendere l'ok umano prima di toccare il codice.
+ * avvio a mano NON aggira l'approvazione: un fix rischioso (effort alto, o
+ * chiesto da un operatore) deve comunque proporre un piano e attendere l'ok
+ * umano prima di toccare il codice.
  */
 async function resolveFixMode(db: Db, job: AiJob, ticket: Ticket): Promise<FixMode> {
   if (job.resumeMode === "execute" && job.planText) return "execute-only";
+  // Job lanciato da un utente `member` (operatore): il server ha acceso
+  // `planApprovalRequired` perché il piano va approvato da un maintainer,
+  // QUALUNQUE sia l'effort del ticket e la soglia del tipo. Sta DOPO il ramo
+  // execute-only di proposito: se il job arriva con resumeMode="execute" e un
+  // planText è perché quel piano è GIÀ passato dall'approvazione del
+  // maintainer (resolvePlan), e ri-pianificare sarebbe un ciclo infinito.
+  if (job.planApprovalRequired) return "plan-only";
   const [rule] = await db
     .select({ minEffort: automationRules.planApprovalMinEffort })
     .from(automationRules)

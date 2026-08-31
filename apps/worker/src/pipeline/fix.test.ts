@@ -1161,6 +1161,102 @@ describe("runFix", () => {
     expect(jobAfter.prUrl).toBe("https://github.com/acme/repo/pull/123");
   });
 
+  it("plan-only: planApprovalRequired (job chiesto da un operatore) forza il gate anche sotto soglia", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    // Soglia alta (5) e ticket con effort 1: la soglia da sola NON fermerebbe
+    // il fix. È il flag sul job (scritto dal server per un utente `member`) a
+    // imporre l'approvazione del piano da parte di un maintainer.
+    await db.update(automationRules).set({ planApprovalMinEffort: 5 }).where(eq(automationRules.type, "bug"));
+    const ticket = await createTicket(db, fixture, { type: "bug", effort: 1 });
+    const [job] = await db
+      .insert(aiJobs)
+      .values({ ticketId: ticket.id, status: "fixing", startedAt: new Date(), planApprovalRequired: true })
+      .returning();
+    if (!job) throw new Error("insert del job non ha restituito la riga");
+    const runner = new FakeAgentRunner({
+      fileChanges: fixChanges(fixture),
+      results: [{ output: "PIANO DELL'OPERATORE", exitCode: 0 }],
+    });
+    const provider = makeProvider();
+
+    const outcome = await runFix(makeDeps(fixture, runner, provider), job);
+
+    expect(outcome).toBe("awaiting_approval");
+    // UN solo run: la pianificazione. Niente esecuzione, niente PR.
+    expect(runner.calls).toHaveLength(1);
+    expect(runner.calls[0]?.permissionMode).toBe("plan");
+    expect(provider.openPullRequest).not.toHaveBeenCalled();
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("awaiting_plan_approval");
+    expect(jobAfter.planText).toBe("PIANO DELL'OPERATORE");
+  });
+
+  it("execute-only vince su planApprovalRequired: piano già approvato → esegue e apre la PR", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture, { type: "bug", effort: 1 });
+    const PLAN = "PIANO APPROVATO DAL MAINTAINER: sostituisci - con + in app.js";
+    // Il job nasce con planApprovalRequired=true (operatore) ma il maintainer
+    // ha già approvato: resolvePlan lo ha rimesso in coda con resumeMode
+    // execute + planText. Non si ri-pianifica.
+    const [job] = await db
+      .insert(aiJobs)
+      .values({
+        ticketId: ticket.id,
+        status: "fixing",
+        startedAt: new Date(),
+        planApprovalRequired: true,
+        resumeMode: "execute",
+        planText: PLAN,
+      })
+      .returning();
+    if (!job) throw new Error("insert del job non ha restituito la riga");
+    const runner = new FakeAgentRunner({
+      fileChanges: fixChanges(fixture),
+      results: [{ output: "ho applicato il piano approvato", exitCode: 0 }],
+    });
+    const provider = makeProvider("https://github.com/acme/repo/pull/456");
+
+    const outcome = await runFix(makeDeps(fixture, runner, provider), job);
+
+    expect(outcome).toBe("pr_opened");
+    expect(runner.calls).toHaveLength(1);
+    expect(runner.calls[0]?.permissionMode).toBe("acceptEdits");
+    expect(runner.calls[0]?.prompt).toContain(PLAN);
+    expect(provider.openPullRequest).toHaveBeenCalledTimes(1);
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("pr_opened");
+    expect(jobAfter.prUrl).toBe("https://github.com/acme/repo/pull/456");
+  });
+
+  it("full (regressione): planApprovalRequired=false ed effort sotto soglia → plan + execute in fila", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    // Soglia 5, effort 1, nessun flag sul job (default false, job automatico o
+    // chiesto da un maintainer): comportamento storico, niente parcheggio.
+    await db.update(automationRules).set({ planApprovalMinEffort: 5 }).where(eq(automationRules.type, "bug"));
+    const ticket = await createTicket(db, fixture, { type: "bug", effort: 1 });
+    const job = await createFixingJob(db, ticket.id);
+    expect(job.planApprovalRequired).toBe(false);
+    const runner = new FakeAgentRunner({
+      fileChanges: fixChanges(fixture),
+      results: [
+        { output: "PIANO", exitCode: 0 },
+        { output: "fatto", exitCode: 0 },
+      ],
+    });
+    const provider = makeProvider();
+
+    const outcome = await runFix(makeDeps(fixture, runner, provider), job);
+
+    expect(outcome).toBe("pr_opened");
+    expect(runner.calls).toHaveLength(2);
+    expect(runner.calls[0]?.permissionMode).toBe("plan");
+    expect(runner.calls[1]?.permissionMode).toBe("acceptEdits");
+    expect(provider.openPullRequest).toHaveBeenCalledTimes(1);
+  });
+
   it("full (regressione): soglia non impostata → plan + execute in fila, PR aperta", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
