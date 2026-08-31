@@ -4,6 +4,8 @@ import { ticketTypeSchema, type TicketType } from "@stubwise/shared";
 import { docPages, projects, repositories, users } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import type { EmbeddingClient } from "@stubwise/embeddings";
+import { t } from "@stubwise/i18n";
+import { parseInboxBlockId } from "@stubwise/notifications";
 import { ProjectNotFoundError } from "../db/tickets.js";
 import { createExternalTicket } from "../ingest/processor.js";
 import { resolveReporter, resolveReporterBySlackId } from "../ingest/reporter.js";
@@ -12,7 +14,25 @@ import { apiError } from "../errors.js";
 import type { ChatLlm } from "../routes/chat-llm.js";
 import { answerProjectDocsQuestion, type DocsGraphDeps } from "../routes/docs-rag.js";
 import { isUniqueViolation } from "../routes/shared.js";
-import { ACTION_IDS, BLOCK_IDS, buildTicketModal } from "./modal.js";
+import { executeAction } from "../services/inbox.js";
+import { getContentLanguage } from "../settings.js";
+import {
+  enqueueInboxUpdates,
+  inboxErrorText,
+  inboxNote,
+  parseInboxActionId,
+  resolveSlackActor,
+  runInboxAction,
+} from "./inbox-actions.js";
+import {
+  ACTION_IDS,
+  BLOCK_IDS,
+  buildRejectPlanModal,
+  buildTicketModal,
+  INBOX_REJECT_ACTION_ID,
+  INBOX_REJECT_BLOCK_ID,
+  INBOX_REJECT_PLAN_CALLBACK_ID,
+} from "./modal.js";
 import {
   buildDocsQueryModal,
   DOCS_ACTION_IDS,
@@ -294,11 +314,24 @@ interface SlackStateValue {
   selected_option?: { value?: string };
 }
 
+/** Un elemento premuto in un `block_actions` (bottone o menù). */
+interface SlackBlockAction {
+  action_id?: string;
+  /** `inbox:<notificationId>`: è il carrier dell'id (vedi `buildInboxBlocks`). */
+  block_id?: string;
+  value?: string;
+  selected_option?: { value?: string };
+}
+
 interface SlackInteractionPayload {
   type?: string;
   trigger_id?: string;
   user?: { id?: string; username?: string; name?: string };
   message?: { text?: string };
+  /** Elementi premuti (`block_actions`): Slack ne manda sempre uno. */
+  actions?: SlackBlockAction[];
+  /** Dove rispondere/riscrivere il messaggio dell'interazione. */
+  response_url?: string;
   view?: {
     callback_id?: string;
     private_metadata?: string;
@@ -453,6 +486,23 @@ export async function slackRoutes(
     return ack(reply);
   });
 
+  /**
+   * Effimero "collega l'account Slack a Stubwise", risposta a chi preme un
+   * bottone dell'inbox senza essere un utente noto.
+   *
+   * LINGUA: quella dei CONTENUTI dell'istanza — di chi ha premuto non sappiamo
+   * la lingua, perché non è (ancora) un utente Stubwise.
+   */
+  const postNotLinked = async (responseUrl: string | undefined): Promise<void> => {
+    if (!responseUrl) return;
+    await postResponse(responseUrl, {
+      response_type: "ephemeral",
+      // Il messaggio NON viene sostituito: i bottoni restano per chi di dovere.
+      replace_original: false,
+      text: t(await getContentLanguage(instance.db), "notify.inbox.notLinked"),
+    });
+  };
+
   // POST /api/slack/interactions — interactivity (message action + view submit).
   instance.post("/interactions", async (request, reply) => {
     const creds = await loadSlackCreds(instance);
@@ -491,6 +541,57 @@ export async function slackRoutes(
     }
 
     if (payload.type === "view_submission") {
+      // Branch INBOX: il modal di rifiuto del piano, aperto dal bottone
+      // "Rifiuta" del DM. Additivo e riconosciuto dal solo callback_id.
+      if (payload.view?.callback_id === INBOX_REJECT_PLAN_CALLBACK_ID) {
+        // `private_metadata` porta il solo notificationId (vedi buildRejectPlanModal).
+        const notificationId = payload.view.private_metadata?.trim();
+        const instructions = inputValue(
+          payload.view.state?.values,
+          INBOX_REJECT_BLOCK_ID,
+          INBOX_REJECT_ACTION_ID,
+        );
+        // Identità RI-RISOLTA dallo Slack user id del submit, mai dal payload:
+        // fra l'apertura del modal e il submit il collegamento può essere
+        // sparito, e comunque il payload non autorizza nulla.
+        const actor = await resolveSlackActor(instance.db, client, payload.user?.id);
+        // ERRORI IN-MODAL: il `view_submission` non porta il response_url del
+        // messaggio, quindi non c'è dove mandare un effimero. Si risponde con
+        // `response_action: errors` ancorato al campo istruzioni: il modal
+        // resta aperto e mostra il motivo.
+        const rejectError = (text: string): FastifyReply =>
+          reply
+            .code(200)
+            .send({ response_action: "errors", errors: { [INBOX_REJECT_BLOCK_ID]: text } });
+        if (!actor) {
+          return rejectError(t(await getContentLanguage(instance.db), "notify.inbox.notLinked"));
+        }
+        if (!notificationId) {
+          return rejectError(t(actor.language, "notify.inbox.errNotFound"));
+        }
+
+        const publicUrl = publicUrlOrUndefined(instance);
+        const result = await executeAction(instance.db, {
+          notificationId,
+          action: "reject_plan",
+          actor: { id: actor.id, role: actor.role },
+          ...(instructions === undefined ? {} : { payload: { instructions } }),
+          ...(publicUrl ? { publicUrl } : {}),
+        });
+        if (!result.ok) return rejectError(inboxErrorText(actor.language, result));
+
+        // AGGIORNAMENTO DELLE COPIE, propria INCLUSA: senza response_url il DM
+        // di chi ha rifiutato non è riscrivibile da qui, quindi passa dalla
+        // stessa coda delle altre copie (il poller conosce il `ts` di ognuna).
+        // Un'attesa in più di un tick del poller, in cambio di un solo
+        // meccanismo di aggiornamento.
+        await enqueueInboxUpdates(instance.db, result.changedNotificationIds, (lang) =>
+          inboxNote("reject_plan", lang, { actor: actor.email }),
+        );
+        // Ack vuoto: chiude il modal.
+        return ack(reply);
+      }
+
       // Branch /docs: la view di interrogazione dei Docs (callback_id dedicato).
       // Additivo, PRIMA della logica ticket; se il callback_id non è quello,
       // prosegue invariato col flusso ticket sottostante.
@@ -663,7 +764,79 @@ export async function slackRoutes(
       return ack(reply);
     }
 
-    // Tipo non gestito (es. block_actions): ack 200.
+    if (payload.type === "block_actions") {
+      // Bottoni dell'INBOX sul DM Slack (`buildInboxBlocks`). Slack manda un
+      // solo elemento premuto per interazione.
+      const pressed = payload.actions?.[0];
+      const action = parseInboxActionId(pressed?.action_id);
+      // Bottone di un altro flusso (o di un'azione che non esiste più): ack e
+      // basta, come faceva l'intero ramo prima di questo handler.
+      if (!action) return ack(reply);
+      // "Apri" è un bottone LINK: Slack apre l'URL da sé e ci manda comunque
+      // l'interazione. Non c'è niente da eseguire.
+      if (action === "open") return ack(reply);
+      // Il `block_id` è il carrier autorevole dell'id della notifica: lo
+      // static_select dello snooze non rimanda il `value` dei bottoni.
+      const notificationId = parseInboxBlockId(pressed?.block_id);
+      if (!notificationId) return ack(reply);
+      const responseUrl = payload.response_url;
+
+      if (action === "reject_plan") {
+        // Unica azione che apre un modal: il `trigger_id` vale pochi secondi,
+        // quindi views.open sta PRIMA dell'ack (come gli altri modal di questo
+        // file). Nessuna esecuzione qui: decide il view_submission.
+        const actor = await resolveSlackActor(instance.db, client, payload.user?.id);
+        if (!actor) {
+          await postNotLinked(responseUrl);
+          return ack(reply);
+        }
+        if (payload.trigger_id) {
+          // best-effort: se views.open fallisce l'utente non vede il modal, ma
+          // non c'è nulla di utile da dire a Slack oltre al 200 d'ack.
+          await client.openView(
+            payload.trigger_id,
+            buildRejectPlanModal(notificationId, actor.language),
+          );
+        }
+        return ack(reply);
+      }
+
+      // ACK IMMEDIATO + lavoro differito: risoluzione dell'utente, esecuzione
+      // dell'azione e riscrittura del messaggio stanno tutti DOPO la risposta a
+      // Slack (che pretende un ack entro 3 secondi). `setImmediate` garantisce
+      // che l'ack sia già stato scritto quando il lavoro parte.
+      const until = pressed?.selected_option?.value;
+      const ackReply = ack(reply);
+      const publicUrl = publicUrlOrUndefined(instance);
+      setImmediate(() => {
+        void (async () => {
+          const actor = await resolveSlackActor(instance.db, client, payload.user?.id);
+          if (!actor) {
+            await postNotLinked(responseUrl);
+            return;
+          }
+          await runInboxAction(
+            {
+              db: instance.db,
+              postResponse,
+              ...(publicUrl ? { publicUrl } : {}),
+            },
+            {
+              actor,
+              notificationId,
+              action,
+              ...(until === undefined ? {} : { until }),
+              ...(responseUrl ? { responseUrl } : {}),
+            },
+          );
+        })().catch((err) => {
+          request.log.warn({ err }, "[slack] azione inbox fallita");
+        });
+      });
+      return ackReply;
+    }
+
+    // Tipo non gestito: ack 200.
     return ack(reply);
   });
 }

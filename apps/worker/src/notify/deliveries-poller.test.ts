@@ -566,6 +566,59 @@ describe("canale slack_update", () => {
     expect(slack.updated).toHaveLength(0);
   });
 
+  it("DM sorella ancora pending → l'update resta pending (arriveremo dopo)", async () => {
+    const slack = fakeSlack();
+    // Il DM è in coda ma non ancora dovuto in questo tick: l'update lo trova
+    // `pending` e deve aspettarlo invece di rinunciare.
+    const dm = await insertSlackDelivery("slack_dm", { slackUserId: "U0BOB" });
+    await db
+      .update(notificationDeliveries)
+      .set({ nextAttemptAt: new Date(Date.now() + 60_000) })
+      .where(eq(notificationDeliveries.id, dm.deliveryId));
+    const [update] = await db
+      .insert(notificationDeliveries)
+      .values({
+        channel: "slack_update",
+        notificationId: dm.notificationId,
+        event: { note: "✅ Gestita" },
+      })
+      .returning({ id: notificationDeliveries.id });
+
+    await processDeliveriesOnce(slackDeps(slack));
+
+    const row = await readDelivery(update!.id);
+    expect(row.status).toBe("pending");
+    expect(row.error).toBe("slack_dm_pending");
+    expect(row.attempts).toBe(1);
+    expect(slack.updated).toHaveLength(0);
+    // Il DM non è stato toccato: non era dovuto.
+    expect(slack.posted).toHaveLength(0);
+  });
+
+  it("DM sorella fallito → skipped (nessun messaggio, e non ce ne sarà)", async () => {
+    const slack = fakeSlack();
+    const dm = await insertSlackDelivery("slack_dm", { slackUserId: "U0BOB" });
+    await db
+      .update(notificationDeliveries)
+      .set({ status: "failed", error: "account_inactive" })
+      .where(eq(notificationDeliveries.id, dm.deliveryId));
+    const [update] = await db
+      .insert(notificationDeliveries)
+      .values({
+        channel: "slack_update",
+        notificationId: dm.notificationId,
+        event: { note: "✅ Gestita" },
+      })
+      .returning({ id: notificationDeliveries.id });
+
+    await processDeliveriesOnce(slackDeps(slack));
+
+    const row = await readDelivery(update!.id);
+    expect(row.status).toBe("skipped");
+    expect(row.error).toBe("no_slack_message");
+    expect(slack.updated).toHaveLength(0);
+  });
+
   it("message_not_found → failed subito", async () => {
     const slack = fakeSlack({ throws: new SlackApiError("chat.update", "message_not_found") });
     const id = await seedUpdate("✅ Gestita");

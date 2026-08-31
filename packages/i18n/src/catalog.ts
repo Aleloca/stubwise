@@ -139,6 +139,35 @@ export const en: Catalog = {
   "notify.action.snooze1h": "1 hour",
   "notify.action.snoozeTomorrow": "Tomorrow",
   "notify.action.snooze3d": "3 days",
+  // Testi delle INTERAZIONI dall'inbox su Slack (bottoni del DM): messaggi
+  // effimeri d'errore, note di stato appese al messaggio dopo l'azione e
+  // etichette del modal di rifiuto del piano.
+  //
+  // LINGUA: gli errori e la nota della PROPRIA copia sono nella lingua di chi
+  // ha premuto (`users.language`); la nota delle copie ALTRUI in quella di
+  // ciascun destinatario. `{actor}` è l'email di chi ha agito.
+  "notify.inbox.notLinked":
+    "Your Slack account is not linked to Stubwise: ask an administrator to link it in the settings.",
+  "notify.inbox.errNotFound": "Notification not found.",
+  "notify.inbox.errForbidden": "Administrators only.",
+  "notify.inbox.errInvalidAction": "This action is not available on this notification.",
+  "notify.inbox.errAlreadyHandled": "Already handled by {actor}.",
+  "notify.inbox.errAlreadyHandledUnknown": "This notification has already been handled.",
+  "notify.inbox.errJobInFlight": "A job for this ticket is already running ({status}).",
+  "notify.inbox.errPlanNotPending": "No plan is awaiting approval.",
+  "notify.inbox.errFailed": "The action could not be completed. Try again from Stubwise.",
+  // Note di stato: sostituiscono i bottoni sul messaggio già deciso.
+  "notify.inbox.notePlanApproved": "✅ Plan approved by {actor}",
+  "notify.inbox.notePlanRejected": "🚫 Plan rejected by {actor}",
+  "notify.inbox.noteRelaunched": "🔁 Fix relaunched by {actor}",
+  "notify.inbox.noteHandled": "✅ Marked as handled by {actor}",
+  "notify.inbox.noteSnoozed": "⏰ Snoozed until {until}",
+  // Modal di rifiuto del piano (il titolo Slack tronca oltre i 24 caratteri).
+  "notify.inbox.rejectTitle": "Reject plan",
+  "notify.inbox.rejectSubmit": "Reject",
+  "notify.inbox.rejectClose": "Cancel",
+  "notify.inbox.rejectLabel": "Instructions for replanning (optional)",
+  "notify.inbox.rejectPlaceholder": "What is wrong with the plan? The AI will use this to replan.",
 
   // --- report.* — header delle sezioni del report ---
   "report.investigation": "Investigation process",
@@ -258,6 +287,28 @@ export const it: Catalog = {
   "notify.action.snooze1h": "1 ora",
   "notify.action.snoozeTomorrow": "Domani",
   "notify.action.snooze3d": "3 giorni",
+  // Interazioni dell'inbox su Slack (vedi le note in `en`).
+  "notify.inbox.notLinked":
+    "Il tuo account Slack non è collegato a Stubwise: chiedi a un amministratore di collegarlo dalle impostazioni.",
+  "notify.inbox.errNotFound": "Notifica non trovata.",
+  "notify.inbox.errForbidden": "Riservato agli amministratori.",
+  "notify.inbox.errInvalidAction": "Questa azione non è disponibile su questa notifica.",
+  "notify.inbox.errAlreadyHandled": "Già gestita da {actor}.",
+  "notify.inbox.errAlreadyHandledUnknown": "Questa notifica è già stata gestita.",
+  "notify.inbox.errJobInFlight": "C'è già un job in corso per questo ticket ({status}).",
+  "notify.inbox.errPlanNotPending": "Nessun piano in attesa di approvazione.",
+  "notify.inbox.errFailed": "Azione non riuscita. Riprova da Stubwise.",
+  "notify.inbox.notePlanApproved": "✅ Piano approvato da {actor}",
+  "notify.inbox.notePlanRejected": "🚫 Piano rifiutato da {actor}",
+  "notify.inbox.noteRelaunched": "🔁 Fix rilanciato da {actor}",
+  "notify.inbox.noteHandled": "✅ Segnata come gestita da {actor}",
+  "notify.inbox.noteSnoozed": "⏰ Rinviata fino a {until}",
+  "notify.inbox.rejectTitle": "Rifiuta il piano",
+  "notify.inbox.rejectSubmit": "Rifiuta",
+  "notify.inbox.rejectClose": "Annulla",
+  "notify.inbox.rejectLabel": "Istruzioni per la ripianificazione (opzionale)",
+  "notify.inbox.rejectPlaceholder":
+    "Cosa non va nel piano? L'AI userà queste indicazioni per ripianificare.",
 
   // --- report.* ---
   "report.investigation": "Processo di indagine",

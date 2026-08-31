@@ -468,6 +468,11 @@ async function processSlackDelivery(
       await finish(db, row.id, "failed", error);
       return;
     }
+    // NOTA su `ratelimited`: il `Retry-After` di Slack NON viene onorato, di
+    // proposito. Il backoff minimo del claim è 30s ≥ del Retry-After tipico
+    // (1–30s), gli invii di un tick sono sequenziali e il limite è per-canale:
+    // coi volumi attesi (un DM per destinatario per notifica) non lo si tocca.
+    // Se un giorno lo si toccasse, il posto per leggerlo è qui.
     await retryOrFail(deps, row, error);
   }
 }
@@ -535,6 +540,33 @@ async function sendSlackUpdate(
     .limit(1);
   const target = parseExternalRef(sibling?.externalRef ?? null);
   if (!target) {
+    // Nessun DM `sent` da riscrivere: due situazioni diverse.
+    //
+    // Se il DM sorella è ancora `pending` siamo semplicemente ARRIVATI PRIMA —
+    // capita di continuo, perché chi accoda l'aggiornamento (l'azione dai
+    // bottoni) e chi accoda il DM sono processi distinti e il claim del poller
+    // non garantisce l'ordine. Lasciare la riga `pending` la fa ritentare dopo
+    // il backoff, quando il DM sarà partito: chiuderla `skipped` lascerebbe
+    // invece per sempre un messaggio con i bottoni di una notifica già decisa.
+    // Il DM che non parte mai (utente scollegato, token revocato) finisce
+    // `failed`/`skipped` e ricade nel ramo sotto, che chiude anche l'update.
+    const [pendingSibling] = await db
+      .select({ id: notificationDeliveries.id })
+      .from(notificationDeliveries)
+      .where(
+        and(
+          eq(notificationDeliveries.notificationId, recipient.notificationId),
+          eq(notificationDeliveries.channel, "slack_dm"),
+          eq(notificationDeliveries.status, "pending"),
+        ),
+      )
+      .limit(1);
+    if (pendingSibling) {
+      await retryOrFail(deps, row, "slack_dm_pending");
+      return;
+    }
+    // DM sorella assente o in uno stato terminale senza messaggio: non c'è
+    // nulla da riscrivere, e non lo sarà mai.
     await finish(db, row.id, "skipped", "no_slack_message");
     return;
   }

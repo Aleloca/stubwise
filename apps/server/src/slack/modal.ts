@@ -1,3 +1,4 @@
+import { t, type Language } from "@stubwise/i18n";
 import { ticketTypeSchema } from "@stubwise/shared";
 
 /**
@@ -117,6 +118,69 @@ export function buildTicketModal(input: BuildTicketModalInput): Record<string, u
           action_id: ACTION_IDS.type,
           initial_option: typeOptions[0],
           options: typeOptions,
+        },
+      },
+    ],
+  };
+}
+
+// --- Modal di RIFIUTO del piano (bottone "Rifiuta" del DM d'inbox) ---------
+
+/**
+ * `callback_id` del modal di rifiuto del piano: lo si ritrova nel
+ * `view_submission` per riconoscere questa view (e non il modal ticket).
+ */
+export const INBOX_REJECT_PLAN_CALLBACK_ID = "inbox_reject_plan";
+
+/** `block_id`/`action_id` del campo istruzioni del modal di rifiuto. */
+export const INBOX_REJECT_BLOCK_ID = "reject_instructions_block";
+export const INBOX_REJECT_ACTION_ID = "reject_instructions_input";
+
+/**
+ * Tetto alle istruzioni, allineato al `max(4000)` della rotta HTTP
+ * `/api/inbox/:id/actions/reject_plan`: le due superfici accettano lo stesso
+ * testo. Slack lo fa rispettare lato client, prima del submit.
+ */
+const INSTRUCTIONS_MAX = 4000;
+
+/**
+ * Modal di rifiuto del piano, aperto dal bottone "Rifiuta" del DM d'inbox.
+ *
+ * Un solo campo, OPZIONALE: le indicazioni con cui ripianificare (diventano un
+ * commento sul ticket, come da `/api/inbox/:id/actions/reject_plan`). Rifiutare
+ * senza dire nulla resta legittimo.
+ *
+ * `private_metadata` porta il SOLO `notificationId`: è ciò che serve al
+ * `view_submission` per ritrovare la riga d'inbox. L'identità di chi rifiuta
+ * NON viaggia qui — la si ri-risolve dallo Slack user id del submit, perché il
+ * payload di Slack non è una fonte di autorizzazione.
+ *
+ * LINGUA: quella del DESTINATARIO (`users.language`), come le etichette dei
+ * bottoni del DM: il modal è la prosecuzione del suo messaggio personale.
+ */
+export function buildRejectPlanModal(
+  notificationId: string,
+  lang: Language,
+): Record<string, unknown> {
+  return {
+    type: "modal",
+    callback_id: INBOX_REJECT_PLAN_CALLBACK_ID,
+    private_metadata: notificationId,
+    title: { type: "plain_text", text: t(lang, "notify.inbox.rejectTitle") },
+    submit: { type: "plain_text", text: t(lang, "notify.inbox.rejectSubmit") },
+    close: { type: "plain_text", text: t(lang, "notify.inbox.rejectClose") },
+    blocks: [
+      {
+        type: "input",
+        block_id: INBOX_REJECT_BLOCK_ID,
+        optional: true,
+        label: { type: "plain_text", text: t(lang, "notify.inbox.rejectLabel") },
+        element: {
+          type: "plain_text_input",
+          action_id: INBOX_REJECT_ACTION_ID,
+          multiline: true,
+          max_length: INSTRUCTIONS_MAX,
+          placeholder: { type: "plain_text", text: t(lang, "notify.inbox.rejectPlaceholder") },
         },
       },
     ],
