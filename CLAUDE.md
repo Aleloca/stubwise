@@ -123,6 +123,15 @@ Stubwise si integra con Claude Code via il server MCP `@stubwise/mcp`
   on-demand).
 - Comando **`/stubwise:init`**: collega una o più repo a un progetto Stubwise
   scrivendo `.stubwise.json` (`{ "project": "<slug>" }`) nella radice.
+- Comando **`/stubwise:run`**: prepara il ticket (design + piano + `in_progress`)
+  e lancia l'esecuzione SUL worker con il tool `run_ticket` — l'implementazione
+  la fa la pipeline, non la sessione locale (`/stubwise:start` è l'opposto:
+  implementa in locale).
+- **Ruoli (fase 0)**: `admin` = maintainer, `member` = operatore. Un run avviato
+  da un operatore passa sempre dal gate di approvazione del piano (con piano
+  salvato nasce `awaiting_plan_approval`, senza piano si ferma a piano pronto);
+  solo un maintainer approva/rifiuta, e dopo l'approvazione l'esecuzione riparte
+  da sola. Nessun tool MCP approva un piano.
 - Serve un Personal Access Token (`stw_pat_...`, dalle impostazioni Stubwise) in
   `STUBWISE_TOKEN`; `STUBWISE_URL` punta all'istanza (default
   `http://localhost:3000`). Il pacchetto è pubblicato su npm come

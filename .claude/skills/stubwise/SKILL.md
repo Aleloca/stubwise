@@ -15,7 +15,9 @@ Lettura: `list_projects`, `list_backlog`, `get_backlog_item`, `list_tickets`,
 `implementationPlan` (il piano salvato) e `originContent` (il corpo/feedback
 originale, se il design ha sostituito il corpo principale).
 
-Scrittura: `create_ticket`, `convert_backlog_to_ticket`, `set_ticket_status`.
+Scrittura: `create_ticket`, `convert_backlog_to_ticket`, `set_ticket_status`,
+`run_ticket` (avvia l'esecuzione del ticket sul worker Stubwise, vedi § "Locale
+o Stubwise?" e § 8).
 Per creare una voce di backlog ci sono DUE tool distinti (vedi § "Portare
 contenuto in una voce di backlog"): `create_backlog_from_design` (design GIÀ
 pronto, salvato verbatim) e `create_backlog_item` (feedback/idea grezza, che
@@ -71,6 +73,34 @@ sbagliato APPIATTISCE un design curato.
    voce/ticket ESISTENTE" e § "Salvare / rigenerare il piano". Se stai lavorando
    su qualcosa che esiste, NON creare un doppione con i tool di creazione.
 
+## Locale o Stubwise?
+
+Un piano può essere eseguito in DUE posti diversi. Capire quale vuole l'utente è
+il primo bivio, e i due comandi non sono intercambiabili:
+
+- **`/stubwise:start`** → **implemento io, in questa sessione**. Sincronizza
+  Stubwise (ticket + design + piano + `in_progress`) e poi scrivo il codice qui.
+- **`/stubwise:run`** → **esegue il worker di Stubwise** (sul server). Stessa
+  sincronizzazione, poi `run_ticket({ id })`: il worker lavora sul repo
+  collegato e alla fine apre una PR. In questa sessione NON si scrive codice.
+
+Trigger tipici per `run`: "fallo fare a Stubwise", "esegui sul VPS", "lancia il
+run", "manda in esecuzione", "accodalo al worker". Nel dubbio, chiedi.
+
+Cosa sapere sul run (dettagli in § 8):
+
+- Con un piano salvato (`set_plan`) il worker esegue **direttamente quel piano**.
+- **Ruoli**: un `admin` (maintainer) fa partire il job subito (`queued`); un
+  `member` (operatore) passa sempre da un **gate di approvazione** — con piano
+  salvato il job nasce in attesa di approvazione, senza piano parte `queued` ma
+  si ferma sul gate a pianificazione finita. Quindi `queued` NON garantisce che
+  arrivi una PR senza altri passaggi.
+- Dopo un esito "in attesa di approvazione del piano" **non rilanciare
+  `run_ticket`**: approvato il piano, l'esecuzione riparte da sola. Non esiste
+  un tool MCP per approvare/rifiutare: lo fa un maintainer da web app o Slack.
+- Con `/stubwise:run` gli stati successivi NON li gestisci tu: è la pipeline a
+  portare il ticket in `in_review` quando apre la PR.
+
 ## I flussi
 
 ### 1. Design/piano → nuova voce di backlog
@@ -97,7 +127,8 @@ resta il tuo testo.
 
 Quando l'utente ti chiede di **implementare / eseguire un piano** che nasce da una
 voce di backlog, PRIMA di scrivere codice esegui SEMPRE questa checklist (oppure
-lancia il comando **`/stubwise:start`**, che la esegue per te):
+lancia il comando **`/stubwise:start`**, che la esegue per te; se l'esecuzione la
+deve fare il worker Stubwise, il comando è **`/stubwise:run`**):
 
 1. **Assicura design e piano SULLA VOCE prima del convert.** Se hai un design doc
    finalizzato in locale, caricalo con
@@ -115,7 +146,7 @@ lancia il comando **`/stubwise:start`**, che la esegue per te):
 ### 3. Avvio esecuzione di un piano — senza backlog
 
 Quando c'è un piano ma nessuna voce/ticket a cui è collegato (stessa checklist,
-via `/stubwise:start`):
+via `/stubwise:start` — o `/stubwise:run` se esegue il worker):
 
 1. **Crea il ticket** con il design come corpo:
    `create_ticket({ type: "task", title, body: <design/piano> })` → ottieni il
@@ -190,14 +221,32 @@ set_plan({ target: "backlog" | "ticket", id, content: <markdown del piano> })
 
 ### 8. Ticket con piano → esecuzione diretta della pipeline
 
-Per un **ticket** con un `implementationPlan` salvato, quando dall'interfaccia di
-Stubwise si lancia **"Run AI"** la pipeline di fix eseguirà **direttamente quel
-piano**, saltando la fase di pianificazione dell'agente. Quindi, se hai già un
-piano solido, salvarlo sul ticket con `set_plan` significa consegnarlo alla
+Per un **ticket** con un `implementationPlan` salvato, la pipeline di fix esegue
+**direttamente quel piano**, saltando triage e pianificazione dell'agente. Quindi
+salvare un piano solido sul ticket con `set_plan` significa consegnarlo alla
 pipeline pronto per l'esecuzione.
 
-(Comportamento previsto: potrebbe non essere ancora attivo sull'istanza al
-momento in cui leggi, ma è la direzione — salva pure il piano sul ticket.)
+Il tool **`run_ticket({ id })`** avvia quell'esecuzione da qui (è lo stesso "Run
+AI" della web app). Il comando **`/stubwise:run`** fa l'intera checklist:
+assicura il ticket con design e piano, lo mette `in_progress` e poi chiama
+`run_ticket`.
+
+Esiti e semantica:
+
+- **`queued`** → il worker prenderà in carico il job a breve. Riporta il link al
+  ticket e passa la mano.
+- **in attesa di approvazione del piano** → un maintainer deve approvare prima
+  dell'esecuzione; dopo l'approvazione **l'esecuzione parte automaticamente**,
+  quindi **non rilanciare `run_ticket`**. Non c'è un tool MCP per approvare o
+  rifiutare: lo fa un maintainer dalla web app o da Slack.
+- **409 "c'è già un job in corso"** → non ritentare: attendi che il job in volo
+  finisca (o che il maintainer approvi il piano) e dillo all'utente.
+- **`mode: "ai_plan"`** → **AZZERA il piano** per quel run e fa ripianificare
+  l'agente da zero. Non è "usa il piano come base": usalo solo se l'utente
+  chiede esplicitamente una ri-pianificazione.
+
+Dopo il lancio l'implementazione è del worker: **non scrivere codice in locale**
+per quel ticket (se l'utente voleva farlo qui, il comando è `/stubwise:start`).
 
 ### 9. Eliminare design o piano
 

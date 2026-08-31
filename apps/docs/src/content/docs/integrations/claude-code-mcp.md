@@ -103,10 +103,10 @@ developer's environment, so the **token stays per-user and out of git** — only
 the launch config is versioned.
 :::
 
-## 3. Install the command and skill (recommended)
+## 3. Install the commands and skill (recommended)
 
-Stubwise provides two slash commands and a skill that make Claude use the tools at
-the right moments. Fetch them into your user config so they work in every repo.
+Stubwise provides three slash commands and a skill that make Claude use the tools
+at the right moments. Fetch them into your user config so they work in every repo.
 **You don't need to clone the Stubwise repository** — the server comes from npm,
 and these files are downloaded directly:
 
@@ -116,6 +116,8 @@ curl -fsSL https://raw.githubusercontent.com/Aleloca/stubwise/main/.claude/comma
   -o ~/.claude/commands/stubwise/init.md
 curl -fsSL https://raw.githubusercontent.com/Aleloca/stubwise/main/.claude/commands/stubwise/start.md \
   -o ~/.claude/commands/stubwise/start.md
+curl -fsSL https://raw.githubusercontent.com/Aleloca/stubwise/main/.claude/commands/stubwise/run.md \
+  -o ~/.claude/commands/stubwise/run.md
 curl -fsSL https://raw.githubusercontent.com/Aleloca/stubwise/main/.claude/skills/stubwise/SKILL.md \
   -o ~/.claude/skills/stubwise/SKILL.md
 ```
@@ -125,6 +127,11 @@ curl -fsSL https://raw.githubusercontent.com/Aleloca/stubwise/main/.claude/skill
   sure a ticket exists (converting a backlog item or creating a task), loads the
   finalized **design** and **implementation plan** onto it, and moves it to
   `in_progress` — before you touch the code.
+- **`/stubwise:run`** — same preparation, but the implementation runs **on
+  Stubwise**: after loading design and plan onto the ticket it calls
+  `run_ticket`, and the worker does the work and opens a PR. Use `start` when you
+  want Claude to write the code in your editor, `run` when you want to hand the
+  job to Stubwise.
 - **`stubwise` skill** — teaches Claude the everyday flows (below): move state on
   start/finish, attach designs and plans, keep the local doc's frontmatter linked
   to its Stubwise counterpart.
@@ -184,6 +191,7 @@ Once connected, Claude has these tools (names as exposed to Claude):
 | `create_backlog_item` | Create a new backlog item (async: it is processed by the intake pipeline). |
 | `convert_backlog_to_ticket` | Turn a backlog item into a ticket (admin). |
 | `set_ticket_status` | Move a ticket between `open`, `triaged`, `in_progress`, `in_review`, `done`, `closed`. |
+| `run_ticket` | Start the AI run on a ticket (the same as **Run AI** in the web app). With a saved plan the worker executes *that* plan; pass `mode: "ai_plan"` to discard it and re-plan from scratch. |
 
 **Design docs & implementation plans**
 
@@ -226,11 +234,26 @@ The `stubwise` skill drives these; you can also trigger them in plain language.
   Claude once it's actually released — the release usually happens outside the
   editor session).
 
+- **Hand the execution to Stubwise** — run **`/stubwise:run`** instead of
+  `/stubwise:start`. It prepares the ticket the same way, then calls `run_ticket`
+  so the **worker** implements the plan on the server and opens a PR. Nothing is
+  written in your editor session.
+
 :::tip[A saved plan can run the fix pipeline]
 For a **ticket** that has a saved implementation plan, clicking **Run AI** in
-Stubwise executes *that* plan directly — the pipeline skips its own planning and
-approval steps and goes straight to the change. See
+Stubwise (or calling `run_ticket`) executes *that* plan directly — the pipeline
+skips its own triage and planning and goes straight to the change. See
 [How the AI pipeline works](/docs/ai-pipeline/how-it-works/).
+:::
+
+:::note[Roles: operator runs await maintainer approval]
+Runs started by an **operator** (a `member`) always pass through the plan
+approval gate: with a saved plan the job is created already waiting for
+approval; without one it is queued but stops once the plan is ready. A
+**maintainer** (an `admin`) approves — or rejects — from the web app or Slack,
+and the execution then resumes on its own. There is no MCP tool for approving a
+plan, so Claude reports the pending approval and stops there. A maintainer's own
+run needs no approval.
 :::
 
 ## Security
