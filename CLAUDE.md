@@ -133,18 +133,6 @@ Stubwise si integra con Claude Code via il server MCP `@stubwise/mcp`
   `workspace:` del monorepo pnpm). Il secret `NPM_TOKEN` è un granular token con
   bypass-2FA sullo scope `@stubwise`.
 
-<!-- graphify:start -->
-## Knowledge graph (graphify)
-
-Questo repository ha un knowledge graph del codice in `graphify-out/`.
-Quando esiste, PREFERISCI le query sul grafo al grep per orientarti:
-
-- `graphify query "<domanda>"` — dove vive una funzionalità, chi chiama cosa, quali file toccare.
-- `graphify explain <simbolo>` — definizione, chiamanti e dipendenze di un simbolo.
-
-Usa grep/find quando il grafo non risponde o è più vecchio del codice.
-<!-- graphify:end -->
-
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
