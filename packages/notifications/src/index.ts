@@ -14,6 +14,47 @@ export {
 
 export { publishNotification, type PublishOpts } from "./publish.js";
 
+export {
+  actionsFor,
+  kindOffers,
+  openUrl,
+  roleAllows,
+  stateAllows,
+  IN_FLIGHT_JOB_STATUSES,
+  SNOOZE_OPTIONS,
+  type ActionActor,
+  type ActionId,
+  type ActionableNotification,
+  type ActorRole,
+  type SnoozeUntil,
+} from "./actions.js";
+
+export {
+  buildInboxBlocks,
+  inboxBlockId,
+  parseInboxBlockId,
+  type InboxBlocksInput,
+  type SlackBlock,
+} from "./slack-blocks.js";
+
+export {
+  createSlackClient,
+  isFatalSlackError,
+  loadSlackBotToken,
+  loadSlackCreds,
+  SlackApiError,
+  type FetchImpl,
+  type PostMessageInput,
+  type PostedMessage,
+  type SlackClient,
+  type SlackClientFactory,
+  type SlackCreds,
+  type SlackMessenger,
+  type SlackUserProfileResult,
+  type SlackWorkspaceUser,
+  type UpdateMessageInput,
+} from "./slack-client.js";
+
 export { isAdminOnlyKind, recipientsFor, type RoutingContext } from "./routing.js";
 
 export {

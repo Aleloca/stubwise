@@ -12,7 +12,7 @@
  */
 import { aiJobs, comments, projects, tickets, type Db } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
-import { publishNotification } from "@stubwise/notifications";
+import { IN_FLIGHT_JOB_STATUSES, publishNotification } from "@stubwise/notifications";
 import { and, desc, eq, notInArray, sql } from "drizzle-orm";
 import { ticketUrl } from "../ingest/shared.js";
 import { getContentLanguage } from "../settings.js";
@@ -26,8 +26,12 @@ export type Actor = { id: string; role: "admin" | "member" };
  * scippare il lavoro in corso (il worker che lo sta eseguendo perderebbe la
  * ownership a metà), perciò `startRun` rifiuta con `job_in_flight` invece di
  * riscrivere la riga come faceva la vecchia rotta.
+ *
+ * La lista vive in `@stubwise/notifications` (`actions.ts`), dove serve anche a
+ * decidere se una notifica può offrire il `relaunch`: qui viene RI-ESPORTATA
+ * col suo nome storico, così le due non possono divergere.
  */
-export const IN_FLIGHT = ["queued", "triaging", "fixing", "awaiting_plan_approval"] as const;
+export const IN_FLIGHT = IN_FLIGHT_JOB_STATUSES;
 
 export type StartRunResult =
   | { ok: true; jobId: string; status: "queued" | "awaiting_plan_approval" }

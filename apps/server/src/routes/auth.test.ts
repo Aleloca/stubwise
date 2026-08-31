@@ -609,6 +609,13 @@ describe("inviti con identità Slack", () => {
     getUserEmail: async () => profileToReturn?.email ?? null,
     getUserProfile,
     listWorkspaceUsers: async () => [],
+      // Messaggistica: non usata da questo flusso (i DM dell'inbox sono del worker).
+    postMessage: async () => {
+      throw new Error("postMessage non previsto in questo test");
+    },
+    updateMessage: async () => {
+      throw new Error("updateMessage non previsto in questo test");
+    },
   });
 
   /** Imposta (o azzera) i segreti Slack cifrati sul singleton instance settings. */

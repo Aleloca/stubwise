@@ -1,17 +1,21 @@
 import {
+  aiJobs,
   notificationDeliveries,
   notificationSettings,
   notifications,
+  tickets,
   users,
   type Db,
   type NotificationDelivery,
 } from "@stubwise/db";
-import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { SlackApiError, type SlackBlock, type SlackMessenger } from "@stubwise/notifications";
 import type { NotificationEvent } from "@stubwise/notifications/format";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  parseExternalRef,
   processDeliveriesOnce,
   startDeliveriesPoller,
   type DeliveriesLogger,
@@ -32,6 +36,10 @@ vi.setConfig({ testTimeout: 60_000 });
 
 let testDb: TestDb;
 let db: Db;
+let projectId: string;
+
+/** Chiave di cifratura fittizia: nei test il bot token è iniettato, non decifrato. */
+const encryptionKey = Buffer.alloc(32);
 
 const silentLogger = { warn: () => {}, error: () => {} };
 
@@ -63,25 +71,131 @@ async function insertWebhookDelivery(
   return row!.id;
 }
 
+/** Evento di piano da approvare: è il kind con le azioni decisionali. */
+function planReviewEvent(): NotificationEvent {
+  return {
+    kind: "job.plan_review",
+    ticketNumber: 7,
+    ticketTitle: "Piano da approvare",
+    projectName: "P",
+    ticketUrl: "https://example.test/tickets/7",
+  };
+}
+
+interface SlackDeliveryOpts {
+  /** Ruolo del destinatario: decide le azioni offerte dai bottoni. */
+  role?: "admin" | "member";
+  /** Identità Slack del destinatario. `null` = utente non linkato. */
+  slackUserId?: string | null;
+  language?: "en" | "it";
+  event?: NotificationEvent;
+  /** Se dato, ancora la notifica a un ticket con un job in questo stato. */
+  jobStatus?: "queued" | "awaiting_plan_approval";
+  /** Payload della riga (usato dal canale `slack_update`: `{ note }`). */
+  deliveryEvent?: Record<string, unknown>;
+  externalRef?: string;
+  status?: "pending" | "sent";
+}
+
 /** Consegna per-destinatario (canali Slack): serve una notifica in inbox. */
-async function insertSlackDelivery(channel: "slack_dm" | "slack_update"): Promise<string> {
+async function insertSlackDelivery(
+  channel: "slack_dm" | "slack_update",
+  opts: SlackDeliveryOpts = {},
+): Promise<{ deliveryId: string; notificationId: string; userId: string }> {
   const [user] = await db
     .insert(users)
-    .values({ email: `${randomUUID()}@example.com`, passwordHash: "hash", role: "admin" })
+    .values({
+      email: `${randomUUID()}@example.com`,
+      passwordHash: "hash",
+      role: opts.role ?? "admin",
+      language: opts.language ?? "it",
+      slackUserId: opts.slackUserId === undefined ? `U${randomUUID().slice(0, 8)}` : opts.slackUserId,
+    })
     .returning({ id: users.id });
+
+  let ticketId: string | null = null;
+  if (opts.jobStatus) {
+    const [ticket] = await db
+      .insert(tickets)
+      .values({
+        projectId,
+        number: Math.floor(Math.random() * 1_000_000),
+        title: "Ticket di prova",
+        type: "bug",
+        priority: "medium",
+        source: "manual",
+      })
+      .returning({ id: tickets.id });
+    ticketId = ticket!.id;
+    await db.insert(aiJobs).values({ ticketId, status: opts.jobStatus });
+  }
+
   const [notification] = await db
     .insert(notifications)
     .values({
       userId: user!.id,
-      kind: "ticket.created",
-      event: sampleEvent() as unknown as Record<string, unknown>,
+      ticketId,
+      kind: (opts.event ?? sampleEvent()).kind,
+      event: (opts.event ?? sampleEvent()) as unknown as Record<string, unknown>,
     })
     .returning({ id: notifications.id });
   const [row] = await db
     .insert(notificationDeliveries)
-    .values({ channel, notificationId: notification!.id })
+    .values({
+      channel,
+      notificationId: notification!.id,
+      ...(opts.deliveryEvent ? { event: opts.deliveryEvent } : {}),
+      ...(opts.externalRef ? { externalRef: opts.externalRef } : {}),
+      ...(opts.status ? { status: opts.status } : {}),
+    })
     .returning({ id: notificationDeliveries.id });
-  return row!.id;
+  return { deliveryId: row!.id, notificationId: notification!.id, userId: user!.id };
+}
+
+/** Client Slack fake: registra le chiamate, o lancia l'errore programmato. */
+function fakeSlack(opts: { throws?: unknown } = {}): SlackMessenger & {
+  posted: { channel: string; text: string; blocks?: SlackBlock[] }[];
+  updated: { channel: string; ts: string; text: string; blocks?: SlackBlock[] }[];
+} {
+  const posted: { channel: string; text: string; blocks?: SlackBlock[] }[] = [];
+  const updated: { channel: string; ts: string; text: string; blocks?: SlackBlock[] }[] = [];
+  return {
+    posted,
+    updated,
+    postMessage: async ({ channel, text, blocks }) => {
+      if (opts.throws) throw opts.throws;
+      posted.push({ channel, text, blocks: blocks as SlackBlock[] | undefined });
+      return { ts: "1723.4567", channel: "D0999" };
+    },
+    updateMessage: async ({ channel, ts, text, blocks }) => {
+      if (opts.throws) throw opts.throws;
+      updated.push({ channel, ts, text, blocks: blocks as SlackBlock[] | undefined });
+      return { ts, channel };
+    },
+  };
+}
+
+/** Deps con i canali Slack attivi (token e client iniettati: niente rete, niente decifratura). */
+function slackDeps(
+  slack: SlackMessenger,
+  opts: { botToken?: string | null; logger?: DeliveriesLogger } = {},
+): DeliveriesPollerDeps {
+  return {
+    db,
+    logger: opts.logger ?? silentLogger,
+    encryptionKey,
+    sendWebhook: async () => {},
+    loadSlackBotToken: async () => (opts.botToken === undefined ? "xoxb-test" : opts.botToken),
+    slackClientFactory: () => slack,
+  };
+}
+
+/** Gli `action_id` del blocco `actions` dei blocchi inviati (vuoto se non c'è). */
+function actionIdsOf(blocks: SlackBlock[] | undefined): string[] {
+  const actions = blocks?.find((b) => b.type === "actions") as
+    | { elements: { action_id: string }[] }
+    | undefined;
+  return actions?.elements.map((el) => el.action_id) ?? [];
 }
 
 async function readDelivery(id: string): Promise<NotificationDelivery> {
@@ -90,7 +204,7 @@ async function readDelivery(id: string): Promise<NotificationDelivery> {
 }
 
 function deps(sendWebhook: SendWebhookFn, logger: DeliveriesLogger = silentLogger): DeliveriesPollerDeps {
-  return { db, logger, sendWebhook };
+  return { db, logger, encryptionKey, sendWebhook };
 }
 
 /** Logger che raccoglie le chiamate, per asserire sugli esiti terminali loggati. */
@@ -108,6 +222,7 @@ function collectingLogger(): DeliveriesLogger & { warns: { obj: unknown; msg?: s
 beforeAll(async () => {
   testDb = await startTestDb();
   db = testDb.db;
+  ({ projectId } = await seedRepository(db));
 }, 120_000);
 
 beforeEach(async () => {
@@ -220,25 +335,6 @@ describe("processDeliveriesOnce", () => {
     expect(rows.every((r) => r.attempts === 1)).toBe(true);
   });
 
-  it("i canali Slack sono ancora skipped (channel_not_implemented)", async () => {
-    const dmId = await insertSlackDelivery("slack_dm");
-    const updateId = await insertSlackDelivery("slack_update");
-    let calls = 0;
-    const processed = await processDeliveriesOnce(
-      deps(async () => {
-        calls += 1;
-      }),
-    );
-
-    expect(processed).toBe(2);
-    expect(calls).toBe(0);
-    for (const id of [dmId, updateId]) {
-      const row = await readDelivery(id);
-      expect(row.status).toBe("skipped");
-      expect(row.error).toBe("channel_not_implemented");
-    }
-  });
-
   it("webhook non più configurato: skipped senza ritentare", async () => {
     await db.update(notificationSettings).set({ webhookUrl: null });
     const id = await insertWebhookDelivery();
@@ -275,6 +371,213 @@ describe("processDeliveriesOnce", () => {
   });
 });
 
+describe("canale slack_dm", () => {
+  it("posta il DM al destinatario e salva `channel|ts` in external_ref", async () => {
+    const slack = fakeSlack();
+    const { deliveryId } = await insertSlackDelivery("slack_dm", {
+      slackUserId: "U0ALICE",
+      language: "it",
+    });
+
+    const processed = await processDeliveriesOnce(slackDeps(slack));
+
+    expect(processed).toBe(1);
+    expect(slack.posted).toHaveLength(1);
+    // Si posta sullo USER id: Slack apre da sé il DM (scope im:write).
+    expect(slack.posted[0]!.channel).toBe("U0ALICE");
+    expect(slack.posted[0]!.text).toContain("Ticket di prova");
+
+    const row = await readDelivery(deliveryId);
+    expect(row.status).toBe("sent");
+    expect(row.sentAt).not.toBeNull();
+    // Formato documentato: `<canale risolto>|<ts>` — è ciò che serve a chat.update.
+    expect(row.externalRef).toBe("D0999|1723.4567");
+    expect(parseExternalRef(row.externalRef)).toEqual({ channel: "D0999", ts: "1723.4567" });
+  });
+
+  it("i bottoni sono quelli del RUOLO del destinatario (admin approva, member no)", async () => {
+    const slack = fakeSlack();
+    await insertSlackDelivery("slack_dm", {
+      role: "admin",
+      event: planReviewEvent(),
+      jobStatus: "awaiting_plan_approval",
+    });
+    await processDeliveriesOnce(slackDeps(slack));
+    expect(actionIdsOf(slack.posted[0]!.blocks)).toEqual([
+      "inbox:approve_plan",
+      "inbox:reject_plan",
+      "inbox:open",
+      "inbox:snooze",
+      "inbox:handled",
+    ]);
+
+    const slack2 = fakeSlack();
+    await insertSlackDelivery("slack_dm", {
+      role: "member",
+      event: planReviewEvent(),
+      jobStatus: "awaiting_plan_approval",
+    });
+    await processDeliveriesOnce(slackDeps(slack2));
+    expect(actionIdsOf(slack2.posted[0]!.blocks)).toEqual([
+      "inbox:open",
+      "inbox:snooze",
+      "inbox:handled",
+    ]);
+  });
+
+  it("il testo segue la lingua del DESTINATARIO", async () => {
+    const slack = fakeSlack();
+    await insertSlackDelivery("slack_dm", { language: "en" });
+    await processDeliveriesOnce(slackDeps(slack));
+    expect(slack.posted[0]!.text).toContain("New");
+  });
+
+  it("bot Slack non configurato → skipped, senza bruciare tentativi", async () => {
+    const logger = collectingLogger();
+    const slack = fakeSlack();
+    const { deliveryId } = await insertSlackDelivery("slack_dm");
+
+    await processDeliveriesOnce(slackDeps(slack, { botToken: null, logger }));
+
+    const row = await readDelivery(deliveryId);
+    expect(row.status).toBe("skipped");
+    expect(row.error).toBe("slack_not_configured");
+    expect(slack.posted).toHaveLength(0);
+    expect(logger.warns).toHaveLength(1);
+  });
+
+  it("destinatario senza identità Slack → skipped", async () => {
+    const slack = fakeSlack();
+    const { deliveryId } = await insertSlackDelivery("slack_dm", { slackUserId: null });
+
+    await processDeliveriesOnce(slackDeps(slack));
+
+    const row = await readDelivery(deliveryId);
+    expect(row.status).toBe("skipped");
+    expect(row.error).toBe("user_without_slack_id");
+    expect(slack.posted).toHaveLength(0);
+  });
+
+  it("channel_not_found → failed SUBITO (ritentare non cambierebbe nulla)", async () => {
+    const logger = collectingLogger();
+    const slack = fakeSlack({ throws: new SlackApiError("chat.postMessage", "channel_not_found") });
+    const { deliveryId } = await insertSlackDelivery("slack_dm");
+
+    await processDeliveriesOnce(slackDeps(slack, { logger }));
+
+    const row = await readDelivery(deliveryId);
+    expect(row.status).toBe("failed");
+    expect(row.attempts).toBe(1);
+    expect(row.error).toContain("channel_not_found");
+    expect(logger.warns).toHaveLength(1);
+  });
+
+  it("ratelimited e errori di rete restano pending (ritentabili)", async () => {
+    const rateLimited = fakeSlack({ throws: new SlackApiError("chat.postMessage", "ratelimited") });
+    const { deliveryId } = await insertSlackDelivery("slack_dm");
+    await processDeliveriesOnce(slackDeps(rateLimited));
+    let row = await readDelivery(deliveryId);
+    expect(row.status).toBe("pending");
+    expect(row.attempts).toBe(1);
+    expect(row.error).toContain("ratelimited");
+
+    const offline = fakeSlack({ throws: new Error("ECONNRESET") });
+    const second = await insertSlackDelivery("slack_dm");
+    await processDeliveriesOnce(slackDeps(offline));
+    row = await readDelivery(second.deliveryId);
+    expect(row.status).toBe("pending");
+    expect(row.error).toContain("ECONNRESET");
+  });
+
+  it("all'ultimo tentativo un errore ritentabile chiude comunque failed", async () => {
+    const slack = fakeSlack({ throws: new SlackApiError("chat.postMessage", "ratelimited") });
+    const { deliveryId } = await insertSlackDelivery("slack_dm");
+    await db
+      .update(notificationDeliveries)
+      .set({ attempts: 4 })
+      .where(eq(notificationDeliveries.id, deliveryId));
+
+    await processDeliveriesOnce(slackDeps(slack));
+
+    const row = await readDelivery(deliveryId);
+    expect(row.status).toBe("failed");
+    expect(row.attempts).toBe(5);
+  });
+});
+
+describe("canale slack_update", () => {
+  /** Consegna `slack_dm` GIÀ inviata + la `slack_update` che la aggiorna. */
+  async function seedUpdate(note: string | undefined): Promise<string> {
+    const dm = await insertSlackDelivery("slack_dm", {
+      status: "sent",
+      externalRef: "D0777|100.5",
+      slackUserId: "U0BOB",
+    });
+    const [row] = await db
+      .insert(notificationDeliveries)
+      .values({
+        channel: "slack_update",
+        notificationId: dm.notificationId,
+        ...(note === undefined ? {} : { event: { note } }),
+      })
+      .returning({ id: notificationDeliveries.id });
+    return row!.id;
+  }
+
+  it("riscrive il messaggio con testo + nota e SENZA bottoni", async () => {
+    const slack = fakeSlack();
+    const id = await seedUpdate("✅ Gestita da alice@example.com");
+
+    await processDeliveriesOnce(slackDeps(slack));
+
+    expect(slack.updated).toHaveLength(1);
+    expect(slack.updated[0]!.channel).toBe("D0777");
+    expect(slack.updated[0]!.ts).toBe("100.5");
+    expect(slack.updated[0]!.text).toContain("Ticket di prova");
+    expect(slack.updated[0]!.text).toContain("✅ Gestita da alice@example.com");
+    // Nessun blocco `actions`: la notifica non è più azionabile da qui.
+    expect(actionIdsOf(slack.updated[0]!.blocks)).toEqual([]);
+
+    const row = await readDelivery(id);
+    expect(row.status).toBe("sent");
+    // L'aggiornamento eredita il riferimento del messaggio riscritto.
+    expect(row.externalRef).toBe("D0777|100.5");
+  });
+
+  it("senza nota rimuove solo i bottoni (caso snooze)", async () => {
+    const slack = fakeSlack();
+    await seedUpdate(undefined);
+    await processDeliveriesOnce(slackDeps(slack));
+    expect(slack.updated[0]!.text).toContain("Ticket di prova");
+    expect(actionIdsOf(slack.updated[0]!.blocks)).toEqual([]);
+  });
+
+  it("nessun DM sorella da aggiornare → skipped (niente da riscrivere)", async () => {
+    const slack = fakeSlack();
+    const { deliveryId } = await insertSlackDelivery("slack_update", {
+      deliveryEvent: { note: "✅ Gestita" },
+    });
+
+    await processDeliveriesOnce(slackDeps(slack));
+
+    const row = await readDelivery(deliveryId);
+    expect(row.status).toBe("skipped");
+    expect(row.error).toBe("no_slack_message");
+    expect(slack.updated).toHaveLength(0);
+  });
+
+  it("message_not_found → failed subito", async () => {
+    const slack = fakeSlack({ throws: new SlackApiError("chat.update", "message_not_found") });
+    const id = await seedUpdate("✅ Gestita");
+
+    await processDeliveriesOnce(slackDeps(slack));
+
+    const row = await readDelivery(id);
+    expect(row.status).toBe("failed");
+    expect(row.error).toContain("message_not_found");
+  });
+});
+
 describe("startDeliveriesPoller", () => {
   it("intervalSeconds ≤ 0 non avvia nulla", async () => {
     const id = await insertWebhookDelivery();
@@ -283,6 +586,7 @@ describe("startDeliveriesPoller", () => {
     const stop = startDeliveriesPoller({
       db,
       logger: silentLogger,
+      encryptionKey,
       intervalSeconds: 0,
       signal: controller.signal,
       sendWebhook: async () => {
@@ -306,6 +610,7 @@ describe("startDeliveriesPoller", () => {
     startDeliveriesPoller({
       db,
       logger: silentLogger,
+      encryptionKey,
       intervalSeconds: 1,
       signal: controller.signal,
       sendWebhook: async () => {

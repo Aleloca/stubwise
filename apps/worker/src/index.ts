@@ -313,10 +313,11 @@ startLimitResumePoller({
 // Poller dell'OUTBOX delle notifiche (`notification_deliveries`): task SEPARATO
 // dal loop dei job, sul proprio intervallo breve (default 5"). `publishNotification`
 // scrive inbox e outbox ma non invia nulla: è QUESTO poller a spedire le consegne
-// dovute sul loro canale — oggi il webhook d'istanza (il gating dei toggle è già
-// stato applicato al publish), i canali Slack sono chiusi `skipped` finché non
-// verranno implementati. Il claim pre-schedula il ritentativo (backoff 30s×2^n,
-// 5 tentativi) quindi un crash a metà invio non perde la consegna. È BEST-EFFORT
+// dovute sul loro canale: il webhook d'istanza (il gating dei toggle è già stato
+// applicato al publish) e i DM Slack per-destinatario, coi bottoni Block Kit
+// delle azioni che quell'utente può compiere (più i loro aggiornamenti quando
+// una notifica viene gestita). Il claim pre-schedula il ritentativo (backoff
+// 30s×2^n, 5 tentativi) quindi un crash a metà invio non perde la consegna. È BEST-EFFORT
 // (non fa mai crashare il worker) e NON tocca il lock/heartbeat dei job. Si ferma
 // sullo stesso AbortSignal.
 const notifyLogger = {
@@ -328,6 +329,9 @@ const notifyLogger = {
 startDeliveriesPoller({
   db,
   logger: notifyLogger,
+  // Serve ai canali Slack: il bot token è cifrato nelle instance settings con
+  // la stessa chiave del server.
+  encryptionKey: config.encryptionKey,
   intervalSeconds: config.notifyPollSeconds,
   signal: controller.signal,
 });

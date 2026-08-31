@@ -12,157 +12,38 @@
  * chi guarda. Persisterlo vorrebbe dire riscriverlo a ogni transizione di stato
  * del job (e sbagliarlo).
  *
- * NB (Task 9): `actionsFor` è pura e non tocca il DB. Quando il poller delle
- * consegne dovrà comporre i bottoni Block Kit del DM Slack le servirà anche nel
- * worker — che NON può importare da `apps/server`: a quel punto va spostata in
- * `packages/notifications/src/actions.ts` e ri-esportata da qui. Finché il
- * consumatore è uno solo, resta nel server.
+ * DOVE VIVE IL CATALOGO (Task 9): `actionsFor` e i suoi predicati sono PURI e
+ * non toccano il DB. Da quando il poller delle consegne compone i bottoni Block
+ * Kit del DM Slack servono anche al worker — che NON può importare da
+ * `apps/server` — quindi stanno in `@stubwise/notifications`
+ * (`src/actions.ts`, coi loro test) e questo modulo li ri-esporta: gli import
+ * dei suoi consumatori (rotte, test) restano validi.
  */
 import { aiJobs, notifications, users, type Db } from "@stubwise/db";
 import type { Language } from "@stubwise/i18n";
 import {
+  actionsFor,
   formatNotificationText,
+  kindOffers,
+  openUrl,
+  roleAllows,
+  stateAllows,
+  type ActionId,
+  type ActionableNotification,
   type NotificationEvent,
   type NotificationKind,
+  type SnoozeUntil,
 } from "@stubwise/notifications";
 import { and, desc, eq, inArray, isNull, ne, sql, type SQL } from "drizzle-orm";
-import { IN_FLIGHT, resolvePlan, startRun, type Actor } from "./jobs.js";
+import { resolvePlan, startRun, type Actor } from "./jobs.js";
 
-/** Le azioni che una notifica può offrire. `open` è l'unica non eseguibile lato server. */
-export type ActionId = "approve_plan" | "reject_plan" | "relaunch" | "open" | "snooze" | "handled";
-
-/** Durate di rinvio ammesse dallo snooze. */
-export type SnoozeUntil = "1h" | "tomorrow" | "3d";
+// Catalogo delle azioni: implementazione in `@stubwise/notifications/actions`
+// (condivisa col worker), ri-esportata qui per i consumatori del servizio.
+export { actionsFor, openUrl };
+export type { ActionId, ActionableNotification, SnoozeUntil };
 
 /** Stato di una riga d'inbox (speculare all'enum DB `notification_status`). */
 export type InboxStatus = "open" | "handled" | "snoozed";
-
-/** Quel poco che serve a {@link actionsFor}: il resto della riga è irrilevante. */
-export interface ActionableNotification {
-  kind: NotificationKind;
-}
-
-/**
- * Azione DECISIONALE offerta da ciascun kind, col ruolo minimo per compierla.
- *
- * `job.held` e `job.budget_held` sono lo stesso stato del job (`held`) con
- * `heldReason` diverso: un fermo "normale" lo può sbloccare chiunque, uno per
- * budget sforato no — è una decisione di spesa, e la portano già separata i due
- * `kind`, quindi qui non serve rileggere `ai_jobs.held_reason`.
- *
- * Record esaustivo su `NotificationKind`: un kind nuovo non compila finché non
- * gli si decide un'azione (anche "nessuna").
- */
-const DECISION_FOR_KIND: Record<NotificationKind, { actions: ActionId[]; adminOnly: boolean }> = {
-  "job.plan_review": { actions: ["approve_plan", "reject_plan"], adminOnly: true },
-  "job.held": { actions: ["relaunch"], adminOnly: false },
-  "job.budget_held": { actions: ["relaunch"], adminOnly: true },
-  "job.failed": { actions: ["relaunch"], adminOnly: false },
-  "job.pr_closed": { actions: ["relaunch"], adminOnly: false },
-  // Informativi: si aprono, si rinviano, si archiviano. Nient'altro.
-  "job.pr_opened": { actions: [], adminOnly: false },
-  "review.completed": { actions: [], adminOnly: false },
-  "ticket.created": { actions: [], adminOnly: false },
-  "docs.limit_paused": { actions: [], adminOnly: false },
-  "monitor.alert": { actions: [], adminOnly: false },
-  "monitor.recovered": { actions: [], adminOnly: false },
-};
-
-/** Azioni disponibili su OGNI notifica: sono igiene dell'inbox, non decisioni. */
-const ALWAYS: ActionId[] = ["open", "snooze", "handled"];
-
-/** True se lo stato del job è uno di {@link IN_FLIGHT} (lavoro in corso). */
-function isInFlight(jobStatus: string | null | undefined): boolean {
-  return jobStatus != null && (IN_FLIGHT as readonly string[]).includes(jobStatus);
-}
-
-/**
- * Il KIND prevede questa azione? È una domanda sul CATALOGO, indipendente da chi
- * chiede: `approve_plan` su un `job.failed` non è "vietato", è una richiesta che
- * non ha senso — e va distinta perché il chiamante risponde `invalid_action`
- * (400) invece di `forbidden` (403), che suggerirebbe a torto "riprova da admin".
- */
-function kindOffers(kind: NotificationKind, action: ActionId): boolean {
-  return ALWAYS.includes(action) || DECISION_FOR_KIND[kind].actions.includes(action);
-}
-
-/**
- * Il RUOLO consente l'azione? Separata da {@link kindOffers} e da
- * {@link stateAllows} perché i tre "no" hanno messaggi diversi: azione fuori
- * catalogo → `invalid_action`, ruolo insufficiente → `forbidden`, stato del job
- * incompatibile → `plan_not_pending`/`job_in_flight`.
- */
-function roleAllows(kind: NotificationKind, action: ActionId, role: Actor["role"]): boolean {
-  if (!kindOffers(kind, action)) return false;
-  if (ALWAYS.includes(action)) return true;
-  return !DECISION_FOR_KIND[kind].adminOnly || role === "admin";
-}
-
-/**
- * Lo STATO ATTUALE del job consente l'azione? `approve_plan`/`reject_plan` solo
- * su un piano davvero fermo sul gate; `relaunch` solo se l'ultimo job del ticket
- * non è in volo (rilanciarne uno vivo scippa il lavoro al worker).
- */
-function stateAllows(action: ActionId, jobStatus: string | null | undefined): boolean {
-  switch (action) {
-    case "approve_plan":
-    case "reject_plan":
-      return jobStatus === "awaiting_plan_approval";
-    case "relaunch":
-      return !isInFlight(jobStatus);
-    default:
-      return true;
-  }
-}
-
-/**
- * Azioni offerte su una notifica, nell'ordine in cui vanno mostrate: prima le
- * decisioni (se il ruolo e lo stato le consentono), poi apri/rinvia/archivia.
- *
- * `jobStatus` è lo stato dell'ULTIMO job del ticket a cui la notifica è
- * ancorata (`null` per gli eventi senza ticket, come `monitor.*`). Funzione
- * pura: nessun accesso al DB, così la si può chiamare in batch su una pagina
- * intera senza N+1.
- */
-export function actionsFor(
-  notification: ActionableNotification,
-  jobStatus: string | null | undefined,
-  actor: Actor,
-): ActionId[] {
-  const decisions = DECISION_FOR_KIND[notification.kind].actions.filter(
-    (action) => roleAllows(notification.kind, action, actor.role) && stateAllows(action, jobStatus),
-  );
-  return [...decisions, ...ALWAYS];
-}
-
-/**
- * Dove porta `open`: la superficie su cui l'utente va a *fare* qualcosa.
- *
- * Per gli eventi il cui soggetto È la pull request (`job.pr_opened`,
- * `review.completed`) è la PR sul provider git — è lì che si legge il diff e si
- * approva. Per `job.pr_closed` no: la PR è chiusa, quello che conta è il ticket
- * riaperto. Gli eventi senza ticket portano alla loro pagina (Docs, server
- * monitorato).
- */
-export function openUrl(event: NotificationEvent): string {
-  switch (event.kind) {
-    case "job.pr_opened":
-    case "review.completed":
-      return event.prUrl;
-    case "docs.limit_paused":
-      return event.docsUrl;
-    case "monitor.alert":
-    case "monitor.recovered":
-      return event.url;
-    case "ticket.created":
-    case "job.pr_closed":
-    case "job.held":
-    case "job.plan_review":
-    case "job.budget_held":
-    case "job.failed":
-      return event.ticketUrl;
-  }
-}
 
 /** Chi ha chiuso una notifica: l'id per la UI, l'email per dirlo a parole. */
 export interface HandledBy {

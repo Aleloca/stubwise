@@ -7,13 +7,13 @@ import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import type { NotificationEvent } from "@stubwise/notifications";
 import { createTicket } from "../db/tickets.js";
 import type { Actor } from "./jobs.js";
-import { actionsFor, executeAction, listInbox, markRead, unreadCount } from "./inbox.js";
+import { executeAction, listInbox, markRead, unreadCount } from "./inbox.js";
 
 /**
  * Test del servizio inbox su un Postgres reale (testcontainers), come
  * `jobs.test.ts`: le parti interessanti sono UPDATE guardati, propagazione su
  * più righe e riapertura lazy degli snooze — cioè esattamente ciò che un fake
- * `Db` non saprebbe raccontare. `actionsFor` è invece pura e non tocca il DB.
+ * `Db` non saprebbe raccontare.
  */
 
 let testDb: TestDb;
@@ -150,82 +150,12 @@ async function readJob(jobId: string) {
   return row;
 }
 
-describe("actionsFor", () => {
-  it("job.plan_review in attesa + admin → approva, rifiuta, apri, snooze, gestita", () => {
-    expect(actionsFor({ kind: "job.plan_review" }, "awaiting_plan_approval", maintainer)).toEqual([
-      "approve_plan",
-      "reject_plan",
-      "open",
-      "snooze",
-      "handled",
-    ]);
-  });
-
-  it("job.plan_review in attesa + member → nessuna decisione sul piano", () => {
-    expect(actionsFor({ kind: "job.plan_review" }, "awaiting_plan_approval", operator)).toEqual([
-      "open",
-      "snooze",
-      "handled",
-    ]);
-  });
-
-  it("job.plan_review con job già in lavorazione → niente approve/reject nemmeno all'admin", () => {
-    expect(actionsFor({ kind: "job.plan_review" }, "fixing", maintainer)).toEqual([
-      "open",
-      "snooze",
-      "handled",
-    ]);
-  });
-
-  it("job.budget_held → relaunch solo all'admin", () => {
-    expect(actionsFor({ kind: "job.budget_held" }, "held", maintainer)).toEqual([
-      "relaunch",
-      "open",
-      "snooze",
-      "handled",
-    ]);
-    expect(actionsFor({ kind: "job.budget_held" }, "held", operator)).toEqual([
-      "open",
-      "snooze",
-      "handled",
-    ]);
-  });
-
-  it("job.held → relaunch anche al member", () => {
-    expect(actionsFor({ kind: "job.held" }, "held", operator)).toEqual([
-      "relaunch",
-      "open",
-      "snooze",
-      "handled",
-    ]);
-  });
-
-  it("job.failed e job.pr_closed → relaunch a tutti", () => {
-    expect(actionsFor({ kind: "job.failed" }, "failed", operator)).toContain("relaunch");
-    expect(actionsFor({ kind: "job.pr_closed" }, "pr_merged", operator)).toContain("relaunch");
-  });
-
-  it("job.failed con l'ultimo job del ticket in volo → niente relaunch", () => {
-    expect(actionsFor({ kind: "job.failed" }, "queued", maintainer)).toEqual([
-      "open",
-      "snooze",
-      "handled",
-    ]);
-  });
-
-  it("kind informativi → solo apri, snooze, gestita", () => {
-    for (const kind of [
-      "job.pr_opened",
-      "review.completed",
-      "ticket.created",
-      "docs.limit_paused",
-      "monitor.alert",
-      "monitor.recovered",
-    ] as const) {
-      expect(actionsFor({ kind }, null, maintainer)).toEqual(["open", "snooze", "handled"]);
-    }
-  });
-});
+// I test PURI di `actionsFor` non stanno più qui: la funzione è stata spostata
+// in `@stubwise/notifications` (`src/actions.ts`) perché la usa anche il worker,
+// e con lei i suoi casi — che non hanno bisogno di un Postgres — sono migrati in
+// `packages/notifications/src/actions.test.ts`. Il servizio la ri-esporta, e
+// `listInbox` qui sotto ne verifica comunque l'integrazione (azioni calcolate
+// sullo stato reale dei job).
 
 describe("executeAction", () => {
   it("notifica inesistente → not_found", async () => {

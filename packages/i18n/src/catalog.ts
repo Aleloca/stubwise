@@ -128,6 +128,17 @@ export const en: Catalog = {
   "notify.linkTicket": "Ticket",
   "notify.linkDocs": "Docs",
   "notify.linkServer": "Server",
+  // Etichette dei BOTTONI dell'inbox (DM Slack e, un domani, altre superfici
+  // interattive). Testi brevi: Slack tronca oltre i 75 caratteri.
+  "notify.action.approvePlan": "Approve plan",
+  "notify.action.rejectPlan": "Reject",
+  "notify.action.relaunch": "Relaunch",
+  "notify.action.handled": "Mark as handled",
+  "notify.action.open": "Open",
+  "notify.action.snooze": "Snooze…",
+  "notify.action.snooze1h": "1 hour",
+  "notify.action.snoozeTomorrow": "Tomorrow",
+  "notify.action.snooze3d": "3 days",
 
   // --- report.* — header delle sezioni del report ---
   "report.investigation": "Investigation process",
@@ -238,6 +249,15 @@ export const it: Catalog = {
   "notify.linkTicket": "Ticket",
   "notify.linkDocs": "Docs",
   "notify.linkServer": "Server",
+  "notify.action.approvePlan": "Approva il piano",
+  "notify.action.rejectPlan": "Rifiuta",
+  "notify.action.relaunch": "Rilancia",
+  "notify.action.handled": "Segna come gestita",
+  "notify.action.open": "Apri",
+  "notify.action.snooze": "Rinvia…",
+  "notify.action.snooze1h": "1 ora",
+  "notify.action.snoozeTomorrow": "Domani",
+  "notify.action.snooze3d": "3 giorni",
 
   // --- report.* ---
   "report.investigation": "Processo di indagine",

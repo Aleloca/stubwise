@@ -64,6 +64,13 @@ const slackClientFactory: SlackClientFactory = () => ({
   getUserEmail,
   getUserProfile,
   listWorkspaceUsers,
+  // Messaggistica: non usata da questo flusso (i DM dell'inbox sono del worker).
+  postMessage: async () => {
+    throw new Error("postMessage non previsto in questo test");
+  },
+  updateMessage: async () => {
+    throw new Error("updateMessage non previsto in questo test");
+  },
 });
 
 // Fake embedding client (deterministico): un testo identico → vettore identico,
