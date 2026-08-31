@@ -311,7 +311,7 @@ describe("executeAction", () => {
     });
     // Il Task 10 userà questi id per ritoccare i DM Slack delle copie chiuse:
     // ci sono entrambe le righe plan_review, NON quella di kind diverso.
-    const closed = result.ok ? result.handledNotificationIds : [];
+    const closed = result.ok ? result.changedNotificationIds : [];
     expect([...closed].sort()).toEqual([mine, theirs].sort());
     expect(closed).not.toContain(otherKind);
 
@@ -563,7 +563,7 @@ describe("executeAction", () => {
       action: "relaunch",
       kind: "job.failed",
       notificationJobId: jobId,
-      handledNotificationIds: [id],
+      changedNotificationIds: [id],
     });
     expect((await readJob(jobId))?.status).toBe("queued");
     expect((await readNotification(id))?.status).toBe("handled");
@@ -630,7 +630,7 @@ describe("executeAction", () => {
       action: "snooze",
       kind: "job.pr_opened",
       notificationJobId: null,
-      handledNotificationIds: [id],
+      changedNotificationIds: [id],
     });
 
     const row = await readNotification(id);
@@ -718,7 +718,7 @@ describe("executeAction", () => {
       kind: "job.failed",
       notificationJobId: jobId,
       // Archiviazione personale: nell'elenco c'è solo la propria riga.
-      handledNotificationIds: [mine],
+      changedNotificationIds: [mine],
     });
     expect((await readNotification(mine))?.status).toBe("handled");
     expect((await readNotification(mine))?.handledByUserId).toBe(maintainer.id);
@@ -1044,7 +1044,7 @@ describe("markRead", () => {
 
     expect(await markRead(db, { notificationId: id, userId: user.id })).toEqual({
       ok: true,
-      handledNotificationIds: [id],
+      changedNotificationIds: [id],
     });
     const first = (await readNotification(id))!.readAt!;
     expect(first).toBeInstanceOf(Date);
@@ -1052,7 +1052,7 @@ describe("markRead", () => {
     // Seconda chiamata: nessuno stato cambiato, quindi nessun id da rispecchiare.
     expect(await markRead(db, { notificationId: id, userId: user.id })).toEqual({
       ok: true,
-      handledNotificationIds: [],
+      changedNotificationIds: [],
     });
     expect((await readNotification(id))!.readAt!.getTime()).toBe(first.getTime());
   });

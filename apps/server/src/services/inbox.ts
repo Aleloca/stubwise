@@ -208,7 +208,7 @@ export type ExecuteActionResult =
        * azioni personali (snooze/handled). Vuoto se non ha cambiato nulla
        * (qualcuno ha chiuso tutto nel frattempo).
        */
-      handledNotificationIds: string[];
+      changedNotificationIds: string[];
       /** Id del job AI toccato da `resolvePlan`/`startRun`, se l'azione ne ha toccato uno. */
       jobId?: string;
       snoozedUntil?: Date;
@@ -306,7 +306,7 @@ export async function executeAction(
       // Il rinvio non "gestisce" nulla, ma il DM Slack della riga va comunque
       // ritoccato (i bottoni spariscono fino alla scadenza): il campo elenca le
       // righe il cui STATO è cambiato, ed è quello che serve al Task 10.
-      handledNotificationIds: [row.id],
+      changedNotificationIds: [row.id],
       snoozedUntil: updated[0]!.snoozedUntil ?? undefined,
     };
   }
@@ -329,7 +329,7 @@ export async function executeAction(
       kind: row.kind,
       notificationJobId: row.jobId,
       // Archiviazione personale: chiude SOLO la propria riga, mai le copie.
-      handledNotificationIds: [row.id],
+      changedNotificationIds: [row.id],
     };
   }
 
@@ -368,7 +368,7 @@ export async function executeAction(
     return outcome;
   }
 
-  const handledNotificationIds = await propagateHandled(db, {
+  const changedNotificationIds = await propagateHandled(db, {
     notificationId: row.id,
     jobId: row.jobId,
     kind: row.kind,
@@ -379,7 +379,7 @@ export async function executeAction(
     action,
     kind: row.kind,
     notificationJobId: row.jobId,
-    handledNotificationIds,
+    changedNotificationIds,
     jobId: outcome.jobId,
   };
 }
@@ -772,14 +772,14 @@ export async function unreadCount(db: Db, userId: string): Promise<number> {
  * momento della PRIMA apertura, quindi una seconda chiamata lo conserva.
  * Notifica inesistente o di un altro utente → `not_found`.
  *
- * `handledNotificationIds` è vuoto quando la riga era GIÀ letta: come per
+ * `changedNotificationIds` è vuoto quando la riga era GIÀ letta: come per
  * {@link executeAction}, elenca le righe il cui stato è cambiato davvero, così
  * il chiamante sa se c'è qualcosa da rispecchiare altrove.
  */
 export async function markRead(
   db: Db,
   args: { notificationId: string; userId: string },
-): Promise<{ ok: true; handledNotificationIds: string[] } | { ok: false; error: "not_found" }> {
+): Promise<{ ok: true; changedNotificationIds: string[] } | { ok: false; error: "not_found" }> {
   const updated = await db
     .update(notifications)
     .set({ readAt: sql`now()` })
@@ -791,14 +791,14 @@ export async function markRead(
       ),
     )
     .returning({ id: notifications.id });
-  if (updated.length > 0) return { ok: true, handledNotificationIds: [updated[0]!.id] };
+  if (updated.length > 0) return { ok: true, changedNotificationIds: [updated[0]!.id] };
 
   // 0 righe: o la notifica non è sua (→ not_found), o era già letta (→ ok).
   const [row] = await db
     .select({ id: notifications.id })
     .from(notifications)
     .where(and(eq(notifications.id, args.notificationId), eq(notifications.userId, args.userId)));
-  return row ? { ok: true, handledNotificationIds: [] } : { ok: false, error: "not_found" };
+  return row ? { ok: true, changedNotificationIds: [] } : { ok: false, error: "not_found" };
 }
 
 // --- Cursore keyset ---
