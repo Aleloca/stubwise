@@ -70,15 +70,6 @@ export function audienceFor(kind: NotificationKind): Audience {
 }
 
 /**
- * True se il kind raggiunge i SOLI admin. Scorciatoia di {@link audienceFor}
- * per chi deve solo sapere se un evento è riservato ai maintainer; `publish`
- * usa direttamente il pubblico, perché deve distinguere anche `requester`.
- */
-export function isAdminOnlyKind(kind: NotificationKind): boolean {
-  return AUDIENCE_FOR_KIND[kind] === "admins";
-}
-
-/**
  * Destinatari dell'evento, senza duplicati e in ordine stabile (admin prima,
  * poi le persone del ticket, infine i follower del progetto). L'ordine non ha
  * significato funzionale ma rende deterministici test e insert.

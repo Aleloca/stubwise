@@ -1,7 +1,7 @@
 import { notificationKind } from "@stubwise/db";
 import { describe, expect, it } from "vitest";
 import { sampleEvents, type NotificationEvent, type NotificationKind } from "./format.js";
-import { isAdminOnlyKind, recipientsFor, type RoutingContext } from "./routing.js";
+import { recipientsFor, type RoutingContext } from "./routing.js";
 
 /**
  * Test del routing PURO: nessun DB, nessuna rete. `recipientsFor` riceve un
@@ -119,25 +119,6 @@ describe("recipientsFor", () => {
         assignee: "member-assignee",
       }),
     ).toEqual([]);
-  });
-});
-
-describe("isAdminOnlyKind", () => {
-  it("distingue i kind ai soli admin da quelli di avanzamento", () => {
-    expect(isAdminOnlyKind("job.plan_review")).toBe(true);
-    expect(isAdminOnlyKind("job.held")).toBe(true);
-    expect(isAdminOnlyKind("job.budget_held")).toBe(true);
-    expect(isAdminOnlyKind("docs.limit_paused")).toBe(true);
-    expect(isAdminOnlyKind("monitor.alert")).toBe(true);
-    expect(isAdminOnlyKind("monitor.recovered")).toBe(true);
-    expect(isAdminOnlyKind("ticket.created")).toBe(false);
-    expect(isAdminOnlyKind("job.pr_opened")).toBe(false);
-    expect(isAdminOnlyKind("job.pr_closed")).toBe(false);
-    expect(isAdminOnlyKind("job.failed")).toBe(false);
-    expect(isAdminOnlyKind("review.completed")).toBe(false);
-    // `job.awaiting_input` ha un pubblico proprio (richiedente ∪ admin): non è
-    // "solo admin", altrimenti `publish` salterebbe la risoluzione del job.
-    expect(isAdminOnlyKind("job.awaiting_input")).toBe(false);
   });
 });
 

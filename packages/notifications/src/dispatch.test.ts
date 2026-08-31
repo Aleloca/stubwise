@@ -146,6 +146,19 @@ const DOCS_LIMIT_PAUSED: NotificationEvent = {
   reason: "limite di rate/usage del provider AI",
 };
 
+const AWAITING_INPUT: NotificationEvent = {
+  kind: "job.awaiting_input",
+  ticketNumber: 42,
+  ticketTitle: "Crash al login",
+  projectName: "webapp",
+  ticketUrl: "https://app.example.com/tickets/t1",
+  questionId: "1a2b3c4d-1111-4222-8333-444455556666",
+  round: 1,
+  question: "Invalidare tutte le sessioni o solo quella corrente?",
+  options: [{ label: "Tutte" }, { label: "Solo la corrente" }],
+  allowFreeText: true,
+};
+
 const MONITOR_ALERT: NotificationEvent = {
   kind: "monitor.alert",
   serverName: "web-prod-1",
@@ -318,6 +331,42 @@ describe("dispatchNotification — gating", () => {
     const fetchImpl = okFetch();
     await dispatchNotification(fakeDb(BASE_ROW), MONITOR_RECOVERED, { fetchImpl });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("notifyAwaitingInput off blocca job.awaiting_input", async () => {
+    const fetchImpl = okFetch();
+    await dispatchNotification(
+      fakeDb({ ...BASE_ROW, notifyAwaitingInput: false }),
+      AWAITING_INPUT,
+      { fetchImpl },
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("notifyAwaitingInput on posta job.awaiting_input (e nessun altro toggle lo governa)", async () => {
+    const fetchImpl = okFetch();
+    // Tutti gli altri toggle spenti: se `job.awaiting_input` fosse mappato sul
+    // toggle sbagliato, qui non partirebbe nulla.
+    await dispatchNotification(
+      fakeDb({
+        ...BASE_ROW,
+        notifyTicketCreated: false,
+        notifyPrOpened: false,
+        notifyPrClosed: false,
+        notifyJobHeld: false,
+        notifyPlanReview: false,
+        notifyBudgetHeld: false,
+        notifyReviewCompleted: false,
+        notifyDocsLimitPaused: false,
+        notifyJobFailed: false,
+        notifyMonitor: false,
+      }),
+      AWAITING_INPUT,
+      { fetchImpl },
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const body = (await bodyOf(fetchImpl)) as { text: string };
+    expect(body.text).toContain("AI has a question");
   });
 
   it("posta all'URL configurato con POST e content-type JSON", async () => {

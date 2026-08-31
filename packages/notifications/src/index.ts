@@ -57,7 +57,6 @@ export {
 
 export {
   audienceFor,
-  isAdminOnlyKind,
   recipientsFor,
   type Audience,
   type RoutingContext,

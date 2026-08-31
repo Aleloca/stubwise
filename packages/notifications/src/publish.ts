@@ -148,15 +148,31 @@ async function resolveRoutingContext(
     .where(eq(users.role, "admin"))
     .then((rows) => rows.map((row) => row.id));
 
-  const audience = audienceFor(event.kind);
-  if (audience === "admins") return { admins, followers: [] };
-
-  // Pubblico `requester`: bastano gli admin e chi ha lanciato il job. Le query
-  // su follower e ticket non cambierebbero l'esito, quindi non si fanno.
-  if (audience === "requester") {
-    return { admins, followers: [], requestedBy: await resolveRequestedBy(db, opts.jobId) };
+  // Switch e non if-chain: come in `recipientsFor`, un pubblico nuovo non
+  // compila finché non gli si dice quali letture servono — cadere di default
+  // nel ramo `broadcast` significherebbe perdere in silenzio l'unica ragione
+  // d'essere di questa funzione.
+  switch (audienceFor(event.kind)) {
+    case "admins":
+      return { admins, followers: [] };
+    case "requester":
+      // Bastano gli admin e chi ha lanciato il job: le query su follower e
+      // ticket non cambierebbero l'esito, quindi non si fanno.
+      return { admins, followers: [], requestedBy: await resolveRequestedBy(db, opts.jobId) };
+    case "broadcast":
+      return await resolveBroadcastContext(db, admins, opts);
   }
+}
 
+/**
+ * Contesto COMPLETO del pubblico `broadcast`: oltre agli admin servono i
+ * follower del progetto e le persone del ticket.
+ */
+async function resolveBroadcastContext(
+  db: DbOrTx,
+  admins: string[],
+  opts: PublishOpts,
+): Promise<RoutingContext> {
   const followers = opts.projectId
     ? await db
         .select({ userId: projectFollows.userId })
