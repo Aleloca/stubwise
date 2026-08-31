@@ -69,7 +69,10 @@ Correzioni server-side:
 | `run-ai` con job in volo | riscrive il job | **409 `job_in_flight`** se l'ultimo job è in `queued | triaging | fixing | awaiting_plan_approval` |
 
 Nuove colonne su `ai_jobs`: `requested_by_user_id uuid null` (FK users, set
-null) e `plan_approval_required boolean not null default false`. Nel worker
+null) e `plan_approval_required boolean not null default false`.
+`requested_by_user_id` è l'ULTIMO richiedente: al rilancio da un altro utente
+viene sovrascritto (la riga rappresenta l'ultimo run; il richiedente precedente
+non riceve più le notifiche di quel job). Nel worker
 `resolveFixMode` (`apps/worker/src/pipeline/fix.ts:337-347`) ritorna
 `plan-only` quando `planApprovalRequired`, a prescindere da
 `planApprovalMinEffort`. `manualTrigger` resta com'è (scavalca gate di

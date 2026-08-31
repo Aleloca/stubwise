@@ -61,7 +61,13 @@ export interface StartRunInput {
  * che un maintainer abbia approvato. Se ha un piano salvato il job nasce già
  * `awaiting_plan_approval` (stesso stato che il worker produce con
  * `parkForPlanApproval`); se non ce l'ha parte `queued` con
- * `planApprovalRequired`, così il worker si fermerà a piano pronto.
+ * `planApprovalRequired`, così il worker si fermerà a piano pronto (gate letto
+ * dal worker in `resolveFixMode`: Task 3 della fase 0).
+ *
+ * Tutta la decisione (lettura dell'ultimo job + UPDATE o INSERT) sta in una
+ * transazione aperta da un lock advisory sul ticket: due rilanci concorrenti si
+ * serializzano, così il secondo VEDE il job appena accodato dal primo e risponde
+ * `job_in_flight` invece di accodarne un altro.
  */
 export async function startRun(db: Db, input: StartRunInput): Promise<StartRunResult> {
   const { ticketId, actor } = input;
@@ -70,19 +76,6 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
     .from(tickets)
     .where(eq(tickets.id, ticketId));
   if (!ticket) return { ok: false, error: "ticket_not_found" };
-
-  // L'ultimo job del ticket (per createdAt, id come spareggio): è quello che la
-  // timeline mostra in cima e che l'utente intende rilanciare.
-  const [latest] = await db
-    .select({ id: aiJobs.id, status: aiJobs.status })
-    .from(aiJobs)
-    .where(eq(aiJobs.ticketId, ticketId))
-    .orderBy(desc(aiJobs.createdAt), desc(aiJobs.id))
-    .limit(1);
-
-  if (latest && isInFlight(latest.status)) {
-    return { ok: false, error: "job_in_flight", jobStatus: latest.status };
-  }
 
   const useSavedPlan = ticket.implementationPlan !== null && input.mode !== "ai_plan";
   // resumeMode: "execute" col piano salvato; altrimenti "fix" se withInstructions
@@ -106,36 +99,60 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
     planApprovalRequired: isOperator,
   } as const;
 
-  if (latest) {
-    // UPDATE guardato sugli stati NON in volo: due rilanci concorrenti passano
-    // entrambi il controllo sopra, ma solo il primo tocca la riga. Il secondo
-    // trova 0 righe e rilegge lo stato per rispondere il vero `job_in_flight`.
-    const updated = await db
-      .update(aiJobs)
-      .set({
-        ...values,
-        startedAt: null,
-        finishedAt: null,
-        error: null,
-        lastActivityAt: sql`now()`,
-      })
-      .where(and(eq(aiJobs.id, latest.id), notInArray(aiJobs.status, [...IN_FLIGHT])))
-      .returning({ id: aiJobs.id });
-    if (updated.length === 0) {
-      const [current] = await db
-        .select({ status: aiJobs.status })
-        .from(aiJobs)
-        .where(eq(aiJobs.id, latest.id));
-      return { ok: false, error: "job_in_flight", jobStatus: current?.status };
-    }
-    return { ok: true, jobId: latest.id, status };
-  }
+  return db.transaction(async (tx): Promise<StartRunResult> => {
+    // Lock advisory di transazione sul ticket (stesso pattern del setup admin
+    // in routes/auth.ts): serializza i rilanci concorrenti SULLO STESSO ticket
+    // e si rilascia da solo al commit. Senza, due richieste su un ticket senza
+    // job leggerebbero entrambe "nessun job" e ne accoderebbero due.
+    // Un'eventuale collisione di hashtext serializza due ticket diversi:
+    // innocuo, il lock si tiene per pochi millisecondi.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${ticketId}))`);
 
-  const [created] = await db
-    .insert(aiJobs)
-    .values({ ticketId, ...values })
-    .returning({ id: aiJobs.id });
-  return { ok: true, jobId: created!.id, status };
+    // L'ultimo job del ticket (per createdAt, id come spareggio): è quello che
+    // la timeline mostra in cima e che l'utente intende rilanciare.
+    const [latest] = await tx
+      .select({ id: aiJobs.id, status: aiJobs.status })
+      .from(aiJobs)
+      .where(eq(aiJobs.ticketId, ticketId))
+      .orderBy(desc(aiJobs.createdAt), desc(aiJobs.id))
+      .limit(1);
+
+    if (latest && isInFlight(latest.status)) {
+      return { ok: false, error: "job_in_flight", jobStatus: latest.status };
+    }
+
+    if (latest) {
+      // UPDATE guardato sugli stati NON in volo: il lock esclude gli altri
+      // startRun, ma non chi tocca il job da fuori (il claim del worker o il
+      // resume poller possono portare un `held` a `queued` proprio ora). In quel
+      // caso 0 righe → si rilegge lo stato per rispondere il vero motivo.
+      const updated = await tx
+        .update(aiJobs)
+        .set({
+          ...values,
+          startedAt: null,
+          finishedAt: null,
+          error: null,
+          lastActivityAt: sql`now()`,
+        })
+        .where(and(eq(aiJobs.id, latest.id), notInArray(aiJobs.status, [...IN_FLIGHT])))
+        .returning({ id: aiJobs.id });
+      if (updated.length === 0) {
+        const [current] = await tx
+          .select({ status: aiJobs.status })
+          .from(aiJobs)
+          .where(eq(aiJobs.id, latest.id));
+        return { ok: false, error: "job_in_flight", jobStatus: current?.status };
+      }
+      return { ok: true, jobId: latest.id, status };
+    }
+
+    const [created] = await tx
+      .insert(aiJobs)
+      .values({ ticketId, ...values })
+      .returning({ id: aiJobs.id });
+    return { ok: true, jobId: created!.id, status };
+  });
 }
 
 export type ResolvePlanResult =
@@ -218,6 +235,10 @@ export async function resolvePlan(db: Db, input: ResolvePlanInput): Promise<Reso
       ticketId,
       authorType: "system",
       body: t(lang, mode === "execute" ? "comment.planApproved" : "comment.planRejected"),
+      // clock_timestamp() e non il default now(): dentro una transazione now()
+      // è l'istante di INIZIO, identico per i due insert, e la timeline (che
+      // ordina per createdAt) potrebbe mostrarli invertiti.
+      createdAt: sql`clock_timestamp()`,
     });
     return updated[0]!;
   });

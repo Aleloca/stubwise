@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { aiJobs, comments, instanceSettings, users, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
@@ -70,6 +70,11 @@ async function setContentLanguage(lang: "en" | "it"): Promise<void> {
     .insert(instanceSettings)
     .values({ id: 1, contentLanguage: lang })
     .onConflictDoUpdate({ target: instanceSettings.id, set: { contentLanguage: lang } });
+}
+
+/** Attesa breve, per osservare che una promise sia ancora pendente. */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 describe("startRun", () => {
@@ -217,6 +222,66 @@ describe("startRun", () => {
       expect(all).toHaveLength(1);
     },
   );
+
+  it("due startRun concorrenti su un ticket vergine: UN solo job, l'altro job_in_flight", async () => {
+    const ticketId = await seedTicket();
+
+    const results = await Promise.all([
+      startRun(db, { ticketId, actor: maintainer }),
+      startRun(db, { ticketId, actor: maintainer }),
+    ]);
+
+    const started = results.filter((r) => r.ok);
+    const rejected = results.filter((r) => !r.ok);
+    expect(started).toHaveLength(1);
+    expect(rejected).toEqual([{ ok: false, error: "job_in_flight", jobStatus: "queued" }]);
+
+    const jobs = await db.select().from(aiJobs).where(eq(aiJobs.ticketId, ticketId));
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]!.status).toBe("queued");
+  });
+
+  it("startRun ATTENDE chi tiene il lock del ticket, poi ne vede il job", async () => {
+    const ticketId = await seedTicket();
+
+    // Scrittore concorrente: prende il lock del ticket, accoda un job e tiene
+    // la transazione APERTA. È lo scenario che il solo `select` di startRun non
+    // vedrebbe (il job non è ancora committato) e che senza lock lo porterebbe
+    // ad accodarne un secondo.
+    let release!: () => void;
+    const holdOpen = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const writer = db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${ticketId}))`);
+      await tx.insert(aiJobs).values({ ticketId, status: "queued" });
+      await holdOpen;
+    });
+
+    try {
+      const running = startRun(db, { ticketId, actor: maintainer });
+      // Finché il writer non committa, startRun deve restare bloccato sul lock.
+      const pending = Symbol("pending");
+      const raced = await Promise.race([running, delay(250).then(() => pending)]);
+      expect(raced).toBe(pending);
+
+      release();
+      await writer;
+
+      // Sbloccato, legge lo stato REALE del ticket: c'è già un job in coda.
+      await expect(running).resolves.toEqual({
+        ok: false,
+        error: "job_in_flight",
+        jobStatus: "queued",
+      });
+    } finally {
+      release();
+      await writer.catch(() => undefined);
+    }
+
+    const jobs = await db.select().from(aiJobs).where(eq(aiJobs.ticketId, ticketId));
+    expect(jobs).toHaveLength(1);
+  });
 });
 
 describe("resolvePlan", () => {
@@ -346,10 +411,13 @@ describe("resolvePlan", () => {
     // re-plan del worker rilegge come "indicazioni del team".
     const cmts = await readComments(ticketId);
     expect(cmts).toHaveLength(2);
-    const team = cmts.find((c) => c.authorType === "user");
-    expect(team?.body).toBe("Ripianifica senza toccare lo schema del DB.");
-    expect(team?.authorId).toBe(maintainer.id);
-    expect(cmts.some((c) => c.authorType === "system")).toBe(true);
+    // L'ORDINE conta: la timeline ordina per createdAt, e le istruzioni devono
+    // precedere la nota di sistema che le segue.
+    expect(cmts.map((c) => c.authorType)).toEqual(["user", "system"]);
+    const [team, system] = cmts;
+    expect(team!.body).toBe("Ripianifica senza toccare lo schema del DB.");
+    expect(team!.authorId).toBe(maintainer.id);
+    expect(system!.createdAt.getTime()).toBeGreaterThan(team!.createdAt.getTime());
   });
 
   it("instructions vuote o solo spazi: nessun commento del team", async () => {
