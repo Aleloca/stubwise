@@ -1415,6 +1415,42 @@ describe("POST /api/slack/interactions — block_actions dell'inbox", () => {
     expect(await slackUpdates()).toHaveLength(0);
   });
 
+  it("inbox:snooze senza durata scelta → effimero invalid_action, notifica intatta", async () => {
+    const id = await seedNotification({ userId: seeded.adminId });
+
+    const res = await slackPost(
+      "/api/slack/interactions",
+      // Nessun `selected_option`: il servizio rifiuta la durata mancante.
+      blockActionsBody({ actionId: "inbox:snooze", notificationId: id }),
+    );
+    expect(res.statusCode).toBe(200);
+    await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
+    const [, payload] = postResponse.mock.calls[0]!;
+    const p = payload as { response_type: string; replace_original: boolean; text: string };
+    expect(p.response_type).toBe("ephemeral");
+    expect(p.replace_original).toBe(false);
+    expect(p.text).toContain("not available");
+    expect((await readNotification(id))?.status).toBe("open");
+  });
+
+  it("block_actions con actions vuoto → ack secco, nessun effetto", async () => {
+    const payload = {
+      type: "block_actions",
+      user: { id: ADMIN_SLACK },
+      trigger_id: "TRIG-INBOX",
+      response_url: RESPONSE_URL,
+      actions: [],
+    };
+    const res = await slackPost(
+      "/api/slack/interactions",
+      new URLSearchParams({ payload: JSON.stringify(payload) }).toString(),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toBe("");
+    expect(postResponse).not.toHaveBeenCalled();
+    expect(openView).not.toHaveBeenCalled();
+  });
+
   it("inbox:reject_plan → apre il modal col notificationId, senza eseguire nulla", async () => {
     const ticketId = await seedTicket("## Piano");
     const jobId = await seedJob(ticketId, "awaiting_plan_approval");

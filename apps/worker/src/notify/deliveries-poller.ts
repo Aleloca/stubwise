@@ -561,6 +561,12 @@ async function sendSlackUpdate(
         ),
       )
       .limit(1);
+    // CAP DELL'ATTESA: `retryOrFail` non ritenta all'infinito. Con
+    // MAX_ATTEMPTS=5 e backoff 30/60/120/240s la finestra è di ~8 minuti; oltre
+    // quella l'update si chiude `failed` e il DM resta con i bottoni di una
+    // notifica già decisa. Innocuo: chi li preme ottiene `already_handled` (il
+    // servizio inbox riguarda lo stato, non il messaggio), e i bottoni stale
+    // spariscono al prossimo aggiornamento di quel DM.
     if (pendingSibling) {
       await retryOrFail(deps, row, "slack_dm_pending");
       return;

@@ -4,7 +4,7 @@ import { ticketTypeSchema, type TicketType } from "@stubwise/shared";
 import { docPages, projects, repositories, users } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import type { EmbeddingClient } from "@stubwise/embeddings";
-import { t } from "@stubwise/i18n";
+import { t, type Language } from "@stubwise/i18n";
 import { parseInboxBlockId } from "@stubwise/notifications";
 import { ProjectNotFoundError } from "../db/tickets.js";
 import { createExternalTicket } from "../ingest/processor.js";
@@ -809,12 +809,16 @@ export async function slackRoutes(
       const ackReply = ack(reply);
       const publicUrl = publicUrlOrUndefined(instance);
       setImmediate(() => {
+        // Lingua di chi ha premuto, appena la si conosce: serve anche al
+        // messaggio d'errore del catch qui sotto.
+        let actorLang: Language | undefined;
         void (async () => {
           const actor = await resolveSlackActor(instance.db, client, payload.user?.id);
           if (!actor) {
             await postNotLinked(responseUrl);
             return;
           }
+          actorLang = actor.language;
           await runInboxAction(
             {
               db: instance.db,
@@ -829,8 +833,23 @@ export async function slackRoutes(
               ...(responseUrl ? { responseUrl } : {}),
             },
           );
-        })().catch((err) => {
+        })().catch(async (err) => {
           request.log.warn({ err }, "[slack] azione inbox fallita");
+          // IMPREVISTO (hiccup del DB, bug): senza un messaggio il bottone
+          // sembrerebbe morto — l'utente non saprebbe se l'azione è passata.
+          // Best-effort nel suo try/catch: un errore qui non deve propagare
+          // (siamo già in un catch, l'ack è partito da un pezzo).
+          try {
+            if (!responseUrl) return;
+            const lang = actorLang ?? (await getContentLanguage(instance.db));
+            await postResponse(responseUrl, {
+              response_type: "ephemeral",
+              replace_original: false,
+              text: t(lang, "notify.inbox.errFailed"),
+            });
+          } catch (postErr) {
+            request.log.warn({ err: postErr }, "[slack] effimero d'errore non inviato");
+          }
         });
       });
       return ackReply;
