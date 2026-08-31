@@ -126,6 +126,17 @@ export interface BacklogItemDetail {
   updatedAt: string;
 }
 
+/** Esito dell'avvio di un run AI su un ticket (`POST /api/tickets/:id/run-ai`). */
+export interface RunTicketResult {
+  jobId: string;
+  /**
+   * `queued`: il job è in coda, il worker lo prenderà in carico.
+   * `awaiting_plan_approval`: il job esiste ma attende che un maintainer approvi
+   * il piano prima di eseguire.
+   */
+  status: "queued" | "awaiting_plan_approval";
+}
+
 /** Bersaglio delle operazioni design/plan: una voce di backlog o un ticket. */
 export type DesignPlanTarget = "backlog" | "ticket";
 
@@ -159,6 +170,16 @@ const convertResultSchema = z.object({ ticketId: z.uuid(), ticketNumber: z.numbe
 
 /** `POST /api/backlog/from-design` → voce creata sincrona (id + URL del dettaglio). */
 const fromDesignResultSchema = z.object({ itemId: z.uuid(), url: z.string() });
+
+/**
+ * `POST /api/tickets/:id/run-ai` → job accodato (202). `status` distingue il run
+ * già in coda per il worker da quello nato fermo sul gate del piano (quando chi
+ * lancia è un operator/`member`: serve l'approvazione di un maintainer).
+ */
+const runTicketResultSchema = z.object({
+  jobId: z.uuid(),
+  status: z.enum(["queued", "awaiting_plan_approval"]),
+});
 
 /** Pagina generica cursor-based dell'API. */
 export interface Page<T> {
@@ -473,6 +494,27 @@ export class StubwiseClient {
   /** Scorciatoia per il cambio di stato (PATCH con solo `{ status }`). */
   async setTicketStatus(id: string, status: TicketStatus): Promise<TicketSummary> {
     return this.patchTicket(id, { status });
+  }
+
+  /**
+   * Avvia l'esecuzione AI del ticket sul worker. `mode: "ai_plan"` forza il
+   * flusso triage+pianificazione anche quando il ticket ha un piano salvato
+   * (senza `mode`, con un piano salvato, il worker esegue direttamente quello).
+   *
+   * Risposta piccola ad alto valore (202 `{ jobId, status }`) → validata a
+   * runtime come gli altri metodi critici. NON serve un `listTicketJobs`
+   * successivo: lo `status` del 202 è già l'informazione che il chiamante deve
+   * riportare. Gli errori attesi arrivano come `StubwiseApiError`: 404 (ticket
+   * inesistente), 409 `job_in_flight` (un job è già in volo), 403 (permessi).
+   */
+  async runTicket(id: string, body?: { mode?: "ai_plan" }): Promise<RunTicketResult> {
+    const raw = await this.request<unknown>(`/api/tickets/${id}/run-ai`, {
+      method: "POST",
+      // Corpo sempre inviato (anche vuoto): la rotta accetta `nullish`, ma un
+      // oggetto esplicito evita differenze di comportamento tra i due rami.
+      body: body?.mode ? { mode: body.mode } : {},
+    });
+    return this.parseResponse(runTicketResultSchema, raw, "l'avvio dell'esecuzione del ticket");
   }
 
   // --- Design / piano (backlog e ticket) ----------------------------------

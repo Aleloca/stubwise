@@ -78,6 +78,7 @@ function makeClient() {
     createTicket: vi.fn(),
     convertBacklogToTicket: vi.fn(),
     setTicketStatus: vi.fn(),
+    runTicket: vi.fn(),
     createBacklogItem: vi.fn(),
     createBacklogFromDesign: vi.fn(),
     getBacklogJob: vi.fn(),
@@ -559,6 +560,90 @@ describe("set_design / delete_design / set_plan / delete_plan", () => {
   });
 });
 
+describe("run_ticket", () => {
+  it("202 queued: conferma l'avvio e mette l'URL del ticket nell'output", async () => {
+    const client = makeClient();
+    client.runTicket.mockResolvedValue({ jobId: JOB_ID, status: "queued" });
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("run_ticket").handler({ id: TICKET_ID }, ctx);
+
+    expect(client.runTicket).toHaveBeenCalledWith(TICKET_ID, { mode: undefined });
+    expect(res.isError).toBeUndefined();
+    expect(firstText(res)).toContain("prenderà in carico");
+    expect(firstText(res)).toContain(JOB_ID);
+    expect(firstText(res)).toContain(`${BASE_URL}/tickets/${TICKET_ID}`);
+  });
+
+  it("202 awaiting_plan_approval: dice che serve l'approvazione di un maintainer", async () => {
+    const client = makeClient();
+    client.runTicket.mockResolvedValue({ jobId: JOB_ID, status: "awaiting_plan_approval" });
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("run_ticket").handler({ id: TICKET_ID }, ctx);
+
+    expect(res.isError).toBeUndefined();
+    expect(firstText(res)).toContain("approvazione");
+    expect(firstText(res)).toContain(JOB_ID);
+    expect(firstText(res)).toContain(`${BASE_URL}/tickets/${TICKET_ID}`);
+  });
+
+  it("inoltra mode 'ai_plan' al client", async () => {
+    const client = makeClient();
+    client.runTicket.mockResolvedValue({ jobId: JOB_ID, status: "queued" });
+    const { ctx } = makeCtx(client);
+
+    await tool("run_ticket").handler({ id: TICKET_ID, mode: "ai_plan" }, ctx);
+
+    expect(client.runTicket).toHaveBeenCalledWith(TICKET_ID, { mode: "ai_plan" });
+  });
+
+  it("409 job_in_flight: messaggio parlante con lo stato del server e l'URL", async () => {
+    const client = makeClient();
+    client.runTicket.mockRejectedValue(
+      new StubwiseApiError("A job for this ticket is already running", 409, "job_in_flight"),
+    );
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("run_ticket").handler({ id: TICKET_ID }, ctx);
+
+    expect(res.isError).toBe(true);
+    expect(firstText(res)).toContain("C'è già un job in corso per questo ticket");
+    expect(firstText(res)).toContain("A job for this ticket is already running");
+    expect(firstText(res)).toContain(`${BASE_URL}/tickets/${TICKET_ID}`);
+  });
+
+  it("403: propaga il messaggio di permessi insufficienti come ToolResult isError", async () => {
+    const client = makeClient();
+    client.runTicket.mockRejectedValue(
+      new StubwiseApiError(
+        "Permessi insufficienti per questa operazione (il token eredita i permessi del tuo utente)",
+        403,
+        "forbidden",
+      ),
+    );
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("run_ticket").handler({ id: TICKET_ID }, ctx);
+
+    expect(res.isError).toBe(true);
+    expect(firstText(res)).toContain("Permessi insufficienti");
+  });
+
+  it("404: propaga il messaggio di ticket non trovato", async () => {
+    const client = makeClient();
+    client.runTicket.mockRejectedValue(
+      new StubwiseApiError("Ticket not found", 404, "ticket_not_found"),
+    );
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("run_ticket").handler({ id: TICKET_ID }, ctx);
+
+    expect(res.isError).toBe(true);
+    expect(firstText(res)).toContain("Ticket not found");
+  });
+});
+
 describe("registerWriteTools", () => {
   it("registra tutti i tool di scrittura con i nomi attesi", () => {
     const client = makeClient();
@@ -568,12 +653,13 @@ describe("registerWriteTools", () => {
 
     registerWriteTools(server, ctx);
 
-    expect(registerTool).toHaveBeenCalledTimes(9);
+    expect(registerTool).toHaveBeenCalledTimes(10);
     const names = registerTool.mock.calls.map((c) => c[0]);
     expect(names).toEqual([
       "create_ticket",
       "convert_backlog_to_ticket",
       "set_ticket_status",
+      "run_ticket",
       "create_backlog_item",
       "create_backlog_from_design",
       "set_design",

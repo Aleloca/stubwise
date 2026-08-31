@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
+import { StubwiseApiError } from "../client.js";
 import { errorResult, resolveProject, runTool, textResult } from "./shared.js";
 import type { ToolContext, ToolDef, ToolResult } from "./types.js";
 
@@ -113,6 +114,55 @@ const setTicketStatus: ToolDef = {
         args.status as TicketStatus,
       );
       return textResult(`Stato del ticket #${ticket.number} aggiornato a '${ticket.status}'.`);
+    }),
+};
+
+// --- run_ticket -------------------------------------------------------------
+
+const runTicketInput = {
+  id: z.string().uuid().describe("UUID del ticket da eseguire."),
+  mode: z
+    .literal("ai_plan")
+    .optional()
+    .describe(
+      "Forza triage + pianificazione AI anche se il ticket ha già un piano salvato. Omettilo per eseguire il piano salvato.",
+    ),
+};
+
+const runTicket: ToolDef = {
+  name: "run_ticket",
+  description:
+    "Avvia l'esecuzione del ticket sul worker Stubwise (POST run-ai). Con un piano salvato (set_plan) il worker esegue direttamente quel piano; se il tuo utente è operatore il job attende l'approvazione di un maintainer prima di eseguire. Usa mode 'ai_plan' per forzare triage+pianificazione anche con piano salvato.",
+  inputSchema: runTicketInput,
+  handler: (args, ctx): Promise<ToolResult> =>
+    runTool(async () => {
+      const id = args.id as string;
+      const url = `${ctx.config.baseUrl}/tickets/${id}`;
+
+      let result: Awaited<ReturnType<typeof ctx.client.runTicket>>;
+      try {
+        result = await ctx.client.runTicket(id, { mode: args.mode as "ai_plan" | undefined });
+      } catch (err) {
+        // Il 409 è l'esito ATTESO più frequente (doppio avvio): il messaggio del
+        // server porta lo stato del job in volo, ma da solo non dice cosa fare →
+        // lo incorniciamo. Gli altri errori (403/404/rete) hanno già un messaggio
+        // parlante da `toApiError`: li lasciamo a `runTool`.
+        if (err instanceof StubwiseApiError && err.status === 409) {
+          return errorResult(
+            `C'è già un job in corso per questo ticket: ${err.message}. Attendi che finisca o controlla ${url}.`,
+          );
+        }
+        throw err;
+      }
+
+      if (result.status === "awaiting_plan_approval") {
+        return textResult(
+          `Job creato in attesa di approvazione del piano (job ${result.jobId}): un maintainer deve approvarlo prima dell'esecuzione. ${url}`,
+        );
+      }
+      return textResult(
+        `Esecuzione avviata sul ticket (job ${result.jobId}): il worker la prenderà in carico a breve. Segui l'avanzamento: ${url}`,
+      );
     }),
 };
 
@@ -361,6 +411,7 @@ export const writeTools: ToolDef[] = [
   createTicket,
   convertBacklogToTicket,
   setTicketStatus,
+  runTicket,
   createBacklogItem,
   createBacklogFromDesign,
   setDesign,
