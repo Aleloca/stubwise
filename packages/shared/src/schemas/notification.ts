@@ -47,13 +47,18 @@ export type InboxStatus = z.infer<typeof inboxStatusSchema>;
 
 /**
  * Azioni che una riga d'inbox può offrire. `open` è un link (non è eseguibile
- * lato server); `snooze` e `handled` hanno rotte dedicate; solo le tre
- * decisionali passano da `POST /api/inbox/:id/actions/:action`.
+ * lato server); `snooze` e `handled` hanno rotte dedicate; le decisionali
+ * passano da `POST /api/inbox/:id/actions/:action`.
+ *
+ * `handled` non è offerta da TUTTI i kind: la domanda dell'agente
+ * (`job.awaiting_input`) si chiude solo rispondendo. Chi decide è il catalogo di
+ * `@stubwise/notifications`; qui c'è solo l'insieme dei valori ammessi.
  */
 export const inboxActionSchema = z.enum([
   "approve_plan",
   "reject_plan",
   "relaunch",
+  "answer",
   "open",
   "snooze",
   "handled",
@@ -65,7 +70,12 @@ export type InboxAction = z.infer<typeof inboxActionSchema>;
  * `POST /api/inbox/:id/actions/:action`: le sole azioni DECISIONALI. Le altre
  * arrivano dalle rotte dedicate `read`/`snooze`/`handled`.
  */
-export const inboxDecisionActionSchema = z.enum(["approve_plan", "reject_plan", "relaunch"]);
+export const inboxDecisionActionSchema = z.enum([
+  "approve_plan",
+  "reject_plan",
+  "relaunch",
+  "answer",
+]);
 export type InboxDecisionAction = z.infer<typeof inboxDecisionActionSchema>;
 
 /** Durate di rinvio ammesse dallo snooze. */

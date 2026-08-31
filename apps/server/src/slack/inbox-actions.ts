@@ -50,11 +50,17 @@ import { inboxNote } from "../services/notifications-propagation.js";
 /** Prefisso degli `action_id` dei bottoni dell'inbox (`buildInboxBlocks`). */
 const ACTION_PREFIX = "inbox:";
 
-/** Azioni dell'inbox riconosciute su Slack (l'insieme di `ActionId`). */
-const INBOX_ACTIONS: readonly ActionId[] = [
+/**
+ * Azioni dell'inbox riconosciute su Slack (l'insieme di `ActionId`). Esportata
+ * perché il test di parità in `../notification-kinds.test.ts` la confronta con
+ * `inboxActionSchema` di `@stubwise/shared`: sono due liste della stessa cosa e
+ * si disallineerebbero in silenzio.
+ */
+export const INBOX_ACTIONS: readonly ActionId[] = [
   "approve_plan",
   "reject_plan",
   "relaunch",
+  "answer",
   "open",
   "snooze",
   "handled",

@@ -161,12 +161,26 @@ export async function executeAction(
       status: notifications.status,
       ticketId: notifications.ticketId,
       jobId: notifications.jobId,
+      // Chi ha chiesto il run dietro la notifica: è un permesso, non un dato di
+      // visualizzazione (`answer` la può compiere lui oltre ai maintainer).
+      // LEFT JOIN e non una query a parte: `notifications.job_id` è nullo sugli
+      // eventi d'istanza, e una riga in più nella SELECT costa nulla.
+      requestedByUserId: aiJobs.requestedByUserId,
     })
     .from(notifications)
+    .leftJoin(aiJobs, eq(aiJobs.id, notifications.jobId))
     .where(and(eq(notifications.id, notificationId), eq(notifications.userId, actor.id)));
   if (!row) return { ok: false, error: "not_found" };
 
   if (action === "open") return { ok: false, error: "invalid_action" };
+
+  // `answer` è già nel catalogo (la card e i DM la offrono a chi può
+  // rispondere), ma la sua ESECUZIONE — validare la risposta contro la domanda
+  // persistita, riprendere il job — vive in `answerQuestion`, che non esiste
+  // ancora. Finché non c'è la si rifiuta qui, esplicitamente: lasciarla
+  // scivolare nel ramo delle decisioni sul piano la manderebbe a `runDecision`,
+  // che non saprebbe cosa farne.
+  if (action === "answer") return { ok: false, error: "invalid_action" };
 
   if (action === "snooze") {
     const until = input.payload?.until;
@@ -229,7 +243,9 @@ export async function executeAction(
   // Azione fuori dal catalogo del kind (`approve_plan` su un `job.failed`): non
   // è un permesso mancante, è una richiesta senza senso.
   if (!kindOffers(row.kind, action)) return { ok: false, error: "invalid_action" };
-  if (!roleAllows(row.kind, action, actor.role)) return { ok: false, error: "forbidden" };
+  if (!roleAllows({ kind: row.kind, requestedByUserId: row.requestedByUserId }, action, actor)) {
+    return { ok: false, error: "forbidden" };
+  }
   // Una decisione sul job ha bisogno di un ticket dietro: gli eventi d'istanza
   // (docs/monitor) non arrivano qui, ma una riga con `ticket_id` nullo sì.
   if (!row.ticketId) return { ok: false, error: "invalid_action" };
@@ -501,7 +517,7 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       ? encodeCursor({ createdAt: last.cursorTimestamp, id: last.id })
       : null;
 
-  const jobStatusByTicket = await latestJobStatusByTicket(
+  const { latestStatusByTicket, requesterByJob } = await jobsOfTickets(
     db,
     page.map((r) => r.ticketId),
   );
@@ -522,8 +538,14 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       // enum `kind`, che il DB garantisce valida. Una card col testo degradato
       // resta quindi azionabile.
       actions: actionsFor(
-        { kind: r.kind },
-        r.ticketId ? (jobStatusByTicket.get(r.ticketId) ?? null) : null,
+        {
+          kind: r.kind,
+          // Il richiedente è quello del job DELLA NOTIFICA (chi ha avviato il
+          // run che ha posto la domanda), non quello dell'ultimo job del
+          // ticket: è a lui che la domanda è rivolta.
+          requestedByUserId: (r.jobId && requesterByJob.get(r.jobId)) || null,
+        },
+        r.ticketId ? (latestStatusByTicket.get(r.ticketId) ?? null) : null,
         actor,
       ),
       projectId: r.projectId,
@@ -600,27 +622,46 @@ async function reopenExpiredSnoozes(db: Db, userId: string): Promise<void> {
 }
 
 /**
- * Stato dell'ultimo job per ciascun ticket del batch, in UNA query. I job di un
- * ticket sono pochissimi (il rilancio RIUSA la riga esistente invece di
- * accodarne una nuova), quindi si leggono ordinati e si tiene il primo per
- * ticket invece di pagare una `distinct on` per pagina.
+ * I job dei ticket del batch, in UNA query, nei due tagli che servono al
+ * catalogo delle azioni:
+ *
+ *  - `latestStatusByTicket` — lo stato dell'ULTIMO job del ticket, che decide
+ *    quali azioni lo stato ammette (`stateAllows`);
+ *  - `requesterByJob` — il richiedente di CIASCUN job, che decide chi può
+ *    rispondere alla domanda posta da quel job (`roleAllows` su `answer`).
+ *
+ * Due mappe da una sola query, e non due query: il job di una notifica è per
+ * forza uno dei job del suo ticket, quindi le righe lette qui li contengono già
+ * tutti. I job di un ticket sono pochissimi (il rilancio RIUSA la riga esistente
+ * invece di accodarne una nuova), quindi si leggono ordinati e si tiene il primo
+ * per ticket invece di pagare una `distinct on` per pagina.
  */
-async function latestJobStatusByTicket(
+async function jobsOfTickets(
   db: Db,
   ticketIds: (string | null)[],
-): Promise<Map<string, string>> {
+): Promise<{
+  latestStatusByTicket: Map<string, string>;
+  requesterByJob: Map<string, string | null>;
+}> {
   const ids = [...new Set(ticketIds.filter((id): id is string => id !== null))];
-  const byTicket = new Map<string, string>();
-  if (ids.length === 0) return byTicket;
+  const latestStatusByTicket = new Map<string, string>();
+  const requesterByJob = new Map<string, string | null>();
+  if (ids.length === 0) return { latestStatusByTicket, requesterByJob };
   const rows = await db
-    .select({ ticketId: aiJobs.ticketId, status: aiJobs.status })
+    .select({
+      id: aiJobs.id,
+      ticketId: aiJobs.ticketId,
+      status: aiJobs.status,
+      requestedByUserId: aiJobs.requestedByUserId,
+    })
     .from(aiJobs)
     .where(inArray(aiJobs.ticketId, ids))
     .orderBy(desc(aiJobs.createdAt), desc(aiJobs.id));
   for (const row of rows) {
-    if (!byTicket.has(row.ticketId)) byTicket.set(row.ticketId, row.status);
+    if (!latestStatusByTicket.has(row.ticketId)) latestStatusByTicket.set(row.ticketId, row.status);
+    requesterByJob.set(row.id, row.requestedByUserId);
   }
-  return byTicket;
+  return { latestStatusByTicket, requesterByJob };
 }
 
 /** Id → { id, email } per gli utenti del batch, in UNA query. */

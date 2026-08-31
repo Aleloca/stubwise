@@ -16,7 +16,14 @@
 import type { NotificationEvent, NotificationKind } from "./format.js";
 
 /** Le azioni che una notifica può offrire. `open` è l'unica non eseguibile lato server. */
-export type ActionId = "approve_plan" | "reject_plan" | "relaunch" | "open" | "snooze" | "handled";
+export type ActionId =
+  | "approve_plan"
+  | "reject_plan"
+  | "relaunch"
+  | "answer"
+  | "open"
+  | "snooze"
+  | "handled";
 
 /** Durate di rinvio ammesse dallo snooze. */
 export type SnoozeUntil = "1h" | "tomorrow" | "3d";
@@ -47,44 +54,80 @@ export const IN_FLIGHT_JOB_STATUSES = [
   "triaging",
   "fixing",
   "awaiting_plan_approval",
+  // Parcheggiato su una domanda dell'agente: il lavoro non è finito, aspetta
+  // una risposta. Rilanciarlo (o lanciarne un secondo) butterebbe via la
+  // sessione CLI che la risposta deve riprendere.
+  "awaiting_input",
 ] as const;
 
-/** Quel poco che serve a {@link actionsFor}: il resto della riga è irrilevante. */
+/**
+ * Quel poco che serve a {@link actionsFor}: il resto della riga è irrilevante.
+ *
+ * `requestedByUserId` è il richiedente del job a cui la notifica è ancorata
+ * (`null` per i run dell'automazione, o per le notifiche senza job). Serve alle
+ * azioni il cui permesso è di IDENTITÀ e non di ruolo — oggi solo `answer`: a
+ * una domanda dell'agente risponde chi ha avviato il run, o un maintainer. È un
+ * campo OBBLIGATORIO, non opzionale, perché un chiamante che se lo dimentica
+ * toglierebbe in silenzio al richiedente la possibilità di rispondere: meglio
+ * che non compili.
+ */
 export interface ActionableNotification {
   kind: NotificationKind;
+  requestedByUserId: string | null;
 }
 
 /**
- * Azione DECISIONALE offerta da ciascun kind, col ruolo minimo per compierla.
+ * IL CATALOGO, per kind: la decisione che offre, il ruolo minimo per prenderla
+ * e se la riga si può archiviare a mano.
  *
  * `job.held` e `job.budget_held` sono lo stesso stato del job (`held`) con
  * `heldReason` diverso: un fermo "normale" lo può sbloccare chiunque, uno per
  * budget sforato no — è una decisione di spesa, e la portano già separata i due
  * `kind`, quindi qui non serve rileggere `ai_jobs.held_reason`.
  *
- * Record esaustivo su `NotificationKind`: un kind nuovo non compila finché non
- * gli si decide un'azione (anche "nessuna").
+ * `archivable` sta QUI, e non in un elenco a parte dei kind "senza handled",
+ * per una ragione precisa: questo Record è esaustivo su `NotificationKind`, e un
+ * kind nuovo non compila finché non gli si risponde a TUTTE le domande del
+ * catalogo — decisione, ruolo e archiviabilità. Un elenco separato (o un Set di
+ * eccezioni) avrebbe invece un default silenzioso: chi aggiunge il kind seguente
+ * non si accorgerebbe di doverci passare.
  */
-const DECISION_FOR_KIND: Record<NotificationKind, { actions: ActionId[]; adminOnly: boolean }> = {
-  "job.plan_review": { actions: ["approve_plan", "reject_plan"], adminOnly: true },
-  "job.held": { actions: ["relaunch"], adminOnly: false },
-  "job.budget_held": { actions: ["relaunch"], adminOnly: true },
-  "job.failed": { actions: ["relaunch"], adminOnly: false },
-  "job.pr_closed": { actions: ["relaunch"], adminOnly: false },
+const CATALOG_FOR_KIND: Record<
+  NotificationKind,
+  { decisions: ActionId[]; adminOnly: boolean; archivable: boolean }
+> = {
+  "job.plan_review": {
+    decisions: ["approve_plan", "reject_plan"],
+    adminOnly: true,
+    archivable: true,
+  },
+  "job.held": { decisions: ["relaunch"], adminOnly: false, archivable: true },
+  "job.budget_held": { decisions: ["relaunch"], adminOnly: true, archivable: true },
+  "job.failed": { decisions: ["relaunch"], adminOnly: false, archivable: true },
+  "job.pr_closed": { decisions: ["relaunch"], adminOnly: false, archivable: true },
   // Informativi: si aprono, si rinviano, si archiviano. Nient'altro.
-  "job.pr_opened": { actions: [], adminOnly: false },
-  "review.completed": { actions: [], adminOnly: false },
-  "ticket.created": { actions: [], adminOnly: false },
-  "docs.limit_paused": { actions: [], adminOnly: false },
-  "monitor.alert": { actions: [], adminOnly: false },
-  "monitor.recovered": { actions: [], adminOnly: false },
-  // La domanda dell'AI si chiude rispondendo, con un'azione `answer` dedicata
-  // che non esiste ancora: fino ad allora la card offre solo apri/rinvia/archivia.
-  "job.awaiting_input": { actions: [], adminOnly: false },
+  "job.pr_opened": { decisions: [], adminOnly: false, archivable: true },
+  "review.completed": { decisions: [], adminOnly: false, archivable: true },
+  "ticket.created": { decisions: [], adminOnly: false, archivable: true },
+  "docs.limit_paused": { decisions: [], adminOnly: false, archivable: true },
+  "monitor.alert": { decisions: [], adminOnly: false, archivable: true },
+  "monitor.recovered": { decisions: [], adminOnly: false, archivable: true },
+  // NON archiviabile di proposito: la domanda dell'agente si chiude solo
+  // rispondendo. Archiviarla lascerebbe il job parcheggiato in `awaiting_input`
+  // in silenzio, senza che nessuno si accorga che aspetta ancora qualcuno.
+  "job.awaiting_input": { decisions: ["answer"], adminOnly: false, archivable: false },
 };
 
-/** Azioni disponibili su OGNI notifica: sono igiene dell'inbox, non decisioni. */
-const ALWAYS: ActionId[] = ["open", "snooze", "handled"];
+/** Igiene dell'inbox: presente su OGNI notifica, non è una decisione. */
+const HYGIENE: readonly ActionId[] = ["open", "snooze"];
+
+/**
+ * Azioni NON decisionali offerte dal kind: l'igiene, più l'archiviazione dove il
+ * catalogo la ammette. Sono in coda alle decisioni in {@link actionsFor}.
+ */
+function hygieneFor(kind: NotificationKind): ActionId[] {
+  return CATALOG_FOR_KIND[kind].archivable ? [...HYGIENE, "handled"] : [...HYGIENE];
+}
 
 /** True se lo stato del job è uno di {@link IN_FLIGHT_JOB_STATUSES} (lavoro in corso). */
 function isInFlight(jobStatus: string | null | undefined): boolean {
@@ -98,31 +141,49 @@ function isInFlight(jobStatus: string | null | undefined): boolean {
  * (400) invece di `forbidden` (403), che suggerirebbe a torto "riprova da admin".
  */
 export function kindOffers(kind: NotificationKind, action: ActionId): boolean {
-  return ALWAYS.includes(action) || DECISION_FOR_KIND[kind].actions.includes(action);
+  return hygieneFor(kind).includes(action) || CATALOG_FOR_KIND[kind].decisions.includes(action);
 }
 
 /**
- * Il RUOLO consente l'azione? Separata da {@link kindOffers} e da
+ * CHI compie l'azione la può compiere? Separata da {@link kindOffers} e da
  * {@link stateAllows} perché i tre "no" hanno messaggi diversi: azione fuori
- * catalogo → `invalid_action`, ruolo insufficiente → `forbidden`, stato del job
- * incompatibile → `plan_not_pending`/`job_in_flight`.
+ * catalogo → `invalid_action`, permesso insufficiente → `forbidden`, stato del
+ * job incompatibile → `plan_not_pending`/`job_in_flight`.
+ *
+ * Quasi tutte le decisioni sono questione di RUOLO. `answer` no: la domanda è
+ * rivolta a chi ha chiesto il run (che il più delle volte è un operatore, e
+ * l'unico che sa rispondere nel merito), e in più a un maintainer — che deve
+ * poter sbloccare un job parcheggiato da un collega in ferie. Per questo prende
+ * la notifica intera e l'actor intero, non il solo ruolo.
  */
-export function roleAllows(kind: NotificationKind, action: ActionId, role: ActorRole): boolean {
+export function roleAllows(
+  notification: ActionableNotification,
+  action: ActionId,
+  actor: ActionActor,
+): boolean {
+  const { kind, requestedByUserId } = notification;
   if (!kindOffers(kind, action)) return false;
-  if (ALWAYS.includes(action)) return true;
-  return !DECISION_FOR_KIND[kind].adminOnly || role === "admin";
+  if (hygieneFor(kind).includes(action)) return true;
+  if (action === "answer") {
+    return actor.role === "admin" || (requestedByUserId !== null && actor.id === requestedByUserId);
+  }
+  return !CATALOG_FOR_KIND[kind].adminOnly || actor.role === "admin";
 }
 
 /**
  * Lo STATO ATTUALE del job consente l'azione? `approve_plan`/`reject_plan` solo
- * su un piano davvero fermo sul gate; `relaunch` solo se l'ultimo job del ticket
- * non è in volo (rilanciarne uno vivo scippa il lavoro al worker).
+ * su un piano davvero fermo sul gate; `answer` solo su un job davvero fermo su
+ * una domanda (ripartito, la risposta non ha più nessuno che l'aspetta);
+ * `relaunch` solo se l'ultimo job del ticket non è in volo (rilanciarne uno vivo
+ * scippa il lavoro al worker).
  */
 export function stateAllows(action: ActionId, jobStatus: string | null | undefined): boolean {
   switch (action) {
     case "approve_plan":
     case "reject_plan":
       return jobStatus === "awaiting_plan_approval";
+    case "answer":
+      return jobStatus === "awaiting_input";
     case "relaunch":
       return !isInFlight(jobStatus);
     default:
@@ -132,7 +193,8 @@ export function stateAllows(action: ActionId, jobStatus: string | null | undefin
 
 /**
  * Azioni offerte su una notifica, nell'ordine in cui vanno mostrate: prima le
- * decisioni (se il ruolo e lo stato le consentono), poi apri/rinvia/archivia.
+ * decisioni (se chi guarda e lo stato del job le consentono), poi l'igiene
+ * dell'inbox — apri/rinvia, più archivia sui kind che l'ammettono.
  *
  * `jobStatus` è lo stato dell'ULTIMO job del ticket a cui la notifica è
  * ancorata (`null` per gli eventi senza ticket, come `monitor.*`). Funzione
@@ -144,10 +206,10 @@ export function actionsFor(
   jobStatus: string | null | undefined,
   actor: ActionActor,
 ): ActionId[] {
-  const decisions = DECISION_FOR_KIND[notification.kind].actions.filter(
-    (action) => roleAllows(notification.kind, action, actor.role) && stateAllows(action, jobStatus),
+  const decisions = CATALOG_FOR_KIND[notification.kind].decisions.filter(
+    (action) => roleAllows(notification, action, actor) && stateAllows(action, jobStatus),
   );
-  return [...decisions, ...ALWAYS];
+  return [...decisions, ...hygieneFor(notification.kind)];
 }
 
 /**

@@ -76,6 +76,7 @@ const NOTE_KEY: Record<Exclude<ActionId, "open">, string> = {
   approve_plan: "notify.inbox.notePlanApproved",
   reject_plan: "notify.inbox.notePlanRejected",
   relaunch: "notify.inbox.noteRelaunched",
+  answer: "notify.inbox.noteAnswered",
   handled: "notify.inbox.noteHandled",
   snooze: "notify.inbox.noteSnoozed",
 };
@@ -100,12 +101,17 @@ function slackDate(date: Date): string {
 export function inboxNote(
   action: Exclude<ActionId, "open">,
   lang: Language,
-  args: { actor: string; snoozedUntil?: Date },
+  args: { actor: string; snoozedUntil?: Date; answer?: string },
 ): string {
   if (action === "snooze") {
     return t(lang, NOTE_KEY.snooze, {
       until: args.snoozedUntil ? slackDate(args.snoozedUntil) : "—",
     });
+  }
+  if (action === "answer") {
+    // La nota della risposta PORTA la risposta: chi legge il DM di un collega
+    // deve sapere cosa è stato deciso, non solo che qualcuno ha deciso.
+    return t(lang, NOTE_KEY.answer, { actor: args.actor, answer: args.answer ?? "—" });
   }
   return t(lang, NOTE_KEY[action], { actor: args.actor });
 }

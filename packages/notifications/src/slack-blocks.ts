@@ -52,6 +52,10 @@ const LABEL_KEY: Record<ActionId, string> = {
   approve_plan: "notify.action.approvePlan",
   reject_plan: "notify.action.rejectPlan",
   relaunch: "notify.action.relaunch",
+  // FALLBACK: i bottoni della domanda sono uno per opzione e li compone il
+  // renderer dedicato del kind `job.awaiting_input`. Questa etichetta generica
+  // vale solo se `answer` finisce fra le azioni di un DM standard.
+  answer: "notify.action.answer",
   open: "notify.action.open",
   snooze: "notify.action.snooze",
   handled: "notify.action.handled",

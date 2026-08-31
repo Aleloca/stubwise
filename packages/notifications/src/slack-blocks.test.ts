@@ -53,7 +53,7 @@ describe("buildInboxBlocks", () => {
 
   it("le azioni dell'admin su un piano in attesa: approva (primary), rifiuta (danger), apri, snooze, gestita", () => {
     const actions = actionsFor(
-      { kind: "job.plan_review" },
+      { kind: "job.plan_review", requestedByUserId: null },
       "awaiting_plan_approval",
       { id: "u1", role: "admin" },
     );
@@ -87,10 +87,11 @@ describe("buildInboxBlocks", () => {
   });
 
   it("member sullo stesso evento: nessuna decisione nei bottoni", () => {
-    const actions = actionsFor({ kind: "job.plan_review" }, "awaiting_plan_approval", {
-      id: "u2",
-      role: "member",
-    });
+    const actions = actionsFor(
+      { kind: "job.plan_review", requestedByUserId: null },
+      "awaiting_plan_approval",
+      { id: "u2", role: "member" },
+    );
     const blocks = buildInboxBlocks({
       text: "Piano da approvare",
       actions,
