@@ -584,6 +584,8 @@ describe("run_ticket", () => {
 
     expect(res.isError).toBeUndefined();
     expect(firstText(res)).toContain("approvazione");
+    // L'agente non deve rilanciare il tool aspettando l'approvazione.
+    expect(firstText(res)).toContain("non rilanciare run_ticket");
     expect(firstText(res)).toContain(JOB_ID);
     expect(firstText(res)).toContain(`${BASE_URL}/tickets/${TICKET_ID}`);
   });
@@ -610,6 +612,8 @@ describe("run_ticket", () => {
     expect(res.isError).toBe(true);
     expect(firstText(res)).toContain("C'è già un job in corso per questo ticket");
     expect(firstText(res)).toContain("A job for this ticket is already running");
+    // Il job in volo può essere fermo sul gate del piano: il testo lo dice.
+    expect(firstText(res)).toContain("che un maintainer lo approvi");
     expect(firstText(res)).toContain(`${BASE_URL}/tickets/${TICKET_ID}`);
   });
 

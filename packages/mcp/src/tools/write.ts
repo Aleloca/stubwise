@@ -149,7 +149,7 @@ const runTicket: ToolDef = {
         // parlante da `toApiError`: li lasciamo a `runTool`.
         if (err instanceof StubwiseApiError && err.status === 409) {
           return errorResult(
-            `C'è già un job in corso per questo ticket: ${err.message}. Attendi che finisca o controlla ${url}.`,
+            `C'è già un job in corso per questo ticket: ${err.message}. Attendi che finisca (o, se è in attesa di approvazione del piano, che un maintainer lo approvi) oppure controlla il ticket.\nURL: ${url}`,
           );
         }
         throw err;
@@ -157,11 +157,11 @@ const runTicket: ToolDef = {
 
       if (result.status === "awaiting_plan_approval") {
         return textResult(
-          `Job creato in attesa di approvazione del piano (job ${result.jobId}): un maintainer deve approvarlo prima dell'esecuzione. ${url}`,
+          `Job creato in attesa di approvazione del piano (job ${result.jobId}): un maintainer deve approvarlo prima dell'esecuzione. Dopo l'approvazione l'esecuzione parte automaticamente: non rilanciare run_ticket.\nURL: ${url}`,
         );
       }
       return textResult(
-        `Esecuzione avviata sul ticket (job ${result.jobId}): il worker la prenderà in carico a breve. Segui l'avanzamento: ${url}`,
+        `Esecuzione avviata sul ticket (job ${result.jobId}): il worker la prenderà in carico a breve. Segui l'avanzamento:\nURL: ${url}`,
       );
     }),
 };
