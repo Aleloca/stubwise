@@ -142,6 +142,11 @@ export function InboxItemCard({ item, projectName, filters, currentUser }: Inbox
       // passano a "gestita" subito, senza aspettare il refetch.
       patchCached(new Set(result.changedNotificationIds), {
         status: "handled",
+        // `actions` AZZERATO insieme allo stato: una riga chiusa non offre più
+        // nulla. Senza questo, nella finestra fra la risposta e il refetch la
+        // card resterebbe attenuata ma coi bottoni attivi, e un secondo click
+        // (facile su rete lenta) andrebbe a sbattere in un 409.
+        actions: [],
         handledAt: new Date().toISOString(),
         handledBy: currentUser,
       });
@@ -188,8 +193,11 @@ export function InboxItemCard({ item, projectName, filters, currentUser }: Inbox
       setError(null);
       await queryClient.cancelQueries({ queryKey: listKey });
       const previous = queryClient.getQueryData<InboxPage>(listKey);
+      // `actions: []` come nella decisione: chiusa la riga, spariscono anche i
+      // suoi bottoni, subito e non al refetch.
       patchCached(new Set([item.id]), {
         status: "handled",
+        actions: [],
         handledAt: new Date().toISOString(),
         handledBy: currentUser,
       });

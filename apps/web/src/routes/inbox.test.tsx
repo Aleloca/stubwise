@@ -130,6 +130,16 @@ function section(name: string): HTMLElement {
   return screen.getByRole("region", { name });
 }
 
+/**
+ * La card (article) di una riga, per nome accessibile = testo dell'evento.
+ * Serve dove la sezione non basta a distinguere due righe — per esempio dopo
+ * una decisione, che toglie le azioni e sposta la riga fra "Da decidere" e
+ * "Da sapere".
+ */
+function card(text: string): HTMLElement {
+  return screen.getByRole("article", { name: text });
+}
+
 describe("pagina /inbox", () => {
   it("divide le aperte fra 'To decide' e 'To know' e marca lette le non lette", async () => {
     const read: string[] = [];
@@ -179,30 +189,20 @@ describe("pagina /inbox", () => {
     expect(know.getByRole("button", { name: "Handled" })).toBeInTheDocument();
   });
 
-  it("approva il piano: chiama l'API e la riga passa a gestita", async () => {
+  it("approva il piano: la riga passa a gestita e perde i bottoni PRIMA del refetch", async () => {
     let approved = false;
     const calls: string[] = [];
     mockApi(
       baseApi({
+        // Il refetch che segue l'invalidazione NON risolve mai: tutto quello
+        // che si vede dopo il click viene dall'aggiornamento locale su
+        // `changedNotificationIds`, non da una risposta del server. È il punto
+        // del test — è in QUESTA finestra che una card ancora azionabile
+        // permetterebbe un secondo click, e un 409.
         "GET /api/inbox": () =>
-          jsonResponse(200, {
-            // Dopo l'approvazione il server restituisce la riga CHIUSA (senza
-            // più azioni): la card resta a schermo, attenuata, con l'autore.
-            items: approved
-              ? [
-                  {
-                    ...DECIDE,
-                    status: "handled",
-                    actions: [],
-                    readAt: "2026-08-31T10:01:00.000Z",
-                    handledAt: "2026-08-31T10:02:00.000Z",
-                    handledBy: { id: "u1", email: "ada@example.com" },
-                  },
-                  KNOW,
-                ]
-              : [DECIDE, KNOW],
-            nextCursor: null,
-          }),
+          approved
+            ? new Promise<Response>(() => {})
+            : jsonResponse(200, { items: [DECIDE, KNOW], nextCursor: null }),
         "POST /api/inbox/:id/actions/approve_plan": (url) => {
           approved = true;
           calls.push(url.pathname);
@@ -220,8 +220,40 @@ describe("pagina /inbox", () => {
     await userEvent.click(screen.getByRole("button", { name: "Approve plan" }));
 
     await waitFor(() => expect(calls).toEqual([`/api/inbox/${DECIDE_ID}/actions/approve_plan`]));
+    // Chi ha deciso è l'utente della sessione, messo lì dal patch locale.
     expect(await screen.findByText("handled by ada@example.com")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Approve plan" })).toBeNull();
+    // Niente più azioni sulla riga chiusa: nessun secondo click possibile.
+    // Si guarda DENTRO la card (le due righe finiscono ora nella stessa
+    // sezione, quindi la sezione non le distingue più).
+    const decided = within(card("Plan awaiting approval for TCK-1"));
+    expect(decided.getByText("handled by ada@example.com")).toBeInTheDocument();
+    expect(decided.queryAllByRole("button")).toHaveLength(0);
+    // L'altra riga, non toccata dalla decisione, conserva le sue.
+    expect(
+      within(card("PR opened for TCK-2")).getByRole("button", { name: "Snooze" }),
+    ).toBeInTheDocument();
+  });
+
+  it("'Handled' chiude la riga in ottimistico, bottoni compresi", async () => {
+    let handledCalls = 0;
+    mockApi(
+      baseApi({
+        // Anche qui la risposta non arriva: si osserva il solo ottimismo.
+        "POST /api/inbox/:id/handled": () => {
+          handledCalls += 1;
+          return new Promise<Response>(() => {});
+        },
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    await userEvent.click(within(section("To know")).getByRole("button", { name: "Handled" }));
+
+    await waitFor(() => expect(handledCalls).toBe(1));
+    const closed = within(card("PR opened for TCK-2"));
+    expect(closed.getByText("handled by ada@example.com")).toBeInTheDocument();
+    expect(closed.queryAllByRole("button")).toHaveLength(0);
   });
 
   it("rifiuta: apre il campo e invia le istruzioni nel body", async () => {

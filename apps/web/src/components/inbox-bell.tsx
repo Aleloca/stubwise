@@ -20,6 +20,16 @@ const COUNT_CAP = 99;
  * campanella è renderizzata DUE volte (sidebar desktop + top bar mobile): un
  * effetto nel componente girerebbe in doppio. Il proprietario del wiring è
  * l'`AppLayout`, che lo monta una volta sola.
+ *
+ * FLICKER NOTO: l'invalidazione è cieca rispetto alle mutazioni in corso. Se
+ * cade mentre uno snooze è in volo, il refetch che ne segue riporta la riga
+ * (per il server è ancora aperta) e per un istante la si rivede, dopo che
+ * l'update ottimistico l'aveva tolta. Converge da sé: l'`onSettled` dello
+ * snooze invalida di nuovo e il giro successivo la fa sparire per davvero. Si
+ * accetta perché la finestra è di frazioni di secondo e rara (serve che il
+ * contatore cambi PROPRIO lì in mezzo), e l'alternativa — sospendere le
+ * invalidazioni finché c'è una mutazione aperta — costerebbe molto più di
+ * quello che evita.
  */
 export function useInboxUnreadWatcher(): void {
   const queryClient = useQueryClient();

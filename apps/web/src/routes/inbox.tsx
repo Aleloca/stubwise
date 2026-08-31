@@ -212,9 +212,18 @@ function LoadMore({ filters }: { filters: InboxFilters }) {
     setLoading(true);
     try {
       const next = await getInbox(filters, current.nextCursor);
-      queryClient.setQueryData<InboxPage>(key, (page) =>
-        page ? { items: [...page.items, ...next.items], nextCursor: next.nextCursor } : next,
-      );
+      queryClient.setQueryData<InboxPage>(key, (page) => {
+        if (!page) return next;
+        // Dedup per id: fra il click e la risposta un'invalidazione può aver
+        // riportato la cache alla PRIMA pagina, e le righe in arrivo
+        // potrebbero già esserci. Concatenare senza filtrare darebbe chiavi
+        // React duplicate (e righe doppie a schermo).
+        const seen = new Set(page.items.map((row) => row.id));
+        return {
+          items: [...page.items, ...next.items.filter((row) => !seen.has(row.id))],
+          nextCursor: next.nextCursor,
+        };
+      });
     } finally {
       setLoading(false);
     }
@@ -257,6 +266,14 @@ function InboxSkeleton() {
  * stato, così marcare non provoca un re-render che rifarebbe partire l'effetto.
  * Il contatore della campanella si invalida a fine giro, così il numero scende
  * subito invece di aspettare il polling.
+ *
+ * COSTO ACCETTATO: quel contatore che scende è un CAMBIAMENTO, e
+ * `useInboxUnreadWatcher` reagisce ai cambiamenti invalidando le liste — così
+ * aprire l'inbox con righe non lette produce un secondo GET della lista entro
+ * pochi secondi. Non è un ciclo: il refetch torna con `readAt` valorizzato,
+ * l'effetto non marca più nulla, il contatore non cambia più e la cosa si
+ * ferma. Si preferisce questo alla campanella che resta accesa su notifiche
+ * che l'utente sta guardando.
  */
 function useMarkVisibleAsRead(items: InboxItem[]): void {
   const queryClient = useQueryClient();
