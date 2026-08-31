@@ -44,6 +44,11 @@ export interface PublishOpts {
  * server che crea un ticket) passa il suo `tx` e la notifica nasce o non nasce
  * insieme all'entità che la genera.
  *
+ * `opts` è OBBLIGATORIO, anche quando è `{}`: le ancore sono la parte che si
+ * dimentica per prima e senza di loro l'evento raggiunge i soli admin senza che
+ * nulla lo segnali. Un parametro esplicito costringe ogni punto di emissione a
+ * dichiarare cosa sa dell'origine dell'evento.
+ *
  * NON LANCIA MAI: come {@link dispatchNotification}, una notifica mancata non
  * deve far fallire l'ingestion né un job — su errore restituisce
  * `{ published: 0 }`.
@@ -62,7 +67,7 @@ export interface PublishOpts {
 export async function publishNotification(
   db: DbOrTx,
   event: NotificationEvent,
-  opts: PublishOpts = {},
+  opts: PublishOpts,
 ): Promise<{ published: number }> {
   try {
     return await db.transaction(async (inner) => {
