@@ -1,5 +1,11 @@
 # @stubwise/mcp
 
+## 0.4.0
+
+### Minor Changes
+
+- 606f4c1: Nuovo tool `run_ticket`: avvia l'esecuzione di un ticket sul worker Stubwise (run-ai). Con piano salvato esegue direttamente quel piano; per gli operatori il job attende l'approvazione del piano da parte di un maintainer. Inoltre `SERVER_VERSION` ora è letto dal package.json reale (prima dichiarava un literal disallineato).
+
 ## 0.3.0
 
 ### Minor Changes
