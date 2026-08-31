@@ -3,6 +3,8 @@ stubwise:
   project: stubwise
   backlogItem: 5971494f-41fa-493d-a559-09816be2be2f
   # https://stubwise.thecove.it/backlog/5971494f-41fa-493d-a559-09816be2be2f
+  ticket: 3
+  # https://stubwise.thecove.it/tickets/4b7bd99a-26c5-438b-9c36-d404236b0ac0
 ---
 
 # Pulizia del setup graphify locale (post-merge PR "Configura il knowledge graph graphify")
