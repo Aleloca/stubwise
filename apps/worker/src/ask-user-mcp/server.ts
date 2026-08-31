@@ -1,4 +1,5 @@
-import { mkdir, rename, stat, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { link, mkdir, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -171,36 +172,68 @@ function errorResult(text: string): AskUserToolResult {
   return { content: [{ type: "text", text }], isError: true };
 }
 
-/** Vero se il path esiste già (di qualunque tipo). */
-async function exists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
+/** Vero se l'errore è un `EEXIST` del filesystem (destinazione già presente). */
+function isEexist(err: unknown): boolean {
+  return (err as NodeJS.ErrnoException | null)?.code === "EEXIST";
 }
 
 /**
- * Scrittura ATOMICA del file-bridge: prima un file temporaneo NELLA STESSA
- * directory di destinazione (un rename cross-filesystem fallirebbe), poi il
- * rename. Il worker che legge non può quindi mai incontrare un JSON troncato.
+ * Crea il file-bridge in modo ATOMICO **e ESCLUSIVO**, e dice se c'era già.
+ *
+ * Il contenuto viene prima scritto in un file temporaneo NELLA STESSA directory
+ * di destinazione (un `link` cross-filesystem fallirebbe), poi pubblicato con
+ * `link`: il worker che legge non può quindi mai incontrare un JSON troncato.
+ *
+ * `link` invece di `rename` perché `rename` SOVRASCRIVE: fra un controllo di
+ * esistenza e la scrittura ci sarebbe una finestra TOCTOU, e il CLI può
+ * parallelizzare le tool call — due `ask_user` nello stesso turno passerebbero
+ * entrambe il controllo e la seconda cancellerebbe in silenzio la prima domanda.
+ * `link` fallisce invece con `EEXIST` se la destinazione esiste: l'invariante
+ * "una domanda registrata non si sovrascrive" diventa vera per costruzione.
+ *
+ * Il temporaneo viene rimosso in ogni caso (successo, EEXIST o errore), così i
+ * round successivi — che riusano la stessa directory del run — non trovano
+ * scarti accumulati.
  */
-async function writeAtomic(filePath: string, content: string): Promise<void> {
+async function createExclusiveAtomic(filePath: string, content: string): Promise<"created" | "exists"> {
   const dir = dirname(filePath);
   await mkdir(dir, { recursive: true });
-  const tmp = join(dir, `.${process.pid}-${Date.now()}.ask-user.tmp`);
-  await writeFile(tmp, content, "utf8");
-  await rename(tmp, filePath);
+  // Suffisso casuale, non `Date.now()`: due chiamate concorrenti nello stesso
+  // millisecondo condividerebbero il temporaneo e si calpesterebbero a vicenda
+  // (la `unlink` della prima farebbe fallire la `link` della seconda con ENOENT
+  // invece del previsto EEXIST).
+  const tmp = join(dir, `.${randomUUID()}.ask-user.tmp`);
+  try {
+    await writeFile(tmp, content, "utf8");
+    await link(tmp, filePath);
+    return "created";
+  } catch (err) {
+    if (isEexist(err)) return "exists";
+    throw err;
+  } finally {
+    // Il contenuto vive ormai nel file finale (link = secondo nome dello stesso
+    // inode): il temporaneo è sempre da buttare. Un fallimento qui non cambia
+    // l'esito della registrazione, quindi si ignora.
+    await unlink(tmp).catch(() => {});
+  }
 }
 
 /**
  * Handler del tool `ask_user`, senza SDK di mezzo (testabile direttamente).
  * Tre esiti, in quest'ordine:
  *  1. round oltre il tetto → istruzione a decidere da solo, NESSUNA scrittura;
- *  2. file già presente → il modello ha già chiesto in questo turno, la domanda
- *     registrata non si sovrascrive;
- *  3. argomenti validi → scrittura atomica e istruzione a chiudere il turno.
+ *  2. argomenti invalidi → errore parlante, NESSUNA scrittura;
+ *  3. file già presente (EEXIST sulla creazione esclusiva) → il modello ha già
+ *     chiesto in questo turno, la domanda registrata non si sovrascrive;
+ *     altrimenti scrittura atomica e istruzione a chiudere il turno.
+ *
+ * ATTENZIONE: questo ordine vale per intero solo chiamando l'handler
+ * direttamente. Attraverso il transport MCP l'SDK valida gli argomenti contro
+ * `askUserInputShape` PRIMA di invocarci, quindi una chiamata shape-invalida
+ * (es. una sola opzione) torna al modello come `MCP error -32602` anche quando
+ * il round è oltre il tetto: il messaggio di tetto lo vedono solo le chiamate
+ * shape-valide. Restano nostri i fallimenti del `refine` (`recommendedIndex`
+ * fuori range), che la shape da sola non può esprimere.
  */
 export async function handleAskUser(
   args: Record<string, unknown>,
@@ -218,18 +251,24 @@ export async function handleAskUser(
     return errorResult(`Argomenti non validi per ask_user: ${issues}`);
   }
 
-  if (await exists(config.filePath)) {
-    return textResult(ALREADY_ASKED_MESSAGE);
-  }
-
+  let outcome: "created" | "exists";
   try {
-    await writeAtomic(config.filePath, `${JSON.stringify(parsed.data, null, 2)}\n`);
+    outcome = await createExclusiveAtomic(
+      config.filePath,
+      `${JSON.stringify(parsed.data, null, 2)}\n`,
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // Diagnostica OBBLIGATORIA su stderr: al modello torna un errore e lui può
+    // benissimo ripiegare producendo comunque il piano — il run sembrerebbe
+    // "riuscito senza domande" e nessuno scoprirebbe mai che il bridge era
+    // rotto (permessi, disco pieno, path inesistente). Il path serve a capire
+    // QUALE bridge ha fallito.
+    console.error(`ask_user: scrittura del file-bridge '${config.filePath}' fallita: ${message}`);
     return errorResult(`Impossibile registrare la domanda: ${message}`);
   }
 
-  return textResult(REGISTERED_MESSAGE);
+  return textResult(outcome === "exists" ? ALREADY_ASKED_MESSAGE : REGISTERED_MESSAGE);
 }
 
 /**

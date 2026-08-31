@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -152,7 +152,6 @@ describe("handleAskUser — scrittura del file-bridge", () => {
     const written = JSON.parse(await readFile(nested, "utf8")) as { question: string };
     expect(written.question).toContain("migrazione");
 
-    const { readdir } = await import("node:fs/promises");
     expect(await readdir(join(dir, "run"))).toEqual(["question.json"]);
   });
 });
@@ -184,6 +183,27 @@ describe("handleAskUser — tetto e idempotenza", () => {
 
     expect(textOf(result)).toBe("Hai già una domanda registrata: termina il turno.");
     expect(await readFile(filePath, "utf8")).toBe(primo);
+    // Nemmeno il tentativo respinto lascia scarti nella dir del run.
+    expect(await readdir(dir)).toEqual(["question.json"]);
+  });
+
+  it("con due chiamate concorrenti ne registra UNA sola, senza sovrascritture", async () => {
+    // La creazione è esclusiva (link → EEXIST), quindi non c'è finestra TOCTOU
+    // fra controllo e scrittura: il CLI può parallelizzare le tool call.
+    const [primo, secondo] = await Promise.all([
+      handleAskUser(validArgs({ question: "Prima domanda concorrente?" }), config()),
+      handleAskUser(validArgs({ question: "Seconda domanda concorrente?" }), config()),
+    ]);
+
+    const testi = [textOf(primo!), textOf(secondo!)].sort();
+    expect(testi).toEqual([
+      "Domanda registrata. Termina il turno ORA senza produrre il piano: riceverai la risposta in un turno successivo.",
+      "Hai già una domanda registrata: termina il turno.",
+    ]);
+
+    const written = JSON.parse(await readFile(filePath, "utf8")) as { question: string };
+    expect(written.question).toMatch(/^(Prima|Seconda) domanda concorrente\?$/);
+    expect(await readdir(dir)).toEqual(["question.json"]);
   });
 
   it("non sovrascrive nemmeno un file preesistente scritto da altri", async () => {
@@ -191,6 +211,28 @@ describe("handleAskUser — tetto e idempotenza", () => {
     const result = await handleAskUser(validArgs(), config());
     expect(textOf(result)).toBe("Hai già una domanda registrata: termina il turno.");
     expect(await readFile(filePath, "utf8")).toBe("{}");
+  });
+});
+
+describe("handleAskUser — fallimento della scrittura", () => {
+  it("torna un errore al modello E lo logga su stderr con path e causa", async () => {
+    // Il genitore del file è un FILE, non una directory: la creazione della dir
+    // fallisce (ENOTDIR) come farebbe un problema di permessi o di disco.
+    const ostacolo = join(dir, "non-una-dir");
+    await writeFile(ostacolo, "x", "utf8");
+    const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await handleAskUser(
+      validArgs(),
+      config({ filePath: join(ostacolo, "question.json") }),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toMatch(/^Impossibile registrare la domanda: /);
+    expect(stderr).toHaveBeenCalledTimes(1);
+    const logged = String(stderr.mock.calls[0]?.[0]);
+    expect(logged).toContain("ask_user: scrittura del file-bridge");
+    expect(logged).toContain(join(ostacolo, "question.json"));
   });
 });
 
