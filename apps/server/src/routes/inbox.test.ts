@@ -60,6 +60,22 @@ function planReviewEvent(overrides: Partial<NotificationEvent> = {}): Notificati
   } as NotificationEvent;
 }
 
+/** Evento `job.awaiting_input` realistico: il kind NON archiviabile. */
+function awaitingInputEvent(): NotificationEvent {
+  return {
+    kind: "job.awaiting_input",
+    ticketNumber: 7,
+    ticketTitle: "Export CSV dello storico",
+    projectName: "negozio-web",
+    ticketUrl: "https://stubwise.test/tickets/7",
+    questionId: randomUUID(),
+    round: 1,
+    question: "Il CSV va esportato con le colonne del vecchio report o con quelle nuove?",
+    options: [{ label: "Colonne vecchie" }, { label: "Colonne nuove" }],
+    allowFreeText: true,
+  };
+}
+
 /** Inserisce una riga di inbox e ne restituisce l'id. */
 async function seedNotification(input: {
   userId: string;
@@ -108,7 +124,13 @@ async function seedTicket(plan?: string): Promise<string> {
 /** Inserisce un job nello stato dato e ne restituisce l'id. */
 async function seedJob(
   ticketId: string,
-  status: "queued" | "fixing" | "awaiting_plan_approval" | "failed" | "pr_merged",
+  status:
+    | "queued"
+    | "fixing"
+    | "awaiting_plan_approval"
+    | "awaiting_input"
+    | "failed"
+    | "pr_merged",
 ): Promise<string> {
   const [row] = await db.insert(aiJobs).values({ ticketId, status }).returning({ id: aiJobs.id });
   return row!.id;
@@ -408,6 +430,30 @@ describe("POST /api/inbox/:id/handled", () => {
       code: "already_handled",
       handledBy: { id: seeded.adminId, email: "admin@example.com" },
     });
+  });
+
+  it("400 su una domanda dell'agente: non archiviabile, e nulla si muove", async () => {
+    const ticketId = await seedTicket();
+    const jobId = await seedJob(ticketId, "awaiting_input");
+    const id = await seedNotification({
+      userId: seeded.adminId,
+      event: awaitingInputEvent(),
+      ticketId,
+      jobId,
+    });
+
+    const res = await post(`/api/inbox/${id}/handled`, seeded.adminCookie);
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ code: "invalid_action" });
+
+    // L'invariante è sullo STATO, non sulla risposta: la domanda resta aperta e
+    // il job resta parcheggiato ad aspettarla. Se la guardia arrivasse dopo
+    // l'UPDATE, qui si vedrebbe una riga archiviata con un 400 addosso.
+    const row = await readNotification(id);
+    expect(row?.status).toBe("open");
+    expect(row?.handledAt).toBeNull();
+    expect(row?.handledByUserId).toBeNull();
+    expect((await readJob(jobId))?.status).toBe("awaiting_input");
   });
 });
 

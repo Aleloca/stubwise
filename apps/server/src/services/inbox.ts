@@ -216,6 +216,13 @@ export async function executeAction(
   }
 
   if (action === "handled") {
+    // L'archiviazione NON è offerta da tutti i kind: su una domanda dell'agente
+    // il catalogo la nega (`archivable: false`), perché archiviarla lascerebbe
+    // il job parcheggiato in `awaiting_input` senza che nessuno lo aspetti più.
+    // È un invariante di COMPORTAMENTO, non di presentazione: va difeso qui —
+    // dove l'archiviazione ha effetto — e non solo non disegnando il bottone,
+    // altrimenti basterebbe una chiamata diretta alla rotta per aggirarlo.
+    if (!kindOffers(row.kind, action)) return { ok: false, error: "invalid_action" };
     const updated = await db
       .update(notifications)
       .set({
