@@ -1,7 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { aiJobs, comments, instanceSettings, notifications, users, type Db } from "@stubwise/db";
+import {
+  aiJobs,
+  comments,
+  instanceSettings,
+  notificationDeliveries,
+  notifications,
+  users,
+  type Db,
+} from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { t } from "@stubwise/i18n";
@@ -385,7 +393,7 @@ describe("resolvePlan", () => {
     const job = await seedAwaitingJob(ticketId);
 
     const result = await resolvePlan(db, { ticketId, actor: maintainer, mode: "execute" });
-    expect(result).toEqual({ ok: true, jobId: job.id });
+    expect(result).toEqual({ ok: true, jobId: job.id, changedNotificationIds: [] });
 
     const updated = await readJob(job.id);
     expect(updated?.status).toBe("queued");
@@ -406,7 +414,7 @@ describe("resolvePlan", () => {
     const job = await seedAwaitingJob(ticketId);
 
     const result = await resolvePlan(db, { ticketId, actor: maintainer, mode: "fix" });
-    expect(result).toEqual({ ok: true, jobId: job.id });
+    expect(result).toEqual({ ok: true, jobId: job.id, changedNotificationIds: [] });
 
     const updated = await readJob(job.id);
     expect(updated?.status).toBe("queued");
@@ -431,7 +439,7 @@ describe("resolvePlan", () => {
       .returning();
 
     const result = await resolvePlan(db, { ticketId, actor: maintainer, mode: "execute" });
-    expect(result).toEqual({ ok: true, jobId: awaiting.id });
+    expect(result).toEqual({ ok: true, jobId: awaiting.id, changedNotificationIds: [] });
 
     // Il job più recente resta intatto.
     const untouched = await readJob(newer!.id);
@@ -490,6 +498,103 @@ describe("resolvePlan", () => {
     expect(second).toEqual({ ok: false, error: "plan_not_pending" });
 
     expect(await readComments(ticketId)).toHaveLength(1);
+  });
+
+  /** Riga d'inbox `job.plan_review` per il destinatario dato, agganciata al job. */
+  async function seedPlanReview(userId: string, ticketId: string, jobId: string) {
+    const [row] = await db
+      .insert(notifications)
+      .values({
+        userId,
+        projectId,
+        ticketId,
+        jobId,
+        kind: "job.plan_review",
+        event: {
+          kind: "job.plan_review",
+          ticketNumber: 1,
+          ticketTitle: "Ticket di servizio",
+          projectName: "Progetto di test",
+          ticketUrl: "https://stubwise.test/tickets/1",
+        },
+      })
+      .returning({ id: notifications.id });
+    return row!.id;
+  }
+
+  /** Consegne `slack_update` accodate per le notifiche date. */
+  async function slackUpdatesFor(notificationIds: string[]) {
+    return db
+      .select()
+      .from(notificationDeliveries)
+      .where(
+        and(
+          inArray(notificationDeliveries.notificationId, notificationIds),
+          eq(notificationDeliveries.channel, "slack_update"),
+        ),
+      );
+  }
+
+  // La decisione sul piano chiude l'inbox di TUTTI, non solo di chi decide e non
+  // solo sulla superficie da cui ha deciso. Questi test guardano la via DIRETTA
+  // — `resolvePlan` senza passare da `executeAction` — che è quella della pagina
+  // ticket: prima della propagazione nel servizio lasciava le copie aperte e i
+  // DM Slack coi bottoni di una scelta già fatta.
+  for (const mode of ["execute", "fix"] as const) {
+    it(`${mode}: chiude le copie job.plan_review di tutti e ne accoda l'aggiornamento Slack`, async () => {
+      const ticketId = await seedTicket();
+      const job = await seedAwaitingJob(ticketId);
+      const other = await seedUser("admin");
+      const mine = await seedPlanReview(maintainer.id, ticketId, job.id);
+      const theirs = await seedPlanReview(other.id, ticketId, job.id);
+
+      const result = await resolvePlan(db, { ticketId, actor: maintainer, mode });
+      expect(result.ok).toBe(true);
+      expect(result.ok ? [...result.changedNotificationIds].sort() : []).toEqual(
+        [mine, theirs].sort(),
+      );
+
+      for (const id of [mine, theirs]) {
+        const [row] = await db.select().from(notifications).where(eq(notifications.id, id));
+        expect(row?.status).toBe("handled");
+        // Attribuita a chi ha deciso, anche sulla copia altrui.
+        expect(row?.handledByUserId).toBe(maintainer.id);
+        expect(row?.handledAt).toBeInstanceOf(Date);
+      }
+
+      // Ogni copia ha il suo aggiornamento in coda: il poller riscriverà quel DM
+      // togliendo i bottoni e aggiungendo la nota.
+      const updates = await slackUpdatesFor([mine, theirs]);
+      expect(updates).toHaveLength(2);
+      for (const update of updates) {
+        expect(update.status).toBe("pending");
+        expect((update.event as { note?: string }).note).toContain("admin-");
+      }
+    });
+  }
+
+  it("non tocca le notifiche di ALTRO kind sullo stesso job", async () => {
+    const ticketId = await seedTicket();
+    const job = await seedAwaitingJob(ticketId);
+    const planReview = await seedPlanReview(maintainer.id, ticketId, job.id);
+    const [failed] = await db
+      .insert(notifications)
+      .values({
+        userId: maintainer.id,
+        projectId,
+        ticketId,
+        jobId: job.id,
+        kind: "job.failed",
+        event: { kind: "job.failed" },
+      })
+      .returning({ id: notifications.id });
+
+    const result = await resolvePlan(db, { ticketId, actor: maintainer, mode: "execute" });
+    expect(result.ok && result.changedNotificationIds).toEqual([planReview]);
+
+    // Il fallimento di ieri non si archivia approvando il piano di oggi.
+    const [row] = await db.select().from(notifications).where(eq(notifications.id, failed!.id));
+    expect(row?.status).toBe("open");
   });
 
   it("il commento di sistema segue la lingua dei contenuti dell'istanza", async () => {

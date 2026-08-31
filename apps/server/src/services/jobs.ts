@@ -16,6 +16,7 @@ import { IN_FLIGHT_JOB_STATUSES, publishNotification } from "@stubwise/notificat
 import { and, desc, eq, notInArray, sql } from "drizzle-orm";
 import { ticketUrl } from "../ingest/shared.js";
 import { getContentLanguage } from "../settings.js";
+import { propagateDecision } from "./notifications-propagation.js";
 
 /** Chi chiede l'azione: `id` per l'audit sul job, `role` per i permessi. */
 export type Actor = { id: string; role: "admin" | "member" };
@@ -203,7 +204,17 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
 }
 
 export type ResolvePlanResult =
-  | { ok: true; jobId: string }
+  | {
+      ok: true;
+      jobId: string;
+      /**
+       * Righe d'inbox chiuse dalla decisione (le copie `job.plan_review` di
+       * tutti i destinatari). Il loro rispecchiamento su Slack è GIÀ stato
+       * accodato da qui: il chiamante non deve rifarlo, gli id servono solo a
+       * riferire cos'è cambiato.
+       */
+      changedNotificationIds: string[];
+    }
   | { ok: false; error: "ticket_not_found" | "plan_not_pending" | "forbidden" };
 
 export interface ResolvePlanInput {
@@ -228,6 +239,14 @@ export interface ResolvePlanInput {
  * `plan_not_pending` (idempotente contro doppi click e race). Altrimenti
  * inserisce nella stessa transazione le eventuali istruzioni del team e il
  * commento di sistema. `execute` conserva il piano, `fix` lo azzera.
+ *
+ * CHIUDE ANCHE L'INBOX. Decidere su un piano rende obsolete le notifiche
+ * `job.plan_review` di TUTTI i destinatari, non solo di chi ha deciso e non solo
+ * sulla superficie da cui ha deciso: la propagazione sta qui, nel servizio, così
+ * la ottengono per costruzione la pagina ticket
+ * (`POST /tickets/:id/approve-plan`), l'inbox e Slack. Finché è vissuta nelle
+ * sole `executeAction` + handler Slack, una decisione presa dalla pagina ticket
+ * lasciava le copie aperte e i DM con i bottoni di una scelta già fatta.
  */
 export async function resolvePlan(db: Db, input: ResolvePlanInput): Promise<ResolvePlanResult> {
   const { ticketId, actor, mode } = input;
@@ -291,7 +310,17 @@ export async function resolvePlan(db: Db, input: ResolvePlanInput): Promise<Reso
   });
 
   if (!resolved) return { ok: false, error: "plan_not_pending" };
-  return { ok: true, jobId: resolved.id };
+
+  // FUORI dalla transazione, come la `publishNotification` di `startRun`: la
+  // decisione è presa e scritta, e nulla di ciò che segue deve poterla
+  // annullare. `propagateDecision` è best-effort sul rispecchiamento Slack; la
+  // chiusura delle righe è un solo UPDATE guardato.
+  const changedNotificationIds = await propagateDecision(db, {
+    target: { jobId: resolved.id, kind: "job.plan_review" },
+    action: mode === "execute" ? "approve_plan" : "reject_plan",
+    actorId: actor.id,
+  });
+  return { ok: true, jobId: resolved.id, changedNotificationIds };
 }
 
 /** True se lo stato del job è uno di {@link IN_FLIGHT}. */

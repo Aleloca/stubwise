@@ -36,6 +36,7 @@ import {
 } from "@stubwise/notifications";
 import { and, desc, eq, inArray, isNull, ne, sql, type SQL } from "drizzle-orm";
 import { resolvePlan, startRun, type Actor } from "./jobs.js";
+import { mirrorDecision, propagateDecision } from "./notifications-propagation.js";
 
 // Catalogo delle azioni: implementazione in `@stubwise/notifications/actions`
 // (condivisa col worker), ri-esportata qui per i consumatori del servizio.
@@ -179,16 +180,24 @@ export async function executeAction(
     // decisione già presa non ha senso, e riaprirla cancellerebbe `handledAt`
     // (che il CHECK `handled ⇔ handled_at` lega allo stato).
     if (updated.length === 0) return alreadyHandled(db, row.id);
+    const snoozedUntil = updated[0]!.snoozedUntil ?? undefined;
+    // Il rinvio non "gestisce" nulla, ma il DM Slack della riga va comunque
+    // ritoccato (i bottoni spariscono fino alla scadenza) — anche quando a
+    // rinviare è stata l'inbox web, che di Slack non sa nulla.
+    await mirrorDecision(db, {
+      notificationIds: [row.id],
+      action,
+      actorId: actor.id,
+      ...(snoozedUntil ? { snoozedUntil } : {}),
+    });
     return {
       ok: true,
       action,
       kind: row.kind,
       notificationJobId: row.jobId,
-      // Il rinvio non "gestisce" nulla, ma il DM Slack della riga va comunque
-      // ritoccato (i bottoni spariscono fino alla scadenza): il campo elenca le
-      // righe il cui STATO è cambiato, ed è quello che serve al Task 10.
+      // Elenca le righe il cui STATO è cambiato: qui solo la propria.
       changedNotificationIds: [row.id],
-      snoozedUntil: updated[0]!.snoozedUntil ?? undefined,
+      ...(snoozedUntil ? { snoozedUntil } : {}),
     };
   }
 
@@ -204,6 +213,7 @@ export async function executeAction(
       .where(and(eq(notifications.id, row.id), ne(notifications.status, "handled")))
       .returning({ id: notifications.id });
     if (updated.length === 0) return alreadyHandled(db, row.id);
+    await mirrorDecision(db, { notificationIds: [row.id], action, actorId: actor.id });
     return {
       ok: true,
       action,
@@ -239,9 +249,10 @@ export async function executeAction(
   const outcome = await runDecision(db, row.ticketId, action, input);
   if (!outcome.ok) {
     // `plan_not_pending` può voler dire due cose: nessuno ha ancora deciso e il
-    // job è semplicemente andato avanti, oppure qualcuno ha appena approvato
-    // dalla pagina ticket e la propagazione ci ha già chiuso la riga. Si guarda
-    // la riga per rispondere la verità.
+    // job è semplicemente andato avanti, oppure qualcuno ha appena deciso da
+    // un'altra superficie — la pagina ticket, un altro DM — e la propagazione di
+    // `resolvePlan` ci ha già chiuso la riga. Si guarda la riga per rispondere
+    // la verità.
     if (outcome.error === "plan_not_pending") {
       const handled = await handledByOf(db, row.id);
       if (handled) return { ok: false, error: "already_handled", handledBy: handled };
@@ -249,12 +260,31 @@ export async function executeAction(
     return outcome;
   }
 
-  const changedNotificationIds = await propagateHandled(db, {
-    notificationId: row.id,
-    jobId: row.jobId,
-    kind: row.kind,
-    actorId: actor.id,
-  });
+  // Approve/reject: la chiusura delle copie e il rispecchiamento Slack li ha
+  // già fatti `resolvePlan` — è lì che devono stare, perché li ottenga anche chi
+  // decide dalla pagina ticket. Qui si riferiscono soltanto.
+  // Relaunch: `startRun` NON propaga (non decide nulla, crea o riprende un run),
+  // quindi la chiusura delle copie resta compito nostro.
+  const changedNotificationIds =
+    outcome.changedNotificationIds ??
+    (await propagateDecision(db, {
+      target: row.jobId ? { jobId: row.jobId, kind: row.kind } : { notificationId: row.id },
+      action,
+      actorId: actor.id,
+    }));
+  // Rete di sicurezza: `resolvePlan` chiude per (job risolto, kind), quindi una
+  // riga senza `job_id` — anomala, ma il tipo la ammette — resterebbe aperta
+  // sotto gli occhi di chi ha appena deciso. Nel caso normale la propria riga è
+  // già nell'elenco e non si esegue nulla.
+  if (!changedNotificationIds.includes(row.id)) {
+    changedNotificationIds.push(
+      ...(await propagateDecision(db, {
+        target: { notificationId: row.id },
+        action,
+        actorId: actor.id,
+      })),
+    );
+  }
   return {
     ok: true,
     action,
@@ -272,7 +302,17 @@ async function runDecision(
   action: "approve_plan" | "reject_plan" | "relaunch",
   input: ExecuteActionInput,
 ): Promise<
-  { ok: true; jobId: string } | { ok: false; error: ExecuteActionError; jobStatus?: string }
+  | {
+      ok: true;
+      jobId: string;
+      /**
+       * Righe già chiuse dal servizio dei job. Presente SOLO per approve/reject
+       * (`resolvePlan` propaga); assente per il relaunch, che lascia la
+       * propagazione al chiamante.
+       */
+      changedNotificationIds?: string[];
+    }
+  | { ok: false; error: ExecuteActionError; jobStatus?: string }
 > {
   const { actor } = input;
   if (action === "relaunch") {
@@ -298,45 +338,19 @@ async function runDecision(
     mode: action === "approve_plan" ? "execute" : "fix",
     ...(action === "reject_plan" && instructions ? { instructions } : {}),
   });
-  if (result.ok) return { ok: true, jobId: result.jobId };
+  if (result.ok) {
+    // `resolvePlan` ha già chiuso le copie e accodato gli aggiornamenti Slack:
+    // gli id risalgono al chiamante perché li riferisca, non perché li rifaccia.
+    return {
+      ok: true,
+      jobId: result.jobId,
+      changedNotificationIds: result.changedNotificationIds,
+    };
+  }
   return {
     ok: false,
     error: result.error === "ticket_not_found" ? "not_found" : result.error,
   };
-}
-
-/**
- * Chiude TUTTE le copie ancora aperte della stessa notifica: stesso `jobId` e
- * stesso `kind`. Un solo UPDATE guardato su `status <> 'handled'`, quindi
- * atomico e idempotente — chi era già chiuso conserva il suo `handled_by`.
- *
- * Il `kind` fa parte della chiave apposta: sullo stesso job convivono notifiche
- * diverse (il `job.failed` di ieri e il `job.plan_review` di oggi), e approvare
- * il piano non archivia il fallimento precedente.
- *
- * Senza `jobId` (eventi non ancorati a un job) si chiude la sola riga d'origine.
- *
- * @returns gli id delle righe effettivamente chiuse — quelle che il Task 10
- *   dovrà ritoccare su Slack. Chi era già chiuso non compare (né viene toccato).
- */
-async function propagateHandled(
-  db: Db,
-  args: { notificationId: string; jobId: string | null; kind: NotificationKind; actorId: string },
-): Promise<string[]> {
-  const target = args.jobId
-    ? and(eq(notifications.jobId, args.jobId), eq(notifications.kind, args.kind))
-    : eq(notifications.id, args.notificationId);
-  const closed = await db
-    .update(notifications)
-    .set({
-      status: "handled",
-      handledAt: sql`now()`,
-      handledByUserId: args.actorId,
-      snoozedUntil: null,
-    })
-    .where(and(target, ne(notifications.status, "handled")))
-    .returning({ id: notifications.id });
-  return closed.map((row) => row.id);
 }
 
 /** Esito "già gestita", completo di chi l'ha gestita (se lo sappiamo). */

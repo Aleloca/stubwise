@@ -9,19 +9,23 @@
  * (testo effimero o messaggio riscritto) e chi altro va avvisato.
  *
  * COME SI AGGIORNANO LE COPIE. Una decisione chiude in blocco le notifiche di
- * tutti i destinatari (`changedNotificationIds`), e ogni copia è un DM Slack a
- * sé. Le due strade sono diverse di proposito:
- *  - la copia di CHI HA PREMUTO si riscrive subito, via `response_url`
- *    (`replace_original`): è già lì, il feedback dev'essere immediato;
- *  - le copie ALTRUI passano dalla coda: una riga `slack_update` per ciascuna,
- *    che il poller del worker consuma riscrivendo quel DM (è lui a conoscere il
- *    `ts` dei messaggi, in `notification_deliveries.external_ref`).
+ * tutti i destinatari, e ogni copia è un DM Slack a sé. Ad accodarne
+ * l'aggiornamento (una riga `slack_update` per copia, che il poller del worker
+ * consuma riscrivendo quel DM: è lui a conoscere il `ts` dei messaggi, in
+ * `notification_deliveries.external_ref`) è il SERVIZIO, non questo file —
+ * `services/notifications-propagation.ts`, chiamato da `resolvePlan` e da
+ * `executeAction`. Così i DM si aggiornano anche quando a decidere è la pagina
+ * ticket o l'inbox web, che di Slack non sanno nulla.
+ *
+ * Qui resta solo la scorciatoia per CHI HA PREMUTO: il suo messaggio si
+ * riscrive subito via `response_url` (`replace_original`), perché il feedback
+ * dev'essere immediato e non fra un tick del poller.
  *
  * LINGUA: gli errori e la nota della propria copia sono nella lingua di CHI HA
  * PREMUTO (`users.language`); la nota di ogni copia altrui in quella del SUO
  * destinatario — il DM è personale, e la nota si legge dentro al suo messaggio.
  */
-import { notificationDeliveries, notifications, users, type Db } from "@stubwise/db";
+import { notifications, users, type Db } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
 import {
   buildInboxBlocks,
@@ -33,9 +37,15 @@ import {
   type SlackBlock,
   type SnoozeUntil,
 } from "@stubwise/notifications";
-import { eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { resolveReporter, resolveReporterBySlackId } from "../ingest/reporter.js";
 import { executeAction, type ExecuteActionResult } from "../services/inbox.js";
+// La nota di stato e l'accodamento degli aggiornamenti vivono nel modulo
+// condiviso `services/notifications-propagation.ts`: da lì li usa anche
+// `resolvePlan`, così una decisione presa dalla pagina ticket aggiorna i DM
+// esattamente come una presa da qui. Qui serve solo la nota, per il messaggio
+// che si riscrive al volo via `response_url`.
+import { inboxNote } from "../services/notifications-propagation.js";
 
 /** Prefisso degli `action_id` dei bottoni dell'inbox (`buildInboxBlocks`). */
 const ACTION_PREFIX = "inbox:";
@@ -143,42 +153,6 @@ export function inboxErrorText(
   }
 }
 
-/** Chiave i18n della nota di stato per ciascuna azione andata a buon fine. */
-const NOTE_KEY: Record<Exclude<ActionId, "open">, string> = {
-  approve_plan: "notify.inbox.notePlanApproved",
-  reject_plan: "notify.inbox.notePlanRejected",
-  relaunch: "notify.inbox.noteRelaunched",
-  handled: "notify.inbox.noteHandled",
-  snooze: "notify.inbox.noteSnoozed",
-};
-
-/**
- * Data resa con il token di Slack `<!date^…>`: la scadenza dello snooze compare
- * nel FUSO ORARIO di chi legge, senza che noi si debba sapere qual è. Il testo
- * dopo la barra è il fallback (client vecchi, notifiche push).
- */
-function slackDate(date: Date): string {
-  const epoch = Math.floor(date.getTime() / 1000);
-  return `<!date^${epoch}^{date_short_pretty} {time}|${date.toISOString()}>`;
-}
-
-/**
- * Riga di stato da appendere al messaggio dopo l'azione ("✅ Piano approvato da
- * …"), nella lingua di chi la leggerà.
- */
-export function inboxNote(
-  action: Exclude<ActionId, "open">,
-  lang: Language,
-  args: { actor: string; snoozedUntil?: Date },
-): string {
-  if (action === "snooze") {
-    return t(lang, NOTE_KEY.snooze, {
-      until: args.snoozedUntil ? slackDate(args.snoozedUntil) : "—",
-    });
-  }
-  return t(lang, NOTE_KEY[action], { actor: args.actor });
-}
-
 /**
  * RECINTO attorno alla resa del testo dal jsonb, gemello di quelli del servizio
  * inbox e del poller del worker: `notifications.event` può essere stato scritto
@@ -199,36 +173,6 @@ function renderSlack(
   } catch {
     return { text: kind };
   }
-}
-
-/**
- * Accoda una consegna `slack_update` per ciascuna notifica: il poller del worker
- * riscriverà il DM di quel destinatario togliendo i bottoni e aggiungendo la
- * nota, nella lingua del destinatario stesso (per questo la nota è una funzione
- * della lingua e non una stringa).
- *
- * Si accoda anche per chi non ha Slack collegato: la riga costa nulla e il
- * poller la chiude `skipped` quando non trova il DM sorella da aggiornare.
- */
-export async function enqueueInboxUpdates(
-  db: Db,
-  notificationIds: string[],
-  note: (lang: Language) => string,
-): Promise<void> {
-  if (notificationIds.length === 0) return;
-  const rows = await db
-    .select({ id: notifications.id, language: users.language })
-    .from(notifications)
-    .innerJoin(users, eq(users.id, notifications.userId))
-    .where(inArray(notifications.id, notificationIds));
-  if (rows.length === 0) return;
-  await db.insert(notificationDeliveries).values(
-    rows.map((row) => ({
-      notificationId: row.id,
-      channel: "slack_update" as const,
-      event: { note: note(row.language) },
-    })),
-  );
 }
 
 /** Testo e blocchi del messaggio riscritto: la notifica com'era, più la nota, senza bottoni. */
@@ -325,16 +269,13 @@ export async function runInboxAction(
     });
   }
 
-  // 2) Le copie degli altri destinatari, dalla coda. Lo snooze non ne ha (è
-  // rinvio personale: `changedNotificationIds` contiene solo la propria riga).
-  // La propria si esclude SOLO se è già stata riscritta qui sopra: senza
-  // response_url (payload anomalo) passa anch'essa dalla coda, altrimenti
-  // resterebbe con i bottoni di una notifica già decisa.
-  await enqueueInboxUpdates(
-    db,
-    responseUrl
-      ? result.changedNotificationIds.filter((id) => id !== notificationId)
-      : result.changedNotificationIds,
-    (lang) => inboxNote(action, lang, noteArgs),
-  );
+  // 2) Le copie di TUTTI i destinatari (la propria inclusa) sono già in coda:
+  // le accoda il servizio insieme alla chiusura delle righe, perché lo stesso
+  // accada quando la decisione arriva dalla pagina ticket o dall'inbox web.
+  // La riscrittura qui sopra è solo un'ottimizzazione di immediatezza: il DM di
+  // chi ha premuto verrà riscritto una seconda volta dal poller con lo STESSO
+  // contenuto (`sendSlackUpdate` porta il messaggio a uno stato finale
+  // deterministico, quindi è idempotente). Una `chat.update` in più su
+  // un'azione a ritmo umano, in cambio di un solo posto che sa chi va
+  // aggiornato.
 }

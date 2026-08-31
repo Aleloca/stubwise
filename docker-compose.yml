@@ -200,11 +200,13 @@ services:
       # reattivi. 0 = disabilitato. Default 1'. Max 60.
       - MONITOR_ALERT_INTERVAL_MINUTES=${MONITOR_ALERT_INTERVAL_MINUTES:-1}
       # --- Outbox delle notifiche (notification_deliveries) ---
-      # Poller che spedisce le consegne dovute sul loro canale (webhook
-      # d'istanza; i canali Slack arriveranno). Il gating dei toggle è già
-      # applicato alla pubblicazione: qui si invia soltanto, con backoff
-      # 30s x 2^n e 5 tentativi. Breve perché una notifica deve arrivare subito.
-      # 0 = disabilitato (le consegne si accumulano senza partire). Default 5".
+      # Poller che spedisce le consegne dovute sul loro canale: webhook
+      # d'istanza, DM Slack per destinatario (`slack_dm`) e riscrittura del DM
+      # dopo un'azione (`slack_update`). Il gating dei toggle è già applicato
+      # alla pubblicazione: qui si invia soltanto, con backoff 30s x 2^n e 5
+      # tentativi. Breve perché una notifica deve arrivare subito.
+      # 0 = disabilitato (le consegne si accumulano senza partire).
+      # Default: 5 secondi.
       - NOTIFY_POLL_SECONDS=${NOTIFY_POLL_SECONDS:-5}
       # --- Backlog di discovery (poller separato dal loop dei job) ---
       # Reclama i job backlog_jobs (intake + deep dive) ed esegue gli agenti nella

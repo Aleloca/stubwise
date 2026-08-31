@@ -17,9 +17,7 @@ import { isUniqueViolation } from "../routes/shared.js";
 import { executeAction } from "../services/inbox.js";
 import { getContentLanguage } from "../settings.js";
 import {
-  enqueueInboxUpdates,
   inboxErrorText,
-  inboxNote,
   parseInboxActionId,
   resolveSlackActor,
   runInboxAction,
@@ -580,14 +578,11 @@ export async function slackRoutes(
         });
         if (!result.ok) return rejectError(inboxErrorText(actor.language, result));
 
-        // AGGIORNAMENTO DELLE COPIE, propria INCLUSA: senza response_url il DM
-        // di chi ha rifiutato non è riscrivibile da qui, quindi passa dalla
-        // stessa coda delle altre copie (il poller conosce il `ts` di ognuna).
-        // Un'attesa in più di un tick del poller, in cambio di un solo
-        // meccanismo di aggiornamento.
-        await enqueueInboxUpdates(instance.db, result.changedNotificationIds, (lang) =>
-          inboxNote("reject_plan", lang, { actor: actor.email }),
-        );
+        // AGGIORNAMENTO DELLE COPIE, propria INCLUSA: lo ha già accodato il
+        // servizio (`resolvePlan` → `propagateDecision`), che lo fa per ogni
+        // superficie. Qui non c'è nemmeno un `response_url` con cui riscrivere
+        // subito il DM di chi ha rifiutato: la sua copia arriva col tick del
+        // poller come tutte le altre.
         // Ack vuoto: chiude il modal.
         return ack(reply);
       }

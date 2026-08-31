@@ -1327,13 +1327,18 @@ describe("POST /api/slack/interactions — block_actions dell'inbox", () => {
     expect((await readJob(jobId))?.resumeMode).toBe("execute");
     expect((await readNotification(mine))?.status).toBe("handled");
 
-    // La copia dell'altro destinatario passa dalla coda; la propria no (è già
-    // stata riscritta via response_url).
-    await vi.waitFor(async () => expect(await slackUpdates()).toHaveLength(1));
+    // TUTTE le copie passano dalla coda, la propria inclusa: ad accodarle è il
+    // servizio (`resolvePlan`), che lo fa per ogni superficie — anche per chi
+    // decide dalla pagina ticket, che di Slack non sa nulla. La riscrittura via
+    // response_url qui sopra è solo la scorciatoia per il feedback immediato, e
+    // il passaggio del poller riscriverà lo stesso contenuto.
+    await vi.waitFor(async () => expect(await slackUpdates()).toHaveLength(2));
     const updates = await slackUpdates();
-    expect(updates[0]!.notificationId).toBe(theirs);
-    expect(updates[0]!.status).toBe("pending");
-    expect((updates[0]!.event as { note: string }).note).toContain("admin@example.com");
+    expect(updates.map((u) => u.notificationId).sort()).toEqual([mine, theirs].sort());
+    for (const update of updates) {
+      expect(update.status).toBe("pending");
+      expect((update.event as { note: string }).note).toContain("admin@example.com");
+    }
   });
 
   it("inbox:approve_plan da member → effimero forbidden, job intatto", async () => {
@@ -1412,7 +1417,11 @@ describe("POST /api/slack/interactions — block_actions dell'inbox", () => {
     expect(row?.snoozedUntil).not.toBeNull();
     // Rinvio PERSONALE: la copia del collega resta aperta e non viene riscritta.
     expect((await readNotification(theirs))?.status).toBe("open");
-    expect(await slackUpdates()).toHaveLength(0);
+    // In coda c'è solo il PROPRIO DM: i bottoni devono sparire anche quando a
+    // rinviare è stata l'inbox web, quindi ad accodarlo è il servizio.
+    await vi.waitFor(async () => expect(await slackUpdates()).toHaveLength(1));
+    const updates = await slackUpdates();
+    expect(updates[0]!.notificationId).toBe(mine);
   });
 
   it("inbox:snooze senza durata scelta → effimero invalid_action, notifica intatta", async () => {

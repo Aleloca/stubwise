@@ -1,10 +1,20 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { t } from "@stubwise/i18n";
 import { buildApp } from "../app.js";
-import { aiJobs, backlogJobs, comments, projects, ticketEvents, ticketLinks, tickets } from "@stubwise/db";
+import {
+  aiJobs,
+  backlogJobs,
+  comments,
+  notificationDeliveries,
+  notifications,
+  projects,
+  ticketEvents,
+  ticketLinks,
+  tickets,
+} from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, seedTicketRepository, startTestDb } from "@stubwise/db/testing";
 import type { SeededUsers } from "../test/fixtures.js";
@@ -2067,9 +2077,97 @@ describe("POST /api/tickets/:id/approve-plan", () => {
     const cmts = await testDb.db.select().from(comments).where(eq(comments.ticketId, created.id));
     expect(cmts).toHaveLength(0);
   });
+
+  // La pagina ticket è la superficie più probabile per un maintainer, ed è
+  // quella che NON passa da `executeAction`: se la propagazione vivesse solo lì,
+  // decidere da qui lascerebbe le copie aperte e i DM Slack coi bottoni.
+  it("chiude le copie job.plan_review di tutti i destinatari e ne accoda l'aggiornamento Slack", async () => {
+    const created = (
+      await postTicket({ projectId, title: "Approve propaga", type: "bug" })
+    ).json() as { id: string };
+    const job = await seedAwaitingJob(created.id);
+    const [mine, theirs] = await testDb.db
+      .insert(notifications)
+      .values(
+        [users.adminId, users.memberId].map((userId) => ({
+          userId,
+          projectId,
+          ticketId: created.id,
+          jobId: job.id,
+          kind: "job.plan_review" as const,
+          event: { kind: "job.plan_review", ticketUrl: "https://stubwise.test/t/1" },
+        })),
+      )
+      .returning({ id: notifications.id });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/approve-plan`,
+      headers: { cookie: users.adminCookie },
+    });
+    expect(res.statusCode).toBe(202);
+
+    for (const row of [mine!, theirs!]) {
+      const [after] = await testDb.db
+        .select()
+        .from(notifications)
+        .where(eq(notifications.id, row.id));
+      expect(after?.status).toBe("handled");
+      // Anche la copia del member, che non ha deciso nulla.
+      expect(after?.handledByUserId).toBe(users.adminId);
+    }
+
+    const updates = await testDb.db
+      .select()
+      .from(notificationDeliveries)
+      .where(
+        and(
+          eq(notificationDeliveries.channel, "slack_update"),
+          inArray(notificationDeliveries.notificationId, [mine!.id, theirs!.id]),
+        ),
+      );
+    expect(updates.map((u) => u.notificationId).sort()).toEqual([mine!.id, theirs!.id].sort());
+  });
 });
 
 describe("POST /api/tickets/:id/reject-plan", () => {
+  /** Gemello del test di approve: anche il RIFIUTO è una decisione, e chiude le copie. */
+  it("rifiuto dalla pagina ticket: le copie job.plan_review risultano gestite", async () => {
+    const created = (
+      await postTicket({ projectId, title: "Reject propaga", type: "bug" })
+    ).json() as { id: string };
+    const [job] = await testDb.db
+      .insert(aiJobs)
+      .values({ ticketId: created.id, status: "awaiting_plan_approval", planText: "## Piano" })
+      .returning();
+    const [copy] = await testDb.db
+      .insert(notifications)
+      .values({
+        userId: users.memberId,
+        projectId,
+        ticketId: created.id,
+        jobId: job!.id,
+        kind: "job.plan_review",
+        event: { kind: "job.plan_review", ticketUrl: "https://stubwise.test/t/2" },
+      })
+      .returning({ id: notifications.id });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${created.id}/reject-plan`,
+      headers: { cookie: users.adminCookie },
+      payload: { instructions: "Ripianifica senza toccare lo schema." },
+    });
+    expect(res.statusCode).toBe(202);
+
+    const [after] = await testDb.db
+      .select()
+      .from(notifications)
+      .where(eq(notifications.id, copy!.id));
+    expect(after?.status).toBe("handled");
+    expect(after?.handledByUserId).toBe(users.adminId);
+  });
+
   async function seedAwaitingJob(ticketId: string) {
     const [job] = await testDb.db
       .insert(aiJobs)
