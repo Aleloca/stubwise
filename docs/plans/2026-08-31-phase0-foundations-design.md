@@ -6,6 +6,7 @@ program: 2026-08-31-stubwise-nerve-center-program-design.md
 stubwise:
   project: stubwise
   backlogItem: 729af693-502c-4df0-9959-2eb72118f2c5 # https://stubwise.thecove.it/backlog/729af693-502c-4df0-9959-2eb72118f2c5
+  ticket: 4 # https://stubwise.thecove.it/tickets/5621d103-5b49-442a-91fd-3f979797f93d
 ---
 
 # Fase 0 — Fondamenta
