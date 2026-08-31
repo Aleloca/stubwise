@@ -5,6 +5,7 @@ design: 2026-09-01-phase1-ask-user-design.md
 stubwise:
   project: stubwise
   backlogItem: 6947dc02-930c-44a1-b270-db5670b28a6e # https://stubwise.thecove.it/backlog/6947dc02-930c-44a1-b270-db5670b28a6e
+  ticket: 6 # https://stubwise.thecove.it/tickets/2acabf72-9ec3-4689-8180-2eda195bcd7a
 ---
 
 # Fase 1 — Pianificazione interattiva — Piano di implementazione
