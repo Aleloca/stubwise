@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actionsFor, kindOffers, openUrl, roleAllows, type ActionActor } from "./actions.js";
+import { actionsFor, actorAllows, kindOffers, openUrl, type ActionActor } from "./actions.js";
 
 /**
  * Test PURI del catalogo delle azioni: nessun DB, nessun container.
@@ -71,6 +71,16 @@ describe("actionsFor", () => {
   it("job.failed con l'ultimo job del ticket in volo → niente relaunch", () => {
     expect(
       actionsFor({ kind: "job.failed", requestedByUserId: null }, "queued", maintainer),
+    ).toEqual(["open", "snooze", "handled"]);
+  });
+
+  it("job.failed con l'ultimo job fermo su una domanda → niente relaunch", () => {
+    // `awaiting_input` è uno stato IN VOLO: il job non è finito, aspetta una
+    // risposta e tiene viva la sessione CLI da riprendere. Rilanciarlo la
+    // butterebbe via. Se sparisse da `IN_FLIGHT_JOB_STATUSES`, qui comparirebbe
+    // un `relaunch` che non deve esistere.
+    expect(
+      actionsFor({ kind: "job.failed", requestedByUserId: null }, "awaiting_input", maintainer),
     ).toEqual(["open", "snooze", "handled"]);
   });
 
@@ -170,17 +180,17 @@ describe("actionsFor", () => {
   });
 });
 
-describe("roleAllows su answer", () => {
+describe("actorAllows su answer", () => {
   it("richiedente o admin, chiunque altro no", () => {
     const domanda = { kind: "job.awaiting_input", requestedByUserId: operator.id } as const;
-    expect(roleAllows(domanda, "answer", operator)).toBe(true);
-    expect(roleAllows(domanda, "answer", maintainer)).toBe(true);
-    expect(roleAllows(domanda, "answer", { id: "u-altro", role: "member" })).toBe(false);
+    expect(actorAllows(domanda, "answer", operator)).toBe(true);
+    expect(actorAllows(domanda, "answer", maintainer)).toBe(true);
+    expect(actorAllows(domanda, "answer", { id: "u-altro", role: "member" })).toBe(false);
   });
 
   it("`answer` non esiste sugli altri kind, nemmeno per l'admin", () => {
     expect(
-      roleAllows(
+      actorAllows(
         { kind: "job.plan_review", requestedByUserId: maintainer.id },
         "answer",
         maintainer,

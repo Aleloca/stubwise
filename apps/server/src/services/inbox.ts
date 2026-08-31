@@ -23,10 +23,10 @@ import { aiJobs, notifications, users, type Db } from "@stubwise/db";
 import type { Language } from "@stubwise/i18n";
 import {
   actionsFor,
+  actorAllows,
   formatNotificationText,
   kindOffers,
   openUrl,
-  roleAllows,
   stateAllows,
   type ActionId,
   type ActionableNotification,
@@ -250,7 +250,7 @@ export async function executeAction(
   // Azione fuori dal catalogo del kind (`approve_plan` su un `job.failed`): non
   // è un permesso mancante, è una richiesta senza senso.
   if (!kindOffers(row.kind, action)) return { ok: false, error: "invalid_action" };
-  if (!roleAllows({ kind: row.kind, requestedByUserId: row.requestedByUserId }, action, actor)) {
+  if (!actorAllows({ kind: row.kind, requestedByUserId: row.requestedByUserId }, action, actor)) {
     return { ok: false, error: "forbidden" };
   }
   // Una decisione sul job ha bisogno di un ticket dietro: gli eventi d'istanza
@@ -550,7 +550,7 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
           // Il richiedente è quello del job DELLA NOTIFICA (chi ha avviato il
           // run che ha posto la domanda), non quello dell'ultimo job del
           // ticket: è a lui che la domanda è rivolta.
-          requestedByUserId: (r.jobId && requesterByJob.get(r.jobId)) || null,
+          requestedByUserId: r.jobId ? (requesterByJob.get(r.jobId) ?? null) : null,
         },
         r.ticketId ? (latestStatusByTicket.get(r.ticketId) ?? null) : null,
         actor,
@@ -635,7 +635,7 @@ async function reopenExpiredSnoozes(db: Db, userId: string): Promise<void> {
  *  - `latestStatusByTicket` — lo stato dell'ULTIMO job del ticket, che decide
  *    quali azioni lo stato ammette (`stateAllows`);
  *  - `requesterByJob` — il richiedente di CIASCUN job, che decide chi può
- *    rispondere alla domanda posta da quel job (`roleAllows` su `answer`).
+ *    rispondere alla domanda posta da quel job (`actorAllows` su `answer`).
  *
  * Due mappe da una sola query, e non due query: il job di una notifica è per
  * forza uno dei job del suo ticket, quindi le righe lette qui li contengono già

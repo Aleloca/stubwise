@@ -115,6 +115,13 @@ const CATALOG_FOR_KIND: Record<
   // NON archiviabile di proposito: la domanda dell'agente si chiude solo
   // rispondendo. Archiviarla lascerebbe il job parcheggiato in `awaiting_input`
   // in silenzio, senza che nessuno si accorga che aspetta ancora qualcuno.
+  //
+  // ⚠️ Regge su un fatto NON LOCALE: l'unica uscita da `awaiting_input` è la
+  // risposta, che chiude le copie della notifica in propagazione. Chi
+  // introducesse un'altra uscita da quello stato (un annullamento, una
+  // scadenza, un recovery) DEVE chiudere anche le notifiche: qui non resterebbe
+  // nessuna azione utile — `answer` la nega lo stato, `handled` la nega il
+  // catalogo — e la riga vivrebbe per sempre a colpi di snooze.
   "job.awaiting_input": { decisions: ["answer"], adminOnly: false, archivable: false },
 };
 
@@ -145,18 +152,19 @@ export function kindOffers(kind: NotificationKind, action: ActionId): boolean {
 }
 
 /**
- * CHI compie l'azione la può compiere? Separata da {@link kindOffers} e da
+ * QUESTO actor può compiere l'azione? Separata da {@link kindOffers} e da
  * {@link stateAllows} perché i tre "no" hanno messaggi diversi: azione fuori
  * catalogo → `invalid_action`, permesso insufficiente → `forbidden`, stato del
  * job incompatibile → `plan_not_pending`/`job_in_flight`.
  *
- * Quasi tutte le decisioni sono questione di RUOLO. `answer` no: la domanda è
- * rivolta a chi ha chiesto il run (che il più delle volte è un operatore, e
- * l'unico che sa rispondere nel merito), e in più a un maintainer — che deve
- * poter sbloccare un job parcheggiato da un collega in ferie. Per questo prende
- * la notifica intera e l'actor intero, non il solo ruolo.
+ * Si chiama `actorAllows` e non `roleAllows` perché il ruolo non è più l'unico
+ * criterio: quasi tutte le decisioni lo sono, `answer` no. La domanda è rivolta
+ * a chi ha chiesto il run (il più delle volte un operatore, e l'unico che sa
+ * rispondere nel merito), e in più a un maintainer — che deve poter sbloccare un
+ * job parcheggiato da un collega in ferie. Per questo prende la notifica intera
+ * e l'actor intero, identità compresa.
  */
-export function roleAllows(
+export function actorAllows(
   notification: ActionableNotification,
   action: ActionId,
   actor: ActionActor,
@@ -207,7 +215,7 @@ export function actionsFor(
   actor: ActionActor,
 ): ActionId[] {
   const decisions = CATALOG_FOR_KIND[notification.kind].decisions.filter(
-    (action) => roleAllows(notification, action, actor) && stateAllows(action, jobStatus),
+    (action) => actorAllows(notification, action, actor) && stateAllows(action, jobStatus),
   );
   return [...decisions, ...hygieneFor(notification.kind)];
 }

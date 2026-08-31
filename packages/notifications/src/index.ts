@@ -16,9 +16,9 @@ export { publishNotification, type PublishOpts } from "./publish.js";
 
 export {
   actionsFor,
+  actorAllows,
   kindOffers,
   openUrl,
-  roleAllows,
   stateAllows,
   IN_FLIGHT_JOB_STATUSES,
   SNOOZE_OPTIONS,
