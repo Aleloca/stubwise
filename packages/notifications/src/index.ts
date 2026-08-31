@@ -18,6 +18,7 @@ export { isAdminOnlyKind, recipientsFor, type RoutingContext } from "./routing.j
 
 export {
   formatNotification,
+  formatNotificationText,
   sampleEvents,
   type DocsLimitPausedEvent,
   type FormattedNotification,
