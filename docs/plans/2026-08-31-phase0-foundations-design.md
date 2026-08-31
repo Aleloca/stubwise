@@ -122,7 +122,9 @@ dentro), calcola i destinatari, inserisce le righe `notifications` e le
 - decisionali (`job.plan_review`, `job.held`, `job.budget_held`) → tutti gli admin;
 - avanzamento (`job.pr_opened`, `job.pr_closed`, `job.failed`,
   `review.completed`, `ticket.created`) → admin ∪ `requestedByUserId` ∪
-  assegnatario e reporter del ticket ∪ follower del progetto;
+  assegnatario del ticket ∪ follower del progetto (NB: `tickets` non ha una
+  colonna reporter — verificato in fase di implementazione; il contratto di
+  routing prevede già `reporter?` per quando esisterà);
 - `docs.limit_paused`, `monitor.*` → admin.
 
 Gli admin ricevono tutto senza seguire. Delivery `slack_dm` creata per ogni
