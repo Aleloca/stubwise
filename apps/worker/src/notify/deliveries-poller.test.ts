@@ -14,6 +14,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import {
   processDeliveriesOnce,
   startDeliveriesPoller,
+  type DeliveriesLogger,
   type DeliveriesPollerDeps,
   type SendWebhookFn,
 } from "./deliveries-poller.js";
@@ -88,8 +89,20 @@ async function readDelivery(id: string): Promise<NotificationDelivery> {
   return row!;
 }
 
-function deps(sendWebhook: SendWebhookFn): DeliveriesPollerDeps {
-  return { db, logger: silentLogger, sendWebhook };
+function deps(sendWebhook: SendWebhookFn, logger: DeliveriesLogger = silentLogger): DeliveriesPollerDeps {
+  return { db, logger, sendWebhook };
+}
+
+/** Logger che raccoglie le chiamate, per asserire sugli esiti terminali loggati. */
+function collectingLogger(): DeliveriesLogger & { warns: { obj: unknown; msg?: string }[] } {
+  const warns: { obj: unknown; msg?: string }[] = [];
+  return {
+    warns,
+    warn: (obj: unknown, msg?: string) => {
+      warns.push({ obj, msg });
+    },
+    error: () => {},
+  };
 }
 
 beforeAll(async () => {
@@ -152,18 +165,29 @@ describe("processDeliveriesOnce", () => {
     expect(delayMs).toBeLessThan(45_000);
   });
 
-  it("al quinto fallimento la consegna diventa failed", async () => {
+  it("al quinto fallimento la consegna diventa failed e l'esito finisce nei log", async () => {
     const id = await insertWebhookDelivery({ attempts: 4 });
+    const logger = collectingLogger();
     await processDeliveriesOnce(
       deps(async () => {
         throw new Error("ultimo tentativo");
-      }),
+      }, logger),
     );
 
     const row = await readDelivery(id);
     expect(row.status).toBe("failed");
     expect(row.attempts).toBe(5);
     expect(row.error).toContain("ultimo tentativo");
+
+    // Una notifica persa per sempre non deve restare solo nella colonna `error`.
+    expect(logger.warns).toHaveLength(1);
+    expect(logger.warns[0]!.msg).toContain("MAX_ATTEMPTS");
+    expect(logger.warns[0]!.obj).toMatchObject({
+      deliveryId: id,
+      channel: "webhook",
+      attempts: 5,
+      error: expect.stringContaining("ultimo tentativo") as unknown as string,
+    });
   });
 
   it("due esecuzioni concorrenti non processano mai la stessa consegna", async () => {
@@ -219,16 +243,19 @@ describe("processDeliveriesOnce", () => {
     await db.update(notificationSettings).set({ webhookUrl: null });
     const id = await insertWebhookDelivery();
 
+    const logger = collectingLogger();
     await processDeliveriesOnce(
       deps(async () => {
         // Esattamente ciò che lancia sendWebhookEvent senza webhook configurato.
         throw new Error("Nessun webhook configurato.");
-      }),
+      }, logger),
     );
 
     const row = await readDelivery(id);
     expect(row.status).toBe("skipped");
     expect(row.sentAt).toBeNull();
+    expect(logger.warns).toHaveLength(1);
+    expect(logger.warns[0]!.msg).toContain("webhook non configurato");
   });
 
   it("non reclama una consegna con next_attempt_at nel futuro", async () => {

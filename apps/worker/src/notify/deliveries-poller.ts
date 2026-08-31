@@ -147,7 +147,17 @@ async function keepPending(db: Db, id: string, error: string): Promise<void> {
     .where(and(eq(notificationDeliveries.id, id), eq(notificationDeliveries.status, "pending")));
 }
 
-/** Il webhook d'istanza è configurato? Se no, ritentare è inutile. */
+/**
+ * Il webhook d'istanza è configurato? Se no, ritentare è inutile.
+ *
+ * Guarda SOLO `webhookUrl`, deliberatamente NON `enabled` (né i toggle per
+ * kind): il gating on/off si decide al publish, e una consegna già in outbox è
+ * una decisione già presa. Spegnere l'interruttore generale mentre una consegna
+ * è in volo la lascia quindi al suo destino di ritentativi — non è una
+ * destinazione inesistente, è solo un invio in corso. Manca invece l'URL
+ * (`sendWebhookEvent` lancia "Nessun webhook configurato.") ⇒ non c'è dove
+ * consegnare, e bruciare 5 tentativi non serve a nulla.
+ */
 async function webhookConfigured(db: Db): Promise<boolean> {
   try {
     const settings = await loadSettings(db);
@@ -187,11 +197,23 @@ async function processDelivery(deps: DeliveriesPollerDeps, row: NotificationDeli
   } catch (err) {
     const error = errText(err);
     if (!(await webhookConfigured(db))) {
+      // Esito TERMINALE silenzioso altrimenti: senza questo log l'unica traccia
+      // sarebbe una riga di DB che nessuno guarda.
+      deps.logger.warn(
+        { deliveryId: row.id, channel: row.channel, error },
+        "[notify] consegna skipped: webhook non configurato",
+      );
       await finish(db, row.id, "skipped", error);
       return;
     }
     // `attempts` è già quello POST-claim: al quinto tentativo si chiude.
     if (row.attempts >= MAX_ATTEMPTS) {
+      // Notifica definitivamente persa: deve comparire nei log del worker, non
+      // solo nella colonna `error` della riga.
+      deps.logger.warn(
+        { deliveryId: row.id, channel: row.channel, attempts: row.attempts, error },
+        "[notify] consegna failed dopo MAX_ATTEMPTS",
+      );
       await finish(db, row.id, "failed", error);
       return;
     }
