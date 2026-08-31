@@ -1,0 +1,14 @@
+# Percorsi esclusi dall'estrazione del grafo (graphify).
+node_modules/
+dist/
+build/
+coverage/
+
+# Migration del database: storia dello schema, non architettura — ogni file
+# formerebbe un'isola nel grafo.
+**/migration.sql
+**/migrations/**
+
+# Opzioni dei tsconfig: rumore di configurazione (la risoluzione degli alias di
+# import legge comunque i file dal disco, non dal grafo).
+tsconfig*.json
