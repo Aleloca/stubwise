@@ -1,4 +1,5 @@
 import {
+  aiJobs,
   notificationDeliveries,
   notifications,
   notificationSettings,
@@ -235,6 +236,9 @@ describe("publishNotification", () => {
 
   it("non lancia mai: con un db rotto restituisce { published: 0 }", async () => {
     const broken = {
+      transaction() {
+        throw new Error("connessione persa");
+      },
       select() {
         throw new Error("connessione persa");
       },
@@ -244,6 +248,83 @@ describe("publishNotification", () => {
     } as unknown as Db;
 
     await expect(publishNotification(broken, prOpened, {})).resolves.toEqual({ published: 0 });
+  });
+
+  it("su errore SQL non aborta la transazione del chiamante (savepoint annidato)", async () => {
+    const { ticketId } = await seedScenario();
+    // Progetto inesistente: l'insert nell'inbox viola la FK su project_id. Il
+    // fallimento deve restare confinato al savepoint di publishNotification.
+    const projectIdFantasma = randomUUID();
+    const emailDopo = `${randomUUID()}@example.com`;
+
+    await db.transaction(async (tx) => {
+      const result = await publishNotification(tx, prOpened, {
+        projectId: projectIdFantasma,
+        ticketId,
+      });
+      expect(result).toEqual({ published: 0 });
+      // La transazione del chiamante è ancora usabile: se il savepoint non ci
+      // fosse, qui Postgres risponderebbe "current transaction is aborted".
+      await tx
+        .insert(users)
+        .values({ email: emailDopo, passwordHash: "hash-placeholder", role: "member" });
+    });
+
+    // Il commit del chiamante è andato a buon fine...
+    expect(await db.select().from(users).where(eq(users.email, emailDopo))).toHaveLength(1);
+    // ...e la pubblicazione fallita non ha lasciato righe parziali.
+    expect(await db.select().from(notifications)).toHaveLength(0);
+    expect(await db.select().from(notificationDeliveries)).toHaveLength(0);
+  });
+
+  it("instrada verso chi ha richiesto il job e ancora le notifiche al job", async () => {
+    const { projectId, ticketId, adminId, followerId, outsiderId } = await seedScenario();
+    const [job] = await db
+      .insert(aiJobs)
+      .values({ ticketId, requestedByUserId: outsiderId })
+      .returning();
+    if (!job) throw new Error("insert del job di test non ha restituito la riga");
+
+    const result = await publishNotification(db, prOpened, { projectId, ticketId, jobId: job.id });
+
+    expect(result).toEqual({ published: 3 });
+    const rows = await db.select().from(notifications);
+    // L'outsider non segue il progetto e non è assegnatario: arriva solo perché
+    // ha lanciato lui il job.
+    expect(rows.map((row) => row.userId).sort()).toEqual([adminId, followerId, outsiderId].sort());
+    for (const row of rows) {
+      expect(row.jobId).toBe(job.id);
+    }
+  });
+
+  it("senza projectId esclude i follower ma tiene admin e persone del ticket", async () => {
+    const { ticketId, adminId, outsiderId } = await seedScenario();
+    await db.update(tickets).set({ assigneeId: outsiderId }).where(eq(tickets.id, ticketId));
+
+    const result = await publishNotification(db, prOpened, { ticketId });
+
+    expect(result).toEqual({ published: 2 });
+    const rows = await db.select().from(notifications);
+    expect(rows.map((row) => row.userId).sort()).toEqual([adminId, outsiderId].sort());
+    for (const row of rows) {
+      expect(row.projectId).toBeNull();
+      expect(row.ticketId).toBe(ticketId);
+    }
+  });
+
+  it("scrive comunque la consegna webhook quando non c'è nessun destinatario", async () => {
+    const { projectId, ticketId } = await seedTicket(db);
+    await db.update(notificationSettings).set({ webhookUrl: "https://hooks.example.com/abc" });
+
+    const result = await publishNotification(db, prOpened, { projectId, ticketId });
+
+    expect(result).toEqual({ published: 0 });
+    expect(await db.select().from(notifications)).toHaveLength(0);
+    const deliveries = await db.select().from(notificationDeliveries);
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0]?.channel).toBe("webhook");
+    expect(deliveries[0]?.notificationId).toBeNull();
+    expect(deliveries[0]?.event).toEqual(prOpened);
   });
 
   it("non scrive nulla se non ci sono destinatari né webhook configurato", async () => {

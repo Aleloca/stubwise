@@ -2461,7 +2461,13 @@ export const projectFollows = pgTable(
       .references(() => projects.id, { onDelete: "cascade" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [primaryKey({ columns: [table.userId, table.projectId] })],
+  (table) => [
+    primaryKey({ columns: [table.userId, table.projectId] }),
+    // Follower di UN progetto: è la query del routing delle notifiche, che
+    // filtra per il solo `project_id`. La PK (user_id, project_id) non la serve
+    // (project_id non è il suo prefisso), quindi serve un indice dedicato.
+    index("project_follows_project_id_idx").on(table.projectId),
+  ],
 );
 
 /** Riga di `notifications`: una notifica nell'inbox di un utente. */

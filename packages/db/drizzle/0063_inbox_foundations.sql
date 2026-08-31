@@ -67,6 +67,10 @@ CREATE INDEX "notification_deliveries_pending_idx" ON "notification_deliveries" 
 -- Consegne di una notifica: sostiene la cascata del delete e la lettura dello
 -- stato di recapito dal dettaglio di una notifica.
 CREATE INDEX "notification_deliveries_notification_id_idx" ON "notification_deliveries" USING btree ("notification_id");--> statement-breakpoint
+-- Follower di UN progetto: è la query del routing delle notifiche, che filtra
+-- per il solo `project_id`. La chiave primaria (user_id, project_id) non la
+-- serve, perché project_id non ne è il prefisso.
+CREATE INDEX "project_follows_project_id_idx" ON "project_follows" USING btree ("project_id");--> statement-breakpoint
 -- Forma della riga di outbox, garantita dal DB e non solo dal codice: le
 -- consegne `webhook` sono per EVENTO (nessuna notifica dietro, payload nella
 -- colonna `event`), tutte le altre sono per DESTINATARIO (notifica

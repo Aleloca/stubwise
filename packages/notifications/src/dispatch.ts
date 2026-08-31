@@ -231,6 +231,9 @@ export async function sendWebhookEvent(
  * No-op (silenzioso) quando il gating non passa. BEST-EFFORT: non lancia MAI —
  * qualunque errore (lettura config, formato, rete, risposta non-2xx) viene
  * inghiottito, una notifica mancata non deve rompere l'ingestion né un job.
+ *
+ * @deprecated Usa publishNotification; resta il canale webhook interno del
+ * poller e di sendTest.
  */
 export async function dispatchNotification(
   db: Db,

@@ -46,9 +46,16 @@ export interface PublishOpts {
  *
  * NON LANCIA MAI: come {@link dispatchNotification}, una notifica mancata non
  * deve far fallire l'ingestion né un job — su errore restituisce
- * `{ published: 0 }`. Attenzione: dentro una transazione un errore qui lascia
- * comunque la transazione abortita lato Postgres, quindi è il chiamante a
- * decidere cosa farne.
+ * `{ published: 0 }`.
+ *
+ * Per poterlo garantire davvero il corpo gira in una transazione ANNIDATA:
+ *  - su un `Db` è una transazione vera, quindi inbox e outbox sono atomiche (mai
+ *    le notifiche senza le consegne);
+ *  - su un `tx` del chiamante drizzle emette un SAVEPOINT, così un errore SQL
+ *    qui dentro rientra fin lì e NON aborta la transazione del chiamante (che
+ *    altrimenti si vedrebbe "current transaction is aborted" alla statement
+ *    successiva, cioè esattamente la rottura che l'inghiottimento vorrebbe
+ *    evitare).
  *
  * @returns quante righe di inbox sono state scritte (destinatari raggiunti).
  */
@@ -58,57 +65,62 @@ export async function publishNotification(
   opts: PublishOpts = {},
 ): Promise<{ published: number }> {
   try {
-    const ctx = await resolveRoutingContext(db, event, opts);
-    const recipients = recipientsFor(event, ctx);
+    return await db.transaction(async (inner) => {
+      const ctx = await resolveRoutingContext(inner, event, opts);
+      const recipients = recipientsFor(event, ctx);
 
-    const settings = await loadSettings(db);
-    const withWebhook = shouldSendWebhook(settings, event.kind);
-    if (recipients.length === 0 && !withWebhook) return { published: 0 };
+      const settings = await loadSettings(inner);
+      const withWebhook = shouldSendWebhook(settings, event.kind);
+      if (recipients.length === 0 && !withWebhook) return { published: 0 };
 
-    // Le colonne jsonb sono tipizzate `Record<string, unknown>` perché `db` non
-    // può importare l'unione da qui (sarebbe un ciclo): il cast è il punto in
-    // cui il tipo forte entra nel jsonb, e i consumatori lo rifanno all'inverso.
-    const payload = event as unknown as Record<string, unknown>;
+      // Le colonne jsonb sono tipizzate `Record<string, unknown>` perché `db`
+      // non può importare l'unione da qui (sarebbe un ciclo): il cast è il punto
+      // in cui il tipo forte entra nel jsonb, e i consumatori lo rifanno
+      // all'inverso.
+      const payload = event as unknown as Record<string, unknown>;
 
-    // Inbox: una riga per destinatario, tutte insieme.
-    const inserted =
-      recipients.length > 0
-        ? await db
-            .insert(notifications)
-            .values(
-              recipients.map((userId) => ({
-                userId,
-                projectId: opts.projectId ?? null,
-                ticketId: opts.ticketId ?? null,
-                jobId: opts.jobId ?? null,
-                kind: event.kind,
-                event: payload,
-                status: "open" as const,
-              })),
-            )
-            .returning({ id: notifications.id, userId: notifications.userId })
-        : [];
+      // Inbox: una riga per destinatario, tutte insieme.
+      const inserted =
+        recipients.length > 0
+          ? await inner
+              .insert(notifications)
+              .values(
+                recipients.map((userId) => ({
+                  userId,
+                  projectId: opts.projectId ?? null,
+                  ticketId: opts.ticketId ?? null,
+                  jobId: opts.jobId ?? null,
+                  kind: event.kind,
+                  event: payload,
+                  status: "open" as const,
+                })),
+              )
+              .returning({ id: notifications.id, userId: notifications.userId })
+          : [];
 
-    // Outbox. Le consegne `slack_dm` vanno solo a chi ha un'identità Slack e
-    // non ha spento i DM: chi non ce l'ha non genera riga (lo stato `skipped`
-    // è del poller, per il bot non configurato al momento dell'invio).
-    const slackReady = await slackRecipients(db, recipients);
-    const deliveries: (typeof notificationDeliveries.$inferInsert)[] = inserted
-      .filter((row) => slackReady.has(row.userId))
-      .map((row) => ({ notificationId: row.id, channel: "slack_dm" as const }));
-    if (withWebhook) {
-      deliveries.push({
-        channel: "webhook" as const,
-        event: payload,
-      });
-    }
-    if (deliveries.length > 0) {
-      await db.insert(notificationDeliveries).values(deliveries);
-    }
+      // Outbox. Le consegne `slack_dm` vanno solo a chi ha un'identità Slack e
+      // non ha spento i DM: chi non ce l'ha non genera riga (lo stato `skipped`
+      // è del poller, per il bot non configurato al momento dell'invio).
+      const slackReady = await slackRecipients(inner, recipients);
+      const deliveries: (typeof notificationDeliveries.$inferInsert)[] = inserted
+        .filter((row) => slackReady.has(row.userId))
+        .map((row) => ({ notificationId: row.id, channel: "slack_dm" as const }));
+      if (withWebhook) {
+        deliveries.push({
+          channel: "webhook" as const,
+          event: payload,
+        });
+      }
+      if (deliveries.length > 0) {
+        await inner.insert(notificationDeliveries).values(deliveries);
+      }
 
-    return { published: inserted.length };
+      return { published: inserted.length };
+    });
   } catch {
-    // Inghiottito di proposito: vedi docblock della funzione.
+    // Inghiottito di proposito: vedi docblock della funzione. Il rollback della
+    // transazione annidata ha già rimesso a posto le eventuali scritture
+    // parziali.
     return { published: 0 };
   }
 }
