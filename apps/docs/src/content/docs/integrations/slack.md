@@ -111,9 +111,9 @@ The same events that feed your Stubwise inbox, addressed to the people they
 concern: a **plan awaiting approval**, a **job on hold** (including one held
 because the monthly budget is exhausted), a **fix that failed**, a **PR opened**
 or **closed without merge**, a **completed PR review**, a **new ticket**, a
-**paused Docs generation**, a **monitoring alert**. Decision events go to
-administrators; progress events also reach the ticket's people and the project's
-followers.
+**paused Docs generation**, a **monitoring alert or recovery**. Decision events
+go to administrators; progress events also reach the ticket's people and the
+project's followers.
 
 ### The buttons
 
@@ -126,8 +126,10 @@ reader's role:
   instructions the AI should use to replan; leaving it empty is fine.
 - **Relaunch** — on a held, failed, or PR-closed-without-merge job: requeues the
   fix. Not offered while a job for that ticket is still running.
-- **Open** — jumps to the place where you'd act: the pull request for
-  PR events, the Docs page, the monitored server, otherwise the ticket.
+- **Open** — jumps to the place where you'd act: the pull request when one is
+  open for review, the Docs page, the monitored server, otherwise the ticket
+  (a PR closed without merge sends you to the reopened ticket, not to the dead
+  PR).
 - **Snooze…** — hides the notification for *1 hour*, *tomorrow* or *3 days*.
 - **Mark as handled** — closes the notification for everyone.
 

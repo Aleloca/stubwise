@@ -910,7 +910,7 @@
     "title": "Notifiche",
     "viewDocs": "Vedi documentazione →",
     "subtitle": "Un webhook in uscita riceve un messaggio sugli eventi chiave (nuovo ticket SDK, PR aperta, PR chiusa, in attesa, piano da approvare, fix fallito).",
-    "dmHint": "Il webhook è il canale di GRUPPO dell'istanza: ogni evento abilitato finisce in quell'unica destinazione. Le notifiche personali con i bottoni delle azioni arrivano invece in DM su Slack, a chi ha collegato il proprio account Slack e ha lasciato attiva la preferenza — vedi Impostazioni → Slack.",
+    "dmHint": "Il webhook è il canale di gruppo dell'istanza: ogni evento abilitato finisce in quell'unica destinazione. Le notifiche personali con i bottoni delle azioni arrivano invece in DM su Slack, a chi ha collegato il proprio account Slack e ha lasciato attiva la preferenza — vedi Impostazioni → Slack.",
     "formatGeneric": "JSON generico",
     "enabled": "Abilitate",
     "format": "Formato",
