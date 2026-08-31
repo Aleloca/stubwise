@@ -325,17 +325,26 @@ type Ticket = typeof tickets.$inferSelect;
  * del ticket:
  * - `execute-only`: il piano è già stato approvato (resumeMode="execute" con un
  *   planText): si salta la pianificazione e si esegue direttamente dal piano.
- * - `plan-only`: per il tipo del ticket è impostata una soglia di approvazione
- *   del piano (`plan_approval_min_effort`) e l'effort stimato la raggiunge: si
- *   pianifica e ci si ferma in attesa dell'approvazione umana.
+ * - `plan-only`: il job porta il gate `plan_approval_required` (è stato chiesto
+ *   da un operatore, vedi sotto) OPPURE per il tipo del ticket è impostata una
+ *   soglia di approvazione del piano (`plan_approval_min_effort`) e l'effort
+ *   stimato la raggiunge: si pianifica e ci si ferma in attesa dell'ok umano.
  * - `full`: comportamento storico (plan + execute in fila).
  *
  * NOTA: il gate di approvazione del piano è ORTOGONALE a `manualTrigger`. Un
- * avvio a mano NON aggira l'approvazione: un fix rischioso (effort alto) deve
- * comunque proporre un piano e attendere l'ok umano prima di toccare il codice.
+ * avvio a mano NON aggira l'approvazione: un fix rischioso (effort alto, o
+ * chiesto da un operatore) deve comunque proporre un piano e attendere l'ok
+ * umano prima di toccare il codice.
  */
 async function resolveFixMode(db: Db, job: AiJob, ticket: Ticket): Promise<FixMode> {
   if (job.resumeMode === "execute" && job.planText) return "execute-only";
+  // Job lanciato da un utente `member` (operatore): il server ha acceso
+  // `planApprovalRequired` perché il piano va approvato da un maintainer,
+  // QUALUNQUE sia l'effort del ticket e la soglia del tipo. Sta DOPO il ramo
+  // execute-only di proposito: se il job arriva con resumeMode="execute" e un
+  // planText è perché quel piano è GIÀ passato dall'approvazione del
+  // maintainer (resolvePlan), e ri-pianificare sarebbe un ciclo infinito.
+  if (job.planApprovalRequired) return "plan-only";
   const [rule] = await db
     .select({ minEffort: automationRules.planApprovalMinEffort })
     .from(automationRules)
@@ -526,19 +535,27 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   const notifyDeps: NotifyDeps = {
     ...(deps.publicUrl !== undefined ? { publicUrl: deps.publicUrl } : {}),
     projectName,
-    ...(deps.dispatch !== undefined ? { dispatch: deps.dispatch } : {}),
+    ...(deps.publish !== undefined ? { publish: deps.publish } : {}),
   };
   const url = ticketUrl(deps.publicUrl, ticket.id);
+  /** Riferimenti comuni a TUTTE le notifiche di questa fase: il fix conosce
+   * progetto, ticket e job del run, e li porta su ogni evento. */
+  const notifyRefs = { projectId: ticket.projectId, ticketId: ticket.id, jobId: job.id };
   /** Notifica job.failed best-effort dopo il failJob (lo stato è già committato). */
   const notifyFailed = (error: string): Promise<void> =>
-    notify(notifyDeps, db, {
-      kind: "job.failed",
-      ticketNumber: ticket.number,
-      ticketTitle: ticket.title,
-      projectName,
-      error,
-      ticketUrl: url,
-    });
+    notify(
+      notifyDeps,
+      db,
+      {
+        kind: "job.failed",
+        ticketNumber: ticket.number,
+        ticketTitle: ticket.title,
+        projectName,
+        error,
+        ticketUrl: url,
+      },
+      notifyRefs,
+    );
 
   /**
    * Percorso budget-held (Task 6): il job ha sforato un tetto di spesa e va
@@ -574,16 +591,21 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     if (!held) {
       await appendLog(db, job.id, "[fix] ownership persa dopo il hold per budget");
     }
-    await notify(notifyDeps, db, {
-      kind: "job.budget_held",
-      ticketNumber: ticket.number,
-      ticketTitle: ticket.title,
-      projectName,
-      scope,
-      limitUsd,
-      spentUsd,
-      ticketUrl: url,
-    });
+    await notify(
+      notifyDeps,
+      db,
+      {
+        kind: "job.budget_held",
+        ticketNumber: ticket.number,
+        ticketTitle: ticket.title,
+        projectName,
+        scope,
+        limitUsd,
+        spentUsd,
+        ticketUrl: url,
+      },
+      notifyRefs,
+    );
     return "held";
   };
 
@@ -1266,13 +1288,18 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       // ticket sono comunque veri; solo una riga di log, niente overwrite.
       await appendLog(db, job.id, "[fix] ownership persa dopo la pianificazione");
     }
-    await notify(notifyDeps, db, {
-      kind: "job.plan_review",
-      ticketNumber: ticket.number,
-      ticketTitle: ticket.title,
-      projectName,
-      ticketUrl: url,
-    });
+    await notify(
+      notifyDeps,
+      db,
+      {
+        kind: "job.plan_review",
+        ticketNumber: ticket.number,
+        ticketTitle: ticket.title,
+        projectName,
+        ticketUrl: url,
+      },
+      notifyRefs,
+    );
     return "awaiting_approval";
   }
 
@@ -1370,14 +1397,19 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
 
   // Notifica job.pr_opened best-effort, DOPO la chiusura del job (stato committato).
   // Cita la PR primaria (payload invariato); il dettaglio per-repo è sul ticket.
-  await notify(notifyDeps, db, {
-    kind: "job.pr_opened",
-    ticketNumber: ticket.number,
-    ticketTitle: ticket.title,
-    projectName,
-    prUrl: primaryPrUrl,
-    ticketUrl: url,
-    costUsd: null,
-  });
+  await notify(
+    notifyDeps,
+    db,
+    {
+      kind: "job.pr_opened",
+      ticketNumber: ticket.number,
+      ticketTitle: ticket.title,
+      projectName,
+      prUrl: primaryPrUrl,
+      ticketUrl: url,
+      costUsd: null,
+    },
+    notifyRefs,
+  );
   return "pr_opened";
 }

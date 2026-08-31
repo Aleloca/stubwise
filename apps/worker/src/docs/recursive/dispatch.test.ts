@@ -13,7 +13,7 @@ import {
 } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
-import type { NotificationEvent } from "@stubwise/notifications";
+import type { NotificationEvent, PublishOpts } from "@stubwise/notifications";
 import {
   BRIEF_GLOSSARY_END_MARKER,
   BRIEF_GLOSSARY_START_MARKER,
@@ -527,8 +527,8 @@ describe("limite del provider nel dispatch dei nodi", () => {
     registry: ReturnType<typeof createGenerationWorktreeRegistry>;
     runner: FakeAgentRunner;
     dispatch: (track: (work: Promise<void>) => void) => Promise<boolean>;
-    /** Eventi di notifica dispatchati (dispatch iniettato nei deps). */
-    notified: NotificationEvent[];
+    /** Notifiche pubblicate (publish iniettata nei deps): evento + riferimenti. */
+    notified: { event: NotificationEvent; opts: PublishOpts }[];
   }
 
   /** Generazione `running` + N nodi explore claimabili + worktree fittizio registrato. */
@@ -568,7 +568,7 @@ describe("limite del provider nel dispatch dei nodi", () => {
 
     const runner = limitRunner();
     const embeddingClient = createFakeEmbeddingClient();
-    const notified: NotificationEvent[] = [];
+    const notified: { event: NotificationEvent; opts: PublishOpts }[] = [];
     const dispatch = (track: (work: Promise<void>) => void): Promise<boolean> =>
       dispatchNode(
         {
@@ -588,8 +588,9 @@ describe("limite del provider nel dispatch dei nodi", () => {
           encryptionKey: ENCRYPTION_KEY,
           loadProviderChainFn: async () => [],
           publicUrl: "https://stubwise.example.com",
-          dispatch: async (_db, event) => {
-            notified.push(event);
+          publish: async (_db, event, opts) => {
+            notified.push({ event, opts: opts ?? {} });
+            return { published: 1 };
           },
         },
         track,
@@ -628,20 +629,22 @@ describe("limite del provider nel dispatch dei nodi", () => {
     // maybeFinalize NON chiamata: il worktree è ancora registrato (nessuna chiusura).
     expect(registry.has(generationId)).toBe(true);
 
-    // Notifica docs.limit_paused dispatchata (best-effort, dispatch iniettato):
+    // Notifica docs.limit_paused pubblicata (best-effort, publish iniettata):
     // repositoryName/projectName dalla select, docsUrl = publicUrl + /docs/:repositoryId.
     const [repo] = await db
       .select({ name: repositories.name })
       .from(repositories)
       .where(eq(repositories.id, repositoryId));
     expect(notified).toHaveLength(1);
-    const event = notified[0]!;
+    const event = notified[0]!.event;
     expect(event.kind).toBe("docs.limit_paused");
     if (event.kind === "docs.limit_paused") {
       expect(event.repositoryName).toBe(repo!.name);
       expect(event.docsUrl).toBe(`https://stubwise.example.com/docs/${repositoryId}`);
       expect(event.reason).toMatch(/limite/i);
     }
+    // Nessun ticket né job dietro una generazione: l'unica ancora è il progetto.
+    expect(notified[0]!.opts).toEqual({ projectId: await projectIdOf(db, repositoryId) });
 
     // Generazione paused → il nodo pending NON è più claimabile finché non si riprende.
     const reclaim = await dispatch((work) => dispatched.push(work));
@@ -679,7 +682,7 @@ describe("limite del provider nel dispatch dei nodi", () => {
 
     // UNA sola notifica: solo il vincitore della pausa (paused=true) notifica.
     expect(notified).toHaveLength(1);
-    expect(notified[0]!.kind).toBe("docs.limit_paused");
+    expect(notified[0]!.event.kind).toBe("docs.limit_paused");
   });
 });
 

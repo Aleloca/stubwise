@@ -126,20 +126,28 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
   const notifyDeps: NotifyDeps = {
     ...(deps.publicUrl !== undefined ? { publicUrl: deps.publicUrl } : {}),
     ...(deps.projectName !== undefined ? { projectName: deps.projectName } : {}),
-    ...(deps.dispatch !== undefined ? { dispatch: deps.dispatch } : {}),
+    ...(deps.publish !== undefined ? { publish: deps.publish } : {}),
   };
   const url = ticketUrl(deps.publicUrl, ticket.id);
   const projectName = deps.projectName ?? "";
+  /** Riferimenti comuni a TUTTE le notifiche di questa fase: il triage conosce
+   * progetto, ticket e job del run, e li porta su ogni evento. */
+  const notifyRefs = { projectId: ticket.projectId, ticketId: ticket.id, jobId: job.id };
   /** Notifica job.failed best-effort dopo il failJob (stato già committato). */
   const notifyFailed = (error: string): Promise<void> =>
-    notify(notifyDeps, db, {
-      kind: "job.failed",
-      ticketNumber: ticket.number,
-      ticketTitle: ticket.title,
-      projectName,
-      error,
-      ticketUrl: url,
-    });
+    notify(
+      notifyDeps,
+      db,
+      {
+        kind: "job.failed",
+        ticketNumber: ticket.number,
+        ticketTitle: ticket.title,
+        projectName,
+        error,
+        ticketUrl: url,
+      },
+      notifyRefs,
+    );
 
   const recentTickets = await db
     .select({ number: tickets.number, title: tickets.title, status: tickets.status })
@@ -383,15 +391,20 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
       }
       // Notifica job.held best-effort, DOPO holdJob (stato committato). Il tipo
       // è quello riclassificato dal triage.
-      await notify(notifyDeps, db, {
-        kind: "job.held",
-        ticketNumber: ticket.number,
-        ticketTitle: ticket.title,
-        projectName,
-        type: decision.type,
-        effort: decision.effort,
-        ticketUrl: url,
-      });
+      await notify(
+        notifyDeps,
+        db,
+        {
+          kind: "job.held",
+          ticketNumber: ticket.number,
+          ticketTitle: ticket.title,
+          projectName,
+          type: decision.type,
+          effort: decision.effort,
+          ticketUrl: url,
+        },
+        notifyRefs,
+      );
       return "held";
     }
 

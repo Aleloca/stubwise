@@ -26,6 +26,11 @@ import {
  * rete, una config rotta o un formato imprevisto vengono inghiottiti — una
  * notifica mancata non deve mai rompere l'ingestion né un job. La verifica
  * esplicita del webhook (che DEVE far emergere gli errori) è {@link sendTest}.
+ *
+ * Dalla Fase 0 questo modulo è il CANALE `webhook` e non più il punto
+ * d'ingresso: le notifiche si pubblicano con `publishNotification`
+ * (`./publish.ts`), che scrive inbox e outbox; è poi il poller del worker a
+ * chiamare {@link sendWebhookEvent} per le consegne dovute.
  */
 
 /**
@@ -82,11 +87,18 @@ const TOGGLE_FOR_KIND: Record<NotificationKind, keyof NotificationSettingsRow> =
 };
 
 /**
+ * `Db` o una transazione drizzle: le letture di configurazione funzionano
+ * identiche sui due, e chi pubblica una notifica dentro una transazione
+ * (vedi `./publish.ts`) deve poter passare il suo `tx`.
+ */
+export type DbOrTx = Db | Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+/**
  * Legge l'unica riga di configurazione (`notification_settings`, id=1 seedato
  * dalla migrazione). Restituisce null se assente (DB non ancora migrato in
  * scenari anomali). Best-effort: lascia propagare al chiamante che inghiotte.
  */
-async function loadSettings(db: Db): Promise<NotificationSettingsRow | null> {
+export async function loadSettings(db: DbOrTx): Promise<NotificationSettingsRow | null> {
   const rows = await db
     .select({
       webhookUrl: notificationSettings.webhookUrl,
@@ -113,7 +125,7 @@ async function loadSettings(db: Db): Promise<NotificationSettingsRow | null> {
  * con `'en'`). Default `"en"` se la riga manca (DB non ancora migrato) o in caso
  * di lettura vuota: una notifica non deve mai dipendere da questa lettura.
  */
-async function loadContentLanguage(db: Db): Promise<ContentLanguage> {
+async function loadContentLanguage(db: DbOrTx): Promise<ContentLanguage> {
   const rows = await db
     .select({ contentLanguage: instanceSettings.contentLanguage })
     .from(instanceSettings)
@@ -163,15 +175,65 @@ async function postWebhook(
 }
 
 /**
- * Invia una notifica per l'evento dato, se la configurazione lo consente.
+ * GATING del canale webhook: l'evento va recapitato al webhook d'istanza?
+ * Serve un URL configurato, l'interruttore generale acceso e il toggle del
+ * singolo kind attivo.
  *
- * No-op (silenzioso) quando: nessuna riga di config, `enabled` false, nessun
- * `webhookUrl`, o toggle del singolo evento off. Altrimenti formatta secondo
- * `format` e POSTa al webhook.
+ * È l'unico punto in cui la decisione vive: `publishNotification` la consulta
+ * PRIMA di accodare la consegna (così l'outbox non si riempie di righe che il
+ * poller scarterebbe) e {@link dispatchNotification} la usa nel percorso
+ * sincrono legacy.
+ */
+export function shouldSendWebhook(
+  settings: NotificationSettingsRow | null,
+  kind: NotificationKind,
+): boolean {
+  if (!settings || !settings.enabled || !settings.webhookUrl) return false;
+  return settings[TOGGLE_FOR_KIND[kind]] === true;
+}
+
+/**
+ * INVIA l'evento al webhook d'istanza, SENZA gating: il chiamante ha già
+ * deciso (a monte, con {@link shouldSendWebhook}) che questa consegna va fatta.
  *
- * BEST-EFFORT: non lancia MAI. Qualunque errore (lettura config, formato, rete,
- * risposta non-2xx) viene inghiottito: una notifica mancata non deve rompere
- * l'ingestion né un job.
+ * A differenza di {@link dispatchNotification} LANCIA su qualunque errore
+ * (webhook non configurato, rete, timeout, risposta non-2xx): è ciò che serve
+ * al poller delle consegne, che sul throw incrementa i tentativi e riprova col
+ * backoff.
+ */
+export async function sendWebhookEvent(
+  db: DbOrTx,
+  event: NotificationEvent,
+  opts: DispatchOptions = {},
+): Promise<void> {
+  const settings = await loadSettings(db);
+  if (!settings?.webhookUrl) {
+    throw new Error("Nessun webhook configurato.");
+  }
+  const lang = await loadContentLanguage(db);
+  const payload = formatEvent(settings.format, event, lang);
+  const response = await postWebhook(settings.webhookUrl, payload, opts);
+  if (!response.ok) {
+    throw new Error(`Il webhook ha risposto con stato ${response.status}.`);
+  }
+}
+
+/**
+ * PERCORSO LEGACY, sincrono e best-effort, del solo canale webhook: legge la
+ * config, applica il gating e POSTa subito.
+ *
+ * Dalla Fase 0 il punto d'ingresso delle notifiche è
+ * `publishNotification` (`./publish.ts`), che scrive inbox e outbox e lascia
+ * l'invio al poller del worker. Questa funzione resta perché i chiamanti
+ * storici la usano ancora (verranno migrati) e perché il canale webhook è lo
+ * stesso: stessa config, stessi toggle, comportamento invariato.
+ *
+ * No-op (silenzioso) quando il gating non passa. BEST-EFFORT: non lancia MAI —
+ * qualunque errore (lettura config, formato, rete, risposta non-2xx) viene
+ * inghiottito, una notifica mancata non deve rompere l'ingestion né un job.
+ *
+ * @deprecated Usa publishNotification; resta il canale webhook interno del
+ * poller e di sendTest.
  */
 export async function dispatchNotification(
   db: Db,
@@ -180,8 +242,9 @@ export async function dispatchNotification(
 ): Promise<void> {
   try {
     const settings = await loadSettings(db);
-    if (!settings || !settings.enabled || !settings.webhookUrl) return;
-    if (!settings[TOGGLE_FOR_KIND[event.kind]]) return;
+    // Il secondo controllo è ridondante col gating, ma restringe `webhookUrl`
+    // a string per il type checker senza asserzioni.
+    if (!shouldSendWebhook(settings, event.kind) || !settings?.webhookUrl) return;
 
     const lang = await loadContentLanguage(db);
     const payload = formatEvent(settings.format, event, lang);

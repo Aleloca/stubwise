@@ -409,12 +409,16 @@ function formatDiscord(event: NotificationEvent, lang: Language): Record<string,
 }
 
 /**
- * Frase di riepilogo localizzata, senza markup né link, per il payload generico.
- * Riusa la stessa chiave `notify.*`: `{link}` è vuoto (gli URL sono campi a
- * parte) e `{ref}` è il `#n` nudo; lo spazio finale lasciato da `{link}` vuoto
- * viene rifilato.
+ * Frase di riepilogo localizzata, senza markup né link: il testo PIANO
+ * dell'evento. È ciò che finisce nel campo `message` del payload generico ed è
+ * anche il testo che l'inbox per-utente mostra nella lingua del destinatario
+ * (l'URL su cui portare l'utente è un dato a parte, non un link nella frase).
+ *
+ * Riusa la stessa chiave `notify.*` degli altri formati — unica fonte testuale:
+ * `{link}` è vuoto (gli URL sono campi a parte) e `{ref}` è il `#n` nudo; lo
+ * spazio finale lasciato da `{link}` vuoto viene rifilato.
  */
-function plainMessage(event: NotificationEvent, lang: Language): string {
+export function formatNotificationText(event: NotificationEvent, lang: Language = "en"): string {
   const cost = event.kind === "job.pr_opened" ? costParam(lang, event.costUsd) : "";
   return t(lang, KEY_FOR_KIND[event.kind], {
     ...textParams(event, lang),
@@ -434,7 +438,7 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
         event: event.kind,
         projectName: event.projectName,
         repositoryName: event.repositoryName,
-        message: plainMessage(event, lang),
+        message: formatNotificationText(event, lang),
         docsUrl: event.docsUrl,
         reason: event.reason,
       };
@@ -447,7 +451,7 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
       serverName: event.serverName,
       condition: event.condition,
       detail: event.detail,
-      message: plainMessage(event, lang),
+      message: formatNotificationText(event, lang),
       serverUrl: event.url,
     };
   }
@@ -456,7 +460,7 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
     ticketNumber: event.ticketNumber,
     title: event.ticketTitle,
     projectName: event.projectName,
-    message: plainMessage(event, lang),
+    message: formatNotificationText(event, lang),
     ticketUrl: event.ticketUrl,
   };
   switch (event.kind) {

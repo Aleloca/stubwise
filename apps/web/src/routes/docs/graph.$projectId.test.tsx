@@ -185,7 +185,7 @@ describe("DocsGraphView", () => {
     renderGraph("member");
 
     expect(await screen.findByText("Graph not enabled")).toBeInTheDocument();
-    expect(screen.getByText("Ask an admin to enable it for this repository.")).toBeInTheDocument();
+    expect(screen.getByText("Ask a maintainer to enable it for this repository.")).toBeInTheDocument();
     expect(
       screen.queryByRole("link", { name: "Enable it in the repository" }),
     ).not.toBeInTheDocument();

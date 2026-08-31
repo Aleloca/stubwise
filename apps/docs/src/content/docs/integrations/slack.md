@@ -1,6 +1,6 @@
 ---
 title: Slack
-description: Create tickets from Slack with the /stubwise slash command or the "Create Stubwise ticket" message action.
+description: Create tickets from Slack with the /stubwise slash command or the "Create Stubwise ticket" message action, and receive actionable notifications as direct messages.
 ---
 
 The Slack integration lets your team open Stubwise tickets without leaving
@@ -15,14 +15,15 @@ Tickets created this way enter the [AI pipeline](/docs/ai-pipeline/how-it-works/
 and your [automation rules](/docs/ai-pipeline/automation/) like any other, and
 carry the **Slack** source badge.
 
-:::note[This is not the same as Slack notifications]
-Sending **notifications** to Slack (PR opened, job failed, …) uses a one-way
-[Slack incoming webhook](/docs/notifications/) — just a URL Stubwise posts to.
-**Creating tickets** from Slack is a separate, interactive integration: Slack
-must be able to call Stubwise (slash command and modal), so it needs a real
-Slack **app** with a *Signing Secret*, a *Bot Token* and scopes. An incoming
-webhook alone does **not** provide those. You can add this to an existing Slack
-app or create a dedicated one — either works.
+:::note[This is not the same as the notification webhook]
+The **group** notifications (PR opened, job failed, …) go to a channel through a
+one-way [Slack incoming webhook](/docs/notifications/) — just a URL Stubwise
+posts to. Everything else on this page needs a real Slack **app** with a
+*Signing Secret*, a *Bot Token* and scopes, because Slack must be able to call
+Stubwise and Stubwise must be able to call Slack: **creating tickets** (slash
+command and modal) and the **personal DM notifications** described below. An
+incoming webhook alone does **not** provide those. You can add this to an
+existing Slack app or create a dedicated one — either works.
 :::
 
 :::note[Not enabled until configured]
@@ -39,8 +40,11 @@ Bot Token), then paste the credentials into Stubwise:
 1. Use an existing Slack app or create one at
    [api.slack.com/apps](https://api.slack.com/apps) (**Create New App** →
    *From scratch*), then choose a name and the workspace.
-2. **OAuth & Permissions** → add the bot token scopes `commands`, `users:read`
-   and `users:read.email`.
+2. **OAuth & Permissions** → add the bot token scopes `commands`, `users:read`,
+   `users:read.email`, `chat:write` and `im:write`. The last two are what let
+   Stubwise **open a DM** with a member and **post** (and later edit) the
+   [actionable notifications](#actionable-dm-notifications) in it — without
+   them the slash command still works, but no DM is ever delivered.
 3. **Slash Commands** → create `/stubwise` with the request URL
    `{publicUrl}/api/slack/commands`.
 4. **Interactivity & Shortcuts** → turn on *Interactivity* and set the request
@@ -94,6 +98,78 @@ from that Slack user resolve straight away.
 Once a member is linked, their Slack avatar is shown across Stubwise — in Team,
 as the author on the ticket feed, and as the assignee. Members who are not
 linked to Slack get an initials avatar instead.
+
+## Actionable DM notifications
+
+Besides the [group webhook](/docs/notifications/), Stubwise sends **personal**
+notifications as a Slack **direct message** — and those DMs carry buttons, so
+the usual decisions can be taken without opening Stubwise.
+
+### What arrives in a DM
+
+The same events that feed your Stubwise inbox, addressed to the people they
+concern: a **plan awaiting approval**, a **job on hold** (including one held
+because the monthly budget is exhausted), a **fix that failed**, a **PR opened**
+or **closed without merge**, a **completed PR review**, a **new ticket**, a
+**paused Docs generation**, a **monitoring alert or recovery**. Decision events
+go to administrators; progress events also reach the ticket's people and the
+project's followers.
+
+### The buttons
+
+Each DM shows only the actions *that recipient* can actually take right now —
+they depend on the event, on the current state of the ticket's job and on the
+reader's role:
+
+- **Approve plan** / **Reject** — on a plan waiting at the approval gate
+  (administrators). *Reject* opens a small modal where you can type the
+  instructions the AI should use to replan; leaving it empty is fine.
+- **Relaunch** — on a held, failed, or PR-closed-without-merge job: requeues the
+  fix. Not offered while a job for that ticket is still running.
+- **Open** — jumps to the place where you'd act: the pull request when one is
+  open for review, the Docs page, the monitored server, otherwise the ticket
+  (a PR closed without merge sends you to the reopened ticket, not to the dead
+  PR).
+- **Snooze…** — hides the notification for *1 hour*, *tomorrow* or *3 days*.
+- **Mark as handled** — closes the notification for everyone.
+
+Once someone decides, the message is **rewritten**: the buttons disappear and a
+status line takes their place (`✅ Plan approved by …`, `🔁 Fix relaunched by …`,
+and so on), on every recipient's copy — each in their own language. A second
+person pressing a stale button gets an ephemeral "already handled by …" reply
+instead of a duplicate action.
+
+### Requirements
+
+A DM is only delivered to a member who has **both**:
+
+- a **linked Slack account** — see [Slack identity for
+  members](#slack-identity-for-members); an admin links it from **Team**, and
+  the [auto-link](#slack-identity-for-members) covers most people already;
+- the **Slack DM notifications** preference turned on (in **Account**, on by
+  default).
+
+Members without a linked Slack account are not skipped silently as far as
+Stubwise is concerned — the notification is still in their in-app inbox, which
+is never disabled. Only the DM copy is dropped.
+
+### Upgrading an existing Slack app
+
+If you configured Slack before DM notifications existed, your app only has
+`commands`, `users:read` and `users:read.email`, so no DM can be sent. Adding a
+scope requires reinstalling the app, and reinstalling mints a **new bot token**:
+
+1. **OAuth & Permissions** → add the bot token scopes `chat:write` and
+   `im:write`.
+2. **Install App** → *Reinstall to Workspace* and confirm the new permissions.
+3. Copy the new **Bot Token** (`xoxb-…`) — reinstalling invalidates the previous
+   one, so Stubwise keeps failing until you replace it.
+4. In Stubwise open **Settings → Slack** and paste it into **Bot Token**, then
+   save. The **Signing Secret** does not change: leave that field empty and the
+   stored one is kept.
+
+Nothing else changes — the slash command, the message action, the request URLs
+and the notification webhook stay as they are.
 
 ## Inviting from the Slack workspace
 

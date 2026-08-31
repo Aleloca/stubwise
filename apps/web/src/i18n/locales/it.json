@@ -13,6 +13,7 @@
     "logout": "Esci",
     "loggingOut": "Uscita…",
     "nav": {
+      "inbox": "Inbox",
       "tickets": "Ticket",
       "board": "Bacheca",
       "backlog": "Backlog",
@@ -202,13 +203,14 @@
   },
   "errors": {
     "unauthorized": "Autenticazione richiesta",
-    "forbidden": "Solo amministratori",
+    "forbidden": "Solo maintainer",
     "ticket_not_found": "Ticket non trovato",
     "project_not_found": "Progetto non trovato",
     "git_account_not_found": "Account git non trovato",
     "assignee_not_found": "Assegnatario non trovato",
     "invalid_cursor": "Cursore di paginazione non valido",
     "plan_not_pending": "Nessun piano in attesa di approvazione",
+    "job_in_flight": "C'è già un job in corso su questo ticket",
     "webhook_unauthorized": "Webhook non autorizzato",
     "invalid_ingestion_key": "Chiave di ingestione non valida",
     "invalid_repository": "Uno o più repository selezionati non appartengono a questo progetto",
@@ -225,7 +227,7 @@
     "slack_not_configured": "L'integrazione Slack non è configurata",
     "slack_identity_taken": "Questa identità Slack è già collegata a un altro membro",
     "user_not_found": "Utente non trovato",
-    "last_admin": "Non puoi declassare l'ultimo admin",
+    "last_admin": "Non puoi declassare l'ultimo maintainer",
     "cannot_change_own_role": "Non puoi cambiare il tuo ruolo",
     "git_identity_taken": "Questa email git è già collegata a un membro",
     "git_identity_not_found": "Identità git non trovata",
@@ -256,8 +258,8 @@
       "submitPending": "Registrazione…"
     },
     "setup": {
-      "title": "Crea l'account amministratore",
-      "subtitle": "Questa istanza è nuova: il primo account ha i privilegi di admin.",
+      "title": "Crea l'account maintainer",
+      "subtitle": "Questa istanza è nuova: il primo account ha i privilegi di maintainer.",
       "confirmLabel": "Conferma password",
       "passwordMismatch": "Le password non coincidono",
       "submit": "Crea account",
@@ -338,6 +340,7 @@
       "approve": "Approva",
       "approving": "Approvazione…",
       "assignee": "Assegnatario",
+      "awaitingMaintainer": "In attesa dell'approvazione di un maintainer.",
       "back": "← Tutti i ticket",
       "comments": "Commenti ({{count}})",
       "confirmRemove": "Conferma",
@@ -354,6 +357,7 @@
       "effortTitle": "Stima di sforzo del triage AI",
       "labels": "Label",
       "lastSeenAt": "Ultimo visto",
+      "memberRunHint": "Il run si fermerà sul piano: dovrà approvarlo un maintainer.",
       "milestone": "Milestone",
       "noDescription": "// nessuna descrizione",
       "noMilestone": "Nessuna",
@@ -364,9 +368,14 @@
       "plan": "Piano di implementazione",
       "priority": "Priorità",
       "reject": "Rifiuta",
-      "rejectHint": "Per rifiutare, scrivi cosa correggere nel commento e poi rifiuta: il prossimo piano ne terrà conto.",
+      "rejectCancel": "Annulla",
+      "rejectHint": "Le istruzioni diventano un commento del team: il prossimo piano ne terrà conto.",
+      "rejectInstructionsLabel": "Istruzioni per il nuovo piano (facoltative)",
+      "rejectInstructionsPlaceholder": "Cosa deve fare diversamente il prossimo piano",
+      "rejectSubmit": "Rifiuta il piano",
       "rejecting": "Rifiuto…",
       "relaunchWithInstructions": "Rilancia con istruzioni",
+      "runAwaitingApproval": "Avviato: il piano ora attende l'approvazione di un maintainer.",
       "startFix": "Avvia fix AI",
       "startingFix": "Avvio…",
       "status": "Stato",
@@ -638,7 +647,7 @@
       "send": "Invia",
       "thinking": "Sto pensando…",
       "error": "Qualcosa è andato storto nel generare la risposta.",
-      "unavailable": "La chat richiede un provider AI con API key. Chiedi a un admin di configurarne uno nelle Impostazioni.",
+      "unavailable": "La chat richiede un provider AI con API key. Chiedi a un maintainer di configurarne uno nelle Impostazioni.",
       "sources": "Fonti",
       "modeLabel": "Modalità chat",
       "modeDocs": "DOCS",
@@ -679,11 +688,22 @@
       "title": "Account",
       "email": "Email",
       "role": "Ruolo",
-      "admin": "Admin",
-      "member": "Membro",
+      "admin": "Maintainer",
+      "member": "Operatore",
       "language": "Lingua",
       "languageEnglish": "English",
-      "languageItalian": "Italiano"
+      "languageItalian": "Italiano",
+      "follows": {
+        "title": "Progetti seguiti",
+        "subtitle": "Ricevi le notifiche dei progetti che segui. Si salva appena spunti.",
+        "empty": "// nessun progetto"
+      },
+      "notifications": {
+        "title": "Notifiche",
+        "subtitle": "L'inbox in-app è sempre attiva. Il DM su Slack è facoltativo.",
+        "slackDm": "Ricevi le notifiche in DM su Slack",
+        "slackNotLinked": "Collega prima il tuo account Slack (chiedi a un maintainer da /team)."
+      }
     },
     "accessTokens": {
       "title": "Token di accesso",
@@ -722,13 +742,13 @@
       "memberCount_other": "{{count}} membri",
       "you": "tu",
       "memberSince": "membro dal {{date}}",
-      "admin": "Admin",
-      "member": "Membro",
+      "admin": "Maintainer",
+      "member": "Operatore",
       "changeRoleLabel": "Ruolo di {{email}}",
-      "roleAdmin": "Admin",
-      "roleMember": "Membro",
+      "roleAdmin": "Maintainer",
+      "roleMember": "Operatore",
       "invitesTitle": "Inviti in sospeso",
-      "adminOnly": "solo admin",
+      "adminOnly": "solo maintainer",
       "inviteUser": "Invita un utente",
       "invitePlaceholder": "collega@example.com",
       "createInvite": "Crea invito",
@@ -840,7 +860,8 @@
       "removeSigningSecret": "Rimuovi il signing secret salvato",
       "removeBotToken": "Rimuovi il bot token salvato",
       "secretHint": "// i segreti sono cifrati a riposo e non vengono più mostrati. Lascia vuoto per mantenere quello salvato.",
-      "setupHint": "Crea una Slack app su api.slack.com, incolla qui il Signing Secret e il Bot Token, imposta la request URL dello Slash Command a {{commandsUrl}} e la request URL della Interactivity a {{interactionsUrl}}, e aggiungi gli scope commands, users:read, users:read.email.",
+      "setupHint": "Crea una Slack app su api.slack.com, incolla qui il Signing Secret e il Bot Token, imposta la request URL dello Slash Command a {{commandsUrl}} e la request URL della Interactivity a {{interactionsUrl}}, e aggiungi gli scope commands, users:read, users:read.email, chat:write, im:write.",
+      "dmHint": "// con chat:write e im:write Stubwise può inviarti anche le notifiche in DM su Slack con i bottoni delle azioni (approva un piano, rilancia, rinvia). Se aggiungi gli scope a un'app già esistente devi reinstallarla nel workspace e incollare qui il nuovo Bot Token.",
       "save": "Salva",
       "saving": "Salvataggio…",
       "saved": "Salvato"
@@ -909,6 +930,7 @@
     "title": "Notifiche",
     "viewDocs": "Vedi documentazione →",
     "subtitle": "Un webhook in uscita riceve un messaggio sugli eventi chiave (nuovo ticket SDK, PR aperta, PR chiusa, in attesa, piano da approvare, fix fallito).",
+    "dmHint": "Il webhook è il canale di gruppo dell'istanza: ogni evento abilitato finisce in quell'unica destinazione. Le notifiche personali con i bottoni delle azioni arrivano invece in DM su Slack, a chi ha collegato il proprio account Slack e ha lasciato attiva la preferenza — vedi Impostazioni → Slack.",
     "formatGeneric": "JSON generico",
     "enabled": "Abilitate",
     "format": "Formato",
@@ -982,6 +1004,76 @@
         "effort": "solo job.held — sforzo stimato 1–5",
         "error": "solo job.failed — messaggio d'errore"
       }
+    }
+  },
+  "inbox": {
+    "title": "Inbox",
+    "subtitle": "Quello che aspetta una tua decisione, e quello che devi solo sapere.",
+    "tabs": {
+      "open": "Da smaltire",
+      "handled": "Gestite"
+    },
+    "sections": {
+      "toDecide": "Da decidere",
+      "toKnow": "Da sapere",
+      "snoozed": "Posticipate"
+    },
+    "filters": {
+      "project": "Progetto",
+      "allProjects": "Tutti i progetti"
+    },
+    "kinds": {
+      "ticketCreated": "Nuovo ticket",
+      "prOpened": "PR aperta",
+      "prClosed": "PR chiusa",
+      "jobHeld": "In pausa",
+      "planReview": "Piano da approvare",
+      "budgetHeld": "Budget superato",
+      "reviewCompleted": "Review PR",
+      "jobFailed": "Fix fallito",
+      "docsLimitPaused": "Docs in pausa",
+      "monitorAlert": "Allarme",
+      "monitorRecovered": "Rientrato"
+    },
+    "actions": {
+      "approvePlan": "Approva piano",
+      "rejectPlan": "Rifiuta",
+      "relaunch": "Rilancia",
+      "handled": "Gestita",
+      "snooze": "Posticipa",
+      "snooze1h": "1 ora",
+      "snoozeTomorrow": "Domani",
+      "snooze3d": "3 giorni",
+      "open": "Apri"
+    },
+    "reject": {
+      "label": "Istruzioni per il prossimo tentativo (facoltative)",
+      "placeholder": "Cosa cambiare nel piano…",
+      "submit": "Invia rifiuto",
+      "cancel": "Annulla"
+    },
+    "status": {
+      "awaitingApproval": "in attesa di approvazione",
+      "handled": "gestita",
+      "handledBy": "gestita da {{email}}",
+      "snoozedUntil": "posticipata fino a {{date}}"
+    },
+    "empty": "// nessuna notifica",
+    "loadMore": "Carica altre",
+    "loadingMore": "Carico…",
+    "loadError": "Non è stato possibile caricare l'inbox.",
+    "bell": {
+      "label": "Inbox",
+      "labelWithCount": "Inbox, {{count}} da leggere"
+    },
+    "errors": {
+      "alreadyHandled": "Già gestita da {{email}}",
+      "alreadyHandledUnknown": "Già gestita da qualcun altro",
+      "jobInFlight": "C'è già un job in corso",
+      "planNotPending": "Nessun piano in attesa di approvazione",
+      "forbidden": "Azione riservata ai maintainer",
+      "invalidAction": "Azione non disponibile su questa notifica",
+      "generic": "Azione non riuscita"
     }
   },
   "automation": {
@@ -1105,7 +1197,7 @@
       "cancel": "Annulla",
       "empty": "// nessun progetto",
       "emptyHintAdmin": "Crea il primo progetto, poi aggiungi i suoi repository.",
-      "emptyHintMember": "Chiedi a un amministratore di creare il primo progetto.",
+      "emptyHintMember": "Chiedi a un maintainer di creare il primo progetto.",
       "repositoryCount": "{{count}} repository",
       "repositoryCount_one": "{{count}} repository",
       "createdAt": "creato {{date}}"
@@ -1116,12 +1208,12 @@
       "settings": "Impostazioni del progetto",
       "saved": "Modifiche salvate.",
       "name": "Nome",
-      "readOnlyHint": "// sola lettura: le impostazioni le modificano gli admin",
+      "readOnlyHint": "// sola lettura: le impostazioni le modificano i maintainer",
       "repositories": "Repository",
       "addRepository": "+ Aggiungi repository",
       "noRepositories": "// nessun repository",
       "noRepositoriesHintAdmin": "Aggiungi il primo repository così l'AI potrà correggere i ticket su di esso.",
-      "noRepositoriesHintMember": "Chiedi a un amministratore di collegare un repository.",
+      "noRepositoriesHintMember": "Chiedi a un maintainer di collegare un repository.",
       "servers": "Server",
       "manageServers": "Gestisci nel Monitor",
       "serversLoading": "// caricamento server…",
@@ -1133,7 +1225,9 @@
       "deleteConfirm": "Eliminare il progetto e TUTTI i suoi repository (ticket, docs, fix)? L'azione è irreversibile.",
       "deleteConfirmYes": "Sì, elimina",
       "deleting": "Eliminazione…",
-      "cancel": "Annulla"
+      "cancel": "Annulla",
+      "follow": "Segui",
+      "unfollow": "Smetti di seguire"
     },
     "form": {
       "name": "Nome",
@@ -1174,7 +1268,7 @@
       "status": "Stato",
       "webhookConfiguredAt": "✓ Webhook configurato il {{date}}",
       "webhookNotConfigured": "— Webhook non configurato",
-      "readOnlyHint": "// sola lettura: la configurazione la modificano gli admin"
+      "readOnlyHint": "// sola lettura: la configurazione la modificano i maintainer"
     },
     "form": {
       "name": "Nome",
@@ -1237,7 +1331,7 @@
       "add": "Aggiungi repository",
       "empty": "// nessun repository",
       "emptyHintAdmin": "Aggiungi un repository per collegarlo a un progetto.",
-      "emptyHintMember": "Nessun repository collegato: chiedi a un amministratore di aggiungerne uno.",
+      "emptyHintMember": "Nessun repository collegato: chiedi a un maintainer di aggiungerne uno.",
       "branch": "branch",
       "unknownProject": "progetto sconosciuto"
     },
@@ -1493,7 +1587,7 @@
       "disabledAbout2": "Una volta abilitato si ricostruisce da solo a ogni push e ti dà una mappa interattiva della codebase, un report dei simboli più connessi e dei collegamenti nascosti tra moduli, e risposte strutturali — \"chi chiama questa funzione?\", \"come sono collegati questi due moduli?\" — per te e per gli agenti AI, all'istante invece che a colpi di grep.",
       "disabledCredits": "Basato su <0>graphify</0>, progetto open source di Graphify Labs (Apache 2.0) — un grazie ai suoi autori.",
       "disabledCta": "Abilitalo nel repository",
-      "disabledMemberHint": "Chiedi a un admin di abilitarlo per questo repository.",
+      "disabledMemberHint": "Chiedi a un maintainer di abilitarlo per questo repository.",
       "neverTitle": "Grafo mai generato",
       "neverHint": "Generalo per esplorare la struttura del repository e ottenere il report delle sue comunità.",
       "generate": "Genera grafo",
@@ -1576,7 +1670,7 @@
       "emptyHint": "Le risposte si basano sulla documentazione del progetto, con citazioni.",
       "sources": "Fonti",
       "error": "Qualcosa è andato storto nel generare la risposta.",
-      "unavailable": "La chat dei docs richiede un provider AI con API key. Chiedi a un admin di aggiungerne uno nelle impostazioni (i provider account/OAuth non funzionano qui).",
+      "unavailable": "La chat dei docs richiede un provider AI con API key. Chiedi a un maintainer di aggiungerne uno nelle impostazioni (i provider account/OAuth non funzionano qui).",
       "newChat": "Nuova chat",
       "openProject": "Chiedi ai docs",
       "resize": "Ridimensiona la chat"
@@ -1702,7 +1796,7 @@
     "save": "Salva",
     "saving": "Salvataggio…",
     "saved": "Salvato",
-    "readOnlyHint": "Solo gli amministratori possono modificare queste impostazioni.",
+    "readOnlyHint": "Solo i maintainer possono modificare queste impostazioni.",
     "snippet": "Snippet di integrazione",
     "copySnippet": "Copia snippet",
     "snippetHint": "// incolla prima di </body>: carica il widget e lo avvia con l'utente corrente.",

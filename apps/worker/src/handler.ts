@@ -8,7 +8,7 @@ import { join } from "node:path";
 import type { AgentRunner } from "./agent/runner.js";
 import type { MirrorManager } from "./git/mirrors.js";
 import { runFix, type FixDeps, type FixOutcome } from "./pipeline/fix.js";
-import type { DispatchFn } from "./pipeline/notify.js";
+import type { PublishFn } from "./pipeline/notify.js";
 import { runTriage, type TriageOutcome } from "./pipeline/triage.js";
 import { loadProviderById, loadProviderChain, type ResolvedProvider } from "./providers/chain.js";
 import { appendLog, failJob, holdJob, markFixing, setJobProvider, type AiJob } from "./queue.js";
@@ -48,9 +48,9 @@ export interface HandlerDeps {
   /** URL pubblico dell'istanza (PUBLIC_URL), per i link nelle notifiche. Vuoto
    * = il link al ticket è il solo path. */
   publicUrl?: string;
-  /** Dispatch delle notifiche iniettabile nei test. Default:
-   * dispatchNotification (best-effort, non lancia mai). */
-  dispatch?: DispatchFn;
+  /** Publish delle notifiche iniettabile nei test. Default:
+   * publishNotification (best-effort, non lancia mai). */
+  publish?: PublishFn;
   /** Radice del volume dei knowledge graph (GRAPHS_DIR): passata al fix per il
    * blocco CODE GRAPH nei prompt (vedi graph/agent-hint.ts). */
   graphsDir?: string;
@@ -87,7 +87,7 @@ export interface HandlerDeps {
 async function runJobWithProvider(
   deps: HandlerDeps,
   job: AiJob,
-  notifyOpts: { publicUrl?: string; projectName: string; dispatch?: DispatchFn },
+  notifyOpts: { publicUrl?: string; projectName: string; publish?: PublishFn },
   provider: ResolvedProvider | undefined,
 ): Promise<boolean> {
   // Registra la credenziale TENTATA su ai_jobs.provider_id (best-effort): se il
@@ -199,11 +199,11 @@ async function processJob(
   aiProviderId: string | null,
 ): Promise<void> {
   // Contesto delle notifiche comune a triage e fix (best-effort): URL pubblico
-  // per il link, nome progetto per il messaggio, dispatch iniettabile nei test.
+  // per il link, nome progetto per il messaggio, publish iniettabile nei test.
   const notifyOpts = {
     ...(deps.publicUrl !== undefined ? { publicUrl: deps.publicUrl } : {}),
     projectName,
-    ...(deps.dispatch !== undefined ? { dispatch: deps.dispatch } : {}),
+    ...(deps.publish !== undefined ? { publish: deps.publish } : {}),
   };
 
   // PROVIDER AI DI PROGETTO (modalità STRICT): se il progetto ha un provider

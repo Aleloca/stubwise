@@ -36,6 +36,8 @@ import { gitIdentityRoutes } from "./routes/git-identity-routes.js";
 import { activityRoutes } from "./routes/activity-routes.js";
 import { backlogRoutes } from "./routes/backlog.js";
 import { inboundRoutes } from "./routes/inbound.js";
+import { inboxRoutes } from "./routes/inbox.js";
+import { mePrefsRoutes } from "./routes/me-prefs.js";
 import { ingestRoutes } from "./routes/ingest.js";
 import { widgetRoutes } from "./routes/widget.js";
 import { monitorRoutes } from "./routes/monitor.js";
@@ -570,6 +572,15 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // accept/dismiss dei suggerimenti (requireAdmin), creazione manuale che accoda
   // un job intake come i ticket deviati.
   void app.register(backlogRoutes, { prefix: "/api/backlog" });
+
+  // Inbox delle notifiche dell'utente autenticato: lista, campanella, azioni.
+  // Adattatore sottile su services/inbox.ts, che resta l'unico arbitro delle
+  // regole (le stesse decisioni arrivano anche dai bottoni Slack).
+  void app.register(inboxRoutes, { prefix: "/api/inbox" });
+
+  // Preferenze PERSONALI: progetti seguiti e canali di notifica. Sotto /api/me
+  // perché il soggetto è sempre chi chiama, non un utente amministrato.
+  void app.register(mePrefsRoutes, { prefix: "/api/me" });
 
   app.get("/health", async () => ({ status: "ok" }));
 

@@ -8,8 +8,12 @@ import {
   getComments,
   getGitAccount,
   getGitAccounts,
+  getInbox,
+  getInboxUnreadCount,
   getInstanceSettings,
   getInvites,
+  getMyFollows,
+  getNotificationPrefs,
   getNotificationSettings,
   getObservedAuthors,
   listPats,
@@ -41,7 +45,10 @@ import {
   listServerChecks,
   listServers,
   listTickets,
+  type AIJob,
+  type AIJobStatus,
   type BacklogFilters,
+  type InboxFilters,
   type RepoGraph,
   type ServerMetricsRange,
   type TicketFilters,
@@ -189,10 +196,48 @@ export function activityQueryOptions(ticketId: string) {
   });
 }
 
+/** Cadenza del polling dei job mentre il worker sta lavorando sul ticket. */
+const JOBS_POLL_MS = 5_000;
+
+/** Cadenza lenta sugli stati che aspettano una PERSONA (spesso un'altra). */
+const JOBS_WAITING_POLL_MS = 20_000;
+
+/** Stati in cui il job è VIVO: il worker lo sta muovendo da solo. */
+const LIVE_JOB_STATUSES = new Set<AIJobStatus>(["queued", "triaging", "fixing"]);
+
+/** Stati fermi in attesa di una decisione umana (approvazione del piano, gate). */
+const WAITING_JOB_STATUSES = new Set<AIJobStatus>(["awaiting_plan_approval", "held"]);
+
+/**
+ * Intervallo di refetch della lista job: 5s finché l'ULTIMO job è vivo, 20s
+ * sugli stati d'attesa, nessun polling altrimenti. Funzione pura (testabile a
+ * sé) usata dal `refetchInterval` di {@link ticketJobsQueryOptions}.
+ *
+ * Solo l'ultimo perché la lista arriva dal più recente al più vecchio e i
+ * precedenti sono per definizione conclusi: guardare il primo elemento basta.
+ *
+ * Gli stati d'attesa non sono vivi — il job aspetta una persona, non il worker —
+ * ma quella persona può NON essere chi guarda: un operatore fermo su "in attesa
+ * dell'approvazione di un maintainer" non ha nessuna azione locale che invalidi
+ * la query, e senza polling resterebbe su quello schermo per sempre. 20s è il
+ * compromesso: la decisione altrui si vede in mezzo minuto, il costo è una GET
+ * ogni 20s per scheda aperta invece di una ogni 5.
+ */
+export function ticketJobsRefetchInterval(jobs: AIJob[] | undefined): number | false {
+  const latest = jobs?.[0];
+  if (latest === undefined) return false;
+  if (LIVE_JOB_STATUSES.has(latest.status)) return JOBS_POLL_MS;
+  if (WAITING_JOB_STATUSES.has(latest.status)) return JOBS_WAITING_POLL_MS;
+  return false;
+}
+
 export function ticketJobsQueryOptions(ticketId: string) {
   return queryOptions({
     queryKey: ticketKeys.jobs(ticketId),
     queryFn: () => getTicketJobs(ticketId),
+    // Il worker avanza in modo asincrono: senza polling la timeline resterebbe
+    // ferma sull'ultimo stato visto fino a un refresh manuale.
+    refetchInterval: (query) => ticketJobsRefetchInterval(query.state.data),
   });
 }
 
@@ -855,3 +900,93 @@ export function activityReportQueryOptions(date: string) {
     },
   });
 }
+
+/**
+ * Chiavi dell'INBOX. `lists()` matcha ogni lista filtrata (da invalidare dopo
+ * un'azione, che può cambiare righe di più viste); `unread()` è il contatore
+ * della campanella, separato perché ha una cadenza propria e una risposta
+ * minuscola.
+ */
+export const inboxKeys = {
+  all: ["inbox"] as const,
+  lists: () => [...inboxKeys.all, "list"] as const,
+  list: (filters: InboxFilters) => [...inboxKeys.lists(), filters] as const,
+  unread: () => [...inboxKeys.all, "unread"] as const,
+};
+
+/**
+ * Pagina dell'inbox per i filtri dati (i filtri nella chiave: ogni
+ * combinazione è una lista a sé, come nel backlog).
+ *
+ * NIENTE `refetchInterval` qui: la lista è lunga e la sua freschezza la porta
+ * il contatore, che gira ogni 30s (vedi {@link inboxUnreadQueryOptions}) — la
+ * UI ricarica quando il numero cambia o dopo un'azione. `staleTime` breve
+ * perché le righe cambiano anche per mano di ALTRI (una decisione chiude le
+ * copie di tutti).
+ *
+ * FORMA CANONICA DEI FILTRI: chi chiama passa SEMPRE `status` esplicito
+ * (`{ status: "open" }`, mai `{}`), anche quando coincide col default del
+ * server. `{}` e `{ status: "open" }` chiedono la stessa cosa ma sono due
+ * chiavi di cache DIVERSE: se il loader prefetchasse l'una e il componente
+ * leggesse l'altra si vedrebbe un doppio caricamento, e un update ottimistico
+ * scritto su una delle due non si vedrebbe nell'altra. Il default
+ * `filters = {}` resta solo perché il tipo lo consente, non è una forma da
+ * usare.
+ */
+export function inboxQueryOptions(filters: InboxFilters = {}) {
+  return queryOptions({
+    queryKey: inboxKeys.list(filters),
+    queryFn: () => getInbox(filters),
+    staleTime: 10_000,
+  });
+}
+
+/**
+ * Contatore delle non lette: la sola query in polling costante dell'inbox, da
+ * ogni scheda aperta. 30s è il compromesso fra "la campanella si accorge di un
+ * evento" e il carico di una GET per scheda — la risposta è un solo intero e
+ * la lettura è pura (non riapre gli snooze scaduti).
+ */
+export function inboxUnreadQueryOptions() {
+  return queryOptions({
+    queryKey: inboxKeys.unread(),
+    queryFn: () => getInboxUnreadCount(),
+    refetchInterval: 30_000,
+  });
+}
+
+/**
+ * Preferenze PERSONALI dell'utente corrente (`/api/me`): i progetti seguiti e
+ * i canali di notifica. Chiave radice `["me", "prefs"]` così una mutazione può
+ * invalidarle entrambe; sottochiavi distinte perché le due risorse hanno
+ * consumatori diversi (i follow anche l'header del progetto, le preferenze solo
+ * la pagina Account).
+ */
+export const mePrefsKeys = {
+  all: ["me", "prefs"] as const,
+  follows: () => [...mePrefsKeys.all, "follows"] as const,
+  notifications: () => [...mePrefsKeys.all, "notifications"] as const,
+};
+
+/**
+ * Progetti seguiti dall'utente: l'insieme COMPLETO (il PUT lo sostituisce).
+ * `staleTime` generoso — cambia solo per mano dell'utente stesso, e chi lo
+ * cambia scrive comunque la cache.
+ *
+ * CROSS-TAB: chi scrive compone l'insieme da QUESTA cache, quindi una scheda
+ * rimasta aperta su un insieme vecchio può cancellare un follow fatto altrove
+ * (l'ultimo PUT vince). Raggio limitato ai propri follow e riparabile con un
+ * click, quindi si accetta invece di introdurre un lock o un merge lato client.
+ */
+export const myFollowsQueryOptions = queryOptions({
+  queryKey: mePrefsKeys.follows(),
+  queryFn: getMyFollows,
+  staleTime: 60_000,
+});
+
+/** Preferenze di notifica + `slackLinked` (contesto per rendere il toggle DM). */
+export const notificationPrefsQueryOptions = queryOptions({
+  queryKey: mePrefsKeys.notifications(),
+  queryFn: getNotificationPrefs,
+  staleTime: 60_000,
+});

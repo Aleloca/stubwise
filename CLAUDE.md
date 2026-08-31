@@ -85,6 +85,13 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   skill, riscritto da `graphify claude install`.
 - Modifica al **retrieval dal grafo nelle chat** (`apps/server/src/graph-chat`) →
   ribuilda `server`.
+- **Fase 0 (inbox/notifiche)**: rebuild **server+worker+caddy insieme**
+  (migrazione 0063 all'avvio del server; senza il worker nuovo le notifiche
+  restano in outbox); env opzionale `NOTIFY_POLL_SECONDS` (default 5, 0 = spegne
+  la consegna, webhook incluso); app Slack: aggiungere gli scope `chat:write` e
+  `im:write`, reinstallarla nel workspace e risalvare il bot token in
+  Impostazioni → Slack; poi collegare gli account Slack in /team (chi è collegato
+  inizia a ricevere DM subito, preferenza disattivabile dall'Account).
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -123,6 +130,15 @@ Stubwise si integra con Claude Code via il server MCP `@stubwise/mcp`
   on-demand).
 - Comando **`/stubwise:init`**: collega una o più repo a un progetto Stubwise
   scrivendo `.stubwise.json` (`{ "project": "<slug>" }`) nella radice.
+- Comando **`/stubwise:run`**: prepara il ticket (design + piano + `in_progress`)
+  e lancia l'esecuzione SUL worker con il tool `run_ticket` — l'implementazione
+  la fa la pipeline, non la sessione locale (`/stubwise:start` è l'opposto:
+  implementa in locale).
+- **Ruoli (fase 0)**: `admin` = maintainer, `member` = operatore. Un run avviato
+  da un operatore passa sempre dal gate di approvazione del piano (con piano
+  salvato nasce `awaiting_plan_approval`, senza piano si ferma a piano pronto);
+  solo un maintainer approva/rifiuta, e dopo l'approvazione l'esecuzione riparte
+  da sola. Nessun tool MCP approva un piano.
 - Serve un Personal Access Token (`stw_pat_...`, dalle impostazioni Stubwise) in
   `STUBWISE_TOKEN`; `STUBWISE_URL` punta all'istanza (default
   `http://localhost:3000`). Il pacchetto è pubblicato su npm come

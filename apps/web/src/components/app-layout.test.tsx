@@ -58,6 +58,8 @@ function baseApi(): Record<string, Handler> {
     "GET /api/projects": () => jsonResponse(200, []),
     "GET /api/repositories": () => jsonResponse(200, []),
     "GET /api/tickets": () => jsonResponse(200, { items: [], nextCursor: null }),
+    // La campanella vive nello shell: il contatore parte su ogni pagina.
+    "GET /api/inbox/unread-count": () => jsonResponse(200, { count: 4 }),
   };
 }
 
@@ -121,6 +123,39 @@ describe("app-shell responsive", () => {
       expect(inSidebar, `${code} nella sidebar`).toHaveLength(1);
       expect(inDrawer, `${code} nel drawer`).toHaveLength(1);
     }
+  });
+
+  it("la voce Inbox apre la nav ed è la prima della lista", async () => {
+    mockApi(baseApi());
+    renderApp("/docs");
+    await screen.findByRole("heading", { name: "Documentation" });
+
+    const aside = document.querySelector("aside") as HTMLElement;
+    const navLinks = within(aside).getAllByRole("link", { hidden: true });
+    const inbox = navLinks.find((el) => el.textContent === "INBInbox");
+    expect(inbox).toBeDefined();
+    expect(inbox).toHaveAttribute("href", "/inbox");
+    // Prima voce di navigazione (dopo il wordmark e la campanella della testata):
+    // l'inbox è la home operativa.
+    const codes = navLinks
+      .map((el) => el.textContent?.slice(0, 3))
+      .filter((code) => code !== undefined);
+    expect(codes.indexOf("INB")).toBeLessThan(codes.indexOf("TKT"));
+  });
+
+  it("la campanella è nella sidebar desktop e nella top bar mobile", async () => {
+    mockApi(baseApi());
+    renderApp("/docs");
+    await screen.findByRole("heading", { name: "Documentation" });
+
+    const bells = await screen.findAllByLabelText("Inbox, 4 unread");
+    expect(bells).toHaveLength(2);
+
+    const aside = document.querySelector("aside") as HTMLElement;
+    const hamburger = screen.getByRole("button", { name: "Open navigation" });
+    const topBar = hamburger.parentElement as HTMLElement;
+    expect(bells.some((bell) => aside.contains(bell))).toBe(true);
+    expect(bells.some((bell) => topBar.contains(bell))).toBe(true);
   });
 
   it("la voce Repositories in sidebar linka a /repositories", async () => {

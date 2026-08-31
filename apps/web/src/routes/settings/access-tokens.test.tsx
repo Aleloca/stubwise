@@ -208,7 +208,7 @@ describe("Impostazioni — token di accesso", () => {
     await user.click(screen.getByRole("button", { name: "Create token" }));
 
     // Il `code` noto viene tradotto (errors:forbidden), non mostrato grezzo.
-    expect(await screen.findByText("Administrators only")).toBeInTheDocument();
+    expect(await screen.findByText("Maintainers only")).toBeInTheDocument();
     expect(screen.queryByText("Forbidden")).not.toBeInTheDocument();
   });
 

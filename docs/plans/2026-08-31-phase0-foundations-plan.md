@@ -5,6 +5,7 @@ design: 2026-08-31-phase0-foundations-design.md
 stubwise:
   project: stubwise
   backlogItem: 729af693-502c-4df0-9959-2eb72118f2c5 # https://stubwise.thecove.it/backlog/729af693-502c-4df0-9959-2eb72118f2c5
+  ticket: 4 # https://stubwise.thecove.it/tickets/5621d103-5b49-442a-91fd-3f979797f93d
 ---
 
 # Fase 0 — Fondamenta — Piano di implementazione
@@ -19,7 +20,7 @@ stubwise:
 
 **Convenzioni trasversali (valgono per ogni task):**
 - TDD: test prima, verifica che fallisca, implementa, verifica che passi, commit.
-- Test singolo package: `pnpm --filter @stubwise/db test`, `pnpm --filter @stubwise/server test -- <pattern>`, `pnpm --filter @stubwise/worker test -- <pattern>`, `pnpm --filter @stubwise/notifications test`, `pnpm --filter @stubwise/mcp test`, `pnpm --filter @stubwise/web test -- <pattern>` (server/worker/db usano testcontainers: serve Docker attivo).
+- Test singolo package: `pnpm --filter @stubwise/db test`, `pnpm --filter @stubwise/server exec vitest run <pattern>`, `pnpm --filter @stubwise/worker exec vitest run <pattern>`, `pnpm --filter @stubwise/notifications test`, `pnpm --filter @stubwise/mcp test`, `pnpm --filter @stubwise/web exec vitest run <pattern>` (NB: `pnpm ... test -- <pattern>` NON filtra, lancia tutta la suite; server/worker/db usano testcontainers: serve Docker attivo).
 - Dopo aver modificato `packages/*`: `pnpm --filter @stubwise/<pkg> build` (server/worker leggono `dist`).
 - Commit frequenti, messaggi `feat(scope):` / `fix(scope):` in italiano come lo storico.
 - Prima del merge: `pnpm lint` + `pnpm typecheck` + `pnpm test` dalla radice (la CI fallisce su lint anche col resto verde).
@@ -39,7 +40,7 @@ stubwise:
 
 **Step 1: test** — (a) `ai_jobs` accetta `requested_by_user_id` null e `plan_approval_required` default `false`; (b) inserisce `notifications` per due utenti con lo stesso `job_id` e rilegge per `job_id`; (c) `notification_deliveries` con `notification_id` null e `channel='webhook'` è valido; `status` rifiuta valori fuori enum; (d) `project_follows` rifiuta il duplicato (PK composta); (e) `users.notify_slack_dm` default `true`.
 
-**Step 2:** `pnpm --filter @stubwise/db test -- inbox-schema` → FALLISCE.
+**Step 2:** `pnpm --filter @stubwise/db exec vitest run inbox-schema` → FALLISCE.
 
 **Step 3: SQL**
 
@@ -121,7 +122,7 @@ CREATE TABLE project_follows (
 - ultimo job in `held|failed|pr_closed|skipped|pr_opened|pr_merged` → riusa la riga come oggi (verifica `startedAt/finishedAt/error` azzerati).
 - `resolvePlan(db, { ticketId, actor, mode: "execute"|"fix", instructions? })`: member → `{ error: "forbidden" }`; admin senza job pendente → `plan_not_pending`; con `instructions` inserisce il commento del team con quel testo PRIMA del commento di sistema (così il re-plan lo legge come "Rilancia con istruzioni" — cerca nel worker come vengono raccolti i `teamComments` in `pipeline/fix.ts` e usa lo stesso `authorType`/campo).
 
-**Step 2:** `pnpm --filter @stubwise/server test -- services/jobs` → FALLISCE.
+**Step 2:** `pnpm --filter @stubwise/server exec vitest run services/jobs` → FALLISCE.
 
 **Step 3: implementazione** — firma:
 
@@ -195,7 +196,7 @@ export type PublishFn = typeof publishNotification;
 export interface NotifyDeps { publicUrl?: string; projectName?: string; publish?: PublishFn }
 export async function notify(deps, db, event, opts: PublishOpts): Promise<void>
 ```
-e passa `opts` in ogni punto (`ticketId`/`jobId`/`projectId` sono sempre a portata di mano nella pipeline; per `monitor.*` passa `projectId` del server se esiste, altrimenti nulla). `job.pr_opened`: `costUsd` resta `null` come oggi. **Step 3:** test passano; `pnpm --filter @stubwise/worker typecheck`. **Step 4:** commit `refactor(notify): tutti gli eventi passano da publishNotification`.
+e passa `opts` in ogni punto (`ticketId`/`jobId`/`projectId` sono sempre a portata di mano nella pipeline; per `monitor.*` passa `projectId` del server se esiste, altrimenti nulla). `job.pr_opened`: `costUsd` resta `null` come oggi. **Emissione NUOVA lato server**: in `apps/server/src/services/jobs.ts`, quando `startRun` parcheggia direttamente il job di un `member` in `awaiting_plan_approval` (piano salvato), nessuno emette `job.plan_review` (oggi lo emette solo il worker in `fix.ts:1269`): aggiungi `publishNotification(db, { kind:"job.plan_review", … }, { projectId, ticketId, jobId })` dopo il commit, con test (il maintainer deve ricevere la notifica). **Step 3:** test passano; `pnpm --filter @stubwise/worker typecheck`. **Step 4:** commit `refactor(notify): tutti gli eventi passano da publishNotification`.
 
 ### Task 6: Poller delle deliveries nel worker (canale `webhook`)
 
@@ -329,5 +330,13 @@ Commit `docs(claude): comando /stubwise:run, skill aggiornata, docs MCP`.
 3. Aggiorna `docs/plans/feature-backlog.md` (nuova voce "Programma centro nevralgico — Fase 0 ✅" con link) e `CLAUDE.md` § Deploy: "Fase 0: rebuild server+worker+caddy insieme; migrazione 0063; scope Slack `chat:write`+`im:write` e reinstallazione app; env opzionale `NOTIFY_POLL_SECONDS` (0 = spegne DM e webhook via poller)".
 4. Aggiorna la voce di backlog/ticket Stubwise (skill `stubwise`: `in_review` a PR aperta).
 5. Commit `docs: note di deploy fase 0`.
+
+**Vincoli emersi in implementazione:**
+- ⚠️ Dopo il Task 5 e PRIMA del Task 6 le notifiche non partono più (si accumulano
+  in outbox): il branch va mergiato e deployato SOLO completo (o comunque mai
+  fra i due task).
+- I cicli rifiuto→ripianificazione accumulano più notifiche `job.plan_review`
+  per lo stesso job: la propagazione `handled` per (jobId, kind) del Task 7 le
+  chiude in blocco all'approvazione successiva; nessuna azione extra.
 
 **Deploy (dopo il merge, a cura del maintainer):** backup DB → `git pull` → `docker compose up -d --build server worker caddy` → verificare la migrazione 0063 (`\dt notifications`) → app Slack: aggiungere scope, reinstallare, risalvare il bot token in Impostazioni → Slack → collegare gli account Slack degli utenti in `/team` → verificare un DM di prova (es. `job.plan_review` su un ticket di test).

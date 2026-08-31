@@ -1,14 +1,18 @@
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
 import {
+  aiJobs,
+  comments,
   docChunks,
   docGenerations,
   docPages,
   encrypt,
   instanceSettings,
+  notificationDeliveries,
+  notifications,
   projects,
   repoGraphs,
   repositories,
@@ -20,10 +24,18 @@ import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import type { ChatAvailability, ChatLlm, ChatLlmInput } from "../routes/chat-llm.js";
-import { createFakeGraphMcpClient, seedUsers } from "../test/fixtures.js";
+import { createTicket } from "../db/tickets.js";
+import { createFakeGraphMcpClient, seedUsers, type SeededUsers } from "../test/fixtures.js";
 import type { SlackClient } from "./api.js";
 import type { SlackClientFactory } from "./routes.js";
-import { ACTION_IDS, BLOCK_IDS, CREATE_TICKET_CALLBACK_ID } from "./modal.js";
+import {
+  ACTION_IDS,
+  BLOCK_IDS,
+  CREATE_TICKET_CALLBACK_ID,
+  INBOX_REJECT_ACTION_ID,
+  INBOX_REJECT_BLOCK_ID,
+  INBOX_REJECT_PLAN_CALLBACK_ID,
+} from "./modal.js";
 import {
   DOCS_ACTION_IDS,
   DOCS_BLOCK_IDS,
@@ -42,6 +54,7 @@ const NOW = 1_700_000_000_000;
 let testDb: TestDb;
 let app: FastifyInstance;
 let adminCookie: string;
+let seeded: SeededUsers;
 // Progetto bersaglio dei test di creazione ticket via Slack (il ticket modal
 // seleziona un PROGETTO — Fase 3): è un projectId, usato come `tickets.projectId`.
 let ticketProjectId: string;
@@ -64,6 +77,13 @@ const slackClientFactory: SlackClientFactory = () => ({
   getUserEmail,
   getUserProfile,
   listWorkspaceUsers,
+  // Messaggistica: non usata da questo flusso (i DM dell'inbox sono del worker).
+  postMessage: async () => {
+    throw new Error("postMessage non previsto in questo test");
+  },
+  updateMessage: async () => {
+    throw new Error("updateMessage non previsto in questo test");
+  },
 });
 
 // Fake embedding client (deterministico): un testo identico → vettore identico,
@@ -335,7 +355,8 @@ beforeAll(async () => {
     slackPostResponse: postResponse,
     graphMcpClient: fakeGraphClient,
   });
-  ({ adminCookie } = await seedUsers(app));
+  seeded = await seedUsers(app);
+  adminCookie = seeded.adminCookie;
   ({ projectId: ticketProjectId } = await createProject("slack-proj"));
   const [u] = await testDb.db
     .insert(users)
@@ -1063,5 +1084,449 @@ describe("POST /api/slack/interactions — view_submission docs_query", () => {
     // La risposta è quella di sempre.
     const [, payload] = postResponse.mock.calls[0]!;
     expect(JSON.stringify(payload)).toContain("Risposta dai docs.");
+  });
+});
+
+describe("POST /api/slack/interactions — block_actions dell'inbox", () => {
+  const ADMIN_SLACK = "UADMINBOX";
+  const MEMBER_SLACK = "UMEMBERBOX";
+  const RESPONSE_URL = "https://hooks.slack.com/inbox-resp";
+
+  /** Evento `job.plan_review` realistico (il kind con le azioni decisionali). */
+  function planReviewEvent(): Record<string, unknown> {
+    return {
+      kind: "job.plan_review",
+      ticketNumber: 7,
+      ticketTitle: "Export CSV dello storico",
+      projectName: "negozio-web",
+      ticketUrl: `${PUBLIC_URL}/tickets/7`,
+    };
+  }
+
+  /** Riga d'inbox di un utente, ancorata a ticket e job. */
+  async function seedNotification(input: {
+    userId: string;
+    ticketId?: string;
+    jobId?: string;
+    kind?: "job.plan_review" | "job.failed";
+    status?: "open" | "handled";
+  }): Promise<string> {
+    const kind = input.kind ?? "job.plan_review";
+    const [row] = await testDb.db
+      .insert(notifications)
+      .values({
+        userId: input.userId,
+        kind,
+        event: { ...planReviewEvent(), kind },
+        ticketId: input.ticketId ?? null,
+        jobId: input.jobId ?? null,
+        projectId: ticketProjectId,
+        status: input.status ?? "open",
+        handledAt: input.status === "handled" ? new Date() : null,
+      })
+      .returning({ id: notifications.id });
+    return row!.id;
+  }
+
+  /** Ticket del progetto di test, con piano opzionale. */
+  async function seedTicket(plan?: string): Promise<string> {
+    const ticket = await createTicket(testDb.db, {
+      projectId: ticketProjectId,
+      title: `Ticket ${randomUUID().slice(0, 8)}`,
+      type: "bug",
+      priority: "medium",
+      source: "manual",
+      ...(plan === undefined ? {} : { implementationPlan: plan }),
+    });
+    return ticket.id;
+  }
+
+  async function seedJob(
+    ticketId: string,
+    status: "awaiting_plan_approval" | "fixing" | "failed",
+  ): Promise<string> {
+    const [row] = await testDb.db
+      .insert(aiJobs)
+      .values({ ticketId, status })
+      .returning({ id: aiJobs.id });
+    return row!.id;
+  }
+
+  async function readJob(jobId: string) {
+    const [row] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
+    return row;
+  }
+
+  async function readNotification(id: string) {
+    const [row] = await testDb.db.select().from(notifications).where(eq(notifications.id, id));
+    return row;
+  }
+
+  /** Le consegne `slack_update` accodate (una per copia da riscrivere). */
+  async function slackUpdates() {
+    return testDb.db
+      .select({
+        notificationId: notificationDeliveries.notificationId,
+        event: notificationDeliveries.event,
+        status: notificationDeliveries.status,
+      })
+      .from(notificationDeliveries)
+      .where(eq(notificationDeliveries.channel, "slack_update"));
+  }
+
+  /** Raw body urlencoded di un `block_actions` sui bottoni del DM d'inbox. */
+  function blockActionsBody(opts: {
+    actionId: string;
+    notificationId?: string;
+    blockId?: string;
+    selectedValue?: string;
+    userId?: string;
+    withResponseUrl?: boolean;
+  }): string {
+    const action: Record<string, unknown> = { action_id: opts.actionId };
+    const blockId =
+      opts.blockId ?? (opts.notificationId ? `inbox:${opts.notificationId}` : undefined);
+    if (blockId !== undefined) action.block_id = blockId;
+    if (opts.notificationId) action.value = opts.notificationId;
+    if (opts.selectedValue) action.selected_option = { value: opts.selectedValue };
+    const payload = {
+      type: "block_actions",
+      user: { id: opts.userId ?? ADMIN_SLACK },
+      trigger_id: "TRIG-INBOX",
+      ...(opts.withResponseUrl === false ? {} : { response_url: RESPONSE_URL }),
+      actions: [action],
+    };
+    return new URLSearchParams({ payload: JSON.stringify(payload) }).toString();
+  }
+
+  /** Raw body urlencoded del submit del modal di rifiuto. */
+  function rejectSubmissionBody(opts: {
+    notificationId?: string;
+    instructions?: string;
+    userId?: string;
+  }): string {
+    const values: Record<string, Record<string, unknown>> = {};
+    if (opts.instructions !== undefined) {
+      values[INBOX_REJECT_BLOCK_ID] = { [INBOX_REJECT_ACTION_ID]: { value: opts.instructions } };
+    }
+    const payload = {
+      type: "view_submission",
+      user: { id: opts.userId ?? ADMIN_SLACK },
+      view: {
+        callback_id: INBOX_REJECT_PLAN_CALLBACK_ID,
+        private_metadata: opts.notificationId ?? "",
+        state: { values },
+      },
+    };
+    return new URLSearchParams({ payload: JSON.stringify(payload) }).toString();
+  }
+
+  beforeEach(async () => {
+    // Slack abilitato anche se questo describe gira da solo (`-t`): senza
+    // credenziali /interactions risponderebbe 200 vuoto a tutto.
+    await setSlackCreds(true);
+    // Inbox e outbox puliti: i test contano righe e consegne.
+    await testDb.db.delete(notifications);
+    await testDb.db.delete(notificationDeliveries);
+    // Admin e member collegati a Slack (il ramo inbox risolve l'identità dal DB).
+    await testDb.db
+      .update(users)
+      .set({ slackUserId: ADMIN_SLACK })
+      .where(eq(users.id, seeded.adminId));
+    await testDb.db
+      .update(users)
+      .set({ slackUserId: MEMBER_SLACK })
+      .where(eq(users.id, seeded.memberId));
+  });
+
+  it("firma non valida → 401, nessuna azione eseguita", async () => {
+    const ticketId = await seedTicket("## Piano");
+    const jobId = await seedJob(ticketId, "awaiting_plan_approval");
+    const id = await seedNotification({ userId: seeded.adminId, ticketId, jobId });
+    const res = await slackPost(
+      "/api/slack/interactions",
+      blockActionsBody({ actionId: "inbox:approve_plan", notificationId: id }),
+      { sign: false },
+    );
+    expect(res.statusCode).toBe(401);
+    expect((await readJob(jobId))?.status).toBe("awaiting_plan_approval");
+    expect(postResponse).not.toHaveBeenCalled();
+  });
+
+  it("action_id non dell'inbox → ack vuoto e nient'altro", async () => {
+    const res = await slackPost(
+      "/api/slack/interactions",
+      blockActionsBody({ actionId: "altro_flusso:qualcosa", blockId: "b1" }),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toBe("");
+    expect(postResponse).not.toHaveBeenCalled();
+    expect(openView).not.toHaveBeenCalled();
+  });
+
+  it("inbox:open → solo ack (è un bottone link)", async () => {
+    const id = await seedNotification({ userId: seeded.adminId });
+    const res = await slackPost(
+      "/api/slack/interactions",
+      blockActionsBody({ actionId: "inbox:open", notificationId: id }),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toBe("");
+    expect(postResponse).not.toHaveBeenCalled();
+    expect((await readNotification(id))?.status).toBe("open");
+  });
+
+  it("utente Slack non collegato → ack + effimero 'collega l'account'", async () => {
+    const id = await seedNotification({ userId: seeded.adminId });
+    const res = await slackPost(
+      "/api/slack/interactions",
+      blockActionsBody({
+        actionId: "inbox:handled",
+        notificationId: id,
+        userId: "Uestraneo",
+      }),
+    );
+    expect(res.statusCode).toBe(200);
+    await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
+    const [url, payload] = postResponse.mock.calls[0]!;
+    expect(url).toBe(RESPONSE_URL);
+    const p = payload as { response_type: string; text: string };
+    expect(p.response_type).toBe("ephemeral");
+    expect(p.text).toContain("not linked");
+    // Nessuna azione eseguita per conto di nessuno.
+    expect((await readNotification(id))?.status).toBe("open");
+  });
+
+  it("inbox:approve_plan da admin → ack immediato, job in coda, messaggio riscritto e copie propagate", async () => {
+    const ticketId = await seedTicket("## Piano\n1. Passo A");
+    const jobId = await seedJob(ticketId, "awaiting_plan_approval");
+    const mine = await seedNotification({ userId: seeded.adminId, ticketId, jobId });
+    const theirs = await seedNotification({ userId: seeded.memberId, ticketId, jobId });
+
+    const res = await slackPost(
+      "/api/slack/interactions",
+      blockActionsBody({ actionId: "inbox:approve_plan", notificationId: mine }),
+    );
+    // Ack vuoto e immediato: il lavoro è tutto dopo.
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toBe("");
+
+    await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
+    const [url, payload] = postResponse.mock.calls[0]!;
+    expect(url).toBe(RESPONSE_URL);
+    const p = payload as { replace_original: boolean; text: string; blocks: unknown[] };
+    expect(p.replace_original).toBe(true);
+    expect(p.text).toContain("✅");
+    expect(p.text).toContain("admin@example.com");
+    // Testo originale della notifica conservato sopra la nota.
+    expect(p.text).toContain("Export CSV dello storico");
+    // Nessun blocco `actions`: la notifica non è più azionabile da lì.
+    expect(p.blocks.some((b) => (b as { type?: string }).type === "actions")).toBe(false);
+
+    expect((await readJob(jobId))?.status).toBe("queued");
+    expect((await readJob(jobId))?.resumeMode).toBe("execute");
+    expect((await readNotification(mine))?.status).toBe("handled");
+
+    // TUTTE le copie passano dalla coda, la propria inclusa: ad accodarle è il
+    // servizio (`resolvePlan`), che lo fa per ogni superficie — anche per chi
+    // decide dalla pagina ticket, che di Slack non sa nulla. La riscrittura via
+    // response_url qui sopra è solo la scorciatoia per il feedback immediato, e
+    // il passaggio del poller riscriverà lo stesso contenuto.
+    await vi.waitFor(async () => expect(await slackUpdates()).toHaveLength(2));
+    const updates = await slackUpdates();
+    expect(updates.map((u) => u.notificationId).sort()).toEqual([mine, theirs].sort());
+    for (const update of updates) {
+      expect(update.status).toBe("pending");
+      expect((update.event as { note: string }).note).toContain("admin@example.com");
+    }
+  });
+
+  it("inbox:approve_plan da member → effimero forbidden, job intatto", async () => {
+    const ticketId = await seedTicket("## Piano");
+    const jobId = await seedJob(ticketId, "awaiting_plan_approval");
+    const id = await seedNotification({ userId: seeded.memberId, ticketId, jobId });
+
+    const res = await slackPost(
+      "/api/slack/interactions",
+      blockActionsBody({
+        actionId: "inbox:approve_plan",
+        notificationId: id,
+        userId: MEMBER_SLACK,
+      }),
+    );
+    expect(res.statusCode).toBe(200);
+    await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
+    const [, payload] = postResponse.mock.calls[0]!;
+    const p = payload as { response_type: string; replace_original: boolean; text: string };
+    expect(p.response_type).toBe("ephemeral");
+    // Il messaggio NON viene sostituito: i bottoni restano dov'erano.
+    expect(p.replace_original).toBe(false);
+    expect(p.text).toContain("Administrators only");
+    expect((await readJob(jobId))?.status).toBe("awaiting_plan_approval");
+    expect(await slackUpdates()).toHaveLength(0);
+  });
+
+  it("notifica già gestita → effimero che dice CHI l'ha gestita", async () => {
+    const ticketId = await seedTicket("## Piano");
+    const jobId = await seedJob(ticketId, "awaiting_plan_approval");
+    const id = await seedNotification({ userId: seeded.adminId, ticketId, jobId });
+    // Prima azione: la chiude.
+    await slackPost(
+      "/api/slack/interactions",
+      blockActionsBody({ actionId: "inbox:handled", notificationId: id }),
+    );
+    await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
+    postResponse.mockClear();
+
+    const res = await slackPost(
+      "/api/slack/interactions",
+      blockActionsBody({ actionId: "inbox:approve_plan", notificationId: id }),
+    );
+    expect(res.statusCode).toBe(200);
+    await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
+    const [, payload] = postResponse.mock.calls[0]!;
+    const p = payload as { response_type: string; text: string };
+    expect(p.response_type).toBe("ephemeral");
+    expect(p.text).toContain("admin@example.com");
+  });
+
+  it("inbox:snooze dal menù → rinviata, messaggio riscritto e NESSUNA propagazione", async () => {
+    const ticketId = await seedTicket("## Piano");
+    const jobId = await seedJob(ticketId, "awaiting_plan_approval");
+    const mine = await seedNotification({ userId: seeded.adminId, ticketId, jobId });
+    const theirs = await seedNotification({ userId: seeded.memberId, ticketId, jobId });
+
+    const res = await slackPost(
+      "/api/slack/interactions",
+      blockActionsBody({
+        actionId: "inbox:snooze",
+        notificationId: mine,
+        selectedValue: "1h",
+      }),
+    );
+    expect(res.statusCode).toBe(200);
+    await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
+    const [, payload] = postResponse.mock.calls[0]!;
+    const p = payload as { replace_original: boolean; text: string; blocks: unknown[] };
+    expect(p.replace_original).toBe(true);
+    expect(p.text).toContain("⏰");
+    expect(p.blocks.some((b) => (b as { type?: string }).type === "actions")).toBe(false);
+
+    const row = await readNotification(mine);
+    expect(row?.status).toBe("snoozed");
+    expect(row?.snoozedUntil).not.toBeNull();
+    // Rinvio PERSONALE: la copia del collega resta aperta e non viene riscritta.
+    expect((await readNotification(theirs))?.status).toBe("open");
+    // In coda c'è solo il PROPRIO DM: i bottoni devono sparire anche quando a
+    // rinviare è stata l'inbox web, quindi ad accodarlo è il servizio.
+    await vi.waitFor(async () => expect(await slackUpdates()).toHaveLength(1));
+    const updates = await slackUpdates();
+    expect(updates[0]!.notificationId).toBe(mine);
+  });
+
+  it("inbox:snooze senza durata scelta → effimero invalid_action, notifica intatta", async () => {
+    const id = await seedNotification({ userId: seeded.adminId });
+
+    const res = await slackPost(
+      "/api/slack/interactions",
+      // Nessun `selected_option`: il servizio rifiuta la durata mancante.
+      blockActionsBody({ actionId: "inbox:snooze", notificationId: id }),
+    );
+    expect(res.statusCode).toBe(200);
+    await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
+    const [, payload] = postResponse.mock.calls[0]!;
+    const p = payload as { response_type: string; replace_original: boolean; text: string };
+    expect(p.response_type).toBe("ephemeral");
+    expect(p.replace_original).toBe(false);
+    expect(p.text).toContain("not available");
+    expect((await readNotification(id))?.status).toBe("open");
+  });
+
+  it("block_actions con actions vuoto → ack secco, nessun effetto", async () => {
+    const payload = {
+      type: "block_actions",
+      user: { id: ADMIN_SLACK },
+      trigger_id: "TRIG-INBOX",
+      response_url: RESPONSE_URL,
+      actions: [],
+    };
+    const res = await slackPost(
+      "/api/slack/interactions",
+      new URLSearchParams({ payload: JSON.stringify(payload) }).toString(),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toBe("");
+    expect(postResponse).not.toHaveBeenCalled();
+    expect(openView).not.toHaveBeenCalled();
+  });
+
+  it("inbox:reject_plan → apre il modal col notificationId, senza eseguire nulla", async () => {
+    const ticketId = await seedTicket("## Piano");
+    const jobId = await seedJob(ticketId, "awaiting_plan_approval");
+    const id = await seedNotification({ userId: seeded.adminId, ticketId, jobId });
+
+    const res = await slackPost(
+      "/api/slack/interactions",
+      blockActionsBody({ actionId: "inbox:reject_plan", notificationId: id }),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(openView).toHaveBeenCalledTimes(1);
+    const [triggerId, view] = openView.mock.calls[0]!;
+    expect(triggerId).toBe("TRIG-INBOX");
+    const v = view as { callback_id: string; private_metadata: string };
+    expect(v.callback_id).toBe(INBOX_REJECT_PLAN_CALLBACK_ID);
+    expect(v.private_metadata).toBe(id);
+    // Nessuna decisione: la prende il submit del modal.
+    expect((await readJob(jobId))?.status).toBe("awaiting_plan_approval");
+    expect(postResponse).not.toHaveBeenCalled();
+  });
+
+  it("view_submission inbox_reject_plan con istruzioni → commento, job ripianificato e update anche per la PROPRIA copia", async () => {
+    const ticketId = await seedTicket("## Piano");
+    const jobId = await seedJob(ticketId, "awaiting_plan_approval");
+    const mine = await seedNotification({ userId: seeded.adminId, ticketId, jobId });
+    const theirs = await seedNotification({ userId: seeded.memberId, ticketId, jobId });
+
+    const res = await slackPost(
+      "/api/slack/interactions",
+      rejectSubmissionBody({
+        notificationId: mine,
+        instructions: "Usa il repository dei report, non quello del checkout",
+      }),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toBe("");
+
+    const rows = await testDb.db
+      .select({ body: comments.body })
+      .from(comments)
+      .where(eq(comments.ticketId, ticketId));
+    expect(rows.some((r) => r.body.includes("repository dei report"))).toBe(true);
+    expect((await readJob(jobId))?.status).toBe("queued");
+    expect((await readJob(jobId))?.resumeMode).toBe("fix");
+
+    // Senza response_url del messaggio, ANCHE la propria copia passa dalla coda.
+    const updates = await slackUpdates();
+    expect(updates.map((u) => u.notificationId).sort()).toEqual([mine, theirs].sort());
+    for (const update of updates) {
+      expect((update.event as { note: string }).note).toContain("🚫");
+    }
+  });
+
+  it("view_submission inbox_reject_plan da un utente non collegato → errore nel modal, nessuna esecuzione", async () => {
+    const ticketId = await seedTicket("## Piano");
+    const jobId = await seedJob(ticketId, "awaiting_plan_approval");
+    const id = await seedNotification({ userId: seeded.adminId, ticketId, jobId });
+
+    const res = await slackPost(
+      "/api/slack/interactions",
+      rejectSubmissionBody({ notificationId: id, userId: "Uestraneo" }),
+    );
+    expect(res.statusCode).toBe(200);
+    const json = res.json() as { response_action: string; errors: Record<string, string> };
+    expect(json.response_action).toBe("errors");
+    expect(json.errors[INBOX_REJECT_BLOCK_ID]).toContain("not linked");
+    expect((await readJob(jobId))?.status).toBe("awaiting_plan_approval");
+    expect(await slackUpdates()).toHaveLength(0);
   });
 });

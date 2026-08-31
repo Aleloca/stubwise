@@ -1,21 +1,20 @@
 import type { FastifyInstance } from "fastify";
-import { decrypt, instanceSettings } from "@stubwise/db";
-import { createSlackClient, type SlackClient } from "./api.js";
+import {
+  createSlackClient,
+  loadSlackCreds as loadSlackCredsFromDb,
+  type SlackClientFactory,
+  type SlackCreds,
+} from "@stubwise/notifications";
 
 /**
- * Fabbrica del client Slack iniettabile a livello d'app: in produzione
- * costruisce il client reale dal bot token (con fetch globale); nei test si
- * passa un fake che non tocca la rete. Referenziata da BuildAppOptions e dalle
- * route Slack (sia quelle signature-authed sotto /api/slack, sia quelle
- * admin-authed di gestione identità).
+ * Accesso alle credenziali Slack dal contesto Fastify.
+ *
+ * Il caricamento vero (query + decifratura) vive in `@stubwise/notifications`
+ * insieme al client, perché serve anche al worker; qui resta la sola forma
+ * comoda per le rotte, che hanno l'`instance` sotto mano. `SlackClientFactory`
+ * e `SlackCreds` sono ri-esportati per non cambiare gli import esistenti.
  */
-export type SlackClientFactory = (botToken: string) => SlackClient;
-
-/** Credenziali Slack decifrate, o null se l'integrazione non è configurata. */
-export interface SlackCreds {
-  signingSecret: string;
-  botToken: string;
-}
+export type { SlackClientFactory, SlackCreds };
 
 /**
  * Carica e decifra signing secret + bot token dalle instance settings
@@ -25,22 +24,7 @@ export interface SlackCreds {
  * non vengono mai loggati.
  */
 export async function loadSlackCreds(instance: FastifyInstance): Promise<SlackCreds | null> {
-  const [row] = await instance.db
-    .select({
-      signing: instanceSettings.slackSigningSecretEncrypted,
-      bot: instanceSettings.slackBotTokenEncrypted,
-    })
-    .from(instanceSettings)
-    .limit(1);
-  if (!row?.signing || !row.bot) return null;
-  try {
-    return {
-      signingSecret: decrypt(row.signing, instance.encryptionKey),
-      botToken: decrypt(row.bot, instance.encryptionKey),
-    };
-  } catch {
-    return null;
-  }
+  return loadSlackCredsFromDb(instance.db, instance.encryptionKey);
 }
 
 /** Default factory: client Slack reale via fetch globale. */

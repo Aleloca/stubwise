@@ -74,7 +74,7 @@ describe("guardia di routing", () => {
     const router = renderApp();
 
     expect(
-      await screen.findByRole("heading", { name: /administrator account/i }),
+      await screen.findByRole("heading", { name: /maintainer account/i }),
     ).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/setup");
   });

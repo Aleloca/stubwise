@@ -239,6 +239,10 @@ export const users = pgTable("users", {
   // Username Bitbucket linkato al membro (speculare a slackUserId): un solo
   // membro per username, nullable (l'unique ignora i NULL in Postgres).
   bitbucketUsername: text("bitbucket_username").unique(),
+  // Preferenza di recapito: se true le notifiche destinate a questo utente
+  // vengono anche inviate come DM Slack (oltre a comparire nella sua inbox).
+  // Default true; senza `slackUserId` il canale resta comunque muto.
+  notifySlackDm: boolean("notify_slack_dm").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -694,6 +698,17 @@ export const aiJobs = pgTable(
     // coda prima che il worker scelga la credenziale. ON DELETE SET NULL: il job
     // sopravvive all'eliminazione del provider (lo storico resta consultabile).
     providerId: uuid("provider_id").references(() => aiProviders.id, { onDelete: "set null" }),
+    // Operatore che ha lanciato il job dalla UI. Null per i job nati
+    // automaticamente dall'ingest (nessun umano dietro). ON DELETE SET NULL: lo
+    // storico del job sopravvive all'eliminazione dell'utente.
+    requestedByUserId: uuid("requested_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    // Il job deve fermarsi sul gate del piano prima di eseguire. Acceso per i
+    // job richiesti dagli operatori (`role='member'`), che non possono far
+    // partire un fix senza che il piano sia approvato. Default false: i job
+    // esistenti e quelli automatici mantengono il comportamento di oggi.
+    planApprovalRequired: boolean("plan_approval_required").notNull().default(false),
   },
   (table) => [
     // Lookup dei job di un ticket (storico e dettaglio).
@@ -856,6 +871,44 @@ export const automationRules = pgTable("automation_rules", {
 // Formato del messaggio del webhook di notifica in uscita: Slack (mrkdwn),
 // Discord (markdown) o un payload JSON generico machine-readable.
 export const notificationFormat = pgEnum("notification_format", ["slack", "discord", "generic"]);
+
+// Tipo di evento dietro una notifica dell'inbox. Speculare ai `kind` di
+// `NotificationEvent` (@stubwise/notifications/format): la lista è ripetuta qui
+// come letterale perché `db` NON può importare da `notifications` (è
+// `notifications` a dipendere da `db`; l'inverso sarebbe un ciclo).
+// Aggiungere un kind richiede `ALTER TYPE ... ADD VALUE` in una migrazione che
+// NON usa il valore nuovo nello stesso batch: il migratore esegue tutte le
+// migrazioni pendenti in UNA transazione e Postgres rifiuta l'uso di un valore
+// enum aggiunto nella stessa (vedi CLAUDE.md, "Trappola migrazioni drizzle").
+export const notificationKind = pgEnum("notification_kind", [
+  "ticket.created",
+  "job.pr_opened",
+  "job.pr_closed",
+  "job.held",
+  "job.plan_review",
+  "job.budget_held",
+  "review.completed",
+  "job.failed",
+  "docs.limit_paused",
+  "monitor.alert",
+  "monitor.recovered",
+]);
+
+// Stato di una notifica nell'inbox del destinatario: `open` (da smaltire),
+// `handled` (chiusa, a mano o perché l'evento è stato risolto) o `snoozed`
+// (rinviata fino a `snoozedUntil`, poi torna a galla).
+export const notificationStatus = pgEnum("notification_status", ["open", "handled", "snoozed"]);
+
+// Canale di recapito di una consegna: `webhook` (il webhook d'istanza di
+// notification_settings, per EVENTO), `slack_dm` (messaggio diretto al
+// destinatario) o `slack_update` (aggiornamento di un DM già inviato,
+// identificato dal `ts` in `externalRef`).
+export const deliveryChannel = pgEnum("delivery_channel", ["webhook", "slack_dm", "slack_update"]);
+
+// Stato di una consegna in outbox: `pending` (da tentare, non prima di
+// `nextAttemptAt`), `sent`, `failed` (tentativi esauriti, `error` valorizzato) o
+// `skipped` (canale non applicabile, es. destinatario senza identità Slack).
+export const deliveryStatus = pgEnum("delivery_status", ["pending", "sent", "failed", "skipped"]);
 
 /**
  * Configurazione (riga singola) del webhook di notifica in uscita: Stubwise
@@ -2270,3 +2323,156 @@ export const graphJobs = pgTable(
 export type RepoGraph = typeof repoGraphs.$inferSelect;
 /** Riga di `graph_jobs`: un job di build/setup del grafo in coda. */
 export type GraphJob = typeof graphJobs.$inferSelect;
+
+/**
+ * Inbox di notifiche PER-UTENTE: una riga per (destinatario, evento). È la
+ * lista di ciò che un utente deve ancora smaltire, non un log dell'istanza —
+ * l'evento che tocca tre persone genera tre righe, ognuna con il proprio stato.
+ * `projectId`/`ticketId`/`jobId` sono le ancore verso l'entità di origine
+ * (nullable: `docs.limit_paused` e `monitor.*` non hanno un ticket), e servono
+ * a chiudere in blocco le notifiche di un job risolto. Il progetto è
+ * ON DELETE SET NULL (la notifica resta leggibile), ticket e job cascatano.
+ */
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+    ticketId: uuid("ticket_id").references(() => tickets.id, { onDelete: "cascade" }),
+    jobId: uuid("job_id").references(() => aiJobs.id, { onDelete: "cascade" }),
+    kind: notificationKind("kind").notNull(),
+    // Payload dell'evento, già completo di tutto ciò che serve a renderlo
+    // (titolo del ticket, url, dettaglio). Il tipo forte è `NotificationEvent`
+    // di @stubwise/notifications/format: qui resta `Record<string, unknown>`
+    // perché `db` non può importare da `notifications` (ciclo di dipendenze); i
+    // consumatori castano al tipo dell'unione dopo aver letto `kind`.
+    event: jsonb("event").$type<Record<string, unknown>>().notNull(),
+    status: notificationStatus("status").notNull().default("open"),
+    // Fino a quando la notifica resta fuori dall'inbox (status "snoozed").
+    snoozedUntil: timestamp("snoozed_until", { withTimezone: true }),
+    // Prima apertura da parte del destinatario. Distinto da `handledAt`: letta
+    // non vuol dire smaltita.
+    readAt: timestamp("read_at", { withTimezone: true }),
+    handledAt: timestamp("handled_at", { withTimezone: true }),
+    // Chi ha chiuso la notifica: di norma il destinatario, ma un'azione su
+    // un'entità condivisa può chiudere anche le notifiche altrui. Null quando a
+    // chiudere è stato il sistema (evento risolto).
+    handledByUserId: uuid("handled_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Inbox di un utente filtrata per stato, dalla più recente. NON parziale su
+    // 'open': lo stesso indice serve le liste per stato e la riapertura lazy
+    // degli snooze scaduti (che leggono status <> 'open'). `id DESC` è il
+    // tiebreaker della paginazione keyset, `created_at` non è univoco.
+    index("notifications_user_status_created_idx").on(
+      table.userId,
+      table.status,
+      table.createdAt.desc(),
+      table.id.desc(),
+    ),
+    // Fan-in dal job: da un evento si risale a tutti i destinatari avvisati.
+    index("notifications_job_id_idx").on(table.jobId),
+    // Stesso fan-in per gli eventi ancorati a un ticket (nessun job dietro).
+    index("notifications_ticket_id_idx").on(table.ticketId),
+    // Una notifica rinviata ha sempre una scadenza, altrimenti resterebbe fuori
+    // dall'inbox per sempre.
+    check("notifications_snoozed_until_chk", sql`status <> 'snoozed' OR snoozed_until IS NOT NULL`),
+    // `handled_at` valorizzato se e solo se lo stato è `handled`.
+    check("notifications_handled_at_chk", sql`(status = 'handled') = (handled_at IS NOT NULL)`),
+  ],
+);
+
+/**
+ * Outbox delle consegne verso i canali esterni, una riga per (evento, canale).
+ * Separata da `notifications` perché le due cose hanno cardinalità diverse: il
+ * webhook d'istanza è UNO per evento (riga con `notificationId` null e l'evento
+ * copiato in `event`), il DM Slack è uno per destinatario (riga legata alla sua
+ * notifica, che porta già il payload). Il poller claima le righe `pending`
+ * dovute e riprova con backoff su `nextAttemptAt`.
+ */
+export const notificationDeliveries = pgTable(
+  "notification_deliveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Notifica di cui questa è il recapito. Null per le consegne per-evento
+    // (webhook d'istanza), che non hanno un destinatario.
+    notificationId: uuid("notification_id").references(() => notifications.id, {
+      onDelete: "cascade",
+    }),
+    // Payload dell'evento, valorizzato SOLO per le consegne senza notifica
+    // dietro (channel "webhook"): le altre lo leggono da `notifications.event`.
+    // Stesso tipo forte (`NotificationEvent`) e stesso cast lato consumatore.
+    event: jsonb("event").$type<Record<string, unknown>>(),
+    channel: deliveryChannel("channel").notNull(),
+    status: deliveryStatus("status").notNull().default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    // Non prima di questo istante: il backoff dei ritentativi lo sposta in
+    // avanti. Default now() = consegna dovuta subito.
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    error: text("error"),
+    // Riferimento del messaggio sul canale esterno: il `ts` del messaggio Slack,
+    // così una consegna `slack_update` può aggiornarlo invece di ripostarlo.
+    externalRef: text("external_ref"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+  },
+  (table) => [
+    // Claim del poller: la prossima consegna dovuta. Indice parziale sulle sole
+    // pending, lo storico di inviate/fallite non vi partecipa.
+    index("notification_deliveries_pending_idx")
+      .on(table.nextAttemptAt)
+      .where(sql`status = 'pending'`),
+    // Consegne di una notifica: sostiene la cascata del delete e la lettura
+    // dello stato di recapito dal dettaglio di una notifica.
+    index("notification_deliveries_notification_id_idx").on(table.notificationId),
+    // Forma della riga garantita dal DB, non solo dal codice: `webhook` è per
+    // EVENTO (nessuna notifica dietro, payload in `event`), gli altri canali
+    // sono per DESTINATARIO (notifica obbligatoria, payload letto da lì).
+    check(
+      "notification_deliveries_channel_shape_chk",
+      sql`(channel = 'webhook') = (notification_id IS NULL)`,
+    ),
+    check(
+      "notification_deliveries_webhook_event_chk",
+      sql`channel <> 'webhook' OR event IS NOT NULL`,
+    ),
+  ],
+);
+
+/**
+ * Progetti seguiti da un utente: è il criterio di instradamento delle notifiche
+ * non indirizzate a una persona precisa (un evento su un progetto raggiunge chi
+ * lo segue). Chiave composta (utente, progetto), cascata su entrambi i lati.
+ */
+export const projectFollows = pgTable(
+  "project_follows",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.userId, table.projectId] }),
+    // Follower di UN progetto: è la query del routing delle notifiche, che
+    // filtra per il solo `project_id`. La PK (user_id, project_id) non la serve
+    // (project_id non è il suo prefisso), quindi serve un indice dedicato.
+    index("project_follows_project_id_idx").on(table.projectId),
+  ],
+);
+
+/** Riga di `notifications`: una notifica nell'inbox di un utente. */
+export type Notification = typeof notifications.$inferSelect;
+/** Riga di `notification_deliveries`: una consegna verso un canale esterno. */
+export type NotificationDelivery = typeof notificationDeliveries.$inferSelect;
+/** Riga di `project_follows`: un progetto seguito da un utente. */
+export type ProjectFollow = typeof projectFollows.$inferSelect;

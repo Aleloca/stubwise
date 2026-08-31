@@ -61,11 +61,21 @@ afterEach(() => {
 type Handler = (url: URL, init?: RequestInit) => Response;
 
 function mockApi(handlers: Record<string, Handler>) {
+  // Il loader di /settings/account precarica anche progetti, follow e
+  // preferenze di notifica (sezioni "Progetti seguiti" e "Notifiche"): default
+  // vuoti qui, i test dedicati a quelle sezioni vivono in settings/account.test.tsx.
+  const withDefaults: Record<string, Handler> = {
+    "GET /api/projects": () => jsonResponse(200, []),
+    "GET /api/me/follows": () => jsonResponse(200, { projectIds: [] }),
+    "GET /api/me/notification-prefs": () =>
+      jsonResponse(200, { slackDm: false, slackLinked: false }),
+    ...handlers,
+  };
   fetchMock.mockImplementation((input, init) => {
     const raw = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     const url = new URL(raw, "http://test.local");
     const method = init?.method ?? "GET";
-    const handler = handlers[`${method} ${url.pathname}`];
+    const handler = withDefaults[`${method} ${url.pathname}`];
     if (!handler) throw new Error(`fetch non mockata per ${method} ${raw}`);
     return Promise.resolve(handler(url, init));
   });
@@ -155,7 +165,7 @@ describe("impostazioni: /settings/account", () => {
     expect(await screen.findByRole("heading", { name: "Account" })).toBeInTheDocument();
     // L'email compare nel pannello account (oltre che nella sidebar).
     expect(screen.getAllByText("ada@example.com").length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText("Admin")).toBeInTheDocument();
+    expect(screen.getByText("Maintainer")).toBeInTheDocument();
     // La gestione degli inviti è migrata nella pagina Team.
     expect(screen.queryByRole("button", { name: "Crea invito" })).not.toBeInTheDocument();
   });
@@ -164,7 +174,7 @@ describe("impostazioni: /settings/account", () => {
     mockApi(memberBase());
     renderAt("/settings/account");
 
-    expect(await screen.findByText("Member")).toBeInTheDocument();
+    expect(await screen.findByText("Operator")).toBeInTheDocument();
     // L'email compare nel pannello account (oltre che nella sidebar).
     expect(screen.getAllByText("bea@example.com").length).toBeGreaterThanOrEqual(2);
   });
@@ -337,7 +347,7 @@ describe("impostazioni: /settings/automation (admin)", () => {
     mockApi(memberBase());
     const router = renderAt("/settings/automation");
 
-    expect(await screen.findByText("Member")).toBeInTheDocument();
+    expect(await screen.findByText("Operator")).toBeInTheDocument();
     await waitFor(() => expect(router.state.location.pathname).toBe("/settings/account"));
     expect(screen.queryByText("AI automation")).not.toBeInTheDocument();
   });
@@ -355,7 +365,7 @@ describe("impostazioni: /settings/git-accounts (admin)", () => {
     mockApi(memberBase());
     const router = renderAt("/settings/git-accounts");
 
-    expect(await screen.findByText("Member")).toBeInTheDocument();
+    expect(await screen.findByText("Operator")).toBeInTheDocument();
     await waitFor(() => expect(router.state.location.pathname).toBe("/settings/account"));
     expect(screen.queryByRole("heading", { name: "Git accounts" })).not.toBeInTheDocument();
   });
@@ -691,9 +701,12 @@ describe("impostazioni: /settings/notifications (admin)", () => {
     mockApi(memberBase());
     const router = renderAt("/settings/notifications");
 
-    expect(await screen.findByText("Member")).toBeInTheDocument();
+    expect(await screen.findByText("Operator")).toBeInTheDocument();
     await waitFor(() => expect(router.state.location.pathname).toBe("/settings/account"));
-    expect(screen.queryByText("Notifications")).not.toBeInTheDocument();
+    // Il titolo "Notifications" non basta più a distinguere: la pagina Account
+    // ha una sua sezione Notifiche (preferenze personali). Si cerca il testo
+    // della pagina ADMIN, cioè il webhook uscente.
+    expect(screen.queryByText(/An outgoing webhook/i)).not.toBeInTheDocument();
   });
 });
 
@@ -800,7 +813,7 @@ describe("impostazioni: /settings/usage (admin)", () => {
     mockApi(memberBase());
     const router = renderAt("/settings/usage");
 
-    expect(await screen.findByText("Member")).toBeInTheDocument();
+    expect(await screen.findByText("Operator")).toBeInTheDocument();
     await waitFor(() => expect(router.state.location.pathname).toBe("/settings/account"));
     expect(screen.queryByRole("heading", { name: "Usage & costs" })).not.toBeInTheDocument();
   });

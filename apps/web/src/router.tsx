@@ -24,9 +24,12 @@ import {
   docSpacesQueryOptions,
   docTreeQueryOptions,
   gitAccountsQueryOptions,
+  inboxQueryOptions,
   instanceSettingsQueryOptions,
   invitesQueryOptions,
   milestonesQueryOptions,
+  myFollowsQueryOptions,
+  notificationPrefsQueryOptions,
   notificationSettingsQueryOptions,
   patsQueryOptions,
   projectDocSpacesQueryOptions,
@@ -61,6 +64,7 @@ import { DocsBriefView } from "./routes/docs/brief.$projectId";
 import { DocsGraphView } from "./routes/docs/graph.$projectId";
 import { DocsPage } from "./routes/docs/index";
 import { ProjectDocsLanding } from "./routes/docs/project.$projectId";
+import { InboxPage } from "./routes/inbox";
 import { LoginPage } from "./routes/login";
 import { MonitorListPage } from "./routes/monitor/index";
 import { ServerDetailPage } from "./routes/monitor/server-detail";
@@ -276,6 +280,10 @@ const projectDetailRoute = createRoute({
       projectQueryOptions(params.projectId),
     );
     await context.queryClient.ensureQueryData(milestonesQueryOptions(project.id));
+    // I progetti seguiti alimentano il bottone Segui dell'header: si scaldano
+    // qui senza attendere (`void`) — il dettaglio non deve aspettarli, e se la
+    // GET fallisce il bottone semplicemente non compare.
+    void context.queryClient.ensureQueryData(myFollowsQueryOptions).catch(() => undefined);
   },
   component: ProjectDetailPage,
 });
@@ -520,6 +528,30 @@ const serverDetailRoute = createRoute({
 });
 
 /**
+ * Inbox personale: la home operativa. Il loader prefetcha la vista d'ingresso
+ * — le notifiche APERTE, senza filtro progetto — nella stessa forma canonica
+ * dei filtri che usa il componente (`{ status: "open" }`, mai `{}`), altrimenti
+ * la chiave di cache non coinciderebbe e si vedrebbe un doppio caricamento.
+ * Best-effort: la pagina ha un proprio stato d'errore con retry, quindi un
+ * fallimento qui non deve mandare la route all'error component.
+ */
+const inboxRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/inbox",
+  loader: async ({ context }) => {
+    await Promise.all([
+      context.queryClient
+        .ensureQueryData(inboxQueryOptions({ status: "open" }))
+        .catch(() => undefined),
+      // I progetti alimentano il select del filtro (useSuspenseQuery): qui
+      // NON si cattura, come nelle altre rotte che li richiedono.
+      context.queryClient.ensureQueryData(projectsQueryOptions),
+    ]);
+  },
+  component: InboxPage,
+});
+
+/**
  * Sezione Attività (standup giornaliero), visibile a ogni membro. Prefetch
  * best-effort del report di IERI (default del componente): la data vive nello
  * stato del componente, quindi il loader può solo precaricare il default; il
@@ -575,6 +607,16 @@ const settingsIndexRoute = createRoute({
 const settingsAccountRoute = createRoute({
   getParentRoute: () => settingsRoute,
   path: "/account",
+  // Progetti seguiti e preferenze di notifica sono sezioni della pagina: si
+  // precaricano qui insieme alla lista progetti (che alimenta le checkbox), così
+  // le useSuspenseQuery della pagina non attendono.
+  loader: async ({ context }) => {
+    await Promise.all([
+      context.queryClient.ensureQueryData(projectsQueryOptions),
+      context.queryClient.ensureQueryData(myFollowsQueryOptions),
+      context.queryClient.ensureQueryData(notificationPrefsQueryOptions),
+    ]);
+  },
   component: SettingsAccountPage,
 });
 
@@ -699,6 +741,7 @@ const routeTree = rootRoute.addChildren([
     monitorRoute,
     serverDetailRoute,
     activityRoute,
+    inboxRoute,
     teamRoute,
     settingsRoute.addChildren([
       settingsIndexRoute,

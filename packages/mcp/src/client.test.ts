@@ -280,6 +280,66 @@ describe("StubwiseClient", () => {
     expect(err.code).toBe("invalid_response");
   });
 
+  // --- run-ai ---------------------------------------------------------------
+
+  it("runTicket fa POST /api/tickets/:id/run-ai e valida { jobId, status }", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ jobId: JOB_ID, status: "queued" }, { status: 202 }));
+    const client = makeClient(fetchMock);
+
+    const result = await client.runTicket(TICKET_ID);
+
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe(`https://stubwise.example.com/api/tickets/${TICKET_ID}/run-ai`);
+    expect(init.method).toBe("POST");
+    expect(init.headers.authorization).toBe("Bearer stw_pat_secret");
+    expect(JSON.parse(init.body)).toEqual({});
+    expect(result).toEqual({ jobId: JOB_ID, status: "queued" });
+  });
+
+  it("runTicket inoltra mode 'ai_plan' nel body e accetta awaiting_plan_approval", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({ jobId: JOB_ID, status: "awaiting_plan_approval" }, { status: 202 }),
+    );
+    const client = makeClient(fetchMock);
+
+    const result = await client.runTicket(TICKET_ID, { mode: "ai_plan" });
+
+    const [, init] = fetchMock.mock.calls[0]!;
+    expect(JSON.parse(init.body)).toEqual({ mode: "ai_plan" });
+    expect(result.status).toBe("awaiting_plan_approval");
+  });
+
+  it("runTicket lancia invalid_response su forma sbagliata", async () => {
+    // status fuori enum: la validazione runtime deve dare un errore parlante.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ jobId: JOB_ID, status: "running" }, { status: 202 }));
+    const client = makeClient(fetchMock);
+
+    const err = await client.runTicket(TICKET_ID).catch((e) => e);
+    expect(err).toBeInstanceOf(StubwiseApiError);
+    expect(err.code).toBe("invalid_response");
+    expect(err.status).toBe(0);
+  });
+
+  it("runTicket propaga il 409 job_in_flight con code e messaggio del server", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(
+        { code: "job_in_flight", message: "A job for this ticket is already running" },
+        { status: 409 },
+      ),
+    );
+    const client = makeClient(fetchMock);
+
+    const err = await client.runTicket(TICKET_ID).catch((e) => e);
+    expect(err).toBeInstanceOf(StubwiseApiError);
+    expect(err.status).toBe(409);
+    expect(err.code).toBe("job_in_flight");
+    expect(err.message).toBe("A job for this ticket is already running");
+  });
+
   // --- design / plan --------------------------------------------------------
 
   it("setDesign('backlog', ...) fa PUT /api/backlog/:id/design con body { content } e Authorization", async () => {

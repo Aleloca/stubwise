@@ -6,6 +6,7 @@ program: 2026-08-31-stubwise-nerve-center-program-design.md
 stubwise:
   project: stubwise
   backlogItem: 729af693-502c-4df0-9959-2eb72118f2c5 # https://stubwise.thecove.it/backlog/729af693-502c-4df0-9959-2eb72118f2c5
+  ticket: 4 # https://stubwise.thecove.it/tickets/5621d103-5b49-442a-91fd-3f979797f93d
 ---
 
 # Fase 0 — Fondamenta
@@ -69,7 +70,10 @@ Correzioni server-side:
 | `run-ai` con job in volo | riscrive il job | **409 `job_in_flight`** se l'ultimo job è in `queued | triaging | fixing | awaiting_plan_approval` |
 
 Nuove colonne su `ai_jobs`: `requested_by_user_id uuid null` (FK users, set
-null) e `plan_approval_required boolean not null default false`. Nel worker
+null) e `plan_approval_required boolean not null default false`.
+`requested_by_user_id` è l'ULTIMO richiedente: al rilancio da un altro utente
+viene sovrascritto (la riga rappresenta l'ultimo run; il richiedente precedente
+non riceve più le notifiche di quel job). Nel worker
 `resolveFixMode` (`apps/worker/src/pipeline/fix.ts:337-347`) ritorna
 `plan-only` quando `planApprovalRequired`, a prescindere da
 `planApprovalMinEffort`. `manualTrigger` resta com'è (scavalca gate di
@@ -87,16 +91,21 @@ Migrazione **0063**.
 `event jsonb` (il `NotificationEvent` intero: i testi si rendono con
 `formatNotification`), `status` enum `open | handled | snoozed`,
 `snoozed_until?`, `read_at?`, `handled_at?`, `handled_by_user_id?`,
-`created_at`. Indice parziale `(user_id, created_at desc) where status = 'open'`;
-indice `(job_id)` per la propagazione di `handled`.
+`created_at`. Indici: `(user_id, status, created_at desc, id desc)` (liste per
+stato, riapertura lazy degli snooze, keyset con tiebreaker), `(job_id)` per la
+propagazione di `handled`, `(ticket_id)`. CHECK di coerenza: `snoozed` ⇒
+`snoozed_until` valorizzato; `handled` ⇔ `handled_at` valorizzato.
 
 **`notification_deliveries`** (outbox per canale):
 `id`, `notification_id?` (null per la delivery `webhook`, che è per evento non
 per destinatario; in quel caso `event jsonb` è copiato qui), `channel` enum
-`webhook | slack_dm`, `status` enum `pending | sent | failed | skipped`,
+`webhook | slack_dm | slack_update` (`slack_update` = aggiornamento del
+messaggio delle altre copie dopo un'azione), `status` enum
+`pending | sent | failed | skipped`,
 `attempts int`, `next_attempt_at`, `error?`, `external_ref?` (ts del messaggio
 Slack), `created_at`, `sent_at?`. Indice parziale su `(next_attempt_at) where
-status = 'pending'`.
+status = 'pending'` e indice su `(notification_id)`. CHECK: `channel = 'webhook'` ⇔
+`notification_id IS NULL`; `webhook` ⇒ `event` valorizzato.
 
 **`project_follows`**: `(user_id, project_id)` PK composta.
 
@@ -114,7 +123,9 @@ dentro), calcola i destinatari, inserisce le righe `notifications` e le
 - decisionali (`job.plan_review`, `job.held`, `job.budget_held`) → tutti gli admin;
 - avanzamento (`job.pr_opened`, `job.pr_closed`, `job.failed`,
   `review.completed`, `ticket.created`) → admin ∪ `requestedByUserId` ∪
-  assegnatario e reporter del ticket ∪ follower del progetto;
+  assegnatario del ticket ∪ follower del progetto (NB: `tickets` non ha una
+  colonna reporter — verificato in fase di implementazione; il contratto di
+  routing prevede già `reporter?` per quando esisterà);
 - `docs.limit_paused`, `monitor.*` → admin.
 
 Gli admin ricevono tutto senza seguire. Delivery `slack_dm` creata per ogni

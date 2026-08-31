@@ -254,6 +254,8 @@ interface MockState {
   approveCalls: number;
   /** Quante volte è stato chiamato POST /reject-plan. */
   rejectCalls: number;
+  /** Body inviati a POST /reject-plan (per verificare le istruzioni). */
+  rejectBodies: unknown[];
   /** Eventi di audit accumulati (es. una PATCH di stato ne aggiunge uno). */
   events: ActivityItem[];
   /** Link risolti del ticket (sezione "Linked tickets"). */
@@ -307,6 +309,10 @@ function mockDetailApi(
     jobs?: AIJob[];
     comments?: Comment[];
     links?: TicketLinkView[];
+    /** Ruolo dell'utente corrente: "admin" = maintainer (default). */
+    role?: "admin" | "member";
+    /** Risposta di POST /run-ai: default 202 queued; serve per 409 e gate piano. */
+    runAiResponse?: () => Response;
   } = {},
 ): MockState {
   const state: MockState = {
@@ -319,6 +325,7 @@ function mockDetailApi(
     runAiCalls: [],
     approveCalls: 0,
     rejectCalls: 0,
+    rejectBodies: [],
     events: [],
     links: overrides.links ?? [],
     createdLinks: [],
@@ -328,16 +335,18 @@ function mockDetailApi(
   };
 
   mockApi({
-    "GET /api/auth/me": () =>
-      jsonResponse(200, {
+    "GET /api/auth/me": () => {
+      const role = overrides.role ?? "admin";
+      return jsonResponse(200, {
         user: {
-          id: ADMIN_ID,
-          email: "ada@example.com",
-          role: "admin",
+          id: role === "admin" ? ADMIN_ID : MEMBER_ID,
+          email: role === "admin" ? "ada@example.com" : "bob@example.com",
+          role,
           avatarUrl: null,
           slackUserId: null,
         },
-      }),
+      });
+    },
     "GET /api/projects": () =>
       jsonResponse(200, [
         {
@@ -413,14 +422,17 @@ function mockDetailApi(
     [`GET /api/tickets/${TICKET_ID}/usage`]: () => jsonResponse(200, state.usage),
     [`POST /api/tickets/${TICKET_ID}/run-ai`]: (_url, init) => {
       state.runAiCalls.push(init?.body ? JSON.parse(String(init.body)) : undefined);
-      return jsonResponse(202, { jobId: "j3" });
+      return overrides.runAiResponse
+        ? overrides.runAiResponse()
+        : jsonResponse(202, { jobId: "j3", status: "queued" });
     },
     [`POST /api/tickets/${TICKET_ID}/approve-plan`]: () => {
       state.approveCalls += 1;
       return jsonResponse(202, { jobId: "j3" });
     },
-    [`POST /api/tickets/${TICKET_ID}/reject-plan`]: () => {
+    [`POST /api/tickets/${TICKET_ID}/reject-plan`]: (_url, init) => {
       state.rejectCalls += 1;
+      state.rejectBodies.push(init?.body ? JSON.parse(String(init.body)) : undefined);
       return jsonResponse(202, { jobId: "j3" });
     },
     [`DELETE /api/tickets/${TICKET_ID}/design`]: () => {
@@ -856,15 +868,109 @@ describe("dettaglio ticket", () => {
     await waitFor(() => expect(state.approveCalls).toBe(1));
   });
 
-  it("job 'awaiting_plan_approval': Rifiuta chiama reject-plan e porta il focus al commento", async () => {
+  it("job 'awaiting_plan_approval': Rifiuta apre il campo istruzioni e le manda nel body", async () => {
     const state = mockDetailApi({ jobs: [awaitingPlanJobFixture] });
     renderDetail();
 
+    // Il primo click NON rifiuta: apre il campo (le istruzioni diventeranno un
+    // commento del team che il re-plan rilegge).
     const reject = await screen.findByRole("button", { name: "Reject" });
     await userEvent.click(reject);
+    expect(state.rejectCalls).toBe(0);
+
+    const box = screen.getByLabelText(/instructions for the new plan/i);
+    await userEvent.type(box, "Usa la coda esistente");
+    await userEvent.click(screen.getByRole("button", { name: "Reject plan" }));
 
     await waitFor(() => expect(state.rejectCalls).toBe(1));
-    expect(screen.getByLabelText(/add a comment/i)).toHaveFocus();
+    expect(state.rejectBodies).toEqual([{ instructions: "Usa la coda esistente" }]);
+    // A rifiuto avvenuto il campo si richiude.
+    await waitFor(() =>
+      expect(screen.queryByLabelText(/instructions for the new plan/i)).not.toBeInTheDocument(),
+    );
+  });
+
+  it("job 'awaiting_plan_approval': Rifiuta senza istruzioni manda un body vuoto", async () => {
+    const state = mockDetailApi({ jobs: [awaitingPlanJobFixture] });
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Reject" }));
+    await userEvent.click(screen.getByRole("button", { name: "Reject plan" }));
+
+    await waitFor(() => expect(state.rejectCalls).toBe(1));
+    // Campo vuoto = nessuna istruzione: la POST parte senza corpo.
+    expect(state.rejectBodies).toEqual([undefined]);
+  });
+
+  it("job 'awaiting_plan_approval': Annulla chiude il campo senza rifiutare", async () => {
+    const state = mockDetailApi({ jobs: [awaitingPlanJobFixture] });
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Reject" }));
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByLabelText(/instructions for the new plan/i)).not.toBeInTheDocument();
+    expect(state.rejectCalls).toBe(0);
+  });
+
+  it("operatore: niente Approva/Rifiuta sul piano, solo l'avviso di attesa", async () => {
+    mockDetailApi({ jobs: [awaitingPlanJobFixture], role: "member" });
+    renderDetail();
+
+    expect(
+      await screen.findByText(/waiting for a maintainer to approve the plan/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Approve" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reject" })).not.toBeInTheDocument();
+  });
+
+  it("maintainer: sul piano in attesa NON compare l'avviso da operatore", async () => {
+    mockDetailApi({ jobs: [awaitingPlanJobFixture] });
+    renderDetail();
+
+    await screen.findByRole("button", { name: "Approve" });
+    expect(
+      screen.queryByText(/waiting for a maintainer to approve the plan/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("operatore: 'Avvia fix AI' avvisa che il run si fermerà sul piano", async () => {
+    mockDetailApi({ jobs: [heldJobFixture], role: "member" });
+    renderDetail();
+
+    await screen.findByRole("button", { name: "Start AI fix" });
+    expect(screen.getByText(/the run will stop on the plan/i)).toBeInTheDocument();
+  });
+
+  it("operatore: dopo il run, il 202 'awaiting_plan_approval' lo dice subito", async () => {
+    mockDetailApi({
+      jobs: [heldJobFixture],
+      role: "member",
+      // Un run chiesto da un operatore su un ticket con piano nasce già fermo
+      // sul gate: il 202 lo distingue da un run in coda.
+      runAiResponse: () => jsonResponse(202, { jobId: "j3", status: "awaiting_plan_approval" }),
+    });
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Start AI fix" }));
+
+    expect(
+      await screen.findByText(/the plan is now waiting for a maintainer/i),
+    ).toBeInTheDocument();
+  });
+
+  it("run-ai 409 job_in_flight: messaggio localizzato dal code, non dal message del server", async () => {
+    mockDetailApi({
+      jobs: [heldJobFixture],
+      runAiResponse: () =>
+        jsonResponse(409, { code: "job_in_flight", message: "A job is already in flight" }),
+    });
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Start AI fix" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("A job is already running on this ticket");
   });
 
   it("senza job 'awaiting_plan_approval': Approva/Rifiuta non compaiono", async () => {
