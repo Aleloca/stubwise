@@ -280,9 +280,10 @@ const projectDetailRoute = createRoute({
       projectQueryOptions(params.projectId),
     );
     await context.queryClient.ensureQueryData(milestonesQueryOptions(project.id));
-    // I progetti seguiti alimentano il bottone Segui dell'header: si precaricano
-    // qui (best-effort, il dettaglio si vede comunque se la GET fallisce).
-    await context.queryClient.ensureQueryData(myFollowsQueryOptions).catch(() => undefined);
+    // I progetti seguiti alimentano il bottone Segui dell'header: si scaldano
+    // qui senza attendere (`void`) — il dettaglio non deve aspettarli, e se la
+    // GET fallisce il bottone semplicemente non compare.
+    void context.queryClient.ensureQueryData(myFollowsQueryOptions).catch(() => undefined);
   },
   component: ProjectDetailPage,
 });

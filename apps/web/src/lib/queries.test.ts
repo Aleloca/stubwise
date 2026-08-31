@@ -97,9 +97,11 @@ describe("ticketJobsRefetchInterval", () => {
     expect(ticketJobsRefetchInterval([job("pr_merged")])).toBe(false);
   });
 
-  it("stati d'attesa di una PERSONA: niente polling (a sbloccarli è la UI)", () => {
-    expect(ticketJobsRefetchInterval([job("held")])).toBe(false);
-    expect(ticketJobsRefetchInterval([job("awaiting_plan_approval")])).toBe(false);
+  it("stati d'attesa di una PERSONA: polling lento a 20s (a sbloccarli è un ALTRO)", () => {
+    // Chi guarda può non essere chi decide (l'operatore aspetta un maintainer):
+    // senza polling resterebbe sullo stato d'attesa anche dopo l'approvazione.
+    expect(ticketJobsRefetchInterval([job("held")])).toBe(20_000);
+    expect(ticketJobsRefetchInterval([job("awaiting_plan_approval")])).toBe(20_000);
   });
 
   it("guarda solo il PRIMO elemento: la lista è dal più recente al più vecchio", () => {

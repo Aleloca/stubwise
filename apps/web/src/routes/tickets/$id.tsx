@@ -11,7 +11,7 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query";
 import { getRouteApi, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityFeed } from "../../components/activity-feed";
 import { AIJobTimeline } from "../../components/ai-job-timeline";
@@ -298,6 +298,19 @@ export function TicketDetailPage() {
   const hasUserComment = comments.some((comment) => comment.authorType === "user");
 
   /**
+   * Il riepilogo del 202 (`runAwaitingApproval`) serve a coprire la finestra fra
+   * la risposta e il refetch della timeline. Appena il job cambia — nuovo id o
+   * nuovo stato — quel che si vede a schermo lo dice già, e il messaggio
+   * diventerebbe rumore o, peggio, contraddirebbe lo stato mostrato (il polling
+   * lento sugli stati d'attesa rende la transizione visibile senza ricaricare):
+   * si azzera la mutation e resta la sola timeline a raccontare il job.
+   */
+  const resetRunAi = runAiMutation.reset;
+  useEffect(() => {
+    resetRunAi();
+  }, [resetRunAi, latestJob?.id, latestJob?.status]);
+
+  /**
    * Contorno dei bottoni di avvio/rilancio, identico nei due blocchi: l'avviso
    * per l'OPERATORE (il suo run non parte, si ferma sul gate del piano), la
    * conferma dell'esito quando il 202 dice `awaiting_plan_approval` e l'errore.
@@ -580,11 +593,11 @@ export function TicketDetailPage() {
                         {t("tickets:detail.rejectCancel")}
                       </button>
                     </div>
+                    <p className="mt-2 font-mono text-[11px] text-fg-muted">
+                      {t("tickets:detail.rejectHint")}
+                    </p>
                   </div>
                 )}
-                <p className="font-mono text-[11px] text-fg-muted">
-                  {t("tickets:detail.rejectHint")}
-                </p>
                 {approvePlanMutation.isError && (
                   <span role="alert" className="font-mono text-[12px] text-danger">
                     {translateApiError(approvePlanMutation.error, t)}

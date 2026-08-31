@@ -291,6 +291,11 @@ export function ProjectDetailPage() {
  * GET fallisce non si mostra uno stato inventato, e il dettaglio del progetto
  * resta comunque leggibile. Aggiornamento ottimistico con rollback: il click si
  * vede subito e torna indietro se il server rifiuta.
+ *
+ * CROSS-TAB: l'insieme mandato è quello di QUESTA cache più/meno il progetto
+ * corrente, quindi una scheda Account rimasta aperta su un insieme vecchio può
+ * cancellare un follow aggiunto qui (l'ultimo PUT vince). Conseguenza accettata:
+ * tocca solo i propri follow e si ripara con un click.
  */
 function FollowProjectButton({ projectId }: { projectId: string }) {
   const { t } = useTranslation();

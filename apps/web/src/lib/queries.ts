@@ -199,23 +199,36 @@ export function activityQueryOptions(ticketId: string) {
 /** Cadenza del polling dei job mentre il worker sta lavorando sul ticket. */
 const JOBS_POLL_MS = 5_000;
 
+/** Cadenza lenta sugli stati che aspettano una PERSONA (spesso un'altra). */
+const JOBS_WAITING_POLL_MS = 20_000;
+
 /** Stati in cui il job è VIVO: il worker lo sta muovendo da solo. */
 const LIVE_JOB_STATUSES = new Set<AIJobStatus>(["queued", "triaging", "fixing"]);
 
+/** Stati fermi in attesa di una decisione umana (approvazione del piano, gate). */
+const WAITING_JOB_STATUSES = new Set<AIJobStatus>(["awaiting_plan_approval", "held"]);
+
 /**
- * Intervallo di refetch della lista job: 5s finché l'ULTIMO job è vivo, nessun
- * polling altrimenti. Funzione pura (testabile a sé) usata dal
- * `refetchInterval` di {@link ticketJobsQueryOptions}.
+ * Intervallo di refetch della lista job: 5s finché l'ULTIMO job è vivo, 20s
+ * sugli stati d'attesa, nessun polling altrimenti. Funzione pura (testabile a
+ * sé) usata dal `refetchInterval` di {@link ticketJobsQueryOptions}.
  *
  * Solo l'ultimo perché la lista arriva dal più recente al più vecchio e i
  * precedenti sono per definizione conclusi: guardare il primo elemento basta.
- * Gli stati d'attesa (`held`, `awaiting_plan_approval`) NON sono vivi — lì il
- * job aspetta una persona, non il worker: ricaricare non lo farebbe avanzare, e
- * a sbloccarlo è un'azione della UI, che invalida la query da sé.
+ *
+ * Gli stati d'attesa non sono vivi — il job aspetta una persona, non il worker —
+ * ma quella persona può NON essere chi guarda: un operatore fermo su "in attesa
+ * dell'approvazione di un maintainer" non ha nessuna azione locale che invalidi
+ * la query, e senza polling resterebbe su quello schermo per sempre. 20s è il
+ * compromesso: la decisione altrui si vede in mezzo minuto, il costo è una GET
+ * ogni 20s per scheda aperta invece di una ogni 5.
  */
 export function ticketJobsRefetchInterval(jobs: AIJob[] | undefined): number | false {
   const latest = jobs?.[0];
-  return latest && LIVE_JOB_STATUSES.has(latest.status) ? JOBS_POLL_MS : false;
+  if (latest === undefined) return false;
+  if (LIVE_JOB_STATUSES.has(latest.status)) return JOBS_POLL_MS;
+  if (WAITING_JOB_STATUSES.has(latest.status)) return JOBS_WAITING_POLL_MS;
+  return false;
 }
 
 export function ticketJobsQueryOptions(ticketId: string) {
@@ -959,6 +972,11 @@ export const mePrefsKeys = {
  * Progetti seguiti dall'utente: l'insieme COMPLETO (il PUT lo sostituisce).
  * `staleTime` generoso — cambia solo per mano dell'utente stesso, e chi lo
  * cambia scrive comunque la cache.
+ *
+ * CROSS-TAB: chi scrive compone l'insieme da QUESTA cache, quindi una scheda
+ * rimasta aperta su un insieme vecchio può cancellare un follow fatto altrove
+ * (l'ultimo PUT vince). Raggio limitato ai propri follow e riparabile con un
+ * click, quindi si accetta invece di introdurre un lock o un merge lato client.
  */
 export const myFollowsQueryOptions = queryOptions({
   queryKey: mePrefsKeys.follows(),

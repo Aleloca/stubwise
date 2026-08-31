@@ -695,14 +695,14 @@
       "languageItalian": "Italiano",
       "follows": {
         "title": "Followed projects",
-        "subtitle": "You get the notifications of the projects you follow. Saved as soon as you tick.",
+        "subtitle": "You get notifications for the projects you follow. Saved as soon as you tick.",
         "empty": "// no project yet"
       },
       "notifications": {
         "title": "Notifications",
         "subtitle": "The in-app inbox is always on. Slack DMs are optional.",
         "slackDm": "Get notifications as a Slack DM",
-        "slackNotLinked": "Link your Slack account first (ask a maintainer from /team)."
+        "slackNotLinked": "Link your Slack account first (ask a maintainer in /team)."
       }
     },
     "accessTokens": {
