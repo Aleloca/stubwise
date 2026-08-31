@@ -330,4 +330,12 @@ Commit `docs(claude): comando /stubwise:run, skill aggiornata, docs MCP`.
 4. Aggiorna la voce di backlog/ticket Stubwise (skill `stubwise`: `in_review` a PR aperta).
 5. Commit `docs: note di deploy fase 0`.
 
+**Vincoli emersi in implementazione:**
+- ⚠️ Dopo il Task 5 e PRIMA del Task 6 le notifiche non partono più (si accumulano
+  in outbox): il branch va mergiato e deployato SOLO completo (o comunque mai
+  fra i due task).
+- I cicli rifiuto→ripianificazione accumulano più notifiche `job.plan_review`
+  per lo stesso job: la propagazione `handled` per (jobId, kind) del Task 7 le
+  chiude in blocco all'approvazione successiva; nessuna azione extra.
+
 **Deploy (dopo il merge, a cura del maintainer):** backup DB → `git pull` → `docker compose up -d --build server worker caddy` → verificare la migrazione 0063 (`\dt notifications`) → app Slack: aggiungere scope, reinstallare, risalvare il bot token in Impostazioni → Slack → collegare gli account Slack degli utenti in `/team` → verificare un DM di prova (es. `job.plan_review` su un ticket di test).
