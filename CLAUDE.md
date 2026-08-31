@@ -133,6 +133,26 @@ Stubwise si integra con Claude Code via il server MCP `@stubwise/mcp`
   `workspace:` del monorepo pnpm). Il secret `NPM_TOKEN` è un granular token con
   bypass-2FA sullo scope `@stubwise`.
 
+### Grafo locale del repo (`graphify-out/`)
+
+Oltre ai grafi **per-repository** che il worker produce in
+`/graphs/<repositoryId>/graphify-out/` per le chat (vedi "Architettura runtime"),
+questo repo ha un grafo **proprio** in `graphify-out/`, committato, che serve
+alla navigazione del codice da Claude Code. Sono due cose distinte: quando in
+questo file leggi `graphify-out/` senza prefisso, è quello locale.
+
+- È servito dal server MCP `graphify` di `.mcp.json` (`uvx`, stdio) e rigenerato
+  dall'hook `post-commit` installato da `graphify hook install` (l'hook esce
+  subito nei worktree collegati: lì il grafo non si aggiorna).
+- La sezione `## graphify` in fondo a questo file è **generata** da `graphify
+  claude install` (asset `graphify/always_on/claude-md.md`): non editarla a mano,
+  viene rimpiazzata a ogni install.
+- `graphify-out/graph.json` è un artefatto generato committato (~400 KB nel pack
+  per versione, su un repo da ~3 MiB). In caso di **conflitto** non mergiarlo a
+  mano: il merge driver `merge=graphify` di `.gitattributes` è configurazione
+  locale in `git config` e **non gira sui merge lato GitHub**. Risolvi
+  rigenerando: `graphify update . && git add graphify-out/`.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
