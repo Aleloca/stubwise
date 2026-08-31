@@ -77,9 +77,12 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   (`apps/web/.../settings/servers.tsx`), ribuilda pure `caddy`.
 - Modifica al **grafo** (`apps/worker/src/graph`) → ribuilda `worker`; a
   `Dockerfile.graphify` → ribuilda `graphify`; alla tab UI → `caddy`. Il pin
-  `graphifyy==0.9.28` va tenuto ALLINEATO in 3 punti quando si aggiorna:
-  `apps/worker/Dockerfile`, `Dockerfile.graphify` e `GRAPHIFY_VERSION` in
-  `apps/worker/src/graph/setup-pr.ts`.
+  `graphifyy==0.9.28` va tenuto ALLINEATO in 4 punti quando si aggiorna:
+  `apps/worker/Dockerfile`, `Dockerfile.graphify`, `GRAPHIFY_VERSION` in
+  `apps/worker/src/graph/setup-pr.ts` e il pin `uvx` del server MCP `graphify`
+  in `.mcp.json`. NON è un quinto punto
+  `.claude/skills/graphify/.graphify_version`: è il marcatore di versione della
+  skill, riscritto da `graphify claude install`.
 - Modifica al **retrieval dal grafo nelle chat** (`apps/server/src/graph-chat`) →
   ribuilda `server`.
 - Verifica il bundle servito cercando una stringa nuova:
