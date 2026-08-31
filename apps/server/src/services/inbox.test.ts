@@ -113,6 +113,31 @@ async function seedNotification(input: {
   return row!.id;
 }
 
+/**
+ * Come {@link seedNotification} ma con un `event` jsonb ARBITRARIO: serve a
+ * riprodurre le righe storiche scritte da versioni precedenti del codice, che
+ * il DB accetta senza controllarne la forma (nessun CHECK sul payload).
+ */
+async function seedRawNotification(input: {
+  userId: string;
+  kind: NotificationEvent["kind"];
+  event: Record<string, unknown>;
+  createdAt?: Date;
+}): Promise<string> {
+  const [row] = await db
+    .insert(notifications)
+    .values({
+      userId: input.userId,
+      kind: input.kind,
+      event: input.event,
+      projectId,
+      status: "open",
+      ...(input.createdAt ? { createdAt: input.createdAt } : {}),
+    })
+    .returning({ id: notifications.id });
+  return row!.id;
+}
+
 /** Legge una riga di inbox per id. */
 async function readNotification(id: string) {
   const [row] = await db.select().from(notifications).where(eq(notifications.id, id));
@@ -277,7 +302,18 @@ describe("executeAction", () => {
       action: "approve_plan",
       actor: maintainer,
     });
-    expect(result).toMatchObject({ ok: true, action: "approve_plan", jobId });
+    expect(result).toMatchObject({
+      ok: true,
+      action: "approve_plan",
+      jobId,
+      kind: "job.plan_review",
+      notificationJobId: jobId,
+    });
+    // Il Task 10 userà questi id per ritoccare i DM Slack delle copie chiuse:
+    // ci sono entrambe le righe plan_review, NON quella di kind diverso.
+    const closed = result.ok ? result.handledNotificationIds : [];
+    expect([...closed].sort()).toEqual([mine, theirs].sort());
+    expect(closed).not.toContain(otherKind);
 
     const job = await readJob(jobId);
     expect(job?.status).toBe("queued");
@@ -341,6 +377,74 @@ describe("executeAction", () => {
     expect(result).toEqual({ ok: false, error: "forbidden" });
     expect((await readNotification(id))?.status).toBe("open");
     expect((await readJob(jobId))?.status).toBe("awaiting_plan_approval");
+  });
+
+  it("azione che il kind non prevede → invalid_action, non forbidden (anche da admin)", async () => {
+    const ticketId = await seedTicket("## Piano\n1. Passo A");
+    const jobId = await seedJob(ticketId, "awaiting_plan_approval");
+    const id = await seedNotification({
+      userId: maintainer.id,
+      kind: "job.failed",
+      event: planReviewEvent({ kind: "job.failed", error: "test rossi" }),
+      ticketId,
+      jobId,
+    });
+
+    // Chi chiede è admin: se rispondessimo `forbidden` gli diremmo "riprova con
+    // più permessi" per una richiesta che nessun ruolo potrà mai soddisfare.
+    const result = await executeAction(db, {
+      notificationId: id,
+      action: "approve_plan",
+      actor: maintainer,
+    });
+    expect(result).toEqual({ ok: false, error: "invalid_action" });
+    expect((await readNotification(id))?.status).toBe("open");
+    expect((await readJob(jobId))?.status).toBe("awaiting_plan_approval");
+  });
+
+  it("due approve_plan concorrenti → ne vince esattamente una", async () => {
+    const ticketId = await seedTicket("## Piano\n1. Passo A");
+    const jobId = await seedJob(ticketId, "awaiting_plan_approval", {
+      planText: "## Piano\n1. Passo A",
+    });
+    const secondAdmin = await seedUser("admin");
+    const mine = await seedNotification({
+      userId: maintainer.id,
+      kind: "job.plan_review",
+      event: planReviewEvent(),
+      ticketId,
+      jobId,
+    });
+    const theirs = await seedNotification({
+      userId: secondAdmin.id,
+      kind: "job.plan_review",
+      event: planReviewEvent(),
+      ticketId,
+      jobId,
+    });
+
+    const [a, b] = await Promise.all([
+      executeAction(db, { notificationId: mine, action: "approve_plan", actor: maintainer }),
+      executeAction(db, { notificationId: theirs, action: "approve_plan", actor: secondAdmin }),
+    ]);
+
+    // Una sola vince: l'UPDATE condizionato di `resolvePlan` fa passare una sola
+    // transizione da awaiting_plan_approval.
+    const winners = [a, b].filter((r) => r.ok);
+    expect(winners).toHaveLength(1);
+    const loser = [a, b].find((r) => !r.ok);
+    // Chi arriva secondo vede o la riga già chiusa, o il piano non più pendente
+    // (dipende da quale delle due scritture del vincitore ha già committato).
+    expect(loser && !loser.ok ? loser.error : null).toMatch(/^(already_handled|plan_not_pending)$/);
+
+    // Il piano è stato eseguito UNA volta sola.
+    const job = await readJob(jobId);
+    expect(job?.status).toBe("queued");
+    expect(job?.resumeMode).toBe("execute");
+    const systemComments = (
+      await db.select().from(comments).where(eq(comments.ticketId, ticketId))
+    ).filter((c) => c.authorType === "system");
+    expect(systemComments).toHaveLength(1);
   });
 
   it("reject_plan con istruzioni → ripianificazione e commento del team", async () => {
@@ -454,7 +558,13 @@ describe("executeAction", () => {
       action: "relaunch",
       actor: operator,
     });
-    expect(result).toMatchObject({ ok: true, action: "relaunch" });
+    expect(result).toMatchObject({
+      ok: true,
+      action: "relaunch",
+      kind: "job.failed",
+      notificationJobId: jobId,
+      handledNotificationIds: [id],
+    });
     expect((await readJob(jobId))?.status).toBe("queued");
     expect((await readNotification(id))?.status).toBe("handled");
     expect((await readNotification(id))?.handledByUserId).toBe(operator.id);
@@ -513,7 +623,15 @@ describe("executeAction", () => {
       actor: maintainer,
       payload: { until: "1h" },
     });
-    expect(result).toMatchObject({ ok: true, action: "snooze" });
+    // Lo snooze non gestisce nulla, ma la riga cambia stato: il campo la elenca
+    // (è ciò che serve a rinfrescare il DM Slack corrispondente).
+    expect(result).toMatchObject({
+      ok: true,
+      action: "snooze",
+      kind: "job.pr_opened",
+      notificationJobId: null,
+      handledNotificationIds: [id],
+    });
 
     const row = await readNotification(id);
     expect(row?.status).toBe("snoozed");
@@ -594,7 +712,14 @@ describe("executeAction", () => {
       action: "handled",
       actor: maintainer,
     });
-    expect(result).toMatchObject({ ok: true, action: "handled" });
+    expect(result).toMatchObject({
+      ok: true,
+      action: "handled",
+      kind: "job.failed",
+      notificationJobId: jobId,
+      // Archiviazione personale: nell'elenco c'è solo la propria riga.
+      handledNotificationIds: [mine],
+    });
     expect((await readNotification(mine))?.status).toBe("handled");
     expect((await readNotification(mine))?.handledByUserId).toBe(maintainer.id);
     expect((await readNotification(theirs))?.status).toBe("open");
@@ -772,6 +897,84 @@ describe("listInbox", () => {
     expect(items[0]!.handledBy).toEqual({ id: user.id, email: user.email });
   });
 
+  it("una riga con event malformato degrada da sola: la lista resta intera", async () => {
+    const user = await seedUser("admin");
+    const ticketId = await seedTicket("## Piano");
+    const jobId = await seedJob(ticketId, "awaiting_plan_approval");
+    const base = Date.now();
+
+    const sana = await seedNotification({
+      userId: user.id,
+      kind: "job.plan_review",
+      event: planReviewEvent(),
+      ticketId,
+      jobId,
+      createdAt: new Date(base),
+    });
+    // `limitUsd` arrivato come stringa: `event.limitUsd.toFixed(2)` LANCIA
+    // dentro formatNotificationText.
+    const esplode = await seedRawNotification({
+      userId: user.id,
+      kind: "job.budget_held",
+      event: {
+        kind: "job.budget_held",
+        ticketNumber: 9,
+        ticketTitle: "Titolo",
+        projectName: "negozio-web",
+        scope: "ticket",
+        limitUsd: "molti",
+        spentUsd: "moltissimi",
+        ticketUrl: "https://stubwise.test/tickets/9",
+      },
+      createdAt: new Date(base - 1_000),
+    });
+    // Payload vuoto: nemmeno il `kind` dentro il jsonb. Il testo esplode e non
+    // c'è alcun url.
+    const vuota = await seedRawNotification({
+      userId: user.id,
+      kind: "job.failed",
+      event: {},
+      createdAt: new Date(base - 2_000),
+    });
+    // Non lancia, ma il campo `url` del payload non c'è: l'esito va validato
+    // comunque, altrimenti la card linkerebbe a `undefined`.
+    const senzaUrl = await seedRawNotification({
+      userId: user.id,
+      kind: "monitor.alert",
+      event: {
+        kind: "monitor.alert",
+        serverName: "web-prod-1",
+        condition: "disk",
+        detail: "disco al 93%",
+      },
+      createdAt: new Date(base - 3_000),
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    // Nessun 500: ci sono TUTTE e quattro le righe.
+    expect(items.map((i) => i.id)).toEqual([sana, esplode, vuota, senzaUrl]);
+
+    expect(items[0]!.text).toContain("Piano in attesa di approvazione");
+    expect(items[0]!.url).toBe("https://stubwise.test/tickets/7");
+
+    // Le marce degradano: testo = kind (la colonna enum), nessun url.
+    for (const item of [items[1]!, items[2]!]) {
+      expect(item.text).toBe(item.kind);
+      expect(item.url).toBeUndefined();
+    }
+    expect(items[1]!.kind).toBe("job.budget_held");
+
+    // Il testo si rende, ma l'url mancante non diventa un link rotto.
+    expect(items[3]!.text).toContain("web-prod-1");
+    expect(items[3]!.url).toBeUndefined();
+
+    // Le azioni si calcolano dalla COLONNA kind, non dal jsonb: la card
+    // degradata resta azionabile.
+    expect(items[0]!.actions).toContain("approve_plan");
+    expect(items[1]!.actions).toContain("relaunch");
+    expect(items[3]!.actions).toEqual(["open", "snooze", "handled"]);
+  });
+
   it("cursore malformato → lista vuota e nessun errore", async () => {
     const user = await seedUser("admin");
     await seedNotification({
@@ -839,11 +1042,18 @@ describe("markRead", () => {
       event: planReviewEvent(),
     });
 
-    expect(await markRead(db, { notificationId: id, userId: user.id })).toEqual({ ok: true });
+    expect(await markRead(db, { notificationId: id, userId: user.id })).toEqual({
+      ok: true,
+      handledNotificationIds: [id],
+    });
     const first = (await readNotification(id))!.readAt!;
     expect(first).toBeInstanceOf(Date);
 
-    expect(await markRead(db, { notificationId: id, userId: user.id })).toEqual({ ok: true });
+    // Seconda chiamata: nessuno stato cambiato, quindi nessun id da rispecchiare.
+    expect(await markRead(db, { notificationId: id, userId: user.id })).toEqual({
+      ok: true,
+      handledNotificationIds: [],
+    });
     expect((await readNotification(id))!.readAt!.getTime()).toBe(first.getTime());
   });
 

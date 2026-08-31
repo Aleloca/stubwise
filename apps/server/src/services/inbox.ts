@@ -77,15 +77,25 @@ function isInFlight(jobStatus: string | null | undefined): boolean {
 }
 
 /**
- * Il RUOLO consente l'azione? Separata da {@link stateAllows} perché i due "no"
- * hanno messaggi diversi: chi non ha il ruolo riceve `forbidden` e basta, chi ce
- * l'ha ma arriva tardi merita di sapere che il job è già ripartito.
+ * Il KIND prevede questa azione? È una domanda sul CATALOGO, indipendente da chi
+ * chiede: `approve_plan` su un `job.failed` non è "vietato", è una richiesta che
+ * non ha senso — e va distinta perché il chiamante risponde `invalid_action`
+ * (400) invece di `forbidden` (403), che suggerirebbe a torto "riprova da admin".
+ */
+function kindOffers(kind: NotificationKind, action: ActionId): boolean {
+  return ALWAYS.includes(action) || DECISION_FOR_KIND[kind].actions.includes(action);
+}
+
+/**
+ * Il RUOLO consente l'azione? Separata da {@link kindOffers} e da
+ * {@link stateAllows} perché i tre "no" hanno messaggi diversi: azione fuori
+ * catalogo → `invalid_action`, ruolo insufficiente → `forbidden`, stato del job
+ * incompatibile → `plan_not_pending`/`job_in_flight`.
  */
 function roleAllows(kind: NotificationKind, action: ActionId, role: Actor["role"]): boolean {
+  if (!kindOffers(kind, action)) return false;
   if (ALWAYS.includes(action)) return true;
-  const decision = DECISION_FOR_KIND[kind];
-  if (!decision.actions.includes(action)) return false;
-  return !decision.adminOnly || role === "admin";
+  return !DECISION_FOR_KIND[kind].adminOnly || role === "admin";
 }
 
 /**
@@ -169,8 +179,40 @@ export type ExecuteActionError =
   | "job_in_flight"
   | "plan_not_pending";
 
+/**
+ * Esito di {@link executeAction}. Il ramo di successo porta abbastanza contesto
+ * da permettere al chiamante di aggiornare le ALTRE superfici senza rileggere
+ * nulla: il Task 10 deve ritoccare i DM Slack di tutte le copie chiuse (i loro
+ * `ts` stanno in `notification_deliveries.external_ref`), e per farlo gli servono
+ * il `kind`, la chiave `notificationJobId` e la lista delle righe toccate.
+ */
 export type ExecuteActionResult =
-  | { ok: true; action: ActionId; jobId?: string; snoozedUntil?: Date }
+  | {
+      ok: true;
+      action: ActionId;
+      /**
+       * Kind della notifica su cui si è agito. Viene dalla COLONNA enum, non dal
+       * jsonb `event`: è il dato di cui ci si può fidare.
+       */
+      kind: NotificationKind;
+      /**
+       * `notifications.job_id` della riga — la metà "job" della chiave di
+       * propagazione. Distinto da `jobId`, che è l'id del job AI restituito dal
+       * servizio: oggi coincidono (il rilancio riusa la riga del job) ma sono
+       * due concetti diversi e un domani `startRun` potrebbe accodarne uno nuovo.
+       */
+      notificationJobId: string | null;
+      /**
+       * Righe d'inbox il cui stato è cambiato per effetto di questa azione: le
+       * copie chiuse dalla propagazione, oppure la sola riga propria per le
+       * azioni personali (snooze/handled). Vuoto se non ha cambiato nulla
+       * (qualcuno ha chiuso tutto nel frattempo).
+       */
+      handledNotificationIds: string[];
+      /** Id del job AI toccato da `resolvePlan`/`startRun`, se l'azione ne ha toccato uno. */
+      jobId?: string;
+      snoozedUntil?: Date;
+    }
   | {
       ok: false;
       error: ExecuteActionError;
@@ -256,7 +298,17 @@ export async function executeAction(
     // decisione già presa non ha senso, e riaprirla cancellerebbe `handledAt`
     // (che il CHECK `handled ⇔ handled_at` lega allo stato).
     if (updated.length === 0) return alreadyHandled(db, row.id);
-    return { ok: true, action, snoozedUntil: updated[0]!.snoozedUntil ?? undefined };
+    return {
+      ok: true,
+      action,
+      kind: row.kind,
+      notificationJobId: row.jobId,
+      // Il rinvio non "gestisce" nulla, ma il DM Slack della riga va comunque
+      // ritoccato (i bottoni spariscono fino alla scadenza): il campo elenca le
+      // righe il cui STATO è cambiato, ed è quello che serve al Task 10.
+      handledNotificationIds: [row.id],
+      snoozedUntil: updated[0]!.snoozedUntil ?? undefined,
+    };
   }
 
   if (action === "handled") {
@@ -271,11 +323,21 @@ export async function executeAction(
       .where(and(eq(notifications.id, row.id), ne(notifications.status, "handled")))
       .returning({ id: notifications.id });
     if (updated.length === 0) return alreadyHandled(db, row.id);
-    return { ok: true, action };
+    return {
+      ok: true,
+      action,
+      kind: row.kind,
+      notificationJobId: row.jobId,
+      // Archiviazione personale: chiude SOLO la propria riga, mai le copie.
+      handledNotificationIds: [row.id],
+    };
   }
 
   // --- Azioni decisionali ---
 
+  // Azione fuori dal catalogo del kind (`approve_plan` su un `job.failed`): non
+  // è un permesso mancante, è una richiesta senza senso.
+  if (!kindOffers(row.kind, action)) return { ok: false, error: "invalid_action" };
   if (!roleAllows(row.kind, action, actor.role)) return { ok: false, error: "forbidden" };
   // Una decisione sul job ha bisogno di un ticket dietro: gli eventi d'istanza
   // (docs/monitor) non arrivano qui, ma una riga con `ticket_id` nullo sì.
@@ -306,13 +368,20 @@ export async function executeAction(
     return outcome;
   }
 
-  await propagateHandled(db, {
+  const handledNotificationIds = await propagateHandled(db, {
     notificationId: row.id,
     jobId: row.jobId,
     kind: row.kind,
     actorId: actor.id,
   });
-  return { ok: true, action, jobId: outcome.jobId };
+  return {
+    ok: true,
+    action,
+    kind: row.kind,
+    notificationJobId: row.jobId,
+    handledNotificationIds,
+    jobId: outcome.jobId,
+  };
 }
 
 /** Esegue l'azione decisionale sul servizio dei job e ne normalizza l'esito. */
@@ -365,15 +434,18 @@ async function runDecision(
  * il piano non archivia il fallimento precedente.
  *
  * Senza `jobId` (eventi non ancorati a un job) si chiude la sola riga d'origine.
+ *
+ * @returns gli id delle righe effettivamente chiuse — quelle che il Task 10
+ *   dovrà ritoccare su Slack. Chi era già chiuso non compare (né viene toccato).
  */
 async function propagateHandled(
   db: Db,
   args: { notificationId: string; jobId: string | null; kind: NotificationKind; actorId: string },
-): Promise<void> {
+): Promise<string[]> {
   const target = args.jobId
     ? and(eq(notifications.jobId, args.jobId), eq(notifications.kind, args.kind))
     : eq(notifications.id, args.notificationId);
-  await db
+  const closed = await db
     .update(notifications)
     .set({
       status: "handled",
@@ -381,7 +453,9 @@ async function propagateHandled(
       handledByUserId: args.actorId,
       snoozedUntil: null,
     })
-    .where(and(target, ne(notifications.status, "handled")));
+    .where(and(target, ne(notifications.status, "handled")))
+    .returning({ id: notifications.id });
+  return closed.map((row) => row.id);
 }
 
 /** Esito "già gestita", completo di chi l'ha gestita (se lo sappiamo). */
@@ -419,10 +493,17 @@ export interface InboxItem {
   id: string;
   kind: NotificationKind;
   status: InboxStatus;
-  /** Frase localizzata senza markup, dalla stessa fonte dei webhook. */
+  /**
+   * Frase localizzata senza markup, dalla stessa fonte dei webhook. Se il
+   * payload `event` è irrecuperabile ripiega sul `kind`: vedi {@link renderItem}.
+   */
   text: string;
-  /** Dove porta l'azione `open`. */
-  url: string;
+  /**
+   * Dove porta l'azione `open`. ASSENTE se il payload non contiene un URL
+   * utilizzabile: la UI mostra la card senza il link invece di portare l'utente
+   * su `undefined`.
+   */
+  url?: string;
   actions: ActionId[];
   projectId: string | null;
   ticketId: string | null;
@@ -535,15 +616,18 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
   );
 
   const items = page.map((r): InboxItem => {
-    const event = r.event as unknown as NotificationEvent;
     return {
       id: r.id,
       kind: r.kind,
       status: r.status,
-      text: formatNotificationText(event, lang),
-      url: openUrl(event),
+      // La resa dal jsonb è l'unica parte che può esplodere: sta dentro il suo
+      // recinto (vedi `renderItem`).
+      ...renderItem(r.event, r.kind, lang),
+      // Le azioni NON passano dal jsonb: la chiave del catalogo è la colonna
+      // enum `kind`, che il DB garantisce valida. Una card col testo degradato
+      // resta quindi azionabile.
       actions: actionsFor(
-        r,
+        { kind: r.kind },
         r.ticketId ? (jobStatusByTicket.get(r.ticketId) ?? null) : null,
         actor,
       ),
@@ -559,6 +643,46 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
   });
 
   return { items, nextCursor };
+}
+
+/**
+ * RECINTO attorno alla resa del singolo item.
+ *
+ * `notifications.event` è un jsonb scritto da chi ha pubblicato l'evento, anche
+ * mesi fa e da una versione precedente del codice: il cast a `NotificationEvent`
+ * è una promessa che il DB non fa rispettare (nessun CHECK sulla forma del
+ * payload). Un `kind` che non esiste più, un campo url sparito, un `limitUsd`
+ * arrivato come stringa fanno lanciare `formatNotificationText`/`openUrl` — e
+ * senza recinto UNA riga marcia manderebbe in 500 la lista INTERA, cioè
+ * l'inbox dell'utente diventerebbe inaccessibile finché qualcuno non va a
+ * pulire il DB a mano.
+ *
+ * Qui la riga degrada e basta: `text` ripiega sul `kind` (la colonna enum, di
+ * cui ci si può fidare) e `url` viene omesso. La card resta visibile e — visto
+ * che le azioni si calcolano dalla colonna, non dal jsonb — resta anche
+ * azionabile: si può approvare un piano di cui non sappiamo più scrivere il
+ * titolo.
+ *
+ * Non è solo un try/catch: un payload malformato può anche NON lanciare e
+ * restituire `undefined` (`openUrl` su un kind sconosciuto esce dallo switch),
+ * quindi l'esito viene comunque validato prima di uscire.
+ */
+function renderItem(
+  rawEvent: Record<string, unknown>,
+  kind: NotificationKind,
+  lang: Language,
+): { text: string; url?: string } {
+  try {
+    const event = rawEvent as unknown as NotificationEvent;
+    const text = formatNotificationText(event, lang);
+    const url: unknown = openUrl(event);
+    return {
+      text: typeof text === "string" && text.trim() !== "" ? text : kind,
+      ...(typeof url === "string" && url !== "" ? { url } : {}),
+    };
+  } catch {
+    return { text: kind };
+  }
 }
 
 /**
@@ -647,11 +771,15 @@ export async function unreadCount(db: Db, userId: string): Promise<number> {
  * Segna la notifica come letta, se non lo era già. Idempotente: `read_at` è il
  * momento della PRIMA apertura, quindi una seconda chiamata lo conserva.
  * Notifica inesistente o di un altro utente → `not_found`.
+ *
+ * `handledNotificationIds` è vuoto quando la riga era GIÀ letta: come per
+ * {@link executeAction}, elenca le righe il cui stato è cambiato davvero, così
+ * il chiamante sa se c'è qualcosa da rispecchiare altrove.
  */
 export async function markRead(
   db: Db,
   args: { notificationId: string; userId: string },
-): Promise<{ ok: true } | { ok: false; error: "not_found" }> {
+): Promise<{ ok: true; handledNotificationIds: string[] } | { ok: false; error: "not_found" }> {
   const updated = await db
     .update(notifications)
     .set({ readAt: sql`now()` })
@@ -663,14 +791,14 @@ export async function markRead(
       ),
     )
     .returning({ id: notifications.id });
-  if (updated.length > 0) return { ok: true };
+  if (updated.length > 0) return { ok: true, handledNotificationIds: [updated[0]!.id] };
 
   // 0 righe: o la notifica non è sua (→ not_found), o era già letta (→ ok).
   const [row] = await db
     .select({ id: notifications.id })
     .from(notifications)
     .where(and(eq(notifications.id, args.notificationId), eq(notifications.userId, args.userId)));
-  return row ? { ok: true } : { ok: false, error: "not_found" };
+  return row ? { ok: true, handledNotificationIds: [] } : { ok: false, error: "not_found" };
 }
 
 // --- Cursore keyset ---
