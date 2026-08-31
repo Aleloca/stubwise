@@ -195,7 +195,7 @@ export type PublishFn = typeof publishNotification;
 export interface NotifyDeps { publicUrl?: string; projectName?: string; publish?: PublishFn }
 export async function notify(deps, db, event, opts: PublishOpts): Promise<void>
 ```
-e passa `opts` in ogni punto (`ticketId`/`jobId`/`projectId` sono sempre a portata di mano nella pipeline; per `monitor.*` passa `projectId` del server se esiste, altrimenti nulla). `job.pr_opened`: `costUsd` resta `null` come oggi. **Step 3:** test passano; `pnpm --filter @stubwise/worker typecheck`. **Step 4:** commit `refactor(notify): tutti gli eventi passano da publishNotification`.
+e passa `opts` in ogni punto (`ticketId`/`jobId`/`projectId` sono sempre a portata di mano nella pipeline; per `monitor.*` passa `projectId` del server se esiste, altrimenti nulla). `job.pr_opened`: `costUsd` resta `null` come oggi. **Emissione NUOVA lato server**: in `apps/server/src/services/jobs.ts`, quando `startRun` parcheggia direttamente il job di un `member` in `awaiting_plan_approval` (piano salvato), nessuno emette `job.plan_review` (oggi lo emette solo il worker in `fix.ts:1269`): aggiungi `publishNotification(db, { kind:"job.plan_review", … }, { projectId, ticketId, jobId })` dopo il commit, con test (il maintainer deve ricevere la notifica). **Step 3:** test passano; `pnpm --filter @stubwise/worker typecheck`. **Step 4:** commit `refactor(notify): tutti gli eventi passano da publishNotification`.
 
 ### Task 6: Poller delle deliveries nel worker (canale `webhook`)
 
