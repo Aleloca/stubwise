@@ -87,8 +87,10 @@ Migrazione **0063**.
 `event jsonb` (il `NotificationEvent` intero: i testi si rendono con
 `formatNotification`), `status` enum `open | handled | snoozed`,
 `snoozed_until?`, `read_at?`, `handled_at?`, `handled_by_user_id?`,
-`created_at`. Indice parziale `(user_id, created_at desc) where status = 'open'`;
-indice `(job_id)` per la propagazione di `handled`.
+`created_at`. Indici: `(user_id, status, created_at desc, id desc)` (liste per
+stato, riapertura lazy degli snooze, keyset con tiebreaker), `(job_id)` per la
+propagazione di `handled`, `(ticket_id)`. CHECK di coerenza: `snoozed` ⇒
+`snoozed_until` valorizzato; `handled` ⇔ `handled_at` valorizzato.
 
 **`notification_deliveries`** (outbox per canale):
 `id`, `notification_id?` (null per la delivery `webhook`, che è per evento non
@@ -98,7 +100,8 @@ messaggio delle altre copie dopo un'azione), `status` enum
 `pending | sent | failed | skipped`,
 `attempts int`, `next_attempt_at`, `error?`, `external_ref?` (ts del messaggio
 Slack), `created_at`, `sent_at?`. Indice parziale su `(next_attempt_at) where
-status = 'pending'`.
+status = 'pending'` e indice su `(notification_id)`. CHECK: `channel = 'webhook'` ⇔
+`notification_id IS NULL`; `webhook` ⇒ `event` valorizzato.
 
 **`project_follows`**: `(user_id, project_id)` PK composta.
 

@@ -19,7 +19,7 @@ stubwise:
 
 **Convenzioni trasversali (valgono per ogni task):**
 - TDD: test prima, verifica che fallisca, implementa, verifica che passi, commit.
-- Test singolo package: `pnpm --filter @stubwise/db test`, `pnpm --filter @stubwise/server test -- <pattern>`, `pnpm --filter @stubwise/worker test -- <pattern>`, `pnpm --filter @stubwise/notifications test`, `pnpm --filter @stubwise/mcp test`, `pnpm --filter @stubwise/web test -- <pattern>` (server/worker/db usano testcontainers: serve Docker attivo).
+- Test singolo package: `pnpm --filter @stubwise/db test`, `pnpm --filter @stubwise/server exec vitest run <pattern>`, `pnpm --filter @stubwise/worker exec vitest run <pattern>`, `pnpm --filter @stubwise/notifications test`, `pnpm --filter @stubwise/mcp test`, `pnpm --filter @stubwise/web exec vitest run <pattern>` (NB: `pnpm ... test -- <pattern>` NON filtra, lancia tutta la suite; server/worker/db usano testcontainers: serve Docker attivo).
 - Dopo aver modificato `packages/*`: `pnpm --filter @stubwise/<pkg> build` (server/worker leggono `dist`).
 - Commit frequenti, messaggi `feat(scope):` / `fix(scope):` in italiano come lo storico.
 - Prima del merge: `pnpm lint` + `pnpm typecheck` + `pnpm test` dalla radice (la CI fallisce su lint anche col resto verde).
@@ -39,7 +39,7 @@ stubwise:
 
 **Step 1: test** — (a) `ai_jobs` accetta `requested_by_user_id` null e `plan_approval_required` default `false`; (b) inserisce `notifications` per due utenti con lo stesso `job_id` e rilegge per `job_id`; (c) `notification_deliveries` con `notification_id` null e `channel='webhook'` è valido; `status` rifiuta valori fuori enum; (d) `project_follows` rifiuta il duplicato (PK composta); (e) `users.notify_slack_dm` default `true`.
 
-**Step 2:** `pnpm --filter @stubwise/db test -- inbox-schema` → FALLISCE.
+**Step 2:** `pnpm --filter @stubwise/db exec vitest run inbox-schema` → FALLISCE.
 
 **Step 3: SQL**
 
@@ -121,7 +121,7 @@ CREATE TABLE project_follows (
 - ultimo job in `held|failed|pr_closed|skipped|pr_opened|pr_merged` → riusa la riga come oggi (verifica `startedAt/finishedAt/error` azzerati).
 - `resolvePlan(db, { ticketId, actor, mode: "execute"|"fix", instructions? })`: member → `{ error: "forbidden" }`; admin senza job pendente → `plan_not_pending`; con `instructions` inserisce il commento del team con quel testo PRIMA del commento di sistema (così il re-plan lo legge come "Rilancia con istruzioni" — cerca nel worker come vengono raccolti i `teamComments` in `pipeline/fix.ts` e usa lo stesso `authorType`/campo).
 
-**Step 2:** `pnpm --filter @stubwise/server test -- services/jobs` → FALLISCE.
+**Step 2:** `pnpm --filter @stubwise/server exec vitest run services/jobs` → FALLISCE.
 
 **Step 3: implementazione** — firma:
 
