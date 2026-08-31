@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit && tsc -p scripts/tsconfig.json"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.20.0",
     "@stubwise/db": "workspace:*",
     "@stubwise/docs-engine": "workspace:*",
     "@stubwise/embeddings": "workspace:*",
