@@ -13,6 +13,7 @@
     "logout": "Sign out",
     "loggingOut": "Signing out…",
     "nav": {
+      "inbox": "Inbox",
       "tickets": "Tickets",
       "board": "Board",
       "backlog": "Backlog",
@@ -679,8 +680,8 @@
       "title": "Account",
       "email": "Email",
       "role": "Role",
-      "admin": "Admin",
-      "member": "Member",
+      "admin": "Maintainer",
+      "member": "Operator",
       "language": "Language",
       "languageEnglish": "English",
       "languageItalian": "Italiano"
@@ -722,11 +723,11 @@
       "memberCount_other": "{{count}} members",
       "you": "you",
       "memberSince": "member since {{date}}",
-      "admin": "Admin",
-      "member": "Member",
+      "admin": "Maintainer",
+      "member": "Operator",
       "changeRoleLabel": "Role of {{email}}",
-      "roleAdmin": "Admin",
-      "roleMember": "Member",
+      "roleAdmin": "Maintainer",
+      "roleMember": "Operator",
       "invitesTitle": "Pending invites",
       "adminOnly": "admin only",
       "inviteUser": "Invite a user",
@@ -984,6 +985,36 @@
         "effort": "job.held only — estimated effort 1–5",
         "error": "job.failed only — error message"
       }
+    }
+  },
+  "inbox": {
+    "title": "Inbox",
+    "sections": {
+      "toDecide": "To decide",
+      "toKnow": "To know",
+      "snoozed": "Snoozed"
+    },
+    "actions": {
+      "approvePlan": "Approve plan",
+      "rejectPlan": "Reject",
+      "relaunch": "Relaunch",
+      "handled": "Handled",
+      "snooze": "Snooze",
+      "snooze1h": "1 hour",
+      "snoozeTomorrow": "Tomorrow",
+      "snooze3d": "3 days",
+      "open": "Open"
+    },
+    "status": {
+      "awaitingApproval": "awaiting approval",
+      "handledBy": "handled by {{email}}",
+      "snoozedUntil": "snoozed until {{date}}"
+    },
+    "empty": "// no notifications",
+    "errors": {
+      "alreadyHandled": "Already handled by {{email}}",
+      "alreadyHandledUnknown": "Already handled by someone else",
+      "jobInFlight": "A job is already running"
     }
   },
   "automation": {

@@ -9,6 +9,7 @@ import {
   dismissSuggested,
   generateRepoGraph,
   getBacklogItem,
+  getInbox,
   getMe,
   getRepoGraph,
   getRepoGraphReport,
@@ -19,8 +20,10 @@ import {
   listTickets,
   mergeBacklogItem,
   openRepoGraphSetupPr,
+  handledByFromError,
   patchBacklogItem,
   postBacklogItem,
+  postInboxAction,
   postLogin,
   postLogout,
   postSetup,
@@ -424,5 +427,69 @@ describe("funzioni grafo del repository", () => {
 
     await getRepoGraphReport("a/b");
     expect(fetchMock.mock.calls[0]![0]).toBe("/api/repositories/a%2Fb/graph/report");
+  });
+});
+
+describe("inbox", () => {
+  it("getInbox: senza filtri non manda querystring (il default status è del server)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { items: [], nextCursor: null }));
+
+    await expect(getInbox()).resolves.toEqual({ items: [], nextCursor: null });
+    expect(fetchMock.mock.calls[0]![0]).toBe("/api/inbox");
+  });
+
+  it("getInbox: filtri, cursore e limite finiscono nella querystring", async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { items: [], nextCursor: null }));
+
+    await getInbox({ status: "snoozed", projectId: "p1" }, "cur1", 20);
+    expect(fetchMock.mock.calls[0]![0]).toBe(
+      "/api/inbox?status=snoozed&projectId=p1&cursor=cur1&limit=20",
+    );
+  });
+
+  it("postInboxAction: POST sulla rotta dell'azione col corpo passato", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(200, {
+        kind: "job.plan_review",
+        jobId: "j1",
+        changedNotificationIds: ["n1", "n2"],
+      }),
+    );
+
+    await expect(
+      postInboxAction("n1", "reject_plan", { instructions: "rifai" }),
+    ).resolves.toMatchObject({ changedNotificationIds: ["n1", "n2"] });
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/inbox/n1/actions/reject_plan");
+    expect(init?.body).toBe(JSON.stringify({ instructions: "rifai" }));
+  });
+
+  it("409 already_handled: handledByFromError estrae CHI ha gestito la notifica", async () => {
+    const handledBy = { id: "11111111-2222-4333-8444-555555555555", email: "ada@example.com" };
+    fetchMock.mockResolvedValue(
+      jsonResponse(409, {
+        code: "already_handled",
+        message: "Already handled by ada@example.com",
+        handledBy,
+      }),
+    );
+
+    const error = await postInboxAction("n1", "approve_plan").catch((e: unknown) => e);
+    expect(error).toMatchObject({ status: 409, code: "already_handled" });
+    expect(handledByFromError(error)).toEqual(handledBy);
+  });
+
+  it("handledByFromError: undefined sugli altri errori e sul 409 senza handledBy", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(409, { code: "job_in_flight", message: "A job is already running" }),
+    );
+    const inFlight = await postInboxAction("n1", "relaunch").catch((e: unknown) => e);
+    expect(handledByFromError(inFlight)).toBeUndefined();
+
+    fetchMock.mockResolvedValue(jsonResponse(409, { code: "already_handled", message: "Handled" }));
+    const anonymous = await postInboxAction("n1", "relaunch").catch((e: unknown) => e);
+    expect(handledByFromError(anonymous)).toBeUndefined();
+
+    expect(handledByFromError(new Error("boom"))).toBeUndefined();
   });
 });

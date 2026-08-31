@@ -1,10 +1,13 @@
 import {
-  handledBySchema,
+  alreadyHandledErrorSchema,
+  inboxActionResultSchema,
   inboxActionSchema,
+  inboxDecisionActionSchema,
   inboxPageSchema,
   inboxStatusSchema,
-  notificationKindSchema,
+  snoozeResultSchema,
   snoozeUntilSchema,
+  unreadCountSchema,
   type InboxAction,
   type InboxDecisionAction,
   type InboxItem,
@@ -44,16 +47,17 @@ import { authErrorResponses, errorSchema } from "./shared.js";
  * Chiedere `snooze` (o `open`) da lì è un errore del client: 400 `invalid_action`.
  */
 
-/** Le sole azioni accettate da `/actions/:action`. */
-const DECISION_ACTIONS: readonly InboxAction[] = ["approve_plan", "reject_plan", "relaunch"];
+/**
+ * Le sole azioni accettate da `/actions/:action`, DERIVATE dallo schema
+ * condiviso: l'elenco vive in `@stubwise/shared` (dove lo legge anche il
+ * client) e qui non si ripete — una lista sola, impossibile da disallineare.
+ */
+const DECISION_ACTIONS = new Set<InboxAction>(inboxDecisionActionSchema.options);
 
 /** True se l'azione è decisionale (e restringe il tipo per il servizio). */
 function isDecision(action: InboxAction): action is InboxDecisionAction {
-  return DECISION_ACTIONS.includes(action);
+  return DECISION_ACTIONS.has(action);
 }
-
-/** Corpo 409 dell'inbox: l'errore standard più CHI ha gestito la notifica. */
-const alreadyHandledSchema = errorSchema.extend({ handledBy: handledBySchema.optional() });
 
 const idParamsSchema = z.object({ id: z.uuid() });
 
@@ -61,7 +65,9 @@ const idParamsSchema = z.object({ id: z.uuid() });
 const actionErrorResponses = {
   400: errorSchema,
   404: errorSchema,
-  409: alreadyHandledSchema,
+  // Errore standard PIÙ `handledBy`: il 409 di `already_handled` deve poter
+  // dire CHI ha gestito la notifica (vedi `sendActionError`).
+  409: alreadyHandledErrorSchema,
   ...authErrorResponses,
 } as const;
 
@@ -185,7 +191,7 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
     {
       preHandler: requireAuth,
       schema: {
-        response: { 200: z.object({ count: z.number().int() }), ...authErrorResponses },
+        response: { 200: unreadCountSchema, ...authErrorResponses },
       },
     },
     async (request) => ({ count: await unreadCount(app.db, request.user!.id) }),
@@ -225,12 +231,7 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
       schema: {
         params: idParamsSchema,
         body: z.object({ until: snoozeUntilSchema }),
-        response: {
-          // `nullable` per difesa: la scadenza la calcola il DB e c'è sempre,
-          // ma il contratto non deve poter far esplodere la serializzazione.
-          200: z.object({ snoozedUntil: z.iso.datetime().nullable() }),
-          ...actionErrorResponses,
-        },
+        response: { 200: snoozeResultSchema, ...actionErrorResponses },
       },
     },
     async (request, reply) => {
@@ -289,14 +290,7 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
         // la POST arriva senza corpo, e un `.optional()` puro lo rifiuterebbe.
         // `instructions` serve solo a reject_plan (diventa un commento del team).
         body: z.object({ instructions: z.string().max(4000).optional() }).nullish(),
-        response: {
-          200: z.object({
-            kind: notificationKindSchema,
-            jobId: z.uuid().optional(),
-            changedNotificationIds: z.array(z.uuid()),
-          }),
-          ...actionErrorResponses,
-        },
+        response: { 200: inboxActionResultSchema, ...actionErrorResponses },
       },
     },
     async (request, reply) => {

@@ -13,6 +13,7 @@
     "logout": "Esci",
     "loggingOut": "Uscita…",
     "nav": {
+      "inbox": "Inbox",
       "tickets": "Ticket",
       "board": "Bacheca",
       "backlog": "Backlog",
@@ -679,8 +680,8 @@
       "title": "Account",
       "email": "Email",
       "role": "Ruolo",
-      "admin": "Admin",
-      "member": "Membro",
+      "admin": "Maintainer",
+      "member": "Operatore",
       "language": "Lingua",
       "languageEnglish": "English",
       "languageItalian": "Italiano"
@@ -722,11 +723,11 @@
       "memberCount_other": "{{count}} membri",
       "you": "tu",
       "memberSince": "membro dal {{date}}",
-      "admin": "Admin",
-      "member": "Membro",
+      "admin": "Maintainer",
+      "member": "Operatore",
       "changeRoleLabel": "Ruolo di {{email}}",
-      "roleAdmin": "Admin",
-      "roleMember": "Membro",
+      "roleAdmin": "Maintainer",
+      "roleMember": "Operatore",
       "invitesTitle": "Inviti in sospeso",
       "adminOnly": "solo admin",
       "inviteUser": "Invita un utente",
@@ -984,6 +985,36 @@
         "effort": "solo job.held — sforzo stimato 1–5",
         "error": "solo job.failed — messaggio d'errore"
       }
+    }
+  },
+  "inbox": {
+    "title": "Inbox",
+    "sections": {
+      "toDecide": "Da decidere",
+      "toKnow": "Da sapere",
+      "snoozed": "Snoozate"
+    },
+    "actions": {
+      "approvePlan": "Approva piano",
+      "rejectPlan": "Rifiuta",
+      "relaunch": "Rilancia",
+      "handled": "Gestita",
+      "snooze": "Posticipa",
+      "snooze1h": "1 ora",
+      "snoozeTomorrow": "Domani",
+      "snooze3d": "3 giorni",
+      "open": "Apri"
+    },
+    "status": {
+      "awaitingApproval": "in attesa di approvazione",
+      "handledBy": "gestita da {{email}}",
+      "snoozedUntil": "posticipata a {{date}}"
+    },
+    "empty": "// nessuna notifica",
+    "errors": {
+      "alreadyHandled": "Già gestita da {{email}}",
+      "alreadyHandledUnknown": "Già gestita da qualcun altro",
+      "jobInFlight": "C'è già un job in corso"
     }
   },
   "automation": {

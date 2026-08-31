@@ -18,6 +18,7 @@ export const NAMESPACES = [
   "backlog",
   "settings",
   "notifications",
+  "inbox",
   "automation",
   "usage",
   "jobStatus",

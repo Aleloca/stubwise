@@ -110,6 +110,52 @@ export const inboxPageSchema = z.object({
 export type InboxPage = z.infer<typeof inboxPageSchema>;
 
 /**
+ * Numero di notifiche non lette (la campanella). Oggetto e non numero nudo per
+ * poter crescere senza rompere il client.
+ */
+export const unreadCountSchema = z.object({ count: z.number().int() });
+export type UnreadCount = z.infer<typeof unreadCountSchema>;
+
+/**
+ * Esito di `POST /api/inbox/:id/snooze`. `nullable` per difesa: la scadenza la
+ * calcola il DB e c'è sempre, ma il contratto non deve poter far esplodere la
+ * serializzazione se un giorno mancasse.
+ */
+export const snoozeResultSchema = z.object({ snoozedUntil: z.iso.datetime().nullable() });
+export type SnoozeResult = z.infer<typeof snoozeResultSchema>;
+
+/**
+ * Esito di un'azione DECISIONALE (`POST /api/inbox/:id/actions/:action`).
+ *
+ * `changedNotificationIds` è la ragion d'essere della risposta: una decisione
+ * chiude in blocco TUTTE le copie della stessa notifica (anche di altri
+ * utenti), e il client aggiorna quelle righe senza ricaricare l'inbox.
+ * `jobId` è presente solo quando l'azione ha toccato un job (approva/rilancia).
+ */
+export const inboxActionResultSchema = z.object({
+  kind: notificationKindSchema,
+  jobId: z.uuid().optional(),
+  changedNotificationIds: z.array(z.uuid()),
+});
+export type InboxActionResult = z.infer<typeof inboxActionResultSchema>;
+
+/**
+ * Corpo del 409 delle rotte d'azione: l'errore standard `{ code, message }`
+ * (stessa forma di `errorSchema` lato server) più il DATO che serve alla UI per
+ * dire "l'ha già gestita X" invece di un generico conflitto.
+ *
+ * `handledBy` è opzionale perché lo stesso 409 copre anche `job_in_flight` e
+ * `plan_not_pending`, che non hanno un autore da nominare; `code` è opzionale
+ * perché gli errori di validazione Zod non lo valorizzano.
+ */
+export const alreadyHandledErrorSchema = z.object({
+  code: z.string().optional(),
+  message: z.string(),
+  handledBy: handledBySchema.optional(),
+});
+export type AlreadyHandledError = z.infer<typeof alreadyHandledErrorSchema>;
+
+/**
  * Progetti seguiti dall'utente: è l'insieme COMPLETO, sia in lettura che in
  * scrittura (il PUT sostituisce, non aggiunge).
  */

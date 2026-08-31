@@ -8,6 +8,8 @@ import {
   getComments,
   getGitAccount,
   getGitAccounts,
+  getInbox,
+  getInboxUnreadCount,
   getInstanceSettings,
   getInvites,
   getNotificationSettings,
@@ -41,7 +43,10 @@ import {
   listServerChecks,
   listServers,
   listTickets,
+  type AIJob,
+  type AIJobStatus,
   type BacklogFilters,
+  type InboxFilters,
   type RepoGraph,
   type ServerMetricsRange,
   type TicketFilters,
@@ -189,10 +194,35 @@ export function activityQueryOptions(ticketId: string) {
   });
 }
 
+/** Cadenza del polling dei job mentre il worker sta lavorando sul ticket. */
+const JOBS_POLL_MS = 5_000;
+
+/** Stati in cui il job è VIVO: il worker lo sta muovendo da solo. */
+const LIVE_JOB_STATUSES = new Set<AIJobStatus>(["queued", "triaging", "fixing"]);
+
+/**
+ * Intervallo di refetch della lista job: 5s finché l'ULTIMO job è vivo, nessun
+ * polling altrimenti. Funzione pura (testabile a sé) usata dal
+ * `refetchInterval` di {@link ticketJobsQueryOptions}.
+ *
+ * Solo l'ultimo perché la lista arriva dal più recente al più vecchio e i
+ * precedenti sono per definizione conclusi: guardare il primo elemento basta.
+ * Gli stati d'attesa (`held`, `awaiting_plan_approval`) NON sono vivi — lì il
+ * job aspetta una persona, non il worker: ricaricare non lo farebbe avanzare, e
+ * a sbloccarlo è un'azione della UI, che invalida la query da sé.
+ */
+export function ticketJobsRefetchInterval(jobs: AIJob[] | undefined): number | false {
+  const latest = jobs?.[0];
+  return latest && LIVE_JOB_STATUSES.has(latest.status) ? JOBS_POLL_MS : false;
+}
+
 export function ticketJobsQueryOptions(ticketId: string) {
   return queryOptions({
     queryKey: ticketKeys.jobs(ticketId),
     queryFn: () => getTicketJobs(ticketId),
+    // Il worker avanza in modo asincrono: senza polling la timeline resterebbe
+    // ferma sull'ultimo stato visto fino a un refresh manuale.
+    refetchInterval: (query) => ticketJobsRefetchInterval(query.state.data),
   });
 }
 
@@ -853,5 +883,50 @@ export function activityReportQueryOptions(date: string) {
         data?.developersSummaryPending === true;
       return pending ? 10_000 : false;
     },
+  });
+}
+
+/**
+ * Chiavi dell'INBOX. `lists()` matcha ogni lista filtrata (da invalidare dopo
+ * un'azione, che può cambiare righe di più viste); `unread()` è il contatore
+ * della campanella, separato perché ha una cadenza propria e una risposta
+ * minuscola.
+ */
+export const inboxKeys = {
+  all: ["inbox"] as const,
+  lists: () => [...inboxKeys.all, "list"] as const,
+  list: (filters: InboxFilters) => [...inboxKeys.lists(), filters] as const,
+  unread: () => [...inboxKeys.all, "unread"] as const,
+};
+
+/**
+ * Pagina dell'inbox per i filtri dati (i filtri nella chiave: ogni
+ * combinazione è una lista a sé, come nel backlog).
+ *
+ * NIENTE `refetchInterval` qui: la lista è lunga e la sua freschezza la porta
+ * il contatore, che gira ogni 30s (vedi {@link inboxUnreadQueryOptions}) — la
+ * UI ricarica quando il numero cambia o dopo un'azione. `staleTime` breve
+ * perché le righe cambiano anche per mano di ALTRI (una decisione chiude le
+ * copie di tutti).
+ */
+export function inboxQueryOptions(filters: InboxFilters = {}) {
+  return queryOptions({
+    queryKey: inboxKeys.list(filters),
+    queryFn: () => getInbox(filters),
+    staleTime: 10_000,
+  });
+}
+
+/**
+ * Contatore delle non lette: la sola query in polling costante dell'inbox, da
+ * ogni scheda aperta. 30s è il compromesso fra "la campanella si accorge di un
+ * evento" e il carico di una GET per scheda — la risposta è un solo intero e
+ * la lettura è pura (non riapre gli snooze scaduti).
+ */
+export function inboxUnreadQueryOptions() {
+  return queryOptions({
+    queryKey: inboxKeys.unread(),
+    queryFn: () => getInboxUnreadCount(),
+    refetchInterval: 30_000,
   });
 }

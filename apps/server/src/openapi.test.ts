@@ -33,6 +33,10 @@ describe("GET /api/openapi.json", () => {
     expect(spec.paths).toHaveProperty("/api/tickets");
     expect(spec.paths).toHaveProperty("/api/projects");
     expect(spec.paths).toHaveProperty("/api/auth/login");
+    // Superfici dell'inbox e delle preferenze personali: sono il contratto che
+    // legge la SPA, devono comparire nella spec come le altre.
+    expect(spec.paths).toHaveProperty("/api/inbox");
+    expect(spec.paths).toHaveProperty("/api/me/follows");
     // Documenta la scelta di esclusione degli endpoint infrastrutturali.
     expect(spec.paths).not.toHaveProperty("/health");
     expect(spec.paths).not.toHaveProperty("/api/openapi.json");

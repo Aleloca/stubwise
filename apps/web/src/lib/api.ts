@@ -10,20 +10,33 @@ import type {
   CreateCheckInput,
   DiscoveredService,
   GitProviderKind,
+  HandledBy,
+  InboxAction,
+  InboxActionResult,
+  InboxDecisionAction,
+  InboxItem,
+  InboxPage,
+  InboxStatus,
   Language,
+  NotificationPrefs,
+  NotificationPrefsView,
   PatView,
   PatWithToken,
   PrState,
+  ProjectFollows,
   RecordSearchHistoryBody,
   SearchDocsSemanticResults,
   SearchEntityType,
   SearchHistoryItem,
   SearchResults,
   ServerStatus,
+  SnoozeResult,
+  SnoozeUntil,
   TicketPriority,
   TicketSource,
   TicketStatus,
   TicketType,
+  UnreadCount,
   UpdateBacklogItemInput,
   UpdateCheckInput,
   UpdateServerInput,
@@ -32,7 +45,27 @@ import type {
   WidgetUpsertBody,
 } from "@stubwise/shared";
 
+// Import RUNTIME (non di solo tipo): l'unico schema che il client ESEGUE, per
+// validare il body del 409 `already_handled` prima di fidarsene (vedi
+// `handledByFromError`).
+import { alreadyHandledErrorSchema } from "@stubwise/shared";
+
 export type { PatView, PatWithToken, PrState, WidgetSettings, WidgetUpsertBody } from "@stubwise/shared";
+// Tipi dell'inbox ri-esportati dal binding locale: i componenti li importano da
+// "./api" come gli altri tipi di dominio, senza conoscere `@stubwise/shared`.
+export type {
+  HandledBy,
+  InboxAction,
+  InboxActionResult,
+  InboxDecisionAction,
+  InboxItem,
+  InboxPage,
+  InboxStatus,
+  NotificationPrefs,
+  NotificationPrefsView,
+  ProjectFollows,
+  SnoozeUntil,
+};
 // Ri-esportata dal binding locale (usata anche nelle interfacce del backlog qui
 // sotto): i consumatori la importano da "./api" come gli altri tipi di dominio.
 export type { BacklogSuggested };
@@ -56,12 +89,29 @@ export type { BacklogSuggested };
 export class ApiError extends Error {
   readonly status: number;
   readonly code?: string;
+  /**
+   * Body JSON grezzo della risposta d'errore, quando ce n'è uno.
+   *
+   * `code` e `message` bastano quasi sempre; alcuni errori però portano un DATO
+   * che alla UI serve (oggi solo il 409 `already_handled` dell'inbox, che dice
+   * CHI ha gestito la notifica). Invece di aggiungere un campo tipizzato per
+   * ciascuno di questi casi si conserva il body così com'è, `unknown`: chi lo
+   * vuole lo valida con lo schema condiviso della sua superficie — vedi
+   * {@link handledByFromError}. Assente su risposte non-JSON e di rete.
+   */
+  readonly details?: unknown;
 
-  constructor(status: number, message: string, code?: string, options?: ErrorOptions) {
+  constructor(
+    status: number,
+    message: string,
+    code?: string,
+    options?: ErrorOptions & { details?: unknown },
+  ) {
     super(message, options);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.details = options?.details;
   }
 }
 
@@ -75,17 +125,20 @@ export class ApiError extends Error {
  */
 async function errorFromResponse(response: Response): Promise<ApiError> {
   const fallback = `Error ${response.status}`;
-  const { message, code } = await response
+  const { message, code, details } = await response
     .json()
     .then((data: unknown) => {
       const obj = typeof data === "object" && data !== null ? (data as Record<string, unknown>) : {};
       return {
         message: "message" in obj ? String(obj.message) : fallback,
         code: typeof obj.code === "string" ? obj.code : undefined,
+        // Il body intero resta a disposizione dei pochi errori che portano un
+        // dato oltre a code/message (vedi ApiError.details).
+        details: data,
       };
     })
-    .catch(() => ({ message: fallback, code: undefined }));
-  return new ApiError(response.status, message, code);
+    .catch(() => ({ message: fallback, code: undefined, details: undefined }));
+  return new ApiError(response.status, message, code, { details });
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -700,11 +753,16 @@ export function getTicketJobs(ticketId: string): Promise<AIJob[]> {
  *
  * Con `withInstructions:true` il job riparte in resume_mode=fix (riprende sul
  * fix senza rifare il triage); senza opzione si rifà il triage da capo.
+ *
+ * `status` distingue i due esiti del 202: un run chiesto da un OPERATOR su un
+ * ticket con piano salvato nasce già fermo sul gate (`awaiting_plan_approval`)
+ * invece che in coda — la UI deve dirlo, non annunciare un fix partito.
+ * 409 `job_in_flight` se un job del ticket è ancora in volo.
  */
 export function postRunAi(
   ticketId: string,
   opts?: { withInstructions?: boolean },
-): Promise<{ jobId: string }> {
+): Promise<{ jobId: string; status: "queued" | "awaiting_plan_approval" }> {
   return api.post(`/api/tickets/${ticketId}/run-ai`, opts);
 }
 
@@ -2839,4 +2897,116 @@ export function acceptSuggested(id: string): Promise<BacklogItemBase> {
 /** Scarta i metadati suggeriti (azzera `suggested` senza applicarli). */
 export function dismissSuggested(id: string): Promise<BacklogItemBase> {
   return api.post(`/api/backlog/${encodeURIComponent(id)}/suggested/dismiss`);
+}
+
+// --- Inbox e preferenze personali ---
+
+/**
+ * Filtri della pagina d'inbox: combaciano con la querystring di `GET /api/inbox`.
+ * Tutti opzionali — senza `status` il server torna l'inbox APERTA (il default è
+ * suo, non del client: una sola fonte per "cosa resta da smaltire").
+ */
+export interface InboxFilters {
+  status?: InboxStatus;
+  projectId?: string;
+}
+
+/**
+ * Pagina dell'inbox dell'utente corrente. `text` arriva GIÀ localizzato nella
+ * lingua dell'utente e `actions` già calcolato (kind + stato del job + ruolo):
+ * la UI disegna quello che riceve, non deduce nulla.
+ */
+export function getInbox(
+  filters: InboxFilters = {},
+  cursor?: string,
+  limit?: number,
+): Promise<InboxPage> {
+  const params = new URLSearchParams();
+  if (filters.status) params.set("status", filters.status);
+  if (filters.projectId) params.set("projectId", filters.projectId);
+  if (cursor) params.set("cursor", cursor);
+  if (limit !== undefined) params.set("limit", String(limit));
+  const query = params.toString();
+  return api.get(`/api/inbox${query ? `?${query}` : ""}`);
+}
+
+/** Contatore della campanella: lettura pura, interrogata in polling. */
+export function getInboxUnreadCount(): Promise<UnreadCount> {
+  return api.get("/api/inbox/unread-count");
+}
+
+/** Segna la notifica come letta. Idempotente (204 anche se lo era già). */
+export function postInboxRead(id: string): Promise<void> {
+  return api.post(`/api/inbox/${encodeURIComponent(id)}/read`);
+}
+
+/**
+ * Rinvia la notifica: sparisce dall'inbox aperta fino a `snoozedUntil`, che si
+ * riceve indietro così la UI può dirlo senza ricaricare.
+ */
+export function postInboxSnooze(id: string, until: SnoozeUntil): Promise<SnoozeResult> {
+  return api.post(`/api/inbox/${encodeURIComponent(id)}/snooze`, { until });
+}
+
+/** Archivia la notifica: igiene PERSONALE, chiude solo la propria riga. */
+export function postInboxHandled(id: string): Promise<void> {
+  return api.post(`/api/inbox/${encodeURIComponent(id)}/handled`);
+}
+
+/**
+ * Azione DECISIONALE su una notifica (approva/rifiuta il piano, rilancia il
+ * job). `instructions` serve solo a `reject_plan` (diventa un commento del
+ * team). La risposta porta `changedNotificationIds`: la decisione chiude in
+ * blocco tutte le copie della stessa notifica, anche di altri utenti, e il
+ * chiamante aggiorna quelle righe senza ricaricare.
+ *
+ * Errori attesi (tutti `ApiError`): 409 `already_handled` — qualcun altro ha
+ * deciso prima, `handledBy` nel body (vedi {@link handledByFromError}); 409
+ * `job_in_flight` — c'è già un job in corso sul ticket; 409 `plan_not_pending`,
+ * 403 `forbidden`, 400 `invalid_action`.
+ */
+export function postInboxAction(
+  id: string,
+  action: InboxDecisionAction,
+  body?: { instructions?: string },
+): Promise<InboxActionResult> {
+  return api.post(`/api/inbox/${encodeURIComponent(id)}/actions/${action}`, body);
+}
+
+/**
+ * Chi ha già gestito la notifica, letto dal 409 `already_handled`.
+ *
+ * È l'unico errore dell'API che porta un DATO oltre a `code`/`message`: il body
+ * grezzo viaggia in {@link ApiError.details} e qui si valida con lo schema
+ * condiviso prima di usarlo — non ci si fida della forma di un body d'errore.
+ * Ritorna `undefined` per qualunque altro errore, o se il server non ha saputo
+ * dire chi (`handledBy` è opzionale nel contratto).
+ */
+export function handledByFromError(error: unknown): HandledBy | undefined {
+  if (!(error instanceof ApiError) || error.code !== "already_handled") return undefined;
+  const parsed = alreadyHandledErrorSchema.safeParse(error.details);
+  return parsed.success ? parsed.data.handledBy : undefined;
+}
+
+/** Progetti seguiti dall'utente corrente: l'insieme COMPLETO. */
+export function getMyFollows(): Promise<ProjectFollows> {
+  return api.get("/api/me/follows");
+}
+
+/** SOSTITUISCE l'insieme dei progetti seguiti (non è un delta): 204. */
+export function putMyFollows(projectIds: string[]): Promise<void> {
+  return api.put("/api/me/follows", { projectIds });
+}
+
+/**
+ * Preferenze di notifica più il contesto per renderle: senza `slackLinked` il
+ * toggle del DM va mostrato disabilitato (acceso, il canale resterebbe muto).
+ */
+export function getNotificationPrefs(): Promise<NotificationPrefsView> {
+  return api.get("/api/me/notification-prefs");
+}
+
+/** Accende o spegne il DM Slack: 204. L'inbox in-app non è disattivabile. */
+export function putNotificationPrefs(prefs: NotificationPrefs): Promise<void> {
+  return api.put("/api/me/notification-prefs", prefs);
 }

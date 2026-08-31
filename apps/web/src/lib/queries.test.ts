@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { RepoGraph } from "./api";
-import { graphKeys, repoGraphRefetchInterval } from "./queries";
+import type { AIJob, AIJobStatus, RepoGraph } from "./api";
+import {
+  graphKeys,
+  inboxKeys,
+  repoGraphRefetchInterval,
+  ticketJobsRefetchInterval,
+} from "./queries";
 
 /** Stato "grafo pronto e fermo": la base da cui derivare i casi vivi. */
 function graph(overrides: Partial<RepoGraph> = {}): RepoGraph {
@@ -54,5 +59,65 @@ describe("graphKeys", () => {
     expect(graphKeys.report("r1").slice(0, graphKeys.detail("r1").length)).toEqual(
       graphKeys.detail("r1"),
     );
+  });
+});
+
+/** Job "concluso" minimale: la base da cui derivare i casi vivi. */
+function job(status: AIJobStatus): AIJob {
+  return {
+    id: `job-${status}`,
+    ticketId: "t1",
+    status,
+    log: "",
+    prUrl: null,
+    error: null,
+    createdAt: "2026-08-31T10:00:00.000Z",
+    startedAt: null,
+    finishedAt: null,
+    providerLabel: null,
+    providerKind: null,
+  };
+}
+
+describe("ticketJobsRefetchInterval", () => {
+  it("nessun dato in cache (primo fetch) o ticket senza job: niente polling", () => {
+    expect(ticketJobsRefetchInterval(undefined)).toBe(false);
+    expect(ticketJobsRefetchInterval([])).toBe(false);
+  });
+
+  it("ultimo job vivo (queued/triaging/fixing): polling a 5s", () => {
+    expect(ticketJobsRefetchInterval([job("queued")])).toBe(5_000);
+    expect(ticketJobsRefetchInterval([job("triaging")])).toBe(5_000);
+    expect(ticketJobsRefetchInterval([job("fixing")])).toBe(5_000);
+  });
+
+  it("ultimo job concluso: niente polling", () => {
+    expect(ticketJobsRefetchInterval([job("pr_opened")])).toBe(false);
+    expect(ticketJobsRefetchInterval([job("failed")])).toBe(false);
+    expect(ticketJobsRefetchInterval([job("pr_merged")])).toBe(false);
+  });
+
+  it("stati d'attesa di una PERSONA: niente polling (a sbloccarli è la UI)", () => {
+    expect(ticketJobsRefetchInterval([job("held")])).toBe(false);
+    expect(ticketJobsRefetchInterval([job("awaiting_plan_approval")])).toBe(false);
+  });
+
+  it("guarda solo il PRIMO elemento: la lista è dal più recente al più vecchio", () => {
+    // Un tentativo vecchio ancora "fixing" in coda alla lista non deve tenere
+    // acceso il polling se l'ultimo job è concluso.
+    expect(ticketJobsRefetchInterval([job("pr_opened"), job("fixing")])).toBe(false);
+    expect(ticketJobsRefetchInterval([job("fixing"), job("failed")])).toBe(5_000);
+  });
+});
+
+describe("inboxKeys", () => {
+  it("ogni combinazione di filtri è una lista a sé, sotto lists()", () => {
+    expect(inboxKeys.list({ status: "open" })).not.toEqual(inboxKeys.list({ status: "handled" }));
+    const list = inboxKeys.list({ status: "open" });
+    expect(list.slice(0, inboxKeys.lists().length)).toEqual(inboxKeys.lists());
+  });
+
+  it("il contatore è una chiave distinta dalle liste", () => {
+    expect(inboxKeys.unread()).not.toEqual(inboxKeys.lists());
   });
 });
