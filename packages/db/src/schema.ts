@@ -158,6 +158,10 @@ export const aiJobStatus = pgEnum("ai_job_status", [
   // supera la soglia di effort configurata; il job è parcheggiato in attesa
   // dell'approvazione umana prima di eseguirlo.
   "awaiting_plan_approval",
+  // "awaiting_input": la pianificazione si è fermata su una domanda posta a un
+  // umano (`agent_questions`); riparte alla risposta. Fuori da ACTIVE_STATUSES
+  // e non claimabile: nessun heartbeat, nessun recupero da orfano.
+  "awaiting_input",
 ]);
 // Le fasi AI di cui tracciamo i consumi (token + costo): triage, fix e review.
 export const agentRunPhase = pgEnum("agent_run_phase", ["triage", "fix", "review"]);
@@ -168,10 +172,12 @@ export const agentRunPhase = pgEnum("agent_run_phase", ["triage", "fix", "review
 export const heldReason = pgEnum("held_reason", enumValues(heldReasonSchema));
 
 // Modalità di ripresa di un job rimesso in coda da un intervento umano:
-//  null     → job normale: triage → (gate) → fix;
-//  "fix"    → salta il triage, va al fix (può ri-fermarsi sul gate del piano);
-//  "execute"→ salta triage E pianificazione, esegue usando plan_text.
-export const resumeMode = pgEnum("resume_mode", ["fix", "execute"]);
+//  null           → job normale: triage → (gate) → fix;
+//  "fix"          → salta il triage, va al fix (può ri-fermarsi sul gate del piano);
+//  "execute"      → salta triage E pianificazione, esegue usando plan_text;
+//  "plan_continue"→ salta il triage e CONTINUA la pianificazione dalla risposta
+//                   umana a una domanda dell'agente (riprende la sessione CLI).
+export const resumeMode = pgEnum("resume_mode", ["fix", "execute", "plan_continue"]);
 
 // Stato della PR aperta dal fix su un singolo repo di un ticket multi-repo:
 //  "open"            → PR aperta, in attesa di merge;
@@ -693,6 +699,12 @@ export const aiJobs = pgTable(
     // Piano prodotto dalla fase di pianificazione, persistito tra il parcheggio
     // in awaiting_plan_approval e la ripresa in esecuzione (resume_mode="execute").
     planText: text("plan_text"),
+    // Sessione del claude CLI dell'ultimo run di pianificazione, salvata al
+    // parcheggio in awaiting_input per riprenderla con `--resume` quando la
+    // domanda riceve risposta. Null quando non c'è nulla da riprendere (run mai
+    // fermato su una domanda, oppure sessione non estratta: si ripianifica da
+    // zero col blocco delle decisioni già prese).
+    cliSessionId: text("cli_session_id"),
     // Provider AI con cui il job è stato (o sarà) eseguito. Nullable: i job
     // pre-esistenti alla feature provider non lo hanno, e un job può essere in
     // coda prima che il worker scelga la credenziale. ON DELETE SET NULL: il job
@@ -2476,3 +2488,62 @@ export type Notification = typeof notifications.$inferSelect;
 export type NotificationDelivery = typeof notificationDeliveries.$inferSelect;
 /** Riga di `project_follows`: un progetto seguito da un utente. */
 export type ProjectFollow = typeof projectFollows.$inferSelect;
+
+/**
+ * Domande poste dall'agente durante la pianificazione di un fix (fase 1,
+ * pianificazione interattiva): una riga per domanda, con la risposta umana
+ * accanto. Il job che l'ha posta resta parcheggiato in `awaiting_input` finché
+ * `answered_at` non è valorizzato; un round successivo nasce solo dopo che il
+ * precedente ha avuto risposta (indice unico parziale). `ticketId` è ridondante
+ * rispetto al job ma serve alla timeline del ticket, che legge le Q&A di TUTTI
+ * i job del ticket senza join.
+ */
+export const agentQuestions = pgTable(
+  "agent_questions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => aiJobs.id, { onDelete: "cascade" }),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    // Round di domande dentro lo stesso job, da 1: l'agente ne ha a
+    // disposizione un numero limitato (AGENT_QUESTION_MAX_ROUNDS).
+    round: integer("round").notNull(),
+    question: text("question").notNull(),
+    // Le alternative proposte dall'agente (2..4), ognuna con la sua etichetta e
+    // l'eventuale conseguenza mostrata sotto il bottone.
+    options: jsonb("options").$type<{ label: string; consequence?: string }[]>().notNull(),
+    // Indice dell'opzione consigliata dall'agente, se ne ha una. Marcata nella
+    // UI ma MAI preselezionata: la scelta resta dell'umano.
+    recommendedIndex: integer("recommended_index"),
+    // L'agente accetta anche una risposta in testo libero ("Altro…").
+    allowFreeText: boolean("allow_free_text").notNull().default(true),
+    askedAt: timestamp("asked_at", { withTimezone: true }).notNull().defaultNow(),
+    // Risposta umana: `{ optionIndex }` per una delle opzioni, `{ text }` per il
+    // testo libero. Null finché la domanda è aperta.
+    answer: jsonb("answer").$type<Record<string, unknown>>(),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    // Chi ha risposto: il richiedente del job o un maintainer. ON DELETE SET
+    // NULL, lo storico della domanda sopravvive all'utente.
+    answeredByUserId: uuid("answered_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => [
+    // Una sola domanda APERTA per job. Indice unico PARZIALE: le domande già
+    // risposte non vi partecipano, quindi i round successivi si accumulano.
+    uniqueIndex("agent_questions_open_job_unique")
+      .on(table.jobId)
+      .where(sql`answered_at IS NULL`),
+    // Q&A di un ticket in ordine cronologico (timeline della pagina ticket e
+    // blocco "Decisioni già prese" del fallback di ripresa).
+    index("agent_questions_ticket_idx").on(table.ticketId, table.askedAt),
+    // Una domanda è chiusa se e solo se ha una risposta.
+    check("agent_questions_answer_chk", sql`(answer IS NULL) = (answered_at IS NULL)`),
+  ],
+);
+
+/** Riga di `agent_questions`: una domanda dell'agente e la risposta umana. */
+export type AgentQuestion = typeof agentQuestions.$inferSelect;
