@@ -11,7 +11,7 @@ import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { requireAuth } from "../auth/session.js";
+import { requireAdmin, requireAuth } from "../auth/session.js";
 import type { Db } from "@stubwise/db";
 import {
   aiJobs,
@@ -31,6 +31,7 @@ import {
 import { maybeEnqueueBacklogIntake } from "../backlog/enqueue.js";
 import { createTicket, ProjectNotFoundError, type Ticket } from "../db/tickets.js";
 import { apiError } from "../errors.js";
+import { resolvePlan, startRun, type ResolvePlanResult } from "../services/jobs.js";
 import {
   authErrorResponses,
   errorSchema,
@@ -1224,20 +1225,12 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
-  // Avvio manuale dell'AI: rimette in coda l'ultimo job del ticket con il
-  // flag manual_trigger, così il worker rifà il triage e, su decisione "fix",
-  // procede SCAVALCANDO il gate di automazione (soglia/auto-fix). Se il ticket
-  // non ha ancora job, ne crea uno queued+manuale. Aperta a ogni utente
-  // autenticato: lanciare il fix è lavoro quotidiano, non un privilegio admin.
-  //
-  // ESECUZIONE DIRETTA DAL PIANO SALVATO: se il ticket ha un
-  // `implementationPlan` salvato e il body NON forza il flusso normale
-  // (`mode:"ai_plan"`), il job parte già in modalità execute-diretta
-  // (resume_mode="execute", plan_text = implementationPlan): il worker salta
-  // triage/pianificazione/approvazione ed esegue direttamente dal piano. È
-  // esattamente lo stato che approve-plan produce, quindi il percorso
-  // execute-only del worker (che crea il proprio worktree dal mirror) lo gestisce
-  // senza modifiche. Con `mode:"ai_plan"` o senza piano salvato → flusso normale.
+  // Avvio manuale dell'AI: delega a `startRun` (services/jobs.ts), che riusa
+  // l'ultimo job del ticket se è concluso, ne crea uno nuovo se non ce ne sono
+  // e RIFIUTA con 409 se ce n'è ancora uno in volo (prima la rotta lo riscriveva
+  // sotto i piedi del worker: il gate era solo lato client). Aperta a ogni utente
+  // autenticato: lanciare il fix è lavoro quotidiano, non un privilegio admin —
+  // ma per un `member` il run si ferma sul gate del piano (vedi startRun).
   app.post(
     "/:id/run-ai",
     {
@@ -1254,71 +1247,49 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
             mode: z.literal("ai_plan").optional(),
           })
           .nullish(),
-        response: { 202: z.object({ jobId: z.uuid() }), 404: errorSchema, ...authErrorResponses },
+        response: {
+          202: z.object({
+            jobId: z.uuid(),
+            // Un run chiesto da un operator con piano salvato nasce già fermo
+            // sul gate: il client deve poterlo distinguere da un run in coda.
+            status: z.enum(["queued", "awaiting_plan_approval"]),
+          }),
+          404: errorSchema,
+          409: errorSchema,
+          ...authErrorResponses,
+        },
       },
     },
     async (request, reply) => {
-      const { id } = request.params;
-      const [ticket] = await app.db
-        .select({ id: tickets.id, implementationPlan: tickets.implementationPlan })
-        .from(tickets)
-        .where(eq(tickets.id, id));
-      if (!ticket) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
-
-      // Esecuzione diretta dal piano salvato: ticket con piano e senza forzatura
-      // del flusso normale. Ha precedenza su withInstructions (è la scelta più
-      // forte: c'è già un piano approvato da eseguire).
-      const useSavedPlan =
-        ticket.implementationPlan !== null && request.body?.mode !== "ai_plan";
-      // resume_mode: "execute" con piano salvato; altrimenti "fix" se
-      // withInstructions=true (riprende sul fix scavalcando il triage), else null
-      // (si rifà il triage da capo).
-      const resume = useSavedPlan ? "execute" : request.body?.withInstructions ? "fix" : null;
-      // plan_text: il piano salvato in esecuzione diretta, altrimenti azzerato
-      // (un piano residuo di un run precedente non deve sopravvivere al re-triage).
-      const planText = useSavedPlan ? ticket.implementationPlan : null;
-
-      // L'ultimo job del ticket (per createdAt, id come spareggio): è quello
-      // che la timeline mostra in cima e che l'utente intende rilanciare.
-      const [latest] = await app.db
-        .select({ id: aiJobs.id })
-        .from(aiJobs)
-        .where(eq(aiJobs.ticketId, id))
-        .orderBy(desc(aiJobs.createdAt), desc(aiJobs.id))
-        .limit(1);
-
-      if (latest) {
-        await app.db
-          .update(aiJobs)
-          .set({
-            status: "queued",
-            manualTrigger: true,
-            resumeMode: resume,
-            planText,
-            startedAt: null,
-            finishedAt: null,
-            error: null,
-            lastActivityAt: sql`now()`,
-          })
-          .where(eq(aiJobs.id, latest.id));
-        return reply.code(202).send({ jobId: latest.id });
+      const result = await startRun(app.db, {
+        ticketId: request.params.id,
+        actor: request.user!,
+        mode: request.body?.mode,
+        withInstructions: request.body?.withInstructions,
+      });
+      if (!result.ok) {
+        if (result.error === "ticket_not_found") {
+          return apiError(reply, 404, "ticket_not_found", "Ticket not found");
+        }
+        return apiError(
+          reply,
+          409,
+          "job_in_flight",
+          `A job for this ticket is already ${result.jobStatus ?? "running"}`,
+        );
       }
-
-      const [created] = await app.db
-        .insert(aiJobs)
-        .values({ ticketId: id, status: "queued", manualTrigger: true, resumeMode: resume, planText })
-        .returning({ id: aiJobs.id });
-      return reply.code(202).send({ jobId: created!.id });
+      return reply.code(202).send({ jobId: result.jobId, status: result.status });
     },
   );
 
   // Approvazione del piano: porta l'ultimo job (se in awaiting_plan_approval) a
   // queued con resume_mode="execute", CONSERVANDO planText — è il piano che il
-  // worker eseguirà. Azzera started/finished/error e bumpa lastActivityAt.
+  // worker eseguirà. Solo admin (maintainer): approvare è la decisione che
+  // sblocca la scrittura di codice, non la si delega agli operator.
   app.post(
     "/:id/approve-plan",
     {
-      preHandler: requireAuth,
+      preHandler: requireAdmin,
       schema: {
         params: idParamsSchema,
         response: {
@@ -1330,19 +1301,27 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      return resumeFromPlanApproval(app.db, request.params.id, "execute", reply);
+      const result = await resolvePlan(app.db, {
+        ticketId: request.params.id,
+        actor: request.user!,
+        mode: "execute",
+      });
+      return sendResolvePlan(reply, result);
     },
   );
 
   // Rifiuto del piano: porta l'ultimo job (se in awaiting_plan_approval) a queued
-  // con resume_mode="fix" e planText=null — il worker ri-pianifica incorporando
-  // gli eventuali commenti utente. Azzera started/finished/error, bumpa lastActivityAt.
+  // con resume_mode="fix" e planText=null — il worker ri-pianifica. Le
+  // `instructions` opzionali diventano un commento del team sul ticket, cioè
+  // proprio ciò che il re-plan rilegge ("rilancia con istruzioni"). Solo admin.
   app.post(
     "/:id/reject-plan",
     {
-      preHandler: requireAuth,
+      preHandler: requireAdmin,
       schema: {
         params: idParamsSchema,
+        // nullish come run-ai: il client può non mandare corpo affatto.
+        body: z.object({ instructions: z.string().max(4000).optional() }).nullish(),
         response: {
           202: z.object({ jobId: z.uuid() }),
           404: errorSchema,
@@ -1352,73 +1331,29 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      return resumeFromPlanApproval(app.db, request.params.id, "fix", reply);
+      const result = await resolvePlan(app.db, {
+        ticketId: request.params.id,
+        actor: request.user!,
+        mode: "fix",
+        instructions: request.body?.instructions,
+      });
+      return sendResolvePlan(reply, result);
     },
   );
 }
 
-/**
- * Logica condivisa di approve/reject del piano. Verifica il ticket (404),
- * individua l'ultimo job e, in una transazione, fa un UPDATE CONDIZIONATO allo
- * stato awaiting_plan_approval: se 0 righe tocca → 409 (nessun piano in attesa,
- * idempotente contro doppi click/race). Altrimenti inserisce il commento system
- * nella stessa transazione e risponde 202. mode="execute" conserva il piano;
- * mode="fix" lo azzera per la ripianificazione.
- */
-async function resumeFromPlanApproval(
-  db: Db,
-  ticketId: string,
-  mode: "execute" | "fix",
-  reply: FastifyReply,
-): Promise<FastifyReply> {
-  const [ticket] = await db.select({ id: tickets.id }).from(tickets).where(eq(tickets.id, ticketId));
-  if (!ticket) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
-
-  // Si prende l'ultimo job IN STATO awaiting_plan_approval, non l'ultimo job in
-  // assoluto: un job più recente in altro stato (es. un re-triage queued)
-  // renderebbe altrimenti irraggiungibile un piano genuinamente in attesa (409).
-  const [latest] = await db
-    .select({ id: aiJobs.id })
-    .from(aiJobs)
-    .where(and(eq(aiJobs.ticketId, ticketId), eq(aiJobs.status, "awaiting_plan_approval")))
-    .orderBy(desc(aiJobs.createdAt), desc(aiJobs.id))
-    .limit(1);
-  if (!latest) {
-    return apiError(reply, 409, "plan_not_pending", "No plan pending approval");
+/** Mappa l'esito di {@link resolvePlan} sulla risposta HTTP di approve/reject. */
+function sendResolvePlan(reply: FastifyReply, result: ResolvePlanResult): FastifyReply {
+  if (result.ok) return reply.code(202).send({ jobId: result.jobId });
+  switch (result.error) {
+    case "ticket_not_found":
+      return apiError(reply, 404, "ticket_not_found", "Ticket not found");
+    case "forbidden":
+      // Irraggiungibile dietro requireAdmin: difesa in profondità se la rotta
+      // venisse un giorno riaperta senza aggiornare il servizio.
+      return apiError(reply, 403, "forbidden", "Administrators only");
+    case "plan_not_pending":
+      return apiError(reply, 409, "plan_not_pending", "No plan pending approval");
   }
-
-  // planText: conservato in execute (è il piano approvato), azzerato in fix
-  // (ripianificazione). L'UPDATE è condizionato allo stato per idempotenza.
-  const planTextUpdate = mode === "fix" ? { planText: null } : {};
-  const result = await db.transaction(async (tx) => {
-    const updated = await tx
-      .update(aiJobs)
-      .set({
-        status: "queued",
-        resumeMode: mode,
-        ...planTextUpdate,
-        startedAt: null,
-        finishedAt: null,
-        error: null,
-        lastActivityAt: sql`now()`,
-      })
-      .where(and(eq(aiJobs.id, latest.id), eq(aiJobs.status, "awaiting_plan_approval")))
-      .returning({ id: aiJobs.id });
-    if (updated.length === 0) return null;
-
-    await tx.insert(comments).values({
-      ticketId,
-      authorType: "system",
-      body:
-        mode === "execute"
-          ? "Piano approvato — esecuzione in corso"
-          : "Piano rifiutato — ripianificazione in corso",
-    });
-    return updated[0]!;
-  });
-
-  if (!result) {
-    return apiError(reply, 409, "plan_not_pending", "No plan pending approval");
-  }
-  return reply.code(202).send({ jobId: result.id });
 }
+

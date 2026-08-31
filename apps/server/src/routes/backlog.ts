@@ -1441,11 +1441,13 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
   // progetto, row-lock su projects). NON accoda alcun aiJob: il gate di
   // automazione o il run manuale decideranno. Linka con role=converted_to e
   // porta la voce in `converted`. Tutto transazionale (createTicket apre un
-  // savepoint annidato).
+  // savepoint annidato). requireAuth (non admin): promuovere un'idea a task è
+  // lavoro da operator — la conversione non fa partire nulla da sola, ed è il
+  // gate del piano (services/jobs.ts) a decidere se un member può eseguire.
   app.post(
     "/:id/convert",
     {
-      preHandler: requireAdmin,
+      preHandler: requireAuth,
       schema: {
         params: idParamsSchema,
         response: {

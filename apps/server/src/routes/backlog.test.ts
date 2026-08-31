@@ -778,14 +778,13 @@ describe("POST /api/backlog/:id/suggested/dismiss", () => {
 });
 
 describe("POST /api/backlog/:id/convert", () => {
-  it("member (non admin) → 403", async () => {
+  it("senza sessione → 401", async () => {
     const item = await insertItem();
     const res = await app.inject({
       method: "POST",
       url: `/api/backlog/${item.id}/convert`,
-      headers: { cookie: memberCookie },
     });
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(401);
   });
 
   it("404 se inesistente", async () => {
@@ -919,6 +918,22 @@ describe("POST /api/backlog/:id/convert", () => {
     const body = res.json() as { ticketId: string };
     const [ticket] = await testDb.db.select().from(tickets).where(eq(tickets.id, body.ticketId));
     expect(ticket!.priority).toBe("medium");
+  });
+
+  it("member (operator) → 200: convertire è lavoro quotidiano, non un privilegio admin", async () => {
+    const item = await insertItem({ status: "ready" });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/backlog/${item.id}/convert`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.statusCode).toBe(200);
+
+    const [row] = await testDb.db
+      .select({ status: backlogItems.status })
+      .from(backlogItems)
+      .where(eq(backlogItems.id, item.id));
+    expect(row!.status).toBe("converted");
   });
 });
 

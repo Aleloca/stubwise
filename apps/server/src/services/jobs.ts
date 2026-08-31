@@ -1,0 +1,232 @@
+/**
+ * Servizio dei job AI: unica fonte di verità su chi può lanciare un run, su
+ * come un run nasce (o riprende) e su cosa succede quando un piano viene
+ * approvato o rifiutato. Le rotte HTTP ci passano attraverso invece di scrivere
+ * `ai_jobs` a mano, così ogni superficie (oggi `/api/tickets/:id/run-ai` e le
+ * due di approvazione) applica le stesse regole.
+ *
+ * Modello dei ruoli (Fase 0), sull'enum globale `user_role`:
+ *  - `admin`  = MAINTAINER: approva i piani e può far partire il fix diretto;
+ *  - `member` = OPERATOR: propone il lavoro, ma non lo approva. Ogni run che
+ *    chiede si ferma sul gate del piano prima di toccare il codice.
+ */
+import { aiJobs, comments, tickets, type Db } from "@stubwise/db";
+import { t } from "@stubwise/i18n";
+import { and, desc, eq, notInArray, sql } from "drizzle-orm";
+import { getContentLanguage } from "../settings.js";
+
+/** Chi chiede l'azione: `id` per l'audit sul job, `role` per i permessi. */
+export type Actor = { id: string; role: "admin" | "member" };
+
+/**
+ * Stati in cui un job è VIVO: in coda, in lavorazione dal worker, o fermo su un
+ * piano che aspetta una risposta. Rilanciare su uno di questi significherebbe
+ * scippare il lavoro in corso (il worker che lo sta eseguendo perderebbe la
+ * ownership a metà), perciò `startRun` rifiuta con `job_in_flight` invece di
+ * riscrivere la riga come faceva la vecchia rotta.
+ */
+export const IN_FLIGHT = ["queued", "triaging", "fixing", "awaiting_plan_approval"] as const;
+
+export type StartRunResult =
+  | { ok: true; jobId: string; status: "queued" | "awaiting_plan_approval" }
+  | { ok: false; error: "ticket_not_found" | "job_in_flight"; jobStatus?: string };
+
+export interface StartRunInput {
+  ticketId: string;
+  actor: Actor;
+  /**
+   * `"ai_plan"` forza il flusso normale (triage + pianificazione) anche se il
+   * ticket ha già un piano salvato: è l'unico valore ammesso.
+   */
+  mode?: "ai_plan";
+  /**
+   * Rilancio "con istruzioni": salta il triage e riparte dal fix, che rilegge i
+   * commenti del team lasciati sul ticket. Perde contro il piano salvato.
+   */
+  withInstructions?: boolean;
+}
+
+/**
+ * Avvia (o rilancia) il run AI di un ticket. Riusa l'ultimo job del ticket se
+ * è concluso, altrimenti ne crea uno nuovo; se invece è ancora in volo non
+ * tocca nulla e ritorna `job_in_flight`.
+ *
+ * ESECUZIONE DIRETTA DAL PIANO SALVATO: con `implementationPlan` sul ticket e
+ * senza `mode:"ai_plan"`, il job parte in execute-diretta (`resumeMode`
+ * `"execute"`, `planText` = piano): il worker salta triage e pianificazione.
+ * Il piano salvato ha la precedenza su `withInstructions` — è la scelta più
+ * forte, c'è già un piano da eseguire.
+ *
+ * GATE DEL PIANO PER GLI OPERATOR: un `member` non può far partire codice senza
+ * che un maintainer abbia approvato. Se ha un piano salvato il job nasce già
+ * `awaiting_plan_approval` (stesso stato che il worker produce con
+ * `parkForPlanApproval`); se non ce l'ha parte `queued` con
+ * `planApprovalRequired`, così il worker si fermerà a piano pronto.
+ */
+export async function startRun(db: Db, input: StartRunInput): Promise<StartRunResult> {
+  const { ticketId, actor } = input;
+  const [ticket] = await db
+    .select({ id: tickets.id, implementationPlan: tickets.implementationPlan })
+    .from(tickets)
+    .where(eq(tickets.id, ticketId));
+  if (!ticket) return { ok: false, error: "ticket_not_found" };
+
+  // L'ultimo job del ticket (per createdAt, id come spareggio): è quello che la
+  // timeline mostra in cima e che l'utente intende rilanciare.
+  const [latest] = await db
+    .select({ id: aiJobs.id, status: aiJobs.status })
+    .from(aiJobs)
+    .where(eq(aiJobs.ticketId, ticketId))
+    .orderBy(desc(aiJobs.createdAt), desc(aiJobs.id))
+    .limit(1);
+
+  if (latest && isInFlight(latest.status)) {
+    return { ok: false, error: "job_in_flight", jobStatus: latest.status };
+  }
+
+  const useSavedPlan = ticket.implementationPlan !== null && input.mode !== "ai_plan";
+  // resumeMode: "execute" col piano salvato; altrimenti "fix" se withInstructions
+  // (riparte dal fix scavalcando il triage), else null (si rifà il triage).
+  const resumeMode = useSavedPlan ? "execute" : input.withInstructions ? "fix" : null;
+  // planText: il piano salvato in esecuzione diretta, altrimenti azzerato (un
+  // piano residuo di un run precedente non deve sopravvivere al re-triage).
+  const planText = useSavedPlan ? ticket.implementationPlan : null;
+
+  const isOperator = actor.role === "member";
+  const status = isOperator && useSavedPlan ? "awaiting_plan_approval" : "queued";
+  const values = {
+    status,
+    manualTrigger: true,
+    resumeMode,
+    planText,
+    requestedByUserId: actor.id,
+    // Acceso per TUTTI i run di un operator, anche quello già parcheggiato: se
+    // il maintainer rifiuta il piano, la ripianificazione dovrà fermarsi di
+    // nuovo sul gate.
+    planApprovalRequired: isOperator,
+  } as const;
+
+  if (latest) {
+    // UPDATE guardato sugli stati NON in volo: due rilanci concorrenti passano
+    // entrambi il controllo sopra, ma solo il primo tocca la riga. Il secondo
+    // trova 0 righe e rilegge lo stato per rispondere il vero `job_in_flight`.
+    const updated = await db
+      .update(aiJobs)
+      .set({
+        ...values,
+        startedAt: null,
+        finishedAt: null,
+        error: null,
+        lastActivityAt: sql`now()`,
+      })
+      .where(and(eq(aiJobs.id, latest.id), notInArray(aiJobs.status, [...IN_FLIGHT])))
+      .returning({ id: aiJobs.id });
+    if (updated.length === 0) {
+      const [current] = await db
+        .select({ status: aiJobs.status })
+        .from(aiJobs)
+        .where(eq(aiJobs.id, latest.id));
+      return { ok: false, error: "job_in_flight", jobStatus: current?.status };
+    }
+    return { ok: true, jobId: latest.id, status };
+  }
+
+  const [created] = await db
+    .insert(aiJobs)
+    .values({ ticketId, ...values })
+    .returning({ id: aiJobs.id });
+  return { ok: true, jobId: created!.id, status };
+}
+
+export type ResolvePlanResult =
+  | { ok: true; jobId: string }
+  | { ok: false; error: "ticket_not_found" | "plan_not_pending" | "forbidden" };
+
+export interface ResolvePlanInput {
+  ticketId: string;
+  actor: Actor;
+  /** `"execute"` approva (il piano si esegue), `"fix"` rifiuta (si ripianifica). */
+  mode: "execute" | "fix";
+  /**
+   * Indicazioni con cui rilanciare la pianificazione: finiscono in un commento
+   * `authorType: "user"` sul ticket, cioè esattamente dove il worker rilegge le
+   * "indicazioni del team" per costruire il prompt di re-plan.
+   */
+  instructions?: string;
+}
+
+/**
+ * Approva (`execute`) o rifiuta (`fix`) il piano fermo sul gate. Solo i
+ * maintainer: è la decisione che sblocca la scrittura di codice.
+ *
+ * Verifica il ticket, individua l'ultimo job in `awaiting_plan_approval` e, in
+ * una transazione, fa un UPDATE CONDIZIONATO a quello stato: se 0 righe →
+ * `plan_not_pending` (idempotente contro doppi click e race). Altrimenti
+ * inserisce nella stessa transazione le eventuali istruzioni del team e il
+ * commento di sistema. `execute` conserva il piano, `fix` lo azzera.
+ */
+export async function resolvePlan(db: Db, input: ResolvePlanInput): Promise<ResolvePlanResult> {
+  const { ticketId, actor, mode } = input;
+  if (actor.role !== "admin") return { ok: false, error: "forbidden" };
+
+  const [ticket] = await db
+    .select({ id: tickets.id })
+    .from(tickets)
+    .where(eq(tickets.id, ticketId));
+  if (!ticket) return { ok: false, error: "ticket_not_found" };
+
+  // Si prende l'ultimo job IN STATO awaiting_plan_approval, non l'ultimo job in
+  // assoluto: un job più recente in altro stato renderebbe altrimenti
+  // irraggiungibile un piano genuinamente in attesa.
+  const [latest] = await db
+    .select({ id: aiJobs.id })
+    .from(aiJobs)
+    .where(and(eq(aiJobs.ticketId, ticketId), eq(aiJobs.status, "awaiting_plan_approval")))
+    .orderBy(desc(aiJobs.createdAt), desc(aiJobs.id))
+    .limit(1);
+  if (!latest) return { ok: false, error: "plan_not_pending" };
+
+  const lang = await getContentLanguage(db);
+  const instructions = input.instructions?.trim();
+  // planText: conservato in execute (è il piano approvato), azzerato in fix.
+  const planTextUpdate = mode === "fix" ? { planText: null } : {};
+
+  const resolved = await db.transaction(async (tx) => {
+    const updated = await tx
+      .update(aiJobs)
+      .set({
+        status: "queued",
+        resumeMode: mode,
+        ...planTextUpdate,
+        startedAt: null,
+        finishedAt: null,
+        error: null,
+        lastActivityAt: sql`now()`,
+      })
+      .where(and(eq(aiJobs.id, latest.id), eq(aiJobs.status, "awaiting_plan_approval")))
+      .returning({ id: aiJobs.id });
+    if (updated.length === 0) return null;
+
+    // Le istruzioni PRIMA del commento di sistema: sono un contributo umano al
+    // ticket, il commento di sistema è la nota di ciò che è appena successo.
+    if (instructions) {
+      await tx
+        .insert(comments)
+        .values({ ticketId, authorType: "user", authorId: actor.id, body: instructions });
+    }
+    await tx.insert(comments).values({
+      ticketId,
+      authorType: "system",
+      body: t(lang, mode === "execute" ? "comment.planApproved" : "comment.planRejected"),
+    });
+    return updated[0]!;
+  });
+
+  if (!resolved) return { ok: false, error: "plan_not_pending" };
+  return { ok: true, jobId: resolved.id };
+}
+
+/** True se lo stato del job è uno di {@link IN_FLIGHT}. */
+function isInFlight(status: string): boolean {
+  return (IN_FLIGHT as readonly string[]).includes(status);
+}
