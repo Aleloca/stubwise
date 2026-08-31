@@ -2,11 +2,27 @@
   "mcpServers": {
     "stubwise": {
       "command": "npx",
-      "args": ["-y", "@stubwise/mcp"],
+      "args": [
+        "-y",
+        "@stubwise/mcp"
+      ],
       "env": {
         "STUBWISE_TOKEN": "${STUBWISE_TOKEN}",
         "STUBWISE_URL": "${STUBWISE_URL}"
       }
+    },
+    "graphify": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "graphifyy[mcp]==0.9.28",
+        "--with",
+        "mcp<2",
+        "python",
+        "-m",
+        "graphify.serve",
+        "graphify-out/graph.json"
+      ]
     }
   }
 }

@@ -11,3 +11,5 @@ apps/docs/src/openapi.json
 
 # Git worktrees
 .worktrees/
+graphify-out/cost.json
+graphify-out/cache/

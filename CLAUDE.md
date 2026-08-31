@@ -132,3 +132,25 @@ Stubwise si integra con Claude Code via il server MCP `@stubwise/mcp`
   changeset publish`. NON usare `npm publish` a mano (non risolve i
   `workspace:` del monorepo pnpm). Il secret `NPM_TOKEN` è un granular token con
   bypass-2FA sullo scope `@stubwise`.
+
+<!-- graphify:start -->
+## Knowledge graph (graphify)
+
+Questo repository ha un knowledge graph del codice in `graphify-out/`.
+Quando esiste, PREFERISCI le query sul grafo al grep per orientarti:
+
+- `graphify query "<domanda>"` — dove vive una funzionalità, chi chiama cosa, quali file toccare.
+- `graphify explain <simbolo>` — definizione, chiamanti e dipendenze di un simbolo.
+
+Usa grep/find quando il grafo non risponde o è più vecchio del codice.
+<!-- graphify:end -->
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
