@@ -2,11 +2,19 @@ export {
   buildTestEvent,
   dispatchNotification,
   formatEvent,
+  loadSettings,
   sendTest,
+  sendWebhookEvent,
+  shouldSendWebhook,
+  type DbOrTx,
   type DispatchOptions,
   type NotificationSettingsRow,
   type SendTestResult,
 } from "./dispatch.js";
+
+export { publishNotification, type PublishOpts } from "./publish.js";
+
+export { isAdminOnlyKind, recipientsFor, type RoutingContext } from "./routing.js";
 
 export {
   formatNotification,
