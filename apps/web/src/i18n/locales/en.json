@@ -989,10 +989,32 @@
   },
   "inbox": {
     "title": "Inbox",
+    "subtitle": "What is waiting for your decision, and what you only need to know.",
+    "tabs": {
+      "open": "To clear",
+      "handled": "Handled"
+    },
     "sections": {
       "toDecide": "To decide",
       "toKnow": "To know",
       "snoozed": "Snoozed"
+    },
+    "filters": {
+      "project": "Project",
+      "allProjects": "All projects"
+    },
+    "kinds": {
+      "ticketCreated": "New ticket",
+      "prOpened": "PR opened",
+      "prClosed": "PR closed",
+      "jobHeld": "On hold",
+      "planReview": "Plan to approve",
+      "budgetHeld": "Budget exceeded",
+      "reviewCompleted": "PR review",
+      "jobFailed": "Fix failed",
+      "docsLimitPaused": "Docs paused",
+      "monitorAlert": "Alert",
+      "monitorRecovered": "Recovered"
     },
     "actions": {
       "approvePlan": "Approve plan",
@@ -1005,16 +1027,34 @@
       "snooze3d": "3 days",
       "open": "Open"
     },
+    "reject": {
+      "label": "Instructions for the next attempt (optional)",
+      "placeholder": "What to change in the plan…",
+      "submit": "Send rejection",
+      "cancel": "Cancel"
+    },
     "status": {
       "awaitingApproval": "awaiting approval",
+      "handled": "handled",
       "handledBy": "handled by {{email}}",
       "snoozedUntil": "snoozed until {{date}}"
     },
     "empty": "// no notifications",
+    "loadMore": "Load more",
+    "loadingMore": "Loading…",
+    "loadError": "Could not load the inbox.",
+    "bell": {
+      "label": "Inbox",
+      "labelWithCount": "Inbox, {{count}} unread"
+    },
     "errors": {
       "alreadyHandled": "Already handled by {{email}}",
       "alreadyHandledUnknown": "Already handled by someone else",
-      "jobInFlight": "A job is already running"
+      "jobInFlight": "A job is already running",
+      "planNotPending": "No plan is awaiting approval",
+      "forbidden": "Administrators only",
+      "invalidAction": "This action is not available on this notification",
+      "generic": "Action failed"
     }
   },
   "automation": {

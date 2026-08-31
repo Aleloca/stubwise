@@ -1,5 +1,5 @@
 import {
-  alreadyHandledErrorSchema,
+  inboxActionErrorSchema,
   inboxActionResultSchema,
   inboxActionSchema,
   inboxDecisionActionSchema,
@@ -67,7 +67,7 @@ const actionErrorResponses = {
   404: errorSchema,
   // Errore standard PIÙ `handledBy`: il 409 di `already_handled` deve poter
   // dire CHI ha gestito la notifica (vedi `sendActionError`).
-  409: alreadyHandledErrorSchema,
+  409: inboxActionErrorSchema,
   ...authErrorResponses,
 } as const;
 

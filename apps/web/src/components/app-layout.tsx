@@ -8,6 +8,7 @@ import { useCloseOnRouteChange } from "../lib/use-close-on-route-change";
 import { Avatar } from "./avatar";
 import { Drawer } from "./drawer";
 import { GlobalSearchPalette } from "./global-search-palette";
+import { InboxBell, useInboxUnreadWatcher } from "./inbox-bell";
 import { Wordmark } from "./wordmark";
 
 /**
@@ -23,6 +24,9 @@ function isDocsSpacePath(pathname: string): boolean {
 }
 
 const NAV_ITEMS = [
+  // L'inbox è la prima voce perché è la home operativa: quello che aspetta una
+  // decisione viene prima di qualunque elenco da sfogliare.
+  { to: "/inbox", labelKey: "common:nav.inbox", code: "INB" },
   { to: "/tickets", labelKey: "common:nav.tickets", code: "TKT" },
   { to: "/board", labelKey: "common:nav.board", code: "BRD" },
   { to: "/backlog", labelKey: "common:nav.backlog", code: "BLG" },
@@ -130,6 +134,7 @@ function MobileTopBar({
           <path d="M10.5 10.5 14 14" strokeLinecap="round" />
         </svg>
       </button>
+      <InboxBell />
     </div>
   );
 }
@@ -156,6 +161,11 @@ export function AppLayout() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const pathnameRef = useRef(pathname);
   pathnameRef.current = pathname;
+
+  // Unico punto in cui il contatore delle non lette pilota le liste: il layout
+  // monta una volta sola, mentre la campanella è renderizzata due volte
+  // (sidebar + top bar mobile). Vedi `useInboxUnreadWatcher`.
+  useInboxUnreadWatcher();
 
   // Callback stabile: `useCloseOnRouteChange` ha `close` nelle deps del suo
   // effect, quindi un closure inline (nuova identità a ogni render) lo farebbe
@@ -206,10 +216,13 @@ export function AppLayout() {
     <div className="flex h-screen overflow-hidden">
       {/* Sidebar desktop: invariata da `md` in su, nascosta su mobile. */}
       <aside className="hidden h-screen w-60 shrink-0 flex-col border-r border-line bg-ink-900 md:flex">
-        <div className="border-b border-line px-5 py-4">
+        {/* Testata: wordmark a sinistra, campanella a destra — stessa posizione
+            che ha nella top bar mobile, così l'occhio la cerca in un punto solo. */}
+        <div className="flex items-center justify-between gap-2 border-b border-line px-5 py-4">
           <Link to="/tickets" className="inline-block">
             <Wordmark className="text-base" />
           </Link>
+          <InboxBell />
         </div>
 
         <div className="px-3 pt-3">

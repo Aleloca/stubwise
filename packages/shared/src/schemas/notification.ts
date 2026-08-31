@@ -140,20 +140,22 @@ export const inboxActionResultSchema = z.object({
 export type InboxActionResult = z.infer<typeof inboxActionResultSchema>;
 
 /**
- * Corpo del 409 delle rotte d'azione: l'errore standard `{ code, message }`
- * (stessa forma di `errorSchema` lato server) più il DATO che serve alla UI per
- * dire "l'ha già gestita X" invece di un generico conflitto.
+ * Corpo d'errore delle rotte d'AZIONE dell'inbox: l'errore standard
+ * `{ code, message }` (stessa forma di `errorSchema` lato server) più il DATO
+ * che serve alla UI per dire "l'ha già gestita X" invece di un generico
+ * conflitto. Il nome è sul MITTENTE (le rotte azione), non sul singolo caso
+ * `already_handled`: lo stesso body copre tutti i loro errori.
  *
  * `handledBy` è opzionale perché lo stesso 409 copre anche `job_in_flight` e
  * `plan_not_pending`, che non hanno un autore da nominare; `code` è opzionale
  * perché gli errori di validazione Zod non lo valorizzano.
  */
-export const alreadyHandledErrorSchema = z.object({
+export const inboxActionErrorSchema = z.object({
   code: z.string().optional(),
   message: z.string(),
   handledBy: handledBySchema.optional(),
 });
-export type AlreadyHandledError = z.infer<typeof alreadyHandledErrorSchema>;
+export type InboxActionError = z.infer<typeof inboxActionErrorSchema>;
 
 /**
  * Progetti seguiti dall'utente: è l'insieme COMPLETO, sia in lettura che in

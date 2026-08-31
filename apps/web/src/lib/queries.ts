@@ -908,6 +908,15 @@ export const inboxKeys = {
  * UI ricarica quando il numero cambia o dopo un'azione. `staleTime` breve
  * perché le righe cambiano anche per mano di ALTRI (una decisione chiude le
  * copie di tutti).
+ *
+ * FORMA CANONICA DEI FILTRI: chi chiama passa SEMPRE `status` esplicito
+ * (`{ status: "open" }`, mai `{}`), anche quando coincide col default del
+ * server. `{}` e `{ status: "open" }` chiedono la stessa cosa ma sono due
+ * chiavi di cache DIVERSE: se il loader prefetchasse l'una e il componente
+ * leggesse l'altra si vedrebbe un doppio caricamento, e un update ottimistico
+ * scritto su una delle due non si vedrebbe nell'altra. Il default
+ * `filters = {}` resta solo perché il tipo lo consente, non è una forma da
+ * usare.
  */
 export function inboxQueryOptions(filters: InboxFilters = {}) {
   return queryOptions({

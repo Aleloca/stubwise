@@ -24,6 +24,7 @@ import {
   docSpacesQueryOptions,
   docTreeQueryOptions,
   gitAccountsQueryOptions,
+  inboxQueryOptions,
   instanceSettingsQueryOptions,
   invitesQueryOptions,
   milestonesQueryOptions,
@@ -61,6 +62,7 @@ import { DocsBriefView } from "./routes/docs/brief.$projectId";
 import { DocsGraphView } from "./routes/docs/graph.$projectId";
 import { DocsPage } from "./routes/docs/index";
 import { ProjectDocsLanding } from "./routes/docs/project.$projectId";
+import { InboxPage } from "./routes/inbox";
 import { LoginPage } from "./routes/login";
 import { MonitorListPage } from "./routes/monitor/index";
 import { ServerDetailPage } from "./routes/monitor/server-detail";
@@ -520,6 +522,30 @@ const serverDetailRoute = createRoute({
 });
 
 /**
+ * Inbox personale: la home operativa. Il loader prefetcha la vista d'ingresso
+ * — le notifiche APERTE, senza filtro progetto — nella stessa forma canonica
+ * dei filtri che usa il componente (`{ status: "open" }`, mai `{}`), altrimenti
+ * la chiave di cache non coinciderebbe e si vedrebbe un doppio caricamento.
+ * Best-effort: la pagina ha un proprio stato d'errore con retry, quindi un
+ * fallimento qui non deve mandare la route all'error component.
+ */
+const inboxRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/inbox",
+  loader: async ({ context }) => {
+    await Promise.all([
+      context.queryClient
+        .ensureQueryData(inboxQueryOptions({ status: "open" }))
+        .catch(() => undefined),
+      // I progetti alimentano il select del filtro (useSuspenseQuery): qui
+      // NON si cattura, come nelle altre rotte che li richiedono.
+      context.queryClient.ensureQueryData(projectsQueryOptions),
+    ]);
+  },
+  component: InboxPage,
+});
+
+/**
  * Sezione Attività (standup giornaliero), visibile a ogni membro. Prefetch
  * best-effort del report di IERI (default del componente): la data vive nello
  * stato del componente, quindi il loader può solo precaricare il default; il
@@ -699,6 +725,7 @@ const routeTree = rootRoute.addChildren([
     monitorRoute,
     serverDetailRoute,
     activityRoute,
+    inboxRoute,
     teamRoute,
     settingsRoute.addChildren([
       settingsIndexRoute,

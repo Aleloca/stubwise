@@ -155,7 +155,7 @@ describe("impostazioni: /settings/account", () => {
     expect(await screen.findByRole("heading", { name: "Account" })).toBeInTheDocument();
     // L'email compare nel pannello account (oltre che nella sidebar).
     expect(screen.getAllByText("ada@example.com").length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText("Admin")).toBeInTheDocument();
+    expect(screen.getByText("Maintainer")).toBeInTheDocument();
     // La gestione degli inviti è migrata nella pagina Team.
     expect(screen.queryByRole("button", { name: "Crea invito" })).not.toBeInTheDocument();
   });
@@ -164,7 +164,7 @@ describe("impostazioni: /settings/account", () => {
     mockApi(memberBase());
     renderAt("/settings/account");
 
-    expect(await screen.findByText("Member")).toBeInTheDocument();
+    expect(await screen.findByText("Operator")).toBeInTheDocument();
     // L'email compare nel pannello account (oltre che nella sidebar).
     expect(screen.getAllByText("bea@example.com").length).toBeGreaterThanOrEqual(2);
   });
@@ -337,7 +337,7 @@ describe("impostazioni: /settings/automation (admin)", () => {
     mockApi(memberBase());
     const router = renderAt("/settings/automation");
 
-    expect(await screen.findByText("Member")).toBeInTheDocument();
+    expect(await screen.findByText("Operator")).toBeInTheDocument();
     await waitFor(() => expect(router.state.location.pathname).toBe("/settings/account"));
     expect(screen.queryByText("AI automation")).not.toBeInTheDocument();
   });
@@ -355,7 +355,7 @@ describe("impostazioni: /settings/git-accounts (admin)", () => {
     mockApi(memberBase());
     const router = renderAt("/settings/git-accounts");
 
-    expect(await screen.findByText("Member")).toBeInTheDocument();
+    expect(await screen.findByText("Operator")).toBeInTheDocument();
     await waitFor(() => expect(router.state.location.pathname).toBe("/settings/account"));
     expect(screen.queryByRole("heading", { name: "Git accounts" })).not.toBeInTheDocument();
   });
@@ -691,7 +691,7 @@ describe("impostazioni: /settings/notifications (admin)", () => {
     mockApi(memberBase());
     const router = renderAt("/settings/notifications");
 
-    expect(await screen.findByText("Member")).toBeInTheDocument();
+    expect(await screen.findByText("Operator")).toBeInTheDocument();
     await waitFor(() => expect(router.state.location.pathname).toBe("/settings/account"));
     expect(screen.queryByText("Notifications")).not.toBeInTheDocument();
   });
@@ -800,7 +800,7 @@ describe("impostazioni: /settings/usage (admin)", () => {
     mockApi(memberBase());
     const router = renderAt("/settings/usage");
 
-    expect(await screen.findByText("Member")).toBeInTheDocument();
+    expect(await screen.findByText("Operator")).toBeInTheDocument();
     await waitFor(() => expect(router.state.location.pathname).toBe("/settings/account"));
     expect(screen.queryByRole("heading", { name: "Usage & costs" })).not.toBeInTheDocument();
   });

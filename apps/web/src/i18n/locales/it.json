@@ -989,10 +989,32 @@
   },
   "inbox": {
     "title": "Inbox",
+    "subtitle": "Quello che aspetta una tua decisione, e quello che devi solo sapere.",
+    "tabs": {
+      "open": "Da smaltire",
+      "handled": "Gestite"
+    },
     "sections": {
       "toDecide": "Da decidere",
       "toKnow": "Da sapere",
-      "snoozed": "Snoozate"
+      "snoozed": "Posticipate"
+    },
+    "filters": {
+      "project": "Progetto",
+      "allProjects": "Tutti i progetti"
+    },
+    "kinds": {
+      "ticketCreated": "Nuovo ticket",
+      "prOpened": "PR aperta",
+      "prClosed": "PR chiusa",
+      "jobHeld": "In pausa",
+      "planReview": "Piano da approvare",
+      "budgetHeld": "Budget superato",
+      "reviewCompleted": "Review PR",
+      "jobFailed": "Fix fallito",
+      "docsLimitPaused": "Docs in pausa",
+      "monitorAlert": "Allarme",
+      "monitorRecovered": "Rientrato"
     },
     "actions": {
       "approvePlan": "Approva piano",
@@ -1005,16 +1027,34 @@
       "snooze3d": "3 giorni",
       "open": "Apri"
     },
+    "reject": {
+      "label": "Istruzioni per il prossimo tentativo (facoltative)",
+      "placeholder": "Cosa cambiare nel piano…",
+      "submit": "Invia rifiuto",
+      "cancel": "Annulla"
+    },
     "status": {
       "awaitingApproval": "in attesa di approvazione",
+      "handled": "gestita",
       "handledBy": "gestita da {{email}}",
-      "snoozedUntil": "posticipata a {{date}}"
+      "snoozedUntil": "posticipata fino a {{date}}"
     },
     "empty": "// nessuna notifica",
+    "loadMore": "Carica altre",
+    "loadingMore": "Carico…",
+    "loadError": "Non è stato possibile caricare l'inbox.",
+    "bell": {
+      "label": "Inbox",
+      "labelWithCount": "Inbox, {{count}} da leggere"
+    },
     "errors": {
       "alreadyHandled": "Già gestita da {{email}}",
       "alreadyHandledUnknown": "Già gestita da qualcun altro",
-      "jobInFlight": "C'è già un job in corso"
+      "jobInFlight": "C'è già un job in corso",
+      "planNotPending": "Nessun piano in attesa di approvazione",
+      "forbidden": "Azione riservata agli amministratori",
+      "invalidAction": "Azione non disponibile su questa notifica",
+      "generic": "Azione non riuscita"
     }
   },
   "automation": {

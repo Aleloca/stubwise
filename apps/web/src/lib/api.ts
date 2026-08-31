@@ -48,7 +48,7 @@ import type {
 // Import RUNTIME (non di solo tipo): l'unico schema che il client ESEGUE, per
 // validare il body del 409 `already_handled` prima di fidarsene (vedi
 // `handledByFromError`).
-import { alreadyHandledErrorSchema } from "@stubwise/shared";
+import { inboxActionErrorSchema } from "@stubwise/shared";
 
 export type { PatView, PatWithToken, PrState, WidgetSettings, WidgetUpsertBody } from "@stubwise/shared";
 // Tipi dell'inbox ri-esportati dal binding locale: i componenti li importano da
@@ -2984,7 +2984,7 @@ export function postInboxAction(
  */
 export function handledByFromError(error: unknown): HandledBy | undefined {
   if (!(error instanceof ApiError) || error.code !== "already_handled") return undefined;
-  const parsed = alreadyHandledErrorSchema.safeParse(error.details);
+  const parsed = inboxActionErrorSchema.safeParse(error.details);
   return parsed.success ? parsed.data.handledBy : undefined;
 }
 
