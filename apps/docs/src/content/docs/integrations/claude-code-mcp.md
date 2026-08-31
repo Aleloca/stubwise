@@ -191,7 +191,7 @@ Once connected, Claude has these tools (names as exposed to Claude):
 | `create_backlog_item` | Create a new backlog item (async: it is processed by the intake pipeline). |
 | `convert_backlog_to_ticket` | Turn a backlog item into a ticket (admin). |
 | `set_ticket_status` | Move a ticket between `open`, `triaged`, `in_progress`, `in_review`, `done`, `closed`. |
-| `run_ticket` | Start the AI run on a ticket (the same as **Run AI** in the web app). With a saved plan the worker executes *that* plan; pass `mode: "ai_plan"` to discard it and re-plan from scratch. |
+| `run_ticket` | Start the AI run on a ticket (the same as **Run AI** in the web app). With a saved plan the worker executes *that* plan; pass `mode: "ai_plan"` to set it aside for that run and re-plan from scratch (the plan saved on the ticket is kept). |
 
 **Design docs & implementation plans**
 
