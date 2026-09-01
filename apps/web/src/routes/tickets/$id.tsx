@@ -39,6 +39,7 @@ import { TicketLinks } from "../../components/ticket-links";
 import { UsagePanel } from "../../components/usage-panel";
 import {
   answerTicketQuestion,
+  ApiError,
   approvePlan,
   deleteTicketDesign,
   deleteTicketPlan,
@@ -344,7 +345,23 @@ export function TicketDetailPage() {
       // non letti mentirebbe finché non ricarica.
       void queryClient.invalidateQueries({ queryKey: inboxKeys.all });
     },
-    onError: (cause) => setAnswerError(answerErrorMessage(cause, t)),
+    onError: (cause) => {
+      setAnswerError(answerErrorMessage(cause, t));
+      // Anche (anzi: soprattutto) dopo un 409 job e Q&A vanno ricaricati: il
+      // conflitto DICE che quello che si ha davanti è stantio — un collega ha
+      // risposto per primo, e il job può già essere ripartito o aver aperto un
+      // round nuovo. È lo stesso riflesso della card d'inbox, e qui è
+      // indispensabile: senza polling sulle Q&A e senza refetch al focus, nel
+      // caso "stesso job, round nuovo" `awaitingInput` non viene mai osservato
+      // falso e `latestJob.id` non cambia — l'effetto qui sotto non rifirerebbe
+      // MAI, e la pagina resterebbe sul round vecchio fino a un ricaricamento a
+      // mano. Questa superficie è il ripiego di chi ha una card marcia o un DM
+      // senza bottoni: deve riallinearsi da sola.
+      if (cause instanceof ApiError && cause.status === 409) {
+        void queryClient.invalidateQueries({ queryKey: ticketKeys.jobs(id) });
+        void queryClient.invalidateQueries({ queryKey: ticketKeys.questions(id) });
+      }
+    },
   });
 
   /**

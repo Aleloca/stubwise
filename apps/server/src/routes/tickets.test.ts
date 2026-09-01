@@ -2834,6 +2834,18 @@ describe("POST /api/tickets/:id/questions/answer", () => {
     expect(job!.status).toBe("awaiting_input");
   });
 
+  it("opzione E testo insieme: 400 (il corpo ne vuole esattamente uno)", async () => {
+    // Inchioda la DERIVAZIONE del body: lo schema della rotta è
+    // `answerBodySchema.extend(...)`, e il `.refine` XOR deve sopravvivere
+    // all'extend. Se un giorno smettesse (major di zod), un corpo con entrambi i
+    // campi arriverebbe al servizio con un contratto diverso da quello
+    // dell'inbox — in silenzio.
+    const { ticketId, questionId } = await seedOpenQuestion(users.memberId);
+
+    const res = await answer(ticketId, { questionId, optionIndex: 0, text: "anche questo" });
+    expect(res.statusCode).toBe(400);
+  });
+
   it("ticket senza job: 409 question_not_pending", async () => {
     const created = (
       await postTicket({ projectId, title: "Nessun job", type: "bug" })

@@ -373,7 +373,7 @@
       "questionAnswerUnreadable": "La risposta non è più leggibile.",
       "questionAnsweredBy": "Ha risposto {{email}}",
       "questionAnsweredByUnknown": "Risposta data",
-      "questionRound": "Giro {{round}}",
+      "questionRound": "Domanda {{round}}",
       "reject": "Rifiuta",
       "rejectCancel": "Annulla",
       "rejectHint": "Le istruzioni diventano un commento del team: il prossimo piano ne terrà conto.",

@@ -1651,6 +1651,47 @@ describe("dettaglio ticket — domanda dell'agente", () => {
     );
   });
 
+  it("409 con un round nuovo: la pagina si riallinea senza ricaricare", async () => {
+    // Lo scenario stantio: un collega risponde per primo e il worker apre
+    // SUBITO il round 2 sullo STESSO job. `awaitingInput` non viene mai
+    // osservato falso e `latestJob.id` non cambia, quindi l'effetto che ricarica
+    // le Q&A sul cambio di stato non rifirerebbe mai: senza il refetch sul 409
+    // la pagina resterebbe sul round 1 fino a un ricaricamento a mano.
+    const round2: TicketQuestion = {
+      ...openQuestionFixture,
+      questionId: "99999999-9999-4999-8999-999999999999",
+      round: 3,
+      question: "E il TTL della cache?",
+      options: [{ label: "Un'ora" }, { label: "Un giorno" }],
+    };
+    // `state` è referenziata dentro `answerResponse`, che gira DOPO: la
+    // chiusura la vede già assegnata.
+    const state: MockState = mockDetailApi({
+      jobs: [awaitingInputJobFixture],
+      questions: [openQuestionFixture],
+      answerResponse: () => {
+        // Il server ha già chiuso il round mostrato e ne ha aperto un altro.
+        state.questions = [
+          { ...openQuestionFixture, answer: { optionIndex: 0 }, answeredAt: "2026-06-07T10:01:00.000Z", answeredBy: { id: ADMIN_ID, email: "ada@example.com" } },
+          round2,
+        ];
+        return jsonResponse(409, {
+          code: "already_handled",
+          message: "Already answered by ada@example.com",
+          handledBy: { id: ADMIN_ID, email: "ada@example.com" },
+        });
+      },
+    });
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole("radio", { name: /Quella esistente/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Send answer" }));
+
+    // La domanda nuova arriva da sola: nessun reload, nessuna azione utente.
+    expect(await screen.findByText("E il TTL della cache?")).toBeInTheDocument();
+    expect(screen.queryByText("Quale coda uso per i job del grafo?")).not.toBeInTheDocument();
+  });
+
   it("senza job 'awaiting_input' non c'è né pannello né riga informativa", async () => {
     mockDetailApi({ jobs: [heldJobFixture], questions: [answeredQuestionFixture] });
     renderDetail();
