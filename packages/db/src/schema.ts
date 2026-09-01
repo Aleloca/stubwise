@@ -373,6 +373,7 @@ export const projects = pgTable(
     // crea un ticket. Il branch `stubwise/ticket-N` usa N di progetto ed è pushato
     // su ciascun repo modificato dal fix multi-repo.
     nextTicketNumber: integer("next_ticket_number").notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     // Pulse proattivo (Fase 2): quando il progetto è fermo, un poller propone
     // 2–3 voci del backlog da cui ripartire. Default false: opt-in esplicito,
     // al deploy nessun progetto riceve il pulse.
