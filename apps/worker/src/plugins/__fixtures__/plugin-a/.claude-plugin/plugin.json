@@ -1,0 +1,5 @@
+{
+  "name": "plugin-a",
+  "version": "1.2.3",
+  "description": "Plugin di prova con due skill, un comando, un agente e un hook."
+}

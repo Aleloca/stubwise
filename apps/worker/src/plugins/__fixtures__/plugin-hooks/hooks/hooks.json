@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup",
+        "hooks": [{ "type": "command", "command": "echo uno" }]
+      },
+      {
+        "hooks": [
+          { "type": "command", "command": "echo due-a" },
+          { "type": "altro", "command": "non-eseguibile" },
+          { "type": "command", "command": "echo due-b" }
+        ]
+      },
+      { "matcher": "resume", "hooks": [] },
+      {
+        "matcher": "compact",
+        "hooks": [{ "type": "command", "command": "echo quattro" }]
+      }
+    ],
+    "EventoSconosciuto": [{ "hooks": [{ "type": "command", "command": "echo ignoto" }] }],
+    "PreToolUse": "non-un-array"
+  }
+}

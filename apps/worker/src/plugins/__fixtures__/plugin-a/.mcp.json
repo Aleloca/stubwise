@@ -1,0 +1,5 @@
+{
+  "mcpServers": {
+    "esempio": { "command": "node", "args": ["server.js"] }
+  }
+}
