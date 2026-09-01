@@ -792,6 +792,116 @@ describe("listInbox", () => {
     expect(gestite.items.map((i) => i.id)).toEqual([chiusa]);
   });
 
+  it("filtra per kind, e senza il filtro la lista resta intera", async () => {
+    const user = await seedUser("admin");
+    const piano = await seedNotification({
+      userId: user.id,
+      kind: "job.plan_review",
+      event: planReviewEvent(),
+    });
+    const pulse = await seedRawNotification({
+      userId: user.id,
+      kind: "project.pulse",
+      event: {
+        kind: "project.pulse",
+        pulseId: randomUUID(),
+        projectName: "negozio-web",
+        projectUrl: "https://stubwise.test/projects/p1/backlog",
+        idleDays: 4,
+        question: "Da quale proposta partiamo?",
+        options: [{ label: "Export CSV degli ordini" }],
+        allowFreeText: false,
+        proposals: [],
+      },
+    });
+
+    // È il taglio che serve al tool MCP `list_proposals`: le sole proposte del
+    // pulse, senza il resto dell'inbox.
+    const soloPulse = await listInbox(db, { userId: user.id, lang: "it", kind: "project.pulse" });
+    expect(soloPulse.items.map((i) => i.id)).toEqual([pulse]);
+
+    // Non-regressione: il filtro è OPZIONALE e senza di lui la lista è quella
+    // di sempre — nessun kind sparisce per effetto della sua sola esistenza.
+    const tutte = await listInbox(db, { userId: user.id, lang: "it" });
+    expect([...tutte.items.map((i) => i.id)].sort()).toEqual([piano, pulse].sort());
+  });
+
+  it("kind e status si combinano in AND", async () => {
+    const user = await seedUser("admin");
+    const aperta = await seedNotification({
+      userId: user.id,
+      kind: "job.plan_review",
+      event: planReviewEvent(),
+    });
+    const chiusa = await seedNotification({
+      userId: user.id,
+      kind: "job.plan_review",
+      event: planReviewEvent(),
+      status: "handled",
+    });
+    const altroKind = await seedNotification({
+      userId: user.id,
+      kind: "job.failed",
+      event: planReviewEvent({ kind: "job.failed", error: "test rossi" }),
+      status: "handled",
+    });
+
+    const filtrata = await listInbox(db, {
+      userId: user.id,
+      lang: "it",
+      status: "handled",
+      kind: "job.plan_review",
+    });
+    // Solo l'intersezione: non la aperta dello stesso kind, non l'altro kind
+    // dello stesso stato.
+    expect(filtrata.items.map((i) => i.id)).toEqual([chiusa]);
+    expect(filtrata.items.map((i) => i.id)).not.toContain(aperta);
+    expect(filtrata.items.map((i) => i.id)).not.toContain(altroKind);
+  });
+
+  it("il filtro kind non rompe la paginazione: il cursore scorre le sole righe filtrate", async () => {
+    const user = await seedUser("admin");
+    const base = Date.now();
+    const pulsi: string[] = [];
+    for (let i = 0; i < 3; i += 1) {
+      pulsi.push(
+        await seedRawNotification({
+          userId: user.id,
+          kind: "project.pulse",
+          event: { kind: "project.pulse", pulseId: randomUUID(), question: "Da dove partiamo?" },
+          createdAt: new Date(base - i * 1000),
+        }),
+      );
+      // Intercalata: se il cursore ignorasse il filtro, questa si infilerebbe
+      // fra le pagine (o le accorcerebbe).
+      await seedNotification({
+        userId: user.id,
+        kind: "job.plan_review",
+        event: planReviewEvent(),
+        createdAt: new Date(base - i * 1000 - 500),
+      });
+    }
+
+    const prima = await listInbox(db, {
+      userId: user.id,
+      lang: "it",
+      kind: "project.pulse",
+      limit: 2,
+    });
+    expect(prima.items.map((i) => i.id)).toEqual(pulsi.slice(0, 2));
+    expect(prima.nextCursor).toEqual(expect.any(String));
+
+    const seconda = await listInbox(db, {
+      userId: user.id,
+      lang: "it",
+      kind: "project.pulse",
+      limit: 2,
+      cursor: prima.nextCursor!,
+    });
+    expect(seconda.items.map((i) => i.id)).toEqual(pulsi.slice(2));
+    expect(seconda.nextCursor).toBeNull();
+  });
+
   it("pagina in keyset dalla più recente", async () => {
     const user = await seedUser("admin");
     const base = Date.now();

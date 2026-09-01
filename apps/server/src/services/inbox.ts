@@ -498,6 +498,14 @@ export interface ListInboxInput {
   /** Default `open`: l'inbox è la lista di ciò che resta da smaltire. */
   status?: InboxStatus;
   projectId?: string;
+  /**
+   * Filtra per TIPO di evento. Assente = tutti i kind (comportamento storico
+   * della lista): serve a chi vuole un taglio solo dell'inbox, come le sole
+   * proposte del pulse (`kind: "project.pulse"`). È un AND con gli altri
+   * filtri, e non tocca l'ordinamento né il cursore — che scorre le sole righe
+   * filtrate, perché la condizione entra nella STESSA query.
+   */
+  kind?: NotificationKind;
   limit?: number;
   /** Cursore keyset opaco restituito dalla pagina precedente. */
   cursor?: string;
@@ -547,6 +555,9 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
 
   const conditions = [eq(notifications.userId, userId), eq(notifications.status, status)];
   if (input.projectId) conditions.push(eq(notifications.projectId, input.projectId));
+  // Sulla COLONNA enum, non sul jsonb `event`: è il dato di cui ci si può
+  // fidare (il payload storico può portare un `kind` diverso o non portarlo).
+  if (input.kind) conditions.push(eq(notifications.kind, input.kind));
   if (cursor) {
     conditions.push(
       sql`(${notifications.createdAt}, ${notifications.id}) < (${cursor.createdAt}::timestamptz, ${cursor.id}::uuid)`,

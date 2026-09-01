@@ -7,6 +7,7 @@ import {
   inboxDecisionActionSchema,
   inboxPageSchema,
   inboxStatusSchema,
+  notificationKindSchema,
   snoozeResultSchema,
   snoozeUntilSchema,
   unreadCountSchema,
@@ -168,6 +169,11 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
         querystring: z.object({
           status: inboxStatusSchema.default("open"),
           projectId: z.uuid().optional(),
+          // Filtro per TIPO di evento, dallo schema condiviso: un kind fuori
+          // enum è un 400 esplicito e non una lista vuota — la differenza è
+          // tutto per chi debugga un client che chiede un taglio solo
+          // (`?status=open&kind=project.pulse`, cioè le proposte del pulse).
+          kind: notificationKindSchema.optional(),
           // Default e tetto ripetuti dal servizio (che li riapplica comunque
           // con un clamp): qui servono a rifiutare 0 o 101 con un 400 esplicito
           // invece di accettarli in silenzio e restituire un'altra dimensione.
@@ -178,13 +184,14 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { status, projectId, limit, cursor } = request.query;
+      const { status, projectId, kind, limit, cursor } = request.query;
       const result = await listInbox(app.db, {
         userId: request.user!.id,
         status,
         limit,
         lang: request.user!.language,
         ...(projectId ? { projectId } : {}),
+        ...(kind === undefined ? {} : { kind }),
         ...(cursor === undefined ? {} : { cursor }),
       });
       if (result.invalidCursor) {

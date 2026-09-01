@@ -298,6 +298,43 @@ describe("GET /api/inbox", () => {
     ).toEqual([snoozed]);
   });
 
+  it("filtra per kind, e senza il filtro la lista resta intera", async () => {
+    await clearInbox();
+    const piano = await seedNotification({ userId: seeded.adminId });
+    const fallita = await seedNotification({
+      userId: seeded.adminId,
+      event: planReviewEvent({ kind: "job.failed", error: "test rossi" }),
+    });
+
+    const res = await getInbox({ kind: "job.failed" });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as InboxPageBody).items.map((i) => i.id)).toEqual([fallita]);
+
+    // Non-regressione: il filtro è opzionale e la lista senza di lui è intera.
+    expect(((await getInbox()).json() as InboxPageBody).items.map((i) => i.id).sort()).toEqual(
+      [piano, fallita].sort(),
+    );
+  });
+
+  it("kind e status si combinano", async () => {
+    await clearInbox();
+    await seedNotification({ userId: seeded.adminId });
+    const chiusa = await seedNotification({ userId: seeded.adminId, status: "handled" });
+    await seedNotification({
+      userId: seeded.adminId,
+      event: planReviewEvent({ kind: "job.failed", error: "test rossi" }),
+      status: "handled",
+    });
+
+    const res = await getInbox({ status: "handled", kind: "job.plan_review" });
+    expect((res.json() as InboxPageBody).items.map((i) => i.id)).toEqual([chiusa]);
+  });
+
+  it("rifiuta un kind fuori enum (400, non una lista vuota)", async () => {
+    const res = await getInbox({ kind: "project.pulseee" });
+    expect(res.statusCode).toBe(400);
+  });
+
   it("rifiuta uno stato fuori enum", async () => {
     const res = await getInbox({ status: "archiviata" });
     expect(res.statusCode).toBe(400);
