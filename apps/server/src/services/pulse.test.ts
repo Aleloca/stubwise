@@ -246,6 +246,31 @@ describe("proceedWithProposal — guardie d'ingresso", () => {
     expect(result).toEqual({ ok: false, error: "invalid_answer" });
   });
 
+  it("riga rinviata → already_handled (senza nome: nessuno l'ha gestita)", async () => {
+    // Comportamento FISSATO, con la sua imprecisione: `already_handled` su una
+    // riga solo rinviata dice più di quel che è successo. Non è raggiungibile
+    // in pratica (lo snooze toglie i bottoni dal DM e la riga sparisce
+    // dall'inbox aperta; quando riemerge il lazy-reopen l'ha già rimessa
+    // `open`), ma se un giorno lo diventasse questo test lo farà notare.
+    const item = await seedItem({ title: "Voce rinviata" });
+    const { ids } = await seedPulse([maintainer], [item], { status: "snoozed" });
+
+    const result = await proceedWithProposal(db, {
+      notificationId: ids[0]!,
+      actor: maintainer,
+      optionIndex: 0,
+    });
+    expect(result).toEqual({ ok: false, error: "already_handled" });
+
+    // NIENTE è stato consumato: la riga resta rinviata e la voce candidabile.
+    expect((await readNotifications(ids))[0]!.status).toBe("snoozed");
+    const [after] = await db
+      .select({ status: backlogItems.status })
+      .from(backlogItems)
+      .where(eq(backlogItems.id, item.id));
+    expect(after!.status).toBe("ready");
+  });
+
   it("riga già gestita → already_handled con chi l'ha gestita", async () => {
     const item = await seedItem();
     const { ids } = await seedPulse([maintainer], [item]);

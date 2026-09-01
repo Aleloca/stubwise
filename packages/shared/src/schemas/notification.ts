@@ -296,19 +296,29 @@ export type InboxActionResult = z.infer<typeof inboxActionResultSchema>;
 
 /**
  * Corpo d'errore delle rotte d'AZIONE dell'inbox: l'errore standard
- * `{ code, message }` (stessa forma di `errorSchema` lato server) più il DATO
- * che serve alla UI per dire "l'ha già gestita X" invece di un generico
- * conflitto. Il nome è sul MITTENTE (le rotte azione), non sul singolo caso
- * `already_handled`: lo stesso body copre tutti i loro errori.
+ * `{ code, message }` (stessa forma di `errorSchema` lato server) più i DATI che
+ * servono alla UI per dire cosa è successo invece di un generico conflitto. Il
+ * nome è sul MITTENTE (le rotte azione), non sul singolo caso: lo stesso body
+ * copre tutti i loro errori.
  *
- * `handledBy` è opzionale perché lo stesso 409 copre anche `job_in_flight` e
- * `plan_not_pending`, che non hanno un autore da nominare; `code` è opzionale
- * perché gli errori di validazione Zod non lo valorizzano.
+ * `handledBy` risponde alla domanda "chi l'ha già fatto?" (`already_handled`);
+ * `ticketId`/`ticketNumber` a "cosa è comunque riuscito?" — li porta il 409
+ * `run_not_started` del "Procedi" del pulse, l'unico errore che lascia dietro
+ * di sé qualcosa di utile: il ticket è nato, il run no, e la card deve poterlo
+ * LINKARE per farlo lanciare a mano. Senza dati strutturati quel link si
+ * potrebbe costruire solo estraendo il numero dal `message`, che è inglese e
+ * non è contratto.
+ *
+ * Tutti opzionali: lo stesso 409 copre anche `job_in_flight`, `plan_not_pending`
+ * e `proposal_stale`, che non hanno né un autore da nominare né un ticket da
+ * offrire; `code` lo è perché gli errori di validazione Zod non lo valorizzano.
  */
 export const inboxActionErrorSchema = z.object({
   code: z.string().optional(),
   message: z.string(),
   handledBy: handledBySchema.optional(),
+  ticketId: z.uuid().optional(),
+  ticketNumber: z.number().int().positive().optional(),
 });
 export type InboxActionError = z.infer<typeof inboxActionErrorSchema>;
 

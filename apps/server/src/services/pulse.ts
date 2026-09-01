@@ -145,8 +145,22 @@ const pulsePayloadSchema = z.object({
  *     di riga e il secondo rilegge `status = 'handled'` → 0 righe → ha perso.
  *     PREZZO: se ciò che segue esplode per un errore infrastrutturale il pulse
  *     resta chiuso senza che sia successo nulla (lo ripropone il tick
- *     successivo del poller). È il rovescio accettato dell'unica alternativa —
- *     un secondo run partito davvero — che nessuno potrebbe più annullare;
+ *     successivo del poller).
+ *
+ *     L'ALTERNATIVA REALE, per chi un giorno valutasse di rifattorizzare, non è
+ *     "convertire prima" (che riaprirebbe il doppio run) ma **claim + convert in
+ *     un'unica transazione esterna**: `convertBacklogItem` prende un `Db`, e la
+ *     sua transazione diventerebbe un savepoint annidato. Restringerebbe davvero
+ *     il prezzo di cui sopra al solo `startRun` — che è già coperto da
+ *     `run_not_started`. È stata scartata, non per impossibilità, per tre
+ *     ragioni: terrebbe i lock su N righe di `notifications` (una per
+ *     destinatario) per tutta la durata del convert, che apre un ticket e chiude
+ *     una sessione di analisi; anniderebbe savepoint dentro una transazione
+ *     aperta da un servizio che oggi non ne apre; e romperebbe la disciplina
+ *     della fase 1, dove la propagazione sta FUORI da ogni transazione perché
+ *     porta con sé I/O esterno best-effort. Se un giorno il "pulse chiuso a
+ *     vuoto" si rivelasse un problema reale (e non un'ipotesi su un errore
+ *     infrastrutturale), è quella la strada;
  *  3. `convertBacklogItem`: voce → ticket `task`, con il suo claim anti-TOCTOU;
  *  4. `startRun({ requirePlanApproval: true })`: il run nasce dietro il gate
  *     anche per un maintainer — chi clicca accetta una PROPOSTA, non ha letto
@@ -190,9 +204,18 @@ export async function proceedWithProposal(
   }
   const proposal = proposals[index]!;
 
-  // Pre-check prima del claim: una riga già chiusa (o rinviata da chi la
-  // guarda) non è azionabile, e dirlo qui evita di chiudere le copie altrui
-  // per una richiesta che non poteva riuscire.
+  // Pre-check prima del claim: una riga non `open` non è azionabile, e dirlo
+  // qui evita di chiudere le copie altrui per una richiesta che non poteva
+  // riuscire.
+  //
+  // COMPRESA LA RIGA SNOOZED, e l'imprecisione è nota: `already_handled` su una
+  // riga che il richiedente stesso ha solo RINVIATO dice più di quel che è
+  // successo (e il 409 esce senza `handledBy`, perché nessuno l'ha gestita).
+  // Non è un buco: lo snooze toglie i bottoni dal DM e la riga sparisce
+  // dall'inbox aperta, quindi non c'è superficie da cui premere; e quando
+  // riemerge, il lazy-reopen di `listInbox` l'ha già riportata `open`, cioè
+  // azionabile. Un errore dedicato costerebbe un case in più su tutte e tre le
+  // superfici per uno stato che nessuno può vedere.
   if (row.status !== "open") {
     return {
       ok: false,

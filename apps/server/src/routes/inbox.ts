@@ -155,17 +155,20 @@ function sendActionError(
       // non una richiesta malformata.
       return apiError(reply, 409, "proposal_stale", "This proposal is no longer available");
     case "run_not_started":
-      // Riuscita a metà: il ticket c'è (e il numero lo dice), il run no. 409
-      // perché c'è qualcosa da fare — aprirlo e lanciarlo a mano — non un
-      // errore del client da correggere.
-      return apiError(
-        reply,
-        409,
-        "run_not_started",
-        result.ticketNumber === undefined
-          ? "Ticket created, but the run did not start"
-          : `Ticket #${result.ticketNumber} created, but the run did not start`,
-      );
+      // Riuscita a metà: il ticket c'è, il run no. 409 perché c'è qualcosa da
+      // fare — aprire il ticket e lanciarlo a mano — non un errore del client
+      // da correggere.
+      //
+      // Composto A MANO come `already_handled` e non via `apiError`: quel
+      // ticket è il pezzo che serve DI PIÙ proprio qui, e deve arrivare come
+      // DATO. Interpolarlo nel `message` (inglese, non contratto) costringerebbe
+      // la card a estrarlo da una stringa per costruire il link.
+      return reply.code(409).send({
+        code: "run_not_started",
+        message: "Ticket created, but the run did not start",
+        ...(result.ticketId ? { ticketId: result.ticketId } : {}),
+        ...(result.ticketNumber === undefined ? {} : { ticketNumber: result.ticketNumber }),
+      });
   }
 }
 

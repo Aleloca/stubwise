@@ -43,12 +43,24 @@ export type PropagationTarget =
  * ⚠️ IL RAMO `pulseId` NON HA UN INDICE: `pulseId` vive nel jsonb `event`
  * (`event->>'pulseId'`), e su `notifications` non c'è né un indice su `kind` né
  * uno di espressione su quel campo — quindi è un seq scan sulla tabella. È una
- * scelta consapevole: il "Procedi" è un'azione a ritmo umano (una manciata al
- * giorno, per istanza) e la tabella è quella delle notifiche, non un log ad
- * alta cardinalità. Il filtro su `kind` non serve al piano ma alla CORRETTEZZA
- * (nessun altro evento porta un `pulseId`) e restringe comunque le righe
- * confrontate. Se un giorno `notifications` diventasse grande, l'indice giusto
- * è parziale: `(event->>'pulseId') WHERE kind = 'project.pulse'`.
+ * scelta MISURATA, non un'omissione. `EXPLAIN (ANALYZE, BUFFERS)` su un
+ * Postgres di test caricato a 50.003 righe (1 settembre 2026):
+ *
+ *   Seq Scan on notifications  (cost=0.00..1695.05 rows=1) (actual 2.778..2.779 rows=3)
+ *     Filter: kind = 'project.pulse' AND (event->>'pulseId') = '…'
+ *     Rows Removed by Filter: 50000
+ *     Buffers: shared hit=820        Execution Time: 2.795 ms
+ *
+ * ~2,8 ms per scandire 50k righe, tutte in cache. Per confronto, l'istanza di
+ * produzione alla stessa data ha 10 righe in `notifications` (80 kB): quattro
+ * ordini di grandezza sotto la misura. E il "Procedi" è un'azione a ritmo umano,
+ * poche volte al giorno.
+ *
+ * Il filtro su `kind` non serve al piano ma alla CORRETTEZZA (nessun altro
+ * evento porta un `pulseId`) e restringe comunque le righe confrontate. Se un
+ * giorno `notifications` crescesse di ordini di grandezza — è la misura sopra a
+ * dire quando conviene rifarla — l'indice giusto è parziale:
+ * `(event->>'pulseId') WHERE kind = 'project.pulse'`.
  */
 function targetWhere(target: PropagationTarget): SQL {
   if ("jobId" in target) {
