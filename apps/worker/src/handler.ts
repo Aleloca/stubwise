@@ -120,6 +120,13 @@ async function runJobWithProvider(
   // degli altri, e con un'urgenza in più: ri-triagiare un ticket su cui una
   // persona ha appena preso una decisione potrebbe classificarlo `skipped` o
   // `duplicate` e buttare via sia la risposta sia la sessione CLI da riprendere.
+  //
+  // Il test è un CATCH-ALL (`!== null`) e non un elenco di valori: saltare il
+  // triage è il default giusto per QUALUNQUE ripresa, e un valore nuovo
+  // dell'enum non deve poter finire per sbaglio nel percorso standard. Il
+  // rovescio è che qui non si accorge di nulla: chi aggiunge un valore a
+  // `resume_mode` deve aggiungere il suo ramo in `resolveFixMode`
+  // (pipeline/fix.ts), altrimenti il job degrada a `full` in SILENZIO.
   if (job.resumeMode !== null) {
     const owned = await markFixing(deps.db, job.id);
     if (!owned) {

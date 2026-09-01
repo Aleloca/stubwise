@@ -40,11 +40,16 @@ const STALE_MARGIN_MS = 5 * 60_000;
  * legittimo può impiegare, altrimenti requeueStale lo riporterebbe in coda
  * mentre è ancora in corso → PR duplicata sullo stesso progetto. Il triage può
  * ritentare una volta (≈ 2× il suo timeout). Con il fix in DUE FASI il fix gira
- * pianificazione + esecuzione back-to-back: il caso peggiore è plan timeout +
- * fix timeout (con la fase singola basta il solo fix). In più il loop di
- * self-repair (Task 5) può aggiungere, dopo l'esecuzione iniziale, fino a
- * SELF_REPAIR_MAX_ATTEMPTS esecuzioni extra dell'agente (ciascuna fino al
- * timeout di fix) e altrettante esecuzioni del comando di test (ciascuna fino a
+ * pianificazione + esecuzione back-to-back, e la PIANIFICAZIONE può girare DUE
+ * volte nello stesso job: la ripresa da una risposta umana (`plan_continue`)
+ * lancia il run con `--resume` e, se quello muore con exit non-zero — sessione
+ * scaduta o di un altro host — ricade su un run di pianificazione pieno (vedi
+ * runPlanResume in pipeline/fix.ts). Ognuno dei due è limitato dal plan
+ * timeout, quindi il caso peggiore è 2× plan timeout + fix timeout (con la fase
+ * singola basta il solo fix). In più il loop di self-repair (Task 5) può
+ * aggiungere, dopo l'esecuzione iniziale, fino a SELF_REPAIR_MAX_ATTEMPTS
+ * esecuzioni extra dell'agente (ciascuna fino al timeout di fix) e altrettante
+ * esecuzioni del comando di test (ciascuna fino a
  * SELF_REPAIR_TEST_TIMEOUT_MS). Inoltre l'install delle dipendenze nel worktree
  * gira UNA SOLA VOLTA prima dell'agente (fino a installTimeoutMs), quindi entra
  * come addendo unico (non per tentativo). L'heartbeat in runFix è la difesa
@@ -58,9 +63,11 @@ function assertStaleInvariant(
   installTimeoutMs: number,
 ): void {
   const staleMs = staleAfterMinutes * 60_000;
-  // Due fasi: plan (10') + execute (30'); fase singola: solo execute (30').
+  // Due fasi: plan × 2 (resume fallito + fallback, 10' ciascuno) + execute
+  // (30'); fase singola: solo execute (30'), che non ha fase di piano e quindi
+  // non può nemmeno riprenderla.
   const fixMaxMs = twoPhase
-    ? DEFAULT_FIX_PLAN_TIMEOUT_MS + DEFAULT_FIX_TIMEOUT_MS
+    ? 2 * DEFAULT_FIX_PLAN_TIMEOUT_MS + DEFAULT_FIX_TIMEOUT_MS
     : DEFAULT_FIX_TIMEOUT_MS;
   // Install: gira una volta, prima dell'agente → addendo unico (non per tentativo).
   const installMs = installTimeoutMs;
@@ -74,7 +81,7 @@ function assertStaleInvariant(
   if (staleMs <= minRequiredMs) {
     throw new Error(
       `WORKER_STALE_MINUTES=${staleAfterMinutes} è troppo basso: deve superare ` +
-        `${Math.ceil(minRequiredMs / 60_000)} minuti (timeout fix${twoPhase ? " plan + execute" : ""}` +
+        `${Math.ceil(minRequiredMs / 60_000)} minuti (timeout fix${twoPhase ? " 2× plan (ripresa + fallback) + execute" : ""}` +
         `${selfRepairMaxAttempts > 0 ? ` + ${selfRepairMaxAttempts}× self-repair (esecuzione + test)` : ""} + install + 2× triage + margine), ` +
         `altrimenti un job lungo ma vivo verrebbe riaccodato e si aprirebbe una PR duplicata.`,
     );

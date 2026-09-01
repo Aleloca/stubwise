@@ -382,6 +382,11 @@ interface ResolvedFixMode {
  * risposta. Il ramo `execute-only` non può scattare su un job in ripresa
  * (`resumeMode` è `plan_continue`, non `execute`), quindi l'ordine dei rami
  * resta quello di sempre.
+ *
+ * QUESTA è la funzione da aggiornare quando si aggiunge un valore all'enum
+ * `resume_mode`: il handler manda al fix ogni job con un resumeMode non nullo
+ * (catch-all deliberato, vedi handler.ts), quindi un valore che non trova un
+ * ramo qui non fallisce — degrada a `full` in silenzio.
  */
 async function resolveFixMode(db: Db, job: AiJob, ticket: Ticket): Promise<ResolvedFixMode> {
   const planContinue = job.resumeMode === "plan_continue";
@@ -1146,6 +1151,13 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
    * stessa) e il timeout (lancia dal runner: la sessione era viva e ha lavorato
    * per tutto il tempo concesso — ripianificare da zero costerebbe altrettanto
    * senza motivo di riuscire meglio).
+   *
+   * CONSEGUENZA NOTA del timeout escluso: il job va in `failed` e le Q&A sono
+   * scopate per `job_id`, quindi un rilancio manuale — che è un job NUOVO — non
+   * le vede e l'agente può rifare all'umano una domanda a cui aveva già avuto
+   * risposta. È accettato: v1 tiene lo storico legato al job (una domanda si
+   * risponde su un job vivo), e allargarlo al ticket vorrebbe dire decidere
+   * quali decisioni di un run fallito sopravvivano a un run diverso.
    */
   const runPlanResume = async (
     parentDir: string,
