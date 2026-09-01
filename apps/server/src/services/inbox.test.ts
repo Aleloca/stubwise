@@ -1477,15 +1477,17 @@ describe("project.pulse — kind con opzioni senza job dietro", () => {
     expect(byId.get(marcia)?.actions).toContain("handled");
   });
 
-  it("`answer` sul pulse non è ancora eseguibile: invalid_action (task 6)", async () => {
+  it("`answer` sul pulse dispatcha su `proceedWithProposal` (voce sparita → proposal_stale)", async () => {
     const user = await seedUser("member");
     const id = await seedRawNotification({
       userId: user.id,
       kind: "project.pulse",
       event: pulseEvent(),
     });
-    // Il catalogo la dichiara e la card la offre, ma `proceedWithProposal` non
-    // c'è ancora: la richiesta è ben formata e semplicemente non eseguibile.
+    // Le proposte del payload puntano a voci che in questo file non esistono:
+    // il servizio arriva fino al convert e trova il nulla. Qui interessa il
+    // DISPATCH (l'azione non è più `invalid_action`); il merito di
+    // `proceedWithProposal` è coperto da `pulse.test.ts`.
     expect(
       await executeAction(db, {
         notificationId: id,
@@ -1493,9 +1495,10 @@ describe("project.pulse — kind con opzioni senza job dietro", () => {
         actor: user,
         payload: { answer: { optionIndex: 0 } },
       }),
-    ).toEqual({ ok: false, error: "invalid_action" });
-    // Non ha toccato nulla: la riga resta aperta e ancora azionabile.
-    expect((await readNotification(id))?.status).toBe("open");
+    ).toMatchObject({ ok: false, error: "proposal_stale" });
+    // La riga resta CHIUSA: il claim del pulse l'ha consumata, e riaprirla
+    // rimetterebbe in inbox l'invito a un'azione impossibile.
+    expect((await readNotification(id))?.status).toBe("handled");
   });
 
   it("la notifica di un ALTRO utente resta invisibile: not_found, non forbidden", async () => {

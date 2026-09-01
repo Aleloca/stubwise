@@ -279,10 +279,17 @@ export type SnoozeResult = z.infer<typeof snoozeResultSchema>;
  * chiude in blocco TUTTE le copie della stessa notifica (anche di altri
  * utenti), e il client aggiorna quelle righe senza ricaricare l'inbox.
  * `jobId` è presente solo quando l'azione ha toccato un job (approva/rilancia).
+ *
+ * `ticketId`/`ticketNumber` compaiono solo sul "Procedi" del pulse
+ * (`project.pulse`), l'unica azione che CREA un ticket: la proposta scelta
+ * diventa un ticket `task` e la card lo linka subito ("▶️ Avviato: #42") invece
+ * di mandare l'utente a cercarlo.
  */
 export const inboxActionResultSchema = z.object({
   kind: notificationKindSchema,
   jobId: z.uuid().optional(),
+  ticketId: z.uuid().optional(),
+  ticketNumber: z.number().int().positive().optional(),
   changedNotificationIds: z.array(z.uuid()),
 });
 export type InboxActionResult = z.infer<typeof inboxActionResultSchema>;

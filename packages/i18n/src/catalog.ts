@@ -184,6 +184,10 @@ export const en: Catalog = {
   "notify.inbox.errPlanNotPending": "No plan is awaiting approval.",
   "notify.inbox.errInvalidAnswer": "That answer is not valid for this question.",
   "notify.inbox.errQuestionNotPending": "No question is awaiting an answer.",
+  "notify.inbox.errProposalStale":
+    "That proposal is no longer available: it has already been taken care of.",
+  "notify.inbox.errRunNotStarted":
+    "Ticket created, but the run did not start. Launch it from the ticket.",
   "notify.inbox.errFailed": "The action could not be completed. Try again from Stubwise.",
   // Note di stato: sostituiscono i bottoni sul messaggio già deciso.
   "notify.inbox.notePlanApproved": "✅ Plan approved by {actor}",
@@ -192,6 +196,16 @@ export const en: Catalog = {
   "notify.inbox.noteAnswered": "💬 Answer from {actor}: {answer}",
   "notify.inbox.noteHandled": "✅ Marked as handled by {actor}",
   "notify.inbox.noteSnoozed": "⏰ Snoozed until {until}",
+  // Note del "Procedi" del pulse: quattro esiti, quattro frasi. Le prime due
+  // NON sono intercambiabili — col piano già pronto il run aspetta subito
+  // un'approvazione, senza piano la pianificazione parte e si fermerà dopo.
+  "notify.inbox.notePulseStartedApproval":
+    "▶️ {actor} started «{title}» — waiting for plan approval",
+  "notify.inbox.notePulseStartedPlanning":
+    "▶️ {actor} started «{title}» — planning under way, it will stop for approval",
+  "notify.inbox.notePulseTicketOnly":
+    "▶️ {actor} turned «{title}» into a ticket — the run did not start, launch it by hand",
+  "notify.inbox.notePulseStale": "🗄️ «{title}» has already been taken care of",
   // Modal di rifiuto del piano (il titolo Slack tronca oltre i 24 caratteri).
   "notify.inbox.rejectTitle": "Reject plan",
   "notify.inbox.rejectSubmit": "Reject",
@@ -354,6 +368,9 @@ export const it: Catalog = {
   "notify.inbox.errPlanNotPending": "Nessun piano in attesa di approvazione.",
   "notify.inbox.errInvalidAnswer": "Questa risposta non è valida per questa domanda.",
   "notify.inbox.errQuestionNotPending": "Nessuna domanda in attesa di risposta.",
+  "notify.inbox.errProposalStale":
+    "Questa proposta non è più disponibile: è già stata presa in carico.",
+  "notify.inbox.errRunNotStarted": "Ticket creato, ma il run non è partito. Lancialo dal ticket.",
   "notify.inbox.errFailed": "Azione non riuscita. Riprova da Stubwise.",
   "notify.inbox.notePlanApproved": "✅ Piano approvato da {actor}",
   "notify.inbox.notePlanRejected": "🚫 Piano rifiutato da {actor}",
@@ -361,6 +378,13 @@ export const it: Catalog = {
   "notify.inbox.noteAnswered": "💬 Risposta di {actor}: {answer}",
   "notify.inbox.noteHandled": "✅ Segnata come gestita da {actor}",
   "notify.inbox.noteSnoozed": "⏰ Rinviata fino a {until}",
+  "notify.inbox.notePulseStartedApproval":
+    "▶️ {actor} ha avviato «{title}» — in attesa dell'approvazione del piano",
+  "notify.inbox.notePulseStartedPlanning":
+    "▶️ {actor} ha avviato «{title}» — pianificazione avviata, si fermerà per l'approvazione",
+  "notify.inbox.notePulseTicketOnly":
+    "▶️ {actor} ha creato il ticket per «{title}» — il run non è partito, va lanciato a mano",
+  "notify.inbox.notePulseStale": "🗄️ «{title}» è già stata presa in carico",
   "notify.inbox.rejectTitle": "Rifiuta il piano",
   "notify.inbox.rejectSubmit": "Rifiuta",
   "notify.inbox.rejectClose": "Annulla",

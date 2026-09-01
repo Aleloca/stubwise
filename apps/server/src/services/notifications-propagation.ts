@@ -25,15 +25,43 @@
 import { notificationDeliveries, notifications, users, type Db } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
 import { escapeSlackMrkdwn, type ActionId, type NotificationKind } from "@stubwise/notifications";
-import { and, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, sql, type SQL } from "drizzle-orm";
 
 /**
- * Bersaglio della chiusura: tutte le copie di un evento (`jobId` + `kind`) o,
- * quando non c'è un job dietro, la singola riga.
+ * Bersaglio della chiusura: tutte le copie di un evento (`jobId` + `kind`),
+ * tutte le copie di un PULSE (che un job dietro non ce l'ha) o, quando non c'è
+ * nessuna delle due ancore, la singola riga.
  */
 export type PropagationTarget =
   | { jobId: string; kind: NotificationKind }
+  | { pulseId: string }
   | { notificationId: string };
+
+/**
+ * WHERE del bersaglio.
+ *
+ * ⚠️ IL RAMO `pulseId` NON HA UN INDICE: `pulseId` vive nel jsonb `event`
+ * (`event->>'pulseId'`), e su `notifications` non c'è né un indice su `kind` né
+ * uno di espressione su quel campo — quindi è un seq scan sulla tabella. È una
+ * scelta consapevole: il "Procedi" è un'azione a ritmo umano (una manciata al
+ * giorno, per istanza) e la tabella è quella delle notifiche, non un log ad
+ * alta cardinalità. Il filtro su `kind` non serve al piano ma alla CORRETTEZZA
+ * (nessun altro evento porta un `pulseId`) e restringe comunque le righe
+ * confrontate. Se un giorno `notifications` diventasse grande, l'indice giusto
+ * è parziale: `(event->>'pulseId') WHERE kind = 'project.pulse'`.
+ */
+function targetWhere(target: PropagationTarget): SQL {
+  if ("jobId" in target) {
+    return and(eq(notifications.jobId, target.jobId), eq(notifications.kind, target.kind))!;
+  }
+  if ("pulseId" in target) {
+    return and(
+      eq(notifications.kind, "project.pulse"),
+      sql`${notifications.event}->>'pulseId' = ${target.pulseId}`,
+    )!;
+  }
+  return eq(notifications.id, target.notificationId);
+}
 
 /**
  * Chiude le righe d'inbox bersaglio ancora aperte, attribuendole ad `actorId`.
@@ -54,10 +82,6 @@ export async function propagateHandled(
   target: PropagationTarget,
   actorId: string,
 ): Promise<string[]> {
-  const where =
-    "jobId" in target
-      ? and(eq(notifications.jobId, target.jobId), eq(notifications.kind, target.kind))
-      : eq(notifications.id, target.notificationId);
   const closed = await db
     .update(notifications)
     .set({
@@ -66,7 +90,7 @@ export async function propagateHandled(
       handledByUserId: actorId,
       snoozedUntil: null,
     })
-    .where(and(where, ne(notifications.status, "handled")))
+    .where(and(targetWhere(target), ne(notifications.status, "handled")))
     .returning({ id: notifications.id });
   return closed.map((row) => row.id);
 }
@@ -80,6 +104,33 @@ const NOTE_KEY: Record<Exclude<ActionId, "open">, string> = {
   handled: "notify.inbox.noteHandled",
   snooze: "notify.inbox.noteSnoozed",
 };
+
+/**
+ * ESITO del "Procedi" del pulse, che sceglie la nota fra le sue varianti.
+ *
+ * Non è una sfumatura estetica: al lettore del DM servono parole diverse a
+ * seconda di cosa è successo davvero. Col piano ereditato dalla voce il run è
+ * GIÀ fermo sul gate (`awaiting_approval`); senza piano la pianificazione parte
+ * e si fermerà dopo (`planning`) — promettere il primo stato nel secondo caso
+ * farebbe cercare un'approvazione che ancora non esiste. `ticket_only` è il
+ * ticket nato senza run (vedi `services/pulse.ts`), `stale` la proposta che
+ * qualcun altro aveva già preso.
+ */
+export type PulseNoteOutcome = "awaiting_approval" | "planning" | "ticket_only" | "stale";
+
+/** Chiave i18n della nota per ciascun esito del "Procedi". */
+const PULSE_NOTE_KEY: Record<PulseNoteOutcome, string> = {
+  awaiting_approval: "notify.inbox.notePulseStartedApproval",
+  planning: "notify.inbox.notePulseStartedPlanning",
+  ticket_only: "notify.inbox.notePulseTicketOnly",
+  stale: "notify.inbox.notePulseStale",
+};
+
+/** La proposta scelta e come è andata: quanto basta a comporre la nota del pulse. */
+export interface PulseNote {
+  title: string;
+  outcome: PulseNoteOutcome;
+}
 
 /**
  * Data resa con il token di Slack `<!date^…>`: la scadenza dello snooze compare
@@ -121,7 +172,7 @@ function truncateNote(answer: string): string {
 export function inboxNote(
   action: Exclude<ActionId, "open">,
   lang: Language,
-  args: { actor: string; snoozedUntil?: Date; answer?: string },
+  args: { actor: string; snoozedUntil?: Date; answer?: string; pulse?: PulseNote },
 ): string {
   if (action === "snooze") {
     return t(lang, NOTE_KEY.snooze, {
@@ -129,6 +180,16 @@ export function inboxNote(
     });
   }
   if (action === "answer") {
+    // Il PULSE condivide l'azione `answer` con la domanda dell'agente ma non la
+    // sua nota: là si riferisce una risposta, qui si annuncia un lavoro
+    // avviato. Il titolo passa dallo stesso taglio+escape della risposta (una
+    // voce di backlog può avere un titolo lungo, e finisce in un `section`).
+    if (args.pulse) {
+      return t(lang, PULSE_NOTE_KEY[args.pulse.outcome], {
+        actor: args.actor,
+        title: escapeSlackMrkdwn(truncateNote(args.pulse.title)),
+      });
+    }
     // La nota della risposta PORTA la risposta: chi legge il DM di un collega
     // deve sapere cosa è stato deciso, non solo che qualcuno ha deciso.
     //
@@ -214,6 +275,11 @@ export async function mirrorDecision(
      * stato deciso, non solo che qualcuno ha deciso.
      */
     answer?: string;
+    /**
+     * Solo per il "Procedi" del pulse: la proposta scelta e come è andata. È
+     * alternativo ad `answer` — sono due note diverse della stessa azione.
+     */
+    pulse?: PulseNote;
   },
 ): Promise<void> {
   if (args.notificationIds.length === 0) return;
@@ -230,6 +296,7 @@ export async function mirrorDecision(
       // Niente troncatura qui: la fa `inboxNote`, che è il punto comune a
       // tutte le superfici.
       ...(args.answer === undefined ? {} : { answer: args.answer }),
+      ...(args.pulse === undefined ? {} : { pulse: args.pulse }),
     };
     await enqueueInboxUpdates(db, args.notificationIds, (lang) =>
       inboxNote(args.action, lang, noteArgs),
@@ -253,6 +320,8 @@ export async function propagateDecision(
     actorId: string;
     /** Solo per `answer`: la risposta resa in una riga, da mettere nella nota. */
     answer?: string;
+    /** Solo per il "Procedi" del pulse: la proposta scelta e come è andata. */
+    pulse?: PulseNote;
   },
 ): Promise<string[]> {
   const changed = await propagateHandled(db, args.target, args.actorId);
@@ -261,7 +330,7 @@ export async function propagateDecision(
     action: args.action,
     actorId: args.actorId,
     ...(args.answer === undefined ? {} : { answer: args.answer }),
+    ...(args.pulse === undefined ? {} : { pulse: args.pulse }),
   });
   return changed;
 }
-

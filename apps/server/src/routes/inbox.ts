@@ -149,6 +149,23 @@ function sendActionError(
       return apiError(reply, 400, "invalid_answer", "Invalid answer for this question");
     case "question_not_pending":
       return apiError(reply, 409, "question_not_pending", "No question pending an answer");
+    case "proposal_stale":
+      // 409: la proposta esiste ancora sulla card ma non è più prendibile
+      // (voce già convertita, archiviata o sparita). È un conflitto di stato,
+      // non una richiesta malformata.
+      return apiError(reply, 409, "proposal_stale", "This proposal is no longer available");
+    case "run_not_started":
+      // Riuscita a metà: il ticket c'è (e il numero lo dice), il run no. 409
+      // perché c'è qualcosa da fare — aprirlo e lanciarlo a mano — non un
+      // errore del client da correggere.
+      return apiError(
+        reply,
+        409,
+        "run_not_started",
+        result.ticketNumber === undefined
+          ? "Ticket created, but the run did not start"
+          : `Ticket #${result.ticketNumber} created, but the run did not start`,
+      );
   }
 }
 
@@ -366,6 +383,10 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
       return {
         kind: result.kind,
         ...(result.jobId === undefined ? {} : { jobId: result.jobId }),
+        // Solo il "Procedi" del pulse crea un ticket: sugli altri esiti i due
+        // campi restano ASSENTI (non null), come `url` e `question` altrove.
+        ...(result.ticketId === undefined ? {} : { ticketId: result.ticketId }),
+        ...(result.ticketNumber === undefined ? {} : { ticketNumber: result.ticketNumber }),
         changedNotificationIds: result.changedNotificationIds,
       };
     },

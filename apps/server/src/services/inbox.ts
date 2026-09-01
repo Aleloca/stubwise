@@ -39,6 +39,7 @@ import { inboxQuestionSchema, type InboxQuestion } from "@stubwise/shared";
 import { and, desc, eq, inArray, isNull, ne, sql, type SQL } from "drizzle-orm";
 import { resolvePlan, startRun, type Actor } from "./jobs.js";
 import { mirrorDecision, propagateDecision } from "./notifications-propagation.js";
+import { proceedWithProposal } from "./pulse.js";
 import { answerQuestion, type AnswerInput } from "./questions.js";
 
 // Catalogo delle azioni: implementazione in `@stubwise/notifications/actions`
@@ -67,7 +68,11 @@ export type ExecuteActionError =
   // risposta non regge contro la domanda persistita, oppure non c'è (più) una
   // domanda a cui rispondere.
   | "invalid_answer"
-  | "question_not_pending";
+  | "question_not_pending"
+  // Errori del "Procedi" del pulse (`proceedWithProposal`): la proposta non è
+  // più prendibile, oppure il ticket è nato ma il run non è partito.
+  | "proposal_stale"
+  | "run_not_started";
 
 /**
  * Esito di {@link executeAction}. Il ramo di successo porta abbastanza contesto
@@ -101,6 +106,13 @@ export type ExecuteActionResult =
       changedNotificationIds: string[];
       /** Id del job AI toccato da `resolvePlan`/`startRun`, se l'azione ne ha toccato uno. */
       jobId?: string;
+      /**
+       * Ticket NATO dall'azione: solo il "Procedi" del pulse ne crea uno (la
+       * proposta scelta diventa un ticket `task`). Alle superfici serve per
+       * linkarlo subito — "▶️ Avviato: #42" — senza rileggere nulla.
+       */
+      ticketId?: string;
+      ticketNumber?: number;
       snoozedUntil?: Date;
     }
   | {
@@ -108,6 +120,9 @@ export type ExecuteActionResult =
       error: ExecuteActionError;
       handledBy?: HandledBy;
       jobStatus?: string;
+      /** Solo su `run_not_started`: il ticket c'è comunque, e si può aprire. */
+      ticketId?: string;
+      ticketNumber?: number;
     };
 
 export interface ExecuteActionInput {
@@ -201,13 +216,40 @@ export async function executeAction(
     // sul pulse converte la proposta scelta in ticket e ne lancia la
     // pianificazione (`proceedWithProposal`).
     if (row.kind === "project.pulse") {
-      // TODO(fase 2, task 6): `proceedWithProposal`. Finché non c'è, la
-      // richiesta è dichiarata dal catalogo ma non eseguibile: `invalid_action`
-      // (400) è la risposta onesta — l'azione esiste, questa istanza non sa
-      // ancora portarla a termine — e non lascia la card in uno stato ambiguo.
-      // Fino al task 7 nessun pulse viene emesso, quindi nessuna card reale
-      // arriva qui.
-      return { ok: false, error: "invalid_action" };
+      // Il pulse non ha un job dietro: `optionIndex` è l'indice della PROPOSTA,
+      // e un corpo a testo libero (che il pulse non ammette) arriva qui senza
+      // indice — il servizio lo rifiuta con `invalid_answer`.
+      const proceeded = await proceedWithProposal(db, {
+        notificationId: row.id,
+        actor,
+        ...(input.payload?.answer?.optionIndex === undefined
+          ? {}
+          : { optionIndex: input.payload.answer.optionIndex }),
+        ...(input.publicUrl ? { publicUrl: input.publicUrl } : {}),
+      });
+      if (!proceeded.ok) {
+        return {
+          ok: false,
+          error: proceeded.error,
+          ...(proceeded.handledBy ? { handledBy: proceeded.handledBy } : {}),
+          // `run_not_started` porta il ticket: l'azione è riuscita a metà, e
+          // dirlo senza il ticket lascerebbe l'utente senza il pezzo che c'è.
+          ...(proceeded.ticketId === undefined ? {} : { ticketId: proceeded.ticketId }),
+          ...(proceeded.ticketNumber === undefined ? {} : { ticketNumber: proceeded.ticketNumber }),
+        };
+      }
+      return {
+        ok: true,
+        action,
+        kind: row.kind,
+        notificationJobId: row.jobId,
+        // Le copie le ha già chiuse `proceedWithProposal` (il claim del pulse
+        // sta là, prima della conversione): qui si riferiscono soltanto.
+        changedNotificationIds: proceeded.changedNotificationIds,
+        jobId: proceeded.jobId,
+        ticketId: proceeded.ticketId,
+        ticketNumber: proceeded.ticketNumber,
+      };
     }
     const outcome = await answerQuestion(db, {
       notificationId: row.id,
