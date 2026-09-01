@@ -138,11 +138,24 @@ const PULSE_NOTE_KEY: Record<PulseNoteOutcome, string> = {
   stale: "notify.inbox.notePulseStale",
 };
 
-/** La proposta scelta e come è andata: quanto basta a comporre la nota del pulse. */
-export interface PulseNote {
-  title: string;
-  outcome: PulseNoteOutcome;
-}
+/**
+ * La proposta scelta e come è andata: quanto basta a comporre la nota del pulse.
+ *
+ * Union e non un campo opzionale: i tre esiti che hanno prodotto un ticket ne
+ * DEVONO portare il numero — è l'unica traccia del ticket che sopravvive alla
+ * decisione, perché il pulse nasce senza `notifications.ticket_id` e non lo
+ * acquisisce chiudendosi — mentre `stale` un ticket non ce l'ha. Col campo
+ * opzionale il compilatore lascerebbe passare la nota che dice "avviato «X»
+ * come #{number}".
+ */
+export type PulseNote =
+  | { title: string; outcome: "stale" }
+  | {
+      title: string;
+      outcome: Exclude<PulseNoteOutcome, "stale">;
+      /** Numero del ticket nato dalla proposta. */
+      ticketNumber: number;
+    };
 
 /**
  * Data resa con il token di Slack `<!date^…>`: la scadenza dello snooze compare
@@ -200,6 +213,9 @@ export function inboxNote(
       return t(lang, PULSE_NOTE_KEY[args.pulse.outcome], {
         actor: args.actor,
         title: escapeSlackMrkdwn(truncateNote(args.pulse.title)),
+        // Solo gli esiti con un ticket hanno un `{number}` da interpolare (la
+        // union lo garantisce); `stale` non ne ha né uno né l'altro.
+        ...(args.pulse.outcome === "stale" ? {} : { number: args.pulse.ticketNumber }),
       });
     }
     // La nota della risposta PORTA la risposta: chi legge il DM di un collega

@@ -90,6 +90,13 @@ export interface QuestionPanelProps {
    * della notifica include già la domanda, e ripeterla sarebbe un'eco.
    */
   showQuestionText?: boolean;
+  /**
+   * Etichetta del bottone di conferma. Default `question:submit` ("Invia
+   * risposta"), che è giusto per la domanda dell'agente; il pulse la sostituisce
+   * con "Avvia", perché lì confermare non manda una risposta a nessuno — fa
+   * partire un lavoro.
+   */
+  submitLabel?: string;
 }
 
 /**
@@ -116,6 +123,7 @@ function QuestionPanelInner({
   pending = false,
   error = null,
   showQuestionText = true,
+  submitLabel,
 }: QuestionPanelProps) {
   const { t } = useTranslation();
   // `null` = niente scelto: è lo stato iniziale ANCHE quando c'è una
@@ -253,7 +261,7 @@ function QuestionPanelInner({
 
       <div className="mt-2 flex flex-wrap gap-2">
         <button type="button" disabled={!canSubmit} onClick={submit} className={primaryButton}>
-          {t("question:submit")}
+          {submitLabel ?? t("question:submit")}
         </button>
       </div>
     </div>

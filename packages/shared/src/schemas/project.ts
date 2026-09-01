@@ -85,6 +85,20 @@ export const projectSchema = z.object({
   // Se true, i ticket feedback/feature del progetto NON entrano nella pipeline
   // fix: vengono deviati verso il backlog di discovery (intake). Default false.
   backlogEnabled: z.boolean(),
+  // Pulse proattivo: se true, quando il progetto è fermo un poller propone 2–3
+  // voci del backlog da cui ripartire. Default false (opt-in esplicito).
+  //
+  // Dipende dal BACKLOG: senza `backlogEnabled` non ci sono voci da proporre e
+  // il pulse resterebbe muto. Il vincolo NON è espresso qui — è il form a
+  // disabilitare i controlli — perché un progetto può spegnere il backlog senza
+  // dover contestualmente spegnere il pulse, e un refine lo trasformerebbe in
+  // un 400 su un PATCH che tocca tutt'altro.
+  pulseEnabled: z.boolean(),
+  // Cadenza minima fra due pulse dello stesso progetto, in giorni. Il range
+  // 1..30 è lo stesso CHECK che il DB applica (`projects_pulse_every_days_chk`):
+  // sotto 1 giorno sarebbe un ping continuo, sopra 30 un promemoria che non
+  // arriva mai.
+  pulseEveryDays: z.number().int().min(1).max(30),
   // Chiave di ingestion del progetto: gli SDK la usano per inviare errori e
   // feedback (l'ingestion è di prodotto, non di repo — Fase 3).
   ingestionKey: z.string().min(1),
@@ -106,6 +120,8 @@ export const createProjectSchema = z.object({
   docAutoUpdate: z.boolean().optional(),
   dailyReportEnabled: z.boolean().optional(),
   backlogEnabled: z.boolean().optional(),
+  pulseEnabled: z.boolean().optional(),
+  pulseEveryDays: z.number().int().min(1).max(30).optional(),
 });
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;
 
@@ -120,5 +136,9 @@ export const updateProjectSchema = z.object({
   docAutoUpdate: z.boolean().optional(),
   dailyReportEnabled: z.boolean().optional(),
   backlogEnabled: z.boolean().optional(),
+  pulseEnabled: z.boolean().optional(),
+  // Fuori dal range 1..30 il PATCH è un 400 di validazione, e non arriva mai al
+  // CHECK del DB (che resta l'arbitro per chi scrive senza passare da qui).
+  pulseEveryDays: z.number().int().min(1).max(30).optional(),
 });
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;

@@ -199,12 +199,18 @@ export const en: Catalog = {
   // Note del "Procedi" del pulse: quattro esiti, quattro frasi. Le prime due
   // NON sono intercambiabili — col piano già pronto il run aspetta subito
   // un'approvazione, senza piano la pianificazione parte e si fermerà dopo.
+  //
+  // Le tre che hanno un ticket ne portano il NUMERO: la notifica del pulse
+  // nasce senza ticket (`notifications.ticket_id` resta null) e non lo acquisisce
+  // decidendo, quindi il ticket appena creato vive solo nell'esito HTTP
+  // dell'azione — che chi ricarica la pagina, o legge il DM di un collega, non
+  // ha mai visto. La nota è l'unica traccia che sopravvive.
   "notify.inbox.notePulseStartedApproval":
-    "▶️ {actor} started «{title}» — waiting for plan approval",
+    "▶️ {actor} started «{title}» as #{number} — waiting for plan approval",
   "notify.inbox.notePulseStartedPlanning":
-    "▶️ {actor} started «{title}» — planning under way, it will stop for approval",
+    "▶️ {actor} started «{title}» as #{number} — planning under way, it will stop for approval",
   "notify.inbox.notePulseTicketOnly":
-    "▶️ {actor} turned «{title}» into a ticket — the run did not start, launch it by hand",
+    "▶️ {actor} turned «{title}» into ticket #{number} — the run did not start, launch it by hand",
   "notify.inbox.notePulseStale": "🗄️ «{title}» has already been taken care of",
   // Pulse SOSTITUITO da uno più recente sullo stesso progetto (la scrive il
   // poller del worker, non un'azione umana): nessun `{actor}`, perché non l'ha
@@ -384,11 +390,11 @@ export const it: Catalog = {
   "notify.inbox.noteHandled": "✅ Segnata come gestita da {actor}",
   "notify.inbox.noteSnoozed": "⏰ Rinviata fino a {until}",
   "notify.inbox.notePulseStartedApproval":
-    "▶️ {actor} ha avviato «{title}» — in attesa dell'approvazione del piano",
+    "▶️ {actor} ha avviato «{title}» come #{number} — in attesa dell'approvazione del piano",
   "notify.inbox.notePulseStartedPlanning":
-    "▶️ {actor} ha avviato «{title}» — pianificazione avviata, si fermerà per l'approvazione",
+    "▶️ {actor} ha avviato «{title}» come #{number} — pianificazione avviata, si fermerà per l'approvazione",
   "notify.inbox.notePulseTicketOnly":
-    "▶️ {actor} ha creato il ticket per «{title}» — il run non è partito, va lanciato a mano",
+    "▶️ {actor} ha creato il ticket #{number} per «{title}» — il run non è partito, va lanciato a mano",
   "notify.inbox.notePulseStale": "🗄️ «{title}» è già stata presa in carico",
   "notify.inbox.notePulseReplaced": "🔄 Sostituita da proposte più recenti",
   "notify.inbox.rejectTitle": "Rifiuta il piano",

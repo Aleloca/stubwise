@@ -100,6 +100,8 @@ export function ProjectDetailPage() {
                   docAutoUpdate: project.docAutoUpdate,
                   dailyReportEnabled: project.dailyReportEnabled,
                   backlogEnabled: project.backlogEnabled,
+                  pulseEnabled: project.pulseEnabled,
+                  pulseEveryDays: project.pulseEveryDays,
                 }}
                 onSubmit={handleSubmit}
               />
@@ -123,6 +125,14 @@ export function ProjectDetailPage() {
               <ReadOnlyRow
                 label={t("projects:form.backlog")}
                 value={project.backlogEnabled ? t("common:on") : t("common:off")}
+              />
+              <ReadOnlyRow
+                label={t("projects:form.pulse")}
+                value={
+                  project.pulseEnabled
+                    ? t("projects:detail.pulseEvery", { count: project.pulseEveryDays })
+                    : t("common:off")
+                }
               />
               <p className="pt-1 font-mono text-[11px] text-fg-faint">
                 {t("projects:detail.readOnlyHint")}

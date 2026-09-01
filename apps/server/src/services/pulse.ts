@@ -261,7 +261,11 @@ export async function proceedWithProposal(
       notificationIds: changedNotificationIds,
       action: "answer",
       actorId: actor.id,
-      pulse: { title: proposal.title, outcome: "ticket_only" },
+      pulse: {
+        title: proposal.title,
+        outcome: "ticket_only",
+        ticketNumber: converted.ticketNumber,
+      },
     });
     return {
       ok: false,
@@ -278,6 +282,12 @@ export async function proceedWithProposal(
     pulse: {
       title: proposal.title,
       outcome: run.status === "awaiting_plan_approval" ? "awaiting_approval" : "planning",
+      // Il NUMERO del ticket entra nella nota, che è l'unica traccia del
+      // ticket che sopravvive alla decisione: il pulse nasce senza
+      // `notifications.ticket_id` e non lo acquisisce chiudendosi, quindi
+      // ricaricando l'inbox (o leggendo il DM di un collega) l'esito HTTP con
+      // l'id del ticket non c'è più.
+      ticketNumber: converted.ticketNumber,
     },
   });
   return {

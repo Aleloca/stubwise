@@ -35,7 +35,12 @@ import {
   type NotificationKind,
   type SnoozeUntil,
 } from "@stubwise/notifications";
-import { inboxQuestionSchema, type InboxQuestion } from "@stubwise/shared";
+import {
+  inboxPulseSchema,
+  inboxQuestionSchema,
+  type InboxPulse,
+  type InboxQuestion,
+} from "@stubwise/shared";
 import { and, desc, eq, inArray, isNull, ne, sql, type SQL } from "drizzle-orm";
 import { resolvePlan, startRun, type Actor } from "./jobs.js";
 import { mirrorDecision, propagateDecision } from "./notifications-propagation.js";
@@ -113,6 +118,14 @@ export type ExecuteActionResult =
        */
       ticketId?: string;
       ticketNumber?: number;
+      /**
+       * Come è nato il run del "Procedi": `awaiting_plan_approval` se il piano
+       * ereditato dalla voce l'ha già fermato sul gate, `queued` se la
+       * pianificazione deve ancora partire (e si fermerà dopo). Sono due
+       * esperienze diverse e le superfici le dicono con parole diverse, invece
+       * di promettere uno stato che l'utente non vedrà subito.
+       */
+      runStatus?: "queued" | "awaiting_plan_approval";
       snoozedUntil?: Date;
     }
   | {
@@ -249,6 +262,7 @@ export async function executeAction(
         jobId: proceeded.jobId,
         ticketId: proceeded.ticketId,
         ticketNumber: proceeded.ticketNumber,
+        runStatus: proceeded.status,
       };
     }
     const outcome = await answerQuestion(db, {
@@ -525,6 +539,13 @@ export interface InboxItem {
    * payload non la contiene in forma leggibile — vedi {@link renderItem}.
    */
   question?: InboxQuestion;
+  /**
+   * Il contorno del pulse (progetto, giorni di fermo, voci di backlog dietro le
+   * opzioni), sul solo kind `project.pulse`. ASSENTE se il payload non lo porta
+   * in forma leggibile, o se non è ALLINEATO alle opzioni — vedi
+   * {@link readPulse}.
+   */
+  pulse?: InboxPulse;
   projectId: string | null;
   ticketId: string | null;
   jobId: string | null;
@@ -713,6 +734,41 @@ function readQuestion(
 }
 
 /**
+ * Estrae dal payload grezzo IL CONTORNO DEL PULSE — progetto, giorni di fermo e
+ * voci di backlog dietro le opzioni — per il solo kind che ne ha uno.
+ * `undefined` quando il kind non è il pulse, quando il jsonb non regge più la
+ * validazione, o quando le proposte NON sono allineate alle opzioni.
+ *
+ * ⚠️ L'ALLINEAMENTO È IL PUNTO. L'indice che l'utente sceglie viaggia su
+ * `question.options` (è la lista che le superfici disegnano) e agisce su
+ * `proposals` (è la lista che `proceedWithProposal` indicizza per trovare la
+ * voce da convertire). Le due liste nascono allineate in `buildPulseEvent`, ma
+ * qui arrivano da un jsonb scritto mesi fa: se le lunghezze non coincidono, il
+ * blocco viene OMESSO invece di accostare l'i-esima proposta all'i-esima
+ * opzione. È la stessa disciplina del bail-out sugli indici di `QuestionPanel`:
+ * meglio nessun contorno — la card resta scegliibile, e il servizio valida
+ * comunque l'indice sulle proposte persistite — che un contorno che attribuisce
+ * a una scelta la voce sbagliata.
+ *
+ * Prende la domanda GIÀ estratta (non la ri-legge): è l'unico modo perché il
+ * confronto avvenga sulle opzioni che la card mostrerà davvero.
+ */
+function readPulse(
+  rawEvent: Record<string, unknown>,
+  kind: NotificationKind,
+  question: InboxQuestion | undefined,
+): InboxPulse | undefined {
+  if (kind !== "project.pulse") return undefined;
+  // Senza domanda leggibile non c'è nessuna lista di opzioni con cui allinearsi,
+  // e la card non offre scelte: il contorno non avrebbe a cosa riferirsi.
+  if (!question) return undefined;
+  const parsed = inboxPulseSchema.safeParse(rawEvent);
+  if (!parsed.success) return undefined;
+  if (parsed.data.proposals.length !== question.options.length) return undefined;
+  return parsed.data;
+}
+
+/**
  * RECINTO attorno alla resa del singolo item.
  *
  * `notifications.event` è un jsonb scritto da chi ha pubblicato l'evento, anche
@@ -744,9 +800,12 @@ function renderItem(
   rawEvent: Record<string, unknown>,
   kind: NotificationKind,
   lang: Language,
-): { text: string; url?: string; question?: InboxQuestion } {
+): { text: string; url?: string; question?: InboxQuestion; pulse?: InboxPulse } {
   const question = readQuestion(rawEvent, kind);
-  const questionPart = question ? { question } : {};
+  const pulse = readPulse(rawEvent, kind, question);
+  // I due blocchi opzionali della card, insieme: entrambi degradano ad assenti
+  // e nessuno dei due deve poter far saltare la resa del testo.
+  const optionsPart = { ...(question ? { question } : {}), ...(pulse ? { pulse } : {}) };
   try {
     const event = rawEvent as unknown as NotificationEvent;
     const text = formatNotificationText(event, lang);
@@ -754,10 +813,10 @@ function renderItem(
     return {
       text: typeof text === "string" && text.trim() !== "" ? text : kind,
       ...(typeof url === "string" && url !== "" ? { url } : {}),
-      ...questionPart,
+      ...optionsPart,
     };
   } catch {
-    return { text: kind, ...questionPart };
+    return { text: kind, ...optionsPart };
   }
 }
 

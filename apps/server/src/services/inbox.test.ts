@@ -1449,6 +1449,97 @@ describe("project.pulse — kind con opzioni senza job dietro", () => {
     expect(item?.url).toBe("https://stubwise.test/projects/p1/backlog");
   });
 
+  it("la card porta il blocco `pulse`, allineato indice per indice alle opzioni", async () => {
+    const user = await seedUser("member");
+    const id = await seedRawNotification({
+      userId: user.id,
+      kind: "project.pulse",
+      event: pulseEvent(),
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    const item = items.find((i) => i.id === id);
+    // Progetto e giorni di fermo: il nome esiste anche dentro la frase
+    // localizzata, ma lì è prosa — la card ha bisogno del dato.
+    expect(item?.pulse).toEqual({
+      projectName: "negozio-web",
+      idleDays: 4,
+      proposals: [
+        {
+          backlogItemId: "aa11bb22-1111-4222-8333-444455556666",
+          title: "Export CSV degli ordini",
+          urgency: "high",
+          effort: 2,
+          hasAnalysis: true,
+        },
+        {
+          backlogItemId: "bb22cc33-2222-4333-8444-555566667777",
+          title: "Filtro per stato",
+          urgency: "medium",
+          effort: 1,
+          hasAnalysis: false,
+        },
+      ],
+    });
+    // L'INVARIANTE, asserita e non sperata: l'indice che l'utente sceglie
+    // viaggia su `options` e agisce su `proposals`. Un disallineamento non
+    // darebbe nessun errore, farebbe partire la voce sbagliata.
+    const options = item?.question?.options ?? [];
+    const proposals = item?.pulse?.proposals ?? [];
+    expect(proposals).toHaveLength(options.length);
+    expect(proposals.map((p) => p.title)).toEqual(options.map((o) => o.label));
+  });
+
+  it("proposte e opzioni di lunghezza diversa → niente blocco `pulse` (mai un indice che mente)", async () => {
+    const user = await seedUser("member");
+    const id = await seedRawNotification({
+      userId: user.id,
+      kind: "project.pulse",
+      // Una proposta in più delle opzioni: il payload non può più dire quale
+      // voce sta dietro quale scelta.
+      event: pulseEvent({
+        options: [{ label: "Export CSV degli ordini" }],
+      }),
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    const item = items.find((i) => i.id === id);
+    expect(item?.pulse).toBeUndefined();
+    // La card resta intera e azionabile: si sceglie dalle opzioni, che sono
+    // ancora quelle persistite (ed è su quelle che il servizio valida l'indice).
+    expect(item?.question?.options).toHaveLength(1);
+    expect(item?.actions).toContain("answer");
+  });
+
+  it("proposte illeggibili → niente blocco `pulse`, la domanda resta", async () => {
+    const user = await seedUser("member");
+    const id = await seedRawNotification({
+      userId: user.id,
+      kind: "project.pulse",
+      // Payload di una versione precedente: le proposte erano stringhe.
+      event: pulseEvent({ proposals: ["Export CSV degli ordini", "Filtro per stato"] }),
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    const item = items.find((i) => i.id === id);
+    expect(item?.pulse).toBeUndefined();
+    expect(item?.question?.options).toHaveLength(2);
+  });
+
+  it("il blocco `pulse` è SOLO del pulse: la domanda dell'agente non lo porta", async () => {
+    const user = await seedUser("admin");
+    // Stesso payload, altro kind: il blocco si aggancia al `kind` (la colonna
+    // enum), non alla forma del jsonb — che qui sarebbe pure leggibile.
+    const id = await seedRawNotification({
+      userId: user.id,
+      kind: "job.awaiting_input",
+      event: pulseEvent({ kind: "job.awaiting_input" }),
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    expect(items.find((i) => i.id === id)?.pulse).toBeUndefined();
+  });
+
   it("payload marcio → la card degrada a testo senza bottoni, la lista regge", async () => {
     const user = await seedUser("admin");
     const sana = await seedRawNotification({

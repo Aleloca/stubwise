@@ -64,6 +64,8 @@ const initial: {
   docAutoUpdate: boolean;
   dailyReportEnabled: boolean;
   backlogEnabled: boolean;
+  pulseEnabled: boolean;
+  pulseEveryDays: number;
 } = {
   name: "Acme Platform",
   description: null,
@@ -71,6 +73,8 @@ const initial: {
   docAutoUpdate: false,
   dailyReportEnabled: false,
   backlogEnabled: false,
+  pulseEnabled: false,
+  pulseEveryDays: 3,
 };
 
 function mockProviders() {
@@ -165,6 +169,79 @@ describe("ProjectForm (impostazioni del gruppo)", () => {
 
     const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
     expect(payload.backlogEnabled).toBe(true);
+  });
+
+  it("senza backlog, pulse e cadenza sono disabilitati e spiegano perché", async () => {
+    mockProviders();
+    await renderForm({ onSubmit: vi.fn() });
+
+    // Un pulse senza backlog non avrebbe nulla da proporre: i controlli ci
+    // sono (si vede a cosa si sta rinunciando) ma non si toccano.
+    expect(screen.getByLabelText("Proactive pulse")).toBeDisabled();
+    expect(screen.getByLabelText("Days between pulses")).toBeDisabled();
+    expect(
+      screen.getByText("// needs the discovery backlog: without it there is nothing to propose."),
+    ).toBeInTheDocument();
+  });
+
+  it("attivando il backlog nello stesso form, il pulse si sblocca subito", async () => {
+    const user = userEvent.setup();
+    mockProviders();
+    await renderForm({ onSubmit: vi.fn() });
+
+    // Guarda lo STATO del form, non il valore iniziale: chi accende il backlog
+    // adesso non deve salvare e rientrare per poter accendere il pulse.
+    await user.click(screen.getByLabelText("Discovery backlog"));
+    expect(screen.getByLabelText("Proactive pulse")).toBeEnabled();
+    expect(screen.getByLabelText("Days between pulses")).toBeEnabled();
+  });
+
+  it("attivando il pulse e cambiando cadenza, il PATCH invia entrambi", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockProviders();
+    await renderForm({ onSubmit }, { ...initial, backlogEnabled: true });
+
+    await user.click(screen.getByLabelText("Proactive pulse"));
+    const days = screen.getByLabelText("Days between pulses");
+    await user.clear(days);
+    await user.type(days, "7");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload).toEqual({ pulseEnabled: true, pulseEveryDays: 7 });
+  });
+
+  it("cadenza invariata: il PATCH non la include (patch minimo)", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockProviders();
+    await renderForm({ onSubmit }, { ...initial, backlogEnabled: true });
+
+    await user.click(screen.getByLabelText("Proactive pulse"));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload).toEqual({ pulseEnabled: true });
+  });
+
+  it("cadenza fuori dal range: niente PATCH, un errore che lo dice", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockProviders();
+    await renderForm({ onSubmit }, { ...initial, backlogEnabled: true, pulseEnabled: true });
+
+    const days = screen.getByLabelText("Days between pulses");
+    await user.clear(days);
+    await user.type(days, "99");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    // 1..30 è il CHECK del DB: il form non manda mai un valore che sa rifiutato,
+    // e non lo scarta in silenzio — lo dice.
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Days between pulses must be between 1 and 30",
+    );
   });
 
   it("riportando il provider su 'Automatico', il PATCH invia aiProviderId null", async () => {

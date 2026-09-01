@@ -1372,6 +1372,13 @@ export interface Project {
    */
   backlogEnabled: boolean;
   /**
+   * Se true, quando il progetto è fermo il poller propone 2–3 voci del backlog
+   * da cui ripartire (pulse proattivo). Default false.
+   */
+  pulseEnabled: boolean;
+  /** Cadenza minima fra due pulse dello stesso progetto, in giorni (1..30). */
+  pulseEveryDays: number;
+  /**
    * Chiave di ingestion del progetto (Fase 3): gli SDK e i webhook inbound la
    * usano per autenticare l'invio di errori/ticket. Salita dal repository al
    * progetto; tutti i repo del gruppo condividono questa chiave.
@@ -1408,6 +1415,8 @@ export interface ProjectDraft {
   docAutoUpdate?: boolean;
   dailyReportEnabled?: boolean;
   backlogEnabled?: boolean;
+  pulseEnabled?: boolean;
+  pulseEveryDays?: number;
 }
 
 /** Campi modificabili di un progetto (gruppo). Patch parziale. */
@@ -1422,6 +1431,10 @@ export interface ProjectPatch {
   dailyReportEnabled?: boolean;
   /** Toggle backlog di discovery (deviazione feedback/feature); assente = invariato. */
   backlogEnabled?: boolean;
+  /** Toggle pulse proattivo; assente = invariato. */
+  pulseEnabled?: boolean;
+  /** Cadenza del pulse in giorni (1..30); assente = invariata. */
+  pulseEveryDays?: number;
 }
 
 export function getProjects(): Promise<ProjectListItem[]> {
@@ -3084,6 +3097,28 @@ export function handledByFromError(error: unknown): HandledBy | undefined {
   if (!(error instanceof ApiError) || error.code !== "already_handled") return undefined;
   const parsed = inboxActionErrorSchema.safeParse(error.details);
   return parsed.success ? parsed.data.handledBy : undefined;
+}
+
+/**
+ * Il TICKET nato dal "Procedi" del pulse quando il run non è partito, letto dal
+ * 409 `run_not_started`.
+ *
+ * Gemello di {@link handledByFromError}, e per la stessa ragione: è l'altro
+ * errore dell'API che porta un DATO oltre a `code`/`message`. Il ticket c'è, il
+ * run no — e senza questi campi il suo link si potrebbe costruire solo estraendo
+ * il numero dal `message`, che è inglese e non è contratto.
+ */
+export function startedTicketFromError(
+  error: unknown,
+): { id: string; number: number } | undefined {
+  if (!(error instanceof ApiError) || error.code !== "run_not_started") return undefined;
+  const parsed = inboxActionErrorSchema.safeParse(error.details);
+  if (!parsed.success) return undefined;
+  const { ticketId, ticketNumber } = parsed.data;
+  // Entrambi o nessuno: mezzo riferimento non è linkabile.
+  return ticketId !== undefined && ticketNumber !== undefined
+    ? { id: ticketId, number: ticketNumber }
+    : undefined;
 }
 
 /** Progetti seguiti dall'utente corrente: l'insieme COMPLETO. */

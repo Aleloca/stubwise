@@ -1065,6 +1065,24 @@
       "submit": "Send rejection",
       "cancel": "Cancel"
     },
+    "pulse": {
+      "idle_one": "idle for {{count}} day",
+      "idle_other": "idle for {{count}} days",
+      "start": "Start",
+      "openBacklog": "Open backlog",
+      "startedBy": "▶️ Started by {{email}}:",
+      "ticketOnlyBy": "▶️ Ticket created by {{email}}:",
+      "outcomeApproval": "waiting for plan approval",
+      "outcomePlanning": "planning under way, it will stop for approval",
+      "outcomeTicketOnly": "the run did not start, launch it by hand",
+      "errors": {
+        "stale": "This proposal has already been taken care of",
+        "alreadyTaken": "Already taken by {{email}}",
+        "alreadyTakenUnknown": "Already taken by someone else",
+        "invalidChoice": "This proposal is no longer available",
+        "generic": "Could not start the proposal"
+      }
+    },
     "status": {
       "awaitingApproval": "awaiting approval",
       "handled": "handled",
@@ -1238,6 +1256,8 @@
       "saved": "Changes saved.",
       "name": "Name",
       "readOnlyHint": "// read-only: settings are changed by maintainers",
+      "pulseEvery_one": "On, every day",
+      "pulseEvery_other": "On, every {{count}} days",
       "repositories": "Repositories",
       "addRepository": "+ Add repository",
       "noRepositories": "// no repositories",
@@ -1269,6 +1289,11 @@
       "dailyReportHint": "// generates a nightly standup from the day's commits across the project's repositories.",
       "backlog": "Discovery backlog",
       "backlogHint": "// routes feedback/feature tickets to backlog intake instead of the fix pipeline.",
+      "pulse": "Proactive pulse",
+      "pulseHint": "// when the project sits idle, proposes backlog items to restart from.",
+      "pulseEveryDays": "Days between pulses",
+      "pulseEveryDaysRange": "Days between pulses must be between {{min}} and {{max}}.",
+      "pulseNeedsBacklog": "// needs the discovery backlog: without it there is nothing to propose.",
       "aiProvider": "Project AI provider",
       "aiProviderAuto": "Automatic (failover chain)",
       "aiProviderHint": "// applies to Docs and fixes of all repositories; empty = chain of enabled providers.",

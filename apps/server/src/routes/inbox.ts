@@ -92,6 +92,9 @@ function toInboxItemView(item: ServiceInboxItem): InboxItem {
     // Assente (non null) su tutti i kind che non sono una domanda dell'agente,
     // e sulle domande il cui payload non è più leggibile.
     ...(item.question === undefined ? {} : { question: item.question }),
+    // Assente (non null) su tutti i kind che non sono il pulse, e sui pulse il
+    // cui payload non è leggibile o non è allineato alle opzioni.
+    ...(item.pulse === undefined ? {} : { pulse: item.pulse }),
     projectId: item.projectId,
     ticketId: item.ticketId,
     jobId: item.jobId,
@@ -390,6 +393,9 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
         // campi restano ASSENTI (non null), come `url` e `question` altrove.
         ...(result.ticketId === undefined ? {} : { ticketId: result.ticketId }),
         ...(result.ticketNumber === undefined ? {} : { ticketNumber: result.ticketNumber }),
+        // Come è nato il run: la card lo dice con parole diverse (fermo sul
+        // gate / pianificazione avviata) invece di promettere sempre la prima.
+        ...(result.runStatus === undefined ? {} : { runStatus: result.runStatus }),
         changedNotificationIds: result.changedNotificationIds,
       };
     },

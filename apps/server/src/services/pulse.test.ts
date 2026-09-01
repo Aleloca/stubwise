@@ -339,6 +339,10 @@ describe("proceedWithProposal — successo", () => {
     expect(notes[0]).toContain(maintainer.email);
     expect(notes[0]).toContain("Voce con piano");
     expect(notes[0]).toMatch(/approval/i);
+    // Il NUMERO del ticket sta nella nota: è l'unica traccia del ticket che
+    // sopravvive alla decisione (il pulse nasce senza `ticket_id`, e l'esito
+    // HTTP con l'id lo vede solo chi ha premuto).
+    expect(notes[0]).toContain(`#${result.ticketNumber}`);
   });
 
   it("voce senza piano: job queued con planApprovalRequired e nota diversa", async () => {
@@ -514,6 +518,9 @@ describe("proceedWithProposal — convertito ma run non partito", () => {
     const notes = await readNotes(ids[0]!);
     expect(notes[0]).toContain("Run mancato");
     expect(notes[0]).toMatch(/did not start/i);
+    // Anche qui il ticket è nato: la nota lo NOMINA, così resta rintracciabile
+    // da chi dovrà lanciarlo a mano.
+    expect(notes[0]).toContain(`#${result.ticketNumber}`);
   });
 });
 

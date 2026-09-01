@@ -62,6 +62,9 @@ describe("POST /api/projects", () => {
       docAutoUpdate: false,
       dailyReportEnabled: false,
       backlogEnabled: false,
+      // Pulse proattivo: spento, con la cadenza di default di 3 giorni.
+      pulseEnabled: false,
+      pulseEveryDays: 3,
       // Fase 3: il progetto nasce con la chiave di ingestion (32 hex) e il
       // contatore ticket per-progetto a 1.
       ingestionKey: expect.stringMatching(/^[0-9a-f]{32}$/),
@@ -239,6 +242,52 @@ describe("PATCH /api/projects/:projectId", () => {
       headers: { cookie: adminCookie },
     });
     expect((get.json() as { backlogEnabled: boolean }).backlogEnabled).toBe(true);
+  });
+
+  it("attiva il pulse e ne cambia la cadenza", async () => {
+    const created = await createProject({ name: "Con Pulse" });
+    const id = (created.json() as { id: string }).id;
+    expect(created.json()).toMatchObject({ pulseEnabled: false, pulseEveryDays: 3 });
+
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${id}`,
+      headers: { cookie: adminCookie },
+      payload: { pulseEnabled: true, pulseEveryDays: 7 },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ pulseEnabled: true, pulseEveryDays: 7 });
+
+    // Persistito: una GET successiva lo riflette.
+    const get = await app.inject({
+      method: "GET",
+      url: `/api/projects/${id}`,
+      headers: { cookie: adminCookie },
+    });
+    expect(get.json()).toMatchObject({ pulseEnabled: true, pulseEveryDays: 7 });
+  });
+
+  it("cadenza fuori dal range 1..30: 400 di validazione, niente CHECK del DB", async () => {
+    const created = await createProject({ name: "Pulse Fuori Range" });
+    const id = (created.json() as { id: string }).id;
+
+    for (const pulseEveryDays of [0, 31, 2.5]) {
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/api/projects/${id}`,
+        headers: { cookie: adminCookie },
+        payload: { pulseEveryDays },
+      });
+      expect(res.statusCode).toBe(400);
+    }
+
+    // Nessuna delle richieste rifiutate ha toccato la riga.
+    const get = await app.inject({
+      method: "GET",
+      url: `/api/projects/${id}`,
+      headers: { cookie: adminCookie },
+    });
+    expect(get.json()).toMatchObject({ pulseEveryDays: 3 });
   });
 
   it("aiProviderId esistente lo imposta, null lo azzera", async () => {

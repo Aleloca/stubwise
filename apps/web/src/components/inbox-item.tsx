@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -8,6 +9,7 @@ import {
   postInboxAction,
   postInboxHandled,
   postInboxSnooze,
+  startedTicketFromError,
   type HandledBy,
   type InboxActionBody,
   type InboxDecisionAction,
@@ -57,6 +59,37 @@ export function isDecisionItem(item: InboxItem): boolean {
   );
 }
 
+/**
+ * COM'È ANDATO il "Procedi" del pulse, e sono tre esiti che si dicono con parole
+ * diverse: `approval` = il piano ereditato dalla voce ha già fermato il run sul
+ * gate; `planning` = senza piano il run è partito e si fermerà DOPO (promettere
+ * il gate qui manderebbe l'utente a cercare un'approvazione che non esiste
+ * ancora); `ticketOnly` = il ticket è nato ma il run no, e va lanciato a mano.
+ */
+type PulseOutcomeVariant = "approval" | "planning" | "ticketOnly";
+
+/** Chiavi i18n di ciascun esito: la frase d'apertura e la coda dopo il ticket. */
+const PULSE_OUTCOME_KEYS: Record<PulseOutcomeVariant, { lead: string; tail: string }> = {
+  approval: { lead: "inbox:pulse.startedBy", tail: "inbox:pulse.outcomeApproval" },
+  planning: { lead: "inbox:pulse.startedBy", tail: "inbox:pulse.outcomePlanning" },
+  ticketOnly: { lead: "inbox:pulse.ticketOnlyBy", tail: "inbox:pulse.outcomeTicketOnly" },
+};
+
+/**
+ * L'esito del "Procedi", col ticket da linkare.
+ *
+ * Vive nella PAGINA e non nella card, e non è un vezzo: appena la decisione
+ * passa, `actions` si svuota, la riga smette di essere una decisione e la lista
+ * la sposta da "Da decidere" a "Da sapere" — cioè sotto un altro genitore, il
+ * che RIMONTA la card. Uno stato locale sparirebbe esattamente nell'istante in
+ * cui serve.
+ */
+export interface PulseOutcome {
+  variant: PulseOutcomeVariant;
+  ticketId: string;
+  ticketNumber: number;
+}
+
 const buttonBase =
   "inline-flex min-h-11 items-center justify-center rounded-sm px-3 font-mono text-[11px] tracking-[0.12em] uppercase transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-9";
 const primaryButton = `${buttonBase} bg-signal text-ink-950 hover:bg-signal-bright active:bg-signal-dim`;
@@ -73,6 +106,13 @@ export interface InboxItemCardProps {
   filters: InboxFilters;
   /** Utente corrente: chi risulta aver gestito, negli update ottimistici. */
   currentUser: HandledBy;
+  /**
+   * Esito del "Procedi" già registrato per questa riga (vedi
+   * {@link PulseOutcome}); `null` finché non se n'è presa nessuna.
+   */
+  pulseOutcome?: PulseOutcome | null;
+  /** Registra l'esito del "Procedi" sulla pagina, che lo tiene per questa riga. */
+  onPulseOutcome?: (outcome: PulseOutcome) => void;
 }
 
 /**
@@ -90,7 +130,14 @@ export interface InboxItemCardProps {
  * e possono legittimamente perdere la corsa (409 `already_handled`), quindi si
  * aggiornano solo a risposta arrivata, usando `changedNotificationIds`.
  */
-export function InboxItemCard({ item, projectName, filters, currentUser }: InboxItemCardProps) {
+export function InboxItemCard({
+  item,
+  projectName,
+  filters,
+  currentUser,
+  pulseOutcome = null,
+  onPulseOutcome,
+}: InboxItemCardProps) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [rejecting, setRejecting] = useState(false);
@@ -103,8 +150,13 @@ export function InboxItemCard({ item, projectName, filters, currentUser }: Inbox
    * i bottoni. Un unico stato, così due errori non possono convivere.
    */
   const [error, setError] = useState<{ message: string; onPanel: boolean } | null>(null);
-
   const listKey = inboxKeys.list(filters);
+  // Il PULSE è l'altro kind con opzioni, ma non è una domanda: si sceglie una
+  // proposta e parte un lavoro. Cambiano le parole, non il pannello.
+  const isPulse = item.kind === "project.pulse";
+  // Nome del progetto: quello risolto dalla pagina, o — se la lista dei progetti
+  // non lo conosce — quello che il pulse si porta nel payload.
+  const displayProjectName = projectName ?? item.pulse?.projectName;
 
   /**
    * Messaggio d'errore dal solo `code` (mai da `error.message`): i messaggi del
@@ -129,6 +181,33 @@ export function InboxItemCard({ item, projectName, filters, currentUser }: Inbox
         return t("inbox:errors.invalidAction");
       default:
         return t("inbox:errors.generic");
+    }
+  }
+
+  /**
+   * Messaggio d'errore del "PROCEDI" del pulse. Non riusa
+   * {@link answerErrorMessage}: là si parla di una risposta che non è passata,
+   * qui di una proposta che non si può più prendere. Stessi codici, altre parole
+   * — più i due che esistono solo sul pulse (`proposal_stale`,
+   * `run_not_started`), che quella mappa manderebbe sul generico.
+   */
+  function pulseErrorMessage(cause: unknown): string {
+    if (!(cause instanceof ApiError)) return t("inbox:pulse.errors.generic");
+    switch (cause.code) {
+      case "proposal_stale":
+        return t("inbox:pulse.errors.stale");
+      case "already_handled": {
+        const by = handledByFromError(cause);
+        return by
+          ? t("inbox:pulse.errors.alreadyTaken", { email: by.email })
+          : t("inbox:pulse.errors.alreadyTakenUnknown");
+      }
+      case "invalid_answer":
+        return t("inbox:pulse.errors.invalidChoice");
+      case "forbidden":
+        return t("inbox:errors.forbidden");
+      default:
+        return t("inbox:pulse.errors.generic");
     }
   }
 
@@ -164,16 +243,66 @@ export function InboxItemCard({ item, projectName, filters, currentUser }: Inbox
         handledAt: new Date().toISOString(),
         handledBy: currentUser,
       });
+      // Il "Procedi" del pulse è l'unica azione che CREA un ticket: la card lo
+      // linka subito, invece di mandare l'utente a cercarlo.
+      const startedTicket =
+        result.kind === "project.pulse" &&
+        result.ticketId !== undefined &&
+        result.ticketNumber !== undefined
+          ? { id: result.ticketId, number: result.ticketNumber }
+          : null;
+      if (startedTicket) {
+        onPulseOutcome?.({
+          // `runStatus` assente (server precedente) ricade su `planning`: è la
+          // frase che non promette un gate — se poi il gate c'è già, l'utente lo
+          // trova; il contrario lo manderebbe a cercarlo per niente.
+          variant: result.runStatus === "awaiting_plan_approval" ? "approval" : "planning",
+          ticketId: startedTicket.id,
+          ticketNumber: startedTicket.number,
+        });
+      }
       setRejecting(false);
       setInstructions("");
-      void queryClient.invalidateQueries({ queryKey: inboxKeys.all });
+      // Sul "Procedi" riuscito la lista NON si ricarica subito: il refetch
+      // toglierebbe la riga (decisa, quindi fuori dall'inbox aperta) portandosi
+      // via il link al ticket appena nato — che il pulse non ha modo di
+      // ritrovare (`notifications.ticket_id` resta null). La riga è già stata
+      // patchata allo stato vero, resta lì attenuata con il suo esito, e sparirà
+      // al prossimo aggiornamento della lista. Il contatore invece si allinea
+      // subito: quello è un numero, non un contesto da leggere.
+      void queryClient.invalidateQueries({
+        queryKey: startedTicket ? inboxKeys.unread() : inboxKeys.all,
+      });
     },
     onError: (cause, variables) => {
       // La risposta a una domanda ha parole sue sugli stessi codici ("ha già
-      // risposto X", non "l'ha già gestita X"), condivise con la pagina ticket.
+      // risposto X", non "l'ha già gestita X"), condivise con la pagina ticket;
+      // il pulse ne ha altre ancora (vedi `pulseErrorMessage`).
       const isAnswer = variables.action === "answer";
+      // 409 `run_not_started`: l'azione è riuscita A METÀ. Non è un errore da
+      // riprovare — la proposta è consumata e il ticket esiste — quindi si
+      // mostra come ESITO, con il link che permette di lanciarlo a mano, invece
+      // che come riga rossa sopra un pannello che non serve più.
+      const startedTicket = isPulse ? startedTicketFromError(cause) : undefined;
+      if (startedTicket) {
+        onPulseOutcome?.({
+          variant: "ticketOnly",
+          ticketId: startedTicket.id,
+          ticketNumber: startedTicket.number,
+        });
+        setError(null);
+        // Le copie SONO cambiate (il claim le ha chiuse) ma il 409 non dice
+        // quali: l'unico modo di riallinearsi è rileggere. Qui la riga può
+        // sparire, e l'esito con lei — resta il numero del ticket nella nota.
+        void queryClient.invalidateQueries({ queryKey: inboxKeys.all });
+        return;
+      }
       setError({
-        message: isAnswer ? answerErrorMessage(cause, t) : messageForError(cause),
+        message: isAnswer
+          ? isPulse
+            ? pulseErrorMessage(cause)
+            : answerErrorMessage(cause, t)
+          : messageForError(cause),
         onPanel: isAnswer,
       });
       // Anche (anzi: soprattutto) dopo un 409 la lista va ricaricata — la
@@ -244,7 +373,18 @@ export function InboxItemCard({ item, projectName, filters, currentUser }: Inbox
         <span className="rounded-sm border border-line bg-ink-850 px-1.5 py-0.5 text-fg-muted">
           {t(INBOX_KIND_LABEL_KEYS[item.kind])}
         </span>
-        {projectName !== undefined && <span className="text-fg-muted">{projectName}</span>}
+        {displayProjectName !== undefined && (
+          <span className="text-fg-muted">{displayProjectName}</span>
+        )}
+        {/*
+          Da quanto il progetto è fermo: è il MOTIVO per cui questa card esiste,
+          e sta nel titolino insieme al progetto invece che nella prosa.
+        */}
+        {item.pulse !== undefined && (
+          <span className="text-fg-muted">
+            {t("inbox:pulse.idle", { count: item.pulse.idleDays })}
+          </span>
+        )}
         <time dateTime={item.createdAt} title={item.createdAt}>
           {formatRelativeTime(item.createdAt)}
         </time>
@@ -257,6 +397,27 @@ export function InboxItemCard({ item, projectName, filters, currentUser }: Inbox
           {item.handledBy
             ? t("inbox:status.handledBy", { email: item.handledBy.email })
             : t("inbox:status.handled")}
+        </p>
+      )}
+
+      {pulseOutcome !== null && (
+        // L'esito del "Procedi": chi ha avviato, il TICKET (linkato) e cosa
+        // succede adesso. `alert` solo quando c'è qualcosa da fare a mano.
+        <p
+          {...(pulseOutcome.variant === "ticketOnly" ? { role: "alert" } : {})}
+          className={`mt-1 font-mono text-[11px] ${
+            pulseOutcome.variant === "ticketOnly" ? "text-danger" : "text-fg-faint"
+          }`}
+        >
+          {t(PULSE_OUTCOME_KEYS[pulseOutcome.variant].lead, { email: currentUser.email })}{" "}
+          <Link
+            to="/tickets/$id"
+            params={{ id: pulseOutcome.ticketId }}
+            className="text-fg-muted underline transition-colors hover:text-fg"
+          >
+            #{pulseOutcome.ticketNumber}
+          </Link>{" "}
+          — {t(PULSE_OUTCOME_KEYS[pulseOutcome.variant].tail)}
         </p>
       )}
 
@@ -290,6 +451,10 @@ export function InboxItemCard({ item, projectName, filters, currentUser }: Inbox
           // un'eco. Sulla pagina ticket (che non ha quel testo) il pannello la
           // mostra, ed è il suo default.
           showQuestionText={false}
+          // Sul pulse confermare non manda una risposta a nessuno: fa partire
+          // un lavoro. La conferma a due passi resta (è la differenza voluta
+          // rispetto a Slack, dove il click esegue subito).
+          {...(isPulse ? { submitLabel: t("inbox:pulse.start") } : {})}
           pending={busy}
           error={error !== null && error.onPanel ? error.message : null}
           onSubmit={(answer) => decide.mutate({ action: "answer", body: answer })}
@@ -334,7 +499,11 @@ export function InboxItemCard({ item, projectName, filters, currentUser }: Inbox
             // Bitbucket/GitHub tanto quanto a una rotta della SPA), quindi è un
             // `<a>` e non un `<Link>` tipato.
             <a href={item.url} className={secondaryButton}>
-              {t("inbox:actions.open")}
+              {/*
+                Il pulse non è ancorato a un ticket: "Apri" porta dove si vedono
+                TUTTE le proposte, cioè il backlog del progetto, e lo dice.
+              */}
+              {t(isPulse ? "inbox:pulse.openBacklog" : "inbox:actions.open")}
             </a>
           )}
           {can("snooze") && (

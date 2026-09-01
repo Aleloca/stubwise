@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ticketPrioritySchema } from "./ticket.js";
 
 /**
  * Schemi dell'INBOX: la forma con cui `/api/inbox` e `/api/me/*` parlano alla
@@ -142,6 +143,56 @@ export const inboxQuestionSchema = z.object({
 export type InboxQuestion = z.infer<typeof inboxQuestionSchema>;
 
 /**
+ * Una PROPOSTA del pulse: la voce di backlog dietro l'opzione omonima, più i
+ * metadati su cui il ranking l'ha ordinata.
+ *
+ * `urgency`/`effort` sono nullable come le colonne che li portano (una voce
+ * appena nata può non averli ancora). `backlogItemId` è ciò che permette a un
+ * consumatore non-visuale — il tool MCP — di dire *quale voce* è la proposta
+ * numero 2, senza rileggere il payload della notifica.
+ */
+export const inboxPulseProposalSchema = z.object({
+  backlogItemId: z.uuid(),
+  title: z.string(),
+  urgency: ticketPrioritySchema.nullable(),
+  effort: z.number().int().nullable(),
+  /** La voce ha già la sezione "## Analisi tecnica" del deep dive. */
+  hasAnalysis: z.boolean(),
+});
+export type InboxPulseProposal = z.infer<typeof inboxPulseProposalSchema>;
+
+/**
+ * IL CONTORNO DEL PULSE: ciò che la sua card deve poter dire e che
+ * {@link inboxQuestionSchema} non porta — di quale progetto si parla, da quanti
+ * giorni è fermo, e quali voci di backlog stanno dietro le opzioni.
+ *
+ * Blocco a parte e non campi sparsi su {@link inboxItemSchema}: i kind sono
+ * tredici e uno solo ha queste informazioni: raccoglierle qui le tiene
+ * assenti-o-complete invece di spargere quattro campi opzionali che nessun
+ * altro kind valorizza. E non dentro `question.options[]`, che è lo schema
+ * CONDIVISO con la domanda dell'agente e con la pagina ticket, dove un
+ * `backlogItemId` non significherebbe nulla.
+ *
+ * ⚠️ **`proposals[i]` DESCRIVE `question.options[i]`**. L'indice che l'utente
+ * sceglie viaggia su `options` e agisce su `proposals` (è la lista che
+ * `proceedWithProposal` indicizza per trovare la voce da convertire): un
+ * disallineamento non darebbe nessun errore, farebbe partire la voce
+ * sbagliata. Chi popola questo blocco DEVE quindi verificare l'allineamento —
+ * lo fa il recinto per-item di `listInbox`, che in caso di dubbio omette il
+ * blocco invece di mentire.
+ *
+ * OPZIONALE come `question`, e per la stessa ragione: su un payload che il
+ * server non ha saputo rileggere la card resta intera e senza contorno.
+ */
+export const inboxPulseSchema = z.object({
+  projectName: z.string(),
+  /** Da quanti giorni il progetto non ha lavoro in corso. */
+  idleDays: z.number().int(),
+  proposals: z.array(inboxPulseProposalSchema),
+});
+export type InboxPulse = z.infer<typeof inboxPulseSchema>;
+
+/**
  * La risposta umana COME VIENE PERSISTITA in `agent_questions.answer`: l'indice
  * dell'opzione scelta, oppure il testo libero. È la forma canonica del dato —
  * `packages/db` ci tipa la colonna jsonb e il worker ci rilegge la decisione per
@@ -239,6 +290,12 @@ export const inboxItemSchema = z.object({
    * offrire i bottoni delle opzioni invece del solo testo.
    */
   question: inboxQuestionSchema.optional(),
+  /**
+   * Il contorno del pulse (progetto, giorni di fermo, voci dietro le opzioni):
+   * presente solo sul kind `project.pulse`, e solo se il payload è leggibile e
+   * ALLINEATO a `question.options` — vedi {@link inboxPulseSchema}.
+   */
+  pulse: inboxPulseSchema.optional(),
   projectId: z.uuid().nullable(),
   ticketId: z.uuid().nullable(),
   jobId: z.uuid().nullable(),
@@ -290,6 +347,20 @@ export const inboxActionResultSchema = z.object({
   jobId: z.uuid().optional(),
   ticketId: z.uuid().optional(),
   ticketNumber: z.number().int().positive().optional(),
+  /**
+   * Come è NATO il run del "Procedi" — `runStatus` e non `status`, che su una
+   * riga d'inbox significa già un'altra cosa (aperta/gestita/rinviata).
+   *
+   * Sono due esperienze diverse e le superfici le dicono con parole diverse:
+   * col piano ereditato dalla voce il job è GIÀ fermo sul gate
+   * (`awaiting_plan_approval`), senza piano parte `queued` e sarà il worker a
+   * fermarsi a piano pronto. Promettere il primo stato nel secondo caso
+   * manderebbe l'utente a cercare un'approvazione che ancora non esiste.
+   *
+   * Presente solo sul "Procedi" riuscito del pulse: nessun'altra azione avvia
+   * un run da zero.
+   */
+  runStatus: z.enum(["queued", "awaiting_plan_approval"]).optional(),
   changedNotificationIds: z.array(z.uuid()),
 });
 export type InboxActionResult = z.infer<typeof inboxActionResultSchema>;
