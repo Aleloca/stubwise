@@ -6,6 +6,7 @@ program: 2026-08-31-stubwise-nerve-center-program-design.md
 stubwise:
   project: stubwise
   backlogItem: 6a155c3a-ecb7-45f3-a9e0-5d62991413eb # https://stubwise.thecove.it/backlog/6a155c3a-ecb7-45f3-a9e0-5d62991413eb
+  ticket: 8 # https://stubwise.thecove.it/tickets/05a6d6ee-5b5a-4b77-83d3-3c22e4a61740
 ---
 
 # Fase 2 — Pulse proattivo
