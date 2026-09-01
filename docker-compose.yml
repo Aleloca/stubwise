@@ -161,6 +161,13 @@ services:
       - FIX_PLAN_MODEL=${FIX_PLAN_MODEL:-opus}
       - FIX_EXECUTE_MODEL=${FIX_EXECUTE_MODEL:-sonnet}
       - FIX_PLAN_TIMEOUT_MS=${FIX_PLAN_TIMEOUT_MS:-600000}
+      # Quante DOMANDE puo' fare l'agente durante la pianificazione di UN job
+      # (tool ask_user): il job si ferma, la domanda arriva in inbox/Slack/ticket
+      # e riparte con la risposta. Contate anche quelle gia' risposte; oltre il
+      # tetto l'agente sceglie da se' e documenta la scelta nel piano. Vale solo
+      # per i run che pianificano (non l'esecuzione diretta di un piano salvato).
+      # Minimo 1. Default 5.
+      - AGENT_QUESTION_MAX_ROUNDS=${AGENT_QUESTION_MAX_ROUNDS:-5}
       # Timeout dell'install delle dipendenze nel worktree: gira una volta prima
       # del fix/test (e' l'addendo singolo dell'invariante di staleness sopra).
       - INSTALL_TIMEOUT_MS=${INSTALL_TIMEOUT_MS:-600000}

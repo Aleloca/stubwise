@@ -64,6 +64,18 @@ Riporta all'utente l'esito con il link al ticket. Due casi:
 Non esiste un tool MCP per approvare o rifiutare un piano: in questo caso il tuo
 compito finisce qui.
 
+C'è un terzo esito, che arriva **più tardi** e non dal tool: se il run include
+una **pianificazione** (nessun piano salvato sul ticket, o `mode: "ai_plan"`),
+l'agente può fermarsi e **fare una domanda** — 2–4 opzioni, a volte con una
+consigliata, a volte con la possibilità di rispondere a parole. Il job resta
+vivo in attesa e la domanda compare **nell'inbox di Stubwise, in DM Slack e
+sulla pagina del ticket**; rispondono chi ha lanciato il run e i maintainer.
+Data la risposta la pianificazione **riprende da sola**: come per
+l'approvazione, **non rilanciare `run_ticket`** (lo rifiuterebbe con un 409) e
+non c'è un tool MCP per rispondere. Se l'utente ti chiede a che punto è e il
+ticket è fermo su una domanda, digli che serve una risposta da una di quelle tre
+superfici e fermati.
+
 Non riportare tu il ticket a `in_review`: quando apre la PR lo fa la pipeline.
 
 ---
@@ -78,8 +90,8 @@ Altre note:
   solo come scelta deliberata dell'utente ("ripianifica tu"), mai come default.
 - **409 "C'è già un job in corso"** → non è un errore da ritentare: c'è già un
   job in volo su quel ticket. Attendi che finisca (o, se è in attesa di
-  approvazione del piano, che un maintainer lo approvi) e riferiscilo
-  all'utente, senza rilanciare.
+  approvazione del piano o di una risposta a una domanda dell'AI, che un umano
+  decida) e riferiscilo all'utente, senza rilanciare.
 - Anche con `queued`, un run avviato da un **operatore** senza piano salvato si
   fermerà comunque sul gate di approvazione dopo la pianificazione: non
   promettere che arriverà una PR senza altri passaggi.

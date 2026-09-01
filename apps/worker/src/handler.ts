@@ -57,10 +57,12 @@ export interface HandlerDeps {
   /** Override delle opzioni di triage (model/maxTurns/timeoutMs). */
   triage?: { model?: string; maxTurns?: number; timeoutMs?: number };
   /** Override delle opzioni di fix (modelli, due fasi, timeout, allowedTools,
-   * self-repair). */
+   * self-repair, tetto di domande). */
   fix?: {
     model?: string;
     twoPhase?: boolean;
+    /** Tetto di domande `ask_user` per job (da AGENT_QUESTION_MAX_ROUNDS). */
+    questionMaxRounds?: number;
     planModel?: string;
     executeModel?: string;
     planTimeoutMs?: number;

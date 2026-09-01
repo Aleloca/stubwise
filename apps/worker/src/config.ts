@@ -106,6 +106,22 @@ const envSchema = z.object({
       .min(1, "deve essere un intero > 0 in millisecondi (es. 600000)")
       .default(600_000),
   ),
+  // Tetto di DOMANDE (tool `ask_user`) che l'agente può porre in UN job di fix,
+  // contando anche quelle già risposte. Vale solo per i run che pianificano
+  // davvero (`plan-only` e la fase 1 del flusso a due fasi): in esecuzione
+  // diretta da un piano salvato nessuno può chiedere. Superato il tetto il tool
+  // non registra più nulla e istruisce l'agente a scegliere da sé, documentando
+  // la scelta nel piano — così una pianificazione non può rimbalzare all'umano
+  // all'infinito. Deve restare allineata a DEFAULT_AGENT_QUESTION_MAX_ROUNDS
+  // (pipeline/ask-user.ts), il fallback quando il valore non viene iniettato.
+  AGENT_QUESTION_MAX_ROUNDS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 (es. 5)" })
+      .int("deve essere un intero ≥ 1 (es. 5)")
+      .min(1, "deve essere un intero ≥ 1 (es. 5)")
+      .default(5),
+  ),
   // Loop di self-repair (Task 5): dopo il run di esecuzione, il WORKER esegue
   // da sé il comando di test del repo nel worktree; se i test falliscono
   // reinvoca l'agente con l'output del fallimento, fino a questo numero di
@@ -671,6 +687,10 @@ export interface WorkerConfig {
   fixTwoPhase: boolean;
   /** Timeout del run di pianificazione in ms (default 600000 = 10'). */
   fixPlanTimeoutMs: number;
+  /** Tetto di domande (`ask_user`) che l'agente può porre in un job di fix,
+   * risposte comprese (default 5). Oltre il tetto il tool non registra più
+   * nulla e l'agente decide da sé. */
+  agentQuestionMaxRounds: number;
   /** Numero massimo di RE-tentativi del loop di self-repair (default 2; 0 =
    * disattivato). 1 esecuzione iniziale + fino a N riparazioni. */
   selfRepairMaxAttempts: number;
@@ -827,6 +847,7 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     fixExecuteModel: parsed.FIX_EXECUTE_MODEL,
     fixTwoPhase: parsed.FIX_TWO_PHASE,
     fixPlanTimeoutMs: parsed.FIX_PLAN_TIMEOUT_MS,
+    agentQuestionMaxRounds: parsed.AGENT_QUESTION_MAX_ROUNDS,
     selfRepairMaxAttempts: parsed.SELF_REPAIR_MAX_ATTEMPTS,
     selfRepairTestTimeoutMs: parsed.SELF_REPAIR_TEST_TIMEOUT_MS,
     installTimeoutMs: parsed.INSTALL_TIMEOUT_MS,

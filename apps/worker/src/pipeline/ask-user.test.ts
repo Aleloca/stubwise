@@ -1,12 +1,15 @@
+import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { loadWorkerConfig } from "../config.js";
 import {
   ASK_USER_FILENAME,
   ASK_USER_TOOL_PATTERN,
   askUserServerPath,
+  buildAskUserRunConfig,
   planParentDir,
   readAskUserQuestion,
 } from "./ask-user.js";
@@ -48,6 +51,52 @@ describe("planParentDir", () => {
     expect(planParentDir(jobId)).toBe(planParentDir(jobId));
     expect(basename(planParentDir(jobId))).toBe(`stubwise-plan-${jobId}`);
     expect(planParentDir("altro")).not.toBe(planParentDir(jobId));
+  });
+});
+
+describe("buildAskUserRunConfig — la env AGENT_QUESTION_MAX_ROUNDS arriva al server MCP", () => {
+  /** Entry finta del server MCP: senza un file esistente il tool è disattivato. */
+  async function fakeEntry(): Promise<string> {
+    const dir = await makeDir();
+    const entry = join(dir, "index.js");
+    await writeFile(entry, "// entry finta");
+    return entry;
+  }
+
+  it("il valore della config del worker diventa ASK_USER_MAX_ROUNDS del server MCP", async () => {
+    // Catena completa del cablaggio: env del container → loadWorkerConfig →
+    // (index.ts) FixDeps.questionMaxRounds → env del processo MCP. L'anello che
+    // resta fuori è la riga di index.ts, che è tipizzata (HandlerDeps.fix).
+    const config = loadWorkerConfig({
+      DATABASE_URL: "postgres://user:pass@localhost:5432/stubwise",
+      ENCRYPTION_KEY: randomBytes(32).toString("base64"),
+      AGENT_QUESTION_MAX_ROUNDS: "2",
+    });
+    const run = buildAskUserRunConfig({
+      jobId: "11111111-2222-3333-4444-555555555555",
+      serverPath: await fakeEntry(),
+      round: 1,
+      maxRounds: config.agentQuestionMaxRounds,
+    });
+
+    expect(run.enabled).toBe(true);
+    expect(run.mcpOpt).toEqual({
+      mcpConfig: {
+        servers: {
+          stubwise_ask: {
+            command: process.execPath,
+            args: [expect.any(String)],
+            env: {
+              ASK_USER_FILE: join(run.parentDir, ASK_USER_FILENAME),
+              ASK_USER_ROUND: "1",
+              ASK_USER_MAX_ROUNDS: "2",
+            },
+          },
+        },
+      },
+    });
+    // Anche il prompt annuncia il tetto: l'agente sa quante domande gli restano.
+    expect(run.promptOpt).toEqual({ askUser: { round: 1, maxRounds: 2 } });
   });
 });
 

@@ -147,6 +147,9 @@ const handler = createHandler(
       planModel: config.fixPlanModel,
       executeModel: config.fixExecuteModel,
       planTimeoutMs: config.fixPlanTimeoutMs,
+      // Tetto di domande `ask_user` per job: arriva fin dentro l'env del server
+      // MCP del run di pianificazione (ASK_USER_MAX_ROUNDS).
+      questionMaxRounds: config.agentQuestionMaxRounds,
       selfRepairMaxAttempts: config.selfRepairMaxAttempts,
       testTimeoutMs: config.selfRepairTestTimeoutMs,
       installTimeoutMs: config.installTimeoutMs,

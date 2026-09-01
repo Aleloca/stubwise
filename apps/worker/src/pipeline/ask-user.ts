@@ -36,10 +36,13 @@ export const ASK_USER_TOOL_PATTERN = `mcp__${ASK_USER_SERVER_NAME}__${ASK_USER_T
 export const ASK_USER_MCP_SERVER_KEY = ASK_USER_SERVER_NAME;
 
 /**
- * Tetto di round di domanda per job usato finché la env dedicata non esiste
- * (`AGENT_QUESTION_MAX_ROUNDS`, fase di rifinitura): oltre questo numero il tool
- * non registra più nulla e istruisce il modello a decidere da sé. Iniettabile
- * dal chiamante (FixDeps.questionMaxRounds).
+ * Tetto di round di domanda per job: oltre questo numero il tool non registra
+ * più nulla e istruisce il modello a decidere da sé.
+ *
+ * In esercizio il valore arriva SEMPRE dalla config del worker (env
+ * `AGENT_QUESTION_MAX_ROUNDS` → `FixDeps.questionMaxRounds`): questa costante è
+ * il fallback per i chiamanti che non lo iniettano (i test) e va tenuta
+ * allineata al default della env in `config.ts`.
  */
 export const DEFAULT_AGENT_QUESTION_MAX_ROUNDS = 5;
 

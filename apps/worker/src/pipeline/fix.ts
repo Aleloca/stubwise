@@ -317,7 +317,9 @@ export interface FixDeps extends NotifyDeps {
    * test). Default: risolta accanto al modulo (vedi ./ask-user.ts). Se il file
    * non esiste il tool viene DISATTIVATO con una riga nel log del job. */
   askUserServerPath?: string;
-  /** Tetto di round di domanda per job (default 5, vedi ./ask-user.ts). */
+  /** Tetto di round di domanda per job: in esercizio arriva dalla env
+   * `AGENT_QUESTION_MAX_ROUNDS` (config del worker); omesso, vale il default di
+   * ./ask-user.ts (5). */
   questionMaxRounds?: number;
 }
 
