@@ -19,10 +19,16 @@ import {
   type TestDb,
 } from "@stubwise/db/testing";
 import { inboxQuestionSchema } from "@stubwise/shared";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { isProjectIdle, listCandidates, type PulseCandidate } from "./signals.js";
+import {
+  isProjectIdle,
+  listCandidates,
+  PULSE_HELD_STATUS,
+  PULSE_IN_FLIGHT_STATUSES,
+  type PulseCandidate,
+} from "./signals.js";
 import {
   buildPulseEvent,
   idleDaysFrom,
@@ -379,7 +385,7 @@ async function seedTicket(projectId: string, number = 1): Promise<string> {
 
 async function seedJob(
   ticketId: string,
-  status: "queued" | "fixing" | "pr_merged" | "failed" | "awaiting_input",
+  status: "queued" | "fixing" | "pr_merged" | "failed" | "awaiting_input" | "held",
   lastActivityAt?: Date,
 ): Promise<string> {
   const [job] = await db
@@ -430,24 +436,34 @@ describe("isProjectIdle", () => {
     expect(idleness).toMatchObject({ idle: true, blocker: null });
   });
 
-  it("un job AI IN VOLO blocca il ping (uno per stato in volo)", async () => {
-    for (const status of ["queued", "fixing", "awaiting_input"] as const) {
+  it("un job AI IN VOLO — o PARCHEGGIATO su `held` — blocca il ping", async () => {
+    // `held` non è "in volo" (un job fermo su un limite o sul budget si può
+    // rilanciare), ma ha già una `job.held` in inbox che aspetta un maintainer:
+    // il pulse non deve competerci. Il blocker è distinto proprio per non
+    // raccontare nel log un lavoro in corso che non c'è.
+    const cases = [
+      ["queued", "job_in_flight"],
+      ["fixing", "job_in_flight"],
+      ["awaiting_input", "job_in_flight"],
+      ["held", "job_held"],
+    ] as const;
+    for (const [status, blocker] of cases) {
       const projectId = await seedProject();
       const ticketId = await seedTicket(projectId);
       await seedJob(ticketId, status);
-      expect(await isProjectIdle(db, projectId)).toMatchObject({
-        idle: false,
-        blocker: "job_in_flight",
-      });
+      expect(await isProjectIdle(db, projectId)).toMatchObject({ idle: false, blocker });
       await db.delete(projects).where(eq(projects.id, projectId));
     }
   });
 
-  it("un job CHIUSO non blocca nulla", async () => {
-    const projectId = await seedProject();
-    const ticketId = await seedTicket(projectId);
-    await seedJob(ticketId, "pr_merged");
-    expect(await isProjectIdle(db, projectId)).toMatchObject({ idle: true });
+  it("gli stati TERMINALI non bloccano nulla: un progetto col solo job fallito è fermo", async () => {
+    for (const status of ["pr_merged", "failed"] as const) {
+      const projectId = await seedProject();
+      const ticketId = await seedTicket(projectId);
+      await seedJob(ticketId, status);
+      expect(await isProjectIdle(db, projectId)).toMatchObject({ idle: true, blocker: null });
+      await db.delete(projects).where(eq(projects.id, projectId));
+    }
   });
 
   it("una domanda dell'agente ancora APERTA blocca il ping", async () => {
@@ -781,49 +797,80 @@ describe("pollPulseOnce — cadenza", () => {
 });
 
 describe("pollPulseOnce — sostituzione dei ping precedenti", () => {
-  it("chiude le copie del pulse precedente e ne accoda l'aggiornamento su Slack", async () => {
-    const adminId = await seedAdmin();
+  it("chiude le copie del pulse precedente — anche quelle SNOOZATE — e ne accoda l'aggiornamento su Slack", async () => {
+    // Due destinatari: uno lascia la sua copia aperta, l'altro la rinvia. La
+    // copia snoozata deve chiudersi come le altre: un pulse rinviato che
+    // riemergesse dopo essere stato sostituito inviterebbe a scegliere da una
+    // lista di proposte che non esiste più.
+    const openAdminId = await seedAdmin();
+    const snoozingAdminId = await seedAdmin();
     const projectId = await seedProject({ pulseEveryDays: 1 });
     await seedItem({ projectId, title: "Prima proposta" });
 
+    // Il ritorno conta i PULSE pubblicati, non i destinatari: un progetto, uno.
     expect(await pollPulseOnce(deps())).toBe(1);
-    const [first] = await pulseRows(projectId);
-    expect(first!.status).toBe("open");
+    const firstRound = await pulseRows(projectId);
+    expect(firstRound).toHaveLength(2);
+    const openCopy = firstRound.find((r) => r.userId === openAdminId)!;
+    const snoozedCopy = firstRound.find((r) => r.userId === snoozingAdminId)!;
+    expect(openCopy.status).toBe("open");
+
+    const snoozedUntil = new Date(TUE_0930_ROME.getTime() + 3 * DAY_MS);
+    await db
+      .update(notifications)
+      .set({ status: "snoozed", snoozedUntil })
+      .where(eq(notifications.id, snoozedCopy.id));
 
     const tomorrow = new Date(TUE_0930_ROME.getTime() + DAY_MS);
     expect(await pollPulseOnce(deps({ now: () => tomorrow }))).toBe(1);
 
     const rows = await pulseRows(projectId);
-    expect(rows).toHaveLength(2);
-    const previous = rows.find((r) => r.id === first!.id)!;
-    expect(previous.status).toBe("handled");
-    const current = rows.find((r) => r.id !== first!.id)!;
-    expect(current.status).toBe("open");
-    expect(current.userId).toBe(adminId);
+    expect(rows).toHaveLength(4);
+    const previousIds = new Set([openCopy.id, snoozedCopy.id]);
+    expect(rows.filter((r) => previousIds.has(r.id)).map((r) => r.status)).toEqual([
+      "handled",
+      "handled",
+    ]);
+    expect(rows.filter((r) => !previousIds.has(r.id)).map((r) => r.status)).toEqual([
+      "open",
+      "open",
+    ]);
 
-    // La chiusura è di SISTEMA: nessun attore l'ha decisa.
-    const [closed] = await db
+    const closed = await db
       .select({
+        id: notifications.id,
         handledByUserId: notifications.handledByUserId,
         handledAt: notifications.handledAt,
+        snoozedUntil: notifications.snoozedUntil,
       })
       .from(notifications)
-      .where(eq(notifications.id, first!.id));
-    expect(closed!.handledByUserId).toBeNull();
-    expect(closed!.handledAt).not.toBeNull();
+      .where(inArray(notifications.id, [openCopy.id, snoozedCopy.id]));
+    for (const row of closed) {
+      // La chiusura è di SISTEMA: nessun attore l'ha decisa.
+      expect(row.handledByUserId).toBeNull();
+      expect(row.handledAt).not.toBeNull();
+      // Lo snooze è azzerato: senza, il CHECK sullo stato reggerebbe comunque ma
+      // resterebbe una scadenza appesa a una riga già chiusa.
+      expect(row.snoozedUntil).toBeNull();
+    }
 
-    // Il DM già inviato va riscritto: una consegna `slack_update` con la nota.
+    // I DM già inviati vanno riscritti: una consegna `slack_update` per copia.
     const updates = await db
-      .select({ event: notificationDeliveries.event })
+      .select({
+        notificationId: notificationDeliveries.notificationId,
+        event: notificationDeliveries.event,
+      })
       .from(notificationDeliveries)
       .where(
         and(
           eq(notificationDeliveries.channel, "slack_update"),
-          eq(notificationDeliveries.notificationId, first!.id),
+          inArray(notificationDeliveries.notificationId, [openCopy.id, snoozedCopy.id]),
         ),
       );
-    expect(updates).toHaveLength(1);
-    expect(String((updates[0]!.event as { note: string }).note)).toContain("Sostituita");
+    expect(updates).toHaveLength(2);
+    for (const update of updates) {
+      expect(String((update.event as { note: string }).note)).toContain("Sostituita");
+    }
   });
 
   it("non tocca i pulse di ALTRI progetti", async () => {
@@ -984,15 +1031,25 @@ describe("costo delle query dei segnali", () => {
       });
     }
 
-    // La query è la STESSA di `isProjectIdle`: cinque exists più il max.
+    // La query è la STESSA di `isProjectIdle`: sei exists più il max. Gli stati
+    // sono INTERPOLATI dalle costanti del modulo, non ricopiati: una lista
+    // scritta a mano qui divergerebbe in silenzio dalla policy vera, e la misura
+    // misurerebbe una query che nessuno esegue.
+    const inFlightList = sql.join(
+      PULSE_IN_FLIGHT_STATUSES.map((status) => sql`${status}`),
+      sql`, `,
+    );
     const plan = await db.execute(sql`
       explain (analyze, buffers, format text)
       select
         exists (
           select 1 from ai_jobs j join tickets t on t.id = j.ticket_id
-          where t.project_id = ${projectId}
-            and j.status in ('queued','triaging','fixing','awaiting_plan_approval','awaiting_input')
+          where t.project_id = ${projectId} and j.status in (${inFlightList})
         ) as jobs_in_flight,
+        exists (
+          select 1 from ai_jobs j join tickets t on t.id = j.ticket_id
+          where t.project_id = ${projectId} and j.status = ${PULSE_HELD_STATUS}
+        ) as job_held,
         exists (
           select 1 from agent_questions q join tickets t on t.id = q.ticket_id
           where t.project_id = ${projectId} and q.answered_at is null

@@ -79,12 +79,28 @@ della fase 1 e inbox/outbox/Slack della fase 0.
 
 ## 2. "Progetto fermo" e proposte
 
-**Fermo** = tutte le condizioni: nessun job AI in volo sui ticket del
-progetto; nessuna domanda aperta; nessuna PR `open` in `ticket_repositories`;
-nessun `backlog_jobs` in `queued|running`; nessuna sessione di analisi codice
-`active`; **e** almeno una voce candidabile. Se il progetto è fermo per una
-decisione umana pendente (piano, domanda, PR) il pulse **tace**: la notifica
-originale è già in inbox. Promemoria sulle decisioni scadute: fase successiva.
+**Fermo** = tutte le condizioni: nessun job AI in volo **né parcheggiato in
+`held`** sui ticket del progetto; nessuna domanda aperta; nessuna PR `open` in
+`ticket_repositories`; nessun `backlog_jobs` in `queued|running`; nessuna
+sessione di analisi codice `active`; **e** almeno una voce candidabile. Se il
+progetto è fermo per una decisione umana pendente (piano, domanda, PR, sblocco
+di un `held`) il pulse **tace**: la notifica originale è già in inbox.
+Promemoria sulle decisioni scadute: fase successiva.
+
+> **Emendamento (Task 7).** La prima stesura diceva solo "nessun job AI in
+> volo", cioè `IN_FLIGHT_JOB_STATUSES`, che **esclude `held`** — e un progetto
+> fermo da settimane su un limite del provider o sul budget sarebbe risultato
+> "fermo", ricevendo un pulse in concorrenza con la `job.held` che aspetta già
+> un maintainer in inbox. Fra la lettera del design e il suo razionale ("se è
+> fermo su una decisione umana pendente, il pulse tace") si è scelto il
+> razionale. `IN_FLIGHT_JOB_STATUSES` **non** è stata toccata: risponde a
+> un'altra domanda ("si può rilanciare questo job adesso?"), e `held` è proprio
+> il caso in cui il rilancio deve restare possibile. Il pulse ha quindi una
+> lista propria, *derivata* (`[...IN_FLIGHT_JOB_STATUSES, "held"]`), locale a
+> `apps/worker/src/pulse/signals.ts`. Gli stati terminali (`failed`, `skipped`,
+> `pr_merged`, `pr_closed`) restano fuori di proposito: un progetto col solo job
+> fallito è genuinamente fermo, e silenziarlo per sempre sarebbe il difetto
+> opposto.
 
 **Candidati**: `backlog_items` del progetto con `status ∈ {ready, refining,
 new}`, `document` non vuoto, nessun `backlog_jobs` attivo con quell'`itemId`

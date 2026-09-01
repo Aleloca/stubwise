@@ -25,21 +25,17 @@ import { and, eq, exists, inArray, isNull, sql } from "drizzle-orm";
  * un'approvazione, una domanda dell'agente aspetta una risposta o una PR aspetta
  * una review NON è fermo: è fermo su una DECISIONE UMANA, e per quella decisione
  * la notifica esiste già in inbox. Un pulse lì sopra sarebbe un secondo invito ad
- * agire che compete col primo. Per questo i segnali sono cinque e non uno solo:
+ * agire che compete col primo. Per questo i segnali sono sei e non uno solo:
  * misurano il lavoro in volo *e* le decisioni pendenti.
  *
- * ⚠️ COSA RESTA FUORI, e va saputo. `IN_FLIGHT_JOB_STATUSES` NON contiene
- * `held`: un progetto il cui unico job è fermo su un limite del provider, sul
- * budget o sul gate dell'automazione risulta quindi FERMO, e il pulse parte —
- * anche se in inbox c'è già una `job.held` che aspetta un maintainer. È
- * l'unico caso in cui il razionale del design ("se il progetto è fermo su una
- * decisione umana pendente, il pulse tace") e la lista dei segnali che il design
- * stesso enumera non coincidono. Non è stato chiuso qui perché cambierebbe la
- * definizione di "fermo" concordata; se lo si volesse chiudere, il posto è il
- * segnale 1 (aggiungere `held` agli stati che bloccano) e non serve altro. Fuori
- * anche, di proposito: generazioni Docs e build del grafo in corso (lavoro di
- * infrastruttura, non lavoro sui ticket) e i ticket aperti senza job (nessuno ci
- * sta lavorando: è esattamente la situazione che il pulse vuole smuovere).
+ * ⚠️ COSA RESTA FUORI, e va saputo. Gli stati TERMINALI di un job non bloccano
+ * niente, ed è voluto: un progetto il cui ultimo job è `failed` (o `skipped`, o
+ * con la PR già chiusa) è genuinamente fermo, e silenziarlo per sempre sarebbe il
+ * difetto opposto a quello che il pulse cura. Fuori anche le generazioni Docs e
+ * le build del grafo in corso (lavoro di INFRASTRUTTURA, non lavoro sui ticket:
+ * non impediscono di proporre una voce di backlog) e i ticket aperti senza
+ * nessun job — nessuno ci sta lavorando, che è esattamente la situazione che il
+ * pulse vuole smuovere.
  */
 
 /** Intestazione (livello 2) che il deep dive del backlog scrive nel documento.
@@ -48,16 +44,52 @@ import { and, eq, exists, inArray, isNull, sql } from "drizzle-orm";
  * interno del deep dive per una `LIKE`. */
 export const ANALYSIS_HEADING = "## Analisi tecnica";
 
+/**
+ * Job PARCHEGGIATO su un limite del provider, sul budget o sul gate
+ * dell'automazione. NON è "in volo" — `IN_FLIGHT_JOB_STATUSES` lo esclude
+ * apposta, perché quella lista risponde a un'altra domanda ("si può rilanciare
+ * questo job adesso?") e `held` è *il* caso in cui il rilancio deve restare
+ * possibile — ma per il pulse blocca eccome: c'è già una `job.held` in inbox che
+ * aspetta un maintainer, e il pulse non deve competerci.
+ */
+export const PULSE_HELD_STATUS = "held" as const;
+
+/**
+ * Gli stati di `ai_jobs` che fanno tacere il pulse. È la POLICY del pulse, e sta
+ * qui — non in `@stubwise/notifications/actions` — perché quel modulo è il
+ * catalogo delle AZIONI: una regola del pulse là dentro ne smusserebbe la
+ * responsabilità. Finché il consumatore è uno solo, resta locale.
+ *
+ * DERIVATA e non ricopiata: uno stato aggiunto domani a
+ * {@link IN_FLIGHT_JOB_STATUSES} entra qui da solo, e l'unica delta manuale
+ * della policy del pulse resta visibile in questa riga.
+ */
+const PULSE_BLOCKING_JOB_STATUSES = [...IN_FLIGHT_JOB_STATUSES, PULSE_HELD_STATUS] as const;
+
+/**
+ * Gli stati bloccanti che NON sono `held`, cioè il lavoro davvero in corso.
+ *
+ * I due sottoinsiemi sono interrogati da due `EXISTS` separati invece che da uno
+ * solo sull'intera {@link PULSE_BLOCKING_JOB_STATUSES}, e non per efficienza (la
+ * query resta una): per tenere VERITIERO il log. Un progetto fermo da tre
+ * settimane su un blocco di budget verrebbe altrimenti loggato "non fermo
+ * (job_in_flight)", che è fuorviante proprio nel caso in cui il log serve.
+ */
+export const PULSE_IN_FLIGHT_STATUSES = PULSE_BLOCKING_JOB_STATUSES.filter(
+  (status) => status !== PULSE_HELD_STATUS,
+);
+
 /** Il segnale che ha impedito il pulse: entra nel log, per capire perché tace. */
 export type IdleBlocker =
   | "job_in_flight"
+  | "job_held"
   | "open_question"
   | "open_pr"
   | "backlog_job"
   | "code_session";
 
 export interface ProjectIdleness {
-  /** Nessuno dei cinque segnali è acceso. */
+  /** Nessuno dei sei segnali è acceso. */
   idle: boolean;
   /** Il PRIMO segnale acceso, nell'ordine di dichiarazione. Null se fermo. */
   blocker: IdleBlocker | null;
@@ -70,49 +102,56 @@ export interface ProjectIdleness {
 }
 
 /**
- * I CINQUE SEGNALI in UNA query, come cinque `EXISTS` scalari sulla riga del
- * progetto (più il `max()` dell'ultima attività). Un solo round-trip invece di
- * sei, e ogni `EXISTS` si ferma alla prima riga trovata.
+ * I SEI SEGNALI in UNA query, come sei `EXISTS` scalari sulla riga del progetto
+ * (più il `max()` dell'ultima attività). Un solo round-trip invece di sette, e
+ * ogni `EXISTS` si ferma alla prima riga trovata.
  *
  * MISURA (`EXPLAIN (ANALYZE, BUFFERS)`, Postgres di test, 1 settembre 2026, su
  * un progetto con 200 ticket, 1000 job, 300 voci di backlog e 250 backlog job,
  * più 1000 job e 250 backlog job di rumore su un secondo progetto — il test
- * "costo delle query dei segnali" in `poller.test.ts` la ristampa):
+ * "costo delle query dei segnali" in `poller.test.ts` la ristampa, con gli stati
+ * INTERPOLATI da queste costanti perché la misura non possa scollarsi dal codice
+ * misurato):
  *
- *   Result (cost=113.17..113.18 rows=1)  (actual time=1.775..1.777 rows=1)
- *     Buffers: shared hit=4040        Execution Time: 1.815 ms
+ *   Result (cost=134.56..134.57 rows=1)  (actual time=2.467..2.470 rows=1)
+ *     Buffers: shared hit=5446        Execution Time: 2.601 ms
  *
- * cioè **~1,8 ms, tutto in cache**, per l'intera batteria. Il dettaglio per
+ * cioè **~2,6 ms, tutto in cache**, per l'intera batteria. Il dettaglio per
  * segnale, con l'indice che ciascuno usa:
  *
- *  1. **job in volo — 0,61 ms.** `tickets_project_id_status_idx`
+ *  1. **job in volo — 0,75 ms.** `tickets_project_id_status_idx`
  *     (`project_id, status`) prende i 200 ticket, poi per ciascuno un bitmap su
  *     `ai_jobs_ticket_id_idx`. `ai_jobs` NON ha `project_id`: il join su
- *     `tickets` è obbligato, ed è il ramo più caro dei cinque (1400 buffer sul
- *     solo heap di `ai_jobs`, perché lo stato non è nell'indice).
- *  2. **domande aperte — 0,12 ms.** Il planner sceglie l'unico PARZIALE
+ *     `tickets` è obbligato, ed è il ramo più caro (1400 buffer sul solo heap di
+ *     `ai_jobs`, perché lo stato non è nell'indice).
+ *  2. **job `held` — 0,55 ms.** Stesso piano del precedente con un uguale al
+ *     posto dell'`ANY`: è il prezzo della distinzione nel log, ed è il ramo che
+ *     ha alzato il totale da ~1,8 a ~2,6 ms. Un `EXISTS` solo sull'unione
+ *     costerebbe quanto il #1 da solo, ma direbbe "job_in_flight" su un progetto
+ *     fermo da settimane su un blocco di budget.
+ *  3. **domande aperte — 0,13 ms.** Il planner sceglie l'unico PARZIALE
  *     `agent_questions_open_job_unique` (`job_id WHERE answered_at IS NULL`),
  *     che è minuscolo perché contiene solo le domande ancora aperte, e filtra il
  *     join sul ticket. Non `agent_questions_ticket_idx`, che pure esiste.
- *  3. **PR aperte — 0,15 ms.** `ticket_repositories_ticket_id_idx`.
- *  4. **backlog job attivi — 0,04 ms, ma con SEQ SCAN.** `backlog_jobs` ha solo
+ *  4. **PR aperte — 0,16 ms.** `ticket_repositories_ticket_id_idx`.
+ *  5. **backlog job attivi — 0,05 ms, ma con SEQ SCAN.** `backlog_jobs` ha solo
  *     il parziale `(created_at) WHERE status='queued'`, che non copre né
  *     `project_id` né lo stato `running`: Postgres scansiona la tabella intera
  *     (500 righe → 10 buffer). È il segnale senza indice, ed è anche il più
  *     veloce: la tabella è una coda, si svuota.
- *  5. **sessioni di analisi — 0,13 ms.** `backlog_items_project_status_idx` per
+ *  6. **sessioni di analisi — 0,14 ms.** `backlog_items_project_status_idx` per
  *     le voci, poi un *index only scan* sul parziale
  *     `backlog_code_sessions_active_item_unique` (nessun accesso all'heap).
- *  6. **`max(last_activity_at)` — 0,71 ms**, stesso piano del segnale 1 senza il
+ *  7. **`max(last_activity_at)` — 0,69 ms**, stesso piano del segnale 1 senza il
  *     filtro sullo stato.
  *
  * CONCLUSIONE: **nessun indice nuovo**. A questi volumi il piano non
  * cambierebbe, e il tick è una query per progetto ABILITATO ogni 15 minuti (i
  * progetti abilitati sono unità, non migliaia). Le due cose da guardare se un
  * giorno i numeri crescessero di ordini di grandezza, in quest'ordine:
- * `ai_jobs (ticket_id, status)` — oggi c'è solo `ticket_id`, e i segnali 1 e 6
- * pagano il ritorno all'heap — e `backlog_jobs (project_id, status)`, che
- * toglierebbe l'unico seq scan.
+ * `ai_jobs (ticket_id, status)` — oggi c'è solo `ticket_id`, e i rami 1, 2 e 7
+ * pagano tutti e tre il ritorno all'heap: è il 78% dei buffer della query — e
+ * `backlog_jobs (project_id, status)`, che toglierebbe l'unico seq scan.
  */
 export async function isProjectIdle(db: Db, projectId: string): Promise<ProjectIdleness> {
   // Sotto-select riusata: i ticket del progetto (l'ancora che `ai_jobs`,
@@ -123,8 +162,19 @@ export async function isProjectIdle(db: Db, projectId: string): Promise<ProjectI
       .from(aiJobs)
       .innerJoin(tickets, eq(tickets.id, aiJobs.ticketId))
       .where(
-        and(eq(tickets.projectId, projectId), inArray(aiJobs.status, [...IN_FLIGHT_JOB_STATUSES])),
+        and(eq(tickets.projectId, projectId), inArray(aiJobs.status, PULSE_IN_FLIGHT_STATUSES)),
       ),
+  );
+
+  // Il gemello del precedente sull'altro sottoinsieme della policy: separato solo
+  // perché il log sappia dire QUALE dei due tace il pulse (vedi
+  // PULSE_IN_FLIGHT_STATUSES).
+  const jobHeld = exists(
+    db
+      .select({ one: sql`1` })
+      .from(aiJobs)
+      .innerJoin(tickets, eq(tickets.id, aiJobs.ticketId))
+      .where(and(eq(tickets.projectId, projectId), eq(aiJobs.status, PULSE_HELD_STATUS))),
   );
 
   const openQuestion = exists(
@@ -166,6 +216,7 @@ export async function isProjectIdle(db: Db, projectId: string): Promise<ProjectI
   const [row] = await db
     .select({
       jobsInFlight,
+      jobHeld,
       openQuestion,
       openPr,
       activeBacklogJob,
@@ -193,15 +244,17 @@ export async function isProjectIdle(db: Db, projectId: string): Promise<ProjectI
 
   const blocker: IdleBlocker | null = row.jobsInFlight
     ? "job_in_flight"
-    : row.openQuestion
-      ? "open_question"
-      : row.openPr
-        ? "open_pr"
-        : row.activeBacklogJob
-          ? "backlog_job"
-          : row.activeCodeSession
-            ? "code_session"
-            : null;
+    : row.jobHeld
+      ? "job_held"
+      : row.openQuestion
+        ? "open_question"
+        : row.openPr
+          ? "open_pr"
+          : row.activeBacklogJob
+            ? "backlog_job"
+            : row.activeCodeSession
+              ? "code_session"
+              : null;
 
   return {
     idle: blocker === null,

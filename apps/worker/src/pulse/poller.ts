@@ -448,6 +448,13 @@ async function sendPulseForProject(
       .returning({ id: notifications.id, userId: notifications.userId });
     await enqueueReplacedNotes(tx, superseded);
 
+    // ZERO DESTINATARI CONSUMA COMUNQUE LA CADENZA, ed è voluto. `publish` è
+    // best-effort per contratto (non lancia mai: su errore ritorna 0), quindi qui
+    // non si distingue "nessun admin e nessun follower" da "la pubblicazione è
+    // andata storta" — e non si deve: in entrambi i casi il pulse è stato
+    // TENTATO. Rimettere indietro la cadenza farebbe ritentare a ogni tick della
+    // finestra, cioè quattro volte l'ora, un ping che nessuno può ricevere; così
+    // invece si riprova al giro successivo, quando magari un destinatario c'è.
     const { published } = await publish(tx, event, { projectId: project.id });
     return published;
   });
