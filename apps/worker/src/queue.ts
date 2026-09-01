@@ -332,6 +332,20 @@ export async function parkForInput(
   return updated.length > 0;
 }
 
+/**
+ * Dimentica la sessione CLI del job: si è provato a riprenderla e non c'era più
+ * (scaduta, o vissuta sul volume `claude-config` di un altro host). Serve a non
+ * farci riprovare nessuno: il run che segue ne apre una nuova, e sarà quella
+ * che `parkForInput` salverà se anche lui si fermerà su una domanda.
+ *
+ * NON è status-guarded di proposito: azzerare un puntatore a una sessione che
+ * non esiste è vero in qualunque stato il job si trovi, e questa scrittura non
+ * deve poter fallire per una transizione concorrente.
+ */
+export async function clearCliSessionId(db: Db, jobId: string): Promise<void> {
+  await db.update(aiJobs).set({ cliSessionId: null }).where(eq(aiJobs.id, jobId));
+}
+
 export interface RequeueStaleOptions {
   olderThanMinutes: number;
 }

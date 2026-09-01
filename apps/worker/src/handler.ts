@@ -108,13 +108,19 @@ async function runJobWithProvider(
     ...deps.fix,
   };
 
-  // Percorso di RIPRESA (resume_mode "fix" | "execute"): niente triage. Il job
-  // arriva `triaging` (claimNextJob marca sempre così, anche i job di ripresa);
-  // lo portiamo a `fixing` con markFixing — l'assunzione di runFix (job già
+  // Percorso di RIPRESA (ogni resume_mode): niente triage. Il job arriva
+  // `triaging` (claimNextJob marca sempre così, anche i job di ripresa); lo
+  // portiamo a `fixing` con markFixing — l'assunzione di runFix (job già
   // `fixing`) regge — e andiamo dritti al fix, che leggerà resumeMode/planText
-  // per scegliere la modalità (full / plan-only / execute-only). Nessuna tmpdir
-  // di triage: il fix crea il proprio worktree dal mirror.
-  if (job.resumeMode === "fix" || job.resumeMode === "execute") {
+  // per scegliere la modalità (full / plan-only / execute-only) e se sta
+  // riprendendo una pianificazione. Nessuna tmpdir di triage: il fix crea il
+  // proprio worktree dal mirror.
+  //
+  // `plan_continue` (ripresa da una risposta umana) è qui per lo stesso motivo
+  // degli altri, e con un'urgenza in più: ri-triagiare un ticket su cui una
+  // persona ha appena preso una decisione potrebbe classificarlo `skipped` o
+  // `duplicate` e buttare via sia la risposta sia la sessione CLI da riprendere.
+  if (job.resumeMode !== null) {
     const owned = await markFixing(deps.db, job.id);
     if (!owned) {
       await appendLog(deps.db, job.id, "[resume] ownership persa, mi fermo");
