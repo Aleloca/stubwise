@@ -469,7 +469,7 @@ export interface BuildFixPlanPromptInput extends BuildFixPromptInput {
   askUser?: {
     /** Round di domanda corrente, 1-based (1 = nessuna domanda ancora fatta). */
     round: number;
-    /** Tetto di round per ticket: oltre, il tool rifiuta di registrare. */
+    /** Tetto di round per job: oltre, il tool rifiuta di registrare. */
     maxRounds: number;
   };
   /**
@@ -576,7 +576,7 @@ Asking a human — the \`ask_user\` tool:
 - Call \`ask_user\` ONLY for a fork in the road that produces MATERIALLY DIFFERENT work: plans that touch different files, cost a visibly different amount of effort, or change product behaviour the requester would notice. If both branches end up in nearly the same plan, pick one and document it instead.
 - The question must be SELF-CONTAINED (the person answering has none of your session context) with 2 to 4 concrete, mutually exclusive options, each with its consequence in one line. Set \`recommendedIndex\` when you have a preference.
 - After calling \`ask_user\`, END YOUR TURN IMMEDIATELY and do NOT produce the plan: a human answers and you resume in a later turn. A plan produced in the same turn is discarded.
-- Budget: ${maxRounds} question(s) per ticket. This is round ${round} (${left} left). Beyond the budget the tool registers nothing: decide yourself and document the choice.
+- Budget: ${maxRounds} question(s) per job. This is round ${round} (${left} left). Beyond the budget the tool registers nothing: decide yourself and document the choice.
 - Never ask a question in your final message: \`ask_user\` is the ONLY channel to a human. A question written in the plan reaches nobody.`;
 }
 

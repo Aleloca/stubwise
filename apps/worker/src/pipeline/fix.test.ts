@@ -419,7 +419,7 @@ describe("buildFixPlanPrompt / buildFixExecutePrompt", () => {
     // Chiudere il turno SUBITO, senza produrre il piano.
     expect(prompt).toMatch(/END YOUR TURN IMMEDIATELY/);
     // Tetto e round corrente.
-    expect(prompt).toContain("5 question(s) per ticket");
+    expect(prompt).toContain("5 question(s) per job");
     expect(prompt).toContain("round 2 (4 left)");
   });
 

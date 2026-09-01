@@ -163,6 +163,13 @@ export const en: Catalog = {
   "notify.inbox.errInvalidAction": "This action is not available on this notification.",
   "notify.inbox.errAlreadyHandled": "Already handled by {actor}.",
   "notify.inbox.errAlreadyHandledUnknown": "This notification has already been handled.",
+  // Gemelli di `errAlreadyHandled` per la sola DOMANDA dell'agente: "handled"
+  // è il lessico delle decisioni generiche, su una domanda l'esito che conta è
+  // che qualcuno ha già RISPOSTO. Stesse parole del web
+  // (`question:errors.alreadyAnswered`), che è l'altra superficie della stessa
+  // corsa persa.
+  "notify.inbox.errAlreadyAnswered": "Already answered by {actor}.",
+  "notify.inbox.errAlreadyAnsweredUnknown": "Already answered by someone else.",
   "notify.inbox.errJobInFlight": "A job for this ticket is already running ({status}).",
   "notify.inbox.errPlanNotPending": "No plan is awaiting approval.",
   "notify.inbox.errInvalidAnswer": "That answer is not valid for this question.",
@@ -328,6 +335,8 @@ export const it: Catalog = {
   "notify.inbox.errInvalidAction": "Questa azione non è disponibile su questa notifica.",
   "notify.inbox.errAlreadyHandled": "Già gestita da {actor}.",
   "notify.inbox.errAlreadyHandledUnknown": "Questa notifica è già stata gestita.",
+  "notify.inbox.errAlreadyAnswered": "Ha già risposto {actor}.",
+  "notify.inbox.errAlreadyAnsweredUnknown": "Ha già risposto qualcun altro.",
   "notify.inbox.errJobInFlight": "C'è già un job in corso per questo ticket ({status}).",
   "notify.inbox.errPlanNotPending": "Nessun piano in attesa di approvazione.",
   "notify.inbox.errInvalidAnswer": "Questa risposta non è valida per questa domanda.",

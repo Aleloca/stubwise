@@ -166,10 +166,19 @@ export async function resolveSlackActor(
   return row ?? null;
 }
 
-/** Testo effimero dell'esito negativo, nella lingua di chi ha premuto. */
+/**
+ * Testo effimero dell'esito negativo, nella lingua di chi ha premuto.
+ *
+ * `action` serve a UNA sola distinzione: su `already_handled` la corsa persa di
+ * una RISPOSTA si dice "ha già risposto X", non "già gestita da X" — le stesse
+ * parole del web (`question:errors.alreadyAnswered` contro
+ * `inbox:errors.alreadyHandled`). Opzionale perché per tutti gli altri esiti la
+ * frase non cambia: chi non la passa resta sul testo generico.
+ */
 export function inboxErrorText(
   lang: Language,
   result: Extract<ExecuteActionResult, { ok: false }>,
+  action?: ActionId,
 ): string {
   switch (result.error) {
     case "not_found":
@@ -180,6 +189,11 @@ export function inboxErrorText(
     case "invalid_action":
       return t(lang, "notify.inbox.errInvalidAction");
     case "already_handled":
+      if (action === "answer") {
+        return result.handledBy
+          ? t(lang, "notify.inbox.errAlreadyAnswered", { actor: result.handledBy.email })
+          : t(lang, "notify.inbox.errAlreadyAnsweredUnknown");
+      }
       return result.handledBy
         ? t(lang, "notify.inbox.errAlreadyHandled", { actor: result.handledBy.email })
         : t(lang, "notify.inbox.errAlreadyHandledUnknown");
@@ -342,7 +356,7 @@ export async function runInboxAction(
         // L'effimero NON sostituisce il messaggio: i bottoni restano, l'azione
         // non è avvenuta e l'utente può riprovare (o farlo fare a un admin).
         replace_original: false,
-        text: inboxErrorText(actor.language, result),
+        text: inboxErrorText(actor.language, result, action),
       });
     }
     return;

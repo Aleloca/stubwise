@@ -1036,8 +1036,18 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   // FIX_TWO_PHASE spento fra la domanda e la risposta toglie la fase di piano,
   // e una riga di risposta mancante lascerebbe un prompt di continuazione che
   // annuncia una risposta inesistente. In quei casi si degrada al flusso
-  // normale invece di costruire un turno incoerente — la risposta resta
-  // comunque leggibile nel commento che il servizio lascia sul ticket.
+  // normale invece di costruire un turno incoerente.
+  //
+  // ⚠️ In quel degrado la risposta umana NON raggiunge il modello per NESSUN
+  // canale: il blocco `<decisioni_prese>` lo si costruisce solo con
+  // `resumingPlan` (vedi sotto), e il commento che `answerQuestion` lascia sul
+  // ticket è `authorType='system'`, quindi resta fuori dai
+  // `<indicazioni_del_team>` per costruzione (la query filtra `user`). È
+  // leggibile agli UMANI nel feed del ticket, non al modello: la
+  // pianificazione riparte ignorando una decisione già presa. Si accetta
+  // perché il trigger è un flip di configurazione a domanda aperta, non un
+  // percorso normale — ma se `FIX_TWO_PHASE` diventasse una manopola che si
+  // gira spesso, questo è il punto da chiudere.
   const resumingPlan = planContinue && hasPlanRun && answeredQuestions.length > 0;
   if (planContinue && !resumingPlan) {
     await appendLog(
@@ -1154,12 +1164,20 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
    * per tutto il tempo concesso — ripianificare da zero costerebbe altrettanto
    * senza motivo di riuscire meglio).
    *
-   * CONSEGUENZA NOTA del timeout escluso: il job va in `failed` e le Q&A sono
-   * scopate per `job_id`, quindi un rilancio manuale — che è un job NUOVO — non
-   * le vede e l'agente può rifare all'umano una domanda a cui aveva già avuto
-   * risposta. È accettato: v1 tiene lo storico legato al job (una domanda si
-   * risponde su un job vivo), e allargarlo al ticket vorrebbe dire decidere
-   * quali decisioni di un run fallito sopravvivano a un run diverso.
+   * CONSEGUENZA NOTA del timeout escluso: il job va in `failed` e se ne esce
+   * con un rilancio manuale. Quel rilancio NON è un job nuovo — `startRun`
+   * (`apps/server/src/services/jobs.ts`) RIUSA la riga dell'ultimo job del
+   * ticket quando non è più in volo — quindi le Q&A, scopate per `job_id`,
+   * restano attaccate. Ne esce un'ASIMMETRIA: il conteggio dei round le vede
+   * (`questionRound` = domande già registrate sul job + 1, quindi il budget
+   * parte già eroso da quelle vecchie), le decisioni prese no — un rilancio
+   * manuale nasce con `resumeMode` `execute`/`fix`/null, mai `plan_continue`,
+   * quindi `planContinue` è false e lo storico delle risposte non viene
+   * nemmeno caricato. L'agente può insomma rifare una domanda a cui aveva già
+   * avuto risposta, e per di più con meno round a disposizione. È accettato in
+   * v1, ma le due metà vanno sistemate INSIEME (o si scorpora il conteggio per
+   * run, o si iniettano le decisioni anche fuori dalla ripresa): correggerne
+   * una sola sposta il problema invece di chiuderlo.
    */
   const runPlanResume = async (
     parentDir: string,

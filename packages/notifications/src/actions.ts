@@ -129,8 +129,18 @@ const CATALOG_FOR_KIND: Record<
   // job ormai ripartito. Per questo `answerQuestion`
   // (`apps/server/src/services/questions.ts`) le SANA quando le incontra: un
   // tentativo di rispondere su una card ormai vecchia chiude le copie
-  // attribuendole a chi aveva risposto davvero. È l'unica via d'uscita del
-  // residuo, e vive lì perché l'inbox è l'unica superficie che lo incontra.
+  // attribuendole a chi aveva risposto davvero.
+  //
+  // ⚠️ Quella riparazione è PIGRA, e SUL WEB non è raggiungibile. Appena il job
+  // esce da `awaiting_input`, `actionsFor` non offre più né `answer` (lo nega
+  // `stateAllows`) né `handled` (lo nega `archivable: false`): sulla card
+  // orfana restano apri e rinvia, nessun gesto che arrivi ad `answerQuestion`.
+  // Ci arrivano solo i bottoni di un DM Slack stale — pubblicato prima del
+  // guasto e mai riscritto, quindi ancora premibile. Conseguenza nel caso raro:
+  // senza quel DM (Slack spento, account non collegato) o senza nessuno che lo
+  // prema, la copia orfana resta sul web per sempre, smaltibile solo a colpi di
+  // snooze. È il prezzo accettato per non dare alla domanda un'archiviazione
+  // che ne farebbe perdere di vista una VIVA.
   "job.awaiting_input": { decisions: ["answer"], adminOnly: false, archivable: false },
 };
 

@@ -625,7 +625,7 @@ export async function slackRoutes(
           payload: { answer: { text: text ?? "" } },
           ...(publicUrl ? { publicUrl } : {}),
         });
-        if (!result.ok) return answerError(inboxErrorText(actor.language, result));
+        if (!result.ok) return answerError(inboxErrorText(actor.language, result, "answer"));
 
         // Come nel rifiuto: qui non c'è un `response_url` con cui riscrivere
         // subito il proprio DM, e la copia arriva col tick del poller insieme a
