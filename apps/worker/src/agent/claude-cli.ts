@@ -340,24 +340,19 @@ export class ClaudeCliRunner implements AgentRunner {
       args.push("--disallowedTools", ...opts.disallowedTools);
     }
     // Plugin del run: un --plugin-dir per directory, nell'ordine ricevuto (il
-    // chiamante mette per primo il plugin base). Lista assente o vuota → argv
-    // invariato.
-    if (opts.pluginDirs !== undefined) {
+    // chiamante mette per primo il plugin base). Stessa guardia degli altri
+    // flag a lista: assente o vuota → argv invariato.
+    if (opts.pluginDirs !== undefined && opts.pluginDirs.length > 0) {
       for (const dir of opts.pluginDirs) {
         args.push("--plugin-dir", dir);
       }
     }
-    // Sorgenti di settings: la stringa vuota va passata come ARGOMENTO A SÉ
-    // (`--setting-sources` seguito da ""), che è il modo in cui il CLI accetta
-    // "nessuna sorgente"; una lista diventa il csv atteso. Omesso → nessun
-    // flag, così i run che non usano i plugin restano identici a prima.
+    // Sorgenti di settings: l'unico valore è la stringa vuota, e va passata
+    // come ARGOMENTO A SÉ (`--setting-sources` seguito da ""), che è il modo
+    // in cui il CLI accetta "nessuna sorgente". Omesso → nessun flag, così i
+    // run che non usano i plugin restano identici a prima.
     if (opts.settingSources !== undefined) {
-      args.push(
-        "--setting-sources",
-        typeof opts.settingSources === "string"
-          ? opts.settingSources
-          : opts.settingSources.join(","),
-      );
+      args.push("--setting-sources", opts.settingSources);
     }
     // Server MCP locali a QUESTO run: file di config effimero fuori dalla cwd,
     // rimosso nel finally sotto qualunque esito (successo, exit non-zero,

@@ -87,25 +87,34 @@ export interface AgentRunOptions {
    * Stubwise, che porta il contratto della run via hook SessionStart; poi i
    * plugin del registro abilitati per il progetto). Il flag è session-scoped e
    * ortogonale ai settings, funziona anche in headless (`-p`) e carica skill,
-   * comandi, agenti, hook e l'eventuale `.mcp.json` del plugin; le skill
-   * compaiono namespaced sul `name` di `plugin.json` (es.
+   * comandi, agenti, hook e — se c'è — anche il `.mcp.json` del plugin; le
+   * skill compaiono namespaced sul `name` di `plugin.json` (es.
    * `superpowers:brainstorming`), ed è quel nome che serve alle deny rule di
-   * `disallowedTools`. Assente o lista vuota = nessun plugin, comportamento
-   * storico.
+   * `disallowedTools`. Che il CLI caricherebbe pure il `.mcp.json` è PROPRIO
+   * il motivo per cui qui non arrivano mai le directory originali dei plugin,
+   * ma copie filtrate che quel file lo OMETTONO: i server MCP di un run
+   * passano solo da `mcpConfig` (invariante «`.mcp.json` dei plugin mai
+   * caricato»). Assente o lista vuota = nessun plugin, comportamento storico.
    */
   pluginDirs?: string[];
   /**
-   * Sorgenti di settings che il CLI può leggere, mappate su
-   * `--setting-sources <csv>` (valori ammessi dal CLI: "user", "project",
-   * "local"; in headless il default sono tutte e tre). La STRINGA VUOTA `""` è
-   * il valore che usano i run con i plugin: viene passata come argomento a sé
-   * (`--setting-sources` + `""`) e disattiva OGNI sorgente, quindi i plugin
-   * dell'utente, le `.claude/skills` e il `.mcp.json` della cwd. Serve a
-   * rendere deterministico l'insieme di skill e hook caricati: plugin base +
-   * registro, nient'altro. Omesso = nessun flag (vale il default del CLI), che
-   * è il comportamento storico.
+   * Spegne le sorgenti di settings del CLI: l'unico valore ammesso è la
+   * STRINGA VUOTA, passata come argomento a sé (`--setting-sources` + `""`).
+   * Disattiva OGNI sorgente ("user", "project", "local" — in headless il
+   * default del CLI sono tutte e tre) e con essa i plugin dell'utente, le
+   * `.claude/skills` e il `.mcp.json` della cwd: serve a rendere
+   * deterministico l'insieme di skill e hook caricati in un run con i plugin
+   * — plugin base + registro, nient'altro. Omesso = nessun flag (vale il
+   * default del CLI), che è il comportamento storico.
+   *
+   * Il tipo è volutamente il solo `""` e NON una lista di sorgenti: una lista
+   * avrebbe due grafie per lo stesso argv e, soprattutto, la lista VUOTA
+   * significherebbe "spegni tutto" — l'opposto della convenzione di
+   * `allowedTools`/`disallowedTools`/`pluginDirs`, dove vuoto = ometti il
+   * flag. Nessun chiamante accende sorgenti selettive: quando servirà, si
+   * aggiunge un'unione con una lista NON vuota.
    */
-  settingSources?: string[] | "";
+  settingSources?: "";
   /**
    * Permission mode del CLI claude, mappato su `--permission-mode <mode>`:
    * - "acceptEdits" (default): consente le modifiche ai file ma NEGA Bash in

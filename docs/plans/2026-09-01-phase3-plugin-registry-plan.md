@@ -52,7 +52,7 @@ Tabelle come da design §4 (enum compile-time via `text({enum})` come `repo_grap
 
 ### Task 6: Runner con `--plugin-dir`, `--setting-sources`, `--disallowedTools`
 
-**Files:** Modify `apps/worker/src/agent/runner.ts` (`pluginDirs?: string[]`, `disallowedTools?: string[]`, `settingSources?: string[] | ""`), `claude-cli.ts` (argv: `--plugin-dir` ripetuto; `--disallowedTools ...`; `--setting-sources <csv>` — con `""` passa la stringa vuota come argomento separato), `fake.ts`. Test argv (`claude-cli.test.ts`). Commit `feat(worker): flag plugin nel runner`.
+**Files:** Modify `apps/worker/src/agent/runner.ts` (`pluginDirs?: string[]`, `disallowedTools?: string[]`, `settingSources?: ""`), `claude-cli.ts` (argv: `--plugin-dir` ripetuto; `--disallowedTools ...`; `--setting-sources` — la stringa vuota passata come argomento separato), `fake.ts`. Test argv (`claude-cli.test.ts`). Commit `feat(worker): flag plugin nel runner`. **Deviazione applicata in implementazione:** il tipo di `settingSources` è il solo `""` e non `string[] | ""`, perché la lista dava due grafie per lo stesso argv e la lista VUOTA avrebbe significato «spegni tutte le sorgenti», semantica opposta alla convenzione di `allowedTools`/`disallowedTools`/`pluginDirs` (vuoto = ometti il flag); nessun chiamante accende sorgenti selettive (il Task 7 usa solo `""`).
 
 ### Task 7: Copia filtrata e innesto nei run
 

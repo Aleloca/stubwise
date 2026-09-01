@@ -141,7 +141,10 @@ async function readCapturedArgv(root: string): Promise<string[]> {
   return lines;
 }
 
-/** Prefisso argv comune a ogni run (flag headless + max-turns). */
+/**
+ * Prefisso argv comune a ogni run: flag headless, il --permission-mode di
+ * default (acceptEdits, nessun permissionMode esplicito) e --max-turns.
+ */
 function baseArgv(maxTurns: number): string[] {
   return [
     "-p",
@@ -472,6 +475,9 @@ printf '{"result":"altra risposta"}\\n'
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
+    await runner.run({ cwd, prompt: "ciao", maxTurns: 5, timeoutMs: 10_000 });
+    expect(await readCapturedArgv(root)).toEqual(baseArgv(5));
+
     await runner.run({
       cwd,
       prompt: "ciao",
@@ -479,7 +485,6 @@ printf '{"result":"altra risposta"}\\n'
       timeoutMs: 10_000,
       disallowedTools: [],
     });
-
     expect(await readCapturedArgv(root)).toEqual(baseArgv(5));
   });
 
@@ -498,29 +503,9 @@ printf '{"result":"altra risposta"}\\n'
     });
 
     // Due elementi in argv: il flag e un argomento vuoto. È il caso di
-    // produzione (nessuna sorgente di settings → insieme deterministico).
+    // produzione — e l'unico valore che il tipo ammette (nessuna sorgente di
+    // settings → insieme di skill e hook deterministico).
     expect(await readCapturedArgv(root)).toEqual([...baseArgv(5), "--setting-sources", ""]);
-  });
-
-  it("settingSources come lista diventa un csv", async () => {
-    const root = await makeRoot();
-    const claudePath = await makeFakeClaude(root, ARGV_PROBE_SCRIPT);
-    const cwd = await makeCwd(root);
-    const runner = new ClaudeCliRunner({ claudePath });
-
-    await runner.run({
-      cwd,
-      prompt: "fixa",
-      maxTurns: 5,
-      timeoutMs: 10_000,
-      settingSources: ["user", "project"],
-    });
-
-    expect(await readCapturedArgv(root)).toEqual([
-      ...baseArgv(5),
-      "--setting-sources",
-      "user,project",
-    ]);
   });
 
   it("le opzioni dei plugin convivono con allowedTools e mcpConfig senza interferire", async () => {
