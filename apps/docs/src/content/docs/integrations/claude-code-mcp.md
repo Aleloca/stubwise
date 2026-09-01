@@ -182,6 +182,7 @@ Once connected, Claude has these tools (names as exposed to Claude):
 | `get_backlog_item` | Full detail of one item, including its document, plan and original request. |
 | `list_tickets` | List tickets (filter by status, type, priority, text). |
 | `get_ticket` | Full detail of one ticket. |
+| `list_proposals` | The open [pulse proposals](/docs/notifications/#the-pulse-on-idle-projects) addressed to **you**: idle projects, and the backlog items suggested to restart from. |
 
 **Write**
 
@@ -189,6 +190,7 @@ Once connected, Claude has these tools (names as exposed to Claude):
 |---|---|
 | `create_ticket` | Create a `task` ticket from a title and body. |
 | `create_backlog_item` | Create a new backlog item (async: it is processed by the intake pipeline). |
+| `create_backlog_from_design` | Create a backlog item from a **finished design doc**: the document is stored verbatim and the AI only estimates the metadata. |
 | `convert_backlog_to_ticket` | Turn a backlog item into a ticket (admin). |
 | `set_ticket_status` | Move a ticket between `open`, `triaged`, `in_progress`, `in_review`, `done`, `closed`. |
 | `run_ticket` | Start the AI run on a ticket (the same as **Run AI** in the web app). With a saved plan the worker executes *that* plan; pass `mode: "ai_plan"` to set it aside for that run and re-plan from scratch (the plan saved on the ticket is kept). |
@@ -211,6 +213,9 @@ The `stubwise` skill drives these; you can also trigger them in plain language.
 
 - **"What's in the backlog we could pick up?"** — Claude uses `list_backlog`
   (open items, by urgency) and summarizes what's worth starting.
+- **"Is anything waiting for me?"** — at the start of a session Claude calls
+  `list_proposals` and reports the open pulse proposals addressed to you, with
+  the projects that have gone quiet. You start one from the web app or Slack.
 - **Design/plan → backlog.** When you write a design or plan for something that
   isn't tracked yet, Claude creates a backlog item with `create_backlog_item` and
   links the local doc's frontmatter to it.
@@ -254,6 +259,19 @@ approval; without one it is queued but stops once the plan is ready. A
 and the execution then resumes on its own. There is no MCP tool for approving a
 plan, so Claude reports the pending approval and stops there. A maintainer's own
 run needs no approval.
+:::
+
+:::note[Proposals are read-only from the editor]
+`list_proposals` is there so Claude can *tell you* what is waiting, not so it can
+act on it. There is no MCP tool that starts a proposal — you pick one from the
+inbox card in the web app or from the Slack DM, and Stubwise creates the ticket
+and starts the run (which then waits for plan approval) on its own.
+
+Two things worth knowing when you read the output: the list is **per recipient**,
+so an empty result means *no proposal reached you*, not that the projects have
+nothing to work on (that's `list_backlog`); and each proposal carries the
+`backlogItemId` of the item behind it, which is what you pass to
+`get_backlog_item` to read the whole thing before deciding.
 :::
 
 ## Security

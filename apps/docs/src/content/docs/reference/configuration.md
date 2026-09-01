@@ -115,6 +115,19 @@ See [Backlog discovery](/docs/team/backlog/).
 | `BACKLOG_CHAT_TURN_TIMEOUT_MS`     | No       | `300000` | Timeout (5') of the agent run for one chat turn.                           |
 | `BACKLOG_CHAT_TURN_MAX_TURNS`      | No       | `15`     | Max agentic turns per chat turn.                                           |
 
+## Proactive pulse (worker)
+
+See [the pulse on idle projects](/docs/notifications/#the-pulse-on-idle-projects).
+These variables set the **instance-wide** schedule; the pulse itself is enabled
+**per project** (off by default), together with its own cadence in days.
+
+| Variable               | Required | Default | Notes                                                                                                     |
+| ---------------------- | -------- | ------- | ---------------------------------------------------------------------------------------------------------- |
+| `PULSE_POLL_MINUTES`   | No       | `15`    | Poll interval in **minutes** of the pulse poller. `0` disables the feature for the whole instance — no project sends a pulse, whatever its toggle says. Shorter than the send window on purpose, so a skipped tick still meets it. |
+| `PULSE_TIMEZONE`       | No       | `UTC`   | IANA time zone of the send window (e.g. `Europe/Rome`). It is the **only** time zone in Stubwise: everything else is UTC. An invalid value **stops the worker from starting** — deliberately, since silently falling back to UTC would send every pulse at the wrong hour forever. |
+| `PULSE_SEND_HOUR`      | No       | `9`     | Local hour (`0`–`23`, in `PULSE_TIMEZONE`) at which the send window opens. The window is one hour long.    |
+| `PULSE_WEEKDAYS_ONLY`  | No       | `true`  | `true` = no pulse on Saturday and Sunday. It's a standup, not an alert.                                    |
+
 ## Daily activity reports (worker)
 
 See [Daily activity reports](/docs/team/activity/).

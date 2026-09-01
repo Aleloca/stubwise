@@ -110,6 +110,28 @@ describe("StubwiseClient", () => {
     expect(url.searchParams.get("statuses")).toBe("open,triaged");
   });
 
+  it("listInbox filtra su status e kind (nessun projectId: l'inbox è per destinatario)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ items: [], nextCursor: null }));
+    const client = makeClient(fetchMock);
+
+    await client.listInbox({ status: "open", kind: "project.pulse" });
+
+    const url = new URL(fetchMock.mock.calls[0]![0]);
+    expect(url.pathname).toBe("/api/inbox");
+    expect(url.searchParams.get("status")).toBe("open");
+    expect(url.searchParams.get("kind")).toBe("project.pulse");
+    expect(url.searchParams.has("projectId")).toBe(false);
+  });
+
+  it("listInbox senza filtri non manda query string (valgono i default del server)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ items: [], nextCursor: null }));
+    const client = makeClient(fetchMock);
+
+    await client.listInbox();
+
+    expect(fetchMock.mock.calls[0]![0]).toBe("https://stubwise.example.com/api/inbox");
+  });
+
   it("setTicketStatus fa PATCH con { status }", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: "t1", status: "done" }));
     const client = makeClient(fetchMock);

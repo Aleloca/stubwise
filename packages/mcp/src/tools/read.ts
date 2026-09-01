@@ -8,7 +8,7 @@ import { z } from "zod";
 
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
-import type { Urgency } from "../client.js";
+import type { InboxItemSummary, InboxPulseProposal, Urgency } from "../client.js";
 import { resolveProject, runTool, textResult } from "./shared.js";
 import type { ToolContext, ToolDef, ToolResult } from "./types.js";
 
@@ -217,6 +217,78 @@ const getTicket: ToolDef = {
     }),
 };
 
+// --- list_proposals ---------------------------------------------------------
+
+/** "fermo da N giorni", con il singolare quando serve. */
+function idleLabel(days: number): string {
+  return days === 1 ? "fermo da 1 giorno" : `fermo da ${days} giorni`;
+}
+
+/** Una proposta come riga numerata, con i metadati che ne hanno deciso l'ordine. */
+function proposalLine(proposal: InboxPulseProposal, index: number): string {
+  const parts = [
+    `urgenza: ${proposal.urgency ?? "non stimata"}`,
+    `effort: ${proposal.effort ?? "non stimato"}`,
+    proposal.hasAnalysis ? "analisi tecnica: pronta" : "analisi tecnica: assente",
+  ];
+  return `  ${index + 1}. ${proposal.title} [${parts.join(", ")}] (backlog id: ${proposal.backlogItemId})`;
+}
+
+/**
+ * Rende una riga di pulse. Il blocco `pulse` è OPZIONALE — il server lo omette
+ * quando il payload non è leggibile o non è allineato alle opzioni — e la sua
+ * assenza NON è un errore: la proposta esiste comunque, si perde solo il
+ * dettaglio, che resta leggibile dall'inbox web. Nessuna deduzione dell'indice
+ * da altre fonti: senza il blocco non si nomina nessuna voce.
+ */
+function renderPulseItem(item: InboxItemSummary): string {
+  const lines: string[] = [];
+  if (item.pulse) {
+    lines.push(
+      `- ${item.pulse.projectName} — ${idleLabel(item.pulse.idleDays)} (notifica: ${item.id})`,
+    );
+    if (item.pulse.proposals.length === 0) {
+      lines.push("  (nessuna proposta elencata)");
+    } else {
+      lines.push(...item.pulse.proposals.map(proposalLine));
+    }
+  } else {
+    lines.push(`- ${item.text} (notifica: ${item.id})`);
+    lines.push("  (dettaglio delle proposte non disponibile qui: aprila nell'inbox della web app)");
+  }
+  if (item.url) lines.push(`  Apri: ${item.url}`);
+  return lines.join("\n");
+}
+
+const listProposals: ToolDef = {
+  name: "list_proposals",
+  description:
+    "Elenca le proposte APERTE del pulse proattivo indirizzate A TE (l'utente del token): per ogni progetto fermo, le voci di backlog da cui Stubwise suggerisce di ripartire, con urgenza, effort e id della voce. " +
+    "Serve a SAPERE, non ad agire: da qui NON si avvia niente e non esiste un tool MCP che risponda a una proposta. Si sceglie dalla card in inbox nella web app o dal DM Slack, e il resto (ticket + run che si ferma sull'approvazione del piano) parte da solo. " +
+    "Il pulse è per DESTINATARIO, non per progetto: una lista vuota significa solo che a te non ne è arrivato nessuno di aperto — non che i progetti non abbiano proposte.",
+  inputSchema: {},
+  handler: (_args, ctx): Promise<ToolResult> =>
+    runTool(async () => {
+      const page = await ctx.client.listInbox({ status: "open", kind: "project.pulse" });
+
+      if (page.items.length === 0) {
+        // Lista vuota = risposta legittima, non un errore: si spiega perché può
+        // essere vuota, così nessuno la legge come "il progetto non ha proposte".
+        return textResult(
+          "Nessuna proposta del pulse aperta per te.\n" +
+            "Il pulse arriva solo a chi ne è destinatario (maintainer e chi segue il progetto) e solo sui progetti che lo hanno acceso: l'assenza qui non dice nulla sul backlog di un progetto (per quello usa list_backlog).",
+        );
+      }
+
+      const blocks = page.items.map(renderPulseItem);
+      return textResult(
+        `Proposte del pulse aperte per te (${page.items.length}):\n${blocks.join("\n")}\n\n` +
+          "Per avviarne una si risponde dall'inbox della web app o dal DM Slack: non c'è un tool MCP per farlo da qui. " +
+          "Una volta scelta, la voce diventa un ticket e il run si ferma sull'approvazione del piano di un maintainer.",
+      );
+    }),
+};
+
 /** Tutti i tool di lettura, nell'ordine di registrazione. */
 export const readTools: ToolDef[] = [
   listProjects,
@@ -224,6 +296,7 @@ export const readTools: ToolDef[] = [
   getBacklogItem,
   listTickets,
   getTicket,
+  listProposals,
 ];
 
 /**

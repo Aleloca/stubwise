@@ -59,6 +59,7 @@ function makeClient() {
     getBacklogItem: vi.fn(),
     listTickets: vi.fn(),
     getTicket: vi.fn(),
+    listInbox: vi.fn(),
   };
 }
 
@@ -405,6 +406,122 @@ describe("get_ticket", () => {
   });
 });
 
+describe("list_proposals", () => {
+  const NOTIFICATION_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+  const BACKLOG_A = "f1111111-1111-4111-8111-111111111111";
+  const BACKLOG_B = "f2222222-2222-4222-8222-222222222222";
+
+  /** Riga d'inbox di un pulse, col contorno completo salvo override. */
+  function fakePulseItem(over: Record<string, unknown> = {}) {
+    return {
+      id: NOTIFICATION_ID,
+      kind: "project.pulse",
+      status: "open",
+      text: "Nessun lavoro in corso su Acme (giorni di fermo: 5): ci sono proposte nel backlog.",
+      url: "https://stubwise.example.com/backlog?project=acme",
+      pulse: {
+        projectName: "Acme",
+        idleDays: 5,
+        proposals: [
+          {
+            backlogItemId: BACKLOG_A,
+            title: "Export CSV degli ordini",
+            urgency: "high",
+            effort: 2,
+            hasAnalysis: true,
+          },
+          {
+            backlogItemId: BACKLOG_B,
+            title: "Ricerca full text",
+            urgency: null,
+            effort: null,
+            hasAnalysis: false,
+          },
+        ],
+      },
+      projectId: PROJECT_ID,
+      ticketId: null,
+      createdAt: "2026-09-01T07:00:00.000Z",
+      ...over,
+    };
+  }
+
+  it("chiede al server le sole notifiche pulse aperte ed elenca le proposte", async () => {
+    const client = makeClient();
+    client.listInbox.mockResolvedValue({ items: [fakePulseItem()], nextCursor: null });
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("list_proposals").handler({}, ctx);
+
+    expect(client.listInbox).toHaveBeenCalledWith({ status: "open", kind: "project.pulse" });
+    expect(res.isError).toBeUndefined();
+    const text = firstText(res);
+    expect(text).toContain("Acme");
+    expect(text).toContain("fermo da 5 giorni");
+    expect(text).toContain("1. Export CSV degli ordini");
+    expect(text).toContain("urgenza: high");
+    expect(text).toContain("effort: 2");
+    expect(text).toContain("analisi tecnica: pronta");
+    expect(text).toContain(BACKLOG_A);
+    // Seconda proposta: urgenza/effort mancanti resi a parole, non "null".
+    expect(text).toContain("2. Ricerca full text");
+    expect(text).toContain("urgenza: non stimata");
+    expect(text).toContain("effort: non stimato");
+    expect(text).not.toContain("null");
+    // L'id della notifica c'è: è l'ancora per ritrovarla in inbox.
+    expect(text).toContain(NOTIFICATION_ID);
+    // E si dice dove si risponde davvero.
+    expect(text).toContain("Slack");
+  });
+
+  it("rende comprensibile la lista vuota, senza segnalarla come errore", async () => {
+    const client = makeClient();
+    client.listInbox.mockResolvedValue({ items: [], nextCursor: null });
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("list_proposals").handler({}, ctx);
+
+    expect(res.isError).toBeUndefined();
+    const text = firstText(res);
+    expect(text).toContain("Nessuna proposta");
+    // Spiega che l'inbox è per destinatario: "vuota" non vuol dire "il progetto
+    // non ha proposte".
+    expect(text).toContain("destinatario");
+  });
+
+  it("regge una riga senza il blocco pulse (payload non allineato): niente indici inventati", async () => {
+    const client = makeClient();
+    const item = fakePulseItem();
+    delete (item as { pulse?: unknown }).pulse;
+    client.listInbox.mockResolvedValue({ items: [item], nextCursor: null });
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("list_proposals").handler({}, ctx);
+
+    expect(res.isError).toBeUndefined();
+    const text = firstText(res);
+    // Degrada al testo localizzato della notifica, con l'id per ritrovarla.
+    expect(text).toContain("Nessun lavoro in corso su Acme");
+    expect(text).toContain(NOTIFICATION_ID);
+    expect(text).toContain("dettaglio delle proposte non disponibile");
+    // Nessuna voce di backlog nominata: senza il blocco non si sa quale sia.
+    expect(text).not.toContain(BACKLOG_A);
+  });
+
+  it("cattura gli errori del client in un ToolResult d'errore", async () => {
+    const client = makeClient();
+    client.listInbox.mockRejectedValue(
+      new StubwiseApiError("Token non valido", 401, "unauthorized"),
+    );
+    const { ctx } = makeCtx(client);
+
+    const res = await tool("list_proposals").handler({}, ctx);
+
+    expect(res.isError).toBe(true);
+    expect(firstText(res)).toContain("Token non valido");
+  });
+});
+
 describe("registerReadTools", () => {
   it("registra tutti i tool di lettura con i nomi attesi", () => {
     const client = makeClient();
@@ -414,7 +531,7 @@ describe("registerReadTools", () => {
 
     registerReadTools(server, ctx);
 
-    expect(registerTool).toHaveBeenCalledTimes(5);
+    expect(registerTool).toHaveBeenCalledTimes(6);
     const names = registerTool.mock.calls.map((c) => c[0]);
     expect(names).toEqual([
       "list_projects",
@@ -422,6 +539,7 @@ describe("registerReadTools", () => {
       "get_backlog_item",
       "list_tickets",
       "get_ticket",
+      "list_proposals",
     ]);
     // Ogni registrazione passa un config con description + inputSchema e una callback.
     for (const call of registerTool.mock.calls) {
