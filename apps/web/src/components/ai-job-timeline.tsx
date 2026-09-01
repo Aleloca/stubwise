@@ -18,6 +18,10 @@ const JOB_STATUS_DOT: Record<AIJobStatus, string> = {
   pr_closed: "bg-fg-faint",
   // In attesa di una decisione umana sul piano: stesso ambra del gate "held".
   awaiting_plan_approval: "bg-signal",
+  // In attesa della risposta a una domanda: stesso ambra degli altri stati che
+  // aspettano una persona, ma il pallino PULSA — il job non è concluso, è vivo
+  // e riparte da solo appena qualcuno risponde.
+  awaiting_input: "bg-signal animate-blink",
 };
 
 const JOB_STATUS_TEXT: Record<AIJobStatus, string> = {
@@ -31,6 +35,7 @@ const JOB_STATUS_TEXT: Record<AIJobStatus, string> = {
   skipped: "text-fg-faint",
   pr_closed: "text-fg-faint",
   awaiting_plan_approval: "text-signal",
+  awaiting_input: "text-signal",
 };
 
 /**
@@ -41,6 +46,7 @@ const JOB_STATUS_TEXT: Record<AIJobStatus, string> = {
 const JOB_STATUS_WITH_NOTE: ReadonlySet<AIJobStatus> = new Set<AIJobStatus>([
   "held",
   "awaiting_plan_approval",
+  "awaiting_input",
 ]);
 
 /**

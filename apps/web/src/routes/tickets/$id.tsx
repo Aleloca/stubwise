@@ -33,10 +33,12 @@ import { ConfirmDeleteButton } from "../../components/confirm-delete-button";
 import { SelectField } from "../../components/field";
 import { LabelsEditor } from "../../components/labels-editor";
 import { Markdown } from "../../components/markdown";
+import { answerErrorMessage, QuestionPanel } from "../../components/question-panel";
 import { TechnicalPayload } from "../../components/technical-payload";
 import { TicketLinks } from "../../components/ticket-links";
 import { UsagePanel } from "../../components/usage-panel";
 import {
+  answerTicketQuestion,
   approvePlan,
   deleteTicketDesign,
   deleteTicketPlan,
@@ -44,14 +46,17 @@ import {
   postComment,
   postRunAi,
   rejectPlan,
+  type AnswerBody,
   type Ticket,
   type TicketPatch,
+  type TicketQuestion,
 } from "../../lib/api";
 import { formatDateTime } from "../../lib/format";
 import { translateApiError } from "../../lib/translate-api-error";
 import { meQueryOptions } from "../../lib/auth";
 import {
   commentsQueryOptions,
+  inboxKeys,
   instanceSettingsQueryOptions,
   milestonesQueryOptions,
   projectsQueryOptions,
@@ -59,6 +64,7 @@ import {
   ticketJobsQueryOptions,
   ticketKeys,
   ticketQueryOptions,
+  ticketQuestionsQueryOptions,
   ticketUsageQueryOptions,
   usersQueryOptions,
 } from "../../lib/queries";
@@ -287,6 +293,75 @@ export function TicketDetailPage() {
     latestJob !== undefined &&
     (RELAUNCHABLE_STATUSES as readonly string[]).includes(latestJob.status);
   const awaitingPlanApproval = latestJob?.status === "awaiting_plan_approval";
+  // Il job è fermo su una DOMANDA dell'agente. Non è uno stato da cui si
+  // rilancia (per questo `awaiting_input` non è fra i RELAUNCHABLE): il job è
+  // vivo e riparte da solo appena qualcuno risponde.
+  const awaitingInput = latestJob?.status === "awaiting_input";
+
+  // Q&A dell'agente sul ticket: la domanda aperta (il pannello) e quelle già
+  // chiuse (lo storico). useQuery e non suspense: se la lista non arriva il
+  // resto del dettaglio resta intero, e la timeline dice comunque che il job
+  // aspetta una risposta.
+  const { data: questions = [] } = useQuery(ticketQuestionsQueryOptions(id));
+
+  /**
+   * CHI vede il pannello di risposta: il richiedente del run — l'unico che sa
+   * rispondere nel merito — e i maintainer, che devono poter sbloccare il job
+   * di un collega. È la stessa regola di `actorAllows` lato server, dove resta
+   * l'AUTORITÀ: qui si decide solo cosa mostrare, e se le due divergessero
+   * l'errore del server sarebbe la verità.
+   */
+  const requesterId = latestJob?.requestedByUserId ?? null;
+  const canAnswer = isAdmin || (requesterId !== null && requesterId === me.user.id);
+  const requesterEmail = requesterId !== null ? authors.get(requesterId)?.email : undefined;
+
+  /**
+   * La domanda APERTA del job fermo. Si guarda `answeredAt` e non `answer`:
+   * quest'ultimo è `null` anche su una risposta che il server non è più riuscito
+   * a rileggere, e prendere quella per una domanda aperta significherebbe
+   * mostrare un pannello di risposta su una decisione già presa.
+   */
+  const openQuestion = questions.find(
+    (question) => question.answeredAt === null && question.jobId === latestJob?.id,
+  );
+  const pastQuestions = questions.filter((question) => question.answeredAt !== null);
+
+  // Errore dell'ultima risposta, già localizzato: vive qui perché il pannello
+  // lo riceve come stringa (le parole sui `code` sono di `answerErrorMessage`,
+  // condivise con la card d'inbox).
+  const [answerError, setAnswerError] = useState<string | null>(null);
+  const answerMutation = useMutation({
+    mutationFn: (answer: AnswerBody) => answerTicketQuestion(id, answer),
+    onMutate: () => setAnswerError(null),
+    onSuccess: () => {
+      invalidateJobAndDetail();
+      void queryClient.invalidateQueries({ queryKey: ticketKeys.questions(id) });
+      // La risposta chiude anche la riga d'inbox (e il DM Slack): il badge dei
+      // non letti mentirebbe finché non ricarica.
+      void queryClient.invalidateQueries({ queryKey: inboxKeys.all });
+    },
+    onError: (cause) => setAnswerError(answerErrorMessage(cause, t)),
+  });
+
+  /**
+   * La domanda nasce DOPO il job che la pone: quando l'ultimo job entra in
+   * `awaiting_input` la lista Q&A in cache è per forza vecchia (quella domanda
+   * non c'era). Ricaricarla qui la fa comparire appena la timeline si muove,
+   * invece di aspettare il giro di polling successivo — ed è anche ciò che
+   * porta a schermo il round nuovo quando lo stesso job ne apre un altro.
+   */
+  useEffect(() => {
+    if (!awaitingInput) return;
+    void queryClient.invalidateQueries({ queryKey: ticketKeys.questions(id) });
+  }, [queryClient, id, awaitingInput, latestJob?.id]);
+
+  // Un errore appartiene alla domanda su cui è successo: cambiata la domanda
+  // (round nuovo), il messaggio vecchio parlerebbe di una decisione che non è
+  // più quella che si ha davanti.
+  const openQuestionId = openQuestion?.questionId;
+  useEffect(() => {
+    setAnswerError(null);
+  }, [openQuestionId]);
   // Primo avvio: il ticket non ha ancora alcun job (es. creato a mano dalla
   // UI). C'è solo "Avvia fix AI" (stesso handler del rilancio, senza
   // withInstructions): il server accoda un nuovo job e parte il triage. Niente
@@ -477,6 +552,32 @@ export function TicketDetailPage() {
           <section aria-label={t("tickets:detail.aiActivity")}>
             <h2 className={sectionTitleClass}>{t("tickets:detail.aiActivity")}</h2>
             <AIJobTimeline jobs={jobs} />
+            {/* La DOMANDA dell'agente, subito sotto la timeline che la annuncia:
+                è la ragione per cui il job è fermo, e finché resta lì non c'è
+                nient'altro da fare su questo ticket.
+
+                A chi non può rispondere si dice solo chi si sta aspettando: un
+                pannello che il server rifiuterebbe con un 403 sarebbe peggio di
+                nessun pannello. Senza la domanda in mano (lista non ancora
+                arrivata, o non più leggibile) non si rende nulla: la nota della
+                timeline dice comunque perché il job non si muove. */}
+            {awaitingInput &&
+              (canAnswer ? (
+                openQuestion !== undefined && (
+                  <QuestionPanel
+                    question={openQuestion}
+                    pending={answerMutation.isPending}
+                    error={answerError}
+                    onSubmit={(answer) => answerMutation.mutate(answer)}
+                  />
+                )
+              ) : (
+                <p className="mt-3 font-mono text-[12px] text-fg-muted">
+                  {requesterEmail
+                    ? t("tickets:detail.awaitingAnswerFrom", { email: requesterEmail })
+                    : t("tickets:detail.awaitingAnswerUnknown")}
+                </p>
+              ))}
             {/* Primo avvio (nessun job): solo "Avvia fix AI". */}
             {canStartFix && (
               <div className="mt-3 space-y-2">
@@ -608,6 +709,23 @@ export function TicketDetailPage() {
                     {translateApiError(rejectPlanMutation.error, t)}
                   </span>
                 )}
+              </div>
+            )}
+            {/* Le domande già CHIUSE: consultazione, non decisione — collassate
+                di default. Quella ancora aperta non entra qui: si risponde nel
+                pannello, e vederla due volte confonderebbe. */}
+            {pastQuestions.length > 0 && (
+              <div className="mt-3">
+                <CollapsibleSection
+                  title={t("tickets:detail.pastQuestions")}
+                  meta={String(pastQuestions.length)}
+                >
+                  <ol className="space-y-3">
+                    {pastQuestions.map((question) => (
+                      <PastQuestion key={question.questionId} question={question} />
+                    ))}
+                  </ol>
+                </CollapsibleSection>
               </div>
             )}
           </section>
@@ -824,5 +942,60 @@ function MetaRow({ label, value }: { label: string; value: string }) {
       <dt className="font-mono text-[11px] tracking-[0.1em] text-fg-faint uppercase">{label}</dt>
       <dd className="font-mono text-[12px] text-fg-muted">{value}</dd>
     </div>
+  );
+}
+
+/**
+ * COSA è stato risposto, in parole: l'etichetta dell'opzione scelta o il testo
+ * libero. `null` quando non è (più) leggibile — risposta di una versione
+ * precedente, o indice che non cade più nelle opzioni salvate.
+ *
+ * Non si mostra mai l'indice nudo: un "2" non dice niente a chi legge, e se le
+ * opzioni non tornano è più onesto dire che la risposta non si legge più.
+ */
+function answerLabel(question: TicketQuestion): string | null {
+  const { answer } = question;
+  if (answer === null) return null;
+  if ("text" in answer) return answer.text;
+  return question.options[answer.optionIndex]?.label ?? null;
+}
+
+/**
+ * Una Q&A già chiusa nello storico: la domanda, la risposta e chi l'ha data.
+ *
+ * Ci si arriva perché `answeredAt` è valorizzato, MAI perché `answer` lo è: una
+ * risposta illeggibile ha `answer: null` ed è comunque una decisione presa da
+ * qualcuno — dirlo è il punto, e nasconderla farebbe sembrare che la domanda sia
+ * rimasta senza risposta.
+ */
+function PastQuestion({ question }: { question: TicketQuestion }) {
+  const { t } = useTranslation();
+  const label = answerLabel(question);
+
+  return (
+    <li className="border-l-2 border-line pl-3">
+      <p className="font-mono text-[10px] tracking-[0.16em] text-fg-faint uppercase">
+        {t("tickets:detail.questionRound", { round: question.round })}
+      </p>
+      <p className="mt-1 text-sm text-fg">{question.question}</p>
+      {label !== null ? (
+        <p className="mt-1 text-sm text-signal">{label}</p>
+      ) : (
+        <p className="mt-1 font-mono text-[12px] text-fg-faint">
+          {t("tickets:detail.questionAnswerUnreadable")}
+        </p>
+      )}
+      <p className="mt-1 font-mono text-[11px] text-fg-muted">
+        {question.answeredBy
+          ? t("tickets:detail.questionAnsweredBy", { email: question.answeredBy.email })
+          : t("tickets:detail.questionAnsweredByUnknown")}
+        {question.answeredAt !== null && (
+          <>
+            {" · "}
+            {formatDateTime(question.answeredAt)}
+          </>
+        )}
+      </p>
+    </li>
   );
 }

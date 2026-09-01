@@ -1,5 +1,7 @@
 import {
   agentQuestionAnswerSchema,
+  answerBodySchema,
+  inboxActionErrorSchema,
   ticketPrioritySchema,
   ticketRepositorySchema,
   ticketSourceSchema,
@@ -37,6 +39,7 @@ import { publicUrlOrUndefined } from "../ingest/shared.js";
 import { createTicket, ProjectNotFoundError, type Ticket } from "../db/tickets.js";
 import { apiError } from "../errors.js";
 import { resolvePlan, startRun, type ResolvePlanResult } from "../services/jobs.js";
+import { answerQuestion, type AnswerQuestionResult } from "../services/questions.js";
 import {
   authErrorResponses,
   errorSchema,
@@ -269,6 +272,41 @@ function parseStoredAnswer(answer: unknown): AgentQuestionAnswer | null {
   if (answer == null) return null;
   const parsed = agentQuestionAnswerSchema.safeParse(answer);
   return parsed.success ? parsed.data : null;
+}
+
+/**
+ * Traduce l'esito negativo di `answerQuestion` nella risposta HTTP, con gli
+ * STESSI status e gli stessi `code` delle rotte azione dell'inbox
+ * (`sendActionError`): le due superfici chiamano lo stesso servizio, e la UI
+ * traduce i codici in un posto solo (`answerErrorMessage`). Lo switch è
+ * esaustivo su `AnswerQuestionError`: un errore nuovo nel servizio non compila
+ * finché non gli si sceglie uno status.
+ */
+function sendAnswerError(
+  reply: FastifyReply,
+  result: Extract<AnswerQuestionResult, { ok: false }>,
+): FastifyReply {
+  switch (result.error) {
+    case "not_found":
+      return apiError(reply, 404, "not_found", "Question not found");
+    case "forbidden":
+      return apiError(reply, 403, "forbidden", "Only the requester or a maintainer can answer");
+    case "invalid_answer":
+      // 400 e non 409: la risposta è malformata (indice fuori dalle opzioni
+      // persistite, testo libero non ammesso), non in conflitto con lo stato.
+      return apiError(reply, 400, "invalid_answer", "Invalid answer for this question");
+    case "question_not_pending":
+      return apiError(reply, 409, "question_not_pending", "No question pending an answer");
+    case "already_handled":
+      // `apiError` non veicola dati: il 409 della corsa porta CHI ha risposto.
+      return reply.code(409).send({
+        code: "already_handled",
+        message: result.answeredBy
+          ? `Already answered by ${result.answeredBy.email}`
+          : "Already answered",
+        ...(result.answeredBy ? { handledBy: result.answeredBy } : {}),
+      });
+  }
 }
 
 /** Proiezione pubblica della riga ticket: date serializzate in ISO. */
@@ -801,6 +839,71 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
             ? { id: row.answeredById, email: row.answeredByEmail }
             : null,
       }));
+    },
+  );
+
+  /**
+   * RISPOSTA a una domanda dell'agente dalla PAGINA TICKET.
+   *
+   * Terza superficie della risposta, dopo la riga d'inbox e il bottone Slack —
+   * e l'unica che una notifica NON ce l'ha: chi apre il ticket può non essere il
+   * destinatario della domanda (un maintainer che sblocca il job di un collega),
+   * o averla già archiviata. Per questo l'ancora è il JOB e non la notifica, e
+   * per questo il servizio la prevede (`AnswerQuestionInput.jobId`).
+   *
+   * Il job è l'ULTIMO del ticket, non uno passato dal client: è quello che la
+   * pagina mostra fermo su `awaiting_input`, e prenderlo qui evita che un client
+   * possa ancorare la risposta a un job qualsiasi. Se non ce n'è nessuno la
+   * risposta è la stessa che darebbe il servizio: non c'è nulla in attesa.
+   *
+   * Permesso e stato NON si controllano qui: li applica `answerQuestion`
+   * (`actorAllows` + `stateAllows`), sede unica delle due regole. Questa rotta
+   * traduce soltanto l'esito in HTTP, con gli stessi status e gli stessi `code`
+   * delle rotte azione dell'inbox — la UI mappa i codici una volta sola.
+   */
+  app.post(
+    "/:id/questions/answer",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        body: answerBodySchema,
+        response: {
+          200: z.object({ jobId: z.uuid(), questionId: z.uuid() }),
+          400: errorSchema,
+          404: errorSchema,
+          // 409 con `handledBy`: il conflitto della corsa deve poter dire CHI
+          // ha già risposto, come sulle rotte azione dell'inbox.
+          409: inboxActionErrorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const [ticket] = await app.db
+        .select({ id: tickets.id })
+        .from(tickets)
+        .where(eq(tickets.id, id));
+      if (!ticket) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
+
+      const [job] = await app.db
+        .select({ id: aiJobs.id })
+        .from(aiJobs)
+        .where(eq(aiJobs.ticketId, id))
+        .orderBy(desc(aiJobs.createdAt), desc(aiJobs.id))
+        .limit(1);
+      if (!job) {
+        return apiError(reply, 409, "question_not_pending", "No question pending an answer");
+      }
+
+      const result = await answerQuestion(app.db, {
+        jobId: job.id,
+        actor: request.user!,
+        answer: request.body,
+      });
+      if (!result.ok) return sendAnswerError(reply, result);
+      return { jobId: result.jobId, questionId: result.questionId };
     },
   );
 

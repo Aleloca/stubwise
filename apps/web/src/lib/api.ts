@@ -36,6 +36,7 @@ import type {
   SnoozeResult,
   SnoozeUntil,
   TicketPriority,
+  TicketQuestion,
   TicketSource,
   TicketStatus,
   TicketType,
@@ -94,6 +95,7 @@ export type {
   NotificationPrefsView,
   ProjectFollows,
   SnoozeUntil,
+  TicketQuestion,
 };
 // Ri-esportata dal binding locale (usata anche nelle interfacce del backlog qui
 // sotto): i consumatori la importano da "./api" come gli altri tipi di dominio.
@@ -753,7 +755,12 @@ export type AIJobStatus =
   | "pr_closed"
   // "awaiting_plan_approval": il piano prodotto supera la soglia di effort
   // configurata; il job attende l'approvazione umana prima di eseguirlo.
-  | "awaiting_plan_approval";
+  | "awaiting_plan_approval"
+  // "awaiting_input": l'agente che pianifica ha fatto una domanda a un umano e
+  // il job è parcheggiato finché non arriva la risposta (inbox, DM Slack o
+  // pagina ticket). Come "awaiting_plan_approval" aspetta una PERSONA, non il
+  // worker — ma non si rilancia: il job è vivo e la risposta lo riprende.
+  | "awaiting_input";
 
 export interface AIJob {
   id: string;
@@ -769,10 +776,41 @@ export interface AIJob {
   // job non ha provider (pre-feature, fallback env, provider eliminato).
   providerLabel: string | null;
   providerKind: "api_key" | "account" | null;
+  // Chi ha chiesto il run; null sui job nati automaticamente dall'ingest. È
+  // IDENTITÀ, non ruolo: a una domanda dell'agente rispondono il richiedente e
+  // i maintainer, e senza questo campo la pagina ticket saprebbe solo il ruolo.
+  requestedByUserId: string | null;
 }
 
 export function getTicketJobs(ticketId: string): Promise<AIJob[]> {
   return api.get(`/api/tickets/${ticketId}/jobs`);
+}
+
+/**
+ * Q&A dell'agente sul ticket, in ordine cronologico: le domande poste dai run
+ * di pianificazione e le risposte già date.
+ *
+ * `answer` è `null` sia sulla domanda aperta sia su una risposta non più
+ * leggibile: è `answeredAt` a dire se una risposta c'è stata.
+ */
+export function getTicketQuestions(ticketId: string): Promise<TicketQuestion[]> {
+  return api.get(`/api/tickets/${ticketId}/questions`);
+}
+
+/**
+ * Risposta a una domanda dell'agente DALLA PAGINA TICKET (l'unica superficie
+ * senza una notifica in mano: il server ancora la risposta all'ultimo job del
+ * ticket). Stesso servizio della card d'inbox e dei bottoni Slack, quindi
+ * stessi codici d'errore — che si traducono con `answerErrorMessage`:
+ * 403 `forbidden` (non sei né il richiedente né un maintainer), 400
+ * `invalid_answer`, 409 `already_handled` (con `handledBy`) o
+ * `question_not_pending`.
+ */
+export function answerTicketQuestion(
+  ticketId: string,
+  body: AnswerBody,
+): Promise<{ jobId: string; questionId: string }> {
+  return api.post(`/api/tickets/${ticketId}/questions/answer`, body);
 }
 
 /**

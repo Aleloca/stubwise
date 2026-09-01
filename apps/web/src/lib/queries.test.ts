@@ -76,6 +76,7 @@ function job(status: AIJobStatus): AIJob {
     finishedAt: null,
     providerLabel: null,
     providerKind: null,
+    requestedByUserId: null,
   };
 }
 
@@ -102,6 +103,10 @@ describe("ticketJobsRefetchInterval", () => {
     // senza polling resterebbe sullo stato d'attesa anche dopo l'approvazione.
     expect(ticketJobsRefetchInterval([job("held")])).toBe(20_000);
     expect(ticketJobsRefetchInterval([job("awaiting_plan_approval")])).toBe(20_000);
+    // La domanda dell'agente aspetta una PERSONA come il gate del piano: chi
+    // guarda può non essere chi risponde, e senza polling resterebbe fermo
+    // sulla domanda anche dopo che un collega l'ha già chiusa.
+    expect(ticketJobsRefetchInterval([job("awaiting_input")])).toBe(20_000);
   });
 
   it("guarda solo il PRIMO elemento: la lista è dal più recente al più vecchio", () => {

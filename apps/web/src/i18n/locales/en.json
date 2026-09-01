@@ -340,6 +340,8 @@
       "approve": "Approve",
       "approving": "Approving…",
       "assignee": "Assignee",
+      "awaitingAnswerFrom": "Waiting for an answer from {{email}}.",
+      "awaitingAnswerUnknown": "Waiting for a maintainer to answer the AI's question.",
       "awaitingMaintainer": "Waiting for a maintainer to approve the plan.",
       "back": "← All tickets",
       "comments": "Comments ({{count}})",
@@ -365,8 +367,13 @@
       "occurrences": "Deduplicated occurrences",
       "occurrencesMeta": "Occurrences",
       "originalRequest": "Original request",
+      "pastQuestions": "Past questions",
       "plan": "Implementation plan",
       "priority": "Priority",
+      "questionAnswerUnreadable": "The answer is no longer readable.",
+      "questionAnsweredBy": "Answered by {{email}}",
+      "questionAnsweredByUnknown": "Answered",
+      "questionRound": "Round {{round}}",
       "reject": "Reject",
       "rejectCancel": "Cancel",
       "rejectHint": "The instructions become a team comment: the next plan takes them into account.",
@@ -1413,11 +1420,13 @@
       "failed": "Failed",
       "skipped": "Skipped",
       "pr_closed": "PR closed",
-      "awaiting_plan_approval": "Plan to approve"
+      "awaiting_plan_approval": "Plan to approve",
+      "awaiting_input": "Question pending"
     },
     "notes": {
       "held": "Automation not started: a manual fix start is required.",
-      "awaiting_plan_approval": "The plan exceeds the effort threshold: approve or reject it to proceed."
+      "awaiting_plan_approval": "The plan exceeds the effort threshold: approve or reject it to proceed.",
+      "awaiting_input": "The AI asked a question and is waiting: answer it to let the plan continue."
     }
   },
   "milestones": {

@@ -29,6 +29,12 @@ export const aiJobSchema = z.object({
   // env, o provider eliminato (FK on delete set null).
   providerLabel: z.string().nullable(),
   providerKind: aiProviderKindSchema.nullable(),
+  // Chi ha chiesto il run. Null sui job nati automaticamente dall'ingest
+  // (nessun umano dietro) e su quelli precedenti al campo. È IDENTITÀ, non
+  // ruolo: la pagina ticket ci decide chi vede il pannello di risposta a una
+  // domanda dell'agente (il richiedente, più i maintainer) — la stessa regola
+  // che `actorAllows` applica lato server, dove resta l'autorità.
+  requestedByUserId: z.uuid().nullable(),
 });
 
 const ticketParamsSchema = z.object({ ticketId: z.uuid() });
@@ -77,6 +83,7 @@ function toPublicAiJob(row: AiJobRow): z.infer<typeof aiJobSchema> {
     finishedAt: row.finishedAt?.toISOString() ?? null,
     providerLabel: row.provider?.label ?? null,
     providerKind: row.provider?.kind ?? null,
+    requestedByUserId: row.requestedByUserId,
   };
 }
 

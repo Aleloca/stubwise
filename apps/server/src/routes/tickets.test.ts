@@ -2686,3 +2686,119 @@ describe("GET /api/tickets/:id/questions", () => {
     expect(body[0]!.answeredAt).not.toBeNull();
   });
 });
+
+describe("POST /api/tickets/:id/questions/answer", () => {
+  /**
+   * Ticket con un job fermo su una domanda aperta, richiesto da `requestedBy`.
+   * È lo stato che la pagina ticket incontra quando mostra il pannello.
+   */
+  async function seedOpenQuestion(requestedBy: string | null) {
+    const created = (
+      await postTicket({ projectId, title: "Domanda dalla pagina", type: "bug" })
+    ).json() as { id: string };
+    const [job] = await testDb.db
+      .insert(aiJobs)
+      .values({
+        ticketId: created.id,
+        status: "awaiting_input",
+        ...(requestedBy === null ? {} : { requestedByUserId: requestedBy }),
+      })
+      .returning({ id: aiJobs.id });
+    const [question] = await testDb.db
+      .insert(agentQuestions)
+      .values({
+        jobId: job!.id,
+        ticketId: created.id,
+        round: 1,
+        question: "Quale coda?",
+        options: [{ label: "Quella esistente" }, { label: "Una nuova" }],
+        recommendedIndex: 0,
+      })
+      .returning({ id: agentQuestions.id });
+    return { ticketId: created.id, jobId: job!.id, questionId: question!.id };
+  }
+
+  function answer(id: string, payload: Record<string, unknown>, cookie = users.memberCookie) {
+    return app.inject({
+      method: "POST",
+      url: `/api/tickets/${id}/questions/answer`,
+      headers: { cookie },
+      payload,
+    });
+  }
+
+  it("401 senza sessione, 404 su un ticket inesistente", async () => {
+    const anon = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${randomUUID()}/questions/answer`,
+      payload: { optionIndex: 0 },
+    });
+    expect(anon.statusCode).toBe(401);
+    const missing = await answer(randomUUID(), { optionIndex: 0 });
+    expect(missing.statusCode).toBe(404);
+  });
+
+  it("il richiedente risponde: domanda chiusa e job rimesso in coda su plan_continue", async () => {
+    const { ticketId, jobId, questionId } = await seedOpenQuestion(users.memberId);
+
+    const res = await answer(ticketId, { optionIndex: 1 });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ jobId, questionId });
+
+    const [question] = await testDb.db
+      .select()
+      .from(agentQuestions)
+      .where(eq(agentQuestions.id, questionId));
+    expect(question!.answer).toEqual({ optionIndex: 1 });
+    expect(question!.answeredByUserId).toBe(users.memberId);
+
+    const [job] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
+    expect(job!.status).toBe("queued");
+    expect(job!.resumeMode).toBe("plan_continue");
+  });
+
+  it("un operatore che non ha chiesto il run: 403 (risponde chi sa rispondere)", async () => {
+    const { ticketId } = await seedOpenQuestion(users.adminId);
+
+    const res = await answer(ticketId, { optionIndex: 0 });
+    expect(res.statusCode).toBe(403);
+    expect((res.json() as { code: string }).code).toBe("forbidden");
+  });
+
+  it("un maintainer risponde anche a una domanda di un collega", async () => {
+    const { ticketId } = await seedOpenQuestion(users.memberId);
+
+    const res = await answer(ticketId, { text: "Usa la coda esistente" }, users.adminCookie);
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("seconda risposta: 409 already_handled con chi ha già risposto", async () => {
+    const { ticketId } = await seedOpenQuestion(users.memberId);
+    expect((await answer(ticketId, { optionIndex: 0 })).statusCode).toBe(200);
+
+    const res = await answer(ticketId, { optionIndex: 1 });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({
+      code: "already_handled",
+      handledBy: { id: users.memberId, email: "member@example.com" },
+    });
+  });
+
+  it("indice fuori dalle opzioni persistite: 400 invalid_answer", async () => {
+    const { ticketId } = await seedOpenQuestion(users.memberId);
+
+    const res = await answer(ticketId, { optionIndex: 9 });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("invalid_answer");
+  });
+
+  it("ticket senza job: 409 question_not_pending", async () => {
+    const created = (
+      await postTicket({ projectId, title: "Nessun job", type: "bug" })
+    ).json() as { id: string };
+
+    const res = await answer(created.id, { optionIndex: 0 });
+    expect(res.statusCode).toBe(409);
+    expect((res.json() as { code: string }).code).toBe("question_not_pending");
+  });
+});

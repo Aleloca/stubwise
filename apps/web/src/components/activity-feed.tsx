@@ -417,4 +417,5 @@ const JOB_STATUS_TEXT: Record<ActivityAiJob["status"], string> = {
   skipped: "text-fg-faint",
   pr_closed: "text-fg-faint",
   awaiting_plan_approval: "text-signal",
+  awaiting_input: "text-signal",
 };
