@@ -292,7 +292,7 @@ describe("transizioni di stato", () => {
     expect(persisted.lastActivityAt.getTime()).toBeGreaterThan(Date.now() - 60_000);
   });
 
-  it("parkForInput senza sessionId (run andato in timeout) lascia cli_session_id NULL", async () => {
+  it("parkForInput senza sessionId (run riuscito ma sessionId non parsato) lascia cli_session_id NULL", async () => {
     const { db } = testDb;
     const job = await enqueueJob(db, { status: "fixing", startedAt: minutesAgo(1) });
 

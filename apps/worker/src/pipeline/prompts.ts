@@ -528,7 +528,7 @@ Output your plan in ${languageName(lang)} with these labelled sections, kept sho
 - ${t(lang, "plan.decisions")}
 
 Rules:
-- Do NOT edit, create or delete any file. Do NOT write ${REPORT_FILENAME}. Only output the plan as your final message.
+- Do NOT edit, create or delete any file. Do NOT write ${REPORT_FILENAME}. Only output the plan as your final message${askUser ? " — unless you called `ask_user` this turn, in which case output no plan at all" : ""}.
 - Be specific: name real files, functions and lines you found, not generic advice.
 - The "${t(lang, "plan.decisions")}" section is MANDATORY: list every non-obvious choice you made on your own and every assumption the implementer would otherwise have to re-take. Write "none" if there is genuinely nothing.
 - If you cannot locate the root cause, say so explicitly and explain what you inspected.

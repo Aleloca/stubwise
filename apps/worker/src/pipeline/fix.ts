@@ -16,7 +16,7 @@ import {
 import { getProvider, type GitProvider } from "@stubwise/git";
 import { t } from "@stubwise/i18n";
 import type { GitProviderKind } from "@stubwise/shared";
-import { and, asc, count, desc, eq } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNull } from "drizzle-orm";
 import { execa } from "execa";
 import { existsSync } from "node:fs";
 import { readFile, rm, stat } from "node:fs/promises";
@@ -795,11 +795,16 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   // Round della PROSSIMA domanda: le domande già poste su questo job (di
   // qualunque round e già risposte o meno) più uno. Serve sia al tool (che
   // oltre il tetto smette di registrare) sia alla riga `agent_questions`.
-  const [askedSoFar] = await db
-    .select({ value: count() })
-    .from(agentQuestions)
-    .where(eq(agentQuestions.jobId, job.id));
-  const questionRound = (askedSoFar?.value ?? 0) + 1;
+  // Interrogato SOLO quando c'è una fase plan: in execute-only e a fase singola
+  // nessuno può fare domande e la query sarebbe un giro a vuoto per ogni fix.
+  const questionRound = hasPlanRun
+    ? ((
+        await db
+          .select({ value: count() })
+          .from(agentQuestions)
+          .where(eq(agentQuestions.jobId, job.id))
+      )[0]?.value ?? 0) + 1
+    : 1;
   const questionMaxRounds = deps.questionMaxRounds ?? DEFAULT_AGENT_QUESTION_MAX_ROUNDS;
   // Parent dir DETERMINISTICA per i run di pianificazione: la ripresa dalla
   // risposta (`--resume`) deve ritrovare la stessa cwd. withProjectWorktrees la
@@ -859,8 +864,10 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     | { kind: "executed"; report: string | null; agentOutput: string; changedRepos: ChangedRepo[] }
     | { kind: "planned"; planText: string }
     /** La pianificazione si è fermata su una domanda: il payload è già stato
-     * rivalidato, `cliSessionId` è la sessione CLI da riprendere (assente se il
-     * run non l'ha esposta, es. timeout → la ripresa userà il fallback). */
+     * rivalidato, `cliSessionId` è la sessione CLI da riprendere. Assente
+     * quando il run è riuscito ma il CLI non ha esposto un sessionId parsabile
+     * (un timeout non arriva qui: lancia AgentTimeoutError prima) → la ripresa
+     * userà il fallback. */
     | { kind: "question"; payload: AskUserPayload; cliSessionId?: string };
   let worktreeResult: WorktreeResult;
   // Consumi dei run dell'agente: ogni run (plan ed execute, o l'unico run nella
@@ -1067,6 +1074,14 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
             if (isLimitError(planResult)) throw new ProviderLimitError(planResult.output);
             // Un exit non-zero della pianificazione è un fallimento del fix
             // (gestito nel catch → failJob): niente parcheggio, niente piano.
+            // SCELTA DELIBERATA: il check precede captureQuestion, quindi una
+            // domanda che il tool avesse fatto in tempo a scrivere viene
+            // IGNORATA. Un run morto male (o andato in timeout, che lancia
+            // prima ancora) è inaffidabile per intero: non ci si fida del suo
+            // piano, non ci si fida nemmeno della sua domanda — che potrebbe
+            // essere mezza formulata o già superata da ciò che il modello ha
+            // scoperto dopo. Nessun recupero da fare a valle: la dir
+            // deterministica viene ripulita al retry e il file sparisce.
             if (planResult.exitCode !== 0) {
               throw new AgentExitError(planResult.exitCode, planResult.output);
             }
@@ -1108,6 +1123,9 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
             if (isLimitError(planResult)) throw new ProviderLimitError(planResult.output);
             // Un exit non-zero della pianificazione è trattato come gli altri
             // fallimenti del fix: niente esecuzione, niente PR (vedi catch).
+            // Come in plan-only, il check PRECEDE captureQuestion di proposito:
+            // una domanda scritta da un run fallito è deliberatamente ignorata
+            // (vedi il commento esteso nel ramo plan-only).
             if (planResult.exitCode !== 0) {
               throw new AgentExitError(planResult.exitCode, planResult.output);
             }
@@ -1434,11 +1452,23 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   // "ownership persa" senza abortire le scritture, come parkForPlanApproval) e
   // la notifica pure — best-effort, e va emessa DOPO che lo stato è committato.
   //
-  // L'indice unico parziale ammette UNA sola domanda aperta per job: se il round
-  // precedente non fosse stato chiuso l'insert violerebbe il vincolo. Non deve
-  // poter accadere (si arriva qui solo da un job in lavorazione, e la ripresa
-  // passa da una risposta), ma se accade il job FALLISCE con l'errore in chiaro
-  // invece di restare `fixing` per sempre.
+  // L'indice unico parziale ammette UNA sola domanda aperta per job, e una può
+  // esserci davvero: fra il commit della transazione qui sotto e `parkForInput`
+  // c'è una finestra in cui un worker che muore lascia il job `fixing` con la
+  // domanda già scritta; `requeueStale` lo riaccoda, il run rifà la domanda e
+  // l'insert sbatterebbe sul vincolo — job `failed` PERMANENTE, con nel feed una
+  // domanda che invita a rispondere ma non è più rispondibile (rispondere
+  // richiede lo stato `awaiting_input`). Per questo la transazione CANCELLA
+  // prima le domande ancora aperte del job: una domanda aperta su un job che è
+  // di nuovo in lavorazione è stale per definizione — nessuno potrà mai
+  // risponderle. Se l'insert fallisce lo stesso — resta solo la corsa teorica
+  // con un insert concorrente fra DELETE e INSERT, che il claim esclude — il
+  // job va in `failed` con l'errore in chiaro invece di restare `fixing` per
+  // sempre: è un catch difensivo, non un percorso atteso.
+  //
+  // Il `round` NON viene ricalcolato dopo la cancellazione: è lo stesso valore
+  // annunciato al tool in `ASK_USER_ROUND` (il conteggio pre-run includeva la
+  // riga stale), e un round bruciato da un run perso resta bruciato.
   if (worktreeResult.kind === "question") {
     const { payload } = worktreeResult;
     const optionLines = payload.options
@@ -1454,6 +1484,11 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     let questionId: string;
     try {
       questionId = await db.transaction(async (tx) => {
+        // Domande rimaste aperte da un run precedente perso: stale per
+        // definizione (vedi sopra), vanno via prima dell'insert.
+        await tx
+          .delete(agentQuestions)
+          .where(and(eq(agentQuestions.jobId, job.id), isNull(agentQuestions.answeredAt)));
         const [row] = await tx
           .insert(agentQuestions)
           .values({

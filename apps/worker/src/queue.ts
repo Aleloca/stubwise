@@ -294,9 +294,10 @@ export async function parkForPlanApproval(
 export interface ParkForInputInput {
   /**
    * Id della sessione CLI del run di pianificazione, da cui la risposta
-   * riprenderà con `--resume`. Assente/null (run andato in timeout, che non
-   * espone il sessionId): la ripresa ricadrà sulla ri-pianificazione da zero
-   * con la storia delle domande già risposte.
+   * riprenderà con `--resume`. Assente/null quando il run è riuscito ma il CLI
+   * non ha esposto un sessionId parsabile: la ripresa ricadrà sulla
+   * ri-pianificazione da zero con la storia delle domande già risposte. (Un
+   * timeout non arriva mai qui: il runner lancia prima del parcheggio.)
    */
   cliSessionId?: string | null;
   log: string;

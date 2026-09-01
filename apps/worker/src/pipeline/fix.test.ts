@@ -3058,7 +3058,7 @@ describe("runFix — domanda dell'agente (ask_user)", () => {
     expect(await db.select().from(agentQuestions).where(eq(agentQuestions.jobId, job.id))).toHaveLength(1);
   });
 
-  it("run senza sessionId (timeout del CLI) → parcheggio comunque, cli_session_id NULL", async () => {
+  it("run riuscito ma senza sessionId parsato → parcheggio comunque, cli_session_id NULL", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
     const ticket = await planOnlyTicket(db, fixture);
@@ -3112,19 +3112,65 @@ describe("runFix — domanda dell'agente (ask_user)", () => {
     expect(rows[1]?.question).toBe(QUESTION.question);
   });
 
-  it("una seconda domanda APERTA sullo stesso job non passa il vincolo: job failed e non fixing", async () => {
+  it("domanda aperta rimasta da un run perso (worker morto prima del parcheggio) → sostituita, niente failed", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();
     const ticket = await planOnlyTicket(db, fixture);
     const job = await createFixingJob(db, ticket.id);
-    // Domanda già aperta (non risposta): l'indice unico parziale la protegge.
+    // Stato-veleno realmente raggiungibile: la transazione di un run precedente
+    // ha committato la domanda, il worker è morto PRIMA di parkForInput, il job
+    // è rimasto `fixing` e requeueStale lo ha riaccodato. La domanda aperta è
+    // stale per definizione (rispondere richiede `awaiting_input`), quindi il
+    // run nuovo la sostituisce invece di sbattere sull'indice unico parziale.
+    const [stale] = await db
+      .insert(agentQuestions)
+      .values({
+        jobId: job.id,
+        ticketId: ticket.id,
+        round: 1,
+        question: "Domanda del run perso",
+        options: [{ label: "A" }, { label: "B" }],
+        allowFreeText: true,
+      })
+      .returning();
+    if (!stale) throw new Error("insert della domanda stale non ha restituito la riga");
+    const runner = questionRunner(QUESTION);
+
+    const outcome = await runFix(
+      makeDeps(fixture, runner, makeProvider(), { askUserServerPath: await fakeAskUserEntry() }),
+      job,
+    );
+
+    // Il job si parcheggia normalmente: nessun fallimento permanente.
+    expect(outcome).toBe("awaiting_input");
+    const jobAfter = await getJob(db, job.id);
+    expect(jobAfter.status).toBe("awaiting_input");
+    expect(jobAfter.error).toBeNull();
+    // Una sola domanda aperta, ed è quella NUOVA: la stale è sparita.
+    const rows = await db.select().from(agentQuestions).where(eq(agentQuestions.jobId, job.id));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).not.toBe(stale.id);
+    expect(rows[0]?.question).toBe(QUESTION.question);
+    // Il round NON si ricalcola dopo la cancellazione: è quello annunciato al
+    // tool in ASK_USER_ROUND (il conteggio pre-run contava anche la stale).
+    expect(runner.calls[0]!.mcpConfig?.servers.stubwise_ask?.env?.ASK_USER_ROUND).toBe("2");
+    expect(rows[0]?.round).toBe(2);
+  });
+
+  it("una domanda GIÀ RISPOSTA non viene toccata dalla sostituzione della stale", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await planOnlyTicket(db, fixture);
+    const job = await createFixingJob(db, ticket.id);
     await db.insert(agentQuestions).values({
       jobId: job.id,
       ticketId: ticket.id,
       round: 1,
-      question: "Domanda ancora aperta",
+      question: "Prima domanda, già risposta",
       options: [{ label: "A" }, { label: "B" }],
       allowFreeText: true,
+      answer: { optionIndex: 0 },
+      answeredAt: new Date(),
     });
     const runner = questionRunner(QUESTION);
 
@@ -3133,11 +3179,18 @@ describe("runFix — domanda dell'agente (ask_user)", () => {
       job,
     );
 
-    // Fallimento DIAGNOSTICABILE invece di un job piantato in `fixing`.
-    expect(outcome).toBe("failed");
-    const jobAfter = await getJob(db, job.id);
-    expect(jobAfter.status).toBe("failed");
-    expect(jobAfter.error).toMatch(/registrazione della domanda fallita/);
+    expect(outcome).toBe("awaiting_input");
+    // La cancellazione colpisce SOLO le domande aperte: lo storico Q&A (da cui
+    // il fallback di ripresa ricostruisce le decisioni già prese) resta intero.
+    const rows = await db
+      .select()
+      .from(agentQuestions)
+      .where(eq(agentQuestions.jobId, job.id))
+      .orderBy(asc(agentQuestions.round));
+    expect(rows).toHaveLength(2);
+    expect(rows[0]?.question).toBe("Prima domanda, già risposta");
+    expect(rows[0]?.answeredAt).not.toBeNull();
+    expect(rows[1]?.question).toBe(QUESTION.question);
   });
 
   it("entry del server MCP assente → tool disattivato, warning nel log e prompt senza ask_user", async () => {
