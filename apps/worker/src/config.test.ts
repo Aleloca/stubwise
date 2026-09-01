@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { loadWorkerConfig } from "./config.js";
+import { DEFAULT_AGENT_QUESTION_MAX_ROUNDS } from "./pipeline/ask-user.js";
 
 const VALID = {
   DATABASE_URL: "postgres://user:pass@localhost:5432/stubwise",
@@ -545,6 +546,15 @@ describe("loadWorkerConfig", () => {
     expect(() => loadWorkerConfig({ ...VALID, AGENT_QUESTION_MAX_ROUNDS: "due" })).toThrow(
       /AGENT_QUESTION_MAX_ROUNDS/,
     );
+  });
+
+  it("il default della env COINCIDE con il fallback di pipeline/ask-user.ts", () => {
+    // Invariante meccanizzata invece che solo dichiarata nei commenti: in
+    // esercizio il tetto arriva sempre dalla env, ma i chiamanti che non lo
+    // iniettano (i test del fix) cadono su DEFAULT_AGENT_QUESTION_MAX_ROUNDS.
+    // Se i due numeri divergessero, gli stessi test proverebbero un tetto
+    // DIVERSO da quello che gira in produzione — e nessuno se ne accorgerebbe.
+    expect(DEFAULT_AGENT_QUESTION_MAX_ROUNDS).toBe(loadWorkerConfig(VALID).agentQuestionMaxRounds);
   });
 
   it("rispetta le variabili del self-repair (max attempts, timeout test); 0 = disattivato", () => {

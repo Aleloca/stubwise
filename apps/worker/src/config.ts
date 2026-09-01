@@ -113,7 +113,17 @@ const envSchema = z.object({
   // non registra più nulla e istruisce l'agente a scegliere da sé, documentando
   // la scelta nel piano — così una pianificazione non può rimbalzare all'umano
   // all'infinito. Deve restare allineata a DEFAULT_AGENT_QUESTION_MAX_ROUNDS
-  // (pipeline/ask-user.ts), il fallback quando il valore non viene iniettato.
+  // (pipeline/ask-user.ts), il fallback quando il valore non viene iniettato:
+  // l'invariante è verificata da un test in config.test.ts.
+  //
+  // MINIMO 1, e `0` è RIFIUTATO invece di significare "domande disattivate":
+  // questo numero viaggia come stringa nell'env del server MCP
+  // (`ASK_USER_MAX_ROUNDS`), che lo legge con readPositiveInt e su un valore
+  // < 1 degrada sul PROPRIO default (5) — chi scrive 0 sperando di spegnere le
+  // domande otterrebbe quindi il comportamento di default, cioè l'opposto. Un
+  // interruttore per disattivare `ask_user` non esiste: per non essere
+  // interrotti si mette il tetto a 1 (una domanda sola) o si esegue un piano
+  // già salvato, che non fa domande per costruzione.
   AGENT_QUESTION_MAX_ROUNDS: z.preprocess(
     emptyAsUndefined,
     z.coerce

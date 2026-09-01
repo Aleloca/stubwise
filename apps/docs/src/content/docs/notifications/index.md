@@ -41,8 +41,11 @@ marked as **recommended** by the AI, and most questions also accept an answer
 **Where it arrives.** The same question, in three places — answer wherever you
 happen to be:
 
-- in your **Stubwise inbox**, where the notification card shows the options as
-  buttons (you pick one, then confirm);
+- in your **Stubwise inbox** — **Inbox**, the first entry in the left-hand
+  navigation, also reachable from the bell at the top of it, which carries the
+  count of what you haven't read yet. The question waits under **To clear**,
+  in the **To decide** group, and its card shows the options as a list you pick
+  from, then confirm;
 - as a **Slack direct message**, where the buttons answer immediately and
   "Other…" opens a box to type in — see [actionable DM
   notifications](/docs/integrations/slack/#actionable-dm-notifications);

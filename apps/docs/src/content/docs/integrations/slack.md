@@ -108,8 +108,8 @@ the usual decisions can be taken without opening Stubwise.
 ### What arrives in a DM
 
 The same events that feed your Stubwise inbox, addressed to the people they
-concern: a **plan awaiting approval**, a **question the AI is waiting an answer
-to**, a **job on hold** (including one held because the monthly budget is
+concern: a **plan awaiting approval**, a **question the AI is awaiting an
+answer to**, a **job on hold** (including one held because the monthly budget is
 exhausted), a **fix that failed**, a **PR opened** or **closed without merge**,
 a **completed PR review**, a **new ticket**, a **paused Docs generation**, a
 **monitoring alert or recovery**. Decision events go to administrators;
