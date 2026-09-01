@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
+import { buildQuestionBlocks } from "@stubwise/notifications";
 import {
   agentQuestions,
   aiJobs,
@@ -1522,7 +1523,12 @@ describe("POST /api/slack/interactions — block_actions dell'inbox", () => {
 
   /** Domanda aperta: job fermo su `awaiting_input`, riga in agent_questions, DM. */
   async function seedQuestion(
-    opts: { requestedByUserId?: string; recipientId?: string; allowFreeText?: boolean } = {},
+    opts: {
+      requestedByUserId?: string;
+      recipientId?: string;
+      allowFreeText?: boolean;
+      options?: { label: string; consequence?: string }[];
+    } = {},
   ): Promise<{ ticketId: string; jobId: string; questionId: string; notificationId: string }> {
     const ticketId = await seedTicket();
     const [job] = await testDb.db
@@ -1533,7 +1539,9 @@ describe("POST /api/slack/interactions — block_actions dell'inbox", () => {
         ...(opts.requestedByUserId ? { requestedByUserId: opts.requestedByUserId } : {}),
       })
       .returning({ id: aiJobs.id });
-    const options = [
+    // La riga persistita e il payload della notifica portano le STESSE opzioni:
+    // è l'invariante su cui regge l'indice del bottone.
+    const options = opts.options ?? [
       { label: "Colonne vecchie", consequence: "Gli export esistenti restano validi." },
       { label: "Colonne nuove", consequence: "Rompe gli script dei clienti." },
     ];
@@ -1628,6 +1636,151 @@ describe("POST /api/slack/interactions — block_actions dell'inbox", () => {
     expect(payload.replace_original).toBe(true);
     expect(payload.text).toContain("Colonne nuove");
     expect(payload.text).toContain("admin@example.com");
+  });
+
+  it("end-to-end: il bottone premuto registra l'opzione LETTA, con 5 opzioni nel payload", async () => {
+    // Il test parte dai blocchi VERI: si legge l'etichetta sul bottone, lo si
+    // "preme" col suo action_id e si verifica che la riga persistita porti
+    // quella stessa etichetta. È il giro completo che una compattazione degli
+    // indici — nei blocchi o nella nota — romperebbe in silenzio.
+    const options = [
+      { label: "Colonne vecchie" },
+      { label: "Colonne nuove", consequence: "Rompe gli script dei clienti." },
+      { label: "Entrambe" },
+      { label: "Nessuna delle due" },
+      { label: "Chiedi al cliente" },
+    ];
+    const { questionId, notificationId } = await seedQuestion({ options });
+    const [notification] = await testDb.db
+      .select({ event: notifications.event })
+      .from(notifications)
+      .where(eq(notifications.id, notificationId));
+
+    const blocks = buildQuestionBlocks({
+      text: "❓ domanda",
+      event: notification!.event,
+      actions: ["answer", "open", "snooze"],
+      notificationId,
+      lang: "en",
+    }) as { type: string; elements?: { action_id: string; text?: { text: string } }[] }[];
+    const buttons = (blocks.find((b) => b.type === "actions")?.elements ?? []).filter((el) =>
+      el.action_id.startsWith("inbox:answer:"),
+    );
+    // Il payload ne ha 5, i bottoni si fermano a 4: il taglio è di prefisso.
+    expect(buttons).toHaveLength(4);
+    const pressed = buttons.find((b) => b.text?.text.includes("Nessuna delle due"))!;
+    expect(pressed.action_id).toBe("inbox:answer:3");
+
+    await slackPost(
+      "/api/slack/interactions",
+      blockActionsBody({ actionId: pressed.action_id, notificationId }),
+    );
+
+    await vi.waitFor(async () => {
+      expect((await readQuestion(questionId))?.answer).not.toBeNull();
+    });
+    const question = await readQuestion(questionId);
+    const answer = question?.answer as { optionIndex: number };
+    // L'indice registrato punta all'opzione la cui etichetta stava sul bottone.
+    const persisted = (question?.options as { label: string }[])[answer.optionIndex];
+    expect(persisted?.label).toBe("Nessuna delle due");
+    // E la nota parla della stessa opzione, non di un'altra.
+    const payload = postResponse.mock.calls.at(-1)![1] as { text: string };
+    expect(payload.text).toContain("Nessuna delle due");
+    expect(payload.text).not.toContain("Colonne vecchie");
+  });
+
+  it("payload divergente dalla riga persistita: la nota immediata resta ancorata all'INDICE, non a un elenco filtrato", async () => {
+    // Scenario difensivo: un messaggio vecchio il cui payload non combacia più
+    // con `agent_questions` (i bottoni di un payload così oggi non esistono —
+    // `readOptions` fa bail-out — ma l'action_id di un DM già inviato sì).
+    // L'indice che arriva è quello delle opzioni PERSISTITE: chi rende la nota
+    // deve leggerlo posizionalmente, o racconterà un'altra scelta.
+    const persisted = [
+      { label: "Alfa" },
+      { label: "Bravo" },
+      { label: "Charlie" },
+      { label: "Delta" },
+    ];
+    const { questionId, notificationId } = await seedQuestion({ options: persisted });
+    // Il payload della notifica ha la prima voce inutilizzabile: un elenco
+    // FILTRATO farebbe scalare tutto di uno e l'indice 1 diventerebbe "Charlie".
+    await testDb.db
+      .update(notifications)
+      .set({
+        event: {
+          ...((
+            await testDb.db
+              .select({ event: notifications.event })
+              .from(notifications)
+              .where(eq(notifications.id, notificationId))
+          )[0]!.event as Record<string, unknown>),
+          options: [{ label: "   " }, ...persisted.slice(1)],
+        },
+      })
+      .where(eq(notifications.id, notificationId));
+
+    await slackPost(
+      "/api/slack/interactions",
+      blockActionsBody({ actionId: "inbox:answer:1", notificationId }),
+    );
+
+    await vi.waitFor(async () => {
+      expect((await readQuestion(questionId))?.answer).toEqual({ optionIndex: 1 });
+    });
+    const payload = postResponse.mock.calls.at(-1)![1] as { text: string };
+    expect(payload.text).toContain("Bravo");
+    expect(payload.text).not.toContain("Charlie");
+  });
+
+  it("una risposta lunga non sfora la section: la nota è accorciata una volta sola", async () => {
+    // Etichetta enorme (la scrive l'agente) sul percorso `response_url`: senza
+    // troncatura la POST porterebbe una section oltre i 3000 caratteri e
+    // fallirebbe in silenzio, lasciando chi ha risposto senza feedback.
+    const huge = "A".repeat(4000);
+    const { notificationId } = await seedQuestion({
+      options: [{ label: huge, consequence: "B".repeat(4000) }, { label: "Corta" }],
+    });
+
+    await slackPost(
+      "/api/slack/interactions",
+      blockActionsBody({ actionId: "inbox:answer:0", notificationId }),
+    );
+    await vi.waitFor(() => expect(postResponse).toHaveBeenCalled());
+    const payload = postResponse.mock.calls.at(-1)![1] as {
+      text: string;
+      blocks: { type: string; text?: { text: string } }[];
+    };
+    for (const block of payload.blocks.filter((b) => b.type === "section")) {
+      expect(block.text!.text.length).toBeLessThanOrEqual(3000);
+    }
+    expect(payload.text).toContain("…");
+    expect(payload.text.length).toBeLessThanOrEqual(3000);
+  });
+
+  it("risposta libera lunghissima: persistita intera, accorciata SOLO nelle note dei DM", async () => {
+    const { jobId, questionId, notificationId } = await seedQuestion();
+    await seedNotification({ userId: seeded.memberId, kind: "job.awaiting_input", jobId });
+    // 4000 caratteri: il massimo che il modal ammette, un'azione utente normale.
+    const long = "parola ".repeat(570).trim();
+    expect(long.length).toBeGreaterThan(3500);
+
+    const res = await slackPost(
+      "/api/slack/interactions",
+      answerSubmissionBody({ notificationId, text: long }),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toBe("");
+
+    // Sul ticket e nella riga resta INTERA: è il DM che è una didascalia.
+    expect((await readQuestion(questionId))?.answer).toEqual({ text: long });
+    const updates = await slackUpdates();
+    expect(updates).toHaveLength(2);
+    for (const update of updates) {
+      const note = (update.event as { note: string }).note;
+      expect(note.length).toBeLessThan(400);
+      expect(note).toContain("…");
+    }
   });
 
   it("indice fuori dalle opzioni → effimero, nessuna risposta scritta", async () => {

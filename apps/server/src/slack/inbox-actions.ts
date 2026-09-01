@@ -250,10 +250,15 @@ async function updatedMessage(
  * La risposta in una riga, per la nota del messaggio riscritto SUBITO. Le altre
  * copie — e la propria, riscritta poi dal poller — la ricevono da
  * `answerQuestion`, che la rende dalla domanda persistita: qui si usa lo stesso
- * `renderAnswer` sulle opzioni del payload, perché la scorciatoia
- * dell'immediatezza non passa dal servizio e le due note devono dire la stessa
- * cosa. Payload marcio ⇒ `undefined`: la nota ripiega sul suo "—" e il poller
- * la corregge un tick dopo.
+ * `renderAnswer` perché la scorciatoia dell'immediatezza non passa dal servizio
+ * e le due note devono dire la stessa cosa. Payload inutilizzabile ⇒
+ * `undefined`: la nota ripiega sul suo "—" e il poller la corregge un tick
+ * dopo, con la versione autorevole.
+ *
+ * L'opzione si legge POSIZIONALMENTE (`options[indice]`), mai da un elenco
+ * filtrato: un filtro farebbe scalare gli indici successivi e la nota
+ * mostrerebbe l'etichetta di un'ALTRA opzione — la stessa trappola da cui
+ * `readOptions` difende i bottoni.
  */
 function answerLine(
   answer: AnswerInput | undefined,
@@ -263,13 +268,20 @@ function answerLine(
   if (answer.text !== undefined) return answer.text.trim() || undefined;
   if (answer.optionIndex === undefined) return undefined;
   const raw: unknown = event?.options;
-  const options = Array.isArray(raw)
-    ? raw.filter(
-        (o): o is { label: string; consequence?: string } =>
-          typeof o === "object" && o !== null && typeof (o as { label?: unknown }).label === "string",
-      )
-    : [];
-  return renderAnswer({ optionIndex: answer.optionIndex }, options);
+  const item: unknown = Array.isArray(raw) ? raw[answer.optionIndex] : undefined;
+  if (typeof item !== "object" || item === null) return undefined;
+  const { label, consequence } = item as { label?: unknown; consequence?: unknown };
+  if (typeof label !== "string" || label.trim() === "") return undefined;
+  // L'opzione è già risolta qui: a `renderAnswer` si chiede solo la REGOLA di
+  // resa (etichetta più conseguenza), non di ripescarla per indice.
+  return renderAnswer({ optionIndex: 0 }, [
+    {
+      label: label.trim(),
+      ...(typeof consequence === "string" && consequence.trim() !== ""
+        ? { consequence: consequence.trim() }
+        : {}),
+    },
+  ]);
 }
 
 export interface InboxActionDeps {

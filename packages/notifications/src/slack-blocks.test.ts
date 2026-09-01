@@ -408,6 +408,54 @@ describe("buildQuestionBlocks", () => {
     }
   });
 
+  it("una voce inutilizzabile azzera i bottoni: un click non può registrare un'opzione diversa da quella letta", () => {
+    // L'indice del bottone viaggia da solo fino ad `answerQuestion`, che lo
+    // valida solo per RANGE contro le opzioni persistite. Se qui si saltasse la
+    // voce marcia, il bottone "Colonne nuove" porterebbe l'indice 0 — cioè
+    // l'opzione PERSISTITA numero 1, che è un'altra cosa.
+    const blocks = questionBlocks({
+      options: [{ label: "   " }, { label: "Colonne nuove" }, { label: "Entrambe" }],
+    });
+    expect(ids(blocks)).toEqual(["inbox:answer_free", "inbox:open", "inbox:snooze"]);
+    // Nessuna riga di opzioni: non si offre da leggere ciò che non si può votare.
+    expect(blocks.some((b) => (b as { type?: string }).type === "actions")).toBe(true);
+    expect(blocks).toHaveLength(2);
+  });
+
+  it("il taglio a 4 è di PREFISSO: gli indici restano quelli della riga persistita", () => {
+    const blocks = questionBlocks({
+      options: [
+        { label: "Zero" },
+        { label: "Uno" },
+        { label: "Due" },
+        { label: "Tre" },
+        { label: "Quattro" },
+      ],
+      recommendedIndex: 3,
+    });
+    const buttons = elementsOf(blocks).filter((el) => el.action_id.startsWith("inbox:answer:"));
+    // action_id[i] ⇔ opzione[i]: l'etichetta sul bottone è quella dell'indice
+    // che il click manderà al servizio.
+    expect(buttons.map((b) => [b.action_id, b.text?.text])).toEqual([
+      ["inbox:answer:0", "1. Zero"],
+      ["inbox:answer:1", "2. Uno"],
+      ["inbox:answer:2", "3. Due"],
+      ["inbox:answer:3", "4. Tre ⭐"],
+    ]);
+  });
+
+  it("un'etichetta con emoji non viene spezzata a metà della coppia di surrogati", () => {
+    const blocks = questionBlocks({
+      options: [{ label: "🙂".repeat(60) }, { label: "B" }],
+      recommendedIndex: undefined,
+    });
+    const label = elementsOf(blocks)[0]!.text!.text;
+    expect(label.length).toBeLessThanOrEqual(75);
+    // Nessun surrogato spaiato: il round-trip UTF-8 non introduce U+FFFD.
+    expect(Buffer.from(label, "utf8").toString("utf8")).toBe(label);
+    expect(label).not.toContain("\uFFFD");
+  });
+
   it("payload senza opzioni ma con testo libero: resta il solo Altro…", () => {
     const blocks = questionBlocks({ options: [], recommendedIndex: undefined });
     expect(ids(blocks)).toEqual(["inbox:answer_free", "inbox:open", "inbox:snooze"]);

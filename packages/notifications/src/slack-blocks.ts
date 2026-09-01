@@ -208,9 +208,25 @@ const CONSEQUENCE_MAX = 240;
 /** Marcatore dell'opzione consigliata dall'agente (bottone e sezione). */
 const RECOMMENDED_MARK = "⭐";
 
-/** Tronca a `max` caratteri con l'ellissi, senza spezzare a metà di uno spazio. */
+/**
+ * Tronca entro `max` caratteri, con l'ellissi finale. La PAROLA in coda può
+ * restare a metà — quello che conta è stare dentro i tetti di Slack — ma un
+ * CARATTERE no: si accumula per punto di codice, così un'etichetta che contiene
+ * un'emoji non viene spezzata a metà della coppia di surrogati (uno `slice`
+ * secco lo farebbe, e sul bottone arriverebbe un carattere rotto).
+ *
+ * Il tetto resta contato in code unit UTF-16 (`length`), che è la misura più
+ * prudente rispetto a quella di Slack.
+ */
 function truncate(text: string, max: number): string {
-  return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`;
+  if (text.length <= max) return text;
+  let kept = "";
+  for (const point of text) {
+    // -1: l'ellissi occupa l'ultimo posto.
+    if (kept.length + point.length > max - 1) break;
+    kept += point;
+  }
+  return `${kept.trimEnd()}…`;
 }
 
 /** La domanda come serve a questi blocchi, estratta dal payload dell'evento. */
@@ -218,6 +234,37 @@ interface QuestionForBlocks {
   options: AgentQuestionOption[];
   recommendedIndex: number | null;
   allowFreeText: boolean;
+}
+
+/**
+ * Le opzioni da rendere come bottoni, o `[]` se l'elenco non è utilizzabile.
+ *
+ * L'INDICE È IL DATO: `inbox:answer:<i>` viaggia da solo fino ad
+ * `answerQuestion`, che lo valida contro le opzioni PERSISTITE guardandone solo
+ * il range. Se il payload e la riga `agent_questions` divergessero, un elenco
+ * ricompattato qui registrerebbe in silenzio una scelta DIVERSA da quella
+ * letta — il fallimento peggiore per un recinto difensivo.
+ *
+ * Perciò: una sola voce inutilizzabile ⇒ `[]`, cioè nessun bottone di opzione
+ * (resta "Altro…" se c'è il testo libero, altrimenti i blocchi standard). Il
+ * taglio a {@link MAX_OPTIONS} invece resta: è un taglio di PREFISSO, gli
+ * indici 0…3 restano quelli della riga persistita.
+ */
+function readOptions(raw: unknown): AgentQuestionOption[] {
+  if (!Array.isArray(raw)) return [];
+  const options: AgentQuestionOption[] = [];
+  for (const item of raw.slice(0, MAX_OPTIONS)) {
+    if (typeof item !== "object" || item === null) return [];
+    const { label, consequence } = item as { label?: unknown; consequence?: unknown };
+    if (typeof label !== "string" || label.trim() === "") return [];
+    options.push({
+      label: label.trim(),
+      ...(typeof consequence === "string" && consequence.trim() !== ""
+        ? { consequence: consequence.trim() }
+        : {}),
+    });
+  }
+  return options;
 }
 
 /**
@@ -231,20 +278,7 @@ function readQuestion(event: unknown): QuestionForBlocks | null {
   if (typeof event !== "object" || event === null) return null;
   const raw = event as Record<string, unknown>;
   const allowFreeText = raw.allowFreeText === true;
-  const options: AgentQuestionOption[] = [];
-  if (Array.isArray(raw.options)) {
-    for (const item of raw.options.slice(0, MAX_OPTIONS)) {
-      if (typeof item !== "object" || item === null) continue;
-      const { label, consequence } = item as { label?: unknown; consequence?: unknown };
-      if (typeof label !== "string" || label.trim() === "") continue;
-      options.push({
-        label: label.trim(),
-        ...(typeof consequence === "string" && consequence.trim() !== ""
-          ? { consequence: consequence.trim() }
-          : {}),
-      });
-    }
-  }
+  const options = readOptions(raw.options);
   if (options.length === 0 && !allowFreeText) return null;
   const recommended = raw.recommendedIndex;
   return {

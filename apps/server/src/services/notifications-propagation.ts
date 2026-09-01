@@ -91,6 +91,26 @@ function slackDate(date: Date): string {
   return `<!date^${epoch}^{date_short_pretty} {time}|${date.toISOString()}>`;
 }
 
+/** Quanto della risposta entra nella nota del DM. */
+const NOTE_ANSWER_MAX_CHARS = 200;
+
+/**
+ * Riduce la risposta a UNA riga corta: la nota è una didascalia in coda a un DM,
+ * non il posto dove rileggere quattromila caratteri di testo libero (la risposta
+ * per intero resta sul ticket, nel commento di sistema).
+ */
+function truncateNote(answer: string): string {
+  const oneLine = answer.replace(/\s+/g, " ").trim();
+  // Taglio per PUNTO DI CODICE (`Array.from`) e non per code unit UTF-16:
+  // `slice` su una stringa che contiene un'emoji può spezzarne la coppia di
+  // surrogati proprio al confine, e la nota arriverebbe su Slack con un
+  // carattere rotto.
+  const points = Array.from(oneLine);
+  return points.length > NOTE_ANSWER_MAX_CHARS
+    ? `${points.slice(0, NOTE_ANSWER_MAX_CHARS - 1).join("")}…`
+    : oneLine;
+}
+
 /**
  * Riga di stato da appendere al messaggio dopo l'azione ("✅ Piano approvato da
  * …"), nella lingua di chi la leggerà.
@@ -110,14 +130,19 @@ export function inboxNote(
   }
   if (action === "answer") {
     // La nota della risposta PORTA la risposta: chi legge il DM di un collega
-    // deve sapere cosa è stato deciso, non solo che qualcuno ha deciso. Il
-    // testo però non è nostro (l'etichetta dell'opzione la scrive l'agente, il
-    // testo libero chi ha risposto) e finisce in una `section` mrkdwn: si
-    // escapa qui, che è dove la nota diventa markup Slack — a valle nessuno lo
-    // rifà, quindi l'escape resta uno solo.
+    // deve sapere cosa è stato deciso, non solo che qualcuno ha deciso.
+    //
+    // Accorciata e escapata QUI, che è il punto da cui passano ENTRAMBE le
+    // strade (la copia riscritta subito via `response_url` e quelle accodate da
+    // `mirrorDecision`): una sola applicazione, quindi le due copie dello stesso
+    // messaggio dicono la stessa cosa e nessuna delle due può sforare i 3000
+    // caratteri di una `section` con una risposta libera da 4000.
+    //
+    // ORDINE: prima si taglia, poi si escapa. Al contrario il taglio cadrebbe
+    // in mezzo a un'entità (`&am…`) e il testo arriverebbe rotto.
     return t(lang, NOTE_KEY.answer, {
       actor: args.actor,
-      answer: args.answer ? escapeSlackMrkdwn(args.answer) : "—",
+      answer: args.answer ? escapeSlackMrkdwn(truncateNote(args.answer)) : "—",
     });
   }
   return t(lang, NOTE_KEY[action], { actor: args.actor });
@@ -202,7 +227,9 @@ export async function mirrorDecision(
       // sparito fra la decisione e qui, la nota resta comunque leggibile.
       actor: actor?.email ?? "—",
       ...(args.snoozedUntil ? { snoozedUntil: args.snoozedUntil } : {}),
-      ...(args.answer === undefined ? {} : { answer: truncateNote(args.answer) }),
+      // Niente troncatura qui: la fa `inboxNote`, che è il punto comune a
+      // tutte le superfici.
+      ...(args.answer === undefined ? {} : { answer: args.answer }),
     };
     await enqueueInboxUpdates(db, args.notificationIds, (lang) =>
       inboxNote(args.action, lang, noteArgs),
@@ -238,22 +265,3 @@ export async function propagateDecision(
   return changed;
 }
 
-/** Quanto della risposta entra nella nota del DM. */
-const NOTE_ANSWER_MAX_CHARS = 200;
-
-/**
- * Riduce la risposta a UNA riga corta: la nota è una didascalia in coda a un DM,
- * non il posto dove rileggere quattromila caratteri di testo libero (la risposta
- * per intero resta sul ticket, nel commento di sistema).
- */
-function truncateNote(answer: string): string {
-  const oneLine = answer.replace(/\s+/g, " ").trim();
-  // Taglio per PUNTO DI CODICE (`Array.from`) e non per code unit UTF-16:
-  // `slice` su una stringa che contiene un'emoji può spezzarne la coppia di
-  // surrogati proprio al confine, e la nota arriverebbe su Slack con un
-  // carattere rotto.
-  const points = Array.from(oneLine);
-  return points.length > NOTE_ANSWER_MAX_CHARS
-    ? `${points.slice(0, NOTE_ANSWER_MAX_CHARS - 1).join("")}…`
-    : oneLine;
-}
