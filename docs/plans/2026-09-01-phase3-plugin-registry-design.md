@@ -6,6 +6,7 @@ program: 2026-08-31-stubwise-nerve-center-program-design.md
 stubwise:
   project: stubwise
   backlogItem: bf9c532a-0327-43c1-aa78-dc6db00e4faf # https://stubwise.thecove.it/backlog/bf9c532a-0327-43c1-aa78-dc6db00e4faf
+  ticket: d4710fa7-fe76-4fbc-8010-451638ea2d5d # https://stubwise.thecove.it/tickets/d4710fa7-fe76-4fbc-8010-451638ea2d5d
 ---
 
 # Fase 3 — Registro plugin/skill
