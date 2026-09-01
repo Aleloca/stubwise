@@ -72,7 +72,7 @@ describe("pluginInventorySchema", () => {
     ).toThrow();
   });
 
-  it("rifiuta un hook senza comando o senza chiave", () => {
+  it("rifiuta un hook senza comando, senza chiave o senza evento", () => {
     expect(() =>
       pluginInventorySchema.parse({
         ...minimal,
@@ -83,6 +83,18 @@ describe("pluginInventorySchema", () => {
       pluginInventorySchema.parse({
         ...minimal,
         hooks: [{ event: "SessionStart", command: "./x.sh" }],
+      }),
+    ).toThrow();
+    expect(() =>
+      pluginInventorySchema.parse({
+        ...minimal,
+        hooks: [{ key: "SessionStart#0", command: "./x.sh" }],
+      }),
+    ).toThrow();
+    expect(() =>
+      pluginInventorySchema.parse({
+        ...minimal,
+        hooks: [{ key: "SessionStart#0", event: "", command: "./x.sh" }],
       }),
     ).toThrow();
   });
@@ -136,6 +148,9 @@ describe("createPluginSchema", () => {
       "",
       "./plugins",
       "plugins//annidato",
+      // Il backslash non spezza i segmenti: rifiutato in blocco (fail-closed).
+      "plugins\\..\\fuori",
+      "plugins\\superpowers",
     ]) {
       expect(() =>
         createPluginSchema.parse({
@@ -161,6 +176,15 @@ describe("createPluginSchema", () => {
     expect(() => createPluginSchema.parse({ sourceUrl, ref: "" })).toThrow();
     expect(() => createPluginSchema.parse({ sourceUrl, ref: "a".repeat(201) })).toThrow();
     expect(createPluginSchema.parse({ sourceUrl, ref: "a".repeat(200) }).ref).toHaveLength(200);
+  });
+
+  it("rifiuta un sourceUrl oltre i 2000 caratteri", () => {
+    const prefisso = "https://github.com/obra/";
+    const alLimite = `${prefisso}${"a".repeat(2000 - prefisso.length)}`;
+    expect(createPluginSchema.parse({ sourceUrl: alLimite, ref: "main" }).sourceUrl).toHaveLength(
+      2000,
+    );
+    expect(() => createPluginSchema.parse({ sourceUrl: `${alLimite}a`, ref: "main" })).toThrow();
   });
 });
 
@@ -263,6 +287,57 @@ describe("projectPluginSchema / putProjectPluginsSchema", () => {
       plugins: [{ pluginId, enabled: false }],
     });
     expect(parsed.plugins[0]?.enabled).toBe(false);
+  });
+
+  it("rifiuta un pluginId ripetuto nell'insieme (body ambiguo)", () => {
+    expect(() =>
+      putProjectPluginsSchema.parse({
+        plugins: [
+          { pluginId, enabled: true },
+          { pluginId, enabled: false },
+        ],
+      }),
+    ).toThrow();
+    // Due plugin distinti restano validi.
+    const altro = "33333333-3333-4333-8333-333333333333";
+    expect(
+      putProjectPluginsSchema.parse({
+        plugins: [
+          { pluginId, enabled: true },
+          { pluginId: altro, enabled: true },
+        ],
+      }).plugins,
+    ).toHaveLength(2);
+  });
+
+  it("limita le liste di disabilitazione a 500 voci", () => {
+    const skills = Array.from({ length: 500 }, (_, i) => `skill-${i}`);
+    expect(
+      projectPluginSchema.parse({ pluginId, enabled: true, disabledSkills: skills }).disabledSkills,
+    ).toHaveLength(500);
+    expect(() =>
+      projectPluginSchema.parse({ pluginId, enabled: true, disabledSkills: [...skills, "extra"] }),
+    ).toThrow();
+    expect(() =>
+      projectPluginSchema.parse({
+        pluginId,
+        enabled: true,
+        disabledHooks: [...skills, "extra"].map((s) => `Event#${s}`),
+      }),
+    ).toThrow();
+  });
+
+  it("limita l'insieme a 200 plugin", () => {
+    // Uuid distinti generati dall'indice: il cap deve scattare sulla lunghezza,
+    // non sul controllo dei duplicati.
+    const idAt = (i: number) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`;
+    const plugins = Array.from({ length: 200 }, (_, i) => ({ pluginId: idAt(i), enabled: true }));
+    expect(putProjectPluginsSchema.parse({ plugins }).plugins).toHaveLength(200);
+    expect(() =>
+      putProjectPluginsSchema.parse({
+        plugins: [...plugins, { pluginId: idAt(200), enabled: true }],
+      }),
+    ).toThrow();
   });
 
   it("rifiuta un PUT senza la lista (full-replacement esplicito)", () => {

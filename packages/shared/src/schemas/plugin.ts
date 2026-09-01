@@ -134,12 +134,9 @@ const pluginSourceUrlSchema = z
   .url()
   .max(2000)
   .refine((raw) => {
-    let parsed: URL;
-    try {
-      parsed = new URL(raw);
-    } catch {
-      return false;
-    }
+    // `z.url()` ha già garantito che la stringa sia parsabile: qui resta solo da
+    // stringere schema e credenziali.
+    const parsed = new URL(raw);
     return parsed.protocol === "https:" && parsed.username === "" && parsed.password === "";
   }, "serve un URL https pubblico senza credenziali");
 
@@ -148,6 +145,10 @@ const pluginSourceUrlSchema = z
  * normalizzato: niente slash iniziale/finale, niente `.`/`..` (fail-closed —
  * una subdir malformata è un errore, non un fetch della radice), perché la dir
  * risultante viene concatenata alla checkout e non deve poterne uscire.
+ *
+ * Il backslash è rifiutato del tutto: su Linux (dove gira il worker) è un
+ * carattere di filename qualsiasi, quindi `a\..\b` non è traversal oggi — ma è
+ * un segmento che `split("/")` non spezza, e nessun plugin reale ne ha bisogno.
  */
 const pluginSourceSubdirSchema = z
   .string()
@@ -155,6 +156,7 @@ const pluginSourceSubdirSchema = z
   .max(500)
   // Un segmento vuoto copre anche slash iniziale/finale e doppio slash (a//b).
   .refine((p) => {
+    if (p.includes("\\")) return false;
     const segments = p.split("/");
     return segments.every((s) => s !== "" && s !== "." && s !== "..");
   }, "path non normalizzato o traversal");
@@ -198,8 +200,21 @@ export type ProjectPlugin = z.infer<typeof projectPluginSchema>;
  * Body del PUT delle abilitazioni: l'INSIEME COMPLETO per il progetto (i plugin
  * assenti risultano non abilitati). `plugins` non ha default proprio per questo:
  * un body senza il campo è un errore, non un azzeramento silenzioso.
+ *
+ * Un `pluginId` ripetuto è rifiutato QUI: con la semantica di sostituzione
+ * completa due voci sullo stesso plugin sono un body ambiguo (chi vince?), e
+ * lasciarle passare significherebbe o un'ultima-scrive-vince silenziosa o una
+ * violazione della unique `(project_id, plugin_id)` che l'utente vedrebbe come
+ * 500 invece che come 400. I duplicati DENTRO `disabledSkills`/`disabledHooks`
+ * restano innocui: spegnere è una sottrazione, ed è idempotente.
  */
 export const putProjectPluginsSchema = z.object({
-  plugins: z.array(projectPluginSchema).max(200),
+  plugins: z
+    .array(projectPluginSchema)
+    .max(200)
+    .refine(
+      (plugins) => new Set(plugins.map((p) => p.pluginId)).size === plugins.length,
+      "pluginId duplicato nell'insieme delle abilitazioni",
+    ),
 });
 export type PutProjectPluginsInput = z.infer<typeof putProjectPluginsSchema>;
