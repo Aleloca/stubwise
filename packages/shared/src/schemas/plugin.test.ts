@@ -328,9 +328,11 @@ describe("projectPluginSchema / putProjectPluginsSchema", () => {
   });
 
   it("rifiuta voci malformate senza lanciare fuori da Zod", () => {
-    // Stessa lezione del refine su sourceUrl: il controllo dei duplicati è un
-    // refine sull'ARRAY e in Zod v4 gira anche quando gli elementi hanno già
-    // fallito il parse. Nessuna di queste forme deve produrre un'eccezione.
+    // Oggi Zod NON esegue il refine dei duplicati quando gli elementi dell'array
+    // hanno fallito il parse (a differenza dei check sulla stessa stringa, dove
+    // la catena prosegue: vedi sourceUrl). È però un dettaglio di implementazione:
+    // questo test blinda che un upgrade non trasformi mai un body malformato in
+    // un'eccezione fuori da Zod.
     for (const plugins of [[null], [undefined], [3], ["x"], [{}], [[]], [{ pluginId: "abc" }]]) {
       const esito = putProjectPluginsSchema.safeParse({ plugins });
       expect(esito.success).toBe(false);
