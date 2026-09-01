@@ -331,7 +331,11 @@ export function TicketDetailPage() {
   // condivise con la card d'inbox).
   const [answerError, setAnswerError] = useState<string | null>(null);
   const answerMutation = useMutation({
-    mutationFn: (answer: AnswerBody) => answerTicketQuestion(id, answer),
+    // La domanda viaggia con la risposta: il server rifiuta se nel frattempo il
+    // job ne ha aperta un'altra (una scheda ferma sul round vecchio manderebbe
+    // un indice scelto leggendo altre opzioni).
+    mutationFn: ({ questionId, answer }: { questionId: string; answer: AnswerBody }) =>
+      answerTicketQuestion(id, questionId, answer),
     onMutate: () => setAnswerError(null),
     onSuccess: () => {
       invalidateJobAndDetail();
@@ -568,7 +572,9 @@ export function TicketDetailPage() {
                     question={openQuestion}
                     pending={answerMutation.isPending}
                     error={answerError}
-                    onSubmit={(answer) => answerMutation.mutate(answer)}
+                    onSubmit={(answer) =>
+                      answerMutation.mutate({ questionId: openQuestion.questionId, answer })
+                    }
                   />
                 )
               ) : (

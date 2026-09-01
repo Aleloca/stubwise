@@ -856,6 +856,11 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
    * possa ancorare la risposta a un job qualsiasi. Se non ce n'è nessuno la
    * risposta è la stessa che darebbe il servizio: non c'è nulla in attesa.
    *
+   * Il `questionId` del corpo, invece, viene DAL client ed è il punto: è la
+   * domanda che quella pagina stava mostrando. Se nel frattempo il job ne ha
+   * aperta un'altra, il servizio rifiuta — una scheda ferma sul round vecchio
+   * manderebbe un indice scelto leggendo altre opzioni.
+   *
    * Permesso e stato NON si controllano qui: li applica `answerQuestion`
    * (`actorAllows` + `stateAllows`), sede unica delle due regole. Questa rotta
    * traduce soltanto l'esito in HTTP, con gli stessi status e gli stessi `code`
@@ -867,7 +872,10 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       preHandler: requireAuth,
       schema: {
         params: idParamsSchema,
-        body: answerBodySchema,
+        // `answerBodySchema` PIÙ la domanda mostrata: `extend` e non una
+        // riscrittura, così il vincolo "esattamente uno fra opzione e testo"
+        // resta quello condiviso con la rotta d'inbox.
+        body: answerBodySchema.extend({ questionId: z.uuid().optional() }),
         response: {
           200: z.object({ jobId: z.uuid(), questionId: z.uuid() }),
           400: errorSchema,
@@ -897,10 +905,12 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         return apiError(reply, 409, "question_not_pending", "No question pending an answer");
       }
 
+      const { questionId, ...answer } = request.body;
       const result = await answerQuestion(app.db, {
         jobId: job.id,
         actor: request.user!,
-        answer: request.body,
+        answer,
+        ...(questionId === undefined ? {} : { questionId }),
       });
       if (!result.ok) return sendAnswerError(reply, result);
       return { jobId: result.jobId, questionId: result.questionId };

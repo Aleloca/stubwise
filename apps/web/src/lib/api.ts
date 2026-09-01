@@ -805,12 +805,18 @@ export function getTicketQuestions(ticketId: string): Promise<TicketQuestion[]> 
  * 403 `forbidden` (non sei né il richiedente né un maintainer), 400
  * `invalid_answer`, 409 `already_handled` (con `handledBy`) o
  * `question_not_pending`.
+ *
+ * `questionId` è un PARAMETRO a sé e non un campo del corpo per renderlo
+ * impossibile da dimenticare: è la domanda che la pagina sta mostrando, e il
+ * server la confronta con quella davvero aperta — una scheda ferma su un round
+ * superato viene rifiutata invece di rispondere alla domanda successiva.
  */
 export function answerTicketQuestion(
   ticketId: string,
-  body: AnswerBody,
+  questionId: string,
+  answer: AnswerBody,
 ): Promise<{ jobId: string; questionId: string }> {
-  return api.post(`/api/tickets/${ticketId}/questions/answer`, body);
+  return api.post(`/api/tickets/${ticketId}/questions/answer`, { ...answer, questionId });
 }
 
 /**

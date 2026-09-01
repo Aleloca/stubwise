@@ -100,6 +100,19 @@ export interface AnswerQuestionInput {
   notificationId?: string;
   /** Ancora "job": la pagina ticket, che una notifica non ce l'ha. */
   jobId?: string;
+  /**
+   * La domanda che chi risponde stava GUARDANDO, per l'ancora `jobId`.
+   *
+   * L'ancora `notificationId` questo dato ce l'ha già (glielo dà il payload
+   * dell'evento della card premuta) ed è ciò che le fa rifiutare il click su una
+   * card di un round superato. La pagina ticket ha lo stesso problema — una
+   * scheda ferma sul round 1 mentre il job ne ha aperto un altro manderebbe un
+   * indice scelto leggendo ALTRE opzioni — e qui lo dichiara.
+   *
+   * OPZIONALE: un chiamante che non sa a quale domanda sta rispondendo si
+   * degrada al job, come faceva prima. Chi lo sa, lo dica.
+   */
+  questionId?: string;
   actor: Actor;
   answer: AnswerInput;
 }
@@ -281,17 +294,26 @@ interface Anchor {
   /** Riga d'inbox da cui si è risposto (assente per l'ancora `jobId`). */
   notificationId?: string;
   /**
-   * `questionId` letto dal payload dell'evento: la domanda che la card mostrava
-   * quando è stata premuta. Assente su un payload illeggibile (o sull'ancora
-   * `jobId`), e in quel caso la guardia del round non si applica — si degrada al
-   * job, come fa il resto del recinto.
+   * La domanda che chi risponde stava guardando: il payload dell'evento per la
+   * card d'inbox, il `questionId` dichiarato per la pagina ticket. Assente su un
+   * payload illeggibile (o su un chiamante che non lo dichiara), e in quel caso
+   * la guardia del round non si applica — si degrada al job, come fa il resto
+   * del recinto.
    */
   questionId?: string;
 }
 
 /** Risolve l'ancora della risposta; `null` se non porta a nessun job. */
 async function resolveAnchor(db: Db, input: AnswerQuestionInput): Promise<Anchor | null> {
-  if (input.jobId) return { jobId: input.jobId };
+  // L'ancora `jobId` porta con sé la domanda mostrata quando il chiamante la
+  // dichiara: da lì in poi vale la stessa guardia del round della card d'inbox,
+  // che è il punto — la difesa non deve dipendere da quale superficie risponde.
+  if (input.jobId) {
+    return {
+      jobId: input.jobId,
+      ...(input.questionId ? { questionId: input.questionId } : {}),
+    };
+  }
   if (!input.notificationId) return null;
   const [row] = await db
     .select({ jobId: notifications.jobId, event: notifications.event })

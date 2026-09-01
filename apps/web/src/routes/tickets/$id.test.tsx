@@ -1556,7 +1556,13 @@ describe("dettaglio ticket — domanda dell'agente", () => {
     await userEvent.click(screen.getByRole("radio", { name: /Una coda nuova/ }));
     await userEvent.click(screen.getByRole("button", { name: "Send answer" }));
 
-    await waitFor(() => expect(state.answerBodies).toEqual([{ optionIndex: 1 }]));
+    // Il body porta la domanda MOSTRATA: il server rifiuta se nel frattempo
+    // il job ne ha aperta un'altra.
+    await waitFor(() =>
+      expect(state.answerBodies).toEqual([
+        { optionIndex: 1, questionId: openQuestionFixture.questionId },
+      ]),
+    );
   });
 
   it("risposta in testo libero: manda { text } dalla pagina", async () => {
@@ -1572,7 +1578,11 @@ describe("dettaglio ticket — domanda dell'agente", () => {
     await userEvent.type(screen.getByLabelText("Your answer"), "Fanne una terza");
     await userEvent.click(screen.getByRole("button", { name: "Send answer" }));
 
-    await waitFor(() => expect(state.answerBodies).toEqual([{ text: "Fanne una terza" }]));
+    await waitFor(() =>
+      expect(state.answerBodies).toEqual([
+        { text: "Fanne una terza", questionId: openQuestionFixture.questionId },
+      ]),
+    );
   });
 
   it("un altro operatore: solo la riga informativa, nessun pannello", async () => {
@@ -1611,7 +1621,11 @@ describe("dettaglio ticket — domanda dell'agente", () => {
     await userEvent.click(await screen.findByRole("radio", { name: /Quella esistente/ }));
     await userEvent.click(screen.getByRole("button", { name: "Send answer" }));
 
-    await waitFor(() => expect(state.answerBodies).toEqual([{ optionIndex: 0 }]));
+    await waitFor(() =>
+      expect(state.answerBodies).toEqual([
+        { optionIndex: 0, questionId: openQuestionFixture.questionId },
+      ]),
+    );
     // Nessuna riga informativa: chi può rispondere ha il pannello, non l'avviso.
     expect(screen.queryByText(/waiting for an answer/i)).not.toBeInTheDocument();
   });

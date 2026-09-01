@@ -2741,7 +2741,8 @@ describe("POST /api/tickets/:id/questions/answer", () => {
   it("il richiedente risponde: domanda chiusa e job rimesso in coda su plan_continue", async () => {
     const { ticketId, jobId, questionId } = await seedOpenQuestion(users.memberId);
 
-    const res = await answer(ticketId, { optionIndex: 1 });
+    // `questionId` è la domanda che la pagina sta MOSTRANDO: la manda sempre.
+    const res = await answer(ticketId, { questionId, optionIndex: 1 });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ jobId, questionId });
 
@@ -2790,6 +2791,47 @@ describe("POST /api/tickets/:id/questions/answer", () => {
     const res = await answer(ticketId, { optionIndex: 9 });
     expect(res.statusCode).toBe(400);
     expect((res.json() as { code: string }).code).toBe("invalid_answer");
+  });
+
+  it("la pagina ferma sul round vecchio non risponde alla domanda nuova", async () => {
+    // Il round 1 è già stato risposto e il job ne ha aperto un altro: una
+    // scheda rimasta sul round 1 manderebbe un indice scelto leggendo ALTRE
+    // opzioni. Ancorare la risposta alla domanda MOSTRATA è ciò che lo impedisce
+    // — stessa guardia della card d'inbox di un round superato.
+    const { ticketId, jobId, questionId } = await seedOpenQuestion(users.memberId);
+    expect(
+      (await answer(ticketId, { questionId, optionIndex: 0 })).statusCode,
+    ).toBe(200);
+
+    // Il job torna in attesa con un round nuovo (lo farebbe il worker).
+    await testDb.db.update(aiJobs).set({ status: "awaiting_input" }).where(eq(aiJobs.id, jobId));
+    const [round2] = await testDb.db
+      .insert(agentQuestions)
+      .values({
+        jobId,
+        ticketId,
+        round: 2,
+        question: "E il TTL?",
+        options: [{ label: "Un'ora" }, { label: "Un giorno" }],
+      })
+      .returning({ id: agentQuestions.id });
+
+    const res = await answer(ticketId, { questionId, optionIndex: 1 });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({
+      code: "already_handled",
+      handledBy: { id: users.memberId, email: "member@example.com" },
+    });
+
+    // La domanda del round 2 è ancora lì, aperta: nessuna risposta le è stata
+    // attribuita, e il job non è ripartito.
+    const [open] = await testDb.db
+      .select()
+      .from(agentQuestions)
+      .where(eq(agentQuestions.id, round2!.id));
+    expect(open!.answeredAt).toBeNull();
+    const [job] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
+    expect(job!.status).toBe("awaiting_input");
   });
 
   it("ticket senza job: 409 question_not_pending", async () => {
