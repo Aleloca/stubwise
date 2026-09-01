@@ -1,7 +1,7 @@
 ---
 title: Fase 1 — Pianificazione interattiva (`ask_user`)
 date: 2026-09-01
-status: validato (brainstorming)
+status: implementato
 program: 2026-08-31-stubwise-nerve-center-program-design.md
 stubwise:
   project: stubwise
