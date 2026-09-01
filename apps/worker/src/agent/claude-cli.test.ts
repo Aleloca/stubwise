@@ -1,6 +1,15 @@
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ClaudeCliRunner } from "./claude-cli.js";
 import { FakeAgentRunner } from "./fake.js";
@@ -58,6 +67,43 @@ async function makeCwd(root: string): Promise<string> {
   // riporta la directory fisica con `pwd -P`.
   return realpath(cwd);
 }
+
+/** true se il path esiste ancora (usato per verificare il cleanup). */
+async function exists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Finto `claude` che ISPEZIONA il file passato a `--mcp-config`: registra il
+ * path in `captured-path.txt` e ne copia il contenuto in `captured-mcp.json`
+ * (entrambi accanto allo script, via `$0`, così il test li ritrova senza
+ * passare env). `tail` è ciò che lo script fa dopo la cattura: emettere il
+ * JSON, stallare (timeout) o uscire non-zero. Serve perché il runner CANCELLA
+ * il file di config a fine run: l'unico modo di ispezionarlo è farlo dal
+ * child, mentre il run è vivo.
+ */
+function mcpProbeScript(tail: string): string {
+  return `#!/bin/sh
+cat > /dev/null
+CFG=""
+PREV=""
+for a in "$@"; do
+  if [ "$PREV" = "--mcp-config" ]; then CFG="$a"; fi
+  PREV="$a"
+done
+printf '%s' "$CFG" > "$(dirname "$0")/captured-path.txt"
+if [ -n "$CFG" ]; then cp "$CFG" "$(dirname "$0")/captured-mcp.json"; fi
+${tail}
+`;
+}
+
+/** Coda del probe che emette il JSON di successo con le sole sentinelle ARGS. */
+const PROBE_TAIL_OK = `printf '{"result":"ARGS:%s"}\\n' "$*"`;
 
 describe("ClaudeCliRunner", () => {
   it("invoca claude con i flag headless nell'ordine atteso e --model quando fornito", async () => {
@@ -293,6 +339,148 @@ printf '{"result":"altra risposta"}\\n'
       allowedTools: [],
     });
     expect(vuoto.output).not.toContain("--allowedTools");
+  });
+
+  it("con mcpConfig: aggiunge --mcp-config <path> e --strict-mcp-config, e il file contiene i server", async () => {
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(root, mcpProbeScript(PROBE_TAIL_OK));
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    const result = await runner.run({
+      cwd,
+      prompt: "pianifica",
+      maxTurns: 40,
+      timeoutMs: 10_000,
+      permissionMode: "plan",
+      mcpConfig: {
+        servers: {
+          stubwise_ask: {
+            command: "node",
+            args: ["/app/dist/ask-user-mcp/index.js"],
+            env: { ASK_USER_FILE: "/tmp/stubwise-plan-1/question.json", ASK_USER_ROUND: "1" },
+          },
+        },
+      },
+    });
+
+    expect(result.output).toContain("--mcp-config");
+    // Isolamento: senza --strict-mcp-config il CLI caricherebbe anche i server
+    // MCP configurati nell'immagine/utente, che nei run del worker non esistono.
+    expect(result.output).toContain("--strict-mcp-config");
+
+    // Il file scritto ha la forma che il CLI si aspetta: { mcpServers: {...} }.
+    const captured: unknown = JSON.parse(await readFile(join(root, "captured-mcp.json"), "utf8"));
+    expect(captured).toEqual({
+      mcpServers: {
+        stubwise_ask: {
+          command: "node",
+          args: ["/app/dist/ask-user-mcp/index.js"],
+          env: { ASK_USER_FILE: "/tmp/stubwise-plan-1/question.json", ASK_USER_ROUND: "1" },
+        },
+      },
+    });
+
+    const configPath = await readFile(join(root, "captured-path.txt"), "utf8");
+    // Il file NON sta nella cwd del run (il worktree del repo target): là
+    // finirebbe sotto gli occhi di git e del safeguard anti-leak.
+    expect(configPath.startsWith(cwd)).toBe(false);
+    // Cleanup: file e directory temporanea rimossi a fine run.
+    expect(await exists(configPath)).toBe(false);
+    expect(await exists(dirname(configPath))).toBe(false);
+  });
+
+  it("omette --mcp-config e --strict-mcp-config senza mcpConfig o con zero server", async () => {
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(root);
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    const omesso = await runner.run({ cwd, prompt: "ciao", maxTurns: 3, timeoutMs: 10_000 });
+    expect(omesso.output).not.toContain("--mcp-config");
+    expect(omesso.output).not.toContain("--strict-mcp-config");
+
+    const vuoto = await runner.run({
+      cwd,
+      prompt: "ciao",
+      maxTurns: 3,
+      timeoutMs: 10_000,
+      mcpConfig: { servers: {} },
+    });
+    expect(vuoto.output).not.toContain("--mcp-config");
+    expect(vuoto.output).not.toContain("--strict-mcp-config");
+  });
+
+  it("rimuove il file di config MCP anche quando il run va in timeout", async () => {
+    const root = await makeRoot();
+    // `exec sleep`: come nel test del timeout, così il SIGTERM colpisce il
+    // processo che tiene aperta la pipe.
+    const claudePath = await makeFakeClaude(root, mcpProbeScript(`exec sleep 10`));
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    await expect(
+      runner.run({
+        cwd,
+        prompt: "ciao",
+        maxTurns: 1,
+        timeoutMs: 500,
+        mcpConfig: { servers: { s: { command: "node" } } },
+      }),
+    ).rejects.toThrow(AgentTimeoutError);
+
+    const configPath = await readFile(join(root, "captured-path.txt"), "utf8");
+    expect(configPath).not.toBe("");
+    expect(await exists(configPath)).toBe(false);
+    expect(await exists(dirname(configPath))).toBe(false);
+  });
+
+  it("rimuove il file di config MCP anche quando il run esce non-zero", async () => {
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(root, mcpProbeScript(`exit 3`));
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    const result = await runner.run({
+      cwd,
+      prompt: "ciao",
+      maxTurns: 1,
+      timeoutMs: 10_000,
+      mcpConfig: { servers: { s: { command: "node" } } },
+    });
+
+    expect(result.exitCode).toBe(3);
+    const configPath = await readFile(join(root, "captured-path.txt"), "utf8");
+    expect(configPath).not.toBe("");
+    expect(await exists(configPath)).toBe(false);
+  });
+
+  it("mcpConfig NON allarga l'env del child: le env dei server MCP restano nel file di config", async () => {
+    const root = await makeRoot();
+    // Lo script emette l'env del child oltre a catturare la config: le var del
+    // server MCP devono comparire SOLO nel file, mai nell'env del processo CLI.
+    const claudePath = await makeFakeClaude(
+      root,
+      mcpProbeScript(`printf '{"result":"ENV:%s"}\\n' "$(env | tr '\\n' ';')"`),
+    );
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    const result = await runner.run({
+      cwd,
+      prompt: "ciao",
+      maxTurns: 1,
+      timeoutMs: 10_000,
+      mcpConfig: {
+        servers: { s: { command: "node", env: { ASK_USER_FILE: "/tmp/q.json" } } },
+      },
+    });
+
+    expect(result.output).not.toContain("ASK_USER_FILE");
+    const captured: unknown = JSON.parse(await readFile(join(root, "captured-mcp.json"), "utf8"));
+    expect(captured).toMatchObject({
+      mcpServers: { s: { env: { ASK_USER_FILE: "/tmp/q.json" } } },
+    });
   });
 
   it("passa il prompt via stdin, MAI in argv", async () => {
@@ -718,5 +906,26 @@ describe("FakeAgentRunner", () => {
     expect(fake.calls[0]?.model).toBe("haiku");
     expect(fake.calls[1]?.model).toBeUndefined();
     expect(fake.calls[1]?.allowedTools).toEqual(["Bash(npm test:*)"]);
+  });
+
+  it("registra mcpConfig tra le opzioni della chiamata (undefined quando assente)", async () => {
+    const root = await makeRoot();
+    const cwd = await makeCwd(root);
+    const fake = new FakeAgentRunner();
+
+    const mcpConfig = {
+      servers: {
+        stubwise_ask: {
+          command: "node",
+          args: ["/app/dist/ask-user-mcp/index.js"],
+          env: { ASK_USER_FILE: "/tmp/stubwise-plan-1/question.json" },
+        },
+      },
+    };
+    await fake.run({ cwd, prompt: "pianifica", maxTurns: 40, timeoutMs: 1000, mcpConfig });
+    await fake.run({ cwd, prompt: "esegui", maxTurns: 80, timeoutMs: 1000 });
+
+    expect(fake.calls[0]?.mcpConfig).toEqual(mcpConfig);
+    expect(fake.calls[1]?.mcpConfig).toBeUndefined();
   });
 });

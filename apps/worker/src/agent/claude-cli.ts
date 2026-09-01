@@ -1,8 +1,12 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { execa } from "execa";
 import type { ResolvedProvider } from "../providers/chain.js";
 import {
   AgentRunError,
   AgentTimeoutError,
+  type AgentMcpConfig,
   type AgentModelUsage,
   type AgentRunner,
   type AgentRunOptions,
@@ -39,6 +43,18 @@ import {
  *   e CLAUDE_) e
  *   ciò che extraEnv aggiunge esplicitamente — l'allowlist ha però l'ultima
  *   parola, così extraEnv non può reintrodurre un segreto bloccato.
+ * - Server MCP locali al run (`opts.mcpConfig`): serializzati in un file di
+ *   configurazione EFFIMERO, passato con `--mcp-config <path>` +
+ *   `--strict-mcp-config` e cancellato in un `finally`. Il file sta in una
+ *   mkdtemp di sistema, NON nella cwd del run: la cwd è il worktree del repo
+ *   target, dove un file estraneo rischierebbe di finire in un `git add` (lo
+ *   stesso motivo per cui i `.env` per progetto sono esclusi da tutti i
+ *   git add/status). Il CLI accetterebbe anche il JSON inline in argv, ma argv
+ *   è leggibile da chiunque via `ps` per tutta la durata del processo e la
+ *   config porta le env dei server MCP: stesso razionale del prompt su stdin.
+ *   Quelle env NON passano dall'allowlist dell'env del CLI (che resta
+ *   invariata): stanno nel file, e il CLI le applica al server che lancia —
+ *   sopra l'env che il server eredita dal CLI stesso (già filtrato).
  * - Exit code NON-ZERO = risultato valido, restituito con stdout+stderr
  *   combinati: è la pipeline a decidere cosa significa.
  * - Timeout: il processo viene ucciso e lanciamo AgentTimeoutError con
@@ -250,6 +266,24 @@ export function parseCliJson(
   };
 }
 
+/**
+ * Scrive il file di configurazione MCP per un run in una directory temporanea
+ * DEDICATA (mkdtemp, permessi 0700), fuori dalla cwd del run. Restituisce la
+ * directory da rimuovere e il path da passare a `--mcp-config`.
+ *
+ * La forma del file è quella attesa dal CLI: `{ "mcpServers": { <nome>: {...} } }`
+ * — verificato con `claude --mcp-config`, che rifiuta ogni altra forma con
+ * "Invalid MCP configuration: mcpServers: Invalid input".
+ */
+async function writeMcpConfigFile(
+  config: AgentMcpConfig,
+): Promise<{ dir: string; path: string }> {
+  const dir = await mkdtemp(join(tmpdir(), "stubwise-mcp-"));
+  const path = join(dir, "mcp-config.json");
+  await writeFile(path, JSON.stringify({ mcpServers: config.servers }), "utf8");
+  return { dir, path };
+}
+
 export class ClaudeCliRunner implements AgentRunner {
   private readonly claudePath: string;
   private readonly extraEnv: Record<string, string> | undefined;
@@ -295,7 +329,35 @@ export class ClaudeCliRunner implements AgentRunner {
       // flag (space-separated), es. --allowedTools "Bash(npm test:*)" "Read".
       args.push("--allowedTools", ...opts.allowedTools);
     }
+    // Server MCP locali a QUESTO run: file di config effimero fuori dalla cwd,
+    // rimosso nel finally sotto qualunque esito (successo, exit non-zero,
+    // timeout, spawn fallito). Config assente o senza server → argv invariato.
+    let mcpConfigDir: string | undefined;
+    if (opts.mcpConfig !== undefined && Object.keys(opts.mcpConfig.servers).length > 0) {
+      const written = await writeMcpConfigFile(opts.mcpConfig);
+      mcpConfigDir = written.dir;
+      // --strict-mcp-config: usa SOLO i server di --mcp-config, ignorando ogni
+      // altra configurazione MCP (utente, progetto, immagine). Isolamento e
+      // riproducibilità: un run del worker non deve vedere server non suoi.
+      args.push("--mcp-config", written.path, "--strict-mcp-config");
+    }
 
+    try {
+      return await this.spawn(opts, args);
+    } finally {
+      if (mcpConfigDir !== undefined) {
+        // Best-effort: un residuo in tmp non deve mai far fallire un run.
+        await rm(mcpConfigDir, { recursive: true, force: true }).catch(() => undefined);
+      }
+    }
+  }
+
+  /**
+   * Spawn del CLI e interpretazione dell'esito. Separato da run() perché
+   * quest'ultimo deve poter garantire il cleanup del file di config MCP in un
+   * `finally` senza annidare due try nello stesso corpo.
+   */
+  private async spawn(opts: AgentRunOptions, args: string[]): Promise<AgentRunResult> {
     try {
       const { all, stdout, exitCode } = await execa(this.claudePath, args, {
         cwd: opts.cwd,
