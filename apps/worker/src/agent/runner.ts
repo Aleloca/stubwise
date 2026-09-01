@@ -64,12 +64,48 @@ export interface AgentRunOptions {
    */
   allowedTools?: string[];
   /**
+   * Pattern di tool da NEGARE, mappati su `--disallowedTools <tools...>` (stesso
+   * formato di `allowedTools`: più valori dopo il flag). Il caso d'uso è il
+   * registro dei plugin: `Skill(<plugin>:<skill>)` è l'UNICO modo di impedire
+   * l'uso di una singola skill di un plugin, perché il CLI cortocircuita
+   * `skillOverrides` per le skill con source "plugin". È cintura e bretelle
+   * insieme alla copia filtrata del plugin (che la skill la toglie proprio dal
+   * disco, così il modello non la vede in elenco): la deny rule è la sola cosa
+   * che ne blocca l'ESECUZIONE. Omesso o vuoto = nessun tool negato.
+   */
+  disallowedTools?: string[];
+  /**
    * Server MCP locali a questo run (vedi AgentMcpConfig). Assente o senza
    * server = nessun `--mcp-config`, comportamento storico. Abilitare un server
    * NON ne abilita i tool: vanno elencati anche in `allowedTools` con il nome
    * `mcp__<server>__<tool>`.
    */
   mcpConfig?: AgentMcpConfig;
+  /**
+   * Plugin Claude Code da caricare per QUESTO run: un `--plugin-dir <path>`
+   * ripetuto per ogni elemento, NELL'ORDINE dato (il primo è il plugin base di
+   * Stubwise, che porta il contratto della run via hook SessionStart; poi i
+   * plugin del registro abilitati per il progetto). Il flag è session-scoped e
+   * ortogonale ai settings, funziona anche in headless (`-p`) e carica skill,
+   * comandi, agenti, hook e l'eventuale `.mcp.json` del plugin; le skill
+   * compaiono namespaced sul `name` di `plugin.json` (es.
+   * `superpowers:brainstorming`), ed è quel nome che serve alle deny rule di
+   * `disallowedTools`. Assente o lista vuota = nessun plugin, comportamento
+   * storico.
+   */
+  pluginDirs?: string[];
+  /**
+   * Sorgenti di settings che il CLI può leggere, mappate su
+   * `--setting-sources <csv>` (valori ammessi dal CLI: "user", "project",
+   * "local"; in headless il default sono tutte e tre). La STRINGA VUOTA `""` è
+   * il valore che usano i run con i plugin: viene passata come argomento a sé
+   * (`--setting-sources` + `""`) e disattiva OGNI sorgente, quindi i plugin
+   * dell'utente, le `.claude/skills` e il `.mcp.json` della cwd. Serve a
+   * rendere deterministico l'insieme di skill e hook caricati: plugin base +
+   * registro, nient'altro. Omesso = nessun flag (vale il default del CLI), che
+   * è il comportamento storico.
+   */
+  settingSources?: string[] | "";
   /**
    * Permission mode del CLI claude, mappato su `--permission-mode <mode>`:
    * - "acceptEdits" (default): consente le modifiche ai file ma NEGA Bash in

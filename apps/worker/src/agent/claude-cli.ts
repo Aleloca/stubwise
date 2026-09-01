@@ -55,6 +55,13 @@ import {
  *   Quelle env NON passano dall'allowlist dell'env del CLI (che resta
  *   invariata): stanno nel file, e il CLI le applica al server che lancia —
  *   sopra l'env che il server eredita dal CLI stesso (già filtrato).
+ * - Plugin del run (`opts.pluginDirs`) + `--setting-sources`: i plugin passano
+ *   da `--plugin-dir`, ripetuto e session-scoped, mentre `--setting-sources ""`
+ *   spegne le sorgenti di settings (plugin dell'utente, `.claude/skills` e
+ *   `.mcp.json` della cwd). Le due cose vanno insieme: il senso è che
+ *   l'insieme di skill e hook caricati sia DETERMINISTICO — plugin base +
+ *   registro del progetto e nient'altro — invece di dipendere da cosa c'è
+ *   sull'host o nel repo target. Senza queste opzioni l'argv è quello storico.
  * - Exit code NON-ZERO = risultato valido, restituito con stdout+stderr
  *   combinati: è la pipeline a decidere cosa significa.
  * - Timeout: il processo viene ucciso e lanciamo AgentTimeoutError con
@@ -325,6 +332,32 @@ export class ClaudeCliRunner implements AgentRunner {
       // Sintassi CLI: `--allowedTools <tools...>` accetta più valori dopo il
       // flag (space-separated), es. --allowedTools "Bash(npm test:*)" "Read".
       args.push("--allowedTools", ...opts.allowedTools);
+    }
+    if (opts.disallowedTools !== undefined && opts.disallowedTools.length > 0) {
+      // Stessa sintassi variadica di --allowedTools. Nei run con i plugin porta
+      // le deny rule `Skill(<plugin>:<skill>)`: sono l'unico blocco effettivo
+      // dell'esecuzione di una skill di plugin (vedi AgentRunOptions).
+      args.push("--disallowedTools", ...opts.disallowedTools);
+    }
+    // Plugin del run: un --plugin-dir per directory, nell'ordine ricevuto (il
+    // chiamante mette per primo il plugin base). Lista assente o vuota → argv
+    // invariato.
+    if (opts.pluginDirs !== undefined) {
+      for (const dir of opts.pluginDirs) {
+        args.push("--plugin-dir", dir);
+      }
+    }
+    // Sorgenti di settings: la stringa vuota va passata come ARGOMENTO A SÉ
+    // (`--setting-sources` seguito da ""), che è il modo in cui il CLI accetta
+    // "nessuna sorgente"; una lista diventa il csv atteso. Omesso → nessun
+    // flag, così i run che non usano i plugin restano identici a prima.
+    if (opts.settingSources !== undefined) {
+      args.push(
+        "--setting-sources",
+        typeof opts.settingSources === "string"
+          ? opts.settingSources
+          : opts.settingSources.join(","),
+      );
     }
     // Server MCP locali a QUESTO run: file di config effimero fuori dalla cwd,
     // rimosso nel finally sotto qualunque esito (successo, exit non-zero,

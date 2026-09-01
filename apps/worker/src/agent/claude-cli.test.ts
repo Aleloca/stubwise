@@ -117,6 +117,43 @@ ${tail}
 /** Coda del probe che emette il JSON di successo con le sole sentinelle ARGS. */
 const PROBE_TAIL_OK = `printf '{"result":"ARGS:%s"}\\n' "$*"`;
 
+/**
+ * Finto `claude` che REGISTRA l'argv esatto, UN ARGOMENTO PER RIGA, in
+ * `captured-argv.txt` accanto allo script (via `$0`, come il probe MCP).
+ * Serve dove la sentinella `ARGS:$*` non basta: `$*` unisce gli argomenti con
+ * uno spazio, quindi un argomento STRINGA VUOTA — quello di
+ * `--setting-sources ""`, il caso che conta in produzione — sarebbe
+ * indistinguibile da un flag senza valore. Gli argomenti del runner non
+ * contengono mai newline, quindi una riga per argomento è una codifica fedele.
+ */
+const ARGV_PROBE_SCRIPT = `#!/bin/sh
+cat > /dev/null
+printf '%s\\n' "$@" > "$(dirname "$0")/captured-argv.txt"
+printf '{"result":"ok"}\\n'
+`;
+
+/** Argv esatto registrato da ARGV_PROBE_SCRIPT (vuoti inclusi). */
+async function readCapturedArgv(root: string): Promise<string[]> {
+  const raw = await readFile(join(root, "captured-argv.txt"), "utf8");
+  const lines = raw.split("\n");
+  // L'ultima riga è il residuo della newline finale di printf, non un argomento.
+  lines.pop();
+  return lines;
+}
+
+/** Prefisso argv comune a ogni run (flag headless + max-turns). */
+function baseArgv(maxTurns: number): string[] {
+  return [
+    "-p",
+    "--output-format",
+    "json",
+    "--permission-mode",
+    "acceptEdits",
+    "--max-turns",
+    String(maxTurns),
+  ];
+}
+
 describe("ClaudeCliRunner", () => {
   it("invoca claude con i flag headless nell'ordine atteso e --model quando fornito", async () => {
     const root = await makeRoot();
@@ -351,6 +388,178 @@ printf '{"result":"altra risposta"}\\n'
       allowedTools: [],
     });
     expect(vuoto.output).not.toContain("--allowedTools");
+  });
+
+  it("senza pluginDirs/disallowedTools/settingSources l'argv resta quello storico", async () => {
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(root, ARGV_PROBE_SCRIPT);
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    await runner.run({ cwd, prompt: "ciao", maxTurns: 5, timeoutMs: 10_000 });
+
+    // Nessun flag NUOVO: è l'invariante dei 27 call site che non passano le
+    // opzioni dei plugin.
+    expect(await readCapturedArgv(root)).toEqual(baseArgv(5));
+  });
+
+  it("ripete --plugin-dir per ogni directory, NELL'ORDINE dato", async () => {
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(root, ARGV_PROBE_SCRIPT);
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    await runner.run({
+      cwd,
+      prompt: "fixa",
+      maxTurns: 5,
+      timeoutMs: 10_000,
+      // L'ordine è significativo: il plugin base di Stubwise va per primo.
+      pluginDirs: ["/plugins/stubwise-base", "/plugins/superpowers"],
+    });
+
+    expect(await readCapturedArgv(root)).toEqual([
+      ...baseArgv(5),
+      "--plugin-dir",
+      "/plugins/stubwise-base",
+      "--plugin-dir",
+      "/plugins/superpowers",
+    ]);
+  });
+
+  it("omette --plugin-dir con lista vuota", async () => {
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(root, ARGV_PROBE_SCRIPT);
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    await runner.run({
+      cwd,
+      prompt: "ciao",
+      maxTurns: 5,
+      timeoutMs: 10_000,
+      pluginDirs: [],
+    });
+
+    expect(await readCapturedArgv(root)).toEqual(baseArgv(5));
+  });
+
+  it("aggiunge --disallowedTools con tutti i pattern (stesso formato di --allowedTools)", async () => {
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(root, ARGV_PROBE_SCRIPT);
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    await runner.run({
+      cwd,
+      prompt: "fixa",
+      maxTurns: 5,
+      timeoutMs: 10_000,
+      disallowedTools: ["Skill(superpowers:brainstorming)", "Skill(superpowers:writing-plans)"],
+    });
+
+    expect(await readCapturedArgv(root)).toEqual([
+      ...baseArgv(5),
+      "--disallowedTools",
+      "Skill(superpowers:brainstorming)",
+      "Skill(superpowers:writing-plans)",
+    ]);
+  });
+
+  it("omette --disallowedTools quando non specificato o vuoto", async () => {
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(root, ARGV_PROBE_SCRIPT);
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    await runner.run({
+      cwd,
+      prompt: "ciao",
+      maxTurns: 5,
+      timeoutMs: 10_000,
+      disallowedTools: [],
+    });
+
+    expect(await readCapturedArgv(root)).toEqual(baseArgv(5));
+  });
+
+  it("settingSources '' passa la STRINGA VUOTA come argomento a sé", async () => {
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(root, ARGV_PROBE_SCRIPT);
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    await runner.run({
+      cwd,
+      prompt: "fixa",
+      maxTurns: 5,
+      timeoutMs: 10_000,
+      settingSources: "",
+    });
+
+    // Due elementi in argv: il flag e un argomento vuoto. È il caso di
+    // produzione (nessuna sorgente di settings → insieme deterministico).
+    expect(await readCapturedArgv(root)).toEqual([...baseArgv(5), "--setting-sources", ""]);
+  });
+
+  it("settingSources come lista diventa un csv", async () => {
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(root, ARGV_PROBE_SCRIPT);
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    await runner.run({
+      cwd,
+      prompt: "fixa",
+      maxTurns: 5,
+      timeoutMs: 10_000,
+      settingSources: ["user", "project"],
+    });
+
+    expect(await readCapturedArgv(root)).toEqual([
+      ...baseArgv(5),
+      "--setting-sources",
+      "user,project",
+    ]);
+  });
+
+  it("le opzioni dei plugin convivono con allowedTools e mcpConfig senza interferire", async () => {
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(root, ARGV_PROBE_SCRIPT);
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    await runner.run({
+      cwd,
+      prompt: "fixa",
+      maxTurns: 5,
+      timeoutMs: 10_000,
+      allowedTools: ["Bash(npm test:*)"],
+      disallowedTools: ["Skill(superpowers:brainstorming)"],
+      pluginDirs: ["/plugins/stubwise-base"],
+      settingSources: "",
+      mcpConfig: { servers: { ask_user: { command: "node", args: ["/app/ask-user.js"] } } },
+    });
+
+    const argv = await readCapturedArgv(root);
+    // Il path della config MCP è una tmpdir effimera: si legge dall'argv e si
+    // verifica la forma, così il confronto sotto resta ESATTO.
+    const mcpPath = argv[argv.indexOf("--mcp-config") + 1];
+    expect(mcpPath).toMatch(/stubwise-mcp-.*mcp-config\.json$/);
+    expect(argv).toEqual([
+      ...baseArgv(5),
+      "--allowedTools",
+      "Bash(npm test:*)",
+      "--disallowedTools",
+      "Skill(superpowers:brainstorming)",
+      "--plugin-dir",
+      "/plugins/stubwise-base",
+      "--setting-sources",
+      "",
+      "--mcp-config",
+      mcpPath,
+      "--strict-mcp-config",
+    ]);
   });
 
   it("con mcpConfig: aggiunge --mcp-config <path> e --strict-mcp-config, e il file contiene i server", async () => {
@@ -989,5 +1198,33 @@ describe("FakeAgentRunner", () => {
 
     expect(fake.calls[0]?.mcpConfig).toEqual(mcpConfig);
     expect(fake.calls[1]?.mcpConfig).toBeUndefined();
+  });
+
+  it("registra pluginDirs/disallowedTools/settingSources tra le opzioni della chiamata", async () => {
+    const root = await makeRoot();
+    const cwd = await makeCwd(root);
+    const fake = new FakeAgentRunner();
+
+    await fake.run({
+      cwd,
+      prompt: "fixa",
+      maxTurns: 80,
+      timeoutMs: 1000,
+      pluginDirs: ["/plugins/stubwise-base", "/plugins/superpowers"],
+      disallowedTools: ["Skill(superpowers:brainstorming)"],
+      settingSources: "",
+    });
+    await fake.run({ cwd, prompt: "triage", maxTurns: 5, timeoutMs: 1000 });
+
+    // L'ordine dei pluginDirs è parte del contratto: il plugin base va primo.
+    expect(fake.calls[0]?.pluginDirs).toEqual([
+      "/plugins/stubwise-base",
+      "/plugins/superpowers",
+    ]);
+    expect(fake.calls[0]?.disallowedTools).toEqual(["Skill(superpowers:brainstorming)"]);
+    expect(fake.calls[0]?.settingSources).toBe("");
+    expect(fake.calls[1]?.pluginDirs).toBeUndefined();
+    expect(fake.calls[1]?.disallowedTools).toBeUndefined();
+    expect(fake.calls[1]?.settingSources).toBeUndefined();
   });
 });
