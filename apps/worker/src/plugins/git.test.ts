@@ -14,6 +14,14 @@ import { fetchAtRef, PluginGitError } from "./git.js";
  * rifiutata subito) e serve solo a verificare la redazione delle credenziali.
  */
 
+/**
+ * Opzioni dei test che usano repo locali. L'allowlist di PRODUZIONE è solo
+ * `https` (default di `fetchAtRef`): qui serve il trasporto `file`, e
+ * l'override è esplicito per test invece di allargare il default — un
+ * ampliamento fatto "per far passare i test" finirebbe dritto in produzione.
+ */
+const LOCAL = { timeoutMs: 30_000, allowedProtocols: ["file"] };
+
 const cleanups: Array<() => Promise<void>> = [];
 
 afterEach(async () => {
@@ -89,7 +97,7 @@ describe("fetchAtRef", () => {
     const source = await makeSource(root);
     const dest = join(root, "dest", "nested");
 
-    const { sha } = await fetchAtRef(source.dir, "main", dest, { timeoutMs: 30_000 });
+    const { sha } = await fetchAtRef(source.dir, "main", dest, LOCAL);
 
     expect(sha).toBe(source.tipSha);
     // La dir di destinazione viene creata: il chiamante passa un path nuovo.
@@ -104,7 +112,7 @@ describe("fetchAtRef", () => {
     const source = await makeSource(root);
     const dest = join(root, "dest");
 
-    const { sha } = await fetchAtRef(source.dir, source.tipSha, dest, { timeoutMs: 30_000 });
+    const { sha } = await fetchAtRef(source.dir, source.tipSha, dest, LOCAL);
 
     expect(sha).toBe(source.tipSha);
     expect(existsSync(join(dest, "f2.txt"))).toBe(true);
@@ -130,7 +138,7 @@ describe("fetchAtRef", () => {
     });
 
     const { sha } = await withStrictServer(() =>
-      fetchAtRef(source.dir, source.firstSha, dest, { timeoutMs: 30_000 }),
+      fetchAtRef(source.dir, source.firstSha, dest, LOCAL),
     );
 
     expect(sha).toBe(source.firstSha);
@@ -144,12 +152,12 @@ describe("fetchAtRef", () => {
     const root = await makeRoot();
     const source = await makeSource(root);
 
-    await expect(
-      fetchAtRef(source.dir, "non-esiste", join(root, "dest"), { timeoutMs: 30_000 }),
-    ).rejects.toThrow(PluginGitError);
-    await expect(
-      fetchAtRef(source.dir, "non-esiste", join(root, "dest2"), { timeoutMs: 30_000 }),
-    ).rejects.toThrow(/non-esiste/);
+    await expect(fetchAtRef(source.dir, "non-esiste", join(root, "dest"), LOCAL)).rejects.toThrow(
+      PluginGitError,
+    );
+    await expect(fetchAtRef(source.dir, "non-esiste", join(root, "dest2"), LOCAL)).rejects.toThrow(
+      /non-esiste/,
+    );
   });
 
   it("redige le credenziali nell'URL dal messaggio d'errore", async () => {
@@ -175,14 +183,41 @@ describe("fetchAtRef", () => {
     const source = await makeSource(root);
 
     await expect(
-      fetchAtRef("--upload-pack=touch /tmp/x", "main", join(root, "a"), { timeoutMs: 30_000 }),
+      fetchAtRef("--upload-pack=touch /tmp/x", "main", join(root, "a"), LOCAL),
     ).rejects.toThrow(PluginGitError);
-    await expect(
-      fetchAtRef(source.dir, "--depth=99", join(root, "b"), { timeoutMs: 30_000 }),
-    ).rejects.toThrow(PluginGitError);
+    await expect(fetchAtRef(source.dir, "--depth=99", join(root, "b"), LOCAL)).rejects.toThrow(
+      PluginGitError,
+    );
     // Nessuna delle due destinazioni è stata toccata.
     expect(existsSync(join(root, "a"))).toBe(false);
     expect(existsSync(join(root, "b"))).toBe(false);
+  });
+
+  it("rifiuta i trasporti fuori dall'allowlist di default (solo https)", async () => {
+    const root = await makeRoot();
+    const source = await makeSource(root);
+
+    // Path locale: senza allowlist git lo accetterebbe (trasporto `file`).
+    const local = await fetchAtRef(source.dir, "main", join(root, "d1"), {
+      timeoutMs: 30_000,
+    }).then(
+      () => null,
+      (e: unknown) => e as Error,
+    );
+    expect(local).toBeInstanceOf(PluginGitError);
+    expect(local!.message).toMatch(/file/);
+
+    // `ext::` esegue un comando arbitrario: è IL motivo dell'allowlist.
+    // Il file sentinella non deve nascere in nessun caso.
+    const sentinel = join(root, "eseguito");
+    const ext = await fetchAtRef(`ext::sh -c touch% ${sentinel}`, "main", join(root, "d2"), {
+      timeoutMs: 30_000,
+    }).then(
+      () => null,
+      (e: unknown) => e as Error,
+    );
+    expect(ext).toBeInstanceOf(PluginGitError);
+    expect(existsSync(sentinel)).toBe(false);
   });
 
   it("rispetta il timeout complessivo", async () => {
@@ -191,6 +226,7 @@ describe("fetchAtRef", () => {
 
     const error = await fetchAtRef(source.dir, "main", join(root, "dest"), {
       timeoutMs: 1,
+      allowedProtocols: ["file"],
     }).then(
       () => null,
       (e: unknown) => e as Error,

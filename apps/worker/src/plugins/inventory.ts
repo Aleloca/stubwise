@@ -1,6 +1,6 @@
 import { pluginInventorySchema, type PluginHook, type PluginInventory } from "@stubwise/shared";
 import { existsSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
+import { lstat, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 /**
@@ -61,6 +61,30 @@ function optionalString(value: unknown, max: number): string | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * `true` se il path è un FILE REGOLARE (niente symlink, niente FIFO, niente
+ * directory), controllato con `lstat` che NON segue i link.
+ *
+ * È il guard che rende sicuro leggere per nome i file a nome fisso di un plugin
+ * (`.claude-plugin/plugin.json`, `hooks/hooks.json`, e in forma inline
+ * `SKILL.md`): il contenuto della dir è codice di terze
+ * parti, e un `SKILL.md` symlinkato a un file dell'host ne farebbe finire
+ * `name`/`description`/`bytes` nell'inventario, cioè nel DB e nella UI. Un link
+ * a una FIFO sarebbe peggio: `readFile` non ha timeout e appenderebbe il worker.
+ *
+ * NOTA: il guard AUTOREVOLE è il rifiuto dei symlink nell'albero materializzato
+ * (poller di materializzazione), che protegge anche la copia per-run. Questo
+ * qui non è ridondante: rende il modulo sicuro anche chiamato fuori da quel
+ * flusso, come `assertNotOption` in `git.ts`.
+ */
+async function isRegularFile(path: string): Promise<boolean> {
+  try {
+    return (await lstat(path)).isFile();
+  } catch {
+    return false;
+  }
 }
 
 /** `readdir` che restituisce `[]` invece di lanciare (dir assente o non dir). */
@@ -175,6 +199,15 @@ interface Manifest {
 async function readManifest(pluginDir: string): Promise<Manifest> {
   const path = join(pluginDir, ".claude-plugin", "plugin.json");
   let raw: string;
+  // Stesso guard di `SKILL.md` e `hooks.json`: il manifest è il terzo file a
+  // nome fisso letto dentro una dir di terze parti. Un link porterebbe qui
+  // dentro `name` da un file dell'host; una FIFO appenderebbe il worker.
+  if (!(await isRegularFile(path))) {
+    throw new InvalidPluginManifestError(
+      pluginDir,
+      ".claude-plugin/plugin.json assente o non è un file regolare",
+    );
+  }
   try {
     raw = await readFile(path, "utf8");
   } catch {
@@ -206,19 +239,26 @@ async function readSkills(pluginDir: string): Promise<PluginInventory["skills"]>
   const skillsDir = join(pluginDir, "skills");
   const skills: PluginInventory["skills"] = [];
   for (const entry of await readDirSafe(skillsDir)) {
-    // Solo directory reali: i symlink NON vengono seguiti di proposito (un
-    // link potrebbe puntare fuori dalla dir del plugin).
+    // Solo directory reali: i symlink NON vengono seguiti, né qui né sul
+    // SKILL.md (vedi `isRegularFile`), perché potrebbero puntare fuori dalla
+    // dir del plugin.
     if (!entry.isDir) continue;
     const file = join(skillsDir, entry.name, "SKILL.md");
-    let buffer: Buffer;
+    let buffer: Buffer | null = null;
     try {
-      buffer = await readFile(file);
+      // `lstat` (che non segue i link) prima di leggere: un `SKILL.md`
+      // symlinkato è trattato come NON leggibile, mai seguito.
+      if ((await lstat(file)).isFile()) buffer = await readFile(file);
     } catch (error) {
       // Nessun SKILL.md: la sottocartella non è una skill (può essere una dir
       // di supporto), quindi si salta senza rumore.
       if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
-      // C'è ma non si legge: la skill viene comunque ELENCATA col nome della
-      // directory. Il CLI potrebbe caricarla lo stesso, e una skill invisibile
+      // Altro errore (permessi, lettura fallita a metà): degrada come sotto.
+    }
+    if (buffer === null) {
+      // C'è qualcosa che non si legge (symlink, FIFO, directory, permessi): la
+      // skill viene comunque ELENCATA col nome della directory e `bytes: 0`.
+      // Il CLI potrebbe caricarla lo stesso, e una skill invisibile
       // nell'inventario è una skill che nessuno può spegnere.
       skills.push({ name: clamp(entry.name, MAX_NAME), bytes: 0 });
       continue;
@@ -256,13 +296,16 @@ async function readMarkdownEntries(
  * nella lista dell'inventario, una voce per GRUPPO.
  */
 async function readHooks(pluginDir: string): Promise<PluginHook[]> {
+  const file = join(pluginDir, "hooks", "hooks.json");
+  // Symlink (o FIFO, o directory) al posto del file: trattato come ASSENTE, il
+  // link non viene mai seguito. Vedi `isRegularFile`.
+  if (!(await isRegularFile(file))) return [];
   let parsed: unknown;
   try {
-    parsed = JSON.parse(await readFile(join(pluginDir, "hooks", "hooks.json"), "utf8"));
+    parsed = JSON.parse(await readFile(file, "utf8"));
   } catch {
-    // File assente (il caso normale) o JSON rotto. Nel secondo caso non
-    // elenchiamo hook perché nemmeno il CLI potrebbe eseguirli: un file che
-    // non si parsa non definisce nulla.
+    // File illeggibile o JSON rotto: non elenchiamo hook perché nemmeno il CLI
+    // potrebbe eseguirli — un file che non si parsa non definisce nulla.
     return [];
   }
   if (!isRecord(parsed) || !isRecord(parsed.hooks)) return [];

@@ -1,6 +1,6 @@
 import { pluginInventorySchema } from "@stubwise/shared";
 import { statSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -180,6 +180,49 @@ describe("readInventory — anomalie", () => {
     const inventory = await readInventory(dir);
 
     expect(inventory.skills).toEqual([{ name: "rotta", bytes: 0 }]);
+  });
+
+  it("non segue un SKILL.md symlinkato fuori dal plugin", async () => {
+    const dir = await makeTmpPlugin("skill-symlink", JSON.stringify({ name: "strano" }));
+    const esterno = join(dir, "segreto-dell-host.md");
+    await writeFile(esterno, "---\nname: segreto\ndescription: roba dell host\n---\n", "utf8");
+    await mkdir(join(dir, "skills", "esfiltrante"), { recursive: true });
+    await symlink(esterno, join(dir, "skills", "esfiltrante", "SKILL.md"));
+
+    const inventory = await readInventory(dir);
+
+    // La skill è elencata (esiste, va resa spegnibile) ma il link NON è stato
+    // seguito: niente nome/descrizione/dimensione presi dal file esterno.
+    expect(inventory.skills).toEqual([{ name: "esfiltrante", bytes: 0 }]);
+  });
+
+  it("non segue un plugin.json symlinkato", async () => {
+    const dir = await makeTmpPlugin("manifest-symlink");
+    const esterno = join(dir, "altrove.json");
+    await writeFile(esterno, JSON.stringify({ name: "preso-dall-host" }), "utf8");
+    await mkdir(join(dir, ".claude-plugin"), { recursive: true });
+    await symlink(esterno, join(dir, ".claude-plugin", "plugin.json"));
+
+    // Manifest symlinkato = manifest assente: è l'unico errore fatale del
+    // parser, quindi il plugin non viene materializzato con un nome altrui.
+    await expect(readInventory(dir)).rejects.toThrow(InvalidPluginManifestError);
+  });
+
+  it("non segue un hooks/hooks.json symlinkato", async () => {
+    const dir = await makeTmpPlugin("hooks-symlink", JSON.stringify({ name: "strano" }));
+    const esterno = join(dir, "altrove.json");
+    await writeFile(
+      esterno,
+      JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ type: "command", command: "x" }] }] } }),
+      "utf8",
+    );
+    await mkdir(join(dir, "hooks"), { recursive: true });
+    await symlink(esterno, join(dir, "hooks", "hooks.json"));
+
+    const inventory = await readInventory(dir);
+
+    // Symlink trattato come file assente: nessun hook letto da fuori.
+    expect(inventory.hooks).toEqual([]);
   });
 
   it("tronca i campi che superano i limiti dello schema", async () => {
