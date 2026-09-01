@@ -134,9 +134,19 @@ const pluginSourceUrlSchema = z
   .url()
   .max(2000)
   .refine((raw) => {
-    // `z.url()` ha già garantito che la stringa sia parsabile: qui resta solo da
-    // stringere schema e credenziali.
-    const parsed = new URL(raw);
+    // ⚠️ Il try/catch NON è ridondante: in Zod v4 un check di formato fallito
+    // (`z.url()` su "non-un-url", "https://", "https://%") NON interrompe la
+    // catena, e questo refine gira lo stesso sulla stringa grezza. Senza
+    // cattura, `new URL` lancerebbe un TypeError FUORI da Zod: `safeParse`
+    // smetterebbe di essere sicuro e la rotta di creazione risponderebbe 500
+    // invece del 400 di validazione. Restituendo `false` l'errore resta un
+    // ZodError, cioè un errore dell'utente.
+    let parsed: URL;
+    try {
+      parsed = new URL(raw);
+    } catch {
+      return false;
+    }
     return parsed.protocol === "https:" && parsed.username === "" && parsed.password === "";
   }, "serve un URL https pubblico senza credenziali");
 

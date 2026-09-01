@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import {
   createPluginSchema,
   pluginInventorySchema,
@@ -117,25 +118,39 @@ describe("createPluginSchema", () => {
       "ssh://git@github.com/obra/superpowers.git",
       "git://github.com/obra/superpowers.git",
       "file:///tmp/plugin",
-      "non-un-url",
     ]) {
-      expect(() => createPluginSchema.parse({ sourceUrl, ref: "main" })).toThrow();
+      // safeParse invece di parse+toThrow: un'eccezione NON-Zod (es. un
+      // TypeError sfuggito da un refine) farebbe fallire il test invece di
+      // passare per verde. Vale per tutti i casi di rifiuto di sourceUrl.
+      expect(createPluginSchema.safeParse({ sourceUrl, ref: "main" }).success).toBe(false);
+    }
+  });
+
+  it("rifiuta gli URL non parsabili senza lanciare fuori da Zod", () => {
+    // REGRESSIONE: in Zod v4 un check di formato fallito (`z.url()`) NON
+    // interrompe la catena, quindi il refine successivo gira comunque sulla
+    // stringa grezza. Se `new URL()` non fosse protetto, qui uscirebbe un
+    // TypeError e la rotta di creazione risponderebbe 500 invece di 400.
+    for (const sourceUrl of ["non-un-url", "https://", "https://%", "", "   "]) {
+      const esito = createPluginSchema.safeParse({ sourceUrl, ref: "main" });
+      expect(esito.success).toBe(false);
+      expect(esito.error).toBeInstanceOf(z.ZodError);
     }
   });
 
   it("rifiuta un URL con credenziali", () => {
-    expect(() =>
-      createPluginSchema.parse({
+    expect(
+      createPluginSchema.safeParse({
         sourceUrl: "https://utente:token@github.com/obra/superpowers.git",
         ref: "main",
-      }),
-    ).toThrow();
-    expect(() =>
-      createPluginSchema.parse({
+      }).success,
+    ).toBe(false);
+    expect(
+      createPluginSchema.safeParse({
         sourceUrl: "https://token@github.com/obra/superpowers.git",
         ref: "main",
-      }),
-    ).toThrow();
+      }).success,
+    ).toBe(false);
   });
 
   it("rifiuta una subdir che esce dalla directory o assoluta", () => {
@@ -152,13 +167,13 @@ describe("createPluginSchema", () => {
       "plugins\\..\\fuori",
       "plugins\\superpowers",
     ]) {
-      expect(() =>
-        createPluginSchema.parse({
+      expect(
+        createPluginSchema.safeParse({
           sourceUrl: "https://github.com/obra/superpowers.git",
           ref: "main",
           sourceSubdir,
-        }),
-      ).toThrow();
+        }).success,
+      ).toBe(false);
     }
   });
 
@@ -184,7 +199,9 @@ describe("createPluginSchema", () => {
     expect(createPluginSchema.parse({ sourceUrl: alLimite, ref: "main" }).sourceUrl).toHaveLength(
       2000,
     );
-    expect(() => createPluginSchema.parse({ sourceUrl: `${alLimite}a`, ref: "main" })).toThrow();
+    expect(
+      createPluginSchema.safeParse({ sourceUrl: `${alLimite}a`, ref: "main" }).success,
+    ).toBe(false);
   });
 });
 
@@ -308,6 +325,17 @@ describe("projectPluginSchema / putProjectPluginsSchema", () => {
         ],
       }).plugins,
     ).toHaveLength(2);
+  });
+
+  it("rifiuta voci malformate senza lanciare fuori da Zod", () => {
+    // Stessa lezione del refine su sourceUrl: il controllo dei duplicati è un
+    // refine sull'ARRAY e in Zod v4 gira anche quando gli elementi hanno già
+    // fallito il parse. Nessuna di queste forme deve produrre un'eccezione.
+    for (const plugins of [[null], [undefined], [3], ["x"], [{}], [[]], [{ pluginId: "abc" }]]) {
+      const esito = putProjectPluginsSchema.safeParse({ plugins });
+      expect(esito.success).toBe(false);
+      expect(esito.error).toBeInstanceOf(z.ZodError);
+    }
   });
 
   it("limita le liste di disabilitazione a 500 voci", () => {
