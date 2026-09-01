@@ -267,21 +267,18 @@ export function parseCliJson(
 }
 
 /**
- * Scrive il file di configurazione MCP per un run in una directory temporanea
- * DEDICATA (mkdtemp, permessi 0700), fuori dalla cwd del run. Restituisce la
- * directory da rimuovere e il path da passare a `--mcp-config`.
+ * Scrive il file di configurazione MCP del run dentro `dir` (una mkdtemp già
+ * creata dal chiamante, che ne resta proprietario: così un fallimento QUI non
+ * lascia la directory orfana). Restituisce il path da passare a `--mcp-config`.
  *
  * La forma del file è quella attesa dal CLI: `{ "mcpServers": { <nome>: {...} } }`
  * — verificato con `claude --mcp-config`, che rifiuta ogni altra forma con
  * "Invalid MCP configuration: mcpServers: Invalid input".
  */
-async function writeMcpConfigFile(
-  config: AgentMcpConfig,
-): Promise<{ dir: string; path: string }> {
-  const dir = await mkdtemp(join(tmpdir(), "stubwise-mcp-"));
+async function writeMcpConfigFile(dir: string, config: AgentMcpConfig): Promise<string> {
   const path = join(dir, "mcp-config.json");
   await writeFile(path, JSON.stringify({ mcpServers: config.servers }), "utf8");
-  return { dir, path };
+  return path;
 }
 
 export class ClaudeCliRunner implements AgentRunner {
@@ -334,12 +331,29 @@ export class ClaudeCliRunner implements AgentRunner {
     // timeout, spawn fallito). Config assente o senza server → argv invariato.
     let mcpConfigDir: string | undefined;
     if (opts.mcpConfig !== undefined && Object.keys(opts.mcpConfig.servers).length > 0) {
-      const written = await writeMcpConfigFile(opts.mcpConfig);
-      mcpConfigDir = written.dir;
-      // --strict-mcp-config: usa SOLO i server di --mcp-config, ignorando ogni
-      // altra configurazione MCP (utente, progetto, immagine). Isolamento e
-      // riproducibilità: un run del worker non deve vedere server non suoi.
-      args.push("--mcp-config", written.path, "--strict-mcp-config");
+      try {
+        // mkdtemp PRIMA e assegnata SUBITO: se la scrittura del file fallisce
+        // (ENOSPC, tmp read-only, config non serializzabile) la directory è già
+        // tracciata e il catch qui sotto la rimuove, senza lasciarla orfana.
+        mcpConfigDir = await mkdtemp(join(tmpdir(), "stubwise-mcp-"));
+        const configPath = await writeMcpConfigFile(mcpConfigDir, opts.mcpConfig);
+        // --strict-mcp-config: usa SOLO i server di --mcp-config, ignorando ogni
+        // altra configurazione MCP (utente, progetto, immagine). Isolamento e
+        // riproducibilità: un run del worker non deve vedere server non suoi.
+        args.push("--mcp-config", configPath, "--strict-mcp-config");
+      } catch (error) {
+        if (mcpConfigDir !== undefined) {
+          await rm(mcpConfigDir, { recursive: true, force: true }).catch(() => undefined);
+        }
+        // L'agente non è mai partito: è la stessa categoria dei parametri non
+        // validi e dello spawn fallito. Senza questa traduzione nel log del job
+        // comparirebbe un errore fs nudo, senza dire cosa stava facendo il
+        // worker. `cause` conserva l'errore originale per la diagnostica.
+        throw new AgentRunError(
+          `Impossibile scrivere la configurazione MCP del run: ${error instanceof Error ? error.message : String(error)}`,
+          { cause: error },
+        );
+      }
     }
 
     try {

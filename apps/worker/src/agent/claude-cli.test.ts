@@ -3,6 +3,7 @@ import {
   chmod,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   realpath,
   rm,
@@ -13,7 +14,7 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { ClaudeCliRunner } from "./claude-cli.js";
 import { FakeAgentRunner } from "./fake.js";
-import { AgentRunError, AgentTimeoutError } from "./runner.js";
+import { AgentRunError, AgentTimeoutError, type AgentMcpConfig } from "./runner.js";
 
 // I test usano un FINTO eseguibile `claude`: uno script shell scritto in una
 // tmpdir. Col passaggio a `--output-format json`, in caso di successo il CLI
@@ -76,6 +77,17 @@ async function exists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Directory temporanee di config MCP attualmente esistenti. Serve ai test in
+ * cui NESSUNO può registrare il path della config (spawn fallito, scrittura
+ * fallita): si confronta l'elenco prima e dopo il run per verificare che il
+ * runner non abbia lasciato residui.
+ */
+async function listMcpTempDirs(): Promise<string[]> {
+  const entries = await readdir(tmpdir());
+  return entries.filter((name) => name.startsWith("stubwise-mcp-")).sort();
 }
 
 /**
@@ -453,6 +465,56 @@ printf '{"result":"altra risposta"}\\n'
     const configPath = await readFile(join(root, "captured-path.txt"), "utf8");
     expect(configPath).not.toBe("");
     expect(await exists(configPath)).toBe(false);
+    expect(await exists(dirname(configPath))).toBe(false);
+  });
+
+  it("rimuove il file di config MCP anche quando lo spawn fallisce (binario inesistente)", async () => {
+    const root = await makeRoot();
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath: join(root, "non-esiste") });
+    const before = await listMcpTempDirs();
+
+    await expect(
+      runner.run({
+        cwd,
+        prompt: "ciao",
+        maxTurns: 1,
+        timeoutMs: 10_000,
+        mcpConfig: { servers: { s: { command: "node" } } },
+      }),
+    ).rejects.toThrow(AgentRunError);
+
+    // Il binario non esiste: nessuno può registrare il path della config, ma la
+    // directory temporanea non deve sopravvivere al run.
+    expect(await listMcpTempDirs()).toEqual(before);
+  });
+
+  it("traduce un fallimento di scrittura della config MCP in AgentRunError, senza lasciare residui", async () => {
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(root);
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+    const before = await listMcpTempDirs();
+
+    // Config NON serializzabile: JSON.stringify lancia DOPO la mkdtemp, cioè
+    // esattamente lo scenario in cui la directory resterebbe orfana.
+    const circolare: Record<string, unknown> = { command: "node" };
+    circolare["self"] = circolare;
+    const mcpConfig = { servers: { s: circolare } } as unknown as AgentMcpConfig;
+
+    const promise = runner.run({ cwd, prompt: "ciao", maxTurns: 1, timeoutMs: 10_000, mcpConfig });
+
+    await expect(promise).rejects.toThrow(AgentRunError);
+    await expect(promise).rejects.toThrow(/configurazione MCP/i);
+    // La causa originale (l'errore di serializzazione) è conservata.
+    const error = await promise.then(
+      () => {
+        throw new Error("atteso un AgentRunError, ma run() ha risolto");
+      },
+      (e: unknown) => e as AgentRunError,
+    );
+    expect(error.cause).toBeInstanceOf(Error);
+    expect(await listMcpTempDirs()).toEqual(before);
   });
 
   it("mcpConfig NON allarga l'env del child: le env dei server MCP restano nel file di config", async () => {

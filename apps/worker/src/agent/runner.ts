@@ -159,13 +159,18 @@ export interface AgentRunner {
 
 /**
  * Errore tipato per i fallimenti che impediscono di avere un risultato:
- * opzioni non valide (maxTurns/timeoutMs ≤ 0) o spawn fallito (binario
- * mancante, permessi, kill da segnale esterno). NON copre gli exit code
- * non-zero, che sono risultati validi restituiti al chiamante.
+ * opzioni non valide (maxTurns/timeoutMs ≤ 0), preparazione del run fallita
+ * (es. la config MCP non scrivibile) o spawn fallito (binario mancante,
+ * permessi, kill da segnale esterno). NON copre gli exit code non-zero, che
+ * sono risultati validi restituiti al chiamante.
+ *
+ * `options.cause` conserva l'errore originale (es. l'errore fs) quando il
+ * messaggio è una traduzione: il log del job resta leggibile, la diagnostica
+ * non si perde.
  */
 export class AgentRunError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
     this.name = "AgentRunError";
   }
 }
