@@ -1,8 +1,10 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import type { AgentMcpConfig } from "../agent/runner.js";
 import {
   ASK_USER_SERVER_NAME,
   ASK_USER_TOOL_NAME,
@@ -80,6 +82,99 @@ export function planParentDir(jobId: string): string {
  * usato per la rivalidazione (nessuna definizione gemella che può divergere).
  */
 export type { AskUserPayload };
+
+/** Parametri per cablare il tool `ask_user` su un run di pianificazione. */
+export interface AskUserRunConfigInput {
+  /** Job del run: determina la parent dir e quindi il path del file-bridge. */
+  jobId: string;
+  /** Entry del server MCP da lanciare con `node` (già risolta dal chiamante). */
+  serverPath: string;
+  /** Round della PROSSIMA domanda, 1-based. */
+  round: number;
+  /** Tetto di round per job (oltre, il tool non registra più nulla). */
+  maxRounds: number;
+}
+
+/**
+ * Tutto ciò che un run di pianificazione deve sapere del tool `ask_user`, in
+ * pezzi già pronti da spreddare nelle opzioni del run e del prompt.
+ *
+ * Esiste per tenere `runFix` alla stessa altitudine dei suoi rami: il cablaggio
+ * del tool (esistenza dell'entry, dir deterministica, config MCP, allowlist,
+ * blocco di prompt) è UNA decisione sola e sta in un posto solo, invece di
+ * cinque `const` intrecciate in mezzo alla preparazione dei repo.
+ */
+export interface AskUserRunConfig {
+  /**
+   * Il tool è davvero utilizzabile: l'entry del server MCP ESISTE. Falso in
+   * sviluppo (`tsx`, nessun `dist`) o con un'immagine buildata a metà — il
+   * chiamante lo dice nel log del job, perché un server MCP fantasma
+   * fallirebbe in silenzio.
+   */
+  enabled: boolean;
+  /** Entry del server MCP considerata (utile al messaggio di log). */
+  serverPath: string;
+  /** Parent dir DETERMINISTICA del run (la ripresa `--resume` la ritrova). */
+  parentDir: string;
+  /** File-bridge nella radice della parent dir: il worker lo rilegge a fine run. */
+  filePath: string;
+  /** Opzioni di `withProjectWorktrees`: la dir deterministica, sempre. */
+  worktreeOptions: { parentDir: string };
+  /** Da spreddare nelle opzioni del run: `mcpConfig`, o niente se disattivato. */
+  mcpOpt: { mcpConfig: AgentMcpConfig } | Record<string, never>;
+  /** Da spreddare nell'input del prompt di piano: `askUser`, o niente. */
+  promptOpt: { askUser: { round: number; maxRounds: number } } | Record<string, never>;
+  /** Pattern del tool da aggiungere all'allowlist del run (vuoto se disattivato). */
+  tools: string[];
+}
+
+/**
+ * Cabla il tool `ask_user` su un run di pianificazione. Da chiamare SOLO quando
+ * il run ha davvero una fase di piano: in `execute-only` e a fase singola
+ * nessuno può fare domande, e la dir deterministica non serve.
+ *
+ * La dir deterministica viene restituita SEMPRE (anche a tool disattivato):
+ * dipende dal fatto che ci sia una fase di piano, non dal tool — la ripresa la
+ * usa comunque, e tenerla condizionata al tool renderebbe la cwd del run
+ * dipendente dalla presenza di un file nell'immagine.
+ *
+ * I parametri del bridge viaggiano SOLO nell'env del server MCP: l'env del CLI
+ * è una allowlist con denylist assoluta sui segreti e non va allargata.
+ */
+export function buildAskUserRunConfig(input: AskUserRunConfigInput): AskUserRunConfig {
+  const { jobId, serverPath, round, maxRounds } = input;
+  const parentDir = planParentDir(jobId);
+  const filePath = join(parentDir, ASK_USER_FILENAME);
+  const enabled = existsSync(serverPath);
+  return {
+    enabled,
+    serverPath,
+    parentDir,
+    filePath,
+    worktreeOptions: { parentDir },
+    mcpOpt: enabled
+      ? {
+          mcpConfig: {
+            servers: {
+              [ASK_USER_MCP_SERVER_KEY]: {
+                // process.execPath, non "node": è il node che sta già girando,
+                // senza dipendere da come è fatto il PATH del processo figlio.
+                command: process.execPath,
+                args: [serverPath],
+                env: {
+                  ASK_USER_FILE: filePath,
+                  ASK_USER_ROUND: String(round),
+                  ASK_USER_MAX_ROUNDS: String(maxRounds),
+                },
+              },
+            },
+          },
+        }
+      : {},
+    promptOpt: enabled ? { askUser: { round, maxRounds } } : {},
+    tools: enabled ? [ASK_USER_TOOL_PATTERN] : [],
+  };
+}
 
 /** Esito della lettura del file-bridge. */
 export type AskUserFileResult =
