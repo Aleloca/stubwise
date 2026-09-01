@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { t } from "@stubwise/i18n";
 import { buildApp } from "../app.js";
 import {
+  agentQuestions,
   aiJobs,
   backlogJobs,
   comments,
@@ -2546,5 +2547,312 @@ describe("GET /api/tickets/:id — campi design/piano", () => {
     expect(body.body).toBe("## Design nel detail");
     expect(body.originContent).toBe("Corpo base");
     expect(body.implementationPlan).toBe("## Piano nel detail");
+  });
+});
+
+describe("GET /api/tickets/:id/questions", () => {
+  interface QuestionBody {
+    // `questionId` e `recommendedIndex` OPZIONALE: è la stessa forma che la card
+    // d'inbox riceve (`inboxQuestionSchema`), così il pannello di risposta
+    // consuma le due superfici senza normalizzare nulla.
+    questionId: string;
+    jobId: string;
+    round: number;
+    question: string;
+    options: { label: string; consequence?: string }[];
+    recommendedIndex?: number;
+    allowFreeText: boolean;
+    askedAt: string;
+    answer: { optionIndex?: number; text?: string } | null;
+    answeredAt: string | null;
+    answeredBy: { id: string; email: string } | null;
+  }
+
+  function getQuestions(id: string, cookie = users.memberCookie) {
+    return app.inject({ method: "GET", url: `/api/tickets/${id}/questions`, headers: { cookie } });
+  }
+
+  it("401 senza sessione, 404 su un ticket inesistente", async () => {
+    const anon = await app.inject({
+      method: "GET",
+      url: `/api/tickets/${randomUUID()}/questions`,
+    });
+    expect(anon.statusCode).toBe(401);
+    const missing = await getQuestions(randomUUID());
+    expect(missing.statusCode).toBe(404);
+  });
+
+  it("lista vuota su un ticket senza domande", async () => {
+    const created = (await postTicket({ projectId, title: "Senza Q&A", type: "bug" })).json() as {
+      id: string;
+    };
+    const res = await getQuestions(created.id);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual([]);
+  });
+
+  it("elenca le Q&A in ordine, con l'email di chi ha risposto", async () => {
+    const created = (await postTicket({ projectId, title: "Con Q&A", type: "bug" })).json() as {
+      id: string;
+    };
+    const ticketId = created.id;
+    const [job] = await testDb.db
+      .insert(aiJobs)
+      .values({ ticketId, status: "awaiting_input" })
+      .returning({ id: aiJobs.id });
+    const at = (offsetMs: number) => new Date(Date.UTC(2026, 0, 1, 12, 0, 0) + offsetMs);
+
+    // Inserite fuori ordine: la rotta le riordina per askedAt.
+    await testDb.db.insert(agentQuestions).values([
+      {
+        jobId: job!.id,
+        ticketId,
+        round: 2,
+        question: "E il TTL?",
+        options: [{ label: "Un'ora" }, { label: "Un giorno" }],
+        allowFreeText: false,
+        askedAt: at(2000),
+      },
+      {
+        jobId: job!.id,
+        ticketId,
+        round: 1,
+        question: "Quali colonne?",
+        options: [{ label: "Vecchie", consequence: "Nessuna migrazione" }, { label: "Nuove" }],
+        recommendedIndex: 0,
+        askedAt: at(1000),
+        answer: { optionIndex: 0 },
+        answeredAt: at(1500),
+        answeredByUserId: users.adminId,
+      },
+    ]);
+
+    const res = await getQuestions(ticketId);
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as QuestionBody[];
+    expect(body.map((q) => q.round)).toEqual([1, 2]);
+
+    expect(body[0]).toMatchObject({
+      questionId: expect.any(String),
+      jobId: job!.id,
+      question: "Quali colonne?",
+      options: [{ label: "Vecchie", consequence: "Nessuna migrazione" }, { label: "Nuove" }],
+      recommendedIndex: 0,
+      allowFreeText: true,
+      answer: { optionIndex: 0 },
+      answeredBy: { id: users.adminId, email: "admin@example.com" },
+    });
+    expect(body[0]!.answeredAt).not.toBeNull();
+
+    // La domanda ancora aperta: nessuna risposta, nessun autore. Senza
+    // raccomandata il campo è OMESSO, non `null`: la colonna è nullable, il
+    // contratto no.
+    expect(body[1]).toMatchObject({
+      round: 2,
+      allowFreeText: false,
+      answer: null,
+      answeredAt: null,
+      answeredBy: null,
+    });
+    expect(body[1]).not.toHaveProperty("recommendedIndex");
+  });
+
+  it("una risposta illeggibile non fa fallire la lista", async () => {
+    const created = (await postTicket({ projectId, title: "Q&A marcia", type: "bug" })).json() as {
+      id: string;
+    };
+    const ticketId = created.id;
+    const [job] = await testDb.db
+      .insert(aiJobs)
+      .values({ ticketId, status: "queued" })
+      .returning({ id: aiJobs.id });
+    await testDb.db.insert(agentQuestions).values({
+      jobId: job!.id,
+      ticketId,
+      round: 1,
+      question: "Domanda storica",
+      options: [{ label: "A" }, { label: "B" }],
+      // Forma di una versione precedente: non è né `{optionIndex}` né `{text}`.
+      answer: { choice: "A" } as unknown as { text: string },
+      answeredAt: new Date(),
+    });
+
+    const res = await getQuestions(ticketId);
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as QuestionBody[];
+    expect(body).toHaveLength(1);
+    // Degrada a null, ma `answeredAt` dice comunque che una risposta c'è stata.
+    expect(body[0]!.answer).toBeNull();
+    expect(body[0]!.answeredAt).not.toBeNull();
+  });
+});
+
+describe("POST /api/tickets/:id/questions/answer", () => {
+  /**
+   * Ticket con un job fermo su una domanda aperta, richiesto da `requestedBy`.
+   * È lo stato che la pagina ticket incontra quando mostra il pannello.
+   */
+  async function seedOpenQuestion(requestedBy: string | null) {
+    const created = (
+      await postTicket({ projectId, title: "Domanda dalla pagina", type: "bug" })
+    ).json() as { id: string };
+    const [job] = await testDb.db
+      .insert(aiJobs)
+      .values({
+        ticketId: created.id,
+        status: "awaiting_input",
+        ...(requestedBy === null ? {} : { requestedByUserId: requestedBy }),
+      })
+      .returning({ id: aiJobs.id });
+    const [question] = await testDb.db
+      .insert(agentQuestions)
+      .values({
+        jobId: job!.id,
+        ticketId: created.id,
+        round: 1,
+        question: "Quale coda?",
+        options: [{ label: "Quella esistente" }, { label: "Una nuova" }],
+        recommendedIndex: 0,
+      })
+      .returning({ id: agentQuestions.id });
+    return { ticketId: created.id, jobId: job!.id, questionId: question!.id };
+  }
+
+  function answer(id: string, payload: Record<string, unknown>, cookie = users.memberCookie) {
+    return app.inject({
+      method: "POST",
+      url: `/api/tickets/${id}/questions/answer`,
+      headers: { cookie },
+      payload,
+    });
+  }
+
+  it("401 senza sessione, 404 su un ticket inesistente", async () => {
+    const anon = await app.inject({
+      method: "POST",
+      url: `/api/tickets/${randomUUID()}/questions/answer`,
+      payload: { optionIndex: 0 },
+    });
+    expect(anon.statusCode).toBe(401);
+    const missing = await answer(randomUUID(), { optionIndex: 0 });
+    expect(missing.statusCode).toBe(404);
+  });
+
+  it("il richiedente risponde: domanda chiusa e job rimesso in coda su plan_continue", async () => {
+    const { ticketId, jobId, questionId } = await seedOpenQuestion(users.memberId);
+
+    // `questionId` è la domanda che la pagina sta MOSTRANDO: la manda sempre.
+    const res = await answer(ticketId, { questionId, optionIndex: 1 });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ jobId, questionId });
+
+    const [question] = await testDb.db
+      .select()
+      .from(agentQuestions)
+      .where(eq(agentQuestions.id, questionId));
+    expect(question!.answer).toEqual({ optionIndex: 1 });
+    expect(question!.answeredByUserId).toBe(users.memberId);
+
+    const [job] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
+    expect(job!.status).toBe("queued");
+    expect(job!.resumeMode).toBe("plan_continue");
+  });
+
+  it("un operatore che non ha chiesto il run: 403 (risponde chi sa rispondere)", async () => {
+    const { ticketId } = await seedOpenQuestion(users.adminId);
+
+    const res = await answer(ticketId, { optionIndex: 0 });
+    expect(res.statusCode).toBe(403);
+    expect((res.json() as { code: string }).code).toBe("forbidden");
+  });
+
+  it("un maintainer risponde anche a una domanda di un collega", async () => {
+    const { ticketId } = await seedOpenQuestion(users.memberId);
+
+    const res = await answer(ticketId, { text: "Usa la coda esistente" }, users.adminCookie);
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("seconda risposta: 409 already_handled con chi ha già risposto", async () => {
+    const { ticketId } = await seedOpenQuestion(users.memberId);
+    expect((await answer(ticketId, { optionIndex: 0 })).statusCode).toBe(200);
+
+    const res = await answer(ticketId, { optionIndex: 1 });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({
+      code: "already_handled",
+      handledBy: { id: users.memberId, email: "member@example.com" },
+    });
+  });
+
+  it("indice fuori dalle opzioni persistite: 400 invalid_answer", async () => {
+    const { ticketId } = await seedOpenQuestion(users.memberId);
+
+    const res = await answer(ticketId, { optionIndex: 9 });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("invalid_answer");
+  });
+
+  it("la pagina ferma sul round vecchio non risponde alla domanda nuova", async () => {
+    // Il round 1 è già stato risposto e il job ne ha aperto un altro: una
+    // scheda rimasta sul round 1 manderebbe un indice scelto leggendo ALTRE
+    // opzioni. Ancorare la risposta alla domanda MOSTRATA è ciò che lo impedisce
+    // — stessa guardia della card d'inbox di un round superato.
+    const { ticketId, jobId, questionId } = await seedOpenQuestion(users.memberId);
+    expect(
+      (await answer(ticketId, { questionId, optionIndex: 0 })).statusCode,
+    ).toBe(200);
+
+    // Il job torna in attesa con un round nuovo (lo farebbe il worker).
+    await testDb.db.update(aiJobs).set({ status: "awaiting_input" }).where(eq(aiJobs.id, jobId));
+    const [round2] = await testDb.db
+      .insert(agentQuestions)
+      .values({
+        jobId,
+        ticketId,
+        round: 2,
+        question: "E il TTL?",
+        options: [{ label: "Un'ora" }, { label: "Un giorno" }],
+      })
+      .returning({ id: agentQuestions.id });
+
+    const res = await answer(ticketId, { questionId, optionIndex: 1 });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({
+      code: "already_handled",
+      handledBy: { id: users.memberId, email: "member@example.com" },
+    });
+
+    // La domanda del round 2 è ancora lì, aperta: nessuna risposta le è stata
+    // attribuita, e il job non è ripartito.
+    const [open] = await testDb.db
+      .select()
+      .from(agentQuestions)
+      .where(eq(agentQuestions.id, round2!.id));
+    expect(open!.answeredAt).toBeNull();
+    const [job] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
+    expect(job!.status).toBe("awaiting_input");
+  });
+
+  it("opzione E testo insieme: 400 (il corpo ne vuole esattamente uno)", async () => {
+    // Inchioda la DERIVAZIONE del body: lo schema della rotta è
+    // `answerBodySchema.extend(...)`, e il `.refine` XOR deve sopravvivere
+    // all'extend. Se un giorno smettesse (major di zod), un corpo con entrambi i
+    // campi arriverebbe al servizio con un contratto diverso da quello
+    // dell'inbox — in silenzio.
+    const { ticketId, questionId } = await seedOpenQuestion(users.memberId);
+
+    const res = await answer(ticketId, { questionId, optionIndex: 0, text: "anche questo" });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("ticket senza job: 409 question_not_pending", async () => {
+    const created = (
+      await postTicket({ projectId, title: "Nessun job", type: "bug" })
+    ).json() as { id: string };
+
+    const res = await answer(created.id, { optionIndex: 0 });
+    expect(res.statusCode).toBe(409);
+    expect((res.json() as { code: string }).code).toBe("question_not_pending");
   });
 });

@@ -1,6 +1,6 @@
 ---
 title: Notifications
-description: "An outgoing webhook (Slack, Discord or generic JSON) alerts on the key events: new ticket, PR opened, PR closed, held job, plan to approve, PR review completed, failed fix, Docs generation paused."
+description: "An outgoing webhook (Slack, Discord or generic JSON) alerts on the key events: new ticket, PR opened, PR closed, held job, plan to approve, question from the AI, PR review completed, failed fix, Docs generation paused."
 ---
 
 Stubwise can send a notification to an **outgoing webhook** on the platform's
@@ -17,6 +17,7 @@ the message for.
 | `job.pr_closed`    | A PR opened by the AI was closed without merge: the ticket is reopened.    |
 | `job.held`         | A job is awaiting human review (automation gate / effort threshold).       |
 | `job.plan_review`  | Planning produced a plan awaiting human approval.                          |
+| `job.awaiting_input` | While planning, [the AI stopped to ask a question](#when-the-ai-asks-a-question) and is waiting for an answer. |
 | `job.budget_held`  | A job was held because it would exceed a cost budget (per ticket or monthly). |
 | `review.completed` | An automatic [PR review](/docs/ai-pipeline/automation/#pr-review) completed, with its verdict. |
 | `job.failed`       | The AI fix failed.                                                         |
@@ -25,6 +26,57 @@ the message for.
 Each event has a dedicated toggle: you can enable only the ones you care about.
 The master **Enabled** switch suspends all notifications without losing the
 configuration.
+
+## When the AI asks a question
+
+While it is **planning** a fix, the AI can run into a fork it shouldn't settle
+on its own: which of two behaviours to keep, whether an edge case is in scope,
+where a new option belongs. Rather than guessing, it **stops and asks**.
+
+**What the question looks like.** A short question with **two to four options**,
+each usually followed by one line on what choosing it entails. One option can be
+marked as **recommended** by the AI, and most questions also accept an answer
+**in your own words** ("Other…").
+
+**Where it arrives.** The same question, in three places — answer wherever you
+happen to be:
+
+- in your **Stubwise inbox** — **Inbox**, the first entry in the left-hand
+  navigation, also reachable from the bell at the top of it, which carries the
+  count of what you haven't read yet. The question waits under **To clear**,
+  in the **To decide** group, and its card shows the options as a list you pick
+  from, then confirm;
+- as a **Slack direct message**, where the buttons answer immediately and
+  "Other…" opens a box to type in — see [actionable DM
+  notifications](/docs/integrations/slack/#actionable-dm-notifications);
+- on the **ticket page**, where the answer panel sits with the ticket, together
+  with the questions already answered on it.
+
+**Who can answer.** The question goes to the person who started that run, plus
+the administrators — when the run was started by the automation there is no
+requester, and it's the administrators alone. Any of them can answer, and the
+**first answer wins**: whoever clicks afterwards is told who already answered,
+and nothing is done twice.
+
+**What happens next.** The job is neither failed nor cancelled: it simply
+**waits**, with no deadline, and resumes planning from where it stopped, taking
+your decision as settled. Answering is the only way to close the question —
+there is no "mark as handled" on it, and re-launching the fix while it waits is
+refused, because that would throw away the work already done. The question and
+the answer are both recorded as comments on the ticket, so the decision stays
+with its history.
+
+:::note[Only runs that plan can ask]
+A question can only come from a run that is **planning**. A fix that is
+executing a plan you already saved or approved never asks: it works straight
+through to the pull request.
+
+There is also a ceiling on how many questions a single run may ask (**5** by
+default, see
+[`AGENT_QUESTION_MAX_ROUNDS`](/docs/reference/configuration/#worker)). Past
+that, the AI decides on its own and writes the choice it made into the plan, so
+a fix can't bounce back and forth forever.
+:::
 
 ## In-app configuration (Settings → Notifications)
 
@@ -103,6 +155,12 @@ With the **generic JSON** format your endpoint receives a `POST` request with
 | `limitUsd`     | number           | only `job.budget_held`  | The budget ceiling in USD.                              |
 | `spentUsd`     | number           | only `job.budget_held`  | The cost already spent in USD.                          |
 | `verdict`      | string           | only `review.completed` | Review verdict: `approve` or `request_changes`.         |
+| `questionId`   | string           | only `job.awaiting_input` | Id of the question being asked (the anchor an answer refers to). |
+| `round`        | number           | only `job.awaiting_input` | Which question this is within the run (`1` = the first). |
+| `question`     | string           | only `job.awaiting_input` | The question, as the AI wrote it.                       |
+| `options`      | array            | only `job.awaiting_input` | The 2–4 options: `{ "label": "…", "consequence": "…" }`, `consequence` optional. |
+| `recommendedIndex` | number \| null | only `job.awaiting_input` | Index in `options` of the one the AI recommends (`null` if none). |
+| `allowFreeText` | boolean         | only `job.awaiting_input` | Whether an answer written in your own words is accepted too. |
 | `error`        | string           | only `job.failed`       | Error message of the failed fix.                        |
 | `repositoryName` | string         | only `docs.limit_paused` | Name of the repository whose generation was paused.    |
 | `docsUrl`      | string           | only `docs.limit_paused` | Link to the repository's Docs page in Stubwise (this event has no ticket). |
@@ -178,6 +236,32 @@ With the **generic JSON** format your endpoint receives a `POST` request with
   "projectName": "web-shop",
   "message": "Plan awaiting approval — #131 — Add CSV export to the order history (web-shop).",
   "ticketUrl": "https://stubwise.example.com/tickets/131"
+}
+```
+
+`job.awaiting_input` (the whole question travels in the payload: a consumer can
+render it without calling the API):
+
+```json
+{
+  "event": "job.awaiting_input",
+  "ticketNumber": 131,
+  "title": "Add CSV export to the order history",
+  "projectName": "web-shop",
+  "message": "AI has a question on #131 — Add CSV export to the order history: Should the export include cancelled orders?",
+  "ticketUrl": "https://stubwise.example.com/tickets/131",
+  "questionId": "7d4e9a1b-3333-4444-8555-666677778888",
+  "round": 1,
+  "question": "Should the export include cancelled orders?",
+  "options": [
+    {
+      "label": "Valid orders only",
+      "consequence": "The total matches the revenue figures."
+    },
+    { "label": "All of them, with a status column" }
+  ],
+  "recommendedIndex": 0,
+  "allowFreeText": true
 }
 ```
 

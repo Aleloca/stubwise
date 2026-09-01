@@ -40,6 +40,7 @@ plus:
 | `FIX_PLAN_MODEL`        | No       | `opus`                   | Model of the planning run (analysis + plan, no changes).                                   |
 | `FIX_EXECUTE_MODEL`     | No       | `sonnet`                 | Model of the execution run (writes the fix, the test and the report).                      |
 | `FIX_PLAN_TIMEOUT_MS`   | No       | `600000`                 | Planning run timeout in ms (10'). Enters into the staleness invariant.                     |
+| `AGENT_QUESTION_MAX_ROUNDS` | No   | `5`                      | How many [questions the AI may ask](/docs/notifications/#when-the-ai-asks-a-question) while planning a single fix, answered ones included. Past the ceiling it decides on its own and writes the choice into the plan. Minimum `1`; only runs that plan can ask. |
 | `INSTALL_TIMEOUT_MS`    | No       | `600000`                 | Timeout in ms (10') of the dependency install run in the worktree, before the fix and the tests. Runs **once** per job, so it enters the staleness invariant as a single addend (not per attempt). |
 | `SELF_REPAIR_MAX_ATTEMPTS` | No    | `2`                      | Max self-repair cycles after a fix run whose tests fail (the worker re-runs the agent with the failure output). `0` disables the loop. Enters into the staleness invariant. |
 | `SELF_REPAIR_TEST_TIMEOUT_MS` | No | `300000`                 | Timeout in ms (5') of each test-command re-run during self-repair. Enters into the staleness invariant. |

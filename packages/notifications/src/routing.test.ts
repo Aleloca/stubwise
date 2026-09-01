@@ -1,7 +1,7 @@
 import { notificationKind } from "@stubwise/db";
 import { describe, expect, it } from "vitest";
 import { sampleEvents, type NotificationEvent, type NotificationKind } from "./format.js";
-import { isAdminOnlyKind, recipientsFor, type RoutingContext } from "./routing.js";
+import { recipientsFor, type RoutingContext } from "./routing.js";
 
 /**
  * Test del routing PURO: nessun DB, nessuna rete. `recipientsFor` riceve un
@@ -58,6 +58,36 @@ describe("recipientsFor", () => {
     }
   });
 
+  it("manda la domanda dell'AI al richiedente e agli admin, MAI ai follower", () => {
+    expect(recipientsFor(eventOfKind("job.awaiting_input"), CTX)).toEqual([
+      "admin-1",
+      "admin-2",
+      "member-requester",
+    ]);
+  });
+
+  it("senza richiedente (run dell'automazione) la domanda resta ai soli admin", () => {
+    expect(
+      recipientsFor(eventOfKind("job.awaiting_input"), {
+        admins: ["admin-1"],
+        followers: ["follower-1"],
+        assignee: "member-assignee",
+        reporter: "member-reporter",
+      }),
+    ).toEqual(["admin-1"]);
+  });
+
+  it("la domanda non raggiunge follower, assegnatario e reporter nemmeno col richiedente", () => {
+    const recipients = recipientsFor(eventOfKind("job.awaiting_input"), {
+      admins: [],
+      followers: ["follower-1"],
+      requestedBy: "member-requester",
+      assignee: "member-assignee",
+      reporter: "member-reporter",
+    });
+    expect(recipients).toEqual(["member-requester"]);
+  });
+
   it("non duplica chi compare in più ruoli", () => {
     const recipients = recipientsFor(eventOfKind("job.pr_opened"), {
       admins: ["u1"],
@@ -89,22 +119,6 @@ describe("recipientsFor", () => {
         assignee: "member-assignee",
       }),
     ).toEqual([]);
-  });
-});
-
-describe("isAdminOnlyKind", () => {
-  it("distingue i kind ai soli admin da quelli di avanzamento", () => {
-    expect(isAdminOnlyKind("job.plan_review")).toBe(true);
-    expect(isAdminOnlyKind("job.held")).toBe(true);
-    expect(isAdminOnlyKind("job.budget_held")).toBe(true);
-    expect(isAdminOnlyKind("docs.limit_paused")).toBe(true);
-    expect(isAdminOnlyKind("monitor.alert")).toBe(true);
-    expect(isAdminOnlyKind("monitor.recovered")).toBe(true);
-    expect(isAdminOnlyKind("ticket.created")).toBe(false);
-    expect(isAdminOnlyKind("job.pr_opened")).toBe(false);
-    expect(isAdminOnlyKind("job.pr_closed")).toBe(false);
-    expect(isAdminOnlyKind("job.failed")).toBe(false);
-    expect(isAdminOnlyKind("review.completed")).toBe(false);
   });
 });
 

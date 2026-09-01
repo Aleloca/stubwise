@@ -60,6 +60,8 @@ const PROJECT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const DECIDE_ID = "11111111-1111-4111-8111-111111111111";
 const KNOW_ID = "22222222-2222-4222-8222-222222222222";
 const EXTRA_ID = "33333333-3333-4333-8333-333333333333";
+const ASK_ID = "77777777-7777-4777-8777-777777777777";
+const QUESTION_ID = "88888888-8888-4888-8888-888888888888";
 
 const PROJECTS = [{ id: PROJECT_ID, name: "Apollo", slug: "apollo" }];
 
@@ -88,6 +90,29 @@ const DECIDE = item({
   text: "Plan awaiting approval for TCK-1",
   actions: ["approve_plan", "reject_plan", "open", "snooze", "handled"],
   url: "/tickets/tck-1",
+});
+
+/**
+ * Riga di una DOMANDA dell'agente: il job è fermo finché non le si risponde.
+ * Niente `handled` fra le azioni — questa riga si chiude solo rispondendo.
+ */
+const ASK = item({
+  id: ASK_ID,
+  kind: "job.awaiting_input",
+  text: "AI has a question on TCK-3 — Rate limit: Where should the setting live?",
+  actions: ["answer", "open", "snooze"],
+  url: "/tickets/tck-3",
+  question: {
+    questionId: QUESTION_ID,
+    round: 1,
+    question: "Where should the setting live?",
+    options: [
+      { label: "On the project", consequence: "Every repository inherits it" },
+      { label: "On the repository", consequence: "Set it repository by repository" },
+    ],
+    recommendedIndex: 1,
+    allowFreeText: true,
+  },
 });
 
 /** Riga di sola informazione: nessuna azione decisionale. */
@@ -399,6 +424,113 @@ describe("pagina /inbox", () => {
     expect(await screen.findByRole("region", { name: "Snoozed" })).toBeInTheDocument();
     // Lo stato è SEMPRE esplicito, anche per la vista d'ingresso.
     await waitFor(() => expect(statuses).toEqual(["open", "snoozed"]));
+  });
+
+  it("la domanda dell'AI sta fra le decisioni, offre le opzioni e NON offre 'Handled'", async () => {
+    mockApi(baseApi({ "GET /api/inbox": () => jsonResponse(200, { items: [ASK], nextCursor: null }) }));
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    // Un job fermo in attesa di risposta è una decisione, non una lettura.
+    const decide = within(section("To decide"));
+    expect(decide.getByRole("radio", { name: "On the project" })).not.toBeChecked();
+    expect(decide.getByRole("radio", { name: "On the repository recommended" })).not.toBeChecked();
+    expect(decide.getByText("Every repository inherits it")).toBeInTheDocument();
+    expect(decide.getByRole("radio", { name: "Other…" })).toBeInTheDocument();
+
+    // Il server non offre `handled` su questo kind: la riga si chiude solo
+    // rispondendo, e la card non inventa il bottone.
+    expect(decide.queryByRole("button", { name: "Handled" })).toBeNull();
+    expect(decide.getByRole("button", { name: "Snooze" })).toBeInTheDocument();
+  });
+
+  it("risponde in due passi: la scelta non invia, la conferma manda l'indice", async () => {
+    let body: unknown = null;
+    let answered = false;
+    mockApi(
+      baseApi({
+        // Come per l'approvazione: il refetch non risolve, così quello che si
+        // vede dopo la conferma viene solo da `changedNotificationIds`.
+        "GET /api/inbox": () =>
+          answered
+            ? new Promise<Response>(() => {})
+            : jsonResponse(200, { items: [ASK], nextCursor: null }),
+        "POST /api/inbox/:id/actions/answer": (_url, init) => {
+          answered = true;
+          body = JSON.parse(String(init?.body));
+          return jsonResponse(200, {
+            kind: "job.awaiting_input",
+            changedNotificationIds: [ASK_ID],
+          });
+        },
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    await userEvent.click(screen.getByRole("radio", { name: "On the project" }));
+    // Un tap non decide: finché non si conferma, al server non è andato nulla.
+    expect(body).toBeNull();
+
+    await userEvent.click(screen.getByRole("button", { name: "Send answer" }));
+
+    await waitFor(() => expect(body).toEqual({ optionIndex: 0 }));
+    // Risposta registrata: la riga si chiude e smette di offrire la domanda.
+    const answeredCard = within(
+      card("AI has a question on TCK-3 — Rate limit: Where should the setting live?"),
+    );
+    expect(answeredCard.getByText("handled by ada@example.com")).toBeInTheDocument();
+    expect(answeredCard.queryByRole("radio", { name: "On the project" })).toBeNull();
+  });
+
+  it("409: dice CHI ha già risposto, e la domanda resta a schermo", async () => {
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () => jsonResponse(200, { items: [ASK], nextCursor: null }),
+        "POST /api/inbox/:id/actions/answer": () =>
+          jsonResponse(409, {
+            code: "already_handled",
+            message: "Already handled",
+            handledBy: { id: "55555555-5555-4555-8555-555555555555", email: "bea@example.com" },
+          }),
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    await userEvent.click(screen.getByRole("radio", { name: "On the project" }));
+    await userEvent.click(screen.getByRole("button", { name: "Send answer" }));
+
+    // Le parole sono quelle della RISPOSTA, non quelle generiche dell'inbox.
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Already answered by bea@example.com",
+    );
+  });
+
+  it("payload senza domanda: la card resta renderizzabile e azionabile", async () => {
+    // `question` è opzionale nel contratto (payload scritto da una versione
+    // precedente, o non più leggibile): la lista non deve rompersi.
+    const withoutQuestion: InboxItem = { ...ASK };
+    delete withoutQuestion.question;
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () =>
+          jsonResponse(200, { items: [withoutQuestion], nextCursor: null }),
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const decide = within(section("To decide"));
+    expect(
+      decide.getByText("AI has a question on TCK-3 — Rate limit: Where should the setting live?"),
+    ).toBeInTheDocument();
+    // Niente pannello, ma le azioni del server ci sono tutte: si risponde dal
+    // ticket, dove porta "Open".
+    expect(decide.queryByRole("radio")).toBeNull();
+    expect(decide.queryByRole("button", { name: "Send answer" })).toBeNull();
+    expect(decide.getByRole("link", { name: "Open" })).toHaveAttribute("href", "/tickets/tck-3");
+    expect(decide.getByRole("button", { name: "Snooze" })).toBeInTheDocument();
   });
 
   it("errore di caricamento: messaggio e retry", async () => {

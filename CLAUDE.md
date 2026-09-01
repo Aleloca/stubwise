@@ -92,6 +92,26 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   `im:write`, reinstallarla nel workspace e risalvare il bot token in
   Impostazioni → Slack; poi collegare gli account Slack in /team (chi è collegato
   inizia a ricevere DM subito, preferenza disattivabile dall'Account).
+- **Fase 1 (domande dell'agente, `ask_user`)**: rebuild **server+worker+caddy
+  insieme** (migrazione 0064 all'avvio del server; il worker nuovo è l'unico che
+  sa parcheggiare e riprendere i job in `awaiting_input`, il server nuovo l'unico
+  che accetta le risposte, il bundle nuovo l'unico che le mostra). Env opzionale
+  `AGENT_QUESTION_MAX_ROUNDS` (default 5, **minimo 1**: `0` è rifiutato all'avvio
+  del worker — non esiste un interruttore per disattivare le domande). ⚠️ La
+  ripresa del piano può lanciare due run di pianificazione (un `--resume`
+  fallito più il fallback pieno), quindi **l'invariante di staleness sale da
+  129' a 139'**: se in `.env` c'è un `WORKER_STALE_MINUTES` esplicito ≤ 139 il
+  worker si rifiuta di partire (il default 150 va bene). **Nessun
+  passo Slack manuale**: i bottoni delle domande usano gli scope già installati
+  con la fase 0. Post-merge: ricopiare la skill aggiornata in
+  `~/.claude/skills/stubwise/SKILL.md` (finché non lo fai, le sessioni Claude
+  Code locali girano con la skill vecchia, senza la guardia che vieta di
+  rilanciare `run_ticket` su un job fermo su una domanda) e mergiare la PR di
+  versioning Changesets che pubblica `@stubwise/mcp` con la nuova descrizione di
+  `run_ticket`. **Rollback**: la fase è additiva (schema e kind nuovi, niente
+  rimosso), ma su un'immagine vecchia i job rimasti in `awaiting_input` non
+  hanno più un consumatore e restano fermi in silenzio → vanno rilanciati a mano
+  con run-ai sui ticket coinvolti.
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -139,6 +159,14 @@ Stubwise si integra con Claude Code via il server MCP `@stubwise/mcp`
   salvato nasce `awaiting_plan_approval`, senza piano si ferma a piano pronto);
   solo un maintainer approva/rifiuta, e dopo l'approvazione l'esecuzione riparte
   da sola. Nessun tool MCP approva un piano.
+- **Domande dell'agente (fase 1)**: il gate di approvazione non è l'unico punto
+  in cui un run può fermarsi ad aspettare un umano. In un run che **pianifica**
+  (nessun piano salvato, o `mode: "ai_plan"`) l'agente può usare il tool
+  `ask_user` — un server MCP stdio bundlato nel worker, non in `@stubwise/mcp` —
+  per fare una domanda a scelta multipla: il job va in `awaiting_input` e riparte
+  da solo quando il richiedente o un maintainer risponde dall'inbox, dal DM Slack
+  o dalla pagina del ticket. Nessun tool MCP risponde a una domanda, e dopo una
+  domanda **non si rilancia `run_ticket`** (409).
 - Serve un Personal Access Token (`stw_pat_...`, dalle impostazioni Stubwise) in
   `STUBWISE_TOKEN`; `STUBWISE_URL` punta all'istanza (default
   `http://localhost:3000`). Il pacchetto è pubblicato su npm come

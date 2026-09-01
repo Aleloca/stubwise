@@ -23,10 +23,10 @@ import { aiJobs, notifications, users, type Db } from "@stubwise/db";
 import type { Language } from "@stubwise/i18n";
 import {
   actionsFor,
+  actorAllows,
   formatNotificationText,
   kindOffers,
   openUrl,
-  roleAllows,
   stateAllows,
   type ActionId,
   type ActionableNotification,
@@ -34,9 +34,11 @@ import {
   type NotificationKind,
   type SnoozeUntil,
 } from "@stubwise/notifications";
+import { inboxQuestionSchema, type InboxQuestion } from "@stubwise/shared";
 import { and, desc, eq, inArray, isNull, ne, sql, type SQL } from "drizzle-orm";
 import { resolvePlan, startRun, type Actor } from "./jobs.js";
 import { mirrorDecision, propagateDecision } from "./notifications-propagation.js";
+import { answerQuestion, type AnswerInput } from "./questions.js";
 
 // Catalogo delle azioni: implementazione in `@stubwise/notifications/actions`
 // (condivisa col worker), ri-esportata qui per i consumatori del servizio.
@@ -59,7 +61,12 @@ export type ExecuteActionError =
   | "invalid_action"
   | "already_handled"
   | "job_in_flight"
-  | "plan_not_pending";
+  | "plan_not_pending"
+  // Errori di `answerQuestion` che non hanno un gemello fra i precedenti: la
+  // risposta non regge contro la domanda persistita, oppure non c'è (più) una
+  // domanda a cui rispondere.
+  | "invalid_answer"
+  | "question_not_pending";
 
 /**
  * Esito di {@link executeAction}. Il ramo di successo porta abbastanza contesto
@@ -106,8 +113,11 @@ export interface ExecuteActionInput {
   notificationId: string;
   action: ActionId;
   actor: Actor;
-  /** Parametri dell'azione: `until` per lo snooze, `instructions` per il rifiuto. */
-  payload?: { until?: SnoozeUntil; instructions?: string };
+  /**
+   * Parametri dell'azione: `until` per lo snooze, `instructions` per il rifiuto,
+   * `answer` per la risposta a una domanda dell'agente.
+   */
+  payload?: { until?: SnoozeUntil; instructions?: string; answer?: AnswerInput };
   /** PUBLIC_URL, inoltrato a `startRun` per i link nelle notifiche che emette. */
   publicUrl?: string;
 }
@@ -161,12 +171,55 @@ export async function executeAction(
       status: notifications.status,
       ticketId: notifications.ticketId,
       jobId: notifications.jobId,
+      // Chi ha chiesto il run dietro la notifica: è un permesso, non un dato di
+      // visualizzazione (`answer` la può compiere lui oltre ai maintainer).
+      // LEFT JOIN e non una query a parte: `notifications.job_id` è nullo sugli
+      // eventi d'istanza, e una riga in più nella SELECT costa nulla.
+      requestedByUserId: aiJobs.requestedByUserId,
     })
     .from(notifications)
+    .leftJoin(aiJobs, eq(aiJobs.id, notifications.jobId))
     .where(and(eq(notifications.id, notificationId), eq(notifications.userId, actor.id)));
   if (!row) return { ok: false, error: "not_found" };
 
   if (action === "open") return { ok: false, error: "invalid_action" };
+
+  // `answer` NON scivola nel ramo delle decisioni sul piano (`runDecision` non
+  // saprebbe cosa farne): ha un servizio suo, `answerQuestion`, che è la sede
+  // unica della risposta — ci passano anche la pagina ticket, che una notifica
+  // in mano non ce l'ha, e i bottoni Slack. Qui si delega e basta: permessi,
+  // validazione, transizione del job e propagazione vivono tutti là.
+  if (action === "answer") {
+    // Il kind deve offrirla: `answer` su un `job.failed` è una richiesta senza
+    // senso (400), non un permesso mancante (403). È la stessa guardia che le
+    // decisioni fanno più sotto, anticipata perché qui si esce subito.
+    if (!kindOffers(row.kind, action)) return { ok: false, error: "invalid_action" };
+    const outcome = await answerQuestion(db, {
+      notificationId: row.id,
+      actor,
+      answer: input.payload?.answer ?? {},
+    });
+    if (!outcome.ok) {
+      return {
+        ok: false,
+        error: outcome.error,
+        // `answeredBy` ha la stessa forma di `handledBy`: alle superfici serve
+        // dire "ha già risposto X", che è l'informazione che chiedono al 409.
+        ...(outcome.answeredBy ? { handledBy: outcome.answeredBy } : {}),
+      };
+    }
+    return {
+      ok: true,
+      action,
+      kind: row.kind,
+      notificationJobId: row.jobId,
+      // Le copie le ha già chiuse `answerQuestion` (propagazione nel servizio,
+      // così la ottiene anche chi risponde dalla pagina ticket): qui si
+      // riferiscono soltanto.
+      changedNotificationIds: outcome.changedNotificationIds,
+      jobId: outcome.jobId,
+    };
+  }
 
   if (action === "snooze") {
     const until = input.payload?.until;
@@ -202,6 +255,13 @@ export async function executeAction(
   }
 
   if (action === "handled") {
+    // L'archiviazione NON è offerta da tutti i kind: su una domanda dell'agente
+    // il catalogo la nega (`archivable: false`), perché archiviarla lascerebbe
+    // il job parcheggiato in `awaiting_input` senza che nessuno lo aspetti più.
+    // È un invariante di COMPORTAMENTO, non di presentazione: va difeso qui —
+    // dove l'archiviazione ha effetto — e non solo non disegnando il bottone,
+    // altrimenti basterebbe una chiamata diretta alla rotta per aggirarlo.
+    if (!kindOffers(row.kind, action)) return { ok: false, error: "invalid_action" };
     const updated = await db
       .update(notifications)
       .set({
@@ -229,7 +289,9 @@ export async function executeAction(
   // Azione fuori dal catalogo del kind (`approve_plan` su un `job.failed`): non
   // è un permesso mancante, è una richiesta senza senso.
   if (!kindOffers(row.kind, action)) return { ok: false, error: "invalid_action" };
-  if (!roleAllows(row.kind, action, actor.role)) return { ok: false, error: "forbidden" };
+  if (!actorAllows({ kind: row.kind, requestedByUserId: row.requestedByUserId }, action, actor)) {
+    return { ok: false, error: "forbidden" };
+  }
   // Una decisione sul job ha bisogno di un ticket dietro: gli eventi d'istanza
   // (docs/monitor) non arrivano qui, ma una riga con `ticket_id` nullo sì.
   if (!row.ticketId) return { ok: false, error: "invalid_action" };
@@ -400,6 +462,12 @@ export interface InboxItem {
    */
   url?: string;
   actions: ActionId[];
+  /**
+   * La domanda dell'agente, sul solo kind `job.awaiting_input`: è ciò che
+   * permette alla card di offrire i bottoni delle opzioni. ASSENTE se il
+   * payload non la contiene in forma leggibile — vedi {@link renderItem}.
+   */
+  question?: InboxQuestion;
   projectId: string | null;
   ticketId: string | null;
   jobId: string | null;
@@ -501,7 +569,7 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       ? encodeCursor({ createdAt: last.cursorTimestamp, id: last.id })
       : null;
 
-  const jobStatusByTicket = await latestJobStatusByTicket(
+  const { latestStatusByTicket, requesterByJob } = await jobsOfTickets(
     db,
     page.map((r) => r.ticketId),
   );
@@ -522,8 +590,14 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       // enum `kind`, che il DB garantisce valida. Una card col testo degradato
       // resta quindi azionabile.
       actions: actionsFor(
-        { kind: r.kind },
-        r.ticketId ? (jobStatusByTicket.get(r.ticketId) ?? null) : null,
+        {
+          kind: r.kind,
+          // Il richiedente è quello del job DELLA NOTIFICA (chi ha avviato il
+          // run che ha posto la domanda), non quello dell'ultimo job del
+          // ticket: è a lui che la domanda è rivolta.
+          requestedByUserId: r.jobId ? (requesterByJob.get(r.jobId) ?? null) : null,
+        },
+        r.ticketId ? (latestStatusByTicket.get(r.ticketId) ?? null) : null,
         actor,
       ),
       projectId: r.projectId,
@@ -561,12 +635,19 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
  * Non è solo un try/catch: un payload malformato può anche NON lanciare e
  * restituire `undefined` (`openUrl` su un kind sconosciuto esce dallo switch),
  * quindi l'esito viene comunque validato prima di uscire.
+ *
+ * Stesso recinto per la DOMANDA dell'agente: si estrae dal payload con un
+ * `safeParse`, quindi una riga con opzioni malformate perde i bottoni ma resta
+ * una card leggibile — e resta comunque rispondibile dalla pagina ticket, che
+ * la domanda la legge da `agent_questions`.
  */
 function renderItem(
   rawEvent: Record<string, unknown>,
   kind: NotificationKind,
   lang: Language,
-): { text: string; url?: string } {
+): { text: string; url?: string; question?: InboxQuestion } {
+  const question = kind === "job.awaiting_input" ? inboxQuestionSchema.safeParse(rawEvent) : null;
+  const questionPart = question?.success ? { question: question.data } : {};
   try {
     const event = rawEvent as unknown as NotificationEvent;
     const text = formatNotificationText(event, lang);
@@ -574,9 +655,10 @@ function renderItem(
     return {
       text: typeof text === "string" && text.trim() !== "" ? text : kind,
       ...(typeof url === "string" && url !== "" ? { url } : {}),
+      ...questionPart,
     };
   } catch {
-    return { text: kind };
+    return { text: kind, ...questionPart };
   }
 }
 
@@ -600,27 +682,46 @@ async function reopenExpiredSnoozes(db: Db, userId: string): Promise<void> {
 }
 
 /**
- * Stato dell'ultimo job per ciascun ticket del batch, in UNA query. I job di un
- * ticket sono pochissimi (il rilancio RIUSA la riga esistente invece di
- * accodarne una nuova), quindi si leggono ordinati e si tiene il primo per
- * ticket invece di pagare una `distinct on` per pagina.
+ * I job dei ticket del batch, in UNA query, nei due tagli che servono al
+ * catalogo delle azioni:
+ *
+ *  - `latestStatusByTicket` — lo stato dell'ULTIMO job del ticket, che decide
+ *    quali azioni lo stato ammette (`stateAllows`);
+ *  - `requesterByJob` — il richiedente di CIASCUN job, che decide chi può
+ *    rispondere alla domanda posta da quel job (`actorAllows` su `answer`).
+ *
+ * Due mappe da una sola query, e non due query: il job di una notifica è per
+ * forza uno dei job del suo ticket, quindi le righe lette qui li contengono già
+ * tutti. I job di un ticket sono pochissimi (il rilancio RIUSA la riga esistente
+ * invece di accodarne una nuova), quindi si leggono ordinati e si tiene il primo
+ * per ticket invece di pagare una `distinct on` per pagina.
  */
-async function latestJobStatusByTicket(
+async function jobsOfTickets(
   db: Db,
   ticketIds: (string | null)[],
-): Promise<Map<string, string>> {
+): Promise<{
+  latestStatusByTicket: Map<string, string>;
+  requesterByJob: Map<string, string | null>;
+}> {
   const ids = [...new Set(ticketIds.filter((id): id is string => id !== null))];
-  const byTicket = new Map<string, string>();
-  if (ids.length === 0) return byTicket;
+  const latestStatusByTicket = new Map<string, string>();
+  const requesterByJob = new Map<string, string | null>();
+  if (ids.length === 0) return { latestStatusByTicket, requesterByJob };
   const rows = await db
-    .select({ ticketId: aiJobs.ticketId, status: aiJobs.status })
+    .select({
+      id: aiJobs.id,
+      ticketId: aiJobs.ticketId,
+      status: aiJobs.status,
+      requestedByUserId: aiJobs.requestedByUserId,
+    })
     .from(aiJobs)
     .where(inArray(aiJobs.ticketId, ids))
     .orderBy(desc(aiJobs.createdAt), desc(aiJobs.id));
   for (const row of rows) {
-    if (!byTicket.has(row.ticketId)) byTicket.set(row.ticketId, row.status);
+    if (!latestStatusByTicket.has(row.ticketId)) latestStatusByTicket.set(row.ticketId, row.status);
+    requesterByJob.set(row.id, row.requestedByUserId);
   }
-  return byTicket;
+  return { latestStatusByTicket, requesterByJob };
 }
 
 /** Id → { id, email } per gli utenti del batch, in UNA query. */

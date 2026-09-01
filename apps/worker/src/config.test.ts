@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { loadWorkerConfig } from "./config.js";
+import { DEFAULT_AGENT_QUESTION_MAX_ROUNDS } from "./pipeline/ask-user.js";
 
 const VALID = {
   DATABASE_URL: "postgres://user:pass@localhost:5432/stubwise",
@@ -23,6 +24,8 @@ describe("loadWorkerConfig", () => {
     expect(config.fixExecuteModel).toBe("sonnet");
     expect(config.fixTwoPhase).toBe(true);
     expect(config.fixPlanTimeoutMs).toBe(600_000);
+    // Domande dell'agente in pianificazione: 5 round per job.
+    expect(config.agentQuestionMaxRounds).toBe(5);
     // Self-repair: default 2 RE-tentativi, timeout test 5'.
     expect(config.selfRepairMaxAttempts).toBe(2);
     expect(config.selfRepairTestTimeoutMs).toBe(300_000);
@@ -526,6 +529,32 @@ describe("loadWorkerConfig", () => {
     expect(config.fixExecuteModel).toBe("haiku");
     expect(config.fixTwoPhase).toBe(false);
     expect(config.fixPlanTimeoutMs).toBe(300_000);
+  });
+
+  it("rispetta AGENT_QUESTION_MAX_ROUNDS e rifiuta i valori sotto 1", () => {
+    const config = loadWorkerConfig({ ...VALID, AGENT_QUESTION_MAX_ROUNDS: "2" });
+    expect(config.agentQuestionMaxRounds).toBe(2);
+    // Vuota (da .env.example) → default.
+    const defaults = loadWorkerConfig({ ...VALID, AGENT_QUESTION_MAX_ROUNDS: "" });
+    expect(defaults.agentQuestionMaxRounds).toBe(5);
+    // 0 NON è "domande disattivate": il tetto è il numero di domande AMMESSE e
+    // sotto 1 non avrebbe significato (il server MCP degraderebbe sul suo
+    // default, cioè l'opposto di quel che si è chiesto).
+    expect(() => loadWorkerConfig({ ...VALID, AGENT_QUESTION_MAX_ROUNDS: "0" })).toThrow(
+      /AGENT_QUESTION_MAX_ROUNDS/,
+    );
+    expect(() => loadWorkerConfig({ ...VALID, AGENT_QUESTION_MAX_ROUNDS: "due" })).toThrow(
+      /AGENT_QUESTION_MAX_ROUNDS/,
+    );
+  });
+
+  it("il default della env COINCIDE con il fallback di pipeline/ask-user.ts", () => {
+    // Invariante meccanizzata invece che solo dichiarata nei commenti: in
+    // esercizio il tetto arriva sempre dalla env, ma i chiamanti che non lo
+    // iniettano (i test del fix) cadono su DEFAULT_AGENT_QUESTION_MAX_ROUNDS.
+    // Se i due numeri divergessero, gli stessi test proverebbero un tetto
+    // DIVERSO da quello che gira in produzione — e nessuno se ne accorgerebbe.
+    expect(DEFAULT_AGENT_QUESTION_MAX_ROUNDS).toBe(loadWorkerConfig(VALID).agentQuestionMaxRounds);
   });
 
   it("rispetta le variabili del self-repair (max attempts, timeout test); 0 = disattivato", () => {

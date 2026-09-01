@@ -24,7 +24,7 @@
  */
 import { notificationDeliveries, notifications, users, type Db } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
-import type { ActionId, NotificationKind } from "@stubwise/notifications";
+import { escapeSlackMrkdwn, type ActionId, type NotificationKind } from "@stubwise/notifications";
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
 
 /**
@@ -76,6 +76,7 @@ const NOTE_KEY: Record<Exclude<ActionId, "open">, string> = {
   approve_plan: "notify.inbox.notePlanApproved",
   reject_plan: "notify.inbox.notePlanRejected",
   relaunch: "notify.inbox.noteRelaunched",
+  answer: "notify.inbox.noteAnswered",
   handled: "notify.inbox.noteHandled",
   snooze: "notify.inbox.noteSnoozed",
 };
@@ -90,6 +91,26 @@ function slackDate(date: Date): string {
   return `<!date^${epoch}^{date_short_pretty} {time}|${date.toISOString()}>`;
 }
 
+/** Quanto della risposta entra nella nota del DM. */
+const NOTE_ANSWER_MAX_CHARS = 200;
+
+/**
+ * Riduce la risposta a UNA riga corta: la nota è una didascalia in coda a un DM,
+ * non il posto dove rileggere quattromila caratteri di testo libero (la risposta
+ * per intero resta sul ticket, nel commento di sistema).
+ */
+function truncateNote(answer: string): string {
+  const oneLine = answer.replace(/\s+/g, " ").trim();
+  // Taglio per PUNTO DI CODICE (`Array.from`) e non per code unit UTF-16:
+  // `slice` su una stringa che contiene un'emoji può spezzarne la coppia di
+  // surrogati proprio al confine, e la nota arriverebbe su Slack con un
+  // carattere rotto.
+  const points = Array.from(oneLine);
+  return points.length > NOTE_ANSWER_MAX_CHARS
+    ? `${points.slice(0, NOTE_ANSWER_MAX_CHARS - 1).join("")}…`
+    : oneLine;
+}
+
 /**
  * Riga di stato da appendere al messaggio dopo l'azione ("✅ Piano approvato da
  * …"), nella lingua di chi la leggerà.
@@ -100,11 +121,28 @@ function slackDate(date: Date): string {
 export function inboxNote(
   action: Exclude<ActionId, "open">,
   lang: Language,
-  args: { actor: string; snoozedUntil?: Date },
+  args: { actor: string; snoozedUntil?: Date; answer?: string },
 ): string {
   if (action === "snooze") {
     return t(lang, NOTE_KEY.snooze, {
       until: args.snoozedUntil ? slackDate(args.snoozedUntil) : "—",
+    });
+  }
+  if (action === "answer") {
+    // La nota della risposta PORTA la risposta: chi legge il DM di un collega
+    // deve sapere cosa è stato deciso, non solo che qualcuno ha deciso.
+    //
+    // Accorciata e escapata QUI, che è il punto da cui passano ENTRAMBE le
+    // strade (la copia riscritta subito via `response_url` e quelle accodate da
+    // `mirrorDecision`): una sola applicazione, quindi le due copie dello stesso
+    // messaggio dicono la stessa cosa e nessuna delle due può sforare i 3000
+    // caratteri di una `section` con una risposta libera da 4000.
+    //
+    // ORDINE: prima si taglia, poi si escapa. Al contrario il taglio cadrebbe
+    // in mezzo a un'entità (`&am…`) e il testo arriverebbe rotto.
+    return t(lang, NOTE_KEY.answer, {
+      actor: args.actor,
+      answer: args.answer ? escapeSlackMrkdwn(truncateNote(args.answer)) : "—",
     });
   }
   return t(lang, NOTE_KEY[action], { actor: args.actor });
@@ -170,6 +208,12 @@ export async function mirrorDecision(
     action: Exclude<ActionId, "open">;
     actorId: string;
     snoozedUntil?: Date;
+    /**
+     * La risposta data, già resa in una riga (solo per `answer`): la nota del DM
+     * la PORTA, perché chi legge il messaggio di un collega deve sapere cosa è
+     * stato deciso, non solo che qualcuno ha deciso.
+     */
+    answer?: string;
   },
 ): Promise<void> {
   if (args.notificationIds.length === 0) return;
@@ -183,6 +227,9 @@ export async function mirrorDecision(
       // sparito fra la decisione e qui, la nota resta comunque leggibile.
       actor: actor?.email ?? "—",
       ...(args.snoozedUntil ? { snoozedUntil: args.snoozedUntil } : {}),
+      // Niente troncatura qui: la fa `inboxNote`, che è il punto comune a
+      // tutte le superfici.
+      ...(args.answer === undefined ? {} : { answer: args.answer }),
     };
     await enqueueInboxUpdates(db, args.notificationIds, (lang) =>
       inboxNote(args.action, lang, noteArgs),
@@ -204,6 +251,8 @@ export async function propagateDecision(
     target: PropagationTarget;
     action: Exclude<ActionId, "open">;
     actorId: string;
+    /** Solo per `answer`: la risposta resa in una riga, da mettere nella nota. */
+    answer?: string;
   },
 ): Promise<string[]> {
   const changed = await propagateHandled(db, args.target, args.actorId);
@@ -211,6 +260,8 @@ export async function propagateDecision(
     notificationIds: changed,
     action: args.action,
     actorId: args.actorId,
+    ...(args.answer === undefined ? {} : { answer: args.answer }),
   });
   return changed;
 }
+

@@ -160,6 +160,14 @@ configure it per ticket type in
 [AI automation](/docs/ai-pipeline/automation/).
 :::
 
+:::note[The AI can ask you a question]
+While it plans, the AI can stop on a fork it shouldn't settle alone and **ask**:
+a question with two to four options that reaches your inbox, your Slack DMs and
+the ticket page. The job waits for the answer and then picks planning back up.
+See [when the AI asks a
+question](/docs/notifications/#when-the-ai-asks-a-question).
+:::
+
 ## Deduplication
 
 Identical errors do **not** generate a new ticket every time. The ingestion

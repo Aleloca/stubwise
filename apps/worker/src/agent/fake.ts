@@ -49,7 +49,12 @@ export interface FakeAgentRunnerOptions {
 }
 
 export class FakeAgentRunner implements AgentRunner {
-  /** Tutte le opzioni passate a run(), in ordine di chiamata. */
+  /**
+   * Tutte le opzioni passate a run(), in ordine di chiamata. L'oggetto è
+   * registrato per intero e non interpretato: i test asseriscono su prompt,
+   * allowedTools, permissionMode, resumeSessionId e `mcpConfig` (quali server
+   * MCP la pipeline ha abilitato per il run) senza che il fake li simuli.
+   */
   readonly calls: AgentRunOptions[] = [];
 
   private readonly script: FakeAgentRunnerOptions["script"];

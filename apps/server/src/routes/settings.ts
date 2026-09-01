@@ -92,6 +92,7 @@ const notificationSettingsResponseSchema = z.object({
   notifyDocsLimitPaused: z.boolean(),
   notifyJobFailed: z.boolean(),
   notifyMonitor: z.boolean(),
+  notifyAwaitingInput: z.boolean(),
 });
 
 /**
@@ -128,6 +129,9 @@ const updateNotificationsBodySchema = z.object({
   // Default true: i client esistenti che non inviano il campo conservano il
   // comportamento "notifica gli alert di monitoraggio server (allarme/recovery)".
   notifyMonitor: z.boolean().default(true),
+  // Default true: i client esistenti che non inviano il campo conservano il
+  // comportamento "notifica le domande dell'AI in attesa di risposta".
+  notifyAwaitingInput: z.boolean().default(true),
 });
 
 const testNotificationResponseSchema = z.object({
@@ -209,6 +213,7 @@ async function loadNotificationSettings(
       notifyDocsLimitPaused: true,
       notifyJobFailed: true,
       notifyMonitor: true,
+      notifyAwaitingInput: true,
     };
   }
   return {
@@ -225,6 +230,7 @@ async function loadNotificationSettings(
     notifyDocsLimitPaused: row.notifyDocsLimitPaused,
     notifyJobFailed: row.notifyJobFailed,
     notifyMonitor: row.notifyMonitor,
+    notifyAwaitingInput: row.notifyAwaitingInput,
   };
 }
 
@@ -436,6 +442,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
           notifyDocsLimitPaused: body.notifyDocsLimitPaused,
           notifyJobFailed: body.notifyJobFailed,
           notifyMonitor: body.notifyMonitor,
+          notifyAwaitingInput: body.notifyAwaitingInput,
         })
         .onConflictDoUpdate({
           target: notificationSettings.id,
@@ -453,6 +460,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
             notifyDocsLimitPaused: body.notifyDocsLimitPaused,
             notifyJobFailed: body.notifyJobFailed,
             notifyMonitor: body.notifyMonitor,
+            notifyAwaitingInput: body.notifyAwaitingInput,
             updatedAt: new Date(),
           },
         });

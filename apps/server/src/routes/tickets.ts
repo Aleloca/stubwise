@@ -1,10 +1,15 @@
 import {
+  agentQuestionAnswerSchema,
+  answerBodySchema,
+  inboxActionErrorSchema,
   ticketPrioritySchema,
   ticketRepositorySchema,
   ticketSourceSchema,
   ticketStatusSchema,
+  ticketQuestionsSchema,
   ticketTypeSchema,
   setContentSchema,
+  type AgentQuestionAnswer,
   type TicketStatus,
 } from "@stubwise/shared";
 import { and, desc, eq, inArray, or, sql, type SQL } from "drizzle-orm";
@@ -14,6 +19,7 @@ import { z } from "zod";
 import { requireAdmin, requireAuth } from "../auth/session.js";
 import type { Db } from "@stubwise/db";
 import {
+  agentQuestions,
   aiJobs,
   aiJobStatus,
   comments,
@@ -33,6 +39,7 @@ import { publicUrlOrUndefined } from "../ingest/shared.js";
 import { createTicket, ProjectNotFoundError, type Ticket } from "../db/tickets.js";
 import { apiError } from "../errors.js";
 import { resolvePlan, startRun, type ResolvePlanResult } from "../services/jobs.js";
+import { answerQuestion, type AnswerQuestionResult } from "../services/questions.js";
 import {
   authErrorResponses,
   errorSchema,
@@ -254,6 +261,53 @@ const activityResponseSchema = z.array(
 );
 
 type ActivityItem = z.infer<typeof activityResponseSchema>[number];
+
+/**
+ * Ri-valida la risposta letta dal jsonb: `null` se non è (più) leggibile. La
+ * colonna è tipata sulla union ma il DB non la fa rispettare, e una riga scritta
+ * da una versione precedente non deve poter far fallire la serializzazione
+ * dell'intera lista — la stessa difesa che il worker applica nel prompt.
+ */
+function parseStoredAnswer(answer: unknown): AgentQuestionAnswer | null {
+  if (answer == null) return null;
+  const parsed = agentQuestionAnswerSchema.safeParse(answer);
+  return parsed.success ? parsed.data : null;
+}
+
+/**
+ * Traduce l'esito negativo di `answerQuestion` nella risposta HTTP, con gli
+ * STESSI status e gli stessi `code` delle rotte azione dell'inbox
+ * (`sendActionError`): le due superfici chiamano lo stesso servizio, e la UI
+ * traduce i codici in un posto solo (`answerErrorMessage`). Lo switch è
+ * esaustivo su `AnswerQuestionError`: un errore nuovo nel servizio non compila
+ * finché non gli si sceglie uno status.
+ */
+function sendAnswerError(
+  reply: FastifyReply,
+  result: Extract<AnswerQuestionResult, { ok: false }>,
+): FastifyReply {
+  switch (result.error) {
+    case "not_found":
+      return apiError(reply, 404, "not_found", "Question not found");
+    case "forbidden":
+      return apiError(reply, 403, "forbidden", "Only the requester or a maintainer can answer");
+    case "invalid_answer":
+      // 400 e non 409: la risposta è malformata (indice fuori dalle opzioni
+      // persistite, testo libero non ammesso), non in conflitto con lo stato.
+      return apiError(reply, 400, "invalid_answer", "Invalid answer for this question");
+    case "question_not_pending":
+      return apiError(reply, 409, "question_not_pending", "No question pending an answer");
+    case "already_handled":
+      // `apiError` non veicola dati: il 409 della corsa porta CHI ha risposto.
+      return reply.code(409).send({
+        code: "already_handled",
+        message: result.answeredBy
+          ? `Already answered by ${result.answeredBy.email}`
+          : "Already answered",
+        ...(result.answeredBy ? { handledBy: result.answeredBy } : {}),
+      });
+  }
+}
 
 /** Proiezione pubblica della riga ticket: date serializzate in ISO. */
 function toPublicTicket(row: Ticket): z.infer<typeof ticketSchema> {
@@ -705,6 +759,161 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
       });
       return items;
+    },
+  );
+
+  /**
+   * Q&A dell'agente sul ticket, in ordine cronologico: le domande poste dai run
+   * di pianificazione e le risposte già date. Serve alla pagina ticket, che
+   * mostra la domanda aperta (chi può, risponde) e lo storico di quelle chiuse.
+   *
+   * Sola LETTURA e visibile a chiunque sia autenticato, come `/activity`: la
+   * Q&A è contenuto del ticket. Il permesso di RISPONDERE è un'altra cosa e
+   * vive in `answerQuestion` (il richiedente del run o un maintainer).
+   */
+  app.get(
+    "/:id/questions",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        response: {
+          200: ticketQuestionsSchema,
+          404: errorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const [ticket] = await app.db
+        .select({ id: tickets.id })
+        .from(tickets)
+        .where(eq(tickets.id, id));
+      if (!ticket) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
+
+      const rows = await app.db
+        .select({
+          id: agentQuestions.id,
+          jobId: agentQuestions.jobId,
+          round: agentQuestions.round,
+          question: agentQuestions.question,
+          options: agentQuestions.options,
+          recommendedIndex: agentQuestions.recommendedIndex,
+          allowFreeText: agentQuestions.allowFreeText,
+          askedAt: agentQuestions.askedAt,
+          answer: agentQuestions.answer,
+          answeredAt: agentQuestions.answeredAt,
+          answeredById: users.id,
+          answeredByEmail: users.email,
+        })
+        .from(agentQuestions)
+        // LEFT JOIN: `answered_by_user_id` è ON DELETE SET NULL, e una risposta
+        // di un utente cancellato resta una risposta — solo senza un nome.
+        .leftJoin(users, eq(users.id, agentQuestions.answeredByUserId))
+        .where(eq(agentQuestions.ticketId, id))
+        .orderBy(agentQuestions.askedAt, agentQuestions.round);
+
+      return rows.map((row) => ({
+        // `questionId` e non `id`, e `recommendedIndex` OMESSO invece che
+        // `null`: è la forma condivisa con la card d'inbox
+        // (`inboxQuestionSchema`), che la pagina ticket e l'inbox danno allo
+        // stesso pannello di risposta. La normalizzazione dalla colonna nullable
+        // è compito di questa rotta, non del client.
+        questionId: row.id,
+        jobId: row.jobId,
+        round: row.round,
+        question: row.question,
+        options: row.options,
+        ...(row.recommendedIndex === null ? {} : { recommendedIndex: row.recommendedIndex }),
+        allowFreeText: row.allowFreeText,
+        askedAt: row.askedAt.toISOString(),
+        // Il jsonb viene ri-validato prima di uscire: la colonna è tipata sulla
+        // union ma il DB non la fa rispettare, e una riga di una versione
+        // precedente non deve poter far fallire la SERIALIZZAZIONE dell'intera
+        // lista. `answeredAt` dice comunque che una risposta c'è stata.
+        answer: parseStoredAnswer(row.answer),
+        answeredAt: row.answeredAt?.toISOString() ?? null,
+        answeredBy:
+          row.answeredById && row.answeredByEmail
+            ? { id: row.answeredById, email: row.answeredByEmail }
+            : null,
+      }));
+    },
+  );
+
+  /**
+   * RISPOSTA a una domanda dell'agente dalla PAGINA TICKET.
+   *
+   * Terza superficie della risposta, dopo la riga d'inbox e il bottone Slack —
+   * e l'unica che una notifica NON ce l'ha: chi apre il ticket può non essere il
+   * destinatario della domanda (un maintainer che sblocca il job di un collega),
+   * o averla già archiviata. Per questo l'ancora è il JOB e non la notifica, e
+   * per questo il servizio la prevede (`AnswerQuestionInput.jobId`).
+   *
+   * Il job è l'ULTIMO del ticket, non uno passato dal client: è quello che la
+   * pagina mostra fermo su `awaiting_input`, e prenderlo qui evita che un client
+   * possa ancorare la risposta a un job qualsiasi. Se non ce n'è nessuno la
+   * risposta è la stessa che darebbe il servizio: non c'è nulla in attesa.
+   *
+   * Il `questionId` del corpo, invece, viene DAL client ed è il punto: è la
+   * domanda che quella pagina stava mostrando. Se nel frattempo il job ne ha
+   * aperta un'altra, il servizio rifiuta — una scheda ferma sul round vecchio
+   * manderebbe un indice scelto leggendo altre opzioni.
+   *
+   * Permesso e stato NON si controllano qui: li applica `answerQuestion`
+   * (`actorAllows` + `stateAllows`), sede unica delle due regole. Questa rotta
+   * traduce soltanto l'esito in HTTP, con gli stessi status e gli stessi `code`
+   * delle rotte azione dell'inbox — la UI mappa i codici una volta sola.
+   */
+  app.post(
+    "/:id/questions/answer",
+    {
+      preHandler: requireAuth,
+      schema: {
+        params: idParamsSchema,
+        // `answerBodySchema` PIÙ la domanda mostrata: `extend` e non una
+        // riscrittura, così il vincolo "esattamente uno fra opzione e testo"
+        // resta quello condiviso con la rotta d'inbox.
+        body: answerBodySchema.extend({ questionId: z.uuid().optional() }),
+        response: {
+          200: z.object({ jobId: z.uuid(), questionId: z.uuid() }),
+          400: errorSchema,
+          404: errorSchema,
+          // 409 con `handledBy`: il conflitto della corsa deve poter dire CHI
+          // ha già risposto, come sulle rotte azione dell'inbox.
+          409: inboxActionErrorSchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const [ticket] = await app.db
+        .select({ id: tickets.id })
+        .from(tickets)
+        .where(eq(tickets.id, id));
+      if (!ticket) return apiError(reply, 404, "ticket_not_found", "Ticket not found");
+
+      const [job] = await app.db
+        .select({ id: aiJobs.id })
+        .from(aiJobs)
+        .where(eq(aiJobs.ticketId, id))
+        .orderBy(desc(aiJobs.createdAt), desc(aiJobs.id))
+        .limit(1);
+      if (!job) {
+        return apiError(reply, 409, "question_not_pending", "No question pending an answer");
+      }
+
+      const { questionId, ...answer } = request.body;
+      const result = await answerQuestion(app.db, {
+        jobId: job.id,
+        actor: request.user!,
+        answer,
+        ...(questionId === undefined ? {} : { questionId }),
+      });
+      if (!result.ok) return sendAnswerError(reply, result);
+      return { jobId: result.jobId, questionId: result.questionId };
     },
   );
 

@@ -132,7 +132,7 @@ const runTicketInput = {
 const runTicket: ToolDef = {
   name: "run_ticket",
   description:
-    "Avvia l'esecuzione del ticket sul worker Stubwise (POST run-ai). Con un piano salvato (set_plan) il worker esegue direttamente quel piano; se il tuo utente è operatore il job attende l'approvazione di un maintainer prima di eseguire. Usa mode 'ai_plan' per forzare triage+pianificazione anche con piano salvato.",
+    "Avvia l'esecuzione del ticket sul worker Stubwise (POST run-ai). Con un piano salvato (set_plan) il worker esegue direttamente quel piano; se il tuo utente è operatore il job attende l'approvazione di un maintainer prima di eseguire. Usa mode 'ai_plan' per forzare triage+pianificazione anche con piano salvato. Se il run PIANIFICA (nessun piano salvato, o mode 'ai_plan'), l'agente può fermarsi con una DOMANDA a scelta multipla: si risponde dall'inbox di Stubwise, da Slack o dalla pagina del ticket, e la pianificazione riprende da sola — non rilanciare run_ticket.",
   inputSchema: runTicketInput,
   handler: (args, ctx): Promise<ToolResult> =>
     runTool(async () => {
@@ -160,8 +160,14 @@ const runTicket: ToolDef = {
           `Job creato in attesa di approvazione del piano (job ${result.jobId}): un maintainer deve approvarlo prima dell'esecuzione. Dopo l'approvazione l'esecuzione parte automaticamente: non rilanciare run_ticket.\nURL: ${url}`,
         );
       }
+      // Il tool non sa se questo run pianifica (dipende dal piano salvato sul
+      // ticket): la nota sulla domanda è quindi CONDIZIONALE. Sta qui e non solo
+      // nella description perché è dopo il lancio che una sessione sarebbe
+      // tentata di rilanciare `run_ticket` vedendo il job fermo.
       return textResult(
-        `Esecuzione avviata sul ticket (job ${result.jobId}): il worker la prenderà in carico a breve. Segui l'avanzamento:\nURL: ${url}`,
+        `Esecuzione avviata sul ticket (job ${result.jobId}): il worker la prenderà in carico a breve. ` +
+          `Se il run include una pianificazione, l'agente può fermarsi con una domanda: si risponde dall'inbox di Stubwise, da Slack o dalla pagina del ticket e l'esecuzione riprende da sola, senza rilanciare run_ticket. ` +
+          `Segui l'avanzamento:\nURL: ${url}`,
       );
     }),
 };

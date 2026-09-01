@@ -340,6 +340,8 @@
       "approve": "Approva",
       "approving": "Approvazione…",
       "assignee": "Assegnatario",
+      "awaitingAnswerFrom": "In attesa di una risposta di {{email}}.",
+      "awaitingAnswerUnknown": "In attesa che un maintainer risponda alla domanda dell'AI.",
       "awaitingMaintainer": "In attesa dell'approvazione di un maintainer.",
       "back": "← Tutti i ticket",
       "comments": "Commenti ({{count}})",
@@ -365,8 +367,13 @@
       "occurrences": "Occorrenze deduplicate",
       "occurrencesMeta": "Occorrenze",
       "originalRequest": "Richiesta originale",
+      "pastQuestions": "Domande passate",
       "plan": "Piano di implementazione",
       "priority": "Priorità",
+      "questionAnswerUnreadable": "La risposta non è più leggibile.",
+      "questionAnsweredBy": "Ha risposto {{email}}",
+      "questionAnsweredByUnknown": "Risposta data",
+      "questionRound": "Domanda {{round}}",
       "reject": "Rifiuta",
       "rejectCancel": "Annulla",
       "rejectHint": "Le istruzioni diventano un commento del team: il prossimo piano ne terrà conto.",
@@ -961,7 +968,8 @@
       "reviewCompleted": "Review PR completata",
       "jobFailed": "Fix fallito",
       "docsLimitPaused": "Generazione Docs in pausa (limite di utilizzo)",
-      "monitor": "Alert di monitoraggio"
+      "monitor": "Alert di monitoraggio",
+      "awaitingInput": "Domanda dell'AI in attesa di risposta"
     },
     "samples": {
       "ticketCreated": "Nuovo ticket",
@@ -971,7 +979,8 @@
       "planReview": "Piano in attesa",
       "reviewCompleted": "Review PR",
       "jobFailed": "Fix fallito",
-      "docsLimitPaused": "Docs in pausa"
+      "docsLimitPaused": "Docs in pausa",
+      "awaitingInput": "Domanda dell'AI"
     },
     "slack": {
       "step1Prefix": "Vai su",
@@ -1033,7 +1042,8 @@
       "jobFailed": "Fix fallito",
       "docsLimitPaused": "Docs in pausa",
       "monitorAlert": "Allarme",
-      "monitorRecovered": "Rientrato"
+      "monitorRecovered": "Rientrato",
+      "awaitingInput": "Domanda a cui rispondere"
     },
     "actions": {
       "approvePlan": "Approva piano",
@@ -1074,6 +1084,22 @@
       "forbidden": "Azione riservata ai maintainer",
       "invalidAction": "Azione non disponibile su questa notifica",
       "generic": "Azione non riuscita"
+    }
+  },
+  "question": {
+    "legend": "Scegli una risposta",
+    "recommended": "consigliata",
+    "other": "Altro…",
+    "freeLabel": "La tua risposta",
+    "freePlaceholder": "Di' all'AI cosa fare…",
+    "submit": "Invia risposta",
+    "errors": {
+      "alreadyAnswered": "Ha già risposto {{email}}",
+      "alreadyAnsweredUnknown": "Ha già risposto qualcun altro",
+      "notPending": "Questa domanda non aspetta più una risposta",
+      "invalidAnswer": "Questa risposta non va bene per la domanda",
+      "forbidden": "Può rispondere solo chi ha avviato il run, o un maintainer",
+      "generic": "Invio della risposta non riuscito"
     }
   },
   "automation": {
@@ -1394,11 +1420,13 @@
       "failed": "Fallito",
       "skipped": "Saltato",
       "pr_closed": "PR chiusa",
-      "awaiting_plan_approval": "Piano da approvare"
+      "awaiting_plan_approval": "Piano da approvare",
+      "awaiting_input": "Domanda in attesa"
     },
     "notes": {
       "held": "Automazione non avviata: serve un avvio manuale del fix.",
-      "awaiting_plan_approval": "Il piano supera la soglia di effort: approvalo o rifiutalo per procedere."
+      "awaiting_plan_approval": "Il piano supera la soglia di effort: approvalo o rifiutalo per procedere.",
+      "awaiting_input": "L'AI ha fatto una domanda e aspetta: rispondi per far proseguire il piano."
     }
   },
   "milestones": {

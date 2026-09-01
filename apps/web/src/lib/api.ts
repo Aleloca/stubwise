@@ -1,5 +1,7 @@
 import type {
+  AgentQuestionOption,
   AlertThresholds,
+  AnswerBody,
   BacklogItemSource,
   BacklogItemStatus,
   BacklogRisk,
@@ -16,6 +18,7 @@ import type {
   InboxDecisionAction,
   InboxItem,
   InboxPage,
+  InboxQuestion,
   InboxStatus,
   Language,
   NotificationPrefs,
@@ -33,6 +36,7 @@ import type {
   SnoozeResult,
   SnoozeUntil,
   TicketPriority,
+  TicketQuestion,
   TicketSource,
   TicketStatus,
   TicketType,
@@ -48,23 +52,50 @@ import type {
 // Import RUNTIME (non di solo tipo): l'unico schema che il client ESEGUE, per
 // validare il body del 409 `already_handled` prima di fidarsene (vedi
 // `handledByFromError`).
-import { inboxActionErrorSchema } from "@stubwise/shared";
+import {
+  ANSWER_TEXT_MAX_CHARS,
+  inboxActionErrorSchema,
+  inboxDecisionActionSchema,
+} from "@stubwise/shared";
+
+// Tetto del testo libero di una risposta: ri-esportato dal binding locale come
+// i tipi qui sopra, così il pannello della domanda può limitare la textarea
+// senza conoscere `@stubwise/shared`.
+export { ANSWER_TEXT_MAX_CHARS };
+
+/**
+ * Le azioni DECISIONALI, DERIVATE dallo schema condiviso invece di riscritte:
+ * è l'insieme che la rotta `POST /api/inbox/:id/actions/:action` accetta, ed è
+ * anche ciò che rende una riga d'inbox una decisione anziché una lettura.
+ *
+ * Semantica del legame: da qui in avanti un'azione decisionale NUOVA finisce
+ * automaticamente in "Da decidere" anche prima che qualcuno le disegni un
+ * bottone — una riga che chiede una decisione e non offre nulla è un difetto
+ * visibile, mentre una riga decisionale caduta in silenzio fra le informative
+ * (com'era con l'elenco riscritto a mano) non se ne accorge nessuno.
+ */
+export const INBOX_DECISION_ACTIONS: readonly InboxDecisionAction[] =
+  inboxDecisionActionSchema.options;
 
 export type { PatView, PatWithToken, PrState, WidgetSettings, WidgetUpsertBody } from "@stubwise/shared";
 // Tipi dell'inbox ri-esportati dal binding locale: i componenti li importano da
 // "./api" come gli altri tipi di dominio, senza conoscere `@stubwise/shared`.
 export type {
+  AgentQuestionOption,
+  AnswerBody,
   HandledBy,
   InboxAction,
   InboxActionResult,
   InboxDecisionAction,
   InboxItem,
   InboxPage,
+  InboxQuestion,
   InboxStatus,
   NotificationPrefs,
   NotificationPrefsView,
   ProjectFollows,
   SnoozeUntil,
+  TicketQuestion,
 };
 // Ri-esportata dal binding locale (usata anche nelle interfacce del backlog qui
 // sotto): i consumatori la importano da "./api" come gli altri tipi di dominio.
@@ -724,7 +755,12 @@ export type AIJobStatus =
   | "pr_closed"
   // "awaiting_plan_approval": il piano prodotto supera la soglia di effort
   // configurata; il job attende l'approvazione umana prima di eseguirlo.
-  | "awaiting_plan_approval";
+  | "awaiting_plan_approval"
+  // "awaiting_input": l'agente che pianifica ha fatto una domanda a un umano e
+  // il job è parcheggiato finché non arriva la risposta (inbox, DM Slack o
+  // pagina ticket). Come "awaiting_plan_approval" aspetta una PERSONA, non il
+  // worker — ma non si rilancia: il job è vivo e la risposta lo riprende.
+  | "awaiting_input";
 
 export interface AIJob {
   id: string;
@@ -740,10 +776,47 @@ export interface AIJob {
   // job non ha provider (pre-feature, fallback env, provider eliminato).
   providerLabel: string | null;
   providerKind: "api_key" | "account" | null;
+  // Chi ha chiesto il run; null sui job nati automaticamente dall'ingest. È
+  // IDENTITÀ, non ruolo: a una domanda dell'agente rispondono il richiedente e
+  // i maintainer, e senza questo campo la pagina ticket saprebbe solo il ruolo.
+  requestedByUserId: string | null;
 }
 
 export function getTicketJobs(ticketId: string): Promise<AIJob[]> {
   return api.get(`/api/tickets/${ticketId}/jobs`);
+}
+
+/**
+ * Q&A dell'agente sul ticket, in ordine cronologico: le domande poste dai run
+ * di pianificazione e le risposte già date.
+ *
+ * `answer` è `null` sia sulla domanda aperta sia su una risposta non più
+ * leggibile: è `answeredAt` a dire se una risposta c'è stata.
+ */
+export function getTicketQuestions(ticketId: string): Promise<TicketQuestion[]> {
+  return api.get(`/api/tickets/${ticketId}/questions`);
+}
+
+/**
+ * Risposta a una domanda dell'agente DALLA PAGINA TICKET (l'unica superficie
+ * senza una notifica in mano: il server ancora la risposta all'ultimo job del
+ * ticket). Stesso servizio della card d'inbox e dei bottoni Slack, quindi
+ * stessi codici d'errore — che si traducono con `answerErrorMessage`:
+ * 403 `forbidden` (non sei né il richiedente né un maintainer), 400
+ * `invalid_answer`, 409 `already_handled` (con `handledBy`) o
+ * `question_not_pending`.
+ *
+ * `questionId` è un PARAMETRO a sé e non un campo del corpo per renderlo
+ * impossibile da dimenticare: è la domanda che la pagina sta mostrando, e il
+ * server la confronta con quella davvero aperta — una scheda ferma su un round
+ * superato viene rifiutata invece di rispondere alla domanda successiva.
+ */
+export function answerTicketQuestion(
+  ticketId: string,
+  questionId: string,
+  answer: AnswerBody,
+): Promise<{ jobId: string; questionId: string }> {
+  return api.post(`/api/tickets/${ticketId}/questions/answer`, { ...answer, questionId });
 }
 
 /**
@@ -1758,6 +1831,8 @@ export interface NotificationSettings {
   notifyDocsLimitPaused: boolean;
   /** Alert di monitoraggio server (allarme superamento soglia/offline e recovery). */
   notifyMonitor: boolean;
+  /** La pianificazione AI si è fermata con una domanda in attesa di risposta. */
+  notifyAwaitingInput: boolean;
 }
 
 /** Esito dell'invio di una notifica di test (lo restituisce l'endpoint /test). */
@@ -1795,6 +1870,8 @@ export function putNotificationSettings(
     notifyDocsLimitPaused: settings.notifyDocsLimitPaused,
     // Default server true: inviarlo sempre esplicitamente per non resettarlo.
     notifyMonitor: settings.notifyMonitor,
+    // Idem: default server true, va inviato sempre.
+    notifyAwaitingInput: settings.notifyAwaitingInput,
   });
 }
 
@@ -2961,21 +3038,31 @@ export function postInboxHandled(id: string): Promise<void> {
 }
 
 /**
+ * Corpo di un'azione decisionale: le istruzioni del rifiuto OPPURE la risposta
+ * a una domanda dell'agente ({@link AnswerBody}: esattamente uno fra opzione e
+ * testo). La rotta è una sola per quattro azioni, e ognuna guarda solo i campi
+ * che la riguardano.
+ */
+export type InboxActionBody = { instructions?: string } | AnswerBody;
+
+/**
  * Azione DECISIONALE su una notifica (approva/rifiuta il piano, rilancia il
- * job). `instructions` serve solo a `reject_plan` (diventa un commento del
- * team). La risposta porta `changedNotificationIds`: la decisione chiude in
- * blocco tutte le copie della stessa notifica, anche di altri utenti, e il
- * chiamante aggiorna quelle righe senza ricaricare.
+ * job, rispondi a una domanda). `instructions` serve solo a `reject_plan`
+ * (diventa un commento del team), `optionIndex`/`text` solo ad `answer`. La
+ * risposta porta `changedNotificationIds`: la decisione chiude in blocco tutte
+ * le copie della stessa notifica, anche di altri utenti, e il chiamante
+ * aggiorna quelle righe senza ricaricare.
  *
  * Errori attesi (tutti `ApiError`): 409 `already_handled` — qualcun altro ha
- * deciso prima, `handledBy` nel body (vedi {@link handledByFromError}); 409
- * `job_in_flight` — c'è già un job in corso sul ticket; 409 `plan_not_pending`,
- * 403 `forbidden`, 400 `invalid_action`.
+ * deciso (o risposto) prima, `handledBy` nel body (vedi
+ * {@link handledByFromError}); 409 `job_in_flight` — c'è già un job in corso sul
+ * ticket; 409 `plan_not_pending`, 409 `question_not_pending`, 403 `forbidden`,
+ * 400 `invalid_action`, 400 `invalid_answer`.
  */
 export function postInboxAction(
   id: string,
   action: InboxDecisionAction,
-  body?: { instructions?: string },
+  body?: InboxActionBody,
 ): Promise<InboxActionResult> {
   return api.post(`/api/inbox/${encodeURIComponent(id)}/actions/${action}`, body);
 }

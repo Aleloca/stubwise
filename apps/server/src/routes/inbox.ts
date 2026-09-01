@@ -1,4 +1,6 @@
 import {
+  ANSWER_TEXT_MAX_CHARS,
+  answerBodySchema,
   inboxActionErrorSchema,
   inboxActionResultSchema,
   inboxActionSchema,
@@ -8,6 +10,7 @@ import {
   snoozeResultSchema,
   snoozeUntilSchema,
   unreadCountSchema,
+  type AnswerBody,
   type InboxAction,
   type InboxDecisionAction,
   type InboxItem,
@@ -85,6 +88,9 @@ function toInboxItemView(item: ServiceInboxItem): InboxItem {
     // Assente (non null) quando il payload non porta un URL utilizzabile.
     ...(item.url === undefined ? {} : { url: item.url }),
     actions: item.actions,
+    // Assente (non null) su tutti i kind che non sono una domanda dell'agente,
+    // e sulle domande il cui payload non è più leggibile.
+    ...(item.question === undefined ? {} : { question: item.question }),
     projectId: item.projectId,
     ticketId: item.ticketId,
     jobId: item.jobId,
@@ -136,6 +142,12 @@ function sendActionError(
       );
     case "plan_not_pending":
       return apiError(reply, 409, "plan_not_pending", "No plan pending approval");
+    case "invalid_answer":
+      // 400 e non 409: la risposta è malformata (indice fuori dalle opzioni,
+      // testo libero non ammesso), non in conflitto con lo stato.
+      return apiError(reply, 400, "invalid_answer", "Invalid answer for this question");
+    case "question_not_pending":
+      return apiError(reply, 409, "question_not_pending", "No question pending an answer");
   }
 }
 
@@ -288,8 +300,18 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
         params: idParamsSchema.extend({ action: inboxActionSchema }),
         // nullish (non optional): fastify-type-provider-zod passa `null` quando
         // la POST arriva senza corpo, e un `.optional()` puro lo rifiuterebbe.
-        // `instructions` serve solo a reject_plan (diventa un commento del team).
-        body: z.object({ instructions: z.string().max(4000).optional() }).nullish(),
+        // `instructions` serve solo a reject_plan (diventa un commento del team);
+        // `optionIndex`/`text` solo ad `answer`. Il corpo è LARGO qui — una sola
+        // rotta serve quattro azioni con parametri diversi — e la forma stretta
+        // della risposta (esattamente uno dei due campi) si applica sotto, solo
+        // sul ramo che la riguarda.
+        body: z
+          .object({
+            instructions: z.string().max(4000).optional(),
+            optionIndex: z.number().int().nonnegative().optional(),
+            text: z.string().max(ANSWER_TEXT_MAX_CHARS).optional(),
+          })
+          .nullish(),
         response: { 200: inboxActionResultSchema, ...actionErrorResponses },
       },
     },
@@ -301,13 +323,36 @@ export async function inboxRoutes(instance: FastifyInstance): Promise<void> {
         return apiError(reply, 400, "invalid_action", "Use the dedicated route for this action");
       }
       const instructions = request.body?.instructions;
+      // La risposta a una domanda dell'agente ha un contratto suo (esattamente
+      // uno fra opzione e testo), che il corpo largo della rotta non esprime:
+      // si valida qui, sul solo ramo `answer`, con lo schema condiviso. Un
+      // corpo che non lo rispetta è `invalid_answer` (400) come se l'avesse
+      // rifiutato il servizio: per il client è lo stesso errore.
+      let answer: AnswerBody | undefined;
+      if (action === "answer") {
+        const parsed = answerBodySchema.safeParse(request.body ?? {});
+        if (!parsed.success) {
+          return apiError(
+            reply,
+            400,
+            "invalid_answer",
+            "Provide exactly one of optionIndex or text",
+          );
+        }
+        answer = parsed.data;
+      }
+      const payload = answer
+        ? { answer }
+        : instructions === undefined
+          ? undefined
+          : { instructions };
       // Serve ai link delle notifiche che `startRun` emette rilanciando.
       const publicUrl = publicUrlOrUndefined(app);
       const result = await executeAction(app.db, {
         notificationId: id,
         action,
         actor: request.user!,
-        ...(instructions === undefined ? {} : { payload: { instructions } }),
+        ...(payload ? { payload } : {}),
         ...(publicUrl ? { publicUrl } : {}),
       });
       if (!result.ok) return sendActionError(reply, result);

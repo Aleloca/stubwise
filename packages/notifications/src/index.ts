@@ -16,9 +16,9 @@ export { publishNotification, type PublishOpts } from "./publish.js";
 
 export {
   actionsFor,
+  actorAllows,
   kindOffers,
   openUrl,
-  roleAllows,
   stateAllows,
   IN_FLIGHT_JOB_STATUSES,
   SNOOZE_OPTIONS,
@@ -30,10 +30,14 @@ export {
 } from "./actions.js";
 
 export {
+  ANSWER_FREE_ACTION_ID,
+  answerActionId,
   buildInboxBlocks,
+  buildQuestionBlocks,
   inboxBlockId,
   parseInboxBlockId,
   type InboxBlocksInput,
+  type QuestionBlocksInput,
   type SlackBlock,
 } from "./slack-blocks.js";
 
@@ -55,14 +59,22 @@ export {
   type UpdateMessageInput,
 } from "./slack-client.js";
 
-export { isAdminOnlyKind, recipientsFor, type RoutingContext } from "./routing.js";
+export {
+  audienceFor,
+  recipientsFor,
+  type Audience,
+  type RoutingContext,
+} from "./routing.js";
 
 export {
+  escapeSlackMrkdwn,
   formatNotification,
   formatNotificationText,
   sampleEvents,
+  type AgentQuestionOption,
   type DocsLimitPausedEvent,
   type FormattedNotification,
+  type JobAwaitingInputEvent,
   type JobFailedEvent,
   type JobHeldEvent,
   type JobPlanReviewEvent,

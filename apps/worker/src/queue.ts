@@ -291,6 +291,61 @@ export async function parkForPlanApproval(
   return updated.length > 0;
 }
 
+export interface ParkForInputInput {
+  /**
+   * Id della sessione CLI del run di pianificazione, da cui la risposta
+   * riprenderà con `--resume`. Assente/null quando il run è riuscito ma il CLI
+   * non ha esposto un sessionId parsabile: la ripresa ricadrà sulla
+   * ri-pianificazione da zero con la storia delle domande già risposte. (Un
+   * timeout non arriva mai qui: il runner lancia prima del parcheggio.)
+   */
+  cliSessionId?: string | null;
+  log: string;
+}
+
+/**
+ * Transizione fix → awaiting_input: l'agente che pianifica ha fatto una domanda
+ * a un umano e il job resta parcheggiato finché non arriva la risposta. Gemello
+ * di parkForPlanApproval — stesso guard sulla ownership, NESSUN finishedAt (il
+ * job non è concluso) — con in più il salvataggio del `cliSessionId` per la
+ * ripresa.
+ *
+ * `awaiting_input` sta FUORI da ACTIVE_STATUSES: il job non è più claimabile né
+ * sorvegliato da requeueStale, quindi l'attesa può durare quanto serve senza
+ * che nessuno lo riaccodi alle spalle di chi deve rispondere.
+ */
+export async function parkForInput(
+  db: Db,
+  jobId: string,
+  input: ParkForInputInput,
+): Promise<boolean> {
+  const updated = await db
+    .update(aiJobs)
+    .set({
+      status: "awaiting_input",
+      cliSessionId: input.cliSessionId ?? null,
+      log: sql`${aiJobs.log} || ${`${input.log}\n`}`,
+      lastActivityAt: sql`now()`,
+    })
+    .where(and(eq(aiJobs.id, jobId), inArray(aiJobs.status, [...ACTIVE_STATUSES])))
+    .returning({ id: aiJobs.id });
+  return updated.length > 0;
+}
+
+/**
+ * Dimentica la sessione CLI del job: si è provato a riprenderla e non c'era più
+ * (scaduta, o vissuta sul volume `claude-config` di un altro host). Serve a non
+ * farci riprovare nessuno: il run che segue ne apre una nuova, e sarà quella
+ * che `parkForInput` salverà se anche lui si fermerà su una domanda.
+ *
+ * NON è status-guarded di proposito: azzerare un puntatore a una sessione che
+ * non esiste è vero in qualunque stato il job si trovi, e questa scrittura non
+ * deve poter fallire per una transizione concorrente.
+ */
+export async function clearCliSessionId(db: Db, jobId: string): Promise<void> {
+  await db.update(aiJobs).set({ cliSessionId: null }).where(eq(aiJobs.id, jobId));
+}
+
 export interface RequeueStaleOptions {
   olderThanMinutes: number;
 }

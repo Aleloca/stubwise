@@ -33,6 +33,7 @@ import {
   getTicketAttachments,
   getTicketJobs,
   getTicketLinks,
+  getTicketQuestions,
   getTicketUsage,
   getUsers,
   getWidgetConversationMessages,
@@ -87,6 +88,7 @@ export const ticketKeys = {
   comments: (ticketId: string) => [...ticketKeys.all, "comments", ticketId] as const,
   activity: (ticketId: string) => [...ticketKeys.all, "activity", ticketId] as const,
   jobs: (ticketId: string) => [...ticketKeys.all, "jobs", ticketId] as const,
+  questions: (ticketId: string) => [...ticketKeys.all, "questions", ticketId] as const,
   usage: (ticketId: string) => [...ticketKeys.all, "usage", ticketId] as const,
   links: (ticketId: string) => [...ticketKeys.all, "links", ticketId] as const,
   attachments: (ticketId: string) => [...ticketKeys.all, "attachments", ticketId] as const,
@@ -205,8 +207,15 @@ const JOBS_WAITING_POLL_MS = 20_000;
 /** Stati in cui il job è VIVO: il worker lo sta muovendo da solo. */
 const LIVE_JOB_STATUSES = new Set<AIJobStatus>(["queued", "triaging", "fixing"]);
 
-/** Stati fermi in attesa di una decisione umana (approvazione del piano, gate). */
-const WAITING_JOB_STATUSES = new Set<AIJobStatus>(["awaiting_plan_approval", "held"]);
+/**
+ * Stati fermi in attesa di una PERSONA: il gate dell'automazione, il piano da
+ * approvare e la domanda dell'agente. Chi sblocca non è il worker.
+ */
+const WAITING_JOB_STATUSES = new Set<AIJobStatus>([
+  "awaiting_plan_approval",
+  "held",
+  "awaiting_input",
+]);
 
 /**
  * Intervallo di refetch della lista job: 5s finché l'ULTIMO job è vivo, 20s
@@ -238,6 +247,21 @@ export function ticketJobsQueryOptions(ticketId: string) {
     // Il worker avanza in modo asincrono: senza polling la timeline resterebbe
     // ferma sull'ultimo stato visto fino a un refresh manuale.
     refetchInterval: (query) => ticketJobsRefetchInterval(query.state.data),
+  });
+}
+
+/**
+ * Q&A dell'agente sul ticket: la domanda aperta (a cui il pannello risponde) e
+ * quelle già chiuse (lo storico collassabile).
+ *
+ * NIENTE polling qui: la domanda nasce e muore col job, e la lista job la
+ * sorveglia già. La pagina ricarica queste righe quando l'ultimo job entra in
+ * `awaiting_input` — cioè quando c'è davvero qualcosa di nuovo da leggere.
+ */
+export function ticketQuestionsQueryOptions(ticketId: string) {
+  return queryOptions({
+    queryKey: ticketKeys.questions(ticketId),
+    queryFn: () => getTicketQuestions(ticketId),
   });
 }
 

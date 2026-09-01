@@ -1,7 +1,8 @@
 import { notificationKind } from "@stubwise/db";
-import { sampleEvents } from "@stubwise/notifications";
-import { notificationKindSchema } from "@stubwise/shared";
+import { sampleEvents, type ActionId } from "@stubwise/notifications";
+import { inboxActionSchema, notificationKindSchema, type InboxAction } from "@stubwise/shared";
 import { describe, expect, it } from "vitest";
+import { INBOX_ACTIONS } from "./slack/inbox-actions.js";
 
 /**
  * Parità dei `kind` di notifica fra le TRE liste che li dichiarano:
@@ -34,5 +35,32 @@ describe("parità dei kind di notifica", () => {
 
   it("shared e l'enum Postgres notification_kind dichiarano gli stessi kind", () => {
     expect(sharedKinds).toEqual([...notificationKind.enumValues].sort());
+  });
+});
+
+/**
+ * Parità delle AZIONI d'inbox fra le tre liste che le dichiarano: `ActionId`
+ * (`@stubwise/notifications`, il catalogo), `inboxActionSchema`
+ * (`@stubwise/shared`, il contratto HTTP) e `INBOX_ACTIONS`
+ * (`slack/inbox-actions.ts`, ciò che si riconosce dagli `action_id` di Slack).
+ *
+ * Stessa ragione dei kind: `@stubwise/shared` non può importare il motore delle
+ * notifiche, e la lista di Slack è un `readonly ActionId[]` — un tipo che
+ * accetta anche un sottoinsieme. Un'azione nuova dichiarata solo a metà non
+ * romperebbe la compilazione, ma renderebbe il suo bottone Slack un no-op
+ * silenzioso.
+ */
+describe("parità delle azioni d'inbox", () => {
+  it("shared e il catalogo dichiarano la stessa unione (parità di TIPO)", () => {
+    // Le due assegnazioni compilano solo se le unioni coincidono in ENTRAMBI i
+    // versi: è il typecheck a fare il test, l'expect a runtime è solo la prova
+    // che il caso è stato eseguito.
+    const daShared: ActionId[] = [...inboxActionSchema.options];
+    const daCatalogo: InboxAction[] = daShared;
+    expect(daCatalogo).toEqual([...inboxActionSchema.options]);
+  });
+
+  it("Slack riconosce esattamente le azioni del contratto", () => {
+    expect([...INBOX_ACTIONS].sort()).toEqual([...inboxActionSchema.options].sort());
   });
 });

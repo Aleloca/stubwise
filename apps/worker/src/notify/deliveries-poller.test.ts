@@ -82,6 +82,26 @@ function planReviewEvent(): NotificationEvent {
   };
 }
 
+/** Domanda dell'agente: il kind con i bottoni DINAMICI (uno per opzione). */
+function awaitingInputEvent(): NotificationEvent {
+  return {
+    kind: "job.awaiting_input",
+    ticketNumber: 9,
+    ticketTitle: "Export CSV",
+    projectName: "P",
+    ticketUrl: "https://example.test/tickets/9",
+    questionId: "11111111-2222-3333-4444-555555555555",
+    round: 1,
+    question: "Quali colonne deve avere il CSV?",
+    options: [
+      { label: "Colonne vecchie", consequence: "Gli export esistenti restano validi." },
+      { label: "Colonne nuove", consequence: "Rompe gli script dei clienti." },
+    ],
+    recommendedIndex: 0,
+    allowFreeText: true,
+  };
+}
+
 interface SlackDeliveryOpts {
   /** Ruolo del destinatario: decide le azioni offerte dai bottoni. */
   role?: "admin" | "member";
@@ -90,7 +110,7 @@ interface SlackDeliveryOpts {
   language?: "en" | "it";
   event?: NotificationEvent;
   /** Se dato, ancora la notifica a un ticket con un job in questo stato. */
-  jobStatus?: "queued" | "awaiting_plan_approval";
+  jobStatus?: "queued" | "awaiting_plan_approval" | "awaiting_input";
   /** Payload della riga (usato dal canale `slack_update`: `{ note }`). */
   deliveryEvent?: Record<string, unknown>;
   externalRef?: string;
@@ -423,6 +443,40 @@ describe("canale slack_dm", () => {
       "inbox:snooze",
       "inbox:handled",
     ]);
+  });
+
+  it("la DOMANDA dell'agente ha un bottone per opzione (e l'igiene in coda)", async () => {
+    const slack = fakeSlack();
+    await insertSlackDelivery("slack_dm", {
+      role: "admin",
+      event: awaitingInputEvent(),
+      jobStatus: "awaiting_input",
+    });
+    await processDeliveriesOnce(slackDeps(slack));
+    // I bottoni della domanda sostituiscono il generico "Rispondi": l'indice
+    // dell'opzione viaggia nell'action_id.
+    expect(actionIdsOf(slack.posted[0]!.blocks)).toEqual([
+      "inbox:answer:0",
+      "inbox:answer:1",
+      "inbox:answer_free",
+      "inbox:open",
+      "inbox:snooze",
+    ]);
+    // Le conseguenze stanno nella sezione, non nei bottoni.
+    const sections = slack.posted[0]!.blocks!.filter((b) => b.type === "section");
+    expect(JSON.stringify(sections)).toContain("Rompe gli script dei clienti");
+  });
+
+  it("gli altri kind restano coi blocchi standard", async () => {
+    const slack = fakeSlack();
+    await insertSlackDelivery("slack_dm", {
+      role: "admin",
+      event: planReviewEvent(),
+      jobStatus: "awaiting_plan_approval",
+    });
+    await processDeliveriesOnce(slackDeps(slack));
+    expect(actionIdsOf(slack.posted[0]!.blocks)).toContain("inbox:approve_plan");
+    expect(slack.posted[0]!.blocks!.filter((b) => b.type === "section")).toHaveLength(1);
   });
 
   it("il testo segue la lingua del DESTINATARIO", async () => {

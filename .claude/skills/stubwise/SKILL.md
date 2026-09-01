@@ -98,6 +98,12 @@ Cosa sapere sul run (dettagli in § 8):
 - Dopo un esito "in attesa di approvazione del piano" **non rilanciare
   `run_ticket`**: approvato il piano, l'esecuzione riparte da sola. Non esiste
   un tool MCP per approvare/rifiutare: lo fa un maintainer da web app o Slack.
+- **Domande dell'agente**: un run che PIANIFICA (nessun piano salvato, oppure
+  `mode: "ai_plan"`) può fermarsi con una **domanda a scelta multipla**. Si
+  risponde dall'**inbox** di Stubwise, dal **DM Slack** o dalla **pagina del
+  ticket**; possono farlo chi ha lanciato il run e i maintainer. Alla risposta la
+  pianificazione **riprende da sola**: come per l'approvazione, **non rilanciare
+  `run_ticket`** e non esiste un tool MCP per rispondere.
 - Con `/stubwise:run` gli stati successivi NON li gestisci tu: è la pipeline a
   portare il ticket in `in_review` quando apre la PR.
 
@@ -239,8 +245,19 @@ Esiti e semantica:
   dell'esecuzione; dopo l'approvazione **l'esecuzione parte automaticamente**,
   quindi **non rilanciare `run_ticket`**. Non c'è un tool MCP per approvare o
   rifiutare: lo fa un maintainer dalla web app o da Slack.
+- **in attesa di una domanda dell'AI** → durante la pianificazione l'agente può
+  fermarsi e chiedere come procedere (2–4 opzioni, a volte con una consigliata e
+  la possibilità di rispondere a parole). Il job resta vivo e la domanda arriva
+  in **inbox**, in **DM Slack** e sulla **pagina del ticket**; rispondono chi ha
+  lanciato il run e i maintainer. Data la risposta, il run **riprende da solo**:
+  **non rilanciare `run_ticket`** e non c'è un tool MCP per rispondere. Succede
+  solo nei run che pianificano (senza piano salvato, o con `mode: "ai_plan"`);
+  in esecuzione diretta di un piano salvato nessuno può fare domande. Se il
+  ticket resta fermo su una domanda, riferisci all'utente che serve una risposta
+  e fermati.
 - **409 "c'è già un job in corso"** → non ritentare: attendi che il job in volo
-  finisca (o che il maintainer approvi il piano) e dillo all'utente.
+  finisca (o che il maintainer approvi il piano, o che qualcuno risponda alla
+  domanda dell'AI) e dillo all'utente.
 - **`mode: "ai_plan"`** → **AZZERA il piano** per quel run e fa ripianificare
   l'agente da zero. Non è "usa il piano come base": usalo solo se l'utente
   chiede esplicitamente una ri-pianificazione.

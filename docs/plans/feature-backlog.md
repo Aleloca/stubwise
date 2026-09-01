@@ -39,6 +39,7 @@ Idee di funzionalità valutate dopo la prima fase di sviluppo + deploy in produz
 ## 5. Programma centro nevralgico
 
 - **Fase 0 — Fondamenta** ✅ (ruoli maintainer/operator, inbox azionabile per-utente con outbox e DM Slack con bottoni, run_ticket + /stubwise:run; design e piano in docs/plans/2026-08-31-phase0-foundations-*).
+- **Fase 1 — Pianificazione interattiva (`ask_user`)** ✅ (l'agente che pianifica un fix può fermarsi con una domanda a scelta multipla — tool `ask_user` da un server MCP stdio bundlato nel worker —, il job si parcheggia in `awaiting_input` e riparte da solo alla risposta, data da inbox / DM Slack / pagina ticket dal richiedente o da un maintainer; kind di notifica `job.awaiting_input`, migrazione 0064, env `AGENT_QUESTION_MAX_ROUNDS` default 5; design e piano in docs/plans/2026-09-01-phase1-ask-user-*).
 
 ---
 

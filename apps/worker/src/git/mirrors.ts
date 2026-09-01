@@ -98,6 +98,38 @@ export interface OpenWorktreeOptions {
   dir?: string;
 }
 
+/** Opzioni di `withProjectWorktrees`. */
+export interface ProjectWorktreesOptions {
+  /**
+   * Parent dir in cui materializzare i worktree del progetto. ASSENTE (default
+   * storico, invariato per tutti i chiamanti che non la passano): una `mkdtemp`
+   * in /tmp, diversa a ogni chiamata. PRESENTE: esattamente questa directory,
+   * che viene RIPULITA e ricreata prima dell'uso e rimossa alla fine come la
+   * temporanea.
+   *
+   * La ripulitura non è un dettaglio: la pianificazione interattiva usa una dir
+   * DETERMINISTICA per job (`stubwise-plan-<jobId>`) così la ripresa
+   * `--resume` ritrova la stessa cwd, e nella radice di quella dir vive il
+   * file-bridge del tool `ask_user`. Se il file del round precedente
+   * sopravvivesse (worker crashato prima del `finally`), il tool si
+   * rifiuterebbe di sovrascriverlo — "hai già una domanda registrata" — e
+   * l'agente non potrebbe più fare domande nei round successivi, in silenzio.
+   */
+  parentDir?: string;
+}
+
+/**
+ * Prepara la parent dir DETERMINISTICA di `withProjectWorktrees`: rimuove
+ * qualunque residuo di un run precedente e la ricrea vuota con mode 0700 (le
+ * `mkdtemp` che sostituisce hanno gli stessi permessi). Ritorna il path, così
+ * il chiamante la usa come farebbe con quello della mkdtemp.
+ */
+async function prepareFixedParentDir(parentDir: string): Promise<string> {
+  await rm(parentDir, { recursive: true, force: true });
+  await mkdir(parentDir, { recursive: true, mode: 0o700 });
+  return parentDir;
+}
+
 /** Errore tipato per nomi branch rifiutati (deve essere `stubwise/<safe>`). */
 export class InvalidBranchNameError extends Error {
   constructor(branch: string) {
@@ -501,6 +533,10 @@ export class MirrorManager {
    *
    * Nota: `pushBranch` resta per-repo e va chiamato DENTRO `fn` (dopo i commit)
    * sul singolo `project` del worktree.
+   *
+   * `options.parentDir` sostituisce la mkdtemp con una dir DETERMINISTICA (vedi
+   * ProjectWorktreesOptions): serve alla pianificazione interattiva, che deve
+   * poter riaprire la stessa cwd a ogni round di domanda.
    */
   async withProjectWorktrees<T>(
     repos: MirrorProject[],
@@ -508,12 +544,16 @@ export class MirrorManager {
     fn: (ctx: {
       parentDir: string;
       worktrees: { project: MirrorProject; dir: string }[];
-    }) => Promise<T>
+    }) => Promise<T>,
+    options?: ProjectWorktreesOptions
   ): Promise<T> {
     // Valida il branch prima di creare qualunque directory: fail-fast simmetrico
     // a openWorktree (che valida branch/defaultBranch a monte di ensureMirror).
     assertBranchName(branchName);
-    const parentDir = await mkdtemp(join(tmpdir(), "stubwise-proj-"));
+    const parentDir =
+      options?.parentDir !== undefined
+        ? await prepareFixedParentDir(options.parentDir)
+        : await mkdtemp(join(tmpdir(), "stubwise-proj-"));
     const opened: { project: MirrorProject; dir: string; remove: () => Promise<void> }[] = [];
     try {
       for (const project of repos) {

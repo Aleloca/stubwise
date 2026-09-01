@@ -34,6 +34,7 @@ export const notificationKindSchema = z.enum([
   "docs.limit_paused",
   "monitor.alert",
   "monitor.recovered",
+  "job.awaiting_input",
 ]);
 
 /**
@@ -46,13 +47,18 @@ export type InboxStatus = z.infer<typeof inboxStatusSchema>;
 
 /**
  * Azioni che una riga d'inbox può offrire. `open` è un link (non è eseguibile
- * lato server); `snooze` e `handled` hanno rotte dedicate; solo le tre
- * decisionali passano da `POST /api/inbox/:id/actions/:action`.
+ * lato server); `snooze` e `handled` hanno rotte dedicate; le decisionali
+ * passano da `POST /api/inbox/:id/actions/:action`.
+ *
+ * `handled` non è offerta da TUTTI i kind: la domanda dell'agente
+ * (`job.awaiting_input`) si chiude solo rispondendo. Chi decide è il catalogo di
+ * `@stubwise/notifications`; qui c'è solo l'insieme dei valori ammessi.
  */
 export const inboxActionSchema = z.enum([
   "approve_plan",
   "reject_plan",
   "relaunch",
+  "answer",
   "open",
   "snooze",
   "handled",
@@ -64,7 +70,12 @@ export type InboxAction = z.infer<typeof inboxActionSchema>;
  * `POST /api/inbox/:id/actions/:action`: le sole azioni DECISIONALI. Le altre
  * arrivano dalle rotte dedicate `read`/`snooze`/`handled`.
  */
-export const inboxDecisionActionSchema = z.enum(["approve_plan", "reject_plan", "relaunch"]);
+export const inboxDecisionActionSchema = z.enum([
+  "approve_plan",
+  "reject_plan",
+  "relaunch",
+  "answer",
+]);
 export type InboxDecisionAction = z.infer<typeof inboxDecisionActionSchema>;
 
 /** Durate di rinvio ammesse dallo snooze. */
@@ -74,6 +85,120 @@ export type SnoozeUntil = z.infer<typeof snoozeUntilSchema>;
 /** Chi ha chiuso una notifica: l'id per la UI, l'email per dirlo a parole. */
 export const handledBySchema = z.object({ id: z.uuid(), email: z.string() });
 export type HandledBy = z.infer<typeof handledBySchema>;
+
+/**
+ * Una delle alternative proposte dall'agente con `ask_user`: l'etichetta del
+ * bottone e la conseguenza che la UI mostra sotto (assente quando l'agente non
+ * l'ha scritta).
+ */
+export const agentQuestionOptionSchema = z.object({
+  label: z.string(),
+  consequence: z.string().optional(),
+});
+export type AgentQuestionOption = z.infer<typeof agentQuestionOptionSchema>;
+
+/**
+ * LA DOMANDA DELL'AGENTE, nella forma che serve a chi la deve far rispondere:
+ * il testo, le alternative, quale è consigliata e se è ammesso il testo libero.
+ *
+ * È la forma CANONICA, ed è deliberatamente la stessa su due superfici che
+ * prendono il dato da due posti diversi:
+ *
+ *  - la CARD D'INBOX la ricava dal payload `event` della notifica, che porta la
+ *    domanda intera (evento autosufficiente: nessuna rilettura di
+ *    `agent_questions` per disegnare una lista);
+ *  - la PAGINA TICKET la legge dalla riga `agent_questions` via
+ *    `GET /api/tickets/:id/questions`, che restituisce
+ *    {@link ticketQuestionSchema} — questo schema PIÙ la risposta.
+ *
+ * Un solo componente di risposta le consuma entrambe, e per questo i nomi e le
+ * convenzioni devono coincidere: `questionId` (non `id`) e `recommendedIndex`
+ * OMESSO quando non c'è (non `null`), anche dove la colonna DB è nullable. La
+ * normalizzazione la fa la rotta, non il client.
+ *
+ * Sulla card è OPZIONALE: se il payload dell'evento non supera più questa
+ * validazione (riga scritta da una versione precedente) l'item arriva senza
+ * `question` e la card degrada a testo — vedi il recinto per-item di
+ * `listInbox`. Il `question` testuale è ridondante col `text` localizzato
+ * dell'item, che lo include nella frase: è qui lo stesso perché il pannello
+ * deve poterlo mostrare identico sulle due superfici.
+ */
+export const inboxQuestionSchema = z.object({
+  questionId: z.uuid(),
+  round: z.number().int(),
+  question: z.string(),
+  options: z.array(agentQuestionOptionSchema),
+  recommendedIndex: z.number().int().optional(),
+  allowFreeText: z.boolean(),
+});
+export type InboxQuestion = z.infer<typeof inboxQuestionSchema>;
+
+/**
+ * La risposta umana COME VIENE PERSISTITA in `agent_questions.answer`: l'indice
+ * dell'opzione scelta, oppure il testo libero. È la forma canonica del dato —
+ * `packages/db` ci tipa la colonna jsonb e il worker ci rilegge la decisione per
+ * il prompt di ripresa — e sta qui perché nessuno dei due lati la ridichiari.
+ */
+export const agentQuestionAnswerSchema = z.union([
+  z.object({ optionIndex: z.number().int().nonnegative() }),
+  z.object({ text: z.string() }),
+]);
+export type AgentQuestionAnswer = z.infer<typeof agentQuestionAnswerSchema>;
+
+/**
+ * Una Q&A dell'agente come la restituisce `GET /api/tickets/:id/questions`: la
+ * domanda ({@link inboxQuestionSchema}, stessi nomi e stesse convenzioni) PIÙ la
+ * risposta e chi l'ha data.
+ *
+ * `extend` e non una dichiarazione a parte: è ciò che rende impossibile far
+ * divergere le due superfici: se un giorno la domanda guadagna un campo, lo
+ * guadagnano insieme e il pannello di risposta continua a consumarle entrambe
+ * senza normalizzare nulla a mano.
+ *
+ * `answer` è `null` sia sulla domanda ancora aperta sia su una risposta che non
+ * è più leggibile (jsonb di una versione precedente): `answeredAt` distingue i
+ * due casi, ed è lui che il client deve guardare per sapere se una risposta c'è
+ * stata.
+ */
+export const ticketQuestionSchema = inboxQuestionSchema.extend({
+  /** Job che ha posto la domanda: la pagina ticket ci ancora la risposta. */
+  jobId: z.uuid(),
+  askedAt: z.iso.datetime(),
+  answer: agentQuestionAnswerSchema.nullable(),
+  answeredAt: z.iso.datetime().nullable(),
+  answeredBy: handledBySchema.nullable(),
+});
+export type TicketQuestion = z.infer<typeof ticketQuestionSchema>;
+
+/** Corpo di `GET /api/tickets/:id/questions`: le Q&A in ordine cronologico. */
+export const ticketQuestionsSchema = z.array(ticketQuestionSchema);
+
+/** Tetto per una risposta in testo libero (allineato al servizio). */
+export const ANSWER_TEXT_MAX_CHARS = 4000;
+
+/**
+ * Corpo di `POST /api/inbox/:id/actions/answer`: ESATTAMENTE uno dei due campi.
+ *
+ * Non è la union persistita ({@link agentQuestionAnswerSchema}) ma un oggetto
+ * con due campi opzionali più un refine, per una ragione pratica: un client che
+ * manda `{}` o entrambi i campi deve ricevere un errore di validazione che
+ * NOMINA il problema, mentre una union di oggetti gli risponderebbe con l'unione
+ * degli errori dei due rami ("optionIndex richiesto" *e* "text richiesto"), che
+ * non aiuta nessuno.
+ *
+ * La validazione di MERITO — indice dentro le opzioni davvero persistite, testo
+ * libero ammesso da quella domanda — non sta qui: dipende dalla riga
+ * `agent_questions` e vive in `answerQuestion`.
+ */
+export const answerBodySchema = z
+  .object({
+    optionIndex: z.number().int().nonnegative().optional(),
+    text: z.string().max(ANSWER_TEXT_MAX_CHARS).optional(),
+  })
+  .refine((v) => (v.optionIndex === undefined) !== (v.text === undefined), {
+    message: "provide exactly one of optionIndex or text",
+  });
+export type AnswerBody = z.infer<typeof answerBodySchema>;
 
 /**
  * Una riga d'inbox pronta per la UI. `text` è già localizzato nella lingua del
@@ -91,6 +216,12 @@ export const inboxItemSchema = z.object({
   text: z.string(),
   url: z.string().optional(),
   actions: z.array(inboxActionSchema),
+  /**
+   * Presente SOLO sul kind `job.awaiting_input`, e solo se il payload
+   * dell'evento è leggibile: è ciò che permette alla card di offrire i bottoni
+   * delle opzioni invece del solo testo.
+   */
+  question: inboxQuestionSchema.optional(),
   projectId: z.uuid().nullable(),
   ticketId: z.uuid().nullable(),
   jobId: z.uuid().nullable(),

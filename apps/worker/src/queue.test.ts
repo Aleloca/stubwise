@@ -9,6 +9,7 @@ import {
   failJob,
   holdJob,
   markFixing,
+  parkForInput,
   parkForPlanApproval,
   requeueStale,
   runWorker,
@@ -269,6 +270,66 @@ describe("transizioni di stato", () => {
     expect(persisted.planText).toBeNull();
     expect(persisted.log).toBe("");
     expect(persisted.finishedAt).toBeNull();
+  });
+
+  it("parkForInput porta il job da fixing a awaiting_input, salva cliSessionId e accoda il log SENZA finishedAt", async () => {
+    const { db } = testDb;
+    const job = await enqueueJob(db, { status: "fixing", startedAt: minutesAgo(1) });
+
+    expect(
+      await parkForInput(db, job.id, {
+        cliSessionId: "sess-abc",
+        log: "[fix] domanda registrata, in attesa di risposta",
+      }),
+    ).toBe(true);
+
+    const persisted = await getJob(db, job.id);
+    expect(persisted.status).toBe("awaiting_input");
+    expect(persisted.cliSessionId).toBe("sess-abc");
+    expect(persisted.log).toContain("[fix] domanda registrata");
+    // Il job è in attesa di un umano, non concluso: finishedAt resta NULL.
+    expect(persisted.finishedAt).toBeNull();
+    expect(persisted.lastActivityAt.getTime()).toBeGreaterThan(Date.now() - 60_000);
+  });
+
+  it("parkForInput senza sessionId (run riuscito ma sessionId non parsato) lascia cli_session_id NULL", async () => {
+    const { db } = testDb;
+    const job = await enqueueJob(db, { status: "fixing", startedAt: minutesAgo(1) });
+
+    expect(await parkForInput(db, job.id, { log: "[fix] domanda registrata" })).toBe(true);
+
+    const persisted = await getJob(db, job.id);
+    expect(persisted.status).toBe("awaiting_input");
+    expect(persisted.cliSessionId).toBeNull();
+  });
+
+  it("parkForInput su un job non in lavorazione restituisce false e non tocca la riga", async () => {
+    const { db } = testDb;
+    const job = await enqueueJob(db); // ancora `queued`: nessuno lo possiede
+
+    expect(await parkForInput(db, job.id, { cliSessionId: "sess-x", log: "tardivo" })).toBe(false);
+
+    const persisted = await getJob(db, job.id);
+    expect(persisted.status).toBe("queued");
+    expect(persisted.cliSessionId).toBeNull();
+    expect(persisted.log).toBe("");
+  });
+
+  it("un job awaiting_input NON è claimabile né riportato in coda da requeueStale", async () => {
+    const { db } = testDb;
+    // Parcheggiato da molto tempo: se fosse sorvegliato, requeueStale lo
+    // riaccoderebbe e la domanda resterebbe senza risposta.
+    const job = await enqueueJob(db, {
+      status: "awaiting_input",
+      startedAt: minutesAgo(600),
+      lastActivityAt: minutesAgo(600),
+    });
+
+    expect(await requeueStale(db, { olderThanMinutes: 30 })).toBe(0);
+    expect(await claimNextJob(db)).toBeNull();
+
+    const persisted = await getJob(db, job.id);
+    expect(persisted.status).toBe("awaiting_input");
   });
 
   it("le transizioni su un job non in lavorazione restituiscono false e non toccano la riga", async () => {

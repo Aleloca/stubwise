@@ -60,9 +60,10 @@ const envSchema = z.object({
   // heartbeat oltre questo limite è orfano di un worker crashato e torna in
   // coda. Deve restare > del tempo massimo di un job: vedi l'invariante
   // verificata in index.ts. Min 1; il default 150 min supera con margine
-  // l'invariante col fix in due fasi (plan 10' + fix 30') PIÙ il loop di
-  // self-repair (2 RE-tentativi × (fix 30' + test 5') = 70') + install (una
-  // volta) 10' + 2× triage 2' + margine 5' ≈ 129'.
+  // l'invariante col fix in due fasi (2× plan 10' — la ripresa da una risposta
+  // può lanciare un run `--resume` fallito PIÙ il fallback pieno — + fix 30')
+  // PIÙ il loop di self-repair (2 RE-tentativi × (fix 30' + test 5') = 70') +
+  // install (una volta) 10' + 2× triage 2' + margine 5' ≈ 139'.
   WORKER_STALE_MINUTES: z.preprocess(
     emptyAsUndefined,
     z.coerce
@@ -104,6 +105,32 @@ const envSchema = z.object({
       .int("deve essere un intero > 0 in millisecondi (es. 600000)")
       .min(1, "deve essere un intero > 0 in millisecondi (es. 600000)")
       .default(600_000),
+  ),
+  // Tetto di DOMANDE (tool `ask_user`) che l'agente può porre in UN job di fix,
+  // contando anche quelle già risposte. Vale solo per i run che pianificano
+  // davvero (`plan-only` e la fase 1 del flusso a due fasi): in esecuzione
+  // diretta da un piano salvato nessuno può chiedere. Superato il tetto il tool
+  // non registra più nulla e istruisce l'agente a scegliere da sé, documentando
+  // la scelta nel piano — così una pianificazione non può rimbalzare all'umano
+  // all'infinito. Deve restare allineata a DEFAULT_AGENT_QUESTION_MAX_ROUNDS
+  // (pipeline/ask-user.ts), il fallback quando il valore non viene iniettato:
+  // l'invariante è verificata da un test in config.test.ts.
+  //
+  // MINIMO 1, e `0` è RIFIUTATO invece di significare "domande disattivate":
+  // questo numero viaggia come stringa nell'env del server MCP
+  // (`ASK_USER_MAX_ROUNDS`), che lo legge con readPositiveInt e su un valore
+  // < 1 degrada sul PROPRIO default (5) — chi scrive 0 sperando di spegnere le
+  // domande otterrebbe quindi il comportamento di default, cioè l'opposto. Un
+  // interruttore per disattivare `ask_user` non esiste: per non essere
+  // interrotti si mette il tetto a 1 (una domanda sola) o si esegue un piano
+  // già salvato, che non fa domande per costruzione.
+  AGENT_QUESTION_MAX_ROUNDS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 (es. 5)" })
+      .int("deve essere un intero ≥ 1 (es. 5)")
+      .min(1, "deve essere un intero ≥ 1 (es. 5)")
+      .default(5),
   ),
   // Loop di self-repair (Task 5): dopo il run di esecuzione, il WORKER esegue
   // da sé il comando di test del repo nel worktree; se i test falliscono
@@ -670,6 +697,10 @@ export interface WorkerConfig {
   fixTwoPhase: boolean;
   /** Timeout del run di pianificazione in ms (default 600000 = 10'). */
   fixPlanTimeoutMs: number;
+  /** Tetto di domande (`ask_user`) che l'agente può porre in un job di fix,
+   * risposte comprese (default 5). Oltre il tetto il tool non registra più
+   * nulla e l'agente decide da sé. */
+  agentQuestionMaxRounds: number;
   /** Numero massimo di RE-tentativi del loop di self-repair (default 2; 0 =
    * disattivato). 1 esecuzione iniziale + fino a N riparazioni. */
   selfRepairMaxAttempts: number;
@@ -826,6 +857,7 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     fixExecuteModel: parsed.FIX_EXECUTE_MODEL,
     fixTwoPhase: parsed.FIX_TWO_PHASE,
     fixPlanTimeoutMs: parsed.FIX_PLAN_TIMEOUT_MS,
+    agentQuestionMaxRounds: parsed.AGENT_QUESTION_MAX_ROUNDS,
     selfRepairMaxAttempts: parsed.SELF_REPAIR_MAX_ATTEMPTS,
     selfRepairTestTimeoutMs: parsed.SELF_REPAIR_TEST_TIMEOUT_MS,
     installTimeoutMs: parsed.INSTALL_TIMEOUT_MS,

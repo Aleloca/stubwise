@@ -30,6 +30,11 @@ export const en: Catalog = {
     "AI triage: type {type}. It does not enter the fix pipeline: moved to the discovery backlog for collection and refinement.",
   "comment.backlogIntake": 'Moved to the discovery backlog: "{title}".',
   "comment.planProposed": "Proposed plan (awaiting approval):",
+  "comment.agentQuestion":
+    "The AI needs a decision to continue planning (question {round}). Answer from your inbox or from this ticket.",
+  "comment.agentQuestionRecommended": "recommended",
+  "comment.agentQuestionAnswered":
+    "{actor} answered the AI question (question {round}): {answer}",
   "comment.planApproved": "Plan approved — execution in progress",
   "comment.planRejected": "Plan rejected — replanning in progress",
   "comment.reportFooter": "Generated automatically by Stubwise AI for ticket #{number}.",
@@ -92,6 +97,10 @@ export const en: Catalog = {
     "{ref} awaiting review — {ticketTitle} ({type}, effort {effort}/5). {link}",
   "notify.planReview":
     "Plan awaiting approval — {ref} — {ticketTitle} ({projectName}). {link}",
+  // Domanda dell'AI durante la pianificazione: `{question}` è il testo posto
+  // dall'agente (le opzioni vivono nel payload, non nella frase).
+  "notify.awaitingInput":
+    "AI has a question on {ref} — {ticketTitle}: {question} {link}",
   "notify.jobFailed": "AI fix failed on {ref} — {ticketTitle}: {error}. {link}",
   "notify.budgetHeld":
     "Budget exceeded ({scope}) — {ref} {ticketTitle} ({projectName}): spent ${spent} of ${limit} limit. Job on hold; start it manually to override. {link}",
@@ -133,6 +142,7 @@ export const en: Catalog = {
   "notify.action.approvePlan": "Approve plan",
   "notify.action.rejectPlan": "Reject",
   "notify.action.relaunch": "Relaunch",
+  "notify.action.answer": "Answer",
   "notify.action.handled": "Mark as handled",
   "notify.action.open": "Open",
   "notify.action.snooze": "Snooze…",
@@ -153,13 +163,23 @@ export const en: Catalog = {
   "notify.inbox.errInvalidAction": "This action is not available on this notification.",
   "notify.inbox.errAlreadyHandled": "Already handled by {actor}.",
   "notify.inbox.errAlreadyHandledUnknown": "This notification has already been handled.",
+  // Gemelli di `errAlreadyHandled` per la sola DOMANDA dell'agente: "handled"
+  // è il lessico delle decisioni generiche, su una domanda l'esito che conta è
+  // che qualcuno ha già RISPOSTO. Stesse parole del web
+  // (`question:errors.alreadyAnswered`), che è l'altra superficie della stessa
+  // corsa persa.
+  "notify.inbox.errAlreadyAnswered": "Already answered by {actor}.",
+  "notify.inbox.errAlreadyAnsweredUnknown": "Already answered by someone else.",
   "notify.inbox.errJobInFlight": "A job for this ticket is already running ({status}).",
   "notify.inbox.errPlanNotPending": "No plan is awaiting approval.",
+  "notify.inbox.errInvalidAnswer": "That answer is not valid for this question.",
+  "notify.inbox.errQuestionNotPending": "No question is awaiting an answer.",
   "notify.inbox.errFailed": "The action could not be completed. Try again from Stubwise.",
   // Note di stato: sostituiscono i bottoni sul messaggio già deciso.
   "notify.inbox.notePlanApproved": "✅ Plan approved by {actor}",
   "notify.inbox.notePlanRejected": "🚫 Plan rejected by {actor}",
   "notify.inbox.noteRelaunched": "🔁 Fix relaunched by {actor}",
+  "notify.inbox.noteAnswered": "💬 Answer from {actor}: {answer}",
   "notify.inbox.noteHandled": "✅ Marked as handled by {actor}",
   "notify.inbox.noteSnoozed": "⏰ Snoozed until {until}",
   // Modal di rifiuto del piano (il titolo Slack tronca oltre i 24 caratteri).
@@ -168,6 +188,17 @@ export const en: Catalog = {
   "notify.inbox.rejectClose": "Cancel",
   "notify.inbox.rejectLabel": "Instructions for replanning (optional)",
   "notify.inbox.rejectPlaceholder": "What is wrong with the plan? The AI will use this to replan.",
+  // Domanda dell'agente sul DM: bottone del testo libero (le altre etichette
+  // sono le opzioni stesse, che scrive l'agente) e modal che lo raccoglie.
+  // "consigliata" NON ha una chiave sua: è la stessa parola del commento sul
+  // ticket (`comment.agentQuestionRecommended`), e una sola traduzione evita
+  // che le due superfici dicano cose diverse della stessa opzione.
+  "notify.inbox.answerOther": "Other…",
+  "notify.inbox.answerTitle": "Answer the AI",
+  "notify.inbox.answerSubmit": "Send",
+  "notify.inbox.answerClose": "Cancel",
+  "notify.inbox.answerLabel": "Your answer",
+  "notify.inbox.answerPlaceholder": "Answer in your own words: the AI resumes planning from here.",
 
   // --- report.* — header delle sezioni del report ---
   "report.investigation": "Investigation process",
@@ -181,6 +212,7 @@ export const en: Catalog = {
   "plan.changeToApply": "Change to apply",
   "plan.regressionTest": "Regression test to add",
   "plan.testCommands": "Test commands to run",
+  "plan.decisions": "Decisions and assumptions",
 };
 
 /** Testi italiani: copia esatta dei testi attualmente hard-coded nel backend. */
@@ -198,6 +230,11 @@ export const it: Catalog = {
     "Triage AI: tipo {type}. Non entra nella pipeline di fix: spostato nel backlog di discovery per raccolta e raffinamento.",
   "comment.backlogIntake": 'Spostato nel backlog di discovery: "{title}".',
   "comment.planProposed": "Piano proposto (in attesa di approvazione):",
+  "comment.agentQuestion":
+    "L'AI ha bisogno di una decisione per continuare la pianificazione (domanda {round}). Rispondi dall'inbox o da questo ticket.",
+  "comment.agentQuestionRecommended": "consigliata",
+  "comment.agentQuestionAnswered":
+    "{actor} ha risposto alla domanda dell'AI (domanda {round}): {answer}",
   "comment.planApproved": "Piano approvato — esecuzione in corso",
   "comment.planRejected": "Piano rifiutato — ripianificazione in corso",
   "comment.reportFooter":
@@ -250,6 +287,8 @@ export const it: Catalog = {
     "{ref} in attesa di revisione — {ticketTitle} ({type}, effort {effort}/5). {link}",
   "notify.planReview":
     "Piano in attesa di approvazione — {ref} — {ticketTitle} ({projectName}). {link}",
+  "notify.awaitingInput":
+    "L'AI ha una domanda su {ref} — {ticketTitle}: {question} {link}",
   "notify.jobFailed": "Fix AI fallito su {ref} — {ticketTitle}: {error}. {link}",
   "notify.budgetHeld":
     "Budget superato ({scope}) — {ref} {ticketTitle} ({projectName}): spesi ${spent} sul limite di ${limit}. Job in pausa; avvialo manualmente per forzare. {link}",
@@ -281,6 +320,7 @@ export const it: Catalog = {
   "notify.action.approvePlan": "Approva il piano",
   "notify.action.rejectPlan": "Rifiuta",
   "notify.action.relaunch": "Rilancia",
+  "notify.action.answer": "Rispondi",
   "notify.action.handled": "Segna come gestita",
   "notify.action.open": "Apri",
   "notify.action.snooze": "Rinvia…",
@@ -295,12 +335,17 @@ export const it: Catalog = {
   "notify.inbox.errInvalidAction": "Questa azione non è disponibile su questa notifica.",
   "notify.inbox.errAlreadyHandled": "Già gestita da {actor}.",
   "notify.inbox.errAlreadyHandledUnknown": "Questa notifica è già stata gestita.",
+  "notify.inbox.errAlreadyAnswered": "Ha già risposto {actor}.",
+  "notify.inbox.errAlreadyAnsweredUnknown": "Ha già risposto qualcun altro.",
   "notify.inbox.errJobInFlight": "C'è già un job in corso per questo ticket ({status}).",
   "notify.inbox.errPlanNotPending": "Nessun piano in attesa di approvazione.",
+  "notify.inbox.errInvalidAnswer": "Questa risposta non è valida per questa domanda.",
+  "notify.inbox.errQuestionNotPending": "Nessuna domanda in attesa di risposta.",
   "notify.inbox.errFailed": "Azione non riuscita. Riprova da Stubwise.",
   "notify.inbox.notePlanApproved": "✅ Piano approvato da {actor}",
   "notify.inbox.notePlanRejected": "🚫 Piano rifiutato da {actor}",
   "notify.inbox.noteRelaunched": "🔁 Fix rilanciato da {actor}",
+  "notify.inbox.noteAnswered": "💬 Risposta di {actor}: {answer}",
   "notify.inbox.noteHandled": "✅ Segnata come gestita da {actor}",
   "notify.inbox.noteSnoozed": "⏰ Rinviata fino a {until}",
   "notify.inbox.rejectTitle": "Rifiuta il piano",
@@ -309,6 +354,13 @@ export const it: Catalog = {
   "notify.inbox.rejectLabel": "Istruzioni per la ripianificazione (opzionale)",
   "notify.inbox.rejectPlaceholder":
     "Cosa non va nel piano? L'AI userà queste indicazioni per ripianificare.",
+  "notify.inbox.answerOther": "Altro…",
+  "notify.inbox.answerTitle": "Rispondi all'AI",
+  "notify.inbox.answerSubmit": "Invia",
+  "notify.inbox.answerClose": "Annulla",
+  "notify.inbox.answerLabel": "La tua risposta",
+  "notify.inbox.answerPlaceholder":
+    "Rispondi con parole tue: l'AI riprende la pianificazione da qui.",
 
   // --- report.* ---
   "report.investigation": "Processo di indagine",
@@ -322,6 +374,7 @@ export const it: Catalog = {
   "plan.changeToApply": "Modifica da applicare",
   "plan.regressionTest": "Test di regressione da aggiungere",
   "plan.testCommands": "Comandi di test da eseguire",
+  "plan.decisions": "Decisioni e assunzioni",
 };
 
 /** Catalogo per lingua. Mappato per `t()`/`languageName()`. */

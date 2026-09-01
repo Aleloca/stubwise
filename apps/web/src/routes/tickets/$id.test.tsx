@@ -10,6 +10,7 @@ import type {
   MilestoneWithCounts,
   Ticket,
   TicketLinkView,
+  TicketQuestion,
   TicketUsage,
 } from "../../lib/api";
 import { ticketKeys } from "../../lib/queries";
@@ -141,6 +142,7 @@ const jobsFixture: AIJob[] = [
     finishedAt: "2026-06-03T10:04:00.000Z",
     providerLabel: null,
     providerKind: null,
+    requestedByUserId: null,
   },
   {
     id: "j1",
@@ -154,6 +156,7 @@ const jobsFixture: AIJob[] = [
     finishedAt: "2026-06-02T10:00:40.000Z",
     providerLabel: null,
     providerKind: null,
+    requestedByUserId: null,
   },
 ];
 
@@ -268,6 +271,10 @@ interface MockState {
   designDeletes: number;
   /** Quante volte è stato chiamato DELETE /plan. */
   planDeletes: number;
+  /** Q&A dell'agente sul ticket (GET /questions). */
+  questions: TicketQuestion[];
+  /** Body inviati a POST /questions/answer. */
+  answerBodies: unknown[];
 }
 
 /**
@@ -313,6 +320,10 @@ function mockDetailApi(
     role?: "admin" | "member";
     /** Risposta di POST /run-ai: default 202 queued; serve per 409 e gate piano. */
     runAiResponse?: () => Response;
+    /** Q&A dell'agente sul ticket: default nessuna. */
+    questions?: TicketQuestion[];
+    /** Risposta di POST /questions/answer: default 200; serve per il 409. */
+    answerResponse?: () => Response;
   } = {},
 ): MockState {
   const state: MockState = {
@@ -332,6 +343,8 @@ function mockDetailApi(
     deletedLinks: [],
     designDeletes: 0,
     planDeletes: 0,
+    questions: overrides.questions ?? [],
+    answerBodies: [],
   };
 
   mockApi({
@@ -450,6 +463,13 @@ function mockDetailApi(
       state.ticket = { ...state.ticket, implementationPlan: null };
       return jsonResponse(200, state.ticket);
     },
+    [`GET /api/tickets/${TICKET_ID}/questions`]: () => jsonResponse(200, state.questions),
+    [`POST /api/tickets/${TICKET_ID}/questions/answer`]: (_url, init) => {
+      state.answerBodies.push(init?.body ? JSON.parse(String(init.body)) : undefined);
+      return overrides.answerResponse
+        ? overrides.answerResponse()
+        : jsonResponse(200, { jobId: "jq", questionId: openQuestionFixture.questionId });
+    },
     [`GET /api/tickets/${TICKET_ID}/attachments`]: () => jsonResponse(200, []),
     "GET /api/settings/instance": () =>
       jsonResponse(200, {
@@ -521,6 +541,7 @@ const heldJobFixture: AIJob = {
   finishedAt: "2026-06-04T10:00:05.000Z",
   providerLabel: null,
   providerKind: null,
+  requestedByUserId: null,
 };
 
 /** Job singolo in stato "pr_closed": PR rifiutata, il ticket è stato riaperto. */
@@ -536,6 +557,7 @@ const prClosedJobFixture: AIJob = {
   finishedAt: "2026-06-06T10:04:00.000Z",
   providerLabel: null,
   providerKind: null,
+  requestedByUserId: null,
 };
 
 /** Job singolo in stato "failed": un re-run manuale ha senso. */
@@ -551,6 +573,7 @@ const failedJobFixture: AIJob = {
   finishedAt: "2026-06-06T10:00:40.000Z",
   providerLabel: null,
   providerKind: null,
+  requestedByUserId: null,
 };
 
 /** Job singolo in stato "pr_merged": PR già mergiata, niente rilancio. */
@@ -566,6 +589,7 @@ const prMergedJobFixture: AIJob = {
   finishedAt: "2026-06-06T10:04:00.000Z",
   providerLabel: null,
   providerKind: null,
+  requestedByUserId: null,
 };
 
 /** Job singolo in volo ("fixing"): nessun bottone di rilancio. */
@@ -581,6 +605,7 @@ const fixingJobFixture: AIJob = {
   finishedAt: null,
   providerLabel: null,
   providerKind: null,
+  requestedByUserId: null,
 };
 
 /** Job singolo in stato "awaiting_plan_approval": piano in attesa di decisione. */
@@ -596,6 +621,59 @@ const awaitingPlanJobFixture: AIJob = {
   finishedAt: "2026-06-05T10:00:05.000Z",
   providerLabel: null,
   providerKind: null,
+  requestedByUserId: null,
+};
+
+/**
+ * Job fermo su una domanda dell'agente, CHIESTO dall'operatore: è l'unica
+ * fixture con `requestedByUserId` valorizzato, perché è il campo con cui la
+ * pagina decide chi vede il pannello di risposta.
+ */
+const awaitingInputJobFixture: AIJob = {
+  id: "jq",
+  ticketId: TICKET_ID,
+  status: "awaiting_input",
+  log: "[plan] domanda all'umano, in attesa di risposta",
+  prUrl: null,
+  error: null,
+  createdAt: "2026-06-07T10:00:00.000Z",
+  startedAt: "2026-06-07T10:00:02.000Z",
+  finishedAt: null,
+  providerLabel: null,
+  providerKind: null,
+  requestedByUserId: MEMBER_ID,
+};
+
+/** La domanda aperta del job qui sopra, nella forma di GET /questions. */
+const openQuestionFixture: TicketQuestion = {
+  questionId: "66666666-6666-4666-8666-666666666666",
+  jobId: "jq",
+  round: 2,
+  question: "Quale coda uso per i job del grafo?",
+  options: [
+    { label: "Quella esistente", consequence: "Nessuna migrazione" },
+    { label: "Una coda nuova" },
+  ],
+  recommendedIndex: 0,
+  allowFreeText: true,
+  askedAt: "2026-06-07T10:00:03.000Z",
+  answer: null,
+  answeredAt: null,
+  answeredBy: null,
+};
+
+/** Una Q&A già chiusa: alimenta lo storico collassabile. */
+const answeredQuestionFixture: TicketQuestion = {
+  questionId: "77777777-7777-4777-8777-777777777777",
+  jobId: "jq",
+  round: 1,
+  question: "Quali colonne devo toccare?",
+  options: [{ label: "Le vecchie" }, { label: "Le nuove" }],
+  allowFreeText: false,
+  askedAt: "2026-06-07T09:00:00.000Z",
+  answer: { optionIndex: 1 },
+  answeredAt: "2026-06-07T09:05:00.000Z",
+  answeredBy: { id: ADMIN_ID, email: "ada@example.com" },
 };
 
 function renderDetail() {
@@ -1455,5 +1533,222 @@ describe("dettaglio ticket", () => {
     // Secondo click sulla stessa riga: scatena la DELETE.
     await userEvent.click(removeButton);
     await waitFor(() => expect(state.deletedLinks).toEqual(["lk1"]));
+  });
+});
+
+describe("dettaglio ticket — domanda dell'agente", () => {
+  it("il richiedente vede il pannello e risponde dalla pagina", async () => {
+    const state = mockDetailApi({
+      jobs: [awaitingInputJobFixture],
+      role: "member",
+      questions: [openQuestionFixture],
+    });
+    renderDetail();
+
+    const panel = await screen.findByRole("region", { name: "AI activity" });
+    expect(within(panel).getByText("Question pending")).toBeInTheDocument();
+    // La domanda si legge per intero: sulla pagina ticket non c'è il testo
+    // localizzato della notifica a ripeterla.
+    expect(within(panel).getByText("Quale coda uso per i job del grafo?")).toBeInTheDocument();
+    expect(within(panel).getByText("Nessuna migrazione")).toBeInTheDocument();
+
+    // Conferma a due passi: selezione, poi invio.
+    await userEvent.click(screen.getByRole("radio", { name: /Una coda nuova/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Send answer" }));
+
+    // Il body porta la domanda MOSTRATA: il server rifiuta se nel frattempo
+    // il job ne ha aperta un'altra.
+    await waitFor(() =>
+      expect(state.answerBodies).toEqual([
+        { optionIndex: 1, questionId: openQuestionFixture.questionId },
+      ]),
+    );
+  });
+
+  it("risposta in testo libero: manda { text } dalla pagina", async () => {
+    const state = mockDetailApi({
+      jobs: [awaitingInputJobFixture],
+      role: "member",
+      questions: [openQuestionFixture],
+    });
+    renderDetail();
+
+    await screen.findByText("Quale coda uso per i job del grafo?");
+    await userEvent.click(screen.getByRole("radio", { name: "Other…" }));
+    await userEvent.type(screen.getByLabelText("Your answer"), "Fanne una terza");
+    await userEvent.click(screen.getByRole("button", { name: "Send answer" }));
+
+    await waitFor(() =>
+      expect(state.answerBodies).toEqual([
+        { text: "Fanne una terza", questionId: openQuestionFixture.questionId },
+      ]),
+    );
+  });
+
+  it("un altro operatore: solo la riga informativa, nessun pannello", async () => {
+    // Il run l'ha chiesto il maintainer: l'operatore che passa di qui NON è
+    // quello a cui la domanda è rivolta, e il server gli risponderebbe 403.
+    mockDetailApi({
+      jobs: [{ ...awaitingInputJobFixture, requestedByUserId: ADMIN_ID }],
+      role: "member",
+      questions: [openQuestionFixture],
+    });
+    renderDetail();
+
+    expect(await screen.findByText(/waiting for an answer from ada@example.com/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Send answer" })).not.toBeInTheDocument();
+  });
+
+  it("job automatico (nessun richiedente): l'operatore vede la riga senza nome", async () => {
+    mockDetailApi({
+      jobs: [{ ...awaitingInputJobFixture, requestedByUserId: null }],
+      role: "member",
+      questions: [openQuestionFixture],
+    });
+    renderDetail();
+
+    expect(await screen.findByText(/waiting for a maintainer to answer/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Send answer" })).not.toBeInTheDocument();
+  });
+
+  it("il maintainer risponde anche alla domanda di un collega", async () => {
+    const state = mockDetailApi({
+      jobs: [awaitingInputJobFixture],
+      questions: [openQuestionFixture],
+    });
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole("radio", { name: /Quella esistente/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Send answer" }));
+
+    await waitFor(() =>
+      expect(state.answerBodies).toEqual([
+        { optionIndex: 0, questionId: openQuestionFixture.questionId },
+      ]),
+    );
+    // Nessuna riga informativa: chi può rispondere ha il pannello, non l'avviso.
+    expect(screen.queryByText(/waiting for an answer/i)).not.toBeInTheDocument();
+  });
+
+  it("409 già risposta: il pannello dice chi ha risposto", async () => {
+    mockDetailApi({
+      jobs: [awaitingInputJobFixture],
+      questions: [openQuestionFixture],
+      answerResponse: () =>
+        jsonResponse(409, {
+          code: "already_handled",
+          message: "Already answered by bob@example.com",
+          handledBy: { id: MEMBER_ID, email: "bob@example.com" },
+        }),
+    });
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole("radio", { name: /Quella esistente/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Send answer" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Already answered by bob@example.com",
+    );
+  });
+
+  it("409 con un round nuovo: la pagina si riallinea senza ricaricare", async () => {
+    // Lo scenario stantio: un collega risponde per primo e il worker apre
+    // SUBITO il round 2 sullo STESSO job. `awaitingInput` non viene mai
+    // osservato falso e `latestJob.id` non cambia, quindi l'effetto che ricarica
+    // le Q&A sul cambio di stato non rifirerebbe mai: senza il refetch sul 409
+    // la pagina resterebbe sul round 1 fino a un ricaricamento a mano.
+    const round2: TicketQuestion = {
+      ...openQuestionFixture,
+      questionId: "99999999-9999-4999-8999-999999999999",
+      round: 3,
+      question: "E il TTL della cache?",
+      options: [{ label: "Un'ora" }, { label: "Un giorno" }],
+    };
+    // `state` è referenziata dentro `answerResponse`, che gira DOPO: la
+    // chiusura la vede già assegnata.
+    const state: MockState = mockDetailApi({
+      jobs: [awaitingInputJobFixture],
+      questions: [openQuestionFixture],
+      answerResponse: () => {
+        // Il server ha già chiuso il round mostrato e ne ha aperto un altro.
+        state.questions = [
+          { ...openQuestionFixture, answer: { optionIndex: 0 }, answeredAt: "2026-06-07T10:01:00.000Z", answeredBy: { id: ADMIN_ID, email: "ada@example.com" } },
+          round2,
+        ];
+        return jsonResponse(409, {
+          code: "already_handled",
+          message: "Already answered by ada@example.com",
+          handledBy: { id: ADMIN_ID, email: "ada@example.com" },
+        });
+      },
+    });
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole("radio", { name: /Quella esistente/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Send answer" }));
+
+    // La domanda nuova arriva da sola: nessun reload, nessuna azione utente.
+    expect(await screen.findByText("E il TTL della cache?")).toBeInTheDocument();
+    expect(screen.queryByText("Quale coda uso per i job del grafo?")).not.toBeInTheDocument();
+  });
+
+  it("senza job 'awaiting_input' non c'è né pannello né riga informativa", async () => {
+    mockDetailApi({ jobs: [heldJobFixture], questions: [answeredQuestionFixture] });
+    renderDetail();
+
+    await screen.findByRole("button", { name: "Start AI fix" });
+    expect(screen.queryByRole("button", { name: "Send answer" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/waiting for an answer/i)).not.toBeInTheDocument();
+  });
+
+  it("Q&A passate: sezione collassabile con risposta e autore", async () => {
+    mockDetailApi({
+      jobs: [awaitingInputJobFixture],
+      questions: [answeredQuestionFixture, openQuestionFixture],
+    });
+    renderDetail();
+
+    const toggle = await screen.findByRole("button", { name: /Past questions/i });
+    // Chiusa di default: lo storico è consultazione, non la decisione da fare.
+    expect(screen.queryByText("Quali colonne devo toccare?")).not.toBeInTheDocument();
+
+    await userEvent.click(toggle);
+    const entry = screen.getByText("Quali colonne devo toccare?").closest("li");
+    expect(entry).not.toBeNull();
+    // La risposta è l'ETICHETTA dell'opzione scelta, non il suo indice.
+    expect(within(entry!).getByText("Le nuove")).toBeInTheDocument();
+    expect(within(entry!).getByText(/Answered by ada@example\.com/)).toBeInTheDocument();
+    // La domanda ancora aperta NON finisce nello storico: si risponde nel
+    // pannello, e vederla due volte confonderebbe.
+    expect(
+      within(entry!).queryByText("Quale coda uso per i job del grafo?"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("Q&A passate: una risposta illeggibile resta una risposta data", async () => {
+    // `answer: null` con `answeredAt` valorizzato = jsonb di una versione
+    // precedente. Guardare `answer` direbbe "mai risposta": è `answeredAt` a
+    // dire la verità.
+    mockDetailApi({
+      jobs: [awaitingInputJobFixture],
+      questions: [
+        { ...answeredQuestionFixture, answer: null },
+        openQuestionFixture,
+      ],
+    });
+    renderDetail();
+
+    await userEvent.click(await screen.findByRole("button", { name: /Past questions/i }));
+
+    expect(screen.getByText("Quali colonne devo toccare?")).toBeInTheDocument();
+    expect(screen.getByText(/answer is no longer readable/i)).toBeInTheDocument();
+  });
+
+  it("nessuna Q&A chiusa: la sezione dello storico non compare", async () => {
+    mockDetailApi({ jobs: [awaitingInputJobFixture], questions: [openQuestionFixture] });
+    renderDetail();
+
+    await screen.findByText("Quale coda uso per i job del grafo?");
+    expect(screen.queryByRole("button", { name: /Past questions/i })).not.toBeInTheDocument();
   });
 });

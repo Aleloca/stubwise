@@ -17,6 +17,7 @@ function makeJob(overrides: Partial<AIJob>): AIJob {
     finishedAt: null,
     providerLabel: null,
     providerKind: null,
+    requestedByUserId: null,
     ...overrides,
   };
 }
@@ -105,6 +106,15 @@ describe("AIJobTimeline", () => {
 
     expect(screen.getByText("Plan to approve")).toBeInTheDocument();
     expect(screen.getByText(/approve or reject it/i)).toBeInTheDocument();
+  });
+
+  it("job 'awaiting_input': etichetta Question pending e nota esplicativa", () => {
+    // Il job è fermo perché l'agente ha chiesto qualcosa: la nota è ciò che
+    // spiega a chi guarda PERCHÉ non si muove nulla.
+    render(<AIJobTimeline jobs={[makeJob({ id: "j1", status: "awaiting_input" })]} />);
+
+    expect(screen.getByText("Question pending")).toBeInTheDocument();
+    expect(screen.getByText(/asked a question/i)).toBeInTheDocument();
   });
 
   it("job fallito: mostra il messaggio d'errore", () => {

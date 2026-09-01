@@ -1,5 +1,5 @@
 import { t, type Language } from "@stubwise/i18n";
-import { ticketTypeSchema } from "@stubwise/shared";
+import { ANSWER_TEXT_MAX_CHARS, ticketTypeSchema } from "@stubwise/shared";
 
 /**
  * `callback_id` della view modale di creazione ticket: lo si ritrova
@@ -181,6 +181,66 @@ export function buildRejectPlanModal(
           multiline: true,
           max_length: INSTRUCTIONS_MAX,
           placeholder: { type: "plain_text", text: t(lang, "notify.inbox.rejectPlaceholder") },
+        },
+      },
+    ],
+  };
+}
+
+// --- Modal "Altro…" della DOMANDA dell'agente (bottone del DM d'inbox) ------
+
+/**
+ * `callback_id` del modal del testo libero: lo si ritrova nel `view_submission`
+ * per riconoscere questa view fra le altre.
+ */
+export const INBOX_ANSWER_CALLBACK_ID = "inbox_answer_free";
+
+/** `block_id`/`action_id` del campo della risposta libera. */
+export const INBOX_ANSWER_BLOCK_ID = "answer_text_block";
+export const INBOX_ANSWER_ACTION_ID = "answer_text_input";
+
+/**
+ * Modal aperto dal bottone "Altro…" del DM di una domanda dell'agente: le
+ * opzioni sono bottoni (un tap, nessun modal), il testo libero no.
+ *
+ * Un solo campo, OBBLIGATORIO — a differenza del rifiuto, dove tacere è una
+ * risposta legittima: qui il testo È la risposta, e senza non c'è niente da
+ * mandare all'agente. Slack lo fa rispettare prima del submit; il testo di soli
+ * spazi passa comunque e lo rifiuta `answerQuestion` (`invalid_answer`, reso
+ * dentro al modal).
+ *
+ * `max_length` allineato al tetto del servizio ({@link ANSWER_TEXT_MAX_CHARS}),
+ * come fa il modal di rifiuto con le sue istruzioni: le due superfici accettano
+ * lo stesso testo.
+ *
+ * `private_metadata` porta il SOLO `notificationId`: è quanto basta a
+ * `executeAction` per ritrovare riga e domanda. L'identità di chi risponde NON
+ * viaggia qui — la si ri-risolve dallo Slack user id del submit.
+ *
+ * LINGUA: quella del DESTINATARIO, come i bottoni del DM da cui il modal nasce.
+ */
+export function buildAnswerModal(
+  notificationId: string,
+  lang: Language,
+): Record<string, unknown> {
+  return {
+    type: "modal",
+    callback_id: INBOX_ANSWER_CALLBACK_ID,
+    private_metadata: notificationId,
+    title: { type: "plain_text", text: t(lang, "notify.inbox.answerTitle") },
+    submit: { type: "plain_text", text: t(lang, "notify.inbox.answerSubmit") },
+    close: { type: "plain_text", text: t(lang, "notify.inbox.answerClose") },
+    blocks: [
+      {
+        type: "input",
+        block_id: INBOX_ANSWER_BLOCK_ID,
+        label: { type: "plain_text", text: t(lang, "notify.inbox.answerLabel") },
+        element: {
+          type: "plain_text_input",
+          action_id: INBOX_ANSWER_ACTION_ID,
+          multiline: true,
+          max_length: ANSWER_TEXT_MAX_CHARS,
+          placeholder: { type: "plain_text", text: t(lang, "notify.inbox.answerPlaceholder") },
         },
       },
     ],

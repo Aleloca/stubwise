@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   formatNotification,
+  formatNotificationText,
   sampleEvents,
   type NotificationEvent,
   type NotificationFormat,
@@ -68,6 +69,23 @@ const JOB_PLAN_REVIEW: NotificationEvent = {
   ticketTitle: "Crash al login",
   projectName: "webapp",
   ticketUrl: "https://app.example.com/tickets/42",
+};
+
+const JOB_AWAITING_INPUT: NotificationEvent = {
+  kind: "job.awaiting_input",
+  ticketNumber: 42,
+  ticketTitle: "Crash al login",
+  projectName: "webapp",
+  ticketUrl: "https://app.example.com/tickets/42",
+  questionId: "3f6b1d5e-1111-4222-8333-444455556666",
+  round: 1,
+  question: "Il logout deve invalidare tutte le sessioni o solo quella corrente?",
+  options: [
+    { label: "Tutte le sessioni", consequence: "Chi ha altri dispositivi viene disconnesso." },
+    { label: "Solo quella corrente" },
+  ],
+  recommendedIndex: 0,
+  allowFreeText: true,
 };
 
 const BUDGET_HELD_TICKET: NotificationEvent = {
@@ -196,6 +214,46 @@ describe("formatNotification — slack (lingua default en)", () => {
     expect(text).toContain("<https://app.example.com/tickets/42|Review>");
   });
 
+  it("job.awaiting_input → domanda dell'AI col testo della domanda e link al ticket", () => {
+    const text = (formatNotification(JOB_AWAITING_INPUT, "slack").body as { text: string }).text;
+    expect(text.startsWith("❓ ")).toBe(true);
+    expect(text).toContain("*#42*");
+    expect(text).toContain("AI has a question");
+    expect(text).toContain("Il logout deve invalidare tutte le sessioni");
+    expect(text).toContain("<https://app.example.com/tickets/42|Open>");
+  });
+
+  it("la domanda dell'AGENTE è escapata: non può iniettare markup nel messaggio Slack", () => {
+    const event: NotificationEvent = {
+      ...(JOB_AWAITING_INPUT as Extract<NotificationEvent, { kind: "job.awaiting_input" }>),
+      question: "Uso <https://evil.test|questo link> per A & B?",
+    };
+    const text = (formatNotification(event, "slack").body as { text: string }).text;
+    // Il link dell'agente è neutralizzato...
+    expect(text).not.toContain("<https://evil.test|");
+    expect(text).toContain("&lt;https://evil.test|questo link&gt; per A &amp; B");
+    // ...mentre il markup NOSTRO (riferimento e link al ticket) resta vivo.
+    expect(text).toContain("*#42*");
+    expect(text).toContain("<https://app.example.com/tickets/42|Open>");
+    // Escape UNA sola volta: nessuna entità doppia.
+    expect(text).not.toContain("&amp;amp;");
+    expect(text).not.toContain("&amp;lt;");
+  });
+
+  it("l'escape è SOLO di Slack: testo piano, generic e Discord restano leggibili", () => {
+    const event: NotificationEvent = {
+      ...(JOB_AWAITING_INPUT as Extract<NotificationEvent, { kind: "job.awaiting_input" }>),
+      question: "A & B <c>?",
+    };
+    expect(formatNotificationText(event)).toContain("A & B <c>?");
+    const generic = formatNotification(event, "generic").body as Record<string, unknown>;
+    expect(generic.question).toBe("A & B <c>?");
+    expect(generic.message as string).toContain("A & B <c>?");
+    expect((formatNotification(event, "discord").body as { content: string }).content).toContain(
+      "A & B <c>?",
+    );
+  });
+
   it("job.budget_held (ticket) → budget exceeded, scope, importi a 2 decimali, link", () => {
     const text = (formatNotification(BUDGET_HELD_TICKET, "slack").body as { text: string }).text;
     expect(text).toContain("💸");
@@ -296,6 +354,13 @@ describe("formatNotification — slack (lingua it)", () => {
     const text = (formatNotification(JOB_PLAN_REVIEW, "slack", "it").body as { text: string }).text;
     expect(text).toContain("Piano in attesa di approvazione — *#42*");
     expect(text).toContain("<https://app.example.com/tickets/42|Rivedi>");
+  });
+
+  it("job.awaiting_input → domanda dell'AI in italiano, link Apri", () => {
+    const text = (formatNotification(JOB_AWAITING_INPUT, "slack", "it").body as { text: string })
+      .text;
+    expect(text).toContain("L'AI ha una domanda su *#42*");
+    expect(text).toContain("<https://app.example.com/tickets/42|Apri>");
   });
 
   it("job.budget_held (ticket) → testo italiano, scope localizzato, importi a 2 decimali", () => {
@@ -513,6 +578,25 @@ describe("formatNotification — generic", () => {
     expect(body.message as string).toContain("Plan awaiting approval");
   });
 
+  it("job.awaiting_input → payload con la domanda intera (autosufficiente)", () => {
+    const body = formatNotification(JOB_AWAITING_INPUT, "generic").body as Record<string, unknown>;
+    expect(body.event).toBe("job.awaiting_input");
+    expect(body.ticketNumber).toBe(42);
+    expect(body.ticketUrl).toBe("https://app.example.com/tickets/42");
+    expect(body.questionId).toBe("3f6b1d5e-1111-4222-8333-444455556666");
+    expect(body.round).toBe(1);
+    expect(body.question).toBe(
+      "Il logout deve invalidare tutte le sessioni o solo quella corrente?",
+    );
+    expect(body.options).toEqual([
+      { label: "Tutte le sessioni", consequence: "Chi ha altri dispositivi viene disconnesso." },
+      { label: "Solo quella corrente" },
+    ]);
+    expect(body.recommendedIndex).toBe(0);
+    expect(body.allowFreeText).toBe(true);
+    expect(body.message as string).toContain("AI has a question");
+  });
+
   it("job.budget_held → payload piatto con scope e importi numerici (en)", () => {
     const body = formatNotification(BUDGET_HELD_TICKET, "generic").body as Record<string, unknown>;
     expect(body.event).toBe("job.budget_held");
@@ -663,6 +747,7 @@ describe("sampleEvents", () => {
       "docs.limit_paused",
       "monitor.alert",
       "monitor.recovered",
+      "job.awaiting_input",
     ]);
     for (const event of events) {
       // Eventi senza ticket: il link non è un ticketUrl ma la superficie propria.

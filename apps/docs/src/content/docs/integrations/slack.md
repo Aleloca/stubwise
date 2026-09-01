@@ -108,12 +108,13 @@ the usual decisions can be taken without opening Stubwise.
 ### What arrives in a DM
 
 The same events that feed your Stubwise inbox, addressed to the people they
-concern: a **plan awaiting approval**, a **job on hold** (including one held
-because the monthly budget is exhausted), a **fix that failed**, a **PR opened**
-or **closed without merge**, a **completed PR review**, a **new ticket**, a
-**paused Docs generation**, a **monitoring alert or recovery**. Decision events
-go to administrators; progress events also reach the ticket's people and the
-project's followers.
+concern: a **plan awaiting approval**, a **question the AI is awaiting an
+answer to**, a **job on hold** (including one held because the monthly budget is
+exhausted), a **fix that failed**, a **PR opened** or **closed without merge**,
+a **completed PR review**, a **new ticket**, a **paused Docs generation**, a
+**monitoring alert or recovery**. Decision events go to administrators;
+progress events also reach the ticket's people and the project's followers. A
+question goes to whoever started that run, plus the administrators.
 
 ### The buttons
 
@@ -124,6 +125,14 @@ reader's role:
 - **Approve plan** / **Reject** — on a plan waiting at the approval gate
   (administrators). *Reject* opens a small modal where you can type the
   instructions the AI should use to replan; leaving it empty is fine.
+- **The options of a question** — on a [question the AI asked while
+  planning](/docs/notifications/#when-the-ai-asks-a-question) there is no
+  generic "Answer" button: each option is a button of its own, numbered, with a
+  ⭐ on the one the AI recommends, and the message lists what each choice
+  entails. A click answers **straight away** (no confirmation step: this is the
+  phone-friendly surface). **Other…** opens a box where you can answer in your
+  own words, when the question accepts it. Planning resumes on its own from
+  your answer.
 - **Relaunch** — on a held, failed, or PR-closed-without-merge job: requeues the
   fix. Not offered while a job for that ticket is still running.
 - **Open** — jumps to the place where you'd act: the pull request when one is
@@ -131,13 +140,14 @@ reader's role:
   (a PR closed without merge sends you to the reopened ticket, not to the dead
   PR).
 - **Snooze…** — hides the notification for *1 hour*, *tomorrow* or *3 days*.
-- **Mark as handled** — closes the notification for everyone.
+- **Mark as handled** — closes the notification for everyone. Not offered on a
+  question: that one closes only by answering it.
 
 Once someone decides, the message is **rewritten**: the buttons disappear and a
 status line takes their place (`✅ Plan approved by …`, `🔁 Fix relaunched by …`,
-and so on), on every recipient's copy — each in their own language. A second
-person pressing a stale button gets an ephemeral "already handled by …" reply
-instead of a duplicate action.
+`💬 Answer from …`, and so on), on every recipient's copy — each in their own
+language. A second person pressing a stale button gets an ephemeral "already
+handled by …" reply instead of a duplicate action.
 
 ### Requirements
 

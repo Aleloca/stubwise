@@ -571,6 +571,10 @@ describe("run_ticket", () => {
     expect(client.runTicket).toHaveBeenCalledWith(TICKET_ID, { mode: undefined });
     expect(res.isError).toBeUndefined();
     expect(firstText(res)).toContain("prenderà in carico");
+    // Un run che pianifica può fermarsi su una domanda: il testo lo dice e
+    // toglie la tentazione di rilanciare il tool vedendo il job fermo.
+    expect(firstText(res)).toContain("domanda");
+    expect(firstText(res)).toContain("senza rilanciare run_ticket");
     expect(firstText(res)).toContain(JOB_ID);
     expect(firstText(res)).toContain(`${BASE_URL}/tickets/${TICKET_ID}`);
   });

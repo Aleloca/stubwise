@@ -1,4 +1,5 @@
 import {
+  agentQuestions,
   aiJobs,
   aiProviders,
   comments,
@@ -358,6 +359,68 @@ describe("createHandler", () => {
     const [ticketAfter] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
     expect(ticketAfter?.status).toBe("in_review");
     expect(openPullRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("job con resume_mode=plan_continue: salta il triage e riprende la pianificazione", async () => {
+    // La risposta umana ha rimesso il job in coda con resume_mode=plan_continue.
+    // Ri-triagiarlo sarebbe un disastro: il triage potrebbe chiuderlo come
+    // `skipped`/`duplicate` e buttare via sia la risposta sia la sessione CLI.
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const repo = await createRepository(db, upstream.url);
+    const ticketId = await createQueuedJob(db, repo, "la cache va persistita?", 31, {
+      resumeMode: "plan_continue",
+      cliSessionId: "sess-1",
+      // Regime plan-only: dopo la ripresa il job torna in attesa di approvazione.
+      planApprovalRequired: true,
+    });
+    // La domanda già risposta da cui la ripresa riparte.
+    const [job0] = await db.select().from(aiJobs).where(eq(aiJobs.ticketId, ticketId));
+    if (!job0) throw new Error("job non trovato");
+    await db.insert(agentQuestions).values({
+      jobId: job0.id,
+      ticketId,
+      round: 1,
+      question: "La cache va persistita?",
+      options: [{ label: "Solo in memoria" }, { label: "Su Postgres" }],
+      allowFreeText: true,
+      answer: { optionIndex: 1 },
+      answeredAt: new Date(),
+    });
+
+    const runner = new FakeAgentRunner({
+      script: async (opts: AgentRunOptions) => {
+        if (opts.model === "haiku") {
+          return { output: `{"decision":"fix","type":"bug","effort":3}`, exitCode: 0 };
+        }
+        return { output: "PIANO DOPO LA RISPOSTA", exitCode: 0 };
+      },
+    });
+    const openPullRequest = vi.fn();
+
+    const handler = createHandler({
+      db,
+      runner,
+      mirrors,
+      encryptionKey: ENCRYPTION_KEY,
+      getProviderFn: () => ({ openPullRequest }) as never,
+    });
+
+    const job = await claim(db);
+    await handler(job);
+
+    // NIENTE triage: un solo run, ed è la RIPRESA della sessione CLI.
+    expect(runner.calls).toHaveLength(1);
+    expect(runner.calls.map((c) => c.model)).not.toContain("haiku");
+    expect(runner.calls[0]?.permissionMode).toBe("plan");
+    expect(runner.calls[0]?.resumeSessionId).toBe("sess-1");
+    expect(runner.calls[0]?.prompt).toContain("Su Postgres");
+
+    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter?.status).toBe("awaiting_plan_approval");
+    expect(jobAfter?.planText).toBe("PIANO DOPO LA RISPOSTA");
+    expect(openPullRequest).not.toHaveBeenCalled();
   });
 
   it("resume_mode=fix con ownership persa: markFixing fallisce → il fix NON parte", async () => {

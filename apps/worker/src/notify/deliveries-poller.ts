@@ -9,6 +9,7 @@ import {
 import {
   actionsFor,
   buildInboxBlocks,
+  buildQuestionBlocks,
   createSlackClient,
   formatNotification,
   isFatalSlackError,
@@ -350,6 +351,12 @@ interface SlackRecipient {
   kind: NotificationKindColumn;
   event: Record<string, unknown>;
   ticketId: string | null;
+  /**
+   * Richiedente del job dietro la notifica (`null` sui run dell'automazione e
+   * sugli eventi senza job): decide chi può rispondere a una domanda
+   * dell'agente, che non è un permesso di ruolo.
+   */
+  requestedByUserId: string | null;
   slackUserId: string | null;
   language: Language;
   role: "admin" | "member";
@@ -390,12 +397,16 @@ async function loadRecipient(db: Db, notificationId: string): Promise<SlackRecip
       kind: notifications.kind,
       event: notifications.event,
       ticketId: notifications.ticketId,
+      // LEFT JOIN sul job della notifica (nullo sugli eventi d'istanza): una
+      // colonna in più nella query che c'era già, non una query in più.
+      requestedByUserId: aiJobs.requestedByUserId,
       slackUserId: users.slackUserId,
       language: users.language,
       role: users.role,
     })
     .from(notifications)
     .innerJoin(users, eq(users.id, notifications.userId))
+    .leftJoin(aiJobs, eq(aiJobs.id, notifications.jobId))
     .where(eq(notifications.id, notificationId));
   return row ?? null;
 }
@@ -493,17 +504,32 @@ async function sendSlackDm(
   }
   const { text, url } = renderSlack(recipient.event, recipient.kind, recipient.language);
   const jobStatus = recipient.ticketId ? await latestJobStatus(db, recipient.ticketId) : null;
-  const actions = actionsFor({ kind: recipient.kind }, jobStatus, {
-    id: recipient.userId,
-    role: recipient.role,
-  });
-  const blocks = buildInboxBlocks({
-    text,
-    actions,
-    notificationId: recipient.notificationId,
-    lang: recipient.language,
-    ...(url ? { url } : {}),
-  });
+  const actions = actionsFor(
+    { kind: recipient.kind, requestedByUserId: recipient.requestedByUserId },
+    jobStatus,
+    { id: recipient.userId, role: recipient.role },
+  );
+  // La DOMANDA dell'agente ha bottoni suoi, uno per opzione: il generico
+  // "Rispondi" non potrebbe portarsi dietro la scelta. `buildQuestionBlocks`
+  // legge la domanda dal payload dell'evento (autosufficiente) e, se non è
+  // utilizzabile, degrada da sé ai blocchi standard.
+  const blocks =
+    recipient.kind === "job.awaiting_input"
+      ? buildQuestionBlocks({
+          text,
+          event: recipient.event,
+          actions,
+          notificationId: recipient.notificationId,
+          lang: recipient.language,
+          ...(url ? { url } : {}),
+        })
+      : buildInboxBlocks({
+          text,
+          actions,
+          notificationId: recipient.notificationId,
+          lang: recipient.language,
+          ...(url ? { url } : {}),
+        });
 
   // `channel` = lo user id: Slack apre da sé il DM (scope chat:write + im:write).
   const posted = await client.postMessage({ channel: recipient.slackUserId, text, blocks });

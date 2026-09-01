@@ -116,6 +116,7 @@ describe("GET /api/tickets/:ticketId/jobs", () => {
       finishedAt: "2026-06-03T10:00:40.000Z",
       providerLabel: null,
       providerKind: null,
+      requestedByUserId: null,
     });
     expect(body[1]).toEqual({
       id: opened!.id,
@@ -129,6 +130,7 @@ describe("GET /api/tickets/:ticketId/jobs", () => {
       finishedAt: "2026-06-02T10:03:00.000Z",
       providerLabel: null,
       providerKind: null,
+      requestedByUserId: null,
     });
     expect(body[2]).toMatchObject({
       id: queued!.id,
@@ -186,6 +188,29 @@ describe("GET /api/tickets/:ticketId/jobs", () => {
     const noProvider = body.find((job) => job["providerLabel"] === null);
     expect(noProvider).toBeDefined();
     expect(noProvider).toMatchObject({ providerLabel: null, providerKind: null });
+  });
+
+  it("job chiesto da una persona: espone requestedByUserId (chi può rispondere)", async () => {
+    // È il dato con cui la pagina ticket decide CHI vede il pannello di
+    // risposta a una domanda dell'agente: il richiedente del run e i
+    // maintainer. Senza, la UI saprebbe solo il ruolo — e un operatore non
+    // vedrebbe la domanda che ha provocato lui.
+    const [requested] = await testDb.db
+      .insert(aiJobs)
+      .values({
+        ticketId,
+        status: "awaiting_input",
+        requestedByUserId: users.memberId,
+        createdAt: new Date("2026-08-01T10:00:00Z"),
+      })
+      .returning();
+    expect(requested).toBeTruthy();
+
+    const res = await listJobs(ticketId, users.memberCookie);
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as Record<string, unknown>[];
+    const entry = body.find((job) => job["id"] === requested!.id);
+    expect(entry).toMatchObject({ requestedByUserId: users.memberId });
   });
 });
 

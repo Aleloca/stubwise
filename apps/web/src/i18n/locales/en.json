@@ -340,6 +340,8 @@
       "approve": "Approve",
       "approving": "Approving…",
       "assignee": "Assignee",
+      "awaitingAnswerFrom": "Waiting for an answer from {{email}}.",
+      "awaitingAnswerUnknown": "Waiting for a maintainer to answer the AI's question.",
       "awaitingMaintainer": "Waiting for a maintainer to approve the plan.",
       "back": "← All tickets",
       "comments": "Comments ({{count}})",
@@ -365,8 +367,13 @@
       "occurrences": "Deduplicated occurrences",
       "occurrencesMeta": "Occurrences",
       "originalRequest": "Original request",
+      "pastQuestions": "Past questions",
       "plan": "Implementation plan",
       "priority": "Priority",
+      "questionAnswerUnreadable": "The answer is no longer readable.",
+      "questionAnsweredBy": "Answered by {{email}}",
+      "questionAnsweredByUnknown": "Answered",
+      "questionRound": "Round {{round}}",
       "reject": "Reject",
       "rejectCancel": "Cancel",
       "rejectHint": "The instructions become a team comment: the next plan takes them into account.",
@@ -961,7 +968,8 @@
       "reviewCompleted": "PR review completed",
       "jobFailed": "Fix failed",
       "docsLimitPaused": "Docs generation paused (usage limit)",
-      "monitor": "Monitoring alerts"
+      "monitor": "Monitoring alerts",
+      "awaitingInput": "AI question awaiting an answer"
     },
     "samples": {
       "ticketCreated": "New ticket",
@@ -971,7 +979,8 @@
       "planReview": "Plan pending",
       "reviewCompleted": "PR review",
       "jobFailed": "Fix failed",
-      "docsLimitPaused": "Docs paused"
+      "docsLimitPaused": "Docs paused",
+      "awaitingInput": "AI question"
     },
     "slack": {
       "step1Prefix": "Go to",
@@ -1033,7 +1042,8 @@
       "jobFailed": "Fix failed",
       "docsLimitPaused": "Docs paused",
       "monitorAlert": "Alert",
-      "monitorRecovered": "Recovered"
+      "monitorRecovered": "Recovered",
+      "awaitingInput": "Question to answer"
     },
     "actions": {
       "approvePlan": "Approve plan",
@@ -1074,6 +1084,22 @@
       "forbidden": "Maintainers only",
       "invalidAction": "This action is not available on this notification",
       "generic": "Action failed"
+    }
+  },
+  "question": {
+    "legend": "Choose an answer",
+    "recommended": "recommended",
+    "other": "Other…",
+    "freeLabel": "Your answer",
+    "freePlaceholder": "Say what the AI should do…",
+    "submit": "Send answer",
+    "errors": {
+      "alreadyAnswered": "Already answered by {{email}}",
+      "alreadyAnsweredUnknown": "Already answered by someone else",
+      "notPending": "This question is no longer waiting for an answer",
+      "invalidAnswer": "This answer does not fit the question",
+      "forbidden": "Only the person who started the run, or a maintainer, can answer",
+      "generic": "Could not send the answer"
     }
   },
   "automation": {
@@ -1394,11 +1420,13 @@
       "failed": "Failed",
       "skipped": "Skipped",
       "pr_closed": "PR closed",
-      "awaiting_plan_approval": "Plan to approve"
+      "awaiting_plan_approval": "Plan to approve",
+      "awaiting_input": "Question pending"
     },
     "notes": {
       "held": "Automation not started: a manual fix start is required.",
-      "awaiting_plan_approval": "The plan exceeds the effort threshold: approve or reject it to proceed."
+      "awaiting_plan_approval": "The plan exceeds the effort threshold: approve or reject it to proceed.",
+      "awaiting_input": "The AI asked a question and is waiting: answer it to let the plan continue."
     }
   },
   "milestones": {
