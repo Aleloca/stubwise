@@ -1263,3 +1263,162 @@ describe("executeAction — answer", () => {
     expect(byId.get(sana)?.actions).not.toContain("handled");
   });
 });
+
+/**
+ * Il PULSE è il secondo kind con opzioni, e differisce dalla domanda
+ * dell'agente su tutto ciò che la card deve dedurre: non ha ticket, non ha job,
+ * non ha un `questionId` — e la sua identità per la rimonta del pannello è il
+ * `pulseId`.
+ */
+describe("project.pulse — kind con opzioni senza job dietro", () => {
+  const PULSE_ID = "1c9e4f70-5555-4666-8777-888899990000";
+
+  /** Evento `project.pulse` realistico (payload che scriverà il poller). */
+  function pulseEvent(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      kind: "project.pulse",
+      pulseId: PULSE_ID,
+      projectName: "negozio-web",
+      projectUrl: "https://stubwise.test/projects/p1/backlog",
+      idleDays: 4,
+      question: "Da quale proposta partiamo?",
+      options: [
+        { label: "Export CSV degli ordini", consequence: "urgenza alta · effort 2" },
+        { label: "Filtro per stato", consequence: "urgenza media · effort 1" },
+      ],
+      recommendedIndex: 0,
+      allowFreeText: false,
+      proposals: [
+        {
+          backlogItemId: "aa11bb22-1111-4222-8333-444455556666",
+          title: "Export CSV degli ordini",
+          urgency: "high",
+          effort: 2,
+          hasAnalysis: true,
+        },
+        {
+          backlogItemId: "bb22cc33-2222-4333-8444-555566667777",
+          title: "Filtro per stato",
+          urgency: "medium",
+          effort: 1,
+          hasAnalysis: false,
+        },
+      ],
+      ...overrides,
+    };
+  }
+
+  it("la card porta la domanda, con `questionId` = `pulseId`", async () => {
+    const user = await seedUser("member");
+    const id = await seedRawNotification({
+      userId: user.id,
+      kind: "project.pulse",
+      event: pulseEvent(),
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    const item = items.find((i) => i.id === id);
+    // Il pulse non ha una riga `agent_questions`: l'identità della scelta è il
+    // `pulseId`. È lui che fa rimontare `QuestionPanel` quando un ping nuovo
+    // sostituisce il precedente con proposte DIVERSE agli stessi indici.
+    expect(item?.question).toEqual({
+      questionId: PULSE_ID,
+      question: "Da quale proposta partiamo?",
+      options: [
+        { label: "Export CSV degli ordini", consequence: "urgenza alta · effort 2" },
+        { label: "Filtro per stato", consequence: "urgenza media · effort 1" },
+      ],
+      recommendedIndex: 0,
+      allowFreeText: false,
+    });
+    // Nessun `round`: è dei giri di `ask_user`, e qui non ce ne sono.
+    expect(item?.question && "round" in item.question).toBe(false);
+    // Senza job dietro (`jobStatus` null) `answer` c'è comunque, e la card è
+    // archiviabile: non dare seguito a una proposta è legittimo.
+    expect(item?.actions).toEqual(["answer", "open", "snooze", "handled"]);
+    expect(item?.url).toBe("https://stubwise.test/projects/p1/backlog");
+  });
+
+  it("payload marcio → la card degrada a testo senza bottoni, la lista regge", async () => {
+    const user = await seedUser("admin");
+    const sana = await seedRawNotification({
+      userId: user.id,
+      kind: "project.pulse",
+      event: pulseEvent(),
+      createdAt: new Date(Date.UTC(2026, 8, 1, 10, 0, 0)),
+    });
+    // `pulseId` non è un uuid e le opzioni sono stringhe: la domanda non si
+    // ricostruisce. La riga deve restare in lista — un jsonb marcio non può
+    // rendere inaccessibile l'inbox intera.
+    const marcia = await seedRawNotification({
+      userId: user.id,
+      kind: "project.pulse",
+      event: pulseEvent({ pulseId: "non-un-uuid", options: ["Export CSV", "Filtro"] }),
+      createdAt: new Date(Date.UTC(2026, 8, 1, 9, 0, 0)),
+    });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    const byId = new Map(items.map((i) => [i.id, i]));
+    expect(byId.get(sana)?.question).toBeDefined();
+    expect(byId.get(marcia)).toBeDefined();
+    expect(byId.get(marcia)?.question).toBeUndefined();
+    // Le azioni non dipendono dal jsonb: si calcolano dalla colonna `kind`.
+    expect(byId.get(marcia)?.actions).toContain("answer");
+    expect(byId.get(marcia)?.actions).toContain("handled");
+  });
+
+  it("`answer` sul pulse non è ancora eseguibile: invalid_action (task 6)", async () => {
+    const user = await seedUser("member");
+    const id = await seedRawNotification({
+      userId: user.id,
+      kind: "project.pulse",
+      event: pulseEvent(),
+    });
+    // Il catalogo la dichiara e la card la offre, ma `proceedWithProposal` non
+    // c'è ancora: la richiesta è ben formata e semplicemente non eseguibile.
+    expect(
+      await executeAction(db, {
+        notificationId: id,
+        action: "answer",
+        actor: user,
+        payload: { answer: { optionIndex: 0 } },
+      }),
+    ).toEqual({ ok: false, error: "invalid_action" });
+    // Non ha toccato nulla: la riga resta aperta e ancora azionabile.
+    expect((await readNotification(id))?.status).toBe("open");
+  });
+
+  it("la notifica di un ALTRO utente resta invisibile: not_found, non forbidden", async () => {
+    // `actorAllows` sul pulse dice sempre sì (è una proposta rivolta a tutti i
+    // destinatari): il controllo che conta è l'ownership della RIGA, e vive nel
+    // `WHERE` di `executeAction`. Se saltasse, questo test diventerebbe
+    // `invalid_action` — cioè un estraneo scoprirebbe che la riga esiste.
+    const altrui = await seedUser("member");
+    const estraneo = await seedUser("member");
+    const id = await seedRawNotification({
+      userId: altrui.id,
+      kind: "project.pulse",
+      event: pulseEvent(),
+    });
+    expect(
+      await executeAction(db, {
+        notificationId: id,
+        action: "answer",
+        actor: estraneo,
+        payload: { answer: { optionIndex: 0 } },
+      }),
+    ).toEqual({ ok: false, error: "not_found" });
+  });
+
+  it("`handled` chiude il pulse (al contrario della domanda dell'agente)", async () => {
+    const user = await seedUser("member");
+    const id = await seedRawNotification({
+      userId: user.id,
+      kind: "project.pulse",
+      event: pulseEvent(),
+    });
+    const result = await executeAction(db, { notificationId: id, action: "handled", actor: user });
+    expect(result.ok).toBe(true);
+    expect((await readNotification(id))?.status).toBe("handled");
+  });
+});

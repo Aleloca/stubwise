@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { actionsFor, actorAllows, kindOffers, openUrl, type ActionActor } from "./actions.js";
+import {
+  actionsFor,
+  actorAllows,
+  kindOffers,
+  KINDS_WITH_OPTIONS,
+  openUrl,
+  stateAllows,
+  type ActionActor,
+  type ActionId,
+} from "./actions.js";
+import type { NotificationKind } from "./format.js";
 
 /**
  * Test PURI del catalogo delle azioni: nessun DB, nessun container.
@@ -187,6 +197,77 @@ describe("actionsFor", () => {
         "handled",
       ]);
     }
+  });
+});
+
+/**
+ * `answer` NON è più l'azione di un solo kind: la offre ogni kind CON OPZIONI.
+ * I due che ci sono oggi la trattano in modo diverso su entrambi i predicati —
+ * stato (la domanda vuole un job fermo, il pulse no) e attore (la domanda è
+ * rivolta al richiedente, il pulse a tutti i destinatari) — e la tabella qui
+ * sotto è il posto dove le due colonne si leggono affiancate.
+ */
+describe("`answer` per kind", () => {
+  const estraneo: ActionActor = { id: "u-estraneo", role: "member" };
+
+  it("il Set dei kind con opzioni e il catalogo dicono la stessa cosa", () => {
+    // Il Set accende i bottoni delle opzioni (card web, blocchi Slack); il
+    // catalogo decide l'azione. Divergerebbero in silenzio: un kind nel Set che
+    // non offre `answer` mostrerebbe bottoni che danno sempre errore.
+    expect([...KINDS_WITH_OPTIONS].sort()).toEqual(["job.awaiting_input", "project.pulse"]);
+    for (const kind of KINDS_WITH_OPTIONS) expect(kindOffers(kind, "answer")).toBe(true);
+  });
+
+  const TABELLA: {
+    kind: NotificationKind;
+    jobStatus: string | null;
+    /** Azioni attese per il MAINTAINER, che è chi ne vede di più. */
+    attese: ActionId[];
+  }[] = [
+    // Domanda dell'agente: `answer` solo col job davvero fermo su una domanda.
+    {
+      kind: "job.awaiting_input",
+      jobStatus: "awaiting_input",
+      attese: ["answer", "open", "snooze"],
+    },
+    { kind: "job.awaiting_input", jobStatus: "fixing", attese: ["open", "snooze"] },
+    // Pulse: nessun job dietro (`jobStatus` è per forza null) e `answer` c'è
+    // comunque — lo stato che conta è quello della NOTIFICA, e lo verifica il
+    // servizio che esegue l'azione, non il catalogo.
+    { kind: "project.pulse", jobStatus: null, attese: ["answer", "open", "snooze", "handled"] },
+    // Kind senza opzioni: `answer` non compare in nessuno stato.
+    {
+      kind: "job.plan_review",
+      jobStatus: "awaiting_plan_approval",
+      attese: ["approve_plan", "reject_plan", "open", "snooze", "handled"],
+    },
+    { kind: "ticket.created", jobStatus: null, attese: ["open", "snooze", "handled"] },
+  ];
+
+  it.each(TABELLA)("$kind con job $jobStatus → $attese", ({ kind, jobStatus, attese }) => {
+    expect(actionsFor({ kind, requestedByUserId: null }, jobStatus, maintainer)).toEqual(attese);
+  });
+
+  it("il pulse la offre a OGNI destinatario, non solo ad admin o richiedente", () => {
+    // La proposta è rivolta a tutti quelli che l'hanno ricevuta (audience
+    // broadcast): il controllo che conta è l'ownership della riga di notifica,
+    // che vive in `executeAction`, non un permesso di ruolo.
+    const pulse = { kind: "project.pulse", requestedByUserId: null } as const;
+    for (const actor of [maintainer, operator, estraneo]) {
+      expect(actionsFor(pulse, null, actor)).toEqual(["answer", "open", "snooze", "handled"]);
+      expect(actorAllows(pulse, "answer", actor)).toBe(true);
+    }
+  });
+
+  it("stateAllows: solo la domanda dell'agente guarda lo stato del job", () => {
+    expect(stateAllows("job.awaiting_input", "answer", "awaiting_input")).toBe(true);
+    expect(stateAllows("job.awaiting_input", "answer", "fixing")).toBe(false);
+    expect(stateAllows("job.awaiting_input", "answer", null)).toBe(false);
+    // Il pulse passa sempre: non c'è nessun job di cui leggere lo stato.
+    expect(stateAllows("project.pulse", "answer", null)).toBe(true);
+    // Le altre azioni non cambiano comportamento col kind.
+    expect(stateAllows("project.pulse", "relaunch", "queued")).toBe(false);
+    expect(stateAllows("job.plan_review", "approve_plan", "awaiting_plan_approval")).toBe(true);
   });
 });
 

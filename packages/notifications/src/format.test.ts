@@ -363,11 +363,35 @@ describe("formatNotification — slack (lingua default en)", () => {
     const text = (formatNotification(PROJECT_PULSE, "slack").body as { text: string }).text;
     expect(text.startsWith("📣 ")).toBe(true);
     expect(text).toContain("webapp");
-    expect(text).toContain("4 days");
+    // Forma `etichetta: N`: corretta a 0, 1 e N senza regole di plurale.
+    expect(text).toContain("days idle: 4");
     expect(text).toContain("<https://app.example.com/projects/p1/backlog|Backlog>");
     // Non c'è un ticket: nessun residuo di {ref} né riferimenti #n.
     expect(text).not.toContain("#");
     expect(text).not.toContain("{ref}");
+  });
+
+  it("project.pulse → la frase regge 0, 1 e N giorni senza plurali sbagliati", () => {
+    // Il catalogo non ha regole di plurale: "da 1 giorni" / "for 1 days" è il
+    // motivo per cui i giorni di fermo sono resi in forma `etichetta: N`. Lo
+    // `0` non è teorico — è il fallback quando l'ultimo segnale di attività non
+    // si riesce a datare.
+    for (const [idleDays, atteso] of [
+      [0, "days idle: 0"],
+      [1, "days idle: 1"],
+      [7, "days idle: 7"],
+    ] as const) {
+      const en = (
+        formatNotification({ ...PROJECT_PULSE, idleDays }, "slack").body as { text: string }
+      ).text;
+      expect(en).toContain(atteso);
+      expect(en).not.toContain("1 days");
+      const it = (
+        formatNotification({ ...PROJECT_PULSE, idleDays }, "slack", "it").body as { text: string }
+      ).text;
+      expect(it).toContain(`giorni di fermo: ${idleDays}`);
+      expect(it).not.toContain("1 giorni");
+    }
   });
 
   it("project.pulse → i TITOLI delle proposte non entrano nella frase (li rendono i blocchi)", () => {
@@ -473,7 +497,7 @@ describe("formatNotification — slack (lingua it)", () => {
 
   it("project.pulse it → progetto fermo da N giorni e label Backlog", () => {
     const text = (formatNotification(PROJECT_PULSE, "slack", "it").body as { text: string }).text;
-    expect(text).toContain("📣 Nessun lavoro in corso su webapp da 4 giorni");
+    expect(text).toContain("📣 Nessun lavoro in corso su webapp (giorni di fermo: 4)");
     expect(text).toContain("ci sono proposte nel backlog");
     expect(text).toContain("<https://app.example.com/projects/p1/backlog|Backlog>");
   });
@@ -779,7 +803,7 @@ describe("formatNotification — generic", () => {
     expect(body).not.toHaveProperty("title");
     expect(body).not.toHaveProperty("ticketUrl");
     expect(body.message as string).toBe(
-      "No work in progress on webapp for 4 days: there are proposals in the backlog.",
+      "No work in progress on webapp (days idle: 4): there are proposals in the backlog.",
     );
   });
 

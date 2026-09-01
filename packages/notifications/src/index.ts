@@ -21,6 +21,7 @@ export {
   openUrl,
   stateAllows,
   IN_FLIGHT_JOB_STATUSES,
+  KINDS_WITH_OPTIONS,
   SNOOZE_OPTIONS,
   type ActionActor,
   type ActionId,

@@ -148,13 +148,32 @@ const CATALOG_FOR_KIND: Record<
   // legittima. Senza `handled` la card resterebbe in inbox per sempre a chi non
   // vuole partire da nessuna delle proposte.
   //
-  // ⚠️ Finché non arriva l'`answer` per-kind, `stateAllows`/`actorAllows` sono
-  // ancora tarati sulla sola domanda dell'agente (job in `awaiting_input`,
-  // richiedente o admin): su un pulse — che di job non ne ha — `actionsFor` non
-  // offre ancora `answer`. Il catalogo la dichiara già perché è QUI che vive la
-  // decisione del kind; il gate arriva col task successivo.
+  // Chi può rispondere e con quale stato lo dicono `actorAllows`/`stateAllows`,
+  // che su `answer` ragionano PER KIND (vedi {@link KINDS_WITH_OPTIONS}): al
+  // pulse risponde ogni destinatario, e non c'è nessuno stato di job da leggere.
   "project.pulse": { decisions: ["answer"], adminOnly: false, archivable: true },
 };
+
+/**
+ * I kind la cui notifica porta nel payload una DOMANDA A OPZIONI, e che per
+ * questo offrono `answer`.
+ *
+ * È il Set che le superfici interrogano per sapere se disegnare i bottoni delle
+ * scelte al posto del testo: il recinto per-item dell'inbox
+ * (`apps/server/src/services/inbox.ts`, che estrae la domanda dal payload) e il
+ * poller delle consegne del worker (che compone i blocchi Slack). Prima c'era
+ * un confronto con `job.awaiting_input` ripetuto in entrambi i posti; ora la
+ * lista è una sola.
+ *
+ * Sta accanto al catalogo perché è la sua faccia complementare: il catalogo
+ * dice CHE COSA si può fare, questo Set dice quali payload sanno *offrire* le
+ * scelte. I due non possono divergere — un kind qui dentro che non dichiarasse
+ * `answer` mostrerebbe bottoni che danno sempre errore — e un test lo verifica.
+ */
+export const KINDS_WITH_OPTIONS: ReadonlySet<NotificationKind> = new Set<NotificationKind>([
+  "job.awaiting_input",
+  "project.pulse",
+]);
 
 /** Igiene dell'inbox: presente su OGNI notifica, non è una decisione. */
 const HYGIENE: readonly ActionId[] = ["open", "snooze"];
@@ -194,6 +213,10 @@ export function kindOffers(kind: NotificationKind, action: ActionId): boolean {
  * rispondere nel merito), e in più a un maintainer — che deve poter sbloccare un
  * job parcheggiato da un collega in ferie. Per questo prende la notifica intera
  * e l'actor intero, identità compresa.
+ *
+ * Su `answer` la regola dipende dal KIND, e questa resta la sua sede unica: chi
+ * arriva alla risposta senza passare dal catalogo (la pagina ticket, i bottoni
+ * Slack) la ri-applica chiamando qui, non riscrivendola.
  */
 export function actorAllows(
   notification: ActionableNotification,
@@ -204,6 +227,13 @@ export function actorAllows(
   if (!kindOffers(kind, action)) return false;
   if (hygieneFor(kind).includes(action)) return true;
   if (action === "answer") {
+    // Il PULSE è una proposta, non una domanda a qualcuno in particolare: la
+    // riceve chi segue il progetto (audience `broadcast`) e la può prendere in
+    // mano chiunque l'abbia ricevuta. Il controllo che conta — "questa riga è
+    // tua" — non è di ruolo e non sta qui: è il `WHERE` sulla riga di notifica
+    // dell'utente in `executeAction`. Duplicarlo con un permesso per ruolo
+    // toglierebbe la proposta proprio agli operatori a cui è rivolta.
+    if (kind === "project.pulse") return true;
     return actor.role === "admin" || (requestedByUserId !== null && actor.id === requestedByUserId);
   }
   return !CATALOG_FOR_KIND[kind].adminOnly || actor.role === "admin";
@@ -215,14 +245,31 @@ export function actorAllows(
  * una domanda (ripartito, la risposta non ha più nessuno che l'aspetta);
  * `relaunch` solo se l'ultimo job del ticket non è in volo (rilanciarne uno vivo
  * scippa il lavoro al worker).
+ *
+ * Prende il `kind` come primo argomento — stessa forma di {@link kindOffers}, e
+ * stesso ordine "soggetto, azione, contesto" di {@link actorAllows} — perché su
+ * `answer` la risposta dipende da lui: il pulse un job dietro non ce l'ha, e la
+ * regola "il job deve essere in `awaiting_input`" su di lui non significherebbe
+ * nulla (`jobStatus` sarebbe sempre `null`, e l'azione non verrebbe mai
+ * offerta).
  */
-export function stateAllows(action: ActionId, jobStatus: string | null | undefined): boolean {
+export function stateAllows(
+  kind: NotificationKind,
+  action: ActionId,
+  jobStatus: string | null | undefined,
+): boolean {
   switch (action) {
     case "approve_plan":
     case "reject_plan":
       return jobStatus === "awaiting_plan_approval";
     case "answer":
-      return jobStatus === "awaiting_input";
+      // Il pulse non ha un job: ciò che deve essere ancora "aperto" è la RIGA di
+      // notifica, e quella la verifica chi esegue l'azione (`executeAction`, che
+      // la sta già leggendo) — qui non c'è nulla da controllare. La condizione è
+      // scritta al positivo sul solo kind che ne è esente, così un kind con
+      // opzioni aggiunto domani ricade sul controllo severo invece di ereditare
+      // in silenzio un lasciapassare.
+      return kind === "project.pulse" || jobStatus === "awaiting_input";
     case "relaunch":
       return !isInFlight(jobStatus);
     default:
@@ -246,7 +293,8 @@ export function actionsFor(
   actor: ActionActor,
 ): ActionId[] {
   const decisions = CATALOG_FOR_KIND[notification.kind].decisions.filter(
-    (action) => actorAllows(notification, action, actor) && stateAllows(action, jobStatus),
+    (action) =>
+      actorAllows(notification, action, actor) && stateAllows(notification.kind, action, jobStatus),
   );
   return [...decisions, ...hygieneFor(notification.kind)];
 }

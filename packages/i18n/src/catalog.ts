@@ -119,8 +119,12 @@ export const en: Catalog = {
   // Pulse proattivo: evento SENZA ticket ancorato al PROGETTO, il {link} porta
   // al suo backlog. I titoli delle proposte NON stanno nella frase — sono le
   // opzioni della domanda, che ogni superficie rende a modo suo.
+  // `{idleDays}` è in forma `etichetta: N` (stessa convenzione di
+  // comment.reviewImpact.*) perché il catalogo non ha regole di plurale: "for 1
+  // days" sarebbe sbagliato, e `0` è il fallback previsto quando i giorni di
+  // fermo non si riescono a calcolare.
   "notify.pulse":
-    "No work in progress on {project} for {idleDays} days: there are proposals in the backlog. {link}",
+    "No work in progress on {project} (days idle: {idleDays}): there are proposals in the backlog. {link}",
   // Etichette delle condizioni di monitoraggio (interpolate in notify.monitor*).
   "notify.monitorCondition.offline": "offline",
   "notify.monitorCondition.cpu": "CPU",
@@ -308,7 +312,7 @@ export const it: Catalog = {
   "notify.monitorRecovered":
     "{serverName} tornato su ({condition}): {detail}. {link}",
   "notify.pulse":
-    "Nessun lavoro in corso su {project} da {idleDays} giorni: ci sono proposte nel backlog. {link}",
+    "Nessun lavoro in corso su {project} (giorni di fermo: {idleDays}): ci sono proposte nel backlog. {link}",
   "notify.monitorCondition.offline": "offline",
   "notify.monitorCondition.cpu": "CPU",
   "notify.monitorCondition.mem": "memoria",

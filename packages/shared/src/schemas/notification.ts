@@ -126,7 +126,14 @@ export type AgentQuestionOption = z.infer<typeof agentQuestionOptionSchema>;
  */
 export const inboxQuestionSchema = z.object({
   questionId: z.uuid(),
-  round: z.number().int(),
+  /**
+   * OPZIONALE, e non per lassismo: il `round` conta i giri di `ask_user` sullo
+   * stesso job, ed è quindi specifico della domanda dell'agente. Gli altri kind
+   * con opzioni (il pulse proattivo, che di job non ne ha) hanno la stessa
+   * forma senza averne uno. Chi ne ha uno lo porta ancora, e
+   * {@link ticketQuestionSchema} lo ri-stringe a obbligatorio.
+   */
+  round: z.number().int().optional(),
   question: z.string(),
   options: z.array(agentQuestionOptionSchema),
   recommendedIndex: z.number().int().optional(),
@@ -162,6 +169,14 @@ export type AgentQuestionAnswer = z.infer<typeof agentQuestionAnswerSchema>;
  * stata.
  */
 export const ticketQuestionSchema = inboxQuestionSchema.extend({
+  /**
+   * RI-STRETTO a obbligatorio: sulla card d'inbox il `round` è opzionale perché
+   * lì la stessa forma serve anche a kind che non hanno giri (il pulse), ma qui
+   * la sorgente è la colonna `agent_questions.round`, che c'è SEMPRE. Allentare
+   * anche questo contratto — che non ne ha bisogno — costringerebbe la pagina
+   * ticket a difendersi da un'assenza impossibile.
+   */
+  round: z.number().int(),
   /** Job che ha posto la domanda: la pagina ticket ci ancora la risposta. */
   jobId: z.uuid(),
   askedAt: z.iso.datetime(),
@@ -218,9 +233,10 @@ export const inboxItemSchema = z.object({
   url: z.string().optional(),
   actions: z.array(inboxActionSchema),
   /**
-   * Presente SOLO sul kind `job.awaiting_input`, e solo se il payload
-   * dell'evento è leggibile: è ciò che permette alla card di offrire i bottoni
-   * delle opzioni invece del solo testo.
+   * Presente solo sui kind CON OPZIONI (`KINDS_WITH_OPTIONS` di
+   * `@stubwise/notifications`: la domanda dell'agente e il pulse proattivo), e
+   * solo se il payload dell'evento è leggibile: è ciò che permette alla card di
+   * offrire i bottoni delle opzioni invece del solo testo.
    */
   question: inboxQuestionSchema.optional(),
   projectId: z.uuid().nullable(),
