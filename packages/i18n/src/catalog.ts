@@ -116,6 +116,11 @@ export const en: Catalog = {
     "Server alert on {serverName} ({condition}): {detail}. {link}",
   "notify.monitorRecovered":
     "{serverName} recovered ({condition}): {detail}. {link}",
+  // Pulse proattivo: evento SENZA ticket ancorato al PROGETTO, il {link} porta
+  // al suo backlog. I titoli delle proposte NON stanno nella frase — sono le
+  // opzioni della domanda, che ogni superficie rende a modo suo.
+  "notify.pulse":
+    "No work in progress on {project} for {idleDays} days: there are proposals in the backlog. {link}",
   // Etichette delle condizioni di monitoraggio (interpolate in notify.monitor*).
   "notify.monitorCondition.offline": "offline",
   "notify.monitorCondition.cpu": "CPU",
@@ -137,6 +142,7 @@ export const en: Catalog = {
   "notify.linkTicket": "Ticket",
   "notify.linkDocs": "Docs",
   "notify.linkServer": "Server",
+  "notify.linkBacklog": "Backlog",
   // Etichette dei BOTTONI dell'inbox (DM Slack e, un domani, altre superfici
   // interattive). Testi brevi: Slack tronca oltre i 75 caratteri.
   "notify.action.approvePlan": "Approve plan",
@@ -301,6 +307,8 @@ export const it: Catalog = {
     "Alert sul server {serverName} ({condition}): {detail}. {link}",
   "notify.monitorRecovered":
     "{serverName} tornato su ({condition}): {detail}. {link}",
+  "notify.pulse":
+    "Nessun lavoro in corso su {project} da {idleDays} giorni: ci sono proposte nel backlog. {link}",
   "notify.monitorCondition.offline": "offline",
   "notify.monitorCondition.cpu": "CPU",
   "notify.monitorCondition.mem": "memoria",
@@ -317,6 +325,7 @@ export const it: Catalog = {
   "notify.linkTicket": "Ticket",
   "notify.linkDocs": "Docs",
   "notify.linkServer": "Server",
+  "notify.linkBacklog": "Backlog",
   "notify.action.approvePlan": "Approva il piano",
   "notify.action.rejectPlan": "Rifiuta",
   "notify.action.relaunch": "Rilancia",

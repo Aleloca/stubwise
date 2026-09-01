@@ -142,6 +142,18 @@ const CATALOG_FOR_KIND: Record<
   // snooze. È il prezzo accettato per non dare alla domanda un'archiviazione
   // che ne farebbe perdere di vista una VIVA.
   "job.awaiting_input": { decisions: ["answer"], adminOnly: false, archivable: false },
+  // Il pulse offre la stessa decisione della domanda — si sceglie una delle
+  // proposte — ma è ARCHIVIABILE, al contrario di quella: dietro non c'è nessun
+  // job fermo ad aspettare, e non dare seguito a un suggerimento è una risposta
+  // legittima. Senza `handled` la card resterebbe in inbox per sempre a chi non
+  // vuole partire da nessuna delle proposte.
+  //
+  // ⚠️ Finché non arriva l'`answer` per-kind, `stateAllows`/`actorAllows` sono
+  // ancora tarati sulla sola domanda dell'agente (job in `awaiting_input`,
+  // richiedente o admin): su un pulse — che di job non ne ha — `actionsFor` non
+  // offre ancora `answer`. Il catalogo la dichiara già perché è QUI che vive la
+  // decisione del kind; il gate arriva col task successivo.
+  "project.pulse": { decisions: ["answer"], adminOnly: false, archivable: true },
 };
 
 /** Igiene dell'inbox: presente su OGNI notifica, non è una decisione. */
@@ -258,6 +270,10 @@ export function openUrl(event: NotificationEvent): string {
     case "monitor.alert":
     case "monitor.recovered":
       return event.url;
+    // Il pulse è ancorato al progetto, non a un ticket: "Apri" porta dove si
+    // vedono TUTTE le proposte, cioè il backlog del progetto.
+    case "project.pulse":
+      return event.projectUrl;
     case "ticket.created":
     case "job.pr_closed":
     case "job.held":

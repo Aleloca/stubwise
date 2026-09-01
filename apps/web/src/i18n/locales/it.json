@@ -969,7 +969,8 @@
       "jobFailed": "Fix fallito",
       "docsLimitPaused": "Generazione Docs in pausa (limite di utilizzo)",
       "monitor": "Alert di monitoraggio",
-      "awaitingInput": "Domanda dell'AI in attesa di risposta"
+      "awaitingInput": "Domanda dell'AI in attesa di risposta",
+      "pulse": "Pulse proattivo sui progetti fermi"
     },
     "samples": {
       "ticketCreated": "Nuovo ticket",
@@ -980,7 +981,8 @@
       "reviewCompleted": "Review PR",
       "jobFailed": "Fix fallito",
       "docsLimitPaused": "Docs in pausa",
-      "awaitingInput": "Domanda dell'AI"
+      "awaitingInput": "Domanda dell'AI",
+      "pulse": "Proposta dal backlog"
     },
     "slack": {
       "step1Prefix": "Vai su",
@@ -1043,7 +1045,8 @@
       "docsLimitPaused": "Docs in pausa",
       "monitorAlert": "Allarme",
       "monitorRecovered": "Rientrato",
-      "awaitingInput": "Domanda a cui rispondere"
+      "awaitingInput": "Domanda a cui rispondere",
+      "pulse": "Proposta"
     },
     "actions": {
       "approvePlan": "Approva piano",

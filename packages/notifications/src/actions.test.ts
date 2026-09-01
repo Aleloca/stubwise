@@ -162,6 +162,16 @@ describe("actionsFor", () => {
     expect(kindOffers("job.plan_review", "handled")).toBe(true);
   });
 
+  it("project.pulse: il catalogo offre `answer` ed è ARCHIVIABILE (ignorare un suggerimento si può)", () => {
+    // Il contrapposto della domanda dell'agente: là `handled` è negata perché
+    // archiviarla lascerebbe un job fermo, qui non c'è nessun job dietro e non
+    // dare seguito a una proposta è una risposta legittima.
+    expect(kindOffers("project.pulse", "answer")).toBe(true);
+    expect(kindOffers("project.pulse", "handled")).toBe(true);
+    expect(kindOffers("project.pulse", "relaunch")).toBe(false);
+    expect(kindOffers("project.pulse", "approve_plan")).toBe(false);
+  });
+
   it("kind informativi → solo apri, snooze, gestita", () => {
     for (const kind of [
       "job.pr_opened",
@@ -221,5 +231,30 @@ describe("openUrl", () => {
         ticketUrl: "https://stubwise.test/tickets/1",
       }),
     ).toBe("https://stubwise.test/tickets/1");
+  });
+
+  it("il pulse non ha ticket: `Apri` porta alla pagina backlog del progetto", () => {
+    expect(
+      openUrl({
+        kind: "project.pulse",
+        pulseId: "1c9e4f70-5555-4666-8777-888899990000",
+        projectName: "webapp",
+        projectUrl: "https://stubwise.test/projects/p1/backlog",
+        idleDays: 3,
+        question: "Da quale proposta partiamo?",
+        options: [{ label: "Export CSV" }],
+        recommendedIndex: 0,
+        allowFreeText: false,
+        proposals: [
+          {
+            backlogItemId: "aa11bb22-1111-4222-8333-444455556666",
+            title: "Export CSV",
+            urgency: "high",
+            effort: 2,
+            hasAnalysis: true,
+          },
+        ],
+      }),
+    ).toBe("https://stubwise.test/projects/p1/backlog");
   });
 });

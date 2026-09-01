@@ -35,6 +35,7 @@ export const notificationKindSchema = z.enum([
   "monitor.alert",
   "monitor.recovered",
   "job.awaiting_input",
+  "project.pulse",
 ]);
 
 /**

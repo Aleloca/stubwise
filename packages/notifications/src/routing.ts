@@ -62,6 +62,12 @@ const AUDIENCE_FOR_KIND: Record<NotificationKind, Audience> = {
   // progetto, l'assegnatario e il reporter non c'entrano — rispondere è una
   // decisione sul come procedere, non un aggiornamento da leggere.
   "job.awaiting_input": "requester",
+  // Il pulse ha la FORMA della domanda ma non il suo pubblico: non è rivolto a
+  // chi ha chiesto un lavoro (non c'è nessun job dietro), è un suggerimento al
+  // TEAM su un progetto fermo. Chi segue il progetto è esattamente chi vuole
+  // saperlo. Senza ticket restano admin ∪ follower: assegnatario, richiedente e
+  // reporter non esistono per questo evento.
+  "project.pulse": "broadcast",
 };
 
 /** Pubblico del kind. Unico punto in cui si legge {@link AUDIENCE_FOR_KIND}. */

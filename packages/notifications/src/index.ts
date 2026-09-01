@@ -85,5 +85,8 @@ export {
   type NotificationFormat,
   type NotificationKind,
   type PrOpenedEvent,
+  type ProjectPulseEvent,
+  type PulseProposal,
+  type PulseUrgency,
   type TicketCreatedEvent,
 } from "./format.js";

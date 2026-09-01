@@ -1833,6 +1833,8 @@ export interface NotificationSettings {
   notifyMonitor: boolean;
   /** La pianificazione AI si è fermata con una domanda in attesa di risposta. */
   notifyAwaitingInput: boolean;
+  /** Pulse proattivo: un progetto è fermo e il backlog ha proposte pronte. */
+  notifyPulse: boolean;
 }
 
 /** Esito dell'invio di una notifica di test (lo restituisce l'endpoint /test). */
@@ -1872,6 +1874,8 @@ export function putNotificationSettings(
     notifyMonitor: settings.notifyMonitor,
     // Idem: default server true, va inviato sempre.
     notifyAwaitingInput: settings.notifyAwaitingInput,
+    // Idem: default server true, va inviato sempre.
+    notifyPulse: settings.notifyPulse,
   });
 }
 

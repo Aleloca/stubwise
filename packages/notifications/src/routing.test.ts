@@ -88,6 +88,25 @@ describe("recipientsFor", () => {
     expect(recipients).toEqual(["member-requester"]);
   });
 
+  it("manda il pulse del progetto ad admin ∪ follower (broadcast SENZA ticket)", () => {
+    // Il pulse è ancorato al PROGETTO: non c'è ticket, quindi `publish` non
+    // risolve né assegnatario né richiedente e il contesto arriva così. È il
+    // caso nuovo del broadcast: gli altri kind broadcast un ticket ce l'hanno.
+    expect(
+      recipientsFor(eventOfKind("project.pulse"), {
+        admins: ["admin-1", "admin-2"],
+        followers: ["follower-1", "admin-2"],
+      }),
+    ).toEqual(["admin-1", "admin-2", "follower-1"]);
+  });
+
+  it("il pulse non è una domanda al richiedente: raggiunge anche chi segue il progetto", () => {
+    // Contrapposto esplicito a `job.awaiting_input`, che ha la stessa forma di
+    // payload ma pubblico `requester`: qui i follower ci sono, là no.
+    expect(recipientsFor(eventOfKind("project.pulse"), CTX)).toContain("follower-1");
+    expect(recipientsFor(eventOfKind("job.awaiting_input"), CTX)).not.toContain("follower-1");
+  });
+
   it("non duplica chi compare in più ruoli", () => {
     const recipients = recipientsFor(eventOfKind("job.pr_opened"), {
       admins: ["u1"],
