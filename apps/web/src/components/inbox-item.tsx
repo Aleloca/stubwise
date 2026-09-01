@@ -9,7 +9,6 @@ import {
   postInboxAction,
   postInboxHandled,
   postInboxSnooze,
-  startedTicketFromError,
   type HandledBy,
   type InboxActionBody,
   type InboxDecisionAction,
@@ -60,29 +59,32 @@ export function isDecisionItem(item: InboxItem): boolean {
 }
 
 /**
- * COM'È ANDATO il "Procedi" del pulse, e sono tre esiti che si dicono con parole
- * diverse: `approval` = il piano ereditato dalla voce ha già fermato il run sul
- * gate; `planning` = senza piano il run è partito e si fermerà DOPO (promettere
- * il gate qui manderebbe l'utente a cercare un'approvazione che non esiste
- * ancora); `ticketOnly` = il ticket è nato ma il run no, e va lanciato a mano.
+ * COM'È NATO il run del "Procedi", e sono due frasi diverse: `approval` = il
+ * piano ereditato dalla voce ha già fermato il run sul gate; `planning` = senza
+ * piano il run è partito e si fermerà DOPO — promettere il gate qui manderebbe
+ * l'utente a cercare un'approvazione che ancora non esiste.
  */
-type PulseOutcomeVariant = "approval" | "planning" | "ticketOnly";
+type PulseOutcomeVariant = "approval" | "planning";
 
-/** Chiavi i18n di ciascun esito: la frase d'apertura e la coda dopo il ticket. */
-const PULSE_OUTCOME_KEYS: Record<PulseOutcomeVariant, { lead: string; tail: string }> = {
-  approval: { lead: "inbox:pulse.startedBy", tail: "inbox:pulse.outcomeApproval" },
-  planning: { lead: "inbox:pulse.startedBy", tail: "inbox:pulse.outcomePlanning" },
-  ticketOnly: { lead: "inbox:pulse.ticketOnlyBy", tail: "inbox:pulse.outcomeTicketOnly" },
+/** Chiave i18n della coda della frase, dopo il riferimento al ticket. */
+const PULSE_OUTCOME_TAIL: Record<PulseOutcomeVariant, string> = {
+  approval: "inbox:pulse.outcomeApproval",
+  planning: "inbox:pulse.outcomePlanning",
 };
 
 /**
- * L'esito del "Procedi", col ticket da linkare.
+ * L'esito FRESCO del "Procedi": quello che sa solo chi ha appena premuto, cioè
+ * il numero del ticket e come è nato il run.
  *
- * Vive nella PAGINA e non nella card, e non è un vezzo: appena la decisione
- * passa, `actions` si svuota, la riga smette di essere una decisione e la lista
- * la sposta da "Da decidere" a "Da sapere" — cioè sotto un altro genitore, il
- * che RIMONTA la card. Uno stato locale sparirebbe esattamente nell'istante in
- * cui serve.
+ * Il LINK al ticket non dipende da questo: dalla decisione in poi la riga porta
+ * `ticketId` (lo valorizza `proceedWithProposal`), e la card lo legge dai dati —
+ * anche in "Gestite", dopo un reload, o per un collega. Questo esito aggiunge
+ * soltanto il numero e la frase, e vale finché la riga è a schermo.
+ *
+ * Vive nella PAGINA e non nella card: appena la decisione passa, `actions` si
+ * svuota, la riga smette di essere una decisione e la lista la sposta da "Da
+ * decidere" a "Da sapere" — cioè sotto un altro genitore, il che RIMONTA la
+ * card, e uno stato locale sparirebbe.
  */
 export interface PulseOutcome {
   variant: PulseOutcomeVariant;
@@ -157,6 +159,9 @@ export function InboxItemCard({
   // Nome del progetto: quello risolto dalla pagina, o — se la lista dei progetti
   // non lo conosce — quello che il pulse si porta nel payload.
   const displayProjectName = projectName ?? item.pulse?.projectName;
+  // Il ticket nato dalla proposta: dai dati della riga, con l'esito fresco come
+  // sorgente equivalente nella finestra fra la risposta e il refetch.
+  const startedTicketId = isPulse ? (item.ticketId ?? pulseOutcome?.ticketId ?? null) : null;
 
   /**
    * Messaggio d'errore dal solo `code` (mai da `error.message`): i messaggi del
@@ -202,6 +207,11 @@ export function InboxItemCard({
           ? t("inbox:pulse.errors.alreadyTaken", { email: by.email })
           : t("inbox:pulse.errors.alreadyTakenUnknown");
       }
+      case "run_not_started":
+        // L'azione è riuscita A METÀ: il ticket c'è (lo si ritrova sulla riga
+        // gestita, che ora lo porta), il run no e va lanciato a mano. Dire
+        // "non riuscito" nasconderebbe il ticket appena creato.
+        return t("inbox:pulse.errors.runNotStarted");
       case "invalid_answer":
         return t("inbox:pulse.errors.invalidChoice");
       case "forbidden":
@@ -235,6 +245,10 @@ export function InboxItemCard({
       // passano a "gestita" subito, senza aspettare il refetch.
       patchCached(new Set(result.changedNotificationIds), {
         status: "handled",
+        // Il "Procedi" del pulse ANCORA il ticket alle copie chiuse (lo fa
+        // `proceedWithProposal`): la cache rispecchia la stessa verità, così la
+        // riga porta già il link prima ancora del refetch.
+        ...(result.ticketId === undefined ? {} : { ticketId: result.ticketId }),
         // `actions` AZZERATO insieme allo stato: una riga chiusa non offre più
         // nulla. Senza questo, nella finestra fra la risposta e il refetch la
         // card resterebbe attenuata ma coi bottoni attivi, e un secondo click
@@ -243,8 +257,8 @@ export function InboxItemCard({
         handledAt: new Date().toISOString(),
         handledBy: currentUser,
       });
-      // Il "Procedi" del pulse è l'unica azione che CREA un ticket: la card lo
-      // linka subito, invece di mandare l'utente a cercarlo.
+      // Il "Procedi" del pulse è l'unica azione che CREA un ticket: il numero e
+      // la frase su come è nato il run li sa solo chi ha appena premuto.
       const startedTicket =
         result.kind === "project.pulse" &&
         result.ticketId !== undefined &&
@@ -263,40 +277,13 @@ export function InboxItemCard({
       }
       setRejecting(false);
       setInstructions("");
-      // Sul "Procedi" riuscito la lista NON si ricarica subito: il refetch
-      // toglierebbe la riga (decisa, quindi fuori dall'inbox aperta) portandosi
-      // via il link al ticket appena nato — che il pulse non ha modo di
-      // ritrovare (`notifications.ticket_id` resta null). La riga è già stata
-      // patchata allo stato vero, resta lì attenuata con il suo esito, e sparirà
-      // al prossimo aggiornamento della lista. Il contatore invece si allinea
-      // subito: quello è un numero, non un contesto da leggere.
-      void queryClient.invalidateQueries({
-        queryKey: startedTicket ? inboxKeys.unread() : inboxKeys.all,
-      });
+      void queryClient.invalidateQueries({ queryKey: inboxKeys.all });
     },
     onError: (cause, variables) => {
       // La risposta a una domanda ha parole sue sugli stessi codici ("ha già
       // risposto X", non "l'ha già gestita X"), condivise con la pagina ticket;
       // il pulse ne ha altre ancora (vedi `pulseErrorMessage`).
       const isAnswer = variables.action === "answer";
-      // 409 `run_not_started`: l'azione è riuscita A METÀ. Non è un errore da
-      // riprovare — la proposta è consumata e il ticket esiste — quindi si
-      // mostra come ESITO, con il link che permette di lanciarlo a mano, invece
-      // che come riga rossa sopra un pannello che non serve più.
-      const startedTicket = isPulse ? startedTicketFromError(cause) : undefined;
-      if (startedTicket) {
-        onPulseOutcome?.({
-          variant: "ticketOnly",
-          ticketId: startedTicket.id,
-          ticketNumber: startedTicket.number,
-        });
-        setError(null);
-        // Le copie SONO cambiate (il claim le ha chiuse) ma il 409 non dice
-        // quali: l'unico modo di riallinearsi è rileggere. Qui la riga può
-        // sparire, e l'esito con lei — resta il numero del ticket nella nota.
-        void queryClient.invalidateQueries({ queryKey: inboxKeys.all });
-        return;
-      }
       setError({
         message: isAnswer
           ? isPulse
@@ -400,24 +387,24 @@ export function InboxItemCard({
         </p>
       )}
 
-      {pulseOutcome !== null && (
-        // L'esito del "Procedi": chi ha avviato, il TICKET (linkato) e cosa
-        // succede adesso. `alert` solo quando c'è qualcosa da fare a mano.
-        <p
-          {...(pulseOutcome.variant === "ticketOnly" ? { role: "alert" } : {})}
-          className={`mt-1 font-mono text-[11px] ${
-            pulseOutcome.variant === "ticketOnly" ? "text-danger" : "text-fg-faint"
-          }`}
-        >
-          {t(PULSE_OUTCOME_KEYS[pulseOutcome.variant].lead, { email: currentUser.email })}{" "}
+      {startedTicketId !== null && (
+        // IL TICKET NATO DALLA PROPOSTA. Il link viene dai DATI (`item.ticketId`,
+        // che la decisione ancora alla riga): resta quindi anche in "Gestite",
+        // dopo un reload e per un collega che non ha premuto lui. `pulseOutcome`
+        // — quello che sa solo chi ha appena premuto — aggiunge il numero al
+        // posto dell'etichetta generica e la frase su come è nato il run.
+        <p className="mt-1 font-mono text-[11px] text-fg-faint">
+          {pulseOutcome
+            ? t("inbox:pulse.startedBy", { email: currentUser.email })
+            : t("inbox:pulse.ticketCreated")}{" "}
           <Link
             to="/tickets/$id"
-            params={{ id: pulseOutcome.ticketId }}
+            params={{ id: startedTicketId }}
             className="text-fg-muted underline transition-colors hover:text-fg"
           >
-            #{pulseOutcome.ticketNumber}
-          </Link>{" "}
-          — {t(PULSE_OUTCOME_KEYS[pulseOutcome.variant].tail)}
+            {pulseOutcome ? `#${pulseOutcome.ticketNumber}` : t("inbox:pulse.openTicket")}
+          </Link>
+          {pulseOutcome && ` — ${t(PULSE_OUTCOME_TAIL[pulseOutcome.variant])}`}
         </p>
       )}
 

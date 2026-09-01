@@ -1071,14 +1071,15 @@
       "start": "Avvia",
       "openBacklog": "Apri backlog",
       "startedBy": "▶️ Avviato da {{email}}:",
-      "ticketOnlyBy": "▶️ Ticket creato da {{email}}:",
+      "ticketCreated": "▶️ Ticket creato da questa proposta:",
+      "openTicket": "apri il ticket",
       "outcomeApproval": "in attesa dell'approvazione del piano",
       "outcomePlanning": "pianificazione avviata, si fermerà per l'approvazione",
-      "outcomeTicketOnly": "il run non è partito, va lanciato a mano",
       "errors": {
         "stale": "Questa proposta è già stata presa in carico",
         "alreadyTaken": "L'ha già presa {{email}}",
         "alreadyTakenUnknown": "L'ha già presa qualcun altro",
+        "runNotStarted": "Il ticket è stato creato ma il run non è partito: aprilo e lancialo a mano",
         "invalidChoice": "Questa proposta non è più disponibile",
         "generic": "Avvio della proposta non riuscito"
       }
@@ -1258,6 +1259,7 @@
       "readOnlyHint": "// sola lettura: le impostazioni le modificano i maintainer",
       "pulseEvery_one": "Attivo, ogni giorno",
       "pulseEvery_other": "Attivo, ogni {{count}} giorni",
+      "pulseWaitingBacklog": "Attivo (in attesa del backlog di discovery)",
       "repositories": "Repository",
       "addRepository": "+ Aggiungi repository",
       "noRepositories": "// nessun repository",

@@ -3099,28 +3099,6 @@ export function handledByFromError(error: unknown): HandledBy | undefined {
   return parsed.success ? parsed.data.handledBy : undefined;
 }
 
-/**
- * Il TICKET nato dal "Procedi" del pulse quando il run non è partito, letto dal
- * 409 `run_not_started`.
- *
- * Gemello di {@link handledByFromError}, e per la stessa ragione: è l'altro
- * errore dell'API che porta un DATO oltre a `code`/`message`. Il ticket c'è, il
- * run no — e senza questi campi il suo link si potrebbe costruire solo estraendo
- * il numero dal `message`, che è inglese e non è contratto.
- */
-export function startedTicketFromError(
-  error: unknown,
-): { id: string; number: number } | undefined {
-  if (!(error instanceof ApiError) || error.code !== "run_not_started") return undefined;
-  const parsed = inboxActionErrorSchema.safeParse(error.details);
-  if (!parsed.success) return undefined;
-  const { ticketId, ticketNumber } = parsed.data;
-  // Entrambi o nessuno: mezzo riferimento non è linkabile.
-  return ticketId !== undefined && ticketNumber !== undefined
-    ? { id: ticketId, number: ticketNumber }
-    : undefined;
-}
-
 /** Progetti seguiti dall'utente corrente: l'insieme COMPLETO. */
 export function getMyFollows(): Promise<ProjectFollows> {
   return api.get("/api/me/follows");

@@ -1071,14 +1071,15 @@
       "start": "Start",
       "openBacklog": "Open backlog",
       "startedBy": "▶️ Started by {{email}}:",
-      "ticketOnlyBy": "▶️ Ticket created by {{email}}:",
+      "ticketCreated": "▶️ Ticket created from this proposal:",
+      "openTicket": "open the ticket",
       "outcomeApproval": "waiting for plan approval",
       "outcomePlanning": "planning under way, it will stop for approval",
-      "outcomeTicketOnly": "the run did not start, launch it by hand",
       "errors": {
         "stale": "This proposal has already been taken care of",
         "alreadyTaken": "Already taken by {{email}}",
         "alreadyTakenUnknown": "Already taken by someone else",
+        "runNotStarted": "The ticket was created but the run did not start: open it and launch it by hand",
         "invalidChoice": "This proposal is no longer available",
         "generic": "Could not start the proposal"
       }
@@ -1258,6 +1259,7 @@
       "readOnlyHint": "// read-only: settings are changed by maintainers",
       "pulseEvery_one": "On, every day",
       "pulseEvery_other": "On, every {{count}} days",
+      "pulseWaitingBacklog": "On (waiting for the discovery backlog)",
       "repositories": "Repositories",
       "addRepository": "+ Add repository",
       "noRepositories": "// no repositories",

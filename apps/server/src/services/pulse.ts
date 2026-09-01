@@ -28,7 +28,7 @@
  */
 import { notifications, users, type Db } from "@stubwise/db";
 import { actorAllows } from "@stubwise/notifications";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { convertBacklogItem } from "./backlog.js";
 import { startRun, type Actor } from "./jobs.js";
@@ -162,6 +162,10 @@ const pulsePayloadSchema = z.object({
  *     vuoto" si rivelasse un problema reale (e non un'ipotesi su un errore
  *     infrastrutturale), è quella la strada;
  *  3. `convertBacklogItem`: voce → ticket `task`, con il suo claim anti-TOCTOU;
+ *     subito dopo, le copie chiuse ACQUISISCONO il ticket
+ *     (`notifications.ticket_id`), che il pulse non aveva: da lì in poi la riga
+ *     gestita sa dire da sola quale ticket è nato, senza dipendere dall'esito
+ *     HTTP di chi ha premuto;
  *  4. `startRun({ requirePlanApproval: true })`: il run nasce dietro il gate
  *     anche per un maintainer — chi clicca accetta una PROPOSTA, non ha letto
  *     un piano;
@@ -249,6 +253,21 @@ export async function proceedWithProposal(
     return { ok: false, error: "proposal_stale" };
   }
 
+  // IL PULSE ACQUISISCE IL TICKET. `notifications.ticket_id` nasce nullo — il
+  // ping è ancorato al PROGETTO — ma dalla decisione in poi un ticket c'è, ed è
+  // l'unica cosa che la riga gestita deve poter offrire a chi la rilegge: nella
+  // tab "Gestite", dopo un reload, o a un collega che non ha premuto lui. Senza
+  // questa riga il link vivrebbe solo nell'esito HTTP dell'azione, cioè per la
+  // durata di un refetch.
+  //
+  // Va DOPO il convert (prima non c'è un ticket) e su `changedNotificationIds`,
+  // cioè le copie che questa decisione ha chiuso: le righe di chi ha archiviato
+  // il pulse prima non sono state toccate e non devono esserlo ora.
+  await db
+    .update(notifications)
+    .set({ ticketId: converted.ticketId })
+    .where(inArray(notifications.id, changedNotificationIds));
+
   const run = await startRun(db, {
     ticketId: converted.ticketId,
     actor,
@@ -282,11 +301,9 @@ export async function proceedWithProposal(
     pulse: {
       title: proposal.title,
       outcome: run.status === "awaiting_plan_approval" ? "awaiting_approval" : "planning",
-      // Il NUMERO del ticket entra nella nota, che è l'unica traccia del
-      // ticket che sopravvive alla decisione: il pulse nasce senza
-      // `notifications.ticket_id` e non lo acquisisce chiudendosi, quindi
-      // ricaricando l'inbox (o leggendo il DM di un collega) l'esito HTTP con
-      // l'id del ticket non c'è più.
+      // Il NUMERO del ticket entra nella nota perché il DM è testo: chi lo
+      // rilegge non ha una card da cui cliccare. Nell'inbox il link arriva
+      // invece dai dati, da `notifications.ticket_id` appena valorizzato.
       ticketNumber: converted.ticketNumber,
     },
   });

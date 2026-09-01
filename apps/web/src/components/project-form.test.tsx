@@ -244,6 +244,26 @@ describe("ProjectForm (impostazioni del gruppo)", () => {
     );
   });
 
+  it("cadenza sbagliata ma controlli spenti: il resto si salva lo stesso", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn().mockResolvedValue(undefined);
+    mockProviders();
+    await renderForm({ onSubmit }, { ...initial, backlogEnabled: true });
+
+    // Accende il backlog, sbaglia la cadenza, poi RISPEGNE il backlog: il campo
+    // torna disabilitato, e un valore che non può più correggere non deve
+    // tenergli in ostaggio il salvataggio di tutto il resto.
+    const days = screen.getByLabelText("Days between pulses");
+    await user.clear(days);
+    await user.type(days, "0");
+    await user.click(screen.getByLabelText("Discovery backlog"));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(screen.queryByRole("alert")).toBeNull();
+    const payload = onSubmit.mock.calls[0]![0] as Record<string, unknown>;
+    expect(payload).toEqual({ backlogEnabled: false });
+  });
+
   it("riportando il provider su 'Automatico', il PATCH invia aiProviderId null", async () => {
     const user = userEvent.setup();
     const onSubmit = vi.fn().mockResolvedValue(undefined);

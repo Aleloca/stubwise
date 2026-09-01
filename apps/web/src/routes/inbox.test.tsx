@@ -614,17 +614,21 @@ describe("pagina /inbox", () => {
     );
   });
 
-  it("Procedi con piano: due passi, poi l'esito col ticket e l'approvazione che aspetta", async () => {
+  it("Procedi con piano: due passi, l'esito col ticket, poi la riga esce dall'inbox", async () => {
     let body: unknown = null;
-    let fetched = 0;
+    // Il refetch dopo l'azione si sblocca a comando: così si osserva PRIMA
+    // l'esito a schermo e POI la sparizione della riga, senza corse.
+    let releaseRefetch: ((response: Response) => void) | null = null;
     mockApi(
       baseApi({
-        "GET /api/inbox": () => {
-          fetched += 1;
-          // Come risponderebbe il server dopo la decisione: la riga è chiusa,
-          // quindi fuori dall'inbox aperta.
-          return jsonResponse(200, { items: body ? [] : [PULSE], nextCursor: null });
-        },
+        "GET /api/inbox": () =>
+          body === null
+            ? jsonResponse(200, { items: [PULSE], nextCursor: null })
+            : // Come risponde il server DOPO la decisione: la riga è chiusa,
+              // quindi non è più fra le aperte.
+              new Promise<Response>((resolve) => {
+                releaseRefetch = resolve;
+              }),
         "POST /api/inbox/:id/actions/answer": (_url, init) => {
           body = JSON.parse(String(init?.body));
           return jsonResponse(200, {
@@ -647,34 +651,45 @@ describe("pagina /inbox", () => {
     await userEvent.click(screen.getByRole("button", { name: "Start" }));
 
     await waitFor(() => expect(body).toEqual({ optionIndex: 1 }));
-    const started_ = within(card(PULSE.text));
-    expect(started_.getByText(/Started by ada@example.com/)).toBeInTheDocument();
-    // Il ticket è LINKATO: il pulse non ne ha uno, e senza questo link
-    // bisognerebbe andarlo a cercare.
-    expect(started_.getByRole("link", { name: "#42" })).toHaveAttribute(
+    const started = within(card(PULSE.text));
+    expect(started.getByText(/Started by ada@example.com/)).toBeInTheDocument();
+    // Il ticket è LINKATO, col suo numero: lo sa chi ha appena premuto.
+    expect(started.getByRole("link", { name: "#42" })).toHaveAttribute(
       "href",
       `/tickets/${TICKET_ID}`,
     );
-    expect(started_.getByText(/waiting for plan approval/)).toBeInTheDocument();
+    expect(started.getByText(/waiting for plan approval/)).toBeInTheDocument();
     // Deciso: la scelta sparisce.
-    expect(started_.queryByRole("button", { name: "Start" })).toBeNull();
-    // E la lista NON si ricarica: un refetch toglierebbe la riga (ormai chiusa)
-    // portandosi via il link al ticket, che il pulse non sa ritrovare.
-    expect(fetched).toBe(1);
+    expect(started.queryByRole("button", { name: "Start" })).toBeNull();
+
+    // E quando il refetch atterra la riga esce dall'inbox aperta, come ogni
+    // altra decisione: il link al ticket non muore con lei — la riga gestita
+    // lo porta nei dati (vedi il test sulla riga già decisa).
+    await waitFor(() => expect(releaseRefetch).not.toBeNull());
+    releaseRefetch!(jsonResponse(200, { items: [], nextCursor: null }));
+    await waitFor(() => expect(screen.queryByRole("article", { name: PULSE.text })).toBeNull());
   });
 
   it("Procedi senza piano: la pianificazione parte, e la card NON promette il gate", async () => {
+    let answered = false;
     mockApi(
       baseApi({
-        "GET /api/inbox": () => jsonResponse(200, { items: [PULSE], nextCursor: null }),
-        "POST /api/inbox/:id/actions/answer": () =>
-          jsonResponse(200, {
+        // Il refetch resta in volo: quello che si vede viene dall'esito
+        // dell'azione, non da una riga che il server rimanderebbe indietro.
+        "GET /api/inbox": () =>
+          answered
+            ? new Promise<Response>(() => {})
+            : jsonResponse(200, { items: [PULSE], nextCursor: null }),
+        "POST /api/inbox/:id/actions/answer": () => {
+          answered = true;
+          return jsonResponse(200, {
             kind: "project.pulse",
             ticketId: TICKET_ID,
             ticketNumber: 43,
             runStatus: "queued",
             changedNotificationIds: [PULSE_NOTIFICATION_ID],
-          }),
+          });
+        },
       }),
     );
     renderInbox();
@@ -718,10 +733,14 @@ describe("pagina /inbox", () => {
     await waitFor(() => expect(fetched).toBeGreaterThan(before));
   });
 
-  it("409 run_not_started: il ticket c'è comunque, e la card lo linka", async () => {
+  it("409 run_not_started: dice che il ticket c'è, e ricarica la lista", async () => {
+    let fetched = 0;
     mockApi(
       baseApi({
-        "GET /api/inbox": () => jsonResponse(200, { items: [PULSE], nextCursor: null }),
+        "GET /api/inbox": () => {
+          fetched += 1;
+          return jsonResponse(200, { items: [PULSE], nextCursor: null });
+        },
         "POST /api/inbox/:id/actions/answer": () =>
           jsonResponse(409, {
             code: "run_not_started",
@@ -733,17 +752,46 @@ describe("pagina /inbox", () => {
     );
     renderInbox();
     await screen.findByRole("heading", { name: "Inbox" });
+    const before = fetched;
 
     await userEvent.click(screen.getByRole("radio", { name: "Filter by status" }));
     await userEvent.click(screen.getByRole("button", { name: "Start" }));
 
-    // L'azione è riuscita a metà: dirlo senza il ticket lascerebbe l'utente
-    // senza il pezzo che c'è.
-    expect(await screen.findByRole("link", { name: "#44" })).toHaveAttribute(
+    // L'azione è riuscita a metà: dirlo "non riuscito" nasconderebbe il ticket
+    // appena creato, che è proprio quello su cui va agito a mano.
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The ticket was created but the run did not start",
+    );
+    // Il claim ha chiuso le copie senza dire quali: si rilegge.
+    await waitFor(() => expect(fetched).toBeGreaterThan(before));
+  });
+
+  it("riga già decisa: il link al ticket viene dai DATI, senza aver premuto nulla", async () => {
+    // È la riga come la rimanda il server dopo la decisione — in "Gestite",
+    // dopo un reload, o nell'inbox di un collega che non ha premuto lui: il
+    // pulse ha ACQUISITO il ticket, e la card lo linka senza sapere nient'altro.
+    const decided: InboxItem = {
+      ...PULSE,
+      status: "handled",
+      actions: [],
+      ticketId: TICKET_ID,
+      handledAt: "2026-08-31T11:00:00.000Z",
+      handledBy: { id: "55555555-5555-4555-8555-555555555555", email: "bea@example.com" },
+    };
+    mockApi(
+      baseApi({
+        "GET /api/inbox": () => jsonResponse(200, { items: [decided], nextCursor: null }),
+      }),
+    );
+    renderInbox();
+    await screen.findByRole("heading", { name: "Inbox" });
+
+    const row = within(card(PULSE.text));
+    expect(row.getByText("handled by bea@example.com")).toBeInTheDocument();
+    expect(row.getByRole("link", { name: "open the ticket" })).toHaveAttribute(
       "href",
       `/tickets/${TICKET_ID}`,
     );
-    expect(screen.getByText(/the run did not start/)).toBeInTheDocument();
   });
 
   it("pulse senza il blocco `pulse`: la card resta intera e scegliibile", async () => {

@@ -80,12 +80,13 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
     // Il range 1..30 è il CHECK del DB (e lo schema del corpo): fermarsi qui
     // evita un 400 che direbbe la stessa cosa in inglese e senza contesto.
     // Sbagliato NON vuol dire "invariato": il valore si dice, non si scarta.
+    //
+    // Solo a controlli ATTIVI, però: col backlog spento il campo è disabilitato,
+    // e un valore rimasto lì dentro bloccherebbe il salvataggio di tutto il
+    // resto senza che lo si possa correggere.
     const days = Number(pulseEveryDays);
-    if (
-      !Number.isInteger(days) ||
-      days < PULSE_DAYS_MIN ||
-      days > PULSE_DAYS_MAX
-    ) {
+    const daysValid = Number.isInteger(days) && days >= PULSE_DAYS_MIN && days <= PULSE_DAYS_MAX;
+    if (pulseAvailable && !daysValid) {
       setError(t("projects:form.pulseEveryDaysRange", { min: PULSE_DAYS_MIN, max: PULSE_DAYS_MAX }));
       return;
     }
@@ -109,7 +110,9 @@ export function ProjectForm({ initial, onSubmit }: ProjectFormProps) {
         ...(backlogEnabled !== initial.backlogEnabled && { backlogEnabled }),
         // Pulse: toggle e cadenza, ciascuno solo se cambiato.
         ...(pulseEnabled !== initial.pulseEnabled && { pulseEnabled }),
-        ...(days !== initial.pulseEveryDays && { pulseEveryDays: days }),
+        // Solo se valida: coi controlli disabilitati può essere rimasta a metà,
+        // e non si manda al server un valore che il CHECK rifiuterebbe.
+        ...(daysValid && days !== initial.pulseEveryDays && { pulseEveryDays: days }),
       });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : t("common:unexpectedError"));

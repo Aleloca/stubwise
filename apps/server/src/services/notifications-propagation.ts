@@ -142,11 +142,9 @@ const PULSE_NOTE_KEY: Record<PulseNoteOutcome, string> = {
  * La proposta scelta e come è andata: quanto basta a comporre la nota del pulse.
  *
  * Union e non un campo opzionale: i tre esiti che hanno prodotto un ticket ne
- * DEVONO portare il numero — è l'unica traccia del ticket che sopravvive alla
- * decisione, perché il pulse nasce senza `notifications.ticket_id` e non lo
- * acquisisce chiudendosi — mentre `stale` un ticket non ce l'ha. Col campo
- * opzionale il compilatore lascerebbe passare la nota che dice "avviato «X»
- * come #{number}".
+ * DEVONO portare il numero — il DM è testo, e chi lo rilegge non ha una card da
+ * cui cliccare — mentre `stale` un ticket non ce l'ha. Col campo opzionale il
+ * compilatore lascerebbe passare la nota che dice "avviato «X» come {number}".
  */
 export type PulseNote =
   | { title: string; outcome: "stale" }

@@ -155,6 +155,7 @@ async function readNotifications(ids: string[]) {
       id: notifications.id,
       status: notifications.status,
       handledByUserId: notifications.handledByUserId,
+      ticketId: notifications.ticketId,
     })
     .from(notifications)
     .where(inArray(notifications.id, ids));
@@ -332,6 +333,10 @@ describe("proceedWithProposal — successo", () => {
     const rows = await readNotifications(ids);
     expect(rows.every((row) => row.status === "handled")).toBe(true);
     expect(rows.every((row) => row.handledByUserId === maintainer.id)).toBe(true);
+    // E TUTTE acquisiscono il ticket: il pulse nasce ancorato al progetto, ma
+    // dalla decisione in poi la riga sa dire da sola quale ticket è nato — a
+    // chi ricarica, alla tab "Gestite", e al collega che non ha premuto lui.
+    expect(rows.every((row) => row.ticketId === result.ticketId)).toBe(true);
 
     // La nota nomina attore e titolo e dice che si aspetta l'approvazione.
     const notes = await readNotes(ids[1]!);
@@ -455,6 +460,9 @@ describe("proceedWithProposal — corse e proposte scadute", () => {
     // La card non deve restare a invitare a un'azione impossibile.
     const rows = await readNotifications(ids);
     expect(rows.every((row) => row.status === "handled")).toBe(true);
+    // Nessun ticket è nato, quindi NIENTE da ancorare: la riga chiusa non deve
+    // portare il link a un ticket che non esiste.
+    expect(rows.every((row) => row.ticketId === null)).toBe(true);
     const notes = await readNotes(ids[1]!);
     expect(notes[0]).toContain("Voce già convertita");
     expect(notes[0]).toMatch(/already/i);
@@ -514,6 +522,10 @@ describe("proceedWithProposal — convertito ma run non partito", () => {
     const [ticket] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
     expect(ticket!.title).toBe("Run mancato");
     expect(await readJob(ticketId)).toBeUndefined();
+
+    // Il run non è partito, ma il ticket sì: la riga lo porta comunque, ed è
+    // proprio il caso in cui ritrovarlo conta di più (va lanciato a mano).
+    expect((await readNotifications(ids)).every((row) => row.ticketId === ticketId)).toBe(true);
 
     const notes = await readNotes(ids[0]!);
     expect(notes[0]).toContain("Run mancato");

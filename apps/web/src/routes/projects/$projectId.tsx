@@ -129,9 +129,14 @@ export function ProjectDetailPage() {
               <ReadOnlyRow
                 label={t("projects:form.pulse")}
                 value={
-                  project.pulseEnabled
-                    ? t("projects:detail.pulseEvery", { count: project.pulseEveryDays })
-                    : t("common:off")
+                  !project.pulseEnabled
+                    ? t("common:off")
+                    : // Acceso ma senza backlog il pulse è muto: non ha voci da
+                      // proporre. Il form lo spiega con l'hint, questa vista —
+                      // che l'hint non ce l'ha — lo dice nel valore.
+                      project.backlogEnabled
+                      ? t("projects:detail.pulseEvery", { count: project.pulseEveryDays })
+                      : t("projects:detail.pulseWaitingBacklog")
                 }
               />
               <p className="pt-1 font-mono text-[11px] text-fg-faint">

@@ -200,11 +200,10 @@ export const en: Catalog = {
   // NON sono intercambiabili — col piano già pronto il run aspetta subito
   // un'approvazione, senza piano la pianificazione parte e si fermerà dopo.
   //
-  // Le tre che hanno un ticket ne portano il NUMERO: la notifica del pulse
-  // nasce senza ticket (`notifications.ticket_id` resta null) e non lo acquisisce
-  // decidendo, quindi il ticket appena creato vive solo nell'esito HTTP
-  // dell'azione — che chi ricarica la pagina, o legge il DM di un collega, non
-  // ha mai visto. La nota è l'unica traccia che sopravvive.
+  // Le tre che hanno un ticket ne portano il NUMERO perché il DM è TESTO: chi
+  // lo rilegge non ha una card da cui cliccare. Nell'inbox il link arriva
+  // invece dai dati — la decisione valorizza `notifications.ticket_id` (vedi
+  // `proceedWithProposal`) — e queste frasi non ne sono l'unica traccia.
   "notify.inbox.notePulseStartedApproval":
     "▶️ {actor} started «{title}» as #{number} — waiting for plan approval",
   "notify.inbox.notePulseStartedPlanning":
