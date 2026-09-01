@@ -185,6 +185,55 @@ describe("startRun", () => {
     expect(rows).toHaveLength(0);
   });
 
+  it("admin + requirePlanApproval senza piano → queued col gate acceso", async () => {
+    // Il flag è il guardrail dei run che nascono da una proposta del sistema
+    // (il "Procedi con X" del pulse): nemmeno un maintainer scavalca il gate,
+    // perché nessuno ha ancora letto un piano.
+    const ticketId = await seedTicket();
+
+    const result = await startRun(db, {
+      ticketId,
+      actor: maintainer,
+      requirePlanApproval: true,
+    });
+    expect(result).toEqual({ ok: true, jobId: expect.any(String), status: "queued" });
+
+    const job = await readJob(result.ok ? result.jobId : "");
+    expect(job?.planApprovalRequired).toBe(true);
+    expect(job?.requestedByUserId).toBe(maintainer.id);
+  });
+
+  it("admin + requirePlanApproval + piano salvato → parcheggio in awaiting_plan_approval, con notifica", async () => {
+    const piano = "## Piano della proposta\n1. Passo A";
+    const ticketId = await seedTicket(piano);
+
+    const result = await startRun(db, {
+      ticketId,
+      actor: maintainer,
+      requirePlanApproval: true,
+      publicUrl: "https://stubwise.example.com",
+    });
+    expect(result).toEqual({
+      ok: true,
+      jobId: expect.any(String),
+      status: "awaiting_plan_approval",
+    });
+    const jobId = result.ok ? result.jobId : "";
+
+    const job = await readJob(jobId);
+    expect(job?.status).toBe("awaiting_plan_approval");
+    expect(job?.planText).toBe(piano);
+    expect(job?.resumeMode).toBe("execute");
+    expect(job?.planApprovalRequired).toBe(true);
+
+    // Il parcheggio nato qui (non dal worker) deve comunque chiedere
+    // l'approvazione a voce alta: stessa notifica del ramo operator.
+    const rows = await db.select().from(notifications).where(eq(notifications.jobId, jobId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.kind).toBe("job.plan_review");
+    expect(rows[0]!.ticketId).toBe(ticketId);
+  });
+
   it("member + piano salvato + mode:ai_plan → flusso normale queued (il piano non si usa)", async () => {
     const ticketId = await seedTicket("## Piano da NON usare");
 

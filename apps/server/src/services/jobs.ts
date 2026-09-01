@@ -58,6 +58,16 @@ export interface StartRunInput {
    * conosce fastify: la rotta glielo passa con `publicUrlOrUndefined(app)`.
    */
   publicUrl?: string;
+  /**
+   * Forza il gate del piano ANCHE per un maintainer: `planApprovalRequired`
+   * acceso e, col piano salvato, parcheggio diretto in `awaiting_plan_approval`
+   * invece della partenza in execute. Serve ai run che nascono da un
+   * suggerimento del sistema (il "Procedi con X" del pulse, fase 2): chi clicca
+   * accetta una proposta, non ha letto un piano — quindi nulla si esegue prima
+   * che qualcuno lo approvi davvero. Assente/false = comportamento invariato
+   * (solo un `member` passa dal gate).
+   */
+  requirePlanApproval?: boolean;
 }
 
 /**
@@ -78,7 +88,10 @@ export interface StartRunInput {
  * `planApprovalRequired`, così il worker si fermerà a piano pronto (gate letto
  * dal worker in `resolveFixMode`: Task 3 della fase 0).
  *
- * Nel ramo che parcheggia subito (operator + piano salvato) è QUESTA funzione a
+ * `requirePlanApproval` estende lo stesso gate a un attore qualsiasi (anche un
+ * maintainer): è il guardrail dei run che nascono da una proposta del sistema.
+ *
+ * Nel ramo che parcheggia subito (gate + piano salvato) è QUESTA funzione a
  * pubblicare `job.plan_review`: è l'unico `awaiting_plan_approval` che non nasce
  * dal worker, e senza la notifica la richiesta di approvazione resterebbe muta.
  *
@@ -112,18 +125,21 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
   // piano residuo di un run precedente non deve sopravvivere al re-triage).
   const planText = useSavedPlan ? ticket.implementationPlan : null;
 
-  const isOperator = actor.role === "member";
-  const status = isOperator && useSavedPlan ? "awaiting_plan_approval" : "queued";
+  // Passa dal gate chi non può approvare da sé (operator) e chiunque, ruolo a
+  // parte, avvii un run che il chiamante ha marcato come da approvare
+  // (`requirePlanApproval`).
+  const needsApproval = actor.role === "member" || input.requirePlanApproval === true;
+  const status = needsApproval && useSavedPlan ? "awaiting_plan_approval" : "queued";
   const values = {
     status,
     manualTrigger: true,
     resumeMode,
     planText,
     requestedByUserId: actor.id,
-    // Acceso per TUTTI i run di un operator, anche quello già parcheggiato: se
-    // il maintainer rifiuta il piano, la ripianificazione dovrà fermarsi di
-    // nuovo sul gate.
-    planApprovalRequired: isOperator,
+    // Acceso per TUTTI i run che passano dal gate, anche quello già
+    // parcheggiato: se il maintainer rifiuta il piano, la ripianificazione
+    // dovrà fermarsi di nuovo sul gate.
+    planApprovalRequired: needsApproval,
   } as const;
 
   const result = await db.transaction(async (tx): Promise<StartRunResult> => {
@@ -181,7 +197,7 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
     return { ok: true, jobId: created!.id, status };
   });
 
-  // Il ramo che parcheggia SUBITO il job di un operator (piano salvato) è
+  // Il ramo che parcheggia SUBITO il job (gate + piano salvato) è
   // l'unico punto in cui un `awaiting_plan_approval` nasce senza passare dal
   // worker: se non notificasse qui, la richiesta di approvazione resterebbe
   // muta (il worker emette `job.plan_review` solo quando pianifica lui).
