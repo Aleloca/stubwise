@@ -335,44 +335,62 @@ export const gitAccounts = pgTable("git_accounts", {
  * AI (`aiProviderId`, salito dal vecchio progetto/repo) e il toggle di
  * auto-aggiornamento della documentazione (`docAutoUpdate`). Lo `slug` è unico.
  */
-export const projects = pgTable("projects", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  name: text("name").notNull(),
-  slug: text("slug").notNull().unique(),
-  // Descrizione libera del progetto, opzionale (mostrata nella UI di dettaglio).
-  description: text("description"),
-  // Provider AI generale del progetto, valido per Docs e fix di tutti i suoi
-  // repository; null = automatico (primo abilitato al momento dell'esecuzione).
-  // ON DELETE SET NULL: rimuovere il provider non blocca il progetto, ricade
-  // sull'automatico.
-  aiProviderId: uuid("ai_provider_id").references(() => aiProviders.id, {
-    onDelete: "set null",
-  }),
-  // Aggiornamento automatico della documentazione ai push (changelog/release):
-  // false = disattivo (i push non innescano nulla). Toggle per-progetto, vale
-  // per tutti i repository del progetto.
-  docAutoUpdate: boolean("doc_auto_update").notNull().default(false),
-  // Se true, il poller notturno genera lo standup giornaliero per questo
-  // progetto. Default false: opt-in esplicito per non generare report (e
-  // consumare run dell'agente) su progetti non interessati.
-  dailyReportEnabled: boolean("daily_report_enabled").notNull().default(false),
-  // Se true, i ticket feedback/feature del progetto vengono deviati verso il
-  // backlog di discovery (voci dedup + raffinamento AI) invece di finire
-  // direttamente nella pipeline di fix. Default false: opt-in esplicito.
-  backlogEnabled: boolean("backlog_enabled").notNull().default(false),
-  // Chiave di ingestion del progetto (salita da repositories in Fase 3): gli
-  // errori via SDK e i feedback sono del prodotto/progetto, non di un repo — è
-  // l'agente a capire quale repo sistemare. La chiave esistente è stata migrata
-  // identica dal repo 1:1 al suo progetto, così gli SDK già installati continuano
-  // a funzionare senza riconfigurazione. UNIQUE: identifica il progetto in ingest.
-  ingestionKey: text("ingestion_key").notNull().unique(),
-  // Contatore per i numeri ticket sequenziali per-PROGETTO (salito da
-  // repositories in Fase 3): l'applicazione lo incrementa in transazione quando
-  // crea un ticket. Il branch `stubwise/ticket-N` usa N di progetto ed è pushato
-  // su ciascun repo modificato dal fix multi-repo.
-  nextTicketNumber: integer("next_ticket_number").notNull().default(1),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const projects = pgTable(
+  "projects",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    slug: text("slug").notNull().unique(),
+    // Descrizione libera del progetto, opzionale (mostrata nella UI di dettaglio).
+    description: text("description"),
+    // Provider AI generale del progetto, valido per Docs e fix di tutti i suoi
+    // repository; null = automatico (primo abilitato al momento dell'esecuzione).
+    // ON DELETE SET NULL: rimuovere il provider non blocca il progetto, ricade
+    // sull'automatico.
+    aiProviderId: uuid("ai_provider_id").references(() => aiProviders.id, {
+      onDelete: "set null",
+    }),
+    // Aggiornamento automatico della documentazione ai push (changelog/release):
+    // false = disattivo (i push non innescano nulla). Toggle per-progetto, vale
+    // per tutti i repository del progetto.
+    docAutoUpdate: boolean("doc_auto_update").notNull().default(false),
+    // Se true, il poller notturno genera lo standup giornaliero per questo
+    // progetto. Default false: opt-in esplicito per non generare report (e
+    // consumare run dell'agente) su progetti non interessati.
+    dailyReportEnabled: boolean("daily_report_enabled").notNull().default(false),
+    // Se true, i ticket feedback/feature del progetto vengono deviati verso il
+    // backlog di discovery (voci dedup + raffinamento AI) invece di finire
+    // direttamente nella pipeline di fix. Default false: opt-in esplicito.
+    backlogEnabled: boolean("backlog_enabled").notNull().default(false),
+    // Chiave di ingestion del progetto (salita da repositories in Fase 3): gli
+    // errori via SDK e i feedback sono del prodotto/progetto, non di un repo — è
+    // l'agente a capire quale repo sistemare. La chiave esistente è stata migrata
+    // identica dal repo 1:1 al suo progetto, così gli SDK già installati continuano
+    // a funzionare senza riconfigurazione. UNIQUE: identifica il progetto in ingest.
+    ingestionKey: text("ingestion_key").notNull().unique(),
+    // Contatore per i numeri ticket sequenziali per-PROGETTO (salito da
+    // repositories in Fase 3): l'applicazione lo incrementa in transazione quando
+    // crea un ticket. Il branch `stubwise/ticket-N` usa N di progetto ed è pushato
+    // su ciascun repo modificato dal fix multi-repo.
+    nextTicketNumber: integer("next_ticket_number").notNull().default(1),
+    // Pulse proattivo (Fase 2): quando il progetto è fermo, un poller propone
+    // 2–3 voci del backlog da cui ripartire. Default false: opt-in esplicito,
+    // al deploy nessun progetto riceve il pulse.
+    pulseEnabled: boolean("pulse_enabled").notNull().default(false),
+    // Cadenza minima fra due pulse dello stesso progetto, in giorni (1..30).
+    pulseEveryDays: integer("pulse_every_days").notNull().default(3),
+    // Istante dell'ultimo pulse inviato; null = mai. È il gate di idempotenza:
+    // il poller lo aggiorna con UPDATE condizionato sul valore letto, nella
+    // stessa transazione in cui pubblica la notifica, così due tick concorrenti
+    // non mandano due volte lo stesso ping.
+    pulseLastSentAt: timestamp("pulse_last_sent_at", { withTimezone: true }),
+  },
+  () => [
+    // Sotto 1 giorno il pulse diventerebbe un ping continuo, sopra 30 un
+    // promemoria che non arriva mai.
+    check("projects_pulse_every_days_chk", sql`pulse_every_days BETWEEN 1 AND 30`),
+  ],
+);
 
 /**
  * Repository: un singolo repo git (l'ex "progetto", rinominato). Appartiene a
@@ -908,6 +926,9 @@ export const notificationKind = pgEnum("notification_kind", [
   // Fase 1: l'agente che pianifica un fix si è fermato con una domanda per un
   // umano (il job è parcheggiato in `awaiting_input`).
   "job.awaiting_input",
+  // Fase 2: il pulse proattivo su un progetto fermo, con le proposte prese dal
+  // backlog. Ancorato al PROGETTO: non ha né ticket né job dietro.
+  "project.pulse",
 ]);
 
 // Stato di una notifica nell'inbox del destinatario: `open` (da smaltire),
@@ -965,6 +986,8 @@ export const notificationSettings = pgTable("notification_settings", {
   // Notifica quando la pianificazione AI si ferma con una domanda per un umano
   // (`job.awaiting_input`).
   notifyAwaitingInput: boolean("notify_awaiting_input").notNull().default(true),
+  // Notifica del pulse proattivo su un progetto fermo (`project.pulse`).
+  notifyPulse: boolean("notify_pulse").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
