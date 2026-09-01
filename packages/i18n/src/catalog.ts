@@ -181,6 +181,17 @@ export const en: Catalog = {
   "notify.inbox.rejectClose": "Cancel",
   "notify.inbox.rejectLabel": "Instructions for replanning (optional)",
   "notify.inbox.rejectPlaceholder": "What is wrong with the plan? The AI will use this to replan.",
+  // Domanda dell'agente sul DM: bottone del testo libero (le altre etichette
+  // sono le opzioni stesse, che scrive l'agente) e modal che lo raccoglie.
+  // "consigliata" NON ha una chiave sua: è la stessa parola del commento sul
+  // ticket (`comment.agentQuestionRecommended`), e una sola traduzione evita
+  // che le due superfici dicano cose diverse della stessa opzione.
+  "notify.inbox.answerOther": "Other…",
+  "notify.inbox.answerTitle": "Answer the AI",
+  "notify.inbox.answerSubmit": "Send",
+  "notify.inbox.answerClose": "Cancel",
+  "notify.inbox.answerLabel": "Your answer",
+  "notify.inbox.answerPlaceholder": "Answer in your own words: the AI resumes planning from here.",
 
   // --- report.* — header delle sezioni del report ---
   "report.investigation": "Investigation process",
@@ -334,6 +345,13 @@ export const it: Catalog = {
   "notify.inbox.rejectLabel": "Istruzioni per la ripianificazione (opzionale)",
   "notify.inbox.rejectPlaceholder":
     "Cosa non va nel piano? L'AI userà queste indicazioni per ripianificare.",
+  "notify.inbox.answerOther": "Altro…",
+  "notify.inbox.answerTitle": "Rispondi all'AI",
+  "notify.inbox.answerSubmit": "Invia",
+  "notify.inbox.answerClose": "Annulla",
+  "notify.inbox.answerLabel": "La tua risposta",
+  "notify.inbox.answerPlaceholder":
+    "Rispondi con parole tue: l'AI riprende la pianificazione da qui.",
 
   // --- report.* ---
   "report.investigation": "Processo di indagine",

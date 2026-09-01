@@ -1,7 +1,8 @@
 /**
  * AZIONI DELL'INBOX PREMUTE DA SLACK: la parte non-HTTP dell'handler
- * `block_actions` (e del `view_submission` del modal di rifiuto) di
- * `./routes.ts`, tenuta fuori dalle rotte perché è la parte con delle regole.
+ * `block_actions` (e del `view_submission` dei modal di rifiuto e di risposta
+ * libera) di `./routes.ts`, tenuta fuori dalle rotte perché è la parte con
+ * delle regole.
  *
  * Il servizio `../services/inbox.ts` resta l'UNICO arbitro di permessi, stato e
  * propagazione: qui si traduce soltanto fra il mondo Slack e il suo contratto —
@@ -28,6 +29,7 @@
 import { notifications, users, type Db } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
 import {
+  ANSWER_FREE_ACTION_ID,
   buildInboxBlocks,
   formatNotification,
   openUrl,
@@ -40,6 +42,7 @@ import {
 import { eq } from "drizzle-orm";
 import { resolveReporter, resolveReporterBySlackId } from "../ingest/reporter.js";
 import { executeAction, type ExecuteActionResult } from "../services/inbox.js";
+import { renderAnswer, type AnswerInput } from "../services/questions.js";
 // La nota di stato e l'accodamento degli aggiornamenti vivono nel modulo
 // condiviso `services/notifications-propagation.ts`: da lì li usa anche
 // `resolvePlan`, così una decisione presa dalla pagina ticket aggiorna i DM
@@ -75,6 +78,34 @@ export function parseInboxActionId(actionId: string | undefined | null): ActionI
   if (!actionId?.startsWith(ACTION_PREFIX)) return null;
   const action = actionId.slice(ACTION_PREFIX.length);
   return (INBOX_ACTIONS as readonly string[]).includes(action) ? (action as ActionId) : null;
+}
+
+/**
+ * Cosa ha premuto chi risponde a una domanda dell'agente: una delle opzioni
+ * (col suo indice) o "Altro…", che apre il modal del testo libero.
+ */
+export type SlackAnswerPress = { kind: "option"; optionIndex: number } | { kind: "free" };
+
+/** Speculare a `answerActionId` di `@stubwise/notifications`. */
+const ANSWER_OPTION_PATTERN = new RegExp(`^${ACTION_PREFIX}answer:(\\d{1,3})$`);
+
+/**
+ * Estrae la risposta da un `action_id` dei bottoni DINAMICI della domanda
+ * (`inbox:answer:<indice>` e `inbox:answer_free`, vedi `buildQuestionBlocks`),
+ * o `null` se il bottone non è uno di quelli.
+ *
+ * L'indice si prende alla lettera, senza confrontarlo con le opzioni: è
+ * `answerQuestion` a validarlo contro la domanda PERSISTITA — un `action_id`
+ * arriva da un messaggio che può essere vecchio quanto si vuole, e il payload
+ * di Slack non è una fonte di verità.
+ */
+export function parseAnswerActionId(actionId: string | undefined | null): SlackAnswerPress | null {
+  if (!actionId) return null;
+  if (actionId === ANSWER_FREE_ACTION_ID) return { kind: "free" };
+  // Fino a 3 cifre: il tetto vero è nelle opzioni della domanda, questo evita
+  // solo di trasformare in numero una stringa arbitraria.
+  const match = ANSWER_OPTION_PATTERN.exec(actionId);
+  return match ? { kind: "option", optionIndex: Number(match[1]) } : null;
 }
 
 /**
@@ -187,12 +218,16 @@ function renderSlack(
   }
 }
 
-/** Testo e blocchi del messaggio riscritto: la notifica com'era, più la nota, senza bottoni. */
+/**
+ * Testo e blocchi del messaggio riscritto: la notifica com'era, più la nota
+ * (costruita da `note` sul payload dell'evento, che serve alla risposta per
+ * dire QUALE opzione è stata scelta), senza bottoni.
+ */
 async function updatedMessage(
   db: Db,
   notificationId: string,
   lang: Language,
-  note: string,
+  note: (event: Record<string, unknown> | null) => string,
 ): Promise<{ text: string; blocks: SlackBlock[] }> {
   const [row] = await db
     .select({ kind: notifications.kind, event: notifications.event })
@@ -201,13 +236,40 @@ async function updatedMessage(
   // Notifica sparita fra l'azione e la riscrittura (cancellazione a cascata):
   // il messaggio porta almeno la nota.
   const { text } = row ? renderSlack(row.event, row.kind, lang) : { text: "" };
-  const updated = text ? `${text}\n\n${note}` : note;
+  const line = note(row?.event ?? null);
+  const updated = text ? `${text}\n\n${line}` : line;
   return {
     text: updated,
     // Nessuna azione: una notifica già decisa non si ridecide dal messaggio
     // vecchio (chi ci provasse otterrebbe un `already_handled`).
     blocks: buildInboxBlocks({ text: updated, actions: [], notificationId, lang }),
   };
+}
+
+/**
+ * La risposta in una riga, per la nota del messaggio riscritto SUBITO. Le altre
+ * copie — e la propria, riscritta poi dal poller — la ricevono da
+ * `answerQuestion`, che la rende dalla domanda persistita: qui si usa lo stesso
+ * `renderAnswer` sulle opzioni del payload, perché la scorciatoia
+ * dell'immediatezza non passa dal servizio e le due note devono dire la stessa
+ * cosa. Payload marcio ⇒ `undefined`: la nota ripiega sul suo "—" e il poller
+ * la corregge un tick dopo.
+ */
+function answerLine(
+  answer: AnswerInput | undefined,
+  event: Record<string, unknown> | null,
+): string | undefined {
+  if (!answer) return undefined;
+  if (answer.text !== undefined) return answer.text.trim() || undefined;
+  if (answer.optionIndex === undefined) return undefined;
+  const raw: unknown = event?.options;
+  const options = Array.isArray(raw)
+    ? raw.filter(
+        (o): o is { label: string; consequence?: string } =>
+          typeof o === "object" && o !== null && typeof (o as { label?: unknown }).label === "string",
+      )
+    : [];
+  return renderAnswer({ optionIndex: answer.optionIndex }, options);
 }
 
 export interface InboxActionDeps {
@@ -225,6 +287,12 @@ export interface InboxActionInput {
   action: Exclude<ActionId, "open">;
   /** Durata scelta nel menù dello snooze (`selected_option.value`). */
   until?: string;
+  /**
+   * Risposta alla domanda dell'agente: l'indice del bottone premuto, o il testo
+   * del modal "Altro…". La validazione (indice dentro le opzioni, testo libero
+   * ammesso) è di `answerQuestion`, non di qui.
+   */
+  answer?: AnswerInput;
   /** `response_url` del messaggio da riscrivere. Assente ⇒ nessun feedback diretto. */
   responseUrl?: string;
 }
@@ -249,6 +317,9 @@ export async function runInboxAction(
     // `until` arriva dal menù: se non è una durata ammessa, il servizio
     // risponde `invalid_action` (la validazione è sua, non nostra).
     ...(action === "snooze" ? { payload: { until: input.until as SnoozeUntil } } : {}),
+    // Idem per la risposta: l'indice del bottone o il testo del modal li
+    // valida `answerQuestion` contro la domanda persistita.
+    ...(action === "answer" ? { payload: { answer: input.answer ?? {} } } : {}),
     ...(deps.publicUrl ? { publicUrl: deps.publicUrl } : {}),
   });
 
@@ -272,8 +343,15 @@ export async function runInboxAction(
 
   // 1) La propria copia, subito: riscritta sul posto via response_url.
   if (responseUrl) {
-    const note = inboxNote(action, actor.language, noteArgs);
-    const message = await updatedMessage(db, notificationId, actor.language, note);
+    const message = await updatedMessage(db, notificationId, actor.language, (event) => {
+      // La nota della risposta la PORTA: chi ha premuto deve rileggere cosa ha
+      // appena scelto, non solo che ha scelto.
+      const answer = answerLine(input.answer, event);
+      return inboxNote(action, actor.language, {
+        ...noteArgs,
+        ...(answer === undefined ? {} : { answer }),
+      });
+    });
     await postResponse(responseUrl, {
       replace_original: true,
       text: message.text,

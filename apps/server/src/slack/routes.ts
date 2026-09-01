@@ -5,7 +5,7 @@ import { docPages, projects, repositories, users } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import type { EmbeddingClient } from "@stubwise/embeddings";
 import { t, type Language } from "@stubwise/i18n";
-import { parseInboxBlockId } from "@stubwise/notifications";
+import { parseInboxBlockId, type ActionId } from "@stubwise/notifications";
 import { ProjectNotFoundError } from "../db/tickets.js";
 import { createExternalTicket } from "../ingest/processor.js";
 import { resolveReporter, resolveReporterBySlackId } from "../ingest/reporter.js";
@@ -18,6 +18,7 @@ import { executeAction } from "../services/inbox.js";
 import { getContentLanguage } from "../settings.js";
 import {
   inboxErrorText,
+  parseAnswerActionId,
   parseInboxActionId,
   resolveSlackActor,
   runInboxAction,
@@ -25,8 +26,12 @@ import {
 import {
   ACTION_IDS,
   BLOCK_IDS,
+  buildAnswerModal,
   buildRejectPlanModal,
   buildTicketModal,
+  INBOX_ANSWER_ACTION_ID,
+  INBOX_ANSWER_BLOCK_ID,
+  INBOX_ANSWER_CALLBACK_ID,
   INBOX_REJECT_ACTION_ID,
   INBOX_REJECT_BLOCK_ID,
   INBOX_REJECT_PLAN_CALLBACK_ID,
@@ -587,6 +592,47 @@ export async function slackRoutes(
         return ack(reply);
       }
 
+      // Branch INBOX: il modal "Altro…" della domanda dell'agente, gemello di
+      // quello di rifiuto — stesso `private_metadata` (il solo notificationId),
+      // stessa identità ri-risolta, stessi errori resi DENTRO al modal.
+      if (payload.view?.callback_id === INBOX_ANSWER_CALLBACK_ID) {
+        const notificationId = payload.view.private_metadata?.trim();
+        const text = inputValue(
+          payload.view.state?.values,
+          INBOX_ANSWER_BLOCK_ID,
+          INBOX_ANSWER_ACTION_ID,
+        );
+        const actor = await resolveSlackActor(instance.db, client, payload.user?.id);
+        const answerError = (message: string): FastifyReply =>
+          reply
+            .code(200)
+            .send({ response_action: "errors", errors: { [INBOX_ANSWER_BLOCK_ID]: message } });
+        if (!actor) {
+          return answerError(t(await getContentLanguage(instance.db), "notify.inbox.notLinked"));
+        }
+        if (!notificationId) {
+          return answerError(t(actor.language, "notify.inbox.errNotFound"));
+        }
+
+        const publicUrl = publicUrlOrUndefined(instance);
+        const result = await executeAction(instance.db, {
+          notificationId,
+          action: "answer",
+          actor: { id: actor.id, role: actor.role },
+          // Testo vuoto (soli spazi): lo rifiuta `answerQuestion` con
+          // `invalid_answer`, che qui diventa un errore nel modal. Non serve
+          // una validazione gemella.
+          payload: { answer: { text: text ?? "" } },
+          ...(publicUrl ? { publicUrl } : {}),
+        });
+        if (!result.ok) return answerError(inboxErrorText(actor.language, result));
+
+        // Come nel rifiuto: qui non c'è un `response_url` con cui riscrivere
+        // subito il proprio DM, e la copia arriva col tick del poller insieme a
+        // tutte le altre (le accoda `answerQuestion` in propagazione).
+        return ack(reply);
+      }
+
       // Branch /docs: la view di interrogazione dei Docs (callback_id dedicato).
       // Additivo, PRIMA della logica ticket; se il callback_id non è quello,
       // prosegue invariato col flusso ticket sottostante.
@@ -763,7 +809,11 @@ export async function slackRoutes(
       // Bottoni dell'INBOX sul DM Slack (`buildInboxBlocks`). Slack manda un
       // solo elemento premuto per interazione.
       const pressed = payload.actions?.[0];
-      const action = parseInboxActionId(pressed?.action_id);
+      // I bottoni della DOMANDA sono dinamici (`inbox:answer:<n>` e
+      // `inbox:answer_free`): non sono `ActionId`, ma tutti eseguono l'azione
+      // `answer`. Vanno riconosciuti prima, o `parseInboxActionId` li scarterebbe.
+      const press = parseAnswerActionId(pressed?.action_id);
+      const action: ActionId | null = press ? "answer" : parseInboxActionId(pressed?.action_id);
       // Bottone di un altro flusso (o di un'azione che non esiste più): ack e
       // basta, come faceva l'intero ramo prima di questo handler.
       if (!action) return ack(reply);
@@ -776,10 +826,12 @@ export async function slackRoutes(
       if (!notificationId) return ack(reply);
       const responseUrl = payload.response_url;
 
-      if (action === "reject_plan") {
-        // Unica azione che apre un modal: il `trigger_id` vale pochi secondi,
-        // quindi views.open sta PRIMA dell'ack (come gli altri modal di questo
-        // file). Nessuna esecuzione qui: decide il view_submission.
+      // Le due azioni che aprono un MODAL invece di eseguire: il rifiuto del
+      // piano e l'"Altro…" della domanda, che raccolgono un testo. Il
+      // `trigger_id` vale pochi secondi, quindi views.open sta PRIMA dell'ack
+      // (come gli altri modal di questo file). Nessuna esecuzione qui: decide
+      // il view_submission.
+      if (action === "reject_plan" || press?.kind === "free") {
         const actor = await resolveSlackActor(instance.db, client, payload.user?.id);
         if (!actor) {
           await postNotLinked(responseUrl);
@@ -790,7 +842,9 @@ export async function slackRoutes(
           // non c'è nulla di utile da dire a Slack oltre al 200 d'ack.
           await client.openView(
             payload.trigger_id,
-            buildRejectPlanModal(notificationId, actor.language),
+            action === "reject_plan"
+              ? buildRejectPlanModal(notificationId, actor.language)
+              : buildAnswerModal(notificationId, actor.language),
           );
         }
         return ack(reply);
@@ -801,6 +855,8 @@ export async function slackRoutes(
       // Slack (che pretende un ack entro 3 secondi). `setImmediate` garantisce
       // che l'ack sia già stato scritto quando il lavoro parte.
       const until = pressed?.selected_option?.value;
+      // Opzione premuta: l'indice è tutto ciò che la risposta porta con sé.
+      const answer = press?.kind === "option" ? { optionIndex: press.optionIndex } : undefined;
       const ackReply = ack(reply);
       const publicUrl = publicUrlOrUndefined(instance);
       setImmediate(() => {
@@ -825,6 +881,7 @@ export async function slackRoutes(
               notificationId,
               action,
               ...(until === undefined ? {} : { until }),
+              ...(answer === undefined ? {} : { answer }),
               ...(responseUrl ? { responseUrl } : {}),
             },
           );

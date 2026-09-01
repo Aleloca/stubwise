@@ -3,11 +3,14 @@
  * bottoni per agirci sopra.
  *
  * Modulo puro (solo `@stubwise/i18n`): lo usa il poller delle consegne del
- * worker per comporre il DM e potrà usarlo il server per riscriverlo dopo
- * un'azione. La forma dei blocchi è un CONTRATTO con l'handler `block_actions`
- * (Task 10), che rilegge:
+ * worker per comporre il DM e lo usa il server per riscriverlo dopo un'azione.
+ * La forma dei blocchi è un CONTRATTO con l'handler `block_actions`
+ * (`apps/server/src/slack/routes.ts`), che rilegge:
  *
- *  - `action_id = "inbox:<ActionId>"` — quale azione è stata premuta;
+ *  - `action_id = "inbox:<ActionId>"` — quale azione è stata premuta. Fanno
+ *    eccezione i bottoni DINAMICI della domanda dell'agente
+ *    (`inbox:answer:<indice>` e `inbox:answer_free`, vedi
+ *    {@link buildQuestionBlocks}): non sono `ActionId`, ma eseguono `answer`;
  *  - `block_id = "inbox:<notificationId>"` — su QUALE notifica. È il carrier
  *    autorevole dell'id: Slack rimanda il `value` dei bottoni ma NON quello di
  *    un `static_select` (di cui manda `selected_option.value`), quindi il menù
@@ -21,6 +24,7 @@
  */
 import { t, type Language } from "@stubwise/i18n";
 import { SNOOZE_OPTIONS, type ActionId, type SnoozeUntil } from "./actions.js";
+import type { AgentQuestionOption } from "./format.js";
 
 /**
  * Un blocco Block Kit. Non tipizziamo l'intero schema di Slack: il payload è
@@ -82,6 +86,49 @@ function plainText(text: string): SlackBlock {
   return { type: "plain_text", text, emoji: true };
 }
 
+/**
+ * Un elemento interattivo dell'inbox, o `null` se non c'è nulla da mostrare
+ * (`open` senza URL). Condiviso fra i DM standard e quelli della domanda, così
+ * apri/rinvia/gestita hanno una definizione sola.
+ */
+function actionElement(
+  action: ActionId,
+  ctx: { notificationId: string; url?: string; lang: Language },
+): SlackBlock | null {
+  const { notificationId, url, lang } = ctx;
+  if (action === "open") {
+    // Senza URL non c'è nulla da aprire: meglio nessun bottone che un link
+    // rotto.
+    if (!url) return null;
+    return {
+      type: "button",
+      action_id: `${ACTION_PREFIX}open`,
+      text: plainText(t(lang, LABEL_KEY.open)),
+      url,
+      value: notificationId,
+    };
+  }
+  if (action === "snooze") {
+    return {
+      type: "static_select",
+      action_id: `${ACTION_PREFIX}snooze`,
+      placeholder: plainText(t(lang, LABEL_KEY.snooze)),
+      options: SNOOZE_OPTIONS.map((until) => ({
+        text: plainText(t(lang, SNOOZE_LABEL_KEY[until])),
+        value: until,
+      })),
+    };
+  }
+  const style = STYLE[action];
+  return {
+    type: "button",
+    action_id: `${ACTION_PREFIX}${action}`,
+    text: plainText(t(lang, LABEL_KEY[action])),
+    value: notificationId,
+    ...(style ? { style } : {}),
+  };
+}
+
 export interface InboxBlocksInput {
   /** Testo mrkdwn della notifica (da `formatNotification(event, "slack", lang)`). */
   text: string;
@@ -113,43 +160,210 @@ export function buildInboxBlocks(input: InboxBlocksInput): SlackBlock[] {
 
   const elements: SlackBlock[] = [];
   for (const action of actions) {
-    if (action === "open") {
-      // Senza URL non c'è nulla da aprire: meglio nessun bottone che un link
-      // rotto.
-      if (!url) continue;
-      elements.push({
-        type: "button",
-        action_id: `${ACTION_PREFIX}open`,
-        text: plainText(t(lang, LABEL_KEY.open)),
-        url,
-        value: notificationId,
-      });
-      continue;
-    }
-    if (action === "snooze") {
-      elements.push({
-        type: "static_select",
-        action_id: `${ACTION_PREFIX}snooze`,
-        placeholder: plainText(t(lang, LABEL_KEY.snooze)),
-        options: SNOOZE_OPTIONS.map((until) => ({
-          text: plainText(t(lang, SNOOZE_LABEL_KEY[until])),
-          value: until,
-        })),
-      });
-      continue;
-    }
-    const style = STYLE[action];
-    elements.push({
-      type: "button",
-      action_id: `${ACTION_PREFIX}${action}`,
-      text: plainText(t(lang, LABEL_KEY[action])),
-      value: notificationId,
-      ...(style ? { style } : {}),
-    });
+    const element = actionElement(action, { notificationId, lang, ...(url ? { url } : {}) });
+    if (element) elements.push(element);
   }
 
   if (elements.length > 0) {
     blocks.push({ type: "actions", block_id: inboxBlockId(notificationId), elements });
   }
+  return blocks;
+}
+
+// --- DM della DOMANDA dell'agente (`job.awaiting_input`) -------------------
+
+/**
+ * `action_id` del bottone di una singola opzione: `inbox:answer:<indice>`.
+ * L'indice è l'unico dato che il click deve portarsi dietro — l'etichetta la
+ * legge il servizio dalla domanda persistita, non dal payload di Slack.
+ */
+export function answerActionId(optionIndex: number): string {
+  return `${ACTION_PREFIX}answer:${optionIndex}`;
+}
+
+/** `action_id` del bottone "Altro…", che apre il modal del testo libero. */
+export const ANSWER_FREE_ACTION_ID = `${ACTION_PREFIX}answer_free`;
+
+/**
+ * Opzioni rese come bottoni. Il contratto del tool `ask_user` ne ammette 2–4:
+ * il tetto qui è una cintura di sicurezza su un payload jsonb scritto da
+ * chissà quale versione, non un limite di Slack (un blocco `actions` ne regge
+ * fino a 25).
+ */
+const MAX_OPTIONS = 4;
+
+/** Tetto Slack al `plain_text` di un bottone. */
+const BUTTON_TEXT_MAX = 75;
+
+/** Tetto Slack al testo mrkdwn di una `section`. */
+const SECTION_TEXT_MAX = 3000;
+
+/**
+ * Quanto di una conseguenza entra nella sezione. Non è un limite di Slack: è
+ * leggibilità: il DM si legge dal telefono, e un paragrafo per opzione lo
+ * renderebbe un muro.
+ */
+const CONSEQUENCE_MAX = 240;
+
+/** Marcatore dell'opzione consigliata dall'agente (bottone e sezione). */
+const RECOMMENDED_MARK = "⭐";
+
+/** Tronca a `max` caratteri con l'ellissi, senza spezzare a metà di uno spazio. */
+function truncate(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`;
+}
+
+/**
+ * Escape mrkdwn del testo NON FIDATO: domanda, etichette e conseguenze le
+ * scrive l'agente. Slack vuole `&`, `<` e `>` come entità HTML, ed è anche ciò
+ * che impedisce a un'etichetta di iniettare un link (`<https://…|Fidati>`) o di
+ * far finta di essere un'altra parte del messaggio. `*` e `_` restano: al
+ * massimo sballano il corsivo, non fingono nulla.
+ */
+function escapeMrkdwn(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** La domanda come serve a questi blocchi, estratta dal payload dell'evento. */
+interface QuestionForBlocks {
+  options: AgentQuestionOption[];
+  recommendedIndex: number | null;
+  allowFreeText: boolean;
+}
+
+/**
+ * RECINTO attorno al payload: `notifications.event` è jsonb e può venire da una
+ * versione precedente o essere marcio. Ritorna `null` quando non c'è nulla di
+ * rispondibile (nessuna opzione utilizzabile e nessun testo libero): il
+ * chiamante degrada ai blocchi standard invece di mostrare bottoni che non
+ * possono funzionare.
+ */
+function readQuestion(event: unknown): QuestionForBlocks | null {
+  if (typeof event !== "object" || event === null) return null;
+  const raw = event as Record<string, unknown>;
+  const allowFreeText = raw.allowFreeText === true;
+  const options: AgentQuestionOption[] = [];
+  if (Array.isArray(raw.options)) {
+    for (const item of raw.options.slice(0, MAX_OPTIONS)) {
+      if (typeof item !== "object" || item === null) continue;
+      const { label, consequence } = item as { label?: unknown; consequence?: unknown };
+      if (typeof label !== "string" || label.trim() === "") continue;
+      options.push({
+        label: label.trim(),
+        ...(typeof consequence === "string" && consequence.trim() !== ""
+          ? { consequence: consequence.trim() }
+          : {}),
+      });
+    }
+  }
+  if (options.length === 0 && !allowFreeText) return null;
+  const recommended = raw.recommendedIndex;
+  return {
+    options,
+    recommendedIndex:
+      typeof recommended === "number" &&
+      Number.isInteger(recommended) &&
+      recommended >= 0 &&
+      recommended < options.length
+        ? recommended
+        : null,
+    allowFreeText,
+  };
+}
+
+export interface QuestionBlocksInput {
+  /** Testo mrkdwn della notifica: contiene già la domanda e il link al ticket. */
+  text: string;
+  /** Payload GREZZO della notifica `job.awaiting_input` (jsonb, non fidato). */
+  event: unknown;
+  /** Azioni offerte al DESTINATARIO (`actionsFor`): senza `answer` non si risponde. */
+  actions: ActionId[];
+  notificationId: string;
+  /** Dove porta il bottone "Apri". Assente ⇒ nessun bottone link. */
+  url?: string;
+  /** Lingua del destinatario. */
+  lang: Language;
+}
+
+/**
+ * Blocchi del DM di una DOMANDA dell'agente: al posto del bottone generico
+ * "Rispondi" ci sono i bottoni delle opzioni, uno per scelta, più "Altro…" se
+ * l'agente accetta anche il testo libero.
+ *
+ * Tre blocchi: il testo della notifica (che porta già la domanda), la SEZIONE
+ * delle opzioni con le conseguenze — che nei bottoni non ci starebbero, e sono
+ * metà del significato di una scelta — e i bottoni. Il click esegue subito, di
+ * proposito: la conferma a due passi è della card web, qui la corsa la protegge
+ * il "ha già risposto X" del servizio.
+ *
+ * DEGRADO: se il destinatario non può rispondere (job ripartito) o il payload
+ * non contiene una domanda utilizzabile, tornano i blocchi standard SENZA
+ * `answer` — un bottone generico non potrebbe portare né un'opzione né un
+ * testo, e premerlo darebbe sempre errore. Si risponde dal ticket, che il
+ * bottone "Apri" raggiunge.
+ */
+export function buildQuestionBlocks(input: QuestionBlocksInput): SlackBlock[] {
+  const { text, actions, notificationId, url, lang } = input;
+  const question = actions.includes("answer") ? readQuestion(input.event) : null;
+  if (!question) {
+    return buildInboxBlocks({
+      text,
+      actions: actions.filter((action) => action !== "answer"),
+      notificationId,
+      lang,
+      ...(url ? { url } : {}),
+    });
+  }
+
+  const lines = question.options.map((option, index) => {
+    const recommended =
+      index === question.recommendedIndex
+        ? ` ${RECOMMENDED_MARK} _(${t(lang, "comment.agentQuestionRecommended")})_`
+        : "";
+    const consequence = option.consequence
+      ? `\n${escapeMrkdwn(truncate(option.consequence, CONSEQUENCE_MAX))}`
+      : "";
+    return `${index + 1}. *${escapeMrkdwn(option.label)}*${recommended}${consequence}`;
+  });
+
+  const elements: SlackBlock[] = question.options.map((option, index) => {
+    const prefix = `${index + 1}. `;
+    const suffix = index === question.recommendedIndex ? ` ${RECOMMENDED_MARK}` : "";
+    return {
+      type: "button",
+      action_id: answerActionId(index),
+      // L'etichetta è dell'agente: sta nei 75 caratteri del bottone, prefisso e
+      // stella compresi (il numero la lega alla riga della sezione, che è dove
+      // si leggono le conseguenze).
+      text: plainText(
+        `${prefix}${truncate(option.label, BUTTON_TEXT_MAX - prefix.length - suffix.length)}${suffix}`,
+      ),
+      value: notificationId,
+    };
+  });
+  if (question.allowFreeText) {
+    elements.push({
+      type: "button",
+      action_id: ANSWER_FREE_ACTION_ID,
+      text: plainText(t(lang, "notify.inbox.answerOther")),
+      value: notificationId,
+    });
+  }
+  for (const action of actions) {
+    if (action === "answer") continue;
+    const element = actionElement(action, { notificationId, lang, ...(url ? { url } : {}) });
+    if (element) elements.push(element);
+  }
+
+  const blocks: SlackBlock[] = [{ type: "section", text: { type: "mrkdwn", text } }];
+  if (lines.length > 0) {
+    blocks.push({
+      type: "section",
+      // Riga vuota fra un'opzione e l'altra: il DM si legge dal telefono, e
+      // senza respiro le conseguenze si confondono con l'etichetta successiva.
+      text: { type: "mrkdwn", text: truncate(lines.join("\n\n"), SECTION_TEXT_MAX) },
+    });
+  }
+  blocks.push({ type: "actions", block_id: inboxBlockId(notificationId), elements });
   return blocks;
 }

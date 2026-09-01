@@ -478,8 +478,12 @@ function normalizeAnswer(
  * La risposta in una riga di testo, per il commento sul ticket e per la nota dei
  * DM Slack: l'etichetta dell'opzione scelta (con la sua conseguenza, che è
  * metà del significato della scelta) oppure il testo libero.
+ *
+ * Esportata perché la usa anche `slack/inbox-actions.ts` per la nota del DM che
+ * riscrive SUBITO via `response_url`, senza passare da qui: la stessa risposta
+ * dev'essere resa allo stesso modo su tutte le copie del messaggio.
  */
-function renderAnswer(
+export function renderAnswer(
   answer: AgentQuestionAnswer,
   options: { label: string; consequence?: string }[],
 ): string {

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { actionsFor } from "./actions.js";
-import { buildInboxBlocks, inboxBlockId, parseInboxBlockId } from "./slack-blocks.js";
+import { actionsFor, type ActionId } from "./actions.js";
+import {
+  buildInboxBlocks,
+  buildQuestionBlocks,
+  inboxBlockId,
+  parseInboxBlockId,
+} from "./slack-blocks.js";
 
 /**
  * Test della composizione Block Kit del DM d'inbox. La forma dei blocchi è un
@@ -170,5 +175,198 @@ describe("buildInboxBlocks", () => {
     expect(parseInboxBlockId(inboxBlockId(NOTIFICATION_ID))).toBe(NOTIFICATION_ID);
     expect(parseInboxBlockId("qualcos'altro")).toBeNull();
     expect(parseInboxBlockId(undefined)).toBeNull();
+  });
+});
+
+/**
+ * Test dei blocchi della DOMANDA dell'agente (`job.awaiting_input`): il DM ha
+ * un bottone per opzione, costruito dal payload dell'evento — che è
+ * autosufficiente e, essendo jsonb scritto da una versione qualsiasi, va
+ * trattato come non fidato in entrambi i sensi (forma e contenuto).
+ */
+describe("buildQuestionBlocks", () => {
+  const QUESTION_EVENT = {
+    kind: "job.awaiting_input",
+    ticketNumber: 7,
+    ticketTitle: "Export CSV dello storico",
+    projectName: "negozio-web",
+    ticketUrl: "https://s.test/tickets/7",
+    questionId: "99999999-8888-7777-6666-555555555555",
+    round: 1,
+    question: "Quali colonne deve avere il CSV?",
+    options: [
+      { label: "Colonne vecchie", consequence: "Gli export esistenti restano validi." },
+      { label: "Colonne nuove", consequence: "Rompe gli script dei clienti." },
+    ],
+    recommendedIndex: 0,
+    allowFreeText: true,
+  };
+
+  /** Blocchi con le azioni di chi PUÒ rispondere (richiedente o maintainer). */
+  function questionBlocks(
+    overrides: Partial<Record<string, unknown>> = {},
+    opts: { lang?: "it" | "en"; actions?: ActionId[]; event?: unknown } = {},
+  ): unknown[] {
+    return buildQuestionBlocks({
+      text: "❓ L'AI ha una domanda su *#7* — Export CSV. <https://s.test/tickets/7|Apri>",
+      event: "event" in opts ? opts.event : { ...QUESTION_EVENT, ...overrides },
+      actions: opts.actions ?? ["answer", "open", "snooze"],
+      notificationId: NOTIFICATION_ID,
+      url: "https://s.test/tickets/7",
+      lang: opts.lang ?? "it",
+    });
+  }
+
+  /** Il blocco `actions` (ovunque sia) e i suoi elementi. */
+  function elementsOf(blocks: unknown[]): {
+    type: string;
+    action_id: string;
+    text?: { text: string };
+    value?: string;
+  }[] {
+    const block = blocks.find((b) => (b as { type?: string }).type === "actions") as
+      | { elements: ReturnType<typeof elementsOf> }
+      | undefined;
+    return block?.elements ?? [];
+  }
+
+  function ids(blocks: unknown[]): string[] {
+    return elementsOf(blocks).map((el) => el.action_id);
+  }
+
+  /** Testo mrkdwn della sezione delle opzioni (la seconda). */
+  function optionsText(blocks: unknown[]): string {
+    return (blocks[1] as { text: { text: string } }).text.text;
+  }
+
+  it("un bottone per opzione, poi Altro…, poi l'igiene dell'inbox", () => {
+    const blocks = questionBlocks();
+    expect(ids(blocks)).toEqual([
+      "inbox:answer:0",
+      "inbox:answer:1",
+      "inbox:answer_free",
+      "inbox:open",
+      "inbox:snooze",
+    ]);
+    // Il block_id resta il carrier del notificationId, come per i DM standard.
+    const actions = blocks.find((b) => (b as { type?: string }).type === "actions") as {
+      block_id: string;
+    };
+    expect(actions.block_id).toBe(`inbox:${NOTIFICATION_ID}`);
+    expect(elementsOf(blocks)[0]?.value).toBe(NOTIFICATION_ID);
+  });
+
+  it("il primo blocco resta il testo della notifica, il secondo elenca le opzioni con le conseguenze", () => {
+    const blocks = questionBlocks();
+    expect(blocks[0]).toEqual({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: "❓ L'AI ha una domanda su *#7* — Export CSV. <https://s.test/tickets/7|Apri>",
+      },
+    });
+    const text = optionsText(blocks);
+    expect(text).toContain("1. *Colonne vecchie*");
+    expect(text).toContain("Gli export esistenti restano validi.");
+    expect(text).toContain("2. *Colonne nuove*");
+    expect(text).toContain("Rompe gli script dei clienti.");
+  });
+
+  it("⭐ sulla raccomandata: sul bottone e nella sezione, che la nomina", () => {
+    const blocks = questionBlocks({ recommendedIndex: 1 });
+    const labels = elementsOf(blocks).map((el) => el.text?.text);
+    expect(labels[0]).toBe("1. Colonne vecchie");
+    expect(labels[1]).toBe("2. Colonne nuove ⭐");
+    expect(optionsText(blocks)).toContain("2. *Colonne nuove* ⭐ _(consigliata)_");
+    // Nessuna preselezione: la stella non è uno stile "primary" che invita al tap.
+    expect(elementsOf(blocks)[1]).not.toHaveProperty("style");
+  });
+
+  it("in inglese cambiano le etichette, non gli action_id", () => {
+    const it = questionBlocks({}, { lang: "it" });
+    const en = questionBlocks({}, { lang: "en" });
+    expect(ids(en)).toEqual(ids(it));
+    const other = (blocks: unknown[]): string | undefined =>
+      elementsOf(blocks).find((el) => el.action_id === "inbox:answer_free")?.text?.text;
+    expect(other(it)).toBe("Altro…");
+    expect(other(en)).toBe("Other…");
+    expect(optionsText(en)).toContain("_(recommended)_");
+  });
+
+  it("senza testo libero non c'è il bottone Altro…", () => {
+    const blocks = questionBlocks({ allowFreeText: false });
+    expect(ids(blocks)).toEqual(["inbox:answer:0", "inbox:answer:1", "inbox:open", "inbox:snooze"]);
+  });
+
+  it("mai più di 4 opzioni (il contratto ne ammette 2–4): un payload gonfio viene tagliato", () => {
+    const blocks = questionBlocks({
+      options: Array.from({ length: 9 }, (_, i) => ({ label: `Opzione ${i + 1}` })),
+    });
+    expect(ids(blocks)).toEqual([
+      "inbox:answer:0",
+      "inbox:answer:1",
+      "inbox:answer:2",
+      "inbox:answer:3",
+      "inbox:answer_free",
+      "inbox:open",
+      "inbox:snooze",
+    ]);
+  });
+
+  it("un'etichetta lunghissima sta dentro i 75 caratteri del bottone", () => {
+    const blocks = questionBlocks({
+      options: [{ label: "A".repeat(400) }, { label: "B" }],
+      recommendedIndex: 0,
+    });
+    const label = elementsOf(blocks)[0]!.text!.text;
+    expect(label.length).toBeLessThanOrEqual(75);
+    expect(label.startsWith("1. AAA")).toBe(true);
+    expect(label.endsWith("… ⭐")).toBe(true);
+  });
+
+  it("la sezione delle opzioni sta dentro i 3000 caratteri della section", () => {
+    const blocks = questionBlocks({
+      options: Array.from({ length: 4 }, () => ({
+        label: "Etichetta",
+        consequence: "C".repeat(5000),
+      })),
+    });
+    expect(optionsText(blocks).length).toBeLessThanOrEqual(3000);
+  });
+
+  it("testo dell'agente non fidato: nessun markup Slack iniettabile dalle etichette", () => {
+    const blocks = questionBlocks({
+      options: [
+        { label: "<https://evil.test|Fidati di me>", consequence: "a & b <fine>" },
+        { label: "Normale" },
+      ],
+    });
+    const text = optionsText(blocks);
+    expect(text).not.toContain("<https://evil.test|");
+    expect(text).toContain("&lt;https://evil.test|Fidati di me&gt;");
+    expect(text).toContain("a &amp; b &lt;fine&gt;");
+  });
+
+  it("job ripartito (niente `answer` fra le azioni) → blocchi standard, nessun bottone di risposta", () => {
+    const blocks = questionBlocks({}, { actions: ["open", "snooze"] });
+    expect(ids(blocks)).toEqual(["inbox:open", "inbox:snooze"]);
+    expect(blocks).toHaveLength(2);
+  });
+
+  it("payload marcio → blocchi standard senza `answer` (mai un bottone che non può rispondere)", () => {
+    for (const event of [
+      null,
+      { kind: "job.awaiting_input" },
+      { ...QUESTION_EVENT, options: "non un array", allowFreeText: false },
+      { ...QUESTION_EVENT, options: [{ label: "  " }], allowFreeText: false },
+    ]) {
+      const blocks = questionBlocks({}, { event });
+      expect(ids(blocks)).toEqual(["inbox:open", "inbox:snooze"]);
+    }
+  });
+
+  it("payload senza opzioni ma con testo libero: resta il solo Altro…", () => {
+    const blocks = questionBlocks({ options: [], recommendedIndex: undefined });
+    expect(ids(blocks)).toEqual(["inbox:answer_free", "inbox:open", "inbox:snooze"]);
   });
 });

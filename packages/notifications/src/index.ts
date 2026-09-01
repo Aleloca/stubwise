@@ -30,10 +30,14 @@ export {
 } from "./actions.js";
 
 export {
+  ANSWER_FREE_ACTION_ID,
+  answerActionId,
   buildInboxBlocks,
+  buildQuestionBlocks,
   inboxBlockId,
   parseInboxBlockId,
   type InboxBlocksInput,
+  type QuestionBlocksInput,
   type SlackBlock,
 } from "./slack-blocks.js";
 

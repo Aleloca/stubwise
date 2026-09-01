@@ -9,6 +9,7 @@ import {
 import {
   actionsFor,
   buildInboxBlocks,
+  buildQuestionBlocks,
   createSlackClient,
   formatNotification,
   isFatalSlackError,
@@ -508,13 +509,27 @@ async function sendSlackDm(
     jobStatus,
     { id: recipient.userId, role: recipient.role },
   );
-  const blocks = buildInboxBlocks({
-    text,
-    actions,
-    notificationId: recipient.notificationId,
-    lang: recipient.language,
-    ...(url ? { url } : {}),
-  });
+  // La DOMANDA dell'agente ha bottoni suoi, uno per opzione: il generico
+  // "Rispondi" non potrebbe portarsi dietro la scelta. `buildQuestionBlocks`
+  // legge la domanda dal payload dell'evento (autosufficiente) e, se non è
+  // utilizzabile, degrada da sé ai blocchi standard.
+  const blocks =
+    recipient.kind === "job.awaiting_input"
+      ? buildQuestionBlocks({
+          text,
+          event: recipient.event,
+          actions,
+          notificationId: recipient.notificationId,
+          lang: recipient.language,
+          ...(url ? { url } : {}),
+        })
+      : buildInboxBlocks({
+          text,
+          actions,
+          notificationId: recipient.notificationId,
+          lang: recipient.language,
+          ...(url ? { url } : {}),
+        });
 
   // `channel` = lo user id: Slack apre da sé il DM (scope chat:write + im:write).
   const posted = await client.postMessage({ channel: recipient.slackUserId, text, blocks });
