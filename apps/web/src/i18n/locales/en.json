@@ -1079,6 +1079,22 @@
       "generic": "Action failed"
     }
   },
+  "question": {
+    "legend": "Choose an answer",
+    "recommended": "recommended",
+    "other": "Other…",
+    "freeLabel": "Your answer",
+    "freePlaceholder": "Say what the AI should do…",
+    "submit": "Send answer",
+    "errors": {
+      "alreadyAnswered": "Already answered by {{email}}",
+      "alreadyAnsweredUnknown": "Already answered by someone else",
+      "notPending": "This question is no longer waiting for an answer",
+      "invalidAnswer": "This answer does not fit the question",
+      "forbidden": "Only who started the run, or a maintainer, can answer",
+      "generic": "Could not send the answer"
+    }
+  },
   "automation": {
     "title": "AI automation",
     "subtitle": "The automatic fix only runs if auto-fix is on and the estimated effort is within the threshold.",

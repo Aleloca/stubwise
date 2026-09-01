@@ -1,5 +1,7 @@
 import type {
+  AgentQuestionOption,
   AlertThresholds,
+  AnswerBody,
   BacklogItemSource,
   BacklogItemStatus,
   BacklogRisk,
@@ -16,6 +18,7 @@ import type {
   InboxDecisionAction,
   InboxItem,
   InboxPage,
+  InboxQuestion,
   InboxStatus,
   Language,
   NotificationPrefs,
@@ -48,18 +51,26 @@ import type {
 // Import RUNTIME (non di solo tipo): l'unico schema che il client ESEGUE, per
 // validare il body del 409 `already_handled` prima di fidarsene (vedi
 // `handledByFromError`).
-import { inboxActionErrorSchema } from "@stubwise/shared";
+import { ANSWER_TEXT_MAX_CHARS, inboxActionErrorSchema } from "@stubwise/shared";
+
+// Tetto del testo libero di una risposta: ri-esportato dal binding locale come
+// i tipi qui sopra, così il pannello della domanda può limitare la textarea
+// senza conoscere `@stubwise/shared`.
+export { ANSWER_TEXT_MAX_CHARS };
 
 export type { PatView, PatWithToken, PrState, WidgetSettings, WidgetUpsertBody } from "@stubwise/shared";
 // Tipi dell'inbox ri-esportati dal binding locale: i componenti li importano da
 // "./api" come gli altri tipi di dominio, senza conoscere `@stubwise/shared`.
 export type {
+  AgentQuestionOption,
+  AnswerBody,
   HandledBy,
   InboxAction,
   InboxActionResult,
   InboxDecisionAction,
   InboxItem,
   InboxPage,
+  InboxQuestion,
   InboxStatus,
   NotificationPrefs,
   NotificationPrefsView,
@@ -2965,21 +2976,31 @@ export function postInboxHandled(id: string): Promise<void> {
 }
 
 /**
+ * Corpo di un'azione decisionale: le istruzioni del rifiuto OPPURE la risposta
+ * a una domanda dell'agente ({@link AnswerBody}: esattamente uno fra opzione e
+ * testo). La rotta è una sola per quattro azioni, e ognuna guarda solo i campi
+ * che la riguardano.
+ */
+export type InboxActionBody = { instructions?: string } | AnswerBody;
+
+/**
  * Azione DECISIONALE su una notifica (approva/rifiuta il piano, rilancia il
- * job). `instructions` serve solo a `reject_plan` (diventa un commento del
- * team). La risposta porta `changedNotificationIds`: la decisione chiude in
- * blocco tutte le copie della stessa notifica, anche di altri utenti, e il
- * chiamante aggiorna quelle righe senza ricaricare.
+ * job, rispondi a una domanda). `instructions` serve solo a `reject_plan`
+ * (diventa un commento del team), `optionIndex`/`text` solo ad `answer`. La
+ * risposta porta `changedNotificationIds`: la decisione chiude in blocco tutte
+ * le copie della stessa notifica, anche di altri utenti, e il chiamante
+ * aggiorna quelle righe senza ricaricare.
  *
  * Errori attesi (tutti `ApiError`): 409 `already_handled` — qualcun altro ha
- * deciso prima, `handledBy` nel body (vedi {@link handledByFromError}); 409
- * `job_in_flight` — c'è già un job in corso sul ticket; 409 `plan_not_pending`,
- * 403 `forbidden`, 400 `invalid_action`.
+ * deciso (o risposto) prima, `handledBy` nel body (vedi
+ * {@link handledByFromError}); 409 `job_in_flight` — c'è già un job in corso sul
+ * ticket; 409 `plan_not_pending`, 409 `question_not_pending`, 403 `forbidden`,
+ * 400 `invalid_action`, 400 `invalid_answer`.
  */
 export function postInboxAction(
   id: string,
   action: InboxDecisionAction,
-  body?: { instructions?: string },
+  body?: InboxActionBody,
 ): Promise<InboxActionResult> {
   return api.post(`/api/inbox/${encodeURIComponent(id)}/actions/${action}`, body);
 }

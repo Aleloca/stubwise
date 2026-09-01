@@ -8,6 +8,7 @@ import {
   postInboxHandled,
   postInboxSnooze,
   type HandledBy,
+  type InboxActionBody,
   type InboxDecisionAction,
   type InboxFilters,
   type InboxItem,
@@ -16,6 +17,7 @@ import {
 } from "../lib/api";
 import { formatDateTime, formatRelativeTime } from "../lib/format";
 import { inboxKeys } from "../lib/queries";
+import { answerErrorMessage, QuestionPanel } from "./question-panel";
 
 /**
  * Etichetta i18n per ciascun kind di notifica, nello stesso stile delle mappe
@@ -41,8 +43,17 @@ export const INBOX_KIND_LABEL_KEYS: Record<InboxItem["kind"], string> = {
   "job.awaiting_input": "inbox:kinds.awaitingInput",
 };
 
-/** Le tre azioni che fanno di una notifica una DECISIONE (sezione "Da decidere"). */
-const DECISION_ACTIONS: InboxDecisionAction[] = ["approve_plan", "reject_plan", "relaunch"];
+/**
+ * Le azioni che fanno di una notifica una DECISIONE (sezione "Da decidere").
+ * `answer` è fra queste: una domanda dell'agente tiene FERMO il job finché
+ * qualcuno non risponde: è esattamente ciò che la sezione raccoglie.
+ */
+const DECISION_ACTIONS: InboxDecisionAction[] = [
+  "approve_plan",
+  "reject_plan",
+  "relaunch",
+  "answer",
+];
 
 /** True se la riga chiede una decisione, non solo una lettura. */
 export function isDecisionItem(item: InboxItem): boolean {
@@ -88,7 +99,13 @@ export function InboxItemCard({ item, projectName, filters, currentUser }: Inbox
   const [rejecting, setRejecting] = useState(false);
   const [instructions, setInstructions] = useState("");
   const [snoozeOpen, setSnoozeOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  /**
+   * Errore dell'ultima azione, con la superficie che deve mostrarlo: quello di
+   * una RISPOSTA appartiene al pannello della domanda (dove sta il bottone che
+   * l'ha causato, in fondo alla card), tutti gli altri alla riga d'alert sopra
+   * i bottoni. Un unico stato, così due errori non possono convivere.
+   */
+  const [error, setError] = useState<{ message: string; onPanel: boolean } | null>(null);
 
   const listKey = inboxKeys.list(filters);
 
@@ -131,12 +148,11 @@ export function InboxItemCard({ item, projectName, filters, currentUser }: Inbox
   }
 
   const decide = useMutation({
-    mutationFn: (input: { action: InboxDecisionAction; instructions?: string }) =>
-      postInboxAction(
-        item.id,
-        input.action,
-        input.instructions ? { instructions: input.instructions } : undefined,
-      ),
+    // Un solo `body` opaco: la rotta è una per tutte le azioni decisionali, e
+    // ognuna ci mette i campi suoi (`instructions` il rifiuto, `optionIndex`/
+    // `text` la risposta).
+    mutationFn: (input: { action: InboxDecisionAction; body?: InboxActionBody }) =>
+      postInboxAction(item.id, input.action, input.body),
     onMutate: () => setError(null),
     onSuccess: (result) => {
       // La decisione chiude TUTTE le copie della notifica: le righe elencate
@@ -155,8 +171,14 @@ export function InboxItemCard({ item, projectName, filters, currentUser }: Inbox
       setInstructions("");
       void queryClient.invalidateQueries({ queryKey: inboxKeys.all });
     },
-    onError: (cause) => {
-      setError(messageForError(cause));
+    onError: (cause, variables) => {
+      // La risposta a una domanda ha parole sue sugli stessi codici ("ha già
+      // risposto X", non "l'ha già gestita X"), condivise con la pagina ticket.
+      const isAnswer = variables.action === "answer";
+      setError({
+        message: isAnswer ? answerErrorMessage(cause, t) : messageForError(cause),
+        onPanel: isAnswer,
+      });
       // Anche (anzi: soprattutto) dopo un 409 la lista va ricaricata — la
       // notifica è già chiusa da qualcun altro e quello che vediamo è stantio.
       if (cause instanceof ApiError && cause.status === 409) {
@@ -181,7 +203,7 @@ export function InboxItemCard({ item, projectName, filters, currentUser }: Inbox
     },
     onError: (cause, _until, context) => {
       if (context?.previous) queryClient.setQueryData(listKey, context.previous);
-      setError(messageForError(cause));
+      setError({ message: messageForError(cause), onPanel: false });
     },
     // `onSettled` e non `onSuccess`: dopo un rollback la lista va comunque
     // riallineata al server.
@@ -206,7 +228,7 @@ export function InboxItemCard({ item, projectName, filters, currentUser }: Inbox
     },
     onError: (cause, _v, context) => {
       if (context?.previous) queryClient.setQueryData(listKey, context.previous);
-      setError(messageForError(cause));
+      setError({ message: messageForError(cause), onPanel: false });
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: inboxKeys.all }),
   });
@@ -247,10 +269,34 @@ export function InboxItemCard({ item, projectName, filters, currentUser }: Inbox
         </p>
       )}
 
-      {error !== null && (
+      {error !== null && !error.onPanel && (
         <p role="alert" className="mt-2 font-mono text-[11px] text-danger">
-          {error}
+          {error.message}
         </p>
+      )}
+
+      {can("answer") && item.question !== undefined && (
+        // La domanda si risponde QUI, sopra le azioni di contorno (apri,
+        // rinvia): è la ragione per cui la riga esiste.
+        //
+        // `question` è OPZIONALE nel contratto: su un payload che il server non
+        // ha saputo rileggere la card resta intera e senza pannello, e alla
+        // domanda si risponde dalla pagina ticket (dove porta "Apri").
+        //
+        // Niente ottimismo: il pannello non tocca la cache, e la card cambia
+        // solo quando il server ha davvero registrato la risposta (in
+        // `onSuccess`, su `changedNotificationIds`) — una risposta può perdere
+        // la corsa con quella di un collega.
+        <QuestionPanel
+          question={item.question}
+          // Il `text` della notifica include già la domanda: ripeterla sarebbe
+          // un'eco. Sulla pagina ticket (che non ha quel testo) il pannello la
+          // mostra, ed è il suo default.
+          showQuestionText={false}
+          pending={busy}
+          error={error !== null && error.onPanel ? error.message : null}
+          onSubmit={(answer) => decide.mutate({ action: "answer", body: answer })}
+        />
       )}
 
       {item.actions.length > 0 && (
@@ -365,7 +411,7 @@ export function InboxItemCard({ item, projectName, filters, currentUser }: Inbox
                   action: "reject_plan",
                   // Campo facoltativo: vuoto (o soli spazi) = nessuna istruzione,
                   // e il body parte senza la chiave.
-                  ...(instructions.trim() ? { instructions: instructions.trim() } : {}),
+                  ...(instructions.trim() ? { body: { instructions: instructions.trim() } } : {}),
                 })
               }
               className={primaryButton}

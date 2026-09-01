@@ -1079,6 +1079,22 @@
       "generic": "Azione non riuscita"
     }
   },
+  "question": {
+    "legend": "Scegli una risposta",
+    "recommended": "consigliata",
+    "other": "Altro…",
+    "freeLabel": "La tua risposta",
+    "freePlaceholder": "Di' all'AI cosa fare…",
+    "submit": "Invia risposta",
+    "errors": {
+      "alreadyAnswered": "Ha già risposto {{email}}",
+      "alreadyAnsweredUnknown": "Ha già risposto qualcun altro",
+      "notPending": "Questa domanda non aspetta più una risposta",
+      "invalidAnswer": "Questa risposta non va bene per la domanda",
+      "forbidden": "Può rispondere solo chi ha avviato il run, o un maintainer",
+      "generic": "Invio della risposta non riuscito"
+    }
+  },
   "automation": {
     "title": "Automazione AI",
     "subtitle": "Il fix automatico parte solo se l'auto-fix è attivo e l'effort stimato è entro la soglia.",

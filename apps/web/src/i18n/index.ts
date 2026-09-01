@@ -19,6 +19,7 @@ export const NAMESPACES = [
   "settings",
   "notifications",
   "inbox",
+  "question",
   "automation",
   "usage",
   "jobStatus",
