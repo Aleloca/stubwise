@@ -10,6 +10,12 @@
 # l'analisi o la risposta e lo decide il prompt. Restano sempre valide solo le
 # regole su git e su `ask_user`.
 #
+# Il matcher in hooks.json è `startup|resume|compact`, e `compact` NON è di
+# troppo: i run di esecuzione lunghi auto-compattano, e dopo la compaction sia
+# il prompt sia questo additionalContext sopravvivono solo diluiti nel
+# riassunto — proprio nei run dove le skill di terze parti spingono di più a
+# committare. Il costo è una re-iniezione da ~370 token per compaction.
+#
 # Fail-open per costruzione: qualunque stranezza (node assente, node che
 # fallisce, stdin chiuso) esce 0 SENZA stampare nulla. Per SessionStart uno
 # stdout non-JSON non rompe il CLI — lo aggiunge al contesto come testo — ma

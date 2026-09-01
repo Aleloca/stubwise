@@ -81,7 +81,11 @@ describe("manifest del plugin base", () => {
     expect(Object.keys(hooks.hooks)).toEqual(["SessionStart"]);
     const groups = hooks.hooks.SessionStart;
     expect(groups).toHaveLength(1);
-    expect(groups?.[0]?.matcher).toBe("startup|resume");
+    // `compact` NON e' di troppo: i run lunghi auto-compattano e dopo la
+    // compaction sia il prompt sia l'additionalContext sopravvivono solo
+    // diluiti nel riassunto, proprio dove le skill di terze parti spingono di
+    // piu' a committare. Costo: ~370 token re-iniettati per compaction.
+    expect(groups?.[0]?.matcher).toBe("startup|resume|compact");
     expect(groups?.[0]?.hooks).toEqual([
       {
         type: "command",
@@ -143,6 +147,22 @@ describe("hook SessionStart", () => {
     // deliverable NON e' un piano: la forma la decide il prompt, non il
     // contratto. Senza questa riga il contratto istruirebbe male quei run.
     expect(contract).toContain("your prompt");
+  });
+
+  it("risponde anche alla compaction (source: compact)", async () => {
+    // Lo script e' agnostico al `source`; il test fissa l'intento del matcher.
+    const { code, stdout } = await runHook({
+      stdin: JSON.stringify({
+        hook_event_name: "SessionStart",
+        source: "compact",
+      }),
+    });
+    expect(code).toBe(0);
+    const parsed = JSON.parse(stdout) as {
+      hookSpecificOutput: { hookEventName: string; additionalContext: string };
+    };
+    expect(parsed.hookSpecificOutput.hookEventName).toBe("SessionStart");
+    expect(parsed.hookSpecificOutput.additionalContext).toContain("git commit");
   });
 
   it("resta sotto i 400 token stimati (~4 caratteri per token)", async () => {

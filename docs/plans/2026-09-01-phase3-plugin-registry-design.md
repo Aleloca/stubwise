@@ -89,8 +89,9 @@ run automatico e scenari golden manuali.
 stubwise-base`, path risolto relativo al modulo come ask_user), passato **per
 primo** in ogni run con plugin, mai filtrato.
 
-- **`hooks/hooks.json` SessionStart** (matcher `startup|resume`) → script che
-  stampa `additionalContext` col **contratto della run**: worktree/branch/PR li
+- **`hooks/hooks.json` SessionStart** (matcher `startup|resume|compact`) →
+  script che stampa `additionalContext` col **contratto della run**:
+  worktree/branch/PR li
   gestisce Stubwise; niente commit/push; `STUBWISE_REPORT.md` è il body della
   PR; in pianificazione read-only con sezione "Decisioni e assunzioni"; le
   domande passano SOLO da `ask_user` (se presente); adattamenti espliciti:
@@ -99,6 +100,22 @@ primo** in ogni run con plugin, mai filtrato.
   `dispatching-parallel-agents`, `subagent-driven-development` NON si
   applicano". Contratto breve (< 400 token). Le regole restano anche nei prompt
   (cintura e bretelle); lo snellimento dei prompt è una fase successiva.
+  **Emendamento 1 set 2026 (approvato dall'utente, in implementazione)**: al
+  matcher si aggiunge `compact`, che nel design validato non c'era. Motivo: i
+  run di esecuzione lunghi auto-compattano, e dopo la compaction sia il prompt
+  sia l'`additionalContext` originale sopravvivono solo diluiti nel riassunto —
+  proprio nei run dove le skill di terze parti spingono di più a committare.
+  `SessionStart` con source `compact` esiste per re-iniettare contesto; il
+  costo è una re-iniezione da ~370 token per compaction, trascurabile rispetto
+  al rischio che le regole su git sbiadiscano a metà di un run costoso.
+  **Emendamento 1 set 2026 (revisione del Task 3)**: il contratto NON impone la
+  forma del deliverable. Lo stesso hook entra anche nei run di backlog (deep
+  dive, chat di raffinamento), dove il deliverable è l'analisi o la risposta:
+  valgono sempre le regole su git e su `ask_user`, mentre forma e sezioni del
+  deliverable le decide il prompt (nel contratto: "Read-only runs (planning,
+  analysis)" e "your prompt decides the deliverable"). Per lo stesso motivo la
+  skill `stubwise-conventions` non elenca nomi di sezione propri: deferisce a
+  quelli che il prompt nomina (che sui run localizzati sono in italiano).
 - **Skill** `stubwise-conventions` (una sola in v1): convenzioni di piano e
   report; delega a `writing-plans` se disponibile.
 
